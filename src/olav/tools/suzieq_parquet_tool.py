@@ -159,9 +159,13 @@ async def suzieq_query(
         }
 
     # SuzieQ uses Hive-style partitioning:
-    # data/suzieq-parquet/{table}/sqvers={version}/namespace={ns}/hostname={host}/*.parquet
-    # For simplicity, read all parquet files recursively under table directory
-    table_dir = parquet_dir / table
+    # Coalesced data: data/suzieq-parquet/coalesced/{table}/sqvers={version}/namespace={ns}/...
+    # Raw data: data/suzieq-parquet/{table}/sqvers={version}/namespace={ns}/hostname={host}/*.parquet
+    # Prefer coalesced (optimized) over raw data
+    table_dir = parquet_dir / "coalesced" / table
+    if not table_dir.exists():
+        # Fallback to raw data directory
+        table_dir = parquet_dir / table
 
     if not table_dir.exists():
         return {
