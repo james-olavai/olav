@@ -56,12 +56,13 @@ def chat(
     query: str | None = typer.Argument(None, help="Single query to execute (non-interactive mode)"),
     thread_id: str | None = typer.Option(None, help="Conversation thread ID (for resuming sessions)"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed logs and timestamps"),
-    agent_mode: str = typer.Option("react", "--agent-mode", "-m", help="Agent architecture: 'react' (new, fast) or 'legacy' (DeepAgents SubAgent)"),
+    agent_mode: str = typer.Option("react", "--agent-mode", "-m", help="Agent architecture: 'react' (fast, prompt-driven) | 'structured' (explicit workflow) | 'legacy' (DeepAgents SubAgent)"),
 ) -> None:
     """Start interactive chat session with OLAV agent.
     
     Agent Modes:
-        react: New ReAct architecture (Reasoning + Acting, 64% faster)
+        react: ReAct architecture (Prompt-driven, 64% faster than legacy)
+        structured: Explicit StateGraph workflow (Deterministic routing, self-evaluation loop)
         legacy: Original DeepAgents SubAgent architecture (for comparison)
     
     Examples:
@@ -108,7 +109,7 @@ async def _run_single_query(query: str, thread_id: str | None = None, agent_mode
     Args:
         query: User query to execute
         thread_id: Optional thread ID for conversation context
-        agent_mode: Agent architecture ('react' or 'legacy')
+        agent_mode: Agent architecture ('react', 'structured', or 'legacy')
     """
     ui = ChatUI(console)
     
@@ -117,6 +118,9 @@ async def _run_single_query(query: str, thread_id: str | None = None, agent_mode
         if agent_mode == "react":
             from olav.agents.root_agent_react import create_root_agent_react
             agent, checkpointer_ctx = await create_root_agent_react()
+        elif agent_mode == "structured":
+            from olav.agents.root_agent_structured import create_root_agent_structured
+            agent, checkpointer_ctx = await create_root_agent_structured()
         else:  # legacy
             from olav.agents.root_agent_legacy import create_root_agent
             agent, checkpointer_ctx = await create_root_agent()
@@ -364,7 +368,7 @@ async def _run_interactive_chat(thread_id: str | None = None, agent_mode: str = 
     
     Args:
         thread_id: Optional thread ID for conversation context
-        agent_mode: Agent architecture ('react' or 'legacy')
+        agent_mode: Agent architecture ('react', 'structured', or 'legacy')
     """
     ui = ChatUI(console)
     
@@ -373,6 +377,9 @@ async def _run_interactive_chat(thread_id: str | None = None, agent_mode: str = 
         if agent_mode == "react":
             from olav.agents.root_agent_react import create_root_agent_react
             agent, checkpointer_ctx = await create_root_agent_react()
+        elif agent_mode == "structured":
+            from olav.agents.root_agent_structured import create_root_agent_structured
+            agent, checkpointer_ctx = await create_root_agent_structured()
         else:  # legacy
             from olav.agents.root_agent_legacy import create_root_agent
             agent, checkpointer_ctx = await create_root_agent()

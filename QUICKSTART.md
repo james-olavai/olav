@@ -79,12 +79,14 @@ docker-compose exec olav-app uv run python -c "from olav.core.settings import se
 ```
 
 ---
-## 6. 使用 OLAV 交互式对话
+## 6. 使用 OLAV 交互式对话（含 ReAct 模式）
 
 ### 6.1 启动交互式对话（推荐）
 ```bash
-# 方案 A: 自研 CLI 对话工具（当前实现）
-uv run python -m olav.main chat
+# 方案 A: 自研 CLI 对话工具（当前实现，默认 ReAct）
+uv run python -m olav.main chat                # ReAct 模式（推荐）
+uv run python -m olav.main chat -m legacy      # 旧 SubAgent 架构
+uv run python -m olav.main chat "查询接口状态"   # 单次查询（ReAct）
 
 # 方案 B: LangChain Studio（推荐用于开发调试）
 # 1. 启动 LangGraph Agent Server
@@ -97,8 +99,9 @@ langgraph dev
 # 或使用简化命令（需在项目根目录）
 uv run olav chat
 
-# 显示详细日志和思考过程（调试模式）
-uv run python -m olav.main chat --verbose
+# 显示工具调用与推理链（调试模式）
+uv run python -m olav.main chat --verbose      # ReAct 模式日志
+uv run python -m olav.main chat -m legacy --verbose
 ```
 
 **方案对比**：
@@ -153,17 +156,53 @@ uv run python -m olav.main chat --verbose
    - 开发环境：`langgraph dev` + Studio UI
    - 生产环境：`uv run olav chat` + 审计日志
 
-**当前紧急任务**（基于性能问题 P0）：
-```bash
-# 使用 Studio 排查性能瓶颈
-langgraph dev
-# 浏览器访问 Studio，执行 "查询 R1 的接口数量"
-# 查看各节点耗时分布：
-#   - LLM 推理：预计 5-10 秒
-#   - Checkpointer：预计 0.5-2 秒
-#   - SuzieQ 查询：预计 0.1-1 秒
-#   - SubAgent 委托：预计 1-3 秒
+**当前重点：验证并巩固 ReAct 性能收益**
+
+首轮基准（接口状态查询）：`legacy ≈ 72.5s` → `react ≈ 16.3s`（↓ 77.5%）。
+来源：`scripts/benchmark_agents.py` 初始运行结果。
+
+**ReAct 为什么更快**：
+- 单一推理循环：移除多层 SubAgent 委托和上下文裁剪
+- Prompt 更短：减少 token 处理与系统指令注入
+- 工具直接调用：无额外中间态翻译层
+
+**快速自测基准**：
+```powershell
+# 运行 3 次对比（接口 / BGP / 路由 概要）
+uv run python scripts/benchmark_agents.py --modes react legacy --queries basic
+
+# 导出 markdown 报告（默认写入 benchmark_report.md）
+uv run python scripts/benchmark_agents.py --export md
+
+# 仅测 ReAct（扩展查询集）
+uv run python scripts/benchmark_agents.py --modes react --queries extended
 ```
+
+生成的表格包含：`query` | `mode` | `latency_sec` | `tokens_in/out`（如启用统计）| `tool_calls`。
+
+**建议判定标准**：
+- 简单查询（单表 summarize）：`react < 20s`，`legacy > 60s` 即通过
+- 中等查询（多设备聚合）：`react < 35s`
+- 复合诊断（多工具链路）：`react < 50s`（需要后续运行扩展集）
+
+**发现超标怎么办**：
+1. 加 `--verbose` 查看是否出现不必要的重复工具调用
+2. 检查 Prompt 是否被意外扩展（新增大段上下文）
+3. 检查 Parquet 是否落入 raw 而非 coalesced 分区
+4. 查看 PostgreSQL Checkpointer 写入次数是否异常（> 4 次）
+
+**何时仍用 Legacy**：
+- 需要验证旧复杂多阶段推理行为是否保留
+- 想回归多 SubAgent 分工的调试视角
+（否则日常一律使用 `react`）
+
+**后续优化路线**（按优先级）：
+1. 提前终止：ReAct 推理到首个可执行工具计划即可调用，不等待额外思考轮
+2. Tool result 精简：限制返回列集合，缩短后续思考输入长度
+3. Prompt 缓存：静态系统指令固定，可复用编译后的 embedding（视模型能力）
+4. Token 削减：移除低价值注释段落；保留安全与 Schema 指令
+
+> Tip: 运行完基准后，可将结果追加到 README Performance 表中，形成趋势跟踪。
 
 **交互模式功能**：
 - 持续对话：无需每次重新启动，支持上下文记忆
