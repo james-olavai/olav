@@ -1,0 +1,48 @@
+_type: prompt
+input_variables:
+  - user_intent
+  - device_type
+template: |
+  Search OpenConfig Schema for relevant XPaths based on user intent.
+  
+  **User Intent**: {user_intent}
+  **Device Type**: {device_type}
+  
+  ## Search Objectives
+  
+  Find OpenConfig YANG XPaths that match the following categories:
+  
+  1. **Configuration Paths** (read-write)
+     - Paths under /config containers
+     - Used for configuration changes (requires HITL)
+  
+  2. **State Paths** (read-only)
+     - Paths under /state containers
+     - Used for operational data queries
+  
+  3. **RPC Operations**
+     - YANG RPC definitions
+     - Action operations
+  
+  ## Return Format
+  
+  For each relevant XPath, provide:
+  - **XPath**: Full OpenConfig path
+  - **Type**: Data type (string, uint32, enum, etc.)
+  - **Access**: read-only or read-write
+  - **Description**: Brief explanation
+  - **Example Value**: Sample data
+  
+  ## Priority Rules
+  
+  1. Prefer standard OpenConfig paths over vendor extensions
+  2. Prefer state paths for monitoring queries
+  3. Prefer config paths only when user explicitly wants to change configuration
+  4. Return top 5 most relevant matches
+  
+  ## Device-Specific Considerations
+  
+  - **Cisco IOS-XR**: Use openconfig-bgp, openconfig-interfaces
+  - **Juniper**: Full OpenConfig support
+  - **Arista EOS**: Partial support, check compatibility
+  - **Huawei**: May need vendor-specific extensions

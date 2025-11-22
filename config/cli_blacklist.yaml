@@ -1,0 +1,11 @@
+# CLI command blacklist for OLAV CLI agent
+# Variants included for robust matching.
+blacklist:
+  - traceroute
+  - trace route
+  - trace-route
+  - reload
+  - reboot
+  - write erase
+  - format
+  - delete flash:

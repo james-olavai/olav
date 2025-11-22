@@ -1,0 +1,21 @@
+data-directory: /suzieq/parquet
+temp-directory: /tmp/suzieq
+rest:
+  API_KEY: 05e421a02e7bee464e953f49085441e7
+  logging-level: WARNING
+  address: 0.0.0.0
+  port: 8000
+  no-https: true
+poller:
+  logging-level: WARNING
+  period: 15
+  connect-timeout: 15
+  log-stdout: true
+  inventory-file: /suzieq/config/inventory.yml
+  update-period: 3600
+coalescer:
+  period: 1h
+  logging-level: WARNING
+  log-stdout: true
+analyzer:
+  timezone: UTC

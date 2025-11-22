@@ -1,0 +1,15 @@
+# CSV inventory template for NetBox bulk import via InventoryManager
+# Remove comment lines (those starting with #) if using a strict CSV parser.
+# Columns:
+# name: Unique device hostname
+# device_role: Logical role (e.g., core, distribution, access)
+# device_type: Hardware/virtual model identifier (e.g., csr1000v, arista-7280)
+# platform: Nornir/driver platform key (e.g., cisco_ios, arista_eos, junos) used for connection plugin selection
+# site: Physical or logical site identifier
+# status: NetBox device status (active, staged, offline, planned)
+# ip_address: Management IP in CIDR format (optional)
+name,device_role,device_type,platform,site,status,ip_address
+core-rtr-01,core,csr1000v,cisco_ios,dc1,active,10.0.0.1/32
+core-rtr-02,core,csr1000v,cisco_ios,dc1,active,10.0.0.2/32
+dist-sw-01,distribution,arista-7280,arista_eos,dc1,active,10.0.1.10/32
+access-sw-01,access,cisco-c9300,cisco_ios,branch-sh,active,10.10.0.5/32

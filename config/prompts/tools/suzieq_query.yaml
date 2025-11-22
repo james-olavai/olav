@@ -1,0 +1,52 @@
+_type: prompt
+input_variables:
+  - available_tables
+  - example_usage
+template: |
+  Query SuzieQ historical network data using schema-aware approach.
+  
+  **Available Tables**: {available_tables}
+  
+  ## Parameters
+  
+  - **table** (required): Table name to query
+    - Examples: 'interfaces', 'bgp', 'routes', 'ospf', 'evpnVni'
+  
+  - **method** (required): Query method
+    - 'get': Retrieve raw records
+    - 'summarize': Statistical summary
+    - 'unique': Distinct values
+    - 'aver': Assert verification (check expected state)
+  
+  - **filters** (optional): Field-level filters as keyword arguments
+    - Examples: hostname='router1', namespace='production', state='up'
+    - Use exact field names (check schema first!)
+  
+  ## Example Usage
+  
+  {example_usage}
+  
+  ## Important Notes
+  
+  - ✅ This is a **READ-ONLY** tool - all data is queried from Parquet files
+  - ✅ No risk of modifying device configuration
+  - ✅ Data may have delay based on poller interval (default 60s)
+  - ⚠️ Always use `suzieq_schema_search` first to discover available fields
+  - ⚠️ Field names are case-sensitive
+  
+  ## Common Patterns
+  
+  **Get all down interfaces**:
+  ```
+  suzieq_query(table='interfaces', method='get', state='down')
+  ```
+  
+  **Summarize BGP sessions**:
+  ```
+  suzieq_query(table='bgp', method='summarize', namespace='production')
+  ```
+  
+  **Check unique device types**:
+  ```
+  suzieq_query(table='device', method='unique', columns=['model'])
+  ```
