@@ -44,10 +44,12 @@ template: |
 
 ### 2. Structured 模式（Explicit StateGraph）
 
-**原理**：使用 LangGraph StateGraph 定义显式工作流，通过条件边强制执行漏斗流程。
+**原理**：使用 LangGraph StateGraph 定义显式工作流，通过条件边强制执行任务流程。
 
+#### 工作流结构（双路径）
+
+**路径 1：查询/诊断任务**
 ```python
-# Workflow 结构
 User Query
     ↓
 [Intent Analysis] ─→ 分类: Simple/Diagnostic/Config
@@ -61,11 +63,31 @@ User Query
             [Final Answer]
 ```
 
+**路径 2：配置变更任务**
+```python
+User Query
+    ↓
+[Intent Analysis] ─→ 分类: CONFIG_CHANGE
+    ↓
+[Config Planning] ─→ 生成变更计划 + 回滚策略
+    ↓
+[HITL Approval] ─→ 人工审批（interrupt point）
+    ├─ Approved → [Config Execution] ─→ 执行变更
+    │                    ↓
+    │              [Validation] ─→ 验证变更结果
+    │                    ↓
+    │              [Final Answer]
+    │
+    └─ Rejected → [Final Answer] (abort)
+```
+
 **优势**：
 - ✅ **确定性执行**：无论 LLM 如何理解，都强制执行预定义流程
 - ✅ **可观测性强**：每个 Node 独立可追踪，易于调试
 - ✅ **自我评估**：显式判断是否需要深入诊断（vs 隐式触发词匹配）
 - ✅ **解耦逻辑**：意图分析、工具调用、评估逻辑分离
+- ✅ **HITL 集成**：原生支持 interrupt_before，自动暂停等待审批
+- ✅ **变更验证**：执行后自动验证配置生效和系统稳定性
 
 **劣势**：
 - ⚠️ 性能开销：多次 Node 转换 + LLM 调用（预计 +50% 延迟）
@@ -86,12 +108,82 @@ class StructuredState(TypedDict):
     micro_data: dict | None  # NETCONF 结果
     evaluation_result: dict | None  # 自我评估结果
     needs_micro: bool  # 是否需要微观诊断
+    # 配置变更专用字段
+    config_plan: dict | None  # 变更计划（XPath/设备/参数）
+    approval_status: str | None  # 审批状态（pending/approved/rejected）
+    execution_result: dict | None  # 执行结果
+    validation_result: dict | None  # 验证结果
     iteration_count: int  # 迭代计数
 ```
 
 #### Node 函数示例
 
-**Intent Analysis Node**：
+**Config Planning Node**（配置变更专用）：
+```python
+async def config_planning_node(state: StructuredState) -> StructuredState:
+    """生成详细变更计划，包含回滚策略"""
+    llm = LLMFactory.get_chat_model()
+    llm_with_tools = llm.bind_tools([
+        search_episodic_memory,  # 查询类似成功案例
+        search_openconfig_schema,  # 确认 XPath
+        netconf_tool,  # 获取当前配置
+    ])
+    
+    planning_prompt = f"""为配置变更任务生成详细执行计划。
+    
+    用户请求: {state['messages'][0].content}
+    
+    生成变更计划，包含：
+    - 目标设备列表
+    - 配置 XPath 和新值
+    - 预期影响范围
+    - 回滚策略（NETCONF commit confirmed 或 CLI 手动回滚命令）
+    - 风险评估（LOW/MEDIUM/HIGH）
+    """
+    
+    response = await llm_with_tools.ainvoke([SystemMessage(content=planning_prompt)])
+    
+    return {
+        **state,
+        "config_plan": {"plan": response.content},
+        "stage": WorkflowStage.CONFIG_PLANNING,
+    }
+```
+
+**HITL Approval Node**（中断点）：
+```python
+async def hitl_approval_node(state: StructuredState) -> StructuredState:
+    """人工审批节点 - LangGraph interrupt 在此暂停"""
+    # 当执行恢复时，approval_status 由用户更新
+    approval_status = state.get("approval_status", "pending")
+    
+    return {
+        **state,
+        "stage": WorkflowStage.HITL_APPROVAL,
+        "approval_status": approval_status,
+    }
+```
+
+**Validation Node**（变更后验证）：
+```python
+async def validation_node(state: StructuredState) -> StructuredState:
+    """验证配置变更是否成功生效"""
+    llm_with_tools = llm.bind_tools([suzieq_query, netconf_tool, cli_tool])
+    
+    validation_prompt = f"""验证配置变更是否成功生效。
+    
+    步骤：
+    1. 使用 netconf_tool(get-config) 确认新配置已应用
+    2. 使用 suzieq_query 检查相关状态（如 BGP 邻居是否重新建立）
+    3. 检查是否有异常告警
+    
+    返回验证结果：config_applied, state_healthy, recommendation
+    """
+    
+    response = await llm_with_tools.ainvoke([SystemMessage(content=validation_prompt)])
+    
+    return {**state, "validation_result": {"result": response.content}}
+```
 ```python
 async def intent_analysis_node(state: StructuredState) -> StructuredState:
     """分析用户意图，分类任务类型"""
@@ -216,7 +308,7 @@ uv run python -m olav.main chat "查询 R1 的 BGP 为什么没建立"
 
 ### Structured 模式
 ```bash
-# 显式工作流模式
+# 诊断任务（显式工作流）
 uv run python -m olav.main chat -m structured "查询 R1 的 BGP 为什么没建立"
 
 # 预期行为：
@@ -225,6 +317,18 @@ uv run python -m olav.main chat -m structured "查询 R1 的 BGP 为什么没建
 # [Self Evaluation] → needs_micro=True
 # [Micro Diagnosis] → NETCONF 获取配置
 # [Final Answer] → 综合分析
+
+# 配置变更任务（包含 HITL 审批）
+uv run python -m olav.main chat -m structured "修改 R1 的 BGP AS 号为 65001"
+
+# 预期行为：
+# [Intent Analysis] → CONFIG_CHANGE
+# [Config Planning] → 生成变更计划
+# [HITL Approval] → 暂停，等待人工审批
+#   用户审批后（通过 LangGraph API 或 CLI）
+# [Config Execution] → 执行 NETCONF edit-config
+# [Validation] → 验证配置生效
+# [Final Answer] → 返回执行结果
 ```
 
 ## 总结

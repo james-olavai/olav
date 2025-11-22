@@ -56,6 +56,10 @@ class WorkflowStage(str, Enum):
     MACRO_ANALYSIS = "macro_analysis"  # 宏观分析（SuzieQ）
     SELF_EVALUATION = "self_evaluation"  # 自我评估（是否需要深入）
     MICRO_DIAGNOSIS = "micro_diagnosis"  # 微观诊断（NETCONF/CLI）
+    CONFIG_PLANNING = "config_planning"  # 配置变更规划
+    HITL_APPROVAL = "hitl_approval"  # 人工审批
+    CONFIG_EXECUTION = "config_execution"  # 执行配置变更
+    VALIDATION = "validation"  # 变更后验证
     FINAL_ANSWER = "final_answer"  # 生成最终答案
 
 
@@ -68,6 +72,10 @@ class StructuredState(TypedDict):
     micro_data: dict | None  # 微观诊断数据（NETCONF 结果）
     evaluation_result: dict | None  # 自我评估结果
     needs_micro: bool  # 是否需要微观诊断
+    config_plan: dict | None  # 配置变更计划（XPath/设备/参数）
+    approval_status: str | None  # 审批状态（pending/approved/rejected）
+    execution_result: dict | None  # 执行结果
+    validation_result: dict | None  # 验证结果
     iteration_count: int  # 迭代计数
 
 
@@ -256,6 +264,182 @@ async def micro_diagnosis_node(state: StructuredState) -> StructuredState:
     }
 
 
+async def config_planning_node(state: StructuredState) -> StructuredState:
+    """Node 5: Plan configuration changes (for CONFIG_CHANGE tasks).
+    
+    Steps:
+    1. Query current config via NETCONF/CLI
+    2. Search OpenConfig schema for XPath
+    3. Search episodic memory for similar successful changes
+    4. Generate detailed change plan with rollback strategy
+    """
+    llm = LLMFactory.get_chat_model()
+    
+    # Bind config-related tools
+    llm_with_tools = llm.bind_tools([
+        search_episodic_memory,
+        search_openconfig_schema,
+        netconf_tool,
+        cli_tool,
+    ])
+    
+    planning_prompt = f"""为配置变更任务生成详细执行计划。
+
+用户请求: {state['messages'][0].content}
+
+步骤：
+1. search_episodic_memory(query="类似变更") → 查询历史成功路径
+2. search_openconfig_schema(query="相关 XPath") → 确认配置路径
+3. netconf_tool(operation="get-config") → 获取当前配置
+4. 生成变更计划，包含：
+   - 目标设备列表
+   - 配置 XPath 和新值
+   - 预期影响范围
+   - 回滚策略（NETCONF commit 自动回滚 / CLI 手动回滚命令）
+   - 风险评估
+
+返回 JSON 格式计划：
+{{
+    "devices": ["R1", "R2"],
+    "changes": [
+        {{"xpath": "/openconfig-bgp:bgp/global/config/as", "old_value": "65000", "new_value": "65001"}},
+    ],
+    "impact": "可能导致 BGP 会话重启",
+    "rollback_strategy": "NETCONF commit with confirmed timeout 300s",
+    "risk_level": "MEDIUM"
+}}
+"""
+    
+    response = await llm_with_tools.ainvoke([
+        SystemMessage(content=planning_prompt),
+        *state["messages"]
+    ])
+    
+    # TODO: Parse JSON plan from response
+    config_plan = {"plan": response.content}
+    
+    return {
+        **state,
+        "config_plan": config_plan,
+        "stage": WorkflowStage.CONFIG_PLANNING,
+        "messages": state["messages"] + [AIMessage(content=response.content)],
+        "iteration_count": state.get("iteration_count", 0) + 1,
+    }
+
+
+async def hitl_approval_node(state: StructuredState) -> StructuredState:
+    """Node 6: Human-in-the-loop approval (for CONFIG_CHANGE tasks).
+    
+    This is an interrupt point - LangGraph will pause here and wait for
+    human approval before proceeding to config_execution_node.
+    
+    Note: Actual HITL UI is handled by LangGraph's interrupt mechanism.
+    This node just records the approval status from state update.
+    """
+    # When execution resumes after interrupt, approval_status should be set by user
+    approval_status = state.get("approval_status", "pending")
+    
+    return {
+        **state,
+        "stage": WorkflowStage.HITL_APPROVAL,
+        "approval_status": approval_status,
+    }
+
+
+async def config_execution_node(state: StructuredState) -> StructuredState:
+    """Node 7: Execute configuration changes (only if approved).
+    
+    Executes the change plan via NETCONF/CLI with rollback protection.
+    """
+    if state.get("approval_status") != "approved":
+        return {
+            **state,
+            "execution_result": {"status": "rejected", "message": "User rejected the change"},
+            "stage": WorkflowStage.CONFIG_EXECUTION,
+        }
+    
+    llm = LLMFactory.get_chat_model()
+    llm_with_tools = llm.bind_tools([netconf_tool, cli_tool])
+    
+    execution_prompt = f"""执行已批准的配置变更计划。
+
+变更计划: {state['config_plan']}
+
+步骤：
+1. 优先使用 netconf_tool(operation="edit-config") with confirmed commit
+2. 如果 NETCONF 失败，降级到 cli_tool（警告用户无自动回滚）
+3. 记录每个设备的执行结果
+4. 如果任何设备失败，立即停止并回滚
+
+返回执行结果 JSON：
+{{
+    "status": "success/partial/failed",
+    "devices_succeeded": ["R1"],
+    "devices_failed": [],
+    "errors": [],
+    "rollback_triggered": false
+}}
+"""
+    
+    response = await llm_with_tools.ainvoke([
+        SystemMessage(content=execution_prompt),
+        *state["messages"]
+    ])
+    
+    execution_result = {"result": response.content}
+    
+    return {
+        **state,
+        "execution_result": execution_result,
+        "stage": WorkflowStage.CONFIG_EXECUTION,
+        "messages": state["messages"] + [AIMessage(content=response.content)],
+        "iteration_count": state.get("iteration_count", 0) + 1,
+    }
+
+
+async def validation_node(state: StructuredState) -> StructuredState:
+    """Node 8: Validate configuration changes (post-execution).
+    
+    Verifies that changes took effect and system is stable.
+    """
+    llm = LLMFactory.get_chat_model()
+    llm_with_tools = llm.bind_tools([suzieq_query, netconf_tool, cli_tool])
+    
+    validation_prompt = f"""验证配置变更是否成功生效。
+
+变更计划: {state['config_plan']}
+执行结果: {state['execution_result']}
+
+步骤：
+1. 使用 netconf_tool(operation="get-config") 确认新配置已应用
+2. 使用 suzieq_query 检查相关状态（如 BGP 邻居是否重新建立）
+3. 检查是否有异常告警或状态变化
+
+返回验证结果 JSON：
+{{
+    "config_applied": true/false,
+    "state_healthy": true/false,
+    "issues_detected": [],
+    "recommendation": "变更成功"或"建议回滚"
+}}
+"""
+    
+    response = await llm_with_tools.ainvoke([
+        SystemMessage(content=validation_prompt),
+        *state["messages"]
+    ])
+    
+    validation_result = {"result": response.content}
+    
+    return {
+        **state,
+        "validation_result": validation_result,
+        "stage": WorkflowStage.VALIDATION,
+        "messages": state["messages"] + [AIMessage(content=response.content)],
+        "iteration_count": state.get("iteration_count", 0) + 1,
+    }
+
+
 async def final_answer_node(state: StructuredState) -> StructuredState:
     """Node 5: Generate final answer combining all analysis."""
     llm = LLMFactory.get_chat_model()
@@ -283,9 +467,14 @@ async def final_answer_node(state: StructuredState) -> StructuredState:
     }
 
 
-def route_after_intent(state: StructuredState) -> Literal["macro_analysis", "final_answer"]:
-    """Router: After intent analysis, route to macro or directly answer."""
-    # All tasks go through macro analysis first
+def route_after_intent(state: StructuredState) -> Literal["macro_analysis", "config_planning"]:
+    """Router: After intent analysis, route based on task type.
+    
+    - CONFIG_CHANGE: Go directly to config planning (skip macro analysis)
+    - SIMPLE_QUERY / DIAGNOSTIC: Go through macro analysis first
+    """
+    if state.get("task_type") == TaskType.CONFIG_CHANGE:
+        return "config_planning"
     return "macro_analysis"
 
 
@@ -296,13 +485,26 @@ def route_after_evaluation(state: StructuredState) -> Literal["micro_diagnosis",
     return "final_answer"
 
 
+def route_after_approval(state: StructuredState) -> Literal["config_execution", "final_answer"]:
+    """Router: After HITL approval, decide whether to execute or abort.
+    
+    If approved: proceed to execution
+    If rejected: skip to final answer with rejection message
+    """
+    if state.get("approval_status") == "approved":
+        return "config_execution"
+    return "final_answer"
+
+
 async def create_root_agent_structured():
     """Create structured root agent with explicit workflow.
     
     Returns:
         Tuple of (agent_executor, checkpointer_manager)
     
-    Workflow:
+    Workflow (Two Paths):
+    
+    Path 1: Query/Diagnostic
         User Query
         ↓
         Intent Analysis (classify task type)
@@ -312,6 +514,17 @@ async def create_root_agent_structured():
         Self Evaluation (sufficient data?)
         ├── Yes → Final Answer
         └── No → Micro Diagnosis (NETCONF/CLI) → Final Answer
+    
+    Path 2: Config Change
+        User Query
+        ↓
+        Intent Analysis (classify task type)
+        ↓
+        Config Planning (generate change plan + rollback strategy)
+        ↓
+        HITL Approval (human review)
+        ├── Approved → Config Execution → Validation → Final Answer
+        └── Rejected → Final Answer (abort)
     """
     # Get shared PostgreSQL checkpointer
     checkpointer_manager = AsyncPostgresSaver.from_conn_string(settings.postgres_uri)
@@ -326,16 +539,20 @@ async def create_root_agent_structured():
     workflow.add_node("macro_analysis", macro_analysis_node)
     workflow.add_node("self_evaluation", self_evaluation_node)
     workflow.add_node("micro_diagnosis", micro_diagnosis_node)
+    workflow.add_node("config_planning", config_planning_node)
+    workflow.add_node("hitl_approval", hitl_approval_node)
+    workflow.add_node("config_execution", config_execution_node)
+    workflow.add_node("validation", validation_node)
     workflow.add_node("final_answer", final_answer_node)
     
-    # Add edges
+    # Add edges - Query/Diagnostic path
     workflow.set_entry_point("intent_analysis")
     workflow.add_conditional_edges(
         "intent_analysis",
         route_after_intent,
         {
             "macro_analysis": "macro_analysis",
-            "final_answer": "final_answer",
+            "config_planning": "config_planning",
         }
     )
     workflow.add_edge("macro_analysis", "self_evaluation")
@@ -348,10 +565,27 @@ async def create_root_agent_structured():
         }
     )
     workflow.add_edge("micro_diagnosis", "final_answer")
+    
+    # Add edges - Config Change path
+    workflow.add_edge("config_planning", "hitl_approval")
+    workflow.add_conditional_edges(
+        "hitl_approval",
+        route_after_approval,
+        {
+            "config_execution": "config_execution",
+            "final_answer": "final_answer",
+        }
+    )
+    workflow.add_edge("config_execution", "validation")
+    workflow.add_edge("validation", "final_answer")
+    
     workflow.add_edge("final_answer", END)
     
-    # Compile graph
-    app = workflow.compile(checkpointer=checkpointer)
+    # Compile graph with interrupt on HITL approval node
+    app = workflow.compile(
+        checkpointer=checkpointer,
+        interrupt_before=["hitl_approval"],  # Pause before approval for human review
+    )
     
     return app, checkpointer_manager
 
