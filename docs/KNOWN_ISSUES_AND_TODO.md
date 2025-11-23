@@ -269,7 +269,7 @@ execute_todo_node (next todo)
 - ✅ **Self-Evaluation**: `schema_investigation_node` 自评任务可行性
 - ✅ **Human-in-the-Loop Reflection**: HITL 作为外部评估器
 - ✅ **Uncertainty Identification**: `uncertain_tasks` + 建议
-- ✅ **External Evaluator 基础接入**: 已集成 `ConfigComplianceEvaluator`（支持 `mpls_audit` / `bgp_session_check` 规则，自动标记 evaluation_passed/evaluation_score）
+- ✅ **External Evaluator 基础接入**: 已集成 `ConfigComplianceEvaluator`（**Schema-Aware 动态识别**，无需硬编码协议规则）
 - ❌ **缺失 Episodic Memory**: 无跨会话失败案例学习
 
 **建议渐进式接入方案**:
@@ -277,45 +277,64 @@ execute_todo_node (next todo)
 | 阶段 | 实现内容 | 预期效果 | 开发量 | 优先级 |
 |------|---------|---------|-------|-------|
 | **✅ Phase 1** | 轻量 Reflection（已完成） | Schema 验证 + HITL | **已完成** | ⭐⭐⭐ |
-| **🚧 Phase 2** | External Evaluator（配置审计 基础版已接入） | 消除假阳性（进行中） | 3-5 天 | ⭐⭐⭐ **高** |
+| **✅ Phase 2** | External Evaluator（**动态验证已完成**） | 消除假阳性 | **已完成** | ⭐⭐⭐ **高** |
 | **Phase 3** | Episodic Memory（失败案例库） | 跨会话学习 | 5-7 天 | ⭐ 低 |
 
-**Phase 2 优先实现: External Evaluator（客观验证器）** （当前状态：核心模块与 Deep Dive 集成完成，后续增加更多协议规则与设备真实对比）
+**Phase 2 已实现: External Evaluator（Schema-Aware 动态验证器）**
 ```python
-# 新文件: src/olav/evaluators/config_compliance.py
+# src/olav/evaluators/config_compliance.py
 class ConfigComplianceEvaluator:
-    async def evaluate(self, task: TodoItem, result: dict) -> EvaluationResult:
-        """基于实际设备状态验证任务完成度"""
-        if task["task_type"] == "mpls_audit":
-            # 实际验证 MPLS 配置
-            actual = await netconf_tool.get(xpath="/mpls/global/config")
-            expected = result.get("expected_mpls_status")
-            
-            if actual != expected:
-                return EvaluationResult(
-                    passed=False,
-                    feedback=f"预测 MPLS {expected}，实际为 {actual}",
-                    score=0.0
-                )
-            return EvaluationResult(passed=True, score=1.0)
+    async def evaluate(self, task: Dict, execution_output: Dict) -> EvaluationResult:
+        """动态验证 - 无需硬编码协议规则
+        
+        验证策略:
+          1. 检查执行状态 (SCHEMA_NOT_FOUND/NO_DATA_FOUND/TOOL_ERROR)
+          2. 验证数据存在性 (非空结果)
+          3. 字段语义相关性检查 (任务关键词 vs 返回字段)
+          4. 保守评分: 数据存在 + 语义相关 = 通过
+        
+        适用于任意协议/特性，无需添加新规则。
+        """
+        # 1. 状态检查
+        if execution_output.get("status") in {"SCHEMA_NOT_FOUND", "TOOL_ERROR"}:
+            return EvaluationResult(passed=False, score=0.0, ...)
+        
+        # 2. 数据存在性
+        if not execution_output.get("data"):
+            return EvaluationResult(passed=False, score=0.0, 
+                feedback="执行输出无数据")
+        
+        # 3. 语义相关性 (复用 Deep Dive 的 _validate_field_relevance)
+        if not self._validate_field_relevance(
+            task["task"], 
+            execution_output.get("columns", []),
+            execution_output.get("table")
+        ):
+            return EvaluationResult(passed=False, score=0.3,
+                feedback="返回字段与任务语义不匹配")
+        
+        # 4. 验证通过
+        return EvaluationResult(passed=True, score=1.0)
 ```
 
-**立即可做的轻量优化**:
-1. **在 `execute_todo_node` 中增加结果验证**:
+**关键优势** - 无需为每个协议添加规则:
+- ✅ MPLS/BGP/OSPF/ISIS/QoS/ACL **统一处理**
+- ✅ 自动检测字段相关性（`mpls` 任务 → `device` 表 = 不通过）
+- ✅ 复用现有 Schema Investigation 反幻觉机制
+- ✅ 审计任务空数据 = 失败，查询任务空数据 = 部分通过
+**下一步增强方向** (可选，非必需):
+1. **真实设备状态对比** (NETCONF/XPath 实时验证):
    ```python
-   # 当前：执行后直接标记 completed
-   result = await suzieq_query.invoke(...)
-   todo["status"] = "completed"
-   
-   # 改进：检查结果有效性
-   if result.get("data") and len(result["data"]) > 0:
-       todo["status"] = "completed"
-   else:
-       todo["status"] = "failed"
-       todo["failure_reason"] = "查询无数据，可能表名错误"
+   # 当前: 仅验证工具输出结构
+   # 可选增强: 对比真实设备当前状态 vs 历史数据
+   if task.get("requires_device_verification"):
+       actual = await netconf_tool.get(xpath=task["xpath"])
+       if actual != execution_output.get("data"):
+           return EvaluationResult(passed=False, 
+               feedback="设备实际状态与历史数据不符")
    ```
 
-2. **HITL 中注入"质量反问"**:
+2. **HITL 质量引导提示**:
    ```python
    # main.py: 审批界面增加引导
    console.print("[bold]质量检查:[/bold]")
@@ -324,10 +343,13 @@ class ConfigComplianceEvaluator:
    console.print("  - 数据来源是否可靠？（优先 schema 确认的表）")
    ```
 
-**优先级**: P0 (Phase 1 已完成, Phase 2 高优先级)  
+**优先级**: P0 (✅ **Phase 1-2 已完成**)  
 **剩余工作量**: 
-- Phase 2 (Evaluator + 递归): 11-13 小时
-- Phase 3 (并行 + 报告 + Memory): 15-18 小时
+- ✅ Phase 2 (Schema-Aware Evaluator): **已完成**
+- Phase 3 (递归深入 + 并行执行): 11-13 小时
+- Phase 4 (Episodic Memory): 5-7 小时
+
+**下一步**: Deep Dive Phase 3 递归/并行执行 或 HITL Phase 2 增强
 
 ---
 
@@ -586,16 +608,17 @@ uv run python -m olav.main chat "创建一个测试设备"  # 触发 netbox_api_
 1. ✅ **代码归档清理**: 移动废弃 Agent 到 `archive/deprecated_agents/` ← **已完成**
 2. ✅ **Deep Dive Workflow Phase 1**: 基础任务分解 + Schema Investigation ← **已完成**
 3. ✅ **修改计划重新审批**: 修复 resume 返回 payload ← **已完成**
+4. ✅ **External Evaluator**: Schema-Aware 动态验证器 ← **已完成**
+5. ✅ **Legacy Tools 清理**: 移除 suzieq_tool, netbox_inventory_tool, ntc_tool ← **已完成**
 
 ### 本周内 (This Week)
-4. **External Evaluator 扩展**: 已接入基础评估（继续增加协议/字段规则）
-5. 验证 ntc-templates-schema 索引状态
-6. SuzieQ 高级功能测试（path show, topology, assert）
+6. **Deep Dive Phase 3**: 递归深入 + 并行执行（批量审计优化）
+7. 验证 ntc-templates-schema 索引状态
+8. SuzieQ 高级功能测试（path show, topology, assert）
 
 ### 本月内 (This Month)
-7. Deep Dive Workflow Phase 2（递归深入 + 并行执行）
-8. HITL Phase 2 增强（风险评分 + 审计日志 + 参数编辑）
-9. FastAPI 服务实现
+9. HITL Phase 2 增强（风险评分 + 审计日志 + 参数编辑）
+10. FastAPI 服务实现
 10. OpenSearch 第三层 RAG（文档检索）
 11. Reflexion Memory（失败案例学习，可选）
 
@@ -630,7 +653,8 @@ uv run python -m olav.main chat "创建一个测试设备"  # 触发 netbox_api_
 **最后更新**: 2025-11-23  
 **本次更新**: 
 - ✅ Legacy Tools 清理完成 (suzieq_tool, netbox_inventory_tool, ntc_tool)
+- ✅ External Evaluator 已完成 (Schema-Aware 动态验证，无需硬编码协议规则)
 - ✅ 工具架构标准化: SuzieQ Parquet直读 + NetBox统一API + Nornir执行层
 - ✅ 测试验证通过: 45 passed, 7 skipped
-- 🔧 保留 inventory_manager.py (CSV导入功能，未来可能使用)
-- 📋 TODO清理: init_schema.py YANG解析占位符保留 (低优先级)
+- 📋 文档更新: 修正 External Evaluator 实现方式（动态识别 vs 硬编码规则）
+- 🎯 下一优先级: Deep Dive Phase 3 (递归深入 + 并行执行)
