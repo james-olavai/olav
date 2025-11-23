@@ -716,3 +716,150 @@ uv run python -m olav.main chat "创建一个测试设备"  # 触发 netbox_api_
   - Deep Dive 单元测试完全缺失
   - README 宣称功能与实际代码不符
 - 🎯 **下一优先级**: Deep Dive Phase 3.1 递归实现 或 补充单元测试
+
+---
+
+## 🆕 新功能提案与规划（文档阶段）
+
+本节仅定义需求与验收标准，不包含代码实现。
+
+### 1) 普通模式的「反思（Reflection）」能力评估 - 提升可靠性（草案）
+
+**背景**
+- 普通模式（非专家模式）当前依赖固定工作流与 Schema 调研提示，但缺少一次性结果自检。
+- 在不引入复杂多轮 Reflexion 的前提下，增加“轻量反思”有助于减少假阳性与遗漏。
+
+**目标**
+- 为普通模式在生成最终答复前，增加一轮轻量自检：
+  - 使用 Schema-Aware 规则快速核对“数据来源、字段相关性、空结果”的可靠性。
+  - 对存在不确定性的回答，附带“置信度说明 + 建议下一步验证方法（可选 HITL）”。
+
+**实施原则**
+- 轻量、可选：默认开启，遇到超时或工具失败时自动降级为“提示性告警”。
+- 无状态：不引入跨会话记忆，仅基于当次工具结果与 schema 索引。
+- 与 HITL 互补：如触发高风险或不确定性，建议进入 HITL 或专家模式。
+
+**验收标准**
+- 输出中新增“质量自检”小节，包含：
+  - 数据来源列表（SuzieQ/NetBox/设备即时查询等）
+  - 字段相关性判断结果（相关/不相关/未知）
+  - 置信度评分（Low/Medium/High）与下一步建议
+- 普通查询类问题无显著延迟（+1~3s 内）。
+
+**开放问题**
+- 是否对“查询类空结果”判定为失败，还是提示为“可能正常（无匹配项）”？
+- 是否允许用户通过 `.env` 或 CLI 参数关闭反思自检？
+
+**后续动作（仅文档阶段）**
+- 在 `README.MD` 与 `docs/DESIGN.md` 标注“普通模式轻量反思（计划中）”。
+
+---
+
+### 2) 巡检模式（Inspection Mode）- 基于 YAML 的自动巡检与日报（草案）
+
+**目标**
+- 用户仅需在 YAML 模板中声明要检查的项目（表/字段/条件/设备集合），Agent 自动：
+  1) 解析 YAML → 生成待办（TODO）
+  2) 逐项执行（SuzieQ/NETCONF/NetBox 等）
+  3) 生成结构化 Markdown 巡检报告（支持按日归档）
+  4) 用户可用 cron 或 Windows 计划任务定时执行，实现“每天巡检”
+
+**YAML 模板建议位置**
+- `config/prompts/inspection/*.yaml`
+
+**示例模板（草案）**
+```yaml
+_type: inspection_plan
+name: daily_core_checks
+schedule_hint: daily 08:00
+targets:
+  namespace: production
+  tags: ["core", "olav-managed"]
+
+checks:
+  - id: interfaces_down
+    title: 接口异常（down/admin-down）
+    type: suzieq_query
+    table: interfaces
+    method: summarize
+    filters:
+      state: ["down", "adminDown"]
+    assert:
+      mode: must_be_empty    # 为空则通过
+    severity: high
+    remediation: 请检查链路/光模块/邻接设备状态
+
+  - id: bgp_session_health
+    title: BGP 会话健康
+    type: suzieq_query
+    table: bgp
+    method: summarize
+    filters:
+      state: ["Established"]
+    assert:
+      mode: ratio_over_total
+      threshold: 0.98        # 通过阈值
+    severity: high
+    remediation: 低于阈值时检查告警与邻居状态
+
+  - id: netconf_diff
+    title: 关键设备配置漂移
+    type: netconf_check      # 运行期可选择性支持（HITL）
+    xpaths:
+      - /interfaces/interface[name=xe-0/0/0]/config
+    assert:
+      mode: equals_snapshot
+      snapshot_ref: baseline-2025-11-01
+    severity: medium
+```
+
+**执行流程（设想）**
+1) 载入 YAML → 校验 schema（缺失字段提前告警）
+2) 分解为 TODO 列表（可并行的标记为 independent）
+3) 逐项执行并评估（重用 External Evaluator 的“数据存在性 + 字段相关性”）
+4) 汇总生成 Markdown 报告：
+   - 概览：通过/失败/不确定 统计、合规分
+   - 明细：每项检查的结论、证据链接、建议
+   - 附录：部分原始数据（表格/JSON 摘要）
+
+**输出位置（建议）**
+- `reports/inspection/{plan_name}-{YYYY-MM-DD}.md`
+
+**CLI（草案，仅文档）**
+```bash
+# 交互式
+uv run olav.py --mode inspection --plan config/prompts/inspection/daily_core_checks.yaml
+
+# 非交互，输出指定文件
+uv run olav.py --mode inspection \
+  --plan config/prompts/inspection/daily_core_checks.yaml \
+  --output reports/inspection/daily_core_checks-$(date +%F).md
+```
+
+**Windows 计划任务（示例，仅文档）**
+```powershell
+$workDir = "C:\Users\<you>\Documents\code\Olav"
+$plan    = "config\prompts\inspection\daily_core_checks.yaml"
+$outDir  = "reports\inspection"
+$cmd     = "powershell -NoProfile -ExecutionPolicy Bypass -Command \"cd $workDir; if(!(Test-Path $outDir)){New-Item -ItemType Directory -Path $outDir | Out-Null}; uv run olav.py --mode inspection --plan $plan --output $outDir\\daily_core_checks-$(Get-Date -Format yyyy-MM-dd).md\""
+schtasks /Create /SC DAILY /ST 08:00 /TN "OLAV Daily Inspection" /TR "$cmd"
+```
+
+**Linux/macOS 定时（示例，仅文档）**
+```cron
+0 8 * * * cd /opt/olav && uv run olav.py --mode inspection --plan config/prompts/inspection/daily_core_checks.yaml --output reports/inspection/daily_core_checks-$(date +\%F).md >> logs/inspection.log 2>&1
+```
+
+**验收标准**
+- 能从 YAML 成功解析出 N 项检查，逐项执行并生成统一格式的 Markdown 报告。
+- 报告包含：统计总览、逐项结论、建议、关键证据（表格/字段列举）。
+- 失败/不确定项高亮，附带下一步建议（可选进入 HITL）。
+
+**开放问题**
+- `netconf_check` 等需要 HITL 的写/读敏感操作如何在计划任务中安全运行？
+- 巡检报告是否需要同时生成 JSON 以便机读？
+- 是否需要“阈值基线快照”的管理命令（导入/导出）？
+
+**后续动作（仅文档阶段）**
+- 新增 `docs/INSPECTION_MODE.md` 详细规格（本次已添加）。
+- 在 `docs/DESIGN.md` 与 `docs/WORKFLOWS_INTEGRATION.md` 标注巡检模式对接点。
