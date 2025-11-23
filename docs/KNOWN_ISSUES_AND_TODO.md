@@ -74,28 +74,53 @@ OLAV 采用**单一 Workflows Orchestrator 架构**，通过 Intent 分类自动
 ## 待办事项
 
 1. ~~清理 shim 兼容层（src/config/settings.py）与多余 shadow 包，统一配置入口。~~ ✅ 已完成
-2. 扩展 Deep Dive Phase 2：递归/并行执行、真实设备状态比对（NETCONF/XPath）、Episodic Memory。
+2. **Deep Dive Phase 3 实现**：递归深入 + 批量并行执行（当前仅占位符）。
 3. ~~标记并跳过所有依赖 legacy 架构的测试，逐步迁移到新 orchestrator。~~ ✅ 已完成
 4. ~~优化测试环境路径与包结构，确保 pytest 可直接运行所有单元测试。~~ ✅ 已完成
 5. ~~垃圾代码与 ghost 代码清理。~~ ✅ 已完成
 6. ~~Legacy Tools 清理（suzieq_tool.py, netbox_inventory_tool.py, ntc_tool.py）。~~ ✅ 已完成
-7. 文档同步：持续更新架构演进、Known Issues、测试覆盖率。
-8. TODO 注释处理：init_schema.py (YANG 解析 - 低优先级占位符)。
+7. **Deep Dive 单元测试补充**（当前完全缺失）。
+8. 文档同步：持续更新架构演进、Known Issues、测试覆盖率。
+9. TODO 注释处理：init_schema.py (YANG 解析 - 低优先级占位符)。
 
 ## 下一项任务规划
 
-**目标：扩展 Deep Dive Phase 2 - 递归/并行执行与设备状态比对。**
+**目标：补充 Deep Dive 缺失功能与测试。**
 
-### 步骤：
-1. 实现递归任务分解（最大深度 3 层），支持子任务动态生成。
-2. 添加并行执行支持：批量审计场景（30+ 设备）使用 asyncio.gather()。
-3. 集成真实设备状态比对（NETCONF XPath 查询实际值 vs 期望值）。
-4. 添加进度跟踪与恢复能力（基于 PostgreSQL Checkpointer state）。
-5. 编写 Deep Dive Phase 2 测试用例（递归、并行、状态比对）。
-6. 更新文档：Deep Dive 架构图、递归逻辑流程、并行执行策略。
+### 当前问题识别：
+1. ❌ **递归深入未实现**：`recursive_check_node` 仅有占位符逻辑，返回 "Recursive analysis skipped in Phase 1"
+2. ❌ **并行执行未实现**：`execute_todo_node` 串行执行，无 `asyncio.gather()` 批量优化
+3. ❌ **Deep Dive 单元测试完全缺失**：`tests/unit/test_workflows.py` 仅测试 Orchestrator，无 Deep Dive 测试
+4. ⚠️ **README 宣称功能未兑现**：声称支持 "递归深入（最大 3 层）" 和 "批量并行执行"，但代码未实现
+5. ⚠️ **进度恢复未验证**：Checkpointer 集成存在但未测试中断恢复场景
 
-**后续任务：**
-Episodic Memory 架构、Reflexion 模式完整实现、真实设备集成测试。
+### 修复步骤：
+1. **实现递归任务分解**（预计 6-8 小时）：
+   - `recursive_check_node` 中检测失败任务并生成子任务
+   - 子任务继承父任务上下文（设备、协议等）
+   - 限制递归深度为 3 层（已有 `max_depth` 检查）
+
+2. **实现批量并行执行**（预计 4-6 小时）：
+   ```python
+   # execute_todo_node 优化
+   independent_todos = [t for t in todos if not t['deps']]
+   results = await asyncio.gather(*[
+       self._execute_single_todo(todo) for todo in independent_todos[:5]
+   ])
+   ```
+
+3. **补充 Deep Dive 单元测试**（预计 6-8 小时）：
+   - `test_task_planning_node`: 验证 LLM 生成 Todo List
+   - `test_schema_investigation_node`: 验证 feasibility 分类
+   - `test_execute_todo_node`: 验证 External Evaluator 集成
+   - `test_recursive_check_node`: 验证递归触发逻辑（待实现后）
+   - `test_hitl_approval_flow`: 验证中断/恢复机制
+
+4. **修正 README 宣传**（预计 30 分钟）：
+   - 标注递归/并行为 "Phase 3 规划中" 或删除未实现功能描述
+
+**后续任务（Phase 4）：**
+Episodic Memory 架构、真实设备状态对比（NETCONF XPath）、完整端到端测试。
 - ❌ **ReAct**: 缺少显式流程控制，依赖 Prompt 引导 (16s)
 
 **废弃原因**: 
@@ -124,7 +149,8 @@ Episodic Memory 架构、Reflexion 模式完整实现、真实设备集成测试
 - ✅ HITL 双重审批流程
 - ✅ 任务分解与执行
 - ✅ 修改计划重新审批显示修复
-- ⚠️ 待完善递归深入和并行优化（Phase 2-3）
+- ❌ **Phase 3 未实现**：递归深入和并行执行仅占位符，功能未兑现
+- ❌ **单元测试缺失**：无 Deep Dive Workflow 测试用例
 
 **Phase 1 核心创新** - Schema Investigation（反幻觉机制）:
 ```python
@@ -230,28 +256,39 @@ execute_todo_node (next todo)
 
 **待完成功能（Phase 2-3）**:
 
-- [ ] **Phase 2: 递归深入** (预计 8 小时)
-  ```
-  Todo 1: 检查 BGP 状态 → 发现 NotEstd
-    ↓ (自动触发)
-  Todo 1.1: 检查接口状态 → 发现 down
-    ↓
-  Todo 1.1.1: 查询告警历史 → 定位根因
-  ```
-  - 限制: `max_depth=3` 防止无限递归
-
-- [ ] **Phase 3: 批量并行执行** (预计 6 小时)
+- [ ] **Phase 3.1: 递归深入实现** ⚠️ **当前占位符** (预计 6-8 小时)
   ```python
-  # 并发执行独立任务
-  results = await asyncio.gather(*[
-      execute_todo(todos[i]) for i in range(5)  # 前 5 个无依赖任务
-  ])
+  # src/olav/workflows/deep_dive.py: recursive_check_node
+  # 当前状态: 返回 "Recursive analysis skipped in Phase 1"
+  # 需要实现:
+  async def recursive_check_node(self, state):
+      failures = [t for t in state['todos'] if t['status'] == 'failed']
+      if failures and state['recursion_depth'] < state['max_depth']:
+          # 为每个失败任务生成子任务
+          sub_query = f"深入分析 {failures[0]['task']} 失败原因"
+          # 触发 task_planning 生成子任务
+          return {'messages': [HumanMessage(content=sub_query)]}
   ```
 
-- [ ] **Phase 3: 结果聚合与报告** (预计 4 小时)
-  - 表格化输出（设备 × 检查项 矩阵）
-  - 合规百分比统计
-  - 异常列表高亮
+- [ ] **Phase 3.2: 批量并行执行** ⚠️ **当前串行** (预计 4-6 小时)
+  ```python
+  # src/olav/workflows/deep_dive.py: execute_todo_node
+  # 当前状态: 单线程执行 next_todo
+  # 需要优化:
+  async def execute_todo_node(self, state):
+      pending = [t for t in state['todos'] if t['status'] == 'pending']
+      independent = [t for t in pending if not t['deps']]
+      
+      # 并行执行前 5 个独立任务
+      results = await asyncio.gather(*[
+          self._execute_single_todo(todo) for todo in independent[:5]
+      ], return_exceptions=True)
+  ```
+
+- [ ] **Phase 3.3: 单元测试补充** ⚠️ **当前完全缺失** (预计 6-8 小时)
+  - `tests/unit/test_deep_dive_workflow.py` (新文件)
+  - 测试任务分解、Schema Investigation、External Evaluator 集成
+  - Mock SuzieQ/NETCONF 工具，验证 HITL 中断/恢复
 
 **Reflection/Reflexion 架构评估** (2025-11-23) 🆕:
 
@@ -343,13 +380,16 @@ class ConfigComplianceEvaluator:
    console.print("  - 数据来源是否可靠？（优先 schema 确认的表）")
    ```
 
-**优先级**: P0 (✅ **Phase 1-2 已完成**)  
+**优先级**: P0 (✅ **Phase 1-2 已完成**, ⚠️ **Phase 3 未实现**)  
 **剩余工作量**: 
+- ✅ Phase 1 (任务分解 + Schema Investigation): **已完成**
 - ✅ Phase 2 (Schema-Aware Evaluator): **已完成**
-- Phase 3 (递归深入 + 并行执行): 11-13 小时
+- ❌ Phase 3.1 (递归深入): 6-8 小时 (当前仅占位符)
+- ❌ Phase 3.2 (并行执行): 4-6 小时 (当前串行)
+- ❌ Phase 3.3 (单元测试): 6-8 小时 (完全缺失)
 - Phase 4 (Episodic Memory): 5-7 小时
 
-**下一步**: Deep Dive Phase 3 递归/并行执行 或 HITL Phase 2 增强
+**下一步**: Deep Dive Phase 3 实现 或 补充单元测试
 
 ---
 
@@ -543,17 +583,29 @@ uv run python -m olav.main chat "创建一个测试设备"  # 触发 netbox_api_
 
 ### 10. 单元测试覆盖率不足 - P3
 
-**当前状态**: 11 passed / 9 skipped
+**当前状态**: 45 passed / 7 skipped
+
+**重点缺失**:
+- ❌ **Deep Dive Workflow 测试完全缺失** (P1 优先级)
+  - 无 `tests/unit/test_deep_dive_workflow.py`
+  - 需测试: 任务分解、Schema Investigation、External Evaluator、HITL 中断/恢复
 
 **待补充测试**:
+- [ ] **Deep Dive Workflow 单元测试** (高优先级)
+  - task_planning_node: Mock LLM 生成 Todo List
+  - schema_investigation_node: 验证 feasibility 分类
+  - execute_todo_node: 验证 External Evaluator 集成
+  - recursive_check_node: 验证递归触发逻辑（待 Phase 3.1 实现后）
+  - HITL approval flow: 验证中断/恢复机制
 - [ ] SuzieQ 工具 Mock 测试
 - [ ] OpenSearch RAG 工具测试
 - [ ] Nornir Sandbox 执行测试
-- [ ] Deep Dive Schema Investigation 测试
 - [ ] 端到端 API 测试 (需 FastAPI 先完成)
 
-**优先级**: P3  
-**预计工作量**: 10-12 小时
+**优先级**: P3 (Deep Dive 测试提升为 P1)  
+**预计工作量**: 
+- Deep Dive 测试: 6-8 小时 (高优先级)
+- 其他测试: 10-12 小时
 
 ---
 
@@ -612,13 +664,15 @@ uv run python -m olav.main chat "创建一个测试设备"  # 触发 netbox_api_
 5. ✅ **Legacy Tools 清理**: 移除 suzieq_tool, netbox_inventory_tool, ntc_tool ← **已完成**
 
 ### 本周内 (This Week)
-6. **Deep Dive Phase 3**: 递归深入 + 并行执行（批量审计优化）
-7. 验证 ntc-templates-schema 索引状态
-8. SuzieQ 高级功能测试（path show, topology, assert）
+6. **Deep Dive Phase 3.1**: 递归深入实现（当前仅占位符）
+7. **Deep Dive Phase 3.3**: 补充单元测试（当前完全缺失）
+8. 验证 ntc-templates-schema 索引状态
+9. SuzieQ 高级功能测试（path show, topology, assert）
 
 ### 本月内 (This Month)
-9. HITL Phase 2 增强（风险评分 + 审计日志 + 参数编辑）
-10. FastAPI 服务实现
+10. **Deep Dive Phase 3.2**: 批量并行执行优化
+11. HITL Phase 2 增强（风险评分 + 审计日志 + 参数编辑）
+12. FastAPI 服务实现
 10. OpenSearch 第三层 RAG（文档检索）
 11. Reflexion Memory（失败案例学习，可选）
 
@@ -656,5 +710,9 @@ uv run python -m olav.main chat "创建一个测试设备"  # 触发 netbox_api_
 - ✅ External Evaluator 已完成 (Schema-Aware 动态验证，无需硬编码协议规则)
 - ✅ 工具架构标准化: SuzieQ Parquet直读 + NetBox统一API + Nornir执行层
 - ✅ 测试验证通过: 45 passed, 7 skipped
-- 📋 文档更新: 修正 External Evaluator 实现方式（动态识别 vs 硬编码规则）
-- 🎯 下一优先级: Deep Dive Phase 3 (递归深入 + 并行执行)
+- 📋 文档更新: 识别 Deep Dive Phase 3 未实现问题
+- ⚠️ **问题识别**:
+  - Deep Dive 递归深入/并行执行仅占位符，功能未兑现
+  - Deep Dive 单元测试完全缺失
+  - README 宣称功能与实际代码不符
+- 🎯 **下一优先级**: Deep Dive Phase 3.1 递归实现 或 补充单元测试
