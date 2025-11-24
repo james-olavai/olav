@@ -19,9 +19,40 @@ OLAV 是一个企业级网络运维 ChatOps 平台，旨在通过智能体协作
 
 ## 2. 系统架构 (System Architecture)
 
-OLAV 采用微服务化的容器架构，基于 LangGraph 进行智能体编排。
+OLAV 采用 **"意图驱动 + 策略自适应"** 的三层架构，实现业务意图与执行模式完全解耦。
 
-### 架构概览
+### 2.1 三层架构设计
+
+```
+┌─────────────────────────────────────────────────────┐
+│  顶层：Dynamic Intent Router (动态意图路由)          │
+│  - 工作流注册中心 (WorkflowRegistry)                 │
+│  - 语义路由 (Semantic Matching + LLM Classification) │
+│  - 零侵入扩展：新 Workflow 通过装饰器自注册          │
+└─────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────┐
+│  中层：Execution Strategies (执行策略)               │
+│  - Fast Path: Semantic Router + Function Calling    │
+│  - Deep Path: Hypothesis-Driven Loop                │
+│  - Batch Path: Map-Reduce Compiler-Executor         │
+│  - Reconciliation: SoT Drift Detection & Auto-Heal  │
+└─────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────┐
+│  底层：Unified Tool Layer (统一工具层)               │
+│  - Schema-Aware Tools (SuzieQ, OpenConfig)          │
+│  - Pydantic 标准化输出                               │
+│  - HITL 中间件（写操作安全拦截）                     │
+└─────────────────────────────────────────────────────┘
+```
+
+**核心优势**:
+- **业务意图 (Intent)** 与 **执行模式 (Strategy)** 完全解耦
+- 工作流（Workflow）作为插件动态注册，零侵入扩展
+- 根据任务特征自动选择 Fast Path（查表）或 Deep Path（推理循环）
+
+### 2.2 容器架构
 
 ```mermaid
 graph TD
@@ -31,28 +62,26 @@ graph TD
 
     subgraph "OLAV Application (Main Brain)"
         App_Container[olav-app]
-        LLM_Factory[LLM Factory] -->|Invoke| App_Container
-        Supervisor[Supervisor Agent] -->|Route| Workers
+        Router[Dynamic Intent Router] -->|Route| Workflows
         
-        subgraph "Workers (Agents)"
-            SuzieQ_Agent[Macro Agent]
-            Netconf_Agent[Micro Agent]
-            NetBox_Agent[SSOT Agent]
-            Doc_Agent[Doc Agent]
-            Learner_Agent[Reflection Node]
+        subgraph "Modular Workflows"
+            Query[Query Diagnostic]
+            Execution[Device Execution]
+            NetBox[NetBox Management]
+            DeepDive[Deep Dive]
         end
     end
 
     subgraph "Infrastructure Services"
-        Redis[(Redis)] <-->|State Persistence| App_Container
+        Postgres[(PostgreSQL)] <-->|Checkpointer| App_Container
         OpenSearch[(OpenSearch)] <-->|Vector Search| App_Container
+        Redis[(Redis)] <-->|Cache| App_Container
         SuzieQ_Service[SuzieQ Poller] -->|Parquet| Shared_Vol[Shared Volume]
     end
 
     subgraph "Support Containers"
         Init_Container[olav-init] -->|ETL Schema| OpenSearch
         Embedder_Service[olav-embedder] -->|Ingest PDF/Docs| OpenSearch
-        Embedder_Service <-->|API Trigger| App_Container
     end
 
     subgraph "External World"
@@ -63,7 +92,6 @@ graph TD
 
     App_Container -->|Inventory| NetBox
     App_Container -->|Nornir Execution| Network_Devices
-    NetBox_Agent -->|Manage| NetBox
 ```
 
 ---
