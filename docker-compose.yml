@@ -191,6 +191,8 @@ services:
       OPENSEARCH_URL: http://opensearch:9200
       # Point to cloned OpenConfig YANG repos (if available)
       OPENCONFIG_DIR: /app/archive/openconfig
+      NETBOX_ENABLED: ${NETBOX_ENABLED:-true}
+      NETBOX_INGEST_FORCE: ${NETBOX_INGEST_FORCE:-false}
     volumes:
       - ./config:/app/config:ro
       - ./data:/app/data
@@ -199,19 +201,24 @@ services:
     # Use uv run to ensure virtualenv & editable install are active
     command: >
       sh -c "
-        echo 'NetBox connectivity gate...' &&
-        uv run python scripts/check_netbox.py --autocreate || { echo '[FATAL] NetBox connectivity failed. Aborting init.'; exit 1; } &&
-        echo '[OK] NetBox connectivity verified.' &&
-        echo 'Ingesting inventory into NetBox (idempotent)...' &&
-        uv run python scripts/netbox_ingest.py || { echo '[FATAL] NetBox inventory ingestion failed.'; touch data/bootstrap/inventory.error; exit 1; } &&
-        [ -f data/bootstrap/inventory.ok ] || { echo '[FATAL] inventory.ok sentinel missing after ingestion.'; exit 1; } &&
-        echo '[OK] Inventory ingestion complete.' &&
+        if [ \"$NETBOX_ENABLED\" = \"true\" ]; then
+          echo 'NetBox connectivity gate...' &&
+          uv run python scripts/check_netbox.py --autocreate || { echo '[FATAL] NetBox connectivity failed. Aborting init.'; exit 1; } &&
+          echo '[OK] NetBox connectivity verified.' &&
+          echo 'Ingesting inventory into NetBox (idempotent)...' &&
+          uv run python scripts/netbox_ingest.py || { echo '[FATAL] NetBox inventory ingestion failed.'; touch data/bootstrap/inventory.error; exit 1; } &&
+          [ -f data/bootstrap/inventory.ok ] || { echo '[FATAL] inventory.ok sentinel missing after ingestion.'; exit 1; } &&
+          echo '[OK] Inventory ingestion complete.' &&
+          echo 'Running NetBox Schema ETL...' &&
+          uv run python -m olav.etl.netbox_schema_etl;
+        else
+          echo 'NetBox integration disabled (NETBOX_ENABLED=false). Skipping checks and ingestion.';
+        fi &&
         echo 'Running ETL pipeline via uv...' &&
         uv run python -m olav.etl.generate_configs &&
         uv run python -m olav.etl.init_postgres &&
         uv run python -m olav.etl.openconfig_full_yang_etl &&
         uv run python -m olav.etl.suzieq_schema_etl &&
-        uv run python -m olav.etl.netbox_schema_etl &&
         touch data/bootstrap/init.ok &&
         echo 'ETL pipeline completed successfully'
       "
