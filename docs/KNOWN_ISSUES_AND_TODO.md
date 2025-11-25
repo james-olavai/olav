@@ -20,10 +20,10 @@
     -   ✅ 语义预筛 (Semantic Pre-filtering) + LLM 精确分类 (`src/olav/agents/dynamic_orchestrator.py`)
     -   ✅ 环境变量切换支持 (`OLAV_USE_DYNAMIC_ROUTER=true/false`)
     
-2.  **中层：Execution Strategies** ✅ **已实现 (85%)**
+2.  **中层：Execution Strategies** ✅ **已实现 (100%)**
     -   ✅ Fast Path (Function Calling + Memory RAG - 12.5% LLM 调用减少)
-    -   ✅ Deep Path (DeepDiveWorkflow with Recursion - 95% 完成)
-    -   ⚠️ Batch Path (70% 完成 - Schema 完整，YAML 驱动待实现)
+    -   ✅ Deep Path (DeepDiveWorkflow with Recursion - 100% 完成)
+    -   ✅ Batch Path (100% 完成 - YAML驱动 + NL Intent Compiler)
     
 3.  **底层：Unified Tool Layer** ✅ **已完成 (100%)**
     -   ✅ Schema-Aware Tools (SuzieQ Parquet, NetBox, Nornir)
@@ -210,22 +210,53 @@
 
 ### 🎯 当前优先级 (2025-11-25)
 
-**短期（本周）**：
-1. ✅ ~~调查工具注册状态污染~~ (已完成 - Commit 9909a0b)
-   - **结果**: 387/400 passing (96.75%) - 目标超额完成
-   
-2. ✅ ~~修复剩余 1 个 Unit 测试失败~~ (已完成 - Commit df43022)
-   - **结果**: 394/394 passing (100%) - 完美覆盖 🏆
-   - **Root Cause**: Memory RAG 缓存绕过工具执行
-   - **Solution**: 测试 fixture 禁用 Memory RAG 和 Cache
+**Sprint 8 完成总结** ✅:
+1. ✅ 测试稳定化: 360/400 → 394/394 (100%)
+2. ✅ Phase B.4: CLI Tool 实现 (100%)
+3. ✅ Phase B.5: Batch YAML Executor + NL Intent Compiler (100%)
+4. ✅ 代码质量: Ruff 错误降低 73%, 测试稳定性 100%
+5. ✅ 架构符合度: 87% → 95% (+8%)
 
-3. 🟡 **修复 E2E 测试失败** (3 个测试 - 0.5-1 天 - 可选)
-   - `test_authentication_login_failure` (缺 WWW-Authenticate header)
-   - `test_workflow_invoke_endpoint` (LLM 调用超时)
-   - `test_cli_client_remote_mode` (参数名错误)
-   - **优先级**: 低（E2E 测试非核心，9/12 通过已可用，Unit tests 100% 更重要）
+---
 
-**中期（下周）**：
+### 🎯 Sprint 9 规划 (2025-11-26 开始)
+
+**核心目标**: 生产就绪化 + 监控可观测性
+
+**短期（本周 - 3-4 天）**：
+
+#### Task 1: E2E 测试修复 (P1 - 0.5 天)
+- 🔴 **修复 3 个 E2E 测试失败** (9/12 → 12/12 passing)
+  - [ ] `test_workflow_invoke_endpoint`: 增加超时到 60s + retry 逻辑
+  - [ ] `test_authentication_login_failure`: 添加 WWW-Authenticate header
+  - [ ] `test_cli_client_remote_mode`: 修复 OLAVClient 构造函数参数
+  - **预期**: E2E tests 100% passing (12/12)
+  - **优先级**: 高（生产环境稳定性保障）
+
+#### Task 2: 警告抑制与代码清理 (P2 - 0.3 天)
+- 🟡 **清理运行时警告** (15 warnings → 0)
+  - [ ] 添加 `model_kwargs={"parallel_tool_calls": False}` 抑制 UserWarning
+  - [ ] 替换 deprecated `config_schema` → `get_context_jsonschema`
+  - [ ] 确保异步代码使用正确的 event loop policy
+  - **预期**: 运行时 0 warnings
+
+#### Task 3: 监控与可观测性基础 (P1 - 1.5 天)
+- 🔴 **Prometheus + Grafana 集成**
+  - [ ] 添加 `/metrics` 端点 (FastAPI middleware)
+  - [ ] 收集指标: LLM 调用次数/延迟, Memory hit rate, Tool 执行时长
+  - [ ] 创建 Grafana dashboard JSON
+  - [ ] 结构化日志 (JSON format with context)
+  - **预期**: 完整监控体系，生产问题可追溯
+
+#### Task 4: 文档完善 (P2 - 0.5 天)
+- 🟡 **生产部署文档**
+  - [ ] 创建 `docs/PRODUCTION_DEPLOYMENT.md`
+  - [ ] Docker Compose 生产配置示例
+  - [ ] 环境变量完整列表 + 说明
+  - [ ] 监控告警配置指南
+  - **预期**: 运维团队可独立部署
+
+**中期（下周 - 2-3 天）**：
 3. ✅ ~~Phase B.4: CLI Tool 实现~~ (已完成 - 2025-11-25)
    - **成果**: CLITool 已注册并可用（test_cli_tool.py: 11/11 passing）
    - **架构**: CLITemplateTool (命令发现) + CLITool (SSH执行)
@@ -299,33 +330,36 @@
 
 ---
 
-### Phase C: 功能增强与优化（中优先级 - 2-4 周）
+### Phase C: 高级功能增强（中优先级 - 2-3 周）
 
-#### Task C1: 警告抑制与代码清理 (0.3 天)
--   **现状**: 15 个 warnings (parallel_tool_calls, config_schema, event loop)
--   **待办**:
-    -   [ ] 添加 `model_kwargs={"parallel_tool_calls": False}` 抑制 UserWarning
-    -   [ ] 替换 deprecated `config_schema` 为 `get_context_jsonschema`
-    -   [ ] 确保所有异步代码使用正确的 event loop policy
-
-#### Task C2: 监控与可观测性 (1 天)
--   **待办**:
-    -   [ ] 添加 Prometheus metrics 端点
-    -   [ ] 集成 Grafana dashboard
-    -   [ ] 添加结构化日志 (JSON format)
-    -   [ ] 实现 OpenTelemetry tracing
-
-#### Task C3: Deep Path 数据源插件化 (1 天)
--   **当前**: 硬编码 SuzieQ + NetBox 调用
+#### Task C1: Deep Path 数据源插件化 (1 天)
+-   **当前**: 硬编码 SuzieQ + NetBox 调用 (95% 功能完整)
 -   **目标**: 抽象为 `DataSourceProtocol` 接口
--   **价值**: 支持扩展新数据源（Kafka, InfluxDB 等）
-
-#### Task C4: HITL 高级特性 (2 天)
+-   **价值**: 支持扩展新数据源（Kafka, InfluxDB, SNMP 等）
 -   **待办**:
-    -   [ ] Impact Analysis (影响范围分析)
-    -   [ ] Multi-approval (M-of-N 复核机制)
-    -   [ ] Rollback Orchestration (自动回滚)
-    -   [ ] Approval 记录持久化到 PostgreSQL
+    -   [ ] 定义 `DataSourceProtocol` (read/write/query 方法)
+    -   [ ] 重构 `DeepDiveWorkflow` 使用协议而非具体类
+    -   [ ] 实现 `SuzieQDataSource`, `NetBoxDataSource` adapters
+    -   [ ] 添加数据源注册表 + 运行时选择逻辑
+-   **测试**: 10 个新测试（插件加载、协议合规性）
+
+#### Task C2: HITL 高级特性 (2 天)
+-   **当前**: 90% (核心审批流程完整)
+-   **待办**:
+    -   [ ] Impact Analysis: 分析变更影响范围（拓扑图 + 依赖设备）
+    -   [ ] Multi-approval: M-of-N 复核机制（关键设备需多人审批）
+    -   [ ] Rollback Orchestration: 自动回滚失败操作
+    -   [ ] Approval 记录持久化到 PostgreSQL (audit trail)
+-   **价值**: 企业级变更管理，合规性保障
+
+#### Task C3: Advanced Memory Features (3 天)
+-   **当前**: 25% hit rate (Jaccard 相似度)
+-   **增强方向**:
+    -   [ ] 基于 Embedding 的语义相似度 (预期 40%+ hit rate)
+    -   [ ] Memory 老化机制: `confidence * exp(-days_since / 30)`
+    -   [ ] Pattern 聚类分析: 识别高频操作模板
+    -   [ ] Memory Statistics Dashboard (Streamlit 原型)
+-   **价值**: LLM 成本降低 20-30%, 响应速度提升 40%
 
 ---
 
@@ -401,16 +435,18 @@
 **当前状态**: 90% (核心审批流程完整)  
 ### 📅 实施时间表（更新 - 2025-11-25）
 
-**Phase A (Week 1): 生产稳定化** ✅ **已完成**
-- ✅ Day 1-3: LangServe Server + CLI Client
-- ✅ Day 4-5: Phase B.2 (FilesystemMiddleware) + Phase B.3 (代码清理)
-- **交付**: v0.4.1-beta (Ruff -73%, 41 新测试通过)
+**Sprint 8 (Week 2): 测试修复 + 架构增强** ✅ **已完成**
+- ✅ Day 1-2: 修复 Unit 测试 (360 → 394 passing, 100%)
+- ✅ Day 3-4: Phase B.4 CLI Tool 实现 (100%)
+- ✅ Day 5: Phase B.5 Batch YAML Executor + NL Intent Compiler (100%)
+- **交付**: v0.4.2-beta (394/394 unit tests, 架构符合度 95%)
 
-**Phase B.4-B.5 (Week 2): 测试修复 + CLI 降级** 🔴 ← **当前阶段**
-- 🎯 Day 1: 修复 E2E 测试 (3 failures) + Unit 测试 (17 errors, 14 failures)
-- 🎯 Day 2-4: CLI Tool 实现 + baseline_collector 代码复用
-- 🎯 Day 5: Batch YAML Executor 完成 (剩余 15%)
-- **交付**: v0.5.0-beta (100% 测试通过 + CLI 降级支持)
+**Sprint 9 (Week 3): 生产就绪化** 🔴 ← **当前阶段**
+- 🎯 Day 1: E2E 测试修复 (9/12 → 12/12 passing)
+- 🎯 Day 2: 警告清理 + 代码质量提升
+- 🎯 Day 3-4: Prometheus + Grafana 监控集成
+- 🎯 Day 5: 生产部署文档 + 配置模板
+- **交付**: v0.5.0-beta (生产就绪，监控完善)
 
 **Phase C (Week 3-4): 监控与增强** 🟡
 - Week 3: Prometheus + Grafana + 结构化日志
@@ -437,67 +473,56 @@
 
 > **更新**: 2025-11-25 - 已根据最新测试结果 (9/12 E2E 通过) 和 Gap 分析更新
 
-### ⚠️ 生产阻塞问题 (P0 - 本周内修复)
+### ⚠️ Sprint 9 待解决问题
 
-#### Issue 1: Invoke 端点超时 (P0)
+#### Issue 1: Invoke 端点超时 (P1 - Sprint 9 Task 1.1)
 -   **现状**: `test_workflow_invoke_endpoint` 30s 超时
 -   **影响**: 生产环境用户体验差，单次查询失败率高
 -   **根因**: OpenRouter Grok 冷启动延迟 (LLM 调用 25-30s)
--   **待办**:
-    -   [ ] 增加 httpx 超时到 60s
+-   **解决方案**:
+    -   [ ] 增加 httpx 超时到 60s (`src/olav/server/app.py`)
     -   [ ] 添加 tenacity 重试逻辑 (3 attempts, exponential backoff)
-    -   [ ] 评估切换到更快模型 (grok-2-1212 或 gpt-4-turbo)
--   **预期修复时间**: 0.5 天
--   **测试验证**: `pytest tests/e2e/test_langserve_api.py::test_workflow_invoke_endpoint`
+    -   [ ] 评估切换到更快模型 (grok-2-1212 响应 <10s)
+-   **预期修复时间**: 0.2 天
+-   **测试验证**: `uv run pytest tests/e2e/test_langserve_api.py::test_workflow_invoke_endpoint -v`
 
-#### Issue 2: WWW-Authenticate Header 缺失 (P1)
+#### Issue 2: WWW-Authenticate Header 缺失 (P2 - Sprint 9 Task 1.2)
 -   **现状**: 401 响应缺少 HTTP 规范要求的 `WWW-Authenticate` header
--   **影响**: `test_authentication_login_failure` 失败，某些 HTTP 客户端兼容性问题
+-   **影响**: `test_authentication_login_failure` 失败，HTTP 客户端兼容性问题
 -   **根因**: CustomHTTPBearer 未在 401 异常时添加 header
--   **待办**:
+-   **解决方案**:
     -   [ ] 修改 `src/olav/server/auth.py` CustomHTTPBearer.__call__()
-    -   [ ] 在 HTTPException 中添加 headers={"WWW-Authenticate": "Bearer"}
+    -   [ ] 在 HTTPException 中添加 `headers={"WWW-Authenticate": "Bearer"}`
 -   **预期修复时间**: 0.1 天
--   **测试验证**: `pytest tests/e2e/test_langserve_api.py::test_authentication_login_failure`
+-   **测试验证**: `uv run pytest tests/e2e/test_langserve_api.py::test_authentication_login_failure -v`
 
-#### Issue 3: CLI Client 参数错误 (P1)
+#### Issue 3: CLI Client 参数错误 (P2 - Sprint 9 Task 1.3)
 -   **现状**: `OLAVClient.__init__()` 不接受 `server_url` 参数
 -   **影响**: `test_cli_client_remote_mode` 失败，CLI 无法自定义服务器
 -   **根因**: 构造函数签名与测试期望不匹配
--   **待办**:
+-   **解决方案**:
     -   [ ] 修改 `src/olav/cli/client.py` OLAVClient.__init__()
     -   [ ] 添加 `server_url: str | None = None` 参数
     -   [ ] 在构造函数中处理 server_url → ServerConfig 转换
 -   **预期修复时间**: 0.1 天
--   **测试验证**: `pytest tests/e2e/test_langserve_api.py::test_cli_client_remote_mode`
+-   **测试验证**: `uv run pytest tests/e2e/test_langserve_api.py::test_cli_client_remote_mode -v`
 
 ---
 
 ### 🟡 功能增强问题 (P2 - 2-3 周内完成)
 
-#### Issue 4: CLI 降级支持缺失 (P1)
--   **现状**: 仅支持 NETCONF，无法操作 GNS3 模拟器和传统设备
--   **影响**: 测试环境受限，无法验证对非 NETCONF 设备的支持
--   **待办**:
-    -   [ ] 实现 `cli_tool` 统一工具
-    -   [ ] 复用 `archive/baseline_collector.py` 的 TemplateManager
-    -   [ ] 运行时动态匹配 ntc-templates（不预建索引）
-    -   [ ] 集成 NetBox platform 字段到 Agent Prompt
--   **预期修复时间**: 2-3 天
--   **业务价值**: 支持所有设备类型，覆盖率 100%
--   **复用代码**:
-    -   `archive/baseline_collector.py` - TemplateManager (300+ lines)
-    -   `archive/deprecated_agents/cli_agent.py` - Prompt 参考
-
-#### Issue 5: 自维护代码量过高 (P1)
--   **现状**: 手写 LangGraph 编排 + 工具层，维护成本高
--   **待办**:
-    -   [ ] 从 `archive/deepagents/` 提取中间件代码
-    -   [ ] FilesystemMiddleware → StateBackend 协议
-    -   [ ] SubAgentMiddleware → Workflow 间通信
-    -   [ ] 移除 DeepAgents 核心依赖
--   **预期修复时间**: 1-2 天
--   **业务价值**: 代码减少 500+ lines，维护成本降低 30%
+#### Issue 4: 运行时警告过多 (P2 - Sprint 9 Task 2)
+-   **现状**: 15 个运行时警告影响日志可读性
+-   **类型**:
+    -   UserWarning: `parallel_tool_calls` 未设置
+    -   DeprecationWarning: `config_schema` 已弃用
+    -   RuntimeWarning: Event loop policy 不一致
+-   **解决方案**:
+    -   [ ] 在 LLM 初始化时添加 `model_kwargs={"parallel_tool_calls": False}`
+    -   [ ] 全局搜索 `config_schema` 替换为 `get_context_jsonschema()`
+    -   [ ] 在 `src/olav/server/app.py` 启动时设置 Windows event loop policy
+-   **预期修复时间**: 0.3 天
+-   **验证**: 运行完整测试套件，确认 0 warnings
 -   **复用代码**:
     -   `archive/deepagents/libs/deepagents/deepagents/middleware/filesystem.py` (907 lines)
     -   `archive/deepagents/libs/deepagents/deepagents/middleware/subagents.py`
