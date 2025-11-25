@@ -74,7 +74,9 @@ def strategy(mock_llm, mock_tool_registry):
     return FastPathStrategy(
         llm=mock_llm,
         tool_registry=mock_tool_registry,
-        confidence_threshold=0.7
+        confidence_threshold=0.7,
+        enable_memory_rag=False,  # Disable Memory RAG for deterministic testing
+        enable_cache=False,        # Disable cache to ensure fresh executions
     )
 
 
