@@ -74,3 +74,66 @@ def mock_suzieq_context():
     """Mock SuzieQ context for testing."""
     # TODO: Implement mock SuzieQ context
     pass
+
+
+@pytest.fixture(scope="function", autouse=True)
+def reset_tool_registry():
+    """Ensure ToolRegistry is populated before each test.
+    
+    Problem: Tools register themselves at module import time via:
+        ToolRegistry.register(SuzieQTool())
+    
+    This causes state pollution when running full test suite because:
+    1. Import order is non-deterministic
+    2. Some tests may run before tool modules are imported
+    3. Registration tests expect specific tools to be registered
+    
+    Solution: Import tool modules at test start (without reload) to ensure
+    registration happens. Don't clear registry to avoid breaking isinstance checks.
+    """
+    # Import tool modules to trigger registration (if not already done)
+    # importlib.import_module handles already-imported modules gracefully
+    import importlib
+    from olav.tools.base import ToolRegistry
+    
+    tool_modules = [
+        "olav.tools.suzieq_tool",
+        "olav.tools.netbox_tool_refactored",
+        "olav.tools.nornir_tool_refactored",
+    ]
+    
+    for module_name in tool_modules:
+        try:
+            importlib.import_module(module_name)
+        except Exception as e:
+            # Log import errors for debugging
+            print(f"Warning: Failed to import {module_name}: {e}")
+    
+    # Debug: Print registered tools
+    registered_tools = [t.name for t in ToolRegistry.list_tools()]
+    if not registered_tools:
+        print("WARNING: ToolRegistry is empty after imports!")
+    
+    yield
+
+
+def pytest_configure(config):
+    """Pytest hook called after command line options have been parsed.
+    
+    Pre-import tool modules to ensure ToolRegistry is populated BEFORE
+    any tests run. This solves the state pollution issue where tests
+    run before tools are registered.
+    """
+    import importlib
+    
+    tool_modules = [
+        "olav.tools.suzieq_tool",
+        "olav.tools.netbox_tool_refactored",
+        "olav.tools.nornir_tool_refactored",
+    ]
+    
+    for module_name in tool_modules:
+        try:
+            importlib.import_module(module_name)
+        except Exception as e:
+            print(f"pytest_configure: Failed to import {module_name}: {e}")

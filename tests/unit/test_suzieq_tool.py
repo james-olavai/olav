@@ -424,6 +424,21 @@ class TestSuzieQSchemaSearchTool:
 class TestSuzieQToolRegistration:
     """Test tool registration with ToolRegistry."""
     
+    @classmethod
+    def setup_class(cls):
+        """Ensure SuzieQ tools are registered before testing.
+        
+        Force re-registration in case previous tests cleared the registry.
+        """
+        from olav.tools.base import ToolRegistry
+        from olav.tools.suzieq_tool import SuzieQTool, SuzieQSchemaSearchTool
+        
+        # Re-register tools if not present (handles state pollution)
+        if not ToolRegistry.get_tool("suzieq_query"):
+            ToolRegistry.register(SuzieQTool())
+        if not ToolRegistry.get_tool("suzieq_schema_search"):
+            ToolRegistry.register(SuzieQSchemaSearchTool())
+    
     def test_tools_registered(self):
         """Test both tools are registered on import."""
         from olav.tools.base import ToolRegistry

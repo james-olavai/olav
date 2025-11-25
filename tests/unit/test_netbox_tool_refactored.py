@@ -438,6 +438,21 @@ class TestNetBoxSchemaSearchTool:
 class TestNetBoxToolRegistration:
     """Test tool registration with ToolRegistry."""
     
+    @classmethod
+    def setup_class(cls):
+        """Ensure NetBox tools are registered before testing.
+        
+        Force re-registration in case previous tests cleared the registry.
+        """
+        from olav.tools.base import ToolRegistry
+        from olav.tools.netbox_tool_refactored import NetBoxAPITool, NetBoxSchemaSearchTool
+        
+        # Re-register tools if not present (handles state pollution)
+        if not ToolRegistry.get_tool("netbox_api"):
+            ToolRegistry.register(NetBoxAPITool())
+        if not ToolRegistry.get_tool("netbox_schema_search"):
+            ToolRegistry.register(NetBoxSchemaSearchTool())
+    
     def test_tools_registered(self):
         """Test both tools are registered on import."""
         from olav.tools.base import ToolRegistry

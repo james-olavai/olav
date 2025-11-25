@@ -416,6 +416,21 @@ class TestCLITool:
 class TestNornirToolRegistration:
     """Test tool registration with ToolRegistry."""
     
+    @classmethod
+    def setup_class(cls):
+        """Ensure Nornir tools are registered before testing.
+        
+        Force re-registration in case previous tests cleared the registry.
+        """
+        from olav.tools.base import ToolRegistry
+        from olav.tools.nornir_tool_refactored import NetconfTool, CLITool
+        
+        # Re-register tools if not present (handles state pollution)
+        if not ToolRegistry.get_tool("netconf_execute"):
+            ToolRegistry.register(NetconfTool())
+        if not ToolRegistry.get_tool("cli_execute"):
+            ToolRegistry.register(CLITool())
+    
     def test_tools_registered(self):
         """Test both tools are registered on import."""
         from olav.tools.base import ToolRegistry
