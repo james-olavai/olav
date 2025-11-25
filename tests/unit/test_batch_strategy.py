@@ -1,7 +1,8 @@
 """
 Unit tests for BatchPathStrategy.
 
-Tests YAML config loading, device resolution, parallel execution, and validation.
+Tests YAML config loading, device resolution, parallel execution, validation,
+and intent compilation.
 """
 
 import pytest
@@ -584,3 +585,175 @@ async def test_violations_collected(batch_strategy, sample_config_dict):
     # Check violation message format
     violation = result.violations[0]
     assert "R2" in violation or "count" in violation.lower()
+
+
+# Phase B.5 Tests: YAML Loading and Intent Compilation
+
+def test_load_config_class_method(tmp_path):
+    """Test BatchPathStrategy.load_config() class method."""
+    config_data = {
+        "name": "test_config",
+        "description": "Test configuration",
+        "devices": ["R1", "R2"],
+        "checks": [
+            {
+                "name": "test_check",
+                "tool": "suzieq_query",
+                "parameters": {"table": "bgp"},
+                "enabled": True
+            }
+        ]
+    }
+    
+    config_file = tmp_path / "test_config.yaml"
+    with open(config_file, "w") as f:
+        yaml.dump(config_data, f)
+    
+    # Test class method
+    config = BatchPathStrategy.load_config(config_file)
+    
+    assert config.name == "test_config"
+    assert len(config.devices) == 2
+    assert len(config.checks) == 1
+
+
+@pytest.mark.asyncio
+async def test_compile_intent_to_parameters_bgp(batch_strategy, mock_llm):
+    """Test intent compilation for BGP check."""
+    mock_response = AIMessage(content='{"table": "bgp", "state": "Established", "method": "summarize"}')
+    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+    batch_strategy.llm = mock_llm
+    
+    intent = "检查 BGP 邻居状态"
+    tool = "suzieq_query"
+    existing_params = {}
+    
+    compiled_params = await batch_strategy._compile_intent_to_parameters(
+        intent=intent,
+        tool=tool,
+        existing_params=existing_params
+    )
+    
+    assert "table" in compiled_params
+    assert compiled_params["table"] == "bgp"
+    assert compiled_params["state"] == "Established"
+
+
+@pytest.mark.asyncio
+async def test_compile_intent_preserves_existing_params(batch_strategy, mock_llm):
+    """Test that existing parameters take precedence over compiled ones."""
+    mock_response = AIMessage(content='{"table": "bgp", "method": "get"}')
+    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+    batch_strategy.llm = mock_llm
+    
+    intent = "检查 BGP"
+    tool = "suzieq_query"
+    existing_params = {"method": "summarize"}  # Explicit param should override
+    
+    compiled_params = await batch_strategy._compile_intent_to_parameters(
+        intent=intent,
+        tool=tool,
+        existing_params=existing_params
+    )
+    
+    assert compiled_params["method"] == "summarize"  # Existing param preserved
+
+
+@pytest.mark.asyncio
+async def test_compile_intent_handles_invalid_json(batch_strategy, mock_llm):
+    """Test intent compilation with invalid LLM response."""
+    mock_response = AIMessage(content="This is not JSON")
+    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+    batch_strategy.llm = mock_llm
+    
+    intent = "检查接口状态"
+    tool = "suzieq_query"
+    existing_params = {"table": "interfaces"}
+    
+    # Should fall back to existing params
+    compiled_params = await batch_strategy._compile_intent_to_parameters(
+        intent=intent,
+        tool=tool,
+        existing_params=existing_params
+    )
+    
+    assert compiled_params == existing_params
+
+
+@pytest.mark.asyncio
+async def test_execute_check_with_intent(batch_strategy, mock_llm):
+    """Test executing check with intent field."""
+    # Mock LLM for intent compilation
+    mock_response = AIMessage(content='{"table": "bgp", "state": "Established", "method": "summarize"}')
+    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+    batch_strategy.llm = mock_llm
+    
+    # Mock tool
+    tool = MagicMock()
+    async def execute(**kwargs):
+        return ToolOutput(
+            source="suzieq_query",
+            device=kwargs.get("hostname", "unknown"),
+            data=[{"count": 3, "hostname": kwargs.get("hostname")}],
+            error=None
+        )
+    tool.execute = execute
+    batch_strategy.tool_registry.get_tool = MagicMock(return_value=tool)
+    
+    # Create check with intent
+    check = CheckTask(
+        name="bgp_intent_check",
+        tool="suzieq_query",
+        intent="检查 BGP 邻居状态",  # Intent instead of explicit params
+        threshold=ThresholdRule(
+            field="count",
+            operator=">=",
+            value=2,
+            severity="critical"
+        )
+    )
+    
+    result = await batch_strategy._execute_single_check("R1", check)
+    
+    assert result.device == "R1"
+    assert result.check_name == "bgp_intent_check"
+    assert result.tool_output is not None
+    assert result.tool_output.error is None
+    assert mock_llm.ainvoke.called  # Intent was compiled
+
+
+@pytest.mark.asyncio
+async def test_load_and_execute_real_yaml(batch_strategy, tmp_path):
+    """Test loading and executing a real YAML config file."""
+    yaml_content = """
+name: test_inspection
+description: Test batch inspection
+devices:
+  - R1
+  - R2
+checks:
+  - name: bgp_check
+    tool: suzieq_query
+    enabled: true
+    parameters:
+      table: bgp
+      state: Established
+      method: summarize
+    threshold:
+      field: count
+      operator: ">="
+      value: 2
+      severity: critical
+parallel: true
+max_workers: 5
+"""
+    
+    config_file = tmp_path / "test_inspection.yaml"
+    config_file.write_text(yaml_content)
+    
+    # Execute from YAML file
+    result = await batch_strategy.execute(config_path=str(config_file))
+    
+    assert result.config_name == "test_inspection"
+    assert result.summary.total_devices == 2
+    assert len(result.device_results) > 0  # Use correct field name

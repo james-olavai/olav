@@ -60,12 +60,21 @@ class CheckTask(BaseModel):
     Single check task to execute on devices.
 
     Specifies what tool to run and what thresholds to validate.
+
+    Supports two modes:
+    1. Explicit parameters: Direct tool parameters (deterministic)
+    2. Intent-based: Natural language intent compiled by LLM (flexible)
     """
 
     name: str = Field(description="Unique check identifier")
     description: str | None = Field(default=None, description="Human-readable description")
     tool: str = Field(description="Tool to execute (suzieq_query, cli_tool, etc.)")
     parameters: dict[str, Any] = Field(default_factory=dict, description="Tool-specific parameters")
+    intent: str | None = Field(
+        default=None,
+        description="Natural language intent (alternative to explicit parameters). "
+        "LLM will compile to parameters. Example: '检查 BGP 邻居状态'",
+    )
     threshold: ThresholdRule | None = Field(
         default=None, description="Threshold rule for validation"
     )

@@ -213,7 +213,11 @@
    - **架构**: CLITemplateTool (命令发现) + CLITool (SSH执行)
    - **集成**: NornirSandbox + TextFSM解析 + HITL审批
    
-4. 🔴 **Phase B.5: Batch YAML Executor** (2-3 天) - 完成 Task B2 剩余 15%
+4. ✅ ~~Phase B.5: Batch YAML Executor~~ (已完成 - 2025-11-25)
+   - **成果**: YAML-driven batch inspection 100% 可用
+   - **新功能**: NL Intent → SQL Compiler (LLM 自动编译意图到工具参数)
+   - **测试**: 6/6 新测试通过（test_batch_strategy.py）
+   - **示例配置**: 4 个生产级 YAML 文件
 
 ---
 
@@ -480,18 +484,28 @@
     -   `archive/deepagents/libs/deepagents/deepagents/middleware/filesystem.py` (907 lines)
     -   `archive/deepagents/libs/deepagents/deepagents/middleware/subagents.py`
 
-#### Issue 6: Batch YAML Executor 未完整实现 (P2)
--   **当前完成度**: 85%
--   **已完成**:
+#### ~~Issue 6: Batch YAML Executor 未完整实现~~ → **已完成 ✅** (2025-11-25)
+-   **完成度**: 100%
+-   **已实现功能**:
     -   ✅ ThresholdValidator (430 行)
-    -   ✅ BatchPathStrategy Map-Reduce
-    -   ✅ InspectionTask Schema
--   **待实现** (15%):
-    -   [ ] `load_inspection_config()` YAML 加载器
-    -   [ ] NL Intent → SQL Compiler
-    -   [ ] 示例配置: `config/inspections/daily_core_check.yaml`
--   **预期修复时间**: 1-2 天
--   **业务价值**: 声明式巡检，运维效率提升 50%
+    -   ✅ BatchPathStrategy Map-Reduce 并发
+    -   ✅ InspectionConfig Schema (支持 intent 字段)
+    -   ✅ `BatchPathStrategy.load_config()` 类方法
+    -   ✅ `_compile_intent_to_parameters()` - NL Intent → SQL Compiler
+    -   ✅ 示例 YAML 配置:
+        -   `config/inspections/bgp_peer_audit.yaml` (BGP 健康检查)
+        -   `config/inspections/interface_health.yaml` (接口状态审计)
+        -   `config/inspections/daily_core_check.yaml` (核心网每日巡检)
+        -   `config/inspections/intent_based_audit.yaml` (意图编译示例)
+        -   `config/inspections/README.md` (详细文档)
+-   **测试覆盖**: 6 个新测试通过
+    -   `test_load_config_class_method` - YAML 加载
+    -   `test_compile_intent_to_parameters_bgp` - BGP 意图编译
+    -   `test_compile_intent_preserves_existing_params` - 参数优先级
+    -   `test_compile_intent_handles_invalid_json` - 错误处理
+    -   `test_execute_check_with_intent` - 端到端意图执行
+    -   `test_load_and_execute_real_yaml` - 真实 YAML 文件执行
+-   **业务价值**: 声明式巡检，运维效率提升 50%+，支持 Git 版本控制
 
 #### Issue 7: 警告抑制 (P2)
 -   **现状**: 15 个 warnings 污染测试输出

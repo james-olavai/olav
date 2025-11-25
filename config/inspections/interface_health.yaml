@@ -1,0 +1,86 @@
+# Interface Health Check - Example Batch Inspection Config
+#
+# Purpose: Weekly interface error and utilization audit
+# Schedule: Run every Monday at 08:00
+# Owner: Network Operations Team
+#
+# Usage:
+#   uv run python -m olav.cli batch-inspect config/inspections/interface_health.yaml
+
+name: interface_health_check
+description: Check interface states, error rates, and utilization across network
+
+# Device Selection: NetBox filter for all routers in DC1
+devices:
+  netbox_filter:
+    role: router
+    site: DC1
+
+# Inspection Checks
+checks:
+  # Check 1: Interface operational state
+  - name: interface_state_check
+    description: All critical interfaces should be UP
+    tool: suzieq_query
+    enabled: true
+    parameters:
+      table: interfaces
+      state: up
+      method: summarize
+    threshold:
+      field: count
+      operator: ">"
+      value: 0
+      severity: info
+      message: "Device {device} has {actual} interfaces UP"
+
+  # Check 2: Input error rate
+  - name: interface_input_errors
+    description: Input error rate should be below threshold
+    tool: suzieq_query
+    enabled: true
+    parameters:
+      table: interfaces
+      method: get
+    threshold:
+      field: inputErrors
+      operator: "<"
+      value: 100
+      severity: warning
+      message: "Device {device} interface {interface} has {actual} input errors (threshold: {value})"
+
+  # Check 3: Output error rate
+  - name: interface_output_errors
+    description: Output error rate should be below threshold
+    tool: suzieq_query
+    enabled: true
+    parameters:
+      table: interfaces
+      method: get
+    threshold:
+      field: outputErrors
+      operator: "<"
+      value: 100
+      severity: warning
+      message: "Device {device} interface {interface} has {actual} output errors"
+
+  # Check 4: Interface utilization (if available)
+  - name: interface_utilization_check
+    description: Interface utilization should not exceed 80%
+    tool: suzieq_query
+    enabled: false  # Requires interface utilization data in SuzieQ
+    parameters:
+      table: interfaces
+      method: get
+    threshold:
+      field: utilization
+      operator: "<"
+      value: 80
+      severity: info
+      message: "Interface {interface} utilization is {actual}% (threshold: {value}%)"
+
+# Execution Settings
+parallel: true
+max_workers: 10
+stop_on_failure: false
+output_format: table

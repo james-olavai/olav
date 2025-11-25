@@ -1,0 +1,94 @@
+# Intent-Based Network Audit - Example with NL Intent Compilation
+#
+# Purpose: Demonstrate natural language intent compilation to tool parameters
+# Feature: Uses 'intent' field instead of explicit 'parameters' for flexible checks
+# Owner: Network Operations Team
+#
+# Usage:
+#   uv run python -m olav.cli batch-inspect config/inspections/intent_based_audit.yaml
+#
+# Note: Intent compilation uses LLM to translate NL to tool parameters.
+#       For production, prefer explicit parameters for determinism.
+
+name: intent_based_network_audit
+description: Example inspection using natural language intents
+
+# Device Selection
+devices:
+  - R1
+  - R2
+  - R3
+
+# Inspection Checks with Intent Compilation
+checks:
+  # Check 1: Intent-based BGP check (LLM compiles to suzieq_query params)
+  - name: bgp_health_intent
+    description: Check BGP neighbor health using natural language
+    tool: suzieq_query
+    enabled: true
+    # Intent field: LLM will compile this to:
+    # {table: "bgp", state: "Established", method: "summarize"}
+    intent: "检查 BGP 邻居状态是否 Established"
+    threshold:
+      field: count
+      operator: ">="
+      value: 2
+      severity: critical
+      message: "Device {device} BGP peers: {actual} (expected >= {value})"
+
+  # Check 2: Mixed mode - intent + explicit parameters (parameters override)
+  - name: interface_health_mixed
+    description: Check interface status with partial intent
+    tool: suzieq_query
+    enabled: true
+    intent: "查看接口状态"
+    parameters:
+      # Explicit param overrides LLM compilation
+      state: up
+    threshold:
+      field: count
+      operator: ">"
+      value: 0
+      severity: info
+      message: "Device {device} has {actual} interfaces UP"
+
+  # Check 3: Pure explicit parameters (no intent, deterministic)
+  - name: ospf_neighbor_explicit
+    description: OSPF neighbor check without intent (recommended for production)
+    tool: suzieq_query
+    enabled: true
+    parameters:
+      table: ospf
+      state: full
+      method: summarize
+    threshold:
+      field: count
+      operator: ">="
+      value: 1
+      severity: critical
+      message: "Device {device} OSPF neighbors: {actual}"
+
+  # Check 4: Intent for complex query
+  - name: route_table_intent
+    description: Verify routing table health using intent
+    tool: suzieq_query
+    enabled: true
+    intent: "验证路由表中有足够的路由条目"
+    threshold:
+      field: count
+      operator: ">="
+      value: 10
+      severity: warning
+      message: "Device {device} routes: {actual} (threshold: >= {value})"
+
+# Execution Settings
+parallel: true
+max_workers: 5
+stop_on_failure: false
+output_format: table
+
+# Performance Notes:
+# - Intent compilation adds ~100-500ms per unique intent (LLM call)
+# - Intents are NOT cached currently (TODO: add caching for repeated intents)
+# - For production/high-frequency checks, use explicit parameters
+# - Intent is useful for ad-hoc audits and reducing YAML verbosity

@@ -1,0 +1,119 @@
+# Daily Core Network Health Check - Example Batch Inspection Config
+#
+# Purpose: Comprehensive daily health check for core network devices
+# Schedule: Run at 09:00 daily (via cron/APScheduler)
+# Owner: Network Operations Team
+#
+# Usage:
+#   uv run python -m olav.cli batch-inspect config/inspections/daily_core_check.yaml
+
+name: daily_core_network_check
+description: Daily health check for core routers and switches
+
+# Device Selection: All core devices via NetBox
+devices:
+  netbox_filter:
+    role: core-router
+    status: active
+
+# Inspection Checks
+checks:
+  # Check 1: BGP peer health
+  - name: bgp_peer_health
+    description: Verify BGP peer states
+    tool: suzieq_query
+    enabled: true
+    parameters:
+      table: bgp
+      state: Established
+      method: summarize
+    threshold:
+      field: count
+      operator: ">="
+      value: 2
+      severity: critical
+      message: "Device {device} has {actual} established BGP peers (expected >= {value})"
+
+  # Check 2: OSPF neighbor adjacency
+  - name: ospf_neighbor_check
+    description: Verify OSPF neighbor adjacencies
+    tool: suzieq_query
+    enabled: true
+    parameters:
+      table: ospf
+      state: full
+      method: summarize
+    threshold:
+      field: count
+      operator: ">="
+      value: 1
+      severity: critical
+      message: "Device {device} has {actual} OSPF neighbors in Full state (expected >= {value})"
+
+  # Check 3: Interface status
+  - name: interface_up_check
+    description: Critical interfaces should be UP
+    tool: suzieq_query
+    enabled: true
+    parameters:
+      table: interfaces
+      state: up
+      method: summarize
+    threshold:
+      field: count
+      operator: ">"
+      value: 0
+      severity: warning
+      message: "Device {device} has {actual} interfaces UP"
+
+  # Check 4: MAC address table size (switch health)
+  - name: mac_table_size
+    description: MAC address table should not be empty
+    tool: suzieq_query
+    enabled: true
+    parameters:
+      table: macs
+      method: summarize
+    threshold:
+      field: count
+      operator: ">"
+      value: 0
+      severity: info
+      message: "Device {device} has {actual} MAC entries"
+
+  # Check 5: Route table health
+  - name: route_table_check
+    description: Routing table should contain minimum routes
+    tool: suzieq_query
+    enabled: true
+    parameters:
+      table: routes
+      method: summarize
+    threshold:
+      field: count
+      operator: ">="
+      value: 10
+      severity: warning
+      message: "Device {device} has {actual} routes (expected >= {value})"
+
+  # Check 6: Device inventory check
+  - name: device_inventory
+    description: Verify device is reachable in SuzieQ inventory
+    tool: suzieq_query
+    enabled: true
+    parameters:
+      table: device
+      status: alive
+      method: get
+    threshold:
+      field: count
+      operator: "=="
+      value: 1
+      severity: critical
+      message: "Device {device} inventory status: {actual} (expected: alive)"
+
+# Execution Settings
+parallel: true
+max_workers: 10
+stop_on_failure: false  # Continue checking other devices even if one fails
+output_format: table    # Options: table, json, yaml, html

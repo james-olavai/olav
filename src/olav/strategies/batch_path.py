@@ -193,12 +193,37 @@ class BatchPathStrategy:
         Initialize BatchPathStrategy.
 
         Args:
-            llm: Language model (minimal use - only for NetBox queries)
+            llm: Language model (minimal use - only for NetBox queries and intent compilation)
             tool_registry: ToolRegistry instance (default: global registry)
         """
         self.llm = llm
         self.validator = ThresholdValidator()
         self.tool_registry = tool_registry or ToolRegistry
+
+    @classmethod
+    def load_config(cls, config_path: str | Path) -> InspectionConfig:
+        """
+        Load inspection configuration from YAML file.
+
+        Convenience method for loading YAML configs without instantiating strategy.
+
+        Args:
+            config_path: Path to YAML configuration file
+
+        Returns:
+            InspectionConfig instance
+
+        Raises:
+            FileNotFoundError: If config file doesn't exist
+            ValueError: If YAML is invalid
+
+        Example:
+            >>> config = BatchPathStrategy.load_config("config/inspections/bgp_audit.yaml")
+            >>> print(f"Loaded: {config.name}")
+            >>> print(f"Devices: {config.devices}")
+            >>> print(f"Checks: {len(config.checks)}")
+        """
+        return InspectionConfig.from_yaml(Path(config_path))
 
     async def execute(
         self, config_path: str | None = None, config_dict: dict[str, Any] | None = None
@@ -267,7 +292,7 @@ class BatchPathStrategy:
         Resolve device list from config.
 
         Supports three methods:
-        1. Explicit list: devices.explicit
+        1. Explicit list: devices as list[str]
         2. NetBox filter: devices.netbox_filter (requires LLM to build query)
         3. Regex pattern: devices.regex (match against inventory)
 
@@ -277,6 +302,11 @@ class BatchPathStrategy:
         Returns:
             List of device hostnames
         """
+        # Handle explicit list (list[str])
+        if isinstance(config.devices, list):
+            return config.devices
+
+        # Handle DeviceSelector object
         if config.devices.explicit:
             return config.devices.explicit
 
@@ -320,6 +350,104 @@ class BatchPathStrategy:
 
         logger.warning("No device selector specified in config")
         return []
+
+    async def _compile_intent_to_parameters(
+        self, intent: str, tool: str, existing_params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """
+        Compile natural language intent to tool parameters using LLM.
+
+        This method enables YAML configs to use natural language descriptions
+        instead of explicit SQL queries or XPath expressions. The LLM translates
+        intent into tool-specific parameters.
+
+        Examples:
+            Intent: "检查 CPU 利用率" + tool: suzieq_query
+            → {table: "device", method: "get", column: "cpuUtilization"}
+
+            Intent: "验证 BGP 邻居数量" + tool: suzieq_query
+            → {table: "bgp", state: "Established", method: "summarize"}
+
+        Args:
+            intent: Natural language description of what to check
+            tool: Tool name (suzieq_query, cli_execute, netconf_get)
+            existing_params: Existing parameters from YAML (will be merged)
+
+        Returns:
+            Updated parameters dictionary with LLM-compiled values
+
+        Note:
+            This is an optional enhancement. YAML configs can always use
+            explicit parameters instead of intent for deterministic execution.
+        """
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        # System prompt for intent compilation
+        system_prompt = f"""你是网络运维专家，负责将自然语言意图编译为工具参数。
+
+工具: {tool}
+
+可用工具参数格式:
+
+**suzieq_query**:
+- table: SuzieQ 表名 (bgp, interfaces, routes, ospf, device, macs, vlan, lldp, arpnd)
+- method: 查询方法 (get, summarize, unique, aver)
+- state: 状态过滤 (Established, up, down, full, idle)
+- column: 列名 (用于 unique/aver)
+- 其他过滤参数根据表结构
+
+**cli_execute**:
+- command: CLI 命令字符串
+- device: 设备主机名 (自动填充)
+
+**netconf_get**:
+- xpath: NETCONF XPath 路径
+- device: 设备主机名 (自动填充)
+
+**任务**: 将用户意图转换为参数字典。只返回 JSON 格式的参数，不要解释。
+
+**示例**:
+意图: "检查 BGP 邻居状态"
+输出: {{"table": "bgp", "method": "summarize", "state": "Established"}}
+
+意图: "查看接口错误率"
+输出: {{"table": "interfaces", "method": "get"}}
+
+意图: "验证 OSPF 邻居完全状态"
+输出: {{"table": "ospf", "state": "full", "method": "summarize"}}
+"""
+
+        human_prompt = f"""意图: {intent}
+
+已有参数: {existing_params}
+
+请补充或完善参数字典，只返回 JSON。"""
+
+        try:
+            response = await self.llm.ainvoke(
+                [SystemMessage(content=system_prompt), HumanMessage(content=human_prompt)]
+            )
+
+            # Parse JSON response
+            import json
+            import re
+
+            # Extract JSON from response (handle code blocks)
+            content = response.content
+            json_match = re.search(r"\{.*\}", content, re.DOTALL)
+            if json_match:
+                compiled_params = json.loads(json_match.group())
+                # Merge with existing params (existing takes precedence)
+                merged = {**compiled_params, **existing_params}
+                logger.info(f"Compiled intent '{intent}' → {merged}")
+                return merged
+            else:
+                logger.warning(f"LLM response did not contain valid JSON: {content}")
+                return existing_params
+
+        except Exception as e:
+            logger.exception(f"Failed to compile intent '{intent}': {e}")
+            return existing_params
 
     async def _execute_parallel(
         self, devices: list[str], checks: list[CheckTask], max_workers: int
@@ -385,6 +513,9 @@ class BatchPathStrategy:
         """
         Execute a single check on a single device.
 
+        If check has 'intent' field, compile it to parameters first using LLM.
+        Otherwise, use explicit parameters from YAML.
+
         Args:
             device: Device hostname
             check: CheckTask to execute
@@ -405,8 +536,18 @@ class BatchPathStrategy:
                     execution_time_ms=0,
                 )
 
-            # Execute tool with device parameter
-            params = {**check.parameters, "hostname": device}
+            # Compile intent to parameters if provided
+            params = check.parameters.copy()
+            if check.intent:
+                logger.info(f"Compiling intent for check '{check.name}': {check.intent}")
+                params = await self._compile_intent_to_parameters(
+                    intent=check.intent, tool=check.tool, existing_params=params
+                )
+
+            # Add device hostname to parameters
+            params["hostname"] = device
+
+            # Execute tool
             tool_output = await tool.execute(**params)
 
             execution_time = (time.time() - start_time) * 1000
