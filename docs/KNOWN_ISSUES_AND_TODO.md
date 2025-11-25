@@ -136,7 +136,7 @@
     -   文档: `docs/PHASE_B3_CLEANUP_SUMMARY.md`
     -   Commits: 06bffc1, aa2202c
 
-### Sprint 8: 测试稳定化修复 - **2025-11-25 接近完成** ✅
+### Sprint 8: 测试稳定化修复 - **2025-11-25 完成** ✅
 
 -   ✅ **test_router.py 修复** (100% 完成 - 3 commits)
     -   **Progress**: 0/20 (17 errors + 3 failures) → **20/20 passing (100%)**
@@ -160,22 +160,35 @@
     -   **test_suzieq_tools_extended.py**: 1 个测试改为条件跳过 ✅
     -   **Commit**: 9e7082c
     -   **Impact**: 380 → 381 passing (+1), 11 → 7 failing (-4), +3 skipped
+
+-   ✅ **工具注册状态污染修复** (6 个测试 - 1 commit)
+    -   **Root Cause**: 工具在模块导入时注册到 `ToolRegistry._tools`
+        -   导入顺序在完整测试套件中不确定
+        -   部分测试在工具模块导入前运行 → 注册表为空
+    -   **Solution**: 在注册测试类中添加 `setup_class()` 强制重新注册
+        -   检查工具是否存在，缺失时重新注册（避免 ValueError）
+        -   确保测试前工具模块已导入并注册
+    -   **Files Changed**:
+        -   `tests/conftest.py`: 添加 `pytest_configure()` + `reset_tool_registry()` fixture
+        -   `tests/unit/test_suzieq_tool.py`: `setup_class()` 重新注册 SuzieQ 工具
+        -   `tests/unit/test_netbox_tool_refactored.py`: `setup_class()` 重新注册 NetBox 工具
+        -   `tests/unit/test_nornir_tool_refactored.py`: `setup_class()` 重新注册 Nornir 工具
+    -   **Commit**: 9909a0b
+    -   **Impact**: 381 → 387 passing (+6), 7 → 1 failing (-6)
     
--   🔄 **Unit 测试修复** (381/400 → 目标: 400/400 passing)
-    -   **Current Status**: **381 passing, 7 failing, 12 skipped** (95.25% 通过率)
-    -   **Overall Improvement**: 360 (90%) → 381 (95.25%) - **+5.25% 提升**
-    -   **剩余失败** (7 个测试 - 全部为状态污染问题):
-        -   test_suzieq_tool.py::TestSuzieQToolRegistration: 2 failures (单独运行通过)
-        -   test_nornir_tool_refactored.py::TestNornirToolRegistration: 2 failures (单独运行通过)
-        -   test_netbox_tool_refactored.py::TestNetBoxToolRegistration: 2 failures (单独运行通过)
-        -   test_strategies.py::test_execute_tool_error: 1 failure (单独运行通过)
-    -   **Root Cause**: 测试在完整套件中失败，单独运行通过 → 状态污染/竞态条件
-    -   **优先级**: 低（可推迟到 Phase B.4 或作为已知问题记录）
+-   ✅ **Unit 测试修复** (360/400 → 387/400 passing) - **96.75% 通过率**
+    -   **Final Status**: **387 passing, 1 failing, 12 skipped**
+    -   **Overall Improvement**: 360 (90%) → 387 (96.75%) - **+6.75% 提升**
+    -   **Total Tests Fixed**: 27 tests (20 router + 1 config + 6 registration)
+    -   **剩余失败** (1 个测试 - 非状态污染问题):
+        -   `test_strategies.py::test_execute_tool_error`: 测试期望工具错误时 `success=False`，但 FastPathStrategy 未检查 `tool_output.error` 字段 → 需要策略重构（低优先级）
     
 -   ❌ **E2E 测试修复** (9/12 → 目标: 12/12 passing)
     -   test_authentication_login_failure (缺 WWW-Authenticate header)
     -   test_workflow_invoke_endpoint (LLM 调用超时 30s)
     -   test_cli_client_remote_mode (参数名错误)
+
+**决策**: Sprint 8 目标超额完成 (96.75% > 95% 目标)，启动 Phase B.4 CLI Tool 实现。
 
 ---
 
@@ -184,11 +197,9 @@
 ### 🎯 当前优先级 (2025-11-25)
 
 **短期（本周）**：
-1. 🟡 **调查工具注册状态污染** (7 个测试 - 可选)
-   - 测试单独运行通过，完整套件失败
-   - 可能原因: import order, shared state, race condition
-   - **优先级**: 低（可作为已知问题记录，推迟到 Phase B.4）
-   - **决策**: 381/400 (95.25%) 已达标，可启动 Phase B.4
+1. ✅ ~~调查工具注册状态污染~~ (已完成 - Commit 9909a0b)
+   - **结果**: 387/400 passing (96.75%) - 目标超额完成
+   - **剩余**: 1个测试失败（test_strategies.py - 非状态污染，需策略重构）
 
 2. 🔴 **修复 E2E 测试失败** (3 个测试 - 0.5-1 天 - 可选)
    - `test_authentication_login_failure` (缺 WWW-Authenticate header)
@@ -197,8 +208,8 @@
    - **优先级**: 中（E2E 测试非核心，9/12 通过已可用）
 
 **中期（下周）**：
-4. 🔴 **Phase B.4: CLI Tool 实现** (2-3 天) - 开始 Task B1
-5. 🔴 **Phase B.5: Batch YAML Executor** (2-3 天) - 完成 Task B2 剩余 15%
+3. 🔴 **Phase B.4: CLI Tool 实现** (2-3 天) - 开始 Task B1
+4. 🔴 **Phase B.5: Batch YAML Executor** (2-3 天) - 完成 Task B2 剩余 15%
 
 ---
 
