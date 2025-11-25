@@ -54,8 +54,8 @@ class LLMConfig:
     New code should prefer dynamic model selection via `olav.core.settings`.
     """
     PROVIDER: Literal["openai", "ollama", "azure"] = "openai"
-    BASE_URL: str = "https://api.openai.com/v1"
-    MODEL_NAME = "gpt-4-turbo"
+    BASE_URL: str = "https://openrouter.ai/api/v1"
+    MODEL_NAME = "x-ai/grok-4.1-fast"
     TEMPERATURE = 0.2
     MAX_TOKENS = 16000
     EMBEDDING_MODEL = "text-embedding-3-small"

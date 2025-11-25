@@ -4,11 +4,21 @@ Intent Classification:
 1. Query/Diagnostic: BGP状态查询、故障诊断、性能分析
 2. Device Execution: 配置变更、CLI 执行
 3. NetBox Management: 设备清单、IP分配、站点管理
+4. Deep Dive: 复杂多步任务、批量审计、递归诊断
 
-Routing Strategy:
+Routing Strategy (NEW - Dynamic Intent Router):
+- Phase 1: Semantic pre-filtering (vector similarity on workflow examples)
+- Phase 2: LLM classification (on Top-3 candidates only)
+- Fallback: Keyword-based routing (if semantic index not available)
+
+Legacy Routing Strategy (DEPRECATED):
 - LLM-based classification (primary)
 - Keyword fallback (secondary)
 - Reject if no match
+
+Environment Variables:
+- OLAV_USE_DYNAMIC_ROUTER=true: Enable new DynamicIntentRouter (default: true)
+- OLAV_USE_DYNAMIC_ROUTER=false: Use legacy classification (for rollback)
 """
 
 import sys
@@ -17,8 +27,10 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 import logging
-from typing import Literal
+import os
+from typing import Literal, Optional
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from langchain_core.embeddings import Embeddings
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from olav.core.llm import LLMFactory
@@ -29,29 +41,135 @@ from olav.workflows.query_diagnostic import QueryDiagnosticWorkflow
 from olav.workflows.device_execution import DeviceExecutionWorkflow
 from olav.workflows.netbox_management import NetBoxManagementWorkflow
 from olav.workflows.deep_dive import DeepDiveWorkflow
+from olav.workflows.registry import WorkflowRegistry
+from olav.agents.dynamic_orchestrator import DynamicIntentRouter
 
 logger = logging.getLogger(__name__)
 
 
 class WorkflowOrchestrator:
-    """Route user queries to appropriate workflow."""
+    """Route user queries to appropriate workflow using Dynamic Intent Router."""
     
-    def __init__(self, checkpointer: AsyncPostgresSaver, expert_mode: bool = False):
+    def __init__(
+        self,
+        checkpointer: AsyncPostgresSaver,
+        expert_mode: bool = False,
+        use_dynamic_router: Optional[bool] = None
+    ):
+        """
+        Initialize orchestrator with routing strategy.
+        
+        Args:
+            checkpointer: PostgreSQL checkpointer for workflow state
+            expert_mode: Enable Deep Dive workflow for complex tasks
+            use_dynamic_router: Use DynamicIntentRouter (default: from env OLAV_USE_DYNAMIC_ROUTER)
+        """
         self.checkpointer = checkpointer
         self.expert_mode = expert_mode
-        self.llm = LLMFactory.get_chat_model(json_mode=False)  # For modification analysis
+        
+        # Determine routing strategy from env or parameter
+        if use_dynamic_router is None:
+            use_dynamic_router = os.getenv("OLAV_USE_DYNAMIC_ROUTER", "true").lower() == "true"
+        
+        self.use_dynamic_router = use_dynamic_router
+        
+        # Initialize workflows
         self.workflows = {
             WorkflowType.QUERY_DIAGNOSTIC: QueryDiagnosticWorkflow(),
             WorkflowType.DEVICE_EXECUTION: DeviceExecutionWorkflow(),
             WorkflowType.NETBOX_MANAGEMENT: NetBoxManagementWorkflow(),
             WorkflowType.DEEP_DIVE: DeepDiveWorkflow(),
         }
+        
+        # Initialize dynamic router if enabled
+        self.dynamic_router: Optional[DynamicIntentRouter] = None
+        if self.use_dynamic_router:
+            try:
+                # Detect OpenRouter key pattern (sk-or- prefix) which is incompatible with OpenAI embeddings
+                from olav.core.settings import settings as _env_settings
+                key = _env_settings.llm_api_key.strip()
+                if key.startswith("sk-or-"):
+                    logger.warning("OpenRouter style key detected; disabling semantic embedding index and using legacy routing")
+                    self.use_dynamic_router = False
+                else:
+                    llm = LLMFactory.get_chat_model(json_mode=True)
+                    embeddings = LLMFactory.get_embedding_model()
+                    self.dynamic_router = DynamicIntentRouter(llm=llm, embeddings=embeddings)
+                    logger.info("DynamicIntentRouter initialized successfully")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to initialize DynamicIntentRouter: {e}. "
+                    f"Falling back to legacy classification."
+                )
+                self.use_dynamic_router = False
+        else:
+            logger.info("Using legacy keyword-based classification")
+        
+        # LLM for legacy classification
+        self.llm = LLMFactory.get_chat_model(json_mode=False)
+    
+    async def initialize(self) -> None:
+        """
+        Initialize router (build semantic index if using dynamic router).
+        
+        Should be called once at startup before routing queries.
+        """
+        if self.dynamic_router:
+            try:
+                await self.dynamic_router.build_index()
+                logger.info("Dynamic router semantic index built successfully")
+            except Exception as e:
+                logger.error(f"Failed to build semantic index: {e}")
+                logger.warning("Falling back to legacy classification")
+                self.use_dynamic_router = False
+                self.dynamic_router = None
     
     async def classify_intent(self, user_query: str) -> WorkflowType:
-        """Classify user intent using LLM + keyword fallback.
+        """Classify user intent using Dynamic Router or legacy classification.
         
         If expert_mode is enabled and query suggests complex task,
         return DEEP_DIVE workflow type.
+        
+        Routing decision hierarchy:
+        1. Dynamic Router (if enabled and initialized)
+        2. Legacy LLM classification
+        3. Keyword fallback
+        """
+        
+        # Use DynamicIntentRouter if available
+        if self.use_dynamic_router and self.dynamic_router:
+            try:
+                workflow_name = await self.dynamic_router.route(
+                    user_query,
+                    fallback="query_diagnostic"
+                )
+                
+                # Map workflow name to WorkflowType enum
+                workflow_type_map = {
+                    "query_diagnostic": WorkflowType.QUERY_DIAGNOSTIC,
+                    "device_execution": WorkflowType.DEVICE_EXECUTION,
+                    "netbox_management": WorkflowType.NETBOX_MANAGEMENT,
+                    "deep_dive": WorkflowType.DEEP_DIVE,
+                }
+                
+                if workflow_name in workflow_type_map:
+                    logger.info(f"Dynamic router selected: {workflow_name}")
+                    return workflow_type_map[workflow_name]
+                else:
+                    logger.warning(
+                        f"Unknown workflow name from router: {workflow_name}, "
+                        f"falling back to legacy classification"
+                    )
+            except Exception as e:
+                logger.error(f"Dynamic router failed: {e}, falling back to legacy")
+        
+        # Legacy classification (fallback)
+        return await self._legacy_classify_intent(user_query)
+    
+    async def _legacy_classify_intent(self, user_query: str) -> WorkflowType:
+        """Legacy LLM-based classification (for backward compatibility).
+        
+        This method preserves the original classification logic.
         """
         
         # Check for Deep Dive triggers (if expert mode enabled)
@@ -173,7 +291,10 @@ class WorkflowOrchestrator:
             workflow = self.workflows[workflow_type]
         
         # 3. Build and execute workflow graph
-        graph = workflow.build_graph(checkpointer=self.checkpointer)
+        # Default to stateless mode for LangServe compatibility (no thread_id requirement)
+        # Set OLAV_STREAM_STATELESS=false to enable state persistence (requires client to provide thread_id)
+        use_stateless = os.getenv("OLAV_STREAM_STATELESS", "true").lower() == "true"
+        graph = workflow.build_graph(checkpointer=None if use_stateless else self.checkpointer)
         
         config = {
             "configurable": {
@@ -189,21 +310,33 @@ class WorkflowOrchestrator:
         
         # 4. Execute workflow
         result = await graph.ainvoke(initial_state, config=config)
-        
-        # 5. Check if workflow was interrupted (HITL approval required)
-        state_snapshot = await graph.aget_state(config)
-        if state_snapshot.next:  # Has pending nodes (interrupted)
+
+        # 5. Interrupt detection (skip for stateless mode)
+        if use_stateless:
             return {
                 "workflow_type": workflow_type.name,
                 "result": result,
-                "interrupted": True,
-                "next_node": state_snapshot.next[0] if state_snapshot.next else None,
-                # Pass through execution plan & todos so UI can render task descriptions
-                "execution_plan": result.get("execution_plan"),
-                "todos": result.get("todos", []),
+                "interrupted": False,
                 "final_message": result["messages"][-1].content if result.get("messages") else None,
             }
         
+        # Stateful mode: check for interrupts
+        try:
+            state_snapshot = await graph.aget_state(config)
+            if state_snapshot.next:  # Has pending nodes (interrupted)
+                return {
+                    "workflow_type": workflow_type.name,
+                    "result": result,
+                    "interrupted": True,
+                    "next_node": state_snapshot.next[0] if state_snapshot.next else None,
+                    "execution_plan": result.get("execution_plan"),
+                    "todos": result.get("todos", []),
+                    "final_message": result["messages"][-1].content if result.get("messages") else None,
+                }
+        except Exception as e:
+            # Treat errors in state retrieval as non-interrupted (log for debugging)
+            print(f"[Orchestrator] State snapshot failed: {e}, assuming non-interrupted")
+
         return {
             "workflow_type": workflow_type.name,
             "result": result,
@@ -427,7 +560,7 @@ async def create_orchestrator(postgres_uri: str) -> WorkflowOrchestrator:
 
 
 async def create_workflow_orchestrator(expert_mode: bool = False):
-    """Create Workflow Orchestrator with PostgreSQL checkpointer.
+    """Create Workflow Orchestrator with PostgreSQL checkpointer and a stateless stream graph.
     
     Args:
         expert_mode: Enable Expert Mode (Deep Dive Workflow)
@@ -451,19 +584,41 @@ async def create_workflow_orchestrator(expert_mode: bool = False):
     from langchain_core.messages import BaseMessage
     from langgraph.graph.message import add_messages
     
-    # Get shared PostgreSQL checkpointer (async mode)
-    checkpointer_manager = AsyncPostgresSaver.from_conn_string(settings.postgres_uri)
-    checkpointer = await checkpointer_manager.__aenter__()
-    
-    # Setup tables if needed
-    await checkpointer.setup()
+    # Attempt async checkpointer; fallback to sync if Windows Proactor loop incompatibility encountered
+    try:
+        checkpointer_manager = AsyncPostgresSaver.from_conn_string(settings.postgres_uri)
+        checkpointer = await checkpointer_manager.__aenter__()
+        await checkpointer.setup()
+        async_mode = True
+    except Exception as e:
+        if "ProactorEventLoop" in str(e) or "Proactor" in str(e):
+            logger.warning(
+                "AsyncPostgresSaver failed due to ProactorEventLoop; falling back to synchronous PostgresSaver"
+            )
+            from langgraph.checkpoint.postgres import PostgresSaver  # Local import
+            # PostgresSaver.from_conn_string returns a context manager; manually enter
+            pg_cm = PostgresSaver.from_conn_string(settings.postgres_uri)
+            checkpointer = pg_cm.__enter__()
+            checkpointer.setup()
+            checkpointer_manager = pg_cm  # context manager for uniform return
+            async_mode = False
+        else:
+            raise
     
     # Create orchestrator with expert mode flag
     orchestrator = WorkflowOrchestrator(checkpointer=checkpointer, expert_mode=expert_mode)
     
+    # Initialize dynamic router (build semantic index)
+    await orchestrator.initialize()
+    
     # Define state for orchestrator graph
-    class OrchestratorState(TypedDict):
-        messages: Annotated[list[BaseMessage], add_messages]
+    # Make non-critical fields optional so external clients (LangServe RemoteRunnable,
+    # simplified test payloads) can omit them without triggering 422 validation errors.
+    # Only 'messages' is required; others will be defaulted during processing.
+    class OrchestratorState(TypedDict, total=False):
+        # Accept raw dict messages (role/content) from external clients; will be
+        # normalized to LangChain message objects inside route_to_workflow.
+        messages: list
         workflow_type: str | None
         iteration_count: int
         interrupted: bool | None  # HITL interrupt flag
@@ -471,16 +626,36 @@ async def create_workflow_orchestrator(expert_mode: bool = False):
     
     async def route_to_workflow(state: OrchestratorState) -> OrchestratorState:
         """Route user query to appropriate workflow."""
-        # Get the latest user message
+        # Normalize inbound messages: convert dicts to HumanMessage/AIMessage/SystemMessage
+        normalized_messages: list[BaseMessage] = []
+        for m in state.get("messages", []):
+            try:
+                if isinstance(m, dict) and "role" in m and "content" in m:
+                    role = m["role"].lower()
+                    content = m["content"]
+                    if role in {"user", "human"}:
+                        normalized_messages.append(HumanMessage(content=content))
+                    elif role in {"assistant", "ai"}:
+                        normalized_messages.append(AIMessage(content=content))
+                    elif role == "system":
+                        normalized_messages.append(SystemMessage(content=content))
+                    else:
+                        normalized_messages.append(HumanMessage(content=content))
+                elif isinstance(m, (HumanMessage, AIMessage, SystemMessage)):
+                    normalized_messages.append(m)
+            except Exception:
+                continue
+        if not normalized_messages:
+            normalized_messages = [HumanMessage(content="")]  # placeholder to avoid empty list
+
+        # Get latest human message content
         user_message = None
-        for msg in reversed(state["messages"]):
+        for msg in reversed(normalized_messages):
             if isinstance(msg, HumanMessage):
                 user_message = msg.content
                 break
         
         if not user_message:
-            # Return empty response if no user message found
-            from langchain_core.messages import AIMessage
             return {
                 **state,
                 "messages": [AIMessage(content="未检测到用户查询")],
@@ -490,6 +665,16 @@ async def create_workflow_orchestrator(expert_mode: bool = False):
         import time
         thread_id = f"workflow-{int(time.time())}"
         
+        # Ensure required defaults if omitted
+        if "iteration_count" not in state:
+            state["iteration_count"] = 0  # type: ignore[index]
+        if "workflow_type" not in state:
+            state["workflow_type"] = None  # type: ignore[index]
+        if "interrupted" not in state:
+            state["interrupted"] = False  # type: ignore[index]
+        if "execution_plan" not in state:
+            state["execution_plan"] = None  # type: ignore[index]
+
         # Route to appropriate workflow
         result = await orchestrator.route(user_message, thread_id)
         
@@ -497,7 +682,7 @@ async def create_workflow_orchestrator(expert_mode: bool = False):
         return {
             **state,
             "workflow_type": result.get("workflow_type"),
-            "messages": result["result"].get("messages", state["messages"]),
+            "messages": result["result"].get("messages", normalized_messages),
             "interrupted": result.get("interrupted", False),
             "execution_plan": result.get("execution_plan"),
         }
@@ -508,9 +693,16 @@ async def create_workflow_orchestrator(expert_mode: bool = False):
     graph_builder.set_entry_point("route_to_workflow")
     graph_builder.add_edge("route_to_workflow", END)
     
-    graph = graph_builder.compile(checkpointer=checkpointer)
-    
-    return orchestrator, graph, checkpointer_manager
+    # Stateful graph (persists checkpoints)
+    stateful_graph = graph_builder.compile(checkpointer=checkpointer)
+    if not async_mode:
+        logger.info("Compiled orchestrator graph with synchronous PostgresSaver (fallback mode)")
+
+    # Stateless graph (no checkpoint requirements) for streaming endpoints without thread_id/config
+    stateless_graph = graph_builder.compile()
+    logger.info("Compiled additional stateless orchestrator graph for stream endpoint")
+
+    return orchestrator, stateful_graph, stateless_graph, checkpointer_manager
 
 
 __all__ = ["WorkflowOrchestrator", "create_orchestrator", "create_workflow_orchestrator"]

@@ -18,6 +18,7 @@ from .base import BaseWorkflow, BaseWorkflowState, WorkflowType
 from .query_diagnostic import QueryDiagnosticWorkflow, QueryDiagnosticState
 from .device_execution import DeviceExecutionWorkflow, DeviceExecutionState
 from .netbox_management import NetBoxManagementWorkflow, NetBoxManagementState
+from .registry import WorkflowRegistry, WorkflowMetadata
 
 __all__ = [
     "BaseWorkflow",
@@ -29,4 +30,6 @@ __all__ = [
     "DeviceExecutionState",
     "NetBoxManagementWorkflow",
     "NetBoxManagementState",
+    "WorkflowRegistry",
+    "WorkflowMetadata",
 ]

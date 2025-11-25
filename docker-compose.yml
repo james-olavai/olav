@@ -90,6 +90,7 @@ services:
       - ./data/suzieq-parquet:/suzieq/parquet
       - ./data/generated_configs:/suzieq/config:ro
     entrypoint: ["/usr/local/bin/python3.9"]
+    # Reverted monkey patch that broke pydantic; original startup restored.
     command:
       - "-c"
       - "from suzieq.poller.sq_poller import controller_main; import sys; sys.argv = ['sq-poller', '--config', '/suzieq/config/suzieq_config.yml']; controller_main()"
@@ -187,8 +188,10 @@ services:
       - .env
     environment:
       # Override for Docker network (containers use service name, not localhost)
-      NETBOX_URL: ${NETBOX_URL:-http://netbox:8080}
+      NETBOX_URL: http://netbox:8080  # Force container network address
       OPENSEARCH_URL: http://opensearch:9200
+      REDIS_URL: redis://redis:6379
+      POSTGRES_URI: postgresql://olav:${POSTGRES_PASSWORD:-OlavPG123!}@postgres:5432/olav
       # Point to cloned OpenConfig YANG repos (if available)
       OPENCONFIG_DIR: /app/archive/openconfig
       NETBOX_INGEST_FORCE: ${NETBOX_INGEST_FORCE:-false}
@@ -212,7 +215,11 @@ services:
         echo 'Running ETL pipeline via uv...' &&
         uv run python -m olav.etl.generate_configs &&
         uv run python -m olav.etl.init_postgres &&
-        uv run python -m olav.etl.openconfig_full_yang_etl &&
+        echo 'Initializing episodic memory (optional)...' &&
+        uv run python -m olav.etl.init_episodic_memory || echo '[WARN] Episodic memory init failed, continuing...' &&
+        echo 'Running OpenConfig YANG ETL (optional)...' &&
+        uv run python -m olav.etl.openconfig_full_yang_etl || echo '[WARN] OpenConfig ETL failed, continuing...' &&
+        echo 'Running SuzieQ Schema ETL...' &&
         uv run python -m olav.etl.suzieq_schema_etl &&
         touch data/bootstrap/init.ok &&
         echo 'ETL pipeline completed successfully'
@@ -247,7 +254,7 @@ services:
     networks:
       - olav-network
 
-  # OLAV App - Main ChatOps Application
+  # OLAV App - Main ChatOps Application (Legacy CLI)
   olav-app:
     build:
       context: .
@@ -273,6 +280,61 @@ services:
         condition: service_completed_successfully
     networks:
       - olav-network
+    # profiles:
+    #   - legacy  # Disable by default, enable with: docker-compose --profile legacy up
+
+  # OLAV API Server - LangServe API Platform (NEW)
+  olav-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: olav-server
+    env_file:
+      - .env
+    ports:
+      - "8001:8000"  # External 8001 to avoid conflict with legacy app
+    volumes:
+      - ./config:/app/config:ro
+    environment:
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8000
+      - OLAV_USE_DYNAMIC_ROUTER=true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # olav-init dependency removed for testing (manual PostgreSQL init above)
+    networks:
+      - olav-network
+
+  # OLAV E2E Tests - Integration Testing
+  olav-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.tests
+    container_name: olav-tests
+    environment:
+      OLAV_SERVER_URL: http://olav-server:8000
+      POSTGRES_URI: postgresql://olav:${POSTGRES_PASSWORD:-OlavPG123!}@postgres:5432/olav
+      OPENSEARCH_URL: http://opensearch:9200
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      olav-server:
+        condition: service_healthy
+    networks:
+      - olav-network
+    profiles:
+      - testing
+    command: ["python", "scripts/run_e2e_tests.py"]
 
 volumes:
   opensearch_data:

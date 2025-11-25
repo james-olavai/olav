@@ -31,6 +31,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from olav.core.llm import LLMFactory
 from olav.core.prompt_manager import prompt_manager
 from olav.workflows.base import BaseWorkflow, BaseWorkflowState, WorkflowType
+from olav.workflows.registry import WorkflowRegistry
 # Tools will be called via ToolNode, not directly imported
 
 
@@ -89,6 +90,20 @@ class DeepDiveState(TypedDict):
     trigger_recursion: bool | None
 
 
+@WorkflowRegistry.register(
+    name="deep_dive",
+    description="Deep Dive 复杂多步任务（任务分解 + 递归诊断 + 批量执行）",
+    examples=[
+        "审计所有边界路由器的 BGP 配置完整性",
+        "批量检查 30+ 设备的接口光功率",
+        "从 A 无法访问 B，请排查",
+        "为什么业务报障，Web 访问慢？",
+        "检查所有核心交换机是否符合安全策略",
+        "巡检所有设备的 CPU 和内存使用率",
+        "分析跨域连通性问题",
+    ],
+    triggers=[r"审计", r"批量", r"所有设备", r"所有路由器", r"多台设备", r"为什么", r"排查", r"诊断问题", r"从.*到"],
+)
 class DeepDiveWorkflow(BaseWorkflow):
     """Deep Dive Workflow for complex multi-step tasks."""
     

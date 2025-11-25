@@ -1,0 +1,416 @@
+"""OLAV CLI Client - Remote and Local Execution.
+
+This module provides a unified client interface for OLAV that supports:
+- Remote mode: Connect to LangServe API server via HTTP
+- Local mode: Direct local execution (legacy behavior)
+
+Architecture:
+    Remote Mode (Default):
+        CLI Client (Rich UI) → HTTP/WebSocket → LangServe API → Orchestrator
+    
+    Local Mode (-L/--local):
+        CLI Client → Direct Orchestrator (in-process)
+"""
+
+import asyncio
+import logging
+import os
+import sys
+from pathlib import Path
+from typing import Any, AsyncIterator, Literal
+
+import httpx
+from langchain_core.messages import BaseMessage
+from langserve import RemoteRunnable
+from pydantic import BaseModel
+from rich.console import Console
+from rich.live import Live
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
+
+
+# Windows psycopg async compatibility
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(
+        asyncio.WindowsSelectorEventLoopPolicy()  # type: ignore[attr-defined]
+    )
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================
+# Data Models
+# ============================================
+class ServerConfig(BaseModel):
+    """Server connection configuration."""
+
+    base_url: str = "http://localhost:8000"
+    timeout: int = 300  # 5 minutes for long-running queries
+    verify_ssl: bool = True
+
+
+class ExecutionResult(BaseModel):
+    """Result from workflow execution."""
+
+    success: bool
+    messages: list[dict[str, Any]]
+    thread_id: str
+    interrupted: bool = False
+    error: str | None = None
+
+
+# ============================================
+# OLAV Client
+# ============================================
+class OLAVClient:
+    """Unified OLAV client supporting remote and local execution modes."""
+
+    def __init__(
+        self,
+        mode: Literal["remote", "local"] = "remote",
+        server_config: ServerConfig | None = None,
+        console: Console | None = None,
+        auth_token: str | None = None,
+    ):
+        """
+        Initialize OLAV client.
+
+        Args:
+            mode: Execution mode ("remote" or "local")
+            server_config: Server configuration (for remote mode)
+            console: Rich console for output (default: create new)
+            auth_token: JWT authentication token (optional, will auto-load from ~/.olav/credentials)
+        """
+        self.mode = mode
+        self.server_config = server_config or ServerConfig()
+        self.console = console or Console()
+        self.remote_runnable: RemoteRunnable | None = None
+        self.orchestrator: Any = None  # Local orchestrator
+        self.auth_token = auth_token  # JWT token for authenticated requests
+
+    async def connect(self, expert_mode: bool = False) -> None:
+        """
+        Connect to OLAV backend (remote or local).
+
+        Args:
+            expert_mode: Enable Expert Mode (Deep Dive Workflow)
+        """
+        if self.mode == "remote":
+            # Auto-load credentials if no token provided
+            if self.auth_token is None:
+                self.auth_token = self._load_stored_token()
+            
+            await self._connect_remote()
+        else:
+            await self._connect_local(expert_mode)
+
+    def _load_stored_token(self) -> str | None:
+        """
+        Load authentication token from stored credentials.
+
+        Returns:
+            JWT token if available and valid, None otherwise
+        """
+        try:
+            from olav.cli.auth import CredentialsManager
+
+            creds_manager = CredentialsManager()
+            credentials = creds_manager.load()
+
+            if credentials is None:
+                return None
+
+            # Verify server URL matches
+            if credentials.server_url != self.server_config.base_url:
+                logger.warning(
+                    f"Stored credentials are for different server: "
+                    f"{credentials.server_url} != {self.server_config.base_url}"
+                )
+                return None
+
+            return credentials.access_token
+
+        except Exception as e:
+            logger.debug(f"Failed to load stored token: {e}")
+            return None
+
+    async def _connect_remote(self) -> None:
+        """Connect to remote LangServe API server."""
+        try:
+            # Prepare headers (with authentication if available)
+            headers = {}
+            if self.auth_token:
+                headers["Authorization"] = f"Bearer {self.auth_token}"
+
+            # Test server connectivity
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.server_config.base_url}/health",
+                    timeout=5.0,
+                    headers=headers if self.auth_token else {},
+                )
+                response.raise_for_status()
+                health = response.json()
+
+            if health["status"] != "healthy":
+                self.console.print(
+                    f"[yellow]⚠️  Server status: {health['status']} "
+                    f"(orchestrator_ready={health['orchestrator_ready']})[/yellow]"
+                )
+
+            # Create RemoteRunnable with authentication headers
+            # Note: LangServe RemoteRunnable doesn't support custom headers in constructor
+            # So we'll need to use httpx client directly for authenticated requests
+            self.remote_runnable = RemoteRunnable(
+                f"{self.server_config.base_url}/orchestrator",
+                headers=headers if self.auth_token else None,
+            )
+
+            self.console.print(f"[green]✅ Connected to OLAV API server: {self.server_config.base_url}[/green]")
+            self.console.print(f"   Version: {health['version']}")
+            self.console.print(f"   Environment: {health['environment']}")
+            
+            if self.auth_token:
+                self.console.print("   [dim]🔐 Authenticated (using stored credentials)[/dim]")
+            else:
+                self.console.print("   [yellow]⚠️  Not authenticated (public endpoints only)[/yellow]")
+                self.console.print("   [dim]💡 Run 'olav login' to authenticate[/dim]")
+
+        except httpx.ConnectError:
+            self.console.print(
+                f"[red]❌ Failed to connect to server: {self.server_config.base_url}[/red]"
+            )
+            self.console.print("\n💡 Tips:")
+            self.console.print("   1. Start server: uv run python src/olav/server/app.py")
+            self.console.print("   2. Or use local mode: olav.py -L")
+            raise ConnectionError(f"Cannot connect to OLAV server at {self.server_config.base_url}")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                self.console.print(f"[red]❌ Authentication failed (401 Unauthorized)[/red]")
+                self.console.print("\n💡 Run 'olav login' to authenticate")
+                raise ConnectionError("Authentication required") from e
+            raise
+        except Exception as e:
+            self.console.print(f"[red]❌ Connection error: {e}[/red]")
+            raise
+
+    async def _connect_local(self, expert_mode: bool) -> None:
+        """Initialize local orchestrator (direct execution)."""
+        try:
+            from olav.agents.root_agent_orchestrator import create_workflow_orchestrator
+
+            self.console.print("[cyan]🔧 Initializing local orchestrator...[/cyan]")
+
+            result = await create_workflow_orchestrator(expert_mode=expert_mode)
+            _, graph, _ = result  # Unpack tuple
+
+            self.orchestrator = graph
+
+            self.console.print(
+                f"[green]✅ Local orchestrator ready (expert_mode={expert_mode})[/green]"
+            )
+
+        except Exception as e:
+            self.console.print(f"[red]❌ Failed to initialize local orchestrator: {e}[/red]")
+            raise
+
+    async def execute(
+        self, query: str, thread_id: str, stream: bool = True
+    ) -> ExecutionResult:
+        """
+        Execute query using remote or local backend.
+
+        Args:
+            query: User query to execute
+            thread_id: Conversation thread ID
+            stream: Enable streaming output (default: True)
+
+        Returns:
+            ExecutionResult with messages and status
+        """
+        if self.mode == "remote":
+            return await self._execute_remote(query, thread_id, stream)
+        else:
+            return await self._execute_local(query, thread_id, stream)
+
+    async def _execute_remote(
+        self, query: str, thread_id: str, stream: bool
+    ) -> ExecutionResult:
+        """Execute query via remote API server."""
+        if not self.remote_runnable:
+            raise RuntimeError("Not connected to remote server. Call connect() first.")
+
+        try:
+            config = {"configurable": {"thread_id": thread_id}}
+            messages_buffer: list[dict] = []
+
+            if stream:
+                # Streaming mode with Rich Live display
+                with Live(console=self.console, refresh_per_second=4) as live:
+                    live.update(Panel("🔄 Waiting for response...", title="OLAV"))
+
+                    async for chunk in self.remote_runnable.astream(
+                        {"messages": [{"role": "user", "content": query}]}, config=config
+                    ):
+                        # Process streaming chunks
+                        if "messages" in chunk:
+                            messages_buffer = chunk["messages"]
+                            # Display latest AI message
+                            for msg in reversed(messages_buffer):
+                                if msg.get("type") == "ai":
+                                    content = msg.get("content", "")
+                                    live.update(Markdown(content))
+                                    break
+
+            else:
+                # Non-streaming mode
+                result = await self.remote_runnable.ainvoke(
+                    {"messages": [{"role": "user", "content": query}]}, config=config
+                )
+                messages_buffer = result.get("messages", [])
+
+            return ExecutionResult(
+                success=True,
+                messages=messages_buffer,
+                thread_id=thread_id,
+                interrupted=False,
+            )
+
+        except Exception as e:
+            logger.error(f"Remote execution failed: {e}")
+            return ExecutionResult(
+                success=False, messages=[], thread_id=thread_id, error=str(e)
+            )
+
+    async def _execute_local(
+        self, query: str, thread_id: str, stream: bool
+    ) -> ExecutionResult:
+        """Execute query via local orchestrator."""
+        if not self.orchestrator:
+            raise RuntimeError("Local orchestrator not initialized. Call connect() first.")
+
+        try:
+            config = {"configurable": {"thread_id": thread_id}}
+            messages_buffer: list[BaseMessage] = []
+
+            if stream:
+                # Streaming mode
+                with Live(console=self.console, refresh_per_second=4) as live:
+                    live.update(Panel("🔄 Processing query...", title="OLAV Local"))
+
+                    async for chunk in self.orchestrator.astream(
+                        {"messages": [{"role": "user", "content": query}]}, config=config
+                    ):
+                        if "messages" in chunk:
+                            messages_buffer = chunk["messages"]
+                            # Display latest message
+                            if messages_buffer:
+                                last_msg = messages_buffer[-1]
+                                if hasattr(last_msg, "content"):
+                                    live.update(Markdown(str(last_msg.content)))
+
+            else:
+                # Non-streaming mode
+                result = await self.orchestrator.ainvoke(
+                    {"messages": [{"role": "user", "content": query}]}, config=config
+                )
+                messages_buffer = result.get("messages", [])
+
+            # Convert BaseMessage to dict
+            messages_dict = [
+                {"type": msg.type, "content": msg.content} for msg in messages_buffer
+            ]
+
+            return ExecutionResult(
+                success=True,
+                messages=messages_dict,
+                thread_id=thread_id,
+                interrupted=False,
+            )
+
+        except Exception as e:
+            logger.error(f"Local execution failed: {e}")
+            return ExecutionResult(
+                success=False, messages=[], thread_id=thread_id, error=str(e)
+            )
+
+    async def health_check(self) -> dict[str, Any]:
+        """
+        Check backend health status.
+
+        Returns:
+            Health status dict (remote) or simplified status (local)
+        """
+        if self.mode == "remote":
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{self.server_config.base_url}/health", timeout=5.0)
+                response.raise_for_status()
+                return response.json()
+        else:
+            return {
+                "status": "healthy" if self.orchestrator else "not_initialized",
+                "mode": "local",
+                "orchestrator_ready": self.orchestrator is not None,
+            }
+
+    def display_result(self, result: ExecutionResult) -> None:
+        """
+        Display execution result using Rich formatting.
+
+        Args:
+            result: Execution result to display
+        """
+        if not result.success:
+            self.console.print(f"\n[red]❌ Execution failed: {result.error}[/red]")
+            return
+
+        if result.interrupted:
+            self.console.print("\n[yellow]⏸️  Execution paused (HITL approval required)[/yellow]")
+
+        # Display messages
+        self.console.print("\n" + "=" * 60)
+        self.console.print("[bold cyan]📋 Execution Result[/bold cyan]")
+        self.console.print("=" * 60)
+
+        for msg in result.messages:
+            msg_type = msg.get("type", "unknown")
+            content = msg.get("content", "")
+
+            if msg_type == "ai":
+                self.console.print(Markdown(f"**AI**: {content}"))
+            elif msg_type == "human":
+                self.console.print(f"[bold green]Human[/bold green]: {content}")
+            elif msg_type == "tool":
+                self.console.print(f"[dim]Tool output: {content[:200]}...[/dim]")
+
+        self.console.print("=" * 60)
+        self.console.print(f"[dim]Thread ID: {result.thread_id}[/dim]")
+
+
+# ============================================
+# Convenience Functions
+# ============================================
+async def create_client(
+    mode: Literal["remote", "local"] = "remote",
+    server_url: str | None = None,
+    expert_mode: bool = False,
+) -> OLAVClient:
+    """
+    Create and connect OLAV client.
+
+    Args:
+        mode: Execution mode ("remote" or "local")
+        server_url: API server URL (default: from env or http://localhost:8000)
+        expert_mode: Enable Expert Mode (for local mode)
+
+    Returns:
+        Connected OLAVClient instance
+    """
+    if server_url is None:
+        server_url = os.getenv("OLAV_SERVER_URL", "http://localhost:8000")
+
+    client = OLAVClient(mode=mode, server_url=server_url)
+    await client.connect(expert_mode=expert_mode)
+    return client

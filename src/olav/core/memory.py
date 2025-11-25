@@ -100,12 +100,14 @@ class OpenSearchMemory:
             success: Whether operation succeeded
             context: Additional context (device, values, etc.)
         """
+        from datetime import datetime, timezone
+        
         doc = {
             "intent": intent,
             "xpath": xpath,
             "success": success,
-            "context": context,
-            "timestamp": "now",
+            **context,  # Flatten context fields into document
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         try:

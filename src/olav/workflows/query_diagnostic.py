@@ -39,6 +39,7 @@ from olav.tools.opensearch_tool import search_episodic_memory, search_openconfig
 from olav.tools.nornir_tool import cli_tool, netconf_tool
 
 from .base import BaseWorkflow, BaseWorkflowState, WorkflowType
+from .registry import WorkflowRegistry
 
 
 class QueryDiagnosticState(BaseWorkflowState):
@@ -48,6 +49,20 @@ class QueryDiagnosticState(BaseWorkflowState):
     needs_micro: bool  # 是否需要微观诊断
 
 
+@WorkflowRegistry.register(
+    name="query_diagnostic",
+    description="网络状态查询与故障诊断（SuzieQ 宏观 → NETCONF 微观）",
+    examples=[
+        "查询 R1 的 BGP 邻居状态",
+        "Switch-A 的接口 Gi0/1 状态如何？",
+        "检查所有核心路由器的 CPU 使用率",
+        "为什么 OSPF 邻居不起来？",
+        "BGP session 为什么 down？",
+        "查看设备 R2 的路由表",
+        "接口带宽利用率是多少？",
+    ],
+    triggers=[r"BGP", r"OSPF", r"接口.*状态", r"路由.*表", r"CPU", r"内存", r"邻居"],
+)
 class QueryDiagnosticWorkflow(BaseWorkflow):
     """Query and diagnostic workflow implementation."""
     

@@ -43,6 +43,7 @@ from olav.tools.opensearch_tool import search_episodic_memory
 from olav.tools.netbox_tool import netbox_api_call, netbox_schema_search
 
 from .base import BaseWorkflow, BaseWorkflowState
+from .registry import WorkflowRegistry
 
 
 class NetBoxManagementState(BaseWorkflowState):
@@ -54,6 +55,20 @@ class NetBoxManagementState(BaseWorkflowState):
     verification_result: dict | None  # 验证结果
 
 
+@WorkflowRegistry.register(
+    name="netbox_management",
+    description="NetBox 管理操作（设备清单/IP/站点/机架）",
+    examples=[
+        "在 NetBox 中添加新设备 Switch-C",
+        "更新设备 R1 的管理 IP 为 192.168.1.10",
+        "查询 NetBox 中的所有核心路由器",
+        "删除 NetBox 设备记录 Old-Switch",
+        "添加新站点 Beijing-IDC",
+        "分配 IP 地址给设备接口",
+        "更新设备角色为 core",
+    ],
+    triggers=[r"NetBox", r"清单", r"inventory", r"站点", r"site", r"机架", r"rack", r"IP.*地址"],
+)
 class NetBoxManagementWorkflow(BaseWorkflow):
     """NetBox inventory and management workflow."""
     

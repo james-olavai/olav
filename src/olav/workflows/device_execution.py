@@ -42,6 +42,7 @@ from olav.tools.opensearch_tool import search_episodic_memory, search_openconfig
 from olav.tools.nornir_tool import cli_tool, netconf_tool
 
 from .base import BaseWorkflow, BaseWorkflowState
+from .registry import WorkflowRegistry
 
 
 class DeviceExecutionState(BaseWorkflowState):
@@ -52,6 +53,20 @@ class DeviceExecutionState(BaseWorkflowState):
     validation_result: dict | None  # 验证结果
 
 
+@WorkflowRegistry.register(
+    name="device_execution",
+    description="设备配置变更执行（Planning → HITL → Execution → Validation）",
+    examples=[
+        "修改 R1 的 BGP AS 号为 65001",
+        "在 Switch-A 接口 Gi0/1 上配置 VLAN 100",
+        "关闭设备 R2 的接口 Ethernet1",
+        "设置所有接口 MTU 为 9000",
+        "添加静态路由到 10.0.0.0/8",
+        "配置 OSPF area 0",
+        "修改设备描述信息",
+    ],
+    triggers=[r"修改", r"配置", r"设置", r"添加", r"删除", r"shutdown", r"no shutdown", r"change", r"configure"],
+)
 class DeviceExecutionWorkflow(BaseWorkflow):
     """Device configuration change workflow with HITL approval."""
     

@@ -2,7 +2,14 @@
 
 import json
 import logging
+import sys
+from pathlib import Path
 from typing import Any
+
+# Add config to path if not already there
+config_path = Path(__file__).parent.parent.parent.parent / "config"
+if str(config_path) not in sys.path:
+    sys.path.insert(0, str(config_path.parent))
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_openai.chat_models.base import _convert_dict_to_message
@@ -74,6 +81,25 @@ class FixedChatOpenAI(ChatOpenAI):
 class LLMFactory:
     """Factory for creating LLM instances based on configured provider."""
 
+    # One-time environment mapping flag
+    _openai_env_mapped = False
+
+    @classmethod
+    def _ensure_openai_env(cls) -> None:
+        """Map LLM_API_KEY to OPENAI_API_KEY if provider==openai and env not set.
+
+        Avoid mapping if key is an OpenRouter style (sk-or-) because OpenAI SDK
+        will reject it anyway; leave direct api_key usage in that scenario.
+        """
+        if cls._openai_env_mapped:
+            return
+        if env_settings.llm_provider == "openai":
+            import os
+            if not os.getenv("OPENAI_API_KEY") and env_settings.llm_api_key and not env_settings.llm_api_key.startswith("sk-or-"):
+                os.environ["OPENAI_API_KEY"] = env_settings.llm_api_key
+                logger.info("Mapped LLM_API_KEY to OPENAI_API_KEY for OpenAI provider")
+        cls._openai_env_mapped = True
+
     @staticmethod
     def get_chat_model(
         json_mode: bool = False,
@@ -96,6 +122,8 @@ class LLMFactory:
         temp = temperature if temperature is not None else LLMConfig.TEMPERATURE
 
         if env_settings.llm_provider == "openai":
+            # Ensure environment variable mapping (non-OpenRouter keys only)
+            LLMFactory._ensure_openai_env()
             model_kwargs = {}
             
             if json_mode:
@@ -156,6 +184,7 @@ class LLMFactory:
             ValueError: If provider is not supported
         """
         if env_settings.llm_provider == "openai":
+            LLMFactory._ensure_openai_env()
             return OpenAIEmbeddings(
                 model=LLMConfig.EMBEDDING_MODEL,
                 api_key=env_settings.llm_api_key,

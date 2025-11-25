@@ -1,0 +1,36 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+RUN pip install --no-cache-dir uv
+
+# Copy dependency files
+COPY pyproject.toml README.MD ./
+
+# Copy source code (required for editable install)
+COPY src ./src
+COPY config ./config
+
+# Install dependencies including test dependencies
+RUN uv pip install --system --no-cache -e ".[dev]"
+
+# Copy test code and scripts
+COPY tests ./tests
+COPY scripts ./scripts
+
+# Create non-root user
+RUN useradd -m -u 1000 olav && \
+    chown -R olav:olav /app
+
+USER olav
+
+# Default command runs E2E tests
+CMD ["python", "-m", "pytest", "tests/e2e/", "-v", "--tb=short"]

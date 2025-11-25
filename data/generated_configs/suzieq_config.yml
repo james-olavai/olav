@@ -1,7 +1,7 @@
 data-directory: /suzieq/parquet
 temp-directory: /tmp/suzieq
 rest:
-  API_KEY: 9b7f629f37e0249c4cb3626b868f1fc2
+  API_KEY: d33a16ddb89a5e74ce37e400d026fce7
   logging-level: WARNING
   address: 0.0.0.0
   port: 8000

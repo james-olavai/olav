@@ -16,6 +16,12 @@ from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 
+# Windows psycopg async compatibility
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(
+        asyncio.WindowsSelectorEventLoopPolicy()  # type: ignore[attr-defined]
+    )
+
 from olav import __version__
 # Agent imports moved to runtime (dynamic import based on --agent-mode)
 from olav.tools.suzieq_parquet_tool import suzieq_query  # Direct tool access for one-shot timing
@@ -38,6 +44,8 @@ app = typer.Typer(
 def chat(
     query: str | None = typer.Argument(None, help="Single query to execute (non-interactive mode)"),
     expert: bool = typer.Option(False, "--expert", "-e", help="Enable Expert Mode (Deep Dive Workflow)"),
+    local: bool = typer.Option(False, "--local", "-L", help="Use local execution (default: remote API)"),
+    server: str | None = typer.Option(None, "--server", "-s", help="API server URL (default: http://localhost:8000)"),
     thread_id: str | None = typer.Option(None, help="Conversation thread ID (for resuming sessions)"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed logs and timestamps"),
 ) -> None:
@@ -45,7 +53,14 @@ def chat(
     
     Architecture: Workflows Orchestrator (Modular multi-workflow system)
     
-    Mode Selection:
+    Execution Modes:
+        - Remote (default): Connect to LangServe API server
+          → CLI Client (Rich UI) → HTTP/WebSocket → API Server → Orchestrator
+        
+        - Local (-L/--local): Direct in-process execution (legacy)
+          → CLI Client → Direct Orchestrator (same process)
+    
+    Workflow Modes:
         - Normal Mode (default): 3 workflows for standard operations
           • QueryDiagnosticWorkflow: Macro (SuzieQ) → Micro (NETCONF) funnel analysis
           • DeviceExecutionWorkflow: Config changes with HITL approval
@@ -58,15 +73,23 @@ def chat(
           • Progress tracking with Checkpointer (resume on interruption)
     
     Examples:
-        # Normal mode - Interactive
+        # Remote mode (default) - Interactive
         uv run olav.py
         
-        # Normal mode - Single query
+        # Remote mode - Single query
         uv run olav.py "查询设备 R1 的接口状态"
         
-        # Expert mode - Complex diagnostics
+        # Remote mode - Custom server
+        uv run olav.py --server http://prod-olav.company.com:8000
+        
+        # Local mode - Direct execution (no API server)
+        uv run olav.py -L "查询 R1"
+        
+        # Expert mode - Complex diagnostics (remote)
         uv run olav.py -e "审计所有边界路由器的 BGP 安全配置"
-        uv run olav.py --expert "为什么数据中心 A 无法访问数据中心 B？"
+        
+        # Expert mode - Local execution
+        uv run olav.py -L -e "为什么数据中心 A 无法访问数据中心 B？"
         
         # Verbose mode (show detailed logs)
         uv run olav.py "查询 R1" --verbose
@@ -80,13 +103,15 @@ def chat(
     # Setup logging first
     setup_logging(verbose)
     
-    # Determine mode
+    # Determine execution mode
+    exec_mode = "local" if local else "remote"
     mode_name = "Expert Mode (Deep Dive)" if expert else "Normal Mode"
     
     console.print(f"[bold green]OLAV v{__version__}[/bold green] - Network Operations ChatOps")
     console.print(f"LLM: {settings.llm_provider} ({settings.llm_model_name})")
     console.print(f"Architecture: Workflows Orchestrator")
-    console.print(f"Mode: {mode_name}")
+    console.print(f"Execution: {exec_mode.capitalize()} Mode")
+    console.print(f"Workflow: {mode_name}")
     console.print(f"HITL: {'Enabled' if AgentConfig.ENABLE_HITL else 'Disabled'}")
     
     # Windows: Use SelectorEventLoop for psycopg async compatibility
@@ -95,12 +120,114 @@ def chat(
     
     if query:
         # Single query mode (non-interactive)
-        asyncio.run(_run_single_query(query, expert, thread_id))
+        asyncio.run(_run_single_query_new(query, expert, local, server, thread_id))
     else:
         # Interactive chat mode
         console.print("\nType 'exit' or 'quit' to end session")
         console.print("Type 'help' for available commands\n")
-        asyncio.run(_run_interactive_chat(expert, thread_id))
+        asyncio.run(_run_interactive_chat_new(expert, local, server, thread_id))
+
+
+async def _run_single_query_new(
+    query: str,
+    expert: bool = False,
+    local: bool = False,
+    server: str | None = None,
+    thread_id: str | None = None,
+) -> None:
+    """Execute single query using new client architecture.
+    
+    Args:
+        query: User query to execute
+        expert: Enable Expert Mode (Deep Dive Workflow)
+        local: Use local execution mode
+        server: API server URL (for remote mode)
+        thread_id: Optional thread ID for conversation context
+    """
+    from olav.cli.client import create_client
+    
+    # Create client
+    mode = "local" if local else "remote"
+    client = await create_client(mode=mode, server_url=server, expert_mode=expert)
+    
+    # Generate thread ID if not provided
+    if not thread_id:
+        import time
+        thread_id = f"cli-single-{int(time.time())}"
+    
+    # Show user query
+    console.print()
+    console.print(f"[bold green]User[/bold green]: {query}")
+    
+    # Execute query
+    result = await client.execute(query, thread_id, stream=True)
+    
+    # Display result
+    client.display_result(result)
+
+
+async def _run_interactive_chat_new(
+    expert: bool = False,
+    local: bool = False,
+    server: str | None = None,
+    thread_id: str | None = None,
+) -> None:
+    """Run interactive chat session using new client architecture.
+    
+    Args:
+        expert: Enable Expert Mode (Deep Dive Workflow)
+        local: Use local execution mode
+        server: API server URL (for remote mode)
+        thread_id: Optional thread ID for conversation context
+    """
+    from olav.cli.client import create_client
+    
+    # Create client
+    mode = "local" if local else "remote"
+    client = await create_client(mode=mode, server_url=server, expert_mode=expert)
+    
+    # Generate thread ID if not provided
+    if not thread_id:
+        import time
+        thread_id = f"cli-interactive-{int(time.time())}"
+    
+    console.print(f"\n[dim]Thread ID: {thread_id}[/dim]\n")
+    
+    # Interactive loop
+    while True:
+        try:
+            # Get user input
+            user_input = console.input("[bold green]You[/bold green]: ").strip()
+            
+            if not user_input:
+                continue
+            
+            # Handle special commands
+            if user_input.lower() in ("exit", "quit", "q"):
+                console.print("\n[yellow]Goodbye! 👋[/yellow]")
+                break
+            
+            if user_input.lower() == "help":
+                console.print("\n[bold]Available commands:[/bold]")
+                console.print("  - Type your question or command")
+                console.print("  - 'exit' or 'quit' - End session")
+                console.print("  - 'help' - Show this help message")
+                console.print()
+                continue
+            
+            # Execute query
+            result = await client.execute(user_input, thread_id, stream=True)
+            
+            # Display result (if not already shown via streaming)
+            if not result.success:
+                client.display_result(result)
+            
+        except KeyboardInterrupt:
+            console.print("\n\n[yellow]Interrupted. Type 'exit' to quit.[/yellow]")
+            continue
+        except Exception as e:
+            console.print(f"\n[red]Error: {e}[/red]")
+            logger.exception("Interactive chat error")
 
 
 async def _run_single_query(query: str, expert: bool = False, thread_id: str | None = None) -> None:
@@ -662,6 +789,74 @@ def serve(
             time.sleep(300)
     except KeyboardInterrupt:
         console.print("[red]Shutting down placeholder server loop[/red]")
+
+
+@app.command()
+def login(
+    server: str | None = typer.Option(
+        None, "--server", "-s", help="API server URL (default: OLAV_SERVER_URL or http://localhost:8000)"
+    )
+) -> None:
+    """Login to OLAV API server and store authentication token.
+    
+    Interactive command that prompts for username and password,
+    then stores JWT token in ~/.olav/credentials for future use.
+    
+    Examples:
+        # Login to default server (localhost:8000)
+        uv run olav.py login
+        
+        # Login to production server
+        uv run olav.py login --server https://olav-prod.company.com
+    """
+    from olav.cli import login_interactive
+
+    try:
+        asyncio.run(login_interactive(server_url=server))
+    except (ValueError, ConnectionError) as e:
+        logger.error(f"Login failed: {e}")
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def logout() -> None:
+    """Logout from OLAV API server (delete stored credentials).
+    
+    Removes JWT token from ~/.olav/credentials file.
+    Note: JWT tokens are stateless, so server-side logout is not needed.
+    
+    Example:
+        uv run olav.py logout
+    """
+    from olav.cli import logout_interactive
+
+    try:
+        asyncio.run(logout_interactive())
+    except Exception as e:
+        logger.error(f"Logout failed: {e}")
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def whoami() -> None:
+    """Show current authentication status and user information.
+    
+    Displays:
+        - Username
+        - Server URL
+        - Token expiration time
+        - Authentication status
+    
+    Example:
+        uv run olav.py whoami
+    """
+    from olav.cli import whoami_interactive
+
+    try:
+        asyncio.run(whoami_interactive())
+    except Exception as e:
+        logger.error(f"Failed to check auth status: {e}")
+        raise typer.Exit(code=1)
 
 
 @app.command()
