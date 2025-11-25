@@ -71,8 +71,10 @@ class OLAVClient:
         self,
         mode: Literal["remote", "local"] = "remote",
         server_config: ServerConfig | None = None,
+        server_url: str | None = None,
         console: Console | None = None,
         auth_token: str | None = None,
+        local_mode: bool | None = None,  # Backward compatibility
     ):
         """
         Initialize OLAV client.
@@ -80,13 +82,25 @@ class OLAVClient:
         Args:
             mode: Execution mode ("remote" or "local")
             server_config: Server configuration (for remote mode)
+            server_url: Server URL shortcut (alternative to server_config, for backward compatibility)
             console: Rich console for output (default: create new)
             auth_token: JWT authentication token (optional, will auto-load from ~/.olav/credentials)
+            local_mode: Deprecated - use mode="local" instead
         """
+        # Backward compatibility: local_mode parameter
+        if local_mode is not None:
+            logger.warning("⚠️ local_mode parameter is deprecated. Use mode='local' or mode='remote' instead.")
+            mode = "local" if local_mode else "remote"
+        
+        # Backward compatibility: server_url parameter
+        if server_url is not None and server_config is None:
+            server_config = ServerConfig(base_url=server_url)
+        
         self.mode = mode
         self.server_config = server_config or ServerConfig()
         self.console = console or Console()
         self.remote_runnable: RemoteRunnable | None = None
+        self.remote_health: dict[str, Any] | None = None  # Health check result for remote mode
         self.orchestrator: Any = None  # Local orchestrator
         self.auth_token = auth_token  # JWT token for authenticated requests
 
@@ -153,6 +167,9 @@ class OLAVClient:
                 )
                 response.raise_for_status()
                 health = response.json()
+            
+            # Store health check result
+            self.remote_health = health
 
             if health["status"] != "healthy":
                 self.console.print(
@@ -177,6 +194,9 @@ class OLAVClient:
             else:
                 self.console.print("   [yellow]⚠️  Not authenticated (public endpoints only)[/yellow]")
                 self.console.print("   [dim]💡 Run 'olav login' to authenticate[/dim]")
+            
+            # Backward compatibility alias
+            self.remote_orchestrator = self.remote_runnable
 
         except httpx.ConnectError:
             self.console.print(
@@ -411,6 +431,9 @@ async def create_client(
     if server_url is None:
         server_url = os.getenv("OLAV_SERVER_URL", "http://localhost:8000")
 
-    client = OLAVClient(mode=mode, server_url=server_url)
+    # Construct ServerConfig from server_url parameter
+    server_config = ServerConfig(base_url=server_url)
+    
+    client = OLAVClient(mode=mode, server_config=server_config)
     await client.connect(expert_mode=expert_mode)
     return client
