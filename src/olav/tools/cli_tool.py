@@ -7,6 +7,7 @@ This module implements a schema-aware CLI tool that:
 - Enforces blacklist security pattern for dangerous commands
 - Wraps CLI execution in BaseTool protocol for LangChain integration
 - Fallback command lists for platforms without templates (91 Cisco IOS commands)
+- **NetBox platform injection**: Queries device.platform from NetBox SSOT (Phase B.1 Step 3)
 
 Code reused from archive/baseline_collector.py (TemplateManager):
 - Lines 102-119: _parse_command_from_filename (command parsing from template filenames)
@@ -21,6 +22,7 @@ Total reused: 230+ production-verified lines
 Author: OLAV Development Team
 Date: 2025-01-21
 Updated: 2025-01-21 (Phase B.1 Step 2 - Added fallback commands)
+Updated: 2025-11-25 (Phase B.1 Step 3 - NetBox platform injection)
 """
 
 import logging
@@ -31,6 +33,101 @@ from typing import Dict, List, Optional, Set, Tuple
 from olav.tools.base import BaseTool, ToolOutput
 
 logger = logging.getLogger(__name__)
+
+
+def get_device_platform_from_netbox(device_name: str) -> Optional[str]:
+    """
+    Query NetBox for device platform.
+    
+    This function integrates with NetBox as SSOT (Single Source of Truth)
+    to avoid hardcoding platform strings. When a device name is provided,
+    it queries NetBox's device API to get the platform.slug field.
+    
+    Args:
+        device_name: Device hostname from NetBox inventory
+        
+    Returns:
+        Platform slug (e.g., "cisco-ios", "cisco-iosxr") or None if:
+        - Device not found in NetBox
+        - Device has no platform assigned
+        - NetBox API error
+        
+    Example:
+        >>> platform = get_device_platform_from_netbox("R1")
+        >>> print(platform)
+        "cisco-ios"
+    
+    Note:
+        - Platform slugs use hyphens (NetBox convention): "cisco-ios"
+        - TemplateManager expects underscores: "cisco_ios"
+        - Conversion is handled by _normalize_platform_slug()
+    """
+    try:
+        from olav.tools.netbox_tool import netbox_api_call
+        
+        # Query NetBox device API by name
+        response = netbox_api_call(
+            path="/dcim/devices/",
+            method="GET",
+            params={"name": device_name}
+        )
+        
+        # Handle errors
+        if response.get("status") == "error":
+            logger.error(f"NetBox query failed for device '{device_name}': {response.get('message')}")
+            return None
+        
+        # Extract results
+        results = response.get("results", [])
+        if not results:
+            logger.warning(f"Device '{device_name}' not found in NetBox")
+            return None
+        
+        # Get first result (device name should be unique)
+        device = results[0]
+        platform = device.get("platform")
+        
+        if not platform:
+            logger.warning(f"Device '{device_name}' has no platform assigned in NetBox")
+            return None
+        
+        # Extract platform slug (e.g., {"id": 1, "name": "Cisco IOS", "slug": "cisco-ios"})
+        platform_slug = platform.get("slug")
+        if not platform_slug:
+            logger.warning(f"Device '{device_name}' platform missing slug field: {platform}")
+            return None
+        
+        logger.info(f"[NetBox SSOT] Device '{device_name}' platform: {platform_slug}")
+        return platform_slug
+    
+    except ImportError:
+        logger.error("netbox_tool not available (import error)")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to query NetBox for device '{device_name}': {e}")
+        return None
+
+
+def _normalize_platform_slug(platform_slug: str) -> str:
+    """
+    Convert NetBox platform slug to ntc-templates format.
+    
+    NetBox uses hyphens in slugs (e.g., "cisco-ios").
+    ntc-templates uses underscores (e.g., "cisco_ios").
+    
+    Args:
+        platform_slug: NetBox platform slug with hyphens
+        
+    Returns:
+        Normalized platform name for ntc-templates
+        
+    Example:
+        >>> _normalize_platform_slug("cisco-ios")
+        "cisco_ios"
+        >>> _normalize_platform_slug("arista-eos")
+        "arista_eos"
+    """
+    return platform_slug.replace("-", "_")
 
 # Derive CONFIG_DIR and TEMPLATES_DIR without importing non-packaged root module
 CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
@@ -525,57 +622,103 @@ class CLITemplateTool(BaseTool):
     
     async def execute(
         self,
-        platform: str,
+        platform: Optional[str] = None,
+        device: Optional[str] = None,
         command: Optional[str] = None,
         list_all: bool = False
     ) -> ToolOutput:
         """
         Discover CLI commands and templates for a platform.
         
+        **NetBox Integration (Phase B.1 Step 3)**:
+        - If `device` is provided, queries NetBox for device.platform
+        - Falls back to `platform` parameter if NetBox query fails
+        - Enables SSOT platform management (no hardcoded strings)
+        
         Args:
             platform: Platform identifier (e.g., "cisco_ios", "cisco_iosxr")
+                      Used as fallback if device/NetBox query fails
+            device: Device hostname from NetBox (queries device.platform)
+                    Takes priority over `platform` parameter
             command: Optional command to lookup (e.g., "show version")
             list_all: If True, return all available commands for platform
             
         Returns:
             ToolOutput with command discovery results
             
-        Example (List all commands):
+        Example (NetBox Integration):
+            # Query NetBox for R1's platform
+            result = await tool.execute(device="R1", list_all=True)
+            # NetBox returns platform.slug="cisco-ios" → normalized to "cisco_ios"
+            # Returns: 91 Cisco IOS commands from fallback or templates
+            
+        Example (Explicit Platform):
             result = await tool.execute(platform="cisco_ios", list_all=True)
             # Returns: [
             #   {"command": "show version", "template": "cisco_ios_show_version.textfsm", "parsed": True},
-            #   {"command": "show running-config", "template": "cisco_ios_show_running_config.textfsm", "parsed": False},
             #   ...
             # ]
             
-        Example (Check specific command):
+        Example (Check Specific Command):
             result = await tool.execute(platform="cisco_ios", command="show ip bgp summary")
             # Returns: [
-            #   {"command": "show ip bgp summary", "template": "cisco_ios_show_ip_bgp_summary.textfsm", "parsed": True, "available": True}
+            #   {"command": "show ip bgp summary", "template": "cisco_ios_show_ip_bgp_summary.textfsm", 
+            #    "parsed": True, "available": True}
             # ]
         """
+        # Resolve platform from device or use explicit parameter
+        resolved_platform = platform
+        platform_source = "explicit"
+        
+        if device:
+            # Query NetBox for device platform (SSOT)
+            netbox_platform = get_device_platform_from_netbox(device)
+            if netbox_platform:
+                # Normalize NetBox slug (cisco-ios → cisco_ios)
+                resolved_platform = _normalize_platform_slug(netbox_platform)
+                platform_source = "netbox"
+                logger.info(f"[CLITemplateTool] Resolved platform from NetBox: {device} → {resolved_platform}")
+            else:
+                logger.warning(f"[CLITemplateTool] NetBox query failed for device '{device}', falling back to platform parameter")
+        
+        # Validation: must have platform from either source
+        if not resolved_platform:
+            return ToolOutput(
+                source="cli_template",
+                device=device or "unknown",
+                data=[{
+                    "status": "PARAM_ERROR",
+                    "message": "Must provide 'platform' parameter or 'device' with NetBox platform metadata",
+                    "hint": "Use platform='cisco_ios' OR device='R1' (with NetBox platform assigned)"
+                }],
+                metadata={"platform": None, "device": device, "command": command},
+                error="Missing platform parameter"
+            )
+        
         metadata = {
-            "platform": platform,
+            "platform": resolved_platform,
+            "platform_source": platform_source,
+            "device": device,
             "command": command,
             "list_all": list_all
         }
         
         # List all commands for platform
         if list_all:
-            commands = self.manager.get_commands_for_platform(platform)
+            commands = self.manager.get_commands_for_platform(resolved_platform)
             
             if not commands:
                 return ToolOutput(
                     source="cli_template",
-                        device="platform",
+                        device=device or "platform",
                     data=[{
                         "status": "NO_TEMPLATES",
-                        "platform": platform,
-                        "message": f"No templates found for platform: {platform}",
+                        "platform": resolved_platform,
+                        "message": f"No templates found for platform: {resolved_platform}",
                         "hint": "Check platform identifier (e.g., cisco_ios, cisco_iosxr)"
                     }],
                     metadata=metadata,
-                    error=f"No templates found for platform: {platform}"
+                    error=f"No templates found for platform: {resolved_platform}"
                 )
             
             # Format results
@@ -590,7 +733,7 @@ class CLITemplateTool(BaseTool):
             
             return ToolOutput(
                 source="cli_template",
-                    device="platform",
+                    device=device or "platform",
                 data=results,
                 metadata={**metadata, "total_commands": len(results)}
             )
@@ -601,10 +744,10 @@ class CLITemplateTool(BaseTool):
             if self.manager.blacklist.is_blocked(command):
                 return ToolOutput(
                     source="cli_template",
-                        device="platform",
+                        device=device or "platform",
                     data=[{
                         "command": command,
-                        "platform": platform,
+                        "platform": resolved_platform,
                         "available": False,
                         "blacklisted": True,
                         "message": f"Command '{command}' is blacklisted for safety",
@@ -615,17 +758,17 @@ class CLITemplateTool(BaseTool):
                 )
             
             # Lookup template
-            template_info = self.manager.get_command_template(platform, command)
+            template_info = self.manager.get_command_template(resolved_platform, command)
             
             if template_info is None:
                 return ToolOutput(
                     source="cli_template",
-                        device="platform",
+                        device=device or "platform",
                     data=[{
                         "command": command,
-                        "platform": platform,
+                        "platform": resolved_platform,
                         "available": False,
-                        "message": f"No template found for '{command}' on {platform}",
+                        "message": f"No template found for '{command}' on {resolved_platform}",
                         "hint": "Command may still be executable, but output will be raw text"
                     }],
                     metadata=metadata
@@ -635,10 +778,10 @@ class CLITemplateTool(BaseTool):
             
             return ToolOutput(
                 source="cli_template",
-                    device="platform",
+                    device=device or "platform",
                 data=[{
                     "command": command,
-                    "platform": platform,
+                    "platform": resolved_platform,
                     "available": True,
                     "template": template_path.name,
                     "parsed": not is_empty,
@@ -651,7 +794,7 @@ class CLITemplateTool(BaseTool):
         # No command specified and list_all=False
         return ToolOutput(
             source="cli_template",
-                device="platform",
+                device=device or "platform",
             data=[{
                 "status": "PARAM_ERROR",
                 "message": "Must specify either 'command' or 'list_all=True'",
