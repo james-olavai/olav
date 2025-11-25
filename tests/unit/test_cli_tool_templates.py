@@ -64,6 +64,27 @@ class TestTemplateManager:
         assert tpl and tpl[0].name.endswith("show_version.textfsm")
         assert m.get_command_template("cisco_ios", "show foo") is None
 
+    def test_fallback_commands_cisco_ios(self, tmp_path: Path):
+        """Test fallback to 91 standard Cisco IOS commands when no templates found."""
+        tdir = tmp_path / "templates"
+        tdir.mkdir()
+        m = TemplateManager(templates_dir=tdir)
+        cmds = m.get_commands_for_platform("cisco_ios")
+        assert len(cmds) == 91
+        cmd_names = {c[0] for c in cmds}
+        assert "show version" in cmd_names
+        assert "show ip interface brief" in cmd_names
+        assert "show running-config" in cmd_names
+
+    def test_fallback_commands_unknown_platform(self, tmp_path: Path):
+        """Test minimal fallback for unknown platforms."""
+        tdir = tmp_path / "templates"
+        tdir.mkdir()
+        m = TemplateManager(templates_dir=tdir)
+        cmds = m.get_commands_for_platform("unknown_vendor_os")
+        assert len(cmds) == 1
+        assert cmds[0][0] == "show running-config"
+
 
 @pytest.mark.asyncio
 class TestCLITemplateTool:
@@ -99,11 +120,16 @@ class TestCLITemplateTool:
         assert out.data[0]["available"] is False
 
     async def test_no_templates(self, tmp_path: Path):
+        """Test fallback behavior when no templates exist for unknown platform."""
         tdir = tmp_path / "templates"
         tdir.mkdir()
         tool = CLITemplateTool(templates_dir=tdir)
         out = await tool.execute(platform="unknown_platform", list_all=True)
-        assert out.error and out.data[0]["status"] == "NO_TEMPLATES"
+        # Should return fallback command (show running-config)
+        assert not out.error
+        assert len(out.data) == 1
+        assert out.data[0]["command"] == "show running-config"
+        assert out.data[0]["template"] is None  # No template file for fallback
 
     async def test_missing_params(self):
         tool = CLITemplateTool()

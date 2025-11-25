@@ -6,6 +6,7 @@ This module implements a schema-aware CLI tool that:
 - Provides platform-specific command mapping (cisco_ios, cisco_iosxr, etc.)
 - Enforces blacklist security pattern for dangerous commands
 - Wraps CLI execution in BaseTool protocol for LangChain integration
+- Fallback command lists for platforms without templates (91 Cisco IOS commands)
 
 Code reused from archive/baseline_collector.py (TemplateManager):
 - Lines 102-119: _parse_command_from_filename (command parsing from template filenames)
@@ -13,9 +14,13 @@ Code reused from archive/baseline_collector.py (TemplateManager):
 - Lines 130-168: _scan_templates (template discovery and caching)
 - Lines 169-189: _load_blacklist (blacklist loading with defaults)
 - Lines 191-258: get_commands_for_platform (platform-specific command mapping)
+- Lines 260-332: _get_standard_commands_for_platform (91 Cisco IOS fallback commands)
+
+Total reused: 230+ production-verified lines
 
 Author: OLAV Development Team
 Date: 2025-01-21
+Updated: 2025-01-21 (Phase B.1 Step 2 - Added fallback commands)
 """
 
 import logging
@@ -268,12 +273,14 @@ class TemplateManager:
         Get all available CLI commands for a platform.
         
         Reused from archive/baseline_collector.py lines 191-258 (simplified).
+        Enhanced with fallback mechanism for platforms without templates.
         
         Uses cached results for performance:
         1. Check cache for platform
         2. If not cached, scan templates directory
-        3. Filter blacklisted commands
-        4. Cache results
+        3. Add standard fallback commands if templates exist
+        4. Filter blacklisted commands
+        5. Cache results
         
         Args:
             platform: Platform identifier (e.g., "cisco_ios", "cisco_iosxr", "juniper_junos")
@@ -304,12 +311,135 @@ class TemplateManager:
         # Scan templates directory
         commands = self._scan_templates(platform_lookup)
         
+        # Add standard fallback commands if no templates found
+        if not commands:
+            logger.info(f"[TemplateManager] No templates found for {platform_lookup}, using fallback commands")
+            commands = self._get_standard_commands_for_platform(platform_lookup)
+        
         # Cache results
         self._cache[platform_lookup] = commands
         
         logger.info(f"[TemplateManager] Cached {len(commands)} commands for {platform_lookup}")
         
         return commands
+    
+    def _get_standard_commands_for_platform(self, platform: str) -> List[Tuple[str, Path, bool]]:
+        """
+        Return standard show commands with fallback support.
+        
+        Reused from archive/baseline_collector.py lines 260-332.
+        
+        Provides production-verified command lists for platforms without templates:
+        - cisco_ios: 91 commands (all ntc-templates supported commands)
+        - Other platforms: Minimal fallback (show running-config)
+        
+        Args:
+            platform: Platform identifier
+            
+        Returns:
+            List of (command, template_path, is_empty) tuples
+            template_path is None for standard commands (use default ntc-templates lookup)
+        """
+        # All 91 commands available in ntc-templates for cisco_ios
+        # Reused from archive/baseline_collector.py lines 265-358
+        standard_commands = {
+            "cisco_ios": [
+                ("dir", None, False),
+                ("show access-list", None, False),
+                ("show access-session", None, False),
+                ("show adjacency", None, False),
+                ("show alert counters", None, False),
+                ("show aliases", None, False),
+                ("show archive", None, False),
+                ("show authentication sessions", None, False),
+                ("show boot", None, False),
+                ("show capability feature routing", None, False),
+                ("show cdp neighbors", None, False),
+                ("show cdp neighbors detail", None, False),
+                ("show clock", None, False),
+                ("show controller t1", None, False),
+                ("show dmvpn", None, False),
+                ("show dot1x all", None, False),
+                ("show environment power all", None, False),
+                ("show environment temperature", None, False),
+                ("show etherchannel summary", None, False),
+                ("show hosts summary", None, False),
+                ("show interface transceiver", None, False),
+                ("show interfaces", None, False),
+                ("show interfaces description", None, False),
+                ("show interfaces status", None, False),
+                ("show interfaces switchport", None, False),
+                ("show inventory", None, False),
+                ("show ip access-lists", None, False),
+                ("show ip arp", None, False),
+                ("show ip bgp", None, False),
+                ("show ip bgp neighbors", None, False),
+                ("show ip bgp neighbors advertised-routes", None, False),
+                ("show ip bgp summary", None, False),
+                ("show ip cef", None, False),
+                ("show ip cef detail", None, False),
+                ("show ip device tracking all", None, False),
+                ("show ip eigrp neighbors", None, False),
+                ("show ip eigrp topology", None, False),
+                ("show ip flow toptalkers", None, False),
+                ("show ip interface", None, False),
+                ("show ip interface brief", None, False),
+                ("show ip mroute", None, False),
+                ("show ip ospf database", None, False),
+                ("show ip ospf database network", None, False),
+                ("show ip ospf database router", None, False),
+                ("show ip ospf interface brief", None, False),
+                ("show ip ospf neighbor", None, False),
+                ("show ip prefix-list", None, False),
+                ("show ip route", None, False),
+                ("show ip route summary", None, False),
+                ("show ip source binding", None, False),
+                ("show ip vrf interfaces", None, False),
+                ("show ipv6 interface brief", None, False),
+                ("show ipv6 neighbors", None, False),
+                ("show isdn status", None, False),
+                ("show isis neighbors", None, False),
+                ("show license", None, False),
+                ("show lldp neighbors", None, False),
+                ("show lldp neighbors detail", None, False),
+                ("show logging", None, False),
+                ("show mac-address-table", None, False),
+                ("show module", None, False),
+                ("show module online diag", None, False),
+                ("show module status", None, False),
+                ("show module submodule", None, False),
+                ("show mpls interfaces", None, False),
+                ("show object-group", None, False),
+                ("show platform diag", None, False),
+                ("show power available", None, False),
+                ("show power status", None, False),
+                ("show power supplies", None, False),
+                ("show processes cpu", None, False),
+                ("show processes memory sorted", None, False),
+                ("show redundancy", None, False),
+                ("show route-map", None, False),
+                ("show running-config partition access-list", None, False),
+                ("show running-config partition route-map", None, False),
+                ("show snmp community", None, False),
+                ("show snmp user", None, False),
+                ("show spanning-tree", None, False),
+                ("show standby", None, False),
+                ("show standby brief", None, False),
+                ("show switch detail", None, False),
+                ("show switch detail stack ports", None, False),
+                ("show tacacs", None, False),
+                ("show version", None, False),
+                ("show vlan", None, False),
+                ("show vrf", None, False),
+                ("show vrrp all", None, False),
+                ("show vrrp brief", None, False),
+                ("show vtp status", None, False),
+                ("show running-config", None, True),  # Keep as raw - config parsing is complex
+            ],
+        }
+        
+        # Return platform-specific commands or minimal fallback
+        return standard_commands.get(platform, [("show running-config", None, True)])
     
     def get_command_template(self, platform: str, command: str) -> Optional[Tuple[Path, bool]]:
         """
@@ -453,9 +583,9 @@ class CLITemplateTool(BaseTool):
             for cmd, template_path, is_empty in commands:
                 results.append({
                     "command": cmd,
-                    "template": template_path.name,
+                    "template": template_path.name if template_path else None,
                     "parsed": not is_empty,  # True if template has parsing rules
-                    "path": str(template_path)
+                    "path": str(template_path) if template_path else None
                 })
             
             return ToolOutput(
