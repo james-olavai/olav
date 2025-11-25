@@ -676,16 +676,13 @@ app = create_app()
 if settings.environment == "local" and (orchestrator is None or checkpointer is None):  # pragma: no cover - test-only path
     try:
         logger.info("[ForceInit] Performing synchronous orchestrator initialization in local environment")
-        loop = asyncio.get_event_loop()
-        if loop.is_running():  # unlikely at import time; defensive
-            # Create a new loop to avoid interfering with uvicorn's loop later
-            tmp_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(tmp_loop)
-            result = tmp_loop.run_until_complete(create_workflow_orchestrator())
-            tmp_loop.close()
-            asyncio.set_event_loop(loop)
-        else:
+        # Use asyncio.new_event_loop() instead of deprecated get_event_loop()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
             result = loop.run_until_complete(create_workflow_orchestrator())
+        finally:
+            loop.close()
         orch_obj, stateful_graph, stateless_graph, checkpointer_manager = result
         orchestrator = stateless_graph
         try:

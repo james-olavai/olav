@@ -131,7 +131,8 @@ class LLMFactory:
             
             # DeepSeek via OpenRouter compatibility fixes:
             # 1. Use FixedChatOpenAI to handle JSON string arguments
-            # 2. parallel_tool_calls=False: Sequential execution
+            # 2. model_kwargs["parallel_tool_calls"]=False: Sequential execution (avoid warning)
+            model_kwargs["parallel_tool_calls"] = False  # Sequential tool execution
             
             return FixedChatOpenAI(
                 model=env_settings.llm_model_name or LLMConfig.MODEL_NAME,
@@ -140,7 +141,6 @@ class LLMFactory:
                 api_key=env_settings.llm_api_key,
                 base_url=LLMConfig.BASE_URL,
                 model_kwargs=model_kwargs,
-                parallel_tool_calls=False,  # Sequential tool execution
                 **kwargs,
             )
         elif env_settings.llm_provider == "ollama":

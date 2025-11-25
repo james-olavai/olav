@@ -241,7 +241,8 @@ class BatchPathStrategy:
         logger.info(f"Enabled checks: {[c.name for c in enabled_checks]}")
         
         # Execute checks
-        start_time = asyncio.get_event_loop().time()
+        import time
+        start_time = time.perf_counter()
         
         if config.parallel:
             results = await self._execute_parallel(
@@ -250,7 +251,7 @@ class BatchPathStrategy:
         else:
             results = await self._execute_sequential(devices, enabled_checks)
         
-        total_time = (asyncio.get_event_loop().time() - start_time) * 1000
+        total_time = (time.perf_counter() - start_time) * 1000
         
         # Generate summary
         summary = self._generate_summary(results, len(devices), len(enabled_checks), total_time)
