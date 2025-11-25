@@ -198,14 +198,11 @@ async def test_trigger_fast_path(router, sample_workflows):
     """Test trigger-based fast path bypasses semantic search."""
     
     # Query with exact trigger match
-    decision = await router.route("查询 BGP 状态")
+    workflow_name = await router.route("查询 BGP 状态")
     
-    # Should match QueryWorkflow via trigger
-    assert decision.workflow in ["QueryWorkflow"]
-    assert decision.confidence > 0.0
-    
-    # Verify reasoning mentions trigger
-    assert "trigger" in decision.reasoning.lower() or "触发" in decision.reasoning
+    # Should match QueryWorkflow via trigger (route() returns string, not RouteDecision)
+    assert workflow_name == "QueryWorkflow"
+    assert isinstance(workflow_name, str)
 
 
 @pytest.mark.asyncio
@@ -215,10 +212,10 @@ async def test_no_trigger_match_uses_semantic(router, sample_workflows, mock_llm
     # Query without explicit triggers
     query = "this query has no triggers in any workflow"
     
-    decision = await router.route(query)
+    workflow_name = await router.route(query)
     
-    # Should still return a workflow (from LLM classification)
-    assert decision.workflow in ["QueryWorkflow", "ExecutionWorkflow", "DeepDiveWorkflow"]
+    # Should still return a valid workflow name (from LLM classification)
+    assert workflow_name in ["QueryWorkflow", "ExecutionWorkflow", "DeepDiveWorkflow"]
     
     # LLM should have been called
     mock_llm.ainvoke.assert_called()

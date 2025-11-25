@@ -3,7 +3,7 @@
   "parameters": {
     "table": "interfaces"
   },
-  "cached_at": 1764058254.046025,
+  "cached_at": 1764060132.016618,
   "cache_ttl": 300,
   "tool_output": {
     "source": "suzieq_query",
