@@ -19,6 +19,7 @@ class WorkflowType(str, Enum):
     DEVICE_EXECUTION = "device_execution"  # 设备配置变更（NETCONF/CLI + HITL）
     NETBOX_MANAGEMENT = "netbox_management"  # NetBox 管理（设备清单/IP/站点）
     DEEP_DIVE = "deep_dive"  # Deep Dive（复杂多步任务，需 -e/--expert）
+    INSPECTION = "inspection"  # 巡检/NetBox 同步（DiffEngine + Reconciler）
 
 
 class BaseWorkflowState(TypedDict):

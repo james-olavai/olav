@@ -68,6 +68,43 @@ class EnvSettings(BaseSettings):
     device_password: str = "cisco"
 
     # ============================================
+    # API Server Configuration
+    # ============================================
+    server_host: str = "0.0.0.0"
+    server_port: int = 8000
+
+    # ============================================
+    # JWT Authentication Configuration
+    # ============================================
+    jwt_secret_key: str = "olav-dev-secret-change-in-production"  # MUST override in production
+    jwt_algorithm: str = "HS256"
+    jwt_expiration_minutes: int = 60
+    jwt_refresh_threshold_minutes: int = 15
+
+    # ============================================
+    # Feature Flags
+    # ============================================
+    expert_mode: bool = False
+    use_dynamic_router: bool = True
+    stream_stateless: bool = True
+
+    # ============================================
+    # Collector/Sandbox Configuration
+    # ============================================
+    collector_force_enable: bool = False
+    collector_min_privilege: int = 15
+    collector_blacklist_file: str = "command_blacklist.txt"
+    collector_capture_diff: bool = True
+
+    # ============================================
+    # Agentic RAG Configuration
+    # ============================================
+    # Enable automatic saving of successful executions to episodic memory
+    enable_agentic_rag: bool = True
+    # Enable Deep Dive report auto-save to episodic memory
+    enable_deep_dive_memory: bool = True
+
+    # ============================================
     # Runtime Environment Detection
     # ============================================
     environment: Literal["local", "docker"] = "local"

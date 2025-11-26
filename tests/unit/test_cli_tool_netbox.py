@@ -31,7 +31,7 @@ class TestNetBoxPlatformHelpers:
         """Test normalization of cisco-iosxr slug."""
         assert _normalize_platform_slug("cisco-iosxr") == "cisco_iosxr"
     
-    @patch("olav.tools.netbox_tool.netbox_api_call")
+    @patch("olav.tools.cli_tool.netbox_api_call")
     def test_get_device_platform_success(self, mock_api):
         """Test successful device platform query."""
         mock_api.return_value = {
@@ -56,7 +56,7 @@ class TestNetBoxPlatformHelpers:
             params={"name": "R1"}
         )
     
-    @patch("olav.tools.netbox_tool.netbox_api_call")
+    @patch("olav.tools.cli_tool.netbox_api_call")
     def test_get_device_platform_not_found(self, mock_api):
         """Test device not found in NetBox."""
         mock_api.return_value = {"results": []}
@@ -64,7 +64,7 @@ class TestNetBoxPlatformHelpers:
         result = get_device_platform_from_netbox("Unknown-Device")
         assert result is None
     
-    @patch("olav.tools.netbox_tool.netbox_api_call")
+    @patch("olav.tools.cli_tool.netbox_api_call")
     def test_get_device_platform_no_platform_assigned(self, mock_api):
         """Test device with no platform assigned."""
         mock_api.return_value = {
@@ -80,7 +80,7 @@ class TestNetBoxPlatformHelpers:
         result = get_device_platform_from_netbox("R2")
         assert result is None
     
-    @patch("olav.tools.netbox_tool.netbox_api_call")
+    @patch("olav.tools.cli_tool.netbox_api_call")
     def test_get_device_platform_api_error(self, mock_api):
         """Test NetBox API error handling."""
         mock_api.return_value = {

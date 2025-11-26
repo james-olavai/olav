@@ -1,5 +1,5 @@
 """
-Unit tests for refactored SuzieQ tool (BaseTool + SuzieqAdapter).
+Unit tests for refactored SuzieQ tool (Schema-Aware + BaseTool + SuzieqAdapter).
 """
 
 import pandas as pd
@@ -11,7 +11,6 @@ import time
 from olav.tools.suzieq_tool import (
     SuzieQTool,
     SuzieQSchemaSearchTool,
-    SUZIEQ_SCHEMA,
 )
 from olav.tools.base import ToolOutput
 
@@ -376,7 +375,9 @@ class TestSuzieQSchemaSearchTool:
         assert bgp_match is not None
         assert "fields" in bgp_match
         assert "peer" in bgp_match["fields"]
-        assert bgp_match["methods"] == ["get", "summarize"]
+        # Methods should include at least get and summarize (may include more like unique, aver)
+        assert "get" in bgp_match["methods"]
+        assert "summarize" in bgp_match["methods"]
     
     @pytest.mark.asyncio
     async def test_execute_interface_query(self, schema_tool):
@@ -398,7 +399,8 @@ class TestSuzieQSchemaSearchTool:
         assert isinstance(result, ToolOutput)
         # Should return up to 5 tables as default
         assert len(result.data) <= 5
-        assert result.metadata["total_tables"] == len(SUZIEQ_SCHEMA)
+        # total_tables should be >= 8 (fallback schema) or more (from OpenSearch)
+        assert result.metadata["total_tables"] >= 8
     
     @pytest.mark.asyncio
     async def test_execute_multiple_keywords(self, schema_tool):

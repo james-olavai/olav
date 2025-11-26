@@ -29,6 +29,7 @@ import logging
 from pathlib import Path
 
 from olav.tools.base import BaseTool, ToolOutput
+from olav.tools.netbox_tool import netbox_api_call  # Canonical import
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +62,6 @@ def get_device_platform_from_netbox(device_name: str) -> str | None:
         - Conversion is handled by _normalize_platform_slug()
     """
     try:
-        from olav.tools.netbox_tool import netbox_api_call
-
         # Query NetBox device API by name
         response = netbox_api_call(
             path="/dcim/devices/", method="GET", params={"name": device_name}
@@ -828,3 +827,121 @@ class CLITemplateTool(BaseTool):
 # Note: Do not register CLITemplateTool with ToolRegistry yet
 # This tool is for command discovery only, not execution
 # Registration will be done after integration with existing nornir_tool_refactored.py
+
+
+# ---------------------------------------------------------------------------
+# LLM-Based Command Generation Tool (Phase B.2 - Platform Command Generation)
+# ---------------------------------------------------------------------------
+
+from langchain_core.tools import tool
+
+
+@tool
+async def generate_cli_commands(
+    intent: str,
+    device: str | None = None,
+    platform: str | None = None,
+    context: str = "",
+) -> dict:
+    """Generate platform-specific CLI commands from natural language intent.
+
+    Use this tool when you need to run CLI commands but don't know the exact
+    syntax for a specific platform. The tool uses LLM to generate appropriate
+    commands based on the device platform.
+
+    **When to Use**:
+    - You have a user intent (e.g., "check BGP status") but need exact commands
+    - You need to adapt a command for a different platform
+    - You're not sure about the correct command syntax
+
+    **Platform Resolution**:
+    - If `device` is provided, queries NetBox for platform (recommended)
+    - Otherwise, uses explicit `platform` parameter
+
+    **Platform Identifiers**:
+    - Cisco IOS: "cisco_ios"
+    - Cisco IOS-XR: "cisco_iosxr"
+    - Cisco NX-OS: "cisco_nxos"
+    - Juniper JunOS: "juniper_junos"
+    - Arista EOS: "arista_eos"
+
+    Args:
+        intent: Natural language description of what you want to check/do.
+               Example: "Show BGP neighbor status", "Check interface CRC errors"
+        device: Device hostname from NetBox (queries platform automatically).
+               Takes priority over explicit `platform` parameter.
+        platform: Explicit platform identifier (used if device not provided).
+        context: Additional context (e.g., "device is core router", "previous error was timeout")
+
+    Returns:
+        Dict with:
+        - commands: List of CLI commands to execute
+        - explanation: Brief explanation of what each command does
+        - warnings: Any warnings about the commands
+        - alternatives: Alternative commands if primary fails
+        - platform: Resolved platform identifier
+        - cached: Whether result was from cache
+
+    Example:
+        >>> result = await generate_cli_commands(
+        ...     intent="Check for interface CRC errors",
+        ...     device="R1"
+        ... )
+        >>> result["commands"]
+        ["show interfaces | include CRC", "show interfaces counters errors"]
+
+        >>> result = await generate_cli_commands(
+        ...     intent="Show OSPF neighbor adjacencies",
+        ...     platform="juniper_junos"
+        ... )
+        >>> result["commands"]
+        ["show ospf neighbor", "show ospf neighbor extensive"]
+    """
+    from olav.tools.cli_command_generator import generate_platform_command
+
+    # Resolve platform from device or use explicit parameter
+    resolved_platform = platform
+
+    if device:
+        # Query NetBox for device platform (SSOT)
+        netbox_platform = get_device_platform_from_netbox(device)
+        if netbox_platform:
+            resolved_platform = _normalize_platform_slug(netbox_platform)
+            logger.info(
+                f"[generate_cli_commands] Resolved platform from NetBox: {device} → {resolved_platform}"
+            )
+        else:
+            logger.warning(
+                f"[generate_cli_commands] NetBox query failed for device '{device}', using explicit platform"
+            )
+
+    # Validation
+    if not resolved_platform:
+        return {
+            "commands": [],
+            "explanation": "",
+            "warnings": ["Must provide either 'device' (with NetBox platform) or 'platform' parameter"],
+            "alternatives": [],
+            "platform": None,
+            "cached": False,
+            "error": "Missing platform",
+        }
+
+    # Get available commands for context (from TextFSM templates)
+    manager = TemplateManager()
+    available = manager.get_commands_for_platform(resolved_platform)
+    available_commands = [cmd for cmd, _, _ in available]
+
+    # Generate commands using LLM
+    result = await generate_platform_command(
+        intent=intent,
+        platform=resolved_platform,
+        available_commands=available_commands[:50],  # Limit to 50 for context window
+        context=context,
+    )
+
+    # Add platform to result
+    return {
+        **result,
+        "platform": resolved_platform,
+    }

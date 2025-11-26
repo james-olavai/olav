@@ -29,7 +29,6 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 import logging
-import os
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -38,23 +37,39 @@ from olav.agents.dynamic_orchestrator import DynamicIntentRouter
 from olav.core.llm import LLMFactory
 from olav.core.prompt_manager import prompt_manager
 from olav.core.settings import settings
+from olav.strategies import StrategySelector, execute_with_strategy_selection
 from olav.workflows.base import WorkflowType
 from olav.workflows.deep_dive import DeepDiveWorkflow
 from olav.workflows.device_execution import DeviceExecutionWorkflow
+from olav.workflows.inspection import InspectionWorkflow
 from olav.workflows.netbox_management import NetBoxManagementWorkflow
 from olav.workflows.query_diagnostic import QueryDiagnosticWorkflow
+
+# Import tools package to ensure ToolRegistry is populated with all tools
+# This is required for strategies (fast_path, deep_path) that use ToolRegistry.get_tool()
+import olav.tools  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
 
 class WorkflowOrchestrator:
-    """Route user queries to appropriate workflow using Dynamic Intent Router."""
+    """Route user queries to appropriate workflow using Dynamic Intent Router.
+    
+    Strategy Integration:
+    - For QUERY_DIAGNOSTIC: Uses StrategySelector to choose Fast/Deep/Batch path
+    - Fast Path: Simple queries (< 2s response, single tool call)
+    - Deep Path: Diagnostic queries (iterative reasoning)
+    - Batch Path: Multi-device audits (parallel execution)
+    - Inspection: NetBox sync/diff workflow
+    - Fallback: Full workflow graph if strategy fails
+    """
 
     def __init__(
         self,
         checkpointer: AsyncPostgresSaver,
         expert_mode: bool = False,
         use_dynamic_router: bool | None = None,
+        use_strategy_optimization: bool = True,
     ) -> None:
         """
         Initialize orchestrator with routing strategy.
@@ -63,13 +78,15 @@ class WorkflowOrchestrator:
             checkpointer: PostgreSQL checkpointer for workflow state
             expert_mode: Enable Deep Dive workflow for complex tasks
             use_dynamic_router: Use DynamicIntentRouter (default: from env OLAV_USE_DYNAMIC_ROUTER)
+            use_strategy_optimization: Use StrategySelector for QUERY_DIAGNOSTIC (default: True)
         """
         self.checkpointer = checkpointer
         self.expert_mode = expert_mode
+        self.use_strategy_optimization = use_strategy_optimization
 
-        # Determine routing strategy from env or parameter
+        # Determine routing strategy from settings or parameter
         if use_dynamic_router is None:
-            use_dynamic_router = os.getenv("OLAV_USE_DYNAMIC_ROUTER", "true").lower() == "true"
+            use_dynamic_router = settings.use_dynamic_router
 
         self.use_dynamic_router = use_dynamic_router
 
@@ -79,6 +96,7 @@ class WorkflowOrchestrator:
             WorkflowType.DEVICE_EXECUTION: DeviceExecutionWorkflow(),
             WorkflowType.NETBOX_MANAGEMENT: NetBoxManagementWorkflow(),
             WorkflowType.DEEP_DIVE: DeepDiveWorkflow(),
+            WorkflowType.INSPECTION: InspectionWorkflow(),
         }
 
         # Initialize dynamic router if enabled
@@ -292,6 +310,22 @@ class WorkflowOrchestrator:
                 )
                 return WorkflowType.DEEP_DIVE
 
+        # 巡检/同步优先（检测 NetBox 同步相关）
+        inspection_keywords = [
+            "巡检",
+            "inspection",
+            "同步",
+            "sync",
+            "对比",
+            "compare",
+            "diff",
+            "reconcil",
+            "健康检查",
+            "health check",
+        ]
+        if any(kw in query_lower for kw in inspection_keywords):
+            return WorkflowType.INSPECTION
+
         # NetBox 管理优先（避免与配置变更混淆）
         netbox_keywords = [
             "设备清单",
@@ -354,10 +388,30 @@ class WorkflowOrchestrator:
             workflow_type = WorkflowType.QUERY_DIAGNOSTIC
             workflow = self.workflows[workflow_type]
 
+        # 2.5. Strategy Optimization for QUERY_DIAGNOSTIC
+        # Use FastPath/DeepPath/BatchPath for optimized execution
+        if workflow_type == WorkflowType.QUERY_DIAGNOSTIC and self.use_strategy_optimization:
+            try:
+                strategy_result = await self._execute_with_strategy(user_query)
+                if strategy_result and strategy_result.get("success"):
+                    print(f"[Orchestrator] Strategy optimization succeeded: {strategy_result.get('strategy_used')}")
+                    return {
+                        "workflow_type": workflow_type.name,
+                        "result": strategy_result,
+                        "interrupted": False,
+                        "final_message": strategy_result.get("answer"),
+                        "strategy_used": strategy_result.get("strategy_used"),
+                        "strategy_metadata": strategy_result.get("metadata", {}),
+                    }
+                else:
+                    print(f"[Orchestrator] Strategy optimization failed, falling back to workflow graph")
+            except Exception as e:
+                logger.warning(f"Strategy optimization error: {e}, falling back to workflow graph")
+
         # 3. Build and execute workflow graph
         # Default to stateless mode for LangServe compatibility (no thread_id requirement)
-        # Set OLAV_STREAM_STATELESS=false to enable state persistence (requires client to provide thread_id)
-        use_stateless = os.getenv("OLAV_STREAM_STATELESS", "true").lower() == "true"
+        # Set stream_stateless=false in settings to enable state persistence
+        use_stateless = settings.stream_stateless
         graph = workflow.build_graph(checkpointer=None if use_stateless else self.checkpointer)
 
         config = {
@@ -409,6 +463,47 @@ class WorkflowOrchestrator:
             "interrupted": False,
             "final_message": result["messages"][-1].content if result.get("messages") else None,
         }
+
+    async def _execute_with_strategy(self, user_query: str) -> dict | None:
+        """Execute query using StrategySelector optimization.
+
+        Uses Fast/Deep/Batch path for optimized execution of QUERY_DIAGNOSTIC queries.
+
+        Args:
+            user_query: User's natural language query
+
+        Returns:
+            Execution result dict or None if strategy optimization is not applicable
+        """
+        try:
+            llm = LLMFactory.get_chat_model()
+
+            # Execute with automatic strategy selection
+            result = await execute_with_strategy_selection(
+                user_query=user_query,
+                llm=llm,
+                use_llm_fallback=True,
+            )
+
+            if result.success:
+                return {
+                    "success": True,
+                    "answer": result.answer,
+                    "strategy_used": result.strategy_used,
+                    "reasoning_trace": result.reasoning_trace,
+                    "metadata": result.metadata,
+                }
+            else:
+                # Strategy failed, return None to trigger workflow fallback
+                logger.info(
+                    f"Strategy {result.strategy_used} failed: {result.error}, "
+                    f"falling back to workflow graph"
+                )
+                return None
+
+        except Exception as e:
+            logger.warning(f"Strategy execution failed: {e}")
+            return None
 
     async def resume(self, thread_id: str, user_input: str, workflow_type: WorkflowType) -> dict:
         """Resume interrupted workflow with user input (approval/modification).
@@ -754,11 +849,22 @@ async def create_workflow_orchestrator(expert_mode: bool = False):
         # Route to appropriate workflow
         result = await orchestrator.route(user_message, thread_id)
 
+        # Extract messages from result
+        # Strategy results have 'answer' in result['result'], workflow results have 'messages'
+        result_data = result.get("result", {})
+        if "messages" in result_data:
+            output_messages = result_data["messages"]
+        elif result.get("final_message"):
+            # Strategy path: convert final_message to AIMessage
+            output_messages = normalized_messages + [AIMessage(content=result["final_message"])]
+        else:
+            output_messages = normalized_messages
+
         # Return updated state with workflow result (including interrupt info)
         return {
             **state,
             "workflow_type": result.get("workflow_type"),
-            "messages": result["result"].get("messages", normalized_messages),
+            "messages": output_messages,
             "interrupted": result.get("interrupted", False),
             "execution_plan": result.get("execution_plan"),
         }

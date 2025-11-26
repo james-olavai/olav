@@ -1,9 +1,10 @@
-"""Direct Parquet-based SuzieQ tools - bypasses SuzieQ library dependency conflicts.
+"""Direct Parquet-based SuzieQ tools - Schema-Aware implementation.
 
 This implementation reads SuzieQ Parquet files directly using pandas/pyarrow,
-avoiding pydantic v1/v2 conflicts between SuzieQ and LangChain.
+with dynamic schema loading from OpenSearch, avoiding hardcoded dictionaries.
 """
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any, Literal
@@ -11,62 +12,9 @@ from typing import Any, Literal
 import pandas as pd
 from langchain_core.tools import tool
 
+from olav.core.schema_loader import get_schema_loader
+
 logger = logging.getLogger(__name__)
-
-
-# SuzieQ schema metadata (table → fields mapping)
-SUZIEQ_SCHEMA = {
-    "bgp": {
-        "fields": [
-            "namespace",
-            "hostname",
-            "vrf",
-            "peer",
-            "asn",
-            "peerAsn",
-            "state",
-            "peerHostname",
-        ],
-        "description": "BGP protocol information",
-    },
-    "interfaces": {
-        "fields": [
-            "namespace",
-            "hostname",
-            "ifname",
-            "state",
-            "adminState",
-            "type",
-            "mtu",
-            "speed",
-        ],
-        "description": "Network interface status and configuration",
-    },
-    "routes": {
-        "fields": ["namespace", "hostname", "vrf", "prefix", "nexthopIp", "protocol", "metric"],
-        "description": "Routing table entries",
-    },
-    "ospf": {
-        "fields": ["namespace", "hostname", "vrf", "ifname", "area", "state", "nbrCount"],
-        "description": "OSPF protocol information",
-    },
-    "lldp": {
-        "fields": ["namespace", "hostname", "ifname", "peerHostname", "peerIfname"],
-        "description": "LLDP neighbor discovery",
-    },
-    "macs": {
-        "fields": ["namespace", "hostname", "vlan", "macaddr", "oif", "remoteVtepIp"],
-        "description": "MAC address table",
-    },
-    "arpnd": {
-        "fields": ["namespace", "hostname", "vrf", "ipAddress", "macaddr", "oif", "state"],
-        "description": "ARP/ND table entries",
-    },
-    "device": {
-        "fields": ["namespace", "hostname", "model", "vendor", "version", "architecture", "status"],
-        "description": "Device hardware and software information",
-    },
-}
 
 
 def _get_parquet_dir() -> Path:
@@ -78,12 +26,18 @@ def _get_parquet_dir() -> Path:
     return parquet_dir
 
 
+# Global schema loader instance
+_schema_loader = get_schema_loader()
+
+
 @tool
 async def suzieq_schema_search(query: str) -> dict[str, Any]:
     """Search SuzieQ schema to discover available tables and fields.
 
     This tool helps you find what data SuzieQ can query. Always call this
     BEFORE using suzieq_query to discover available tables, fields, and methods.
+    
+    Schema is loaded dynamically from OpenSearch suzieq-schema index.
 
     Args:
         query: Natural language query about what you want to find
@@ -108,25 +62,28 @@ async def suzieq_schema_search(query: str) -> dict[str, Any]:
             }
         }
     """
+    # Load schema dynamically from OpenSearch
+    suzieq_schema = await _schema_loader.load_suzieq_schema()
+    
     # Simple keyword matching
     keywords = query.lower().split()
     matching_tables = [
         table
-        for table in SUZIEQ_SCHEMA
+        for table in suzieq_schema
         if any(
-            keyword in table.lower() or keyword in SUZIEQ_SCHEMA[table]["description"].lower()
+            keyword in table.lower() or keyword in suzieq_schema[table]["description"].lower()
             for keyword in keywords
         )
     ]
 
     if not matching_tables:
-        matching_tables = list(SUZIEQ_SCHEMA.keys())[:5]  # Return top 5 if no match
+        matching_tables = list(suzieq_schema.keys())[:5]  # Return top 5 if no match
 
     result: dict[str, Any] = {"tables": matching_tables}
     for table in matching_tables:
         result[table] = {
-            **SUZIEQ_SCHEMA[table],
-            "methods": ["get", "summarize"],  # Parquet supports get and basic aggregation
+            **suzieq_schema[table],
+            "methods": suzieq_schema[table].get("methods", ["get", "summarize"]),
         }
 
     return result
@@ -181,11 +138,14 @@ async def suzieq_query(
     query_filters = filters.copy() if filters else {}
     query_filters.update(kwargs)
 
+    # Load schema dynamically
+    suzieq_schema = await _schema_loader.load_suzieq_schema()
+
     # Check if table exists in schema
-    if table not in SUZIEQ_SCHEMA:
+    if table not in suzieq_schema:
         return {
             "error": f"Unknown table '{table}'. Use suzieq_schema_search to discover available tables.",
-            "available_tables": list(SUZIEQ_SCHEMA.keys()),
+            "available_tables": list(suzieq_schema.keys()),
             "table": table,
             "status": "SCHEMA_NOT_FOUND",
             "warning": "⛔ DO NOT fabricate data. This table does not exist in SuzieQ schema.",

@@ -3,7 +3,7 @@
   "parameters": {
     "table": "bgp"
   },
-  "cached_at": 1764067073.5573444,
+  "cached_at": 1764158959.9404976,
   "cache_ttl": 300,
   "tool_output": {
     "source": "suzieq_query",

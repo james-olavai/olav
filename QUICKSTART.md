@@ -110,6 +110,45 @@ docker-compose exec postgres psql -U olav -d olav -c "\dt"
 curl -s http://localhost:9200/_cat/indices?v | grep -E "schema|episodic|docs" || echo "索引后续可在扩展阶段创建"
 ```
 
+### 4.1 Schema 索引控制（Force Reset）
+OLAV 通过环境变量控制索引初始化行为，方便在 Docker 环境中操作：
+
+```bash
+# 查看当前索引状态
+uv run python -m olav.etl.init_all --status
+
+# 强制重置所有索引（删除并重建）
+OLAV_ETL_FORCE_RESET=true docker-compose up olav-init
+
+# 只重置特定索引
+OLAV_ETL_FORCE_OPENCONFIG=true docker-compose up olav-init
+OLAV_ETL_FORCE_SUZIEQ=true docker-compose up olav-init
+OLAV_ETL_FORCE_NETBOX=true docker-compose up olav-init
+OLAV_ETL_FORCE_EPISODIC=true docker-compose up olav-init
+```
+
+**环境变量说明**：
+
+| 变量 | 作用 | 默认值 |
+|------|------|--------|
+| `OLAV_ETL_FORCE_RESET` | 强制重置所有索引 | `false` |
+| `OLAV_ETL_FORCE_SUZIEQ` | 强制重置 suzieq-schema 索引 | `false` |
+| `OLAV_ETL_FORCE_OPENCONFIG` | 强制重置 openconfig-schema 索引 | `false` |
+| `OLAV_ETL_FORCE_NETBOX` | 强制重置 netbox-schema 索引 | `false` |
+| `OLAV_ETL_FORCE_EPISODIC` | 强制重置 olav-episodic-memory 索引 | `false` |
+
+**本地开发（无 Docker）**：
+```bash
+# 强制重置所有索引
+uv run python -m olav.etl.init_all --force
+
+# 只重置 OpenConfig 索引
+uv run python -m olav.etl.init_all --openconfig --force
+
+# 使用环境变量
+OLAV_ETL_FORCE_OPENCONFIG=true uv run python -m olav.etl.init_all
+```
+
 ---
 ## 5. 应用与嵌入服务日志
 已在整体启动中自动拉起（依赖 `olav-init` 健康）。
@@ -127,21 +166,25 @@ docker-compose exec olav-app uv run python -c "from olav.core.settings import se
 
 OLAV 提供 4 种 Agent 架构模式，可根据场景灵活切换：
 
-| 模式 | 特点 | 适用场景 | 性能 |
+| 模式 | 特点 | 适用场景 | 命令 |
 |------|------|---------|------|
-| **workflows** (默认) | 模块化工作流，意图分类路由 | 生产环境全场景 | 中等 |
-| **react** | 单一 Agent，Prompt 驱动 | 快速查询，日常运维 | 最快 |
-| **structured** | 显式状态机，自我评估 | 复杂诊断，合规场景 | 中等 |
-| **legacy** | SubAgent 委托架构 | 性能对比基准 | 最慢 |
+| **Remote** (默认) | 连接 API Server，支持分布式 | 生产环境 | `chat` |
+| **Local** | 本地直接执行，无需 Server | 开发调试 | `chat -L` |
+| **Expert** | Deep Dive Workflow，递归诊断 | 复杂诊断 | `chat -e` |
+| **Local+Expert** | 本地 Expert 模式 | 离线复杂诊断 | `chat -L -e` |
 
 ### 6.1 启动交互式对话（推荐）
 ```bash
 # 方案 A: 自研 CLI 对话工具（默认 Workflows 模式）
-uv run python -m olav.main chat                     # Workflows 模式（生产推荐）
-uv run python -m olav.main chat -m react            # ReAct 模式（性能优先）
-uv run python -m olav.main chat -m structured       # Structured 模式（确定性优先）
-uv run python -m olav.main chat -m legacy           # Legacy 模式（对比基准）
-uv run python -m olav.main chat "查询接口状态"        # 单次查询（Workflows）
+uv run python -m olav.main chat                     # 交互式对话（Remote 模式，连接 API Server）
+uv run python -m olav.main chat -L                  # 交互式对话（Local 模式，直接执行）
+uv run python -m olav.main chat "查询接口状态"        # 单次查询（Remote 模式）
+uv run python -m olav.main chat -L "查询接口状态"    # 单次查询（Local 模式）
+uv run python -m olav.main chat -e                  # Expert 模式（Deep Dive Workflow）
+uv run python -m olav.main chat -L -e               # Expert 模式（Local 执行）
+
+# 连接 Docker 中的 API Server（端口 8001）
+uv run python -m olav.main chat --server "http://localhost:8001" "查询 R1 状态"
 
 # 方案 B: LangChain Studio（推荐用于开发调试）
 # 1. 启动 LangGraph Agent Server
@@ -151,40 +194,42 @@ langgraph dev
 # 2. 浏览器访问 Studio
 # https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024
 
-# 或使用简化命令（需在项目根目录）
-uv run olav chat
-
 # 显示工具调用与推理链（调试模式）
-uv run python -m olav.main chat --verbose           # Workflows 模式日志
-uv run python -m olav.main chat -m react --verbose  # ReAct 模式日志
-uv run python -m olav.main chat -m legacy --verbose # Legacy 模式日志
+uv run python -m olav.main chat --verbose           # 详细日志输出
+uv run python -m olav.main chat -L --verbose        # Local 模式详细日志
+uv run python -m olav.main chat -e --verbose        # Expert 模式详细日志
 ```
 
-**Agent 模式详解**：
+**执行模式详解**：
 
-**Workflows 模式（默认，推荐生产使用）**：
-- ✅ 模块化架构：三大独立工作流（查询/配置/清单）
-- ✅ 确定性路由：意图分类 → 专用工作流
-- ✅ 差异化 HITL：按工作流定制审批策略
-- ✅ 易于扩展：新增场景只需添加新工作流
-- 📝 详见：`docs/AGENT_ARCHITECTURE_COMPARISON.md`
+**Remote 模式（默认，推荐生产使用）**：
+- ✅ 分布式架构：CLI Client → HTTP/WebSocket → API Server → Orchestrator
+- ✅ 高可用：API Server 可独立部署、水平扩展
+- ✅ 状态持久化：PostgreSQL Checkpointer 集成
+- ✅ 适合团队协作：多用户共享同一 API Server
+- 📝 本地 Server：`uv run python -m olav.main serve`（端口 8000）
+- 📝 Docker Server：`docker-compose up -d olav-server`（端口 8001）
 
-**ReAct 模式（性能优先）**：
-- ✅ 最快：平均 16s（vs Legacy 72s，↓77%）
-- ✅ 灵活：LLM 自主决策工具调用顺序
-- ⚠️ 依赖 Prompt：需精心调优触发词
-- 📝 详见：`docs/AGENT_ARCHITECTURE_COMPARISON.md`
+**Local 模式（开发调试）**：
+- ✅ 单进程执行：CLI Client → 直接 Orchestrator（无需 Server）
+- ✅ 快速启动：无需额外服务依赖
+- ⚠️ 单用户：不支持分布式部署
+- 📝 启动命令：`uv run python -m olav.main chat -L`
 
-**Structured 模式（确定性优先）**：
-- ✅ 显式状态机：预定义执行流程
-- ✅ 自我评估：判断是否需要深入诊断
-- ⚠️ 灵活性低：固定流程难以适应边缘场景
-- 📝 详见：`docs/AGENT_ARCHITECTURE_COMPARISON.md`
+**Expert 模式（Deep Dive Workflow）**：
+- ✅ 自动任务分解：复杂查询 → Todo List 生成
+- ✅ 递归诊断：最多 3 层深入分析
+- ✅ 批量审计：30+ 设备并行执行
+- ✅ 进度恢复：Checkpointer 支持断点续传
+- 📝 启动命令：`uv run python -m olav.main chat -e`
+
+> **注意**：ReAct、Legacy、Structured、Simple agent 模式已弃用（2025-11-23）。  
+> 详见 `archive/deprecated_agents/README.md`。
 
 **方案对比**：
 
-| 维度 | 自研 CLI (`olav chat`) | LangChain Studio |
-|------|----------------------|------------------|
+| 维度 | 自研 CLI | LangChain Studio |
+|------|----------|------------------|
 | **性能分析** | ❌ 无可视化工具 | ✅ **内置性能剖析**（节点耗时、LLM 延迟） |
 | **调试能力** | ⚠️ 文本日志 + --verbose | ✅ **图可视化 + 断点调试** |
 | **HITL 审批** | ⚠️ 需自己实现终端菜单 | ✅ **原生 UI 审批界面** |
@@ -231,62 +276,18 @@ uv run python -m olav.main chat -m legacy --verbose # Legacy 模式日志
 
 3. **双轨并行**：
    - 开发环境：`langgraph dev` + Studio UI
-   - 生产环境：`uv run olav chat` + 审计日志
+   - 生产环境：`uv run python -m olav.main chat` + 审计日志
 
-**Agent 模式性能对比**
+**Workflows 架构**
 
-基于 `scripts/benchmark_agents.py` 的基准测试结果：
+OLAV 采用模块化 Workflows 架构，包含 4 个核心工作流：
 
-| 查询类型 | Workflows | ReAct | Structured | Legacy |
-|---------|-----------|-------|-----------|--------|
-| 简单查询（接口状态） | ~20s | ~16s ✅ | ~25s | ~72s |
-| 中等查询（多设备聚合） | ~35s | ~30s | ~40s | ~120s |
-| 复杂诊断（多工具链路） | ~50s | ~45s | ~60s | ~200s |
-
-**性能分析**：
-- **ReAct 最快**：单一推理循环，无 SubAgent 委托开销
-- **Workflows 适中**：额外意图分类（~2-3s），但模块化带来长期维护优势
-- **Structured 可控**：确定性最强，适合合规场景
-- **Legacy 最慢**：多层委托 + 上下文裁剪，仅用于对比
-
-**快速自测基准**：
-```powershell
-# 运行 3 次对比（接口 / BGP / 路由 概要）
-uv run python scripts/benchmark_agents.py --modes workflows react legacy --queries basic
-
-# 导出 markdown 报告（默认写入 benchmark_report.md）
-uv run python scripts/benchmark_agents.py --export md
-
-# 仅测 Workflows（扩展查询集）
-uv run python scripts/benchmark_agents.py --modes workflows --queries extended
-```
-
-生成的表格包含：`query` | `mode` | `latency_sec` | `tokens_in/out`（如启用统计）| `tool_calls`。
-
-**建议判定标准**：
-- 简单查询（单表 summarize）：`workflows < 25s`，`react < 20s`，`legacy > 60s` 即通过
-- 中等查询（多设备聚合）：`workflows < 40s`，`react < 35s`
-- 复合诊断（多工具链路）：`workflows < 55s`，`react < 50s`（需要后续运行扩展集）
-
-**发现超标怎么办**：
-1. 加 `--verbose` 查看是否出现不必要的重复工具调用
-2. 检查 Prompt 是否被意外扩展（新增大段上下文）
-3. 检查 Parquet 是否落入 raw 而非 coalesced 分区
-4. 查看 PostgreSQL Checkpointer 写入次数是否异常（> 4 次）
-
-**模式选择建议**：
-- **生产环境默认**：使用 `workflows`（模块化、易维护、全场景覆盖）
-- **性能敏感场景**：临时切换 `react`（最快）
-- **合规/复杂诊断**：使用 `structured`（确定性最高）
-- **性能对比基准**：使用 `legacy`（不推荐生产）
-
-**后续优化路线**（按优先级）：
-1. 提前终止：ReAct 推理到首个可执行工具计划即可调用，不等待额外思考轮
-2. Tool result 精简：限制返回列集合，缩短后续思考输入长度
-3. Prompt 缓存：静态系统指令固定，可复用编译后的 embedding（视模型能力）
-4. Token 削减：移除低价值注释段落；保留安全与 Schema 指令
-
-> Tip: 运行完基准后，可将结果追加到 README Performance 表中，形成趋势跟踪。
+| 工作流 | 用途 | 触发关键词 |
+|--------|------|-----------|
+| **QueryDiagnosticWorkflow** | 网络查询诊断 (SuzieQ → NETCONF) | 查询、状态、BGP、OSPF |
+| **DeviceExecutionWorkflow** | 设备配置变更 (HITL 审批) | 配置、修改、执行 |
+| **NetBoxManagementWorkflow** | NetBox 清单管理 | 添加设备、NetBox |
+| **InspectionWorkflow** ✨ | 巡检与 NetBox 同步 | 巡检、检查、对比、sync |
 
 **交互模式功能**：
 - 持续对话：无需每次重新启动，支持上下文记忆
@@ -351,20 +352,97 @@ Goodbye!
 
 ### 6.2 单次查询模式（快速查询）
 ```bash
-# 执行单个查询后退出
+# Remote 模式（需先启动 API Server）
 uv run python -m olav.main chat "查询设备 R1 的接口状态"
 
+# 连接 Docker 中的 API Server（端口 8001）
+uv run python -m olav.main chat --server "http://localhost:8001" "查询设备 R1 的接口状态"
+
+# Local 模式（无需 Server）
+uv run python -m olav.main chat -L "查询设备 R1 的接口状态"
+
+# Expert 模式（复杂诊断）
+uv run python -m olav.main chat -e "审计所有边界路由器的 BGP 安全配置"
+
 # 恢复之前的会话继续对话
-uv run python -m olav.main chat --thread-id "cli-interactive-1732215600"
+uv run python -m olav.main chat --thread-id "session-123"
+
+# 巡检 NetBox 同步状态 ✨ NEW
+uv run python -m olav.main chat -L "巡检所有核心路由器"
 ```
 
-### 6.3 其他命令
+### 6.3 启动 API Server（Remote 模式必需）
+
+**方式 A: Docker 部署（推荐生产环境）**
+```bash
+# 启动所有服务（包括 olav-server）
+docker-compose up -d
+
+# 验证服务状态
+curl http://localhost:8001/health
+# 返回: {"status":"healthy","version":"0.4.0-beta","environment":"docker",...}
+
+# 本地客户端连接 Docker Server
+uv run python -m olav.main chat --server "http://localhost:8001" "查询 R1 状态"
+```
+
+**方式 B: 本地启动（开发调试）**
+```bash
+# 启动 LangServe API Server（默认端口 8000）
+uv run python -m olav.main serve
+
+# 自定义端口
+uv run python -m olav.main serve --port 8080
+
+# 开发模式（自动重载）
+uv run python -m olav.main serve --reload
+```
+
+**端口说明**：
+| 部署方式 | 端口 | 连接命令 |
+|----------|------|----------|
+| Docker (`olav-server`) | 8001 | `chat --server "http://localhost:8001"` |
+| 本地 (`serve`) | 8000 | `chat`（默认）|
+
+**连接到 Remote Server**：
+```bash
+# 默认连接 localhost:8000（本地 Server）
+uv run python -m olav.main chat "查询 R1 状态"
+
+# 连接 Docker Server（端口 8001）
+uv run python -m olav.main chat --server "http://localhost:8001" "查询 R1 状态"
+
+# 指定远程服务器地址
+uv run python -m olav.main chat -s http://192.168.1.100:8001 "查询 R1 状态"
+
+# 使用认证（可选）
+uv run python -m olav.main login                    # 登录获取 JWT Token
+uv run python -m olav.main chat "查询 R1 状态"      # 后续请求自动使用 Token
+```
+
+**内置测试用户**（开发环境）：
+| 用户名 | 密码 | 角色 |
+|--------|------|------|
+| admin | admin123 | admin |
+| operator | operator123 | operator |
+| viewer | viewer123 | viewer |
+
+### 6.4 其他命令
 ```bash
 # 查看版本信息
 uv run python -m olav.main version
 
-# 占位 API 服务（尚未集成 FastAPI）
-uv run python -m olav.main serve
+# 直接 SuzieQ Parquet 查询（非交互式）
+uv run python -m olav.main suzieq "interface" --hostname R1
+
+# 登录 API Server（获取 JWT Token）
+uv run python -m olav.main login
+
+# 查看当前认证状态
+uv run python -m olav.main whoami
+
+# 登出
+uv run python -m olav.main logout
 ```
 
 **Windows 用户注意**：
@@ -399,16 +477,16 @@ uv add --dev pytest-asyncio
 ## 8. 下一步建设建议
 1. NetBox 自动基线对齐脚本（inventory.csv ↔ NetBox 差异报告）
 2. SuzieQ 采集与查询验证（填充 parquet 真实数据）
-3. FastAPI /health /chat /devices 路由替换占位 serve 循环
-4. 嵌入流水线：文档分块 + 向量索引（`olav-docs` / `olav-episodic-memory`）
-5. HITL 写操作审批与审计索引（已实现 NetBox Agent HITL，参考 `docs/NETBOX_AGENT_HITL.md`）
-6. 初始化重试与指数回退（NetBox 短暂不可用场景）
-7. 状态查询命令：`uv run python -m olav.main status`（显示各哨兵与索引）
+3. 嵌入流水线：文档分块 + 向量索引（`olav-docs` / `olav-episodic-memory`）
+4. 初始化重试与指数回退（NetBox 短暂不可用场景）
+5. 状态查询命令：`uv run python -m olav.main status`（显示各哨兵与索引）
 
 **已完成功能**：
 - ✅ 交互式 CLI 对话界面（支持上下文记忆、会话恢复）
-- ✅ 4 种 Agent 架构模式（workflows/react/structured/legacy）
-- ✅ Workflows 模块化架构（查询/配置/清单三大工作流）
+- ✅ **Workflows 模块化架构**：4 个核心工作流（查询/配置/清单/巡检）
+- ✅ **Remote/Local 双模式**：分布式 API Server 或本地直接执行
+- ✅ **Expert 模式**：Deep Dive Workflow 复杂诊断
+- ✅ **InspectionWorkflow**：NetBox 双向同步巡检 ✨ NEW
 - ✅ 优雅的 UI 界面（思考过程可视化、工具调用追踪）
 - ✅ LLM 流式输出（实时显示推理过程）
 - ✅ NetBox Agent HITL 审批机制（写操作需人工批准）
@@ -416,9 +494,10 @@ uv add --dev pytest-asyncio
 - ✅ 自主执行能力（Agent 主动规划多步操作）
 - ✅ PostgreSQL Checkpointer 状态持久化
 - ✅ Windows 平台异步兼容性修复
-- ✅ CLI Agent 与 NetBox Agent 集成
 - ✅ 日志分层管理（--verbose 调试模式）
-- ✅ NAPALM 驱动修复（统一使用 ios 平台）
+
+> **注意**：ReAct、Legacy、Structured、Simple agent 模式已弃用（2025-11-23）。  
+> 详见 `archive/deprecated_agents/README.md`。
 
 更详细架构说明参见 `README.MD` 与 `docs/` 目录。
 

@@ -18,7 +18,7 @@ from nornir import InitNornir
 from nornir.core import Nornir
 
 from olav.core.memory import OpenSearchMemory
-from olav.core.settings import settings as env_settings
+from olav.core.settings import settings
 from olav.execution.backends.protocol import ExecutionResult, SandboxBackendProtocol
 
 logger = logging.getLogger(__name__)
@@ -67,8 +67,8 @@ class NornirSandbox(SandboxBackendProtocol):
             inventory={
                 "plugin": "NBInventory",
                 "options": {
-                    "nb_url": env_settings.netbox_url,
-                    "nb_token": env_settings.netbox_token,
+                    "nb_url": settings.netbox_url,
+                    "nb_token": settings.netbox_token,
                     "ssl_verify": False,
                     "filter_parameters": {"tag": ["olav-managed"]},
                 },
@@ -80,8 +80,8 @@ class NornirSandbox(SandboxBackendProtocol):
 
         # Set device credentials from environment (NBInventory doesn't auto-populate)
         for host in self.nr.inventory.hosts.values():
-            host.username = env_settings.device_username
-            host.password = env_settings.device_password
+            host.username = settings.device_username
+            host.password = settings.device_password
 
             # Normalize NAPALM platform names (NetBox uses different conventions)
             if host.platform and host.platform.startswith("cisco_"):
@@ -95,10 +95,10 @@ class NornirSandbox(SandboxBackendProtocol):
         logger.info(f"Nornir initialized with {len(self.nr.inventory.hosts)} devices from NetBox")
 
         self.memory = memory or OpenSearchMemory()
-        # Blacklist & privilege settings
+        # Blacklist & privilege settings (from centralized settings)
         self.blacklist = self._load_blacklist()
-        self.force_enable = os.getenv("COLLECTOR_FORCE_ENABLE", "0") == "1"
-        self.min_privilege = int(os.getenv("COLLECTOR_MIN_PRIVILEGE", "15"))
+        self.force_enable = settings.collector_force_enable
+        self.min_privilege = settings.collector_min_privilege
 
     # --------------------------
     # Helper/utility methods
@@ -122,7 +122,7 @@ class NornirSandbox(SandboxBackendProtocol):
             "delete disk:",
         }
         blacklist: set[str] = set(default_block)
-        fname = os.getenv("COLLECTOR_BLACKLIST_FILE", "command_blacklist.txt")
+        fname = settings.collector_blacklist_file
         candidates = [
             Path(fname),
             Path.cwd() / fname,
@@ -522,7 +522,7 @@ class NornirSandbox(SandboxBackendProtocol):
                 msg = f"Device '{device}' not found in inventory"
                 raise ValueError(msg)
 
-            capture_diff = os.getenv("COLLECTOR_CAPTURE_DIFF", "1") == "1"
+            capture_diff = settings.collector_capture_diff
 
             before_cfg = ""
             if capture_diff:

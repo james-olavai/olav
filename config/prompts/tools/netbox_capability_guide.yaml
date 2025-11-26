@@ -1,0 +1,80 @@
+_type: prompt
+input_variables: []
+template: |
+  # NetBox 工具能力指南
+  
+  NetBox 是网络基础设施的单一数据源（SSOT），提供设备库存、IP 管理和拓扑信息。
+  
+  ## 工具组合
+  
+  - `netbox_api_call` - 查询 NetBox REST API
+  
+  ## 核心能力
+  
+  ### 1. 设备管理 (DCIM)
+  
+  | 端点 | 用途 | 常用过滤 |
+  |------|------|----------|
+  | `/dcim/devices/` | 设备列表 | name, role, site, status |
+  | `/dcim/interfaces/` | 接口信息 | device, name, type |
+  | `/dcim/cables/` | 线缆连接 | device, interface |
+  | `/dcim/sites/` | 站点信息 | name, region |
+  | `/dcim/racks/` | 机架信息 | site, name |
+  
+  ### 2. IP 地址管理 (IPAM)
+  
+  | 端点 | 用途 | 常用过滤 |
+  |------|------|----------|
+  | `/ipam/ip-addresses/` | IP 地址 | address, device, interface |
+  | `/ipam/prefixes/` | 网段 | prefix, vrf, site |
+  | `/ipam/vlans/` | VLAN | vid, name, site |
+  | `/ipam/vrfs/` | VRF | name, rd |
+  
+  ### 3. 虚拟化
+  
+  | 端点 | 用途 |
+  |------|------|
+  | `/virtualization/virtual-machines/` | 虚拟机 |
+  | `/virtualization/clusters/` | 集群 |
+  
+  ## 查询参数
+  
+  ### 通用参数
+  - `limit`: 返回记录数（默认 50）
+  - `offset`: 分页偏移
+  - `ordering`: 排序字段（前加 `-` 降序）
+  
+  ### 过滤器语法
+  - 精确匹配: `name=R1`
+  - 包含: `name__ic=router`（忽略大小写）
+  - 正则: `name__re=^R[0-9]+$`
+  - 范围: `created__gte=2024-01-01`
+  
+  ## 高级用法
+  
+  ### 获取设备完整信息
+  ```
+  netbox_api_call(endpoint="/dcim/devices/", name="R1")
+  # 返回包括：primary_ip, site, rack, role, config_context 等
+  ```
+  
+  ### 查找设备接口 IP
+  ```
+  # 步骤 1: 获取设备 ID
+  netbox_api_call(endpoint="/dcim/devices/", name="R1")
+  # 步骤 2: 获取关联 IP
+  netbox_api_call(endpoint="/ipam/ip-addresses/", device="R1")
+  ```
+  
+  ### 拓扑发现
+  ```
+  # 获取设备所有线缆连接
+  netbox_api_call(endpoint="/dcim/cables/", device="R1")
+  ```
+  
+  ## 注意事项
+  
+  - ✅ **只读查询** - 不会修改 NetBox 数据（除非显式写操作）
+  - ✅ **权威数据源** - 设备库存的唯一真相
+  - ⚠️ **实时数据** - 直接查询 NetBox API，非缓存
+  - ⚠️ **权限控制** - 可能受 API Token 权限限制

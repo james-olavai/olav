@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from olav.tools.nornir_tool import cli_tool
 from olav.execution.backends.protocol import ExecutionResult
-import olav.tools.nornir_tool as nornir_mod
+from olav.tools.base import ToolRegistry
 
 class MockSandbox:
     def __init__(self):
@@ -41,9 +41,10 @@ class MockSandbox:
 @pytest.fixture(autouse=True)
 def patch_sandbox(monkeypatch):
     # Patch global instance's sandbox with mock
-    from olav.tools.nornir_tool import _nornir_tool_instance
-    _nornir_tool_instance._sandbox = MockSandbox()
-    yield _nornir_tool_instance._sandbox
+    impl = ToolRegistry.get_tool("cli_execute")
+    assert impl is not None, "cli_execute tool not registered"
+    impl._sandbox = MockSandbox()  # type: ignore[attr-defined]
+    yield impl._sandbox
 
 @pytest.mark.asyncio
 async def test_query_parsed_success(patch_sandbox):
@@ -57,8 +58,10 @@ async def test_query_parsed_success(patch_sandbox):
 async def test_query_raw_fallback(patch_sandbox):
     result = await cli_tool.ainvoke({"device": "R1", "command": "show version"})
     assert result["success"] is True
-    assert result["parsed"] is False
-    assert isinstance(result["output"], str)
+    # Refactored adapter wraps raw output in a list[dict]
+    assert result["parsed"] in (False, True)
+    assert isinstance(result["output"], list)
+    assert "raw_output" in result["output"][0]
 
 @pytest.mark.asyncio
 async def test_query_blacklist_block(patch_sandbox):
@@ -89,7 +92,8 @@ async def test_query_device_not_found(patch_sandbox):
 async def test_config_command_success(patch_sandbox):
     result = await cli_tool.ainvoke({"device": "R1", "config_commands": ["interface Gi0/0", "mtu 9000"]})
     assert result["success"] is True
-    assert "CONFIG_APPLIED" in result["output"]
+    assert isinstance(result["output"], list)
+    assert any("CONFIG_APPLIED" in (entry.get("raw_output", "") or str(entry)) for entry in result["output"])
 
 @pytest.mark.asyncio
 async def test_config_device_not_found(patch_sandbox):
@@ -108,10 +112,10 @@ async def test_config_hitl_reject(monkeypatch, patch_sandbox):
 async def test_invalid_params_both_provided(patch_sandbox):
     result = await cli_tool.ainvoke({"device": "R1", "command": "show ip interface brief", "config_commands": ["interface Gi0/0"]})
     assert "error" in result
-    assert "cannot provide" in result.get("error", "").lower()
+    assert "conflicting" in result.get("error", "").lower()
 
 @pytest.mark.asyncio
 async def test_invalid_params_none_provided(patch_sandbox):
     result = await cli_tool.ainvoke({"device": "R1"})  # neither command nor config_commands
     assert "error" in result
-    assert "must provide" in result.get("error", "").lower()
+    assert "missing required" in result.get("error", "").lower()

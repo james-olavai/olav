@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 from pathlib import Path
 
-from olav.tools.suzieq_parquet_tool import suzieq_schema_search, suzieq_query, SUZIEQ_SCHEMA
+from olav.tools.suzieq_parquet_tool import suzieq_schema_search, suzieq_query
 
 PARQUET_BASE = Path("data/suzieq-parquet")
 
@@ -44,8 +44,12 @@ async def test_schema_search_basic():
     result = await suzieq_schema_search.ainvoke({"query": "bgp peers"})
     assert "bgp" in result["tables"]
     assert "fields" in result["bgp"]
-    assert set(SUZIEQ_SCHEMA["bgp"]["fields"]) == set(result["bgp"]["fields"])
-    assert "methods" in result["bgp"] and result["bgp"]["methods"] == ["get", "summarize"]
+    # Dynamic schema may have different field sets, just verify fields list exists and is non-empty
+    assert len(result["bgp"]["fields"]) >= 5  # BGP should have at least 5 core fields
+    # Methods should include at least get and summarize (may include more like unique, aver)
+    assert "methods" in result["bgp"]
+    assert "get" in result["bgp"]["methods"]
+    assert "summarize" in result["bgp"]["methods"]
 
 @pytest.mark.asyncio
 async def test_query_get():

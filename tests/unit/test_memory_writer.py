@@ -237,6 +237,31 @@ class TestMemoryWriter:
         # Verify it tried to call (and failed gracefully)
         mock_memory.store_episodic_memory.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_agentic_rag_disabled_skips_capture(self, mock_memory, sample_tool_output):
+        """Test that capture is skipped when agentic RAG is disabled."""
+        from olav.core import settings
+        
+        # Temporarily disable agentic RAG
+        original_value = settings.settings.enable_agentic_rag
+        settings.settings.enable_agentic_rag = False
+        
+        try:
+            writer = MemoryWriter(memory=mock_memory)
+            await writer.capture_success(
+                intent="test query",
+                tool_used="suzieq_query",
+                parameters={"table": "bgp"},
+                tool_output=sample_tool_output,
+                strategy_used="fast_path",
+            )
+            
+            # Should NOT call store_episodic_memory when disabled
+            mock_memory.store_episodic_memory.assert_not_called()
+        finally:
+            # Restore original value
+            settings.settings.enable_agentic_rag = original_value
+
 
 class TestMemoryWriterIntegration:
     """Integration tests with actual OpenSearch (requires running OpenSearch)."""

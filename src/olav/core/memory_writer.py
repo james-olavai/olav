@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from olav.core.memory import OpenSearchMemory
+from olav.core.settings import settings
 from olav.tools.base import ToolOutput
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,11 @@ class MemoryWriter:
         Returns:
             None. Logs errors but doesn't raise to avoid breaking main workflow.
         """
+        # Check if Agentic RAG is enabled
+        if not settings.enable_agentic_rag:
+            logger.debug("Agentic RAG disabled, skipping memory capture")
+            return
+
         # Skip if tool execution failed
         if tool_output.error:
             logger.debug(f"Skipping memory capture for failed execution: {intent}")

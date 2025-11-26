@@ -1,0 +1,71 @@
+_type: prompt
+input_variables: []
+template: |
+  # NETCONF 工具能力指南
+  
+  NETCONF 工具用于通过 NETCONF 协议获取和配置网络设备，支持 OpenConfig 和厂商 YANG 模型。
+  
+  ## 工具组合
+  
+  - `netconf_tool` - 执行 NETCONF get-config/edit-config
+  - `openconfig_schema_search` - 发现 OpenConfig XPath
+  
+  ## 核心能力
+  
+  ### 1. 数据获取 (get-config)
+  
+  - 获取设备运行配置
+  - 支持 XPath 过滤（精确获取所需部分）
+  - 返回结构化 XML/JSON
+  
+  ### 2. 配置修改 (edit-config)
+  
+  - 原子性配置变更
+  - 支持验证后提交（validate-and-commit）
+  - 需要 HITL 审批
+  
+  ## 参数说明
+  
+  | 参数 | 必需 | 说明 |
+  |------|------|------|
+  | `device` | 是 | 目标设备主机名 |
+  | `xpath` | 是 | NETCONF XPath 路径 |
+  | `operation` | 否 | get-config（默认）或 edit-config |
+  | `config` | 否 | edit-config 时的配置内容 |
+  
+  ## OpenConfig XPath 模式
+  
+  ### 必须先使用 Schema 发现
+  ```
+  openconfig_schema_search(query="BGP 邻居配置")
+  # 返回正确的 XPath: /network-instances/network-instance/protocols/protocol/bgp/...
+  ```
+  
+  ### 常见模块（仅供参考，以 Schema 发现为准）
+  
+  | 模块 | XPath 前缀 | 用途 |
+  |------|-----------|------|
+  | openconfig-interfaces | /interfaces | 接口配置 |
+  | openconfig-network-instance | /network-instances | VRF/路由实例 |
+  | openconfig-routing-policy | /routing-policy | 路由策略 |
+  | openconfig-acl | /acl | 访问控制列表 |
+  
+  ## 使用时机
+  
+  ### 应该使用 NETCONF 的场景
+  1. 需要获取/修改设备配置（非状态）
+  2. 需要结构化配置数据
+  3. SuzieQ 没有相关数据
+  4. 需要配置原子性变更
+  
+  ### 不应该使用 NETCONF 的场景
+  1. 查询运行状态（优先用 SuzieQ）
+  2. 设备不支持 NETCONF
+  3. 简单状态检查
+  
+  ## 注意事项
+  
+  - ⚠️ **XPath 不要猜测** - 始终先用 openconfig_schema_search 发现
+  - ⚠️ **配置修改需要 HITL** - edit-config 操作需要人工审批
+  - ⚠️ **厂商差异** - OpenConfig 支持程度因厂商而异
+  - ⚠️ **连接开销** - NETCONF 会话建立较慢

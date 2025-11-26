@@ -200,6 +200,25 @@ class BatchPathStrategy:
         self.validator = ThresholdValidator()
         self.tool_registry = tool_registry or ToolRegistry
 
+        # Load tool capability guides (cached at init)
+        self._tool_guides = self._load_tool_capability_guides()
+
+    def _load_tool_capability_guides(self) -> dict[str, str]:
+        """Load tool capability guides from config/prompts/tools/.
+        
+        Returns:
+            Dict mapping tool prefix to capability guide content
+        """
+        from olav.core.prompt_manager import prompt_manager
+        
+        guides = {}
+        for tool_prefix in ["suzieq", "netbox", "cli", "netconf"]:
+            guide = prompt_manager.load_tool_capability_guide(tool_prefix)
+            if guide:
+                guides[tool_prefix] = guide
+        
+        return guides
+
     @classmethod
     def load_config(cls, config_path: str | Path) -> InspectionConfig:
         """
@@ -351,22 +370,63 @@ class BatchPathStrategy:
         logger.warning("No device selector specified in config")
         return []
 
+    async def _discover_schema(self, intent: str) -> dict[str, Any] | None:
+        """
+        Schema-Aware discovery for BatchPath.
+        
+        Args:
+            intent: Natural language intent to search schema for
+            
+        Returns:
+            Dict mapping table names to schema info, or None
+        """
+        try:
+            schema_tool = self.tool_registry.get_tool("suzieq_schema_search")
+            if not schema_tool:
+                return None
+            
+            from olav.tools.base import ToolOutput
+            result = await schema_tool.execute(query=intent)
+            
+            if isinstance(result, ToolOutput) and result.data:
+                schema_context = {}
+                data = result.data
+                
+                if isinstance(data, dict):
+                    tables = data.get('tables', [])
+                    for table in tables:
+                        if table in data:
+                            schema_context[table] = data[table]
+                elif isinstance(data, list):
+                    for item in data:
+                        if isinstance(item, dict) and 'table' in item:
+                            schema_context[item['table']] = item
+                
+                if schema_context:
+                    logger.debug(f"BatchPath schema discovery found: {list(schema_context.keys())}")
+                    return schema_context
+                    
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Schema discovery failed: {e}")
+            return None
+
     async def _compile_intent_to_parameters(
         self, intent: str, tool: str, existing_params: dict[str, Any]
     ) -> dict[str, Any]:
         """
         Compile natural language intent to tool parameters using LLM.
+        
+        Uses Schema-Aware pattern to discover correct table names.
 
         This method enables YAML configs to use natural language descriptions
         instead of explicit SQL queries or XPath expressions. The LLM translates
         intent into tool-specific parameters.
 
         Examples:
-            Intent: "检查 CPU 利用率" + tool: suzieq_query
-            → {table: "device", method: "get", column: "cpuUtilization"}
-
-            Intent: "验证 BGP 邻居数量" + tool: suzieq_query
-            → {table: "bgp", state: "Established", method: "summarize"}
+            Intent: "<用户意图>" + tool: <工具名>
+            → {<参数名>: "<参数值>"}  # 使用 Schema Discovery 发现的表名
 
         Args:
             intent: Natural language description of what to check
@@ -375,26 +435,48 @@ class BatchPathStrategy:
 
         Returns:
             Updated parameters dictionary with LLM-compiled values
-
-        Note:
-            This is an optional enhancement. YAML configs can always use
-            explicit parameters instead of intent for deterministic execution.
         """
         from langchain_core.messages import HumanMessage, SystemMessage
+
+        # Schema-Aware: discover correct table names
+        schema_section = ""
+        if tool == "suzieq_query":
+            schema_context = await self._discover_schema(intent)
+            if schema_context:
+                schema_tables = "\n".join([
+                    f"    - {table}: {info.get('description', '')} (fields: {', '.join(info.get('fields', [])[:5])}...)"
+                    for table, info in schema_context.items()
+                ])
+                schema_section = f"""
+## 🎯 Schema Discovery 结果（必须使用这些表名）
+{schema_tables}
+
+⚠️ 重要：请使用上述发现的表名，不要猜测或使用其他表名！
+"""
+
+        # Build capability guide section for this tool
+        capability_guide = ""
+        tool_prefix = tool.split("_")[0] if "_" in tool else tool
+        if tool_prefix in self._tool_guides:
+            capability_guide = f"""
+## 工具能力参考
+{self._tool_guides[tool_prefix][:800]}...
+"""
 
         # System prompt for intent compilation
         system_prompt = f"""你是网络运维专家，负责将自然语言意图编译为工具参数。
 
 工具: {tool}
-
-可用工具参数格式:
+{schema_section}
+{capability_guide}
+## 参数格式
 
 **suzieq_query**:
-- table: SuzieQ 表名 (bgp, interfaces, routes, ospf, device, macs, vlan, lldp, arpnd)
+- table: SuzieQ 表名（必须使用 Schema Discovery 发现的表名）
 - method: 查询方法 (get, summarize, unique, aver)
-- state: 状态过滤 (Established, up, down, full, idle)
-- column: 列名 (用于 unique/aver)
-- 其他过滤参数根据表结构
+- hostname: 设备名过滤
+- max_age_hours: 数据时间范围（默认 24）
+- 其他字段过滤根据 Schema 定义
 
 **cli_execute**:
 - command: CLI 命令字符串
@@ -406,15 +488,10 @@ class BatchPathStrategy:
 
 **任务**: 将用户意图转换为参数字典。只返回 JSON 格式的参数，不要解释。
 
-**示例**:
-意图: "检查 BGP 邻居状态"
-输出: {{"table": "bgp", "method": "summarize", "state": "Established"}}
+⚠️ 重要：如果有 Schema Discovery 结果，必须使用发现的表名，不要猜测！
 
-意图: "查看接口错误率"
-输出: {{"table": "interfaces", "method": "get"}}
-
-意图: "验证 OSPF 邻居完全状态"
-输出: {{"table": "ospf", "state": "full", "method": "summarize"}}
+返回格式：
+{{"<参数名>": "<参数值>", ...}}
 """
 
         human_prompt = f"""意图: {intent}

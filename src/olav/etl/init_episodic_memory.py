@@ -10,10 +10,15 @@ from olav.core.settings import settings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+INDEX_NAME = "olav-episodic-memory"
 
-def main() -> None:
+
+def main(force: bool = False) -> None:
     """Create olav-episodic-memory index to store historical intent→XPath success patterns.
 
+    Args:
+        force: If True, delete existing index before recreating.
+        
     Index Schema:
         - intent (text): User intent in natural language (e.g., "查询 BGP 状态")
         - xpath (keyword): OpenConfig XPath or SuzieQ query used
@@ -39,12 +44,16 @@ def main() -> None:
         verify_certs=False,
     )
 
-    index_name = "olav-episodic-memory"
+    index_name = INDEX_NAME
 
-    # Delete existing index if present
+    # Check existing index
     if client.indices.exists(index=index_name):
-        logger.info(f"Index {index_name} exists. Deleting for fresh start...")
-        client.indices.delete(index=index_name)
+        if force:
+            logger.info(f"Index {index_name} exists. Deleting (force=True)...")
+            client.indices.delete(index=index_name)
+        else:
+            logger.info(f"Index {index_name} exists. Skipping (use force=True to reset).")
+            return
 
     # Create index mapping optimized for semantic search and filtering
     mapping = {

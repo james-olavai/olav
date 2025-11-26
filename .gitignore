@@ -33,8 +33,9 @@ venv.bak/
 
 # Configuration files with sensitive data
 config/inventory.csv
-config/nornir_config.yml
-config/suzieq_config.yml
+
+# Generated configs (contain credentials from .env)
+data/generated_configs/
 
 # IDEs
 .vscode/

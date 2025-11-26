@@ -1,8 +1,8 @@
 """
-SuzieQ Tool - BaseTool implementation with adapter integration.
+SuzieQ Tool - BaseTool implementation with Schema-Aware architecture.
 
-Refactored to implement BaseTool protocol and use SuzieqAdapter for
-standardized ToolOutput returns.
+Dynamically loads schema from OpenSearch instead of hardcoded dictionaries.
+Uses SuzieqAdapter for standardized ToolOutput returns.
 """
 
 import logging
@@ -11,72 +11,19 @@ from typing import Any, Literal
 
 import pandas as pd
 
+from olav.core.schema_loader import get_schema_loader
 from olav.tools.adapters import SuzieqAdapter
 from olav.tools.base import ToolOutput, ToolRegistry
 
 logger = logging.getLogger(__name__)
 
 
-# SuzieQ schema metadata
-SUZIEQ_SCHEMA = {
-    "bgp": {
-        "fields": [
-            "namespace",
-            "hostname",
-            "vrf",
-            "peer",
-            "asn",
-            "peerAsn",
-            "state",
-            "peerHostname",
-        ],
-        "description": "BGP protocol information",
-    },
-    "interfaces": {
-        "fields": [
-            "namespace",
-            "hostname",
-            "ifname",
-            "state",
-            "adminState",
-            "type",
-            "mtu",
-            "speed",
-        ],
-        "description": "Network interface status and configuration",
-    },
-    "routes": {
-        "fields": ["namespace", "hostname", "vrf", "prefix", "nexthopIp", "protocol", "metric"],
-        "description": "Routing table entries",
-    },
-    "ospf": {
-        "fields": ["namespace", "hostname", "vrf", "ifname", "area", "state", "nbrCount"],
-        "description": "OSPF protocol information",
-    },
-    "lldp": {
-        "fields": ["namespace", "hostname", "ifname", "peerHostname", "peerIfname"],
-        "description": "LLDP neighbor discovery",
-    },
-    "macs": {
-        "fields": ["namespace", "hostname", "vlan", "macaddr", "oif", "remoteVtepIp"],
-        "description": "MAC address table",
-    },
-    "arpnd": {
-        "fields": ["namespace", "hostname", "vrf", "ipAddress", "macaddr", "oif", "state"],
-        "description": "ARP/ND table entries",
-    },
-    "device": {
-        "fields": ["namespace", "hostname", "model", "vendor", "version", "architecture", "status"],
-        "description": "Device hardware and software information",
-    },
-}
-
-
 class SuzieQTool:
     """
-    SuzieQ query tool - BaseTool implementation.
+    SuzieQ query tool - Schema-Aware BaseTool implementation.
 
     Provides access to SuzieQ network telemetry data with:
+    - Dynamic schema loading from OpenSearch
     - Direct Parquet file reading (no suzieq library dependency)
     - Automatic deduplication (latest state)
     - Time-window filtering (default: 24 hours)
@@ -86,13 +33,14 @@ class SuzieQTool:
         name: Tool identifier
         description: Tool purpose description
         parquet_dir: Path to SuzieQ Parquet files
+        schema_loader: Dynamic schema loader instance
     """
 
     name = "suzieq_query"
     description = """Query SuzieQ historical network data from Parquet files.
 
     Use this tool to access network device state collected by SuzieQ.
-    Supports tables: bgp, interfaces, routes, ospf, lldp, macs, arpnd, device.
+    Schema is discovered dynamically - use suzieq_schema_search first.
 
     Default behavior: Returns only last 24 hours of data to avoid stale records.
     """
@@ -105,6 +53,7 @@ class SuzieQTool:
             parquet_dir: Path to SuzieQ Parquet directory (default: data/suzieq-parquet)
         """
         self.parquet_dir = parquet_dir or Path("data/suzieq-parquet")
+        self.schema_loader = get_schema_loader()
         if not self.parquet_dir.exists():
             logger.warning(f"SuzieQ parquet directory not found: {self.parquet_dir}")
 
@@ -121,7 +70,7 @@ class SuzieQTool:
         Execute SuzieQ query and return standardized output.
 
         Args:
-            table: Table name (bgp, interfaces, routes, etc.)
+            table: Table name (use suzieq_schema_search to discover)
             method: Query method (get=raw data, summarize=aggregated)
             hostname: Filter by specific hostname
             namespace: Filter by namespace (default: all)
@@ -138,8 +87,11 @@ class SuzieQTool:
             "filters": filters,
         }
 
+        # Load schema dynamically
+        suzieq_schema = await self.schema_loader.load_suzieq_schema()
+
         # Validate table exists in schema
-        if table not in SUZIEQ_SCHEMA:
+        if table not in suzieq_schema:
             return ToolOutput(
                 source="suzieq",
                 device=hostname or "multi",
@@ -147,7 +99,7 @@ class SuzieQTool:
                     {
                         "status": "SCHEMA_ERROR",
                         "message": f"Unknown table '{table}'",
-                        "available_tables": list(SUZIEQ_SCHEMA.keys()),
+                        "available_tables": list(suzieq_schema.keys()),
                     }
                 ],
                 metadata=metadata,
@@ -300,17 +252,21 @@ class SuzieQTool:
 
 class SuzieQSchemaSearchTool:
     """
-    SuzieQ schema discovery tool.
+    SuzieQ schema discovery tool - Schema-Aware implementation.
 
-    Helps LLM discover available tables and fields before querying.
+    Queries OpenSearch suzieq-schema index to discover available tables dynamically.
     """
 
     name = "suzieq_schema_search"
     description = """Search SuzieQ schema to discover available tables and fields.
 
     Use this tool BEFORE suzieq_query to find out what tables exist
-    and what fields they contain.
+    and what fields they contain. Schema is loaded dynamically from OpenSearch.
     """
+
+    def __init__(self) -> None:
+        """Initialize schema search tool."""
+        self.schema_loader = get_schema_loader()
 
     async def execute(self, query: str) -> ToolOutput:
         """
@@ -322,38 +278,45 @@ class SuzieQSchemaSearchTool:
         Returns:
             ToolOutput with matching tables and their metadata
         """
+        # Load schema dynamically
+        suzieq_schema = await self.schema_loader.load_suzieq_schema()
+
         keywords = query.lower().split()
 
         # Find matching tables
         matches = []
-        for table, schema in SUZIEQ_SCHEMA.items():
+        for table, schema in suzieq_schema.items():
             if any(kw in table.lower() or kw in schema["description"].lower() for kw in keywords):
                 matches.append(
                     {
                         "table": table,
                         "fields": schema["fields"],
                         "description": schema["description"],
-                        "methods": ["get", "summarize"],
+                        "methods": schema.get("methods", ["get", "summarize"]),
                     }
                 )
 
-        # If no matches, return all tables
+        # If no matches, return top 5 tables
         if not matches:
             matches = [
                 {
                     "table": table,
                     "fields": schema["fields"],
                     "description": schema["description"],
-                    "methods": ["get", "summarize"],
+                    "methods": schema.get("methods", ["get", "summarize"]),
                 }
-                for table, schema in list(SUZIEQ_SCHEMA.items())[:5]
+                for table, schema in list(suzieq_schema.items())[:5]
             ]
 
         return ToolOutput(
             source="suzieq_schema",
             device="localhost",
             data=matches,
-            metadata={"query": query, "total_tables": len(SUZIEQ_SCHEMA)},
+            metadata={
+                "query": query,
+                "total_tables": len(suzieq_schema),
+                "schema_source": "opensearch",
+            },
         )
 
 

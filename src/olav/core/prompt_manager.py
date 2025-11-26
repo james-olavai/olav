@@ -109,6 +109,21 @@ class PromptManager:
         """
         return self.load_prompt("tools", tool_name, **context)
 
+    def load_tool_capability_guide(self, tool_name: str) -> str:
+        """Load tool capability guide (advanced usage patterns).
+
+        Args:
+            tool_name: Name of the tool (e.g., "suzieq")
+
+        Returns:
+            Capability guide content, or empty string if not found
+        """
+        try:
+            return self.load_prompt("tools", f"{tool_name}_capability_guide")
+        except FileNotFoundError:
+            logger.debug(f"No capability guide found for tool: {tool_name}")
+            return ""
+
     def reload(self) -> None:
         """Clear cache to force reload of all templates."""
         self._cache.clear()

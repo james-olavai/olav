@@ -16,6 +16,7 @@ Usage:
 
 from .base import BaseWorkflow, BaseWorkflowState, WorkflowType
 from .device_execution import DeviceExecutionState, DeviceExecutionWorkflow
+from .inspection import InspectionState, InspectionWorkflow
 from .netbox_management import NetBoxManagementState, NetBoxManagementWorkflow
 from .query_diagnostic import QueryDiagnosticState, QueryDiagnosticWorkflow
 from .registry import WorkflowMetadata, WorkflowRegistry
@@ -25,6 +26,8 @@ __all__ = [
     "BaseWorkflowState",
     "DeviceExecutionState",
     "DeviceExecutionWorkflow",
+    "InspectionState",
+    "InspectionWorkflow",
     "NetBoxManagementState",
     "NetBoxManagementWorkflow",
     "QueryDiagnosticState",

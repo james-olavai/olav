@@ -38,6 +38,12 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from olav.core.llm import LLMFactory
 from olav.core.prompt_manager import prompt_manager
+from olav.tools.document_tool import search_documents, search_rfc, search_vendor_docs
+from olav.tools.indexing_tool import (
+    INDEXING_TOOLS,
+    index_directory,
+    index_document,
+)
 from olav.tools.nornir_tool import cli_tool, netconf_tool
 from olav.tools.opensearch_tool import search_openconfig_schema
 from olav.tools.suzieq_parquet_tool import suzieq_query, suzieq_schema_search
@@ -56,7 +62,7 @@ class QueryDiagnosticState(BaseWorkflowState):
 
 @WorkflowRegistry.register(
     name="query_diagnostic",
-    description="网络状态查询与故障诊断（SuzieQ 宏观 → NETCONF 微观）",
+    description="网络状态查询与故障诊断（SuzieQ 宏观 → NETCONF 微观），以及文档索引与知识检索",
     examples=[
         "查询 R1 的 BGP 邻居状态",
         "Switch-A 的接口 Gi0/1 状态如何？",
@@ -65,8 +71,32 @@ class QueryDiagnosticState(BaseWorkflowState):
         "BGP session 为什么 down？",
         "查看设备 R2 的路由表",
         "接口带宽利用率是多少？",
+        # Document RAG examples
+        "搜索 Cisco 配置指南",
+        "查找关于 BGP 路由策略的文档",
+        "搜索 RFC 7911 关于 ADD-PATH 的内容",
+        # Document indexing examples
+        "索引 data/documents/cisco 目录下的所有文档",
+        "添加 cisco_nxos_guide.pdf 到知识库",
+        "检查索引任务的状态",
     ],
-    triggers=[r"BGP", r"OSPF", r"接口.*状态", r"路由.*表", r"CPU", r"内存", r"邻居"],
+    triggers=[
+        r"BGP",
+        r"OSPF",
+        r"接口.*状态",
+        r"路由.*表",
+        r"CPU",
+        r"内存",
+        r"邻居",
+        # Document triggers
+        r"索引",
+        r"index",
+        r"文档",
+        r"document",
+        r"知识库",
+        r"搜索.*文档",
+        r"RFC",
+    ],
 )
 class QueryDiagnosticWorkflow(BaseWorkflow):
     """Query and diagnostic workflow implementation."""
@@ -88,6 +118,13 @@ class QueryDiagnosticWorkflow(BaseWorkflow):
             "search_openconfig_schema",
             "netconf_tool",  # Read-only get-config
             "cli_tool",  # Fallback read-only
+            # Document RAG tools
+            "search_documents",
+            "search_vendor_docs",
+            "search_rfc",
+            # Document indexing tools (sync)
+            "index_document",
+            "index_directory",
         ]
 
     async def validate_input(self, user_query: str) -> tuple[bool, str]:
@@ -174,10 +211,25 @@ class QueryDiagnosticWorkflow(BaseWorkflow):
         """Build query/diagnostic workflow graph."""
 
         # Define tool nodes
+        # Macro tools: SuzieQ for historical data analysis
         macro_tools = [suzieq_query, suzieq_schema_search]
         macro_tools_node = ToolNode(macro_tools)
 
-        micro_tools = [search_openconfig_schema, netconf_tool, cli_tool]
+        # Micro tools: Real-time device data + document search
+        micro_tools = [
+            search_openconfig_schema,
+            netconf_tool,
+            cli_tool,
+            # Document RAG tools
+            search_documents,
+            search_vendor_docs,
+            search_rfc,
+            # Indexing tools (async via Redis queue)
+            index_document,
+            index_directory,
+            check_index_task,
+            list_index_tasks,
+        ]
         micro_tools_node = ToolNode(micro_tools)
 
         async def macro_analysis_node(state: QueryDiagnosticState) -> QueryDiagnosticState:

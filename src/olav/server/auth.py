@@ -6,7 +6,6 @@ Provides:
 - RBAC (Role-Based Access Control) dependency injection
 """
 
-import os
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
@@ -16,12 +15,14 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
 
+from olav.core.settings import settings
+
 # ============================================
-# Configuration
+# Configuration (from centralized settings)
 # ============================================
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "olav-dev-secret-change-in-production")
-ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRATION_MINUTES", "60"))
+SECRET_KEY = settings.jwt_secret_key
+ALGORITHM = settings.jwt_algorithm
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.jwt_expiration_minutes
 
 # Password hashing - using pbkdf2_sha256 instead of bcrypt (avoids 72-byte limit issues)
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")

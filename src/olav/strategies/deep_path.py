@@ -117,6 +117,9 @@ class DeepPathStrategy:
         self.max_iterations = max_iterations
         self.confidence_threshold = confidence_threshold
 
+        # Load tool capability guides (cached at init)
+        self._tool_guides = self._load_tool_capability_guides()
+
         # Validate tool registry
         if not self.tool_registry:
             msg = "ToolRegistry is required for DeepPathStrategy"
@@ -127,6 +130,23 @@ class DeepPathStrategy:
             f"confidence_threshold={confidence_threshold}, "
             f"available tools: {len(self.tool_registry.list_tools())}"
         )
+
+    def _load_tool_capability_guides(self) -> dict[str, str]:
+        """Load tool capability guides from config/prompts/tools/.
+        
+        Returns:
+            Dict mapping tool prefix to capability guide content
+        """
+        from olav.core.prompt_manager import prompt_manager
+        
+        guides = {}
+        for tool_prefix in ["suzieq", "netbox", "cli", "netconf"]:
+            guide = prompt_manager.load_tool_capability_guide(tool_prefix)
+            if guide:
+                guides[tool_prefix] = guide
+                logger.debug(f"Loaded capability guide for: {tool_prefix}")
+        
+        return guides
 
     async def execute(
         self, user_query: str, context: dict[str, Any] | None = None
@@ -222,14 +242,87 @@ class DeepPathStrategy:
                 ],
             }
 
+    async def _discover_schema(self, user_query: str) -> dict[str, Any] | None:
+        """
+        Schema-Aware discovery: search schema to find correct tables/fields.
+        
+        This is CRITICAL for avoiding table name guessing errors.
+        
+        Args:
+            user_query: User's natural language query
+            
+        Returns:
+            Dict mapping table names to their schema info, or None if not applicable
+        """
+        try:
+            schema_tool = self.tool_registry.get_tool("suzieq_schema_search")
+            if not schema_tool:
+                logger.debug("suzieq_schema_search tool not available")
+                return None
+            
+            from olav.tools.base import ToolOutput
+            result = await schema_tool.execute(query=user_query)
+            
+            if isinstance(result, ToolOutput) and result.data:
+                schema_context = {}
+                data = result.data
+                
+                if isinstance(data, dict):
+                    tables = data.get('tables', [])
+                    for table in tables:
+                        if table in data:
+                            schema_context[table] = data[table]
+                elif isinstance(data, list):
+                    for item in data:
+                        if isinstance(item, dict) and 'table' in item:
+                            schema_context[item['table']] = item
+                
+                if schema_context:
+                    logger.info(f"DeepPath schema discovery found: {list(schema_context.keys())}")
+                    return schema_context
+                    
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Schema discovery failed: {e}")
+            return None
+
     async def _collect_initial_observations(
         self, state: ReasoningState, context: dict[str, Any] | None = None
     ) -> None:
         """
         Collect initial observations to understand the problem.
 
-        LLM decides what tools to call based on the query.
+        Uses Schema-Aware pattern: first discover available tables,
+        then LLM decides what tools to call.
         """
+        # Schema-Aware: discover correct table names first
+        schema_context = await self._discover_schema(state.original_query)
+        
+        schema_section = ""
+        if schema_context:
+            schema_tables = "\n".join([
+                f"    - {table}: {info.get('description', '')} (fields: {', '.join(info.get('fields', [])[:5])}...)"
+                for table, info in schema_context.items()
+            ])
+            schema_section = f"""
+## 🎯 Schema Discovery 结果（必须使用这些表名）
+{schema_tables}
+⚠️ 重要：请使用上述发现的表名，不要猜测或使用其他表名！
+"""
+        
+        # Build capability guide section
+        capability_guide = ""
+        if self._tool_guides:
+            guides_text = "\n\n".join([
+                f"### {name.upper()} 工具\n{guide[:500]}..."  # Truncate for token efficiency
+                for name, guide in self._tool_guides.items()
+            ])
+            capability_guide = f"""
+## 工具能力指南
+{guides_text}
+"""
+        
         context_str = ""
         if context:
             context_str = f"\n\n可用上下文: {context}"
@@ -239,20 +332,23 @@ class DeepPathStrategy:
 ## 用户问题
 {state.original_query}
 {context_str}
-
+{schema_section}
+{capability_guide}
 ## 第一步：初始观察
 确定需要收集哪些初始数据来理解问题。选择 1-2 个工具调用。
 
 可用工具：
-- suzieq_query: 查询网络状态 (BGP, OSPF, interfaces, routes)
+- suzieq_query: 查询网络状态（必须使用 Schema Discovery 中发现的表名）
 - netbox_api_call: 查询设备信息、IP、配置
 - cli_tool: 执行 CLI 命令
 - netconf_tool: NETCONF get-config
 
 返回 JSON 列表：
 [
-  {{"tool": "suzieq_query", "parameters": {{"table": "bgp", "hostname": "R1"}}, "reasoning": "检查 BGP 状态"}}
+  {{"tool": "<工具名>", "parameters": {{"<参数名>": "<参数值>"}}, "reasoning": "<使用该工具的理由>"}}
 ]
+
+⚠️ 如果使用 suzieq_query，必须使用 Schema Discovery 中发现的表名！
 """
 
         response = await self.llm.ainvoke([SystemMessage(content=prompt)])
@@ -278,12 +374,12 @@ class DeepPathStrategy:
 
         except Exception as e:
             logger.error(f"Failed to parse initial observation plan: {e}")
-            # Fallback: use default observation
+            # Fallback: use schema search to discover available tables
             observation = ObservationStep(
                 step_number=1,
-                tool="suzieq_query",
-                parameters={"table": "devices"},
-                interpretation="Fallback: check device status",
+                tool="suzieq_schema_search",
+                parameters={"query": state.original_query},
+                interpretation="Fallback: discovering available tables via schema search",
             )
             state.observations.append(observation)
 
@@ -352,10 +448,24 @@ class DeepPathStrategy:
         """
         Verify the current hypothesis by executing verification plan.
 
-        Calls tools suggested in hypothesis.verification_plan.
+        Uses Schema-Aware pattern to discover correct table names.
         """
         if not state.current_hypothesis:
             return
+
+        # Schema-Aware: discover correct table names
+        schema_context = await self._discover_schema(state.current_hypothesis.verification_plan)
+        
+        schema_section = ""
+        if schema_context:
+            schema_tables = "\n".join([
+                f"    - {table}: {info.get('description', '')}"
+                for table, info in schema_context.items()
+            ])
+            schema_section = f"""
+## 🎯 Schema Discovery 结果（必须使用这些表名）
+{schema_tables}
+"""
 
         prompt = f"""你是 OLAV 网络诊断专家。现在需要验证一个假设。
 
@@ -364,16 +474,19 @@ class DeepPathStrategy:
 
 ## 验证计划
 {state.current_hypothesis.verification_plan}
+{schema_section}
 
 ## 任务
-根据验证计划，决定需要执行的工具调用。
+根据验证计划，决定需要执行的工具调用。如果有 Schema Discovery 结果，使用发现的表名。
 
 返回 JSON：
 {{
-  "tool": "suzieq_query",
-  "parameters": {{"table": "bgp", "hostname": "R1"}},
-  "reasoning": "验证 BGP 邻居状态"
+  "tool": "<工具名>",
+  "parameters": {{"<参数名>": "<参数值>"}},
+  "reasoning": "<验证理由>"
 }}
+
+⚠️ 如果使用 suzieq_query，必须使用 Schema Discovery 中发现的表名！
 """
 
         response = await self.llm.ainvoke([SystemMessage(content=prompt)])

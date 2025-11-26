@@ -1,201 +1,360 @@
-"""OpenSearch RAG tools for schema and document search."""
+"""OpenSearch RAG tools refactored to BaseTool protocol.
+
+This module provides OpenSearch-based tools for schema and episodic memory search.
+All tools implement the BaseTool protocol and return standardized ToolOutput.
+"""
+
+from __future__ import annotations
 
 import logging
-from typing import Any
-
-from langchain_core.tools import tool
+import time
 
 from olav.core.memory import OpenSearchMemory
+from olav.tools.adapters import OpenSearchAdapter
+from olav.tools.base import BaseTool, ToolOutput, ToolRegistry
+from langchain_core.tools import tool
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-class OpenSearchRAGTool:
-    """RAG tools for searching OpenConfig/SuzieQ schemas and documentation."""
+class OpenConfigSchemaTool(BaseTool):
+    """Search OpenConfig YANG schema for XPaths matching user intent.
+
+    Uses OpenSearch to query the openconfig-schema index built from YANG models.
+    Returns matching XPaths with descriptions, types, and examples.
+    """
 
     def __init__(self, memory: OpenSearchMemory | None = None) -> None:
-        """Initialize OpenSearch RAG tool.
+        """Initialize OpenConfig schema search tool.
 
         Args:
-            memory: OpenSearch memory instance
+            memory: OpenSearch memory instance. If None, creates new instance.
         """
-        self.memory = memory or OpenSearchMemory()
+        self._name = "openconfig_schema_search"
+        self._description = (
+            "Search OpenConfig YANG schema for XPaths matching user intent. "
+            "Use this tool to find OpenConfig XPaths for configuration tasks. "
+            "It searches the openconfig-schema index built from YANG models."
+        )
+        self._memory = memory
+        self._adapter = OpenSearchAdapter()
 
-    def search_openconfig_schema(
+    @property
+    def name(self) -> str:
+        """Tool name for registration."""
+        return self._name
+
+    @property
+    def description(self) -> str:
+        """Tool description for LLM."""
+        return self._description
+
+    @property
+    def memory(self) -> OpenSearchMemory:
+        """Lazy-load OpenSearch memory to avoid connection at import."""
+        if self._memory is None:
+            self._memory = OpenSearchMemory()
+        return self._memory
+
+    async def execute(
         self,
         intent: str,
         device_type: str = "network-instance",
-    ) -> list[dict[str, Any]]:
-        """Search OpenConfig YANG schema for XPaths matching user intent.
-
-        Use this tool to find OpenConfig XPaths for configuration tasks.
-        It searches the openconfig-schema index built from YANG models.
+        max_results: int = 5,
+    ) -> ToolOutput:
+        """Search OpenConfig schema for XPaths matching intent.
 
         Args:
-            intent: Natural language description of what you want to configure
-                    Examples: "change BGP router ID", "add VLAN interface", "configure OSPF area"
+            intent: Natural language description of what you want to configure.
+                   Examples: "change BGP router ID", "add VLAN interface", "configure OSPF area"
             device_type: OpenConfig module type (network-instance, interfaces, routing-policy)
+            max_results: Maximum number of results to return (default: 5)
 
         Returns:
-            List of matching XPaths with descriptions and examples
+            ToolOutput with matching XPaths, descriptions, types, and examples.
 
         Example:
-            >>> search_openconfig_schema("configure BGP AS number", "network-instance")
+            >>> result = await tool.execute("configure BGP AS number", "network-instance")
+            >>> result.data
             [
                 {
-                    "xpath": "/network-instances/network-instance/protocols/protocol/bgp/global/config/as",
+                    "xpath": "/network-instances/.../bgp/global/config/as",
                     "description": "Local autonomous system number",
                     "type": "uint32",
                     "example": {"as": 65000}
                 }
             ]
         """
-        # Semantic search query - simplified for demo
-        query = {
-            "bool": {
-                "must": [
-                    {"match": {"description": intent}},
-                    {"term": {"module": device_type}},
-                ],
-            },
-        }
+        start_time = time.perf_counter()
 
-        return self.memory.search_schema(
-            index="openconfig-schema",
-            query=query,
-            size=5,
-        )
+        # Validate parameters
+        if not intent or not intent.strip():
+            return ToolOutput(
+                source=self.name,
+                device="unknown",
+                data=[],
+                metadata={"elapsed_ms": 0},
+                error="Intent parameter cannot be empty",
+            )
 
-    def search_episodic_memory(
-        self,
-        intent: str,
-    ) -> list[dict[str, Any]]:
-        """Search episodic memory for previously successful intent→XPath mappings.
-
-        This searches the learning index for historical success patterns. Use this
-        BEFORE search_openconfig_schema to leverage past experience.
-
-        Args:
-            intent: User intent to search for
-
-        Returns:
-            List of successful historical mappings with context
-
-        Example:
-            >>> search_episodic_memory("configure BGP neighbor")
-            [
-                {
-                    "intent": "add BGP neighbor 192.168.1.1 AS 65001",
-                    "xpath": "/network-instances/.../neighbors/neighbor[neighbor-address=192.168.1.1]/config",
-                    "success": true,
-                    "context": {"device": "router1", "timestamp": "2024-01-15T10:30:00Z"}
+        try:
+            # Build OpenSearch query
+            # If device_type is specified and looks like an OpenConfig module name,
+            # use it as a filter. Otherwise just search by description.
+            if device_type and device_type.startswith("openconfig-"):
+                # Exact module match
+                query = {
+                    "bool": {
+                        "must": [{"match": {"description": intent}}],
+                        "filter": [{"term": {"module": device_type}}],
+                    },
                 }
-            ]
-        """
-        query = {
-            "bool": {
-                "must": [
-                    {"match": {"intent": intent}},
-                    {"term": {"success": True}},
-                ],
-            },
-        }
+            elif device_type and device_type in ("interfaces", "bgp", "vlan", "network-instance"):
+                # Map common names to OpenConfig module prefixes
+                module_prefix = f"openconfig-{device_type}"
+                query = {
+                    "bool": {
+                        "must": [{"match": {"description": intent}}],
+                        "filter": [{"prefix": {"module": module_prefix}}],
+                    },
+                }
+            else:
+                # Just search by description across all modules
+                query = {
+                    "bool": {
+                        "must": [{"match": {"description": intent}}],
+                    },
+                }
 
-        return self.memory.search_schema(
-            index="olav-episodic-memory",
-            query=query,
-            size=3,
-        )
+            # Execute search
+            results = await self.memory.search_schema(
+                index="openconfig-schema",
+                query=query,
+                size=max_results,
+            )
+
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+
+            # Use OpenSearchAdapter to normalize results
+            return self._adapter.adapt(
+                opensearch_hits=results,
+                index="openconfig-schema",
+                metadata={
+                    "intent": intent,
+                    "device_type": device_type,
+                    "result_count": len(results),
+                    "elapsed_ms": elapsed_ms,
+                },
+                error=None,
+            )
+
+        except ConnectionError as e:
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+            return ToolOutput(
+                source=self.name,
+                device="unknown",
+                data=[],
+                metadata={"elapsed_ms": elapsed_ms},
+                error=f"OpenSearch connection failed: {e}",
+            )
+
+        except TimeoutError as e:
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+            return ToolOutput(
+                source=self.name,
+                device="unknown",
+                data=[],
+                metadata={"elapsed_ms": elapsed_ms},
+                error=f"OpenSearch query timeout: {e}",
+            )
+
+        except Exception as e:
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+            logger.exception("OpenConfig schema search failed")
+            return ToolOutput(
+                source=self.name,
+                device="unknown",
+                data=[],
+                metadata={"elapsed_ms": elapsed_ms, "error_type": "schema_error"},
+                error=f"Schema search error: {e}",
+            )
 
 
-# Create global instance
-_opensearch_rag_tool = OpenSearchRAGTool()
-
-
-# Wrap methods with @tool decorator to expose to LLM
-@tool
-async def search_openconfig_schema(
-    intent: str,
-    device_type: str = "network-instance",
-) -> list[dict[str, Any]]:
-    """Search OpenConfig YANG schema for XPaths matching user intent.
-
-    Use this tool to find OpenConfig XPaths for configuration tasks.
-    It searches the openconfig-schema index built from YANG models.
-
-    Args:
-        intent: Natural language description of what you want to configure
-                Examples: "change BGP router ID", "add VLAN interface", "configure OSPF area"
-        device_type: OpenConfig module type (network-instance, interfaces, routing-policy)
-
-    Returns:
-        List of matching XPaths with descriptions and examples
-
-    Example:
-        >>> search_openconfig_schema("configure BGP AS number", "network-instance")
-        [
-            {
-                "xpath": "/network-instances/network-instance/protocols/protocol/bgp/global/config/as",
-                "description": "Local autonomous system number",
-                "type": "uint32",
-                "example": {"as": 65000}
-            }
-        ]
-    """
-    # Semantic search query - simplified for demo
-    query = {
-        "bool": {
-            "must": [
-                {"match": {"description": intent}},
-                {"term": {"module": device_type}},
-            ],
-        },
-    }
-
-    return await _opensearch_rag_tool.memory.search_schema(
-        index="openconfig-schema",
-        query=query,
-        size=5,
-    )
-
-
-@tool
-async def search_episodic_memory(
-    intent: str,
-) -> list[dict[str, Any]]:
+class EpisodicMemoryTool(BaseTool):
     """Search episodic memory for previously successful intent→XPath mappings.
 
-    This searches the learning index for historical success patterns. Use this
-    BEFORE search_openconfig_schema to leverage past experience.
-
-    Args:
-        intent: User intent to search for
-
-    Returns:
-        List of successful historical mappings with context
-
-    Example:
-        >>> search_episodic_memory("configure BGP neighbor")
-        [
-            {
-                "intent": "add BGP neighbor 192.168.1.1 AS 65001",
-                "xpath": "/network-instances/.../neighbors/neighbor[neighbor-address=192.168.1.1]/config",
-                "success": true,
-                "context": {"device": "router1", "timestamp": "2024-01-15T10:30:00Z"}
-            }
-        ]
+    Queries the olav-episodic-memory index for historical success patterns.
+    Use this BEFORE OpenConfigSchemaTool to leverage past experience.
     """
-    query = {
-        "bool": {
-            "must": [
-                {"match": {"intent": intent}},
-                {"term": {"success": True}},
-            ],
-        },
+
+    def __init__(self, memory: OpenSearchMemory | None = None) -> None:
+        """Initialize episodic memory search tool.
+
+        Args:
+            memory: OpenSearch memory instance. If None, creates new instance.
+        """
+        self._name = "episodic_memory_search"
+        self._description = (
+            "Search episodic memory for previously successful intent→XPath mappings. "
+            "This searches the learning index for historical success patterns. "
+            "Use this BEFORE search_openconfig_schema to leverage past experience."
+        )
+        self._memory = memory
+        self._adapter = OpenSearchAdapter()
+
+    @property
+    def name(self) -> str:
+        """Tool name for registration."""
+        return self._name
+
+    @property
+    def description(self) -> str:
+        """Tool description for LLM."""
+        return self._description
+
+    @property
+    def memory(self) -> OpenSearchMemory:
+        """Lazy-load OpenSearch memory to avoid connection at import."""
+        if self._memory is None:
+            self._memory = OpenSearchMemory()
+        return self._memory
+
+    async def execute(
+        self,
+        intent: str,
+        max_results: int = 3,
+        only_successful: bool = True,
+    ) -> ToolOutput:
+        """Search episodic memory for historical intent→XPath mappings.
+
+        Args:
+            intent: User intent to search for (natural language).
+            max_results: Maximum number of results to return (default: 3).
+            only_successful: Only return successful historical mappings (default: True).
+
+        Returns:
+            ToolOutput with historical mappings including intent, xpath, success status, context.
+        """
+        start_time = time.perf_counter()
+
+        # Validate parameters
+        if not intent or not intent.strip():
+            return ToolOutput(
+                source=self.name,
+                device="unknown",
+                data=[],
+                metadata={"elapsed_ms": 0},
+                error="Intent parameter cannot be empty",
+            )
+
+        try:
+            # Build OpenSearch query (semantic match on intent + filter by success)
+            query_parts = [{"match": {"intent": intent}}]
+            if only_successful:
+                query_parts.append({"term": {"success": True}})
+
+            query = {"bool": {"must": query_parts}}
+
+            # Execute search
+            results = await self.memory.search_schema(
+                index="olav-episodic-memory",
+                query=query,
+                size=max_results,
+            )
+
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+
+            # Use OpenSearchAdapter to normalize results
+            return self._adapter.adapt(
+                opensearch_hits=results,
+                index="olav-episodic-memory",
+                metadata={
+                    "intent": intent,
+                    "only_successful": only_successful,
+                    "result_count": len(results),
+                    "elapsed_ms": elapsed_ms,
+                },
+                error=None,
+            )
+
+        except ConnectionError as e:
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+            return ToolOutput(
+                source=self.name,
+                device="unknown",
+                data=[],
+                metadata={"elapsed_ms": elapsed_ms, "error_type": "connection_error"},
+                error=f"OpenSearch connection failed: {e}",
+            )
+
+        except TimeoutError as e:
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+            return ToolOutput(
+                source=self.name,
+                device="unknown",
+                data=[],
+                metadata={"elapsed_ms": elapsed_ms, "error_type": "timeout_error"},
+                error=f"OpenSearch query timeout: {e}",
+            )
+
+        except Exception as e:
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+            logger.exception("Episodic memory search failed")
+            return ToolOutput(
+                source=self.name,
+                device="unknown",
+                data=[],
+                metadata={"elapsed_ms": elapsed_ms, "error_type": "schema_error"},
+                error=f"Memory search error: {e}",
+            )
+
+
+# Register tools with registry for compatibility layer
+ToolRegistry.register(OpenConfigSchemaTool())
+ToolRegistry.register(EpisodicMemoryTool())
+
+# ---------------------------------------------------------------------------
+# Compatibility Wrappers (@tool) expected by existing workflows
+# ---------------------------------------------------------------------------
+
+@tool
+async def search_openconfig_schema(intent: str, device_type: str = "network-instance", max_results: int = 5) -> dict[str, Any]:
+    """Search OpenConfig YANG schema index for XPaths matching intent.
+
+    Delegates to refactored OpenConfigSchemaTool and adapts ToolOutput
+    to legacy dict format expected by existing workflows.
+    """
+    impl = ToolRegistry.get_tool("openconfig_schema_search")
+    if impl is None:
+        return {"success": False, "error": "openconfig_schema_search tool not registered"}
+    result = await impl.execute(intent=intent, device_type=device_type, max_results=max_results)
+    return {
+        "success": result.error is None,
+        "error": result.error,
+        "data": result.data,
+        "metadata": result.metadata,
     }
 
-    return await _opensearch_rag_tool.memory.search_schema(
-        index="olav-episodic-memory",
-        query=query,
-        size=3,
-    )
+@tool
+async def search_episodic_memory(intent: str, max_results: int = 3, only_successful: bool = True) -> dict[str, Any]:
+    """Search episodic memory index for historical successful intent→XPath mappings.
+
+    Delegates to refactored EpisodicMemoryTool and returns simplified dict
+    for compatibility with legacy workflow logic.
+    """
+    impl = ToolRegistry.get_tool("episodic_memory_search")
+    if impl is None:
+        return {"success": False, "error": "episodic_memory_search tool not registered"}
+    result = await impl.execute(intent=intent, max_results=max_results, only_successful=only_successful)
+    return {
+        "success": result.error is None,
+        "error": result.error,
+        "data": result.data,
+        "metadata": result.metadata,
+    }
+
+
+# Tools are auto-registered on module import but can be created independently for testing
+# _openconfig_tool = OpenConfigSchemaTool()
+# _episodic_tool = EpisodicMemoryTool()

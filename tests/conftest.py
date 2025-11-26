@@ -98,8 +98,10 @@ def reset_tool_registry():
     
     tool_modules = [
         "olav.tools.suzieq_tool",
-        "olav.tools.netbox_tool_refactored",
-        "olav.tools.nornir_tool_refactored",
+        "olav.tools.netbox_tool",
+        "olav.tools.nornir_tool",
+        "olav.tools.opensearch_tool",
+        "olav.tools.datetime_tool",
     ]
     
     for module_name in tool_modules:
@@ -128,8 +130,10 @@ def pytest_configure(config):
     
     tool_modules = [
         "olav.tools.suzieq_tool",
-        "olav.tools.netbox_tool_refactored",
-        "olav.tools.nornir_tool_refactored",
+        "olav.tools.netbox_tool",
+        "olav.tools.nornir_tool",
+        "olav.tools.opensearch_tool",
+        "olav.tools.datetime_tool",
     ]
     
     for module_name in tool_modules:

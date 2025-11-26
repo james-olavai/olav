@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from pathlib import Path
 
 from opensearchpy import OpenSearch
@@ -11,10 +12,26 @@ from olav.core.settings import settings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+INDEX_NAME = "suzieq-schema"
 
-def main() -> None:
+
+def get_client() -> OpenSearch:
+    """Get OpenSearch client."""
+    url = getattr(settings, "opensearch_url", None) or os.getenv("OPENSEARCH_URL", "http://localhost:9200")
+    return OpenSearch(
+        hosts=[url],
+        http_compress=True,
+        use_ssl=False,
+        verify_certs=False,
+    )
+
+
+def main(force: bool = False) -> None:
     """Parse SuzieQ Avro schemas and index to OpenSearch.
 
+    Args:
+        force: If True, delete existing index before recreating.
+        
     Process:
         1. Read .avsc files from suzieq/config/schema/
         2. Extract table, fields, and metadata
@@ -22,18 +39,17 @@ def main() -> None:
     """
     logger.info("Initializing SuzieQ schema index...")
 
-    client = OpenSearch(
-        hosts=[settings.opensearch_url],
-        http_compress=True,
-        use_ssl=False,
-        verify_certs=False,
-    )
+    client = get_client()
 
     # Create index
-    index_name = "suzieq-schema"
+    index_name = INDEX_NAME
     if client.indices.exists(index=index_name):
-        logger.info(f"Index {index_name} exists. Deleting...")
-        client.indices.delete(index=index_name)
+        if force:
+            logger.info(f"Index {index_name} exists. Deleting (force=True)...")
+            client.indices.delete(index=index_name)
+        else:
+            logger.info(f"Index {index_name} exists. Skipping (use force=True to reset).")
+            return
 
     mapping = {
         "mappings": {

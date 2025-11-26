@@ -816,28 +816,53 @@ def suzieq(
 def serve(
     host: str = "0.0.0.0",
     port: int = 8000,
+    reload: bool = typer.Option(False, "--reload", "-r", help="Enable auto-reload for development"),
 ) -> None:
     """Start OLAV web API server.
 
+    Launches the FastAPI server with LangServe endpoints for remote orchestrator access.
+    
+    Endpoints:
+        - POST /orchestrator/invoke - Execute orchestrator synchronously
+        - POST /orchestrator/stream - Stream orchestrator response
+        - GET /health - Health check
+        - GET /docs - OpenAPI documentation (Swagger UI)
+
+    Examples:
+        # Start server on default port
+        uv run python -m olav.main serve
+
+        # Custom port
+        uv run python -m olav.main serve --port 8080
+
+        # Development mode with auto-reload
+        uv run python -m olav.main serve --reload
+
     Args:
-        host: Host to bind to
-        port: Port to listen on
+        host: Host to bind to (default: 0.0.0.0)
+        port: Port to listen on (default: 8000)
+        reload: Enable auto-reload for development
     """
+    import uvicorn
+
     console.print(f"[bold blue]Starting OLAV API server on {host}:{port}[/bold blue]")
+    console.print("[dim]Endpoints:[/dim]")
+    console.print("  POST /orchestrator/invoke  - Execute query")
+    console.print("  POST /orchestrator/stream  - Stream response")
+    console.print("  GET  /health               - Health check")
+    console.print("  GET  /docs                 - OpenAPI docs")
+    console.print()
 
-    # TODO: Implement FastAPI server
-    console.print("[yellow]API server not yet implemented[/yellow]")
-    console.print("Next steps:")
-    console.print("1. Create FastAPI app with LangServe")
-    console.print("2. Expose agent endpoints")
-    console.print("3. Add WebSocket support for streaming")
-
-    # Temporary keep-alive loop so container does not exit
     try:
-        while True:
-            time.sleep(300)
+        uvicorn.run(
+            "olav.server.app:app",
+            host=host,
+            port=port,
+            reload=reload,
+            log_level="info",
+        )
     except KeyboardInterrupt:
-        console.print("[red]Shutting down placeholder server loop[/red]")
+        console.print("[yellow]Server shutting down...[/yellow]")
 
 
 @app.command()

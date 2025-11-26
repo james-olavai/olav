@@ -90,18 +90,33 @@ def generate(root: str) -> Iterator[dict[str, Any]]:
     logger.info(f"Prepared {count} YANG leaf documents")
 
 
-def main() -> None:
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--path", help="Path to OpenConfig YANG root (defaults OPENCONFIG_DIR)")
-    args = parser.parse_args()
-    yang_root = args.path or os.getenv("OPENCONFIG_DIR")
+def main(force: bool = False, yang_path: str | None = None) -> None:
+    """Initialize OpenConfig YANG schema index.
+    
+    Args:
+        force: If True, delete existing index before recreating.
+        yang_path: Path to OpenConfig YANG root directory. Defaults to OPENCONFIG_DIR env.
+    """
+    # Support command-line arguments when run directly
+    if yang_path is None:
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--path", help="Path to OpenConfig YANG root (defaults OPENCONFIG_DIR)")
+        parser.add_argument("--force", "-f", action="store_true", help="Force reset index")
+        args, _ = parser.parse_known_args()
+        yang_path = args.path or os.getenv("OPENCONFIG_DIR")
+        force = force or args.force
+    else:
+        yang_path = yang_path or os.getenv("OPENCONFIG_DIR")
 
     client = get_client()
     if client.indices.exists(index=INDEX):
-        logger.info(f"Index {INDEX} exists. Deleting...")
-        client.indices.delete(index=INDEX)
+        if force:
+            logger.info(f"Index {INDEX} exists. Deleting (force=True)...")
+            client.indices.delete(index=INDEX)
+        else:
+            logger.info(f"Index {INDEX} exists. Skipping (use force=True to reset).")
+            return
 
     logger.info(f"Creating index {INDEX}")
     client.indices.create(
@@ -118,8 +133,8 @@ def main() -> None:
         },
     )
 
-    if not yang_root or not os.path.isdir(yang_root):
-        logger.warning(f"OPENCONFIG_DIR not set or invalid: {yang_root}, using stub data")
+    if not yang_path or not os.path.isdir(yang_path):
+        logger.warning(f"OPENCONFIG_DIR not set or invalid: {yang_path}, using stub data")
         # Create comprehensive stub data covering common OpenConfig modules
         stub_docs = [
             # openconfig-interfaces
@@ -244,8 +259,8 @@ def main() -> None:
         logger.info(f"Indexed {len(stub_docs)} stub OpenConfig schemas (YANG files not available)")
         return
 
-    logger.info(f"Indexing YANG leaves from {yang_root}")
-    helpers.bulk(client, generate(yang_root))
+    logger.info(f"Indexing YANG leaves from {yang_path}")
+    helpers.bulk(client, generate(yang_path))
     logger.info("YANG ETL completed")
 
 

@@ -8,7 +8,7 @@ services:
       - .env
     ports:
       - "9200:9200"
-      - "9600:9600"
+      - "19600:9600"  # Changed to 19600 to avoid Windows reserved port range
     volumes:
       - opensearch_data:/usr/share/opensearch/data
     healthcheck:
@@ -195,6 +195,12 @@ services:
       # Point to cloned OpenConfig YANG repos (if available)
       OPENCONFIG_DIR: /app/archive/openconfig
       NETBOX_INGEST_FORCE: ${NETBOX_INGEST_FORCE:-false}
+      # ETL Index Control - set to true to force reset indexes
+      OLAV_ETL_FORCE_RESET: ${OLAV_ETL_FORCE_RESET:-false}
+      OLAV_ETL_FORCE_SUZIEQ: ${OLAV_ETL_FORCE_SUZIEQ:-false}
+      OLAV_ETL_FORCE_OPENCONFIG: ${OLAV_ETL_FORCE_OPENCONFIG:-false}
+      OLAV_ETL_FORCE_NETBOX: ${OLAV_ETL_FORCE_NETBOX:-false}
+      OLAV_ETL_FORCE_EPISODIC: ${OLAV_ETL_FORCE_EPISODIC:-false}
     volumes:
       - ./config:/app/config:ro
       - ./data:/app/data
@@ -210,17 +216,14 @@ services:
         uv run python scripts/netbox_ingest.py || { echo '[FATAL] NetBox inventory ingestion failed.'; touch data/bootstrap/inventory.error; exit 1; } &&
         [ -f data/bootstrap/inventory.ok ] || { echo '[FATAL] inventory.ok sentinel missing after ingestion.'; exit 1; } &&
         echo '[OK] Inventory ingestion complete.' &&
-        echo 'Running NetBox Schema ETL...' &&
-        uv run python -m olav.etl.netbox_schema_etl &&
-        echo 'Running ETL pipeline via uv...' &&
-        uv run python -m olav.etl.generate_configs &&
+        echo 'Initializing PostgreSQL Checkpointer...' &&
         uv run python -m olav.etl.init_postgres &&
-        echo 'Initializing episodic memory (optional)...' &&
-        uv run python -m olav.etl.init_episodic_memory || echo '[WARN] Episodic memory init failed, continuing...' &&
-        echo 'Running OpenConfig YANG ETL (optional)...' &&
-        uv run python -m olav.etl.openconfig_full_yang_etl || echo '[WARN] OpenConfig ETL failed, continuing...' &&
-        echo 'Running SuzieQ Schema ETL...' &&
-        uv run python -m olav.etl.suzieq_schema_etl &&
+        echo 'Running unified ETL initialization...' &&
+        uv run python -m olav.etl.init_all &&
+        echo 'Initializing Document RAG index...' &&
+        uv run python -m olav.etl.init_docs || echo '[WARN] Document index init failed, continuing...' &&
+        echo 'Generating device configs...' &&
+        uv run python -m olav.etl.generate_configs &&
         touch data/bootstrap/init.ok &&
         echo 'ETL pipeline completed successfully'
       "
@@ -299,6 +302,11 @@ services:
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8000
       - OLAV_USE_DYNAMIC_ROUTER=true
+      # Override for Docker network (containers use service name, not localhost)
+      - POSTGRES_URI=postgresql://olav:${POSTGRES_PASSWORD:-OlavPG123!}@postgres:5432/olav
+      - OPENSEARCH_URL=http://opensearch:9200
+      - REDIS_URL=redis://redis:6379
+      - NETBOX_URL=http://netbox:8080
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 30s

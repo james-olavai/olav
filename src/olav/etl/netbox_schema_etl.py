@@ -90,11 +90,23 @@ def process_schema(schema: dict[str, Any]) -> Generator[dict[str, Any], None, No
             yield doc
 
 
-def init_index(client: OpenSearch) -> None:
-    """Initialize OpenSearch index with mapping."""
+def init_index(client: OpenSearch, force: bool = False) -> bool:
+    """Initialize OpenSearch index with mapping.
+    
+    Args:
+        client: OpenSearch client
+        force: If True, delete existing index before recreating.
+        
+    Returns:
+        True if index was created, False if skipped.
+    """
     if client.indices.exists(index=INDEX_NAME):
-        logger.info(f"Index {INDEX_NAME} exists. Deleting...")
-        client.indices.delete(index=INDEX_NAME)
+        if force:
+            logger.info(f"Index {INDEX_NAME} exists. Deleting (force=True)...")
+            client.indices.delete(index=INDEX_NAME)
+        else:
+            logger.info(f"Index {INDEX_NAME} exists. Skipping (use force=True to reset).")
+            return False
 
     mapping = {
         "settings": {"number_of_shards": 1, "number_of_replicas": 0},
@@ -115,13 +127,21 @@ def init_index(client: OpenSearch) -> None:
 
     client.indices.create(index=INDEX_NAME, body=mapping)
     logger.info(f"Created index {INDEX_NAME}")
+    return True
 
 
-def main() -> None:
+def main(force: bool = False) -> None:
+    """Main ETL function.
+    
+    Args:
+        force: If True, delete existing index before recreating.
+    """
     client = get_opensearch_client()
 
     # 1. Init Index
-    init_index(client)
+    created = init_index(client, force=force)
+    if not created and not force:
+        return  # Index exists and force not specified
 
     # 2. Fetch Schema
     try:

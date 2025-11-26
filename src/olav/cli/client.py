@@ -229,9 +229,11 @@ class OLAVClient:
             self.console.print("[cyan]🔧 Initializing local orchestrator...[/cyan]")
 
             result = await create_workflow_orchestrator(expert_mode=expert_mode)
-            _, graph, _ = result  # Unpack tuple
+            # Unpack tuple: (orchestrator, stateful_graph, stateless_graph, checkpointer_manager)
+            _, stateful_graph, stateless_graph, _ = result
 
-            self.orchestrator = graph
+            # Use stateless graph for client execution (no thread_id requirement for simple queries)
+            self.orchestrator = stateless_graph
 
             self.console.print(
                 f"[green]✅ Local orchestrator ready (expert_mode={expert_mode})[/green]"
@@ -298,6 +300,7 @@ class OLAVClient:
         try:
             config = {"configurable": {"thread_id": thread_id}}
             messages_buffer: list[dict] = []
+            final_message_content: str = ""
 
             if stream:
                 # Streaming mode with Rich Live display
@@ -307,15 +310,25 @@ class OLAVClient:
                     async for chunk in self.remote_runnable.astream(
                         {"messages": [{"role": "user", "content": query}]}, config=config
                     ):
-                        # Process streaming chunks
-                        if "messages" in chunk:
-                            messages_buffer = chunk["messages"]
-                            # Display latest AI message
-                            for msg in reversed(messages_buffer):
-                                if msg.get("type") == "ai":
-                                    content = msg.get("content", "")
-                                    live.update(Markdown(content))
-                                    break
+                        # Process streaming chunks - LangGraph returns {node_name: {state}}
+                        # Extract messages from any node's state
+                        for node_name, node_state in chunk.items():
+                            if isinstance(node_state, dict):
+                                if "messages" in node_state:
+                                    messages_buffer = node_state["messages"]
+                                    # Display latest AI message
+                                    for msg in reversed(messages_buffer):
+                                        msg_type = msg.get("type") if isinstance(msg, dict) else getattr(msg, "type", None)
+                                        if msg_type == "ai":
+                                            content = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")
+                                            if content:
+                                                final_message_content = content
+                                                live.update(Markdown(content))
+                                            break
+                                # Also check for final_message in result
+                                if "final_message" in node_state and node_state["final_message"]:
+                                    final_message_content = node_state["final_message"]
+                                    live.update(Markdown(final_message_content))
 
             else:
                 # Non-streaming mode
@@ -323,10 +336,30 @@ class OLAVClient:
                     {"messages": [{"role": "user", "content": query}]}, config=config
                 )
                 messages_buffer = result.get("messages", [])
+                final_message_content = result.get("final_message", "")
+
+            # Ensure we have proper AI message in buffer for display
+            if final_message_content and not any(
+                (m.get("type") if isinstance(m, dict) else getattr(m, "type", None)) == "ai"
+                for m in messages_buffer
+            ):
+                messages_buffer.append({"type": "ai", "content": final_message_content})
+
+            # Convert BaseMessage objects to dicts for Pydantic validation
+            def _to_dict(msg) -> dict:
+                if isinstance(msg, dict):
+                    return msg
+                # BaseMessage-like object
+                return {
+                    "type": getattr(msg, "type", "unknown"),
+                    "content": getattr(msg, "content", ""),
+                }
+
+            messages_as_dicts = [_to_dict(m) for m in messages_buffer]
 
             return ExecutionResult(
                 success=True,
-                messages=messages_buffer,
+                messages=messages_as_dicts,
                 thread_id=thread_id,
                 interrupted=False,
             )
@@ -421,15 +454,21 @@ class OLAVClient:
         self.console.print("=" * 60)
 
         for msg in result.messages:
-            msg_type = msg.get("type", "unknown")
-            content = msg.get("content", "")
+            # Handle both dict and BaseMessage objects
+            if isinstance(msg, dict):
+                msg_type = msg.get("type", "unknown")
+                content = msg.get("content", "")
+            else:
+                msg_type = getattr(msg, "type", "unknown")
+                content = getattr(msg, "content", "")
 
             if msg_type == "ai":
                 self.console.print(Markdown(f"**AI**: {content}"))
-            elif msg_type == "human":
+            elif msg_type in ("human", "user"):
                 self.console.print(f"[bold green]Human[/bold green]: {content}")
             elif msg_type == "tool":
-                self.console.print(f"[dim]Tool output: {content[:200]}...[/dim]")
+                content_str = str(content) if content else ""
+                self.console.print(f"[dim]Tool output: {content_str[:200]}...[/dim]")
 
         self.console.print("=" * 60)
         self.console.print(f"[dim]Thread ID: {result.thread_id}[/dim]")

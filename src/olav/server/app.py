@@ -27,7 +27,7 @@ from langserve import add_routes
 from pydantic import BaseModel, ConfigDict, Field
 
 from olav.agents.root_agent_orchestrator import create_workflow_orchestrator
-from olav.core.settings import EnvSettings
+from olav.core.settings import settings
 
 from .auth import (
     CurrentUser,
@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 # ============================================
 # Global State
 # ============================================
-settings = EnvSettings()
+# settings already imported from olav.core.settings
 orchestrator: Runnable | None = None
 checkpointer: PostgresSaver | None = None
 _orchestrator_lock = asyncio.Lock()
@@ -73,7 +73,7 @@ async def ensure_orchestrator_initialized(app: FastAPI) -> None:
             logger.info(
                 "[LazyInit] Starting orchestrator initialization (expert_mode/env flags)..."
             )
-            expert_mode = os.getenv("OLAV_EXPERT_MODE", "false").lower() == "true"
+            expert_mode = settings.expert_mode
             result = await create_workflow_orchestrator(expert_mode=expert_mode)
             orch_obj, _stateful_graph, stateless_graph, checkpointer_manager = result
             # Use stateless graph for LangServe streaming (no thread_id requirement)
@@ -183,18 +183,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Initialize Workflow Orchestrator (returns tuple: orchestrator, graph, checkpointer_context)
     try:
-        os.getenv("OLAV_USE_DYNAMIC_ROUTER", "false").lower() == "true"
-        expert_mode = os.getenv("OLAV_EXPERT_MODE", "false").lower() == "true"
+        # Feature flags from centralized settings
+        _ = settings.use_dynamic_router  # Log for visibility
+        expert_mode = settings.expert_mode
 
         # Initialize orchestrator & underlying Postgres checkpointer (async)
         result = await create_workflow_orchestrator(expert_mode=expert_mode)
-        orch_obj, stateful_graph, _stateless_graph, checkpointer_manager = (
+        orch_obj, stateful_graph, stateless_graph, checkpointer_manager = (
             result  # (WorkflowOrchestrator, stateful_graph, stateless_graph, context manager)
         )
 
-        # Use stateful graph with checkpointer for full state persistence and interrupt support
-        orchestrator = stateful_graph
-        app.state.orchestrator_obj = orch_obj  # store original orchestrator
+        # Use stateless graph for LangServe streaming (no thread_id requirement)
+        # For stateful operations with HITL, use orch_obj.route() directly
+        orchestrator = stateless_graph
+        app.state.orchestrator_obj = orch_obj  # store original orchestrator for stateful ops
         try:
             checkpointer = (
                 getattr(orch_obj, "checkpointer", None) or checkpointer_manager
@@ -729,8 +731,8 @@ if settings.environment == "local" and (
 if __name__ == "__main__":
     import uvicorn
 
-    host = os.getenv("SERVER_HOST", "0.0.0.0")
-    port = int(os.getenv("SERVER_PORT", "8000"))
+    host = settings.server_host
+    port = settings.server_port
 
     logger.info(f"🔥 Starting OLAV API Server on http://{host}:{port}")
     logger.info(f"📖 API Documentation: http://{host}:{port}/docs")

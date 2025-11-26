@@ -13,10 +13,10 @@ Execution Flow:
 3. Single Invocation: Call tool once, no loops (with optional caching)
 4. Strict Formatting: Force LLM to use tool output only (no speculation)
 
-Example Queries:
-- "查询 R1 的 BGP 邻居状态" → suzieq_query(table="bgp", hostname="R1")
+Example Queries (these are illustrative, actual table names discovered via Schema):
+- "查询 R1 的 BGP 邻居状态" → suzieq_query(table=<discovered>, hostname="R1")
 - "Switch-A 的管理 IP 是什么？" → netbox_api_call(endpoint="/dcim/devices/", name="Switch-A")
-- "检查接口 Gi0/1 状态" → suzieq_query(table="interfaces", ifname="Gi0/1")
+- "检查接口 eth0 状态" → suzieq_query(table="interfaces", ifname="eth0")
 
 Key Difference from Agent Loop:
 - Agent: Query → Think → Tool → Think → Tool → Think → Answer (slow, may drift)
@@ -35,6 +35,7 @@ import logging
 import time
 from typing import Any, Literal
 
+import numpy as np
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage
 from pydantic import BaseModel, Field
@@ -42,9 +43,29 @@ from pydantic import BaseModel, Field
 from olav.core.memory_writer import MemoryWriter
 from olav.core.middleware import FilesystemMiddleware
 from olav.tools.base import ToolOutput, ToolRegistry
-from olav.tools.opensearch_tool_refactored import EpisodicMemoryTool
+from olav.tools.opensearch_tool import EpisodicMemoryTool
 
 logger = logging.getLogger(__name__)
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles numpy types."""
+    
+    def default(self, obj: Any) -> Any:
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, (np.integer, np.int64)):
+            return int(obj)
+        if isinstance(obj, (np.floating, np.float64)):
+            return float(obj)
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        return super().default(obj)
+
+
+def safe_json_dumps(obj: Any, **kwargs: Any) -> str:
+    """JSON dumps with numpy support."""
+    return json.dumps(obj, cls=NumpyEncoder, **kwargs)
 
 
 class ParameterExtraction(BaseModel):
@@ -54,12 +75,92 @@ class ParameterExtraction(BaseModel):
     LLM converts natural language to tool-compatible parameters.
     """
 
-    tool: Literal["suzieq_query", "netbox_api_call", "cli_tool", "netconf_tool"]
+    tool: Literal["suzieq_query", "netbox_api", "netbox_api_call", "cli_execute", "cli_tool",
+                  "netconf_execute", "netconf_tool", "openconfig_schema_search", 
+                  "netbox_schema_search", "suzieq_schema_search"]
     parameters: dict[str, Any] = Field(description="Tool-specific parameters")
     confidence: float = Field(
         description="Confidence that Fast Path is appropriate (0.0-1.0)", ge=0.0, le=1.0
     )
     reasoning: str = Field(description="Why this tool and parameters were chosen")
+
+
+# Intent classification patterns for tool selection
+INTENT_PATTERNS: dict[str, list[str]] = {
+    # NetBox patterns - inventory, IPAM, SSOT queries
+    "netbox": [
+        "netbox", "inventory", "device list", "设备列表", "设备清单",
+        "ip address", "ip 地址", "ipam", "site", "站点", "datacenter", "数据中心",
+        "rack", "机架", "cable", "线缆", "vlan", "tenant", "租户",
+        "what devices", "哪些设备", "how many devices", "多少设备",
+        "management ip", "管理地址", "管理IP", "location", "位置",
+    ],
+    # OpenConfig patterns - YANG schema, XPath queries
+    "openconfig": [
+        "openconfig", "yang", "xpath", "schema", "配置路径",
+        "openconfig path", "yang model", "find xpath", "查找路径",
+        "configuration path", "netconf path", "gnmi path",
+    ],
+    # CLI patterns - direct device commands
+    "cli": [
+        "show command", "cli command", "执行命令", "run command",
+        "show running", "show startup", "debug", "terminal",
+    ],
+    # NETCONF patterns - device configuration
+    "netconf": [
+        "netconf", "get-config", "edit-config", "配置设备",
+        "apply config", "应用配置", "push config", "下发配置",
+    ],
+    # SuzieQ patterns - network state queries (default)
+    "suzieq": [
+        "bgp", "ospf", "interface", "route", "arp", "mac", "lldp",
+        "状态", "status", "neighbor", "邻居", "session", "会话",
+        "查询", "query", "check", "检查", "show", "显示",
+        "summary", "汇总", "统计", "topology", "拓扑",
+    ],
+}
+
+
+def classify_intent(query: str) -> tuple[str, float]:
+    """
+    Classify user query intent to determine tool category.
+    
+    Uses keyword matching with confidence scoring based on
+    number of matching patterns.
+    
+    Args:
+        query: User's natural language query
+        
+    Returns:
+        Tuple of (tool_category, confidence)
+        Categories: "netbox", "openconfig", "cli", "netconf", "suzieq"
+    """
+    query_lower = query.lower()
+    
+    # Count matches for each category
+    scores: dict[str, int] = {}
+    for category, patterns in INTENT_PATTERNS.items():
+        score = sum(1 for p in patterns if p.lower() in query_lower)
+        if score > 0:
+            scores[category] = score
+    
+    if not scores:
+        # Default to SuzieQ for general network queries
+        return ("suzieq", 0.5)
+    
+    # Get highest scoring category
+    best_category = max(scores, key=lambda k: scores[k])
+    best_score = scores[best_category]
+    
+    # Calculate confidence based on score and uniqueness
+    total_matches = sum(scores.values())
+    if total_matches > 0:
+        # Higher confidence if matches are concentrated in one category
+        confidence = min(0.95, 0.5 + (best_score / total_matches) * 0.4 + (best_score * 0.05))
+    else:
+        confidence = 0.5
+    
+    return (best_category, confidence)
 
 
 class FormattedAnswer(BaseModel):
@@ -132,6 +233,9 @@ class FastPathStrategy:
         self.cache_ttl = cache_ttl
         self.filesystem = filesystem  # Will be created on-demand if None
 
+        # Load tool capability guides (cached at init)
+        self._tool_guides = self._load_tool_capability_guides()
+
         # Validate tool registry
         if not self.tool_registry:
             msg = "ToolRegistry is required for FastPathStrategy"
@@ -143,11 +247,113 @@ class FastPathStrategy:
             f"caching: {enable_cache} (TTL: {cache_ttl}s)"
         )
 
+    def _load_tool_capability_guides(self) -> dict[str, str]:
+        """Load tool capability guides from config/prompts/tools/.
+        
+        Returns:
+            Dict mapping tool prefix to capability guide content
+        """
+        from olav.core.prompt_manager import prompt_manager
+        
+        guides = {}
+        # Load guides for main tool categories
+        for tool_prefix in ["suzieq", "netbox", "cli", "netconf"]:
+            guide = prompt_manager.load_tool_capability_guide(tool_prefix)
+            if guide:
+                guides[tool_prefix] = guide
+                logger.debug(f"Loaded capability guide for: {tool_prefix}")
+        
+        return guides
+
+    def _get_tool_category(self, tool_name: str) -> str:
+        """Map tool name to intent category.
+        
+        Args:
+            tool_name: Name of the tool (e.g., "suzieq_query", "netbox_api")
+            
+        Returns:
+            Intent category: "suzieq", "netbox", "openconfig", "cli", "netconf"
+        """
+        # Tool name to category mapping
+        tool_category_map = {
+            "suzieq_query": "suzieq",
+            "suzieq_schema_search": "suzieq",
+            "netbox_api": "netbox",
+            "netbox_api_call": "netbox",
+            "netbox_schema_search": "netbox",
+            "openconfig_schema_search": "openconfig",
+            "cli_execute": "cli",
+            "cli_tool": "cli",
+            "netconf_execute": "netconf",
+            "netconf_tool": "netconf",
+        }
+        
+        return tool_category_map.get(tool_name, "suzieq")
+
+    async def _discover_schema_for_intent(
+        self, query: str, intent_category: str
+    ) -> dict[str, Any] | None:
+        """Discover schema based on intent category.
+        
+        Different schema sources for different intents:
+        - suzieq: SuzieQ schema (tables like bgp, ospf, interfaces)
+        - netbox: NetBox schema (endpoints like /dcim/devices/)
+        - openconfig: OpenConfig YANG paths
+        
+        Args:
+            query: User query for semantic search
+            intent_category: Classified intent category
+            
+        Returns:
+            Schema context dict or None if discovery fails
+        """
+        try:
+            if intent_category == "suzieq":
+                # Use existing SuzieQ schema discovery
+                return await self._discover_schema(query)
+            
+            elif intent_category == "netbox":
+                # Search NetBox schema for relevant endpoints
+                from olav.tools.netbox_tool import NetBoxSchemaSearchTool
+                netbox_tool = NetBoxSchemaSearchTool()
+                result = await netbox_tool.execute(query=query)
+                
+                if result and not result.error and result.data:
+                    endpoints = result.data if isinstance(result.data, list) else []
+                    return {ep.get("path", ""): ep for ep in endpoints[:5]}
+                return None
+            
+            elif intent_category == "openconfig":
+                # Search OpenConfig schema for XPaths
+                from olav.tools.opensearch_tool import OpenConfigSchemaTool
+                oc_tool = OpenConfigSchemaTool()
+                result = await oc_tool.execute(intent=query)
+                
+                if result and not result.error and result.data:
+                    paths = result.data if isinstance(result.data, list) else []
+                    return {p.get("xpath", ""): p for p in paths[:10]}
+                return None
+            
+            else:
+                # CLI/NETCONF don't need schema discovery
+                return None
+                
+        except Exception as e:
+            logger.warning(f"Schema discovery failed for {intent_category}: {e}")
+            return None
+
     async def execute(
         self, user_query: str, context: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """
         Execute Fast Path strategy for a user query.
+
+        Improved tool selection flow:
+        1. Intent Classification: Keyword-based pre-classification
+        2. Schema Discovery: Find correct tables/endpoints for the classified category
+        3. Episodic Memory: Only use if tool category matches intent
+        4. Parameter Extraction: LLM extracts params with schema context
+        5. Tool Execution: Execute with caching
 
         Args:
             user_query: Natural language query
@@ -157,12 +363,43 @@ class FastPathStrategy:
             Dict with 'success', 'answer', 'tool_output', 'metadata'
         """
         try:
-            # Step 0: Search episodic memory (RAG optimization)
+            # Step 0: Intent Classification (NEW - determines tool category)
+            intent_category, intent_confidence = classify_intent(user_query)
+            logger.info(f"Intent classified as '{intent_category}' (confidence: {intent_confidence:.2f})")
+            
+            # Step 1: Schema Discovery based on intent category
+            schema_context = await self._discover_schema_for_intent(user_query, intent_category)
+            if schema_context:
+                logger.info(f"Schema-Aware: discovered {len(schema_context)} entries for {intent_category}")
+            
+            # Step 2: Search episodic memory (RAG optimization)
+            # Only use if tool category matches intent classification
             memory_pattern = None
             if self.enable_memory_rag:
                 memory_pattern = await self._search_episodic_memory(user_query)
+                
+                if memory_pattern:
+                    memory_tool = memory_pattern.get("tool", "")
+                    memory_category = self._get_tool_category(memory_tool)
+                    
+                    # Validate memory pattern against intent classification
+                    if memory_category != intent_category:
+                        logger.warning(
+                            f"Episodic memory suggests '{memory_tool}' ({memory_category}) but "
+                            f"intent classified as '{intent_category}'. Ignoring memory."
+                        )
+                        memory_pattern = None
+                    elif schema_context:
+                        # Also validate against schema if available
+                        memory_table = memory_pattern.get("parameters", {}).get("table")
+                        if memory_table and intent_category == "suzieq" and memory_table not in schema_context:
+                            logger.warning(
+                                f"Episodic memory suggests table '{memory_table}' but schema "
+                                f"suggests {list(schema_context.keys())}. Ignoring memory."
+                            )
+                            memory_pattern = None
 
-            # Step 1: Extract parameters (use memory pattern if available)
+            # Step 3: Extract parameters (use memory pattern if valid, else LLM with schema)
             if memory_pattern and memory_pattern.get("confidence", 0) > 0.8:
                 # Use historical pattern directly
                 extraction = ParameterExtraction(
@@ -176,8 +413,10 @@ class FastPathStrategy:
                     f"(confidence: {memory_pattern['confidence']:.2f})"
                 )
             else:
-                # Fallback to LLM parameter extraction
-                extraction = await self._extract_parameters(user_query, context)
+                # LLM parameter extraction WITH schema context and intent hint
+                extraction = await self._extract_parameters(
+                    user_query, context, schema_context, intent_category
+                )
 
             # Check confidence threshold
             if extraction.confidence < self.confidence_threshold:
@@ -245,27 +484,184 @@ class FastPathStrategy:
                 "fallback_required": True,
             }
 
+    async def _discover_schema(self, user_query: str) -> dict[str, Any] | None:
+        """
+        Schema-Aware discovery: search schema to find correct tables/fields.
+        
+        This is CRITICAL for avoiding table name guessing errors like 
+        using 'ospf' instead of 'ospfNbr'.
+        
+        Args:
+            user_query: User's natural language query
+            
+        Returns:
+            Dict mapping table names to their schema info, or None if not applicable
+        """
+        try:
+            # Get the schema search tool
+            schema_tool = self.tool_registry.get_tool("suzieq_schema_search")
+            if not schema_tool:
+                logger.debug("suzieq_schema_search tool not available, skipping schema discovery")
+                return None
+            
+            # Execute schema search
+            from olav.tools.base import ToolOutput
+            result = await schema_tool.execute(query=user_query)
+            
+            if isinstance(result, ToolOutput) and result.data:
+                # Extract relevant tables from schema search result
+                schema_context = {}
+                data = result.data
+                
+                # Handle different response formats
+                if isinstance(data, dict):
+                    # Format: {'tables': [...], 'table1': {...}, ...}
+                    tables = data.get('tables', [])
+                    for table in tables:
+                        if table in data:
+                            schema_context[table] = data[table]
+                elif isinstance(data, list):
+                    # Format: [{'table': 'name', 'fields': [...], ...}, ...]
+                    for item in data:
+                        if isinstance(item, dict) and 'table' in item:
+                            schema_context[item['table']] = item
+                
+                if schema_context:
+                    logger.info(f"Schema discovery found tables: {list(schema_context.keys())}")
+                    return schema_context
+                    
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Schema discovery failed: {e}")
+            return None
+
     async def _extract_parameters(
-        self, user_query: str, context: dict[str, Any] | None = None
+        self, user_query: str, 
+        context: dict[str, Any] | None = None,
+        schema_context: dict[str, Any] | None = None,
+        intent_category: str | None = None,
     ) -> ParameterExtraction:
         """
         Extract structured parameters from natural language query.
+        
+        Uses Schema-Aware pattern with Intent-Guided tool selection:
+        1. Intent category guides which tool family to prefer
+        2. Schema context provides exact table/endpoint names
+        3. LLM extracts parameters for the chosen tool
 
         Args:
             user_query: User's query
             context: Optional context for parameter extraction
+            schema_context: Schema info from _discover_schema (table names and fields)
+            intent_category: Pre-classified intent category (suzieq, netbox, openconfig, cli, netconf)
 
         Returns:
             ParameterExtraction with tool and parameters
         """
-        tool_descriptions = {
-            "suzieq_query": "Query SuzieQ Parquet database (network state: BGP, OSPF, interfaces, routes). Fast, read-only. Parameters: table (bgp|ospf|interfaces|routes|...), hostname, namespace, etc.",
-            "netbox_api_call": "Query NetBox SSOT (device inventory, IPs, sites, racks). Parameters: endpoint (/dcim/devices/), filters (name, role, site).",
+        # Map intent to preferred tool
+        intent_tool_map = {
+            "suzieq": "suzieq_query",
+            "netbox": "netbox_api_call",
+            "openconfig": "openconfig_schema_search",
+            "cli": "cli_tool",
+            "netconf": "netconf_tool",
+        }
+        preferred_tool = intent_tool_map.get(intent_category or "suzieq", "suzieq_query")
+        
+        # Build intent-aware schema section
+        if schema_context:
+            if intent_category == "netbox":
+                # NetBox endpoint format
+                schema_items = "\n".join([
+                    f"    - {endpoint}: {info.get('description', '')}"
+                    for endpoint, info in list(schema_context.items())[:5]
+                ])
+                schema_section = f"""
+## 🎯 NetBox Schema Discovery 结果
+意图分类：**NetBox 设备/IP查询**（优先使用 netbox_api_call）
+以下是相关的 NetBox API 端点：
+{schema_items}
+
+⚠️ 重要：使用 netbox_api_call 工具和上述端点！
+"""
+            elif intent_category == "openconfig":
+                # OpenConfig XPath format
+                schema_items = "\n".join([
+                    f"    - {xpath}: {info.get('description', '')}"
+                    for xpath, info in list(schema_context.items())[:10]
+                ])
+                schema_section = f"""
+## 🎯 OpenConfig Schema Discovery 结果
+意图分类：**OpenConfig 配置路径查询**（使用 openconfig_schema_search 或 netconf_tool）
+以下是相关的 XPath：
+{schema_items}
+
+⚠️ 重要：如果需要查询设备配置，使用 netconf_tool！
+"""
+            else:
+                # SuzieQ table format (default)
+                schema_tables = "\n".join([
+                    f"    - {table}: {info.get('description', '')} (fields: {', '.join(info.get('fields', [])[:5])}...)"
+                    for table, info in schema_context.items()
+                ])
+                schema_section = f"""
+## 🎯 SuzieQ Schema Discovery 结果
+意图分类：**网络状态查询**（优先使用 suzieq_query）
+以下是根据你的查询从 Schema 中发现的相关表：
+{schema_tables}
+
+⚠️ 重要：使用上述发现的表名，不要猜测！
+"""
+        else:
+            # No schema - guide based on intent
+            intent_hints = {
+                "netbox": "意图是 NetBox 查询，使用 netbox_api_call。常用端点：/dcim/devices/, /ipam/ip-addresses/, /dcim/sites/",
+                "openconfig": "意图是 OpenConfig 路径查询，使用 openconfig_schema_search 或 netconf_tool",
+                "cli": "意图是 CLI 命令执行，使用 cli_tool。需要 device 和 command 参数",
+                "netconf": "意图是 NETCONF 配置，使用 netconf_tool。需要 device 和 xpath 参数",
+                "suzieq": "意图是网络状态查询，使用 suzieq_query。先用 suzieq_schema_search 查找正确表名",
+            }
+            hint = intent_hints.get(intent_category or "suzieq", "")
+            schema_section = f"""
+## ⚠️ 意图分类结果
+{hint}
+"""
+        
+        # Build tool capability guide section
+        capability_guide = ""
+        guide_key = intent_category if intent_category in self._tool_guides else "suzieq"
+        if self._tool_guides.get(guide_key):
+            capability_guide = f"""
+## 工具能力指南
+{self._tool_guides[guide_key]}
+"""
+        
+        # Tool descriptions with intent-specific ordering
+        all_tools = {
+            "suzieq_query": "Query SuzieQ Parquet database. Parameters: table, hostname, namespace, method, max_age_hours.",
+            "netbox_api_call": "Query NetBox SSOT (device inventory, IPs, sites, racks). Parameters: endpoint, filters.",
             "cli_tool": "Execute CLI command on device (fallback, slower). Parameters: device, command.",
             "netconf_tool": "Execute NETCONF get-config (OpenConfig paths). Parameters: device, xpath.",
+            "openconfig_schema_search": "Search OpenConfig YANG schema for XPaths. Parameters: intent (natural language), device_type (optional, e.g. 'interfaces', 'bgp').",
         }
-
-        tools_desc = "\n".join([f"- **{k}**: {v}" for k, v in tool_descriptions.items()])
+        
+        # Reorder based on intent
+        if intent_category == "netbox":
+            tool_order = ["netbox_api_call", "suzieq_query", "cli_tool", "netconf_tool"]
+        elif intent_category == "openconfig":
+            tool_order = ["openconfig_schema_search", "netconf_tool", "suzieq_query", "cli_tool"]
+        elif intent_category == "cli":
+            tool_order = ["cli_tool", "suzieq_query", "netbox_api_call", "netconf_tool"]
+        elif intent_category == "netconf":
+            tool_order = ["netconf_tool", "openconfig_schema_search", "suzieq_query", "cli_tool"]
+        else:
+            tool_order = ["suzieq_query", "netbox_api_call", "cli_tool", "netconf_tool"]
+        
+        tools_desc = "\n".join([
+            f"- **{t}** {'(推荐)' if t == preferred_tool else ''}: {all_tools.get(t, '')}"
+            for t in tool_order if t in all_tools
+        ])
 
         context_str = ""
         if context:
@@ -276,38 +672,121 @@ class FastPathStrategy:
 ## 用户查询
 {user_query}
 {context_str}
-
-## 可用工具（优先级顺序）
+{schema_section}
+{capability_guide}
+## 可用工具（按推荐顺序）
 {tools_desc}
 
 ## 提取要求
-1. 选择最合适的工具（优先 SuzieQ，其次 NetBox，最后 CLI/NETCONF）
-2. 提取工具所需的精确参数（如 table, hostname, endpoint 等）
-3. 评估该查询是否适合 Fast Path（简单查询 confidence 高，复杂诊断 confidence 低）
-4. 如果需要多次调用或复杂推理，降低 confidence
+1. **优先使用推荐的工具**：根据意图分类，本次查询应优先使用 **{preferred_tool}**
+2. 如果有 Schema Discovery 结果，必须使用发现的表名/端点，不要猜测！
+3. 提取工具所需的精确参数
+4. 评估该查询是否适合 Fast Path（简单查询 confidence 高，复杂诊断 confidence 低）
 
 返回 JSON：
 {{{{
-    "tool": "suzieq_query",
-    "parameters": {{"table": "bgp", "hostname": "R1"}},
+    "tool": "<选择的工具名>",
+    "parameters": {{"<参数名>": "<参数值>"}},
     "confidence": 0.95,
-    "reasoning": "简单的 BGP 状态查询，SuzieQ 可直接回答"
+    "reasoning": "<解释为什么选择该工具和参数>"
 }}}}
 """
 
         response = await self.llm.ainvoke([SystemMessage(content=prompt)])
-
-        try:
-            extraction = ParameterExtraction.model_validate_json(response.content)
-        except Exception as e:
-            logger.error(f"Failed to parse parameter extraction: {e}")
-            # Fallback extraction
-            extraction = ParameterExtraction(
-                tool="suzieq_query", parameters={}, confidence=0.3, reasoning=f"Parse error: {e}"
-            )
+        extraction = self._parse_json_response(response.content, "parameter extraction")
 
         logger.debug(f"Extracted: {extraction.tool} with params {extraction.parameters}")
         return extraction
+
+    def _parse_json_response(self, content: str, context: str = "response") -> ParameterExtraction:
+        """
+        Robustly parse JSON from LLM response with multiple fallback strategies.
+
+        Handles common LLM output issues:
+        1. Markdown code blocks (```json ... ```)
+        2. Extra text before/after JSON
+        3. Single quotes instead of double quotes
+        4. Trailing commas
+        5. Unquoted keys
+
+        Args:
+            content: Raw LLM response content
+            context: Context description for error logging
+
+        Returns:
+            Parsed ParameterExtraction, or fallback with low confidence
+        """
+        import json
+        import re
+
+        raw_content = content.strip()
+
+        # Strategy 1: Clean markdown code blocks
+        if "```" in raw_content:
+            # Extract content between code blocks
+            match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", raw_content, re.DOTALL)
+            if match:
+                raw_content = match.group(1).strip()
+
+        # Strategy 2: Find JSON object boundaries
+        if not raw_content.startswith("{"):
+            # Find first { and last }
+            start = raw_content.find("{")
+            end = raw_content.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                raw_content = raw_content[start : end + 1]
+
+        # Strategy 3: Try direct parsing
+        try:
+            return ParameterExtraction.model_validate_json(raw_content)
+        except Exception:
+            pass
+
+        # Strategy 4: Fix common JSON issues
+        try:
+            # Replace single quotes with double quotes (but not in strings)
+            fixed = raw_content
+            # Remove trailing commas before } or ]
+            fixed = re.sub(r",\s*([}\]])", r"\1", fixed)
+            # Try parsing fixed content
+            data = json.loads(fixed)
+            return ParameterExtraction.model_validate(data)
+        except Exception:
+            pass
+
+        # Strategy 5: Extract key fields with regex
+        try:
+            tool_match = re.search(r'"tool"\s*:\s*"([^"]+)"', raw_content)
+            conf_match = re.search(r'"confidence"\s*:\s*([\d.]+)', raw_content)
+            reason_match = re.search(r'"reasoning"\s*:\s*"([^"]*)"', raw_content)
+
+            if tool_match:
+                # Try to extract parameters block
+                params = {}
+                params_match = re.search(r'"parameters"\s*:\s*(\{[^}]*\})', raw_content)
+                if params_match:
+                    try:
+                        params = json.loads(params_match.group(1))
+                    except Exception:
+                        pass
+
+                return ParameterExtraction(
+                    tool=tool_match.group(1),
+                    parameters=params,
+                    confidence=float(conf_match.group(1)) if conf_match else 0.5,
+                    reasoning=reason_match.group(1) if reason_match else "Extracted via regex fallback",
+                )
+        except Exception:
+            pass
+
+        # Final fallback
+        logger.error(f"Failed to parse {context}: {raw_content[:200]}...")
+        return ParameterExtraction(
+            tool="suzieq_query",
+            parameters={},
+            confidence=0.3,
+            reasoning=f"Parse error: Could not extract valid JSON from response",
+        )
 
     async def _execute_tool(self, tool_name: str, parameters: dict[str, Any]) -> ToolOutput:
         """
@@ -325,6 +804,37 @@ class FastPathStrategy:
         Returns:
             ToolOutput from tool execution or cache
         """
+        # Tool name normalization (LLM may use different names)
+        tool_name_map = {
+            "netbox_api_call": "netbox_api",
+            "cli_tool": "cli_execute",
+            "netconf_tool": "netconf_execute",
+        }
+        tool_name = tool_name_map.get(tool_name, tool_name)
+        
+        # Parameter normalization for specific tools
+        # This handles cases where LLM uses different parameter names
+        if tool_name == "openconfig_schema_search":
+            if "query" in parameters and "intent" not in parameters:
+                parameters["intent"] = parameters.pop("query")
+        elif tool_name == "netbox_api":
+            # Map 'endpoint' to 'path' (NetBoxAPITool uses 'path')
+            if "endpoint" in parameters and "path" not in parameters:
+                parameters["path"] = parameters.pop("endpoint")
+            # Ensure path starts with /api/ or /
+            if "path" in parameters:
+                path = parameters["path"]
+                if not path.startswith("/"):
+                    path = "/" + path
+                if not path.startswith("/api/"):
+                    path = "/api" + path
+                parameters["path"] = path
+            if "filters" in parameters and isinstance(parameters["filters"], dict):
+                # Flatten filters into params
+                if "params" not in parameters:
+                    parameters["params"] = {}
+                parameters["params"].update(parameters.pop("filters"))
+        
         # Step 1: Check cache (if enabled)
         if self.enable_cache:
             cache_result = await self._check_cache(tool_name, parameters)
@@ -390,7 +900,7 @@ class FastPathStrategy:
             "tool_results/suzieq_query_3f2a1b9c8d7e6f5a.json"
         """
         # Create canonical JSON (sorted keys)
-        canonical = json.dumps(
+        canonical = safe_json_dumps(
             {"tool": tool_name, "params": parameters}, sort_keys=True, ensure_ascii=False
         )
 
@@ -514,7 +1024,7 @@ class FastPathStrategy:
 
             # Write to cache
             await self.filesystem.write_file(
-                cache_key, json.dumps(cache_data, ensure_ascii=False, indent=2)
+                cache_key, safe_json_dumps(cache_data, ensure_ascii=False, indent=2)
             )
 
             logger.debug(
@@ -540,10 +1050,8 @@ class FastPathStrategy:
         Returns:
             FormattedAnswer with human-readable text
         """
-        import json
-
-        # Serialize tool data for LLM
-        data_json = json.dumps(tool_output.data, ensure_ascii=False, indent=2)
+        # Serialize tool data for LLM (use safe encoder for numpy types)
+        data_json = safe_json_dumps(tool_output.data, ensure_ascii=False, indent=2)
 
         prompt = f"""你是 OLAV 答案格式化专家。基于工具返回的数据，回答用户问题。
 

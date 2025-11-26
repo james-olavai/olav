@@ -25,11 +25,12 @@ class Paths:
     
     # Config files
     INVENTORY_CSV = CONFIG_DIR / "inventory.csv"
-    NORNIR_CONFIG = CONFIG_DIR / "nornir_config.yml"
-    SUZIEQ_CONFIG = CONFIG_DIR / "suzieq_config.yml"
     PROMPTS_DIR = CONFIG_DIR / "prompts"
+    INSPECTIONS_DIR = CONFIG_DIR / "inspections"
+    CLI_BLACKLIST = CONFIG_DIR / "cli_blacklist.yaml"
+    COMMAND_BLACKLIST = CONFIG_DIR / "command_blacklist.txt"
     
-    # Data directories
+    # Data directories (runtime generated)
     SUZIEQ_PARQUET_DIR = DATA_DIR / "suzieq-parquet"
     DOCUMENTS_DIR = DATA_DIR / "documents"
     GENERATED_CONFIGS_DIR = DATA_DIR / "generated_configs"

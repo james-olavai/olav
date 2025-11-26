@@ -30,7 +30,9 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, StateGraph
 
 from olav.core.llm import LLMFactory
+from olav.core.memory_writer import get_memory_writer
 from olav.core.prompt_manager import prompt_manager
+from olav.core.settings import settings
 from olav.workflows.base import BaseWorkflow
 from olav.workflows.registry import WorkflowRegistry
 
@@ -988,8 +990,20 @@ class DeepDiveWorkflow(BaseWorkflow):
         Returns:
             Updated state with final summary message
         """
+        import logging
+
+        logger = logging.getLogger(__name__)
+
         todos = state["todos"]
         completed_results = state.get("completed_results", {})
+        messages = state.get("messages", [])
+
+        # Extract original user query from first HumanMessage
+        user_query = ""
+        for msg in messages:
+            if isinstance(msg, HumanMessage):
+                user_query = msg.content
+                break
 
         # Load summary prompt
         prompt = prompt_manager.load_prompt(
@@ -999,11 +1013,49 @@ class DeepDiveWorkflow(BaseWorkflow):
             results=str(completed_results),
         )
 
-        messages = [SystemMessage(content=prompt)]
-        response = await self.llm.ainvoke(messages)
+        llm_messages = [SystemMessage(content=prompt)]
+        response = await self.llm.ainvoke(llm_messages)
+        final_report = response.content
+
+        # Count successful/failed tasks for evaluation
+        successful_tasks = sum(1 for t in todos if t.get("status") == "completed")
+        failed_tasks = sum(1 for t in todos if t.get("status") == "failed")
+        total_tasks = len(todos)
+
+        # Save troubleshooting report to episodic memory (Agentic RAG)
+        # Only save if Deep Dive memory is enabled in settings
+        if settings.enable_deep_dive_memory and successful_tasks > 0 and user_query:
+            try:
+                memory_writer = get_memory_writer()
+                await memory_writer.memory.store_episodic_memory(
+                    intent=user_query,
+                    xpath=f"deep_dive:{successful_tasks}/{total_tasks} tasks",
+                    success=failed_tasks == 0,  # Fully successful if no failures
+                    context={
+                        "tool_used": "deep_dive_workflow",
+                        "device_type": "multi-device",
+                        "strategy_used": "deep_dive",
+                        "execution_time_ms": 0,  # Not tracked at workflow level
+                        "parameters": {
+                            "todos_count": total_tasks,
+                            "successful": successful_tasks,
+                            "failed": failed_tasks,
+                        },
+                        "result_summary": final_report[:500],  # Truncate for storage
+                        "full_report_available": len(final_report) > 500,
+                    },
+                )
+                logger.info(
+                    f"✓ Saved Deep Dive report to episodic memory: {user_query[:50]}..."
+                )
+            except Exception as e:
+                # Don't fail workflow on memory save error
+                logger.warning(f"Failed to save Deep Dive report to memory: {e}")
+        elif not settings.enable_deep_dive_memory:
+            logger.debug("Deep Dive memory disabled, skipping report save")
 
         return {
-            "messages": [AIMessage(content=response.content)],
+            "messages": [AIMessage(content=final_report)],
         }
 
     def build_graph(self, checkpointer: AsyncPostgresSaver) -> StateGraph:

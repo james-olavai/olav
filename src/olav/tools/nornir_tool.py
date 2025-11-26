@@ -1,31 +1,61 @@
-"""Nornir NETCONF/CLI tool wrapper with timing metadata.
+"""
+Nornir Tool - BaseTool implementation with adapter integration.
 
-Adds `__meta__.elapsed_sec` to each tool response for performance profiling.
+Refactored to implement BaseTool protocol for NETCONF and CLI operations.
+Uses CLIAdapter and NetconfAdapter for standardized ToolOutput returns.
 """
 
 import logging
 import time
 from pathlib import Path
-from typing import Any
+from typing import Literal, Any
+
+from olav.execution.backends.nornir_sandbox import NornirSandbox
+from olav.tools.adapters import CLIAdapter, NetconfAdapter
+from olav.tools.base import ToolOutput, ToolRegistry
+from langchain_core.tools import tool
+
+logger = logging.getLogger(__name__)
 
 # Derive CONFIG_DIR without importing non-packaged root module
 CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
 
-from langchain_core.tools import tool
 
-from olav.execution.backends.nornir_sandbox import NornirSandbox
+class NetconfTool:
+    """
+    NETCONF operation tool - BaseTool implementation.
 
-logger = logging.getLogger(__name__)
+    Provides NETCONF access to network devices with:
+    - get-config and edit-config operations
+    - XPath filtering for targeted data retrieval
+    - HITL approval for write operations (edit-config)
+    - Standardized ToolOutput via NetconfAdapter
 
+    Attributes:
+        name: Tool identifier
+        description: Tool purpose description
+        sandbox: NornirSandbox instance for execution
+    """
 
-class NornirTool:
-    """LangChain tool wrapper for Nornir sandbox operations."""
+    name = "netconf_execute"
+    description = """Execute NETCONF operations on network devices.
+
+    Use this tool for OpenConfig-based device configuration:
+    - get-config: Read configuration data with XPath filters (read-only)
+    - edit-config: Modify configuration (requires HITL approval)
+
+    NETCONF provides structured, model-driven access to device configuration.
+    Prefer this over CLI for configuration management.
+
+    **CRITICAL**: edit-config operations trigger Human-in-the-Loop approval.
+    """
 
     def __init__(self, sandbox: NornirSandbox | None = None) -> None:
-        """Initialize Nornir tool.
+        """
+        Initialize NetconfTool.
 
         Args:
-            sandbox: Nornir sandbox instance (lazy initialization if None)
+            sandbox: NornirSandbox instance (lazy-loaded if None)
         """
         self._sandbox = sandbox
 
@@ -36,10 +66,380 @@ class NornirTool:
             self._sandbox = NornirSandbox()
         return self._sandbox
 
+    async def execute(
+        self,
+        device: str,
+        operation: Literal["get-config", "edit-config"],
+        xpath: str | None = None,
+        payload: str | None = None,
+    ) -> ToolOutput:
+        """
+        Execute NETCONF operation and return standardized output.
 
-# Create global instance
-_nornir_tool_instance = NornirTool()
+        Args:
+            device: Target device hostname
+            operation: NETCONF operation (get-config or edit-config)
+            xpath: XPath filter for get-config (required for get-config)
+            payload: XML configuration payload for edit-config (required for edit-config)
 
+        Returns:
+            ToolOutput with normalized XML data via NetconfAdapter
+
+        Example (Read):
+            result = await tool.execute(
+                device="R1",
+                operation="get-config",
+                xpath="/interfaces/interface[name='eth0']/state"
+            )
+
+        Example (Write - triggers HITL):
+            result = await tool.execute(
+                device="R1",
+                operation="edit-config",
+                payload="<interfaces><interface>...</interface></interfaces>"
+            )
+        """
+        start_time = time.perf_counter()
+
+        metadata = {
+            "device": device,
+            "operation": operation,
+            "xpath": xpath,
+            "requires_approval": operation == "edit-config",
+        }
+
+        # Validate parameters
+        if operation == "get-config" and not xpath:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            return ToolOutput(
+                source="netconf",
+                device=device,
+                data=[
+                    {
+                        "status": "PARAM_ERROR",
+                        "message": "get-config requires xpath parameter",
+                        "hint": "Provide XPath filter like '/interfaces/interface/state'",
+                    }
+                ],
+                metadata={**metadata, "elapsed_ms": elapsed_ms},
+                error="Missing required parameter: xpath",
+            )
+
+        if operation == "edit-config" and not payload:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            return ToolOutput(
+                source="netconf",
+                device=device,
+                data=[
+                    {
+                        "status": "PARAM_ERROR",
+                        "message": "edit-config requires payload parameter",
+                        "hint": "Provide XML configuration payload",
+                    }
+                ],
+                metadata={**metadata, "elapsed_ms": elapsed_ms},
+                error="Missing required parameter: payload",
+            )
+
+        # Validate operation
+        if operation not in ["get-config", "edit-config"]:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            return ToolOutput(
+                source="netconf",
+                device=device,
+                data=[
+                    {
+                        "status": "PARAM_ERROR",
+                        "message": f"Unsupported operation: {operation}",
+                        "supported": ["get-config", "edit-config"],
+                    }
+                ],
+                metadata={**metadata, "elapsed_ms": elapsed_ms},
+                error=f"Unsupported operation: {operation}",
+            )
+
+        # Build NETCONF RPC
+        requires_approval = operation == "edit-config"
+
+        if operation == "get-config":
+            command = (
+                f"<get-config>"
+                f"<source><running/></source>"
+                f"<filter type='xpath' select='{xpath}'/>"
+                f"</get-config>"
+            )
+        else:  # edit-config
+            command = (
+                f"<edit-config>"
+                f"<target><candidate/></target>"
+                f"<config>{payload}</config>"
+                f"</edit-config>"
+            )
+
+        try:
+            # Execute via NornirSandbox
+            result = await self.sandbox.execute(
+                command=command,
+                device=device,
+                requires_approval=requires_approval,
+            )
+
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+
+            # Use NetconfAdapter to convert XML response
+            return NetconfAdapter.adapt(
+                netconf_response=result.output if result.success else None,
+                device=device,
+                xpath=xpath or "",
+                metadata={
+                    **metadata,
+                    "elapsed_ms": elapsed_ms,
+                    "success": result.success,
+                    "operation": operation,
+                },
+                error=result.error,
+            )
+
+        except ConnectionRefusedError as e:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            logger.error(f"NETCONF connection refused for {device}: {e}")
+            return ToolOutput(
+                source="netconf",
+                device=device,
+                data=[
+                    {
+                        "status": "CONNECTION_ERROR",
+                        "message": "Connection refused on port 830",
+                        "hint": "Device may not support NETCONF. Try CLI instead.",
+                        "原始错误": str(e),
+                    }
+                ],
+                metadata={**metadata, "elapsed_ms": elapsed_ms},
+                error=f"Connection refused (port 830): {e}",
+            )
+
+        except TimeoutError as e:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            logger.error(f"NETCONF timeout for {device}: {e}")
+            return ToolOutput(
+                source="netconf",
+                device=device,
+                data=[
+                    {
+                        "status": "TIMEOUT_ERROR",
+                        "message": "Timeout connecting to port 830",
+                        "hint": "Check device reachability and NETCONF service status",
+                    }
+                ],
+                metadata={**metadata, "elapsed_ms": elapsed_ms},
+                error=f"Connection timeout: {e}",
+            )
+
+        except Exception as e:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            logger.exception(f"NETCONF execution failed for {device}: {e}")
+            return ToolOutput(
+                source="netconf",
+                device=device,
+                data=[],
+                metadata={**metadata, "elapsed_ms": elapsed_ms},
+                error=f"NETCONF execution failed: {e}",
+            )
+
+
+class CLITool:
+    """
+    CLI command execution tool - BaseTool implementation.
+
+    Provides SSH-based CLI access to network devices with:
+    - Show command execution with TextFSM parsing
+    - Configuration commands with HITL approval
+    - Standardized ToolOutput via CLIAdapter
+
+    Attributes:
+        name: Tool identifier
+        description: Tool purpose description
+        sandbox: NornirSandbox instance for execution
+    """
+
+    name = "cli_execute"
+    description = """Execute CLI commands on network devices via SSH.
+
+    Use this tool for:
+    - Show commands: TextFSM-parsed structured output (read-only)
+    - Configuration commands: Multi-line config changes (requires HITL approval)
+
+    TextFSM parsing converts raw text to structured data automatically.
+    Supports Cisco IOS, IOS-XR, NX-OS, Juniper, Arista, and more.
+
+    **CRITICAL**: Configuration commands trigger Human-in-the-Loop approval.
+    """
+
+    def __init__(self, sandbox: NornirSandbox | None = None) -> None:
+        """
+        Initialize CLITool.
+
+        Args:
+            sandbox: NornirSandbox instance (lazy-loaded if None)
+        """
+        self._sandbox = sandbox
+
+    @property
+    def sandbox(self) -> NornirSandbox:
+        """Lazy-load Nornir sandbox (avoids NetBox connection at import time)."""
+        if self._sandbox is None:
+            self._sandbox = NornirSandbox()
+        return self._sandbox
+
+    async def execute(
+        self, device: str, command: str | None = None, config_commands: list[str] | None = None
+    ) -> ToolOutput:
+        """
+        Execute CLI command(s) and return standardized output.
+
+        Args:
+            device: Target device hostname
+            command: Single show/exec command (for read operations)
+            config_commands: List of configuration commands (for write operations)
+
+        Returns:
+            ToolOutput with parsed CLI data via CLIAdapter
+
+        Example (Read - TextFSM parsed):
+            result = await tool.execute(
+                device="R1",
+                command="show ip interface brief"
+            )
+            # Returns: [{"interface": "Gi0/0", "ip_address": "192.168.1.1", ...}, ...]
+
+        Example (Write - triggers HITL):
+            result = await tool.execute(
+                device="R1",
+                config_commands=[
+                    "interface GigabitEthernet0/0",
+                    "mtu 9000",
+                    "description Updated via OLAV"
+                ]
+            )
+        """
+        start_time = time.perf_counter()
+
+        metadata = {
+            "device": device,
+            "command": command,
+            "config_commands": config_commands,
+            "is_config": config_commands is not None,
+        }
+
+        # Validate parameters
+        if not command and not config_commands:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            return ToolOutput(
+                source="cli",
+                device=device,
+                data=[
+                    {
+                        "status": "PARAM_ERROR",
+                        "message": "Must provide either command or config_commands",
+                        "hint": "Use command for show/exec, config_commands for configuration",
+                    }
+                ],
+                metadata={**metadata, "elapsed_ms": elapsed_ms},
+                error="Missing required parameter: command or config_commands",
+            )
+
+        if command and config_commands:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            return ToolOutput(
+                source="cli",
+                device=device,
+                data=[
+                    {
+                        "status": "PARAM_ERROR",
+                        "message": "Cannot provide both command and config_commands",
+                        "hint": "Choose one: command (read) OR config_commands (write)",
+                    }
+                ],
+                metadata={**metadata, "elapsed_ms": elapsed_ms},
+                error="Conflicting parameters: command and config_commands",
+            )
+
+        # Determine if config operation (requires approval)
+        is_config = config_commands is not None
+        requires_approval = is_config
+
+        try:
+            if is_config:
+                # Configuration commands (HITL approval)
+                result = await self.sandbox.execute_cli_config(
+                    device=device,
+                    commands=config_commands,
+                    requires_approval=requires_approval,
+                )
+                parsed = False
+            else:
+                # Show/exec command (TextFSM parsing)
+                result = await self.sandbox.execute_cli_command(
+                    device=device,
+                    command=command,
+                    use_textfsm=True,
+                )
+                parsed = result.metadata.get("parsed", False) if result.metadata else False
+
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+
+            # Use CLIAdapter to convert output
+            return CLIAdapter.adapt(
+                cli_output=result.output if result.success else result.error,
+                device=device,
+                command=command or f"config: {len(config_commands)} lines",
+                parsed=parsed and result.success,
+                metadata={
+                    **metadata,
+                    "elapsed_ms": elapsed_ms,
+                    "success": result.success,
+                    "requires_approval": requires_approval,
+                },
+                error=result.error if not result.success else None,
+            )
+
+        except ConnectionRefusedError as e:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            logger.error(f"SSH connection refused for {device}: {e}")
+            return ToolOutput(
+                source="cli",
+                device=device,
+                data=[
+                    {
+                        "status": "CONNECTION_ERROR",
+                        "message": "Connection refused on port 22",
+                        "hint": "Check device SSH service and credentials",
+                        "原始错误": str(e),
+                    }
+                ],
+                metadata={**metadata, "elapsed_ms": elapsed_ms},
+                error=f"Connection refused (port 22): {e}",
+            )
+
+        except Exception as e:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            logger.exception(f"CLI execution failed for {device}: {e}")
+            return ToolOutput(
+                source="cli",
+                device=device,
+                data=[],
+                metadata={**metadata, "elapsed_ms": elapsed_ms},
+                error=f"CLI execution failed: {e}",
+            )
+
+
+# Register tools with ToolRegistry
+ToolRegistry.register(NetconfTool())
+ToolRegistry.register(CLITool())
+
+# ---------------------------------------------------------------------------
+# Compatibility Wrappers (@tool) for legacy workflow/test integration
+# ---------------------------------------------------------------------------
 
 @tool
 async def netconf_tool(
@@ -48,89 +448,20 @@ async def netconf_tool(
     xpath: str | None = None,
     payload: str | None = None,
 ) -> dict[str, Any]:
-    """Execute NETCONF operation on network device.
+    """Legacy-compatible NETCONF tool wrapper delegating to NetconfTool.
 
-    **CRITICAL**: This tool triggers HITL approval for write operations.
-    Read operations (get-config) execute immediately.
-
-    Args:
-        device: Target device hostname
-        operation: NETCONF operation (get-config, edit-config)
-        xpath: XPath filter (required for get-config)
-        payload: XML payload (required for edit-config)
-
-    Returns:
-        Execution result with status and output
-
-    错误处理:
-        如果连接失败，返回明确错误信息以便 Root Agent 降级到 CLI
-
-    Example:
-        >>> await netconf_tool(
-        ...     device="router1",
-        ...     operation="get-config",
-        ...     xpath="/interfaces/interface/state"
-        ... )
+    Preserves original return structure (success/output/error + __meta__).
     """
-    start = time.perf_counter()
-    # 参数验证
-    if operation == "get-config" and not xpath:
-        return {
-            "error": "get-config requires xpath parameter",
-            "__meta__": {"elapsed_sec": round(time.perf_counter() - start, 6)},
-        }
-    if operation == "edit-config" and not payload:
-        return {
-            "error": "edit-config requires payload parameter",
-            "__meta__": {"elapsed_sec": round(time.perf_counter() - start, 6)},
-        }
-
-    # 构造 RPC 与审批标记
-    if operation == "get-config":
-        command = f"<get-config><source><running/></source><filter type='xpath' select='{xpath}'/></get-config>"
-        requires_approval = False
-    elif operation == "edit-config":
-        command = (
-            f"<edit-config><target><candidate/></target><config>{payload}</config></edit-config>"
-        )
-        requires_approval = True
-    else:
-        return {
-            "error": f"Unsupported operation: {operation}",
-            "__meta__": {"elapsed_sec": round(time.perf_counter() - start, 6)},
-        }
-
-    try:
-        result = await _nornir_tool_instance.sandbox.execute(
-            command=command,
-            device=device,
-            requires_approval=requires_approval,
-        )
-        return {
-            "success": result.success,
-            "output": result.output,
-            "error": result.error,
-            "__meta__": {"elapsed_sec": round(time.perf_counter() - start, 6)},
-        }
-    except ConnectionRefusedError as e:
-        return {
-            "success": False,
-            "error": f"NETCONF connection failed: Connection refused on port 830. 设备可能不支持 NETCONF。原始错误: {e}",
-            "__meta__": {"elapsed_sec": round(time.perf_counter() - start, 6)},
-        }
-    except TimeoutError as e:
-        return {
-            "success": False,
-            "error": f"NETCONF connection failed: Timeout connecting to port 830. 原始错误: {e}",
-            "__meta__": {"elapsed_sec": round(time.perf_counter() - start, 6)},
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "error": f"NETCONF connection failed: {e}",
-            "__meta__": {"elapsed_sec": round(time.perf_counter() - start, 6)},
-        }
-
+    impl = ToolRegistry.get_tool("netconf_execute")
+    if impl is None:
+        return {"success": False, "error": "netconf_execute tool not registered"}
+    result = await impl.execute(device=device, operation=operation, xpath=xpath, payload=payload)
+    return {
+        "success": result.error is None,
+        "output": result.data,
+        "error": result.error,
+        "__meta__": {"elapsed_ms": result.metadata.get("elapsed_ms")},
+    }
 
 @tool
 async def cli_tool(
@@ -138,89 +469,20 @@ async def cli_tool(
     command: str | None = None,
     config_commands: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Execute CLI commands on network device via SSH.
-
-    **CRITICAL**: Configuration commands trigger HITL approval.
-    Read commands execute immediately with TextFSM parsing.
-
-    Args:
-        device: Target device hostname
-        command: Single read command (for queries)
-        config_commands: List of configuration commands (for changes)
-
-    Returns:
-        Execution result with parsed output (TextFSM for read, raw for config)
-
-    Example (Read):
-        >>> await cli_tool(
-        ...     device="router1",
-        ...     command="show ip interface brief"
-        ... )
-        {
-            "success": True,
-            "output": [
-                {"interface": "GigabitEthernet0/0", "ip_address": "192.168.1.1", "status": "up"},
-                ...
-            ],
-            "parsed": True
-        }
-
-    Example (Write):
-        >>> await cli_tool(
-        ...     device="router1",
-        ...     config_commands=["interface GigabitEthernet0/0", "mtu 9000"]
-        ... )
-        # Triggers HITL approval
-    """
-    start = time.perf_counter()
-    # 验证参数
-    if not command and not config_commands:
-        return {
-            "error": "Must provide either command or config_commands",
-            "__meta__": {"elapsed_sec": round(time.perf_counter() - start, 6)},
-        }
-    if command and config_commands:
-        return {
-            "error": "Cannot provide both command and config_commands",
-            "__meta__": {"elapsed_sec": round(time.perf_counter() - start, 6)},
-        }
-
-    # 判断是否为配置操作
-    is_config = config_commands is not None
-    requires_approval = is_config
-
-    try:
-        if is_config:
-            # 配置命令（需要审批）
-            result = await _nornir_tool_instance.sandbox.execute_cli_config(
-                device=device,
-                commands=config_commands,
-                requires_approval=requires_approval,
-            )
-        else:
-            # 查询命令（自动 TextFSM 解析）
-            result = await _nornir_tool_instance.sandbox.execute_cli_command(
-                device=device,
-                command=command,
-                use_textfsm=True,
-            )
-
-        return {
-            "success": result.success,
-            "output": result.output,
-            "parsed": result.metadata.get("parsed", False) if result.metadata else False,
-            "error": result.error,
-            "__meta__": {"elapsed_sec": round(time.perf_counter() - start, 6)},
-        }
-    except ConnectionRefusedError as e:
-        return {
-            "success": False,
-            "error": f"SSH connection failed: Connection refused on port 22. 原始错误: {e!s}",
-            "__meta__": {"elapsed_sec": round(time.perf_counter() - start, 6)},
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "error": f"CLI execution failed: {e!s}",
-            "__meta__": {"elapsed_sec": round(time.perf_counter() - start, 6)},
-        }
+    """Legacy-compatible CLI tool wrapper delegating to CLITool."""
+    impl = ToolRegistry.get_tool("cli_execute")
+    if impl is None:
+        return {"success": False, "error": "cli_execute tool not registered"}
+    result = await impl.execute(device=device, command=command, config_commands=config_commands)
+    parsed = False
+    if result.metadata:
+        parsed = result.metadata.get("success") and any(
+            isinstance(entry, dict) for entry in result.data
+        )
+    return {
+        "success": result.error is None,
+        "output": result.data,
+        "parsed": parsed,
+        "error": result.error,
+        "__meta__": {"elapsed_ms": result.metadata.get("elapsed_ms")},
+    }

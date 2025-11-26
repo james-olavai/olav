@@ -1,52 +1,28 @@
 _type: prompt
 input_variables:
-  - available_tables
-  - example_usage
+  - schema_tables
 template: |
-  Query SuzieQ historical network data using schema-aware approach.
+  # SuzieQ 查询工具
   
-  **Available Tables**: {available_tables}
+  查询 SuzieQ 历史网络数据（Schema-Aware 模式）。
   
-  ## Parameters
+  ## 可用表（从 Schema 动态发现）
   
-  - **table** (required): Table name to query
-    - Examples: 'interfaces', 'bgp', 'routes', 'ospf', 'evpnVni'
+  {schema_tables}
   
-  - **method** (required): Query method
-    - 'get': Retrieve raw records
-    - 'summarize': Statistical summary
-    - 'unique': Distinct values
-    - 'aver': Assert verification (check expected state)
+  ## 参数说明
   
-  - **filters** (optional): Field-level filters as keyword arguments
-    - Examples: hostname='router1', namespace='production', state='up'
-    - Use exact field names (check schema first!)
+  - **table** (必需): 表名 - 必须使用上述发现的表名
+  - **method** (可选): 查询方法
+    - `get`: 获取原始记录（默认）
+    - `summarize`: 统计汇总
+  - **hostname** (可选): 按设备名过滤
+  - **namespace** (可选): 按命名空间过滤
+  - **max_age_hours** (可选): 数据时间范围，默认 24 小时
+  - **filters** (可选): 字段过滤，如 state="up"
   
-  ## Example Usage
+  ## 重要提示
   
-  {example_usage}
-  
-  ## Important Notes
-  
-  - ✅ This is a **READ-ONLY** tool - all data is queried from Parquet files
-  - ✅ No risk of modifying device configuration
-  - ✅ Data may have delay based on poller interval (default 60s)
-  - ⚠️ Always use `suzieq_schema_search` first to discover available fields
-  - ⚠️ Field names are case-sensitive
-  
-  ## Common Patterns
-  
-  **Get all down interfaces**:
-  ```
-  suzieq_query(table='interfaces', method='get', state='down')
-  ```
-  
-  **Summarize BGP sessions**:
-  ```
-  suzieq_query(table='bgp', method='summarize', namespace='production')
-  ```
-  
-  **Check unique device types**:
-  ```
-  suzieq_query(table='device', method='unique', columns=['model'])
-  ```
+  - ✅ 只读工具 - 不会修改设备配置
+  - ⚠️ 必须先用 `suzieq_schema_search` 发现表名和字段
+  - ⚠️ 字段名大小写敏感
