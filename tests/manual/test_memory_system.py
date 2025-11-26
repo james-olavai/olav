@@ -19,7 +19,7 @@ from olav.core.memory import OpenSearchMemory
 from olav.core.memory_writer import MemoryWriter
 from olav.strategies.fast_path import FastPathStrategy
 from olav.tools.base import ToolOutput, ToolRegistry
-from olav.tools.opensearch_tool_refactored import EpisodicMemoryTool
+from olav.tools.opensearch_tool import EpisodicMemoryTool
 from olav.tools.suzieq_tool import SuzieQTool
 
 logging.basicConfig(level=logging.INFO)

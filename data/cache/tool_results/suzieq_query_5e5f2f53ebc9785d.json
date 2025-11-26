@@ -4,7 +4,7 @@
     "table": "bgp",
     "method": "get"
   },
-  "cached_at": 1764159454.384831,
+  "cached_at": 1764195571.502952,
   "cache_ttl": 300,
   "tool_output": {
     "source": "suzieq",
@@ -16,7 +16,7 @@
       "method": "get",
       "max_age_hours": 24,
       "filters": {},
-      "elapsed_ms": 33
+      "elapsed_ms": 30
     }
   }
 }

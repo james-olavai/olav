@@ -21,8 +21,8 @@ from olav.strategies.fast_path import FastPathStrategy
 from olav.strategies.deep_path import DeepPathStrategy
 from olav.tools.base import ToolRegistry, ToolOutput
 from olav.tools.suzieq_tool import SuzieQTool, SuzieQSchemaSearchTool
-from olav.tools.netbox_tool_refactored import NetBoxAPITool, NetBoxSchemaSearchTool
-from olav.tools.nornir_tool_refactored import NetconfTool, CLITool
+from olav.tools.netbox_tool import NetBoxAPITool, NetBoxSchemaSearchTool
+from olav.tools.nornir_tool import NetconfTool, CLITool
 
 
 class TestE2EFastPathWorkflow:

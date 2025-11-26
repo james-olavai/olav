@@ -377,6 +377,7 @@ class OLAVClient:
         try:
             config = {"configurable": {"thread_id": thread_id}}
             messages_buffer: list[BaseMessage] = []
+            final_message_content: str = ""
 
             if stream:
                 # Streaming mode
@@ -386,13 +387,22 @@ class OLAVClient:
                     async for chunk in self.orchestrator.astream(
                         {"messages": [{"role": "user", "content": query}]}, config=config
                     ):
-                        if "messages" in chunk:
-                            messages_buffer = chunk["messages"]
-                            # Display latest message
-                            if messages_buffer:
-                                last_msg = messages_buffer[-1]
-                                if hasattr(last_msg, "content"):
-                                    live.update(Markdown(str(last_msg.content)))
+                        # Process streaming chunks - LangGraph returns {node_name: {state}}
+                        for node_name, node_state in chunk.items():
+                            if isinstance(node_state, dict):
+                                if "messages" in node_state:
+                                    messages_buffer = node_state["messages"]
+                                    # Display latest AI message
+                                    for msg in reversed(messages_buffer):
+                                        if hasattr(msg, "type") and msg.type == "ai":
+                                            if hasattr(msg, "content") and msg.content:
+                                                final_message_content = str(msg.content)
+                                                live.update(Markdown(final_message_content))
+                                            break
+                                # Also check for final_message in result
+                                if "final_message" in node_state and node_state["final_message"]:
+                                    final_message_content = node_state["final_message"]
+                                    live.update(Markdown(final_message_content))
 
             else:
                 # Non-streaming mode
@@ -400,6 +410,14 @@ class OLAVClient:
                     {"messages": [{"role": "user", "content": query}]}, config=config
                 )
                 messages_buffer = result.get("messages", [])
+                final_message_content = result.get("final_message", "")
+
+            # Ensure we have proper AI message in buffer for display
+            if final_message_content and not any(
+                hasattr(m, "type") and m.type == "ai" for m in messages_buffer
+            ):
+                from langchain_core.messages import AIMessage
+                messages_buffer.append(AIMessage(content=final_message_content))
 
             # Convert BaseMessage to dict
             messages_dict = [{"type": msg.type, "content": msg.content} for msg in messages_buffer]
