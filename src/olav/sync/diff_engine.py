@@ -169,11 +169,12 @@ class DiffEngine:
                     params={"name": device},
                 )
                 
-                if device_result.error or not device_result.data.get("results"):
+                # device_result.data is a list from adapter
+                if device_result.error or not device_result.data:
                     logger.warning(f"Device {device} not found in NetBox")
                     continue
                 
-                device_id = device_result.data["results"][0]["id"]
+                device_id = device_result.data[0]["id"]
                 
                 # Get IP addresses assigned to device interfaces
                 ip_result = await self.netbox.execute(
@@ -223,7 +224,8 @@ class DiffEngine:
                     logger.warning(f"NetBox device query failed for {device}: {netbox_result.error}")
                     continue
                 
-                if not netbox_result.data.get("results"):
+                # netbox_result.data is a list from adapter
+                if not netbox_result.data:
                     # Device missing in NetBox
                     report.missing_in_netbox += 1
                     report.add_diff(DiffResult(
@@ -240,7 +242,7 @@ class DiffEngine:
                 
                 # Parse and compare
                 suzieq_device = self._parse_suzieq_device(suzieq_result, device)
-                netbox_device = netbox_result.data["results"][0]
+                netbox_device = netbox_result.data[0]
                 
                 self._diff_device(device, suzieq_device, netbox_device, report)
                 
@@ -272,10 +274,12 @@ class DiffEngine:
                     params={"name": device},
                 )
                 
-                if device_result.error or not device_result.data.get("results"):
+                # device_result.data is a list from adapter
+                if device_result.error or not device_result.data:
                     continue
                 
-                site_id = device_result.data["results"][0].get("site", {}).get("id")
+                site_data = device_result.data[0].get("site", {})
+                site_id = site_data.get("id") if isinstance(site_data, dict) else None
                 
                 if site_id:
                     vlan_result = await self.netbox.execute(
@@ -325,19 +329,25 @@ class DiffEngine:
     
     def _parse_netbox_interfaces(
         self,
-        result: dict[str, Any],
+        result: list[dict[str, Any]] | dict[str, Any],
     ) -> dict[str, dict[str, Any]]:
         """Parse NetBox interface API result."""
         interfaces = {}
         
-        for iface in result.get("results", []):
+        # Handle both list (from adapter) and dict (raw API response)
+        if isinstance(result, list):
+            items = result
+        else:
+            items = result.get("results", [])
+        
+        for iface in items:
             name = iface.get("name", "")
             interfaces[name] = {
                 "id": iface.get("id"),
                 "enabled": iface.get("enabled", True),
                 "mtu": iface.get("mtu"),
                 "speed": iface.get("speed"),
-                "type": iface.get("type", {}).get("value"),
+                "type": iface.get("type", {}).get("value") if isinstance(iface.get("type"), dict) else iface.get("type"),
                 "description": iface.get("description", ""),
             }
         
@@ -370,17 +380,25 @@ class DiffEngine:
     
     def _parse_netbox_ips(
         self,
-        result: dict[str, Any],
+        result: list[dict[str, Any]] | dict[str, Any],
     ) -> dict[str, dict[str, Any]]:
         """Parse NetBox IP address API result."""
         addresses = {}
         
-        for ip in result.get("results", []):
+        # Handle both list (from adapter) and dict (raw API response)
+        if isinstance(result, list):
+            items = result
+        else:
+            items = result.get("results", [])
+        
+        for ip in items:
             addr = ip.get("address", "")
+            status = ip.get("status", {})
+            assigned = ip.get("assigned_object")
             addresses[addr] = {
                 "id": ip.get("id"),
-                "status": ip.get("status", {}).get("value"),
-                "interface": ip.get("assigned_object", {}).get("name") if ip.get("assigned_object") else None,
+                "status": status.get("value") if isinstance(status, dict) else status,
+                "interface": assigned.get("name") if isinstance(assigned, dict) else None,
                 "dns_name": ip.get("dns_name", ""),
             }
         
@@ -436,18 +454,25 @@ class DiffEngine:
     
     def _parse_netbox_vlans(
         self,
-        result: dict[str, Any],
+        result: list[dict[str, Any]] | dict[str, Any],
     ) -> dict[int, dict[str, Any]]:
         """Parse NetBox VLAN API result."""
         vlans = {}
         
-        for vlan in result.get("results", []):
+        # Handle both list (from adapter) and dict (raw API response)
+        if isinstance(result, list):
+            items = result
+        else:
+            items = result.get("results", [])
+        
+        for vlan in items:
             vid = vlan.get("vid")
             if vid:
+                status = vlan.get("status", {})
                 vlans[vid] = {
                     "id": vlan.get("id"),
                     "name": vlan.get("name", ""),
-                    "status": vlan.get("status", {}).get("value"),
+                    "status": status.get("value") if isinstance(status, dict) else status,
                 }
         
         return vlans
