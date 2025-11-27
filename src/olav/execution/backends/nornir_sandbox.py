@@ -412,20 +412,44 @@ class NornirSandbox(SandboxBackendProtocol):
                 msg = f"Device '{device}' not found in inventory"
                 raise ValueError(msg)
 
-            result = target.run(
-                task=netmiko_send_command,
-                command_string=command,
-                use_textfsm=use_textfsm,
-                enable=escalate,
-            )
-
-            device_result = result[device]
-            if device_result.failed:
-                raise Exception(device_result.exception or "Command failed")
+            # Try with TextFSM first, fallback to raw text if parsing fails
+            textfsm_failed = False
+            if use_textfsm:
+                result = target.run(
+                    task=netmiko_send_command,
+                    command_string=command,
+                    use_textfsm=True,
+                    enable=escalate,
+                )
+                device_result = result[device]
+                
+                # Check if TextFSM parsing failed (exception contains "TextFSM" or "State Error")
+                if device_result.failed:
+                    error_str = str(device_result.exception or "")
+                    if "TextFSM" in error_str or "State Error" in error_str:
+                        logger.warning(
+                            f"TextFSM parsing failed for '{command}' on {device}, "
+                            f"falling back to raw text: {error_str[:100]}"
+                        )
+                        textfsm_failed = True
+                    else:
+                        raise Exception(device_result.exception or "Command failed")
+            
+            # Retry without TextFSM if parsing failed, or if use_textfsm=False
+            if textfsm_failed or not use_textfsm:
+                result = target.run(
+                    task=netmiko_send_command,
+                    command_string=command,
+                    use_textfsm=False,
+                    enable=escalate,
+                )
+                device_result = result[device]
+                if device_result.failed:
+                    raise Exception(device_result.exception or "Command failed")
 
             output = device_result.result
 
-            parsed_flag = use_textfsm and isinstance(output, (list, dict))
+            parsed_flag = use_textfsm and not textfsm_failed and isinstance(output, (list, dict))
 
             await self.memory.log_execution(
                 action="cli_query",
