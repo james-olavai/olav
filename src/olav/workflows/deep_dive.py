@@ -1000,6 +1000,167 @@ class DeepDiveWorkflow(BaseWorkflow):
         # All phases done
         return {"trigger_recursion": False}
 
+    async def realtime_verification_node(self, state: DeepDiveState) -> dict:
+        """Verify SuzieQ findings with real-time CLI/NETCONF data.
+        
+        CRITICAL: SuzieQ data is historical (Parquet snapshots).
+        This node uses live device queries to confirm findings.
+        
+        Flow:
+        1. Parse findings to extract device/interface/peer info
+        2. Execute targeted CLI commands for real-time state
+        3. Compare with SuzieQ findings
+        4. Update findings with verification status
+        
+        Returns:
+            Updated state with verified/unverified findings
+        """
+        from olav.tools.nornir_tool import CLITool
+        
+        findings = state.get("findings", [])
+        topology = state.get("topology") or {}
+        affected_devices = topology.get("affected_devices", [])
+        
+        if not findings:
+            return {
+                "messages": [AIMessage(content="📋 SuzieQ 未发现异常，跳过实时验证。")],
+                "realtime_verified": True,
+            }
+        
+        logger.info(f"Starting real-time verification for {len(findings)} findings...")
+        
+        # Initialize CLI tool
+        try:
+            cli_tool = CLITool()
+        except Exception as e:
+            logger.warning(f"CLI tool initialization failed: {e}")
+            return {
+                "messages": [AIMessage(content=f"⚠️ 无法初始化 CLI 工具: {e}\n将使用 SuzieQ 历史数据作为参考。")],
+                "realtime_verified": False,
+            }
+        
+        verified_findings: list[str] = []
+        realtime_data: dict[str, list] = {}
+        verification_results: list[str] = []
+        
+        # Determine which commands to run based on findings
+        commands_to_run: dict[str, list[str]] = {}
+        
+        for finding in findings:
+            finding_lower = finding.lower()
+            
+            # Parse devices from finding
+            devices = []
+            for device in affected_devices:
+                if device.lower() in finding_lower:
+                    devices.append(device)
+            
+            if not devices:
+                devices = affected_devices[:2]  # Default to first 2 devices
+            
+            for device in devices:
+                if device not in commands_to_run:
+                    commands_to_run[device] = []
+                
+                # Add relevant commands based on finding type
+                if "bgp" in finding_lower or "notestd" in finding_lower:
+                    commands_to_run[device].extend([
+                        "show ip bgp summary",
+                        "show ip bgp neighbors",
+                    ])
+                elif "接口" in finding_lower or "interface" in finding_lower or "down" in finding_lower:
+                    commands_to_run[device].extend([
+                        "show ip interface brief",
+                        "show interfaces status",
+                    ])
+                elif "ospf" in finding_lower:
+                    commands_to_run[device].extend([
+                        "show ip ospf neighbor",
+                        "show ip ospf interface brief",
+                    ])
+                elif "arp" in finding_lower:
+                    commands_to_run[device].append("show arp")
+                elif "lldp" in finding_lower:
+                    commands_to_run[device].append("show lldp neighbors")
+                elif "route" in finding_lower or "路由" in finding_lower:
+                    commands_to_run[device].append("show ip route summary")
+        
+        # Deduplicate commands per device
+        for device in commands_to_run:
+            commands_to_run[device] = list(set(commands_to_run[device]))
+        
+        # Execute commands on each device
+        for device, commands in commands_to_run.items():
+            realtime_data[device] = []
+            
+            for command in commands[:3]:  # Limit to 3 commands per device
+                try:
+                    result = await cli_tool.execute(device=device, command=command)
+                    
+                    if result.error:
+                        verification_results.append(f"❌ {device} `{command}`: {result.error}")
+                    else:
+                        realtime_data[device].append({
+                            "command": command,
+                            "data": result.data,
+                        })
+                        verification_results.append(f"✅ {device} `{command}`: {len(result.data)} 条记录")
+                        
+                except Exception as e:
+                    verification_results.append(f"❌ {device} `{command}`: 执行失败 - {e}")
+        
+        # Verify findings against real-time data
+        for finding in findings:
+            verified = False
+            finding_lower = finding.lower()
+            
+            # Check if any real-time data confirms the finding
+            for device, data_list in realtime_data.items():
+                for data_entry in data_list:
+                    data = data_entry.get("data", [])
+                    
+                    # BGP verification
+                    if "bgp" in finding_lower and "bgp" in data_entry.get("command", "").lower():
+                        for row in data:
+                            state = str(row.get("state", row.get("State", ""))).lower()
+                            if state in ("idle", "active", "connect", "opensent", "openconfirm"):
+                                verified = True
+                                break
+                    
+                    # Interface verification
+                    elif ("down" in finding_lower or "接口" in finding_lower) and "interface" in data_entry.get("command", "").lower():
+                        for row in data:
+                            status = str(row.get("status", row.get("Status", ""))).lower()
+                            if status in ("down", "administratively down", "notconnect"):
+                                verified = True
+                                break
+            
+            if verified:
+                verified_findings.append(f"✅ [实时确认] {finding}")
+            else:
+                verified_findings.append(f"⚠️ [历史数据] {finding}")
+        
+        # Format verification report
+        msg = f"""## 🔍 实时验证结果
+
+### 执行的命令
+{chr(10).join(verification_results) if verification_results else '- 无法执行实时命令'}
+
+### 验证后的发现
+{chr(10).join(f'- {f}' for f in verified_findings)}
+
+**说明**: 
+- ✅ [实时确认] = CLI 实时数据证实了 SuzieQ 的发现
+- ⚠️ [历史数据] = 仅有 SuzieQ 历史记录，未能实时验证
+"""
+        
+        return {
+            "findings": [f.replace("✅ [实时确认] ", "").replace("⚠️ [历史数据] ", "") for f in verified_findings],
+            "realtime_data": realtime_data,
+            "realtime_verified": len(verification_results) > 0,
+            "messages": [AIMessage(content=msg)],
+        }
+
     async def root_cause_summary_node(self, state: DeepDiveState) -> dict:
         """Generate root cause analysis summary.
         
@@ -1079,11 +1240,16 @@ class DeepDiveWorkflow(BaseWorkflow):
 
     async def should_continue_funnel(
         self, state: DeepDiveState
-    ) -> Literal["macro_scan", "root_cause_summary"]:
-        """Decide whether to continue scanning or summarize."""
+    ) -> Literal["macro_scan", "realtime_verification"]:
+        """Decide whether to continue scanning or proceed to verification.
+        
+        Returns:
+            "macro_scan" if more phases to process
+            "realtime_verification" if all SuzieQ phases done, need live verification
+        """
         if state.get("trigger_recursion"):
             return "macro_scan"
-        return "root_cause_summary"
+        return "realtime_verification"
 
     # ============================================
     # LEGACY: Task Planning Nodes (backward compat)
@@ -2249,7 +2415,11 @@ class DeepDiveWorkflow(BaseWorkflow):
         3. [INTERRUPT] → Wait for user approval
         4. macro_scan → Execute SuzieQ checks per layer (loop)
         5. evaluate_findings → Decide if more scanning needed
-        6. root_cause_summary → Generate final report
+        6. realtime_verification → Verify findings with live CLI data
+        7. root_cause_summary → Generate final report
+
+        CRITICAL: SuzieQ data is historical (Parquet).
+        Real-time verification uses NETCONF/CLI for live state.
 
         Args:
             checkpointer: PostgreSQL checkpointer for state persistence
@@ -2264,6 +2434,7 @@ class DeepDiveWorkflow(BaseWorkflow):
         workflow.add_node("funnel_planning", self.funnel_planning_node)
         workflow.add_node("macro_scan", self.macro_scan_node)
         workflow.add_node("evaluate_findings", self.evaluate_findings_node)
+        workflow.add_node("realtime_verification", self.realtime_verification_node)
         workflow.add_node("root_cause_summary", self.root_cause_summary_node)
 
         # Define edges for Funnel Debugging flow
@@ -2277,10 +2448,12 @@ class DeepDiveWorkflow(BaseWorkflow):
             self.should_continue_funnel,
             {
                 "macro_scan": "macro_scan",  # Continue to next phase
-                "root_cause_summary": "root_cause_summary",  # All phases done
+                "realtime_verification": "realtime_verification",  # All phases done, verify
             },
         )
         
+        # After verification, generate summary
+        workflow.add_edge("realtime_verification", "root_cause_summary")
         workflow.add_edge("root_cause_summary", END)
 
         # Compile with checkpointer

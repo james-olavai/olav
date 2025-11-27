@@ -140,11 +140,17 @@ async def run_deep_dive_diagnosis():
                         for f in node_output["findings"]:
                             print(f"  ⚠️  {f}")
                     
+                    # Print realtime verification
+                    if "realtime_data" in node_output:
+                        print("实时验证数据:")
+                        for device, data in node_output["realtime_data"].items():
+                            print(f"  {device}: {len(data)} 条命令输出")
+                    
                     # Print final message
                     if "messages" in node_output:
                         for msg in node_output["messages"]:
                             if hasattr(msg, "content"):
-                                print(f"\n{msg.content[:1000]}...")
+                                print(f"\n{msg.content[:1500]}...")
             
             print("\n" + "=" * 60)
             print("Deep Dive 诊断完成")
@@ -155,9 +161,154 @@ async def run_deep_dive_diagnosis():
         import traceback
         traceback.print_exc()
         
-        # Fall back to direct SuzieQ query for testing
-        print("\n回退到直接 SuzieQ 查询...")
-        await run_suzieq_diagnosis()
+        # Fall back to direct SuzieQ + CLI diagnosis
+        print("\n回退到直接诊断（SuzieQ 历史 + CLI 实时）...")
+        await run_hybrid_diagnosis()
+
+
+async def run_hybrid_diagnosis():
+    """Hybrid diagnosis using both SuzieQ (historical) and CLI (real-time)."""
+    print("\n" + "=" * 60)
+    print("HYBRID DIAGNOSIS: SuzieQ (历史基线) + CLI (实时验证)")
+    print("=" * 60)
+    
+    # Step 1: SuzieQ historical data (baseline)
+    print("\n" + "-" * 40)
+    print("📊 Phase 1: SuzieQ 历史数据（仅作为参考基线）")
+    print("-" * 40)
+    
+    tool = SuzieQTool()
+    suzieq_findings = []
+    
+    # BGP from SuzieQ
+    bgp_result = await tool.execute(table="bgp", method="get", hostname="R1")
+    bgp_result2 = await tool.execute(table="bgp", method="get", hostname="R2")
+    
+    for r in bgp_result.data + bgp_result2.data:
+        if r.get("state") == "NotEstd":
+            suzieq_findings.append(f"[SuzieQ] BGP {r.get('hostname')} ↔ {r.get('peer')}: NotEstd")
+    
+    # Interfaces from SuzieQ
+    intf_result = await tool.execute(table="interfaces", method="get", hostname="R1")
+    intf_result2 = await tool.execute(table="interfaces", method="get", hostname="R2")
+    
+    for r in intf_result.data + intf_result2.data:
+        if "GigabitEthernet1" in str(r.get("ifname", "")):
+            state = r.get("state", "unknown")
+            admin = r.get("adminState", "unknown")
+            ip_list = r.get("ipAddressList", [])
+            print(f"  {r.get('hostname')} {r.get('ifname')}: state={state}, admin={admin}, IP={ip_list}")
+            if state == "down":
+                suzieq_findings.append(f"[SuzieQ] {r.get('hostname')} {r.get('ifname')} 接口 down")
+    
+    print(f"\nSuzieQ 发现 ({len(suzieq_findings)} 项):")
+    for f in suzieq_findings:
+        print(f"  ⚠️ {f}")
+    
+    # Step 2: CLI real-time verification
+    print("\n" + "-" * 40)
+    print("🔍 Phase 2: CLI 实时验证（实际状态）")
+    print("-" * 40)
+    
+    cli_findings = []
+    cli_data = {}
+    
+    try:
+        from olav.tools.nornir_tool import CLITool
+        cli_tool = CLITool()
+        
+        for device in ["R1", "R2"]:
+            print(f"\n--- {device} 实时状态 ---")
+            cli_data[device] = {}
+            
+            # Get BGP summary
+            try:
+                bgp_cli = await cli_tool.execute(device=device, command="show ip bgp summary")
+                cli_data[device]["bgp"] = bgp_cli.data
+                print(f"BGP Summary: {len(bgp_cli.data)} peers")
+                for peer in bgp_cli.data:
+                    state = peer.get("state_pfxrcd", peer.get("State", "N/A"))
+                    neighbor = peer.get("neighbor", peer.get("Neighbor", "N/A"))
+                    print(f"  {neighbor}: {state}")
+                    if str(state).lower() in ("idle", "active", "connect"):
+                        cli_findings.append(f"[CLI 实时] {device} BGP {neighbor}: {state}")
+            except Exception as e:
+                print(f"BGP check failed: {e}")
+            
+            # Get interface status
+            try:
+                intf_cli = await cli_tool.execute(device=device, command="show ip interface brief")
+                cli_data[device]["interfaces"] = intf_cli.data
+                for intf in intf_cli.data:
+                    if "GigabitEthernet1" in str(intf.get("intf", intf.get("Interface", ""))):
+                        status = intf.get("status", intf.get("Status", "N/A"))
+                        proto = intf.get("proto", intf.get("Protocol", "N/A"))
+                        ip = intf.get("ipaddr", intf.get("IP-Address", "N/A"))
+                        print(f"  GigabitEthernet1: IP={ip}, Status={status}, Protocol={proto}")
+                        if str(status).lower() in ("down", "administratively down"):
+                            cli_findings.append(f"[CLI 实时] {device} GigabitEthernet1: {status}")
+            except Exception as e:
+                print(f"Interface check failed: {e}")
+        
+        print(f"\nCLI 实时发现 ({len(cli_findings)} 项):")
+        for f in cli_findings:
+            print(f"  ✅ {f}")
+            
+    except Exception as e:
+        print(f"CLI 工具初始化失败: {e}")
+        print("无法获取实时数据，仅使用 SuzieQ 历史数据。")
+    
+    # Step 3: Correlate and analyze
+    print("\n" + "-" * 40)
+    print("🎯 Phase 3: 关联分析")
+    print("-" * 40)
+    
+    all_findings = suzieq_findings + cli_findings
+    
+    if cli_findings:
+        print("✅ CLI 实时数据确认了问题，以下是验证后的发现:")
+    else:
+        print("⚠️ 无法获取 CLI 实时数据，以下仅为 SuzieQ 历史参考:")
+    
+    for f in all_findings:
+        print(f"  - {f}")
+    
+    # Use LLM to analyze
+    print("\n" + "=" * 60)
+    print("AI 根因分析")
+    print("=" * 60)
+    
+    llm = LLMFactory.get_chat_model()
+    
+    context = f"""
+## SuzieQ 历史数据发现
+{chr(10).join(f'- {f}' for f in suzieq_findings) if suzieq_findings else '- 无异常'}
+
+## CLI 实时验证发现
+{chr(10).join(f'- {f}' for f in cli_findings) if cli_findings else '- 无法获取实时数据'}
+
+## CLI 原始数据
+{cli_data}
+"""
+    
+    analysis_prompt = f"""你是网络故障诊断专家。分析以下信息，找出 R1 和 R2 之间 BGP 无法建立的根本原因。
+
+**重要**: CLI 实时数据优先于 SuzieQ 历史数据。
+
+{context}
+
+## 背景信息
+- R2 的 GigabitEthernet1 原本配置为 10.1.12.2/24
+- 现在被修改为 10.1.12.2/30
+- R1 的配置仍然是 10.1.12.1/24
+
+请分析:
+1. **数据对比**: SuzieQ 历史数据 vs CLI 实时数据是否一致？
+2. **根本原因**: 最可能的故障原因
+3. **建议修复**: 具体的修复命令"""
+    
+    response = await llm.ainvoke([{"role": "user", "content": analysis_prompt}])
+    print(response.content)
 
 
 async def run_suzieq_diagnosis():
