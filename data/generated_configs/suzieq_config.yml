@@ -7,12 +7,15 @@ rest:
   port: 8000
   no-https: true
 poller:
-  logging-level: WARNING
-  period: 15
-  connect-timeout: 15
+  logging-level: INFO
+  period: 30
+  connect-timeout: 60
+  ssh-config-file: null
   log-stdout: true
   inventory-file: /suzieq/config/inventory.yml
   update-period: 3600
+  per-cmd-auth: false
+  run-once: false
 coalescer:
   period: 1h
   logging-level: WARNING

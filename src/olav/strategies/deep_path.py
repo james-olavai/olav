@@ -22,7 +22,9 @@ Key Difference from Fast Path:
 - Deep Path: Iterative reasoning, hypothesis-driven, adaptive
 """
 
+import json
 import logging
+import re
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -32,6 +34,58 @@ from pydantic import BaseModel, Field
 from olav.tools.base import ToolOutput, ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+
+def extract_json_from_response(response_text: str) -> Any:
+    """
+    Extract JSON from LLM response, handling markdown code blocks and other formats.
+    
+    Args:
+        response_text: Raw LLM response text
+        
+    Returns:
+        Parsed JSON data (dict or list)
+        
+    Raises:
+        json.JSONDecodeError: If no valid JSON found
+    """
+    if not response_text:
+        raise json.JSONDecodeError("Empty response", "", 0)
+    
+    text = response_text.strip()
+    
+    # Try to extract JSON from markdown code blocks
+    # Pattern: ```json ... ``` or ``` ... ```
+    code_block_patterns = [
+        r'```json\s*([\s\S]*?)\s*```',
+        r'```\s*([\s\S]*?)\s*```',
+    ]
+    
+    for pattern in code_block_patterns:
+        match = re.search(pattern, text)
+        if match:
+            try:
+                return json.loads(match.group(1).strip())
+            except json.JSONDecodeError:
+                continue
+    
+    # Try to find JSON array or object directly
+    # Look for [...]  or {...}
+    json_patterns = [
+        r'(\[[\s\S]*\])',  # Array
+        r'(\{[\s\S]*\})',  # Object
+    ]
+    
+    for pattern in json_patterns:
+        match = re.search(pattern, text)
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except json.JSONDecodeError:
+                continue
+    
+    # Last resort: try parsing the whole text
+    return json.loads(text)
 
 
 class Hypothesis(BaseModel):
@@ -354,9 +408,7 @@ class DeepPathStrategy:
         response = await self.llm.ainvoke([SystemMessage(content=prompt)])
 
         try:
-            import json
-
-            tool_calls = json.loads(response.content)
+            tool_calls = extract_json_from_response(response.content)
 
             for _i, call in enumerate(tool_calls):
                 observation = ObservationStep(
@@ -423,9 +475,7 @@ class DeepPathStrategy:
         response = await self.llm.ainvoke([SystemMessage(content=prompt)])
 
         try:
-            import json
-
-            hypotheses_data = json.loads(response.content)
+            hypotheses_data = extract_json_from_response(response.content)
 
             state.hypotheses = [Hypothesis(**h) for h in hypotheses_data]
 
@@ -492,9 +542,7 @@ class DeepPathStrategy:
         response = await self.llm.ainvoke([SystemMessage(content=prompt)])
 
         try:
-            import json
-
-            verification = json.loads(response.content)
+            verification = extract_json_from_response(response.content)
 
             observation = ObservationStep(
                 step_number=len(state.observations) + 1,
@@ -549,9 +597,7 @@ class DeepPathStrategy:
         response = await self.llm.ainvoke([SystemMessage(content=prompt)])
 
         try:
-            import json
-
-            update = json.loads(response.content)
+            update = extract_json_from_response(response.content)
 
             if update.get("supports_hypothesis"):
                 state.current_hypothesis.confidence = update["updated_confidence"]
@@ -606,9 +652,7 @@ class DeepPathStrategy:
         response = await self.llm.ainvoke([SystemMessage(content=prompt)])
 
         try:
-            import json
-
-            result = json.loads(response.content)
+            result = extract_json_from_response(response.content)
 
             state.conclusion = result["conclusion"]
             state.confidence = result["confidence"]

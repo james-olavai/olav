@@ -409,9 +409,14 @@ class WorkflowOrchestrator:
                 logger.warning(f"Strategy optimization error: {e}, falling back to workflow graph")
 
         # 3. Build and execute workflow graph
-        # Default to stateless mode for LangServe compatibility (no thread_id requirement)
-        # Set stream_stateless=false in settings to enable state persistence
-        use_stateless = settings.stream_stateless
+        # DEEP_DIVE always needs checkpointer for HITL interrupt support
+        # Other workflows respect stream_stateless setting for LangServe compatibility
+        if workflow_type == WorkflowType.DEEP_DIVE:
+            # DeepDive requires stateful execution for HITL approval
+            use_stateless = False
+            print("[Orchestrator] DeepDive workflow: forcing stateful mode for HITL support")
+        else:
+            use_stateless = settings.stream_stateless
         graph = workflow.build_graph(checkpointer=None if use_stateless else self.checkpointer)
 
         config = {
@@ -508,6 +513,8 @@ class WorkflowOrchestrator:
     async def resume(self, thread_id: str, user_input: str, workflow_type: WorkflowType) -> dict:
         """Resume interrupted workflow with user input (approval/modification).
 
+        Uses LangGraph Command(resume=...) to properly continue from interrupt point.
+
         Args:
             thread_id: Thread ID of interrupted workflow
             user_input: User's response to plan approval request
@@ -516,6 +523,8 @@ class WorkflowOrchestrator:
         Returns:
             Execution result after resumption
         """
+        from langgraph.types import Command
+
         workflow = self.workflows[workflow_type]
         graph = workflow.build_graph(checkpointer=self.checkpointer)
 
@@ -555,47 +564,28 @@ class WorkflowOrchestrator:
                 "final_message": "⛔ 用户已中止执行计划。",
             }
 
+        # Build resume value for Command
         if user_decision["action"] == "approve":
-            # User approved - continue with feasible tasks only
-            # Safely get messages or use empty list
-            existing_messages = current_state.get("messages", [])
-            updated_state = {
-                **current_state,
-                "user_approval": "approved",
-                "messages": [*existing_messages, HumanMessage(content="Y - 批准执行可行任务")],
-            }
-
+            resume_value = {"approved": True, "user_approval": "approved"}
         elif user_decision["action"] == "modify":
-            # User wants to modify - update execution plan based on LLM analysis
+            # User wants to modify - analyze modification request
             modified_plan = await self._analyze_modification_request(
                 user_input=user_input,
                 current_plan=current_state.get("execution_plan"),
                 todos=current_state.get("todos"),
             )
-            existing_messages = current_state.get("messages", [])
-            # Re-format plan summary for re-approval
-            todos_list = current_state.get("todos", [])
-            try:
-                plan_summary = self.workflows[workflow_type]._format_execution_plan(
-                    todos_list, modified_plan
-                )  # type: ignore[attr-defined]
-                summary_msg = AIMessage(content=plan_summary)
-            except Exception:
-                summary_msg = AIMessage(content="执行计划已修改，请重新审批。")
-            updated_state = {
-                **current_state,
-                "execution_plan": modified_plan,
+            resume_value = {
+                "approved": True,
                 "user_approval": "modified",
-                "todos": current_state.get("todos"),
-                "messages": [
-                    *existing_messages,
-                    HumanMessage(content=f"修改请求: {user_input}"),
-                    summary_msg,
-                ],
+                "modified_plan": modified_plan,
+                "modification_request": user_input,
             }
+        else:
+            resume_value = {"approved": True}
 
-        # Resume execution
-        result = await graph.ainvoke(updated_state, config=config)
+        # Resume execution using Command(resume=...)
+        # This properly continues from the interrupt point
+        result = await graph.ainvoke(Command(resume=resume_value), config=config)
 
         # Check if interrupted again
         state_snapshot = await graph.aget_state(config)
@@ -605,8 +595,8 @@ class WorkflowOrchestrator:
                 "result": result,
                 "interrupted": True,
                 "next_node": state_snapshot.next[0] if state_snapshot.next else None,
-                "execution_plan": updated_state.get("execution_plan"),
-                "todos": updated_state.get("todos", []),
+                "execution_plan": result.get("execution_plan") or current_state.get("execution_plan"),
+                "todos": result.get("todos") or current_state.get("todos", []),
                 "final_message": result["messages"][-1].content if result.get("messages") else None,
             }
 
@@ -614,8 +604,8 @@ class WorkflowOrchestrator:
             "workflow_type": workflow_type.name,
             "result": result,
             "interrupted": False,
-            "execution_plan": updated_state.get("execution_plan"),
-            "todos": updated_state.get("todos", []),
+            "execution_plan": result.get("execution_plan") or current_state.get("execution_plan"),
+            "todos": result.get("todos") or current_state.get("todos", []),
             "final_message": result["messages"][-1].content if result.get("messages") else None,
         }
 
@@ -793,6 +783,7 @@ async def create_workflow_orchestrator(expert_mode: bool = False):
         iteration_count: int
         interrupted: bool | None  # HITL interrupt flag
         execution_plan: dict | None  # Plan from schema investigation
+        todos: list | None  # HITL: task list for approval display
 
     async def route_to_workflow(state: OrchestratorState) -> OrchestratorState:
         """Route user query to appropriate workflow."""
@@ -867,6 +858,7 @@ async def create_workflow_orchestrator(expert_mode: bool = False):
             "messages": output_messages,
             "interrupted": result.get("interrupted", False),
             "execution_plan": result.get("execution_plan"),
+            "todos": result.get("todos", []),  # HITL: pass todos for approval display
         }
 
     # Build orchestrator graph

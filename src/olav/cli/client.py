@@ -55,6 +55,10 @@ class ExecutionResult(BaseModel):
     thread_id: str
     interrupted: bool = False
     error: str | None = None
+    # HITL fields for workflow continuation
+    workflow_type: str | None = None
+    execution_plan: dict | None = None
+    todos: list[dict] | None = None
 
 
 # ============================================
@@ -99,22 +103,37 @@ class OLAVClient:
         self.console = console or Console()
         self.remote_runnable: RemoteRunnable | None = None
         self.remote_health: dict[str, Any] | None = None  # Health check result for remote mode
-        self.orchestrator: Any = None  # Local orchestrator
+        self.orchestrator: Any = None  # Local orchestrator (stateful for HITL)
+        self.orchestrator_instance: Any = None  # WorkflowOrchestrator for resume()
         self.auth_token = auth_token  # JWT token for authenticated requests
+        self.auto_fallback = False  # Whether to auto-fallback to local on remote failure
 
-    async def connect(self, expert_mode: bool = False) -> None:
+    async def connect(self, expert_mode: bool = False, auto_fallback: bool = False) -> None:
         """
         Connect to OLAV backend (remote or local).
 
         Args:
             expert_mode: Enable Expert Mode (Deep Dive Workflow)
+            auto_fallback: Auto-fallback to local mode if remote connection fails
         """
+        self.auto_fallback = auto_fallback
+
         if self.mode == "remote":
             # Auto-load credentials if no token provided
             if self.auth_token is None:
                 self.auth_token = self._load_stored_token()
 
-            await self._connect_remote()
+            try:
+                await self._connect_remote()
+            except ConnectionError:
+                if auto_fallback:
+                    self.console.print(
+                        "\n[yellow]⚡ Auto-fallback: Switching to Local Mode...[/yellow]"
+                    )
+                    self.mode = "local"
+                    await self._connect_local(expert_mode)
+                else:
+                    raise
         else:
             await self._connect_local(expert_mode)
 
@@ -222,7 +241,7 @@ class OLAVClient:
             raise
 
     async def _connect_local(self, expert_mode: bool) -> None:
-        """Initialize local orchestrator (direct execution)."""
+        """Initialize local orchestrator (direct execution with HITL support)."""
         try:
             from olav.agents.root_agent_orchestrator import create_workflow_orchestrator
 
@@ -230,18 +249,93 @@ class OLAVClient:
 
             result = await create_workflow_orchestrator(expert_mode=expert_mode)
             # Unpack tuple: (orchestrator, stateful_graph, stateless_graph, checkpointer_manager)
-            _, stateful_graph, stateless_graph, _ = result
+            orchestrator_instance, stateful_graph, stateless_graph, checkpointer_mgr = result
 
-            # Use stateless graph for client execution (no thread_id requirement for simple queries)
-            self.orchestrator = stateless_graph
+            # IMPORTANT: Keep checkpointer_manager reference to prevent connection close
+            self.checkpointer_manager = checkpointer_mgr
+
+            # Use STATEFUL graph for HITL support (interrupt/resume)
+            # The stateful_graph has checkpointer enabled for workflow interruption
+            self.orchestrator = stateful_graph
+            self.orchestrator_instance = orchestrator_instance  # For resume() calls
 
             self.console.print(
-                f"[green]✅ Local orchestrator ready (expert_mode={expert_mode})[/green]"
+                f"[green]✅ Local orchestrator ready (expert_mode={expert_mode}, HITL=enabled)[/green]"
             )
 
         except Exception as e:
             self.console.print(f"[red]❌ Failed to initialize local orchestrator: {e}[/red]")
             raise
+
+    async def resume(
+        self, thread_id: str, user_input: str, workflow_type: str
+    ) -> ExecutionResult:
+        """Resume an interrupted workflow with user approval/modification.
+
+        Args:
+            thread_id: Thread ID of the interrupted workflow
+            user_input: User's decision (Y/N/modification request)
+            workflow_type: Type of workflow that was interrupted (e.g., "DEEP_DIVE")
+
+        Returns:
+            ExecutionResult with resumed workflow result
+        """
+        if self.mode == "remote":
+            # Remote mode: TODO - implement remote resume via API
+            return ExecutionResult(
+                success=False,
+                messages=[],
+                thread_id=thread_id,
+                error="Remote resume not yet implemented",
+            )
+
+        # Local mode: use orchestrator instance's resume method
+        if not self.orchestrator_instance:
+            return ExecutionResult(
+                success=False,
+                messages=[],
+                thread_id=thread_id,
+                error="Orchestrator not initialized. Call connect() first.",
+            )
+
+        try:
+            from olav.workflows.base import WorkflowType
+
+            # Convert string to WorkflowType enum
+            workflow_enum = WorkflowType[workflow_type.upper()]
+
+            # Call orchestrator's resume method
+            result = await self.orchestrator_instance.resume(
+                thread_id=thread_id,
+                user_input=user_input,
+                workflow_type=workflow_enum,
+            )
+
+            # Convert result to ExecutionResult
+            messages = result.get("result", {}).get("messages", [])
+            messages_dict = []
+            for msg in messages:
+                if hasattr(msg, "type") and hasattr(msg, "content"):
+                    messages_dict.append({"type": msg.type, "content": msg.content})
+
+            return ExecutionResult(
+                success=not result.get("aborted", False),
+                messages=messages_dict,
+                thread_id=thread_id,
+                interrupted=result.get("interrupted", False),
+                workflow_type=result.get("workflow_type"),
+                execution_plan=result.get("execution_plan"),
+                todos=result.get("todos", []),
+            )
+
+        except Exception as e:
+            logger.error(f"Resume failed: {e}")
+            return ExecutionResult(
+                success=False,
+                messages=[],
+                thread_id=thread_id,
+                error=str(e),
+            )
 
     async def execute(self, query: str, thread_id: str, stream: bool = True) -> ExecutionResult:
         """
@@ -378,6 +472,7 @@ class OLAVClient:
             config = {"configurable": {"thread_id": thread_id}}
             messages_buffer: list[BaseMessage] = []
             final_message_content: str = ""
+            result_state: dict = {}
 
             if stream:
                 # Streaming mode
@@ -390,6 +485,7 @@ class OLAVClient:
                         # Process streaming chunks - LangGraph returns {node_name: {state}}
                         for node_name, node_state in chunk.items():
                             if isinstance(node_state, dict):
+                                result_state = node_state  # Keep latest state
                                 if "messages" in node_state:
                                     messages_buffer = node_state["messages"]
                                     # Display latest AI message
@@ -406,11 +502,11 @@ class OLAVClient:
 
             else:
                 # Non-streaming mode
-                result = await self.orchestrator.ainvoke(
+                result_state = await self.orchestrator.ainvoke(
                     {"messages": [{"role": "user", "content": query}]}, config=config
                 )
-                messages_buffer = result.get("messages", [])
-                final_message_content = result.get("final_message", "")
+                messages_buffer = result_state.get("messages", [])
+                final_message_content = result_state.get("final_message", "")
 
             # Ensure we have proper AI message in buffer for display
             if final_message_content and not any(
@@ -422,11 +518,20 @@ class OLAVClient:
             # Convert BaseMessage to dict
             messages_dict = [{"type": msg.type, "content": msg.content} for msg in messages_buffer]
 
+            # Check for HITL interrupt - orchestrator returns interrupted=True when workflow paused
+            is_interrupted = result_state.get("interrupted", False)
+            workflow_type = result_state.get("workflow_type")
+            execution_plan = result_state.get("execution_plan")
+            todos = result_state.get("todos", [])
+
             return ExecutionResult(
                 success=True,
                 messages=messages_dict,
                 thread_id=thread_id,
-                interrupted=False,
+                interrupted=is_interrupted,
+                workflow_type=workflow_type,
+                execution_plan=execution_plan,
+                todos=todos,
             )
 
         except Exception as e:
@@ -499,6 +604,7 @@ async def create_client(
     mode: Literal["remote", "local"] = "remote",
     server_url: str | None = None,
     expert_mode: bool = False,
+    auto_fallback: bool = False,
 ) -> OLAVClient:
     """
     Create and connect OLAV client.
@@ -507,6 +613,7 @@ async def create_client(
         mode: Execution mode ("remote" or "local")
         server_url: API server URL (default: from env or http://localhost:8000)
         expert_mode: Enable Expert Mode (for local mode)
+        auto_fallback: Auto-fallback to local mode if remote connection fails
 
     Returns:
         Connected OLAVClient instance
@@ -518,5 +625,5 @@ async def create_client(
     server_config = ServerConfig(base_url=server_url)
 
     client = OLAVClient(mode=mode, server_config=server_config)
-    await client.connect(expert_mode=expert_mode)
+    await client.connect(expert_mode=expert_mode, auto_fallback=auto_fallback)
     return client

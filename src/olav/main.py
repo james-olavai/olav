@@ -44,6 +44,12 @@ def chat(
     expert: bool = typer.Option(
         False, "--expert", "-e", help="Enable Expert Mode (Deep Dive Workflow)"
     ),
+    yolo: bool = typer.Option(
+        False, "--yolo", "-Y", help="YOLO mode: skip all HITL approvals (auto-approve everything)"
+    ),
+    lang: str = typer.Option(
+        "zh", "--lang", "-l", help="Output language: zh (Chinese), en (English), ja (Japanese)"
+    ),
     local: bool = typer.Option(
         False, "--local", "-L", help="Use local execution (default: remote API)"
     ),
@@ -111,16 +117,35 @@ def chat(
     # Setup logging first
     setup_logging(verbose)
 
+    # Auto-fallback logic: if no explicit server and not local, try remote first then fallback
+    # If user explicitly set --server, don't auto-fallback
+    auto_fallback_to_local = (server is None) and (not local)
+
     # Determine execution mode
     exec_mode = "local" if local else "remote"
     mode_name = "Expert Mode (Deep Dive)" if expert else "Normal Mode"
+    
+    # YOLO mode: set global flag to skip HITL
+    if yolo:
+        AgentConfig.YOLO_MODE = True
+        console.print("[bold red]⚠️  YOLO MODE ENABLED - All approvals will be auto-accepted![/bold red]")
+    
+    # Language setting: validate and set
+    valid_langs = ("zh", "en", "ja")
+    if lang not in valid_langs:
+        console.print(f"[yellow]⚠️  Invalid language '{lang}', using default 'zh'[/yellow]")
+        lang = "zh"
+    AgentConfig.LANGUAGE = lang  # type: ignore[assignment]
+    lang_names = {"zh": "中文", "en": "English", "ja": "日本語"}
 
     console.print(f"[bold green]OLAV v{__version__}[/bold green] - Network Operations ChatOps")
     console.print(f"LLM: {settings.llm_provider} ({settings.llm_model_name})")
     console.print("Architecture: Workflows Orchestrator")
     console.print(f"Execution: {exec_mode.capitalize()} Mode")
     console.print(f"Workflow: {mode_name}")
-    console.print(f"HITL: {'Enabled' if AgentConfig.ENABLE_HITL else 'Disabled'}")
+    console.print(f"Language: {lang_names.get(lang, lang)}")
+    hitl_status = "[red]YOLO (Auto-approve)[/red]" if yolo else ("Enabled" if AgentConfig.ENABLE_HITL else "Disabled")
+    console.print(f"HITL: {hitl_status}")
 
     # Windows: Use SelectorEventLoop for psycopg async compatibility
     if sys.platform == "win32":
@@ -128,12 +153,12 @@ def chat(
 
     if query:
         # Single query mode (non-interactive)
-        asyncio.run(_run_single_query_new(query, expert, local, server, thread_id))
+        asyncio.run(_run_single_query_new(query, expert, local, server, thread_id, auto_fallback_to_local))
     else:
         # Interactive chat mode
         console.print("\nType 'exit' or 'quit' to end session")
         console.print("Type 'help' for available commands\n")
-        asyncio.run(_run_interactive_chat_new(expert, local, server, thread_id))
+        asyncio.run(_run_interactive_chat_new(expert, local, server, thread_id, auto_fallback_to_local))
 
 
 async def _run_single_query_new(
@@ -142,6 +167,7 @@ async def _run_single_query_new(
     local: bool = False,
     server: str | None = None,
     thread_id: str | None = None,
+    auto_fallback: bool = False,
 ) -> None:
     """Execute single query using new client architecture.
 
@@ -151,12 +177,15 @@ async def _run_single_query_new(
         local: Use local execution mode
         server: API server URL (for remote mode)
         thread_id: Optional thread ID for conversation context
+        auto_fallback: Auto-fallback to local mode if remote fails
     """
     from olav.cli.client import create_client
 
-    # Create client
+    # Create client with auto-fallback support
     mode = "local" if local else "remote"
-    client = await create_client(mode=mode, server_url=server, expert_mode=expert)
+    client = await create_client(
+        mode=mode, server_url=server, expert_mode=expert, auto_fallback=auto_fallback
+    )
 
     # Generate thread ID if not provided
     if not thread_id:
@@ -180,6 +209,7 @@ async def _run_interactive_chat_new(
     local: bool = False,
     server: str | None = None,
     thread_id: str | None = None,
+    auto_fallback: bool = False,
 ) -> None:
     """Run interactive chat session using new client architecture.
 
@@ -188,12 +218,15 @@ async def _run_interactive_chat_new(
         local: Use local execution mode
         server: API server URL (for remote mode)
         thread_id: Optional thread ID for conversation context
+        auto_fallback: Auto-fallback to local mode if remote fails
     """
     from olav.cli.client import create_client
 
-    # Create client
+    # Create client with auto-fallback support
     mode = "local" if local else "remote"
-    client = await create_client(mode=mode, server_url=server, expert_mode=expert)
+    client = await create_client(
+        mode=mode, server_url=server, expert_mode=expert, auto_fallback=auto_fallback
+    )
 
     # Generate thread ID if not provided
     if not thread_id:
@@ -202,6 +235,9 @@ async def _run_interactive_chat_new(
         thread_id = f"cli-interactive-{int(time.time())}"
 
     console.print(f"\n[dim]Thread ID: {thread_id}[/dim]\n")
+
+    # Track HITL state
+    pending_hitl: dict | None = None  # Stores interrupted workflow info
 
     # Interactive loop
     while True:
@@ -222,11 +258,64 @@ async def _run_interactive_chat_new(
                 console.print("  - Type your question or command")
                 console.print("  - 'exit' or 'quit' - End session")
                 console.print("  - 'help' - Show this help message")
+                if pending_hitl:
+                    console.print("\n[bold yellow]HITL Commands (workflow paused):[/bold yellow]")
+                    console.print("  - 'Y' or 'approve' - Continue with feasible tasks")
+                    console.print("  - 'N' or 'abort' - Cancel workflow")
+                    console.print("  - Other text - Modify execution plan")
                 console.print()
                 continue
 
-            # Execute query
+            # Check if we're in HITL approval mode
+            if pending_hitl:
+                # User is responding to HITL prompt
+                console.print(f"\n[dim]Processing HITL response: {user_input}[/dim]")
+
+                resume_result = await client.resume(
+                    thread_id=thread_id,
+                    user_input=user_input,
+                    workflow_type=pending_hitl["workflow_type"],
+                )
+
+                if not resume_result.success:
+                    console.print(f"\n[red]❌ {resume_result.error}[/red]")
+                    pending_hitl = None
+                    continue
+
+                # Check if still interrupted (modified plan needs re-approval)
+                if resume_result.interrupted:
+                    console.print("\n[yellow]⏸️ 计划已修改，需要重新审批[/yellow]")
+                    pending_hitl = {
+                        "workflow_type": resume_result.workflow_type,
+                        "execution_plan": resume_result.execution_plan,
+                        "todos": resume_result.todos,
+                    }
+                    # Display updated plan
+                    _display_hitl_prompt(console, resume_result)
+                else:
+                    # Workflow completed
+                    pending_hitl = None
+                    if resume_result.messages:
+                        last_msg = resume_result.messages[-1]
+                        if last_msg.get("content"):
+                            from rich.markdown import Markdown
+                            console.print(Markdown(last_msg["content"]))
+                continue
+
+            # Normal query execution
             result = await client.execute(user_input, thread_id, stream=True)
+
+            # Check if workflow was interrupted for HITL
+            if result.interrupted:
+                console.print("\n[yellow]⏸️ 工作流已暂停，等待用户审批[/yellow]")
+                pending_hitl = {
+                    "workflow_type": result.workflow_type,
+                    "execution_plan": result.execution_plan,
+                    "todos": result.todos,
+                }
+                # Display HITL prompt
+                _display_hitl_prompt(console, result)
+                continue
 
             # Display result (if not already shown via streaming)
             if not result.success:
@@ -238,6 +327,63 @@ async def _run_interactive_chat_new(
         except Exception as e:
             console.print(f"\n[red]Error: {e}[/red]")
             logger.exception("Interactive chat error")
+
+
+def _display_hitl_prompt(console, result) -> None:
+    """Display HITL approval prompt with execution plan details."""
+    execution_plan = result.execution_plan or {}
+    todos = result.todos or []
+
+    # Build task map
+    task_map = {}
+    for t in todos:
+        if isinstance(t, dict):
+            task_map[t.get("id")] = t.get("task", "(描述缺失)")
+
+    feasible = execution_plan.get("feasible_tasks", [])
+    uncertain = execution_plan.get("uncertain_tasks", [])
+    infeasible = execution_plan.get("infeasible_tasks", [])
+    recommendations = execution_plan.get("recommendations", {})
+
+    console.print("\n" + "=" * 60)
+    console.print("[bold]🗂️ 执行计划[/bold]")
+    console.print("=" * 60)
+
+    summary = execution_plan.get("summary") or execution_plan.get("plan_summary")
+    if summary:
+        console.print(summary)
+        console.print("-" * 60)
+
+    if feasible:
+        console.print(f"\n[green]✅ 可执行任务 ({len(feasible)} 个):[/green]")
+        for task_id in feasible:
+            desc = task_map.get(task_id, "(描述缺失)")
+            console.print(f"  - 任务 {task_id}: {desc}")
+            if task_id in recommendations:
+                console.print(f"    建议: {recommendations[task_id]}")
+
+    if uncertain:
+        console.print(f"\n[yellow]⚠️ 需进一步确认的任务 ({len(uncertain)} 个):[/yellow]")
+        for task_id in uncertain:
+            desc = task_map.get(task_id, "(描述缺失)")
+            console.print(f"  - 任务 {task_id}: {desc}")
+            if task_id in recommendations:
+                console.print(f"    建议: {recommendations[task_id]}")
+
+    if infeasible:
+        console.print(f"\n[red]❌ 无法执行任务 ({len(infeasible)} 个):[/red]")
+        for task_id in infeasible:
+            desc = task_map.get(task_id, "(描述缺失)")
+            console.print(f"  - 任务 {task_id}: {desc}")
+            if task_id in recommendations:
+                console.print(f"    建议: {recommendations[task_id]}")
+
+    console.print("\n" + "=" * 60)
+    console.print("[bold]请选择操作:[/bold]")
+    console.print("  [green]Y / approve[/green] - 批准执行可行任务")
+    console.print("  [red]N / abort[/red] - 中止执行")
+    console.print("  [cyan]其他文本[/cyan] - 输入修改请求")
+    console.print("=" * 60)
 
 
 async def _run_single_query(query: str, expert: bool = False, thread_id: str | None = None) -> None:
@@ -942,6 +1088,158 @@ def version() -> None:
     console.print(f"OLAV v{__version__}")
     console.print("Python Package Manager: uv")
     console.print(f"LLM Provider: {settings.llm_provider}")
+
+
+@app.command()
+def inspect(
+    profile: str | None = typer.Option(
+        None, "--profile", "-p", help="Inspection profile name (from config/inspections/)"
+    ),
+    config_path: str | None = typer.Option(
+        None, "--config", "-c", help="Path to inspection config YAML file"
+    ),
+    daemon: bool = typer.Option(
+        False, "--daemon", "-d", help="Run as background scheduler daemon"
+    ),
+    lang: str = typer.Option(
+        "zh", "--lang", "-l", help="Report language: zh (Chinese), en (English), ja (Japanese)"
+    ),
+    list_profiles: bool = typer.Option(
+        False, "--list", help="List available inspection profiles"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Show detailed logs"
+    ),
+) -> None:
+    """Run automated network inspection (no HITL required).
+    
+    Inspections are read-only health checks that run without user approval.
+    Results are saved as timestamped Markdown reports in data/inspection-reports/.
+    
+    Modes:
+        - One-shot (default): Run inspection once and exit
+        - Daemon (-d/--daemon): Run scheduler in background with periodic execution
+    
+    Configuration:
+        Inspection profiles are defined in config/inspections/*.yaml
+        Each profile specifies:
+        - Target devices (list, NetBox filter, or regex)
+        - Checks to run (SuzieQ queries with thresholds)
+        - Severity levels (critical, warning, info)
+    
+    Examples:
+        # List available profiles
+        uv run olav.py inspect --list
+        
+        # Run default inspection profile
+        uv run olav.py inspect
+        
+        # Run specific profile
+        uv run olav.py inspect -p bgp_peer_audit
+        
+        # Run with custom config file
+        uv run olav.py inspect -c my_inspection.yaml
+        
+        # Start scheduler daemon (runs on schedule from config)
+        uv run olav.py inspect --daemon
+        
+        # Run in English
+        uv run olav.py inspect -p daily_core_check -l en
+    """
+    setup_logging(verbose)
+    
+    # Validate language
+    valid_langs = ("zh", "en", "ja")
+    if lang not in valid_langs:
+        console.print(f"[yellow]⚠️  Invalid language '{lang}', using default 'zh'[/yellow]")
+        lang = "zh"
+    AgentConfig.LANGUAGE = lang  # type: ignore
+    
+    # Windows async compatibility
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
+    # List profiles mode
+    if list_profiles:
+        from config.settings import Paths
+        profile_dir = Paths.INSPECTIONS_DIR
+        console.print("\n[bold]Available Inspection Profiles:[/bold]")
+        if profile_dir.exists():
+            for yaml_file in sorted(profile_dir.glob("*.yaml")):
+                # Try to get description from file
+                try:
+                    import yaml
+                    with open(yaml_file, encoding="utf-8") as f:
+                        cfg = yaml.safe_load(f)
+                        name = cfg.get("name", yaml_file.stem)
+                        desc = cfg.get("description", "")
+                        console.print(f"  • [cyan]{yaml_file.stem}[/cyan]: {name}")
+                        if desc:
+                            console.print(f"    {desc}")
+                except Exception:
+                    console.print(f"  • [cyan]{yaml_file.stem}[/cyan]")
+        else:
+            console.print("[yellow]  No profiles found. Create profiles in config/inspections/[/yellow]")
+        return
+    
+    # Daemon mode
+    if daemon:
+        from config.settings import InspectionConfig
+        console.print(Panel.fit(
+            f"[bold green]OLAV Inspection Scheduler[/bold green]\n\n"
+            f"Profile: {InspectionConfig.DEFAULT_PROFILE}\n"
+            f"Schedule: {InspectionConfig.SCHEDULE_CRON or f'Daily at {InspectionConfig.SCHEDULE_TIME}'}\n"
+            f"Reports: {InspectionConfig.REPORTS_DIR}\n\n"
+            "[dim]Press Ctrl+C to stop[/dim]",
+            title="Daemon Mode",
+        ))
+        
+        from olav.inspection.scheduler import run_scheduler
+        asyncio.run(run_scheduler())
+        return
+    
+    # One-shot inspection mode
+    from olav.inspection.runner import run_inspection
+    
+    profile_name = profile or "daily_core_check"
+    console.print(f"\n[bold]Running Inspection: {profile_name}[/bold]")
+    console.print(f"Language: {lang}")
+    console.print("[dim]This is a read-only check (no HITL required)[/dim]\n")
+    
+    try:
+        result = asyncio.run(run_inspection(
+            profile=profile_name if not config_path else None,
+            config_path=config_path,
+            language=lang,
+        ))
+        
+        if result.get("status") == "success":
+            passed = result.get("passed", 0)
+            total = result.get("total_checks", 0)
+            critical = result.get("critical", 0)
+            duration = result.get("duration_seconds", 0)
+            report_path = result.get("report_path", "")
+            
+            # Summary
+            status_emoji = "🔴" if critical > 0 else ("🟡" if passed < total else "🟢")
+            console.print(f"\n{status_emoji} [bold]Inspection Complete[/bold]")
+            console.print(f"  ✅ Passed: {passed}/{total}")
+            if critical > 0:
+                console.print(f"  🔴 Critical: {critical}")
+            console.print(f"  ⏱️  Duration: {duration:.1f}s")
+            console.print(f"  📄 Report: [link=file://{report_path}]{report_path}[/link]")
+        else:
+            console.print(f"\n[red]❌ Inspection failed: {result.get('message')}[/red]")
+            raise typer.Exit(code=1)
+            
+    except FileNotFoundError as e:
+        console.print(f"\n[red]❌ Profile not found: {e}[/red]")
+        console.print("[dim]Use --list to see available profiles[/dim]")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        console.print(f"\n[red]❌ Inspection error: {e}[/red]")
+        logger.exception("Inspection failed")
+        raise typer.Exit(code=1)
 
 
 def main() -> None:

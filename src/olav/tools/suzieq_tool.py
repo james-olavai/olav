@@ -154,9 +154,12 @@ class SuzieQTool:
             if max_age_hours > 0 and "timestamp" in df.columns:
                 df = self._filter_by_time_window(df, max_age_hours)
 
-            # Apply hostname filter
+            # Apply hostname filter (handle both single string and list of hostnames)
             if hostname and "hostname" in df.columns:
-                df = df[df["hostname"] == hostname]
+                if isinstance(hostname, list):
+                    df = df[df["hostname"].isin(hostname)]
+                else:
+                    df = df[df["hostname"] == hostname]
 
             # Apply namespace filter
             if namespace and namespace != "all" and "namespace" in df.columns:
@@ -179,14 +182,27 @@ class SuzieQTool:
                 metadata["truncated"] = True
                 metadata["original_count"] = len(df)
 
+            # Normalize hostname for adapter (must be string, not list)
+            device_name = hostname
+            if isinstance(hostname, list):
+                device_name = ",".join(hostname) if hostname else "multi"
+            elif not hostname:
+                device_name = "multi"
+
             # Use adapter to convert to ToolOutput
-            return SuzieqAdapter.adapt(dataframe=df, device=hostname or "multi", metadata=metadata)
+            return SuzieqAdapter.adapt(dataframe=df, device=device_name, metadata=metadata)
 
         except Exception as e:
             logger.exception(f"SuzieQ query failed: {e}")
+            # Normalize hostname for error response too
+            device_name = hostname
+            if isinstance(hostname, list):
+                device_name = ",".join(hostname) if hostname else "multi"
+            elif not hostname:
+                device_name = "multi"
             return ToolOutput(
                 source="suzieq",
-                device=hostname or "multi",
+                device=device_name,
                 data=[],
                 metadata=metadata,
                 error=f"Query execution failed: {e}",

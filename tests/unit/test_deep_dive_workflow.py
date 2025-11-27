@@ -277,7 +277,8 @@ class TestDeepDiveWorkflow:
             mock_evaluator_class.return_value = mock_evaluator
             result = await workflow.execute_todo_node(initial_state)
         assert result["todos"][0]["status"] == "completed"
-        assert result["todos"][0]["result"] and "TOOL_CALL" in result["todos"][0]["result"]
+        # New human-friendly format uses "查询完成" instead of "TOOL_CALL"
+        assert result["todos"][0]["result"] and "查询完成" in result["todos"][0]["result"]
         assert result["todos"][0]["evaluation_passed"] is True
         assert result["todos"][0]["evaluation_score"] == 1.0
     
@@ -442,21 +443,29 @@ class TestDeepDiveWorkflow:
         
         formatted = workflow._format_execution_plan(todos, plan)
         
-        # Verify formatting
-        assert "✅ 可执行任务" in formatted
-        assert "❌ 无法执行任务" in formatted
-        assert "任务 1" in formatted
-        assert "任务 2" in formatted
-        assert "approve" in formatted or "审批" in formatted
+        # Verify new human-friendly formatting
+        assert "✅ 准备就绪" in formatted  # Changed from "可执行任务"
+        assert "❌ 暂不支持" in formatted  # Changed from "无法执行任务"
+        assert "**1.**" in formatted  # New task number format
+        assert "**2.**" in formatted
+        assert "approve" in formatted or "开始执行" in formatted
     
     def test_map_task_to_table_heuristic(self, workflow):
-        """Test heuristic keyword mapping for common tasks."""
+        """Test heuristic keyword mapping for common tasks.
+        
+        Note: Default method is now 'get' for detailed diagnostics.
+        Use 'summarize' only when explicit aggregation keywords are present (统计, 汇总, etc.)
+        """
         test_cases = [
-            ("查询所有设备", ("device", "summarize")),
-            ("检查接口状态", ("interfaces", "summarize")),
-            ("BGP 会话健康", ("bgp", "summarize")),
-            ("路由表分析", ("routes", "summarize")),
-            ("OSPF 邻居关系", ("ospfIf", "summarize")),
+            # Default: 'get' for detailed data (better for diagnostics)
+            ("查询所有设备", ("device", "get")),
+            ("检查接口状态", ("interfaces", "get")),
+            ("BGP 会话健康", ("bgp", "get")),
+            ("路由表分析", ("routes", "get")),
+            ("OSPF 邻居关系", ("ospfIf", "get")),
+            # Explicit aggregation keywords trigger 'summarize'
+            ("设备统计汇总", ("device", "summarize")),
+            ("接口概览统计", ("interfaces", "summarize")),
         ]
         
         for task_text, expected in test_cases:
@@ -465,7 +474,7 @@ class TestDeepDiveWorkflow:
                 table, method, _ = result
                 expected_table, expected_method = expected
                 assert table == expected_table, f"Task '{task_text}' should map to table '{expected_table}'"
-                assert method == expected_method
+                assert method == expected_method, f"Task '{task_text}' should use method '{expected_method}', got '{method}'"
 
     @pytest.mark.asyncio
     async def test_hitl_interrupt_flag_on_uncertain_plan(self, workflow, initial_state):

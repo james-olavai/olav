@@ -112,6 +112,11 @@ class AgentConfig:
     
     MAX_ITERATIONS = 20
     ENABLE_HITL = True  # Human-in-the-Loop approval
+    YOLO_MODE = False  # YOLO mode: skip all HITL approvals (dangerous!)
+    
+    # Language for workflow output (affects prompts and UI strings)
+    # Supported: "zh" (Chinese), "en" (English), "ja" (Japanese)
+    LANGUAGE: Literal["zh", "en", "ja"] = "zh"
     
     # SubAgent timeout (seconds)
     SUBAGENT_TIMEOUT = 300
@@ -120,6 +125,45 @@ class AgentConfig:
     ENABLE_TODO_LIST = True
     ENABLE_SUMMARIZATION = True
     SUMMARIZATION_THRESHOLD = 170_000  # tokens
+
+
+# ============================================
+# Inspection Configuration
+# ============================================
+class InspectionConfig:
+    """Automated inspection settings."""
+    
+    # Enable scheduled inspection
+    ENABLED = False  # Set to True to enable scheduled inspections
+    
+    # Schedule settings (cron-style)
+    # Format: "HH:MM" for daily, or cron expression for complex schedules
+    SCHEDULE_TIME = "09:00"  # Run at 9:00 AM daily
+    SCHEDULE_CRON = None  # Optional: "0 9 * * *" (overrides SCHEDULE_TIME if set)
+    SCHEDULE_INTERVAL_MINUTES = None  # Optional: Run every N minutes (for testing)
+    
+    # Default inspection profile to run
+    DEFAULT_PROFILE = "daily_core_check"  # Profile name from config/inspections/
+    
+    # Output settings
+    REPORTS_DIR = DATA_DIR / "inspection-reports"
+    REPORT_FORMAT = "markdown"  # markdown, json, html
+    KEEP_REPORTS_DAYS = 30  # Auto-cleanup reports older than N days
+    
+    # Notification (optional)
+    NOTIFY_ON_FAILURE = True
+    NOTIFY_WEBHOOK_URL: str | None = None  # Slack/Teams webhook for alerts
+    
+    # Execution settings
+    PARALLEL_DEVICES = 10  # Max concurrent device checks
+    TIMEOUT_PER_CHECK = 60  # seconds per check
+    RETRY_FAILED_CHECKS = 1  # Number of retries for failed checks
+    
+    @classmethod
+    def get_reports_dir(cls) -> "Path":
+        """Ensure reports directory exists and return path."""
+        cls.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        return cls.REPORTS_DIR
 
 
 # ============================================
