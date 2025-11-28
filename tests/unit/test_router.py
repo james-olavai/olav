@@ -4,7 +4,6 @@ Unit tests for DynamicIntentRouter.
 Tests semantic pre-filtering, LLM classification, trigger matching, and routing decisions.
 """
 
-import numpy as np
 import pytest
 from typing import List
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -35,11 +34,13 @@ def mock_embeddings():
     # Mock aembed_documents to return predictable vectors (async version)
     async def aembed_documents(texts: List[str]):
         # Simple mock: length-based vectors for predictability
-        return [[0.1 * len(t), 0.2 * len(t)] for t in texts]
+        # Ensure non-zero vectors to avoid NaN in cosine similarity
+        return [[0.1 * max(1, len(t)), 0.2 * max(1, len(t))] for t in texts]
     
     # Mock aembed_query to return query vector (async version)
     async def aembed_query(text: str):
-        return [0.1 * len(text), 0.2 * len(text)]
+        # Ensure non-zero vectors to avoid NaN in cosine similarity
+        return [0.1 * max(1, len(text)), 0.2 * max(1, len(text))]
     
     embeddings.aembed_documents = AsyncMock(side_effect=aembed_documents)
     embeddings.aembed_query = AsyncMock(side_effect=aembed_query)
@@ -140,21 +141,17 @@ async def test_router_initialization(mock_embeddings, mock_llm, sample_workflows
     assert router.llm == mock_llm
     assert router.top_k == 3  # default
     
-    # Index should be empty before build
-    assert router.example_vectors == {}
+    # Index should not be built before build_index
+    assert router._indexed is False
+    assert router.vector_store is None
     
     # Build index
     await router.build_index()
     
-    # Should have vectors for all workflows
-    assert len(router.example_vectors) == 3
-    
-    # Each workflow should have embedded examples
-    for workflow_name in ["QueryWorkflow", "ExecutionWorkflow", "DeepDiveWorkflow"]:
-        assert workflow_name in router.example_vectors
-        vector = router.example_vectors[workflow_name]
-        assert isinstance(vector, np.ndarray)
-        assert len(vector) > 0  # Verify vector is not empty
+    # Index should be built now
+    assert router._indexed is True
+    assert router.vector_store is not None
+    assert router._workflow_count == 3
 
 
 @pytest.mark.asyncio
@@ -173,7 +170,8 @@ async def test_rebuild_index_on_new_workflows(mock_embeddings, mock_llm):
     router = DynamicIntentRouter(embeddings=mock_embeddings, llm=mock_llm)
     await router.build_index()
     
-    initial_count = len(router.example_vectors)
+    initial_count = router._workflow_count
+    assert initial_count == 1
     
     # Register new workflow
     @WorkflowRegistry.register(
@@ -188,7 +186,7 @@ async def test_rebuild_index_on_new_workflows(mock_embeddings, mock_llm):
     # Rebuild index
     await router.build_index()
     
-    assert len(router.example_vectors) == initial_count + 1
+    assert router._workflow_count == initial_count + 1
 
 
 # Trigger fast-path tests

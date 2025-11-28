@@ -1998,7 +1998,7 @@ async def test_netconf_connection_refused_suggests_cli_fallback():
 
 *审计人: AI Code Auditor (GitHub Copilot - Claude Opus 4.5)*  
 *审计日期: 2025-11-26*  
-*更新日期: 2025-11-27*
+*更新日期: 2025-01-27*
   - *Document RAG 实现完成*
   - *架构重构: 异步队列 → 同步索引 (~1,570行代码删除)*
   - *Agentic RAG 集成完成 (FastPath + DeepDive)*
@@ -2009,4 +2009,578 @@ async def test_netconf_connection_refused_suggests_cli_fallback():
   - *Strategy Selector 集成完成 (查询优化 5-10s → <2s)*
   - *Execution Backend 测试完成 (23 新测试)*
   - *测试数: 496 passed, 9 skipped*
+  - *硬编码设计 → LLM 替换分析完成 (6 个待优化项)*
+  - *LLM Intent Classifier 实现完成 (P0 第一项)*
+  - *LLM Workflow Router 实现完成 (P0 第二项，~200 行关键词代码删除)*
+
+---
+
+## 23. 硬编码设计 → LLM 替换分析 🔴 TODO
+
+### 23.1 分析背景
+
+通过代码审计发现多处硬编码设计可用 LLM 结构化输出能力替换，实现更动态、自适应的系统行为。
+
+### 23.2 优先级排序
+
+| # | 硬编码位置 | 优先级 | 替换难度 | 代码减少 | 收益 | 状态 |
+|---|-----------|--------|----------|----------|------|------|
+| 1 | Intent Classifier | ⭐⭐⭐ P0 | 中 | ~120 行 | 统一路由逻辑 | ✅ 完成 |
+| 2 | Workflow Router Keywords | ⭐⭐⭐ P0 | 中 | ~200 行 | 消除重复关键词 | ✅ 完成 |
+| 3 | Task→Table Mapping | ⭐⭐ P1 | 高 | ~100 行 | Schema-Aware 自动化 | 待开始 |
+| 4 | HITL Required Rules | ⭐⭐ P1 | 中 | ~60 行 | 动态风险评估 | 待开始 |
+| 5 | Value Transformation | ⭐⭐ P2 | 低 | ~30 行 | LLMDiffEngine 扩展 | 待开始 |
+| 6 | Diagnostic Fields | ⭐ P3 | 低 | ~80 行 | 减少维护负担 | 待开始 |
+| 7 | Command Blacklist | ✓ 保留 | N/A | 0 | 安全规则确定性 | N/A |
+
+### 23.2.1 实现进度
+
+#### ✅ 已完成: Intent Classifier (2025-01-27)
+
+**新增文件**:
+- `src/olav/core/llm_intent_classifier.py` - LLM 意图分类器 (~200 行)
+- `config/prompts/core/intent_classification.yaml` - Prompt 模板
+- `tests/unit/test_llm_intent_classifier.py` - 16 个单元测试
+
+**修改文件**:
+- `src/olav/strategies/fast_path.py`:
+  - `INTENT_PATTERNS` (50+ 关键词) → `INTENT_PATTERNS_FALLBACK` (15 关键词)
+  - 新增 `classify_intent_async()` 使用 LLM
+  - `execute()` 方法改用 async 版本
+
+**关键类/函数**:
+```python
+# src/olav/core/llm_intent_classifier.py
+class IntentResult(BaseModel):
+    category: Literal["suzieq", "netbox", "openconfig", "cli", "netconf"]
+    confidence: float
+    reasoning: str
+
+class LLMIntentClassifier:
+    async def classify(self, query: str) -> IntentResult: ...
+    def _fallback_classify(self, query: str) -> IntentResult: ...
+
+async def classify_intent_with_llm(query: str) -> IntentResult: ...
+```
+
+#### ✅ 已完成: Workflow Router Keywords (2025-01-27)
+
+**新增文件**:
+- `src/olav/core/llm_workflow_router.py` - LLM 工作流路由器 (~290 行)
+- `config/prompts/core/workflow_routing.yaml` - Prompt 模板
+- `tests/unit/test_llm_workflow_router.py` - 19 个单元测试
+
+**修改文件**:
+- `src/olav/agents/root_agent_orchestrator.py`:
+  - `_legacy_classify_intent()` 重构为使用 `LLMWorkflowRouter`
+  - `_classify_by_keywords()` 关键词从 ~100 个减少到 ~20 个
+  - 删除重复的 deep_dive_keywords, inspection_keywords 等 (~120 行)
+
+**关键类/函数**:
+```python
+# src/olav/core/llm_workflow_router.py
+class WorkflowRouteResult(BaseModel):
+    workflow: Literal["query_diagnostic", "device_execution", "netbox_management", "inspection", "deep_dive"]
+    confidence: float
+    reasoning: str
+    requires_expert_mode: bool
+
+class LLMWorkflowRouter:
+    async def route(self, query: str) -> WorkflowRouteResult: ...
+    def _fallback_route(self, query: str) -> WorkflowRouteResult: ...
+
+async def route_workflow(query: str, expert_mode: bool = False) -> WorkflowRouteResult: ...
+```
+
+### 23.3 详细分析
+
+---
+
+#### 23.3.1 Intent Classifier (意图分类器) ⭐⭐⭐
+
+**位置**: `src/olav/strategies/fast_path.py` (L100-160)
+
+**当前实现**:
+```python
+INTENT_PATTERNS = {
+    "netbox": ["netbox", "cmdb", "资产", "设备清单", "inventory", ...],
+    "openconfig": ["openconfig", "yang", "netconf", "xpath", ...],
+    "cli": ["cli", "ssh", "命令行", "command line", ...],
+    "netconf": ["netconf", "rpc", "edit-config", ...],
+    "suzieq": ["bgp", "ospf", "interface", "状态", "status", ...],
+}
+
+def classify_intent(query: str) -> tuple[str, float]:
+    # 硬编码关键词匹配
+    for category, patterns in INTENT_PATTERNS.items():
+        score = sum(1 for p in patterns if p.lower() in query_lower)
+        ...
+```
+
+**问题**:
+- 硬编码 ~50+ 个关键词
+- 无法适应新意图或跨语言表达
+- 与 `root_agent_orchestrator.py` 重复类似逻辑
+
+**LLM 替换方案**:
+```python
+# src/olav/core/llm_intent_classifier.py (新文件)
+
+class IntentResult(BaseModel):
+    """LLM 结构化输出模型"""
+    category: Literal["suzieq", "netbox", "openconfig", "cli", "netconf"]
+    confidence: float = Field(ge=0.0, le=1.0)
+    reasoning: str
+
+class LLMIntentClassifier:
+    """用 LLM 结构化输出替换关键词匹配"""
+    
+    def __init__(self, llm: BaseChatModel):
+        self.llm = llm.with_structured_output(IntentResult)
+        self.prompt = prompt_manager.load_prompt(
+            "core", "intent_classification"
+        )
+    
+    async def classify(self, query: str) -> IntentResult:
+        messages = [
+            SystemMessage(content=self.prompt),
+            HumanMessage(content=query)
+        ]
+        return await self.llm.ainvoke(messages)
+```
+
+**Prompt 模板** (`config/prompts/core/intent_classification.yaml`):
+```yaml
+_type: prompt
+input_variables: []
+template: |
+  你是网络运维意图分类专家。将用户查询分类到以下类别：
+  
+  - **suzieq**: 网络状态查询（BGP/OSPF/接口状态、路由表、邻居关系）
+  - **netbox**: CMDB 资产管理（设备清单、IP 分配、站点/机架管理）
+  - **openconfig**: YANG/NETCONF 结构化配置操作
+  - **cli**: SSH 命令行执行（show 命令、配置变更）
+  - **netconf**: NETCONF RPC 操作（get-config, edit-config）
+  
+  输出 JSON 格式，包含 category、confidence (0-1)、reasoning。
+```
+
+**实施工作量**: 1 天
+
+---
+
+#### 23.3.2 Workflow Router Keywords (工作流路由关键词) ⭐⭐⭐
+
+**位置**: `src/olav/agents/root_agent_orchestrator.py` (L197-380)
+
+**当前实现**:
+```python
+# 重复定义在多个位置
+deep_dive_keywords = ["审计", "audit", "批量", "batch", "为什么", "why", ...]
+inspection_keywords = ["巡检", "同步", "sync", "对比", "diff", ...]
+netbox_keywords = ["设备清单", "添加设备", "ip分配", ...]
+config_keywords = ["配置", "修改", "添加vlan", ...]
+```
+
+**问题**:
+- 在 `root_agent_orchestrator.py`、`selector.py`、各 workflow 中重复定义
+- 维护成本高，容易遗漏同步
+- 关键词无法覆盖所有用户表达方式
+
+**LLM 替换方案**: 
+
+已有 `DynamicIntentRouter`，但关键词 fallback 仍存在。统一为：
+
+```python
+# src/olav/agents/dynamic_orchestrator.py (已存在，增强)
+
+WORKFLOW_EXAMPLES = {
+    "deep_dive": [
+        "审计所有边界路由器的 BGP 配置",
+        "为什么 R1 无法访问 R5？",
+        "批量检查设备合规性",
+    ],
+    "inspection": [
+        "同步 NetBox 与网络设备状态",
+        "检查 R1 接口与 CMDB 是否一致",
+        "对比网络实际配置与 SSOT",
+    ],
+    "query_diagnostic": [
+        "查询 R1 的 BGP 邻居状态",
+        "显示所有接口 IP 地址",
+    ],
+    "device_execution": [
+        "在 R1 上配置 VLAN 100",
+        "删除 R2 的 Loopback11 接口",
+    ],
+    "netbox_management": [
+        "在 NetBox 添加新设备 R5",
+        "分配 IP 10.0.0.1/24 给 R1",
+    ],
+}
+
+class DynamicIntentRouter:
+    async def route(self, query: str) -> str:
+        # 1. Few-shot embedding 相似度
+        candidates = await self._semantic_match(query, top_k=3)
+        
+        # 2. LLM 从 Top-3 中选择
+        if candidates:
+            return await self._llm_select(query, candidates)
+        
+        # 3. 无匹配时 LLM 直接分类 (移除关键词 fallback)
+        return await self._llm_classify(query)
+```
+
+**实施工作量**: 0.5 天 (移除关键词 fallback)
+
+---
+
+#### 23.3.3 Task→Table Mapping (任务到表映射) ⭐⭐
+
+**位置**: `src/olav/workflows/deep_dive.py` (L1922-1975)
+
+**当前实现**:
+```python
+def _map_task_to_table(self, task: str) -> tuple[str, str, dict] | None:
+    candidates = [
+        (["设备列表", "所有设备", "device"], "device"),
+        (["接口", "端口", "interface"], "interfaces"),
+        (["路由", "前缀", "routes"], "routes"),
+        (["ospf"], "ospfIf"),
+        (["bgp", "peer", "邻居"], "bgp"),
+    ]
+    for keywords, table in candidates:
+        if any(k in lower for k in keywords):
+            return table, method, filters
+    return None  # 触发 schema 调查
+```
+
+**问题**:
+- 手动维护关键词→SuzieQ 表的映射
+- 新表需要手动添加映射
+- 无法处理模糊表达
+
+**LLM 替换方案**:
+```python
+# src/olav/tools/llm_table_mapper.py (新文件)
+
+class TableMapping(BaseModel):
+    table: str
+    method: Literal["get", "summarize", "unique", "aver"]
+    filters: dict = {}
+    reasoning: str
+
+class LLMTableMapper:
+    """LLM 驱动的任务到表映射"""
+    
+    async def map_task(
+        self, 
+        task: str, 
+        available_tables: list[str],
+        schema_context: dict | None = None,
+    ) -> TableMapping:
+        # 1. 获取相关 schema 上下文
+        if not schema_context:
+            schema_context = await self._search_schema(task)
+        
+        # 2. LLM 选择最合适的表
+        prompt = self._build_prompt(task, available_tables, schema_context)
+        return await self.llm.with_structured_output(TableMapping).ainvoke(prompt)
+    
+    def _build_prompt(self, task: str, tables: list[str], schema: dict) -> str:
+        return f"""
+        你是 SuzieQ 网络分析专家。根据用户任务选择最合适的表和方法。
+        
+        ## 可用表
+        {tables}
+        
+        ## 表 Schema 参考
+        {json.dumps(schema, indent=2)}
+        
+        ## 用户任务
+        {task}
+        
+        ## 方法选择指南
+        - get: 获取详细数据（默认用于排错）
+        - summarize: 仅用于明确的统计/汇总请求
+        
+        输出 JSON：table, method, filters, reasoning
+        """
+```
+
+**实施工作量**: 1.5 天
+
+---
+
+#### 23.3.4 HITL Required Rules (HITL 必需规则) ⭐⭐
+
+**位置**: `src/olav/sync/rules/hitl_required.py` (L12-51)
+
+**当前实现**:
+```python
+HITL_REQUIRED_RULES = {
+    EntityType.INTERFACE: {"enabled", "mode", "tagged_vlans", "existence", ...},
+    EntityType.IP_ADDRESS: {"address", "vrf", "existence", ...},
+    EntityType.DEVICE: {"site", "rack", "platform", ...},
+}
+
+def requires_hitl_approval(diff: DiffResult) -> bool:
+    if diff.severity == DiffSeverity.CRITICAL:
+        return True
+    entity_rules = HITL_REQUIRED_RULES.get(diff.entity_type, set())
+    return field_name in entity_rules
+```
+
+**问题**:
+- 静态规则无法评估上下文风险
+- 新字段需要手动添加规则
+- 无法考虑业务时间、关联影响
+
+**LLM 替换方案**:
+```python
+# src/olav/sync/rules/llm_risk_assessor.py (新文件)
+
+class RiskAssessment(BaseModel):
+    requires_hitl: bool
+    risk_level: Literal["low", "medium", "high", "critical"]
+    reasoning: str
+    impact_scope: list[str] = []  # 受影响的其他实体
+
+class LLMRiskAssessor:
+    """LLM 评估变更风险"""
+    
+    # 仍保留硬规则作为 guardrail
+    ALWAYS_HITL = {"existence", "enabled", "address"}
+    
+    async def assess_risk(self, diff: DiffResult, context: dict = {}) -> RiskAssessment:
+        # 1. 硬规则检查 (安全 guardrail)
+        if diff.field in self.ALWAYS_HITL:
+            return RiskAssessment(
+                requires_hitl=True,
+                risk_level="critical",
+                reasoning=f"{diff.field} 在硬规则列表中，必须 HITL"
+            )
+        
+        # 2. LLM 评估上下文风险
+        prompt = f"""
+        评估以下变更的风险等级:
+        
+        实体类型: {diff.entity_type.value}
+        字段: {diff.field}
+        设备: {diff.device}
+        旧值: {diff.netbox_value}
+        新值: {diff.network_value}
+        
+        上下文:
+        - 业务时间: {context.get('business_hours', 'unknown')}
+        - 设备角色: {context.get('device_role', 'unknown')}
+        - 关联服务: {context.get('services', [])}
+        
+        考虑因素:
+        1. 服务影响范围
+        2. 变更可逆性
+        3. 合规要求
+        """
+        return await self.llm.with_structured_output(RiskAssessment).ainvoke(prompt)
+```
+
+**实施工作量**: 1 天
+
+---
+
+#### 23.3.5 Value Transformation (字段值转换) ⭐⭐
+
+**位置**: `src/olav/sync/reconciler.py` (L99-114)
+
+**当前实现**:
+```python
+def _transform_value(self, field_name: str, network_value: Any) -> Any:
+    if field == "enabled":
+        return network_value.lower() == "up"  # 硬编码
+    if field == "speed":
+        return network_value * 1000  # 硬编码
+    return network_value
+```
+
+**LLM 替换方案** (已部分实现在 `LLMDiffEngine`):
+
+扩展 `LLMDiffEngine` 支持值转换：
+
+```python
+# src/olav/sync/llm_diff.py (已存在，扩展)
+
+class TransformedValue(BaseModel):
+    value: Any
+    transformation_applied: str
+
+class LLMDiffEngine:
+    async def transform_for_netbox(
+        self, 
+        field: str, 
+        value: Any, 
+        target_schema: dict
+    ) -> TransformedValue:
+        prompt = f"""
+        将以下值转换为 NetBox API 格式。
+        
+        字段: {field}
+        原值: {value}
+        目标 Schema: {json.dumps(target_schema)}
+        
+        常见转换:
+        - adminState: "up"/"down" → boolean
+        - speed: bps → kbps (×1000)
+        - enabled: string → boolean
+        """
+        return await self.llm.with_structured_output(TransformedValue).ainvoke(prompt)
+```
+
+**实施工作量**: 0.5 天 (LLMDiffEngine 已有基础)
+
+---
+
+#### 23.3.6 Diagnostic Fields (诊断字段提取) ⭐
+
+**位置**: `src/olav/workflows/deep_dive.py` (L1975-2100)
+
+**当前实现**:
+```python
+table_key_fields = {
+    "bgp": ["hostname", "peer", "state", "asn", "peerAsn", ...],
+    "ospfIf": ["hostname", "ifname", "state", "area", ...],
+    "interfaces": ["hostname", "ifname", "state", "speed", ...],
+}
+```
+
+**LLM 替换方案**:
+```python
+class FieldSelection(BaseModel):
+    fields: list[str]
+    reasoning: str
+
+class LLMFieldSelector:
+    async def select_fields(
+        self, 
+        table: str, 
+        context: str,
+        available_fields: list[str]
+    ) -> FieldSelection:
+        prompt = f"""
+        表: {table}
+        可用字段: {available_fields}
+        诊断上下文: {context}
+        
+        选择最重要的 5-8 个字段用于诊断输出。
+        优先选择: 状态字段、时间戳、关键标识符。
+        """
+        return await self.llm.with_structured_output(FieldSelection).ainvoke(prompt)
+```
+
+**实施工作量**: 0.5 天
+
+---
+
+#### 23.3.7 Command Blacklist (命令黑名单) ✓ 保留
+
+**位置**: `src/olav/tools/cli_tool.py` (L150-155)
+
+```python
+DEFAULT_BLOCKS = {
+    "traceroute", "reload", "write erase", "format", "delete"
+}
+```
+
+**决策**: **保留硬编码**
+
+**理由**:
+- 安全规则必须是确定性的
+- LLM 可能被提示注入绕过
+- 审计可追溯性要求
+
+---
+
+### 23.4 实施路线图
+
+```
+Week 1:
+├── Day 1: Intent Classifier LLM 化
+│   ├── 创建 llm_intent_classifier.py
+│   ├── 添加 prompt 模板
+│   └── 集成到 fast_path.py
+├── Day 2: Workflow Router 清理
+│   ├── 移除关键词 fallback
+│   ├── 增强 DynamicIntentRouter
+│   └── 更新 few-shot 示例
+
+Week 2:
+├── Day 3-4: Task→Table Mapper
+│   ├── 创建 llm_table_mapper.py
+│   ├── 集成到 deep_dive.py
+│   └── 添加 schema 搜索逻辑
+├── Day 5: HITL Risk Assessor
+│   ├── 创建 llm_risk_assessor.py
+│   ├── 集成到 reconciler.py
+│   └── 保留硬规则 guardrail
+
+Week 3:
+├── Day 6: Value Transformation + Diagnostic Fields
+│   ├── 扩展 LLMDiffEngine
+│   └── 更新 deep_dive.py
+├── Day 7: 测试 + 文档
+```
+
+### 23.5 预期收益
+
+| 指标 | 变更前 | 变更后 | 改善 |
+|------|--------|--------|------|
+| 硬编码关键词 | ~300 行 | ~50 行 | -250 行 |
+| 映射表维护 | 手动 | 自动 | ✅ 零维护 |
+| 新意图支持 | 修改代码 | 更新 prompt | ✅ 配置化 |
+| 风险评估 | 静态 | 上下文感知 | ✅ 更智能 |
+| 多语言支持 | 需添加翻译 | LLM 自动 | ✅ 自适应 |
+
+### 23.6 风险与缓解
+
+| 风险 | 影响 | 缓解措施 |
+|------|------|----------|
+| LLM 延迟增加 | 中 | 缓存 + 批量调用 |
+| 分类错误 | 中 | 保留 confidence 阈值回退 |
+| 成本增加 | 低 | 使用轻量模型 (gpt-4o-mini) |
+| 安全绕过 | 高 | 硬规则 guardrail 不可覆盖 |
+
+### 23.7 实施状态
+
+| # | 任务 | 状态 | 预计完成 |
+|---|------|------|----------|
+| 1 | Intent Classifier LLM 化 | ✅ 已完成 | 2025-01-27 |
+| 2 | Workflow Router 清理 | ✅ 已完成 | 2025-01-27 |
+| 3 | Task→Table Mapper | 🔴 待开始 | Week 2 Day 3-4 |
+| 4 | HITL Risk Assessor | 🔴 待开始 | Week 2 Day 5 |
+| 5 | Value Transformation | 🔴 待开始 | Week 3 Day 6 |
+| 6 | Diagnostic Fields | 🔴 待开始 | Week 3 Day 6 |
+| 7 | 测试 + 文档 | 🔴 待开始 | Week 3 Day 7 |
+
+---
+
+## 24. 过度工程化审计 (Over-Engineering Audit)
+
+> 详见: **[OVER_ENGINEERING_AUDIT.md](./OVER_ENGINEERING_AUDIT.md)**
+
+### 24.1 审计摘要
+
+已识别以下可用 LangChain 内置功能替代的自定义实现:
+
+| 优先级 | 模块 | 推荐方案 |
+|--------|------|----------|
+| **P0** | `extract_json_from_response()` | `with_structured_output()` |
+| **P0** | `DynamicIntentRouter` sklearn | LangChain VectorStore |
+| **P1** | `ToolRegistry` 自定义协议 | LangChain `@tool` |
+| **P1** | `cache.py` Redis 抽象 | LangGraph Cache |
+
+### 24.2 预期收益
+
+- 移除 `sklearn` / `numpy` 依赖
+- 减少 ~1200 行自定义代码
+- 提高 LangChain 生态兼容性
 

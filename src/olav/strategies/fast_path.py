@@ -40,6 +40,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage
 from pydantic import BaseModel, Field
 
+from olav.core.llm_intent_classifier import classify_intent_with_llm
 from olav.core.memory_writer import MemoryWriter
 from olav.core.middleware import FilesystemMiddleware
 from olav.tools.base import ToolOutput, ToolRegistry
@@ -50,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 class NumpyEncoder(json.JSONEncoder):
     """Custom JSON encoder that handles numpy types."""
-    
+
     def default(self, obj: Any) -> Any:
         if isinstance(obj, np.ndarray):
             return obj.tolist()
@@ -76,7 +77,7 @@ class ParameterExtraction(BaseModel):
     """
 
     tool: Literal["suzieq_query", "netbox_api", "netbox_api_call", "cli_execute", "cli_tool",
-                  "netconf_execute", "netconf_tool", "openconfig_schema_search", 
+                  "netconf_execute", "netconf_tool", "openconfig_schema_search",
                   "netbox_schema_search", "suzieq_schema_search"]
     parameters: dict[str, Any] = Field(description="Tool-specific parameters")
     confidence: float = Field(
@@ -85,39 +86,18 @@ class ParameterExtraction(BaseModel):
     reasoning: str = Field(description="Why this tool and parameters were chosen")
 
 
-# Intent classification patterns for tool selection
-INTENT_PATTERNS: dict[str, list[str]] = {
-    # NetBox patterns - inventory, IPAM, SSOT queries
-    "netbox": [
-        "netbox", "inventory", "device list", "设备列表", "设备清单",
-        "ip address", "ip 地址", "ipam", "site", "站点", "datacenter", "数据中心",
-        "rack", "机架", "cable", "线缆", "vlan", "tenant", "租户",
-        "what devices", "哪些设备", "how many devices", "多少设备",
-        "management ip", "管理地址", "管理IP", "location", "位置",
-    ],
-    # OpenConfig patterns - YANG schema, XPath queries
-    "openconfig": [
-        "openconfig", "yang", "xpath", "schema", "配置路径",
-        "openconfig path", "yang model", "find xpath", "查找路径",
-        "configuration path", "netconf path", "gnmi path",
-    ],
-    # CLI patterns - direct device commands
-    "cli": [
-        "show command", "cli command", "执行命令", "run command",
-        "show running", "show startup", "debug", "terminal",
-    ],
-    # NETCONF patterns - device configuration
-    "netconf": [
-        "netconf", "get-config", "edit-config", "配置设备",
-        "apply config", "应用配置", "push config", "下发配置",
-    ],
-    # SuzieQ patterns - network state queries (default)
-    "suzieq": [
-        "bgp", "ospf", "interface", "route", "arp", "mac", "lldp",
-        "状态", "status", "neighbor", "邻居", "session", "会话",
-        "查询", "query", "check", "检查", "show", "显示",
-        "summary", "汇总", "统计", "topology", "拓扑",
-    ],
+# Intent classification - use LLM-based classifier with keyword fallback
+# The LLMIntentClassifier provides more dynamic classification while
+# keeping minimal keyword patterns as a fast fallback.
+# See: olav.core.llm_intent_classifier (imported at top)
+
+# Minimal keyword patterns for fast fallback (reduced from ~50 to ~15 keywords)
+INTENT_PATTERNS_FALLBACK: dict[str, list[str]] = {
+    "netbox": ["netbox", "cmdb", "资产", "设备清单", "inventory"],
+    "openconfig": ["openconfig", "yang", "xpath"],
+    "cli": ["cli", "ssh", "命令行"],
+    "netconf": ["netconf", "rpc", "edit-config"],
+    "suzieq": ["bgp", "ospf", "interface", "route", "状态", "status"],
 }
 
 
@@ -125,8 +105,9 @@ def classify_intent(query: str) -> tuple[str, float]:
     """
     Classify user query intent to determine tool category.
     
-    Uses keyword matching with confidence scoring based on
-    number of matching patterns.
+    DEPRECATED: This is a synchronous fallback using keyword matching.
+    For async context, use classify_intent_async() which uses LLM for
+    more accurate, context-aware classification.
     
     Args:
         query: User's natural language query
@@ -136,22 +117,22 @@ def classify_intent(query: str) -> tuple[str, float]:
         Categories: "netbox", "openconfig", "cli", "netconf", "suzieq"
     """
     query_lower = query.lower()
-    
+
     # Count matches for each category
     scores: dict[str, int] = {}
-    for category, patterns in INTENT_PATTERNS.items():
+    for category, patterns in INTENT_PATTERNS_FALLBACK.items():
         score = sum(1 for p in patterns if p.lower() in query_lower)
         if score > 0:
             scores[category] = score
-    
+
     if not scores:
         # Default to SuzieQ for general network queries
         return ("suzieq", 0.5)
-    
+
     # Get highest scoring category
     best_category = max(scores, key=lambda k: scores[k])
     best_score = scores[best_category]
-    
+
     # Calculate confidence based on score and uniqueness
     total_matches = sum(scores.values())
     if total_matches > 0:
@@ -159,8 +140,30 @@ def classify_intent(query: str) -> tuple[str, float]:
         confidence = min(0.95, 0.5 + (best_score / total_matches) * 0.4 + (best_score * 0.05))
     else:
         confidence = 0.5
-    
+
     return (best_category, confidence)
+
+
+async def classify_intent_async(query: str) -> tuple[str, float]:
+    """
+    Async intent classification using LLM with keyword fallback.
+    
+    Uses LLMIntentClassifier for dynamic, context-aware classification.
+    Falls back to keyword matching if LLM call fails.
+    
+    Args:
+        query: User's natural language query
+        
+    Returns:
+        Tuple of (tool_category, confidence)
+        Categories: "netbox", "openconfig", "cli", "netconf", "suzieq"
+    """
+    try:
+        result = await classify_intent_with_llm(query)
+        return (result.category, result.confidence)
+    except Exception as e:
+        logger.warning(f"LLM intent classification failed: {e}, using keyword fallback")
+        return classify_intent(query)
 
 
 class FormattedAnswer(BaseModel):
@@ -254,7 +257,7 @@ class FastPathStrategy:
             Dict mapping tool prefix to capability guide content
         """
         from olav.core.prompt_manager import prompt_manager
-        
+
         guides = {}
         # Load guides for main tool categories
         for tool_prefix in ["suzieq", "netbox", "cli", "netconf"]:
@@ -262,7 +265,7 @@ class FastPathStrategy:
             if guide:
                 guides[tool_prefix] = guide
                 logger.debug(f"Loaded capability guide for: {tool_prefix}")
-        
+
         return guides
 
     def _get_tool_category(self, tool_name: str) -> str:
@@ -287,7 +290,7 @@ class FastPathStrategy:
             "netconf_execute": "netconf",
             "netconf_tool": "netconf",
         }
-        
+
         return tool_category_map.get(tool_name, "suzieq")
 
     async def _discover_schema_for_intent(
@@ -311,33 +314,32 @@ class FastPathStrategy:
             if intent_category == "suzieq":
                 # Use existing SuzieQ schema discovery
                 return await self._discover_schema(query)
-            
-            elif intent_category == "netbox":
+
+            if intent_category == "netbox":
                 # Search NetBox schema for relevant endpoints
                 from olav.tools.netbox_tool import NetBoxSchemaSearchTool
                 netbox_tool = NetBoxSchemaSearchTool()
                 result = await netbox_tool.execute(query=query)
-                
+
                 if result and not result.error and result.data:
                     endpoints = result.data if isinstance(result.data, list) else []
                     return {ep.get("path", ""): ep for ep in endpoints[:5]}
                 return None
-            
-            elif intent_category == "openconfig":
+
+            if intent_category == "openconfig":
                 # Search OpenConfig schema for XPaths
                 from olav.tools.opensearch_tool import OpenConfigSchemaTool
                 oc_tool = OpenConfigSchemaTool()
                 result = await oc_tool.execute(intent=query)
-                
+
                 if result and not result.error and result.data:
                     paths = result.data if isinstance(result.data, list) else []
                     return {p.get("xpath", ""): p for p in paths[:10]}
                 return None
-            
-            else:
-                # CLI/NETCONF don't need schema discovery
-                return None
-                
+
+            # CLI/NETCONF don't need schema discovery
+            return None
+
         except Exception as e:
             logger.warning(f"Schema discovery failed for {intent_category}: {e}")
             return None
@@ -363,25 +365,25 @@ class FastPathStrategy:
             Dict with 'success', 'answer', 'tool_output', 'metadata'
         """
         try:
-            # Step 0: Intent Classification (NEW - determines tool category)
-            intent_category, intent_confidence = classify_intent(user_query)
+            # Step 0: Intent Classification using LLM (with keyword fallback)
+            intent_category, intent_confidence = await classify_intent_async(user_query)
             logger.info(f"Intent classified as '{intent_category}' (confidence: {intent_confidence:.2f})")
-            
+
             # Step 1: Schema Discovery based on intent category
             schema_context = await self._discover_schema_for_intent(user_query, intent_category)
             if schema_context:
                 logger.info(f"Schema-Aware: discovered {len(schema_context)} entries for {intent_category}")
-            
+
             # Step 2: Search episodic memory (RAG optimization)
             # Only use if tool category matches intent classification
             memory_pattern = None
             if self.enable_memory_rag:
                 memory_pattern = await self._search_episodic_memory(user_query)
-                
+
                 if memory_pattern:
                     memory_tool = memory_pattern.get("tool", "")
                     memory_category = self._get_tool_category(memory_tool)
-                    
+
                     # Validate memory pattern against intent classification
                     if memory_category != intent_category:
                         logger.warning(
@@ -503,41 +505,41 @@ class FastPathStrategy:
             if not schema_tool:
                 logger.debug("suzieq_schema_search tool not available, skipping schema discovery")
                 return None
-            
+
             # Execute schema search
             from olav.tools.base import ToolOutput
             result = await schema_tool.execute(query=user_query)
-            
+
             if isinstance(result, ToolOutput) and result.data:
                 # Extract relevant tables from schema search result
                 schema_context = {}
                 data = result.data
-                
+
                 # Handle different response formats
                 if isinstance(data, dict):
                     # Format: {'tables': [...], 'table1': {...}, ...}
-                    tables = data.get('tables', [])
+                    tables = data.get("tables", [])
                     for table in tables:
                         if table in data:
                             schema_context[table] = data[table]
                 elif isinstance(data, list):
                     # Format: [{'table': 'name', 'fields': [...], ...}, ...]
                     for item in data:
-                        if isinstance(item, dict) and 'table' in item:
-                            schema_context[item['table']] = item
-                
+                        if isinstance(item, dict) and "table" in item:
+                            schema_context[item["table"]] = item
+
                 if schema_context:
                     logger.info(f"Schema discovery found tables: {list(schema_context.keys())}")
                     return schema_context
-                    
+
             return None
-            
+
         except Exception as e:
             logger.warning(f"Schema discovery failed: {e}")
             return None
 
     async def _extract_parameters(
-        self, user_query: str, 
+        self, user_query: str,
         context: dict[str, Any] | None = None,
         schema_context: dict[str, Any] | None = None,
         intent_category: str | None = None,
@@ -568,7 +570,7 @@ class FastPathStrategy:
             "netconf": "netconf_tool",
         }
         preferred_tool = intent_tool_map.get(intent_category or "suzieq", "suzieq_query")
-        
+
         # Build intent-aware schema section
         if schema_context:
             if intent_category == "netbox":
@@ -627,7 +629,7 @@ class FastPathStrategy:
 ## ⚠️ 意图分类结果
 {hint}
 """
-        
+
         # Build tool capability guide section
         capability_guide = ""
         guide_key = intent_category if intent_category in self._tool_guides else "suzieq"
@@ -636,7 +638,7 @@ class FastPathStrategy:
 ## 工具能力指南
 {self._tool_guides[guide_key]}
 """
-        
+
         # Tool descriptions with intent-specific ordering
         all_tools = {
             "suzieq_query": "Query SuzieQ Parquet database. Parameters: table, hostname, namespace, method, max_age_hours.",
@@ -645,7 +647,7 @@ class FastPathStrategy:
             "netconf_tool": "Execute NETCONF get-config (OpenConfig paths). Parameters: device, xpath.",
             "openconfig_schema_search": "Search OpenConfig YANG schema for XPaths. Parameters: intent (natural language), device_type (optional, e.g. 'interfaces', 'bgp').",
         }
-        
+
         # Reorder based on intent
         if intent_category == "netbox":
             tool_order = ["netbox_api_call", "suzieq_query", "cli_tool", "netconf_tool"]
@@ -657,7 +659,7 @@ class FastPathStrategy:
             tool_order = ["netconf_tool", "openconfig_schema_search", "suzieq_query", "cli_tool"]
         else:
             tool_order = ["suzieq_query", "netbox_api_call", "cli_tool", "netconf_tool"]
-        
+
         tools_desc = "\n".join([
             f"- **{t}** {'(推荐)' if t == preferred_tool else ''}: {all_tools.get(t, '')}"
             for t in tool_order if t in all_tools
@@ -785,7 +787,7 @@ class FastPathStrategy:
             tool="suzieq_query",
             parameters={},
             confidence=0.3,
-            reasoning=f"Parse error: Could not extract valid JSON from response",
+            reasoning="Parse error: Could not extract valid JSON from response",
         )
 
     async def _execute_tool(self, tool_name: str, parameters: dict[str, Any]) -> ToolOutput:
@@ -811,7 +813,7 @@ class FastPathStrategy:
             "netconf_tool": "netconf_execute",
         }
         tool_name = tool_name_map.get(tool_name, tool_name)
-        
+
         # Parameter normalization for specific tools
         # This handles cases where LLM uses different parameter names
         if tool_name == "openconfig_schema_search":
@@ -834,7 +836,7 @@ class FastPathStrategy:
                 if "params" not in parameters:
                     parameters["params"] = {}
                 parameters["params"].update(parameters.pop("filters"))
-        
+
         # Step 1: Check cache (if enabled)
         if self.enable_cache:
             cache_result = await self._check_cache(tool_name, parameters)

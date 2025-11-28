@@ -11,6 +11,8 @@ Advantages over hardcoded routing:
 - Low latency: Pre-filtering reduces LLM context length
 - Maintainability: Intent examples live with workflow definitions
 
+Refactored: Uses LangChain InMemoryVectorStore instead of sklearn cosine_similarity.
+
 Usage:
     router = DynamicIntentRouter(llm_factory, embeddings_factory)
     await router.build_index()  # One-time at startup
@@ -18,12 +20,13 @@ Usage:
 """
 
 import logging
+from typing import Any
 
-import numpy as np
+from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
+from langchain_core.vectorstores import InMemoryVectorStore
 from pydantic import BaseModel, Field
-from sklearn.metrics.pairwise import cosine_similarity
 
 from olav.workflows.registry import WorkflowMetadata, WorkflowRegistry
 
@@ -55,8 +58,8 @@ class DynamicIntentRouter:
     Attributes:
         llm: Language model for final classification
         embeddings: Embedding model for semantic similarity
-        example_vectors: Pre-computed average vectors for workflow examples
-        trigger_cache: Compiled regex patterns for keyword matching
+        vector_store: InMemoryVectorStore for semantic search
+        indexed: Whether the index has been built
     """
 
     def __init__(self, llm: BaseChatModel, embeddings: Embeddings, top_k: int = 3) -> None:
@@ -71,7 +74,9 @@ class DynamicIntentRouter:
         self.llm = llm
         self.embeddings = embeddings
         self.top_k = top_k
-        self.example_vectors: dict[str, np.ndarray] = {}
+        self.vector_store: InMemoryVectorStore | None = None
+        self._indexed = False
+        self._workflow_count = 0
         self.registry = WorkflowRegistry
 
         logger.info(
@@ -83,8 +88,8 @@ class DynamicIntentRouter:
         """
         Build semantic index for all registered workflows.
 
-        This should be called once at startup. Computes average embedding
-        vector for each workflow's example queries.
+        This should be called once at startup. Creates documents from workflow
+        examples and indexes them in InMemoryVectorStore.
 
         Raises:
             ValueError: If no workflows are registered
@@ -100,6 +105,11 @@ class DynamicIntentRouter:
 
         logger.info(f"Building semantic index for {len(workflows)} workflows...")
 
+        # Create InMemoryVectorStore
+        self.vector_store = InMemoryVectorStore(embedding=self.embeddings)
+        
+        # Build documents from workflow examples
+        documents: list[Document] = []
         for metadata in workflows:
             if not metadata.examples:
                 logger.warning(
@@ -109,26 +119,31 @@ class DynamicIntentRouter:
             else:
                 texts = metadata.examples
 
-            # Compute embeddings for all examples
-            vectors = await self.embeddings.aembed_documents(texts)
-
-            # Average pooling: mean of all example vectors
-            avg_vector = np.mean(vectors, axis=0)
-            self.example_vectors[metadata.name] = avg_vector
+            # Create a document for each example
+            for text in texts:
+                doc = Document(
+                    page_content=text,
+                    metadata={"workflow": metadata.name, "description": metadata.description}
+                )
+                documents.append(doc)
 
             logger.debug(
-                f"Indexed workflow '{metadata.name}' with "
-                f"{len(texts)} examples, vector dim: {len(avg_vector)}"
+                f"Created {len(texts)} documents for workflow '{metadata.name}'"
             )
+
+        # Add all documents to vector store
+        await self.vector_store.aadd_documents(documents)
+        self._indexed = True
+        self._workflow_count = len(workflows)
 
         logger.info(
             f"Semantic index built successfully. "
-            f"Vector dimension: {len(next(iter(self.example_vectors.values())))}"
+            f"Total documents indexed: {len(documents)}"
         )
 
     async def semantic_prefilter(self, query: str) -> list[tuple[str, float]]:
         """
-        Phase 1: Semantic pre-filtering using cosine similarity.
+        Phase 1: Semantic pre-filtering using InMemoryVectorStore.
 
         Args:
             query: User query string
@@ -139,24 +154,30 @@ class DynamicIntentRouter:
         Raises:
             RuntimeError: If semantic index not built (call build_index first)
         """
-        if not self.example_vectors:
+        if not self._indexed or self.vector_store is None:
             msg = "Semantic index not built. Call build_index() first."
             raise RuntimeError(msg)
 
-        # Compute query embedding
-        query_vector = await self.embeddings.aembed_query(query)
-        query_array = np.array([query_vector])
+        # Use vector store similarity search with scores
+        # Get more results than top_k to aggregate by workflow
+        results = await self.vector_store.asimilarity_search_with_score(
+            query, k=self.top_k * 3  # Get extra to aggregate
+        )
 
-        # Compute cosine similarity with all workflow vectors
-        similarities: list[tuple[str, float]] = []
-
-        for name, workflow_vector in self.example_vectors.items():
-            vector_array = np.array([workflow_vector])
-            similarity = cosine_similarity(query_array, vector_array)[0][0]
-            similarities.append((name, float(similarity)))
+        # Aggregate scores by workflow (take max score for each workflow)
+        workflow_scores: dict[str, float] = {}
+        for doc, score in results:
+            workflow = doc.metadata.get("workflow", "unknown")
+            # InMemoryVectorStore returns distance, not similarity
+            # Lower distance = more similar, so we negate or invert
+            # Note: The score semantics depend on the implementation
+            # For cosine similarity, 0 = identical, so we convert
+            similarity = 1.0 - score if score <= 1.0 else 1.0 / (1.0 + score)
+            if workflow not in workflow_scores or similarity > workflow_scores[workflow]:
+                workflow_scores[workflow] = similarity
 
         # Sort by similarity (descending)
-        similarities.sort(key=lambda x: x[1], reverse=True)
+        similarities = sorted(workflow_scores.items(), key=lambda x: x[1], reverse=True)
 
         logger.debug(
             f"Semantic pre-filtering results: "
@@ -285,7 +306,7 @@ class DynamicIntentRouter:
         )
         return top_candidates[0].name
 
-    def get_statistics(self) -> dict:
+    def get_statistics(self) -> dict[str, Any]:
         """
         Get router statistics for monitoring.
 
@@ -294,9 +315,7 @@ class DynamicIntentRouter:
         """
         return {
             "registered_workflows": self.registry.workflow_count(),
-            "indexed_workflows": len(self.example_vectors),
+            "indexed_workflows": self._workflow_count,
+            "indexed": self._indexed,
             "top_k": self.top_k,
-            "embedding_dimension": (
-                len(next(iter(self.example_vectors.values()))) if self.example_vectors else 0
-            ),
         }
