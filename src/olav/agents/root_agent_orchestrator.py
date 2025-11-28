@@ -33,21 +33,19 @@ import logging
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
+# Import tools package to ensure ToolRegistry is populated with all tools
+# This is required for strategies (fast_path, deep_path) that use ToolRegistry.get_tool()
+import olav.tools  # noqa: F401
 from olav.agents.dynamic_orchestrator import DynamicIntentRouter
 from olav.core.llm import LLMFactory
-from olav.core.prompt_manager import prompt_manager
 from olav.core.settings import settings
-from olav.strategies import StrategySelector, execute_with_strategy_selection
+from olav.strategies import execute_with_strategy_selection
 from olav.workflows.base import WorkflowType
 from olav.workflows.deep_dive import DeepDiveWorkflow
 from olav.workflows.device_execution import DeviceExecutionWorkflow
 from olav.workflows.inspection import InspectionWorkflow
 from olav.workflows.netbox_management import NetBoxManagementWorkflow
 from olav.workflows.query_diagnostic import QueryDiagnosticWorkflow
-
-# Import tools package to ensure ToolRegistry is populated with all tools
-# This is required for strategies (fast_path, deep_path) that use ToolRegistry.get_tool()
-import olav.tools  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -187,208 +185,74 @@ class WorkflowOrchestrator:
         return await self._legacy_classify_intent(user_query)
 
     async def _legacy_classify_intent(self, user_query: str) -> WorkflowType:
-        """Legacy LLM-based classification (for backward compatibility).
+        """Legacy classification using LLM Workflow Router.
 
-        This method preserves the original classification logic.
+        This method has been refactored to use LLMWorkflowRouter for more
+        dynamic, context-aware classification. The hardcoded keyword patterns
+        have been moved to the router as minimal fallback.
+        
+        See: olav.core.llm_workflow_router for implementation details.
         """
+        from olav.core.llm_workflow_router import LLMWorkflowRouter, WorkflowRouteResult
 
-        # Check for Deep Dive triggers (if expert mode enabled)
-        if self.expert_mode:
-            deep_dive_keywords = [
-                # 审计类 (Audit) - 扩展匹配
-                r"审计",
-                r"audit",
-                r"检查.*完整性",
-                r"check.*integrity",
-                r"配置.*完整",
-                # 批量操作 (Batch)
-                r"审计所有",
-                r"批量",
-                r"全部设备",
-                r"所有设备",
-                r"所有.*路由器",
-                r"all.*router",
-                r"多.*设备",
-                r"multiple.*device",
-                r"多台",
-                r"\d+台",
-                # 复杂诊断
-                r"为什么.*无法访问",
-                r"从.*到.*",
-                r"跨",
-                r"为什么",
-                r"why",
-                r"深入分析",
-                r"详细排查",
-                r"彻底检查",
-                r"递归",
-                r"诊断.*问题",
-                r"diagnose.*issue",
-                r"排查.*故障",
-                r"troubleshoot",
-                # 特定协议深度分析
-                r"MPLS.*配置",
-                r"BGP.*安全",
-                r"OSPF.*邻居",
-                r"ISIS.*拓扑",
-            ]
-
-            import re
-
-            for keyword in deep_dive_keywords:
-                if re.search(keyword, user_query, re.IGNORECASE):
-                    print(
-                        f"[Orchestrator] Expert Mode: Deep Dive trigger detected (pattern: '{keyword}'), using DEEP_DIVE workflow"
-                    )
-                    return WorkflowType.DEEP_DIVE
-
-        # Pre-check: Inspection keywords have highest priority (sync/diff/巡检)
-        # This prevents LLM from misclassifying sync operations as netbox_management
-        query_lower = user_query.lower()
-        inspection_keywords = [
-            "巡检",
-            "inspection",
-            "同步",
-            "sync",
-            "对比",
-            "compare",
-            "diff",
-            "reconcil",
-            "健康检查",
-            "health check",
-        ]
-        if any(kw in query_lower for kw in inspection_keywords):
-            # Double-check: "同步" with "netbox" or network state terms -> INSPECTION
-            # Pure "netbox" operations (add device, ip assignment) -> NETBOX_MANAGEMENT
-            netbox_sync_patterns = ["同步.*netbox", "netbox.*同步", "同步.*网络", "网络.*同步", "状态.*同步"]
-            import re
-            if any(re.search(pat, query_lower) for pat in netbox_sync_patterns) or "同步" not in query_lower:
-                print(f"[Orchestrator] Inspection workflow detected (sync/diff keywords)")
-                return WorkflowType.INSPECTION
-
-        # Strategy 1: LLM-based classification
-        llm = LLMFactory.get_chat_model(json_mode=True)
-
-        # Prepare workflow descriptions (including inspection)
-        workflows_desc = {
-            "query_diagnostic": "网络状态查询、故障诊断、性能分析、BGP/OSPF状态",
-            "device_execution": "配置变更、添加VLAN、修改接口、执行CLI命令",
-            "netbox_management": "设备清单、IP分配、站点管理、机架管理",
-            "inspection": "网络巡检、NetBox同步、状态对比、健康检查、SuzieQ数据与NetBox差异检测",
-        }
-
-        # Format workflows as string for prompt
-        workflows_str = "\n".join([f"- **{k}**: {v}" for k, v in workflows_desc.items()])
-
-        classification_prompt = prompt_manager.load_prompt(
-            "workflows/orchestrator",
-            "intent_classification",
-            workflows=workflows_str,
-            user_query=user_query,
-        )
+        # Create router with current expert mode setting
+        router = LLMWorkflowRouter(expert_mode=self.expert_mode)
 
         try:
-            response = await llm.ainvoke([SystemMessage(content=classification_prompt)])
+            result: WorkflowRouteResult = await router.route(user_query)
 
-            # Parse JSON response
-            import json
+            # Map workflow name to WorkflowType enum
+            workflow_map = {
+                "query_diagnostic": WorkflowType.QUERY_DIAGNOSTIC,
+                "device_execution": WorkflowType.DEVICE_EXECUTION,
+                "netbox_management": WorkflowType.NETBOX_MANAGEMENT,
+                "deep_dive": WorkflowType.DEEP_DIVE,
+                "inspection": WorkflowType.INSPECTION,
+            }
 
-            result = json.loads(response.content)
-            workflow_type = result.get("workflow_type")
+            workflow_type = workflow_map.get(result.workflow, WorkflowType.QUERY_DIAGNOSTIC)
 
-            if workflow_type in [
-                "query_diagnostic",
-                "device_execution",
-                "netbox_management",
-                "deep_dive",
-                "inspection",
-            ]:
-                return WorkflowType[workflow_type.upper()]
+            logger.info(
+                f"LLM Workflow Router: {result.workflow} "
+                f"(confidence: {result.confidence:.2f}, reason: {result.reasoning[:50]}...)"
+            )
+
+            return workflow_type
 
         except Exception as e:
-            print(f"[Orchestrator] LLM classification failed: {e}, falling back to keywords")
-
-        # Strategy 2: Keyword-based fallback
-        return self._classify_by_keywords(user_query)
+            logger.warning(f"LLM Workflow Router failed: {e}, using keyword fallback")
+            return self._classify_by_keywords(user_query)
 
     def _classify_by_keywords(self, user_query: str) -> WorkflowType:
-        """Fallback keyword-based classification."""
+        """Minimal keyword fallback when LLM router fails.
+
+        This is a simplified fallback with reduced keyword set (~25 vs ~100).
+        For full classification, use LLMWorkflowRouter.
+        """
         query_lower = user_query.lower()
 
-        # Expert Mode: Deep Dive for complex tasks (fallback detection)
-        if self.expert_mode:
-            complex_keywords = [
-                "审计",
-                "audit",
-                "批量",
-                "batch",
-                "所有设备",
-                "all device",
-                "所有路由器",
-                "all router",
-                "为什么",
-                "why",
-                "完整性",
-                "integrity",
-            ]
-            if any(kw in query_lower for kw in complex_keywords):
-                print(
-                    "[Orchestrator] Fallback: Complex task detected in expert mode, using DEEP_DIVE"
-                )
-                return WorkflowType.DEEP_DIVE
+        # Priority 1: Deep Dive (expert mode only)
+        if self.expert_mode and any(
+            kw in query_lower for kw in ["审计", "audit", "批量", "为什么"]
+        ):
+            logger.info("Fallback: Deep Dive keywords detected")
+            return WorkflowType.DEEP_DIVE
 
-        # 巡检/同步优先（检测 NetBox 同步相关）
-        inspection_keywords = [
-            "巡检",
-            "inspection",
-            "同步",
-            "sync",
-            "对比",
-            "compare",
-            "diff",
-            "reconcil",
-            "健康检查",
-            "health check",
-        ]
-        if any(kw in query_lower for kw in inspection_keywords):
+        # Priority 2: Inspection (sync/diff)
+        if any(kw in query_lower for kw in ["巡检", "同步", "sync", "对比", "diff"]):
             return WorkflowType.INSPECTION
 
-        # NetBox 管理优先（避免与配置变更混淆）
-        netbox_keywords = [
-            "设备清单",
-            "添加设备",
-            "ip分配",
-            "ip地址",
-            "站点",
-            "机架",
-            "电缆",
-            "inventory",
-            "device list",
-            "add device",
-            "ip assignment",
-            "netbox",
-        ]
-        if any(kw in query_lower for kw in netbox_keywords):
+        # Priority 3: NetBox management
+        if any(kw in query_lower for kw in [
+            "设备清单", "inventory", "netbox", "ip分配", "ip地址", "站点", "机架"
+        ]):
             return WorkflowType.NETBOX_MANAGEMENT
 
-        # 配置变更
-        config_keywords = [
-            "配置",
-            "修改",
-            "添加vlan",
-            "删除",
-            "shutdown",
-            "no shutdown",
-            "config",
-            "configure",
-            "change",
-            "edit",
-            "commit",
-        ]
-        if any(kw in query_lower for kw in config_keywords):
+        # Priority 4: Device execution (config changes)
+        if any(kw in query_lower for kw in ["配置", "修改", "添加", "删除", "shutdown"]):
             return WorkflowType.DEVICE_EXECUTION
 
-        # 默认：查询/诊断
+        # Default: Query diagnostic
         return WorkflowType.QUERY_DIAGNOSTIC
 
     async def route(self, user_query: str, thread_id: str) -> dict:
@@ -430,8 +294,7 @@ class WorkflowOrchestrator:
                         "strategy_used": strategy_result.get("strategy_used"),
                         "strategy_metadata": strategy_result.get("metadata", {}),
                     }
-                else:
-                    print(f"[Orchestrator] Strategy optimization failed, falling back to workflow graph")
+                print("[Orchestrator] Strategy optimization failed, falling back to workflow graph")
             except Exception as e:
                 logger.warning(f"Strategy optimization error: {e}, falling back to workflow graph")
 
@@ -531,13 +394,12 @@ class WorkflowOrchestrator:
                     "reasoning_trace": result.reasoning_trace,
                     "metadata": result.metadata,
                 }
-            else:
-                # Strategy failed, return None to trigger workflow fallback
-                logger.info(
-                    f"Strategy {result.strategy_used} failed: {result.error}, "
-                    f"falling back to workflow graph"
-                )
-                return None
+            # Strategy failed, return None to trigger workflow fallback
+            logger.info(
+                f"Strategy {result.strategy_used} failed: {result.error}, "
+                f"falling back to workflow graph"
+            )
+            return None
 
         except Exception as e:
             logger.warning(f"Strategy execution failed: {e}")
