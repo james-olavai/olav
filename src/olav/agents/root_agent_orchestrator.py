@@ -170,6 +170,7 @@ class WorkflowOrchestrator:
                     "device_execution": WorkflowType.DEVICE_EXECUTION,
                     "netbox_management": WorkflowType.NETBOX_MANAGEMENT,
                     "deep_dive": WorkflowType.DEEP_DIVE,
+                    "inspection": WorkflowType.INSPECTION,
                 }
 
                 if workflow_name in workflow_type_map:
@@ -241,14 +242,39 @@ class WorkflowOrchestrator:
                     )
                     return WorkflowType.DEEP_DIVE
 
+        # Pre-check: Inspection keywords have highest priority (sync/diff/巡检)
+        # This prevents LLM from misclassifying sync operations as netbox_management
+        query_lower = user_query.lower()
+        inspection_keywords = [
+            "巡检",
+            "inspection",
+            "同步",
+            "sync",
+            "对比",
+            "compare",
+            "diff",
+            "reconcil",
+            "健康检查",
+            "health check",
+        ]
+        if any(kw in query_lower for kw in inspection_keywords):
+            # Double-check: "同步" with "netbox" or network state terms -> INSPECTION
+            # Pure "netbox" operations (add device, ip assignment) -> NETBOX_MANAGEMENT
+            netbox_sync_patterns = ["同步.*netbox", "netbox.*同步", "同步.*网络", "网络.*同步", "状态.*同步"]
+            import re
+            if any(re.search(pat, query_lower) for pat in netbox_sync_patterns) or "同步" not in query_lower:
+                print(f"[Orchestrator] Inspection workflow detected (sync/diff keywords)")
+                return WorkflowType.INSPECTION
+
         # Strategy 1: LLM-based classification
         llm = LLMFactory.get_chat_model(json_mode=True)
 
-        # Prepare workflow descriptions
+        # Prepare workflow descriptions (including inspection)
         workflows_desc = {
             "query_diagnostic": "网络状态查询、故障诊断、性能分析、BGP/OSPF状态",
             "device_execution": "配置变更、添加VLAN、修改接口、执行CLI命令",
             "netbox_management": "设备清单、IP分配、站点管理、机架管理",
+            "inspection": "网络巡检、NetBox同步、状态对比、健康检查、SuzieQ数据与NetBox差异检测",
         }
 
         # Format workflows as string for prompt
@@ -275,6 +301,7 @@ class WorkflowOrchestrator:
                 "device_execution",
                 "netbox_management",
                 "deep_dive",
+                "inspection",
             ]:
                 return WorkflowType[workflow_type.upper()]
 

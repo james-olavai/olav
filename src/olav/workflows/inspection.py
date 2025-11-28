@@ -228,8 +228,9 @@ class InspectionWorkflow(BaseWorkflow):
                     method="GET",
                     params={"limit": 50},
                 )
-                if not result.error and result.data.get("results"):
-                    device_scope = [d["name"] for d in result.data["results"]]
+                # result.data is a list from NetBoxAdapter
+                if not result.error and result.data:
+                    device_scope = [d["name"] for d in result.data if isinstance(d, dict) and "name" in d]
                 else:
                     device_scope = []
             except Exception as e:
