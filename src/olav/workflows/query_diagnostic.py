@@ -40,13 +40,13 @@ from olav.core.llm import LLMFactory
 from olav.core.prompt_manager import prompt_manager
 from olav.tools.document_tool import search_documents, search_rfc, search_vendor_docs
 from olav.tools.indexing_tool import (
-    INDEXING_TOOLS,
     index_directory,
     index_document,
 )
 from olav.tools.nornir_tool import cli_tool, netconf_tool
 from olav.tools.opensearch_tool import search_openconfig_schema
 from olav.tools.suzieq_parquet_tool import suzieq_query, suzieq_schema_search
+from olav.tools.syslog_tool import syslog_search
 
 from .base import BaseWorkflow, BaseWorkflowState
 from .registry import WorkflowRegistry
@@ -220,6 +220,8 @@ class QueryDiagnosticWorkflow(BaseWorkflow):
             search_openconfig_schema,
             netconf_tool,
             cli_tool,
+            # Event-driven diagnostics
+            syslog_search,
             # Document RAG tools
             search_documents,
             search_vendor_docs,
@@ -227,8 +229,6 @@ class QueryDiagnosticWorkflow(BaseWorkflow):
             # Indexing tools (async via Redis queue)
             index_document,
             index_directory,
-            check_index_task,
-            list_index_tasks,
         ]
         micro_tools_node = ToolNode(micro_tools)
 

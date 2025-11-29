@@ -54,8 +54,10 @@ logger = logging.getLogger(__name__)
 # Type Definitions for Funnel Debugging
 # ============================================
 
+
 class LayerHypothesis(TypedDict):
     """Hypothesis for a specific OSI layer."""
+
     layer: Literal["L1", "L2", "L3", "L4"]
     issue: str
     probability: Literal["high", "medium", "low"]
@@ -64,6 +66,7 @@ class LayerHypothesis(TypedDict):
 
 class PhaseCheck(TypedDict):
     """A single check within a diagnosis phase."""
+
     tool: str  # suzieq_query, netconf_tool, cli_tool
     table: str | None  # For SuzieQ
     filters: dict[str, Any]
@@ -74,6 +77,7 @@ class PhaseCheck(TypedDict):
 
 class DiagnosisPhase(TypedDict):
     """A phase in the funnel diagnosis process."""
+
     phase: int
     layer: Literal["L1", "L2", "L3", "L4"]
     name: str
@@ -85,6 +89,7 @@ class DiagnosisPhase(TypedDict):
 
 class TopologyAnalysis(TypedDict):
     """Result of topology analysis."""
+
     source_device: str | None
     destination_device: str | None
     path_hypothesis: list[str]
@@ -96,6 +101,7 @@ class TopologyAnalysis(TypedDict):
 
 class DiagnosisPlan(TypedDict):
     """Complete diagnosis plan from funnel analysis."""
+
     summary: str
     affected_scope: list[str]
     hypotheses: list[LayerHypothesis]
@@ -130,6 +136,8 @@ class TodoItem(TypedDict):
 # ============================================
 # Internationalization (i18n) Strings
 # ============================================
+import contextlib
+
 from config.settings import AgentConfig
 
 I18N: dict[str, dict[str, str]] = {
@@ -284,11 +292,11 @@ I18N: dict[str, dict[str, str]] = {
 
 def tr(key: str, **kwargs: Any) -> str:
     """Get translated string for current language.
-    
+
     Args:
         key: String key in I18N dictionary
         **kwargs: Format arguments for the string
-        
+
     Returns:
         Translated and formatted string
     """
@@ -386,7 +394,7 @@ class DeepDiveState(TypedDict):
 )
 class DeepDiveWorkflow(BaseWorkflow):
     """Deep Dive Workflow implementing Funnel Debugging methodology.
-    
+
     Flow:
         1. topology_analysis_node: Parse query, identify affected devices
         2. funnel_planning_node: Generate OSI layer-based diagnosis plan
@@ -427,48 +435,10 @@ class DeepDiveWorkflow(BaseWorkflow):
         """
         import re
 
-        triggers = [
-            # 审计类 (Audit)
-            r"审计",
-            r"audit",
-            r"检查.*完整性",
-            r"check.*integrity",
-            r"配置.*完整",
-            # 批量操作 (Batch)
-            r"审计所有",
-            r"批量",
-            r"全部设备",
-            r"所有设备",
-            r"所有.*路由器",
-            r"all.*router",
-            r"多.*设备",
-            r"multiple.*device",
-            r"多台",
-            r"\d+台",
-            # 复杂诊断
-            r"为什么",
-            r"why",
-            r"诊断.*问题",
-            r"diagnose.*issue",
-            r"排查.*故障",
-            r"troubleshoot",
-            r"根因",
-            r"root.*cause",
-            r"影响范围",
-            r"impact.*scope",
-            r"为什么.*无法访问",
-            r"从.*到.*",
-            r"跨",
-            r"深入分析",
-            r"详细排查",
-            r"彻底检查",
-            r"递归",
-            # 特定协议深度分析
-            r"MPLS.*配置",
-            r"BGP.*安全",
-            r"OSPF.*邻居",
-            r"ISIS.*拓扑",
-        ]
+        from olav.sync.rules.loader import get_deep_dive_trigger_patterns
+
+        # Load trigger patterns from config
+        triggers = get_deep_dive_trigger_patterns()
 
         for pattern in triggers:
             if re.search(pattern, user_query, re.IGNORECASE):
@@ -480,13 +450,10 @@ class DeepDiveWorkflow(BaseWorkflow):
         self.llm = LLMFactory.get_chat_model(json_mode=False)
         self.llm_json = LLMFactory.get_chat_model(json_mode=True)
 
-        # OSI Layer to SuzieQ table mapping
-        self.layer_tables: dict[str, list[str]] = {
-            "L1": ["interfaces", "lldp"],  # Physical: interface state, neighbors
-            "L2": ["macs", "vlan"],  # Data Link: MAC table, VLANs
-            "L3": ["arpnd", "routes"],  # Network: ARP/ND, routing
-            "L4": ["bgp", "ospfIf", "ospfNbr"],  # Transport+: BGP, OSPF
-        }
+        # OSI Layer to SuzieQ table mapping - loaded from config
+        from olav.sync.rules.loader import get_osi_layer_tables
+
+        self.layer_tables: dict[str, list[str]] = get_osi_layer_tables()
 
     # ============================================
     # NEW: Funnel Debugging Nodes
@@ -494,40 +461,43 @@ class DeepDiveWorkflow(BaseWorkflow):
 
     async def topology_analysis_node(self, state: DeepDiveState) -> dict:
         """Analyze user query to identify affected devices and fault scope.
-        
+
         This is the first step in funnel debugging:
         1. Extract device names from query
         2. Infer device roles (router, switch, firewall)
         3. Determine fault scope (single, local, path, domain)
         4. Query LLDP/topology if available
-        
+
         Returns:
             Updated state with topology analysis
         """
         user_query = state["messages"][-1].content if state["messages"] else ""
-        
+
         # Extract device names using regex
-        device_pattern = r'\b([A-Z]{1,4}[-_]?[A-Z0-9]*[-_]?[A-Z0-9]*\d+)\b'
+        device_pattern = r"\b([A-Z]{1,4}[-_]?[A-Z0-9]*[-_]?[A-Z0-9]*\d+)\b"
         devices_mentioned = list(set(re.findall(device_pattern, user_query, re.IGNORECASE)))
-        
+
         # Also catch common patterns like "R1", "SW1", "Core-R1"
-        simple_pattern = r'\b([RSF][A-Za-z]*[-_]?\d+)\b'
+        simple_pattern = r"\b([RSF][A-Za-z]*[-_]?\d+)\b"
         simple_devices = list(set(re.findall(simple_pattern, user_query, re.IGNORECASE)))
         devices_mentioned = list(set(devices_mentioned + simple_devices))
-        
+
         logger.info(f"Topology analysis: devices mentioned = {devices_mentioned}")
-        
+
         # If we have devices, try to get more context from SuzieQ LLDP
         topology_context = ""
         if devices_mentioned:
             try:
                 from olav.tools.suzieq_parquet_tool import suzieq_query
+
                 # Query LLDP for physical neighbors
-                lldp_result = await suzieq_query.ainvoke({
-                    "table": "lldp",
-                    "method": "get",
-                    "hostname": devices_mentioned[0] if len(devices_mentioned) == 1 else None,
-                })
+                lldp_result = await suzieq_query.ainvoke(
+                    {
+                        "table": "lldp",
+                        "method": "get",
+                        "hostname": devices_mentioned[0] if len(devices_mentioned) == 1 else None,
+                    }
+                )
                 if lldp_result.get("data"):
                     neighbors = [
                         f"{r.get('hostname')} ↔ {r.get('peerHostname')}"
@@ -537,7 +507,7 @@ class DeepDiveWorkflow(BaseWorkflow):
                     topology_context = f"LLDP邻居: {', '.join(neighbors)}"
             except Exception as e:
                 logger.warning(f"LLDP query failed: {e}")
-        
+
         # Use LLM to analyze topology
         prompt = prompt_manager.load_prompt(
             category="workflows/deep_dive",
@@ -545,19 +515,23 @@ class DeepDiveWorkflow(BaseWorkflow):
             user_query=user_query,
             devices_mentioned=", ".join(devices_mentioned) if devices_mentioned else "未明确指定",
         )
-        
-        response = await self.llm_json.ainvoke([
-            SystemMessage(content=prompt),
-            HumanMessage(content=user_query),
-        ])
-        
+
+        response = await self.llm_json.ainvoke(
+            [
+                SystemMessage(content=prompt),
+                HumanMessage(content=user_query),
+            ]
+        )
+
         try:
             analysis = json.loads(response.content)
             topology = TopologyAnalysis(
                 source_device=analysis.get("topology_analysis", {}).get("source_device"),
                 destination_device=analysis.get("topology_analysis", {}).get("destination_device"),
                 path_hypothesis=analysis.get("topology_analysis", {}).get("path_hypothesis", []),
-                affected_devices=analysis.get("topology_analysis", {}).get("affected_devices", devices_mentioned),
+                affected_devices=analysis.get("topology_analysis", {}).get(
+                    "affected_devices", devices_mentioned
+                ),
                 device_roles=analysis.get("topology_analysis", {}).get("device_roles", {}),
                 scope=analysis.get("topology_analysis", {}).get("scope", "local"),
                 confidence=analysis.get("topology_analysis", {}).get("confidence", "medium"),
@@ -569,11 +543,11 @@ class DeepDiveWorkflow(BaseWorkflow):
                 destination_device=devices_mentioned[1] if len(devices_mentioned) > 1 else None,
                 path_hypothesis=devices_mentioned,
                 affected_devices=devices_mentioned,
-                device_roles={d: "router" for d in devices_mentioned},
+                device_roles=dict.fromkeys(devices_mentioned, "router"),
                 scope="local",
                 confidence="low",
             )
-        
+
         # Generate user-friendly message
         scope_desc = {
             "single_device": "单设备问题",
@@ -581,17 +555,17 @@ class DeepDiveWorkflow(BaseWorkflow):
             "path": "端到端路径问题",
             "domain": "区域/域问题",
         }
-        
+
         msg = f"""## 🗺️ 拓扑分析
 
-**故障范围**: {scope_desc.get(topology['scope'], topology['scope'])}
-**受影响设备**: {', '.join(topology['affected_devices']) or '待确定'}
-**置信度**: {topology['confidence']}
+**故障范围**: {scope_desc.get(topology["scope"], topology["scope"])}
+**受影响设备**: {", ".join(topology["affected_devices"]) or "待确定"}
+**置信度**: {topology["confidence"]}
 
-{topology_context if topology_context else ''}
+{topology_context if topology_context else ""}
 
 正在生成分层诊断计划..."""
-        
+
         return {
             "topology": topology,
             "findings": [],
@@ -601,27 +575,27 @@ class DeepDiveWorkflow(BaseWorkflow):
 
     async def funnel_planning_node(self, state: DeepDiveState) -> dict:
         """Generate OSI layer-based diagnosis plan.
-        
+
         Based on topology analysis, create a phased diagnosis plan:
         - Phase 1: L1 Physical (interfaces, LLDP)
         - Phase 2: L2 Data Link (MAC, VLAN) - if needed
         - Phase 3: L3 Network (ARP, routes)
         - Phase 4: L4+ Application (BGP, OSPF)
-        
+
         Returns:
             Updated state with diagnosis_plan
         """
         user_query = state["messages"][-1].content if state["messages"] else ""
         topology = state.get("topology") or {}
         affected_devices = topology.get("affected_devices", [])
-        
+
         # Build context for LLM
         topology_context = f"""
-受影响设备: {', '.join(affected_devices)}
-故障范围: {topology.get('scope', 'unknown')}
-路径假设: {' → '.join(topology.get('path_hypothesis', []))}
+受影响设备: {", ".join(affected_devices)}
+故障范围: {topology.get("scope", "unknown")}
+路径假设: {" → ".join(topology.get("path_hypothesis", []))}
 """
-        
+
         # Use LLM to generate funnel diagnosis plan
         prompt = prompt_manager.load_prompt(
             category="workflows/deep_dive",
@@ -630,65 +604,75 @@ class DeepDiveWorkflow(BaseWorkflow):
             topology_context=topology_context,
             affected_devices=", ".join(affected_devices),
         )
-        
-        response = await self.llm_json.ainvoke([
-            SystemMessage(content=prompt),
-            HumanMessage(content=user_query),
-        ])
-        
+
+        response = await self.llm_json.ainvoke(
+            [
+                SystemMessage(content=prompt),
+                HumanMessage(content=user_query),
+            ]
+        )
+
         try:
             plan_data = json.loads(response.content)
-            
+
             # Convert to DiagnosisPlan
             phases: list[DiagnosisPhase] = []
             for p in plan_data.get("phases", []):
                 checks: list[PhaseCheck] = []
                 for c in p.get("checks", []):
-                    checks.append(PhaseCheck(
-                        tool=c.get("tool", "suzieq_query"),
-                        table=c.get("table"),
-                        filters=c.get("filters", {}),
-                        purpose=c.get("purpose", ""),
-                        result=None,
+                    checks.append(
+                        PhaseCheck(
+                            tool=c.get("tool", "suzieq_query"),
+                            table=c.get("table"),
+                            filters=c.get("filters", {}),
+                            purpose=c.get("purpose", ""),
+                            result=None,
+                            status="pending",
+                        )
+                    )
+                phases.append(
+                    DiagnosisPhase(
+                        phase=p.get("phase", 0),
+                        layer=p.get("layer", "L1"),
+                        name=p.get("name", ""),
+                        checks=checks,
+                        deep_dive_trigger=p.get("deep_dive_trigger"),
+                        findings=[],
                         status="pending",
-                    ))
-                phases.append(DiagnosisPhase(
-                    phase=p.get("phase", 0),
-                    layer=p.get("layer", "L1"),
-                    name=p.get("name", ""),
-                    checks=checks,
-                    deep_dive_trigger=p.get("deep_dive_trigger"),
-                    findings=[],
-                    status="pending",
-                ))
-            
+                    )
+                )
+
             hypotheses: list[LayerHypothesis] = []
             for h in plan_data.get("diagnosis_plan", {}).get("hypothesis", []):
-                hypotheses.append(LayerHypothesis(
-                    layer=h.get("layer", "L4"),
-                    issue=h.get("issue", ""),
-                    probability=h.get("probability", "medium"),
-                    checks=[],
-                ))
-            
+                hypotheses.append(
+                    LayerHypothesis(
+                        layer=h.get("layer", "L4"),
+                        issue=h.get("issue", ""),
+                        probability=h.get("probability", "medium"),
+                        checks=[],
+                    )
+                )
+
             diagnosis_plan = DiagnosisPlan(
                 summary=plan_data.get("diagnosis_plan", {}).get("summary", ""),
-                affected_scope=plan_data.get("diagnosis_plan", {}).get("affected_scope", affected_devices),
+                affected_scope=plan_data.get("diagnosis_plan", {}).get(
+                    "affected_scope", affected_devices
+                ),
                 hypotheses=hypotheses,
                 phases=phases,
                 current_phase=0,
                 root_cause_identified=False,
                 root_cause=None,
             )
-            
+
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning(f"Funnel plan parse error: {e}, using default plan")
             # Create default L1→L4 plan
             diagnosis_plan = self._create_default_diagnosis_plan(affected_devices)
-        
+
         # Format plan for user approval
         plan_msg = self._format_diagnosis_plan(diagnosis_plan)
-        
+
         # Create execution_plan for HITL compatibility
         execution_plan: ExecutionPlan = {
             "feasible_tasks": list(range(1, len(diagnosis_plan["phases"]) + 1)),
@@ -697,7 +681,7 @@ class DeepDiveWorkflow(BaseWorkflow):
             "recommendations": {},
             "user_approval_required": True,
         }
-        
+
         return {
             "diagnosis_plan": diagnosis_plan,
             "execution_plan": execution_plan,
@@ -707,17 +691,29 @@ class DeepDiveWorkflow(BaseWorkflow):
     def _create_default_diagnosis_plan(self, affected_devices: list[str]) -> DiagnosisPlan:
         """Create default L1→L4 diagnosis plan."""
         hostname_filter = {"hostname": affected_devices} if affected_devices else {}
-        
+
         phases = [
             DiagnosisPhase(
                 phase=1,
                 layer="L1",
                 name="物理层检查",
                 checks=[
-                    PhaseCheck(tool="suzieq_query", table="interfaces", filters=hostname_filter,
-                              purpose="检查接口状态", result=None, status="pending"),
-                    PhaseCheck(tool="suzieq_query", table="lldp", filters=hostname_filter,
-                              purpose="验证物理邻居", result=None, status="pending"),
+                    PhaseCheck(
+                        tool="suzieq_query",
+                        table="interfaces",
+                        filters=hostname_filter,
+                        purpose="检查接口状态",
+                        result=None,
+                        status="pending",
+                    ),
+                    PhaseCheck(
+                        tool="suzieq_query",
+                        table="lldp",
+                        filters=hostname_filter,
+                        purpose="验证物理邻居",
+                        result=None,
+                        status="pending",
+                    ),
                 ],
                 deep_dive_trigger="接口 down 或 LLDP 邻居缺失",
                 findings=[],
@@ -728,10 +724,22 @@ class DeepDiveWorkflow(BaseWorkflow):
                 layer="L3",
                 name="网络层检查",
                 checks=[
-                    PhaseCheck(tool="suzieq_query", table="arpnd", filters=hostname_filter,
-                              purpose="检查 ARP/ND 表", result=None, status="pending"),
-                    PhaseCheck(tool="suzieq_query", table="routes", filters=hostname_filter,
-                              purpose="检查路由表", result=None, status="pending"),
+                    PhaseCheck(
+                        tool="suzieq_query",
+                        table="arpnd",
+                        filters=hostname_filter,
+                        purpose="检查 ARP/ND 表",
+                        result=None,
+                        status="pending",
+                    ),
+                    PhaseCheck(
+                        tool="suzieq_query",
+                        table="routes",
+                        filters=hostname_filter,
+                        purpose="检查路由表",
+                        result=None,
+                        status="pending",
+                    ),
                 ],
                 deep_dive_trigger="ARP 缺失或路由不存在",
                 findings=[],
@@ -742,15 +750,21 @@ class DeepDiveWorkflow(BaseWorkflow):
                 layer="L4",
                 name="协议层检查",
                 checks=[
-                    PhaseCheck(tool="suzieq_query", table="bgp", filters=hostname_filter,
-                              purpose="检查 BGP 邻居状态", result=None, status="pending"),
+                    PhaseCheck(
+                        tool="suzieq_query",
+                        table="bgp",
+                        filters=hostname_filter,
+                        purpose="检查 BGP 邻居状态",
+                        result=None,
+                        status="pending",
+                    ),
                 ],
                 deep_dive_trigger="BGP state != Established",
                 findings=[],
                 status="pending",
             ),
         ]
-        
+
         return DiagnosisPlan(
             summary="默认分层诊断计划: L1 物理层 → L3 网络层 → L4 协议层",
             affected_scope=affected_devices,
@@ -771,67 +785,73 @@ class DeepDiveWorkflow(BaseWorkflow):
             f"**概述**: {plan['summary']}\n",
             f"**受影响范围**: {', '.join(plan['affected_scope'])}\n",
         ]
-        
+
         if plan["hypotheses"]:
             lines.append("\n### 🔍 初步假设\n")
             for h in plan["hypotheses"]:
                 prob_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(h["probability"], "⚪")
-                lines.append(f"- {prob_emoji} **{h['layer']}**: {h['issue']} (概率: {h['probability']})")
-        
+                lines.append(
+                    f"- {prob_emoji} **{h['layer']}**: {h['issue']} (概率: {h['probability']})"
+                )
+
         lines.append("\n### 📊 诊断阶段\n")
         for phase in plan["phases"]:
             layer_emoji = {"L1": "🔌", "L2": "🔗", "L3": "🌐", "L4": "📡"}.get(phase["layer"], "📋")
-            lines.append(f"\n**Phase {phase['phase']}: {layer_emoji} {phase['name']}** ({phase['layer']})")
+            lines.append(
+                f"\n**Phase {phase['phase']}: {layer_emoji} {phase['name']}** ({phase['layer']})"
+            )
             for check in phase["checks"]:
                 lines.append(f"  - `{check['table']}`: {check['purpose']}")
             if phase["deep_dive_trigger"]:
                 lines.append(f"  - ⚡ 深入条件: {phase['deep_dive_trigger']}")
-        
+
         lines.append("\n---")
         lines.append(f"\n📊 **计划摘要**: {len(plan['phases'])} 个诊断阶段")
         lines.append("\n```")
         lines.append(f"  {tr('action_approve')}")
         lines.append(f"  {tr('action_abort')}")
         lines.append("```")
-        
+
         return "\n".join(lines)
 
     async def macro_scan_node(self, state: DeepDiveState) -> dict:
         """Execute SuzieQ checks for current phase (Macro Scan).
-        
+
         This node:
         1. Gets current phase from diagnosis_plan
         2. Executes all SuzieQ checks for that phase
         3. Collects findings (anomalies)
         4. Updates phase status
-        
+
         Returns:
             Updated state with check results and findings
         """
-        from langgraph.types import interrupt
         from config.settings import AgentConfig
-        
+        from langgraph.types import interrupt
+
         diagnosis_plan = state.get("diagnosis_plan")
         if not diagnosis_plan:
             return {"messages": [AIMessage(content="❌ 诊断计划缺失")]}
-        
+
         user_approval = state.get("user_approval")
-        
+
         # YOLO mode: auto-approve
         if AgentConfig.YOLO_MODE and user_approval is None:
             logger.info("[YOLO] Auto-approving diagnosis plan...")
             user_approval = "approved"
-        
+
         # HITL: Check if approval needed
         execution_plan = state.get("execution_plan", {})
         if execution_plan.get("user_approval_required") and user_approval is None:
-            approval_response = interrupt({
-                "action": "approval_required",
-                "execution_plan": execution_plan,
-                "diagnosis_plan": diagnosis_plan,
-                "message": "请审批诊断计划：Y=继续, N=终止",
-            })
-            
+            approval_response = interrupt(
+                {
+                    "action": "approval_required",
+                    "execution_plan": execution_plan,
+                    "diagnosis_plan": diagnosis_plan,
+                    "message": "请审批诊断计划：Y=继续, N=终止",
+                }
+            )
+
             if isinstance(approval_response, dict):
                 if approval_response.get("approved"):
                     user_approval = "approved"
@@ -839,82 +859,82 @@ class DeepDiveWorkflow(BaseWorkflow):
                         "user_approval": user_approval,
                         "messages": [AIMessage(content="✅ 诊断计划已批准，开始宏观扫描...")],
                     }
-                else:
-                    return {
-                        "user_approval": "aborted",
-                        "messages": [AIMessage(content="⛔ 用户已中止诊断。")],
-                    }
-            else:
                 return {
-                    "user_approval": "approved",
-                    "messages": [AIMessage(content="✅ 诊断计划已批准，开始宏观扫描...")],
+                    "user_approval": "aborted",
+                    "messages": [AIMessage(content="⛔ 用户已中止诊断。")],
                 }
-        
+            return {
+                "user_approval": "approved",
+                "messages": [AIMessage(content="✅ 诊断计划已批准，开始宏观扫描...")],
+            }
+
         # Execute current phase
         current_phase_idx = state.get("current_phase", 0)
         phases = diagnosis_plan.get("phases", [])
-        
+
         if current_phase_idx >= len(phases):
             return {"messages": [AIMessage(content="所有诊断阶段已完成。")]}
-        
+
         phase = phases[current_phase_idx]
         phase["status"] = "running"
-        
+
         logger.info(f"Executing Phase {phase['phase']}: {phase['name']}")
-        
+
         # Execute checks
         from olav.tools.suzieq_parquet_tool import suzieq_query
-        
+
         phase_findings: list[str] = []
         check_results: list[str] = []
-        
+
         for check in phase["checks"]:
             check["status"] = "running"
             try:
-                result = await suzieq_query.ainvoke({
-                    "table": check["table"],
-                    "method": "get",
-                    **check["filters"],
-                })
+                result = await suzieq_query.ainvoke(
+                    {
+                        "table": check["table"],
+                        "method": "get",
+                        **check["filters"],
+                    }
+                )
                 check["result"] = result
                 check["status"] = "completed"
-                
+
                 # Analyze result for anomalies
                 findings = self._analyze_check_result(check["table"], result, check["purpose"])
                 phase_findings.extend(findings)
-                
+
                 # Format result summary
                 count = result.get("count", len(result.get("data", [])))
                 table_name = self._get_table_display_name(check["table"])
                 check_results.append(f"✅ {table_name}: {count} 条记录")
-                
+
                 if findings:
                     for f in findings:
                         check_results.append(f"  ⚠️ {f}")
-                        
+
             except Exception as e:
                 check["status"] = "failed"
                 check["result"] = {"error": str(e)}
                 check_results.append(f"❌ {check['table']}: {e}")
-        
+
         phase["findings"] = phase_findings
         phase["status"] = "completed"
         state["findings"].extend(phase_findings)
-        
+
         # Format phase result
         layer_emoji = {"L1": "🔌", "L2": "🔗", "L3": "🌐", "L4": "📡"}.get(phase["layer"], "📋")
-        msg = f"""## {layer_emoji} Phase {phase['phase']}: {phase['name']} 完成
+        msg = f"""## {layer_emoji} Phase {phase["phase"]}: {phase["name"]} 完成
 
 ### 检查结果
 {chr(10).join(check_results)}
 
 ### 发现 ({len(phase_findings)} 项)
-{chr(10).join(f'- {f}' for f in phase_findings) if phase_findings else '- 未发现异常'}
+{chr(10).join(f"- {f}" for f in phase_findings) if phase_findings else "- 未发现异常"}
 """
-        
+
         # Move to next phase
         new_phase_idx = current_phase_idx + 1
-        
+
         return {
             "diagnosis_plan": diagnosis_plan,
             "current_phase": new_phase_idx,
@@ -927,198 +947,224 @@ class DeepDiveWorkflow(BaseWorkflow):
         """Analyze SuzieQ query result for anomalies."""
         findings = []
         data = result.get("data", [])
-        
+
         if not data:
             findings.append(f"{table}: 无数据（可能采集问题或范围错误）")
             return findings
-        
+
         # Table-specific anomaly detection
         if table == "interfaces":
-            down_ifs = [r for r in data if r.get("state") == "down" and r.get("adminState") != "down"]
+            down_ifs = [
+                r for r in data if r.get("state") == "down" and r.get("adminState") != "down"
+            ]
             if down_ifs:
                 for iface in down_ifs[:5]:
-                    findings.append(f"接口 {iface.get('hostname')}:{iface.get('ifname')} 状态异常 (adminUp, operDown)")
-        
+                    findings.append(
+                        f"接口 {iface.get('hostname')}:{iface.get('ifname')} 状态异常 (adminUp, operDown)"
+                    )
+
         elif table == "bgp":
             not_estd = [r for r in data if r.get("state") != "Established"]
             if not_estd:
                 for peer in not_estd[:5]:
                     reason = peer.get("reason") or peer.get("notificnReason") or "未知"
-                    findings.append(f"BGP {peer.get('hostname')} ↔ {peer.get('peer')}: {peer.get('state')} ({reason})")
-        
-        elif table == "ospfNbr" or table == "ospfIf":
+                    findings.append(
+                        f"BGP {peer.get('hostname')} ↔ {peer.get('peer')}: {peer.get('state')} ({reason})"
+                    )
+
+        elif table in {"ospfNbr", "ospfIf"}:
             not_full = [r for r in data if r.get("state") not in ("full", "Full", "dr", "bdr")]
             if not_full:
                 for nbr in not_full[:5]:
-                    findings.append(f"OSPF {nbr.get('hostname')}:{nbr.get('ifname')} 邻居状态: {nbr.get('state')}")
-        
+                    findings.append(
+                        f"OSPF {nbr.get('hostname')}:{nbr.get('ifname')} 邻居状态: {nbr.get('state')}"
+                    )
+
         elif table == "lldp":
             # Check for missing expected neighbors (would need topology baseline)
             if len(data) == 0:
                 findings.append("LLDP: 未发现邻居（物理连接可能断开）")
-        
+
         elif table == "arpnd":
             # Check for incomplete ARP entries
             incomplete = [r for r in data if r.get("state") in ("incomplete", "INCOMPLETE")]
             if incomplete:
                 for arp in incomplete[:5]:
                     findings.append(f"ARP {arp.get('hostname')}: {arp.get('ipAddress')} 状态不完整")
-        
+
         return findings
 
     async def evaluate_findings_node(self, state: DeepDiveState) -> dict:
         """Evaluate findings and decide next step.
-        
+
         Decision logic:
         1. If critical findings → trigger micro diagnosis
         2. If more phases → continue macro scan
         3. If all done → go to summary
-        
+
         Returns:
             Updated state with next action decision
         """
         diagnosis_plan = state.get("diagnosis_plan")
         if not diagnosis_plan:
             return {"trigger_recursion": False}
-        
+
         current_phase = state.get("current_phase", 0)
         phases = diagnosis_plan.get("phases", [])
         findings = state.get("findings", [])
-        
+
         # Check if we have critical findings that need micro diagnosis
         critical_keywords = ["down", "异常", "失败", "NotEstd", "incomplete"]
         critical_findings = [f for f in findings if any(k in f for k in critical_keywords)]
-        
+
         if critical_findings and current_phase < len(phases):
             # Found issues - may need micro diagnosis
             logger.info(f"Critical findings detected: {len(critical_findings)}")
-        
+
         # Check if more phases to run
         if current_phase < len(phases):
             return {"trigger_recursion": True}  # Continue to next phase
-        
+
         # All phases done
         return {"trigger_recursion": False}
 
     async def realtime_verification_node(self, state: DeepDiveState) -> dict:
         """Verify SuzieQ findings with real-time CLI/NETCONF data.
-        
+
         CRITICAL: SuzieQ data is historical (Parquet snapshots).
         This node uses live device queries to confirm findings.
-        
+
         Flow:
         1. Parse findings to extract device/interface/peer info
         2. Execute targeted CLI commands for real-time state
         3. Compare with SuzieQ findings
         4. Update findings with verification status
-        
+
         Returns:
             Updated state with verified/unverified findings
         """
         from olav.tools.nornir_tool import CLITool
-        
+
         findings = state.get("findings", [])
         topology = state.get("topology") or {}
         affected_devices = topology.get("affected_devices", [])
-        
+
         if not findings:
             return {
                 "messages": [AIMessage(content="📋 SuzieQ 未发现异常，跳过实时验证。")],
                 "realtime_verified": True,
             }
-        
+
         logger.info(f"Starting real-time verification for {len(findings)} findings...")
-        
+
         # Initialize CLI tool
         try:
             cli_tool = CLITool()
         except Exception as e:
             logger.warning(f"CLI tool initialization failed: {e}")
             return {
-                "messages": [AIMessage(content=f"⚠️ 无法初始化 CLI 工具: {e}\n将使用 SuzieQ 历史数据作为参考。")],
+                "messages": [
+                    AIMessage(
+                        content=f"⚠️ 无法初始化 CLI 工具: {e}\n将使用 SuzieQ 历史数据作为参考。"
+                    )
+                ],
                 "realtime_verified": False,
             }
-        
+
         verified_findings: list[str] = []
         realtime_data: dict[str, list] = {}
         verification_results: list[str] = []
-        
+
         # Determine which commands to run based on findings
         commands_to_run: dict[str, list[str]] = {}
-        
+
         for finding in findings:
             finding_lower = finding.lower()
-            
+
             # Parse devices from finding
             devices = []
             for device in affected_devices:
                 if device.lower() in finding_lower:
                     devices.append(device)
-            
+
             if not devices:
                 devices = affected_devices[:2]  # Default to first 2 devices
-            
+
             for device in devices:
                 if device not in commands_to_run:
                     commands_to_run[device] = []
-                
+
                 # Add relevant commands based on finding type
                 if "bgp" in finding_lower or "notestd" in finding_lower:
-                    commands_to_run[device].extend([
-                        "show ip bgp summary",
-                        "show ip bgp neighbors",
-                    ])
-                elif "接口" in finding_lower or "interface" in finding_lower or "down" in finding_lower:
-                    commands_to_run[device].extend([
-                        "show ip interface brief",
-                        "show interfaces status",
-                    ])
+                    commands_to_run[device].extend(
+                        [
+                            "show ip bgp summary",
+                            "show ip bgp neighbors",
+                        ]
+                    )
+                elif (
+                    "接口" in finding_lower
+                    or "interface" in finding_lower
+                    or "down" in finding_lower
+                ):
+                    commands_to_run[device].extend(
+                        [
+                            "show ip interface brief",
+                            "show interfaces status",
+                        ]
+                    )
                 elif "ospf" in finding_lower:
-                    commands_to_run[device].extend([
-                        "show ip ospf neighbor",
-                        "show ip ospf interface brief",
-                    ])
+                    commands_to_run[device].extend(
+                        [
+                            "show ip ospf neighbor",
+                            "show ip ospf interface brief",
+                        ]
+                    )
                 elif "arp" in finding_lower:
                     commands_to_run[device].append("show arp")
                 elif "lldp" in finding_lower:
                     commands_to_run[device].append("show lldp neighbors")
                 elif "route" in finding_lower or "路由" in finding_lower:
                     commands_to_run[device].append("show ip route summary")
-        
+
         # Deduplicate commands per device
-        for device in commands_to_run:
-            commands_to_run[device] = list(set(commands_to_run[device]))
-        
+        for device, cmds in commands_to_run.items():
+            commands_to_run[device] = list(set(cmds))
+
         # Execute commands on each device
         for device, commands in commands_to_run.items():
             realtime_data[device] = []
-            
+
             for command in commands[:3]:  # Limit to 3 commands per device
                 try:
                     result = await cli_tool.execute(device=device, command=command)
-                    
+
                     if result.error:
                         verification_results.append(f"❌ {device} `{command}`: {result.error}")
                     else:
-                        realtime_data[device].append({
-                            "command": command,
-                            "data": result.data,
-                        })
-                        verification_results.append(f"✅ {device} `{command}`: {len(result.data)} 条记录")
-                        
+                        realtime_data[device].append(
+                            {
+                                "command": command,
+                                "data": result.data,
+                            }
+                        )
+                        verification_results.append(
+                            f"✅ {device} `{command}`: {len(result.data)} 条记录"
+                        )
+
                 except Exception as e:
                     verification_results.append(f"❌ {device} `{command}`: 执行失败 - {e}")
-        
+
         # Verify findings against real-time data
         for finding in findings:
             verified = False
             finding_lower = finding.lower()
-            
+
             # Check if any real-time data confirms the finding
-            for device, data_list in realtime_data.items():
+            for _device, data_list in realtime_data.items():
                 for data_entry in data_list:
                     data = data_entry.get("data", [])
-                    
+
                     # BGP verification
                     if "bgp" in finding_lower and "bgp" in data_entry.get("command", "").lower():
                         for row in data:
@@ -1126,36 +1172,41 @@ class DeepDiveWorkflow(BaseWorkflow):
                             if state in ("idle", "active", "connect", "opensent", "openconfirm"):
                                 verified = True
                                 break
-                    
+
                     # Interface verification
-                    elif ("down" in finding_lower or "接口" in finding_lower) and "interface" in data_entry.get("command", "").lower():
+                    elif (
+                        "down" in finding_lower or "接口" in finding_lower
+                    ) and "interface" in data_entry.get("command", "").lower():
                         for row in data:
                             status = str(row.get("status", row.get("Status", ""))).lower()
                             if status in ("down", "administratively down", "notconnect"):
                                 verified = True
                                 break
-            
+
             if verified:
                 verified_findings.append(f"✅ [实时确认] {finding}")
             else:
                 verified_findings.append(f"⚠️ [历史数据] {finding}")
-        
+
         # Format verification report
         msg = f"""## 🔍 实时验证结果
 
 ### 执行的命令
-{chr(10).join(verification_results) if verification_results else '- 无法执行实时命令'}
+{chr(10).join(verification_results) if verification_results else "- 无法执行实时命令"}
 
 ### 验证后的发现
-{chr(10).join(f'- {f}' for f in verified_findings)}
+{chr(10).join(f"- {f}" for f in verified_findings)}
 
-**说明**: 
+**说明**:
 - ✅ [实时确认] = CLI 实时数据证实了 SuzieQ 的发现
 - ⚠️ [历史数据] = 仅有 SuzieQ 历史记录，未能实时验证
 """
-        
+
         return {
-            "findings": [f.replace("✅ [实时确认] ", "").replace("⚠️ [历史数据] ", "") for f in verified_findings],
+            "findings": [
+                f.replace("✅ [实时确认] ", "").replace("⚠️ [历史数据] ", "")
+                for f in verified_findings
+            ],
             "realtime_data": realtime_data,
             "realtime_verified": len(verification_results) > 0,
             "messages": [AIMessage(content=msg)],
@@ -1163,12 +1214,12 @@ class DeepDiveWorkflow(BaseWorkflow):
 
     async def root_cause_summary_node(self, state: DeepDiveState) -> dict:
         """Generate root cause analysis summary.
-        
+
         Correlates all findings across phases and generates:
         1. Root cause identification
         2. Evidence trail
         3. Recommended actions
-        
+
         Returns:
             Final summary message
         """
@@ -1180,15 +1231,17 @@ class DeepDiveWorkflow(BaseWorkflow):
             if isinstance(msg, HumanMessage):
                 user_query = msg.content
                 break
-        
+
         # Prepare summary context
         phases_summary = []
         for phase in diagnosis_plan.get("phases", []):
             phase_findings = phase.get("findings", [])
-            phases_summary.append(f"**{phase['name']}** ({phase['layer']}): {len(phase_findings)} 项发现")
+            phases_summary.append(
+                f"**{phase['name']}** ({phase['layer']}): {len(phase_findings)} 项发现"
+            )
             for f in phase_findings[:3]:
                 phases_summary.append(f"  - {f}")
-        
+
         # Use LLM to generate root cause analysis
         prompt = f"""你是网络故障分析专家。根据漏斗式诊断的结果，生成根因分析报告。
 
@@ -1196,14 +1249,14 @@ class DeepDiveWorkflow(BaseWorkflow):
 {user_query}
 
 ## 拓扑分析
-- 受影响设备: {', '.join(topology.get('affected_devices', []))}
-- 故障范围: {topology.get('scope', 'unknown')}
+- 受影响设备: {", ".join(topology.get("affected_devices", []))}
+- 故障范围: {topology.get("scope", "unknown")}
 
 ## 诊断发现
 {chr(10).join(phases_summary)}
 
 ## 所有发现
-{chr(10).join(f'- {f}' for f in findings) if findings else '- 未发现明显异常'}
+{chr(10).join(f"- {f}" for f in findings) if findings else "- 未发现明显异常"}
 
 请生成根因分析报告，包括:
 1. **根因识别**: 最可能的故障原因
@@ -1211,11 +1264,13 @@ class DeepDiveWorkflow(BaseWorkflow):
 3. **建议操作**: 修复步骤或进一步排查方向
 
 使用 Markdown 格式输出。"""
-        
-        response = await self.llm.ainvoke([
-            SystemMessage(content=prompt),
-        ])
-        
+
+        response = await self.llm.ainvoke(
+            [
+                SystemMessage(content=prompt),
+            ]
+        )
+
         # Save to episodic memory if enabled
         if settings.enable_deep_dive_memory and findings:
             try:
@@ -1233,7 +1288,7 @@ class DeepDiveWorkflow(BaseWorkflow):
                 )
             except Exception as e:
                 logger.warning(f"Failed to save to episodic memory: {e}")
-        
+
         return {
             "messages": [AIMessage(content=response.content)],
         }
@@ -1242,7 +1297,7 @@ class DeepDiveWorkflow(BaseWorkflow):
         self, state: DeepDiveState
     ) -> Literal["macro_scan", "realtime_verification"]:
         """Decide whether to continue scanning or proceed to verification.
-        
+
         Returns:
             "macro_scan" if more phases to process
             "realtime_verification" if all SuzieQ phases done, need live verification
@@ -1341,9 +1396,7 @@ class DeepDiveWorkflow(BaseWorkflow):
                 if not available_tables:
                     # No schema match at all
                     todo["feasibility"] = "infeasible"
-                    todo["schema_notes"] = (
-                        "系统中没有找到相关的数据表，可能需要直接连接设备查询"
-                    )
+                    todo["schema_notes"] = "系统中没有找到相关的数据表，可能需要直接连接设备查询"
                     infeasible_tasks.append(task_id)
                     recommendations[task_id] = (
                         "建议通过 NETCONF 直接查询设备，或检查数据采集是否正常"
@@ -1357,15 +1410,13 @@ class DeepDiveWorkflow(BaseWorkflow):
                         todo["feasibility"] = "feasible"
                         todo["recommended_table"] = heuristic_table
                         # Get human-readable field names
-                        fields = schema_result.get(heuristic_table, {}).get('fields', [])[:5]
+                        fields = schema_result.get(heuristic_table, {}).get("fields", [])[:5]
                         field_desc = self._humanize_fields(fields)
                         todo["schema_notes"] = (
                             f"将从 {heuristic_table} 表查询，包含 {field_desc} 等字段"
                         )
                         feasible_tasks.append(task_id)
-                        recommendations[task_id] = (
-                            f"执行查询: {heuristic_table} 表"
-                        )
+                        recommendations[task_id] = f"执行查询: {heuristic_table} 表"
                     else:
                         # Heuristic mismatch - use first schema suggestion
                         suggested_table = available_tables[0]
@@ -1385,13 +1436,9 @@ class DeepDiveWorkflow(BaseWorkflow):
                     todo["feasibility"] = "uncertain"
                     todo["recommended_table"] = suggested_table
                     tables_desc = "、".join(available_tables[:3])
-                    todo["schema_notes"] = (
-                        f"无法自动识别数据源，可能的表: {tables_desc}"
-                    )
+                    todo["schema_notes"] = f"无法自动识别数据源，可能的表: {tables_desc}"
                     uncertain_tasks.append(task_id)
-                    recommendations[task_id] = (
-                        f"建议使用 {suggested_table} 表，或指定其他数据源"
-                    )
+                    recommendations[task_id] = f"建议使用 {suggested_table} 表，或指定其他数据源"
 
             except Exception as e:
                 # Schema search failed
@@ -1425,43 +1472,47 @@ class DeepDiveWorkflow(BaseWorkflow):
         lines = [tr("plan_title")]
 
         if plan["feasible_tasks"]:
-            lines.append(tr("ready_section", count=len(plan['feasible_tasks'])))
+            lines.append(tr("ready_section", count=len(plan["feasible_tasks"])))
             for task_id in plan["feasible_tasks"]:
                 todo = next(td for td in todos if td["id"] == task_id)
                 # Clean up task description for readability
-                task_desc = self._humanize_task(todo['task'])
+                task_desc = self._humanize_task(todo["task"])
                 lines.append(f"**{task_id}.** {task_desc}")
                 lines.append(f"   ↳ {todo['schema_notes']}\n")
 
         if plan["uncertain_tasks"]:
-            lines.append(tr("uncertain_section", count=len(plan['uncertain_tasks'])))
+            lines.append(tr("uncertain_section", count=len(plan["uncertain_tasks"])))
             for task_id in plan["uncertain_tasks"]:
                 todo = next(td for td in todos if td["id"] == task_id)
-                task_desc = self._humanize_task(todo['task'])
+                task_desc = self._humanize_task(todo["task"])
                 lines.append(f"**{task_id}.** {task_desc}")
                 lines.append(f"   ↳ {todo['schema_notes']}")
                 lines.append(f"   💡 {plan['recommendations'][task_id]}\n")
 
         if plan["infeasible_tasks"]:
-            lines.append(tr("infeasible_section", count=len(plan['infeasible_tasks'])))
+            lines.append(tr("infeasible_section", count=len(plan["infeasible_tasks"])))
             for task_id in plan["infeasible_tasks"]:
                 todo = next(td for td in todos if td["id"] == task_id)
-                task_desc = self._humanize_task(todo['task'])
+                task_desc = self._humanize_task(todo["task"])
                 lines.append(f"**{task_id}.** {task_desc}")
                 lines.append(f"   ↳ {todo['schema_notes']}")
                 lines.append(f"   💡 {plan['recommendations'][task_id]}\n")
 
         # Approval prompt
         lines.append("\n---")
-        total = len(plan["feasible_tasks"]) + len(plan["uncertain_tasks"]) + len(plan["infeasible_tasks"])
+        total = (
+            len(plan["feasible_tasks"])
+            + len(plan["uncertain_tasks"])
+            + len(plan["infeasible_tasks"])
+        )
         ready = len(plan["feasible_tasks"])
-        
+
         if plan.get("uncertain_tasks") or plan.get("infeasible_tasks"):
             lines.append(f"\n{tr('plan_summary_partial', ready=ready, total=total)}")
             lines.append(tr("plan_confirmation"))
         else:
             lines.append(f"\n{tr('plan_summary_full', total=total)}")
-        
+
         lines.append("```")
         lines.append(f"  {tr('action_approve')}")
         lines.append(f"  {tr('action_abort')}")
@@ -1469,32 +1520,32 @@ class DeepDiveWorkflow(BaseWorkflow):
         lines.append("```")
 
         return "\n".join(lines)
-    
+
     def _humanize_task(self, task: str) -> str:
         """Convert machine-style task description to human-readable format."""
         # Remove suzieq_query prefix patterns
         import re
-        
+
         # Language-specific device config query replacement
         device_config_label = {
             "zh": "设备配置查询: ",
             "en": "Device config query: ",
             "ja": "デバイス設定クエリ: ",
         }.get(AgentConfig.LANGUAGE, "Device config query: ")
-        
+
         task = re.sub(r"suzieq_query\s*:?\s*", "", task, flags=re.IGNORECASE)
         task = re.sub(r"table\s*=\s*\w+\s*", "", task)
         task = re.sub(r"hostname\s*=\s*\[?['\"]?\w+['\"]?\]?\s*", "", task)
         task = re.sub(r"netconf_tool\s*:?\s*", device_config_label, task, flags=re.IGNORECASE)
-        
+
         # Clean up extra whitespace
         task = re.sub(r"\s+", " ", task).strip()
-        
+
         # Remove leading commas or punctuation
         task = re.sub(r"^[,\s]+", "", task)
-        
+
         return task if task else tr("default_task")
-    
+
     def _humanize_fields(self, fields: list[str]) -> str:
         """Convert field names to human-readable descriptions."""
         readable = []
@@ -1503,11 +1554,11 @@ class DeepDiveWorkflow(BaseWorkflow):
             label = tr(f"field_{f}")
             # If not found (returns the key itself), use original field name
             readable.append(label if label != f"field_{f}" else f)
-        
+
         # Use language-appropriate separator
         separator = {"zh": "、", "en": ", ", "ja": "、"}.get(AgentConfig.LANGUAGE, ", ")
         return separator.join(readable)
-    
+
     def _get_table_display_name(self, table: str) -> str:
         """Get human-readable display name for a table."""
         # Try to get translated table name
@@ -1530,8 +1581,9 @@ class DeepDiveWorkflow(BaseWorkflow):
         4. Fallback to LLM-driven execution prompt if mapping fails or table unsupported
         """
         import asyncio  # Local import to avoid global side-effects
-        from langgraph.types import interrupt
+
         from config.settings import AgentConfig
+        from langgraph.types import interrupt
 
         todos = state["todos"]
         completed_results = state.get("completed_results", {})
@@ -1544,14 +1596,20 @@ class DeepDiveWorkflow(BaseWorkflow):
             user_approval = "approved"
 
         # HITL: Check if approval is needed before first execution
-        if execution_plan and execution_plan.get("user_approval_required") and user_approval is None:
+        if (
+            execution_plan
+            and execution_plan.get("user_approval_required")
+            and user_approval is None
+        ):
             # Interrupt for user approval
-            approval_response = interrupt({
-                "action": "approval_required",
-                "execution_plan": execution_plan,
-                "todos": todos,
-                "message": "请审批执行计划：approve=继续, abort=终止, 或输入修改请求",
-            })
+            approval_response = interrupt(
+                {
+                    "action": "approval_required",
+                    "execution_plan": execution_plan,
+                    "todos": todos,
+                    "message": "请审批执行计划：approve=继续, abort=终止, 或输入修改请求",
+                }
+            )
 
             # Process approval response (returned by Command(resume=...))
             if isinstance(approval_response, dict):
@@ -1570,18 +1628,16 @@ class DeepDiveWorkflow(BaseWorkflow):
                         "user_approval": user_approval,
                         "messages": [AIMessage(content="✅ 用户已批准执行计划，开始执行任务...")],
                     }
-                else:
-                    # User aborted
-                    return {
-                        "messages": [AIMessage(content="⛔ 用户已中止执行计划。")],
-                        "user_approval": "aborted",
-                    }
-            else:
-                # Simple resume value (just approval) - also return immediately
+                # User aborted
                 return {
-                    "user_approval": "approved",
-                    "messages": [AIMessage(content="✅ 用户已批准执行计划，开始执行任务...")],
+                    "messages": [AIMessage(content="⛔ 用户已中止执行计划。")],
+                    "user_approval": "aborted",
                 }
+            # Simple resume value (just approval) - also return immediately
+            return {
+                "user_approval": "approved",
+                "messages": [AIMessage(content="✅ 用户已批准执行计划，开始执行任务...")],
+            }
 
         # ------------------------------------------------------------------
         # Parallel batch execution (Phase 3.2)
@@ -1616,32 +1672,71 @@ class DeepDiveWorkflow(BaseWorkflow):
                 messages: list[BaseMessage] = []
                 if mapping:
                     table, method, extra_filters = mapping
-                    tool_input = {"table": table, "method": method, **extra_filters}
-                    try:
-                        from olav.tools.suzieq_parquet_tool import (  # type: ignore
-                            suzieq_query,
-                            suzieq_schema_search,
-                        )
 
-                        schema = await suzieq_schema_search.ainvoke({"query": table})
-                        available_tables = schema.get("tables", [])
-                        if table in available_tables:
-                            tool_result = await suzieq_query.ainvoke(tool_input)
-                        else:
+                    # Special handling for syslog - uses OpenSearch instead of SuzieQ
+                    if table == "syslog":
+                        try:
+                            from olav.tools.syslog_tool import syslog_search
+
+                            syslog_keywords = self._extract_syslog_keywords(task_text)
+                            device_ip = extra_filters.get("device_ip")
+
+                            syslog_result = await syslog_search.ainvoke({
+                                "keyword": syslog_keywords,
+                                "device_ip": device_ip,
+                                "start_time": "now-1h",
+                                "limit": 50,
+                            })
+
+                            if syslog_result.get("success") and syslog_result.get("data"):
+                                tool_result = {
+                                    "status": "SUCCESS",
+                                    "table": "syslog",
+                                    "data": syslog_result["data"],
+                                    "count": len(syslog_result["data"]),
+                                    "columns": ["timestamp", "device_ip", "severity", "message"],
+                                }
+                            else:
+                                tool_result = {
+                                    "status": "NO_DATA_FOUND",
+                                    "table": "syslog",
+                                    "message": syslog_result.get("error") or "No syslog entries found",
+                                    "hint": f"Keywords: {syslog_keywords}",
+                                }
+                        except Exception as e:
                             tool_result = {
-                                "status": "SCHEMA_NOT_FOUND",
-                                "table": table,
-                                "message": f"Table '{table}' not present in discovered schema tables.",
-                                "available_tables": available_tables,
+                                "status": "TOOL_ERROR",
+                                "table": "syslog",
+                                "error": str(e),
                             }
-                    except Exception as e:
-                        tool_result = {
-                            "status": "TOOL_ERROR",
-                            "error": str(e),
-                            "table": table,
-                            "method": method,
-                            "input": tool_input,
-                        }
+                    else:
+                        # Standard SuzieQ table query
+                        tool_input = {"table": table, "method": method, **extra_filters}
+                        try:
+                            from olav.tools.suzieq_parquet_tool import (  # type: ignore
+                                suzieq_query,
+                                suzieq_schema_search,
+                            )
+
+                            schema = await suzieq_schema_search.ainvoke({"query": table})
+                            available_tables = schema.get("tables", [])
+                            if table in available_tables:
+                                tool_result = await suzieq_query.ainvoke(tool_input)
+                            else:
+                                tool_result = {
+                                    "status": "SCHEMA_NOT_FOUND",
+                                    "table": table,
+                                    "message": f"Table '{table}' not present in discovered schema tables.",
+                                    "available_tables": available_tables,
+                                }
+                        except Exception as e:
+                            tool_result = {
+                                "status": "TOOL_ERROR",
+                                "error": str(e),
+                                "table": table,
+                                "method": method,
+                                "input": tool_input,
+                            }
 
                 if tool_result:
                     classified = self._classify_tool_result(tool_result)
@@ -1663,10 +1758,12 @@ class DeepDiveWorkflow(BaseWorkflow):
                     data = tool_result.get("data", [])
                     tbl = classified.get("table", "unknown")
                     if isinstance(data, list) and data:
-                        diagnostic_summary = self._extract_diagnostic_fields(data, tbl, max_records=10)
+                        diagnostic_summary = self._extract_diagnostic_fields(
+                            data, tbl, max_records=10
+                        )
                     else:
                         diagnostic_summary = str(tool_result)[:400]
-                    
+
                     # Human-friendly task completion message
                     table_name_cn = self._get_table_display_name(tbl)
                     todo["status"] = "completed"
@@ -1675,7 +1772,12 @@ class DeepDiveWorkflow(BaseWorkflow):
                     )
                     messages.append(
                         AIMessage(
-                            content=tr("task_complete_msg", task_id=todo['id'], table=table_name_cn, count=classified['count'])
+                            content=tr(
+                                "task_complete_msg",
+                                task_id=todo["id"],
+                                table=table_name_cn,
+                                count=classified["count"],
+                            )
                         )
                     )
                 else:
@@ -1684,7 +1786,7 @@ class DeepDiveWorkflow(BaseWorkflow):
                         category="workflows/deep_dive",
                         name="execute_todo",
                         task=task_text,
-                        available_tools="suzieq_query, netconf_tool, search_openconfig_schema",
+                        available_tools="suzieq_query, syslog_search, netconf_tool, search_openconfig_schema",
                     )
                     llm_resp = await self.llm.ainvoke(
                         [
@@ -1751,62 +1853,102 @@ class DeepDiveWorkflow(BaseWorkflow):
 
         if mapping:
             table, method, extra_filters = mapping
-            tool_input = {"table": table, "method": method, **extra_filters}
-            try:
-                # Local import to avoid global dependency issues
-                from olav.tools.suzieq_parquet_tool import (  # type: ignore
-                    suzieq_query,
-                    suzieq_schema_search,
-                )
 
-                # Discover available tables; suzieq_schema_search returns {"tables": [...], "bgp": {...}, ...}
-                schema = await suzieq_schema_search.ainvoke({"query": table})
-                available_tables = schema.get("tables", [])
+            # Special handling for syslog - uses OpenSearch instead of SuzieQ
+            if table == "syslog":
+                try:
+                    from olav.tools.syslog_tool import syslog_search
 
-                if table in available_tables:
-                    tool_result = await suzieq_query.ainvoke(tool_input)
+                    # Extract keyword from task for syslog search
+                    syslog_keywords = self._extract_syslog_keywords(task_text)
+                    device_ip = extra_filters.get("device_ip")
 
-                    # 方案2: 字段语义验证 - 检查返回字段是否与任务相关
-                    if (
-                        tool_result
-                        and "columns" in tool_result
-                        and tool_result.get("status") != "NO_DATA_FOUND"
-                    ):
-                        is_relevant = self._validate_field_relevance(
-                            task_text=task_text,
-                            returned_columns=tool_result["columns"],
-                            queried_table=table,
-                        )
-                        if not is_relevant:
-                            # Data returned but not relevant to task
-                            tool_result = {
-                                "status": "DATA_NOT_RELEVANT",
-                                "table": table,
-                                "returned_columns": tool_result["columns"],
-                                "message": f"表 '{table}' 返回了数据，但字段与任务需求不匹配。",
-                                "hint": f"任务关键词: {self._extract_task_keywords(task_text)}，返回字段: {tool_result['columns'][:5]}",
-                                "suggestion": "可能需要使用 NETCONF 查询或重新规划任务。",
-                            }
-                else:
+                    syslog_result = await syslog_search.ainvoke({
+                        "keyword": syslog_keywords,
+                        "device_ip": device_ip,
+                        "start_time": "now-1h",  # Default: last hour
+                        "limit": 50,
+                    })
+
+                    if syslog_result.get("success") and syslog_result.get("data"):
+                        tool_result = {
+                            "status": "SUCCESS",
+                            "table": "syslog",
+                            "data": syslog_result["data"],
+                            "count": len(syslog_result["data"]),
+                            "columns": ["timestamp", "device_ip", "severity", "message"],
+                        }
+                    else:
+                        tool_result = {
+                            "status": "NO_DATA_FOUND",
+                            "table": "syslog",
+                            "message": syslog_result.get("error") or "No syslog entries found",
+                            "hint": f"尝试的关键词: {syslog_keywords}",
+                        }
+                except Exception as e:
                     tool_result = {
-                        "status": "SCHEMA_NOT_FOUND",
-                        "table": table,
-                        "message": f"Table '{table}' not present in discovered schema tables.",
-                        "hint": "Use suzieq_schema_search with a broader query or verify poller collection.",
-                        "available_tables": available_tables,
+                        "status": "TOOL_ERROR",
+                        "table": "syslog",
+                        "error": str(e),
                     }
-            except Exception as e:
-                tool_result = {
-                    "status": "TOOL_ERROR",
-                    "error": str(e),
-                    "table": table,
-                    "method": method,
-                    "input": tool_input,
-                }
+            else:
+                # Standard SuzieQ table query
+                tool_input = {"table": table, "method": method, **extra_filters}
+                try:
+                    # Local import to avoid global dependency issues
+                    from olav.tools.suzieq_parquet_tool import (  # type: ignore
+                        suzieq_query,
+                        suzieq_schema_search,
+                    )
+
+                    # Discover available tables; suzieq_schema_search returns {"tables": [...], "bgp": {...}, ...}
+                    schema = await suzieq_schema_search.ainvoke({"query": table})
+                    available_tables = schema.get("tables", [])
+
+                    if table in available_tables:
+                        tool_result = await suzieq_query.ainvoke(tool_input)
+
+                        # 方案2: 字段语义验证 - 检查返回字段是否与任务相关
+                        if (
+                            tool_result
+                            and "columns" in tool_result
+                            and tool_result.get("status") != "NO_DATA_FOUND"
+                        ):
+                            is_relevant = self._validate_field_relevance(
+                                task_text=task_text,
+                                returned_columns=tool_result["columns"],
+                                queried_table=table,
+                            )
+                            if not is_relevant:
+                                # Data returned but not relevant to task
+                                tool_result = {
+                                    "status": "DATA_NOT_RELEVANT",
+                                    "table": table,
+                                    "returned_columns": tool_result["columns"],
+                                    "message": f"表 '{table}' 返回了数据，但字段与任务需求不匹配。",
+                                    "hint": f"任务关键词: {self._extract_task_keywords(task_text)}，返回字段: {tool_result['columns'][:5]}",
+                                    "suggestion": "可能需要使用 NETCONF 查询或重新规划任务。",
+                                }
+                    else:
+                        tool_result = {
+                            "status": "SCHEMA_NOT_FOUND",
+                            "table": table,
+                            "message": f"Table '{table}' not present in discovered schema tables.",
+                            "hint": "Use suzieq_schema_search with a broader query or verify poller collection.",
+                            "available_tables": available_tables,
+                        }
+                except Exception as e:
+                    tool_result = {
+                        "status": "TOOL_ERROR",
+                        "error": str(e),
+                        "table": table,
+                        "method": method,
+                        "input": tool_input,
+                    }
 
         if tool_result:
             classified = self._classify_tool_result(tool_result)
-            summary = (
+            (
                 f"TOOL_CALL table={classified['table']} status={classified['status']} "
                 f"count={classified['count']}"
             )
@@ -1859,7 +2001,9 @@ class DeepDiveWorkflow(BaseWorkflow):
             result_text = f"{tr('query_complete', table=table_name_cn, count=classified['count'])}\n\n{diagnostic_summary}"
             tool_messages.append(
                 AIMessage(
-                    content=tr("task_complete_simple", table=table_name_cn, count=classified['count'])
+                    content=tr(
+                        "task_complete_simple", table=table_name_cn, count=classified["count"]
+                    )
                 )
             )
         else:
@@ -1868,7 +2012,7 @@ class DeepDiveWorkflow(BaseWorkflow):
                 category="workflows/deep_dive",
                 name="execute_todo",
                 task=task_text,
-                available_tools="suzieq_query, netconf_tool, search_openconfig_schema",
+                available_tools="suzieq_query, syslog_search, netconf_tool, search_openconfig_schema",
             )
             messages = [
                 SystemMessage(content=prompt),
@@ -1923,16 +2067,18 @@ class DeepDiveWorkflow(BaseWorkflow):
 
         Order matters: more specific/general inventory tasks first, then protocol.
         Returns None if no mapping found (will trigger schema investigation).
-        
+
         Method selection:
         - 'get': For detailed data queries (default for troubleshooting)
         - 'summarize': Only for explicit aggregation requests (统计, 汇总, 概览)
         """
         lower = task.lower()
-        
+
         # Determine method based on task intent
         # Use 'summarize' only for explicit aggregation requests
-        needs_summary = any(k in lower for k in ["统计", "汇总", "概览", "总数", "count", "summary", "overview"])
+        needs_summary = any(
+            k in lower for k in ["统计", "汇总", "概览", "总数", "count", "summary", "overview"]
+        )
         method = "summarize" if needs_summary else "get"
 
         candidates: list[tuple[list[str], str]] = [
@@ -1950,6 +2096,8 @@ class DeepDiveWorkflow(BaseWorkflow):
             (["mac", "二层"], "macs"),
             # BGP (put later to avoid greedy matching of '边界')
             (["bgp", "peer", "邻居", "边界", "ebgp", "ibgp"], "bgp"),
+            # Syslog (event-driven diagnostics - maps to OpenSearch, not SuzieQ)
+            (["syslog", "日志", "log", "事件", "告警", "down", "error", "warning"], "syslog"),
         ]
         for keywords, table in candidates:
             if any(k in lower for k in keywords):
@@ -1961,6 +2109,55 @@ class DeepDiveWorkflow(BaseWorkflow):
                     filters["hostname"] = hosts[0]
                 return table, method, filters
         return None
+
+    def _extract_syslog_keywords(self, task: str) -> str:
+        """Extract relevant keywords from task for syslog search.
+
+        Maps common network issues to syslog keywords.
+        Returns pipe-separated keywords for OR search.
+
+        Args:
+            task: Task description in natural language
+
+        Returns:
+            Pipe-separated keywords for syslog_search (e.g., "BGP|DOWN|NEIGHBOR")
+        """
+        lower = task.lower()
+        keywords = []
+
+        # Protocol-specific keywords
+        keyword_mappings = {
+            "bgp": ["BGP", "ADJCHANGE", "NEIGHBOR", "NOTIFICATION"],
+            "ospf": ["OSPF", "ADJACENCY", "NBRSTATE"],
+            "接口": ["LINK", "INTERFACE", "UPDOWN", "CARRIER"],
+            "interface": ["LINK", "INTERFACE", "UPDOWN", "CARRIER"],
+            "链路": ["LINK", "UPDOWN", "DOWN"],
+            "配置": ["CONFIG", "COMMIT", "CONFIGURATION"],
+            "config": ["CONFIG", "COMMIT", "CONFIGURATION"],
+            "cpu": ["CPU", "MEMORY", "UTILIZATION"],
+            "内存": ["MEMORY", "CPU"],
+            "温度": ["TEMPERATURE", "SENSOR", "FAN"],
+            "认证": ["AUTH", "LOGIN", "DENIED", "FAILED"],
+            "auth": ["AUTH", "LOGIN", "DENIED", "FAILED"],
+        }
+
+        for trigger, kws in keyword_mappings.items():
+            if trigger in lower:
+                keywords.extend(kws)
+
+        # Common error keywords
+        error_triggers = ["故障", "问题", "失败", "异常", "错误", "error", "fail", "down"]
+        if any(t in lower for t in error_triggers):
+            keywords.extend(["DOWN", "ERROR", "FAIL", "CRITICAL"])
+
+        # Dedupe and join
+        unique_keywords = list(dict.fromkeys(keywords))
+
+        # Default to common events if no specific match
+        if not unique_keywords:
+            unique_keywords = ["DOWN", "ERROR", "WARNING", "CRITICAL"]
+
+        return "|".join(unique_keywords[:8])  # Limit to 8 keywords
 
     def _extract_diagnostic_fields(
         self, data: list[dict[str, Any]], table: str, max_records: int = 20
@@ -1983,17 +2180,46 @@ class DeepDiveWorkflow(BaseWorkflow):
 
         # Define key fields per table type (most important for diagnostics first)
         table_key_fields: dict[str, list[str]] = {
-            "bgp": ["hostname", "peer", "state", "asn", "peerAsn", "afi", "safi", 
-                    "reason", "notificnReason", "estdTime", "pfxRx", "pfxTx", "vrf"],
+            "bgp": [
+                "hostname",
+                "peer",
+                "state",
+                "asn",
+                "peerAsn",
+                "afi",
+                "safi",
+                "reason",
+                "notificnReason",
+                "estdTime",
+                "pfxRx",
+                "pfxTx",
+                "vrf",
+            ],
             "ospfIf": ["hostname", "ifname", "state", "area", "networkType", "cost", "passive"],
             "ospfNbr": ["hostname", "ifname", "nbrHostname", "state", "area", "nbrPriority"],
-            "interfaces": ["hostname", "ifname", "state", "adminState", "speed", "mtu", "ipAddressList"],
-            "routes": ["hostname", "vrf", "prefix", "nexthopIp", "protocol", "preference", "metric"],
+            "interfaces": [
+                "hostname",
+                "ifname",
+                "state",
+                "adminState",
+                "speed",
+                "mtu",
+                "ipAddressList",
+            ],
+            "routes": [
+                "hostname",
+                "vrf",
+                "prefix",
+                "nexthopIp",
+                "protocol",
+                "preference",
+                "metric",
+            ],
             "device": ["hostname", "model", "version", "vendor", "uptime", "serialNumber"],
             "lldp": ["hostname", "ifname", "peerHostname", "peerIfname", "capability"],
             "macs": ["hostname", "vlan", "macaddr", "interface", "moveCount"],
         }
-        
+
         # Human-readable field labels
         field_labels = {
             "hostname": "主机",
@@ -2037,7 +2263,7 @@ class DeepDiveWorkflow(BaseWorkflow):
         for i, record in enumerate(data[:max_records]):
             if not isinstance(record, dict):
                 continue
-            
+
             # Extract available key fields from this record
             field_values = []
             for field in fields:
@@ -2047,6 +2273,7 @@ class DeepDiveWorkflow(BaseWorkflow):
                 # Skip empty/null values (handle numpy arrays specially)
                 try:
                     import numpy as np
+
                     if isinstance(value, np.ndarray):
                         if value.size == 0:
                             continue
@@ -2056,38 +2283,37 @@ class DeepDiveWorkflow(BaseWorkflow):
                 except (ImportError, ValueError, TypeError):
                     if value in (None, "", [], {}):
                         continue
-                
+
                 # Format timestamp as readable date
                 if field == "estdTime" and isinstance(value, (int, float)):
                     if value > 1e12:
                         from datetime import datetime
-                        try:
+
+                        with contextlib.suppress(Exception):
                             value = datetime.fromtimestamp(value / 1000).strftime("%m-%d %H:%M")
-                        except Exception:
-                            pass
                     elif value == 0:
                         value = tr("timestamp_not_established")
-                
+
                 # Format state values with i18n
                 if field == "state":
                     state_map = {
                         "Established": tr("state_established"),
-                        "NotEstd": tr("state_not_established"), 
+                        "NotEstd": tr("state_not_established"),
                         "up": tr("state_up"),
                         "down": tr("state_down"),
                     }
                     value = state_map.get(str(value), value)
-                
+
                 # Use translated label
                 label = tr(f"field_{field}")
                 if label == f"field_{field}":
                     # No translation found, use field_labels fallback or raw field name
                     label = field_labels.get(field, field)
                 field_values.append(f"{label}: {value}")
-            
+
             if field_values:
                 # Format as bullet point with hostname highlighted
-                hostname = record.get("hostname", f"{tr('record_placeholder')}{i+1}")
+                hostname = record.get("hostname", f"{tr('record_placeholder')}{i + 1}")
                 host_label = tr("field_hostname")
                 other_fields = [f for f in field_values if not f.startswith(f"{host_label}:")]
                 lines.append(f"  • **{hostname}** → " + " | ".join(other_fields))
@@ -2151,12 +2377,12 @@ class DeepDiveWorkflow(BaseWorkflow):
         """
         # Strategy: Be lenient - if the table matches the task intent, accept the data
         # The real validation should be in the final summary, not here
-        
+
         # 1. If table name matches any task keyword, data is relevant
         task_keywords = self._extract_task_keywords(task_text)
         if queried_table.lower() in task_keywords:
             return True
-        
+
         # 2. Mapping of tables to their core field groups
         table_core_fields = {
             "bgp": ["peer", "neighbor", "state", "afi", "safi", "asn", "pfx"],
@@ -2167,18 +2393,18 @@ class DeepDiveWorkflow(BaseWorkflow):
             "lldp": ["neighbor", "port", "chassis"],
             "macs": ["mac", "vlan", "port", "interface"],
         }
-        
+
         # 3. Check if returned columns contain any core fields for the queried table
         core_fields = table_core_fields.get(queried_table.lower(), [])
         columns_str = " ".join(returned_columns).lower()
-        
+
         if any(field in columns_str for field in core_fields):
             return True
 
         # 4. Special case: device/interfaces are generic inventory, acceptable for most tasks
         if queried_table in {"device", "interfaces"}:
             return True
-            
+
         # 5. If returned columns contain common network fields, accept
         common_network_fields = ["hostname", "namespace", "timestamp", "state", "status"]
         if any(field in columns_str for field in common_network_fields):
@@ -2393,9 +2619,7 @@ class DeepDiveWorkflow(BaseWorkflow):
                         "full_report_available": len(final_report) > 500,
                     },
                 )
-                logger.info(
-                    f"✓ Saved Deep Dive report to episodic memory: {user_query[:50]}..."
-                )
+                logger.info(f"✓ Saved Deep Dive report to episodic memory: {user_query[:50]}...")
             except Exception as e:
                 # Don't fail workflow on memory save error
                 logger.warning(f"Failed to save Deep Dive report to memory: {e}")
@@ -2442,7 +2666,7 @@ class DeepDiveWorkflow(BaseWorkflow):
         workflow.add_edge("topology_analysis", "funnel_planning")
         workflow.add_edge("funnel_planning", "macro_scan")
         workflow.add_edge("macro_scan", "evaluate_findings")
-        
+
         workflow.add_conditional_edges(
             "evaluate_findings",
             self.should_continue_funnel,
@@ -2451,7 +2675,7 @@ class DeepDiveWorkflow(BaseWorkflow):
                 "realtime_verification": "realtime_verification",  # All phases done, verify
             },
         )
-        
+
         # After verification, generate summary
         workflow.add_edge("realtime_verification", "root_cause_summary")
         workflow.add_edge("root_cause_summary", END)
@@ -2464,7 +2688,7 @@ class DeepDiveWorkflow(BaseWorkflow):
 
     def build_legacy_graph(self, checkpointer: AsyncPostgresSaver) -> StateGraph:
         """Build legacy Deep Dive graph (task planning style).
-        
+
         Use this for backward compatibility with existing audit workflows.
 
         Flow:
