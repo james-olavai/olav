@@ -256,4 +256,45 @@ export async function resumeWorkflow(
   }, token);
 }
 
+// ============================================
+// Session History API
+// ============================================
+
+export interface Session {
+  id: string;
+  thread_id: string;
+  title: string;
+  updated_at: string;
+  message_count: number;
+}
+
+export interface SessionDetail extends Session {
+  messages: Array<{
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp?: string;
+  }>;
+}
+
+/**
+ * List all workflow sessions
+ */
+export async function getSessions(token: string): Promise<Session[]> {
+  return fetchApi<Session[]>('/sessions', {}, token);
+}
+
+/**
+ * Get session details with message history
+ */
+export async function getSession(threadId: string, token: string): Promise<SessionDetail> {
+  return fetchApi<SessionDetail>(`/sessions/${threadId}`, {}, token);
+}
+
+/**
+ * Delete a session and its checkpoints
+ */
+export async function deleteSession(threadId: string, token: string): Promise<void> {
+  await fetchApi(`/sessions/${threadId}`, { method: 'DELETE' }, token);
+}
+
 export { ApiError };

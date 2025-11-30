@@ -39,6 +39,7 @@ dependencies = [
     "pdfplumber>=0.10.0",
     "langgraph-cli[inmem]>=0.1.54",
     "pynetbox>=7.5.0",
+    "asyncpg>=0.31.0",
 ]
 
 [project.optional-dependencies]
