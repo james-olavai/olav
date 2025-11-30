@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useChatStore, processStreamEvent } from '@/lib/stores/chat-store';
-import { streamWorkflow } from '@/lib/api/client';
+import { streamWorkflow, getSession } from '@/lib/api/client';
 import { useAuthStore } from '@/lib/stores/auth-store';
+import { useSessionStore } from '@/lib/stores/session-store';
 import { HITLDialog } from '@/components/hitl-dialog';
 import { MessageBubble } from '@/components/message-bubble';
 import { ModeSelector, type WorkflowMode } from '@/components/mode-selector';
+import { SessionSidebar } from '@/components/session-sidebar';
 import type { Message, ThinkingStep, ToolEvent, InterruptEvent } from '@/lib/api/types';
 
 // Thinking Steps Panel Component
@@ -52,6 +54,7 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [pendingInterrupt, setPendingInterrupt] = useState<InterruptEvent | null>(null);
   const [workflowMode, setWorkflowMode] = useState<WorkflowMode>('normal');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   // Zustand stores
@@ -62,16 +65,40 @@ export default function ChatPage() {
     activeTool, 
     streamingContent,
     addMessage,
+    setMessages,
     setStreaming,
     clearChat,
   } = useChatStore();
   
   const { token } = useAuthStore();
+  const { addSession } = useSessionStore();
 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent, currentThinking]);
+
+  // Load session messages
+  const handleSelectSession = useCallback(async (threadId: string) => {
+    if (!token) return;
+    
+    try {
+      const sessionDetail = await getSession(threadId, token);
+      const loadedMessages: Message[] = sessionDetail.messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp,
+      }));
+      setMessages(loadedMessages);
+    } catch (err) {
+      console.error('Failed to load session:', err);
+    }
+  }, [token, setMessages]);
+
+  // Create new session (clear chat)
+  const handleNewSession = useCallback(() => {
+    clearChat();
+  }, [clearChat]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,7 +156,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="flex h-screen bg-background">
       {/* HITL Approval Dialog */}
       {pendingInterrupt && (
         <HITLDialog
@@ -139,81 +166,110 @@ export default function ChatPage() {
         />
       )}
 
-      {/* Header */}
-      <header className="border-b border-border px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold">OLAV</h1>
-            <ModeSelector currentMode={workflowMode} onModeChange={setWorkflowMode} />
-          </div>
-          <div className="flex items-center gap-4">
-            <button
-              onClick={clearChat}
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              清空对话
-            </button>
-          </div>
-        </div>
-      </header>
+      {/* Session Sidebar */}
+      {sidebarOpen && (
+        <SessionSidebar
+          onSelectSession={handleSelectSession}
+          onNewSession={handleNewSession}
+        />
+      )}
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="mx-auto max-w-3xl space-y-4">
-          {messages.length === 0 ? (
-            <div className="text-center text-muted-foreground">
-              <p className="text-lg">👋 您好！我是 OLAV</p>
-              <p className="mt-2">企业网络运维智能助手，请输入您的问题</p>
+      {/* Main Chat Area */}
+      <div className="flex flex-1 flex-col">
+        {/* Header */}
+        <header className="border-b border-border px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                title={sidebarOpen ? '隐藏侧边栏' : '显示侧边栏'}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  className="h-5 w-5"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10zm0 5.25a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+              <h1 className="text-xl font-bold">OLAV</h1>
+              <ModeSelector currentMode={workflowMode} onModeChange={setWorkflowMode} />
             </div>
-          ) : (
-            messages.map((msg, i) => (
-              <MessageBubble key={i} message={msg} />
-            ))
-          )}
-          {/* Streaming Content */}
-          {isStreaming && (
-            <div className="flex justify-start">
-              <div className="max-w-[80%] space-y-2">
-                {/* Thinking Process */}
-                <ThinkingPanel steps={currentThinking} />
-                
-                {/* Active Tool */}
-                {activeTool && <ToolIndicator tool={activeTool} />}
-                
-                {/* Streaming Response */}
-                <div className="rounded-lg bg-secondary px-4 py-2 text-secondary-foreground">
-                  {streamingContent || (
-                    <span className="animate-pulse">思考中...</span>
-                  )}
+            <div className="flex items-center gap-4">
+              <button
+                onClick={clearChat}
+                className="text-sm text-muted-foreground hover:text-foreground"
+              >
+                清空对话
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="mx-auto max-w-3xl space-y-4">
+            {messages.length === 0 ? (
+              <div className="text-center text-muted-foreground">
+                <p className="text-lg">👋 您好！我是 OLAV</p>
+                <p className="mt-2">企业网络运维智能助手，请输入您的问题</p>
+              </div>
+            ) : (
+              messages.map((msg, i) => (
+                <MessageBubble key={i} message={msg} />
+              ))
+            )}
+            {/* Streaming Content */}
+            {isStreaming && (
+              <div className="flex justify-start">
+                <div className="max-w-[80%] space-y-2">
+                  {/* Thinking Process */}
+                  <ThinkingPanel steps={currentThinking} />
+                  
+                  {/* Active Tool */}
+                  {activeTool && <ToolIndicator tool={activeTool} />}
+                  
+                  {/* Streaming Response */}
+                  <div className="rounded-lg bg-secondary px-4 py-2 text-secondary-foreground">
+                    {streamingContent || (
+                      <span className="animate-pulse">思考中...</span>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-          
-          {/* Auto-scroll anchor */}
-          <div ref={messagesEndRef} />
+            )}
+            
+            {/* Auto-scroll anchor */}
+            <div ref={messagesEndRef} />
+          </div>
         </div>
-      </div>
 
-      {/* Input */}
-      <div className="border-t border-border p-4">
-        <form onSubmit={handleSubmit} className="mx-auto max-w-3xl flex gap-2">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="输入您的问题，例如：查询 R1 的 BGP 状态"
-            className="flex-1 rounded-lg border border-input bg-background px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            disabled={isStreaming}
-          />
-          <button
-            type="submit"
-            disabled={isStreaming || !input.trim()}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            发送
-          </button>
-        </form>
+        {/* Input */}
+        <div className="border-t border-border p-4">
+          <form onSubmit={handleSubmit} className="mx-auto max-w-3xl flex gap-2">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="输入您的问题，例如：查询 R1 的 BGP 状态"
+              className="flex-1 rounded-lg border border-input bg-background px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              disabled={isStreaming}
+            />
+            <button
+              type="submit"
+              disabled={isStreaming || !input.trim()}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              发送
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );

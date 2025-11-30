@@ -13,6 +13,7 @@ interface ChatState {
   streamingContent: string;
   
   addMessage: (message: Message) => void;
+  setMessages: (messages: Message[]) => void;
   updateLastMessage: (content: string) => void;
   setStreaming: (isStreaming: boolean) => void;
   addThinkingStep: (step: ThinkingStep) => void;
@@ -33,6 +34,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     set((state) => ({
       messages: [...state.messages, message],
     }));
+  },
+
+  setMessages: (messages: Message[]) => {
+    set({ messages });
   },
 
   updateLastMessage: (content: string) => {

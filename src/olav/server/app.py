@@ -612,6 +612,307 @@ def create_app() -> FastAPI:
         return current_user
 
     # ============================================
+    # Sessions API (Chat History)
+    # ============================================
+    class SessionInfo(BaseModel):
+        """Session information from checkpointer."""
+        thread_id: str
+        created_at: str
+        updated_at: str
+        message_count: int
+        first_message: str | None = None
+        workflow_type: str | None = None
+
+    class SessionListResponse(BaseModel):
+        """Response for session list endpoint."""
+        sessions: list[SessionInfo]
+        total: int
+
+    @app.get(
+        "/sessions",
+        response_model=SessionListResponse,
+        tags=["sessions"],
+        summary="List chat sessions",
+        responses={
+            200: {
+                "description": "List of chat sessions",
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "sessions": [
+                                {
+                                    "thread_id": "session-123",
+                                    "created_at": "2025-01-27T10:00:00Z",
+                                    "updated_at": "2025-01-27T10:05:00Z",
+                                    "message_count": 5,
+                                    "first_message": "查询 R1 BGP 状态",
+                                    "workflow_type": "query_diagnostic"
+                                }
+                            ],
+                            "total": 1
+                        }
+                    }
+                },
+            },
+        },
+    )
+    async def list_sessions(
+        current_user: CurrentUser,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> SessionListResponse:
+        """
+        List chat sessions from PostgreSQL checkpointer.
+
+        Sessions are ordered by most recent activity (newest first).
+
+        **Required**: Bearer token authentication
+
+        **Query Parameters**:
+        - `limit`: Maximum sessions to return (default: 50)
+        - `offset`: Pagination offset (default: 0)
+
+        **Example Request**:
+        ```bash
+        curl http://localhost:8000/sessions?limit=10 \\
+          -H "Authorization: Bearer <token>"
+        ```
+        """
+        import asyncpg
+        from datetime import datetime
+
+        sessions: list[SessionInfo] = []
+        
+        try:
+            # Direct PostgreSQL query for session list
+            conn = await asyncpg.connect(settings.postgres_uri)
+            try:
+                # Query unique thread_ids with metadata
+                query = """
+                    SELECT 
+                        thread_id,
+                        MIN(checkpoint_id) as first_checkpoint,
+                        MAX(checkpoint_id) as last_checkpoint,
+                        COUNT(*) as checkpoint_count,
+                        MIN(checkpoint::jsonb->>'ts') as created_at,
+                        MAX(checkpoint::jsonb->>'ts') as updated_at
+                    FROM checkpoints
+                    WHERE thread_id NOT LIKE 'invoke-%'
+                      AND thread_id NOT LIKE 'stream-%'
+                    GROUP BY thread_id
+                    ORDER BY MAX(checkpoint_id) DESC
+                    LIMIT $1 OFFSET $2
+                """
+                rows = await conn.fetch(query, limit, offset)
+                
+                # Get total count
+                count_query = """
+                    SELECT COUNT(DISTINCT thread_id) as total
+                    FROM checkpoints
+                    WHERE thread_id NOT LIKE 'invoke-%'
+                      AND thread_id NOT LIKE 'stream-%'
+                """
+                total_row = await conn.fetchrow(count_query)
+                total = total_row["total"] if total_row else 0
+                
+                for row in rows:
+                    # Try to extract first message from checkpoint data
+                    first_message = None
+                    workflow_type = None
+                    
+                    try:
+                        # Get first checkpoint to extract initial user message
+                        first_cp_query = """
+                            SELECT checkpoint
+                            FROM checkpoints
+                            WHERE thread_id = $1
+                            ORDER BY checkpoint_id ASC
+                            LIMIT 1
+                        """
+                        first_cp = await conn.fetchrow(first_cp_query, row["thread_id"])
+                        if first_cp and first_cp["checkpoint"]:
+                            import json
+                            cp_data = json.loads(first_cp["checkpoint"]) if isinstance(first_cp["checkpoint"], str) else first_cp["checkpoint"]
+                            
+                            # Extract messages from channel_values
+                            channel_values = cp_data.get("channel_values", {})
+                            messages = channel_values.get("messages", [])
+                            
+                            # Find first user message
+                            for msg in messages:
+                                if isinstance(msg, dict):
+                                    if msg.get("type") == "human" or msg.get("role") == "user":
+                                        content = msg.get("content", "")
+                                        if content:
+                                            first_message = content[:100] + ("..." if len(content) > 100 else "")
+                                            break
+                            
+                            # Try to get workflow type
+                            workflow_type = channel_values.get("workflow_type")
+                    except Exception as e:
+                        logger.debug(f"Failed to extract message from checkpoint: {e}")
+                    
+                    # Parse timestamps
+                    created_at = row["created_at"] or datetime.now().isoformat()
+                    updated_at = row["updated_at"] or datetime.now().isoformat()
+                    
+                    sessions.append(SessionInfo(
+                        thread_id=row["thread_id"],
+                        created_at=created_at if isinstance(created_at, str) else created_at.isoformat(),
+                        updated_at=updated_at if isinstance(updated_at, str) else updated_at.isoformat(),
+                        message_count=row["checkpoint_count"],
+                        first_message=first_message,
+                        workflow_type=workflow_type,
+                    ))
+                    
+            finally:
+                await conn.close()
+                
+        except Exception as e:
+            logger.error(f"Failed to list sessions: {e}")
+            # Return empty list on error
+            return SessionListResponse(sessions=[], total=0)
+        
+        return SessionListResponse(sessions=sessions, total=total)
+
+    @app.get(
+        "/sessions/{thread_id}",
+        tags=["sessions"],
+        summary="Get session messages",
+        responses={
+            200: {
+                "description": "Session messages",
+            },
+            404: {
+                "description": "Session not found",
+            },
+        },
+    )
+    async def get_session(
+        thread_id: str,
+        current_user: CurrentUser,
+    ) -> dict:
+        """
+        Get messages from a specific session.
+
+        **Required**: Bearer token authentication
+
+        **Example Request**:
+        ```bash
+        curl http://localhost:8000/sessions/session-123 \\
+          -H "Authorization: Bearer <token>"
+        ```
+        """
+        import asyncpg
+        
+        try:
+            conn = await asyncpg.connect(settings.postgres_uri)
+            try:
+                # Get latest checkpoint for this thread
+                query = """
+                    SELECT checkpoint
+                    FROM checkpoints
+                    WHERE thread_id = $1
+                    ORDER BY checkpoint_id DESC
+                    LIMIT 1
+                """
+                row = await conn.fetchrow(query, thread_id)
+                
+                if not row:
+                    raise HTTPException(status_code=404, detail="Session not found")
+                
+                import json
+                cp_data = json.loads(row["checkpoint"]) if isinstance(row["checkpoint"], str) else row["checkpoint"]
+                
+                # Extract messages
+                channel_values = cp_data.get("channel_values", {})
+                messages = channel_values.get("messages", [])
+                
+                # Convert to standard format
+                formatted_messages = []
+                for msg in messages:
+                    if isinstance(msg, dict):
+                        role = "user" if msg.get("type") == "human" else "assistant"
+                        formatted_messages.append({
+                            "role": role,
+                            "content": msg.get("content", ""),
+                        })
+                
+                return {
+                    "thread_id": thread_id,
+                    "messages": formatted_messages,
+                    "workflow_type": channel_values.get("workflow_type"),
+                }
+                
+            finally:
+                await conn.close()
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to get session {thread_id}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.delete(
+        "/sessions/{thread_id}",
+        tags=["sessions"],
+        summary="Delete a session",
+        responses={
+            200: {
+                "description": "Session deleted",
+            },
+            404: {
+                "description": "Session not found",
+            },
+        },
+    )
+    async def delete_session(
+        thread_id: str,
+        current_user: CurrentUser,
+    ) -> dict:
+        """
+        Delete a session and all its checkpoints.
+
+        **Required**: Bearer token authentication (admin only)
+
+        **Example Request**:
+        ```bash
+        curl -X DELETE http://localhost:8000/sessions/session-123 \\
+          -H "Authorization: Bearer <token>"
+        ```
+        """
+        import asyncpg
+        
+        try:
+            conn = await asyncpg.connect(settings.postgres_uri)
+            try:
+                # Delete checkpoints for this thread
+                result = await conn.execute(
+                    "DELETE FROM checkpoints WHERE thread_id = $1",
+                    thread_id
+                )
+                
+                # Also delete from checkpoint_writes if exists
+                await conn.execute(
+                    "DELETE FROM checkpoint_writes WHERE thread_id = $1",
+                    thread_id
+                )
+                
+                if "DELETE 0" in result:
+                    raise HTTPException(status_code=404, detail="Session not found")
+                
+                return {"status": "deleted", "thread_id": thread_id}
+                
+            finally:
+                await conn.close()
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to delete session {thread_id}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # ============================================
     # LangServe Routes
     # ============================================
     # NOTE: LangServe routes now mounted dynamically in lifespan after orchestrator init.
