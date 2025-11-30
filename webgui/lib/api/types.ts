@@ -149,3 +149,31 @@ export interface WorkflowResult {
   execution_plan?: ExecutionPlan;
   final_message?: string;
 }
+
+// ============================================
+// Topology Types
+// ============================================
+export interface TopologyNode {
+  id: string;
+  hostname: string;
+  device_type?: string;
+  vendor?: string;
+  model?: string;
+  status: 'up' | 'down';
+  management_ip?: string;
+}
+
+export interface TopologyEdge {
+  id: string;
+  source: string;
+  target: string;
+  source_port?: string;
+  target_port?: string;
+  link_type?: string;
+}
+
+export interface TopologyData {
+  nodes: TopologyNode[];
+  edges: TopologyEdge[];
+  last_updated?: string;
+}

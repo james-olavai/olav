@@ -297,4 +297,16 @@ export async function deleteSession(threadId: string, token: string): Promise<vo
   await fetchApi(`/sessions/${threadId}`, { method: 'DELETE' }, token);
 }
 
+// ============================================
+// Topology API
+// ============================================
+import type { TopologyData } from './types';
+
+/**
+ * Get network topology data
+ */
+export async function getTopology(token: string): Promise<TopologyData> {
+  return fetchApi<TopologyData>('/topology', {}, token);
+}
+
 export { ApiError };

@@ -202,6 +202,12 @@ export default function ChatPage() {
               <ModeSelector currentMode={workflowMode} onModeChange={setWorkflowMode} />
             </div>
             <div className="flex items-center gap-4">
+              <a
+                href="/topology"
+                className="text-sm text-muted-foreground hover:text-foreground"
+              >
+                🌐 拓扑
+              </a>
               <button
                 onClick={clearChat}
                 className="text-sm text-muted-foreground hover:text-foreground"
