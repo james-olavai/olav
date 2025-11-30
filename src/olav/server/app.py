@@ -913,6 +913,187 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=500, detail=str(e))
 
     # ============================================
+    # Network Topology API
+    # ============================================
+    class TopologyNode(BaseModel):
+        """Node in the network topology."""
+        id: str
+        hostname: str
+        device_type: str | None = None
+        vendor: str | None = None
+        model: str | None = None
+        status: str = "up"
+        management_ip: str | None = None
+
+    class TopologyEdge(BaseModel):
+        """Edge (link) in the network topology."""
+        id: str
+        source: str  # Source node ID
+        target: str  # Target node ID
+        source_port: str | None = None
+        target_port: str | None = None
+        link_type: str | None = None  # "lldp", "bgp", etc.
+
+    class TopologyData(BaseModel):
+        """Network topology data."""
+        nodes: list[TopologyNode]
+        edges: list[TopologyEdge]
+        last_updated: str | None = None
+
+    @app.get(
+        "/topology",
+        response_model=TopologyData,
+        tags=["topology"],
+        summary="Get network topology",
+        responses={
+            200: {
+                "description": "Network topology data",
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "nodes": [
+                                {
+                                    "id": "R1",
+                                    "hostname": "R1",
+                                    "device_type": "router",
+                                    "vendor": "cisco",
+                                    "status": "up"
+                                }
+                            ],
+                            "edges": [
+                                {
+                                    "id": "R1-eth0-R2-eth0",
+                                    "source": "R1",
+                                    "target": "R2",
+                                    "source_port": "eth0",
+                                    "target_port": "eth0"
+                                }
+                            ],
+                            "last_updated": "2025-12-01T10:00:00Z"
+                        }
+                    }
+                },
+            },
+        },
+    )
+    async def get_topology(current_user: CurrentUser) -> TopologyData:
+        """
+        Get network topology from SuzieQ LLDP and device data.
+
+        Builds a graph of network devices and their interconnections
+        based on LLDP neighbor discovery data.
+
+        **Required**: Bearer token authentication
+
+        **Example Request**:
+        ```bash
+        curl http://localhost:8000/topology \\
+          -H "Authorization: Bearer <token>"
+        ```
+        """
+        from datetime import datetime
+        from pathlib import Path
+        import pandas as pd
+
+        nodes: list[TopologyNode] = []
+        edges: list[TopologyEdge] = []
+        seen_nodes: set[str] = set()
+        seen_edges: set[str] = set()
+        last_updated: str | None = None
+
+        parquet_dir = Path("data/suzieq-parquet")
+
+        try:
+            # Load device data for nodes
+            device_path = parquet_dir / "device"
+            if device_path.exists():
+                device_files = list(device_path.rglob("*.parquet"))
+                if device_files:
+                    df_device = pd.concat([pd.read_parquet(f) for f in device_files], ignore_index=True)
+                    
+                    # Get latest record per hostname
+                    if "timestamp" in df_device.columns:
+                        df_device = df_device.sort_values("timestamp", ascending=False)
+                        df_device = df_device.drop_duplicates(subset=["hostname"], keep="first")
+                        last_updated = df_device["timestamp"].max()
+                        if pd.notna(last_updated):
+                            last_updated = pd.Timestamp(last_updated).isoformat()
+                    
+                    for _, row in df_device.iterrows():
+                        hostname = str(row.get("hostname", "unknown"))
+                        if hostname and hostname not in seen_nodes:
+                            seen_nodes.add(hostname)
+                            nodes.append(TopologyNode(
+                                id=hostname,
+                                hostname=hostname,
+                                device_type=str(row.get("devtype", "")) or None,
+                                vendor=str(row.get("vendor", "")) or None,
+                                model=str(row.get("model", "")) or None,
+                                status="up" if row.get("status") == "alive" else "down",
+                                management_ip=str(row.get("address", "")) or None,
+                            ))
+
+            # Load LLDP data for edges
+            lldp_path = parquet_dir / "lldp"
+            if lldp_path.exists():
+                lldp_files = list(lldp_path.rglob("*.parquet"))
+                if lldp_files:
+                    df_lldp = pd.concat([pd.read_parquet(f) for f in lldp_files], ignore_index=True)
+                    
+                    # Get latest records
+                    if "timestamp" in df_lldp.columns:
+                        df_lldp = df_lldp.sort_values("timestamp", ascending=False)
+                        df_lldp = df_lldp.drop_duplicates(
+                            subset=["hostname", "ifname", "peerHostname", "peerIfname"],
+                            keep="first"
+                        )
+                    
+                    for _, row in df_lldp.iterrows():
+                        source = str(row.get("hostname", ""))
+                        target = str(row.get("peerHostname", ""))
+                        source_port = str(row.get("ifname", ""))
+                        target_port = str(row.get("peerIfname", ""))
+                        
+                        if not source or not target:
+                            continue
+                        
+                        # Create unique edge ID (sorted to avoid duplicates A-B vs B-A)
+                        edge_key = tuple(sorted([f"{source}:{source_port}", f"{target}:{target_port}"]))
+                        edge_id = f"{edge_key[0]}-{edge_key[1]}"
+                        
+                        if edge_id not in seen_edges:
+                            seen_edges.add(edge_id)
+                            edges.append(TopologyEdge(
+                                id=edge_id,
+                                source=source,
+                                target=target,
+                                source_port=source_port or None,
+                                target_port=target_port or None,
+                                link_type="lldp",
+                            ))
+                            
+                            # Ensure both nodes exist
+                            for node_name in [source, target]:
+                                if node_name not in seen_nodes:
+                                    seen_nodes.add(node_name)
+                                    nodes.append(TopologyNode(
+                                        id=node_name,
+                                        hostname=node_name,
+                                        status="up",
+                                    ))
+
+        except Exception as e:
+            logger.error(f"Failed to load topology: {e}")
+            # Return empty topology on error
+            return TopologyData(nodes=[], edges=[], last_updated=None)
+
+        return TopologyData(
+            nodes=nodes,
+            edges=edges,
+            last_updated=last_updated,
+        )
+
+    # ============================================
     # LangServe Routes
     # ============================================
     # NOTE: LangServe routes now mounted dynamically in lifespan after orchestrator init.

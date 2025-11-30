@@ -896,7 +896,7 @@ export interface ExecutionPlan {
 | ~~Docker Compose 集成~~ | ~~P1~~ | ✅ 已完成 (olav-webgui service) |
 | ~~Single Token Auth 对齐~~ | ~~P1~~ | ✅ 已完成 (removed JWT) |
 | ~~会话历史侧边栏~~ | ~~P2~~ | ✅ 已完成 (SessionSidebar + /sessions API) |
-| 网络拓扑页面 | P3 | NetBox/SuzieQ 数据 |
+| ~~网络拓扑页面~~ | ~~P3~~ | ✅ 已完成 (React Flow + /topology API) |
 
 ---
 
