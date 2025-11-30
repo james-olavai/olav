@@ -11,10 +11,10 @@
 | SSE 流式响应 | `POST /orchestrator/stream` | 实时渲染 AI 回复 |
 | 同步调用 | `POST /orchestrator/invoke` | 简单查询 |
 | HITL 中断审批 | LangGraph interrupt | 交互式确认弹窗 |
-| JWT 认证 | `POST /auth/login` | 登录/会话管理 |
+| Token 认证 | 启动时自动生成 | Token 输入/会话管理 |
 | 公共配置 | `GET /config` | 功能开关/限制 |
 | 健康检查 | `GET /health` | 服务状态监控 |
-| 用户信息 | `GET /me` | 用户角色展示 |
+| 用户信息 | `GET /me` | Token 验证/用户展示 |
 
 ## Technology Stack
 
@@ -168,66 +168,63 @@ olav-webgui/
 
 ## Authentication Design
 
-### 当前实现：简化 Token 模式
+### 单 Token 认证模式
 
-**Phase 1 采用预生成 Token 方式**，跳过完整登录流程，加速开发迭代。
+**OLAV 采用简化的单 Token 认证**，服务器启动时自动生成 Token 并打印到控制台。
 
-#### 后端预设用户
+#### 设计理念
 
-后端 `src/olav/server/auth.py` 已包含三个预设用户：
+- **简单优先**：无需用户名/密码，无需数据库
+- **快速迭代**：减少开发和测试复杂度
+- **容器友好**：通过环境变量 `OLAV_API_TOKEN` 支持多副本部署
 
-| 用户名 | 密码 | 角色 | 权限 |
-|--------|------|------|------|
-| `admin` | `admin123` | admin | 全部操作 + 用户管理 |
-| `operator` | `operator123` | operator | 查询 + 执行（需 HITL） |
-| `viewer` | `viewer123` | viewer | 只读查询 |
-
-#### 开发模式 Token
-
-WebGUI 在开发阶段使用**环境变量预设 Token**：
-
-```bash
-# webgui/.env.local
-NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_DEV_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...  # 预生成的 admin token
-```
-
-#### Token 生成脚本
-
-后端提供一次性 Token 生成：
-
-```python
-# scripts/generate_dev_token.py
-from olav.server.auth import create_access_token
-from datetime import timedelta
-
-# 生成 30 天有效期的开发 Token
-token = create_access_token(
-    data={"sub": "admin", "role": "admin"},
-    expires_delta=timedelta(days=30)
-)
-print(f"NEXT_PUBLIC_DEV_TOKEN={token}")
-```
-
-#### WebGUI 认证流程
+#### 认证流程
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Phase 1: Token 模式                       │
+│                    Single Token 认证流程                     │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  1. 检查 localStorage 是否有 token                           │
+│  1. 后端启动时生成 Token 并打印到控制台:                      │
+│     🔑 ACCESS TOKEN: xxxxx-xxxxx-xxxxx                      │
+│     🌐 WebGUI URL: http://localhost:3100?token=xxxxx        │
 │     ↓                                                       │
-│  2. 无 token → 显示 Token 输入页面                           │
-│     ├── 输入框：粘贴预生成 Token                             │
-│     ├── 或使用 .env 中的 NEXT_PUBLIC_DEV_TOKEN               │
-│     └── 验证：GET /me 检查 token 有效性                      │
+│  2. 用户访问 WebGUI:                                         │
+│     ├── 方式 A: 点击控制台打印的 URL (自动携带 token)          │
+│     ├── 方式 B: 手动访问 /login 页面，粘贴 Token              │
+│     └── Token 存储到 localStorage                           │
 │     ↓                                                       │
-│  3. Token 有效 → 跳转 /chat                                 │
+│  3. 验证 Token: GET /me                                     │
+│     ├── 成功 → 跳转 /chat                                   │
+│     └── 失败 → 显示错误，返回 Token 输入页                   │
 │     ↓                                                       │
-│  4. Token 过期/无效 → 清除 localStorage，返回输入页           │
+│  4. 后续请求: Authorization: Bearer <token>                 │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
+```
+
+#### Token 获取方式
+
+**方式 1: 从服务器日志复制**
+
+```bash
+# 启动服务器后，控制台会打印:
+============================================================
+🔑 ACCESS TOKEN (valid for 24 hours):
+   Abc123XyzTokenStringHere...
+
+🌐 WebGUI URL (click to open):
+   http://localhost:3100?token=Abc123XyzTokenStringHere...
+
+📖 API Docs: http://localhost:8000/docs
+============================================================
+```
+
+**方式 2: 环境变量预设** (多副本/Docker 部署)
+
+```bash
+# .env 或 docker-compose.yml
+OLAV_API_TOKEN=your-predefined-secure-token
 ```
 
 #### Token 输入页面 UI
@@ -238,18 +235,17 @@ print(f"NEXT_PUBLIC_DEV_TOKEN={token}")
 │            🔐 OLAV WebGUI               │
 │                                         │
 │  ┌─────────────────────────────────┐    │
-│  │ 粘贴 API Token...               │    │
+│  │ 粘贴 Access Token...            │    │
 │  └─────────────────────────────────┘    │
 │                                         │
-│  [ 使用开发 Token ]   [ 验证并进入 ]     │
+│         [ 验证并进入 ]                   │
 │                                         │
 │  ────────────────────────────────────   │
 │                                         │
-│  💡 获取 Token:                          │
-│     uv run python scripts/generate_dev_token.py │
+│  💡 Token 获取方式:                      │
+│     查看服务器启动日志中的 ACCESS TOKEN  │
 │                                         │
-│  📋 预设账户:                            │
-│     admin / operator / viewer           │
+│  🔗 或直接使用日志中打印的 WebGUI URL    │
 │                                         │
 └─────────────────────────────────────────┘
 ```
@@ -263,49 +259,55 @@ interface AuthState {
   user: User | null;
   isValidating: boolean;
   
-  // Token 模式
+  // Single Token 模式
   setToken: (token: string) => Promise<boolean>;  // 验证并存储
-  useDevToken: () => Promise<boolean>;            // 使用环境变量 token
   clearAuth: () => void;
 }
 ```
 
-#### 后续迭代：完整登录
+#### URL Token 自动登录
 
-Phase 2+ 将实现完整登录页面：
+WebGUI 支持从 URL query 参数读取 Token，实现一键登录：
 
 ```typescript
-// 完整登录流程（Phase 2）
-login: async (username: string, password: string) => {
-  const response = await fetch('/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({ username, password }),
-  });
-  const { access_token } = await response.json();
-  // ... 存储 token
-}
+// app/login/page.tsx
+useEffect(() => {
+  const urlToken = searchParams.get('token');
+  if (urlToken) {
+    // 自动验证并登录
+    validateAndSetToken(urlToken);
+  }
+}, []);
 ```
+
+#### 安全考虑
+
+| 场景 | 措施 |
+|------|------|
+| Token 泄露 | 24 小时自动过期，重启服务器生成新 Token |
+| 暴力破解 | 43 字符 URL-safe Base64，熵值足够高 |
+| 多副本部署 | 使用 `OLAV_API_TOKEN` 环境变量统一 Token |
+| 生产环境 | 建议配合 HTTPS + 反向代理使用 |
 
 ---
 
 ## Core Pages
 
-### 1. Token Entry (`/login`) - Phase 1
+### 1. Token Entry (`/login`)
 
 ```
 ┌─────────────────────────────────┐
 │           🔐 OLAV               │
 │                                 │
 │  ┌───────────────────────────┐  │
-│  │ 粘贴 API Token...         │  │
+│  │ 粘贴 Access Token...      │  │
 │  └───────────────────────────┘  │
 │                                 │
-│  [使用开发Token] [验证并进入]   │
+│       [ 验证并进入 ]            │
 │                                 │
 │  ─────────────────────────────  │
 │  💡 Token 获取方式:              │
-│  uv run python scripts/        │
-│    generate_dev_token.py       │
+│  查看服务器启动日志              │
 │                                 │
 │  Environment: local             │
 └─────────────────────────────────┘
@@ -313,32 +315,8 @@ login: async (username: string, password: string) => {
 
 **功能**:
 - Token 粘贴输入
-- 使用环境变量开发 Token
+- URL ?token= 自动登录
 - `GET /me` 验证
-- 错误提示
-
-### 2. Login (`/login`) - Phase 2 (Future)
-
-```
-┌─────────────────────────────────┐
-│           OLAV Logo             │
-│                                 │
-│  ┌───────────────────────────┐  │
-│  │ Username                  │  │
-│  └───────────────────────────┘  │
-│  ┌───────────────────────────┐  │
-│  │ Password                  │  │
-│  └───────────────────────────┘  │
-│                                 │
-│  [        Login Button        ] │
-│                                 │
-│  Environment: production        │
-└─────────────────────────────────┘
-```
-
-**功能**:
-- JWT 登录 (`POST /auth/login`)
-- 记住用户名
 - 错误提示
 
 ### 2. Chat (`/chat`)
@@ -701,7 +679,7 @@ import { persist } from 'zustand/middleware';
 interface AuthState {
   token: string | null;
   user: User | null;
-  login: (username: string, password: string) => Promise<void>;
+  setToken: (token: string) => Promise<boolean>;
   logout: () => void;
 }
 
@@ -710,10 +688,14 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       token: null,
       user: null,
-      login: async (username, password) => {
-        const { access_token } = await api.login(username, password);
-        const user = await api.getMe(access_token);
-        set({ token: access_token, user });
+      setToken: async (token) => {
+        // Validate token via GET /me
+        const user = await api.getMe(token);
+        if (user) {
+          set({ token, user });
+          return true;
+        }
+        return false;
       },
       logout: () => set({ token: null, user: null }),
     }),
@@ -903,7 +885,6 @@ export interface ExecutionPlan {
 | **Token 认证页面** | ✅ 完成 | `app/login/page.tsx` |
 | **Auth Guard 组件** | ✅ 完成 | `components/auth-guard.tsx` |
 | **路由保护中间件** | ✅ 完成 | `middleware.ts` |
-| **Token 生成脚本** | ✅ 完成 | `scripts/generate_dev_token.py` |
 
 ### 待实现
 
@@ -1028,27 +1009,39 @@ export interface ExecutionPlan {
 
 ---
 
-## 当前开发 Token
+## Token 获取方式
 
-后端预设三个测试用户，使用以下命令生成开发 Token：
+### 方式 1: 服务器启动日志
 
-```bash
-cd /path/to/Olav
-uv run python -c "
-from olav.server.auth import create_access_token
-from datetime import timedelta
-
-# Admin token (30 days)
-token = create_access_token(
-    data={'sub': 'admin', 'role': 'admin'},
-    expires_delta=timedelta(days=30)
-)
-print(f'Admin Token: {token}')
-"
-```
-
-将输出的 Token 配置到 `webgui/.env.local`：
+启动 OLAV 服务器后，Token 会自动打印到控制台：
 
 ```bash
-NEXT_PUBLIC_DEV_TOKEN=eyJhbGciOiJIUzI1NiIs...
+uv run python -m olav.server.app
+# 或 Docker 模式
+docker-compose up olav-server
+
+# 控制台输出:
+# ============================================================
+# 🔑 ACCESS TOKEN (valid for 24 hours):
+#    Abc123XyzTokenStringHere...
+#
+# 🌐 WebGUI URL (click to open):
+#    http://localhost:3100?token=Abc123XyzTokenStringHere...
+# ============================================================
 ```
+
+### 方式 2: 环境变量预设
+
+在 Docker 或多副本部署时，可以预设固定 Token：
+
+```bash
+# .env
+OLAV_API_TOKEN=your-secure-token-here
+
+# docker-compose.yml
+services:
+  olav-server:
+    environment:
+      - OLAV_API_TOKEN=${OLAV_API_TOKEN}
+```
+

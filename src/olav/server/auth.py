@@ -1,10 +1,14 @@
-"""Simplified Token Authentication for OLAV API Server.
+"""OLAV API Server Authentication.
 
-Single-token mode:
-- Token can be set via OLAV_API_TOKEN environment variable (for multi-worker mode)
-- Or auto-generated on server startup (for single-worker mode)
-- Printed as clickable URL for easy access
-- No username/password required
+Single-token authentication mode:
+- Token auto-generated on server startup (printed to console)
+- Token passed via URL query param or Authorization header
+- All authenticated users treated as admin role
+
+This is a simplified auth model optimized for:
+- Quick development iteration
+- Single-user/team deployments
+- Docker/container environments
 """
 
 import os
@@ -19,10 +23,9 @@ from pydantic import BaseModel
 from olav.core.settings import settings
 
 # ============================================
-# Single Access Token (Environment or Generated)
+# Single Access Token
 # ============================================
-# For multi-worker deployments, set OLAV_API_TOKEN environment variable
-# Otherwise, token is generated fresh on each worker start
+# Token can be set via environment (multi-worker) or auto-generated (single-worker)
 _access_token: str | None = os.environ.get("OLAV_API_TOKEN")
 _token_created_at: datetime | None = datetime.now(UTC) if _access_token else None
 _token_from_env: bool = _access_token is not None
@@ -40,9 +43,11 @@ def generate_access_token() -> str:
     if _token_from_env and _access_token:
         return _access_token
     
-    # Generate new token
-    _access_token = secrets.token_urlsafe(32)
-    _token_created_at = datetime.now(UTC)
+    # Generate new token if not already generated
+    if _access_token is None:
+        _access_token = secrets.token_urlsafe(32)
+        _token_created_at = datetime.now(UTC)
+    
     return _access_token
 
 
@@ -59,18 +64,27 @@ def get_token_age_minutes() -> int | None:
     return int(delta.total_seconds() / 60)
 
 
-def validate_token(token: str) -> bool:
-    """Validate if the provided token matches the server token."""
-    if _access_token is None:
-        return False
+def validate_token(token: str) -> tuple[bool, dict | None]:
+    """Validate the provided token against the server token.
     
-    # Check token expiration (configurable, default 24 hours)
+    Returns:
+        Tuple of (is_valid, user_data or None)
+    """
+    if not _access_token:
+        return (False, None)
+    
+    # Constant-time comparison to prevent timing attacks
+    if not secrets.compare_digest(token, _access_token):
+        return (False, None)
+    
+    # Check token expiration
     if _token_created_at:
         max_age = timedelta(hours=getattr(settings, 'token_max_age_hours', 24))
         if datetime.now(UTC) - _token_created_at > max_age:
-            return False
+            return (False, None)
     
-    return secrets.compare_digest(token, _access_token)
+    # All authenticated users are admin in single-token mode
+    return (True, {"username": "admin", "role": "admin", "disabled": False})
 
 
 # ============================================
@@ -99,9 +113,9 @@ security = CustomHTTPBearer()
 # Data Models
 # ============================================
 class User(BaseModel):
-    """Simplified user model (single admin user)."""
-    username: str = "admin"
-    role: str = "admin"
+    """User model."""
+    username: str
+    role: str
     disabled: bool = False
 
 
@@ -117,17 +131,18 @@ class Token(BaseModel):
 async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
 ) -> User:
-    """Validate token and return admin user."""
+    """Validate token and return user."""
     token = credentials.credentials
     
-    if not validate_token(token):
+    is_valid, user_data = validate_token(token)
+    if not is_valid or user_data is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    return User()
+    return User(**user_data)
 
 
 # Convenience type alias

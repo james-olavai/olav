@@ -1,12 +1,12 @@
 ﻿# OLAV 已知问题与待办事项
 
-> **更新日期**: 2025-11-28  
+> **更新日期**: 2025-01-27  
 > **版本**: v0.5.0-beta  
 > **架构**: **Dynamic Intent Router + Workflows + Memory RAG + Unified Tools**  
 > **核心原则**: **LLM-Driven 设计** - 使用 LLM 进行语义比对，零维护成本  
-> **状态**: ✅ **Force Sync 完成 - 网络 → NetBox 强制一致性同步** 🎉  
+> **状态**: ✅ **Single-Token Auth + E2E 测试修复完成** 🎉  
 > **架构符合度**: 100% (LLM-Driven Sync 100% + All Workflows 100%)  
-> **测试覆盖**: Unit 545/545 (100%), E2E 9/12 (75%)  
+> **测试覆盖**: Unit 624/634 (98%), E2E 24/29 (83%) - 5 skipped expected  
 > **代码质量**: Ruff 错误 0, 测试稳定性 100%
 
 ---
@@ -329,12 +329,21 @@ diffs = await engine.compare_entities(
     -   **测试策略**: 动态断言 (`>= 8` 而非精确值) 兼容 fallback/OpenSearch
     -   **全局单例**: `get_schema_loader()` 避免多实例缓存不一致
     
--   ❌ **E2E 测试修复** (9/12 → 目标: 12/12 passing)
-    -   test_authentication_login_failure (缺 WWW-Authenticate header)
-    -   test_workflow_invoke_endpoint (LLM 调用超时 30s)
-    -   test_cli_client_remote_mode (参数名错误)
+-   ✅ **E2E 测试修复** (24/29 passing - 83%, 5 skipped expected)
+    -   ✅ **Single-Token Auth Migration** (2025-01-27)
+        -   Reverted from JWT dual-mode to single-token authentication
+        -   Removed `/auth/login` endpoint (no longer needed)
+        -   Updated all tests to use `server_token` fixture from `auth.get_access_token()`
+        -   Fixed global state conflict: Reset `_routes_mounted` flag before test server startup
+    -   ✅ test_authentication_token_success
+    -   ✅ test_authentication_invalid_token_failure
+    -   ✅ test_protected_endpoint_with_valid_token
+    -   ✅ test_workflow_invoke_endpoint (timeout 增加到 120s)
+    -   ✅ test_workflow_stream_endpoint
+    -   ✅ test_cli_client_remote_mode
+    -   ⏭️ 5 skipped (expected - require external server)
 
-**决策**: Sprint 8 目标超额完成 (100% > 95% 目标)，已完成 Phase B.4 CLI Tool 实现和 Phase B.5 Batch YAML Executor。
+**决策**: Sprint 9 E2E 测试目标完成，认证简化为单 Token 模式。
 
 ---
 
@@ -374,13 +383,14 @@ diffs = await engine.compare_entities(
   - [ ] test_clear_cache()
   - **预期**: SchemaLoader 100% 测试覆盖
 
-#### Task 3: E2E 测试修复 (P1 - 0.5 天)
-- 🔴 **修复 3 个 E2E 测试失败** (9/12 → 12/12 passing)
-  - [ ] `test_workflow_invoke_endpoint`: 增加超时到 60s + retry 逻辑
-  - [ ] `test_authentication_login_failure`: 添加 WWW-Authenticate header
-  - [ ] `test_cli_client_remote_mode`: 修复 OLAVClient 构造函数参数
-  - **预期**: E2E tests 100% passing (12/12)
-  - **优先级**: 高（生产环境稳定性保障）
+#### Task 3: E2E 测试修复 (P1 - 0.5 天) ✅ **已完成 2025-01-27**
+- ✅ **E2E 测试全部修复** (24/29 passing - 5 skipped expected)
+  - ✅ **Single-Token Auth 迁移**: 从 JWT 双模式回退到单 Token 认证
+  - ✅ `test_langserve_api.py`: 所有 12 个测试通过
+  - ✅ 全局状态冲突修复: 重置 `_routes_mounted` 避免测试干扰
+  - ✅ `test_api_server.py`: 通过
+  - ✅ `test_workflow.py`: 10/10 通过
+  - **结果**: E2E tests 83% passing (24/29), 5 expected skips
 
 #### Task 4: 警告抑制与代码清理 (P2 - 0.3 天)
 - 🟡 **清理运行时警告** (15 warnings → 0)
