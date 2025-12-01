@@ -209,7 +209,8 @@ services:
       - ./config/netbox-extra:/etc/netbox/config/extra
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/ || exit 1"]
+      # Accept 200 or 403 (auth required) as healthy - server is responding
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/ | grep -E '^(200|403)$' || exit 1"]
       interval: 30s
       timeout: 10s
       start_period: 300s
