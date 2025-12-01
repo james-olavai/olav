@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { useTopologyStore } from '@/lib/stores/topology-store';
 import { getTopology } from '@/lib/api/client';
@@ -69,7 +70,8 @@ function DeviceDetailPanel({ device, onClose }: { device: TopologyNode; onClose:
 }
 
 export default function TopologyPage() {
-  const { token } = useAuthStore();
+  const router = useRouter();
+  const { token, _hasHydrated } = useAuthStore();
   const {
     nodes,
     edges,
@@ -84,6 +86,13 @@ export default function TopologyPage() {
   } = useTopologyStore();
   
   const [selectedDevice, setSelectedDevice] = useState<TopologyNode | null>(null);
+
+  // Redirect if not authenticated (wait for hydration first)
+  useEffect(() => {
+    if (_hasHydrated && !token) {
+      router.push('/login');
+    }
+  }, [_hasHydrated, token, router]);
 
   // Fetch topology data
   useEffect(() => {
@@ -125,6 +134,15 @@ export default function TopologyPage() {
       setLoading(false);
     }
   };
+
+  // Show loading while hydrating
+  if (!_hasHydrated) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex h-screen flex-col bg-background">

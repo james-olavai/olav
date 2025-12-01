@@ -8,7 +8,7 @@ import type { InspectionConfig } from '@/lib/api/types';
 
 export default function InspectionsPage() {
   const router = useRouter();
-  const { token, isAuthenticated } = useAuthStore();
+  const { token, isAuthenticated, _hasHydrated } = useAuthStore();
   const { 
     inspections, 
     selectedInspection, 
@@ -25,12 +25,12 @@ export default function InspectionsPage() {
 
   const [selectedDevices, setSelectedDevices] = useState<string[]>([]);
 
-  // Redirect if not authenticated
+  // Redirect if not authenticated (wait for hydration first)
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (_hasHydrated && !isAuthenticated) {
       router.push('/login');
     }
-  }, [isAuthenticated, router]);
+  }, [_hasHydrated, isAuthenticated, router]);
 
   // Fetch inspections on mount
   useEffect(() => {
@@ -69,8 +69,13 @@ export default function InspectionsPage() {
     );
   };
 
-  if (!isAuthenticated) {
-    return null;
+  // Show loading while hydrating or not authenticated
+  if (!_hasHydrated || !isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+      </div>
+    );
   }
 
   // Get status badge color

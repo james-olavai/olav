@@ -33,7 +33,7 @@ const dateRangeLabels: Record<string, string> = {
 
 export default function HistoryPage() {
   const router = useRouter();
-  const { token } = useAuthStore();
+  const { token, _hasHydrated } = useAuthStore();
   const {
     items,
     total,
@@ -49,6 +49,13 @@ export default function HistoryPage() {
   } = useHistoryStore();
 
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  // Redirect if not authenticated (wait for hydration first)
+  useEffect(() => {
+    if (_hasHydrated && !token) {
+      router.push('/login');
+    }
+  }, [_hasHydrated, token, router]);
 
   // Load history on mount
   const loadHistory = useCallback(async () => {
@@ -123,6 +130,15 @@ export default function HistoryPage() {
 
   // Filter items
   const filteredItems = filterHistoryItems(items, filter);
+
+  // Show loading while hydrating
+  if (!_hasHydrated) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900">
