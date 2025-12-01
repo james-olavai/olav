@@ -230,3 +230,68 @@ export interface ReportDetail extends ReportSummary {
   pass_rate: number;
   warnings: string[];
 }
+
+// ============================================
+// Inspection Configuration Types
+// ============================================
+export interface InspectionCheck {
+  name: string;
+  description?: string;
+  tool: string;
+  enabled: boolean;
+  parameters: Record<string, unknown>;
+}
+
+export interface InspectionConfig {
+  id: string;
+  name: string;
+  description?: string;
+  filename: string;
+  devices: string[] | Record<string, unknown>;
+  checks: InspectionCheck[];
+  parallel: boolean;
+  max_workers: number;
+  stop_on_failure: boolean;
+  output_format: string;
+}
+
+export interface InspectionListResponse {
+  inspections: InspectionConfig[];
+  total: number;
+}
+
+export interface InspectionRunRequest {
+  devices?: string[];
+  checks?: string[];
+}
+
+export interface InspectionRunResponse {
+  status: 'started' | 'completed' | 'failed';
+  message: string;
+  report_id?: string;
+}
+
+// ============================================
+// Document Management Types (RAG)
+// ============================================
+export interface DocumentSummary {
+  id: string;
+  filename: string;
+  file_type: string;
+  size_bytes: number;
+  uploaded_at: string;
+  indexed: boolean;
+  chunk_count: number;
+}
+
+export interface DocumentListResponse {
+  documents: DocumentSummary[];
+  total: number;
+}
+
+export interface DocumentUploadResponse {
+  status: string;
+  message: string;
+  document_id?: string;
+  filename?: string;
+}

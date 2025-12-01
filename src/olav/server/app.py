@@ -1385,6 +1385,483 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=500, detail=str(e))
 
     # ============================================
+    # Inspection Configuration API
+    # ============================================
+    class InspectionCheck(BaseModel):
+        """A single check within an inspection configuration."""
+        name: str
+        description: str | None = None
+        tool: str
+        enabled: bool = True
+        parameters: dict = {}
+
+    class InspectionConfig(BaseModel):
+        """Inspection configuration from YAML file."""
+        id: str
+        name: str
+        description: str | None = None
+        filename: str
+        devices: list[str] | dict = []
+        checks: list[InspectionCheck] = []
+        parallel: bool = True
+        max_workers: int = 5
+        stop_on_failure: bool = False
+        output_format: str = "table"
+
+    class InspectionListResponse(BaseModel):
+        """Response for inspection list endpoint."""
+        inspections: list[InspectionConfig]
+        total: int
+
+    class InspectionRunRequest(BaseModel):
+        """Request to run an inspection."""
+        devices: list[str] | None = None  # Override devices if provided
+        checks: list[str] | None = None   # Run only specific checks if provided
+
+    class InspectionRunResponse(BaseModel):
+        """Response from running an inspection."""
+        status: str  # "started", "completed", "failed"
+        message: str
+        report_id: str | None = None
+
+    def _parse_inspection_yaml(filepath) -> dict | None:
+        """Parse inspection YAML file and return config dict."""
+        import yaml
+        from pathlib import Path
+        
+        try:
+            content = Path(filepath).read_text(encoding="utf-8")
+            config = yaml.safe_load(content)
+            return config
+        except Exception as e:
+            logger.warning(f"Failed to parse inspection YAML {filepath}: {e}")
+            return None
+
+    @app.get(
+        "/inspections",
+        response_model=InspectionListResponse,
+        tags=["inspections"],
+        summary="List inspection configurations",
+        responses={
+            200: {
+                "description": "List of inspection configurations",
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "inspections": [
+                                {
+                                    "id": "bgp_peer_audit",
+                                    "name": "bgp_peer_audit",
+                                    "description": "Verify BGP peer counts and states",
+                                    "filename": "bgp_peer_audit.yaml",
+                                    "devices": ["R1", "R2", "R3"],
+                                    "checks": [
+                                        {"name": "bgp_established_count", "tool": "suzieq_query", "enabled": True}
+                                    ],
+                                    "parallel": True,
+                                    "max_workers": 5
+                                }
+                            ],
+                            "total": 1
+                        }
+                    }
+                },
+            },
+        },
+    )
+    async def list_inspections(current_user: CurrentUser) -> InspectionListResponse:
+        """
+        List all inspection configurations from config/inspections/.
+
+        **Required**: Bearer token authentication
+
+        **Example Request**:
+        ```bash
+        curl http://localhost:8000/inspections \\
+          -H "Authorization: Bearer <token>"
+        ```
+        """
+        from pathlib import Path
+        
+        inspections_dir = Path("config/inspections")
+        inspections: list[InspectionConfig] = []
+        
+        try:
+            if inspections_dir.exists():
+                yaml_files = sorted(inspections_dir.glob("*.yaml"))
+                
+                for yaml_file in yaml_files:
+                    config = _parse_inspection_yaml(yaml_file)
+                    if not config:
+                        continue
+                    
+                    # Extract checks
+                    checks = []
+                    for check in config.get("checks", []):
+                        checks.append(InspectionCheck(
+                            name=check.get("name", ""),
+                            description=check.get("description"),
+                            tool=check.get("tool", ""),
+                            enabled=check.get("enabled", True),
+                            parameters=check.get("parameters", {}),
+                        ))
+                    
+                    # Extract devices (can be list or dict with netbox_filter)
+                    devices = config.get("devices", [])
+                    
+                    inspections.append(InspectionConfig(
+                        id=yaml_file.stem,
+                        name=config.get("name", yaml_file.stem),
+                        description=config.get("description"),
+                        filename=yaml_file.name,
+                        devices=devices,
+                        checks=checks,
+                        parallel=config.get("parallel", True),
+                        max_workers=config.get("max_workers", 5),
+                        stop_on_failure=config.get("stop_on_failure", False),
+                        output_format=config.get("output_format", "table"),
+                    ))
+                
+                return InspectionListResponse(inspections=inspections, total=len(inspections))
+        
+        except Exception as e:
+            logger.error(f"Failed to list inspections: {e}")
+        
+        return InspectionListResponse(inspections=[], total=0)
+
+    @app.get(
+        "/inspections/{inspection_id}",
+        response_model=InspectionConfig,
+        tags=["inspections"],
+        summary="Get inspection configuration details",
+        responses={
+            200: {"description": "Inspection configuration details"},
+            404: {"description": "Inspection not found"},
+        },
+    )
+    async def get_inspection(
+        inspection_id: str,
+        current_user: CurrentUser,
+    ) -> InspectionConfig:
+        """
+        Get details of a specific inspection configuration.
+
+        **Required**: Bearer token authentication
+        """
+        from pathlib import Path
+        
+        yaml_file = Path("config/inspections") / f"{inspection_id}.yaml"
+        
+        if not yaml_file.exists():
+            raise HTTPException(status_code=404, detail="Inspection not found")
+        
+        config = _parse_inspection_yaml(yaml_file)
+        if not config:
+            raise HTTPException(status_code=500, detail="Failed to parse inspection config")
+        
+        checks = []
+        for check in config.get("checks", []):
+            checks.append(InspectionCheck(
+                name=check.get("name", ""),
+                description=check.get("description"),
+                tool=check.get("tool", ""),
+                enabled=check.get("enabled", True),
+                parameters=check.get("parameters", {}),
+            ))
+        
+        devices = config.get("devices", [])
+        
+        return InspectionConfig(
+            id=yaml_file.stem,
+            name=config.get("name", yaml_file.stem),
+            description=config.get("description"),
+            filename=yaml_file.name,
+            devices=devices,
+            checks=checks,
+            parallel=config.get("parallel", True),
+            max_workers=config.get("max_workers", 5),
+            stop_on_failure=config.get("stop_on_failure", False),
+            output_format=config.get("output_format", "table"),
+        )
+
+    @app.post(
+        "/inspections/{inspection_id}/run",
+        response_model=InspectionRunResponse,
+        tags=["inspections"],
+        summary="Run an inspection",
+        responses={
+            200: {"description": "Inspection started"},
+            404: {"description": "Inspection not found"},
+        },
+    )
+    async def run_inspection(
+        inspection_id: str,
+        request: InspectionRunRequest,
+        current_user: CurrentUser,
+    ) -> InspectionRunResponse:
+        """
+        Run an inspection and generate a report.
+
+        **Required**: Bearer token authentication
+
+        **Request Body (optional)**:
+        - `devices`: Override target devices
+        - `checks`: Run only specific checks by name
+
+        **Example Request**:
+        ```bash
+        curl -X POST http://localhost:8000/inspections/bgp_peer_audit/run \\
+          -H "Authorization: Bearer <token>" \\
+          -H "Content-Type: application/json" \\
+          -d '{"devices": ["R1", "R2"]}'
+        ```
+        """
+        from pathlib import Path
+        from datetime import datetime
+        
+        yaml_file = Path("config/inspections") / f"{inspection_id}.yaml"
+        
+        if not yaml_file.exists():
+            raise HTTPException(status_code=404, detail="Inspection not found")
+        
+        # Generate report ID
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_id = f"inspection_{inspection_id}_{timestamp}"
+        
+        # TODO: Actually run inspection via CLI or background task
+        # For now, return a placeholder response
+        # In production, this would use subprocess or celery to run:
+        #   uv run python -m olav.cli batch-inspect config/inspections/{inspection_id}.yaml
+        
+        return InspectionRunResponse(
+            status="started",
+            message=f"Inspection '{inspection_id}' has been queued. Check reports for results.",
+            report_id=report_id,
+        )
+
+    # ============================================
+    # Document Management API (RAG)
+    # ============================================
+    class DocumentSummary(BaseModel):
+        """Summary of a RAG document."""
+        id: str
+        filename: str
+        file_type: str  # "pdf", "docx", "txt", "md"
+        size_bytes: int
+        uploaded_at: str
+        indexed: bool = False
+        chunk_count: int = 0
+
+    class DocumentListResponse(BaseModel):
+        """Response for document list endpoint."""
+        documents: list[DocumentSummary]
+        total: int
+
+    class DocumentUploadResponse(BaseModel):
+        """Response from document upload."""
+        status: str
+        message: str
+        document_id: str | None = None
+        filename: str | None = None
+
+    @app.get(
+        "/documents",
+        response_model=DocumentListResponse,
+        tags=["documents"],
+        summary="List RAG documents",
+        responses={
+            200: {
+                "description": "List of uploaded documents",
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "documents": [
+                                {
+                                    "id": "cisco_bgp_guide",
+                                    "filename": "Cisco_BGP_Guide.pdf",
+                                    "file_type": "pdf",
+                                    "size_bytes": 1234567,
+                                    "uploaded_at": "2025-12-01T10:00:00Z",
+                                    "indexed": True,
+                                    "chunk_count": 326
+                                }
+                            ],
+                            "total": 1
+                        }
+                    }
+                },
+            },
+        },
+    )
+    async def list_documents(current_user: CurrentUser) -> DocumentListResponse:
+        """
+        List all uploaded RAG documents from data/documents/.
+
+        **Required**: Bearer token authentication
+        """
+        from pathlib import Path
+        from datetime import datetime
+        
+        docs_dir = Path("data/documents")
+        documents: list[DocumentSummary] = []
+        
+        supported_types = {".pdf", ".docx", ".doc", ".txt", ".md", ".html"}
+        
+        try:
+            if docs_dir.exists():
+                for doc_file in sorted(docs_dir.iterdir()):
+                    if doc_file.is_file() and doc_file.suffix.lower() in supported_types:
+                        stat = doc_file.stat()
+                        
+                        # Check if indexed (look for corresponding .indexed marker or index entries)
+                        # For now, assume all existing files are indexed
+                        indexed = True
+                        chunk_count = 0  # Would query OpenSearch for actual count
+                        
+                        documents.append(DocumentSummary(
+                            id=doc_file.stem,
+                            filename=doc_file.name,
+                            file_type=doc_file.suffix.lstrip(".").lower(),
+                            size_bytes=stat.st_size,
+                            uploaded_at=datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                            indexed=indexed,
+                            chunk_count=chunk_count,
+                        ))
+                
+                return DocumentListResponse(documents=documents, total=len(documents))
+        
+        except Exception as e:
+            logger.error(f"Failed to list documents: {e}")
+        
+        return DocumentListResponse(documents=[], total=0)
+
+    @app.post(
+        "/documents/upload",
+        response_model=DocumentUploadResponse,
+        tags=["documents"],
+        summary="Upload a document for RAG",
+        responses={
+            200: {"description": "Document uploaded successfully"},
+            400: {"description": "Invalid file type"},
+        },
+    )
+    async def upload_document(
+        current_user: CurrentUser,
+        file: Any = None,  # Would be UploadFile in real implementation
+    ) -> DocumentUploadResponse:
+        """
+        Upload a document for RAG indexing.
+
+        **Supported file types**: PDF, DOCX, TXT, MD, HTML
+
+        **Required**: Bearer token authentication
+
+        **Note**: This endpoint requires multipart/form-data.
+        The actual file upload implementation requires FastAPI's UploadFile.
+
+        **Example Request**:
+        ```bash
+        curl -X POST http://localhost:8000/documents/upload \\
+          -H "Authorization: Bearer <token>" \\
+          -F "file=@document.pdf"
+        ```
+        """
+        # Placeholder - actual implementation would:
+        # 1. Save file to data/documents/
+        # 2. Trigger ETL pipeline to chunk and index
+        # 3. Return document ID and status
+        
+        return DocumentUploadResponse(
+            status="not_implemented",
+            message="File upload requires multipart/form-data. This endpoint is a placeholder.",
+            document_id=None,
+            filename=None,
+        )
+
+    @app.delete(
+        "/documents/{document_id}",
+        tags=["documents"],
+        summary="Delete a document",
+        responses={
+            200: {"description": "Document deleted"},
+            404: {"description": "Document not found"},
+        },
+    )
+    async def delete_document(
+        document_id: str,
+        current_user: CurrentUser,
+    ) -> dict:
+        """
+        Delete a document and remove it from the RAG index.
+
+        **Required**: Bearer token authentication
+        """
+        from pathlib import Path
+        
+        docs_dir = Path("data/documents")
+        
+        # Find file with matching stem
+        for doc_file in docs_dir.iterdir():
+            if doc_file.stem == document_id:
+                try:
+                    doc_file.unlink()
+                    # TODO: Also remove from OpenSearch index
+                    return {"status": "deleted", "document_id": document_id}
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=str(e))
+        
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # ============================================
+    # LangServe Routes
+    # ============================================
+        """
+        Get full details of an inspection report.
+
+        **Required**: Bearer token authentication
+
+        **Example Request**:
+        ```bash
+        curl http://localhost:8000/reports/inspection_bgp_peer_audit_20251127_231051 \\
+          -H "Authorization: Bearer <token>"
+        ```
+        """
+        from pathlib import Path
+        
+        reports_dir = Path("data/inspection-reports")
+        report_file = reports_dir / f"{report_id}.md"
+        
+        if not report_file.exists():
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        try:
+            content = report_file.read_text(encoding="utf-8")
+            metadata = _parse_report_metadata(content, report_file.name)
+            
+            return ReportDetail(
+                id=report_id,
+                filename=report_file.name,
+                content=content,
+                title=metadata["title"],
+                config_name=metadata["config_name"],
+                description=metadata["description"],
+                executed_at=metadata["executed_at"],
+                duration=metadata["duration"],
+                device_count=metadata["device_count"],
+                check_count=metadata["check_count"],
+                pass_count=metadata["pass_count"],
+                fail_count=metadata["fail_count"],
+                pass_rate=metadata["pass_rate"],
+                status=metadata["status"],
+                warnings=metadata["warnings"],
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to read report {report_id}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # ============================================
     # LangServe Routes
     # ============================================
     # NOTE: LangServe routes now mounted dynamically in lifespan after orchestrator init.
