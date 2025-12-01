@@ -788,6 +788,133 @@ async def test_reports_detail_endpoint(base_url: str, server_token: str):
 
 
 # ============================================
+# Test: Inspections List Endpoint
+# ============================================
+@pytest.mark.asyncio
+async def test_inspections_list_endpoint(base_url: str, server_token: str):
+    """Test /inspections endpoint returns list of inspection configurations.
+    
+    Validates:
+    - Returns 200 status with auth
+    - Response has 'inspections' and 'total' fields
+    - Each inspection has required fields (id, name, checks)
+    """
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(
+            f"{base_url}/inspections",
+            headers={"Authorization": f"Bearer {server_token}"}
+        )
+        
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+        data = response.json()
+        
+        # Validate response structure
+        assert "inspections" in data, "Response missing 'inspections' field"
+        assert "total" in data, "Response missing 'total' field"
+        assert isinstance(data["inspections"], list), "'inspections' should be a list"
+        
+        # If inspections exist, validate their structure
+        if data["inspections"]:
+            inspection = data["inspections"][0]
+            assert "id" in inspection, "Inspection missing 'id' field"
+            assert "name" in inspection, "Inspection missing 'name' field"
+            assert "checks" in inspection, "Inspection missing 'checks' field"
+            assert "filename" in inspection, "Inspection missing 'filename' field"
+
+
+# ============================================
+# Test: Inspection Detail Endpoint
+# ============================================
+@pytest.mark.asyncio
+async def test_inspection_detail_endpoint(base_url: str, server_token: str):
+    """Test /inspections/{id} endpoint returns inspection details.
+    
+    Validates:
+    - Returns 200 with valid ID
+    - Returns 404 for non-existent ID
+    - Detail contains all configuration fields
+    """
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        # First get list to find an ID
+        list_response = await client.get(
+            f"{base_url}/inspections",
+            headers={"Authorization": f"Bearer {server_token}"}
+        )
+        
+        assert list_response.status_code == 200
+        list_data = list_response.json()
+        
+        if list_data["inspections"]:
+            inspection_id = list_data["inspections"][0]["id"]
+            
+            # Test getting details
+            detail_response = await client.get(
+                f"{base_url}/inspections/{inspection_id}",
+                headers={"Authorization": f"Bearer {server_token}"}
+            )
+            
+            assert detail_response.status_code == 200
+            detail = detail_response.json()
+            
+            # Validate fields
+            assert detail["id"] == inspection_id
+            assert "name" in detail
+            assert "checks" in detail
+            assert isinstance(detail["checks"], list)
+            
+            # Validate check structure if checks exist
+            if detail["checks"]:
+                check = detail["checks"][0]
+                assert "name" in check, "Check missing 'name'"
+                assert "tool" in check, "Check missing 'tool'"
+                assert "enabled" in check, "Check missing 'enabled'"
+        
+        # Test non-existent inspection
+        response_404 = await client.get(
+            f"{base_url}/inspections/non_existent_12345",
+            headers={"Authorization": f"Bearer {server_token}"}
+        )
+        assert response_404.status_code == 404, "Expected 404 for non-existent inspection"
+
+
+# ============================================
+# Test: Documents List Endpoint
+# ============================================
+@pytest.mark.asyncio
+async def test_documents_list_endpoint(base_url: str, server_token: str):
+    """Test /documents endpoint returns list of RAG documents.
+    
+    Validates:
+    - Returns 200 status with auth
+    - Response has 'documents' and 'total' fields
+    - Each document has required fields (id, filename, file_type)
+    """
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(
+            f"{base_url}/documents",
+            headers={"Authorization": f"Bearer {server_token}"}
+        )
+        
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+        data = response.json()
+        
+        # Validate response structure
+        assert "documents" in data, "Response missing 'documents' field"
+        assert "total" in data, "Response missing 'total' field"
+        assert isinstance(data["documents"], list), "'documents' should be a list"
+        
+        # If documents exist, validate their structure
+        if data["documents"]:
+            doc = data["documents"][0]
+            assert "id" in doc, "Document missing 'id' field"
+            assert "filename" in doc, "Document missing 'filename' field"
+            assert "file_type" in doc, "Document missing 'file_type' field"
+            assert "size_bytes" in doc, "Document missing 'size_bytes' field"
+            assert "uploaded_at" in doc, "Document missing 'uploaded_at' field"
+            assert "indexed" in doc, "Document missing 'indexed' field"
+
+
+# ============================================
 # Summary Report
 # ============================================
 @pytest.fixture(scope="session", autouse=True)
@@ -811,4 +938,6 @@ def print_test_summary(request):
     print("  ✓ Topology API (network graph data)")
     print("  ✓ History API (execution history with pagination)")
     print("  ✓ Reports API (inspection reports list and detail)")
+    print("  ✓ Inspections API (configuration list and detail)")
+    print("  ✓ Documents API (RAG document management)")
     print("="*60)

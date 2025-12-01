@@ -203,10 +203,22 @@ export default function ChatPage() {
             </div>
             <div className="flex items-center gap-4">
               <a
+                href="/inspections"
+                className="text-sm text-muted-foreground hover:text-foreground"
+              >
+                🔍 巡检
+              </a>
+              <a
                 href="/reports"
                 className="text-sm text-muted-foreground hover:text-foreground"
               >
                 📊 报告
+              </a>
+              <a
+                href="/documents"
+                className="text-sm text-muted-foreground hover:text-foreground"
+              >
+                📚 文档
               </a>
               <a
                 href="/history"

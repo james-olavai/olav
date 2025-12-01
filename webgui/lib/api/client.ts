@@ -357,4 +357,98 @@ export async function getReport(
   return fetchApi<ReportDetail>(`/reports/${reportId}`, {}, token);
 }
 
+// ============================================
+// Inspection Configuration API
+// ============================================
+import type { 
+  InspectionConfig, 
+  InspectionListResponse, 
+  InspectionRunRequest,
+  InspectionRunResponse,
+  DocumentSummary,
+  DocumentListResponse,
+} from './types';
+
+/**
+ * Get list of inspection configurations
+ */
+export async function getInspections(token: string): Promise<InspectionListResponse> {
+  return fetchApi<InspectionListResponse>('/inspections', {}, token);
+}
+
+/**
+ * Get a specific inspection configuration by ID
+ */
+export async function getInspection(
+  inspectionId: string,
+  token: string,
+): Promise<InspectionConfig> {
+  return fetchApi<InspectionConfig>(`/inspections/${inspectionId}`, {}, token);
+}
+
+/**
+ * Run an inspection
+ */
+export async function runInspection(
+  inspectionId: string,
+  token: string,
+  request?: InspectionRunRequest,
+): Promise<InspectionRunResponse> {
+  return fetchApi<InspectionRunResponse>(
+    `/inspections/${inspectionId}/run`,
+    {
+      method: 'POST',
+      body: JSON.stringify(request || {}),
+    },
+    token,
+  );
+}
+
+// ============================================
+// Document Management API (RAG)
+// ============================================
+
+/**
+ * Get list of uploaded documents
+ */
+export async function getDocuments(token: string): Promise<DocumentListResponse> {
+  return fetchApi<DocumentListResponse>('/documents', {}, token);
+}
+
+/**
+ * Delete a document
+ */
+export async function deleteDocument(
+  documentId: string,
+  token: string,
+): Promise<void> {
+  await fetchApi(`/documents/${documentId}`, { method: 'DELETE' }, token);
+}
+
+/**
+ * Upload a document (requires FormData)
+ */
+export async function uploadDocument(
+  file: File,
+  token: string,
+): Promise<{ status: string; message: string; document_id?: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const response = await fetch(`${API_URL}/documents/upload`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+    body: formData,
+  });
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
+    throw new ApiError(response.status, error.detail);
+  }
+  
+  return response.json();
+}
+
 export { ApiError };
