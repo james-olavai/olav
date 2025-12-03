@@ -25,4 +25,4 @@ template: |
   ## Output Format (MUST follow strictly)
   Return pure JSON only, no markdown code blocks:
 
-  {"supports_hypothesis": true, "updated_confidence": 0.85, "reasoning": "The data shows clear evidence that..."}
+  {{"supports_hypothesis": true, "updated_confidence": 0.85, "reasoning": "The data shows clear evidence that..."}}

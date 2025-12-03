@@ -138,7 +138,7 @@ class ClientConfig:
     """Client configuration."""
     
     server_url: str = "http://localhost:8000"
-    timeout: float = 300.0  # 5 minutes for long queries
+    timeout: float = 360.0  # 6 minutes for complex queries (deep path)
     connect_timeout: float = 5.0
     
     @classmethod

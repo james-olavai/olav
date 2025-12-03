@@ -467,6 +467,91 @@ async def netconf_tool(
 
 
 @tool
+async def netconf_get(
+    device: str,
+    xpath: str,
+) -> dict[str, Any]:
+    """NETCONF get-config operation (read-only, no HITL required).
+
+    Use this tool to read device configuration via NETCONF.
+    Supports OpenConfig YANG paths for structured data retrieval.
+
+    Args:
+        device: Target device hostname (e.g., "R1")
+        xpath: XPath filter for configuration data
+               Examples:
+               - /interfaces/interface[name='eth0']/state
+               - /network-instances/network-instance/protocols/protocol/bgp
+               - /openconfig-acl:acl/acl-sets
+
+    Returns:
+        dict with success/output/error keys
+
+    Example:
+        result = await netconf_get(
+            device="R1",
+            xpath="/interfaces/interface/state"
+        )
+    """
+    impl = ToolRegistry.get_tool("netconf_execute")
+    if impl is None:
+        return {"success": False, "error": "netconf_execute tool not registered"}
+    result = await impl.execute(device=device, operation="get-config", xpath=xpath)
+    return {
+        "success": result.error is None,
+        "output": result.data,
+        "error": result.error,
+        "__meta__": {"elapsed_ms": result.metadata.get("elapsed_ms")},
+    }
+
+
+@tool
+async def netconf_edit(
+    device: str,
+    payload: str,
+) -> dict[str, Any]:
+    """NETCONF edit-config operation (write, requires HITL approval).
+
+    Use this tool to modify device configuration via NETCONF.
+    **CRITICAL**: This triggers Human-in-the-Loop approval before execution.
+
+    Args:
+        device: Target device hostname (e.g., "R1")
+        payload: XML configuration payload (OpenConfig format)
+                 Must be valid XML matching the device's YANG schema
+
+    Returns:
+        dict with success/output/error keys
+
+    Example:
+        result = await netconf_edit(
+            device="R1",
+            payload='''
+            <interfaces xmlns="http://openconfig.net/yang/interfaces">
+              <interface>
+                <name>Loopback0</name>
+                <config>
+                  <name>Loopback0</name>
+                  <description>Management Loopback</description>
+                </config>
+              </interface>
+            </interfaces>
+            '''
+        )
+    """
+    impl = ToolRegistry.get_tool("netconf_execute")
+    if impl is None:
+        return {"success": False, "error": "netconf_execute tool not registered"}
+    result = await impl.execute(device=device, operation="edit-config", payload=payload)
+    return {
+        "success": result.error is None,
+        "output": result.data,
+        "error": result.error,
+        "__meta__": {"elapsed_ms": result.metadata.get("elapsed_ms")},
+    }
+
+
+@tool
 async def cli_tool(
     device: str,
     command: str | None = None,
@@ -486,6 +571,90 @@ async def cli_tool(
         "success": result.error is None,
         "output": result.data,
         "parsed": parsed,
+        "error": result.error,
+        "__meta__": {"elapsed_ms": result.metadata.get("elapsed_ms")},
+    }
+
+
+@tool
+async def cli_show(
+    device: str,
+    command: str,
+) -> dict[str, Any]:
+    """CLI show command execution (read-only, no HITL required).
+
+    Use this tool to execute show commands on devices via SSH.
+    Output is automatically parsed via TextFSM when templates are available.
+
+    Args:
+        device: Target device hostname (e.g., "R1", "SW01")
+        command: Show command to execute
+                 Examples:
+                 - show ip interface brief
+                 - show bgp summary
+                 - show version
+
+    Returns:
+        dict with success/output/parsed/error keys
+        output: Parsed data (list of dicts) if TextFSM template available,
+                otherwise raw text
+
+    Example:
+        result = await cli_show(device="R1", command="show ip route")
+    """
+    impl = ToolRegistry.get_tool("cli_execute")
+    if impl is None:
+        return {"success": False, "error": "cli_execute tool not registered"}
+    result = await impl.execute(device=device, command=command)
+    parsed = False
+    if result.metadata:
+        parsed = result.metadata.get("success") and any(
+            isinstance(entry, dict) for entry in result.data
+        )
+    return {
+        "success": result.error is None,
+        "output": result.data,
+        "parsed": parsed,
+        "error": result.error,
+        "__meta__": {"elapsed_ms": result.metadata.get("elapsed_ms")},
+    }
+
+
+@tool
+async def cli_config(
+    device: str,
+    config_commands: list[str],
+) -> dict[str, Any]:
+    """CLI configuration commands (write, requires HITL approval).
+
+    Use this tool to push configuration changes to devices via SSH.
+    **CRITICAL**: This triggers Human-in-the-Loop approval before execution.
+
+    Args:
+        device: Target device hostname (e.g., "R1", "SW01")
+        config_commands: List of configuration commands to execute
+                        Commands are executed in order within config mode
+
+    Returns:
+        dict with success/output/error keys
+
+    Example:
+        result = await cli_config(
+            device="R1",
+            config_commands=[
+                "interface Loopback10",
+                "description Test Loopback",
+                "ip address 10.10.10.10 255.255.255.255"
+            ]
+        )
+    """
+    impl = ToolRegistry.get_tool("cli_execute")
+    if impl is None:
+        return {"success": False, "error": "cli_execute tool not registered"}
+    result = await impl.execute(device=device, config_commands=config_commands)
+    return {
+        "success": result.error is None,
+        "output": result.data,
         "error": result.error,
         "__meta__": {"elapsed_ms": result.metadata.get("elapsed_ms")},
     }
