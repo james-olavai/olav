@@ -3,12 +3,20 @@
 These tests use the CLI directly instead of the server API,
 making them easier to run in development without full infrastructure.
 
+Features:
+    - Automatic timing and performance tracking
+    - Test result caching (skip passed tests)
+    - Performance logging to tests/e2e/logs/
+
 Usage:
     # Run all CLI tests
     uv run pytest tests/e2e/test_cli_capabilities.py -v
     
     # Run with specific marker
     uv run pytest tests/e2e/test_cli_capabilities.py -m "not slow" -v
+    
+    # Force fresh run (disable cache)
+    E2E_CACHE_DISABLED=true uv run pytest tests/e2e/test_cli_capabilities.py -v
 """
 
 from __future__ import annotations
@@ -29,6 +37,9 @@ import pytest
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+# Import performance tracking
+from tests.e2e.test_cache import get_current_tracker, perf_logger
+
 
 # ============================================
 # Configuration
@@ -37,6 +48,10 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 CLI_PATH = PROJECT_ROOT / "cli.py"
 TIMEOUT_SIMPLE = 60
 TIMEOUT_COMPLEX = 120
+
+# Performance thresholds (milliseconds)
+PERF_THRESHOLD_SIMPLE = 15000   # 15s for simple queries
+PERF_THRESHOLD_COMPLEX = 45000  # 45s for complex queries
 
 
 def _check_cli_available() -> bool:
@@ -85,6 +100,7 @@ class ValidationResult:
     score: float
     checks: dict[str, bool]
     details: str
+    duration_ms: float = 0.0
 
 
 # ============================================
@@ -108,6 +124,10 @@ def run_cli_query(
         CLIResult with output and metadata
     """
     start_time = time.time()
+    
+    # Log to performance tracker
+    tracker = get_current_tracker()
+    step_start = time.perf_counter()
     
     # Build command
     cmd = ["uv", "run", "python", str(CLI_PATH)]
@@ -136,22 +156,54 @@ def run_cli_query(
             env=env,
         )
         
+        duration_ms = (time.time() - start_time) * 1000
+        
+        # Log step to performance tracker
+        if tracker:
+            tracker.metrics.log_step(
+                f"cli_query_{mode}",
+                duration_ms,
+                {
+                    "query": query[:100],  # Truncate for logging
+                    "success": result.returncode == 0,
+                    "output_size": len(result.stdout),
+                }
+            )
+        
+        # Also log to perf_logger
+        perf_logger.info(
+            f"CLI Query | Mode: {mode} | Duration: {duration_ms:.0f}ms | "
+            f"Success: {result.returncode == 0} | Query: {query[:50]}"
+        )
+        
         return CLIResult(
             query=query,
             stdout=result.stdout,
             stderr=result.stderr,
             returncode=result.returncode,
-            duration_ms=(time.time() - start_time) * 1000,
+            duration_ms=duration_ms,
         )
     except subprocess.TimeoutExpired:
+        duration_ms = timeout * 1000
+        if tracker:
+            tracker.metrics.log_step(
+                f"cli_query_{mode}_timeout",
+                duration_ms,
+                {"query": query[:100], "timeout": timeout}
+            )
+        perf_logger.warning(f"CLI Query TIMEOUT | {timeout}s | Query: {query[:50]}")
+        
         return CLIResult(
             query=query,
             stdout="",
             stderr=f"Timeout after {timeout}s",
             returncode=-1,
-            duration_ms=timeout * 1000,
+            duration_ms=duration_ms,
         )
     except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000
+        perf_logger.error(f"CLI Query ERROR | {e} | Query: {query[:50]}")
+        
         return CLIResult(
             query=query,
             stdout="",
