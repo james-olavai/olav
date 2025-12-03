@@ -1,13 +1,22 @@
 {
   "_metadata": {
-    "description": "Cache of passed E2E tests to skip on subsequent runs (saves tokens)",
+    "description": "Cache of passed E2E tests with timing and performance metrics",
     "created": "2025-12-03",
-    "version": "1.0"
+    "version": "2.0"
   },
   "passed_tests": {},
+  "performance_summary": {
+    "total_tests": 0,
+    "total_duration_ms": 0.0,
+    "avg_duration_ms": 0.0,
+    "total_tool_calls": 0,
+    "total_llm_calls": 0,
+    "total_tokens": 0
+  },
   "settings": {
     "cache_enabled": true,
     "cache_ttl_hours": 24,
-    "force_rerun_on_code_change": true
+    "force_rerun_on_code_change": true,
+    "performance_threshold_ms": 30000
   }
 }

@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Generator
 
@@ -21,12 +22,27 @@ if sys.platform == "win32":
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-# Import test cache
-from tests.e2e.test_cache import get_cache, TestResultCache
+# Import test cache and performance tracking
+from tests.e2e.test_cache import (
+    get_cache,
+    TestResultCache,
+    PerformanceTracker,
+    PerformanceMetrics,
+    get_current_tracker,
+    set_current_tracker,
+    perf_logger,
+)
 
 
 # ============================================
-# Cache Integration Hooks
+# Performance Tracking Storage
+# ============================================
+# Store trackers per test item
+_test_trackers: dict[str, PerformanceTracker] = {}
+
+
+# ============================================
+# Cache & Performance Integration Hooks
 # ============================================
 def pytest_configure(config):
     """Configure pytest markers and cache."""
@@ -48,35 +64,95 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "fault_injection: tests that inject faults for diagnosis"
     )
+    config.addinivalue_line(
+        "markers", "performance: tests with performance requirements"
+    )
     
     # Print cache stats
     cache = get_cache()
     stats = cache.get_stats()
     if stats["valid_cached"] > 0:
         print(f"\n📦 Test cache: {stats['valid_cached']} tests will be skipped (cached)")
+        if stats.get("timing", {}).get("avg_duration_ms", 0) > 0:
+            print(f"⏱️  Avg test duration: {stats['timing']['avg_duration_ms']:.0f}ms")
+    
+    # Print slow tests warning
+    slow_tests = cache.get_slow_tests()
+    if slow_tests:
+        print(f"⚠️  {len(slow_tests)} slow tests detected (>30s)")
 
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item):
-    """Skip tests that previously passed (cached)."""
+    """Skip cached tests and start performance tracking."""
     cache = get_cache()
+    
+    # Check cache
     if cache.is_passed(item.nodeid):
         pytest.skip(f"Previously passed (cached, TTL={cache.ttl_hours}h)")
+    
+    # Start performance tracking
+    tracker = PerformanceTracker(item.nodeid)
+    tracker.start()
+    _test_trackers[item.nodeid] = tracker
+    set_current_tracker(tracker)
 
 
 @pytest.hookimpl(trylast=True)
 def pytest_runtest_makereport(item, call):
-    """Update cache based on test result."""
+    """Update cache with timing and performance data."""
     if call.when != "call":
         return
     
+    # Stop tracking
+    tracker = _test_trackers.get(item.nodeid)
+    if tracker:
+        tracker.stop()
+        set_current_tracker(None)
+    
     cache = get_cache()
+    
     if call.excinfo is None:
-        # Test passed
-        cache.mark_passed(item.nodeid)
+        # Test passed - save with timing
+        duration_ms = call.duration * 1000 if call.duration else 0
+        metrics = tracker.metrics if tracker else None
+        cache.mark_passed(item.nodeid, duration_ms=duration_ms, metrics=metrics)
     else:
         # Test failed - remove from cache
         cache.mark_failed(item.nodeid)
+    
+    # Cleanup tracker
+    if item.nodeid in _test_trackers:
+        del _test_trackers[item.nodeid]
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Print performance summary at end of test run."""
+    cache = get_cache()
+    stats = cache.get_stats()
+    
+    terminalreporter.write_sep("=", "Performance Summary")
+    
+    timing = stats.get("timing", {})
+    if timing.get("total_duration_ms", 0) > 0:
+        terminalreporter.write_line(f"Total test time: {timing['total_duration_ms']/1000:.1f}s")
+        terminalreporter.write_line(f"Average per test: {timing['avg_duration_ms']:.0f}ms")
+        terminalreporter.write_line(f"Min: {timing['min_duration_ms']:.0f}ms | Max: {timing['max_duration_ms']:.0f}ms")
+    
+    perf = stats.get("performance", {})
+    if perf.get("total_tokens", 0) > 0:
+        terminalreporter.write_line(f"Total LLM tokens: {perf['total_tokens']:,}")
+        terminalreporter.write_line(f"Total tool calls: {perf['total_tool_calls']}")
+        terminalreporter.write_line(f"Total LLM calls: {perf['total_llm_calls']}")
+    
+    # Show slow tests
+    slow_tests = cache.get_slow_tests()
+    if slow_tests:
+        terminalreporter.write_sep("-", f"Slow Tests ({len(slow_tests)})")
+        for test in slow_tests[:5]:  # Top 5
+            terminalreporter.write_line(
+                f"  {test['duration_ms']/1000:.1f}s - {test['test_id'].split('::')[-1]}"
+            )
 
 
 # ============================================
@@ -278,6 +354,21 @@ def validator() -> ResponseValidator:
     return ResponseValidator()
 
 
+@pytest.fixture
+def perf_tracker(request) -> Generator[PerformanceTracker, None, None]:
+    """Provide performance tracker for manual instrumentation."""
+    tracker = get_current_tracker()
+    if tracker is None:
+        tracker = PerformanceTracker(request.node.nodeid)
+        tracker.start()
+        set_current_tracker(tracker)
+        yield tracker
+        tracker.stop()
+        set_current_tracker(None)
+    else:
+        yield tracker
+
+
 # ============================================
 # Async Helpers
 # ============================================
@@ -289,22 +380,3 @@ def event_loop():
     loop = asyncio.new_event_loop()
     yield loop
     loop.close()
-
-
-# ============================================
-# Pytest Configuration
-# ============================================
-def pytest_configure(config):
-    """Configure pytest markers."""
-    config.addinivalue_line(
-        "markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')"
-    )
-    config.addinivalue_line(
-        "markers", "requires_server: tests requiring OLAV server"
-    )
-    config.addinivalue_line(
-        "markers", "requires_hitl: tests requiring HITL approval"
-    )
-    config.addinivalue_line(
-        "markers", "requires_netbox: tests requiring NetBox connection"
-    )
