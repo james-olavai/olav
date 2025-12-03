@@ -208,6 +208,21 @@ class PublicConfigResponse(BaseModel):
     workflows: list[str] = Field(..., description="Available workflow types")
 
 
+class AutocompleteDevicesResponse(BaseModel):
+    """Response for device autocomplete endpoint."""
+
+    devices: list[str] = Field(..., description="List of device names for autocomplete")
+    total: int = Field(..., description="Total number of devices")
+    cached: bool = Field(default=False, description="Whether the result was from cache")
+
+
+class AutocompleteSuzieQTablesResponse(BaseModel):
+    """Response for SuzieQ tables autocomplete endpoint."""
+
+    tables: list[str] = Field(..., description="List of SuzieQ table names")
+    total: int = Field(..., description="Total number of tables")
+
+
 # ============================================
 # Application Lifecycle
 # ============================================
@@ -240,6 +255,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Stateless mode doesn't require checkpointer config in every request
         orchestrator = stateless_graph
         app.state.orchestrator_obj = orch_obj  # store original orchestrator for stateful ops
+        app.state.stateful_graph = stateful_graph  # store stateful graph for stream/events endpoint
         try:
             checkpointer = (
                 getattr(orch_obj, "checkpointer", None) or checkpointer_manager
@@ -550,6 +566,128 @@ def create_app() -> FastAPI:
                 "rate_limit_rpm": settings.api_rate_limit_rpm if settings.api_rate_limit_enabled else None,
             },
             workflows=["query_diagnostic", "device_execution", "netbox_management", "deep_dive"],
+        )
+
+    # ============================================
+    # Autocomplete Endpoints (For CLI/WebGUI)
+    # ============================================
+    
+    # Cache for device names (TTL: 5 minutes)
+    _device_cache: dict = {"devices": [], "timestamp": 0, "ttl": 300}
+    
+    @app.get(
+        "/autocomplete/devices",
+        response_model=AutocompleteDevicesResponse,
+        tags=["autocomplete"],
+        summary="Get device names for autocomplete",
+        responses={
+            200: {
+                "description": "List of device names from NetBox",
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "devices": ["R1", "R2", "SW1", "SW2", "FW1"],
+                            "total": 5,
+                            "cached": True,
+                        }
+                    }
+                },
+            },
+        },
+    )
+    async def autocomplete_devices() -> AutocompleteDevicesResponse:
+        """
+        Get device names for CLI/WebGUI autocomplete.
+        
+        Fetches device names from NetBox and caches them for 5 minutes.
+        No authentication required for performance.
+        
+        **Use Cases**:
+        - CLI tab completion for device names
+        - WebGUI search/filter suggestions
+        """
+        import time
+        
+        now = time.time()
+        
+        # Check cache
+        if _device_cache["devices"] and (now - _device_cache["timestamp"]) < _device_cache["ttl"]:
+            return AutocompleteDevicesResponse(
+                devices=_device_cache["devices"],
+                total=len(_device_cache["devices"]),
+                cached=True,
+            )
+        
+        # Fetch from NetBox
+        try:
+            from olav.tools.netbox_tool import netbox_api_call
+            
+            result = netbox_api_call(
+                endpoint="/dcim/devices/",
+                method="GET",
+                params={"limit": 1000, "status": "active"},
+            )
+            
+            if isinstance(result, dict) and "results" in result:
+                devices = [d["name"] for d in result["results"] if d.get("name")]
+                devices.sort()
+                
+                # Update cache
+                _device_cache["devices"] = devices
+                _device_cache["timestamp"] = now
+                
+                return AutocompleteDevicesResponse(
+                    devices=devices,
+                    total=len(devices),
+                    cached=False,
+                )
+        except Exception as e:
+            logger.warning(f"Failed to fetch devices from NetBox: {e}")
+        
+        # Return cached or empty
+        return AutocompleteDevicesResponse(
+            devices=_device_cache["devices"],
+            total=len(_device_cache["devices"]),
+            cached=True,
+        )
+    
+    @app.get(
+        "/autocomplete/tables",
+        response_model=AutocompleteSuzieQTablesResponse,
+        tags=["autocomplete"],
+        summary="Get SuzieQ table names for autocomplete",
+        responses={
+            200: {
+                "description": "List of SuzieQ table names",
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "tables": ["bgp", "interfaces", "routes", "ospf", "device"],
+                            "total": 5,
+                        }
+                    }
+                },
+            },
+        },
+    )
+    async def autocomplete_suzieq_tables() -> AutocompleteSuzieQTablesResponse:
+        """
+        Get SuzieQ table names for CLI/WebGUI autocomplete.
+        
+        Returns a static list of known SuzieQ tables.
+        No authentication required.
+        """
+        # Static list of SuzieQ tables (from suzieq.shared.schema)
+        tables = [
+            "arpnd", "bgp", "device", "devconfig", "evpnVni",
+            "fs", "ifCounters", "interfaces", "inventory", "lldp",
+            "mac", "mlag", "network", "ospf", "path", "routes",
+            "sqPoller", "time", "topology", "topmem", "topcpu", "vlan",
+        ]
+        
+        return AutocompleteSuzieQTablesResponse(
+            tables=sorted(tables),
+            total=len(tables),
         )
 
     # ============================================
@@ -2337,7 +2475,7 @@ def create_app() -> FastAPI:
 
             try:
                 # Get the stateful graph for streaming
-                stateful_graph = getattr(orch_obj, "_stateful_graph", None)
+                stateful_graph = getattr(app.state, "stateful_graph", None)
                 if stateful_graph is None:
                     yield f"data: {json_module.dumps({'type': 'error', 'error': {'code': 'NO_GRAPH', 'message': 'Stateful graph not available'}})}\n\n"
                     return
@@ -2452,6 +2590,18 @@ def create_app() -> FastAPI:
                 "X-Accel-Buffering": "no",  # Disable nginx buffering
             },
         )
+
+    # ============================================
+    # Mount Gradio WebGUI at /ui
+    # ============================================
+    try:
+        from olav.ui import mount_to_fastapi
+        app = mount_to_fastapi(app)
+        logger.info("✅ Gradio WebGUI mounted at /ui")
+    except ImportError as e:
+        logger.warning(f"⚠️ Gradio UI not available (missing gradio package): {e}")
+    except Exception as e:
+        logger.error(f"❌ Failed to mount Gradio UI: {e}")
 
     return app
 

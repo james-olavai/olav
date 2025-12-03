@@ -39,7 +39,8 @@ DESCRIPTION_RE = re.compile(r"description\s+\"(?P<desc>.*?)\";", re.DOTALL)
 
 
 def get_client() -> OpenSearch:
-    url = os.getenv("OPENSEARCH_URL", "http://localhost:9200")
+    from olav.core.settings import settings
+    url = settings.opensearch_url
     return OpenSearch(hosts=[url], use_ssl=False, verify_certs=False)
 
 

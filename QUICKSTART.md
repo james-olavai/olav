@@ -68,7 +68,7 @@ OLAV 强制要求 NetBox 集成（作为 Source of Truth），但你可以选择
 docker-compose --profile netbox up -d
 ```
 - 自动部署 NetBox, Postgres, Redis
-- `olav-init` 会自动连接到容器内的 NetBox (http://netbox:8080)
+- 使用 CLI 初始化基础设施（见下方步骤 4）
 
 ### 选项 B: 连接外部 NetBox
 不使用 profile 启动，并在 `.env` 中配置外部地址：
@@ -81,50 +81,53 @@ docker-compose --profile netbox up -d
 docker-compose up -d
 ```
 
-### 启动行为说明
-无论哪种方式，`olav-init` 都会执行以下检查：
-1. 运行 `scripts/check_netbox.py` 校验 `NETBOX_URL` 与 `NETBOX_TOKEN`。
-2. 校验失败：`olav-init` 退出，阻止其他服务启动。
-3. 校验成功：执行 Schema ETL 和 Inventory Bootstrap。
-- 校验成功：继续执行 Postgres 表初始化与 Schema 索引生成，完成后写入 `data/bootstrap/init.ok` 哨兵文件。
-
-快速查看状态：
-```bash
-docker ps --format "table {{.Names}}\t{{.Status}}" | findstr init
-docker logs olav-init | tail -n 60
-```
-常见失败原因与处理：
-- 401/403：Token 不正确或权限不足 → 重新在 NetBox 创建 API Token 并更新 `.env`。
-- 404 `/api/`：`NETBOX_URL` 写错（本地容器应为 `http://localhost:8080` 访问，内部互联用 `http://netbox:8080`）。
-- 必需对象缺失：需在 NetBox 创建至少 1 个 Site / Device Role / Tag 后重试。
-
 ---
-## 4. 验证初始化完成
-初始化成功标志：`olav-init` 处于 healthy 且存在哨兵文件。
-```bash
-docker exec olav-init ls -l /app/data/bootstrap/init.ok
-```
-额外验证：
-```bash
-docker-compose exec postgres psql -U olav -d olav -c "\dt"
-curl -s http://localhost:9200/_cat/indices?v | grep -E "schema|episodic|docs" || echo "索引后续可在扩展阶段创建"
-```
+## 4. 初始化基础设施
 
-### 4.1 Schema 索引控制（Force Reset）
-OLAV 通过环境变量控制索引初始化行为，方便在 Docker 环境中操作：
+**使用 CLI 进行初始化**（推荐，替代原 Docker init 容器）：
 
 ```bash
 # 查看当前索引状态
-uv run python -m olav.etl.init_all --status
+uv run python cli.py --init --status
+
+# 基础初始化（PostgreSQL + Schema 索引）
+# 适用于：已有自己的 NetBox
+uv run python cli.py --init
+
+# 完整初始化（含 NetBox inventory 导入）
+# 适用于：全新部署，NetBox 也是新的
+uv run python cli.py --init --full
+
+# 强制重建所有索引
+uv run python cli.py --init --force
+```
+
+### 初始化模式对比
+
+| 模式 | 命令 | PostgreSQL | Schema 索引 | 文档 RAG | 配置生成 | NetBox 导入 |
+|------|------|------------|-------------|----------|----------|-------------|
+| 基础 | `--init` | ✅ | ✅ | ❌ | ❌ | ❌ |
+| 完整 | `--init --full` | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+**选择建议**：
+- 已有 NetBox 数据 → 使用 `--init`
+- 全新部署 → 使用 `--init --full`
+
+### 4.1 Schema 索引控制（Force Reset）
+OLAV 通过环境变量或命令行控制索引初始化行为：
+
+```bash
+# 查看当前索引状态
+uv run python cli.py --init --status
 
 # 强制重置所有索引（删除并重建）
-OLAV_ETL_FORCE_RESET=true docker-compose up olav-init
+uv run python cli.py --init --force
 
-# 只重置特定索引
-OLAV_ETL_FORCE_OPENCONFIG=true docker-compose up olav-init
-OLAV_ETL_FORCE_SUZIEQ=true docker-compose up olav-init
-OLAV_ETL_FORCE_NETBOX=true docker-compose up olav-init
-OLAV_ETL_FORCE_EPISODIC=true docker-compose up olav-init
+# 只重置特定索引（使用 ETL 模块）
+uv run python -m olav.etl.init_all --openconfig --force
+uv run python -m olav.etl.init_all --suzieq --force
+uv run python -m olav.etl.init_all --netbox --force
+uv run python -m olav.etl.init_all --episodic --force
 ```
 
 **环境变量说明**：
@@ -137,21 +140,21 @@ OLAV_ETL_FORCE_EPISODIC=true docker-compose up olav-init
 | `OLAV_ETL_FORCE_NETBOX` | 强制重置 netbox-schema 索引 | `false` |
 | `OLAV_ETL_FORCE_EPISODIC` | 强制重置 olav-episodic-memory 索引 | `false` |
 
-**本地开发（无 Docker）**：
+### 4.2 验证初始化完成
 ```bash
-# 强制重置所有索引
-uv run python -m olav.etl.init_all --force
+# 查看索引状态
+uv run python cli.py --init --status
 
-# 只重置 OpenConfig 索引
-uv run python -m olav.etl.init_all --openconfig --force
+# 验证 PostgreSQL 表
+docker-compose exec postgres psql -U olav -d olav -c "\dt"
 
-# 使用环境变量
-OLAV_ETL_FORCE_OPENCONFIG=true uv run python -m olav.etl.init_all
+# 验证 OpenSearch 索引
+curl -s http://localhost:19200/_cat/indices?v | grep -E "schema|episodic|docs"
 ```
 
 ---
 ## 5. 应用与嵌入服务日志
-已在整体启动中自动拉起（依赖 `olav-init` 健康）。
+服务已在整体启动中自动拉起。
 ```bash
 docker logs -n 50 olav-app
 docker logs -n 50 olav-embedder
@@ -175,7 +178,14 @@ OLAV 提供 4 种 Agent 架构模式，可根据场景灵活切换：
 
 ### 6.1 启动交互式对话（推荐）
 ```bash
-# 方案 A: 自研 CLI 对话工具（默认 Workflows 模式）
+# 方案 A: CLI v2 对话工具（默认 Workflows 模式）
+uv run olav                                          # 交互式 REPL（显示欢迎横幅 + 雪人）
+uv run olav query "查询接口状态"                     # 单次查询
+uv run olav query -e "审计所有边界路由器"            # Expert 模式（Deep Dive Workflow）
+uv run olav dashboard                                # 全屏 TUI 仪表盘
+uv run olav banner                                   # 显示 OLAV 彩色 Logo + 雪人
+
+# 传统 CLI 命令（兼容旧版）
 uv run python -m olav.main chat                     # 交互式对话（Remote 模式，连接 API Server）
 uv run python -m olav.main chat -L                  # 交互式对话（Local 模式，直接执行）
 uv run python -m olav.main chat "查询接口状态"        # 单次查询（Remote 模式）
@@ -427,7 +437,44 @@ uv run python -m olav.main chat "查询 R1 状态"      # 后续请求自动使�
 | operator | operator123 | operator |
 | viewer | viewer123 | viewer |
 
-### 6.4 其他命令
+### 6.4 CLI v2 命令（推荐）
+```bash
+# ===== 交互式 REPL =====
+uv run olav                                    # 启动 REPL（显示彩色 OLAV Logo + 雪人横幅）
+uv run olav query "查询 R1 BGP 状态"           # 单次查询
+uv run olav query -e "审计边界路由器"          # Expert 模式查询
+
+# ===== TUI 仪表盘 =====
+uv run olav dashboard                          # 全屏仪表盘（实时状态、设备统计、活动日志）
+uv run olav banner                             # 显示 OLAV 彩色横幅 + 雪人 ASCII Art
+
+# ===== 巡检命令 =====
+uv run olav inspect list                       # 列出巡检配置文件
+uv run olav inspect run <profile>              # 执行巡检
+
+# ===== 文档管理 =====
+uv run olav doc list                           # 列出已索引文档
+uv run olav doc upload <file>                  # 上传文档（带进度条）
+uv run olav doc search "BGP 配置"              # 搜索文档
+
+# ===== 初始化 =====
+uv run olav --init-status                      # 查看索引状态
+uv run olav --init                             # 基础初始化（强制刷新索引）
+uv run olav --init --full                      # 完整初始化（含 NetBox）
+
+# ===== 版本信息 =====
+uv run olav version                            # 查看版本
+```
+
+**CLI v2 特性**:
+- ✅ 彩色 OLAV Logo（蓝/青/绿/品红渐变）
+- ✅ 可爱雪人 ASCII Art（冬季主题 ❄ ⛄ ❆）
+- ✅ 设备名自动补全（DynamicDeviceCompleter，5分钟缓存）
+- ✅ 文件上传进度条（TransferSpeedColumn）
+- ✅ 全屏 TUI 仪表盘（Rich Live 布局）
+- ✅ 欢迎横幅（REPL 启动时显示）
+
+### 6.5 传统 CLI 命令
 ```bash
 # 查看版本信息
 uv run python -m olav.main version
@@ -482,11 +529,15 @@ uv add --dev pytest-asyncio
 5. 状态查询命令：`uv run python -m olav.main status`（显示各哨兵与索引）
 
 **已完成功能**：
+- ✅ **CLI v2 全新界面**：彩色 OLAV Logo + 雪人 ASCII Art ✨ NEW
+- ✅ **TUI 仪表盘**：全屏 Rich 布局，实时状态监控 ✨ NEW
+- ✅ **设备名自动补全**：DynamicDeviceCompleter（5分钟缓存 TTL）✨ NEW
+- ✅ **文件上传进度条**：TransferSpeedColumn 显示速度 ✨ NEW
 - ✅ 交互式 CLI 对话界面（支持上下文记忆、会话恢复）
 - ✅ **Workflows 模块化架构**：4 个核心工作流（查询/配置/清单/巡检）
 - ✅ **Remote/Local 双模式**：分布式 API Server 或本地直接执行
 - ✅ **Expert 模式**：Deep Dive Workflow 复杂诊断
-- ✅ **InspectionWorkflow**：NetBox 双向同步巡检 ✨ NEW
+- ✅ **InspectionWorkflow**：NetBox 双向同步巡检
 - ✅ 优雅的 UI 界面（思考过程可视化、工具调用追踪）
 - ✅ LLM 流式输出（实时显示推理过程）
 - ✅ NetBox Agent HITL 审批机制（写操作需人工批准）

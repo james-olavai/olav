@@ -91,10 +91,18 @@ class EnvSettings(BaseSettings):
     # ============================================
     # Token is auto-generated on server startup
     token_max_age_hours: int = 24  # Token valid for 24 hours
+    # Disable authentication (for testing/development only!)
+    auth_disabled: bool = False
     
     # WebSocket Configuration (for real-time streaming)
     websocket_heartbeat_interval: int = 30  # seconds
     websocket_max_connections: int = 100
+
+    # ============================================
+    # Gradio WebUI Authentication
+    # ============================================
+    ui_username: str = "admin"
+    ui_password: str = "olav123"
 
     # ============================================
     # Feature Flags

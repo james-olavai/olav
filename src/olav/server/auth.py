@@ -90,10 +90,29 @@ def validate_token(token: str) -> tuple[bool, dict | None]:
 # ============================================
 # FastAPI Security
 # ============================================
-class CustomHTTPBearer(HTTPBearer):
-    """HTTPBearer that returns 401 (not 403) for missing credentials."""
+def _is_auth_disabled() -> bool:
+    """Check if authentication is disabled via environment variable."""
+    return os.environ.get("AUTH_DISABLED", "").lower() in ("1", "true", "yes")
 
-    async def __call__(self, request: Request) -> HTTPAuthorizationCredentials:
+
+class CustomHTTPBearer(HTTPBearer):
+    """HTTPBearer that returns 401 (not 403) for missing credentials.
+    
+    If AUTH_DISABLED=true, allows requests without credentials.
+    """
+
+    async def __call__(self, request: Request) -> HTTPAuthorizationCredentials | None:
+        # If auth is disabled, don't require credentials
+        if _is_auth_disabled():
+            # Try to get credentials but don't fail if missing
+            authorization = request.headers.get("Authorization")
+            if authorization and authorization.startswith("Bearer "):
+                return HTTPAuthorizationCredentials(
+                    scheme="Bearer",
+                    credentials=authorization[7:]
+                )
+            return None
+        
         try:
             return await super().__call__(request)
         except HTTPException as exc:
@@ -106,7 +125,7 @@ class CustomHTTPBearer(HTTPBearer):
             raise
 
 
-security = CustomHTTPBearer()
+security = CustomHTTPBearer(auto_error=not _is_auth_disabled())
 
 
 # ============================================
@@ -129,9 +148,25 @@ class Token(BaseModel):
 # FastAPI Dependencies
 # ============================================
 async def get_current_user(
-    credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)] = None,
 ) -> User:
-    """Validate token and return user."""
+    """Validate token and return user.
+    
+    If AUTH_DISABLED=true in environment, returns admin user without validation.
+    """
+    # Check if auth is disabled
+    if _is_auth_disabled():
+        return User(username="admin", role="admin", disabled=False)
+    
+    # Require credentials if auth is enabled
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
     token = credentials.credentials
     
     is_valid, user_data = validate_token(token)
