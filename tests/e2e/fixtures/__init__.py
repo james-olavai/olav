@@ -18,8 +18,65 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # Add project root to path
-PROJECT_ROOT = Path(__file__).parent.parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+# Import test cache
+from tests.e2e.test_cache import get_cache, TestResultCache
+
+
+# ============================================
+# Cache Integration Hooks
+# ============================================
+def pytest_configure(config):
+    """Configure pytest markers and cache."""
+    config.addinivalue_line(
+        "markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')"
+    )
+    config.addinivalue_line(
+        "markers", "requires_server: tests requiring OLAV server"
+    )
+    config.addinivalue_line(
+        "markers", "requires_hitl: tests requiring HITL approval"
+    )
+    config.addinivalue_line(
+        "markers", "requires_netbox: tests requiring NetBox connection"
+    )
+    config.addinivalue_line(
+        "markers", "destructive: tests that modify device/NetBox state"
+    )
+    config.addinivalue_line(
+        "markers", "fault_injection: tests that inject faults for diagnosis"
+    )
+    
+    # Print cache stats
+    cache = get_cache()
+    stats = cache.get_stats()
+    if stats["valid_cached"] > 0:
+        print(f"\n📦 Test cache: {stats['valid_cached']} tests will be skipped (cached)")
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    """Skip tests that previously passed (cached)."""
+    cache = get_cache()
+    if cache.is_passed(item.nodeid):
+        pytest.skip(f"Previously passed (cached, TTL={cache.ttl_hours}h)")
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_runtest_makereport(item, call):
+    """Update cache based on test result."""
+    if call.when != "call":
+        return
+    
+    cache = get_cache()
+    if call.excinfo is None:
+        # Test passed
+        cache.mark_passed(item.nodeid)
+    else:
+        # Test failed - remove from cache
+        cache.mark_failed(item.nodeid)
 
 
 # ============================================
@@ -59,6 +116,14 @@ def clean_env() -> Generator[dict, None, None]:
     # Restore original environment
     os.environ.clear()
     os.environ.update(original_env)
+
+
+@pytest.fixture
+def clear_test_cache() -> Generator[TestResultCache, None, None]:
+    """Clear test cache for fresh run."""
+    cache = get_cache()
+    cache.clear()
+    yield cache
 
 
 # ============================================
