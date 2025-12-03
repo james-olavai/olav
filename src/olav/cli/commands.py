@@ -113,6 +113,11 @@ def main(
     init_status: InitStatusOption = False,
 ) -> None:
     """Start interactive REPL session (default if no command given)."""
+    # Configure LangSmith tracing if enabled
+    from olav.core.llm import configure_langsmith, is_langsmith_enabled
+    if configure_langsmith():
+        console.print("[dim]🔍 LangSmith tracing enabled[/dim]")
+    
     # Handle --init flags
     if init or init_full or init_status:
         _run_init(status_only=init_status, full=init_full)

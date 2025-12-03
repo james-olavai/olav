@@ -233,6 +233,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     logger.info("🚀 Starting OLAV API Server...")
 
+    # Configure LangSmith tracing if enabled
+    from olav.core.llm import configure_langsmith
+    if configure_langsmith():
+        logger.info("🔍 LangSmith tracing enabled")
+
     # Start Inspection Scheduler
     from olav.inspection.scheduler import InspectionScheduler
     scheduler = InspectionScheduler()
