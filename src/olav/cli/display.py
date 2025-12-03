@@ -109,6 +109,7 @@ class ThinkingTree:
     """Real-time visualization of agent thinking process.
     
     Uses Rich Tree with Live display for dynamic updates.
+    Supports ReAct agent pattern with hypothesis-verification flow.
     
     Example:
         with ThinkingTree(console) as tree:
@@ -121,7 +122,10 @@ class ThinkingTree:
         "suzieq_query": "📊",
         "suzieq_schema_search": "🔍",
         "netconf_tool": "🔧",
+        "netconf_execute": "🔧",
         "cli_tool": "💻",
+        "cli_execute": "💻",
+        "netbox_api": "📦",
         "rag_search": "📚",
     }
     
@@ -134,11 +138,13 @@ class ThinkingTree:
     
     def __init__(self, console: Console | None = None):
         self.console = console or Console()
-        self.tree = Tree("[bold cyan]Thinking Process[/bold cyan]")
+        self.tree = Tree("[bold cyan]🧠 Thinking Process[/bold cyan]")
         self.live: Live | None = None
         self.tool_nodes: dict[str, Any] = {}
         self.current_step: Any = None
         self.start_time = time.time()
+        self.step_count = 0
+        self.hypothesis_node: Any = None
     
     def __enter__(self) -> "ThinkingTree":
         """Start live display."""
@@ -161,7 +167,39 @@ class ThinkingTree:
     
     def add_thinking(self, text: str) -> None:
         """Add a thinking step."""
-        self.current_step = self.tree.add(f"[yellow]💭 {text}[/yellow]")
+        self.step_count += 1
+        # Detect hypothesis-related thinking
+        text_lower = text.lower()
+        if any(kw in text_lower for kw in ["hypothes", "假设", "可能", "maybe", "could be"]):
+            self.current_step = self.tree.add(f"[magenta]🔮 {text}[/magenta]")
+            self.hypothesis_node = self.current_step
+        elif any(kw in text_lower for kw in ["verify", "验证", "check", "检查", "test"]):
+            self.current_step = self.tree.add(f"[cyan]🔬 {text}[/cyan]")
+        elif any(kw in text_lower for kw in ["evidence", "证据", "found", "发现", "result"]):
+            self.current_step = self.tree.add(f"[green]📌 {text}[/green]")
+        elif any(kw in text_lower for kw in ["调用", "calling", "query", "查询"]):
+            self.current_step = self.tree.add(f"[blue]⚡ {text}[/blue]")
+        else:
+            self.current_step = self.tree.add(f"[yellow]💭 {text}[/yellow]")
+        self._refresh()
+    
+    def add_hypothesis(self, hypothesis: str, confidence: float = 0.0) -> None:
+        """Add a hypothesis step (ReAct pattern)."""
+        conf_color = "green" if confidence >= 0.8 else "yellow" if confidence >= 0.5 else "red"
+        self.hypothesis_node = self.tree.add(
+            f"[magenta]🔮 Hypothesis:[/magenta] {hypothesis} "
+            f"[{conf_color}]({confidence:.0%})[/{conf_color}]"
+        )
+        self._refresh()
+    
+    def add_evidence(self, evidence: str, supports: bool = True) -> None:
+        """Add evidence for/against hypothesis."""
+        icon = "✓" if supports else "✗"
+        color = "green" if supports else "red"
+        if self.hypothesis_node:
+            self.hypothesis_node.add(f"[{color}]{icon} {evidence}[/{color}]")
+        else:
+            self.tree.add(f"[{color}]📌 {icon} {evidence}[/{color}]")
         self._refresh()
     
     def add_tool_call(self, tool_name: str, args: dict[str, Any]) -> None:

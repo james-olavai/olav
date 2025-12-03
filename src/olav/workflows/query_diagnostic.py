@@ -39,12 +39,12 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from olav.core.llm import LLMFactory
 from olav.core.prompt_manager import prompt_manager
 from olav.tools.document_tool import search_documents, search_rfc, search_vendor_docs
-from olav.tools.indexing_tool import (
-    index_directory,
-    index_document,
-)
+from olav.tools.netbox_tool import netbox_api_call, netbox_schema_search
 from olav.tools.nornir_tool import cli_tool, netconf_tool
-from olav.tools.opensearch_tool import search_openconfig_schema
+from olav.tools.opensearch_tool import (
+    search_episodic_memory,
+    search_openconfig_schema,
+)
 from olav.tools.suzieq_parquet_tool import suzieq_query, suzieq_schema_search
 from olav.tools.syslog_tool import syslog_search
 
@@ -62,7 +62,7 @@ class QueryDiagnosticState(BaseWorkflowState):
 
 @WorkflowRegistry.register(
     name="query_diagnostic",
-    description="网络状态查询与故障诊断（SuzieQ 宏观 → NETCONF 微观），以及文档索引与知识检索",
+    description="网络状态查询与故障诊断（SuzieQ 宏观 → NETCONF 微观），以及知识检索",
     examples=[
         "查询 R1 的 BGP 邻居状态",
         "Switch-A 的接口 Gi0/1 状态如何？",
@@ -75,10 +75,6 @@ class QueryDiagnosticState(BaseWorkflowState):
         "搜索 Cisco 配置指南",
         "查找关于 BGP 路由策略的文档",
         "搜索 RFC 7911 关于 ADD-PATH 的内容",
-        # Document indexing examples
-        "索引 data/documents/cisco 目录下的所有文档",
-        "添加 cisco_nxos_guide.pdf 到知识库",
-        "检查索引任务的状态",
     ],
     triggers=[
         r"BGP",
@@ -89,8 +85,6 @@ class QueryDiagnosticState(BaseWorkflowState):
         r"内存",
         r"邻居",
         # Document triggers
-        r"索引",
-        r"index",
         r"文档",
         r"document",
         r"知识库",
@@ -112,19 +106,23 @@ class QueryDiagnosticWorkflow(BaseWorkflow):
     @property
     def tools_required(self) -> list[str]:
         return [
-            "suzieq_query",
-            "suzieq_schema_search",
+            # Layer 1: Knowledge Base
             "search_episodic_memory",
             "search_openconfig_schema",
-            "netconf_tool",  # Read-only get-config
-            "cli_tool",  # Fallback read-only
+            # Layer 2: Cached Telemetry
+            "suzieq_query",
+            "suzieq_schema_search",
+            # Layer 3: Source of Truth
+            "netbox_api_call",
+            "netbox_schema_search",
+            "syslog_search",
+            # Layer 4: Live Device (read-only)
+            "netconf_tool",
+            "cli_tool",
             # Document RAG tools
             "search_documents",
             "search_vendor_docs",
             "search_rfc",
-            # Document indexing tools (sync)
-            "index_document",
-            "index_directory",
         ]
 
     async def validate_input(self, user_query: str) -> tuple[bool, str]:
@@ -211,24 +209,30 @@ class QueryDiagnosticWorkflow(BaseWorkflow):
         """Build query/diagnostic workflow graph."""
 
         # Define tool nodes
-        # Macro tools: SuzieQ for historical data analysis
-        macro_tools = [suzieq_query, suzieq_schema_search]
+        # Macro tools: SuzieQ + Knowledge Base for historical data analysis
+        macro_tools = [
+            # Layer 1: Knowledge Base
+            search_episodic_memory,
+            search_openconfig_schema,
+            # Layer 2: Cached Telemetry
+            suzieq_query,
+            suzieq_schema_search,
+        ]
         macro_tools_node = ToolNode(macro_tools)
 
-        # Micro tools: Real-time device data + document search
+        # Micro tools: Real-time device data + Source of Truth + Documents
         micro_tools = [
-            search_openconfig_schema,
+            # Layer 3: Source of Truth
+            netbox_api_call,
+            netbox_schema_search,
+            syslog_search,
+            # Layer 4: Live Device (read-only)
             netconf_tool,
             cli_tool,
-            # Event-driven diagnostics
-            syslog_search,
             # Document RAG tools
             search_documents,
             search_vendor_docs,
             search_rfc,
-            # Indexing tools (async via Redis queue)
-            index_document,
-            index_directory,
         ]
         micro_tools_node = ToolNode(micro_tools)
 

@@ -7,11 +7,10 @@ This module provides both:
 Tool Organization:
 - datetime_tool: Time utilities
 - netbox_tool: NetBox API integration (NetBoxAPITool class)
-- nornir_tool: NETCONF/CLI execution
+- nornir_tool: NETCONF/CLI execution (NetconfTool, CLITool)
 - opensearch_tool: Schema and document search
 - suzieq_tool: BaseTool classes for ToolRegistry
 - suzieq_parquet_tool: @tool functions for Parquet queries (direct import)
-- cli_tool: @tool functions for CLI commands (direct import)
 - indexing_tool: Document indexing utilities (direct import)
 
 Usage:
@@ -21,7 +20,6 @@ Usage:
 
     # For LangGraph ToolNode (direct @tool functions)
     from olav.tools.suzieq_parquet_tool import suzieq_query, suzieq_schema_search
-    from olav.tools.cli_tool import cli_command_tool
 """
 
 # Import all tool modules to trigger ToolRegistry.register() side effects
@@ -39,7 +37,6 @@ from olav.tools.netbox_tool import NetBoxAPITool
 
 # Note: The following are @tool functions (not BaseTool classes):
 # - suzieq_parquet_tool: suzieq_query, suzieq_schema_search
-# - cli_tool: cli_command_tool
 # - indexing_tool: index_document, index_directory, search_indexed_documents
 # Import them directly when needed for LangGraph ToolNode.
 

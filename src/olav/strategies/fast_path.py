@@ -221,8 +221,9 @@ async def classify_intent_async(query: str) -> tuple[str, float]:
         Categories: "netbox", "openconfig", "cli", "netconf", "suzieq"
     """
     try:
-        result = await classify_intent_with_llm(query)
-        return (result.category, result.confidence)
+        # classify_intent_with_llm returns tuple[str, float] directly
+        category, confidence = await classify_intent_with_llm(query)
+        return (category, confidence)
     except Exception as e:
         logger.warning(f"LLM intent classification failed: {e}, using keyword fallback")
         return classify_intent(query)
@@ -584,10 +585,20 @@ class FastPathStrategy:
                 )
 
             # Check confidence threshold
-            if extraction.confidence < self.confidence_threshold:
+            # Schema search tools have lower threshold (safe, read-only operations)
+            schema_search_tools = {
+                "suzieq_schema_search",
+                "openconfig_schema_search",
+            }
+            effective_threshold = (
+                0.5 if extraction.tool in schema_search_tools 
+                else self.confidence_threshold
+            )
+            
+            if extraction.confidence < effective_threshold:
                 logger.info(
                     f"Fast Path confidence {extraction.confidence:.2f} below threshold "
-                    f"{self.confidence_threshold}, falling back to standard workflow"
+                    f"{effective_threshold}, falling back to standard workflow"
                 )
                 return {
                     "success": False,
@@ -1146,11 +1157,27 @@ class FastPathStrategy:
         # Parameter normalization for specific tools
         # This handles cases where LLM uses different parameter names
         if tool_name == "suzieq_schema_search":
+            # SuzieQSchemaSearchTool.execute() only accepts 'query' parameter
+            # LLM may pass 'table', 'table_name', 'keyword', etc. - convert to 'query'
+            alt_param_names = ["table", "table_name", "keyword", "keywords", "search"]
+            for alt_name in alt_param_names:
+                if alt_name in parameters and "query" not in parameters:
+                    parameters["query"] = parameters.pop(alt_name)
+                    logger.debug(f"Converted '{alt_name}' to 'query' for suzieq_schema_search")
+                elif alt_name in parameters:
+                    # Remove duplicate parameter names
+                    parameters.pop(alt_name)
             # Ensure 'query' parameter is present (required by SuzieQSchemaSearchTool)
             if "query" not in parameters or not parameters.get("query"):
                 # Use original user query as fallback
                 parameters["query"] = parameters.get("user_query", "list all tables")
                 logger.debug(f"Added fallback query parameter for suzieq_schema_search: {parameters['query']}")
+            # Remove all parameters except 'query' to prevent unexpected keyword argument errors
+            allowed_params = {"query", "user_query"}
+            extra_params = set(parameters.keys()) - allowed_params
+            for extra in extra_params:
+                parameters.pop(extra)
+                logger.debug(f"Removed unexpected parameter '{extra}' from suzieq_schema_search")
         elif tool_name == "openconfig_schema_search":
             if "query" in parameters and "intent" not in parameters:
                 parameters["intent"] = parameters.pop("query")

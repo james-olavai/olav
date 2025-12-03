@@ -236,7 +236,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./config:/app/config:ro
+      - ./config:/app/config  # Writable for prompt debugging
       - ./data:/app/data
     # Use uv run to ensure virtualenv is active
     command: uv run python -m olav.main serve

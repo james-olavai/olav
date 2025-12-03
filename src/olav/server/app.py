@@ -2460,15 +2460,18 @@ def create_app() -> FastAPI:
             import time
             thread_id = f"stream-{int(time.time())}"
 
-        # Tool display names (Chinese)
+        # Tool display names (English for international compatibility)
         tool_display_names = {
-            "suzieq_query": "SuzieQ 查询",
-            "suzieq_schema_search": "SuzieQ 模式搜索",
+            "suzieq_query": "SuzieQ Query",
+            "suzieq_schema_search": "SuzieQ Schema Search",
+            "netbox_api": "NetBox API",
             "netbox_api_call": "NetBox API",
-            "cli_executor": "CLI 执行",
+            "cli_execute": "CLI Execute",
+            "cli_executor": "CLI Execute",
+            "netconf_execute": "NETCONF",
             "netconf_tool": "NETCONF",
-            "rag_search": "知识库搜索",
-            "episodic_memory_search": "历史记忆搜索",
+            "rag_search": "Knowledge Base Search",
+            "episodic_memory_search": "Memory Search",
         }
 
         async def event_stream():
@@ -2519,7 +2522,7 @@ def create_app() -> FastAPI:
                                         "type": "thinking",
                                         "thinking": {
                                             "step": "reasoning",
-                                            "content": f"正在调用 {tool_display_names.get(tool_name, tool_name)}...",
+                                            "content": f"Calling {tool_display_names.get(tool_name, tool_name)}...",
                                         }
                                     }
                                     yield f"data: {json_module.dumps(thinking_event, ensure_ascii=False)}\n\n"

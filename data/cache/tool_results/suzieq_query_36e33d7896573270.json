@@ -5,7 +5,7 @@
     "hostname": "R1",
     "method": "get"
   },
-  "cached_at": 1764722677.9256783,
+  "cached_at": 1764732342.7708871,
   "cache_ttl": 300,
   "tool_output": {
     "source": "suzieq",
@@ -128,7 +128,7 @@
       "method": "get",
       "max_age_hours": 24,
       "filters": {},
-      "elapsed_ms": 224
+      "elapsed_ms": 55
     }
   }
 }
