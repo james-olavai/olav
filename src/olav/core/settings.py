@@ -112,6 +112,16 @@ class EnvSettings(BaseSettings):
     stream_stateless: bool = True
 
     # ============================================
+    # LangSmith Tracing (Optional)
+    # ============================================
+    # Enable LangSmith for agent debugging and performance analysis
+    # Set LANGSMITH_API_KEY in .env to enable
+    langsmith_enabled: bool = False
+    langsmith_api_key: str = ""
+    langsmith_project: str = "olav-dev"  # Project name in LangSmith
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
+
+    # ============================================
     # Collector/Sandbox Configuration
     # ============================================
     collector_force_enable: bool = False

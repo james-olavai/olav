@@ -6,9 +6,14 @@ Supports 15+ providers with a single function call.
 LangChain 1.10 Middleware Integration:
 - ModelRetryMiddleware: Automatic retry with exponential backoff
 - ModelFallbackMiddleware: Automatic failover to backup models
+
+LangSmith Integration:
+- Optional tracing for debugging and performance analysis
+- Enable via LANGSMITH_ENABLED=true and LANGSMITH_API_KEY in .env
 """
 
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -28,6 +33,43 @@ from config.settings import LLMConfig, LLMRetryConfig
 from olav.core.settings import settings as env_settings
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================
+# LangSmith Configuration
+# ============================================
+def configure_langsmith() -> bool:
+    """Configure LangSmith tracing if enabled.
+    
+    Sets environment variables required by LangChain to enable tracing.
+    Call this once at startup before creating any LLM instances.
+    
+    Returns:
+        True if LangSmith was enabled, False otherwise
+    """
+    if not env_settings.langsmith_enabled:
+        return False
+    
+    if not env_settings.langsmith_api_key:
+        logger.warning("LangSmith enabled but LANGSMITH_API_KEY not set")
+        return False
+    
+    # Set LangChain environment variables
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    os.environ["LANGCHAIN_API_KEY"] = env_settings.langsmith_api_key
+    os.environ["LANGCHAIN_PROJECT"] = env_settings.langsmith_project
+    os.environ["LANGCHAIN_ENDPOINT"] = env_settings.langsmith_endpoint
+    
+    logger.info(
+        f"LangSmith tracing enabled: project={env_settings.langsmith_project}, "
+        f"endpoint={env_settings.langsmith_endpoint}"
+    )
+    return True
+
+
+def is_langsmith_enabled() -> bool:
+    """Check if LangSmith tracing is currently enabled."""
+    return os.environ.get("LANGCHAIN_TRACING_V2", "").lower() == "true"
 
 
 # ============================================
