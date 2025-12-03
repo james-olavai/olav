@@ -55,6 +55,101 @@ E2E_CACHE_DISABLED=true uv run pytest tests/e2e/
 # Cache settings in test_results_cache.json:
 # - cache_ttl_hours: 24 (tests re-run after 24 hours)
 # - force_rerun_on_code_change: true (re-run if test file changes)
+# - performance_threshold_ms: 30000 (flag slow tests >30s)
+```
+
+## Performance Tracking
+
+The test framework automatically tracks performance metrics for analysis.
+
+### Tracked Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `duration_ms` | Total test execution time |
+| `tool_calls` | Number of tool invocations |
+| `llm_calls` | Number of LLM API calls |
+| `total_tokens` | Total tokens consumed (prompt + completion) |
+| `prompt_tokens` | Tokens used for prompts |
+| `completion_tokens` | Tokens used for responses |
+| `steps` | Execution steps with timing |
+
+### Performance Logs
+
+Logs are written to `tests/e2e/logs/e2e_performance_YYYYMMDD.log`:
+
+```
+2025-01-15 10:30:15 | INFO | Test START: tests/e2e/test_cli_capabilities.py::TestQueryCapabilities::test_q01_bgp_status
+2025-01-15 10:30:18 | DEBUG | Step: cli_query_standard | 2500.00ms | {'query': 'check R1 BGP status', 'success': True}
+2025-01-15 10:30:18 | INFO | Test END: ...test_q01_bgp_status | Duration: 2532.45ms | Tools: 3 | LLM calls: 2 | Tokens: 1250
+```
+
+### Cache with Performance Data
+
+Cache stores performance data per test in `test_results_cache.json`:
+
+```json
+{
+  "passed_tests": {
+    "abc123def456": {
+      "test_id": "tests/e2e/test_cli_capabilities.py::test_q01_bgp_status",
+      "passed_at": "2025-01-15T10:30:18.123456",
+      "duration_ms": 2532.45,
+      "performance": {
+        "duration_ms": 2532.45,
+        "tool_calls": 3,
+        "llm_calls": 2,
+        "total_tokens": 1250,
+        "prompt_tokens": 950,
+        "completion_tokens": 300
+      }
+    }
+  },
+  "performance_summary": {
+    "total_tests": 15,
+    "total_duration_ms": 45000.0,
+    "avg_duration_ms": 3000.0,
+    "total_tool_calls": 45,
+    "total_llm_calls": 30,
+    "total_tokens": 18750
+  }
+}
+```
+
+### Viewing Performance Summary
+
+After test run, pytest shows a summary:
+
+```
+==================== Performance Summary ====================
+Total test time: 45.0s
+Average per test: 3000ms
+Min: 1200ms | Max: 8500ms
+Total LLM tokens: 18,750
+Total tool calls: 45
+Total LLM calls: 30
+-------------------- Slow Tests (3) --------------------
+  8.5s - test_d01_deep_diagnosis
+  6.2s - test_i01_bgp_audit
+  5.8s - test_d02_root_cause
+=============================================================
+```
+
+### Identifying Slow Tests
+
+```python
+from tests.e2e.test_cache import get_cache
+
+cache = get_cache()
+
+# Get tests slower than 30s (default)
+slow_tests = cache.get_slow_tests()
+
+# Get tests slower than custom threshold
+very_slow = cache.get_slow_tests(threshold_ms=60000)
+
+for test in slow_tests:
+    print(f"{test['duration_ms']/1000:.1f}s - {test['test_id']}")
 ```
 
 ## Test Environment Requirements
