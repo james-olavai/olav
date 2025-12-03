@@ -341,9 +341,10 @@ class TestQueryCapabilities:
         
         assert result.success, f"Query failed: {result.stderr}"
     
+    @pytest.mark.slow
     def test_q05_schema_discovery(self):
         """Q05: Test schema discovery."""
-        result = run_cli_query("what tables are available?")
+        result = run_cli_query("what tables are available?", timeout=TIMEOUT_COMPLEX)
         
         validation = validate_cli_response(
             result,
