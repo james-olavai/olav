@@ -1273,76 +1273,55 @@ WebGUI 渲染（HTML 表格）：
 ## Known Issues (待修复)
 
 > **记录日期**: 2025-12-01
+> **修复日期**: 2025-12-02
 
-### Issue #1: 会话 Token 不持久化
+### Issue #1: 会话 Token 不持久化 ✅ FIXED
 
 **现象**：登录后刷新页面，会重新跳转到登录页面，Token 未正确持久化。
 
-**预期行为**：Token 应保存在 `localStorage`，刷新后自动恢复登录状态。
+**修复**：使用 Zustand persist 的 `onFinishHydration` 回调替代简单的 `useEffect`。
 
-**可能原因**：
-- `auth-store.ts` 的 `persist` middleware 配置问题
-- `AuthGuard` 组件在 hydration 前错误重定向
-- Next.js SSR/CSR hydration 不匹配
-
-**修复方向**：
-- 检查 Zustand persist 配置
-- 在 AuthGuard 中添加 hydration 状态检查
-- 使用 `useEffect` 延迟验证直到客户端 hydrated
+**修改文件**：`lib/stores/auth-store.ts`
 
 ---
 
-### Issue #2: 流式内容只显示 "Thinking..."
+### Issue #2: 流式内容只显示 "Thinking..." ✅ FIXED
 
 **现象**：对话过程中只显示 "Thinking..."，没有实时展示 LLM 输出的流式内容。
 
-**预期行为**：应在一个小 box 中实时展示 LLM 正在生成的回复内容（打字机效果）。
+**修复**：改进 `normalizeStreamEvent()` 函数，支持更多 LangServe 事件格式：
+- 直接 `content` 字段
+- `chunk` 字段
+- `text` 字段
+- 嵌套在节点名称下的 `output`/`response` 字段
 
-**可能原因**：
-- `streamWorkflow()` 返回的事件格式与前端解析不匹配
-- `processStreamEvent()` 未正确提取 token 内容
-- LangServe stream 格式需要额外解析
-
-**修复方向**：
-- 调试 SSE 事件内容，确认实际返回的数据结构
-- 检查 `normalizeStreamEvent()` 函数逻辑
-- 确保 `streamingContent` 状态正确更新
+**修改文件**：`lib/api/client.ts`
 
 ---
 
-### Issue #3: Markdown 表格不渲染
+### Issue #3: Markdown 表格不渲染 ✅ FIXED
 
 **现象**：Agent 返回的表格数据未正确渲染为 HTML 表格。
 
-**预期行为**：GFM 格式的 Markdown 表格应渲染为带边框的 HTML 表格。
+**修复**：在 `globals.css` 中添加 `.prose table/th/td` 样式规则。
 
-**可能原因**：
-- `remark-gfm` 插件未正确配置
-- `react-markdown` 的 table 组件缺少样式
-- CSS 样式未应用到表格元素
-
-**修复方向**：
-- 验证 `MessageBubble` 中 `remarkPlugins={[remarkGfm]}` 配置
-- 添加 Tailwind 表格样式 (`@apply border` 等)
-- 检查 `markdown.css` 或 `globals.css` 中的表格样式
+**修改文件**：`app/globals.css`
 
 ---
 
-### Issue #4: 新对话不显示在历史栏
+### Issue #4: 新对话不显示在历史栏 ✅ FIXED
 
 **现象**：点击 "New Chat" 创建新对话后，发送消息，历史栏不显示新会话。
 
-**预期行为**：发送第一条消息后，会话应立即出现在左侧历史栏。
+**修复**：
+1. 在 `session-store.ts` 添加 `needsRefresh` 标志和 `triggerRefresh()` 函数
+2. 在 `session-sidebar.tsx` 监听 `needsRefresh` 并自动刷新会话列表
+3. 在 `chat/page.tsx` 发送消息成功后调用 `triggerRefresh()`
 
-**可能原因**：
-- 新会话未调用 `/sessions` API 创建
-- `SessionSidebar` 未监听会话创建事件
-- 需要手动刷新会话列表
-
-**修复方向**：
-- 发送消息后调用 `fetchSessions()` 刷新列表
-- 或者在前端本地添加新会话到 `sessions` 数组
-- 确保后端 `/orchestrator/stream` 返回 `thread_id`
+**修改文件**：
+- `lib/stores/session-store.ts`
+- `components/session-sidebar.tsx`
+- `app/chat/page.tsx`
 
 ---
 

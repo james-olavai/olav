@@ -1,17 +1,35 @@
 #!/usr/bin/env python3
 """OLAV CLI Entry Point (cli.py).
 
-This is the main entry point for OLAV CLI. It simply imports and runs
-the Typer app from src/olav/main.py.
+This is the main entry point for OLAV CLI v2 - Thin Client Architecture.
+
+The CLI connects to the OLAV API server via HTTP/SSE and provides:
+- Interactive REPL mode with history and auto-completion
+- Streaming responses with real-time thinking visualization
+- HITL approval flow for write operations
+- Inspection and document management commands
 
 Usage:
-    # Normal mode (3 standard workflows)
-    uv run olav.py
-    uv run olav.py "查询 R1 接口状态"
+    # Interactive REPL mode
+    uv run cli.py
     
-    # Expert mode (enables Deep Dive workflow)
-    uv run olav.py -e "审计所有边界路由器 BGP 配置"
-    uv run olav.py --expert "跨域故障深度分析"
+    # Single query
+    uv run cli.py query "查询 R1 BGP 状态"
+    
+    # Expert mode
+    uv run cli.py query -m expert "审计所有边界路由器"
+    
+    # Inspection commands
+    uv run cli.py inspect list
+    uv run cli.py inspect run daily-check
+    
+    # Document management
+    uv run cli.py doc list
+    uv run cli.py doc search "BGP 配置"
+    
+Environment Variables:
+    OLAV_SERVER_URL: API server URL (default: http://localhost:8000)
+    OLAV_TIMEOUT: Request timeout in seconds (default: 300)
 """
 import sys
 from pathlib import Path
@@ -20,5 +38,5 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 if __name__ == "__main__":
-    from olav.main import app
+    from olav.cli.commands import app
     app()

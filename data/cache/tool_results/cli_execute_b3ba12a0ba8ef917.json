@@ -4,7 +4,7 @@
     "device": "R1",
     "command": "show running-config"
   },
-  "cached_at": 1764544044.736577,
+  "cached_at": 1764677198.1830983,
   "cache_ttl": 300,
   "tool_output": {
     "source": "cli_execute",
