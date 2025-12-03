@@ -8,11 +8,15 @@ This manual defines end-to-end tests for validating OLAV agent capabilities. Unl
 
 ## Test Files
 
-| File | Purpose | Server Required |
-|------|---------|-----------------|
-| `test_agent_capabilities.py` | Full E2E via streaming API | Yes |
-| `test_cli_capabilities.py` | CLI-based tests (simpler) | No |
-| `fixtures/__init__.py` | Shared fixtures and validators | - |
+| File | Purpose | Server Required | YOLO Mode |
+|------|---------|-----------------|-----------|
+| `test_agent_capabilities.py` | Full E2E via streaming API | Yes | Optional |
+| `test_cli_capabilities.py` | CLI-based tests (simpler) | No | Optional |
+| `test_write_operations.py` | Write/delete device & NetBox | No | **Required** |
+| `test_fault_injection.py` | Fault injection & diagnosis | No | **Required** |
+| `test_cache.py` | Test result caching utility | - | - |
+| `test_results_cache.json` | Cache of passed tests | - | - |
+| `fixtures/__init__.py` | Shared fixtures and validators | - | - |
 
 ## Running Tests
 
@@ -27,8 +31,30 @@ uv run pytest tests/e2e/test_cli_capabilities.py -m "not slow" -v
 docker-compose up -d  # Start server first
 uv run pytest tests/e2e/test_agent_capabilities.py -v
 
+# Run write operation tests (YOLO mode required)
+OLAV_YOLO_MODE=true uv run pytest tests/e2e/test_write_operations.py -v
+
+# Run fault injection tests (YOLO mode required)
+OLAV_YOLO_MODE=true uv run pytest tests/e2e/test_fault_injection.py -v
+
+# Clear test cache and run all tests fresh
+E2E_CACHE_DISABLED=true uv run pytest tests/e2e/ -v
+
 # Generate HTML report
 uv run pytest tests/e2e/ --html=reports/e2e.html
+```
+
+## Test Result Caching
+
+Tests that pass are cached to skip on subsequent runs, saving LLM tokens.
+
+```bash
+# Disable caching (force rerun all tests)
+E2E_CACHE_DISABLED=true uv run pytest tests/e2e/
+
+# Cache settings in test_results_cache.json:
+# - cache_ttl_hours: 24 (tests re-run after 24 hours)
+# - force_rerun_on_code_change: true (re-run if test file changes)
 ```
 
 ## Test Environment Requirements
@@ -145,10 +171,43 @@ OLAV_TEST_MODE=true  # Enable test fixtures
 | M01 | Context Retention | Turn 1: `check R1 BGP`, Turn 2: `what about interfaces?` | ✅ Understands "R1" from context |
 | M02 | Follow-up Filter | Turn 1: `show all BGP peers`, Turn 2: `filter by Established` | ✅ Applies filter to previous query |
 | M03 | Clarification | Turn 1: `check the router`, Turn 2: `R1` | ✅ Uses clarification correctly |
-| I04 | Compliance Check | `verify all devices have NTP configured` | ✅ Returns compliant/non-compliant list |
-| I05 | Report Generation | `generate inspection report for core-routers` | ✅ Creates structured report |
 
-### Category 6: RAG & Schema Search
+### Category 9: Write Operations (Destructive Tests)
+
+**Test Interface**: Loopback100 with 100.100.100.100/32
+
+| ID | Capability | Test Query | Expected Result Validation |
+|----|------------|------------|---------------------------|
+| W01 | Add Loopback | `add Loopback100 with IP 100.100.100.100/32 to R1` | ✅ Interface created with correct IP |
+| W02 | Verify IP | Query interface status | ✅ IP 100.100.100.100 configured |
+| W03 | Modify Description | `change description of Loopback100 on R1` | ✅ Description updated |
+| W04 | Remove Loopback | `remove Loopback100 from R1` | ✅ Interface removed |
+| W10 | Add & Sync to NetBox | Add loopback, then sync | ✅ Interface appears in NetBox |
+| W11 | Sync IP to NetBox | `sync IP from R1 Loopback100 to NetBox` | ✅ IP in NetBox |
+| W12 | Remove from NetBox | `delete Loopback100 from NetBox` | ✅ Interface removed from NetBox |
+| W20 | Bulk Add | `add Loopback100 to all routers` | ✅ Interface on all devices |
+| W21 | Bulk Remove | `remove Loopback100 from all routers` | ✅ Interface removed from all |
+
+### Category 10: Fault Injection & Diagnosis
+
+**Purpose**: Inject real faults, verify agent diagnoses root cause correctly.
+
+| ID | Fault Type | Injection | Diagnosis Query | Expected Findings |
+|----|------------|-----------|-----------------|-------------------|
+| F01 | Wrong IP | Configure wrong IP on interface | `why is Loopback100 not working?` | ip, address, mismatch |
+| F02 | Mask Mismatch | Configure /24 instead of /32 | `analyze subnet on Loopback100` | mask, subnet, mismatch |
+| F03 | ACL Block | Apply deny ACL | `why is traffic being dropped?` | acl, deny, block |
+| F04 | BGP Wrong Peer | Configure unreachable peer IP | `why is BGP peer not establishing?` | peer, unreachable, idle |
+| F05 | BGP Wrong ASN | Configure wrong remote ASN | `analyze BGP session issues` | asn, mismatch |
+| F06 | OSPF Area Mismatch | Configure wrong OSPF area | `why is OSPF adjacency failing?` | area, mismatch |
+| F07 | MTU Mismatch | Configure different MTU | `analyze MTU issues` | mtu, mismatch |
+| F08 | Interface Shutdown | Shutdown interface | `why is interface down?` | shutdown, admin, down |
+| F10 | Cascading Failure | Interface down → BGP fails | `why is BGP failing?` | interface, down (root cause) |
+| F11 | Multi-Device | Misconfiguration affecting both | `analyze connectivity issues` | mentions both devices |
+
+---
+
+### Category 6: RAG & Schema Search (Extended)
 
 | ID | Capability | Test Query | Expected Result Validation |
 |----|------------|------------|---------------------------|

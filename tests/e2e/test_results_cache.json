@@ -1,0 +1,13 @@
+{
+  "_metadata": {
+    "description": "Cache of passed E2E tests to skip on subsequent runs (saves tokens)",
+    "created": "2025-12-03",
+    "version": "1.0"
+  },
+  "passed_tests": {},
+  "settings": {
+    "cache_enabled": true,
+    "cache_ttl_hours": 24,
+    "force_rerun_on_code_change": true
+  }
+}
