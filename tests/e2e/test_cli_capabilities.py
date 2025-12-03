@@ -46,12 +46,11 @@ from tests.e2e.test_cache import get_current_tracker, perf_logger
 # ============================================
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 CLI_PATH = PROJECT_ROOT / "cli.py"
-TIMEOUT_SIMPLE = 90   # Increased for free LLM APIs
-TIMEOUT_COMPLEX = 180
+TIMEOUT_DEFAULT = 360  # 6 minutes - unified timeout for free LLM APIs
 
 # Performance thresholds (milliseconds)
-PERF_THRESHOLD_SIMPLE = 60000   # 60s for simple queries (free LLM APIs are slow)
-PERF_THRESHOLD_COMPLEX = 120000 # 120s for complex queries
+PERF_THRESHOLD_SIMPLE = 120000   # 120s for simple queries (free LLM APIs are slow)
+PERF_THRESHOLD_COMPLEX = 300000  # 300s for complex queries
 
 
 def _check_cli_available() -> bool:
@@ -109,7 +108,7 @@ class ValidationResult:
 def run_cli_query(
     query: str,
     mode: str = "standard",
-    timeout: float = TIMEOUT_SIMPLE,
+    timeout: float = TIMEOUT_DEFAULT,
     yolo: bool = True,
 ) -> CLIResult:
     """Execute a query via CLI and return results.
@@ -344,7 +343,7 @@ class TestQueryCapabilities:
     @pytest.mark.slow
     def test_q05_schema_discovery(self):
         """Q05: Test schema discovery."""
-        result = run_cli_query("what tables are available?", timeout=TIMEOUT_COMPLEX)
+        result = run_cli_query("what tables are available?", timeout=TIMEOUT_DEFAULT)
         
         validation = validate_cli_response(
             result,
@@ -367,7 +366,7 @@ class TestExpertMode:
         result = run_cli_query(
             "analyze why R1 cannot reach R2",
             mode="expert",
-            timeout=TIMEOUT_COMPLEX,
+            timeout=TIMEOUT_DEFAULT,
         )
         
         validation = validate_cli_response(
@@ -384,7 +383,7 @@ class TestExpertMode:
         result = run_cli_query(
             "why is BGP flapping on R1?",
             mode="expert",
-            timeout=TIMEOUT_COMPLEX,
+            timeout=TIMEOUT_DEFAULT,
         )
         
         validation = validate_cli_response(
@@ -408,7 +407,7 @@ class TestInspectionMode:
         result = run_cli_query(
             "audit BGP on all devices",
             mode="inspection",
-            timeout=TIMEOUT_COMPLEX,
+            timeout=TIMEOUT_DEFAULT,
         )
         
         validation = validate_cli_response(
@@ -425,7 +424,7 @@ class TestInspectionMode:
         result = run_cli_query(
             "check interface status on all devices",
             mode="inspection",
-            timeout=TIMEOUT_COMPLEX,
+            timeout=TIMEOUT_DEFAULT,
         )
         
         validation = validate_cli_response(
@@ -499,7 +498,7 @@ class TestSchemaAware:
     @pytest.mark.slow
     def test_s01_table_discovery(self):
         """S01: Discover available tables."""
-        result = run_cli_query("what SuzieQ tables can I query?", timeout=TIMEOUT_COMPLEX)
+        result = run_cli_query("what SuzieQ tables can I query?", timeout=TIMEOUT_DEFAULT)
         
         validation = validate_cli_response(
             result,
@@ -512,7 +511,7 @@ class TestSchemaAware:
     @pytest.mark.slow
     def test_s02_field_discovery(self):
         """S02: Discover table fields."""
-        result = run_cli_query("what fields are in the BGP table?", timeout=TIMEOUT_COMPLEX)
+        result = run_cli_query("what fields are in the BGP table?", timeout=TIMEOUT_DEFAULT)
         
         validation = validate_cli_response(
             result,
@@ -525,7 +524,7 @@ class TestSchemaAware:
     @pytest.mark.slow
     def test_s03_method_discovery(self):
         """S03: Discover available methods."""
-        result = run_cli_query("what methods can I use to query data?", timeout=TIMEOUT_COMPLEX)
+        result = run_cli_query("what methods can I use to query data?", timeout=TIMEOUT_DEFAULT)
         
         validation = validate_cli_response(
             result,
