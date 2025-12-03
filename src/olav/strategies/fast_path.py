@@ -640,8 +640,10 @@ class FastPathStrategy:
                         "message": "Query requires execution on all devices - use batch workflow",
                     }
 
-            # Step 3: Execute tool
-            tool_output = await self._execute_tool(extraction.tool, extraction.parameters)
+            # Step 3: Execute tool (add user_query to params for tools that need it)
+            params = extraction.parameters.copy()
+            params["user_query"] = user_query  # For fallback in parameter normalization
+            tool_output = await self._execute_tool(extraction.tool, params)
 
             if tool_output.error:
                 logger.error(f"Tool execution failed: {tool_output.error}")
@@ -1143,7 +1145,13 @@ class FastPathStrategy:
 
         # Parameter normalization for specific tools
         # This handles cases where LLM uses different parameter names
-        if tool_name == "openconfig_schema_search":
+        if tool_name == "suzieq_schema_search":
+            # Ensure 'query' parameter is present (required by SuzieQSchemaSearchTool)
+            if "query" not in parameters or not parameters.get("query"):
+                # Use original user query as fallback
+                parameters["query"] = parameters.get("user_query", "list all tables")
+                logger.debug(f"Added fallback query parameter for suzieq_schema_search: {parameters['query']}")
+        elif tool_name == "openconfig_schema_search":
             if "query" in parameters and "intent" not in parameters:
                 parameters["intent"] = parameters.pop("query")
         elif tool_name == "netbox_api":
@@ -1193,6 +1201,9 @@ class FastPathStrategy:
                 data=[],
                 error=f"Tool '{tool_name}' not registered. Available: {', '.join(available_tools)}",
             )
+
+        # Remove internal parameters before executing tool
+        parameters.pop("user_query", None)  # Used for fallback, not passed to tool
 
         # Step 4: Execute tool with retry logic (LangChain 1.10 pattern)
         logger.debug(f"Executing tool '{tool_name}' with parameters: {parameters}")
