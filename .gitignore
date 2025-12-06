@@ -65,6 +65,8 @@ data/suzieq-parquet/*
 !data/suzieq-parquet/.gitkeep
 data/documents/*
 !data/documents/.gitkeep
+data/cache/*
+!data/cache/.gitkeep
 
 # Docker
 docker-compose.override.yml
