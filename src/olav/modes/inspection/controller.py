@@ -50,14 +50,47 @@ class ThresholdConfig(BaseModel):
 
 
 class CheckConfig(BaseModel):
-    """Individual check configuration."""
+    """Individual check configuration.
+    
+    Supports two modes:
+    1. Intent mode (smart): Only provide 'intent', LLM compiles to parameters
+    2. Explicit mode: Provide 'tool' and 'parameters' directly
+    
+    If both are provided, explicit parameters override LLM compilation.
+    """
     
     name: str
     description: str = ""
-    tool: str  # suzieq_query, netbox_api, etc.
-    enabled: bool = True
+    
+    # Smart mode: natural language intent (LLM compiles to tool/parameters)
+    intent: str | None = Field(
+        default=None,
+        description="Natural language intent for LLM compilation"
+    )
+    severity: Literal["critical", "warning", "info"] = Field(
+        default="warning",
+        description="Check severity level"
+    )
+    
+    # Explicit mode: directly specify tool and parameters
+    tool: str | None = Field(
+        default=None,
+        description="Tool name (suzieq_query, netbox_api, etc.)"
+    )
     parameters: dict[str, Any] = Field(default_factory=dict)
     threshold: ThresholdConfig | None = None
+    
+    enabled: bool = True
+    
+    @property
+    def is_intent_mode(self) -> bool:
+        """Check if this is intent-based (smart) mode."""
+        return self.intent is not None and self.tool is None
+    
+    @property
+    def is_explicit_mode(self) -> bool:
+        """Check if this is explicit parameter mode."""
+        return self.tool is not None
 
 
 class DeviceFilter(BaseModel):
@@ -278,12 +311,92 @@ class InspectionModeController:
         
         return []
     
+    async def compile_check(self, check: CheckConfig) -> tuple[str, dict[str, Any], ThresholdConfig | None]:
+        """Compile check to tool/parameters using IntentCompiler if needed.
+        
+        Args:
+            check: Check configuration.
+        
+        Returns:
+            Tuple of (tool_name, parameters, threshold_config).
+        """
+        # Explicit mode: use provided tool/parameters directly
+        if check.is_explicit_mode:
+            return check.tool or "suzieq_query", check.parameters, check.threshold
+        
+        # Intent mode: use IntentCompiler
+        if check.is_intent_mode and check.intent:
+            from olav.modes.inspection.compiler import IntentCompiler
+            
+            compiler = IntentCompiler()
+            plan = await compiler.compile(
+                intent=check.intent,
+                check_name=check.name,
+                severity=check.severity,
+            )
+            
+            # Build parameters from compiled plan
+            parameters = {
+                "table": plan.table,
+                "method": plan.method,
+                **plan.filters,
+            }
+            if plan.columns:
+                parameters["columns"] = plan.columns
+            
+            # Build threshold from validation rule
+            threshold = None
+            if plan.validation:
+                threshold = ThresholdConfig(
+                    field=plan.validation.field,
+                    operator=plan.validation.operator,  # type: ignore
+                    value=plan.validation.expected,
+                    severity=check.severity,
+                    message=f"{{device}}: {plan.validation.field} 不满足条件 {plan.validation.operator} {plan.validation.expected}",
+                )
+            
+            return "suzieq_query", parameters, threshold
+        
+        # Fallback: use description as intent
+        if check.description:
+            from olav.modes.inspection.compiler import IntentCompiler
+            
+            compiler = IntentCompiler()
+            plan = await compiler.compile(
+                intent=check.description,
+                check_name=check.name,
+                severity=check.severity,
+            )
+            
+            parameters = {
+                "table": plan.table,
+                "method": plan.method,
+                **plan.filters,
+            }
+            
+            threshold = None
+            if plan.validation:
+                threshold = ThresholdConfig(
+                    field=plan.validation.field,
+                    operator=plan.validation.operator,  # type: ignore
+                    value=plan.validation.expected,
+                    severity=check.severity,
+                    message=f"{{device}}: {plan.validation.field} 不满足条件",
+                )
+            
+            return "suzieq_query", parameters, threshold
+        
+        # No intent or tool specified - error
+        raise ValueError(f"Check '{check.name}' must have either 'intent' or 'tool' specified")
+    
     async def execute_check(
         self,
         device: str,
         check: CheckConfig,
     ) -> CheckResult:
         """Execute a single check on a device.
+        
+        Supports both intent mode (LLM compilation) and explicit mode.
         
         Args:
             device: Device hostname.
@@ -297,13 +410,16 @@ class InspectionModeController:
         start = time.perf_counter()
         
         try:
-            # Get appropriate tool
-            if check.tool == "suzieq_query":
+            # Compile check to tool/parameters
+            tool_name, parameters, threshold = await self.compile_check(check)
+            
+            # Execute tool
+            if tool_name == "suzieq_query":
                 from olav.tools.suzieq_tool import SuzieQTool
                 
                 tool = SuzieQTool()
                 params = {
-                    **check.parameters,
+                    **parameters,
                     "hostname": device,
                 }
                 result = await tool.execute(**params)
@@ -316,7 +432,7 @@ class InspectionModeController:
                     device=device,
                     check_name=check.name,
                     success=False,
-                    error=f"Unknown tool: {check.tool}",
+                    error=f"Unknown tool: {tool_name}",
                     duration_ms=(time.perf_counter() - start) * 1000,
                 )
             
@@ -324,31 +440,31 @@ class InspectionModeController:
             
             # Check threshold if configured
             threshold_violated = False
-            severity = "info"
+            severity = check.severity
             message = ""
             actual_value = result
             
-            if check.threshold:
+            if threshold:
                 # Extract value from result
                 if isinstance(result, dict):
-                    actual_value = result.get(check.threshold.field, result)
+                    actual_value = result.get(threshold.field, result)
                 elif isinstance(result, list):
                     actual_value = len(result)
                 
                 # Evaluate threshold
                 threshold_violated = not self._evaluate_threshold(
                     actual_value,
-                    check.threshold.operator,
-                    check.threshold.value,
+                    threshold.operator,
+                    threshold.value,
                 )
                 
                 if threshold_violated:
-                    severity = check.threshold.severity
-                    message = check.threshold.message.format(
+                    severity = threshold.severity
+                    message = threshold.message.format(
                         device=device,
                         actual=actual_value,
-                        value=check.threshold.value,
-                    )
+                        value=threshold.value,
+                    ) if threshold.message else f"{device}: {threshold.field} = {actual_value}"
             
             return CheckResult(
                 device=device,
