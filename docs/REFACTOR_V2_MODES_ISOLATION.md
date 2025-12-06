@@ -656,11 +656,13 @@ class Supervisor:
 
 #### 5.2.8 交付物
 
-- [ ] `src/olav/modes/expert/` 目录结构
-- [ ] `supervisor.py`: 两阶段调度控制
-- [ ] `quick_analyzer.py`: Phase 1 SuzieQ 快速分析
-- [ ] `deep_analyzer.py`: Phase 2 OpenConfig/CLI 实时验证
-- [ ] `report.py`: 报告生成 + Episodic Memory 索引 (Agentic 闭环)
+- [x] `src/olav/modes/expert/` 目录结构
+- [x] `supervisor.py`: 两阶段调度控制
+- [x] `quick_analyzer.py`: Phase 1 SuzieQ 快速分析
+- [x] `deep_analyzer.py`: Phase 2 OpenConfig/CLI 实时验证
+- [x] `report.py`: 报告生成 + Episodic Memory 索引 (Agentic 闭环)
+- [x] `workflow.py`: 两阶段工作流编排
+- [x] `guard.py`: Expert 模式安全守卫
 - [ ] `src/olav/shared/tools/`:
   - [ ] `config_extractor.py`: 配置段落提取器 (Token 优化)
   - [ ] `openconfig.py`: `openconfig_schema_search`, `netconf_get`
@@ -673,6 +675,8 @@ class Supervisor:
 - [ ] OpenSearch 索引: `olav-episodic-memory` (Agentic 闭环)
 - [ ] 单元测试: `tests/unit/modes/test_expert.py`
 - [ ] 单元测试: `tests/unit/shared/test_config_extractor.py`
+
+**✅ Phase 2 核心组件完成** (2025-12)
 
 #### 5.2.9 Agentic 闭环：报告索引到 Episodic Memory
 
@@ -1712,7 +1716,126 @@ template: |
   直接输出一条 show 命令，不要其他解释。
 ```
 
-#### 5.3.9 向后兼容
+#### 5.3.9 NetBox 动态设备筛选
+
+**问题**: 硬编码 `explicit_devices` 列表维护成本高，设备增减需手动更新多个 YAML 配置文件。
+
+**解决方案**: 使用 NetBox 作为 SSOT，通过标签/角色/站点动态筛选设备。
+
+**NetBox 设备字段** (可用于筛选):
+
+| 字段 | 类型 | 当前值示例 | 说明 |
+|------|------|-----------|------|
+| `role` | 关联对象 | `core`, `dist`, `access` | 设备角色 |
+| `site` | 关联对象 | `lab`, `dc-1`, `office` | 站点 |
+| `status` | 枚举 | `active`, `planned`, `offline` | 设备状态 |
+| `platform` | 关联对象 | `cisco_ios`, `junos` | 平台/OS |
+| `tags` | 列表 | `olav-managed`, `production` | 标签 |
+| `tenant` | 关联对象 | `customer-a` | 租户 |
+| `region` | 关联对象 | `asia`, `europe` | 区域 |
+
+**配置语法**:
+
+```yaml
+# 方式 1: 按标签筛选 (推荐)
+devices:
+  netbox_filter:
+    tag: "olav-managed"          # 所有打此标签的设备
+
+# 方式 2: 按角色筛选
+devices:
+  netbox_filter:
+    role: "core"                 # 只检查核心设备
+
+# 方式 3: 按站点筛选
+devices:
+  netbox_filter:
+    site: "datacenter-1"
+
+# 方式 4: 组合筛选 (AND 逻辑)
+devices:
+  netbox_filter:
+    tag: "production"
+    role: ["router", "switch"]   # 列表 = OR 逻辑
+    status: "active"
+
+# 方式 5: 排除特定设备
+devices:
+  netbox_filter:
+    tag: "olav-managed"
+  exclude:
+    - "R1"                       # 排除 R1 (维护中)
+
+# 方式 6: 硬编码设备 (向后兼容/测试用)
+devices:
+  explicit_devices:
+    - R1
+    - R2
+```
+
+**优先级规则**:
+1. `explicit_devices` 非空 → 使用硬编码列表
+2. `netbox_filter` 非空 → 查询 NetBox API
+3. 两者都空 → 从 SuzieQ `device` 表获取所有设备
+
+**实现位置**: `InspectionModeController.resolve_devices()`
+
+```python
+async def resolve_devices(self, config: InspectionConfig) -> list[str]:
+    """解析设备范围，返回设备名称列表。"""
+    # 优先使用硬编码列表
+    if config.devices.explicit_devices:
+        return config.devices.explicit_devices
+    
+    # 使用 NetBox 筛选
+    if config.devices.netbox_filter:
+        params = self._build_netbox_params(config.devices.netbox_filter)
+        result = await self.netbox_tool.execute(
+            path='/api/dcim/devices/',
+            method='GET',
+            params=params,
+        )
+        devices = [d['name'] for d in result.data]
+        
+        # 排除列表
+        if config.devices.exclude:
+            devices = [d for d in devices if d not in config.devices.exclude]
+        
+        return devices
+    
+    # Fallback: SuzieQ 所有设备
+    result = await self.suzieq_tool.execute(table='device', method='get')
+    return list({r['hostname'] for r in result.data})
+
+def _build_netbox_params(self, filter_config: dict) -> dict:
+    """构建 NetBox API 查询参数。"""
+    params = {'status': 'active'}  # 默认只查活跃设备
+    
+    if 'tag' in filter_config:
+        params['tag'] = filter_config['tag']
+    if 'role' in filter_config:
+        params['role'] = filter_config['role']
+    if 'site' in filter_config:
+        params['site'] = filter_config['site']
+    if 'platform' in filter_config:
+        params['platform'] = filter_config['platform']
+    if 'status' in filter_config:
+        params['status'] = filter_config['status']
+    
+    return params
+```
+
+**优势对比**:
+
+| 维度 | 硬编码 `explicit_devices` | NetBox 动态筛选 |
+|------|--------------------------|-----------------|
+| 新增设备 | 需修改每个 YAML 配置 | 在 NetBox 打标签即自动纳入 |
+| 维护成本 | 高 (多处修改) | 低 (集中管理) |
+| 一致性 | 容易遗漏 | SSOT 保证同步 |
+| 灵活性 | 静态 | 按角色/站点/状态组合 |
+| 测试场景 | ✅ 适合 | 需临时标签 |
+
+#### 5.3.10 向后兼容
 
 仍支持传统的硬编码配置（适合固定巡检）：
 
@@ -1735,17 +1858,22 @@ checks:
     severity: warning
 ```
 
-#### 5.3.10 交付物
+#### 5.3.11 交付物
 
-- [ ] `src/olav/modes/inspection/` 目录结构
-- [ ] `loader.py`: YAML 配置加载
-- [ ] `compiler.py`: IntentCompiler (LLM 驱动意图编译 + 多数据源回退)
-- [ ] `executor.py`: Map-Reduce 并行执行
-- [ ] `validator.py`: ThresholdValidator
+- [x] `src/olav/modes/inspection/` 目录结构
+- [x] `loader.py`: YAML 配置加载 (已整合到 controller.py)
+- [x] `compiler.py`: IntentCompiler (LLM 驱动意图编译 + 多数据源回退)
+- [x] `executor.py`: Map-Reduce 并行执行 (已整合到 controller.py)
+- [x] `validator.py`: ThresholdValidator (已整合到 controller.py)
+- [x] `scheduler.py`: InspectionScheduler (后台调度守护进程)
 - [ ] `config/prompts/inspection/intent_compiler.yaml`
 - [ ] `config/prompts/inspection/show_command_generator.yaml` 🆕
-- [ ] `config/inspections/` 智能配置示例
+- [x] `config/inspections/` 智能配置示例
 - [ ] 单元测试: `tests/unit/modes/test_inspection.py`
+
+**✅ Phase 3 核心组件完成** (2025-12)
+- 旧模块 `src/olav/inspection/` 已删除，功能迁移至 `src/olav/modes/inspection/`
+- CLI `inspect` 命令和 Server scheduler 已更新使用新模块
 
 ---
 

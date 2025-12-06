@@ -237,7 +237,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("🔍 LangSmith tracing enabled")
 
     # Start Inspection Scheduler
-    from olav.inspection.scheduler import InspectionScheduler
+    from olav.modes.inspection import InspectionScheduler
     scheduler = InspectionScheduler()
     scheduler_task = asyncio.create_task(scheduler.start())
     logger.info("⏰ Inspection Scheduler started in background")

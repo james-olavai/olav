@@ -1207,46 +1207,52 @@ def inspect(
             )
         )
 
-        from olav.inspection.scheduler import run_scheduler
+        from olav.modes.inspection import run_scheduler
 
         asyncio.run(run_scheduler())
         return
 
-    # One-shot inspection mode
-    from olav.inspection.runner import run_inspection
+    # One-shot inspection mode (using new modes/inspection module)
+    from pathlib import Path
+    from olav.modes.inspection import run_inspection
 
-    profile_name = profile or "daily_core_check"
-    console.print(f"\n[bold]Running Inspection: {profile_name}[/bold]")
+    # Resolve config path
+    if config_path:
+        resolved_path = Path(config_path)
+    else:
+        profile_name = profile or InspectionConfig.DEFAULT_PROFILE
+        resolved_path = Path("config/inspections") / f"{profile_name}.yaml"
+
+    console.print(f"\n[bold]Running Inspection: {resolved_path.stem}[/bold]")
     console.print(f"Language: {lang}")
     console.print("[dim]This is a read-only check (no HITL required)[/dim]\n")
+
+    AgentConfig.LANGUAGE = lang  # type: ignore
 
     try:
         result = asyncio.run(
             run_inspection(
-                profile=profile_name if not config_path else None,
-                config_path=config_path,
-                language=lang,
+                config_path=resolved_path,
+                save_report=True,
             )
         )
 
-        if result.get("status") == "success":
-            passed = result.get("passed", 0)
-            total = result.get("total_checks", 0)
-            critical = result.get("critical", 0)
-            duration = result.get("duration_seconds", 0)
-            report_path = result.get("report_path", "")
+        # Display results using InspectionResult properties
+        duration = result.duration_seconds
+        passed = result.checks_passed
+        total = result.total_checks
+        critical_count = len(result.critical_violations)
 
-            # Summary
-            status_emoji = "🔴" if critical > 0 else ("🟡" if passed < total else "🟢")
-            console.print(f"\n{status_emoji} [bold]Inspection Complete[/bold]")
-            console.print(f"  ✅ Passed: {passed}/{total}")
-            if critical > 0:
-                console.print(f"  🔴 Critical: {critical}")
-            console.print(f"  ⏱️  Duration: {duration:.1f}s")
-            console.print(f"  📄 Report: [link=file://{report_path}]{report_path}[/link]")
-        else:
-            console.print(f"\n[red]❌ Inspection failed: {result.get('message')}[/red]")
-            raise typer.Exit(code=1)
+        # Summary
+        status_emoji = "🔴" if result.has_critical else ("🟡" if result.warning_violations else "🟢")
+        console.print(f"\n{status_emoji} [bold]Inspection Complete[/bold]")
+        console.print(f"  ✅ Passed: {passed}/{total}")
+        if critical_count > 0:
+            console.print(f"  🔴 Critical: {critical_count}")
+        if result.warning_violations:
+            console.print(f"  🟡 Warnings: {len(result.warning_violations)}")
+        console.print(f"  ⏱️  Duration: {duration:.1f}s")
+        console.print(f"  📄 Devices: {result.devices_passed}/{result.total_devices} passed")
 
     except FileNotFoundError as e:
         console.print(f"\n[red]❌ Profile not found: {e}[/red]")
