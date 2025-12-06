@@ -76,6 +76,20 @@ class QueryPlan(BaseModel):
         default=None, description="Threshold validation rule"
     )
 
+    # Data source control (for multi-source fallback)
+    source: Literal["suzieq", "openconfig", "cli"] = Field(
+        default="suzieq", description="Data source for execution"
+    )
+    fallback_tool: str | None = Field(
+        default=None, description="Tool to use for fallback (netconf_get or cli_show)"
+    )
+    fallback_params: dict[str, Any] | None = Field(
+        default=None, description="Parameters for fallback tool"
+    )
+    read_only: bool = Field(
+        default=True, description="Whether this is a read-only operation (always True for inspection)"
+    )
+
     # Metadata
     compiled_from_intent: str = Field(default="", description="Original intent")
     confidence: float = Field(default=0.8, description="Compilation confidence")
@@ -155,6 +169,30 @@ INTENT_COMPILER_PROMPT = """你是网络运维专家。根据用户的检查意�
 # =============================================================================
 # Intent Compiler
 # =============================================================================
+
+# SuzieQ supported tables (commonly available with data)
+SUZIEQ_TABLES: set[str] = {
+    "bgp", "ospf", "interfaces", "routes", "macs", "arpnd",
+    "device", "lldp", "vlan", "evpnVni", "fs", "ifCounters",
+    "inventory", "mlag", "network", "path", "sqpoller", "time",
+    "topcpu", "topmem", "topology", "vrf",
+}
+
+# Checks that need real-time data (SuzieQ parquet may be stale)
+REALTIME_TABLES: set[str] = {
+    "topcpu", "topmem",  # CPU/memory need fresh data
+}
+
+# Show command templates for common checks
+SHOW_COMMAND_TEMPLATES: dict[str, str] = {
+    "cpu": "show processes cpu",
+    "memory": "show memory",
+    "temperature": "show environment temperature",
+    "power": "show environment power",
+    "version": "show version",
+    "logging": "show logging",
+    "config": "show running-config",
+}
 
 
 class IntentCompiler:
@@ -295,14 +333,19 @@ class IntentCompiler:
                 validation=validation,
                 compiled_from_intent=intent,
                 confidence=0.8,
+                read_only=True,  # Always read-only for inspection
             )
+
+            # Check if SuzieQ supports this table
+            plan = await self._apply_fallback_if_needed(plan, intent)
 
             # Cache result
             self._save_to_cache(cache_key, plan)
 
             logger.info(
                 f"[IntentCompiler] Compiled: table={plan.table}, "
-                f"method={plan.method}, validation={plan.validation}"
+                f"method={plan.method}, source={plan.source}, "
+                f"validation={plan.validation}"
             )
 
             return plan
@@ -362,7 +405,149 @@ class IntentCompiler:
             validation=None,
             compiled_from_intent=intent,
             confidence=0.3,  # Low confidence for fallback
+            read_only=True,
         )
+
+    async def _apply_fallback_if_needed(
+        self,
+        plan: QueryPlan,
+        intent: str,
+    ) -> QueryPlan:
+        """Check if SuzieQ supports the table and apply fallback if needed.
+
+        Args:
+            plan: The compiled query plan.
+            intent: Original intent for fallback compilation.
+
+        Returns:
+            Updated QueryPlan with source and fallback_tool if needed.
+        """
+        # Check if table is supported by SuzieQ
+        if plan.table in SUZIEQ_TABLES and plan.table not in REALTIME_TABLES:
+            # SuzieQ can handle this
+            plan.source = "suzieq"
+            return plan
+
+        # Need fallback - try to compile CLI show command
+        logger.info(
+            f"[IntentCompiler] Table '{plan.table}' needs fallback, "
+            f"compiling CLI show command..."
+        )
+
+        show_command = await self._compile_show_command(intent, plan.table)
+
+        if show_command:
+            plan.source = "cli"
+            plan.fallback_tool = "cli_show"
+            plan.fallback_params = {"command": show_command}
+            plan.confidence = 0.7  # Slightly lower confidence for CLI
+            logger.info(f"[IntentCompiler] Fallback to CLI: {show_command}")
+        else:
+            # Keep SuzieQ as source but log warning
+            logger.warning(
+                f"[IntentCompiler] Could not compile fallback for '{plan.table}', "
+                f"keeping SuzieQ (may fail)"
+            )
+            plan.source = "suzieq"
+
+        return plan
+
+    async def _compile_show_command(
+        self,
+        intent: str,
+        table: str,
+    ) -> str | None:
+        """Compile intent to CLI show command.
+
+        Args:
+            intent: Natural language intent.
+            table: Target table name.
+
+        Returns:
+            Show command string, or None if compilation fails.
+        """
+        # First check if we have a template
+        intent_lower = intent.lower()
+
+        for keyword, template in SHOW_COMMAND_TEMPLATES.items():
+            if keyword in intent_lower:
+                logger.info(
+                    f"[IntentCompiler] Using show command template: {template}"
+                )
+                return template
+
+        # Try LLM compilation for show command
+        try:
+            from olav.core.llm import LLMFactory
+
+            llm = LLMFactory.get_chat_model()
+
+            prompt = f"""你是网络运维专家。根据检查意图生成对应的 show 命令。
+
+## 检查意图
+{intent}
+
+## 目标数据
+{table}
+
+## 约束
+- 只能生成 show 命令
+- 不能生成任何配置命令 (configure, set, delete 等)
+- 命令必须以 "show " 开头
+- 生成通用的 Cisco IOS/NX-OS 兼容命令
+
+## 输出
+直接输出一条 show 命令，不要其他解释。"""
+
+            response = await llm.ainvoke(prompt)
+            command = response.content.strip()
+
+            # Validate: must start with "show "
+            if not self._validate_show_command(command):
+                logger.warning(
+                    f"[IntentCompiler] Invalid command generated: {command}"
+                )
+                return None
+
+            return command
+
+        except Exception as e:
+            logger.error(f"[IntentCompiler] Show command compilation failed: {e}")
+            return None
+
+    def _validate_show_command(self, command: str) -> bool:
+        """Validate that command is a safe show command.
+
+        Args:
+            command: The command to validate.
+
+        Returns:
+            True if command is safe (show only), False otherwise.
+        """
+        if not command:
+            return False
+
+        cmd_lower = command.strip().lower()
+
+        # Must start with "show"
+        if not cmd_lower.startswith("show "):
+            return False
+
+        # Blacklist dangerous patterns
+        dangerous_patterns = [
+            "configure", "config", "set ", "delete", "no ",
+            "write", "copy", "reload", "shutdown", "erase",
+            "|", ";", "&&", "||",  # Command injection
+        ]
+
+        for pattern in dangerous_patterns:
+            if pattern in cmd_lower:
+                logger.warning(
+                    f"[IntentCompiler] Dangerous pattern '{pattern}' in command"
+                )
+                return False
+
+        return True
 
     def clear_cache(self) -> int:
         """Clear all cached plans.
