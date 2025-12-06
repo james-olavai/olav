@@ -37,6 +37,10 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 # This is required for strategies (fast_path, deep_path) that use ToolRegistry.get_tool()
 import olav.tools  # noqa: F401
 from olav.agents.dynamic_orchestrator import DynamicIntentRouter
+from olav.agents.network_relevance_guard import (
+    REJECTION_MESSAGE,
+    get_network_guard,
+)
 from olav.core.llm import LLMFactory
 from olav.core.prompt_manager import prompt_manager
 from olav.core.settings import settings
@@ -111,7 +115,8 @@ class WorkflowOrchestrator:
                     )
                     self.use_dynamic_router = False
                 else:
-                    llm = LLMFactory.get_chat_model(json_mode=True)
+                    # Use json_mode for structured output, reasoning=False to avoid verbose thinking
+                    llm = LLMFactory.get_chat_model(json_mode=True, reasoning=False)
                     embeddings = LLMFactory.get_embedding_model()
                     self.dynamic_router = DynamicIntentRouter(llm=llm, embeddings=embeddings)
                     logger.info("DynamicIntentRouter initialized successfully")
@@ -126,6 +131,9 @@ class WorkflowOrchestrator:
 
         # LLM for legacy classification
         self.llm = LLMFactory.get_chat_model(json_mode=False)
+
+        # Network relevance guard (LLM-based pre-filter for non-network queries)
+        self.network_guard = get_network_guard()
 
     async def initialize(self) -> None:
         """
@@ -243,9 +251,22 @@ class WorkflowOrchestrator:
         Returns:
             Execution result from selected workflow
         """
+        # ===== GUARD: Check if query is network-related =====
+        relevance = await self.network_guard.check(user_query)
+        if not relevance.is_relevant:
+            logger.info(f"Query rejected by network guard: {relevance.reason}")
+            print(f"[Orchestrator] Non-network query rejected ({relevance.method})")
+            return {
+                "workflow_type": "REJECTED",
+                "result": {"success": False, "rejected": True},
+                "interrupted": False,
+                "final_message": REJECTION_MESSAGE,
+                "mode": mode,
+            }
+
         # ===== EXPERT MODE: Direct to SupervisorDrivenWorkflow =====
         if mode == "expert":
-            print(f"[Orchestrator] Expert mode (-E): Using SupervisorDrivenWorkflow")
+            print("[Orchestrator] Expert mode (-E): Using SupervisorDrivenWorkflow")
             return await self._execute_expert_mode(user_query, thread_id)
 
         # ===== STANDARD MODE: Intent classification + fast_path =====
@@ -267,7 +288,7 @@ class WorkflowOrchestrator:
             try:
                 strategy_result = await self._execute_standard_mode(user_query)
                 if strategy_result and strategy_result.get("success"):
-                    print(f"[Orchestrator] fast_path succeeded")
+                    print("[Orchestrator] fast_path succeeded")
                     return {
                         "workflow_type": workflow_type.name,
                         "result": strategy_result,
@@ -355,7 +376,8 @@ class WorkflowOrchestrator:
         try:
             from olav.strategies import execute_with_mode
 
-            llm = LLMFactory.get_chat_model()
+            # Use reasoning=False for standard mode to get concise output without thinking content
+            llm = LLMFactory.get_chat_model(reasoning=False)
 
             # Execute with fast_path strategy
             result = await execute_with_mode(
@@ -510,50 +532,6 @@ class WorkflowOrchestrator:
 
         except Exception as e:
             logger.warning(f"Mode-based strategy execution failed: {e}")
-            return None
-
-    async def _execute_with_strategy(self, user_query: str) -> dict | None:
-        """Execute query using StrategySelector optimization (DEPRECATED).
-
-        This method uses the old StrategySelector which makes an LLM call
-        to determine the strategy. Prefer _execute_with_mode() for better
-        performance.
-
-        Args:
-            user_query: User's natural language query
-
-        Returns:
-            Execution result dict or None if strategy optimization is not applicable
-        """
-        try:
-            from olav.strategies import execute_with_strategy_selection
-
-            llm = LLMFactory.get_chat_model()
-
-            # Execute with automatic strategy selection (includes LLM call)
-            result = await execute_with_strategy_selection(
-                user_query=user_query,
-                llm=llm,
-                use_llm_fallback=True,
-            )
-
-            if result.success:
-                return {
-                    "success": True,
-                    "answer": result.answer,
-                    "strategy_used": result.strategy_used,
-                    "reasoning_trace": result.reasoning_trace,
-                    "metadata": result.metadata,
-                }
-            # Strategy failed, return None to trigger workflow fallback
-            logger.info(
-                f"Strategy {result.strategy_used} failed: {result.error}, "
-                f"falling back to workflow graph"
-            )
-            return None
-
-        except Exception as e:
-            logger.warning(f"Strategy execution failed: {e}")
             return None
 
     async def resume(self, thread_id: str, user_input: str, workflow_type: WorkflowType) -> dict:
