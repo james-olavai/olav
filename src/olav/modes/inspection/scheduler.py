@@ -11,7 +11,7 @@ Usage:
     uv run python -m olav.main inspect --daemon
 
     # Or run scheduler directly
-    python -m olav.inspection.scheduler
+    python -m olav.modes.inspection.scheduler
 """
 
 import asyncio
@@ -19,11 +19,12 @@ import logging
 import signal
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from config.settings import InspectionConfig
 
-logger = logging.getLogger("olav.inspection.scheduler")
+logger = logging.getLogger("olav.modes.inspection.scheduler")
 
 
 class InspectionScheduler:
@@ -79,6 +80,7 @@ class InspectionScheduler:
         """Main scheduler loop."""
         # 1. Load individual profile schedules
         from config.settings import Paths
+
         import yaml
 
         scheduled_tasks = []
@@ -155,7 +157,6 @@ class InspectionScheduler:
             wait_seconds = (next_run - now).total_seconds()
 
             if wait_seconds > 0:
-                # logger.debug(f"Profile {profile_name} next run at {next_run}")
                 try:
                     await asyncio.wait_for(
                         self._stop_event.wait(),
@@ -204,7 +205,8 @@ class InspectionScheduler:
 
             wait_seconds = (next_run - now).total_seconds()
             logger.info(
-                f"Next inspection scheduled at {next_run.strftime('%Y-%m-%d %H:%M:%S')} ({wait_seconds / 3600:.1f} hours)"
+                f"Next inspection scheduled at {next_run.strftime('%Y-%m-%d %H:%M:%S')} "
+                f"({wait_seconds / 3600:.1f} hours)"
             )
 
             # Wait until scheduled time or stop signal
@@ -252,27 +254,40 @@ class InspectionScheduler:
 
     async def _execute_inspection(self, profile_name: str | None = None) -> dict[str, Any]:
         """Execute the configured inspection profile."""
-        from olav.inspection.runner import run_inspection
+        from olav.modes.inspection import run_inspection
 
         profile = profile_name or InspectionConfig.DEFAULT_PROFILE
+        config_path = Path("config/inspections") / f"{profile}.yaml"
         logger.info(f"Starting scheduled inspection: {profile}")
 
         try:
-            result = await run_inspection(profile=profile)
+            result = await run_inspection(config_path=config_path, save_report=True)
 
-            if result.get("status") == "success":
-                logger.info(
-                    f"Inspection completed: {result.get('passed')}/{result.get('total_checks')} passed, "
-                    f"report: {result.get('report_path')}"
-                )
+            # Convert InspectionResult to dict for backward compatibility
+            passed = result.checks_passed
+            total = result.total_checks
+            critical_count = len(result.critical_violations)
 
-                # Check for critical failures
-                if result.get("critical", 0) > 0 and InspectionConfig.NOTIFY_ON_FAILURE:
-                    await self._send_notification(result)
-            else:
-                logger.error(f"Inspection failed: {result.get('message')}")
+            logger.info(
+                f"Inspection completed: {passed}/{total} passed, critical: {critical_count}"
+            )
 
-            return result
+            # Check for critical failures
+            if critical_count > 0 and InspectionConfig.NOTIFY_ON_FAILURE:
+                await self._send_notification({
+                    "profile": profile,
+                    "critical": critical_count,
+                    "passed": passed,
+                    "total_checks": total,
+                })
+
+            return {
+                "status": "success",
+                "passed": passed,
+                "total_checks": total,
+                "critical": critical_count,
+                "profile": profile,
+            }
 
         except Exception as e:
             logger.exception(f"Inspection execution error: {e}")
@@ -291,7 +306,7 @@ class InspectionScheduler:
                 "attachments": [
                     {
                         "title": f"Profile: {result.get('profile')}",
-                        "text": f"Report: {result.get('report_path')}",
+                        "text": f"Passed: {result.get('passed')}/{result.get('total_checks')}",
                         "color": "danger",
                     }
                 ],

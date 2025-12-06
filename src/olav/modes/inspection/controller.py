@@ -99,10 +99,26 @@ class CheckConfig(BaseModel):
 
 
 class DeviceFilter(BaseModel):
-    """Device filter for NetBox queries."""
+    """Device filter for NetBox queries.
 
-    netbox_filter: dict[str, Any] = Field(default_factory=dict)
-    explicit_devices: list[str] = Field(default_factory=list)
+    Priority:
+    1. explicit_devices (if non-empty) → use hardcoded list
+    2. netbox_filter (if non-empty) → query NetBox API
+    3. Both empty → fallback to SuzieQ device table
+    """
+
+    netbox_filter: dict[str, Any] = Field(
+        default_factory=dict,
+        description="NetBox API filter params: tag, role, site, status, platform",
+    )
+    explicit_devices: list[str] = Field(
+        default_factory=list,
+        description="Hardcoded device list (overrides netbox_filter)",
+    )
+    exclude: list[str] = Field(
+        default_factory=list,
+        description="Devices to exclude from netbox_filter results",
+    )
 
 
 class InspectionConfig(BaseModel):
@@ -174,40 +190,216 @@ class InspectionResult:
         """Check if any critical violations exist."""
         return len(self.critical_violations) > 0
 
-    def to_markdown(self) -> str:
-        """Generate markdown report."""
+    def to_markdown(self, verbose: bool = True) -> str:
+        """Generate human-readable markdown report.
+
+        Args:
+            verbose: Include detailed check results table.
+        """
+        # Determine overall status
+        if self.critical_violations:
+            status_icon = "🔴"
+            status_text = "CRITICAL"
+        elif self.warning_violations:
+            status_icon = "🟡"
+            status_text = "WARNING"
+        else:
+            status_icon = "🟢"
+            status_text = "PASSED"
+
+        # Format duration
+        duration = self.duration_seconds
+        if duration >= 60:
+            duration_str = f"{duration / 60:.1f}m"
+        else:
+            duration_str = f"{duration:.1f}s"
+
+        # Format timestamp (human readable)
+        try:
+            from datetime import datetime
+            start_dt = datetime.fromisoformat(self.started_at)
+            time_str = start_dt.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            time_str = self.started_at[:16]
+
+        # Header with status
         lines = [
-            f"# 📋 Inspection Report: {self.config_name}\n",
-            f"**Started**: {self.started_at}",
-            f"**Duration**: {self.duration_seconds:.1f}s",
+            f"# {status_icon} {self.config_name} — {status_text}",
             "",
-            "## Summary\n",
-            "| Metric | Value |",
-            "|--------|-------|",
-            f"| Devices | {self.devices_passed}/{self.total_devices} passed |",
-            f"| Checks | {self.checks_passed}/{self.total_checks} passed |",
-            f"| Critical | {len(self.critical_violations)} |",
-            f"| Warnings | {len(self.warning_violations)} |",
+            f"> {time_str} · {duration_str} · "
+            f"{self.devices_passed}/{self.total_devices} devices · "
+            f"{self.checks_passed}/{self.total_checks} checks",
             "",
         ]
 
+        # Critical issues (grouped by device)
         if self.critical_violations:
-            lines.extend([
-                "## 🔴 Critical Violations\n",
-            ])
-            for v in self.critical_violations:
-                lines.append(f"- **{v.device}** / {v.check_name}: {v.message}")
-            lines.append("")
+            lines.append("## 🔴 Critical Issues\n")
+            self._append_grouped_violations(lines, self.critical_violations)
 
+        # Warnings (grouped by device)
         if self.warning_violations:
+            lines.append("## 🟡 Warnings\n")
+            self._append_grouped_violations(lines, self.warning_violations)
+
+        # All passed message
+        if not self.critical_violations and not self.warning_violations:
             lines.extend([
-                "## 🟡 Warnings\n",
+                "## ✅ All Checks Passed",
+                "",
             ])
-            for v in self.warning_violations:
-                lines.append(f"- **{v.device}** / {v.check_name}: {v.message}")
-            lines.append("")
+
+        # Detailed results table (verbose mode)
+        if verbose and self.check_results:
+            lines.extend(self._build_details_section())
 
         return "\n".join(lines)
+
+    def _build_details_section(self) -> list[str]:
+        """Build detailed check results section."""
+        from collections import defaultdict
+
+        lines = [
+            "## 📊 Check Details",
+            "",
+        ]
+
+        # Group results by check name
+        by_check: dict[str, list[CheckResult]] = defaultdict(list)
+        for r in self.check_results:
+            by_check[r.check_name].append(r)
+
+        # Build table for each check
+        for check_name, results in by_check.items():
+            # Count pass/fail
+            passed = sum(1 for r in results if r.success)
+            total = len(results)
+            status = "✅" if passed == total else "⚠️"
+
+            lines.append(f"### {status} {check_name} ({passed}/{total})")
+            lines.append("")
+
+            # Table header
+            lines.append("| Device | Status | Summary |")
+            lines.append("|--------|--------|---------|")
+
+            # Table rows
+            for r in sorted(results, key=lambda x: x.device):
+                icon = "✅" if r.success else "❌"
+                # Format value for readability
+                summary = self._format_check_value(r.actual_value)
+                lines.append(f"| {r.device} | {icon} | {summary} |")
+
+            lines.append("")
+
+        return lines
+
+    def _format_check_value(self, value: Any) -> str:
+        """Format check value for human-readable display."""
+        if value is None:
+            return "-"
+
+        # Handle list of dicts (common SuzieQ summarize output)
+        if isinstance(value, list) and value and isinstance(value[0], dict):
+            d = value[0]
+            parts = []
+
+            # Extract key metrics
+            if "total_records" in d:
+                parts.append(f"{d['total_records']} records")
+            if "unique_hosts" in d:
+                hosts = d["unique_hosts"]
+                if hosts > 0:
+                    parts.append(f"{hosts} hosts")
+
+            # State counts (BGP, OSPF, etc.)
+            for key in ["state_counts", "status_counts", "adminState_counts"]:
+                if key in d and d[key]:
+                    counts = d[key]
+                    # Format: "2 Established, 1 Active"
+                    state_parts = [f"{v} {k}" for k, v in counts.items()]
+                    parts.extend(state_parts)
+
+            return ", ".join(parts) if parts else "OK"
+
+        # Handle dict directly
+        if isinstance(value, dict):
+            if "total_records" in value:
+                return f"{value['total_records']} records"
+            return "OK"
+
+        # Simple values
+        s = str(value)
+        if len(s) > 40:
+            return s[:37] + "..."
+        return s
+
+    def _append_grouped_violations(
+        self,
+        lines: list[str],
+        violations: list[CheckResult],
+    ) -> None:
+        """Group violations by device for cleaner display."""
+        from collections import defaultdict
+
+        # Group by device
+        by_device: dict[str, list[CheckResult]] = defaultdict(list)
+        for v in violations:
+            by_device[v.device].append(v)
+
+        # Output grouped
+        for device, checks in sorted(by_device.items()):
+            if len(checks) == 1:
+                # Single issue: inline format
+                c = checks[0]
+                lines.append(f"- **{device}**: {c.message or c.check_name}")
+            else:
+                # Multiple issues: nested format
+                lines.append(f"- **{device}** ({len(checks)} issues)")
+                for c in checks:
+                    lines.append(f"  - {c.message or c.check_name}")
+        lines.append("")
+
+    def save(self, output_dir: Path | str | None = None) -> Path:
+        """Save report to file.
+
+        Args:
+            output_dir: Optional output directory. Defaults to ReportConfig.
+
+        Returns:
+            Path to saved report file.
+        """
+        from pathlib import Path
+        from config.settings import ReportConfig
+
+        # Use provided dir or default
+        if output_dir:
+            reports_dir = Path(output_dir)
+            reports_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            reports_dir = ReportConfig.get_inspection_dir()
+
+        # Generate filename: inspection_{name}_{timestamp}.md
+        # Sanitize config name for filename
+        safe_name = self.config_name.lower().replace(" ", "_")
+        safe_name = "".join(c for c in safe_name if c.isalnum() or c == "_")
+
+        # Parse timestamp
+        try:
+            ts = datetime.fromisoformat(self.started_at)
+            ts_str = ts.strftime("%Y%m%d_%H%M%S")
+        except Exception:
+            ts_str = self.started_at[:19].replace(":", "").replace("-", "")
+
+        filename = f"inspection_{safe_name}_{ts_str}.md"
+        report_path = reports_dir / filename
+
+        # Write report
+        content = self.to_markdown()
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        return report_path
 
 
 # =============================================================================
@@ -286,35 +478,122 @@ class InspectionModeController:
     async def resolve_devices(self, device_filter: DeviceFilter) -> list[str]:
         """Resolve device list from filter.
 
+        Priority:
+        1. explicit_devices (if non-empty) → use hardcoded list
+        2. netbox_filter (if non-empty) → query NetBox API
+        3. Both empty → fallback to SuzieQ device table
+
         Args:
             device_filter: Device filter configuration.
 
         Returns:
             List of device hostnames.
         """
-        # Explicit devices take priority
+        # Priority 1: Explicit devices take priority
         if device_filter.explicit_devices:
+            logger.info(
+                f"Using explicit device list: {device_filter.explicit_devices}"
+            )
             return device_filter.explicit_devices
 
-        # Query NetBox if filter provided
+        # Priority 2: Query NetBox if filter provided
         if device_filter.netbox_filter:
-            try:
-                from olav.tools.netbox_tool import NetBoxAPITool
+            devices = await self._resolve_from_netbox(device_filter)
+            if devices:
+                return devices
 
-                netbox = NetBoxAPITool()
-                result = await netbox.execute(
-                    path="/api/dcim/devices/",
-                    method="GET",
-                    params={
-                        **device_filter.netbox_filter,
-                        "limit": 100,
-                    },
+        # Priority 3: Fallback to SuzieQ device table
+        return await self._resolve_from_suzieq()
+
+    async def _resolve_from_netbox(self, device_filter: DeviceFilter) -> list[str]:
+        """Query NetBox for devices matching filter."""
+        try:
+            from olav.tools.netbox_tool import NetBoxAPITool
+
+            netbox = NetBoxAPITool()
+
+            # Build NetBox API params
+            params = self._build_netbox_params(device_filter.netbox_filter)
+            params["limit"] = 100
+
+            logger.info(f"Querying NetBox with filter: {params}")
+
+            result = await netbox.execute(
+                path="/api/dcim/devices/",
+                method="GET",
+                params=params,
+            )
+
+            if result.error:
+                logger.warning(f"NetBox query error: {result.error}")
+                return []
+
+            if not result.data:
+                logger.warning("NetBox returned no devices")
+                return []
+
+            # Extract device names
+            devices = [
+                d["name"]
+                for d in result.data
+                if isinstance(d, dict) and "name" in d
+            ]
+
+            # Apply exclude list
+            if device_filter.exclude:
+                before = len(devices)
+                devices = [d for d in devices if d not in device_filter.exclude]
+                logger.info(
+                    f"Excluded {before - len(devices)} devices: "
+                    f"{device_filter.exclude}"
                 )
 
-                if not result.error and result.data:
-                    return [d["name"] for d in result.data if isinstance(d, dict) and "name" in d]
-            except Exception as e:
-                logger.warning(f"Failed to query NetBox: {e}")
+            logger.info(f"NetBox resolved {len(devices)} devices: {devices}")
+            return devices
+
+        except Exception as e:
+            logger.warning(f"Failed to query NetBox: {e}")
+            return []
+
+    def _build_netbox_params(self, filter_config: dict[str, Any]) -> dict[str, Any]:
+        """Build NetBox API query parameters from filter config."""
+        params: dict[str, Any] = {}
+
+        # Default to active devices
+        if "status" not in filter_config:
+            params["status"] = "active"
+
+        # Map filter fields to NetBox API params
+        field_mapping = {
+            "tag": "tag",
+            "role": "role",
+            "site": "site",
+            "status": "status",
+            "platform": "platform",
+            "tenant": "tenant",
+            "region": "region",
+        }
+
+        for config_key, api_key in field_mapping.items():
+            if config_key in filter_config:
+                params[api_key] = filter_config[config_key]
+
+        return params
+
+    async def _resolve_from_suzieq(self) -> list[str]:
+        """Fallback: get all devices from SuzieQ."""
+        try:
+            from olav.tools.suzieq_tool import SuzieQTool
+
+            sq = SuzieQTool()
+            result = await sq.execute(table="device", method="get")
+
+            if result.data:
+                devices = list({r["hostname"] for r in result.data if "hostname" in r})
+                logger.info(f"SuzieQ fallback resolved {len(devices)} devices")
+                return devices
+        except Exception as e:
+            logger.warning(f"SuzieQ fallback failed: {e}")
 
         return []
 
@@ -799,6 +1078,7 @@ async def run_inspection(
     config_path: str | Path,
     debug: bool = False,
     max_parallel: int = 10,
+    save_report: bool = True,
 ) -> InspectionResult:
     """Run inspection from YAML config.
 
@@ -808,6 +1088,7 @@ async def run_inspection(
         config_path: Path to YAML config.
         debug: Whether to enable debug mode.
         max_parallel: Max parallel device checks.
+        save_report: Whether to auto-save report to data/reports/inspection/.
 
     Returns:
         InspectionResult with findings.
@@ -820,6 +1101,13 @@ async def run_inspection(
 
     if debug:
         async with DebugContext(enabled=True) as ctx:
-            return await controller.run(config_path, ctx)
+            result = await controller.run(config_path, ctx)
     else:
-        return await controller.run(config_path)
+        result = await controller.run(config_path)
+
+    # Auto-save report
+    if save_report:
+        report_path = result.save()
+        print(f"📄 Report saved: {report_path}")
+
+    return result

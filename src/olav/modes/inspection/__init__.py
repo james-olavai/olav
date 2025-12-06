@@ -41,6 +41,10 @@ from olav.modes.inspection.controller import (
     ThresholdConfig,
     run_inspection,
 )
+from olav.modes.inspection.scheduler import (
+    InspectionScheduler,
+    run_scheduler,
+)
 
 __all__ = [
     "CheckConfig",
@@ -56,4 +60,7 @@ __all__ = [
     "ThresholdConfig",
     "ValidationRule",
     "run_inspection",
+    # Scheduler
+    "InspectionScheduler",
+    "run_scheduler",
 ]

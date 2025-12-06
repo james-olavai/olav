@@ -196,6 +196,46 @@ class AgentConfig:
 
 
 # ============================================
+# Report Output Configuration
+# ============================================
+class ReportConfig:
+    """Unified report output settings for all modes."""
+    
+    # Base reports directory
+    REPORTS_DIR = DATA_DIR / "reports"
+    
+    # Subdirectories by mode
+    INSPECTION_DIR = REPORTS_DIR / "inspection"
+    EXPERT_DIR = REPORTS_DIR / "expert"
+    SYNC_DIR = REPORTS_DIR / "sync"
+    
+    # Output format
+    FORMAT: Literal["markdown", "json", "html"] = "markdown"
+    
+    # Retention policy
+    KEEP_DAYS = 30  # Auto-cleanup reports older than N days
+    
+    @classmethod
+    def ensure_dirs(cls) -> None:
+        """Create all report directories."""
+        cls.INSPECTION_DIR.mkdir(parents=True, exist_ok=True)
+        cls.EXPERT_DIR.mkdir(parents=True, exist_ok=True)
+        cls.SYNC_DIR.mkdir(parents=True, exist_ok=True)
+    
+    @classmethod
+    def get_inspection_dir(cls) -> "Path":
+        """Get inspection reports directory."""
+        cls.INSPECTION_DIR.mkdir(parents=True, exist_ok=True)
+        return cls.INSPECTION_DIR
+    
+    @classmethod
+    def get_expert_dir(cls) -> "Path":
+        """Get expert/deep-dive reports directory."""
+        cls.EXPERT_DIR.mkdir(parents=True, exist_ok=True)
+        return cls.EXPERT_DIR
+
+
+# ============================================
 # Inspection Configuration
 # ============================================
 class InspectionConfig:
@@ -213,8 +253,8 @@ class InspectionConfig:
     # Default inspection profile to run
     DEFAULT_PROFILE = "daily_core_check"  # Profile name from config/inspections/
     
-    # Output settings
-    REPORTS_DIR = DATA_DIR / "inspection-reports"
+    # Output settings (uses ReportConfig)
+    REPORTS_DIR = ReportConfig.INSPECTION_DIR
     REPORT_FORMAT = "markdown"  # markdown, json, html
     KEEP_REPORTS_DAYS = 30  # Auto-cleanup reports older than N days
     
