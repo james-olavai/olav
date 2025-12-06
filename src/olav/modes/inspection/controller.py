@@ -19,17 +19,22 @@ Usage:
     result = await run_inspection("巡检所有核心路由器")
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field
 
 from olav.modes.shared.debug import DebugContext
+
+if TYPE_CHECKING:
+    from olav.modes.inspection.compiler import QueryPlan
 
 logger = logging.getLogger(__name__)
 
@@ -320,16 +325,25 @@ class InspectionModeController:
             check: Check configuration.
 
         Returns:
-            Tuple of (tool_name, parameters, threshold_config).
+            Tuple of (tool_name, parameters, threshold_config, query_plan).
+            query_plan is included for multi-source execution.
         """
+        from olav.modes.inspection.compiler import IntentCompiler, QueryPlan
+
         # Explicit mode: use provided tool/parameters directly
         if check.is_explicit_mode:
-            return check.tool or "suzieq_query", check.parameters, check.threshold
+            # Create a synthetic QueryPlan for explicit mode
+            plan = QueryPlan(
+                table=check.parameters.get("table", "device"),
+                method=check.parameters.get("method", "get"),
+                filters={k: v for k, v in check.parameters.items() if k not in ("table", "method")},
+                source="suzieq",
+                read_only=True,
+            )
+            return check.tool or "suzieq_query", check.parameters, check.threshold, plan
 
         # Intent mode: use IntentCompiler
         if check.is_intent_mode and check.intent:
-            from olav.modes.inspection.compiler import IntentCompiler
-
             compiler = IntentCompiler()
             plan = await compiler.compile(
                 intent=check.intent,
@@ -357,12 +371,12 @@ class InspectionModeController:
                     message=f"{{device}}: {plan.validation.field} 不满足条件 {plan.validation.operator} {plan.validation.expected}",
                 )
 
-            return "suzieq_query", parameters, threshold
+            # Return tool based on source
+            tool_name = self._get_tool_name_for_source(plan)
+            return tool_name, parameters, threshold, plan
 
         # Fallback: use description as intent
         if check.description:
-            from olav.modes.inspection.compiler import IntentCompiler
-
             compiler = IntentCompiler()
             plan = await compiler.compile(
                 intent=check.description,
@@ -386,11 +400,29 @@ class InspectionModeController:
                     message=f"{{device}}: {plan.validation.field} 不满足条件",
                 )
 
-            return "suzieq_query", parameters, threshold
+            tool_name = self._get_tool_name_for_source(plan)
+            return tool_name, parameters, threshold, plan
 
         # No intent or tool specified - error
         msg = f"Check '{check.name}' must have either 'intent' or 'tool' specified"
         raise ValueError(msg)
+
+    def _get_tool_name_for_source(self, plan: QueryPlan) -> str:
+        """Get tool name based on query plan source.
+
+        Args:
+            plan: The compiled query plan.
+
+        Returns:
+            Tool name string.
+        """
+        if plan.source == "suzieq":
+            return "suzieq_query"
+        if plan.source == "cli":
+            return plan.fallback_tool or "cli_show"
+        if plan.source == "openconfig":
+            return plan.fallback_tool or "netconf_get"
+        return "suzieq_query"
 
     async def execute_check(
         self,
@@ -399,7 +431,10 @@ class InspectionModeController:
     ) -> CheckResult:
         """Execute a single check on a device.
 
-        Supports both intent mode (LLM compilation) and explicit mode.
+        Supports multiple data sources:
+        - SuzieQ (parquet data)
+        - CLI (show commands)
+        - OpenConfig (NETCONF get)
 
         Args:
             device: Device hostname.
@@ -413,29 +448,22 @@ class InspectionModeController:
         start = time.perf_counter()
 
         try:
-            # Compile check to tool/parameters
-            tool_name, parameters, threshold = await self.compile_check(check)
+            # Compile check to tool/parameters/plan
+            _tool_name, parameters, threshold, plan = await self.compile_check(check)
 
-            # Execute tool
-            if tool_name == "suzieq_query":
-                from olav.tools.suzieq_tool import SuzieQTool
-
-                tool = SuzieQTool()
-                params = {
-                    **parameters,
-                    "hostname": device,
-                }
-                result = await tool.execute(**params)
-                # SuzieQTool returns ToolOutput, extract data
-                if hasattr(result, "data"):
-                    result = result.data
+            # Execute based on data source
+            if plan.source == "suzieq":
+                result = await self._execute_suzieq(device, parameters)
+            elif plan.source == "cli":
+                result = await self._execute_cli(device, plan)
+            elif plan.source == "openconfig":
+                result = await self._execute_openconfig(device, plan)
             else:
-                # Unknown tool
                 return CheckResult(
                     device=device,
                     check_name=check.name,
                     success=False,
-                    error=f"Unknown tool: {tool_name}",
+                    error=f"Unknown source: {plan.source}",
                     duration_ms=(time.perf_counter() - start) * 1000,
                 )
 
@@ -489,6 +517,133 @@ class InspectionModeController:
                 error=str(e),
                 duration_ms=(time.perf_counter() - start) * 1000,
             )
+
+    async def _execute_suzieq(
+        self,
+        device: str,
+        parameters: dict[str, Any],
+    ) -> Any:
+        """Execute SuzieQ query.
+
+        Args:
+            device: Device hostname.
+            parameters: Query parameters (table, method, filters).
+
+        Returns:
+            Query result data.
+        """
+        from olav.tools.suzieq_tool import SuzieQTool
+
+        tool = SuzieQTool()
+        params = {
+            **parameters,
+            "hostname": device,
+        }
+        result = await tool.execute(**params)
+
+        # SuzieQTool returns ToolOutput, extract data
+        if hasattr(result, "data"):
+            return result.data
+        return result
+
+    async def _execute_cli(
+        self,
+        device: str,
+        plan: QueryPlan,
+    ) -> Any:
+        """Execute CLI show command.
+
+        Args:
+            device: Device hostname.
+            plan: Query plan with fallback_params.
+
+        Returns:
+            Command output.
+        """
+        if not plan.fallback_params or "command" not in plan.fallback_params:
+            msg = "CLI execution requires 'command' in fallback_params"
+            raise ValueError(msg)
+
+        command = plan.fallback_params["command"]
+
+        # Safety check: must be a show command
+        if not command.strip().lower().startswith("show "):
+            msg = f"Only 'show' commands are allowed, got: {command}"
+            raise ValueError(msg)
+
+        logger.info(f"[Inspection] Executing CLI on {device}: {command}")
+
+        # Use StandardModeExecutor for CLI execution (reuse existing infrastructure)
+        from olav.core.unified_classifier import UnifiedClassificationResult
+        from olav.modes.standard.executor import StandardModeExecutor
+        from olav.tools.base import ToolRegistry
+
+        classification = UnifiedClassificationResult(
+            intent_category="query",
+            tool="nornir_show",
+            parameters={
+                "hostname": device,
+                "command": command,
+            },
+            confidence=1.0,
+            reasoning="Inspection mode CLI fallback",
+        )
+
+        executor = StandardModeExecutor(
+            tool_registry=ToolRegistry(),
+            yolo_mode=True,  # show commands don't need HITL
+        )
+
+        result = await executor.execute(classification, user_query=command)
+        return result.raw_output
+
+    async def _execute_openconfig(
+        self,
+        device: str,
+        plan: QueryPlan,
+    ) -> Any:
+        """Execute OpenConfig NETCONF get.
+
+        Args:
+            device: Device hostname.
+            plan: Query plan with fallback_params.
+
+        Returns:
+            NETCONF get result.
+        """
+        if not plan.fallback_params or "xpath" not in plan.fallback_params:
+            msg = "OpenConfig execution requires 'xpath' in fallback_params"
+            raise ValueError(msg)
+
+        xpath = plan.fallback_params["xpath"]
+        datastore = plan.fallback_params.get("datastore", "running")
+
+        logger.info(f"[Inspection] Executing NETCONF get on {device}: {xpath}")
+
+        # Use StandardModeExecutor for NETCONF execution
+        from olav.core.unified_classifier import UnifiedClassificationResult
+        from olav.modes.standard.executor import StandardModeExecutor
+        from olav.tools.base import ToolRegistry
+
+        classification = UnifiedClassificationResult(
+            intent_category="query",
+            tool="netconf_get",
+            parameters={
+                "hostname": device,
+                "xpath": xpath,
+                "datastore": datastore,
+            },
+            confidence=1.0,
+            reasoning="Inspection mode OpenConfig fallback",
+        )
+
+        executor = StandardModeExecutor(
+            tool_registry=ToolRegistry(),
+            yolo_mode=True,  # get operations don't need HITL
+        )
+
+        result = await executor.execute(classification, user_query=xpath)
+        return result.raw_output
 
     def _evaluate_threshold(
         self,
