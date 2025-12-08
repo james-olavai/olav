@@ -19,7 +19,8 @@ from typing import Any
 
 from opensearchpy import OpenSearch, helpers
 
-from olav.core.settings import settings as env_settings
+from olav.core.memory import create_opensearch_client
+from config.settings import settings
 from olav.etl.document_loader import DocumentChunk, load_and_chunk_documents
 
 logger = logging.getLogger(__name__)
@@ -76,7 +77,7 @@ class EmbeddingService:
             api_key: OpenAI API key (defaults to env)
         """
         self.model = model
-        self.api_key = api_key or env_settings.llm_api_key
+        self.api_key = api_key or settings.llm_api_key
         self._client: Any | None = None
 
     @property
@@ -174,14 +175,9 @@ class DocumentIndexer:
             opensearch_url: OpenSearch URL (defaults to env)
             index_name: Index name for documents
         """
-        self.url = opensearch_url or env_settings.opensearch_url
+        self.url = opensearch_url or settings.opensearch_url
         self.index_name = index_name
-        self.client = OpenSearch(
-            hosts=[self.url],
-            http_compress=True,
-            use_ssl=False,
-            verify_certs=False,
-        )
+        self.client = create_opensearch_client(self.url)
 
     def get_index_mapping(self) -> dict[str, Any]:
         """Get OpenSearch index mapping for document chunks.
@@ -590,7 +586,7 @@ def main() -> None:
     recreate = "--recreate" in sys.argv
 
     print(f"[embedder] Starting document RAG indexing (recreate={recreate})")
-    print(f"[embedder] OpenSearch URL: {env_settings.opensearch_url}")
+    print(f"[embedder] OpenSearch URL: {settings.opensearch_url}")
 
     results = asyncio.run(run_indexing(recreate=recreate))
 

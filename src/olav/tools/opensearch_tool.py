@@ -313,16 +313,16 @@ class EpisodicMemoryTool(BaseTool):
 
 class MemoryStoreTool(BaseTool):
     """Store documents in OpenSearch indices for Agentic learning loop.
-    
+
     This tool indexes diagnosis reports and other documents into OpenSearch
     for future retrieval by EpisodicMemoryTool (kb_search).
-    
+
     Part of the Agentic closed-loop: Diagnosis → Index → Future Reference
     """
-    
+
     def __init__(self, memory: OpenSearchMemory | None = None) -> None:
         """Initialize memory store tool.
-        
+
         Args:
             memory: OpenSearch memory instance. If None, creates new instance.
         """
@@ -333,24 +333,24 @@ class MemoryStoreTool(BaseTool):
             "Enables Agentic learning loop: similar queries can retrieve past solutions."
         )
         self._memory = memory
-    
+
     @property
     def name(self) -> str:
         """Tool name for registration."""
         return self._name
-    
+
     @property
     def description(self) -> str:
         """Tool description for LLM."""
         return self._description
-    
+
     @property
     def memory(self) -> OpenSearchMemory:
         """Lazy-load OpenSearch memory to avoid connection at import."""
         if self._memory is None:
             self._memory = OpenSearchMemory()
         return self._memory
-    
+
     async def execute(
         self,
         index: str,
@@ -358,15 +358,15 @@ class MemoryStoreTool(BaseTool):
         doc_id: str | None = None,
     ) -> ToolOutput:
         """Store a document in OpenSearch.
-        
+
         Args:
             index: Target OpenSearch index (e.g., "olav-episodic-memory")
             document: Document to store (must be JSON-serializable dict)
             doc_id: Optional document ID. If None, OpenSearch generates one.
-        
+
         Returns:
             ToolOutput with indexing result.
-            
+
         Example:
             >>> result = await tool.execute(
             ...     index="olav-episodic-memory",
@@ -381,7 +381,7 @@ class MemoryStoreTool(BaseTool):
             ... )
         """
         start_time = time.perf_counter()
-        
+
         # Validate parameters
         if not index or not index.strip():
             return ToolOutput(
@@ -391,7 +391,7 @@ class MemoryStoreTool(BaseTool):
                 metadata={"elapsed_ms": 0},
                 error="Index parameter cannot be empty",
             )
-        
+
         if not document or not isinstance(document, dict):
             return ToolOutput(
                 source=self.name,
@@ -400,7 +400,7 @@ class MemoryStoreTool(BaseTool):
                 metadata={"elapsed_ms": 0},
                 error="Document must be a non-empty dictionary",
             )
-        
+
         try:
             # Index document
             result = await self.memory.index_document(
@@ -408,9 +408,9 @@ class MemoryStoreTool(BaseTool):
                 document=document,
                 doc_id=doc_id,
             )
-            
+
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-            
+
             return ToolOutput(
                 source=self.name,
                 device="unknown",
@@ -427,7 +427,7 @@ class MemoryStoreTool(BaseTool):
                 },
                 error=None,
             )
-            
+
         except ConnectionError as e:
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
             return ToolOutput(
@@ -437,7 +437,7 @@ class MemoryStoreTool(BaseTool):
                 metadata={"elapsed_ms": elapsed_ms, "error_type": "connection_error"},
                 error=f"OpenSearch connection failed: {e}",
             )
-        
+
         except Exception as e:
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
             logger.exception("Memory store failed")

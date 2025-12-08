@@ -1,6 +1,8 @@
 """Test suzieq_parquet_tool.py to verify NO_DATA_FOUND return value."""
 import asyncio
+
 from olav.tools.suzieq_parquet_tool import suzieq_query
+
 
 async def test_no_data():
     # LangChain tools need to be invoked via .ainvoke() or .arun()

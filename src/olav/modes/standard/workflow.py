@@ -66,7 +66,7 @@ class StandardModeWorkflow:
 
     Usage:
         workflow = StandardModeWorkflow(tool_registry)
-        result = await workflow.run("查询 R1 BGP 状态")
+        result = await workflow.run("Query R1 BGP status")
 
         if result.escalated_to_expert:
             # Hand off to Expert Mode
@@ -189,8 +189,8 @@ class StandardModeWorkflow:
                     },
                 )
 
-            # Format answer from tool output
-            answer = self._format_answer(query, exec_result)
+            # Format answer from tool output (now async with LLM)
+            answer = await self._format_answer(query, exec_result)
 
             return StandardModeResult(
                 success=True,
@@ -217,59 +217,103 @@ class StandardModeWorkflow:
                 execution_time_ms=elapsed,
             )
 
-    def _format_answer(self, query: str, result: ExecutionResult) -> str:
-        """Format tool output into human-readable answer.
+    async def _format_answer(self, query: str, result: ExecutionResult) -> str:
+        """Format tool output into human-readable Markdown using LLM.
 
-        For now, this is a simple formatting. In production, this could
-        use an LLM for more natural responses.
+        Uses LLM to generate clean, readable output with tables and summaries.
+        Falls back to simple formatting if LLM call fails.
         """
         if not result.tool_output:
             return "No data returned from tool."
 
         output = result.tool_output
 
-        # Handle different output formats
+        # Extract data for formatting
+        raw_data = None
         if hasattr(output, "data") and output.data:
-            data = output.data
+            raw_data = output.data
+        elif hasattr(output, "message") and output.message:
+            return output.message  # Already formatted message
+        else:
+            raw_data = output
 
-            # DataFrame-like output
-            if hasattr(data, "to_string"):
-                return f"Query result:\n\n{data.to_string()}"
+        # Handle empty data
+        if isinstance(raw_data, list) and len(raw_data) == 0:
+            return "No matching data found."
 
-            # List of dicts
-            if isinstance(data, list):
-                if len(data) == 0:
-                    return "No matching data found."
+        # Use LLM to format the output
+        try:
+            import json
 
-                # Format as simple table
-                lines = [f"Found {len(data)} results:"]
-                for i, item in enumerate(data[:10], 1):  # Limit to 10 items
-                    if isinstance(item, dict):
-                        summary = ", ".join(f"{k}={v}" for k, v in list(item.items())[:5])
-                        lines.append(f"  {i}. {summary}")
-                    else:
-                        lines.append(f"  {i}. {item}")
+            from olav.core.llm import LLMFactory
+            from olav.core.prompt_manager import PromptManager
 
-                if len(data) > 10:
-                    lines.append(f"  ... and {len(data) - 10} more")
+            # Serialize raw data to JSON for LLM
+            if isinstance(raw_data, list):
+                # Limit to 20 items to avoid token overflow
+                data_for_llm = raw_data[:20]
+                if len(raw_data) > 20:
+                    data_for_llm.append({"_note": f"... and {len(raw_data) - 20} more records"})
+            else:
+                data_for_llm = raw_data
 
-                return "\n".join(lines)
+            raw_data_json = json.dumps(data_for_llm, indent=2, ensure_ascii=False, default=str)
 
-            # Dict output
-            if isinstance(data, dict):
-                lines = ["Result:"]
-                for k, v in list(data.items())[:10]:
-                    lines.append(f"  {k}: {v}")
-                return "\n".join(lines)
+            # Load and render formatter prompt (legacy API requires kwargs at load time)
+            prompt_manager = PromptManager()
+            formatted_prompt = prompt_manager.load_prompt(
+                "formatters",
+                "network_data_formatter",
+                user_query=query,
+                tool_name=result.tool_name or "suzieq_query",
+                raw_data=raw_data_json,
+            )
 
-            # String output
-            return str(data)
+            # Get LLM (use fast model, no reasoning needed)
+            llm = LLMFactory.get_chat_model(json_mode=False, reasoning=False)
 
-        # Raw message
-        if hasattr(output, "message") and output.message:
-            return output.message
+            # Call LLM
+            response = await llm.ainvoke(formatted_prompt)
+            return response.content
 
-        return str(output)
+        except Exception as e:
+            logger.warning(f"LLM formatting failed, falling back to simple format: {e}")
+            return self._simple_format(raw_data)
+
+    def _simple_format(self, data: Any) -> str:
+        """Fallback simple formatting when LLM is unavailable."""
+        # DataFrame-like output
+        if hasattr(data, "to_string"):
+            return f"Query result:\n\n{data.to_string()}"
+
+        # List of dicts
+        if isinstance(data, list):
+            if len(data) == 0:
+                return "No matching data found."
+
+            # Format as simple table
+            lines = [f"Found {len(data)} results:"]
+            for i, item in enumerate(data[:10], 1):  # Limit to 10 items
+                if isinstance(item, dict):
+                    summary = ", ".join(f"{k}={v}" for k, v in list(item.items())[:5])
+                    lines.append(f"  {i}. {summary}")
+                else:
+                    lines.append(f"  {i}. {item}")
+
+            if len(data) > 10:
+                lines.append(f"  ... and {len(data) - 10} more")
+
+            return "\n".join(lines)
+
+        # Dict output
+        if isinstance(data, dict):
+            lines = ["Result:"]
+            for k, v in list(data.items())[:10]:
+                lines.append(f"  {k}: {v}")
+            return "\n".join(lines)
+
+        # String output
+        return str(data)
 
 
 # Module-level convenience function

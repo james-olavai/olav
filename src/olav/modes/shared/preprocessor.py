@@ -28,20 +28,17 @@ logger = logging.getLogger(__name__)
 
 # Diagnostic keywords → Expert Mode (requires LLM planning)
 DIAGNOSTIC_KEYWORDS: frozenset[str] = frozenset({
-    # Chinese
-    "为什么", "诊断", "分析", "排查", "故障", "失败", "不通", "问题", "原因",
-    "异常", "错误", "down", "断开", "丢包", "延迟高", "不稳定",
-    # English
+    # English diagnostic terms
     "why", "diagnose", "analyze", "troubleshoot", "failure", "issue", "problem",
-    "root cause", "investigate",
+    "root cause", "investigate", "debug", "fault", "unreachable", "packet loss",
+    "high latency", "unstable", "down", "disconnected", "error", "abnormal",
 })
 
 # Query keywords → Standard Mode (may use fast path)
 QUERY_KEYWORDS: frozenset[str] = frozenset({
-    # Chinese
-    "查询", "显示", "列出", "获取", "查看", "检查", "统计", "汇总",
-    # English
+    # English query terms
     "show", "list", "get", "display", "check", "query", "find", "search",
+    "retrieve", "view", "lookup", "status", "state", "summary",
 })
 
 
@@ -51,14 +48,14 @@ QUERY_KEYWORDS: frozenset[str] = frozenset({
 
 # Common device naming patterns (shared between modes)
 DEVICE_PATTERNS: list[re.Pattern[str]] = [
-    # Explicit device reference: "设备 R1", "主机 spine-1"
-    re.compile(r"(?:设备|主机|路由器|交换机|device|host|router|switch)\s*[:\s]?\s*(?P<device>[A-Za-z][\w\-\.]+)", re.IGNORECASE),
-    # Possessive: "R1 的", "spine-1's"
-    re.compile(r"(?P<device>[A-Za-z][\w\-\.]+)\s*(?:的|'s)\s+(?:BGP|OSPF|接口|路由|interface|route)", re.IGNORECASE),
-    # Context: "在 R1 上", "on R1"
-    re.compile(r"(?:在|on)\s+(?P<device>[A-Za-z][\w\-\.]+)\s*(?:上|$)", re.IGNORECASE),
+    # Explicit device reference: "device R1", "host spine-1"
+    re.compile(r"(?:device|host|router|switch)\s*[:\s]?\s*(?P<device>[A-Za-z][\w\-\.]+)", re.IGNORECASE),
+    # Possessive: "R1's"
+    re.compile(r"(?P<device>[A-Za-z][\w\-\.]+)\s*(?:'s)\s+(?:BGP|OSPF|interface|route)", re.IGNORECASE),
+    # Context: "on R1"
+    re.compile(r"(?:on)\s+(?P<device>[A-Za-z][\w\-\.]+)\s*(?:$)", re.IGNORECASE),
     # Direct mention with table context
-    re.compile(r"(?:查询|显示|查看|show|get)\s+(?P<device>[A-Za-z][\w\-\.]+)\s+(?:的\s*)?(?:BGP|OSPF|接口|路由)", re.IGNORECASE),
+    re.compile(r"(?:show|get|query)\s+(?P<device>[A-Za-z][\w\-\.]+)\s+(?:BGP|OSPF|interface|route)", re.IGNORECASE),
 ]
 
 
@@ -79,63 +76,63 @@ class FastPathMatch:
 FAST_PATTERNS: list[tuple[re.Pattern[str], str, dict[str, Any], str]] = [
     # BGP queries
     (
-        re.compile(r"(?:查询|显示|查看|show|get)\s*(?P<hostname>[A-Za-z][\w\-\.]+)?\s*(?:的\s*)?(?:BGP|bgp)\s*(?:状态|邻居|会话|neighbor|status|session)?", re.IGNORECASE),
+        re.compile(r"(?:show|get|query|display|check)\s*(?P<hostname>[A-Za-z][\w\-\.]+)?\s*(?:BGP|bgp)\s*(?:neighbor|status|session|state)?", re.IGNORECASE),
         "suzieq_query",
         {"table": "bgp"},
         "bgp_query",
     ),
     # Interface queries
     (
-        re.compile(r"(?:查询|显示|查看|show|get)\s*(?P<hostname>[A-Za-z][\w\-\.]+)?\s*(?:的\s*)?(?:接口|interface)\s*(?:状态|status)?", re.IGNORECASE),
+        re.compile(r"(?:show|get|query|display|check)\s*(?P<hostname>[A-Za-z][\w\-\.]+)?\s*(?:interface)\s*(?:status|state)?", re.IGNORECASE),
         "suzieq_query",
         {"table": "interface"},
         "interface_query",
     ),
     # Route queries
     (
-        re.compile(r"(?:查询|显示|查看|检查|show|get|check)\s*(?P<hostname>[A-Za-z][\w\-\.]+)?\s*(?:的\s*)?(?:路由|路由表|route|routing)", re.IGNORECASE),
+        re.compile(r"(?:show|get|query|display|check)\s*(?P<hostname>[A-Za-z][\w\-\.]+)?\s*(?:route|routing|routes)", re.IGNORECASE),
         "suzieq_query",
         {"table": "routes"},
         "route_query",
     ),
     # OSPF queries
     (
-        re.compile(r"(?:查询|显示|查看|show|get)\s*(?P<hostname>[A-Za-z][\w\-\.]+)?\s*(?:的\s*)?(?:OSPF|ospf)\s*(?:邻居|neighbor)?", re.IGNORECASE),
+        re.compile(r"(?:show|get|query|display|check)\s*(?P<hostname>[A-Za-z][\w\-\.]+)?\s*(?:OSPF|ospf)\s*(?:neighbor)?", re.IGNORECASE),
         "suzieq_query",
         {"table": "ospf"},
         "ospf_query",
     ),
     # Device list (NetBox)
     (
-        re.compile(r"(?:列出|显示|查询|list|show|get)\s*(?:所有\s*)?(?:设备|devices?)", re.IGNORECASE),
+        re.compile(r"(?:list|show|get|display)\s*(?:all\s*)?(?:devices?)", re.IGNORECASE),
         "netbox_api_call",
         {"endpoint": "/dcim/devices/"},
         "device_list",
     ),
     # All interfaces status
     (
-        re.compile(r"(?:显示|查询|show|get)\s*所有\s*(?:设备\s*)?(?:的\s*)?(?:接口|interface)\s*(?:状态|status)?", re.IGNORECASE),
+        re.compile(r"(?:show|get|display)\s*all\s*(?:device\s*)?(?:interface)\s*(?:status|state)?", re.IGNORECASE),
         "suzieq_query",
         {"table": "interface"},
         "all_interfaces",
     ),
     # VLAN queries
     (
-        re.compile(r"(?:查询|显示|查看|show|get)\s*(?P<hostname>[A-Za-z][\w\-\.]+)?\s*(?:的\s*)?(?:VLAN|vlan)", re.IGNORECASE),
+        re.compile(r"(?:show|get|query|display|check)\s*(?P<hostname>[A-Za-z][\w\-\.]+)?\s*(?:VLAN|vlan)", re.IGNORECASE),
         "suzieq_query",
         {"table": "vlan"},
         "vlan_query",
     ),
     # MAC table queries
     (
-        re.compile(r"(?:查询|显示|查看|show|get)\s*(?P<hostname>[A-Za-z][\w\-\.]+)?\s*(?:的\s*)?(?:MAC|mac)\s*(?:表|地址|table|address)?", re.IGNORECASE),
+        re.compile(r"(?:show|get|query|display|check)\s*(?P<hostname>[A-Za-z][\w\-\.]+)?\s*(?:MAC|mac)\s*(?:table|address)?", re.IGNORECASE),
         "suzieq_query",
         {"table": "mac"},
         "mac_query",
     ),
     # LLDP neighbors
     (
-        re.compile(r"(?:查询|显示|查看|show|get)\s*(?P<hostname>[A-Za-z][\w\-\.]+)?\s*(?:的\s*)?(?:LLDP|lldp)\s*(?:邻居|neighbor)?", re.IGNORECASE),
+        re.compile(r"(?:show|get|query|display|check)\s*(?P<hostname>[A-Za-z][\w\-\.]+)?\s*(?:LLDP|lldp)\s*(?:neighbor)?", re.IGNORECASE),
         "suzieq_query",
         {"table": "lldp"},
         "lldp_query",
@@ -184,7 +181,7 @@ class QueryPreprocessor:
 
     Usage:
         preprocessor = QueryPreprocessor()
-        result = preprocessor.process("查询 R1 的 BGP 状态")
+        result = preprocessor.process("query R1 BGP status")
 
         if result.can_use_fast_path:
             # Standard Mode fast path
@@ -260,7 +257,7 @@ class QueryPreprocessor:
             return "query"
 
         # Default to query for network-related terms
-        network_terms = {"bgp", "ospf", "接口", "路由", "interface", "route", "vlan", "mac", "lldp"}
+        network_terms = {"bgp", "ospf", "interface", "route", "vlan", "mac", "lldp"}
         if any(term in query_lower for term in network_terms):
             return "query"
 
@@ -296,7 +293,7 @@ class QueryPreprocessor:
         false_positives = {
             "bgp", "ospf", "vlan", "mac", "lldp", "interface", "route", "show",
             "list", "get", "query", "check", "all", "the", "and", "for",
-            "状态", "邻居", "路由", "接口", "设备", "所有",
+            "status", "neighbor", "device", "devices",
         }
         if name.lower() in false_positives:
             return False

@@ -17,7 +17,8 @@ from typing import Any
 import requests
 from opensearchpy import OpenSearch, helpers
 
-from olav.core.settings import settings
+from olav.core.memory import create_opensearch_client
+from config.settings import settings
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -45,21 +46,8 @@ PRIORITY_ENTITIES = [
 
 
 def get_opensearch_client() -> OpenSearch:
-    """Return OpenSearch client using lowercase settings attribute or env fallback.
-
-    EnvSettings exposes fields in lowercase (opensearch_url). Older code referenced
-    OPENSEARCH_URL directly which raises AttributeError. This helper normalizes.
-    """
-    url = getattr(settings, "opensearch_url", None) or os.getenv("OPENSEARCH_URL")
-    if not url:
-        msg = "Missing OpenSearch URL (opensearch_url/OPENSEARCH_URL)"
-        raise RuntimeError(msg)
-    return OpenSearch(
-        hosts=[url],
-        http_auth=None,  # Add auth if needed
-        use_ssl=False,
-        verify_certs=False,
-    )
+    """Return OpenSearch client with auth support."""
+    return create_opensearch_client()
 
 
 def fetch_openapi_schema() -> dict[str, Any]:

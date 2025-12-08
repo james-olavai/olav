@@ -53,34 +53,35 @@ from .registry import WorkflowRegistry
 class DeviceExecutionState(BaseWorkflowState):
     """State for device execution workflow."""
 
-    config_plan: dict | None  # 变更计划
+    config_plan: dict | None  # Change plan
     approval_status: str | None  # pending/approved/rejected
-    execution_result: dict | None  # 执行结果
-    validation_result: dict | None  # 验证结果
+    execution_result: dict | None  # Execution result
+    validation_result: dict | None  # Validation result
 
 
 @WorkflowRegistry.register(
     name="device_execution",
-    description="设备配置变更执行（Planning → HITL → Execution → Validation）",
+    description="Device configuration change execution (Planning → HITL → Execution → Validation)",
     examples=[
-        "修改 R1 的 BGP AS 号为 65001",
-        "在 Switch-A 接口 Gi0/1 上配置 VLAN 100",
-        "关闭设备 R2 的接口 Ethernet1",
-        "设置所有接口 MTU 为 9000",
-        "添加静态路由到 10.0.0.0/8",
-        "配置 OSPF area 0",
-        "修改设备描述信息",
+        "Modify R1 BGP AS number to 65001",
+        "Configure VLAN 100 on Switch-A interface Gi0/1",
+        "Shutdown interface Ethernet1 on device R2",
+        "Set MTU to 9000 on all interfaces",
+        "Add static route to 10.0.0.0/8",
+        "Configure OSPF area 0",
+        "Modify device description",
     ],
     triggers=[
-        r"修改",
-        r"配置",
-        r"设置",
-        r"添加",
-        r"删除",
+        # English patterns - LLM handles multilingual intent classification
+        r"modify",
+        r"configure",
+        r"set",
+        r"add",
+        r"delete",
         r"shutdown",
         r"no shutdown",
         r"change",
-        r"configure",
+        r"remove",
     ],
 )
 class DeviceExecutionWorkflow(BaseWorkflow):
@@ -92,34 +93,30 @@ class DeviceExecutionWorkflow(BaseWorkflow):
 
     @property
     def description(self) -> str:
-        return "设备配置变更执行（Planning → HITL → Execution → Validation）"
+        return "Device configuration change execution (Planning → HITL → Execution → Validation)"
 
     @property
     def tools_required(self) -> list[str]:
         return [
-            "search_episodic_memory",  # 历史成功案例
-            "search_openconfig_schema",  # XPath 确认
-            "netconf_tool",  # 主要执行方式（带 commit confirmed）
-            "cli_tool",  # 降级方式（警告无自动回滚）
-            "suzieq_query",  # 变更后验证
+            "search_episodic_memory",  # Historical success cases
+            "search_openconfig_schema",  # XPath confirmation
+            "netconf_tool",  # Primary execution (with commit confirmed)
+            "cli_tool",  # Fallback (warning: no auto rollback)
+            "suzieq_query",  # Post-change validation
         ]
 
     async def validate_input(self, user_query: str) -> tuple[bool, str]:
         """Check if request is a configuration change."""
         query_lower = user_query.lower()
 
-        # 排除 NetBox 管理关键词（优先级高）
+        # Exclude NetBox management keywords (higher priority)
         netbox_keywords = [
-            "设备清单",
-            "添加设备",
-            "ip分配",
-            "ip地址",
-            "站点",
-            "机架",
+            # English keywords for NetBox operations
             "inventory",
             "device list",
             "add device",
             "ip assignment",
+            "ip address",
             "site",
             "rack",
             "netbox",
@@ -127,13 +124,9 @@ class DeviceExecutionWorkflow(BaseWorkflow):
         if any(kw in query_lower for kw in netbox_keywords):
             return False, "NetBox management request, should use netbox_management workflow"
 
-        # Config change keywords (more comprehensive)
+        # Config change keywords (comprehensive)
         change_keywords = [
-            "修改",
-            "配置",
-            "设置",
-            "添加vlan",
-            "删除",
+            # English keywords for config changes
             "shutdown",
             "no shutdown",
             "change",
@@ -148,8 +141,8 @@ class DeviceExecutionWorkflow(BaseWorkflow):
             "remove",
             "vlan",
             "area",
-            "启用",
-            "禁用",
+            "enable",
+            "disable",
         ]
 
         if any(kw in query_lower for kw in change_keywords):
@@ -219,14 +212,14 @@ class DeviceExecutionWorkflow(BaseWorkflow):
             """
             import logging
 
-            from config.settings import AgentConfig
+            from config.settings import settings
             from langgraph.types import interrupt
 
             logger = logging.getLogger(__name__)
             user_approval = state.get("approval_status")
 
             # YOLO mode: auto-approve
-            if AgentConfig.YOLO_MODE and user_approval is None:
+            if settings.yolo_mode and user_approval is None:
                 logger.info("[YOLO] Auto-approving device execution...")
                 return {
                     **state,
@@ -247,7 +240,7 @@ class DeviceExecutionWorkflow(BaseWorkflow):
                 {
                     "action": "approval_required",
                     "config_plan": config_plan,
-                    "message": f"请审批设备配置变更:\n计划: {config_plan}\n\n输入 Y 确认, N 取消:",
+                    "message": f"Please approve device configuration change:\nPlan: {config_plan}\n\nEnter Y to confirm, N to cancel:",
                 }
             )
 
@@ -352,18 +345,18 @@ class DeviceExecutionWorkflow(BaseWorkflow):
             """Generate final answer with execution summary."""
             llm = LLMFactory.get_chat_model()
 
-            final_prompt = f"""综合执行结果，给出最终答案。
+            final_prompt = f"""Summarize the execution results and provide a final answer.
 
-用户请求: {state["messages"][0].content}
-变更计划: {state.get("config_plan")}
-审批状态: {state.get("approval_status")}
-执行结果: {state.get("execution_result")}
-验证结果: {state.get("validation_result")}
+User Request: {state["messages"][0].content}
+Change Plan: {state.get("config_plan")}
+Approval Status: {state.get("approval_status")}
+Execution Result: {state.get("execution_result")}
+Validation Result: {state.get("validation_result")}
 
-要求：
-- 如果被拒绝，说明原因
-- 如果已执行，汇总影响设备、配置项、验证状态
-- 如果验证失败，提供回滚建议
+Requirements:
+- If rejected, explain the reason
+- If executed, summarize affected devices, configuration items, and validation status
+- If validation failed, provide rollback recommendations
 """
 
             response = await llm.ainvoke([SystemMessage(content=final_prompt)])
@@ -446,9 +439,9 @@ class DeviceExecutionWorkflow(BaseWorkflow):
         workflow.add_edge("final_answer", END)
 
         # Compile with interrupt before approval (only if not YOLO mode)
-        from config.settings import AgentConfig
+        from config.settings import settings
 
-        if AgentConfig.YOLO_MODE:
+        if settings.yolo_mode:
             # YOLO mode: no interrupts, auto-approve in hitl_approval_node
             return workflow.compile(
                 checkpointer=checkpointer,

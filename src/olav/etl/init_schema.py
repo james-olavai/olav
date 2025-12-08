@@ -4,7 +4,8 @@ import logging
 
 from opensearchpy import OpenSearch
 
-from olav.core.settings import settings
+from olav.core.memory import create_opensearch_client
+from config.settings import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,12 +21,7 @@ def main() -> None:
     """
     logger.info("Initializing OpenConfig schema index...")
 
-    client = OpenSearch(
-        hosts=[settings.opensearch_url],
-        http_compress=True,
-        use_ssl=False,
-        verify_certs=False,
-    )
+    client = create_opensearch_client()
 
     # Create index
     index_name = "openconfig-schema"

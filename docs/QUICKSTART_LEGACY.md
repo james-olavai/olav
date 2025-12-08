@@ -19,7 +19,7 @@ cp .env.example .env
 # 必填：LLM_API_KEY、（使用 NetBox 时）NETBOX_TOKEN
 ```
 
-注意：`src/olav/core/settings.py` 会基于 `config/settings.py` 的 `InfrastructureConfig` 自动判断本地/容器环境并生成默认端点，未设置的 URI 会自动推导，无需在 .env 冗余填写。
+注意：`config/settings.py` 会自动判断本地/容器环境并生成默认端点，未设置的 URI 会自动推导，无需在 .env 冗余填写。
 
 ---
 ## 1. 安装与准备
@@ -161,7 +161,7 @@ docker logs -n 50 olav-embedder
 ```
 快速运行时健康确认：
 ```bash
-docker-compose exec olav-app uv run python -c "from olav.core.settings import settings;from config.settings import Paths;print('env=',settings.environment,'inventory=',Paths.INVENTORY_CSV.exists())"
+docker-compose exec olav-app uv run python -c "from config.settings import settings, get_path; print('env=', settings.environment, 'data_dir=', get_path('suzieq_data'))"
 ```
 
 ---

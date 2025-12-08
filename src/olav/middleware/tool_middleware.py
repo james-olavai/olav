@@ -1,10 +1,10 @@
-"""Tool Middleware - 自动注入工具说明到 Prompt。
+"""Tool Middleware - Auto-inject tool descriptions into prompts.
 
-借鉴 deepagents 的 Middleware 模式，实现工具说明的自动注入：
-1. 基础 Prompt 保持简短（职责聚焦，<20 行）
-2. 工具概览表自动生成
-3. Capability Guide 按需加载并注入
-4. 跨 Workflow 复用，保证一致性
+Inspired by deepagents Middleware pattern, implementing automatic tool description injection:
+1. Keep base prompts concise (focused on responsibilities, <20 lines)
+2. Auto-generate tool overview table
+3. Load and inject Capability Guides on demand
+4. Cross-Workflow reuse ensuring consistency
 
 Phase 4 Extensions:
 - HITL (Human-in-the-Loop) support for CLI verification commands
@@ -12,20 +12,21 @@ Phase 4 Extensions:
 - Pre-execution approval workflow for write operations
 
 Pattern:
-    Before (冗长 Prompt):
-        60-100 行 Prompt，包含重复的工具说明
+    Before (lengthy Prompt):
+        60-100 line Prompt with repeated tool descriptions
 
-    After (Middleware 注入):
-        15-20 行基础 Prompt + 自动注入的工具说明
+    After (Middleware injection):
+        15-20 line base Prompt + auto-injected tool descriptions
 """
 
 from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from olav.core.prompt_manager import prompt_manager
 
@@ -362,39 +363,39 @@ hitl_handler = HITLApprovalHandler()
 
 class ToolMiddleware:
     """
-    工具说明自动注入 Middleware。
+    Tool description auto-injection Middleware.
 
-    自动将 capability_guide 注入到 System Prompt，使得：
-    1. 基础 Prompt 可以保持简短
-    2. 工具说明只需维护一处
-    3. 跨 Workflow 保持一致
+    Automatically injects capability_guide into System Prompt, enabling:
+    1. Base prompts to remain concise
+    2. Tool descriptions maintained in one place
+    3. Consistency across Workflows
 
     Usage:
         middleware = ToolMiddleware()
         enriched_prompt = middleware.enrich_prompt(
-            base_prompt="你是网络诊断专家...",
+            base_prompt="You are a network diagnostics expert...",
             tools=[suzieq_query, netconf_tool, cli_tool]
         )
 
     Attributes:
-        TOOL_GUIDE_MAPPING: 工具名到 capability_guide 前缀的映射
+        TOOL_GUIDE_MAPPING: Tool name to capability_guide prefix mapping
     """
 
-    # 工具名到 capability_guide 前缀的映射
-    # capability_guide 文件位于 config/prompts/tools/{prefix}_capability_guide.yaml
+    # Tool name to capability_guide prefix mapping
+    # capability_guide files are located at config/prompts/tools/{prefix}_capability_guide.yaml
     TOOL_GUIDE_MAPPING: dict[str, str] = {
-        # SuzieQ 工具
+        # SuzieQ tools
         "suzieq_query": "suzieq",
         "suzieq_schema_search": "suzieq",
         "suzieq_summarize": "suzieq",
-        # NETCONF 工具
+        # NETCONF tools
         "netconf_get": "netconf",
         "netconf_edit": "netconf",
         "netconf_tool": "netconf",
-        # CLI 工具
+        # CLI tools
         "cli_execute": "cli",
         "cli_tool": "cli",
-        # NetBox 工具
+        # NetBox tools
         "netbox_api_call": "netbox",
         "netbox_schema_search": "netbox",
         "netbox_query": "netbox",
@@ -403,18 +404,18 @@ class ToolMiddleware:
     }
 
     def __init__(self) -> None:
-        """初始化 Middleware，设置缓存。"""
+        """Initialize Middleware, set up cache."""
         self._guide_cache: dict[str, str] = {}
 
     def get_tool_guide(self, tool_name: str) -> str:
         """
-        获取工具的 capability guide。
+        Get capability guide for a tool.
 
         Args:
-            tool_name: 工具名称（如 "suzieq_query"）
+            tool_name: Tool name (e.g., "suzieq_query")
 
         Returns:
-            capability guide 内容，如果不存在则返回空字符串
+            capability guide content, or empty string if not found
         """
         if tool_name in self._guide_cache:
             return self._guide_cache[tool_name]
@@ -440,57 +441,57 @@ class ToolMiddleware:
         include_tool_table: bool = True,
     ) -> str:
         """
-        自动注入工具说明到 Prompt。
+        Auto-inject tool descriptions into Prompt.
 
         Args:
-            base_prompt: 基础 System Prompt（简短，职责聚焦）
-            tools: 当前节点可用的工具列表
-            include_guides: 是否包含详细 capability guide
-            include_tool_table: 是否包含工具概览表
+            base_prompt: Base System Prompt (concise, responsibility-focused)
+            tools: List of tools available to current node
+            include_guides: Whether to include detailed capability guides
+            include_tool_table: Whether to include tool overview table
 
         Returns:
-            增强后的 Prompt，包含工具概览表和 capability guide
+            Enriched Prompt with tool overview table and capability guides
 
         Example:
-            >>> base = "你是网络诊断专家。分析用户请求。"
+            >>> base = "You are a network diagnostics expert. Analyze user requests."
             >>> enriched = middleware.enrich_prompt(base, [suzieq_query])
-            >>> # enriched 包含:
-            >>> # - 基础 Prompt
-            >>> # - 工具概览表
+            >>> # enriched contains:
+            >>> # - Base Prompt
+            >>> # - Tool overview table
             >>> # - SuzieQ capability guide
         """
         enriched_parts = [base_prompt]
 
-        # 1. 生成工具概览表
+        # 1. Generate tool overview table
         if include_tool_table and tools:
             tool_table = self._generate_tool_table(tools)
-            enriched_parts.append(f"\n## 可用工具\n\n{tool_table}")
+            enriched_parts.append(f"\n## Available Tools\n\n{tool_table}")
 
-        # 2. 收集并去重 capability guides
+        # 2. Collect and deduplicate capability guides
         if include_guides and tools:
             guides = self._collect_guides(tools)
             if guides:
-                enriched_parts.append(f"\n## 工具使用指南\n\n{guides}")
+                enriched_parts.append(f"\n## Tool Usage Guide\n\n{guides}")
 
         return "\n".join(enriched_parts)
 
     def _generate_tool_table(self, tools: list[BaseTool]) -> str:
         """
-        生成工具概览表。
+        Generate tool overview table.
 
         Args:
-            tools: 工具列表
+            tools: List of tools
 
         Returns:
-            Markdown 格式的工具表格
+            Markdown formatted tool table
         """
-        lines = ["| 工具 | 用途 |", "|------|------|"]
+        lines = ["| Tool | Purpose |", "|------|---------|"]
         for tool in tools:
-            # 提取 docstring 第一行作为用途
-            desc = "无描述"
+            # Extract first line of docstring as purpose
+            desc = "No description"
             if tool.description:
                 first_line = tool.description.split("\n")[0].strip()
-                # 截断过长的描述
+                # Truncate long descriptions
                 if len(first_line) > 60:
                     first_line = first_line[:57] + "..."
                 desc = first_line
@@ -499,15 +500,15 @@ class ToolMiddleware:
 
     def _collect_guides(self, tools: list[BaseTool]) -> str:
         """
-        收集并去重 capability guides。
+        Collect and deduplicate capability guides.
 
-        同一个 guide_prefix 的工具共享一个 guide，避免重复。
+        Tools with the same guide_prefix share one guide to avoid duplication.
 
         Args:
-            tools: 工具列表
+            tools: List of tools
 
         Returns:
-            合并后的 capability guides
+            Merged capability guides
         """
         guides = []
         seen_prefixes: set[str] = set()
@@ -517,32 +518,32 @@ class ToolMiddleware:
             if guide_prefix and guide_prefix not in seen_prefixes:
                 guide = self.get_tool_guide(tool.name)
                 if guide:
-                    # 使用标题区分不同工具的指南
-                    guides.append(f"### {guide_prefix.upper()} 工具\n\n{guide}")
+                    # Use heading to distinguish different tool guides
+                    guides.append(f"### {guide_prefix.upper()} Tools\n\n{guide}")
                     seen_prefixes.add(guide_prefix)
 
         return "\n\n".join(guides)
 
     def clear_cache(self) -> None:
-        """清空 capability guide 缓存。"""
+        """Clear capability guide cache."""
         self._guide_cache.clear()
         logger.debug("Tool capability guide cache cleared")
 
     def register_tool_mapping(self, tool_name: str, guide_prefix: str) -> None:
         """
-        动态注册工具到 guide 的映射。
+        Dynamically register tool to guide mapping.
 
-        用于扩展支持自定义工具。
+        Used for extending support for custom tools.
 
         Args:
-            tool_name: 工具名称
-            guide_prefix: capability_guide 文件前缀
+            tool_name: Tool name
+            guide_prefix: capability_guide file prefix
         """
         self.TOOL_GUIDE_MAPPING[tool_name] = guide_prefix
         logger.debug(f"Registered tool mapping: {tool_name} -> {guide_prefix}")
 
 
-# 全局单例实例
+# Global singleton instance
 tool_middleware = ToolMiddleware()
 
 
@@ -551,17 +552,17 @@ tool_middleware = ToolMiddleware()
 # =============================================================================
 
 __all__ = [
+    "CommandAnalysis",
     # Command Safety Classification
     "CommandSafety",
-    "CommandAnalysis",
     "CommandSafetyClassifier",
-    "command_classifier",
+    "HITLApprovalHandler",
     # HITL Approval
     "HITLApprovalRequest",
     "HITLApprovalResult",
-    "HITLApprovalHandler",
-    "hitl_handler",
     # Tool Middleware
     "ToolMiddleware",
+    "command_classifier",
+    "hitl_handler",
     "tool_middleware",
 ]

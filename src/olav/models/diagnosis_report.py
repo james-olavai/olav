@@ -120,7 +120,7 @@ class DiagnosisReport(BaseModel):
             device_sections.append(f"- **{name}** ({summary.status}){findings_text}")
         devices_text = "\n".join(device_sections) if device_sections else "No device summaries."
 
-        md = f"""# 🔍 Network Diagnosis Report
+        return f"""# 🔍 Network Diagnosis Report
 
 **Report ID**: `{self.report_id}`
 **Timestamp**: {self.timestamp}
@@ -161,7 +161,6 @@ class DiagnosisReport(BaseModel):
 - **Layers**: {', '.join(self.affected_layers) if self.affected_layers else 'None'}
 - **Fault Path**: {' → '.join(self.fault_path) if self.fault_path else 'Not determined'}
 """
-        return md
 
 
 class SimilarCase(BaseModel):
@@ -190,7 +189,7 @@ def extract_tags_from_text(text: str) -> list[str]:
     Returns:
         List of relevant tags
     """
-    TAG_KEYWORDS = {
+    tag_keywords = {
         "bgp": ["bgp", "peer", "neighbor", "as ", "asn"],
         "ospf": ["ospf", "area", "lsa", "spf"],
         "interface": ["interface", "port", "link", "down", "up"],
@@ -206,7 +205,7 @@ def extract_tags_from_text(text: str) -> list[str]:
     text_lower = text.lower()
     tags = []
 
-    for tag, keywords in TAG_KEYWORDS.items():
+    for tag, keywords in tag_keywords.items():
         if any(kw in text_lower for kw in keywords):
             tags.append(tag)
 
@@ -222,7 +221,7 @@ def extract_protocols(text: str) -> list[str]:
     Returns:
         List of protocol names
     """
-    PROTOCOLS = [
+    protocols = [
         "bgp", "ospf", "isis", "eigrp", "rip",
         "stp", "rstp", "mstp", "pvst",
         "lacp", "lldp", "cdp",
@@ -232,7 +231,7 @@ def extract_protocols(text: str) -> list[str]:
     ]
 
     text_lower = text.lower()
-    return [p for p in PROTOCOLS if p in text_lower]
+    return [p for p in protocols if p in text_lower]
 
 
 def extract_layers(findings: dict[str, list[str]]) -> list[str]:
@@ -248,10 +247,10 @@ def extract_layers(findings: dict[str, list[str]]) -> list[str]:
 
 
 __all__ = [
-    "DiagnosisReport",
     "DeviceSummary",
+    "DiagnosisReport",
     "SimilarCase",
-    "extract_tags_from_text",
-    "extract_protocols",
     "extract_layers",
+    "extract_protocols",
+    "extract_tags_from_text",
 ]

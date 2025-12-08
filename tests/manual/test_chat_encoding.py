@@ -3,21 +3,23 @@ import asyncio
 import sys
 
 # Fix Windows event loop
-if sys.platform == 'win32':
+if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-from olav.agents.root_agent_orchestrator import create_workflow_orchestrator
 from langchain_core.messages import HumanMessage
+
+from olav.agents.root_agent_orchestrator import create_workflow_orchestrator
+
 
 async def run_chat():
     print("Initializing orchestrator...")
-    agent, checkpointer_manager = await create_workflow_orchestrator()
-    
+    agent, _checkpointer_manager = await create_workflow_orchestrator()
+
     query = "查询全网设备的BGP状态"
     print(f"Sending query: {query}")
-    
+
     config = {"configurable": {"thread_id": "test-encoding-1"}}
-    
+
     async for chunk in agent.astream(
         {"messages": [HumanMessage(content=query)]},
         config=config,

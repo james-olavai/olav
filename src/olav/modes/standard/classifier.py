@@ -30,7 +30,7 @@ class StandardModeClassifier:
 
     Usage:
         classifier = StandardModeClassifier()
-        result = await classifier.classify("查询 R1 BGP 状态")
+        result = await classifier.classify("Query R1 BGP status")
 
         if result.confidence >= 0.7:
             # Execute tool with result.tool and result.parameters
@@ -100,9 +100,9 @@ class StandardModeClassifier:
             "diagnosis",
             "troubleshoot",
             "root cause",
-            "故障",
-            "排错",
-            "诊断",
+            "fault",
+            "debug",
+            "diagnose",
         ]
 
         # Handle optional reasoning field (None when omitted for performance)

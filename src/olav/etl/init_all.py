@@ -31,7 +31,8 @@ import sys
 
 from opensearchpy import OpenSearch
 
-from olav.core.settings import settings
+from olav.core.memory import create_opensearch_client
+from config.settings import settings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,13 +67,8 @@ def _get_force_flag(component: str, global_force: bool) -> bool:
 
 
 def get_opensearch_client() -> OpenSearch:
-    """Get OpenSearch client."""
-    return OpenSearch(
-        hosts=[settings.opensearch_url],
-        http_compress=True,
-        use_ssl=False,
-        verify_certs=False,
-    )
+    """Get OpenSearch client with auth support."""
+    return create_opensearch_client()
 
 
 def check_index_exists(client: OpenSearch, index_name: str) -> bool:

@@ -15,7 +15,7 @@ Usage:
     from olav.modes.standard import run_standard_mode
 
     result = await run_standard_mode(
-        query="查询 R1 BGP 状态",
+        query="Query R1 BGP status",
         tool_registry=registry,
     )
 

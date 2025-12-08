@@ -100,7 +100,7 @@ class ThinkingStep:
     status: str = "pending"  # pending, running, success, error
     start_time: float = field(default_factory=time.time)
     end_time: float | None = None
-    children: list["ThinkingStep"] = field(default_factory=list)
+    children: list[ThinkingStep] = field(default_factory=list)
 
 
 class ThinkingTree:
@@ -134,7 +134,7 @@ class ThinkingTree:
         "error": "❌",
     }
 
-    def __init__(self, console: Console | None = None):
+    def __init__(self, console: Console | None = None) -> None:
         self.console = console or Console()
         self.tree = Tree("[bold cyan]🧠 Thinking Process[/bold cyan]")
         self.live: Live | None = None
@@ -147,7 +147,7 @@ class ThinkingTree:
         self._thinking_buffer: str = ""
         self._thinking_node: Any = None
 
-    def __enter__(self) -> "ThinkingTree":
+    def __enter__(self) -> ThinkingTree:
         """Start live display."""
         self.live = Live(
             self.tree,
@@ -196,14 +196,14 @@ class ThinkingTree:
         self.step_count += 1
         # Detect hypothesis-related thinking
         text_lower = text.lower()
-        if any(kw in text_lower for kw in ["hypothes", "假设", "可能", "maybe", "could be"]):
+        if any(kw in text_lower for kw in ["hypothes", "maybe", "could be", "possibly", "might"]):
             self.current_step = self.tree.add(f"[magenta]🔮 {text}[/magenta]")
             self.hypothesis_node = self.current_step
-        elif any(kw in text_lower for kw in ["verify", "验证", "check", "检查", "test"]):
+        elif any(kw in text_lower for kw in ["verify", "check", "test", "validate"]):
             self.current_step = self.tree.add(f"[cyan]🔬 {text}[/cyan]")
-        elif any(kw in text_lower for kw in ["evidence", "证据", "found", "发现", "result"]):
+        elif any(kw in text_lower for kw in ["evidence", "found", "result", "discover"]):
             self.current_step = self.tree.add(f"[green]📌 {text}[/green]")
-        elif any(kw in text_lower for kw in ["调用", "calling", "query", "查询"]):
+        elif any(kw in text_lower for kw in ["calling", "query", "invoke", "tool"]):
             self.current_step = self.tree.add(f"[blue]⚡ {text}[/blue]")
         else:
             self.current_step = self.tree.add(f"[yellow]💭 {text}[/yellow]")
@@ -218,10 +218,10 @@ class ThinkingTree:
             # Show word count summary instead of truncated text
             char_count = len(self._thinking_buffer)
             # Keep a brief preview
-            preview = self._thinking_buffer[:100].replace('\n', ' ')
+            preview = self._thinking_buffer[:100].replace("\n", " ")
             if len(self._thinking_buffer) > 100:
                 preview += "..."
-            self._thinking_node.label = f"[yellow]💭 思考 ({char_count}字): {preview}[/yellow]"
+            self._thinking_node.label = f"[yellow]💭 Thinking ({char_count} chars): {preview}[/yellow]"
             self._refresh()
         # Reset buffer for next thinking session
         self._thinking_buffer = ""
@@ -321,7 +321,7 @@ class HITLPanel:
         "high": "red",
     }
 
-    def __init__(self, console: Console | None = None):
+    def __init__(self, console: Console | None = None) -> None:
         self.console = console or Console()
 
     def display(self, request: HITLRequest) -> None:
@@ -433,12 +433,11 @@ class HITLPanel:
 
         user_input = self.console.input("[bold]Your decision: [/bold]").strip()
 
-        if user_input.lower() in ("y", "yes", "approve", "批准"):
+        if user_input.lower() in ("y", "yes", "approve"):
             return "Y"
-        elif user_input.lower() in ("n", "no", "reject", "拒绝", "abort"):
+        if user_input.lower() in ("n", "no", "reject", "abort"):
             return "N"
-        else:
-            return user_input
+        return user_input
 
 
 # ============================================
@@ -453,7 +452,7 @@ class InspectionProgress:
     - Current device progress (checks on device)
     """
 
-    def __init__(self, console: Console | None = None):
+    def __init__(self, console: Console | None = None) -> None:
         self.console = console or Console()
         self.progress = Progress(
             SpinnerColumn(),
@@ -465,7 +464,7 @@ class InspectionProgress:
         )
         self.tasks: dict[str, Any] = {}
 
-    def __enter__(self) -> "InspectionProgress":
+    def __enter__(self) -> InspectionProgress:
         self.progress.__enter__()
         return self
 
@@ -512,7 +511,7 @@ class ResultRenderer:
     - Error messages
     """
 
-    def __init__(self, console: Console | None = None):
+    def __init__(self, console: Console | None = None) -> None:
         self.console = console or Console()
 
     def render_message(self, content: str, role: str = "assistant") -> None:
@@ -626,31 +625,31 @@ class ResultRenderer:
 @dataclass
 class DebugInfo:
     """Collected debug information from a query."""
-    
+
     tool_calls: list[dict] = field(default_factory=list)
     thinking_steps: list[str] = field(default_factory=list)
     start_time: float = field(default_factory=time.time)
     end_time: float = 0.0
-    
+
     @property
     def duration_ms(self) -> float:
         """Calculate total duration in milliseconds."""
         if self.end_time > 0:
             return (self.end_time - self.start_time) * 1000
         return 0.0
-    
+
     def add_tool_call(self, tool_info: dict) -> None:
         """Record a tool call."""
         self.tool_calls.append({
             **tool_info,
             "timestamp": time.time(),
         })
-    
+
     def add_thinking(self, content: str) -> None:
         """Record a thinking step."""
         if content.strip():
             self.thinking_steps.append(content.strip())
-    
+
     def finalize(self) -> None:
         """Mark end of query processing."""
         self.end_time = time.time()
@@ -658,16 +657,16 @@ class DebugInfo:
 
 class DebugRenderer:
     """Render debug output for --debug mode.
-    
+
     Displays:
     - Tool calls with args and duration
     - Thinking steps (if captured)
     - Timing breakdown
     """
-    
-    def __init__(self, console: Console | None = None):
+
+    def __init__(self, console: Console | None = None) -> None:
         self.console = console or Console()
-    
+
     def render(self, debug_info: DebugInfo) -> None:
         """Render complete debug output."""
         self.console.print()
@@ -677,11 +676,11 @@ class DebugRenderer:
             border_style="magenta",
             padding=(1, 2),
         ))
-    
+
     def _build_debug_content(self, debug_info: DebugInfo) -> Group:
         """Build debug content as Rich Group."""
         elements = []
-        
+
         # Summary
         summary = Text()
         summary.append("Total Duration: ", style="bold")
@@ -691,7 +690,7 @@ class DebugRenderer:
         summary.append(str(len(debug_info.tool_calls)), style="cyan")
         elements.append(summary)
         elements.append(Text())  # Blank line
-        
+
         # Tool calls table
         if debug_info.tool_calls:
             table = Table(
@@ -705,13 +704,13 @@ class DebugRenderer:
             table.add_column("Arguments", max_width=50)
             table.add_column("Duration", justify="right", style="yellow")
             table.add_column("Status", justify="center")
-            
+
             for i, tool in enumerate(debug_info.tool_calls, 1):
                 args_str = self._format_args(tool.get("args", {}))
                 duration = tool.get("duration_ms", 0)
                 duration_str = f"{duration:.0f}ms" if duration else "-"
                 status = "✅" if tool.get("success", True) else "❌"
-                
+
                 table.add_row(
                     str(i),
                     tool.get("display_name") or tool.get("name", "unknown"),
@@ -719,9 +718,9 @@ class DebugRenderer:
                     duration_str,
                     status,
                 )
-            
+
             elements.append(table)
-        
+
         # Thinking steps (collapsed summary)
         if debug_info.thinking_steps:
             elements.append(Text())
@@ -729,20 +728,20 @@ class DebugRenderer:
             thinking_summary.append("Thinking Steps: ", style="bold")
             thinking_summary.append(f"{len(debug_info.thinking_steps)} steps captured", style="dim")
             elements.append(thinking_summary)
-        
+
         return Group(*elements)
-    
+
     def _format_args(self, args: dict, max_len: int = 50) -> str:
         """Format tool arguments for display."""
         if not args:
             return "-"
-        
+
         parts = []
         for key, value in args.items():
             if isinstance(value, str) and len(value) > 20:
                 value = value[:17] + "..."
             parts.append(f"{key}={value}")
-        
+
         result = ", ".join(parts)
         if len(result) > max_len:
             result = result[:max_len - 3] + "..."
@@ -759,6 +758,7 @@ class Dashboard:
     - Chat-style conversation interface
     - Real-time streaming responses
     - Colorful OLAV branding with snowman
+    - Session memory (same thread_id for conversation continuity)
 
     Usage:
         dashboard = Dashboard(client, console)
@@ -767,15 +767,24 @@ class Dashboard:
 
     def __init__(
         self,
-        client: "OlavThinClient",
+        client: OlavThinClient,
         console: Console | None = None,
         mode: str = "standard",
-    ):
+    ) -> None:
+        import uuid
         self.client = client
         self.console = console or Console()
         self.mode = mode
         self.running = False
         self._chat_history: list[tuple[str, str, str]] = []  # (role, content, timestamp)
+        self._activity_log: list[tuple[str, str]] = []  # (timestamp, message) for test compat
+        # Use a single thread_id for the entire session (context memory)
+        self._session_thread_id = f"dashboard-{uuid.uuid4().hex[:8]}"
+
+    def add_activity(self, message: str) -> None:
+        """Add activity to the log (for test compatibility)."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self._activity_log.append((timestamp, message))
 
     def _print_header(self) -> None:
         """Print header with OLAV logo and snowman."""
@@ -793,7 +802,7 @@ class Dashboard:
         subtitle = Text()
         subtitle.append("\n")
         subtitle.append("❄ ", style="cyan")
-        subtitle.append("Omni-Layer Autonomous Verifier", style="bold white")
+        subtitle.append("NetAIChatOps", style="bold white")
         subtitle.append(" ❄ ", style="cyan")
         mode_style = "bold yellow" if self.mode == "expert" else "bold green"
         subtitle.append(f"[{self.mode.upper()}]", style=mode_style)
@@ -890,31 +899,30 @@ class Dashboard:
                     if user_input in ("/q", "/quit", "/exit"):
                         self.running = False
                         break
-                    elif user_input in ("/h", "/help"):
+                    if user_input in ("/h", "/help"):
                         self.add_message("assistant", "Commands: /q quit, /h help, /s standard, /e expert, /c clear, /status system")
                         self._refresh_display()
                         continue
-                    elif user_input in ("/status", "/st"):
+                    if user_input in ("/status", "/st"):
                         await self._show_status_inline()
                         continue
-                    elif user_input == "/s":
+                    if user_input == "/s":
                         self.mode = "standard"
                         self.add_message("assistant", "✅ Switched to Standard mode")
                         self._refresh_display()
                         continue
-                    elif user_input == "/e":
+                    if user_input == "/e":
                         self.mode = "expert"
                         self.add_message("assistant", "✅ Switched to Expert mode (Deep Dive)")
                         self._refresh_display()
                         continue
-                    elif user_input in ("/c", "/clear"):
+                    if user_input in ("/c", "/clear"):
                         self._chat_history.clear()
                         self._refresh_display()
                         continue
-                    else:
-                        self.add_message("assistant", f"Unknown command: {user_input}. Type /h for help.")
-                        self._refresh_display()
-                        continue
+                    self.add_message("assistant", f"Unknown command: {user_input}. Type /h for help.")
+                    self._refresh_display()
+                    continue
 
                 # Add user message and refresh
                 self.add_message("user", user_input)
@@ -925,8 +933,8 @@ class Dashboard:
 
                 # Send query and stream response
                 try:
-                    import uuid
-                    thread_id = str(uuid.uuid4())
+                    # Use session thread_id for context memory
+                    thread_id = self._session_thread_id
                     full_response = ""
 
                     async for event in self.client.chat_stream(user_input, thread_id=thread_id, mode=self.mode):
@@ -947,15 +955,46 @@ class Dashboard:
                                 # Print token incrementally
                                 self.console.print(token, end="")
                         elif event_type == StreamEventType.MESSAGE:
-                            # Complete message (from guard rejection or final response)
+                            # Complete message - only print if we haven't streamed tokens
                             message = event.data.get("content", "") if hasattr(event, "data") else ""
-                            if message:
+                            if message and not full_response:
                                 full_response = message
                                 self.console.print(message)
+                            elif message:
+                                # Already streamed, just update full_response
+                                full_response = message
                         elif event_type == StreamEventType.THINKING:
                             thought = event.data.get("content", "") if hasattr(event, "data") else ""
                             if thought:
                                 self.console.print(f"[dim yellow]💭 {thought[:80]}...[/dim yellow]")
+                        elif event_type == StreamEventType.INTERRUPT:
+                            # HITL interrupt - prompt user for approval
+                            data = event.data if hasattr(event, "data") else {}
+                            hitl_approved = await self._handle_hitl(data, session)
+                            if hitl_approved:
+                                # Re-execute with yolo mode
+                                self.console.print("[green]✅ Approved. Executing...[/green]")
+                                retry_response = ""
+                                async for retry_event in self.client.chat_stream(
+                                    user_input, thread_id + "-approved", self.mode, yolo=True
+                                ):
+                                    retry_type = retry_event.type if hasattr(retry_event, "type") else None
+                                    if retry_type == StreamEventType.TOKEN:
+                                        token = retry_event.data.get("content", "") if hasattr(retry_event, "data") else ""
+                                        retry_response += token
+                                        self.console.print(token, end="")
+                                    elif retry_type == StreamEventType.MESSAGE:
+                                        message = retry_event.data.get("content", "") if hasattr(retry_event, "data") else ""
+                                        if message and not retry_response:
+                                            retry_response = message
+                                            self.console.print(message)
+                                        elif message:
+                                            retry_response = message
+                                full_response = retry_response
+                            else:
+                                full_response = "❌ Operation cancelled by user."
+                                self.console.print(f"[yellow]{full_response}[/yellow]")
+                            break
 
                     # Add newline after streaming tokens
                     if full_response:
@@ -983,6 +1022,414 @@ class Dashboard:
     def stop(self) -> None:
         """Stop the dashboard."""
         self.running = False
+
+    async def run_repl(self) -> None:
+        """Run in lightweight REPL mode (no screen refresh).
+
+        A simpler interactive mode that doesn't clear the screen,
+        suitable for terminal multiplexers and simple queries.
+        """
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.formatted_text import HTML
+        from prompt_toolkit.styles import Style as PTStyle
+
+        self.running = True
+
+        style = PTStyle.from_dict({
+            "prompt": "cyan bold",
+        })
+        session: PromptSession = PromptSession(style=style)
+
+        try:
+            while self.running:
+                try:
+                    user_input = await session.prompt_async(
+                        HTML(f"<cyan><b>[{self.mode}] ❯ </b></cyan>"),
+                    )
+                except (EOFError, KeyboardInterrupt):
+                    self.running = False
+                    break
+
+                user_input = user_input.strip()
+                if not user_input:
+                    continue
+
+                # Handle slash commands
+                if user_input.startswith("/"):
+                    if user_input in ("/q", "/quit", "/exit"):
+                        self.running = False
+                        break
+                    if user_input in ("/h", "/help"):
+                        self.console.print("[cyan]Commands:[/cyan]")
+                        self.console.print("  /h, /help     Show this help")
+                        self.console.print("  /q, /exit     Exit REPL")
+                        self.console.print("  /mode <m>     Switch mode (standard/expert)")
+                        self.console.print("  /s            Switch to standard mode")
+                        self.console.print("  /e            Switch to expert mode")
+                        self.console.print("  /status       Show system status")
+                        continue
+                    if user_input == "/s":
+                        self.mode = "standard"
+                        self.console.print("[green]✅ Switched to Standard mode[/green]")
+                        continue
+                    if user_input == "/e":
+                        self.mode = "expert"
+                        self.console.print("[yellow]✅ Switched to Expert mode (Deep Dive)[/yellow]")
+                        continue
+                    if user_input.startswith("/mode "):
+                        new_mode = user_input.split(" ", 1)[1].strip().lower()
+                        if new_mode in ("standard", "expert"):
+                            self.mode = new_mode
+                            self.console.print(f"[green]✅ Switched to {self.mode} mode[/green]")
+                        else:
+                            self.console.print(f"[red]Unknown mode: {new_mode}. Use 'standard' or 'expert'.[/red]")
+                        continue
+                    if user_input in ("/status", "/st"):
+                        await self._show_status_inline()
+                        continue
+                    self.console.print(f"[yellow]Unknown command: {user_input}. Type /h for help.[/yellow]")
+                    continue
+
+                # Print user input
+                self.console.print(f"[bold green]You[/bold green]: {user_input}")
+                self.console.print()
+
+                # Show thinking indicator
+                self.console.print("[yellow]💭 Thinking...[/yellow]")
+
+                # Send query and stream response
+                try:
+                    thread_id = self._session_thread_id
+                    full_response = ""
+
+                    async for event in self.client.chat_stream(user_input, thread_id=thread_id, mode=self.mode):
+                        event_type = event.type if hasattr(event, "type") else None
+
+                        if event_type == StreamEventType.TOOL_START:
+                            tool_name = event.data.get("name", "tool") if hasattr(event, "data") else "tool"
+                            self.console.print(f"[magenta]🔧 Calling {tool_name}...[/magenta]")
+                        elif event_type == StreamEventType.TOOL_END:
+                            tool_name = event.data.get("name", "tool") if hasattr(event, "data") else "tool"
+                            success = event.data.get("success", True) if hasattr(event, "data") else True
+                            icon = "✅" if success else "❌"
+                            self.console.print(f"[magenta]{icon} {tool_name} completed[/magenta]")
+                        elif event_type == StreamEventType.TOKEN:
+                            token = event.data.get("content", "") if hasattr(event, "data") else ""
+                            if token:
+                                full_response += token
+                                self.console.print(token, end="")
+                        elif event_type == StreamEventType.MESSAGE:
+                            message = event.data.get("content", "") if hasattr(event, "data") else ""
+                            if message and not full_response:
+                                full_response = message
+                                self.console.print(message)
+                            elif message:
+                                full_response = message
+                        elif event_type == StreamEventType.THINKING:
+                            thought = event.data.get("content", "") if hasattr(event, "data") else ""
+                            if thought:
+                                self.console.print(f"[dim yellow]💭 {thought[:80]}...[/dim yellow]")
+
+                    # Add newline after streaming
+                    if full_response:
+                        self.console.print()
+                        self.console.print()
+
+                except Exception as e:
+                    self.console.print(f"[red]Error: {e}[/red]")
+                    self.console.print()
+
+        except KeyboardInterrupt:
+            pass
+
+        self.console.print()
+        self.console.print("[yellow]👋 REPL closed. Goodbye![/yellow]")
+
+    async def run_batch(
+        self,
+        queries: list[str],
+        yolo: bool = False,
+        verbose: bool = False,
+        debug: bool = False,
+        json_output: bool = False,
+    ) -> list[str]:
+        """Run batch queries non-interactively (for testing/scripting).
+
+        Args:
+            queries: List of queries to execute sequentially
+            yolo: If True, auto-approve HITL (skip interactive prompts)
+            verbose: Show detailed output
+            debug: Show debug information (LLM calls, tool timing)
+            json_output: Output as JSON
+
+        Returns:
+            List of responses for each query
+        """
+
+        responses: list[str] = []
+        all_debug_info: list[dict] = []
+
+        if not json_output:
+            self._print_header()
+
+        for i, query in enumerate(queries, 1):
+            if not json_output:
+                self.console.print(f"\n[cyan]━━━ Query {i}/{len(queries)} ━━━[/cyan]")
+                self.console.print(f"[bold cyan]You:[/bold cyan] {query}")
+            self.add_message("user", query)
+
+            full_response = ""
+            tool_calls: list[dict] = []
+            thinking_steps: list[str] = []
+            start_time = time.time()
+
+            try:
+                thread_id = self._session_thread_id
+
+                # Use ThinkingTree for verbose mode
+                if verbose and not json_output:
+                    with ThinkingTree(self.console) as tree:
+                        full_response, tool_calls, thinking_steps = await self._process_stream_with_tree(
+                            query, thread_id, yolo, tree
+                        )
+                else:
+                    # Simple mode - minimal output
+                    if not json_output:
+                        self.console.print("[yellow]💭 Thinking...[/yellow]")
+                    full_response, tool_calls, thinking_steps = await self._process_stream_simple(
+                        query, thread_id, yolo, json_output
+                    )
+
+                duration_ms = int((time.time() - start_time) * 1000)
+
+                # Add newline after streaming
+                if full_response and not json_output:
+                    self.console.print()
+
+                if full_response:
+                    self.add_message("assistant", full_response.strip())
+                    responses.append(full_response.strip())
+                else:
+                    self.add_message("assistant", "[No response]")
+                    responses.append("[No response]")
+
+                # Collect debug info
+                if debug:
+                    all_debug_info.append({
+                        "query": query,
+                        "duration_ms": duration_ms,
+                        "tool_calls": tool_calls,
+                        "thinking_steps": len(thinking_steps),
+                    })
+                    if not json_output:
+                        debug_renderer = DebugRenderer(self.console)
+                        debug_info = DebugInfo()
+                        debug_info.tool_calls = tool_calls
+                        debug_info.thinking_steps = thinking_steps
+                        # Set start/end time to calculate duration_ms properly
+                        debug_info.start_time = start_time
+                        debug_info.end_time = time.time()
+                        debug_renderer.render(debug_info)
+
+            except Exception as e:
+                error_msg = f"Error: {e}"
+                self.add_message("assistant", error_msg)
+                responses.append(error_msg)
+                if not json_output:
+                    self.console.print(f"[red]{error_msg}[/red]")
+
+        if json_output:
+            import json as json_lib
+            output = {
+                "queries": len(queries),
+                "responses": responses,
+            }
+            if debug:
+                output["debug"] = all_debug_info
+            print(json_lib.dumps(output, ensure_ascii=False, indent=2))
+        else:
+            self.console.print(f"\n[green]✅ Batch complete: {len(responses)}/{len(queries)} queries processed[/green]")
+
+        return responses
+
+    async def _process_stream_with_tree(
+        self,
+        query: str,
+        thread_id: str,
+        yolo: bool,
+        tree: ThinkingTree,
+    ) -> tuple[str, list[dict], list[str]]:
+        """Process stream events with ThinkingTree visualization."""
+        from olav.cli.thin_client import StreamEventType
+
+        full_response = ""
+        tool_calls: list[dict] = []
+        thinking_steps: list[str] = []
+        thinking_started = False
+
+        async for event in self.client.chat_stream(query, thread_id=thread_id, mode=self.mode, yolo=yolo):
+            event_type = event.type if hasattr(event, "type") else None
+            data = event.data if hasattr(event, "data") else {}
+
+            if event_type == StreamEventType.THINKING:
+                thinking = data.get("thinking", {})
+                content = thinking.get("content", "") if isinstance(thinking, dict) else str(data.get("content", ""))
+                if content:
+                    tree.add_thinking(content)
+                    thinking_steps.append(content)
+                    thinking_started = True
+
+            elif event_type == StreamEventType.TOOL_START:
+                if thinking_started:
+                    tree.finalize_thinking()
+                    thinking_started = False
+                tool_info = data.get("tool", {})
+                if not tool_info:
+                    tool_info = {"name": data.get("name", "unknown"), "args": data.get("args", {})}
+                tree.add_tool_call(
+                    tool_info.get("display_name") or tool_info.get("name", "unknown"),
+                    tool_info.get("args", {}),
+                )
+                tool_calls.append(tool_info)
+
+            elif event_type == StreamEventType.TOOL_END:
+                tool_info = data.get("tool", {})
+                if not tool_info:
+                    tool_info = {"name": data.get("name", "unknown"), "success": data.get("success", True)}
+                tree.mark_tool_complete(
+                    tool_info.get("name", "unknown"),
+                    success=tool_info.get("success", True),
+                )
+                # Update tool call with duration
+                for tc in reversed(tool_calls):
+                    if tc.get("name") == tool_info.get("name"):
+                        tc["duration_ms"] = tool_info.get("duration_ms", 0)
+                        tc["success"] = tool_info.get("success", True)
+                        break
+
+            elif event_type == StreamEventType.TOKEN:
+                if thinking_started:
+                    tree.finalize_thinking()
+                    thinking_started = False
+                token = data.get("content", "")
+                if token:
+                    full_response += token
+
+            elif event_type == StreamEventType.MESSAGE:
+                message = data.get("content", "")
+                if (message and not full_response) or message:
+                    full_response = message
+
+            elif event_type == StreamEventType.INTERRUPT:
+                if thinking_started:
+                    tree.finalize_thinking()
+                    thinking_started = False
+                # Handle HITL in tree mode
+                if yolo:
+                    tree.tree.add("[yellow]⚠️ HITL auto-approved (yolo)[/yellow]")
+                    retry_response = await self._execute_with_yolo(query, thread_id)
+                    full_response = retry_response
+                else:
+                    tool_name = data.get("tool_name", "unknown")
+                    tree.tree.add(f"[red]❌ HITL required: {tool_name} - use --yolo[/red]")
+                    full_response = "❌ Operation cancelled - HITL required"
+                break
+
+        # Print the response after tree
+        if full_response:
+            result_renderer = ResultRenderer(self.console)
+            result_renderer.render_message(full_response)
+
+        return full_response, tool_calls, thinking_steps
+
+    async def _process_stream_simple(
+        self,
+        query: str,
+        thread_id: str,
+        yolo: bool,
+        json_output: bool = False,
+    ) -> tuple[str, list[dict], list[str]]:
+        """Process stream events with simple output (no ThinkingTree)."""
+        from olav.cli.thin_client import StreamEventType
+
+        full_response = ""
+        tool_calls: list[dict] = []
+        thinking_steps: list[str] = []
+
+        async for event in self.client.chat_stream(query, thread_id=thread_id, mode=self.mode, yolo=yolo):
+            event_type = event.type if hasattr(event, "type") else None
+            data = event.data if hasattr(event, "data") else {}
+
+            if event_type == StreamEventType.TOOL_START:
+                tool_name = data.get("name", "tool")
+                if not json_output:
+                    self.console.print(f"[magenta]🔧 Calling {tool_name}...[/magenta]")
+                tool_calls.append({"name": tool_name, "args": data.get("args", {})})
+
+            elif event_type == StreamEventType.TOOL_END:
+                tool_name = data.get("name", "tool")
+                success = data.get("success", True)
+                if not json_output:
+                    icon = "✅" if success else "❌"
+                    self.console.print(f"[magenta]{icon} {tool_name} completed[/magenta]")
+
+            elif event_type == StreamEventType.TOKEN:
+                token = data.get("content", "")
+                if token:
+                    full_response += token
+                    if not json_output:
+                        self.console.print(token, end="")
+
+            elif event_type == StreamEventType.MESSAGE:
+                message = data.get("content", "")
+                if message and not full_response:
+                    full_response = message
+                    if not json_output:
+                        self.console.print(message)
+                elif message:
+                    full_response = message
+
+            elif event_type == StreamEventType.THINKING:
+                content = data.get("content", "")
+                if content:
+                    thinking_steps.append(content)
+                    if not json_output:
+                        self.console.print(f"[dim yellow]💭 {content[:80]}...[/dim yellow]")
+
+            elif event_type == StreamEventType.INTERRUPT:
+                if yolo:
+                    if not json_output:
+                        self.console.print("[yellow]⚠️ HITL auto-approved (yolo)[/yellow]")
+                    retry_response = await self._execute_with_yolo(query, thread_id)
+                    full_response = retry_response
+                else:
+                    tool_name = data.get("tool_name", "unknown")
+                    if not json_output:
+                        self.console.print(f"[yellow]⚠️ HITL required: {tool_name}[/yellow]")
+                        self.console.print("[red]❌ Rejected (use --yolo to auto-approve)[/red]")
+                    full_response = "❌ Operation cancelled - HITL required"
+                break
+
+        return full_response, tool_calls, thinking_steps
+
+    async def _execute_with_yolo(self, query: str, thread_id: str) -> str:
+        """Re-execute query with yolo mode after HITL approval."""
+        from olav.cli.thin_client import StreamEventType
+
+        full_response = ""
+        async for event in self.client.chat_stream(query, thread_id + "-approved", self.mode, yolo=True):
+            event_type = event.type if hasattr(event, "type") else None
+            data = event.data if hasattr(event, "data") else {}
+
+            if event_type == StreamEventType.TOKEN:
+                token = data.get("content", "")
+                full_response += token
+            elif event_type == StreamEventType.MESSAGE:
+                message = data.get("content", "")
+                if message:
+                    full_response = message
+
+        return full_response
 
     async def _show_status_inline(self) -> None:
         """Show system status inline in dashboard."""
@@ -1041,6 +1488,65 @@ class Dashboard:
 
         self.console.print()
         self.add_message("assistant", "✅ Status check complete")
+
+    async def _handle_hitl(self, data: dict, session) -> bool:
+        """Handle HITL interrupt in dashboard.
+
+        Args:
+            data: HITL event data containing tool_name, hitl_operation, etc.
+            session: PromptSession for user input
+
+        Returns:
+            True if approved, False if rejected
+        """
+        from rich.panel import Panel
+
+        # Extract HITL information
+        tool_name = data.get("tool_name", "unknown")
+        operation = data.get("hitl_operation", "configuration change")
+        parameters = data.get("hitl_parameters", {})
+        data.get("message", "")
+
+        # Display HITL prompt
+        self.console.print()
+        self.console.print(Panel(
+            "[bold yellow]⚠️  HITL Approval Required[/bold yellow]",
+            title="Human-in-the-Loop",
+            border_style="yellow",
+        ))
+
+        # Show operation details
+        self.console.print(f"\n[bold]Tool:[/bold] [cyan]{tool_name}[/cyan]")
+        self.console.print(f"[bold]Operation:[/bold] {operation}")
+
+        # Show device and command if available
+        device = parameters.get("device") or parameters.get("hostname", "unknown")
+        command = parameters.get("command", "")
+
+        self.console.print(f"[bold]Device:[/bold] [green]{device}[/green]")
+
+        if command:
+            self.console.print("\n[bold]Command to execute:[/bold]")
+            self.console.print(Panel(command, border_style="dim"))
+
+        self.console.print()
+        self.console.print("[bold]This operation will modify device configuration.[/bold]")
+        self.console.print()
+
+        # Prompt for approval using prompt_toolkit
+        try:
+            from prompt_toolkit.formatted_text import HTML
+            response = await session.prompt_async(
+                HTML("<yellow><b>Proceed? [y/N]: </b></yellow>"),
+            )
+            response = response.strip().lower()
+
+            approved = response in ("y", "yes")
+            self.add_message("user", f"HITL: {'approved' if approved else 'rejected'}")
+            return approved
+        except (EOFError, KeyboardInterrupt):
+            self.console.print("\n[yellow]Cancelled.[/yellow]")
+            return False
 
 
 def show_welcome_banner(console: Console | None = None) -> None:

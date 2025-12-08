@@ -1,8 +1,8 @@
 """Inspection Scheduler - Background daemon for periodic inspections.
 
-Provides scheduled execution of inspection profiles:
-- Daily/weekly scheduling via cron expressions
-- Interval-based execution for testing
+Provides scheduled execution using the unified inspection config:
+- Reads schedule from config/inspections/inspection.yaml
+- Supports cron expressions and timezone
 - Background daemon mode
 - Graceful shutdown handling
 
@@ -19,27 +19,26 @@ import logging
 import signal
 import sys
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
-from config.settings import InspectionConfig
+from config.settings import settings
 
 logger = logging.getLogger("olav.modes.inspection.scheduler")
 
 
 class InspectionScheduler:
-    """Schedule and run periodic inspections."""
+    """Schedule and run periodic inspections from unified config."""
 
     def __init__(self) -> None:
         self.running = False
         self._stop_event = asyncio.Event()
-        self._tasks: list[asyncio.Task] = []
+        self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
         """Start the scheduler daemon."""
-        if not InspectionConfig.ENABLED:
-            logger.warning("Inspection scheduler is disabled (InspectionConfig.ENABLED=False)")
-            logger.info("To enable, set InspectionConfig.ENABLED = True in config/settings.py")
+        if not settings.inspection_enabled:
+            logger.warning("Inspection scheduler is disabled (inspection_enabled=False)")
+            logger.info("To enable, set INSPECTION_ENABLED=true in .env")
             return
 
         self.running = True
@@ -68,161 +67,40 @@ class InspectionScheduler:
         """Stop the scheduler gracefully."""
         self._stop_event.set()
 
-        # Cancel any running tasks
-        for task in self._tasks:
-            if not task.done():
-                task.cancel()
-
-        if self._tasks:
-            await asyncio.gather(*self._tasks, return_exceptions=True)
+        if self._task and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
 
     async def _run_loop(self) -> None:
-        """Main scheduler loop."""
-        # 1. Load individual profile schedules
-        from config.settings import Paths
+        """Main scheduler loop - reads schedule from unified inspection.yaml."""
+        from olav.inspection import get_schedule_config
 
-        import yaml
+        schedule_config = get_schedule_config()
 
-        scheduled_tasks = []
-
-        if Paths.INSPECTIONS_DIR.exists():
-            for yaml_file in Paths.INSPECTIONS_DIR.glob("*.yaml"):
-                try:
-                    content = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
-                    schedule = content.get("schedule")
-                    profile_name = yaml_file.stem
-
-                    if schedule:
-                        logger.info(f"Scheduling profile '{profile_name}' with schedule: {schedule}")
-                        task = asyncio.create_task(
-                            self._run_profile_schedule(profile_name, schedule)
-                        )
-                        self._tasks.append(task)
-                        scheduled_tasks.append(profile_name)
-                except Exception as e:
-                    logger.error(f"Failed to load schedule for {yaml_file}: {e}")
-
-        if scheduled_tasks:
-            logger.info(f"Started {len(scheduled_tasks)} individual inspection schedules")
-            # Wait for all tasks (or stop signal)
-            await asyncio.gather(*self._tasks, return_exceptions=True)
+        if not schedule_config:
+            logger.warning("No schedule configuration found in inspection.yaml")
+            logger.info("Add 'schedule' section to config/inspections/inspection.yaml")
             return
 
-        # 2. Fallback to global config if no individual schedules found
-        logger.info("No individual profile schedules found, falling back to global config")
+        if not schedule_config.get("enabled", False):
+            logger.info("Schedule is disabled in inspection.yaml (enabled: false)")
+            return
 
-        # Determine schedule type
-        if InspectionConfig.SCHEDULE_INTERVAL_MINUTES:
-            # Interval-based (for testing)
-            interval = InspectionConfig.SCHEDULE_INTERVAL_MINUTES * 60
-            logger.info(
-                f"Running inspections every {InspectionConfig.SCHEDULE_INTERVAL_MINUTES} minutes"
-            )
-            await self._run_interval_loop(interval)
-        elif InspectionConfig.SCHEDULE_CRON:
-            # Cron-based
-            logger.info(f"Running inspections on cron schedule: {InspectionConfig.SCHEDULE_CRON}")
-            await self._run_cron_loop()
+        cron_expr = schedule_config.get("cron")
+        timezone = schedule_config.get("timezone", "UTC")
+
+        if cron_expr:
+            logger.info(f"Running inspections on schedule: {cron_expr} ({timezone})")
+            await self._run_cron_loop(cron_expr, timezone)
         else:
-            # Daily at specific time
-            logger.info(f"Running inspections daily at {InspectionConfig.SCHEDULE_TIME}")
-            await self._run_daily_loop()
+            # Default to daily at 6 AM if no cron specified
+            logger.info("No cron expression found, defaulting to daily at 06:00")
+            await self._run_cron_loop("0 6 * * *", timezone)
 
-    async def _run_profile_schedule(self, profile_name: str, schedule: str) -> None:
-        """Run a specific profile on its own schedule."""
-        # Check if it's a simple alias like "daily" or "hourly"
-        if schedule.lower() == "daily":
-            schedule = "0 9 * * *"  # Default to 9 AM
-        elif schedule.lower() == "hourly":
-            schedule = "0 * * * *"
-
-        try:
-            from croniter import croniter
-        except ImportError:
-            logger.error("croniter package not installed. Install with: uv add croniter")
-            return
-
-        try:
-            cron = croniter(schedule)
-        except Exception as e:
-            logger.error(f"Invalid cron expression for {profile_name}: {schedule} ({e})")
-            return
-
-        logger.info(f"Started scheduler for {profile_name} ({schedule})")
-
-        while not self._stop_event.is_set():
-            # Get next run time
-            next_run = cron.get_next(datetime)
-            now = datetime.now()
-            wait_seconds = (next_run - now).total_seconds()
-
-            if wait_seconds > 0:
-                try:
-                    await asyncio.wait_for(
-                        self._stop_event.wait(),
-                        timeout=wait_seconds,
-                    )
-                    break  # Stop event was set
-                except TimeoutError:
-                    pass  # Time to run
-
-            # Run inspection
-            await self._execute_inspection(profile_name)
-
-    async def _run_interval_loop(self, interval_seconds: int) -> None:
-        """Run inspections at fixed intervals."""
-        while not self._stop_event.is_set():
-            # Run inspection
-            await self._execute_inspection()
-
-            # Wait for next interval or stop signal
-            try:
-                await asyncio.wait_for(
-                    self._stop_event.wait(),
-                    timeout=interval_seconds,
-                )
-                break  # Stop event was set
-            except TimeoutError:
-                pass  # Continue to next iteration
-
-    async def _run_daily_loop(self) -> None:
-        """Run inspections daily at configured time."""
-        while not self._stop_event.is_set():
-            # Parse schedule time
-            try:
-                hour, minute = map(int, InspectionConfig.SCHEDULE_TIME.split(":"))
-            except ValueError:
-                logger.error(f"Invalid SCHEDULE_TIME format: {InspectionConfig.SCHEDULE_TIME}")
-                hour, minute = 9, 0
-
-            # Calculate next run time
-            now = datetime.now()
-            next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-
-            if next_run <= now:
-                # Already passed today, schedule for tomorrow
-                next_run = next_run.replace(day=now.day + 1)
-
-            wait_seconds = (next_run - now).total_seconds()
-            logger.info(
-                f"Next inspection scheduled at {next_run.strftime('%Y-%m-%d %H:%M:%S')} "
-                f"({wait_seconds / 3600:.1f} hours)"
-            )
-
-            # Wait until scheduled time or stop signal
-            try:
-                await asyncio.wait_for(
-                    self._stop_event.wait(),
-                    timeout=wait_seconds,
-                )
-                break  # Stop event was set
-            except TimeoutError:
-                pass  # Time to run
-
-            # Run inspection
-            await self._execute_inspection()
-
-    async def _run_cron_loop(self) -> None:
+    async def _run_cron_loop(self, cron_expr: str, timezone: str = "UTC") -> None:
         """Run inspections based on cron expression."""
         try:
             from croniter import croniter
@@ -230,7 +108,24 @@ class InspectionScheduler:
             logger.error("croniter package not installed. Install with: uv add croniter")
             return
 
-        cron = croniter(InspectionConfig.SCHEDULE_CRON)
+        try:
+            import pytz
+
+            tz = pytz.timezone(timezone)
+        except ImportError:
+            logger.warning("pytz not installed, using local time")
+            tz = None
+        except Exception as e:
+            logger.warning(f"Invalid timezone {timezone}, using local: {e}")
+            tz = None
+
+        try:
+            cron = croniter(cron_expr)
+        except Exception as e:
+            logger.error(f"Invalid cron expression: {cron_expr} ({e})")
+            return
+
+        logger.info(f"Scheduler started with cron: {cron_expr}")
 
         while not self._stop_event.is_set():
             # Get next run time
@@ -239,7 +134,10 @@ class InspectionScheduler:
             wait_seconds = (next_run - now).total_seconds()
 
             if wait_seconds > 0:
-                logger.info(f"Next inspection at {next_run.strftime('%Y-%m-%d %H:%M:%S')}")
+                logger.info(
+                    f"Next inspection at {next_run.strftime('%Y-%m-%d %H:%M:%S')} "
+                    f"({wait_seconds / 3600:.1f} hours)"
+                )
                 try:
                     await asyncio.wait_for(
                         self._stop_event.wait(),
@@ -252,30 +150,30 @@ class InspectionScheduler:
             # Run inspection
             await self._execute_inspection()
 
-    async def _execute_inspection(self, profile_name: str | None = None) -> dict[str, Any]:
-        """Execute the configured inspection profile."""
-        from olav.modes.inspection import run_inspection
+    async def _execute_inspection(self) -> dict[str, Any]:
+        """Execute the unified inspection."""
+        from olav.inspection import execute_inspection
 
-        profile = profile_name or InspectionConfig.DEFAULT_PROFILE
-        config_path = Path("config/inspections") / f"{profile}.yaml"
-        logger.info(f"Starting scheduled inspection: {profile}")
+        logger.info("Starting scheduled inspection")
 
         try:
-            result = await run_inspection(config_path=config_path, save_report=True)
+            report = await execute_inspection(save_report=True)
 
-            # Convert InspectionResult to dict for backward compatibility
-            passed = result.checks_passed
-            total = result.total_checks
-            critical_count = len(result.critical_violations)
+            passed = report.passed_count
+            total = report.total_checks
+            critical_count = len([
+                c for stage in report.stages
+                for c in stage.get("checks", [])
+                if c.get("severity") == "critical" and c.get("status") == "failed"
+            ])
 
             logger.info(
                 f"Inspection completed: {passed}/{total} passed, critical: {critical_count}"
             )
 
             # Check for critical failures
-            if critical_count > 0 and InspectionConfig.NOTIFY_ON_FAILURE:
+            if critical_count > 0 and settings.inspection_notify_on_failure:
                 await self._send_notification({
-                    "profile": profile,
                     "critical": critical_count,
                     "passed": passed,
                     "total_checks": total,
@@ -286,7 +184,6 @@ class InspectionScheduler:
                 "passed": passed,
                 "total_checks": total,
                 "critical": critical_count,
-                "profile": profile,
             }
 
         except Exception as e:
@@ -295,7 +192,7 @@ class InspectionScheduler:
 
     async def _send_notification(self, result: dict[str, Any]) -> None:
         """Send notification for critical failures."""
-        if not InspectionConfig.NOTIFY_WEBHOOK_URL:
+        if not settings.inspection_notify_webhook_url:
             return
 
         try:
@@ -305,7 +202,7 @@ class InspectionScheduler:
                 "text": f"🚨 OLAV Inspection Alert: {result.get('critical')} critical issues found",
                 "attachments": [
                     {
-                        "title": f"Profile: {result.get('profile')}",
+                        "title": "Daily Network Inspection",
                         "text": f"Passed: {result.get('passed')}/{result.get('total_checks')}",
                         "color": "danger",
                     }
@@ -315,7 +212,7 @@ class InspectionScheduler:
             async with (
                 aiohttp.ClientSession() as session,
                 session.post(
-                    InspectionConfig.NOTIFY_WEBHOOK_URL,
+                    settings.inspection_notify_webhook_url,
                     json=payload,
                 ) as resp,
             ):

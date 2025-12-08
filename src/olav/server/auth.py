@@ -1,34 +1,70 @@
 """OLAV API Server Authentication.
 
-Single-token authentication mode:
-- Token auto-generated on server startup (printed to console)
+Single-token authentication mode with session support:
+- Master token auto-generated on server startup (printed to console)
+- Clients can create session tokens for individual tracking
 - Token passed via URL query param or Authorization header
-- All authenticated users treated as admin role
+- Role-based access control: admin, operator, viewer
 
 This is a simplified auth model optimized for:
 - Quick development iteration
 - Single-user/team deployments
 - Docker/container environments
+- Multi-client tracking
+
+Roles:
+- admin: Full access, can skip HITL approval
+- operator: Read-write with HITL confirmation for write operations
+- viewer: Read-only, cannot trigger write workflows
 """
 
+import logging
 import os
 import secrets
+import uuid
 from datetime import UTC, datetime, timedelta
+from enum import Enum
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from olav.core.settings import settings
+from config.settings import settings
+
+logger = logging.getLogger(__name__)
+
 
 # ============================================
-# Single Access Token
+# User Roles
+# ============================================
+class UserRole(str, Enum):
+    """User permission roles.
+
+    - ADMIN: Full access, can skip HITL approval
+    - OPERATOR: Read-write with HITL confirmation for write operations
+    - VIEWER: Read-only, cannot trigger write workflows (DeviceExecution, NetBoxManagement, DeepDive)
+    """
+    ADMIN = "admin"
+    OPERATOR = "operator"
+    VIEWER = "viewer"
+
+
+# ============================================
+# Single Access Token (Master Token)
 # ============================================
 # Token can be set via environment (multi-worker) or auto-generated (single-worker)
 _access_token: str | None = os.environ.get("OLAV_API_TOKEN")
 _token_created_at: datetime | None = datetime.now(UTC) if _access_token else None
 _token_from_env: bool = _access_token is not None
+
+
+# ============================================
+# Session Token Storage
+# ============================================
+# In-memory session store: token -> SessionToken
+# TODO: For production, consider Redis or PostgreSQL for persistence
+_session_store: dict[str, "SessionToken"] = {}
 
 
 def generate_access_token() -> str:
@@ -37,7 +73,7 @@ def generate_access_token() -> str:
     If OLAV_API_TOKEN is set in environment, returns that (for multi-worker mode).
     Otherwise generates a new token (for single-worker mode).
     """
-    global _access_token, _token_created_at, _token_from_env
+    global _access_token, _token_created_at
 
     # If token already set from environment, return it
     if _token_from_env and _access_token:
@@ -79,12 +115,103 @@ def validate_token(token: str) -> tuple[bool, dict | None]:
 
     # Check token expiration
     if _token_created_at:
-        max_age = timedelta(hours=getattr(settings, 'token_max_age_hours', 24))
+        max_age = timedelta(hours=getattr(settings, "token_max_age_hours", 24))
         if datetime.now(UTC) - _token_created_at > max_age:
             return (False, None)
 
-    # All authenticated users are admin in single-token mode
-    return (True, {"username": "admin", "role": "admin", "disabled": False})
+    # Master token holders are always admin
+    return (True, {"username": "admin", "role": UserRole.ADMIN.value, "disabled": False})
+
+
+# ============================================
+# Session Token Management
+# ============================================
+def create_session(
+    client_name: str,
+    role: UserRole = UserRole.OPERATOR,
+    hours_valid: int | None = None,
+) -> "SessionToken":
+    """Create a new session token for a client.
+
+    Args:
+        client_name: Human-readable client identifier
+        role: User role (admin, operator, viewer). Default is operator.
+        hours_valid: Token validity in hours (default from settings.session_token_max_age_hours)
+
+    Returns:
+        New SessionToken instance
+    """
+    from olav.server.auth import SessionToken  # Local import to avoid circular
+
+    # Use settings value if not explicitly provided
+    if hours_valid is None:
+        hours_valid = getattr(settings, "session_token_max_age_hours", 168)
+
+    session = SessionToken(
+        token=secrets.token_urlsafe(32),
+        client_id=str(uuid.uuid4()),
+        client_name=client_name,
+        role=role,
+        created_at=datetime.now(UTC),
+        expires_at=datetime.now(UTC) + timedelta(hours=hours_valid),
+    )
+
+    # Store session
+    _session_store[session.token] = session
+    logger.info(f"Created session for client '{client_name}' (id: {session.client_id})")
+
+    return session
+
+
+def validate_session(token: str) -> tuple[bool, "SessionToken | None"]:
+    """Validate a session token.
+
+    Returns:
+        Tuple of (is_valid, SessionToken or None)
+    """
+    session = _session_store.get(token)
+
+    if session is None:
+        return (False, None)
+
+    if session.is_expired:
+        # Clean up expired session
+        del _session_store[token]
+        logger.info(f"Session expired for client '{session.client_name}'")
+        return (False, None)
+
+    return (True, session)
+
+
+def get_active_sessions() -> list["SessionToken"]:
+    """Get all active (non-expired) sessions.
+
+    Also cleans up expired sessions.
+    """
+    now = datetime.now(UTC)
+    expired_tokens = [
+        token for token, session in _session_store.items()
+        if session.expires_at < now
+    ]
+
+    # Clean up expired
+    for token in expired_tokens:
+        del _session_store[token]
+
+    return list(_session_store.values())
+
+
+def revoke_session(token: str) -> bool:
+    """Revoke a session token.
+
+    Returns:
+        True if session was found and revoked, False otherwise
+    """
+    if token in _session_store:
+        session = _session_store.pop(token)
+        logger.info(f"Revoked session for client '{session.client_name}'")
+        return True
+    return False
 
 
 # ============================================
@@ -136,12 +263,55 @@ class User(BaseModel):
     username: str
     role: str
     disabled: bool = False
+    client_id: str | None = None  # Session client ID if using session auth
 
 
 class Token(BaseModel):
     """Token response model."""
     access_token: str
     token_type: str = "bearer"
+
+
+class SessionToken(BaseModel):
+    """Session token for multi-client tracking.
+
+    Each client registers with a unique client_name and receives
+    a session token for subsequent API calls.
+    """
+    token: str = Field(description="Unique session token")
+    client_id: str = Field(description="Auto-generated unique client identifier")
+    client_name: str = Field(description="Human-readable client name (e.g., 'alice-laptop')")
+    role: UserRole = Field(default=UserRole.OPERATOR, description="User role (admin, operator, viewer)")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    expires_at: datetime = Field(description="Token expiration time")
+
+    @property
+    def is_expired(self) -> bool:
+        """Check if this session token has expired."""
+        return datetime.now(UTC) > self.expires_at
+
+
+class RegisterRequest(BaseModel):
+    """Request model for client registration."""
+    client_name: str = Field(
+        min_length=1,
+        max_length=64,
+        description="Human-readable client name (e.g., 'alice-laptop', 'ci-runner-1')"
+    )
+    master_token: str = Field(description="Master token for authentication")
+    role: UserRole = Field(
+        default=UserRole.OPERATOR,
+        description="User role: admin (full access), operator (read-write with HITL), viewer (read-only)"
+    )
+
+
+class RegisterResponse(BaseModel):
+    """Response model for client registration."""
+    session_token: str = Field(description="Session token to use for API calls")
+    client_id: str = Field(description="Unique client identifier")
+    client_name: str = Field(description="Client name as registered")
+    role: UserRole = Field(description="Assigned user role")
+    expires_at: datetime = Field(description="Token expiration time")
 
 
 # ============================================
@@ -153,11 +323,15 @@ async def get_current_user(
 ) -> User:
     """Validate token and return user.
 
+    Supports both master token and session token authentication:
+    - Master token: Returns admin user (full access)
+    - Session token: Returns user with role from session (admin/operator/viewer)
+
     If AUTH_DISABLED=true in environment, returns admin user without validation.
     """
     # Check if auth is disabled
     if _is_auth_disabled():
-        return User(username="admin", role="admin", disabled=False)
+        return User(username="admin", role=UserRole.ADMIN.value, disabled=False)
 
     # Require credentials if auth is enabled
     if credentials is None:
@@ -169,6 +343,17 @@ async def get_current_user(
 
     token = credentials.credentials
 
+    # First, try session token validation
+    is_session_valid, session = validate_session(token)
+    if is_session_valid and session:
+        return User(
+            username=session.client_name,
+            role=session.role.value,  # Use role from session
+            disabled=False,
+            client_id=session.client_id,
+        )
+
+    # Fall back to master token validation
     is_valid, user_data = validate_token(token)
     if not is_valid or user_data is None:
         raise HTTPException(
@@ -182,3 +367,59 @@ async def get_current_user(
 
 # Convenience type alias
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+# ============================================
+# Permission Helpers
+# ============================================
+def can_access_workflow(role: str, workflow_type: str) -> bool:
+    """Check if a role can access a specific workflow type.
+
+    Permission Matrix:
+    - QUERY_DIAGNOSTIC: All roles (read-only)
+    - DEVICE_EXECUTION: admin, operator only (write operation)
+    - NETBOX_MANAGEMENT: admin, operator only (write operation)
+    - DEEP_DIVE: admin, operator only (may include write operations)
+    - INSPECTION: All roles (read-only analysis)
+
+    Args:
+        role: User role string (admin, operator, viewer)
+        workflow_type: Workflow type name (QUERY_DIAGNOSTIC, DEVICE_EXECUTION, etc.)
+
+    Returns:
+        True if user can access the workflow
+    """
+    # Read-only workflows accessible by all
+    read_only_workflows = {"QUERY_DIAGNOSTIC", "INSPECTION"}
+
+    if workflow_type in read_only_workflows:
+        return True
+
+    # Write workflows require operator or admin
+    if role in (UserRole.ADMIN.value, UserRole.OPERATOR.value):
+        return True
+
+    return False
+
+
+def get_permission_error_message(role: str, workflow_type: str) -> str:
+    """Get user-friendly permission denied message.
+
+    Args:
+        role: User role
+        workflow_type: Blocked workflow type
+
+    Returns:
+        Error message explaining the permission issue
+    """
+    workflow_names = {
+        "DEVICE_EXECUTION": "device configuration changes",
+        "NETBOX_MANAGEMENT": "NetBox management operations",
+        "DEEP_DIVE": "expert mode analysis",
+    }
+    action = workflow_names.get(workflow_type, workflow_type.lower())
+    return (
+        f"⚠️ Permission denied: Your role ({role}) cannot perform {action}. "
+        "This action requires 'operator' or 'admin' role. "
+        "Please contact an administrator for elevated permissions."
+    )

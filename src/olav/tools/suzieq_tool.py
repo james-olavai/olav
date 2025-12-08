@@ -133,18 +133,23 @@ class SuzieQTool:
 
         if coalesced_dir.exists():
             # Check if coalesced data is fresh enough
+            # NOTE: max_age_hours=0 means "use all historical data", skip file age check
             import time as time_module
             coalesced_files = list(coalesced_dir.rglob("*.parquet"))
             if coalesced_files:
-                current_time = time_module.time()
-                newest_mtime = max(f.stat().st_mtime for f in coalesced_files)
-                age_hours = (current_time - newest_mtime) / 3600
-
-                if age_hours <= max_age_hours:
+                if max_age_hours == 0:
+                    # Use all data, no freshness check needed
                     table_dir = coalesced_dir
                 else:
-                    use_raw_fallback = True
-                    logger.info(f"Coalesced data is {age_hours:.1f}h old, checking raw data...")
+                    current_time = time_module.time()
+                    newest_mtime = max(f.stat().st_mtime for f in coalesced_files)
+                    age_hours = (current_time - newest_mtime) / 3600
+
+                    if age_hours <= max_age_hours:
+                        table_dir = coalesced_dir
+                    else:
+                        use_raw_fallback = True
+                        logger.info(f"Coalesced data is {age_hours:.1f}h old, checking raw data...")
 
         if table_dir is None and raw_dir.exists():
             table_dir = raw_dir
@@ -425,14 +430,14 @@ class SuzieQSchemaSearchTool:
 
 def create_suzieq_query_tool():
     """Create a LangChain-compatible SuzieQ query tool.
-    
+
     Returns:
         LangChain tool for SuzieQ queries.
     """
     from langchain_core.tools import tool
-    
+
     tool_instance = SuzieQTool()
-    
+
     @tool
     async def suzieq_query(
         table: str,
@@ -442,17 +447,17 @@ def create_suzieq_query_tool():
         max_age_hours: int = 24,
     ) -> dict:
         """Query SuzieQ historical network data from Parquet files.
-        
+
         Use this tool to access network device state collected by SuzieQ.
         Schema is discovered dynamically - use suzieq_schema_search first.
-        
+
         Args:
             table: Table name (e.g., 'bgp', 'interfaces', 'routes')
             method: Query method - 'get' for raw data, 'summarize' for aggregation
             hostname: Filter by specific device hostname
             namespace: Filter by namespace
             max_age_hours: Maximum data age in hours (default 24)
-        
+
         Returns:
             Query results from SuzieQ Parquet data.
         """
@@ -464,37 +469,37 @@ def create_suzieq_query_tool():
             max_age_hours=max_age_hours,
         )
         return result.model_dump()
-    
+
     return suzieq_query
 
 
 def create_suzieq_schema_tool():
     """Create a LangChain-compatible SuzieQ schema search tool.
-    
+
     Returns:
         LangChain tool for schema search.
     """
     from langchain_core.tools import tool
-    
+
     tool_instance = SuzieQSchemaSearchTool()
-    
+
     @tool
     async def suzieq_schema_search(query: str) -> dict:
         """Search SuzieQ schema to discover available tables and fields.
-        
+
         Use this tool BEFORE suzieq_query to find out what tables exist
         and what fields they contain.
-        
+
         Args:
             query: Natural language query describing what data you need
                    (e.g., "BGP information", "interface status", "routing table")
-        
+
         Returns:
             Matching tables with their fields and descriptions.
         """
         result = await tool_instance.execute(query=query)
         return result.model_dump()
-    
+
     return suzieq_schema_search
 
 

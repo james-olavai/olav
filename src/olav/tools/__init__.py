@@ -5,7 +5,6 @@ This module provides both:
 2. BaseTool classes that register with ToolRegistry (for Strategies)
 
 Tool Organization:
-- datetime_tool: Time utilities
 - netbox_tool: NetBox API integration (NetBoxAPITool class)
 - nornir_tool: NETCONF/CLI execution (NetconfTool, CLITool)
 - opensearch_tool: Schema and document search
@@ -34,13 +33,15 @@ Usage:
 
 # Import all tool modules to trigger ToolRegistry.register() side effects
 from olav.tools import (
-    datetime_tool,
     netbox_tool,
     nornir_tool,
     opensearch_tool,
     suzieq_tool,
 )
 from olav.tools.base import BaseTool, ToolRegistry
+
+# Re-export Knowledge Base tools (Agentic RAG)
+from olav.tools.kb_tools import kb_index_report, kb_search
 
 # Re-export commonly used classes
 from olav.tools.netbox_tool import NetBoxAPITool
@@ -52,9 +53,6 @@ from olav.tools.suzieq_analyzer_tool import (
     suzieq_topology_analyze,
 )
 
-# Re-export Knowledge Base tools (Agentic RAG)
-from olav.tools.kb_tools import kb_index_report, kb_search
-
 # Note: The following are @tool functions (not BaseTool classes):
 # - suzieq_parquet_tool: suzieq_query, suzieq_schema_search
 # - indexing_tool: index_document, index_directory, search_indexed_documents
@@ -65,17 +63,16 @@ __all__ = [
     # Classes
     "NetBoxAPITool",
     "ToolRegistry",
-    # Quick Analyzer tools
-    "suzieq_path_trace",
-    "suzieq_health_check",
-    "suzieq_topology_analyze",
+    # Modules
+    "kb_index_report",
     # Knowledge Base tools (Agentic RAG)
     "kb_search",
-    "kb_index_report",
-    # Modules
-    "datetime_tool",
     "netbox_tool",
     "nornir_tool",
     "opensearch_tool",
+    "suzieq_health_check",
+    # Quick Analyzer tools
+    "suzieq_path_trace",
     "suzieq_tool",
+    "suzieq_topology_analyze",
 ]

@@ -305,7 +305,7 @@ def get_layer_problem_indicators(layer: str) -> list[str]:
 def get_deep_dive_trigger_patterns() -> list[str]:
     """Get patterns that trigger Deep Dive workflow."""
     config = _load_deep_dive_config()
-    return config.get("trigger_patterns", ["deep dive", "troubleshoot", "排查"])
+    return config.get("trigger_patterns", ["deep dive", "troubleshoot", "diagnose"])
 
 
 def get_recursion_limits() -> dict[str, int]:

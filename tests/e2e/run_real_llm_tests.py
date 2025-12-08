@@ -40,15 +40,15 @@ TEST_QUERIES = [
     # Batch queries
     ("查询所有设备的接口状态", "suzieq_query", "batch_interfaces"),
     ("summarize BGP for all routers", "suzieq_query", "batch_bgp_summary"),
-    
+
     # Single device queries
     ("查询 R1 的 BGP 状态", "suzieq_query", "single_bgp"),
     ("show interfaces on R1", "suzieq_query", "single_interfaces"),
-    
+
     # NetBox queries
     ("列出 NetBox 中所有设备", "netbox_api_call", "netbox_list"),
     ("查询 R1 在 NetBox 中的信息", "netbox_api_call", "netbox_detail"),
-    
+
     # Schema discovery
     ("有哪些 SuzieQ 表可用？", "suzieq_schema_search", "schema_tables"),
 ]
@@ -62,16 +62,16 @@ async def run_single_test(
     """Run a single test and return result."""
     from olav.modes.standard import run_standard_mode
     from olav.tools.base import ToolRegistry
-    
+
     registry = ToolRegistry()
-    
-    logger.info(f"=" * 60)
+
+    logger.info("=" * 60)
     logger.info(f"Test: {test_name}")
     logger.info(f"Query: {query}")
     logger.info(f"Expected tool: {expected_tool}")
-    
+
     start = time.perf_counter()
-    
+
     try:
         result = await run_standard_mode(
             query=query,
@@ -79,7 +79,7 @@ async def run_single_test(
             yolo_mode=True,
         )
         elapsed_ms = (time.perf_counter() - start) * 1000
-        
+
         test_result = {
             "test_name": test_name,
             "query": query,
@@ -93,7 +93,7 @@ async def run_single_test(
             "error": result.error,
             "answer_preview": (result.answer[:200] + "...") if result.answer and len(result.answer) > 200 else result.answer,
         }
-        
+
     except Exception as e:
         elapsed_ms = (time.perf_counter() - start) * 1000
         test_result = {
@@ -104,7 +104,7 @@ async def run_single_test(
             "success": False,
             "error": str(e),
         }
-    
+
     # Log result
     logger.info(f"Elapsed: {test_result['elapsed_ms']:.0f} ms")
     logger.info(f"Success: {test_result.get('success')}")
@@ -114,7 +114,7 @@ async def run_single_test(
         logger.error(f"Error: {test_result.get('error')}")
     if test_result.get("answer_preview"):
         logger.info(f"Answer: {test_result.get('answer_preview')}")
-    
+
     return test_result
 
 
@@ -123,9 +123,9 @@ async def main():
     logger.info("=" * 80)
     logger.info(f"REAL LLM E2E TEST SESSION - {datetime.now().isoformat()}")
     logger.info("=" * 80)
-    
+
     results = []
-    
+
     for query, expected_tool, test_name in TEST_QUERIES:
         try:
             result = await run_single_test(query, expected_tool, test_name)
@@ -140,21 +140,21 @@ async def main():
                 "error": str(e),
                 "success": False,
             })
-    
+
     # Generate summary
     logger.info("=" * 80)
     logger.info("TEST SUMMARY")
     logger.info("=" * 80)
-    
+
     total = len(results)
     successful = sum(1 for r in results if r.get("success"))
     escalated = sum(1 for r in results if r.get("escalated"))
-    
+
     elapsed_times = [r.get("elapsed_ms", 0) for r in results if r.get("elapsed_ms")]
     avg_latency = sum(elapsed_times) / len(elapsed_times) if elapsed_times else 0
     max_latency = max(elapsed_times) if elapsed_times else 0
     min_latency = min(elapsed_times) if elapsed_times else 0
-    
+
     summary = {
         "timestamp": datetime.now().isoformat(),
         "total_tests": total,
@@ -165,12 +165,12 @@ async def main():
         "min_latency_ms": round(min_latency, 0),
         "max_latency_ms": round(max_latency, 0),
     }
-    
+
     logger.info(f"Total Tests: {total}")
     logger.info(f"Successful: {successful} ({summary['success_rate']})")
     logger.info(f"Escalated: {escalated}")
     logger.info(f"Latency (avg/min/max): {avg_latency:.0f} / {min_latency:.0f} / {max_latency:.0f} ms")
-    
+
     # Save results to JSON
     json_file = LOG_DIR / "real_llm_test_results.json"
     with open(json_file, "w", encoding="utf-8") as f:
@@ -178,10 +178,10 @@ async def main():
             "summary": summary,
             "results": results,
         }, f, indent=2, ensure_ascii=False)
-    
+
     logger.info(f"Results saved to: {json_file}")
     logger.info("=" * 80)
-    
+
     return summary
 
 

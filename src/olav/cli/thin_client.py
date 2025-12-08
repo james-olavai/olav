@@ -18,10 +18,11 @@ import logging
 import os
 import sys
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 import httpx
 from pydantic import BaseModel
@@ -51,13 +52,8 @@ class StreamEventType(str, Enum):
     TOOL_START = "tool_start"    # Tool invocation started
     TOOL_END = "tool_end"        # Tool invocation completed
 
-    # Legacy aliases for backward compatibility
-    TOOL_CALL = "tool_start"     # Alias
-    TOOL_RESULT = "tool_end"     # Alias
-
     # Control events
     INTERRUPT = "interrupt"      # HITL approval required
-    HITL_INTERRUPT = "interrupt" # Alias for backward compatibility
     ERROR = "error"              # Error occurred
     DONE = "done"                # Stream completed
 
@@ -142,7 +138,7 @@ class ClientConfig:
     connect_timeout: float = 5.0
 
     @classmethod
-    def from_env(cls) -> "ClientConfig":
+    def from_env(cls) -> ClientConfig:
         """Load config from environment variables."""
         return cls(
             server_url=os.getenv("OLAV_SERVER_URL", "http://localhost:8000"),
@@ -150,7 +146,7 @@ class ClientConfig:
         )
 
     @classmethod
-    def from_file(cls, path: Path | None = None) -> "ClientConfig":
+    def from_file(cls, path: Path | None = None) -> ClientConfig:
         """Load config from TOML file."""
         if path is None:
             path = Path.home() / ".olav" / "config.toml"
@@ -179,7 +175,7 @@ class ClientConfig:
 class SSEParser:
     """Parse Server-Sent Events from HTTP stream."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.buffer = ""
 
     def parse_line(self, line: str) -> StreamEvent | None:
@@ -244,7 +240,7 @@ class OlavThinClient:
         self,
         config: ClientConfig | None = None,
         auth_token: str | None = None,
-    ):
+    ) -> None:
         """Initialize thin client.
 
         Args:
@@ -263,7 +259,7 @@ class OlavThinClient:
             headers["Authorization"] = f"Bearer {self.auth_token}"
         return headers
 
-    async def __aenter__(self) -> "OlavThinClient":
+    async def __aenter__(self) -> OlavThinClient:
         """Async context manager entry."""
         self._client = httpx.AsyncClient(
             base_url=self.config.server_url,
@@ -290,11 +286,46 @@ class OlavThinClient:
     async def health(self) -> HealthStatus:
         """Check server health."""
         if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context.")
+            msg = "Client not initialized. Use 'async with' context."
+            raise RuntimeError(msg)
 
         response = await self._client.get("/health")
         response.raise_for_status()
         return HealthStatus(**response.json())
+
+    # ------------------------------------------
+    # Registration & Authentication
+    # ------------------------------------------
+    async def register(
+        self,
+        client_name: str,
+        master_token: str,
+    ) -> dict[str, Any]:
+        """Register this client and get a session token.
+
+        Args:
+            client_name: Human-readable client name (e.g., 'alice-laptop')
+            master_token: Server master token for authentication
+
+        Returns:
+            Dict with session_token, client_id, client_name, expires_at
+
+        Raises:
+            httpx.HTTPStatusError: If registration fails
+        """
+        if not self._client:
+            msg = "Client not initialized. Use 'async with' context."
+            raise RuntimeError(msg)
+
+        payload = {
+            "client_name": client_name,
+            "master_token": master_token,
+        }
+
+        response = await self._client.post("/auth/register", json=payload)
+        response.raise_for_status()
+
+        return response.json()
 
     # ------------------------------------------
     # Chat / Query
@@ -316,7 +347,8 @@ class OlavThinClient:
             ExecutionResult with response
         """
         if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context.")
+            msg = "Client not initialized. Use 'async with' context."
+            raise RuntimeError(msg)
 
         payload = {
             "input": {
@@ -356,6 +388,7 @@ class OlavThinClient:
         message: str,
         thread_id: str,
         mode: str = "standard",
+        yolo: bool = False,
     ) -> AsyncIterator[StreamEvent]:
         """Execute a chat query with streaming response.
 
@@ -365,6 +398,7 @@ class OlavThinClient:
             message: User message
             thread_id: Conversation thread ID
             mode: Query mode
+            yolo: Skip HITL approval prompts (auto-approve write operations)
 
         Yields:
             StreamEvent objects as they arrive
@@ -379,7 +413,8 @@ class OlavThinClient:
             - done: {}
         """
         if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context.")
+            msg = "Client not initialized. Use 'async with' context."
+            raise RuntimeError(msg)
 
         payload = {
             "input": {
@@ -389,6 +424,7 @@ class OlavThinClient:
                 "configurable": {
                     "thread_id": thread_id,
                     "mode": mode,
+                    "yolo": yolo,
                 }
             },
         }
@@ -452,7 +488,8 @@ class OlavThinClient:
             ExecutionResult with resumed workflow result
         """
         if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context.")
+            msg = "Client not initialized. Use 'async with' context."
+            raise RuntimeError(msg)
 
         payload = {
             "thread_id": thread_id,
@@ -481,11 +518,14 @@ class OlavThinClient:
     async def list_inspection_profiles(self) -> list[dict]:
         """List available inspection profiles."""
         if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context.")
+            msg = "Client not initialized. Use 'async with' context."
+            raise RuntimeError(msg)
 
-        response = await self._client.get("/inspection/profiles")
+        response = await self._client.get("/inspections")
         response.raise_for_status()
-        return response.json().get("profiles", [])
+        data = response.json()
+        # API returns {"inspections": [...], "total": N}
+        return data.get("inspections", data.get("profiles", []))
 
     async def run_inspection(
         self,
@@ -502,14 +542,15 @@ class OlavThinClient:
             StreamEvent objects for progress updates
         """
         if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context.")
+            msg = "Client not initialized. Use 'async with' context."
+            raise RuntimeError(msg)
 
         payload = {"profile": profile, "scope": scope}
         parser = SSEParser()
 
         async with self._client.stream(
             "POST",
-            "/inspection/run",
+            f"/inspections/{profile}/run",
             json=payload,
         ) as response:
             response.raise_for_status()
@@ -522,9 +563,10 @@ class OlavThinClient:
     async def get_inspection_report(self, report_id: str) -> dict:
         """Get inspection report by ID."""
         if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context.")
+            msg = "Client not initialized. Use 'async with' context."
+            raise RuntimeError(msg)
 
-        response = await self._client.get(f"/inspection/reports/{report_id}")
+        response = await self._client.get(f"/reports/{report_id}")
         response.raise_for_status()
         return response.json()
 
@@ -534,7 +576,8 @@ class OlavThinClient:
     async def list_documents(self) -> list[dict]:
         """List indexed documents."""
         if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context.")
+            msg = "Client not initialized. Use 'async with' context."
+            raise RuntimeError(msg)
 
         response = await self._client.get("/documents")
         response.raise_for_status()
@@ -555,14 +598,15 @@ class OlavThinClient:
             Upload result with document ID
         """
         if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context.")
+            msg = "Client not initialized. Use 'async with' context."
+            raise RuntimeError(msg)
 
         file_path = Path(file_path)
         file_size = file_path.stat().st_size
 
         # Create a wrapper to track upload progress
         class ProgressFileWrapper:
-            def __init__(self, file, callback, total_size):
+            def __init__(self, file, callback, total_size) -> None:
                 self._file = file
                 self._callback = callback
                 self._bytes_read = 0
@@ -605,7 +649,8 @@ class OlavThinClient:
             List of matching document chunks with scores
         """
         if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context.")
+            msg = "Client not initialized. Use 'async with' context."
+            raise RuntimeError(msg)
 
         response = await self._client.get(
             "/documents/search",
@@ -620,7 +665,8 @@ class OlavThinClient:
     async def list_sessions(self, limit: int = 50) -> list[dict]:
         """List conversation sessions."""
         if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context.")
+            msg = "Client not initialized. Use 'async with' context."
+            raise RuntimeError(msg)
 
         response = await self._client.get("/sessions", params={"limit": limit})
         response.raise_for_status()
@@ -629,7 +675,8 @@ class OlavThinClient:
     async def get_session(self, session_id: str) -> dict:
         """Get session details including messages."""
         if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context.")
+            msg = "Client not initialized. Use 'async with' context."
+            raise RuntimeError(msg)
 
         response = await self._client.get(f"/sessions/{session_id}")
         response.raise_for_status()
@@ -638,7 +685,8 @@ class OlavThinClient:
     async def delete_session(self, session_id: str) -> bool:
         """Delete a session."""
         if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context.")
+            msg = "Client not initialized. Use 'async with' context."
+            raise RuntimeError(msg)
 
         response = await self._client.delete(f"/sessions/{session_id}")
         return response.status_code == 200
@@ -653,7 +701,8 @@ class OlavThinClient:
             List of device names from NetBox
         """
         if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context.")
+            msg = "Client not initialized. Use 'async with' context."
+            raise RuntimeError(msg)
 
         try:
             response = await self._client.get("/autocomplete/devices")
@@ -678,7 +727,8 @@ class OlavThinClient:
             List of SuzieQ table names
         """
         if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context.")
+            msg = "Client not initialized. Use 'async with' context."
+            raise RuntimeError(msg)
 
         try:
             response = await self._client.get("/autocomplete/tables")

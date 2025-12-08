@@ -57,25 +57,34 @@ class NetBoxManagementState(BaseWorkflowState):
     """State for NetBox management workflow."""
 
     api_endpoint: str | None  # API endpoint (e.g., /dcim/devices/)
-    operation_plan: dict | None  # API 操作计划（method, payload）
+    operation_plan: dict | None  # API operation plan (method, payload)
     approval_status: str | None  # pending/approved/rejected
-    execution_result: dict | None  # API 执行结果
-    verification_result: dict | None  # 验证结果
+    execution_result: dict | None  # API execution result
+    verification_result: dict | None  # Verification result
 
 
 @WorkflowRegistry.register(
     name="netbox_management",
-    description="NetBox 管理操作（设备清单/IP/站点/机架）",
+    description="NetBox management operations (device inventory/IP/site/rack)",
     examples=[
-        "在 NetBox 中添加新设备 Switch-C",
-        "更新设备 R1 的管理 IP 为 192.168.1.10",
-        "查询 NetBox 中的所有核心路由器",
-        "删除 NetBox 设备记录 Old-Switch",
-        "添加新站点 Beijing-IDC",
-        "分配 IP 地址给设备接口",
-        "更新设备角色为 core",
+        "Add new device Switch-C in NetBox",
+        "Update device R1 management IP to 192.168.1.10",
+        "Query all core routers in NetBox",
+        "Delete NetBox device record Old-Switch",
+        "Add new site Beijing-IDC",
+        "Assign IP address to device interface",
+        "Update device role to core",
     ],
-    triggers=[r"NetBox", r"清单", r"inventory", r"站点", r"site", r"机架", r"rack", r"IP.*地址"],
+    triggers=[
+        # English patterns - LLM handles multilingual intent classification
+        r"NetBox",
+        r"inventory",
+        r"site",
+        r"rack",
+        r"IP.*address",
+        r"device.*list",
+        r"add.*device",
+    ],
 )
 class NetBoxManagementWorkflow(BaseWorkflow):
     """NetBox inventory and management workflow."""
@@ -86,33 +95,28 @@ class NetBoxManagementWorkflow(BaseWorkflow):
 
     @property
     def description(self) -> str:
-        return "NetBox 管理操作（设备清单/IP/站点/机架）"
+        return "NetBox management operations (device inventory/IP/site/rack)"
 
     @property
     def tools_required(self) -> list[str]:
         return [
-            "netbox_schema_search",  # 发现 API 端点
-            "netbox_api_call",  # 执行 CRUD 操作
-            "search_episodic_memory",  # 历史成功操作
+            "netbox_schema_search",  # Discover API endpoints
+            "netbox_api_call",  # Execute CRUD operations
+            "search_episodic_memory",  # Historical success operations
         ]
 
     async def validate_input(self, user_query: str) -> tuple[bool, str]:
         """Check if request is NetBox management."""
         query_lower = user_query.lower()
 
-        # NetBox 管理关键词
+        # NetBox management keywords
         netbox_keywords = [
-            "设备清单",
-            "添加设备",
-            "ip分配",
-            "ip地址",
-            "站点",
-            "机架",
-            "电缆",
+            # English keywords for NetBox operations
             "inventory",
             "device list",
             "add device",
             "ip assignment",
+            "ip address",
             "site",
             "rack",
             "cable",
@@ -120,9 +124,9 @@ class NetBoxManagementWorkflow(BaseWorkflow):
         ]
 
         if any(kw in query_lower for kw in netbox_keywords):
-            return True, "匹配 NetBox 管理场景"
+            return True, "Matched NetBox management scenario"
 
-        # 检查是否包含 NetBox 实体类型
+        # Check for NetBox entity types
         entity_types = [
             "device",
             "interface",
@@ -199,13 +203,13 @@ class NetBoxManagementWorkflow(BaseWorkflow):
             Uses LangGraph interrupt to pause and wait for user approval.
             When workflow resumes, approval_response contains user decision.
             """
-            from config.settings import AgentConfig
+            from config.settings import settings
             from langgraph.types import interrupt
 
             user_approval = state.get("approval_status")
 
             # YOLO mode: auto-approve
-            if AgentConfig.YOLO_MODE and user_approval is None:
+            if settings.yolo_mode and user_approval is None:
                 logger.info("[YOLO] Auto-approving NetBox operation...")
                 return {
                     **state,
@@ -268,11 +272,11 @@ class NetBoxManagementWorkflow(BaseWorkflow):
 
             operation_plan = state.get("operation_plan", {})
 
-            execution_prompt = f"""执行 NetBox API 操作。
+            execution_prompt = f"""Execute NetBox API operation.
 
-操作计划: {operation_plan}
+Operation Plan: {operation_plan}
 
-使用 netbox_api_call 执行 API 调用。
+Use netbox_api_call to execute the API call.
 """
 
             response = await llm_with_tools.ainvoke(

@@ -1,13 +1,14 @@
 """Tests for LLM-driven diff engine."""
 
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from olav.sync.llm_diff import (
-    LLMDiffEngine,
     ComparisonResult,
     EntityDiff,
     FieldDiff,
+    LLMDiffEngine,
     comparison_to_diffs,
 )
 from olav.sync.models import DiffSeverity, EntityType

@@ -1,23 +1,34 @@
-.PHONY: help build up down logs test test-e2e test-unit clean restart health
+.PHONY: help build up down logs test test-e2e test-unit clean restart health quickstart deploy doctor
 
 # Default target
 help:
-	@echo "OLAV Docker Management Commands"
-	@echo "================================"
+	@echo "OLAV (NetAIChatOps) Management Commands"
+	@echo "========================================"
+	@echo ""
+	@echo "Quick Start:"
+	@echo "make quickstart     - One-command setup (recommended for new users)"
+	@echo "make deploy         - Full deployment with NetBox + API server"
+	@echo "make doctor         - Check all dependencies and connections"
+	@echo ""
+	@echo "Docker:"
 	@echo "make build          - Build all Docker images"
 	@echo "make up             - Start all services"
 	@echo "make down           - Stop all services"
 	@echo "make logs           - View logs (all services)"
 	@echo "make logs-api       - View API server logs"
+	@echo "make health         - Check service health"
+	@echo "make clean          - Remove containers and volumes"
+	@echo "make restart        - Restart all services"
+	@echo ""
+	@echo "Testing:"
 	@echo "make test           - Run E2E tests in container"
 	@echo "make test-unit      - Run unit tests locally"
+	@echo ""
+	@echo "Code Quality:"
 	@echo "make lint           - Run ruff linter"
 	@echo "make lint-fix       - Run ruff with auto-fix"
 	@echo "make format         - Format code with ruff"
 	@echo "make check          - Full quality check (lint + format)"
-	@echo "make health         - Check service health"
-	@echo "make clean          - Remove containers and volumes"
-	@echo "make restart        - Restart all services"
 	@echo ""
 	@echo "Development:"
 	@echo "make dev            - Start in development mode (hot reload)"
@@ -126,3 +137,78 @@ docs:
 	@echo "Opening API documentation..."
 	@echo "Swagger UI: http://localhost:8000/docs"
 	@echo "ReDoc: http://localhost:8000/redoc"
+
+# ============================================
+# Quick Start Commands
+# ============================================
+
+# One-command setup for new users
+quickstart:
+	@echo ""
+	@echo "🚀 OLAV (NetAIChatOps) Quick Start"
+	@echo "==================================="
+	@echo ""
+	@if [ ! -f .env ]; then \
+		echo "📋 Creating .env from template..."; \
+		cp .env.example .env; \
+		echo "⚠️  Please edit .env and set LLM_API_KEY before continuing"; \
+		echo "   Then run 'make quickstart' again"; \
+		exit 1; \
+	fi
+	@echo "📦 Installing dependencies..."
+	uv sync
+	@echo ""
+	@echo "🐳 Starting Docker services..."
+	docker-compose up -d opensearch postgres redis
+	@echo ""
+	@echo "⏳ Waiting for services to be healthy (30s)..."
+	@sleep 30
+	@echo ""
+	@echo "🔧 Initializing database and indexes..."
+	uv run olav --init
+	@echo ""
+	@echo "✅ Setup complete!"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Start CLI:     uv run olav"
+	@echo "  2. Start Server:  make deploy"
+	@echo "  3. Check health:  make doctor"
+	@echo ""
+
+# Full deployment with NetBox and API server
+deploy:
+	@echo ""
+	@echo "🚀 OLAV Full Deployment"
+	@echo "======================="
+	@echo ""
+	@echo "Starting NetBox stack..."
+	docker-compose --profile netbox up -d
+	@echo ""
+	@echo "⏳ Waiting for NetBox to initialize (60s)..."
+	@sleep 60
+	@echo ""
+	@echo "Initializing NetBox integration..."
+	uv run olav --init-netbox || echo "⚠️  NetBox init skipped (may already be configured)"
+	@echo ""
+	@echo "Starting API server..."
+	docker-compose up -d olav-server
+	@echo ""
+	@echo "⏳ Waiting for API server (10s)..."
+	@sleep 10
+	@echo ""
+	@echo "✅ Deployment complete!"
+	@echo ""
+	@echo "Services:"
+	@echo "  - API Server:  http://localhost:8001"
+	@echo "  - API Docs:    http://localhost:8001/docs"
+	@echo "  - NetBox:      http://localhost:8080"
+	@echo "  - SuzieQ GUI:  http://localhost:8501"
+	@echo ""
+
+# Health check for all dependencies
+doctor:
+	@echo ""
+	@echo "🩺 OLAV System Health Check"
+	@echo "============================"
+	@echo ""
+	uv run olav doctor

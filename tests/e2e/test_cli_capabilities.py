@@ -1,20 +1,24 @@
 """CLI-based E2E Tests for OLAV Agent Capabilities.
 
-These tests use the CLI directly instead of the server API,
-making them easier to run in development without full infrastructure.
+These tests use the unified CLI Dashboard interface (-q flag)
+instead of the deprecated 'query' subcommand.
 
 Features:
     - Automatic timing and performance tracking
     - Test result caching (skip passed tests)
     - Performance logging to tests/e2e/logs/
+    - Uses new Dashboard-based query execution
 
 Usage:
     # Run all CLI tests
     uv run pytest tests/e2e/test_cli_capabilities.py -v
-    
+
     # Run with specific marker
     uv run pytest tests/e2e/test_cli_capabilities.py -m "not slow" -v
-    
+
+    # Run single test
+    uv run pytest tests/e2e/test_cli_capabilities.py::TestQueryCapabilities::test_q01_bgp_status -v
+
     # Force fresh run (disable cache)
     E2E_CACHE_DISABLED=true uv run pytest tests/e2e/test_cli_capabilities.py -v
 """
@@ -25,11 +29,9 @@ import asyncio
 import os
 import subprocess
 import sys
-import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -39,7 +41,6 @@ if sys.platform == "win32":
 
 # Import performance tracking
 from tests.e2e.test_cache import get_current_tracker, perf_logger
-
 
 # ============================================
 # Configuration
@@ -58,7 +59,7 @@ def _check_cli_available() -> bool:
     try:
         result = subprocess.run(
             ["uv", "run", "python", str(CLI_PATH), "--help"],
-            capture_output=True,
+            check=False, capture_output=True,
             text=True,
             timeout=30,
             cwd=PROJECT_ROOT,
@@ -87,7 +88,7 @@ class CLIResult:
     returncode: int
     duration_ms: float
     success: bool = field(init=False)
-    
+
     def __post_init__(self):
         self.success = self.returncode == 0
 
@@ -110,53 +111,59 @@ def run_cli_query(
     mode: str = "standard",
     timeout: float = TIMEOUT_DEFAULT,
     yolo: bool = True,
+    json_output: bool = False,
 ) -> CLIResult:
-    """Execute a query via CLI and return results.
-    
+    """Execute a query via CLI using the new unified -q interface.
+
     Args:
         query: The query text to execute
-        mode: Query mode (standard/expert/inspection)
+        mode: Query mode (standard/expert) - inspection uses expert mode
         timeout: Timeout in seconds
-        yolo: Enable YOLO mode (auto-approve)
-        
+        yolo: Enable YOLO mode (auto-approve HITL)
+        json_output: Return JSON output instead of rich text
+
     Returns:
         CLIResult with output and metadata
     """
     start_time = time.time()
-    
+
     # Log to performance tracker
     tracker = get_current_tracker()
-    step_start = time.perf_counter()
-    
-    # Build command - use "query" subcommand
-    cmd = ["uv", "run", "python", str(CLI_PATH), "query"]
-    
-    # Add mode flag
-    if mode == "expert":
-        cmd.extend(["-m", "expert"])
-    elif mode == "inspection":
-        cmd.extend(["-m", "inspection"])
-    
-    # Add query text
-    cmd.append(query)
-    
+    time.perf_counter()
+
+    # Build command - use new unified -q flag
+    cmd = ["uv", "run", "python", str(CLI_PATH)]
+
+    # Add mode flag: expert mode for expert/inspection (use -E uppercase)
+    if mode in ("expert", "inspection"):
+        cmd.append("-E")
+
+    # Add YOLO flag if enabled
+    if yolo:
+        cmd.append("--yolo")
+
+    # Add JSON output if requested (useful for validation)
+    if json_output:
+        cmd.append("-j")
+
+    # Add query with -q flag
+    cmd.extend(["-q", query])
+
     # Set environment
     env = os.environ.copy()
-    if yolo:
-        env["OLAV_YOLO_MODE"] = "true"
-    
+
     try:
         result = subprocess.run(
             cmd,
-            capture_output=True,
+            check=False, capture_output=True,
             text=True,
             timeout=timeout,
             cwd=PROJECT_ROOT,
             env=env,
         )
-        
+
         duration_ms = (time.time() - start_time) * 1000
-        
+
         # Log step to performance tracker
         if tracker:
             tracker.metrics.log_step(
@@ -168,13 +175,13 @@ def run_cli_query(
                     "output_size": len(result.stdout),
                 }
             )
-        
+
         # Also log to perf_logger
         perf_logger.info(
             f"CLI Query | Mode: {mode} | Duration: {duration_ms:.0f}ms | "
             f"Success: {result.returncode == 0} | Query: {query[:50]}"
         )
-        
+
         return CLIResult(
             query=query,
             stdout=result.stdout,
@@ -191,7 +198,7 @@ def run_cli_query(
                 {"query": query[:100], "timeout": timeout}
             )
         perf_logger.warning(f"CLI Query TIMEOUT | {timeout}s | Query: {query[:50]}")
-        
+
         return CLIResult(
             query=query,
             stdout="",
@@ -202,7 +209,7 @@ def run_cli_query(
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
         perf_logger.error(f"CLI Query ERROR | {e} | Query: {query[:50]}")
-        
+
         return CLIResult(
             query=query,
             stdout="",
@@ -219,32 +226,32 @@ def validate_cli_response(
     min_length: int = 10,
 ) -> ValidationResult:
     """Validate a CLI response for quality.
-    
+
     Args:
         result: The CLI result to validate
         must_contain: Strings that must appear in output
         must_not_contain: Strings that must NOT appear
         min_length: Minimum output length
-        
+
     Returns:
         ValidationResult with pass/fail and details
     """
     checks = {}
     details = []
-    
+
     # Combine stdout for checking
     output = result.stdout + result.stderr
-    
+
     # Check 1: Command succeeded
     checks["success"] = result.success
     if not result.success:
         details.append(f"Command failed with code {result.returncode}")
-    
+
     # Check 2: Output not empty
     checks["not_empty"] = len(output) >= min_length
     if not checks["not_empty"]:
         details.append(f"Output too short: {len(output)} < {min_length}")
-    
+
     # Check 3: Contains required strings
     if must_contain:
         output_lower = output.lower()
@@ -253,7 +260,7 @@ def validate_cli_response(
             checks[key] = term.lower() in output_lower
             if not checks[key]:
                 details.append(f"Missing required term: '{term}'")
-    
+
     # Check 4: Does not contain forbidden strings
     if must_not_contain:
         output_lower = output.lower()
@@ -262,20 +269,20 @@ def validate_cli_response(
             checks[key] = term.lower() not in output_lower
             if not checks[key]:
                 details.append(f"Found forbidden term: '{term}'")
-    
+
     # Check 5: No Python errors
     error_patterns = ["traceback", "error:", "exception:"]
     has_error = any(p in output.lower() for p in error_patterns)
     checks["no_errors"] = not has_error
     if has_error:
         details.append("Output contains error traces")
-    
+
     # Calculate overall pass/score
     passed_checks = sum(1 for v in checks.values() if v)
     total_checks = len(checks)
     score = passed_checks / total_checks if total_checks > 0 else 0.0
     passed = all(checks.values())
-    
+
     return ValidationResult(
         passed=passed,
         score=score,
@@ -289,68 +296,68 @@ def validate_cli_response(
 # ============================================
 class TestQueryCapabilities:
     """Tests for query capabilities via CLI."""
-    
+
     def test_q01_bgp_status(self):
         """Q01: Test BGP status query."""
         result = run_cli_query("check R1 BGP status")
-        
+
         validation = validate_cli_response(
             result,
             must_contain=["BGP"],
             min_length=20,
         )
-        
+
         assert result.success, f"Query failed: {result.stderr}"
         assert validation.passed, f"Validation failed: {validation.details}"
-    
+
     def test_q02_interface_status(self):
         """Q02: Test interface status query."""
         result = run_cli_query("show interfaces on R1")
-        
+
         validation = validate_cli_response(
             result,
             must_contain=["interface"],
             min_length=20,
         )
-        
+
         assert result.success, f"Query failed: {result.stderr}"
         assert validation.passed, f"Validation failed: {validation.details}"
-    
+
     def test_q03_device_summary(self):
         """Q03: Test device summary query."""
         result = run_cli_query("summarize all devices")
-        
-        validation = validate_cli_response(
+
+        validate_cli_response(
             result,
             must_contain=["device"],
             min_length=20,
         )
-        
+
         assert result.success, f"Query failed: {result.stderr}"
-    
+
     def test_q04_route_table(self):
         """Q04: Test routing table query."""
         result = run_cli_query("show routing table of R1")
-        
-        validation = validate_cli_response(
+
+        validate_cli_response(
             result,
             must_contain=["route"],
             min_length=20,
         )
-        
+
         assert result.success, f"Query failed: {result.stderr}"
-    
+
     @pytest.mark.slow
     def test_q05_schema_discovery(self):
         """Q05: Test schema discovery."""
         result = run_cli_query("what tables are available?", timeout=TIMEOUT_DEFAULT)
-        
-        validation = validate_cli_response(
+
+        validate_cli_response(
             result,
             must_contain=["table"],
             min_length=30,
         )
-        
+
         assert result.success, f"Query failed: {result.stderr}"
 
 
@@ -359,7 +366,7 @@ class TestQueryCapabilities:
 # ============================================
 class TestExpertMode:
     """Tests for expert mode (deep dive) capabilities."""
-    
+
     @pytest.mark.slow
     def test_d01_diagnosis(self):
         """D01: Test multi-step diagnosis."""
@@ -368,15 +375,15 @@ class TestExpertMode:
             mode="expert",
             timeout=TIMEOUT_DEFAULT,
         )
-        
-        validation = validate_cli_response(
+
+        validate_cli_response(
             result,
             must_contain=["R1", "R2"],
             min_length=50,
         )
-        
+
         assert result.success, f"Query failed: {result.stderr}"
-    
+
     @pytest.mark.slow
     def test_d02_root_cause(self):
         """D02: Test root cause analysis."""
@@ -385,13 +392,13 @@ class TestExpertMode:
             mode="expert",
             timeout=TIMEOUT_DEFAULT,
         )
-        
-        validation = validate_cli_response(
+
+        validate_cli_response(
             result,
             must_contain=["BGP"],
             min_length=30,
         )
-        
+
         assert result.success, f"Query failed: {result.stderr}"
 
 
@@ -400,7 +407,7 @@ class TestExpertMode:
 # ============================================
 class TestInspectionMode:
     """Tests for inspection mode (batch audit) capabilities."""
-    
+
     @pytest.mark.slow
     def test_i01_bgp_audit(self):
         """I01: Test BGP audit."""
@@ -409,15 +416,15 @@ class TestInspectionMode:
             mode="inspection",
             timeout=TIMEOUT_DEFAULT,
         )
-        
-        validation = validate_cli_response(
+
+        validate_cli_response(
             result,
             must_contain=["BGP"],
             min_length=30,
         )
-        
+
         assert result.success, f"Query failed: {result.stderr}"
-    
+
     @pytest.mark.slow
     def test_i02_interface_audit(self):
         """I02: Test interface audit."""
@@ -426,13 +433,13 @@ class TestInspectionMode:
             mode="inspection",
             timeout=TIMEOUT_DEFAULT,
         )
-        
-        validation = validate_cli_response(
+
+        validate_cli_response(
             result,
             must_contain=["interface"],
             min_length=30,
         )
-        
+
         assert result.success, f"Query failed: {result.stderr}"
 
 
@@ -441,50 +448,50 @@ class TestInspectionMode:
 # ============================================
 class TestErrorHandling:
     """Tests for error handling and edge cases."""
-    
+
     def test_x01_unknown_device(self):
         """X01: Handle unknown device gracefully."""
         result = run_cli_query("check BGP on NONEXISTENT_DEVICE_XYZ")
-        
+
         # Should not crash, may return no data message
         output = result.stdout.lower()
         graceful_responses = ["no data", "not found", "unknown", "empty", "error"]
         has_graceful = any(r in output for r in graceful_responses)
-        
+
         # Either succeeds with no data message or fails gracefully
         assert result.success or has_graceful, f"Should handle gracefully: {result.stderr}"
-    
+
     def test_x02_empty_filter(self):
         """X02: Handle empty result gracefully."""
         result = run_cli_query("find BGP peers with ASN 99999")
-        
+
         # Should succeed even with no results
         assert result.success, f"Query failed: {result.stderr}"
-    
+
     def test_x03_chinese_query(self):
         """X03: Support Chinese language queries."""
         result = run_cli_query("查询 R1 的 BGP 状态")
-        
+
         # Should understand Chinese
-        validation = validate_cli_response(
+        validate_cli_response(
             result,
             must_contain=["BGP"],
             min_length=20,
         )
-        
+
         assert result.success, f"Chinese query failed: {result.stderr}"
-    
+
     def test_x04_help_command(self):
         """X04: Show help correctly."""
         # Test the actual help via --help flag
         result = subprocess.run(
             ["uv", "run", "python", str(CLI_PATH), "--help"],
-            capture_output=True,
+            check=False, capture_output=True,
             text=True,
             timeout=30,
             cwd=PROJECT_ROOT,
         )
-        
+
         assert result.returncode == 0
         assert "OLAV" in result.stdout or "olav" in result.stdout.lower()
 
@@ -494,44 +501,44 @@ class TestErrorHandling:
 # ============================================
 class TestSchemaAware:
     """Tests for schema-aware query capabilities."""
-    
+
     @pytest.mark.slow
     def test_s01_table_discovery(self):
         """S01: Discover available tables."""
         result = run_cli_query("what SuzieQ tables can I query?", timeout=TIMEOUT_DEFAULT)
-        
-        validation = validate_cli_response(
+
+        validate_cli_response(
             result,
             must_contain=["table"],
             min_length=30,
         )
-        
+
         assert result.success, f"Query failed: {result.stderr}"
-    
+
     @pytest.mark.slow
     def test_s02_field_discovery(self):
         """S02: Discover table fields."""
         result = run_cli_query("what fields are in the BGP table?", timeout=TIMEOUT_DEFAULT)
-        
-        validation = validate_cli_response(
+
+        validate_cli_response(
             result,
             must_contain=["field"],
             min_length=30,
         )
-        
+
         assert result.success, f"Query failed: {result.stderr}"
-    
+
     @pytest.mark.slow
     def test_s03_method_discovery(self):
         """S03: Discover available methods."""
         result = run_cli_query("what methods can I use to query data?", timeout=TIMEOUT_DEFAULT)
-        
-        validation = validate_cli_response(
+
+        validate_cli_response(
             result,
             must_contain=["method"],
             min_length=30,
         )
-        
+
         assert result.success, f"Query failed: {result.stderr}"
 
 
@@ -542,7 +549,7 @@ class TestSchemaAware:
 def print_summary(request):
     """Print test summary after all tests."""
     yield
-    
+
     print("\n" + "=" * 60)
     print("OLAV CLI E2E Test Summary")
     print("=" * 60)

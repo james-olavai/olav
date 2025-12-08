@@ -6,8 +6,9 @@ Tests cover:
 3. NornirSandbox functionality (blacklist, HITL, CLI/NETCONF execution)
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from olav.execution.backends.protocol import (
     BackendProtocol,
@@ -175,7 +176,7 @@ class TestNornirSandboxBlacklist:
         with patch("olav.execution.backends.nornir_sandbox.OpenSearchMemory", return_value=mock_memory):
             from olav.execution.backends.nornir_sandbox import NornirSandbox
             sandbox = NornirSandbox(memory=mock_memory)
-            
+
             # Check default dangerous commands are blocked
             dangerous = ["traceroute", "reload", "write erase", "erase startup-config"]
             for cmd in dangerous:
@@ -186,13 +187,13 @@ class TestNornirSandboxBlacklist:
         with patch("olav.execution.backends.nornir_sandbox.OpenSearchMemory", return_value=mock_memory):
             from olav.execution.backends.nornir_sandbox import NornirSandbox
             sandbox = NornirSandbox(memory=mock_memory)
-            
+
             # Exact match
             assert sandbox._is_blacklisted("traceroute 10.0.0.1") is not None
-            
+
             # Normalized match (hyphens to spaces)
             assert sandbox._is_blacklisted("trace-route 10.0.0.1") is not None
-            
+
             # Safe command should not be blocked
             assert sandbox._is_blacklisted("show ip route") is None
 
@@ -201,13 +202,13 @@ class TestNornirSandboxBlacklist:
         with patch("olav.execution.backends.nornir_sandbox.OpenSearchMemory", return_value=mock_memory):
             from olav.execution.backends.nornir_sandbox import NornirSandbox
             sandbox = NornirSandbox(memory=mock_memory)
-            
+
             # Write operations
             assert sandbox._is_write_operation("edit-config /interfaces/interface[name='eth0']")
             assert sandbox._is_write_operation("commit confirmed 60")
             assert sandbox._is_write_operation("set system hostname R1")
             assert sandbox._is_write_operation("delete routing-options")
-            
+
             # Read operations
             assert not sandbox._is_write_operation("get-config /interfaces")
             assert not sandbox._is_write_operation("show ip bgp")
@@ -222,17 +223,17 @@ class TestNornirSandboxExecution:
         """Create mock Nornir with devices."""
         with patch("olav.execution.backends.nornir_sandbox.InitNornir") as mock:
             nr_instance = MagicMock()
-            
+
             # Create mock host
             host = MagicMock()
             host.name = "R1"
             host.platform = "cisco_ios"
             host.username = None
             host.password = None
-            
+
             nr_instance.inventory.hosts = {"R1": host}
             nr_instance.filter.return_value = nr_instance
-            
+
             mock.return_value = nr_instance
             yield mock, nr_instance
 
@@ -246,43 +247,43 @@ class TestNornirSandboxExecution:
     @pytest.mark.asyncio
     async def test_execute_cli_command_success(self, mock_nornir_with_devices, mock_memory):
         """Test successful CLI command execution."""
-        mock_init, nr_instance = mock_nornir_with_devices
-        
+        _mock_init, nr_instance = mock_nornir_with_devices
+
         # Mock netmiko result
         device_result = MagicMock()
         device_result.failed = False
         device_result.result = [{"neighbor": "10.0.0.1", "state": "Established"}]
-        
+
         run_result = {"R1": device_result}
         nr_instance.run.return_value = run_result
-        
+
         with patch("olav.execution.backends.nornir_sandbox.OpenSearchMemory", return_value=mock_memory):
             from olav.execution.backends.nornir_sandbox import NornirSandbox
             sandbox = NornirSandbox(memory=mock_memory)
-            
+
             result = await sandbox.execute_cli_command(
                 device="R1",
                 command="show ip bgp summary",
                 use_textfsm=True,
             )
-            
+
             assert result.success is True
             assert result.metadata.get("parsed") is True
 
     @pytest.mark.asyncio
     async def test_execute_cli_command_blacklisted(self, mock_nornir_with_devices, mock_memory):
         """Test blacklisted command is rejected."""
-        mock_init, nr_instance = mock_nornir_with_devices
-        
+        _mock_init, _nr_instance = mock_nornir_with_devices
+
         with patch("olav.execution.backends.nornir_sandbox.OpenSearchMemory", return_value=mock_memory):
             from olav.execution.backends.nornir_sandbox import NornirSandbox
             sandbox = NornirSandbox(memory=mock_memory)
-            
+
             result = await sandbox.execute_cli_command(
                 device="R1",
                 command="traceroute 10.0.0.1",
             )
-            
+
             assert result.success is False
             assert "blacklist" in result.error.lower()
             mock_memory.log_execution.assert_called()
@@ -290,22 +291,22 @@ class TestNornirSandboxExecution:
     @pytest.mark.asyncio
     async def test_execute_device_not_found(self, mock_nornir_with_devices, mock_memory):
         """Test execution with non-existent device."""
-        mock_init, nr_instance = mock_nornir_with_devices
-        
+        _mock_init, nr_instance = mock_nornir_with_devices
+
         # Filter returns empty hosts for unknown device
         empty_nr = MagicMock()
         empty_nr.inventory.hosts = {}
         nr_instance.filter.return_value = empty_nr
-        
+
         with patch("olav.execution.backends.nornir_sandbox.OpenSearchMemory", return_value=mock_memory):
             from olav.execution.backends.nornir_sandbox import NornirSandbox
             sandbox = NornirSandbox(memory=mock_memory)
-            
+
             result = await sandbox.execute_cli_command(
                 device="NonExistent",
                 command="show version",
             )
-            
+
             assert result.success is False
             assert "not found" in result.error.lower()
 
@@ -318,16 +319,16 @@ class TestNornirSandboxHITL:
         """Create mock Nornir with devices."""
         with patch("olav.execution.backends.nornir_sandbox.InitNornir") as mock:
             nr_instance = MagicMock()
-            
+
             host = MagicMock()
             host.name = "R1"
             host.platform = "cisco_ios"
             host.username = None
             host.password = None
-            
+
             nr_instance.inventory.hosts = {"R1": host}
             nr_instance.filter.return_value = nr_instance
-            
+
             mock.return_value = nr_instance
             yield mock, nr_instance
 
@@ -341,57 +342,57 @@ class TestNornirSandboxHITL:
     @pytest.mark.asyncio
     async def test_write_operation_requires_approval(self, mock_nornir_with_devices, mock_memory):
         """Test that write operations trigger HITL approval."""
-        mock_init, nr_instance = mock_nornir_with_devices
-        
+        _mock_init, nr_instance = mock_nornir_with_devices
+
         with patch("olav.execution.backends.nornir_sandbox.OpenSearchMemory", return_value=mock_memory):
             from olav.execution.backends.nornir_sandbox import NornirSandbox
             sandbox = NornirSandbox(memory=mock_memory)
-            
+
             # Patch _request_approval to track calls
             with patch.object(sandbox, "_request_approval") as mock_approval:
                 from olav.execution.backends.nornir_sandbox import ApprovalDecision
                 mock_approval.return_value = ApprovalDecision(decision="approve")
-                
+
                 # Mock successful NAPALM execution via the nornir run method
                 device_result = MagicMock()
                 device_result.failed = False
                 device_result.result = {"config": "..."}
                 nr_instance.run.return_value = {"R1": device_result}
-                
+
                 await sandbox.execute(
                     command="edit-config /interfaces",
                     device="R1",
                     requires_approval=True,
                 )
-                
+
                 # HITL approval should be called for write operation
                 mock_approval.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_approval_rejection_aborts_execution(self, mock_nornir_with_devices, mock_memory):
         """Test that rejected approval aborts execution."""
-        mock_init, nr_instance = mock_nornir_with_devices
-        
+        _mock_init, _nr_instance = mock_nornir_with_devices
+
         with patch("olav.execution.backends.nornir_sandbox.OpenSearchMemory", return_value=mock_memory):
-            with patch("config.settings.AgentConfig") as mock_config:
-                mock_config.ENABLE_HITL = True
-                
-                from olav.execution.backends.nornir_sandbox import NornirSandbox, ApprovalDecision
+            with patch("config.settings.settings") as mock_settings:
+                mock_settings.enable_hitl = True
+
+                from olav.execution.backends.nornir_sandbox import ApprovalDecision, NornirSandbox
                 sandbox = NornirSandbox(memory=mock_memory)
-                
+
                 # Patch _request_approval to return rejection
                 with patch.object(sandbox, "_request_approval") as mock_approval:
                     mock_approval.return_value = ApprovalDecision(
                         decision="reject",
                         reason="Too dangerous"
                     )
-                    
+
                     result = await sandbox.execute(
                         command="edit-config /system/hostname",
                         device="R1",
                         requires_approval=True,
                     )
-                    
+
                     assert result.success is False
                     assert "rejected" in result.error.lower()
                     assert result.metadata.get("reason") == "Too dangerous"
@@ -403,7 +404,7 @@ class TestApprovalDecision:
     def test_approve_decision(self):
         """Test approve decision."""
         from olav.execution.backends.nornir_sandbox import ApprovalDecision
-        
+
         decision = ApprovalDecision(decision="approve")
         assert decision.decision == "approve"
         assert decision.modified_command is None
@@ -412,7 +413,7 @@ class TestApprovalDecision:
     def test_reject_decision_with_reason(self):
         """Test reject decision with reason."""
         from olav.execution.backends.nornir_sandbox import ApprovalDecision
-        
+
         decision = ApprovalDecision(
             decision="reject",
             reason="Command is too risky"
@@ -423,7 +424,7 @@ class TestApprovalDecision:
     def test_edit_decision_with_modified_command(self):
         """Test edit decision with modified command."""
         from olav.execution.backends.nornir_sandbox import ApprovalDecision
-        
+
         decision = ApprovalDecision(
             decision="edit",
             modified_command="show ip bgp summary | include Estab"
@@ -440,16 +441,16 @@ class TestNornirSandboxNetconfFallback:
         """Create mock Nornir with devices."""
         with patch("olav.execution.backends.nornir_sandbox.InitNornir") as mock:
             nr_instance = MagicMock()
-            
+
             host = MagicMock()
             host.name = "R1"
             host.platform = "cisco_ios"
             host.username = None
             host.password = None
-            
+
             nr_instance.inventory.hosts = {"R1": host}
             nr_instance.filter.return_value = nr_instance
-            
+
             mock.return_value = nr_instance
             yield mock, nr_instance
 
@@ -465,12 +466,12 @@ class TestNornirSandboxNetconfFallback:
         self, mock_nornir_with_devices, mock_memory
     ):
         """Test that NETCONF connection refused includes fallback hint."""
-        mock_init, nr_instance = mock_nornir_with_devices
-        
+        _mock_init, _nr_instance = mock_nornir_with_devices
+
         with patch("olav.execution.backends.nornir_sandbox.OpenSearchMemory", return_value=mock_memory):
             from olav.execution.backends.nornir_sandbox import NornirSandbox
             sandbox = NornirSandbox(memory=mock_memory)
-            
+
             # Simulate napalm_get raising ImportError (NETCONF not available)
             with patch.dict("sys.modules", {"nornir_napalm.plugins.tasks": None}):
                 result = await sandbox.execute(
@@ -478,7 +479,7 @@ class TestNornirSandboxNetconfFallback:
                     device="R1",
                     requires_approval=False,
                 )
-                
+
                 # Should fail with helpful error
                 assert result.success is False
                 assert result.metadata.get("should_fallback_to_cli") is True or "NETCONF" in (result.error or "")

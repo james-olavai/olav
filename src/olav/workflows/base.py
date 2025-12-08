@@ -15,20 +15,20 @@ from langgraph.graph import StateGraph, add_messages
 class WorkflowType(str, Enum):
     """Supported workflow types."""
 
-    QUERY_DIAGNOSTIC = "query_diagnostic"  # 查询/诊断（SuzieQ + NETCONF）
-    DEVICE_EXECUTION = "device_execution"  # 设备配置变更（NETCONF/CLI + HITL）
-    NETBOX_MANAGEMENT = "netbox_management"  # NetBox 管理（设备清单/IP/站点）
-    DEEP_DIVE = "deep_dive"  # Deep Dive（复杂多步任务，需 -e/--expert）
-    INSPECTION = "inspection"  # 巡检/NetBox 同步（DiffEngine + Reconciler）
+    QUERY_DIAGNOSTIC = "query_diagnostic"  # Query/Diagnostics (SuzieQ + NETCONF)
+    DEVICE_EXECUTION = "device_execution"  # Device config changes (NETCONF/CLI + HITL)
+    NETBOX_MANAGEMENT = "netbox_management"  # NetBox management (device inventory/IP/sites)
+    DEEP_DIVE = "deep_dive"  # Deep Dive (complex multi-step tasks, requires -e/--expert)
+    INSPECTION = "inspection"  # Inspection/NetBox sync (DiffEngine + Reconciler)
 
 
 class BaseWorkflowState(TypedDict):
     """Base state shared across all workflows."""
 
     messages: Annotated[list[BaseMessage], add_messages]
-    workflow_type: WorkflowType | None  # 当前工作流类型
-    iteration_count: int  # 迭代计数
-    error: str | None  # 错误信息（如果有）
+    workflow_type: WorkflowType | None  # Current workflow type
+    iteration_count: int  # Iteration count
+    error: str | None  # Error message (if any)
 
 
 class BaseWorkflow(ABC):

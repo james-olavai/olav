@@ -15,7 +15,7 @@ import requests
 from langchain_core.tools import tool
 from opensearchpy import OpenSearch
 
-from olav.core.settings import settings
+from config.settings import settings
 from olav.tools.adapters import NetBoxAdapter
 from olav.tools.base import ToolOutput, ToolRegistry
 

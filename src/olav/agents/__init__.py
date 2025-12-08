@@ -1,6 +1,6 @@
 """Agent implementations using workflow orchestrator pattern.
 
-The agent architecture uses a custom workflow-based orchestration system 
+The agent architecture uses a custom workflow-based orchestration system
 using LangGraph StateGraph with three isolated modes:
 
 Mode Architecture:
@@ -14,13 +14,14 @@ Entry Point:
 
 from olav.agents.base import AgentProtocol, BaseAgent
 from olav.agents.network_relevance_guard import (
+    REJECTION_MESSAGE,
     NetworkRelevanceGuard,
     RelevanceResult,
     get_network_guard,
-    REJECTION_MESSAGE,
 )
 
 __all__ = [
+    "REJECTION_MESSAGE",
     # Base
     "AgentProtocol",
     "BaseAgent",
@@ -28,5 +29,4 @@ __all__ = [
     "NetworkRelevanceGuard",
     "RelevanceResult",
     "get_network_guard",
-    "REJECTION_MESSAGE",
 ]

@@ -18,6 +18,14 @@ from .auth import (
     whoami_interactive,
 )
 from .client import ExecutionResult, OLAVClient, ServerConfig, create_client
+from .commands import app as cli_app
+from .display import (
+    HITLPanel,
+    InspectionProgress,
+    ResultRenderer,
+    ThinkingTree,
+)
+from .repl import REPLSession, handle_slash_command
 
 # V2 exports
 from .thin_client import (
@@ -26,36 +34,28 @@ from .thin_client import (
     StreamEvent,
     StreamEventType,
 )
-from .display import (
-    HITLPanel,
-    InspectionProgress,
-    ResultRenderer,
-    ThinkingTree,
-)
-from .repl import REPLSession, handle_slash_command
-from .commands import app as cli_app
 
 __all__ = [
     # Legacy
     "AuthClient",
+    # V2
+    "ClientConfig",
     "CredentialsManager",
     "ExecutionResult",
+    "HITLPanel",
+    "InspectionProgress",
     "OLAVClient",
+    "OlavThinClient",
+    "REPLSession",
+    "ResultRenderer",
     "ServerConfig",
+    "StreamEvent",
+    "StreamEventType",
+    "ThinkingTree",
+    "cli_app",
     "create_client",
+    "handle_slash_command",
     "login_interactive",
     "logout_interactive",
     "whoami_interactive",
-    # V2
-    "ClientConfig",
-    "OlavThinClient",
-    "StreamEvent",
-    "StreamEventType",
-    "HITLPanel",
-    "InspectionProgress",
-    "ResultRenderer",
-    "ThinkingTree",
-    "REPLSession",
-    "handle_slash_command",
-    "cli_app",
 ]

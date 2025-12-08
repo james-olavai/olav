@@ -39,7 +39,7 @@ def _server_available() -> bool:
 
 def _get_token_from_server() -> str | None:
     """Get valid token from running server.
-    
+
     In simplified auth mode, the server generates a token on startup.
     For tests, we generate a new token using the auth module directly.
     """

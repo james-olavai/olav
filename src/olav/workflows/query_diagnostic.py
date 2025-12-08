@@ -59,40 +59,40 @@ logger = logging.getLogger(__name__)
 class QueryDiagnosticState(BaseWorkflowState):
     """State for query/diagnostic workflow."""
 
-    macro_data: dict | None  # SuzieQ 分析结果
-    micro_data: dict | None  # NETCONF 诊断结果
-    needs_micro: bool  # 是否需要微观诊断
+    macro_data: dict | None  # SuzieQ analysis results
+    micro_data: dict | None  # NETCONF diagnostic results
+    needs_micro: bool  # Whether micro-level diagnosis is needed
 
 
 @WorkflowRegistry.register(
     name="query_diagnostic",
-    description="网络状态查询与故障诊断（SuzieQ 宏观 → NETCONF 微观），以及知识检索",
+    description="Network state query and fault diagnostics (SuzieQ macro → NETCONF micro), plus knowledge retrieval",
     examples=[
-        "查询 R1 的 BGP 邻居状态",
-        "Switch-A 的接口 Gi0/1 状态如何？",
-        "检查所有核心路由器的 CPU 使用率",
-        "为什么 OSPF 邻居不起来？",
-        "BGP session 为什么 down？",
-        "查看设备 R2 的路由表",
-        "接口带宽利用率是多少？",
+        "Query R1 BGP neighbor status",
+        "What's the status of Switch-A interface Gi0/1?",
+        "Check CPU utilization on all core routers",
+        "Why is OSPF neighbor not coming up?",
+        "Why is BGP session down?",
+        "Show routing table for device R2",
+        "What's the interface bandwidth utilization?",
         # Document RAG examples
-        "搜索 Cisco 配置指南",
-        "查找关于 BGP 路由策略的文档",
-        "搜索 RFC 7911 关于 ADD-PATH 的内容",
+        "Search Cisco configuration guide",
+        "Find documents about BGP routing policy",
+        "Search RFC 7911 about ADD-PATH",
     ],
     triggers=[
+        # English patterns - LLM handles multilingual intent classification
         r"BGP",
         r"OSPF",
-        r"接口.*状态",
-        r"路由.*表",
+        r"interface.*status",
+        r"routing.*table",
         r"CPU",
-        r"内存",
-        r"邻居",
+        r"memory",
+        r"neighbor",
         # Document triggers
-        r"文档",
         r"document",
-        r"知识库",
-        r"搜索.*文档",
+        r"knowledge.*base",
+        r"search.*doc",
         r"RFC",
     ],
 )
@@ -105,7 +105,7 @@ class QueryDiagnosticWorkflow(BaseWorkflow):
 
     @property
     def description(self) -> str:
-        return "网络状态查询与故障诊断（SuzieQ 宏观 → NETCONF 微观）"
+        return "Network state query and fault diagnostics (SuzieQ macro → NETCONF micro)"
 
     @property
     def tools_required(self) -> list[str]:
@@ -133,13 +133,9 @@ class QueryDiagnosticWorkflow(BaseWorkflow):
         """Check if query is about network state or diagnostics."""
         query_lower = user_query.lower()
 
-        # 排除配置变更关键词（更全面）
+        # Exclude config change keywords (comprehensive list)
         config_keywords = [
-            "修改",
-            "配置",
-            "设置",
-            "添加",
-            "删除",
+            # English keywords for config changes
             "shutdown",
             "no shutdown",
             "change",
@@ -160,17 +156,12 @@ class QueryDiagnosticWorkflow(BaseWorkflow):
 
         # Exclude NetBox management keywords
         netbox_keywords = [
-            "设备清单",
-            "添加设备",
-            "ip分配",
-            "ip地址",
-            "站点",
-            "机架",
-            "电缆",
+            # English keywords for NetBox operations
             "inventory",
             "device list",
             "add device",
             "ip assignment",
+            "ip address",
             "site",
             "rack",
             "cable",
@@ -179,18 +170,12 @@ class QueryDiagnosticWorkflow(BaseWorkflow):
         if any(kw in query_lower for kw in netbox_keywords):
             return False, "NetBox management request, should use netbox_management workflow"
 
-        # 匹配查询/诊断关键词
+        # Match query/diagnostic keywords
         query_keywords = [
-            "查询",
-            "显示",
-            "状态",
-            "为什么",
-            "原因",
-            "诊断",
-            "排查",
-            "分析",
+            # English keywords for queries
             "show",
             "query",
+            "status",
             "why",
             "cause",
             "diagnose",
@@ -200,14 +185,12 @@ class QueryDiagnosticWorkflow(BaseWorkflow):
             "ospf",
             "route",
             "interface",
-            "接口",
-            "路由",
         ]
         if any(kw in query_lower for kw in query_keywords):
-            return True, "匹配查询/诊断场景"
+            return True, "Matched query/diagnostic scenario"
 
-        # 默认接受（宽松策略）
-        return True, "默认分类为查询任务"
+        # Default accept (lenient strategy)
+        return True, "Default classified as query task"
 
     def build_graph(self, checkpointer: BaseCheckpointSaver) -> StateGraph:
         """Build query/diagnostic workflow graph."""
@@ -298,7 +281,7 @@ Return true or false
 
             # Parse response (simplified: based on trigger words)
             user_query = state["messages"][0].content.lower()
-            trigger_words = ["为什么", "原因", "诊断", "排查", "why", "cause", "down", "failed"]
+            trigger_words = ["why", "cause", "down", "failed", "diagnose", "troubleshoot"]
             needs_micro = any(word in user_query for word in trigger_words)
 
             return {

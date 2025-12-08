@@ -23,8 +23,30 @@ services:
   opensearch:
     image: opensearchproject/opensearch:2.16.0
     container_name: olav-opensearch
-    env_file:
-      - .env
+    environment:
+      - cluster.name=olav-cluster
+      - node.name=olav-node
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      # Security Configuration
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD:-OlavOS123!}
+      - plugins.security.disabled=false
+      # SSL/TLS disabled for development (use nginx/traefik for production TLS)
+      - plugins.security.ssl.http.enabled=false
+      - plugins.security.ssl.transport.enabled=false
+      # Allow all hosts for development
+      - plugins.security.allow_default_init_securityindex=true
+      - plugins.security.audit.type=internal_opensearch
+      - plugins.security.enable_snapshot_restore_privilege=true
+      - plugins.security.check_snapshot_restore_write_privileges=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
     ports:
       - "19200:9200"  # Changed to 19200 to avoid Windows reserved port range
       - "19600:9600"  # Changed to 19600 to avoid Windows reserved port range
@@ -32,10 +54,11 @@ services:
       - opensearch_data:/usr/share/opensearch/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf -u admin:${OPENSEARCH_PASSWORD:-OlavOS123!} http://localhost:9200/_cluster/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 60s
     networks:
       - olav-network
 
@@ -58,7 +81,9 @@ services:
     networks:
       - olav-network
 
-  # Redis - Session & Cache
+  # Redis - Session & Cache (OPTIONAL)
+  # Enable with: docker-compose --profile cache up -d
+  # Without Redis, OLAV uses in-memory cache (sufficient for single-instance)
   redis:
     image: redis:7-alpine
     container_name: olav-redis
@@ -74,6 +99,9 @@ services:
       retries: 5
     networks:
       - olav-network
+    profiles:
+      - cache
+      - full
 
   # SuzieQ - Network Observability
   suzieq:
@@ -94,7 +122,7 @@ services:
       - "-c"
       - "from suzieq.gui.sq_gui import gui_main; import sys; sys.argv = ['sq-gui', '--config', '/suzieq/config/suzieq_config.yml', '--port', '8501']; gui_main()"
     depends_on:
-      redis:
+      opensearch:
         condition: service_healthy
     networks:
       - olav-network
@@ -229,7 +257,7 @@ services:
       # Override for Docker network (containers use service name, not localhost)
       POSTGRES_URI: postgresql://olav:${POSTGRES_PASSWORD:-OlavPG123!}@postgres:5432/olav
       OPENSEARCH_URL: http://opensearch:9200
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: ${REDIS_URL:-}  # Optional: redis://redis:6379 if using --profile cache
       NETBOX_URL: http://netbox:8080
       # Disable auth for testing (set to false in production!)
       AUTH_DISABLED: ${AUTH_DISABLED:-true}
@@ -244,8 +272,6 @@ services:
       postgres:
         condition: service_healthy
       opensearch:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       # NOTE: Run `olav --init` before first startup
     networks:
@@ -285,7 +311,7 @@ services:
       # Override for Docker network (containers use service name, not localhost)
       - POSTGRES_URI=postgresql://olav:${POSTGRES_PASSWORD:-OlavPG123!}@postgres:5432/olav
       - OPENSEARCH_URL=http://opensearch:9200
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=${REDIS_URL:-}  # Optional: redis://redis:6379 if using --profile cache
       - NETBOX_URL=http://netbox:8080
     restart: unless-stopped
     healthcheck:
@@ -298,8 +324,6 @@ services:
       postgres:
         condition: service_healthy
       opensearch:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       # olav-init dependency removed for testing (manual PostgreSQL init above)
     networks:
@@ -315,7 +339,6 @@ services:
       OLAV_SERVER_URL: http://olav-server:8000
       POSTGRES_URI: postgresql://olav:${POSTGRES_PASSWORD:-OlavPG123!}@postgres:5432/olav
       OPENSEARCH_URL: http://opensearch:9200
-      REDIS_URL: redis://redis:6379
     depends_on:
       olav-server:
         condition: service_healthy

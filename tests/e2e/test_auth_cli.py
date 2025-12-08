@@ -8,8 +8,8 @@ Usage:
 
 import asyncio
 import sys
-from pathlib import Path
 from datetime import datetime, timedelta
+from pathlib import Path
 
 # Add src to path
 project_root = Path(__file__).parent.parent

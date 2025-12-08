@@ -23,13 +23,13 @@ class ChatUI:
         self.console = console or Console()
         self.history = []
 
-        # Tool display names (Chinese)
+        # Tool display names
         self.tool_names = {
-            "suzieq_schema_search": "搜索数据模型",
-            "suzieq_query": "查询历史数据",
-            "netconf_tool": "NETCONF 配置",
-            "cli_tool": "CLI 命令执行",
-            "nornir_tool": "设备操作",
+            "suzieq_schema_search": "Schema Search",
+            "suzieq_query": "Query Historical Data",
+            "netconf_tool": "NETCONF Config",
+            "cli_tool": "CLI Command",
+            "nornir_tool": "Device Operation",
         }
 
     def show_user_message(self, text: str) -> None:
@@ -54,7 +54,7 @@ class ChatUI:
         Returns:
             Live context manager that can be updated with thinking progress
         """
-        spinner = Spinner("dots", text="[dim]OLAV 正在分析...[/dim]", style="cyan")
+        spinner = Spinner("dots", text="[dim]OLAV analyzing...[/dim]", style="cyan")
         return Live(
             spinner,
             console=self.console,
@@ -123,7 +123,7 @@ class ChatUI:
         Returns:
             Tree object that can be updated with thinking steps
         """
-        return Tree("🧠 [cyan]思考过程[/cyan]")
+        return Tree("🧠 [cyan]Thinking Process[/cyan]")
 
     def add_tool_call(self, tree: Tree, tool_name: str, args: dict) -> Any:
         """Add a tool call node to the thinking tree.
@@ -169,7 +169,7 @@ class ChatUI:
         Args:
             message: Error message to display
         """
-        self.console.print(f"[red]❌ 错误: {message}[/red]")
+        self.console.print(f"[red]❌ Error: {message}[/red]")
 
     def show_warning(self, message: str) -> None:
         """Display a warning message.
@@ -196,10 +196,10 @@ class ChatUI:
         from rich.table import Table
 
         table = Table(
-            title="⏱️  [cyan]工具执行耗时[/cyan]", box=None, show_header=True, padding=(0, 1)
+            title="⏱️  [cyan]Tool Execution Time[/cyan]", box=None, show_header=True, padding=(0, 1)
         )
-        table.add_column("工具", style="yellow", no_wrap=True)
-        table.add_column("耗时", style="magenta", justify="right")
+        table.add_column("Tool", style="yellow", no_wrap=True)
+        table.add_column("Duration", style="magenta", justify="right")
 
         for timing in timings:
             tool_name = self.get_tool_display_name(timing.get("tool", "unknown"))
@@ -219,7 +219,7 @@ class ChatUI:
         if len(timings) > 1:
             total = sum(t.get("elapsed_sec", 0) for t in timings)
             table.add_section()
-            table.add_row("[bold]总计[/bold]", f"[bold]{total:.3f}s[/bold]")
+            table.add_row("[bold]Total[/bold]", f"[bold]{total:.3f}s[/bold]")
 
         self.console.print(table)
         self.console.print()

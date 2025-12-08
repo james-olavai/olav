@@ -17,7 +17,7 @@ ENV PATH="/root/.local/bin:$PATH"
 
 # Copy project files
 COPY pyproject.toml uv.lock* ./
-COPY README.MD ./
+COPY README.md ./
 COPY src ./src
 COPY config ./config
 

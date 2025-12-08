@@ -11,14 +11,14 @@ import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 # Set Windows event loop policy for async compatibility
 if os.name == "nt":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from langchain_core.runnables import Runnable
@@ -27,12 +27,19 @@ from langserve import add_routes
 from pydantic import BaseModel, ConfigDict, Field
 
 from olav.agents.root_agent_orchestrator import create_workflow_orchestrator
-from olav.core.settings import settings
+from config.settings import get_path
+from config.settings import settings
 
 from .auth import (
     CurrentUser,
+    RegisterRequest,
+    RegisterResponse,
     User,
+    create_session,
     generate_access_token,
+    get_active_sessions,
+    revoke_session,
+    validate_token,
 )
 
 # Configure logging
@@ -52,7 +59,7 @@ class HealthCheckFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
         # Filter out GET /health requests (Docker health checks)
-        if 'GET /health' in message and '200' in message:
+        if "GET /health" in message and "200" in message:
             return False
         return True
 
@@ -64,7 +71,7 @@ uvicorn_access_logger.addFilter(HealthCheckFilter())
 # ============================================
 # Global State
 # ============================================
-# settings already imported from olav.core.settings
+# settings already imported from config.settings
 orchestrator: Runnable | None = None
 checkpointer: PostgresSaver | None = None
 _orchestrator_lock = asyncio.Lock()
@@ -354,20 +361,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if scheduler:
         logger.info("Stopping Inspection Scheduler...")
         await scheduler.stop()
-        try:
+        with suppress(asyncio.CancelledError):
             await scheduler_task
-        except asyncio.CancelledError:
-            pass
         logger.info("Inspection Scheduler stopped")
 
     # Cleanup checkpointer connection pool
-    cm = getattr(app.state, 'checkpointer_manager', None)
+    cm = getattr(app.state, "checkpointer_manager", None)
     if cm:
         try:
-            if hasattr(cm, '__aexit__'):
+            if hasattr(cm, "__aexit__"):
                 await cm.__aexit__(None, None, None)
                 logger.info("AsyncPostgresSaver connection pool closed")
-            elif hasattr(cm, '__exit__'):
+            elif hasattr(cm, "__exit__"):
                 cm.__exit__(None, None, None)
                 logger.info("PostgresSaver connection closed")
         except Exception as e:
@@ -382,7 +387,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="OLAV API - Enterprise Network Operations Platform",
         description=(
-            "**OLAV** (Omni-Layer Autonomous Verifier) provides LangServe-based HTTP/WebSocket "
+            "**OLAV** (NetAIChatOps) provides LangServe-based HTTP/WebSocket "
             "endpoints for enterprise network diagnostics, configuration management, and compliance auditing.\n\n"
             "## Features\n"
             "- 🔐 **Token Authentication** (auto-generated on startup)\n"
@@ -800,6 +805,155 @@ def create_app() -> FastAPI:
         return current_user
 
     # ============================================
+    # Client Registration (Session Tokens)
+    # ============================================
+    @app.post(
+        "/auth/register",
+        response_model=RegisterResponse,
+        tags=["auth"],
+        summary="Register a new client and get session token",
+        responses={
+            200: {
+                "description": "Client registered successfully",
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "session_token": "abc123...",
+                            "client_id": "550e8400-e29b-41d4-a716-446655440000",
+                            "client_name": "alice-laptop",
+                            "expires_at": "2025-02-10T10:00:00Z",
+                        }
+                    }
+                },
+            },
+            401: {
+                "description": "Invalid master token",
+                "content": {
+                    "application/json": {"example": {"detail": "Invalid master token"}}
+                },
+            },
+        },
+    )
+    async def register_client(request: RegisterRequest) -> RegisterResponse:
+        """
+        Register a new client and receive a session token.
+
+        **Flow**:
+        1. Client provides a unique name (e.g., 'alice-laptop', 'ci-runner-1')
+        2. Client authenticates with master token
+        3. Server returns a session token valid for 7 days
+
+        **Usage**:
+        After registration, use the session_token for all API calls:
+        ```bash
+        curl http://localhost:8000/me \\
+          -H "Authorization: Bearer <session_token>"
+        ```
+
+        **CLI Registration**:
+        ```bash
+        olav register --name "my-laptop" --server http://localhost:8000
+        ```
+        """
+        # Validate master token
+        is_valid, _ = validate_token(request.master_token)
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid master token",
+            )
+
+        # Create session with specified role
+        session = create_session(request.client_name, role=request.role)
+        logger.info(f"Client registered: {request.client_name} (id: {session.client_id}, role: {session.role.value})")
+
+        return RegisterResponse(
+            session_token=session.token,
+            client_id=session.client_id,
+            client_name=session.client_name,
+            role=session.role,
+            expires_at=session.expires_at,
+        )
+
+    @app.get(
+        "/auth/sessions",
+        tags=["auth"],
+        summary="List active client sessions (admin)",
+        responses={
+            200: {
+                "description": "List of active sessions",
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "sessions": [
+                                {
+                                    "client_id": "550e8400-e29b-41d4-a716-446655440000",
+                                    "client_name": "alice-laptop",
+                                    "created_at": "2025-01-27T10:00:00Z",
+                                    "expires_at": "2025-02-03T10:00:00Z",
+                                }
+                            ],
+                            "total": 1
+                        }
+                    }
+                },
+            },
+        },
+    )
+    async def list_client_sessions(current_user: CurrentUser):
+        """
+        List all active client sessions.
+
+        Only accessible with master token (for admin purposes).
+        """
+        sessions = get_active_sessions()
+        return {
+            "sessions": [
+                {
+                    "client_id": s.client_id,
+                    "client_name": s.client_name,
+                    "created_at": s.created_at.isoformat(),
+                    "expires_at": s.expires_at.isoformat(),
+                }
+                for s in sessions
+            ],
+            "total": len(sessions),
+        }
+
+    @app.post(
+        "/auth/revoke/{session_token}",
+        tags=["auth"],
+        summary="Revoke a client session token",
+        responses={
+            200: {
+                "description": "Session revoked",
+                "content": {
+                    "application/json": {"example": {"success": True, "message": "Session revoked"}}
+                },
+            },
+            404: {
+                "description": "Session not found",
+                "content": {
+                    "application/json": {"example": {"detail": "Session not found"}}
+                },
+            },
+        },
+    )
+    async def revoke_client_session(session_token: str, current_user: CurrentUser):
+        """
+        Revoke a session token.
+
+        Use this to invalidate a compromised or no-longer-needed session.
+        """
+        success = revoke_session(session_token)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Session not found",
+            )
+        return {"success": True, "message": "Session revoked"}
+
+    # ============================================
     # Sessions API (Chat History)
     # ============================================
     class SessionInfo(BaseModel):
@@ -833,7 +987,7 @@ def create_app() -> FastAPI:
                                     "created_at": "2025-01-27T10:00:00Z",
                                     "updated_at": "2025-01-27T10:05:00Z",
                                     "message_count": 5,
-                                    "first_message": "查询 R1 BGP 状态",
+                                    "first_message": "Query R1 BGP status",
                                     "workflow_type": "query_diagnostic"
                                 }
                             ],
@@ -866,8 +1020,9 @@ def create_app() -> FastAPI:
           -H "Authorization: Bearer <token>"
         ```
         """
-        import asyncpg
         from datetime import datetime
+
+        import asyncpg
 
         sessions: list[SessionInfo] = []
 
@@ -1031,7 +1186,6 @@ def create_app() -> FastAPI:
                 if not checkpoint_tuple or not checkpoint_tuple.checkpoint:
                     # Fallback to SQL check to see if it really doesn't exist or just no state
                     logger.warning(f"Checkpointer returned None for {thread_id}, falling back to SQL")
-                    pass
                 else:
                     checkpoint = checkpoint_tuple.checkpoint
                     channel_values = checkpoint.get("channel_values", {})
@@ -1263,6 +1417,7 @@ def create_app() -> FastAPI:
         ```
         """
         from pathlib import Path
+
         import pandas as pd
 
         devices: list[InventoryDevice] = []
@@ -1323,7 +1478,6 @@ def create_app() -> FastAPI:
                                                 pass
                                     else:
                                         logger.warning(f"Device {hostname} missing bootupTimestamp column")
-                                        pass
 
                                 if pd.notna(uptime_val) and uptime_val:
                                     try:
@@ -1333,11 +1487,11 @@ def create_app() -> FastAPI:
                                         hours = int((uptime_secs % 86400) // 3600)
                                         mins = int((uptime_secs % 3600) // 60)
                                         if days > 0:
-                                            uptime_str = f"{days}天 {hours}小时"
+                                            uptime_str = f"{days}d {hours}h"
                                         elif hours > 0:
-                                            uptime_str = f"{hours}小时 {mins}分钟"
+                                            uptime_str = f"{hours}h {mins}m"
                                         else:
-                                            uptime_str = f"{mins}分钟"
+                                            uptime_str = f"{mins}m"
                                     except (ValueError, TypeError):
                                         uptime_str = str(uptime_val)
 
@@ -1389,7 +1543,7 @@ def create_app() -> FastAPI:
         check_count: int = 0
         pass_count: int = 0
         fail_count: int = 0
-        status: str = "unknown"  # "通过", "需要关注", "严重问题"
+        status: str = "unknown"  # "passed", "needs attention", "critical issues"
 
     class ReportListResponse(BaseModel):
         """Response for report list endpoint."""
@@ -1419,7 +1573,7 @@ def create_app() -> FastAPI:
         import re
 
         metadata = {
-            "title": "巡检报告",
+            "title": "Inspection Report",
             "config_name": None,
             "description": None,
             "executed_at": "",
@@ -1434,56 +1588,56 @@ def create_app() -> FastAPI:
         }
 
         # Extract title
-        title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
+        title_match = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
         if title_match:
             metadata["title"] = title_match.group(1).strip()
 
         # Extract config name
-        config_match = re.search(r'\*\*巡检配置\*\*:\s*(.+)$', content, re.MULTILINE)
+        config_match = re.search(r"\*\*Inspection Config\*\*:\s*(.+)$|\*\*巡检配置\*\*:\s*(.+)$", content, re.MULTILINE)
         if config_match:
             metadata["config_name"] = config_match.group(1).strip()
 
         # Extract description
-        desc_match = re.search(r'\*\*描述\*\*:\s*(.+)$', content, re.MULTILINE)
+        desc_match = re.search(r"\*\*Description\*\*:\s*(.+)$|\*\*描述\*\*:\s*(.+)$", content, re.MULTILINE)
         if desc_match:
             metadata["description"] = desc_match.group(1).strip()
 
         # Extract execution time
-        time_match = re.search(r'\*\*执行时间\*\*:\s*(.+)$', content, re.MULTILINE)
+        time_match = re.search(r"\*\*Execution Time\*\*:\s*(.+)$|\*\*执行时间\*\*:\s*(.+)$", content, re.MULTILINE)
         if time_match:
             time_str = time_match.group(1).strip()
             # Extract duration if present (e.g., "2025-11-27 23:10:51 → 23:10:51 (0.2秒)")
-            dur_match = re.search(r'\(([^)]+)\)', time_str)
+            dur_match = re.search(r"\(([^)]+)\)", time_str)
             if dur_match:
                 metadata["duration"] = dur_match.group(1)
             # Extract start time
-            start_match = re.search(r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})', time_str)
+            start_match = re.search(r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})", time_str)
             if start_match:
                 metadata["executed_at"] = start_match.group(1)
 
         # Fallback: extract date from filename (e.g., inspection_xxx_20251127_231051.md)
         if not metadata["executed_at"]:
-            date_match = re.search(r'(\d{8})_(\d{6})', filename)
+            date_match = re.search(r"(\d{8})_(\d{6})", filename)
             if date_match:
                 d, t = date_match.groups()
                 metadata["executed_at"] = f"{d[:4]}-{d[4:6]}-{d[6:8]} {t[:2]}:{t[2:4]}:{t[4:6]}"
 
         # Extract device count
-        device_match = re.search(r'\*\*设备数\*\*:\s*(\d+)', content)
+        device_match = re.search(r"\*\*Devices\*\*:\s*(\d+)|\*\*设备数\*\*:\s*(\d+)", content)
         if device_match:
             metadata["device_count"] = int(device_match.group(1))
 
         # Extract check count
-        check_match = re.search(r'\*\*检查项\*\*:\s*(\d+)', content)
+        check_match = re.search(r"\*\*Checks\*\*:\s*(\d+)|\*\*检查项\*\*:\s*(\d+)", content)
         if check_match:
             metadata["check_count"] = int(check_match.group(1))
 
         # Extract pass/fail counts
-        pass_match = re.search(r'✅\s*\*\*通过\*\*:\s*(\d+)', content)
+        pass_match = re.search(r"✅\s*\*\*Passed\*\*:\s*(\d+)|✅\s*\*\*通过\*\*:\s*(\d+)", content)
         if pass_match:
             metadata["pass_count"] = int(pass_match.group(1))
 
-        fail_match = re.search(r'❌\s*\*\*失败\*\*:\s*(\d+)', content)
+        fail_match = re.search(r"❌\s*\*\*Failed\*\*:\s*(\d+)|❌\s*\*\*失败\*\*:\s*(\d+)", content)
         if fail_match:
             metadata["fail_count"] = int(fail_match.group(1))
 
@@ -1493,14 +1647,14 @@ def create_app() -> FastAPI:
             metadata["pass_rate"] = round(metadata["pass_count"] / total * 100, 1)
 
         # Extract status
-        status_match = re.search(r'整体状态:\s*(.+)$', content, re.MULTILINE)
+        status_match = re.search(r"Overall Status:\s*(.+)$|整体状态:\s*(.+)$", content, re.MULTILINE)
         if status_match:
             metadata["status"] = status_match.group(1).strip()
 
         # Extract warnings
-        warning_section = re.search(r'## ⚠️ 警告.*?\n((?:- .+\n)+)', content)
+        warning_section = re.search(r"## ⚠️ Warnings.*?\n((?:- .+\n)+)|## ⚠️ 警告.*?\n((?:- .+\n)+)", content)
         if warning_section:
-            warnings = re.findall(r'- (.+)$', warning_section.group(1), re.MULTILINE)
+            warnings = re.findall(r"- (.+)$", warning_section.group(1), re.MULTILINE)
             metadata["warnings"] = warnings[:10]  # Limit to 10 warnings
 
         return metadata
@@ -1520,14 +1674,14 @@ def create_app() -> FastAPI:
                                 {
                                     "id": "inspection_bgp_peer_audit_20251127_231051",
                                     "filename": "inspection_bgp_peer_audit_20251127_231051.md",
-                                    "title": "🔍 网络巡检报告",
+                                    "title": "🔍 Network Inspection Report",
                                     "config_name": "bgp_peer_audit",
                                     "executed_at": "2025-11-27 23:10:51",
                                     "device_count": 3,
                                     "check_count": 2,
                                     "pass_count": 3,
                                     "fail_count": 3,
-                                    "status": "需要关注"
+                                    "status": "needs attention"
                                 }
                             ],
                             "total": 1
@@ -1713,17 +1867,44 @@ def create_app() -> FastAPI:
         """Response from running an inspection."""
         status: str  # "started", "completed", "failed"
         message: str
+        job_id: str | None = None  # Async job ID for tracking
         report_id: str | None = None
+
+    class JobStatusResponse(BaseModel):
+        """Response for job status query."""
+        job_id: str
+        inspection_id: str
+        status: str  # "pending", "running", "completed", "failed"
+        progress: int  # 0-100
+        current_device: str | None = None
+
+        # Timestamps
+        created_at: str
+        started_at: str | None = None
+        completed_at: str | None = None
+
+        # Results (available when completed)
+        report_id: str | None = None
+        error: str | None = None
+        total_devices: int = 0
+        processed_devices: int = 0
+        pass_count: int = 0
+        fail_count: int = 0
+
+    class JobListResponse(BaseModel):
+        """Response for job list endpoint."""
+        jobs: list[JobStatusResponse]
+        total: int
 
     def _parse_inspection_yaml(filepath) -> dict | None:
         """Parse inspection YAML file and return config dict."""
-        import yaml
         from pathlib import Path
+
+        import yaml
 
         try:
             content = Path(filepath).read_text(encoding="utf-8")
-            config = yaml.safe_load(content)
-            return config
+            return yaml.safe_load(content)
         except Exception as e:
             logger.warning(f"Failed to parse inspection YAML {filepath}: {e}")
             return None
@@ -1774,7 +1955,7 @@ def create_app() -> FastAPI:
         """
         from pathlib import Path
 
-        inspections_dir = Path("config/inspections")
+        inspections_dir = Path(get_path("inspections"))
         inspections: list[InspectionConfig] = []
 
         try:
@@ -1842,14 +2023,15 @@ def create_app() -> FastAPI:
 
         **Required**: Bearer token authentication
         """
-        from pathlib import Path
-        import yaml
         import re
+        from pathlib import Path
+
+        import yaml
 
         # Sanitize filename
-        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', request.name.lower())
+        safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", request.name.lower())
         filename = f"{safe_name}.yaml"
-        yaml_file = Path("config/inspections") / filename
+        yaml_file = Path(get_path("inspections")) / filename
 
         if yaml_file.exists():
             raise HTTPException(status_code=409, detail=f"Inspection '{safe_name}' already exists")
@@ -1901,7 +2083,7 @@ def create_app() -> FastAPI:
         """
         from pathlib import Path
 
-        yaml_file = Path("config/inspections") / f"{inspection_id}.yaml"
+        yaml_file = Path(get_path("inspections")) / f"{inspection_id}.yaml"
 
         if not yaml_file.exists():
             raise HTTPException(status_code=404, detail="Inspection not found")
@@ -1934,7 +2116,7 @@ def create_app() -> FastAPI:
         """
         from pathlib import Path
 
-        yaml_file = Path("config/inspections") / f"{inspection_id}.yaml"
+        yaml_file = Path(get_path("inspections")) / f"{inspection_id}.yaml"
 
         if not yaml_file.exists():
             raise HTTPException(status_code=404, detail="Inspection not found")
@@ -1996,7 +2178,7 @@ def create_app() -> FastAPI:
         """
         from pathlib import Path
 
-        yaml_file = Path("config/inspections") / f"{inspection_id}.yaml"
+        yaml_file = Path(get_path("inspections")) / f"{inspection_id}.yaml"
 
         if not yaml_file.exists():
             raise HTTPException(status_code=404, detail="Inspection not found")
@@ -2006,7 +2188,8 @@ def create_app() -> FastAPI:
             import yaml
             config = yaml.safe_load(request.content)
             if not config or not isinstance(config, dict):
-                raise ValueError("Invalid YAML content")
+                msg = "Invalid YAML content"
+                raise ValueError(msg)
 
             # Write to file
             yaml_file.write_text(request.content, encoding="utf-8")
@@ -2022,9 +2205,9 @@ def create_app() -> FastAPI:
         "/inspections/{inspection_id}/run",
         response_model=InspectionRunResponse,
         tags=["inspections"],
-        summary="Run an inspection",
+        summary="Run an inspection (async)",
         responses={
-            200: {"description": "Inspection started"},
+            200: {"description": "Inspection job created"},
             404: {"description": "Inspection not found"},
         },
     )
@@ -2034,9 +2217,11 @@ def create_app() -> FastAPI:
         current_user: CurrentUser,
     ) -> InspectionRunResponse:
         """
-        Run an inspection and generate a report.
+        Run an inspection asynchronously and get a job ID for tracking.
 
         **Required**: Bearer token authentication
+
+        **Returns**: Job ID to track progress via GET /inspections/jobs/{job_id}
 
         **Request Body (optional)**:
         - `devices`: Override target devices
@@ -2049,52 +2234,182 @@ def create_app() -> FastAPI:
           -H "Content-Type: application/json" \\
           -d '{"devices": ["R1", "R2"]}'
         ```
+
+        **Example Response**:
+        ```json
+        {
+            "status": "started",
+            "message": "Inspection queued",
+            "job_id": "550e8400-e29b-41d4-a716-446655440000"
+        }
+        ```
         """
         from pathlib import Path
-        from datetime import datetime
 
-        yaml_file = Path("config/inspections") / f"{inspection_id}.yaml"
+        from olav.server.jobs import create_job, job_store
+
+        yaml_file = Path(get_path("inspections")) / f"{inspection_id}.yaml"
 
         if not yaml_file.exists():
             raise HTTPException(status_code=404, detail="Inspection not found")
 
-        # Generate report ID
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_id = f"inspection_{inspection_id}_{timestamp}"
-
-        # Parse config to check if it's a "Smart Inspection" (no checks)
+        # Parse config
         config = _parse_inspection_yaml(yaml_file)
         if not config:
-             raise HTTPException(status_code=500, detail="Failed to parse inspection config")
+            raise HTTPException(status_code=500, detail="Failed to parse inspection config")
 
-        checks = config.get("checks", [])
-        description = config.get("description")
+        # Create async job
+        triggered_by = current_user.client_id or current_user.username
+        job = await create_job(
+            inspection_id=inspection_id,
+            triggered_by=triggered_by,
+            devices=request.devices,
+            checks=request.checks,
+        )
 
-        if not checks and description:
-            # Smart Inspection Mode: Use LLM to execute based on description
-            # We'll use the orchestrator to run this as a DeepDive task
-            if not orchestrator:
-                 raise HTTPException(status_code=503, detail="Orchestrator not ready")
-
-            # TODO: Launch this as a background task properly
-            # For now, we just acknowledge it. In a real implementation, we'd
-            # invoke orchestrator.ainvoke(...) in a background task and save the result as a report.
-
-            return InspectionRunResponse(
-                status="started",
-                message=f"Smart Inspection '{inspection_id}' queued. LLM will execute: '{description}'",
-                report_id=report_id,
-            )
-
-        # TODO: Actually run inspection via CLI or background task
-        # For now, return a placeholder response
-        # In production, this would use subprocess or celery to run:
-        #   uv run python -m olav.cli batch-inspect config/inspections/{inspection_id}.yaml
+        # Launch background task to run inspection
+        async def _run_inspection_task() -> None:
+            """Background task for inspection execution."""
+            from olav.inspection import execute_inspection
+            
+            try:
+                await job_store.start(job.job_id)
+                
+                # Execute unified inspection (saves report automatically)
+                report = await execute_inspection(save_report=True)
+                
+                # Generate report ID (use config name + timestamp)
+                from datetime import UTC, datetime
+                report_id = f"{inspection_id}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+                
+                # Get pass/fail counts from InspectionReport
+                pass_count = report.passed_count
+                fail_count = report.failed_count
+                
+                await job_store.complete(
+                    job.job_id,
+                    report_id=report_id,
+                    pass_count=pass_count,
+                    fail_count=fail_count,
+                )
+                logger.info(f"Inspection job {job.job_id} completed: {report_id}")
+                
+            except Exception as e:
+                logger.exception(f"Inspection job {job.job_id} failed: {e}")
+                await job_store.fail(job.job_id, str(e))
+        
+        # Create background task (runs concurrently)
+        import asyncio
+        asyncio.create_task(_run_inspection_task())
 
         return InspectionRunResponse(
             status="started",
-            message=f"Inspection '{inspection_id}' has been queued. Check reports for results.",
-            report_id=report_id,
+            message=f"Inspection '{inspection_id}' queued. Use job_id to track progress.",
+            job_id=job.job_id,
+        )
+
+    @app.get(
+        "/inspections/jobs",
+        response_model=JobListResponse,
+        tags=["inspections"],
+        summary="List inspection jobs",
+        responses={
+            200: {"description": "List of jobs"},
+        },
+    )
+    async def list_inspection_jobs(
+        current_user: CurrentUser,
+        inspection_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> JobListResponse:
+        """
+        List inspection jobs with optional filters.
+
+        **Query Parameters**:
+        - `inspection_id`: Filter by inspection config name
+        - `status`: Filter by status (pending, running, completed, failed)
+        - `limit`: Max jobs to return (default: 50)
+        """
+        from olav.server.jobs import JobStatus, list_jobs
+
+        status_filter = None
+        if status:
+            with suppress(ValueError):
+                status_filter = JobStatus(status)
+
+        jobs = await list_jobs(
+            inspection_id=inspection_id,
+            status=status_filter,
+            limit=limit,
+        )
+
+        job_responses = [
+            JobStatusResponse(
+                job_id=j.job_id,
+                inspection_id=j.inspection_id,
+                status=j.status.value,
+                progress=j.progress,
+                current_device=j.current_device,
+                created_at=j.created_at.isoformat(),
+                started_at=j.started_at.isoformat() if j.started_at else None,
+                completed_at=j.completed_at.isoformat() if j.completed_at else None,
+                report_id=j.report_id,
+                error=j.error,
+                total_devices=j.total_devices,
+                processed_devices=j.processed_devices,
+                pass_count=j.pass_count,
+                fail_count=j.fail_count,
+            )
+            for j in jobs
+        ]
+
+        return JobListResponse(jobs=job_responses, total=len(job_responses))
+
+    @app.get(
+        "/inspections/jobs/{job_id}",
+        response_model=JobStatusResponse,
+        tags=["inspections"],
+        summary="Get job status",
+        responses={
+            200: {"description": "Job status"},
+            404: {"description": "Job not found"},
+        },
+    )
+    async def get_job_status(
+        job_id: str,
+        current_user: CurrentUser,
+    ) -> JobStatusResponse:
+        """
+        Get the status of an inspection job.
+
+        **Example Request**:
+        ```bash
+        curl http://localhost:8000/inspections/jobs/550e8400-e29b-41d4-a716-446655440000 \\
+          -H "Authorization: Bearer <token>"
+        ```
+        """
+        from olav.server.jobs import get_job
+
+        job = await get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        return JobStatusResponse(
+            job_id=job.job_id,
+            inspection_id=job.inspection_id,
+            status=job.status.value,
+            progress=job.progress,
+            current_device=job.current_device,
+            created_at=job.created_at.isoformat(),
+            started_at=job.started_at.isoformat() if job.started_at else None,
+            completed_at=job.completed_at.isoformat() if job.completed_at else None,
+            report_id=job.report_id,
+            error=job.error,
+            total_devices=job.total_devices,
+            processed_devices=job.processed_devices,
+            pass_count=job.pass_count,
+            fail_count=job.fail_count,
         )
 
     # ============================================
@@ -2157,8 +2472,8 @@ def create_app() -> FastAPI:
 
         **Required**: Bearer token authentication
         """
-        from pathlib import Path
         from datetime import datetime
+        from pathlib import Path
 
         docs_dir = Path("data/documents")
         documents: list[DocumentSummary] = []
@@ -2361,6 +2676,19 @@ def create_app() -> FastAPI:
             thread_id = f"invoke-{int(time.time())}"
 
         try:
+            # ===== PERMISSION: Check if viewer role trying to access expert mode =====
+            from olav.server.auth import UserRole
+            if current_user.role == UserRole.VIEWER.value and mode == "expert":
+                logger.warning(f"Viewer '{current_user.username}' attempted expert mode access via invoke")
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "error": "Permission denied",
+                        "message": "Your role (viewer) does not have access to expert mode.",
+                        "required_role": "operator or admin",
+                    }
+                )
+
             result = await orch_obj.route(user_query, thread_id, mode=mode)
             # Convert BaseMessage objects to serializable dicts
             from langchain_core.messages import BaseMessage
@@ -2372,7 +2700,7 @@ def create_app() -> FastAPI:
                     return {"role": obj.type, "content": obj.content}
                 if isinstance(obj, Interrupt):
                     # Handle LangGraph Interrupt object (HITL)
-                    return {"type": "interrupt", "value": str(obj.value) if hasattr(obj, 'value') else str(obj)}
+                    return {"type": "interrupt", "value": str(obj.value) if hasattr(obj, "value") else str(obj)}
                 if isinstance(obj, dict):
                     return {k: serialize_messages(v) for k, v in obj.items()}
                 if isinstance(obj, list):
@@ -2394,11 +2722,11 @@ def create_app() -> FastAPI:
                 "workflow_type": "query_diagnostic",
                 "result": {
                     "messages": [
-                        {"role": "assistant", "content": "暂时无法访问LLM，返回占位响应。"}
+                        {"role": "assistant", "content": "LLM temporarily unavailable, returning placeholder response."}
                     ]
                 },
                 "interrupted": False,
-                "final_message": "暂时无法访问LLM，返回占位响应。",
+                "final_message": "LLM temporarily unavailable, returning placeholder response.",
                 "error": str(e) or "",
             }
             return JSONResponse(status_code=200, content=fallback)
@@ -2406,8 +2734,9 @@ def create_app() -> FastAPI:
     # ============================================
     # Enhanced Streaming Endpoint with Thinking Events
     # ============================================
-    from fastapi.responses import StreamingResponse
     import json as json_module
+
+    from fastapi.responses import StreamingResponse
 
     class StreamEventType:
         """Stream event types for WebGUI."""
@@ -2428,7 +2757,7 @@ def create_app() -> FastAPI:
                 "description": "Server-Sent Events stream with thinking process",
                 "content": {
                     "text/event-stream": {
-                        "example": 'data: {"type": "thinking", "thinking": {"step": "hypothesis", "content": "分析 BGP 邻居状态..."}}\n\n'
+                        "example": 'data: {"type": "thinking", "thinking": {"step": "hypothesis", "content": "Analyzing BGP neighbor status..."}}\n\n'
                     }
                 },
             },
@@ -2451,11 +2780,11 @@ def create_app() -> FastAPI:
 
         **Example Event**:
         ```
-        data: {"type": "thinking", "thinking": {"step": "hypothesis", "content": "检查 BGP 会话状态..."}}
+        data: {"type": "thinking", "thinking": {"step": "hypothesis", "content": "Checking BGP session status..."}}
 
-        data: {"type": "tool_start", "tool": {"name": "suzieq_query", "display_name": "SuzieQ 查询", "args": {"table": "bgp"}}}
+        data: {"type": "tool_start", "tool": {"name": "suzieq_query", "display_name": "SuzieQ Query", "args": {"table": "bgp"}}}
 
-        data: {"type": "token", "content": "BGP 邻居状态正常"}
+        data: {"type": "token", "content": "BGP neighbor status is normal"}
 
         data: {"type": "done"}
         ```
@@ -2478,17 +2807,20 @@ def create_app() -> FastAPI:
         # Thread ID and mode from config
         thread_id = None
         mode = "standard"  # Default mode
+        yolo = False  # Default: HITL enabled
         if payload.config and payload.config.configurable:
             thread_id = payload.config.configurable.get("thread_id")
             mode = payload.config.configurable.get("mode", "standard")
+            yolo = payload.config.configurable.get("yolo", False)
         if not thread_id:
             import time
             thread_id = f"stream-{int(time.time())}"
 
-        logger.info(f"[stream/events] mode={mode}, thread_id={thread_id}, query={user_query[:50]}...")
+        logger.info(f"[stream/events] mode={mode}, thread_id={thread_id}, yolo={yolo}, query={user_query[:50]}...")
 
         # ===== GUARD: Check if query is network-related =====
-        from olav.agents.network_relevance_guard import get_network_guard, REJECTION_MESSAGE
+        from olav.agents.network_relevance_guard import REJECTION_MESSAGE, get_network_guard
+        from olav.server.auth import UserRole
 
         guard = get_network_guard()
         relevance = await guard.check(user_query)
@@ -2500,6 +2832,16 @@ def create_app() -> FastAPI:
                 yield f"data: {json_module.dumps({'type': 'message', 'content': REJECTION_MESSAGE}, ensure_ascii=False)}\n\n"
                 yield f"data: {json_module.dumps({'type': 'done'})}\n\n"
             return StreamingResponse(rejection_stream(), media_type="text/event-stream")
+
+        # ===== PERMISSION: Check if viewer role trying to access write operations =====
+        # Viewers can only use standard mode (read-only queries)
+        if current_user.role == UserRole.VIEWER.value and mode == "expert":
+            logger.warning(f"Viewer '{current_user.username}' attempted expert mode access")
+            async def permission_denied_stream():
+                msg = "⚠️ Permission denied: Your role (viewer) does not have access to expert mode. Please contact an administrator for elevated permissions."
+                yield f"data: {json_module.dumps({'type': 'message', 'content': msg}, ensure_ascii=False)}\n\n"
+                yield f"data: {json_module.dumps({'type': 'done'})}\n\n"
+            return StreamingResponse(permission_denied_stream(), media_type="text/event-stream")
 
         # Tool display names (English for international compatibility)
         tool_display_names = {
@@ -2530,12 +2872,20 @@ def create_app() -> FastAPI:
             - Token-by-token response streaming
             - Tool call/result events
             """
-            from langchain_core.messages import HumanMessage
             import time as time_module
+
+            from config.settings import settings
+            from langchain_core.messages import HumanMessage
 
             seen_tool_ids = set()
             tool_start_times = {}
             final_content_emitted = False
+
+            # Temporarily override YOLO_MODE if yolo parameter is passed
+            original_yolo_mode = settings.yolo_mode
+            if yolo:
+                settings.yolo_mode = True
+                logger.info("[stream/events] YOLO mode enabled - skipping HITL approvals")
 
             try:
                 # Choose execution graph based on mode
@@ -2564,12 +2914,31 @@ def create_app() -> FastAPI:
                 # Use astream_events for token-level streaming
                 content_buffer = ""  # Buffer to detect JSON vs natural language
 
+                # Nodes whose LLM output should be streamed to client
+                # Other nodes (macro_analysis, self_evaluation) are internal processing
+                streamable_nodes = {
+                    "final_answer",       # QueryDiagnosticWorkflow final output
+                    "route_to_workflow",  # Root orchestrator (Standard Mode fast_path)
+                    "supervisor",         # SupervisorDrivenWorkflow supervisor output
+                    "synthesize",         # Expert mode final synthesis
+                    None,                 # Top-level graph events (Standard Mode)
+                }
+
+                # Track current node from metadata
+                current_node = None
+
                 async for event in stream_graph.astream_events(
                     initial_input,
                     config=config,
                     version="v2",
                 ):
                     event_type = event.get("event", "")
+
+                    # Extract current node from metadata
+                    metadata = event.get("metadata", {})
+                    node_name = metadata.get("langgraph_node")
+                    if node_name:
+                        current_node = node_name
 
                     # LLM Token streaming (includes reasoning_content)
                     if event_type == "on_chat_model_stream":
@@ -2581,10 +2950,14 @@ def create_app() -> FastAPI:
                                 # Buffer content to detect if it's JSON (internal agent output)
                                 content_buffer += content
 
-                                # Only emit token if it doesn't look like JSON start
-                                # JSON outputs from internal agents start with { or [
+                                # Only emit token if:
+                                # 1. It doesn't look like JSON (internal agent output)
+                                # 2. Current node is in streamable_nodes (filter internal processing nodes)
                                 stripped = content_buffer.strip()
-                                if not (stripped.startswith("{") or stripped.startswith("[")):
+                                is_json = stripped.startswith(("{" , "["))
+                                is_streamable_node = current_node in streamable_nodes
+
+                                if not is_json and is_streamable_node:
                                     token_event = {
                                         "type": "token",
                                         "content": content,
@@ -2653,14 +3026,33 @@ def create_app() -> FastAPI:
 
                     # Chain/graph events for final message extraction
                     elif event_type == "on_chain_end":
+                        # Get node name from event
+                        event_name = event.get("name", "")
+                        chain_node = metadata.get("langgraph_node")
+
+                        # Only process final output from top-level graph or final_answer node
+                        # This prevents intermediate nodes from sending duplicate messages
+                        is_final_output = (
+                            event_name == "LangGraph" or chain_node in {"final_answer", "route_to_workflow"}  # Orchestrator output
+                        )
+
+                        if not is_final_output:
+                            continue
+
                         # Check for final output with messages
                         output = event.get("data", {}).get("output", {})
 
-                        # Check for interrupt
+                        # Check for interrupt (HITL required)
                         if isinstance(output, dict) and output.get("interrupted"):
+                            # HITL info is now directly in output from route_to_workflow
                             interrupt_event = {
                                 "type": "interrupt",
+                                "hitl_required": output.get("hitl_required", False),
+                                "tool_name": output.get("tool_name"),
+                                "hitl_operation": output.get("hitl_operation"),
+                                "hitl_parameters": output.get("hitl_parameters"),
                                 "execution_plan": output.get("execution_plan"),
+                                "message": output.get("hitl_message"),
                             }
                             yield f"data: {json_module.dumps(interrupt_event, ensure_ascii=False)}\n\n"
 
@@ -2696,6 +3088,9 @@ def create_app() -> FastAPI:
                     }
                 }
                 yield f"data: {json_module.dumps(error_event, ensure_ascii=False)}\n\n"
+            finally:
+                # Restore original YOLO_MODE
+                settings.yolo_mode = original_yolo_mode
 
         return StreamingResponse(
             event_stream(),
@@ -2706,18 +3101,6 @@ def create_app() -> FastAPI:
                 "X-Accel-Buffering": "no",  # Disable nginx buffering
             },
         )
-
-    # ============================================
-    # Mount Gradio WebGUI at /ui
-    # ============================================
-    try:
-        from olav.ui import mount_to_fastapi
-        app = mount_to_fastapi(app)
-        logger.info("✅ Gradio WebGUI mounted at /ui")
-    except ImportError as e:
-        logger.warning(f"⚠️ Gradio UI not available (missing gradio package): {e}")
-    except Exception as e:
-        logger.error(f"❌ Failed to mount Gradio UI: {e}")
 
     return app
 

@@ -5,13 +5,13 @@
 Supervisor-Driven Deep Dive Workflow
 
 This is a simplified refactoring of the original deep_dive.py that:
-1. Removes static Checklist YAML (过度工程)
+1. Removes static Checklist YAML (over-engineering)
 2. Uses Supervisor to dynamically generate check tasks
 3. Tracks L1-L4 confidence with code-enforced structure
 4. Quick Analyzer uses ReAct with SuzieQ tools
 
 Architecture:
-    告警/查询 → Supervisor (跟踪 L1-L4 置信度) ↔ Quick Analyzer (ReAct)
+    Alert/Query → Supervisor (tracks L1-L4 confidence) ↔ Quick Analyzer (ReAct)
 
 Key Design Decisions:
 - No static checklists - Supervisor dynamically decides what to check
@@ -24,8 +24,10 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
+import yaml
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
@@ -38,42 +40,41 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Constants
+# Constants - Loaded from config/prompts/contexts/osi_layers.yaml
 # =============================================================================
 
-NETWORK_LAYERS = ("L1", "L2", "L3", "L4")
 
-LAYER_INFO = {
-    "L1": {
-        "name": "Physical Layer",
-        "description": "接口状态、错误计数、链路状态、线缆",
-        "suzieq_tables": ["interfaces", "device"],
-        "keywords": ["接口", "interface", "link", "down", "up", "cable", "物理"],
-    },
-    "L2": {
-        "name": "Data Link Layer",
-        "description": "VLAN、MAC 表、STP、LLDP 邻居",
-        "suzieq_tables": ["vlan", "macs", "lldp", "stp"],
-        "keywords": ["vlan", "mac", "stp", "lldp", "二层", "交换"],
-    },
-    "L3": {
-        "name": "Network Layer",
-        "description": "IP 地址、路由表、BGP/OSPF、ARP",
-        "suzieq_tables": ["routes", "bgp", "ospf", "arpnd", "address"],
-        "keywords": ["route", "路由", "bgp", "ospf", "arp", "ip", "三层", "网络层"],
-    },
-    "L4": {
-        "name": "Transport Layer",
-        "description": "TCP/UDP 连接、会话状态、NAT",
-        "suzieq_tables": [],  # Limited SuzieQ coverage
-        "keywords": ["tcp", "udp", "session", "nat", "四层", "传输层"],
-    },
-}
+def _load_osi_layer_config() -> dict[str, Any]:
+    """Load OSI layer configuration from YAML file.
+
+    Returns:
+        Dict containing layers, thresholds, and layer_order configuration.
+    """
+    # Resolve config path relative to project root
+    config_path = Path(__file__).parents[3] / "config" / "prompts" / "contexts" / "osi_layers.yaml"
+
+    if not config_path.exists():
+        logger.warning(f"OSI layer config not found at {config_path}, using defaults")
+        return {}
+
+    with config_path.open(encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+# Load configuration at module level (cached)
+_OSI_CONFIG = _load_osi_layer_config()
+
+# Network layer identifiers
+NETWORK_LAYERS = tuple(_OSI_CONFIG.get("layer_order", ["L1", "L2", "L3", "L4"]))
+
+# Layer metadata (name, description, suzieq_tables, keywords)
+LAYER_INFO = _OSI_CONFIG.get("layers", {})
 
 # Confidence thresholds
-MIN_ACCEPTABLE_CONFIDENCE = 0.5  # 50% minimum
-SUZIEQ_MAX_CONFIDENCE = 0.60  # Historical data cap
-REALTIME_CONFIDENCE = 0.95  # CLI/NETCONF verification
+_THRESHOLDS = _OSI_CONFIG.get("thresholds", {})
+MIN_ACCEPTABLE_CONFIDENCE = _THRESHOLDS.get("min_acceptable_confidence", 0.5)
+SUZIEQ_MAX_CONFIDENCE = _THRESHOLDS.get("suzieq_max_confidence", 0.60)
+REALTIME_CONFIDENCE = _THRESHOLDS.get("realtime_confidence", 0.95)
 
 
 # =============================================================================
@@ -93,7 +94,7 @@ class LayerStatus:
         confidence: float = 0.0,
         findings: list[str] | None = None,
         last_checked: str | None = None,
-    ):
+    ) -> None:
         self.checked = checked
         self.confidence = confidence
         self.findings = findings or []
@@ -116,7 +117,7 @@ class LayerStatus:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "LayerStatus":
+    def from_dict(cls, data: dict[str, Any]) -> LayerStatus:
         return cls(
             checked=data.get("checked", False),
             confidence=data.get("confidence", 0.0),
@@ -147,10 +148,10 @@ class SupervisorDrivenState(dict):
         root_cause: Description of root cause
         final_report: Final diagnosis report
 
-        Round 0 Context (Supervisor使用RAG和Syslog缩小故障范围):
+        Round 0 Context (Supervisor uses RAG and Syslog to narrow fault scope):
         similar_cases: Historical cases from KB (Agentic RAG)
         syslog_events: Related syslog events (fault trigger identification)
-        priority_layer: Layer suggested by KB/Syslog analysis (优先调查层)
+        priority_layer: Layer suggested by KB/Syslog analysis (priority investigation layer)
     """
 
     # Type annotations for LangGraph
@@ -165,7 +166,7 @@ class SupervisorDrivenState(dict):
     root_cause_found: bool
     root_cause: str | None
     final_report: str | None
-    # Round 0 Context (Supervisor决策依据)
+    # Round 0 Context (Supervisor decision basis)
     similar_cases: list[dict[str, Any]]  # KB search results
     syslog_events: list[dict[str, Any]]  # Syslog search results
     priority_layer: str | None  # Layer suggested by KB/Syslog
@@ -298,7 +299,7 @@ def should_continue_investigation(state: SupervisorDrivenState) -> bool:
 async def supervisor_node(state: SupervisorDrivenState) -> dict:
     """Supervisor: Analyze KB/Syslog for context, then assign check tasks.
 
-    Round 0 Strategy (缩小故障范围):
+    Round 0 Strategy (narrow fault scope):
     1. Query KB for similar historical cases (Agentic RAG)
     2. Query Syslog for recent fault events (trigger identification)
     3. Use KB/Syslog results to suggest priority_layer
@@ -543,20 +544,19 @@ async def quick_analyzer_node(state: SupervisorDrivenState) -> dict:
         return {"messages": [AIMessage(content="No task to execute.")]}
 
     # Get SuzieQ tools for historical analysis (Quick Analyzer - 60% confidence cap)
-    from olav.tools.suzieq_parquet_tool import suzieq_query, suzieq_schema_search
+    # Get Nornir tools for real-time verification (CLI/NETCONF - 95% confidence)
+    from olav.tools.nornir_tool import cli_show, netconf_get
     from olav.tools.suzieq_analyzer_tool import (
         suzieq_health_check,
         suzieq_path_trace,
         suzieq_topology_analyze,
     )
+    from olav.tools.suzieq_parquet_tool import suzieq_query, suzieq_schema_search
 
-    # Get Nornir tools for real-time verification (CLI/NETCONF - 95% confidence)
-    from olav.tools.nornir_tool import cli_show, netconf_get
-
-    # Quick Analyzer工具策略:
-    # - SuzieQ: 宏观历史数据分析 (60%置信度上限)
-    # - Nornir: 实时设备数据验证 (95%置信度)
-    # - KB/Syslog: 由Supervisor在Round 0使用，不在Quick Analyzer中
+    # Quick Analyzer Tool Strategy:
+    # - SuzieQ: Macro historical data analysis (60% confidence cap)
+    # - Nornir: Real-time device data verification (95% confidence)
+    # - KB/Syslog: Used by Supervisor in Round 0, not in Quick Analyzer
     tools = [
         # Tier 1: SuzieQ - Historical data, fast, 60% confidence cap
         suzieq_schema_search,
@@ -585,7 +585,7 @@ async def quick_analyzer_node(state: SupervisorDrivenState) -> dict:
         # Fallback prompt with funnel debugging guidance
         system_prompt = f"""You are a network Quick Analyzer investigating {current_layer}.
 
-## Funnel Debugging (漏斗式排错)
+## Funnel Debugging
 You have TWO tiers of tools:
 
 **Tier 1: SuzieQ (Historical Data, Fast, 60% Confidence Cap)**
@@ -1080,23 +1080,23 @@ from olav.workflows.registry import WorkflowRegistry
 
 @WorkflowRegistry.register(
     name="supervisor_driven_deep_dive",
-    description="智能深度诊断：Supervisor 跟踪 L1-L4 置信度，Quick Analyzer 使用 ReAct 执行检查",
+    description="Intelligent deep diagnostics: Supervisor tracks L1-L4 confidence, Quick Analyzer uses ReAct for checks",
     examples=[
-        "深入分析 R1 为什么 BGP down",
-        "诊断 SW1 SW2 之间的丢包原因",
-        "排查网络故障的根本原因",
-        "L1 到 L4 全层诊断",
-        "接口错误率很高，帮我分析原因",
-        "智能排错：路由抖动",
-        "追踪问题根因",
+        "Deep analyze why R1 BGP is down",
+        "Diagnose packet loss between SW1 and SW2",
+        "Troubleshoot the root cause of network failure",
+        "L1 to L4 full-layer diagnosis",
+        "Interface error rate is high, help analyze the cause",
+        "Intelligent troubleshooting: route flapping",
+        "Trace the root cause",
     ],
     triggers=[
-        r"深入.*分析",
-        r"根本.*原因|根因",
-        r"排查.*故障",
-        r"智能.*诊断|智能.*排错",
-        r"L[1-4].*诊断",
-        r"全层.*检查",
+        r"deep.*analyz",
+        r"root.*cause",
+        r"troubleshoot.*fault",
+        r"intelligent.*diagnos",
+        r"L[1-4].*diagnos",
+        r"full.*layer.*check",
     ],
 )
 class SupervisorDrivenWorkflow(BaseWorkflow):
@@ -1111,7 +1111,7 @@ class SupervisorDrivenWorkflow(BaseWorkflow):
     - Terminates when all layers have sufficient confidence or max rounds reached
     """
 
-    def __init__(self, checkpointer=None):
+    def __init__(self, checkpointer=None) -> None:
         self.checkpointer = checkpointer
         self._graph = None
 
@@ -1121,7 +1121,7 @@ class SupervisorDrivenWorkflow(BaseWorkflow):
 
     @property
     def description(self) -> str:
-        return "智能深度诊断 (Supervisor + Quick Analyzer)"
+        return "Intelligent deep diagnostics (Supervisor + Quick Analyzer)"
 
     @property
     def tools_required(self) -> list[str]:
@@ -1160,12 +1160,10 @@ class SupervisorDrivenWorkflow(BaseWorkflow):
 
         # Check for diagnostic keywords
         diagnostic_keywords = [
-            # Chinese
-            "为什么", "诊断", "排查", "分析", "检查", "问题",
-            "故障", "异常", "不通", "不工作", "失败", "慢",
             # English
             "why", "diagnose", "analyze", "check", "problem",
-            "issue", "fail", "slow", "down", "not working"
+            "issue", "fail", "slow", "down", "not working",
+            "troubleshoot", "fault", "error", "root cause",
         ]
 
         query_lower = user_query.lower()
@@ -1209,8 +1207,7 @@ class SupervisorDrivenWorkflow(BaseWorkflow):
         if "thread_id" in kwargs:
             config["configurable"] = {"thread_id": kwargs["thread_id"]}
 
-        result = await graph.ainvoke(initial_state, config)
-        return result
+        return await graph.ainvoke(initial_state, config)
 
 
 def create_parallel_supervisor_workflow(checkpointer=None):
@@ -1320,28 +1317,28 @@ def create_parallel_supervisor_workflow(checkpointer=None):
 # =============================================================================
 
 __all__ = [
-    # Constants
-    "NETWORK_LAYERS",
     "LAYER_INFO",
     "MIN_ACCEPTABLE_CONFIDENCE",
+    # Constants
+    "NETWORK_LAYERS",
     "SUZIEQ_MAX_CONFIDENCE",
     # State
     "LayerStatus",
     "SupervisorDrivenState",
+    "SupervisorDrivenWorkflow",
+    "aggregator_node",
     "create_initial_state",
+    "create_parallel_supervisor_workflow",
+    # Workflow
+    "create_supervisor_driven_workflow",
+    "device_inspector_node",
     # Helpers
     "get_confidence_gaps",
     "get_coverage_summary",
+    "parallel_device_inspection_node",
+    "quick_analyzer_node",
+    "report_generator_node",
     "should_continue_investigation",
     # Nodes
     "supervisor_node",
-    "quick_analyzer_node",
-    "report_generator_node",
-    "parallel_device_inspection_node",
-    "device_inspector_node",
-    "aggregator_node",
-    # Workflow
-    "create_supervisor_driven_workflow",
-    "create_parallel_supervisor_workflow",
-    "SupervisorDrivenWorkflow",
 ]

@@ -10,47 +10,48 @@ logger = logging.getLogger(__name__)
 def test_llm_connection():
     """Test basic LLM connection."""
     try:
-        from olav.core.llm import LLMFactory
-        from olav.core.settings import settings
         from config.settings import LLMConfig
-        
+
+        from olav.core.llm import LLMFactory
+        from config.settings import settings
+
         logger.info("\n" + "=" * 80)
         logger.info("🧪 测试 LLM 连接 (OpenRouter API)")
         logger.info("=" * 80)
-        
+
         # Show configuration
-        logger.info(f"\n📋 配置信息:")
+        logger.info("\n📋 配置信息:")
         logger.info(f"  Provider: {settings.llm_provider}")
         logger.info(f"  Model: {settings.llm_model_name}")
         logger.info(f"  Base URL: {LLMConfig.BASE_URL}")
         logger.info(f"  API Key: {settings.llm_api_key[:20]}...{settings.llm_api_key[-10:]}")
         logger.info(f"  API Key 长度: {len(settings.llm_api_key)}")
-        
+
         # Create model
-        logger.info(f"\n🔧 创建 LLM 实例...")
+        logger.info("\n🔧 创建 LLM 实例...")
         model = LLMFactory.get_chat_model()
-        logger.info(f"✓ 模型创建成功")
+        logger.info("✓ 模型创建成功")
         logger.info(f"  类型: {type(model).__name__}")
         logger.info(f"  模型名称: {model.model_name}")
-        
+
         # Test simple invocation
-        logger.info(f"\n📞 测试简单调用...")
+        logger.info("\n📞 测试简单调用...")
         from langchain_core.messages import HumanMessage
-        
+
         response = model.invoke([
             HumanMessage(content="请用一句话回复：你是谁？")
         ])
-        
-        logger.info(f"✓ 调用成功")
+
+        logger.info("✓ 调用成功")
         logger.info(f"  响应: {response.content}")
         logger.info(f"  Token 使用: {response.response_metadata.get('token_usage', {})}")
-        
+
         logger.info("\n" + "=" * 80)
         logger.info("✅ LLM 连接测试通过！")
         logger.info("=" * 80)
-        
+
         return True
-        
+
     except Exception as e:
         logger.error(f"\n❌ LLM 连接失败: {e}", exc_info=True)
         logger.info("\n💡 排查步骤:")

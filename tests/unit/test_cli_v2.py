@@ -6,10 +6,10 @@ Tests:
 - commands: CLI command structure
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from io import StringIO
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from rich.console import Console
 
 
@@ -18,77 +18,77 @@ from rich.console import Console
 # ============================================
 class TestSSEParser:
     """Test SSE event parsing."""
-    
+
     def test_parse_simple_event(self):
         """Test parsing a simple SSE event."""
         from olav.cli.thin_client import SSEParser, StreamEventType
-        
+
         parser = SSEParser()
-        
+
         # First line: event type
         result = parser.parse_line("event: token")
         assert result is None  # Not complete yet
-        
+
         # Second line: data
         result = parser.parse_line('data: {"content": "hello"}')
         assert result is not None
         assert result.type == StreamEventType.TOKEN
         assert result.data["content"] == "hello"
-    
+
     def test_parse_thinking_event(self):
         """Test parsing thinking event."""
         from olav.cli.thin_client import SSEParser, StreamEventType
-        
+
         parser = SSEParser()
-        
+
         parser.parse_line("event: thinking")
         result = parser.parse_line('data: {"text": "Analyzing BGP..."}')
-        
+
         assert result.type == StreamEventType.THINKING
         assert result.data["text"] == "Analyzing BGP..."
-    
+
     def test_parse_tool_call_event(self):
         """Test parsing tool_start event (tool invocation)."""
         from olav.cli.thin_client import SSEParser, StreamEventType
-        
+
         parser = SSEParser()
-        
+
         parser.parse_line("event: tool_start")
         result = parser.parse_line('data: {"name": "suzieq_query", "args": {"table": "bgp"}}')
-        
+
         assert result.type == StreamEventType.TOOL_START
         assert result.data["name"] == "suzieq_query"
         assert result.data["args"]["table"] == "bgp"
-    
+
     def test_parse_hitl_interrupt(self):
         """Test parsing HITL interrupt event."""
         from olav.cli.thin_client import SSEParser, StreamEventType
-        
+
         parser = SSEParser()
-        
+
         parser.parse_line("event: interrupt")
         result = parser.parse_line('data: {"workflow_type": "DEEP_DIVE", "risk_level": "high"}')
-        
+
         assert result.type == StreamEventType.INTERRUPT
         assert result.data["workflow_type"] == "DEEP_DIVE"
-    
+
     def test_parse_empty_line(self):
         """Test parsing empty line returns None."""
         from olav.cli.thin_client import SSEParser
-        
+
         parser = SSEParser()
         result = parser.parse_line("")
         assert result is None
-    
+
     def test_parse_unknown_event_type(self):
         """Test parsing unknown event type defaults to MESSAGE."""
         from olav.cli.thin_client import SSEParser, StreamEventType
-        
+
         parser = SSEParser()
-        
+
         parser.parse_line("event: unknown_type")
         result = parser.parse_line('data: {"foo": "bar"}')
-        
+
         assert result.type == StreamEventType.MESSAGE
 
 
@@ -97,25 +97,25 @@ class TestSSEParser:
 # ============================================
 class TestClientConfig:
     """Test client configuration."""
-    
+
     def test_from_env_default(self):
         """Test loading config from environment with defaults."""
         from olav.cli.thin_client import ClientConfig
-        
+
         config = ClientConfig.from_env()
-        
+
         assert config.server_url == "http://localhost:8000"
         assert config.timeout == 300.0
-    
+
     def test_from_env_custom(self, monkeypatch):
         """Test loading config from custom environment."""
         from olav.cli.thin_client import ClientConfig
-        
+
         monkeypatch.setenv("OLAV_SERVER_URL", "http://prod:9000")
         monkeypatch.setenv("OLAV_TIMEOUT", "600")
-        
+
         config = ClientConfig.from_env()
-        
+
         assert config.server_url == "http://prod:9000"
         assert config.timeout == 600.0
 
@@ -125,14 +125,14 @@ class TestClientConfig:
 # ============================================
 class TestOlavThinClient:
     """Test thin HTTP client."""
-    
+
     @pytest.mark.asyncio
     async def test_health_check(self):
         """Test health check endpoint."""
         from olav.cli.thin_client import ClientConfig, OlavThinClient
-        
+
         config = ClientConfig(server_url="http://test:8000")
-        
+
         # Mock httpx client
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
@@ -148,30 +148,30 @@ class TestOlavThinClient:
                 raise_for_status=lambda: None,
             ))
             mock_client_class.return_value = mock_client
-            
+
             client = OlavThinClient(config)
             client._client = mock_client
-            
+
             health = await client.health()
-            
+
             assert health.status == "healthy"
             assert health.version == "1.0.0"
-    
+
     @pytest.mark.asyncio
     async def test_context_manager(self):
         """Test async context manager."""
         from olav.cli.thin_client import ClientConfig, OlavThinClient
-        
+
         config = ClientConfig(server_url="http://test:8000")
-        
+
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_instance = AsyncMock()
             mock_instance.aclose = AsyncMock()
             mock_client_class.return_value = mock_instance
-            
+
             async with OlavThinClient(config) as client:
                 assert client._client is not None
-            
+
             # Should close after exit
             mock_instance.aclose.assert_called_once()
 
@@ -181,57 +181,57 @@ class TestOlavThinClient:
 # ============================================
 class TestThinkingTree:
     """Test ThinkingTree display component."""
-    
+
     def test_add_thinking_step(self):
         """Test adding thinking steps."""
         from olav.cli.display import ThinkingTree
-        
+
         console = Console(file=StringIO(), force_terminal=True)
         tree = ThinkingTree(console)
-        
+
         tree.add_thinking("Analyzing query...")
-        
+
         # Tree should have the step
         assert len(tree.tree.children) == 1
-    
+
     def test_add_tool_call(self):
         """Test adding tool call."""
         from olav.cli.display import ThinkingTree
-        
+
         console = Console(file=StringIO(), force_terminal=True)
         tree = ThinkingTree(console)
-        
+
         tree.add_tool_call("suzieq_query", {"table": "bgp"})
-        
+
         assert "suzieq_query" in tree.tool_nodes
         assert len(tree.tree.children) == 1
-    
+
     def test_mark_tool_complete(self):
         """Test marking tool as complete."""
         from olav.cli.display import ThinkingTree
-        
+
         console = Console(file=StringIO(), force_terminal=True)
         tree = ThinkingTree(console)
-        
+
         tree.add_tool_call("suzieq_query", {"table": "bgp"})
         tree.mark_tool_complete("suzieq_query", success=True)
-        
+
         # Tool should be marked complete
         assert "suzieq_query" in tree.tool_nodes
 
 
 class TestHITLPanel:
     """Test HITL panel component."""
-    
+
     def test_display_request(self):
         """Test displaying HITL request."""
         from olav.cli.display import HITLPanel
         from olav.cli.thin_client import HITLRequest
-        
+
         output = StringIO()
         console = Console(file=output, force_terminal=True)
         panel = HITLPanel(console)
-        
+
         request = HITLRequest(
             plan_id="test-123",
             workflow_type="DEEP_DIVE",
@@ -241,21 +241,21 @@ class TestHITLPanel:
             risk_level="high",
             reasoning="Need to isolate faulty link",
         )
-        
+
         panel.display(request)
-        
+
         rendered = output.getvalue()
         assert "HITL" in rendered or "审批" in rendered
-    
+
     def test_display_execution_plan(self):
         """Test displaying execution plan."""
         from olav.cli.display import HITLPanel
         from olav.cli.thin_client import HITLRequest
-        
+
         output = StringIO()
         console = Console(file=output, force_terminal=True)
         panel = HITLPanel(console)
-        
+
         request = HITLRequest(
             plan_id="test-123",
             workflow_type="DEEP_DIVE",
@@ -276,57 +276,57 @@ class TestHITLPanel:
                 {"id": 3, "task": "Check VPN"},
             ],
         )
-        
+
         panel.display_execution_plan(request)
-        
+
         rendered = output.getvalue()
         assert "执行计划" in rendered or "Plan" in rendered
 
 
 class TestResultRenderer:
     """Test result rendering component."""
-    
+
     def test_render_message(self):
         """Test rendering assistant message."""
         from olav.cli.display import ResultRenderer
-        
+
         output = StringIO()
         console = Console(file=output, force_terminal=True)
         renderer = ResultRenderer(console)
-        
+
         renderer.render_message("Hello, I found 3 BGP issues.", role="assistant")
-        
+
         rendered = output.getvalue()
         assert "OLAV" in rendered or "Hello" in rendered
-    
+
     def test_render_table(self):
         """Test rendering data table."""
         from olav.cli.display import ResultRenderer
-        
+
         output = StringIO()
         console = Console(file=output, force_terminal=True)
         renderer = ResultRenderer(console)
-        
+
         data = [
             {"device": "R1", "state": "Established"},
             {"device": "R2", "state": "NotEstablished"},
         ]
-        
+
         renderer.render_table(data, title="BGP Neighbors")
-        
+
         rendered = output.getvalue()
         assert "R1" in rendered or "device" in rendered
-    
+
     def test_render_error(self):
         """Test rendering error message."""
         from olav.cli.display import ResultRenderer
-        
+
         output = StringIO()
         console = Console(file=output, force_terminal=True)
         renderer = ResultRenderer(console)
-        
+
         renderer.render_error("Connection failed", details="Timeout after 30s")
-        
+
         rendered = output.getvalue()
         assert "错误" in rendered or "Error" in rendered
 
@@ -336,39 +336,40 @@ class TestResultRenderer:
 # ============================================
 class TestCLICommands:
     """Test CLI command structure."""
-    
+
     def test_app_exists(self):
         """Test CLI app is properly defined."""
         from olav.cli.commands import app
-        
+
         assert app is not None
         assert app.info.name == "olav"
-    
+
     def test_query_command_exists(self):
-        """Test query command is registered."""
+        """Test core commands are registered."""
         from olav.cli.commands import app
-        
-        # Typer stores command info differently - check the callback name
-        # registered_commands contains TyperInfo objects with callback attribute
+
+        # Check core commands that should exist
         command_names = []
         for cmd in app.registered_commands:
             if cmd.callback is not None:
                 command_names.append(cmd.callback.__name__)
-        assert "query" in command_names
-    
+        # Core commands (status merged into doctor, banner merged into version)
+        assert "version" in command_names
+        assert "doctor" in command_names
+
     def test_inspect_subcommand_exists(self):
         """Test inspect subcommand group exists."""
         from olav.cli.commands import inspect_app
-        
+
         assert inspect_app is not None
         command_names = [cmd.name for cmd in inspect_app.registered_commands]
         assert "list" in command_names
         assert "run" in command_names
-    
+
     def test_doc_subcommand_exists(self):
         """Test doc subcommand group exists."""
         from olav.cli.commands import doc_app
-        
+
         assert doc_app is not None
         command_names = [cmd.name for cmd in doc_app.registered_commands]
         assert "list" in command_names
@@ -381,21 +382,20 @@ class TestCLICommands:
 # ============================================
 class TestIntegration:
     """Integration tests with mocked server."""
-    
+
     @pytest.mark.asyncio
     async def test_chat_stream_flow(self):
         """Test complete chat streaming flow."""
         from olav.cli.thin_client import (
             ClientConfig,
             OlavThinClient,
-            StreamEventType,
         )
-        
+
         # This would require a mock HTTP server
         # For now, just verify the interface
         config = ClientConfig(server_url="http://localhost:8000")
         client = OlavThinClient(config)
-        
+
         # Verify method exists and has correct signature
         assert hasattr(client, "chat_stream")
         assert callable(client.chat_stream)
@@ -745,13 +745,19 @@ class TestDashboardCommands:
 
         assert "dashboard" in command_names
 
-    def test_banner_command_exists(self):
-        """Test banner command is registered."""
+    def test_version_command_has_banner_option(self):
+        """Test version command includes banner option (banner command merged into version)."""
         from olav.cli.commands import app
 
-        command_names = []
+        # Find version command
+        version_cmd = None
         for cmd in app.registered_commands:
-            if cmd.callback is not None:
-                command_names.append(cmd.callback.__name__)
+            if cmd.callback is not None and cmd.callback.__name__ == "version":
+                version_cmd = cmd
+                break
 
-        assert "banner" in command_names
+        assert version_cmd is not None, "version command should exist"
+        # Check that it has --banner option by looking at the function signature
+        import inspect
+        sig = inspect.signature(version_cmd.callback)
+        assert "banner" in sig.parameters, "version command should have --banner option"

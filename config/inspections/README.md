@@ -29,6 +29,7 @@ Each inspection config follows this structure:
 ```yaml
 name: inspection_job_name           # Unique identifier
 description: Human-readable purpose
+type: device-check                  # Inspection type (see below)
 
 # Device Selection (choose ONE)
 devices:
@@ -70,6 +71,17 @@ output_format: table                # table|json|yaml|html
 ```
 
 ## Field Reference
+
+### Inspection Type
+
+The `type` field determines which executor handles the inspection:
+
+| Type | Description | Executor |
+|------|-------------|----------|
+| `device-check` | Device-based SuzieQ inspections (default) | `InspectionModeController` |
+| `log-summary` | OpenSearch syslog aggregation and analysis | `LogSummaryExecutor` |
+
+If `type` is omitted, defaults to `device-check`.
 
 ### Device Selection
 

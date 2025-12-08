@@ -12,7 +12,7 @@ Tool Chain:
 - NetBoxReconciler (sync actions)
 
 Workflow:
-    User Query ("巡检", "检查同步", "对比NetBox")
+    User Query ("inspection", "check sync", "compare NetBox")
     ↓
     [Scope Detection] → Parse device scope from query
     ↓
@@ -73,27 +73,25 @@ class InspectionState(BaseWorkflowState):
 
 @WorkflowRegistry.register(
     name="inspection",
-    description="网络巡检与 NetBox 同步检查（SuzieQ 采集 → NetBox 对比 → 差异报告 → 自动修正/HITL 审批）",
+    description="Network inspection with NetBox sync (SuzieQ collection → NetBox comparison → Diff report → Auto-correct/HITL approval)",
     examples=[
-        "巡检所有核心路由器",
-        "检查 R1 R2 的接口状态与 NetBox 是否同步",
-        "对比 NetBox 设备清单与实际网络状态",
-        "检查 IP 地址分配是否一致",
-        "同步 SW1 的接口信息到 NetBox",
-        "网络健康检查",
-        "执行每日巡检",
-        "检查 NetBox 与 SuzieQ 的数据差异",
+        "Inspect all core routers",
+        "Check if R1 R2 interface status is in sync with NetBox",
+        "Compare NetBox device inventory with actual network state",
+        "Check IP address allocation consistency",
+        "Sync SW1 interface information to NetBox",
+        "Network health check",
+        "Run daily inspection",
+        "Check data differences between NetBox and SuzieQ",
     ],
     triggers=[
-        r"巡检",
         r"inspection",
-        r"同步.*netbox",
-        r"netbox.*同步",
-        r"对比.*netbox",
-        r"netbox.*对比",
+        r"sync.*netbox",
+        r"netbox.*sync",
+        r"compare.*netbox",
+        r"netbox.*compare",
         r"diff",
         r"reconcil",
-        r"健康检查",
         r"health.*check",
     ],
 )
@@ -117,7 +115,7 @@ class InspectionWorkflow(BaseWorkflow):
 
     @property
     def description(self) -> str:
-        return "网络巡检与 NetBox SSOT 同步检查"
+        return "Network inspection with NetBox SSOT sync check"
 
     @property
     def tools_required(self) -> list[str]:
@@ -134,23 +132,20 @@ class InspectionWorkflow(BaseWorkflow):
 
         # Match inspection keywords
         inspection_keywords = [
-            "巡检",
+            "inspect",
             "inspection",
-            "同步",
             "sync",
-            "对比",
             "compare",
             "diff",
             "reconcil",
-            "健康检查",
             "health check",
             "netbox",
         ]
 
         if any(kw in query_lower for kw in inspection_keywords):
-            return True, "匹配巡检/同步关键词"
+            return True, "Matched inspection/sync keywords"
 
-        return False, "未匹配巡检关键词"
+        return False, "Did not match inspection keywords"
 
     def build_graph(self, checkpointer: BaseCheckpointSaver | None = None) -> StateGraph:
         """Build LangGraph for inspection workflow."""
@@ -301,7 +296,7 @@ class InspectionWorkflow(BaseWorkflow):
             logger.error(f"DiffEngine comparison failed: {e}")
             return {
                 "diff_report": None,
-                "messages": state["messages"] + [AIMessage(content=f"❌ 数据对比失败: {e!s}")],
+                "messages": state["messages"] + [AIMessage(content=f"❌ Data comparison failed: {e!s}")],
             }
 
     async def _generate_report(self, state: InspectionState) -> dict[str, Any]:
@@ -331,7 +326,7 @@ class InspectionWorkflow(BaseWorkflow):
 
         return {
             "messages": state["messages"]
-            + [AIMessage(content=f"📋 **巡检报告生成完成**\n\n{markdown_report}")],
+            + [AIMessage(content=f"📋 **Inspection report generated**\n\n{markdown_report}")],
         }
 
     async def _hitl_approval(self, state: InspectionState) -> dict[str, Any]:
@@ -339,7 +334,7 @@ class InspectionWorkflow(BaseWorkflow):
 
         Uses LangGraph interrupt to pause and wait for user approval.
         """
-        from config.settings import AgentConfig
+        from config.settings import settings
         from langgraph.types import interrupt
 
         diff_report_dict = state.get("diff_report")
@@ -363,7 +358,7 @@ class InspectionWorkflow(BaseWorkflow):
             }
 
         # YOLO mode: auto-approve
-        if AgentConfig.YOLO_MODE and user_approval is None:
+        if settings.yolo_mode and user_approval is None:
             logger.info("[YOLO] Auto-approving inspection sync...")
             return {
                 "user_approval": "approved",
@@ -381,12 +376,12 @@ class InspectionWorkflow(BaseWorkflow):
         summary = diff_report_dict.get("summary_by_severity", {})
 
         approval_message = (
-            f"🔍 **巡检发现 {mismatched} 处差异需要同步**\n\n"
-            f"- 严重: {summary.get('critical', 0)}\n"
-            f"- 警告: {summary.get('warning', 0)}\n"
-            f"- 信息: {summary.get('info', 0)}\n\n"
-            f"是否将网络状态同步到 NetBox？\n"
-            f"输入 Y 确认执行, N 取消:"
+            f"🔍 **Inspection found {mismatched} differences requiring sync**\n\n"
+            f"- Critical: {summary.get('critical', 0)}\n"
+            f"- Warning: {summary.get('warning', 0)}\n"
+            f"- Info: {summary.get('info', 0)}\n\n"
+            f"Sync network state to NetBox?\n"
+            f"Enter Y to confirm, N to cancel:"
         )
 
         approval_response = interrupt(
@@ -469,7 +464,7 @@ class InspectionWorkflow(BaseWorkflow):
             logger.error(f"Reconciliation failed: {e}")
             return {
                 "reconcile_results": [],
-                "messages": state["messages"] + [AIMessage(content=f"⚠️ 同步操作失败: {e!s}")],
+                "messages": state["messages"] + [AIMessage(content=f"⚠️ Sync operation failed: {e!s}")],
             }
 
     async def _final_summary(self, state: InspectionState) -> dict[str, Any]:
@@ -486,14 +481,14 @@ class InspectionWorkflow(BaseWorkflow):
 
         # Build summary
         summary_lines = [
-            "## 🔍 巡检总结",
+            "## 🔍 Inspection Summary",
             "",
-            f"- **检查设备**: {len(diff_report.get('device_scope', []))} 台",
-            f"- **总实体数**: {diff_report.get('total_entities', 0)}",
-            f"- **匹配**: {diff_report.get('matched', 0)}",
-            f"- **差异**: {diff_report.get('mismatched', 0)}",
+            f"- **Devices Checked**: {len(diff_report.get('device_scope', []))}",
+            f"- **Total Entities**: {diff_report.get('total_entities', 0)}",
+            f"- **Matched**: {diff_report.get('matched', 0)}",
+            f"- **Differences**: {diff_report.get('mismatched', 0)}",
             "",
-            "### 同步操作结果" + (" (Dry Run)" if dry_run else ""),
+            "### Sync Operation Results" + (" (Dry Run)" if dry_run else ""),
         ]
 
         action_emoji = {
@@ -511,7 +506,7 @@ class InspectionWorkflow(BaseWorkflow):
             summary_lines.append(f"- {emoji} {action}: {count}")
 
         if not action_counts:
-            summary_lines.append("- 无需同步操作")
+            summary_lines.append("- No sync operations needed")
 
         # HITL pending items
         hitl_pending = [r for r in reconcile_results if r.get("action") == "hitl_pending"]
@@ -519,7 +514,7 @@ class InspectionWorkflow(BaseWorkflow):
             summary_lines.extend(
                 [
                     "",
-                    "### ⏳ 待 HITL 审批",
+                    "### ⏳ Pending HITL Approval",
                 ]
             )
             for r in hitl_pending[:5]:  # Show top 5
@@ -529,7 +524,7 @@ class InspectionWorkflow(BaseWorkflow):
                     f"{diff.get('netbox_value')} → {diff.get('network_value')}"
                 )
             if len(hitl_pending) > 5:
-                summary_lines.append(f"  ... 及其他 {len(hitl_pending) - 5} 项")
+                summary_lines.append(f"  ... and {len(hitl_pending) - 5} more items")
 
         summary = "\n".join(summary_lines)
 

@@ -224,7 +224,7 @@ Expected response (401):
 docker-compose ps postgres
 
 # Check environment variables
-uv run python -c "from olav.core.settings import EnvSettings; print(EnvSettings())"
+uv run python -c "from config.settings import EnvSettings; print(EnvSettings())"
 
 # View detailed logs
 uv run python -m olav.server.app --log-level debug

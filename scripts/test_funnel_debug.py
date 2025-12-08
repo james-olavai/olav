@@ -85,7 +85,7 @@ async def run_deep_dive_diagnosis():
     from langchain_core.messages import HumanMessage
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
     from olav.workflows.deep_dive import DeepDiveWorkflow
-    from olav.core.settings import settings
+    from config.settings import settings
     
     # User query simulating the problem report
     user_query = "R1 和 R2 之间的 BGP 邻居无法建立，请排查原因"

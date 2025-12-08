@@ -88,6 +88,41 @@ class StandardModeExecutor:
         },
     }
 
+    # SuzieQ table name aliases - maps user-friendly names to actual SuzieQ table names
+    # This handles cases where LLM returns "ospf" but actual table is "ospfNbr"
+    SUZIEQ_TABLE_ALIASES = {
+        # OSPF tables
+        "ospf": "ospfNbr",          # OSPF neighbor information
+        "ospf_neighbor": "ospfNbr",
+        "ospf_nbr": "ospfNbr",
+        "ospf_if": "ospfIf",        # OSPF interface information
+        "ospf_interface": "ospfIf",
+        # Interface tables
+        "interface": "interfaces",
+        "if": "interfaces",
+        "ifcounters": "ifCounters",
+        "if_counters": "ifCounters",
+        # MAC table
+        "mac": "macs",
+        # EVPN
+        "evpn": "evpnVni",
+        "evpn_vni": "evpnVni",
+        # Device config
+        "config": "devconfig",
+        "device_config": "devconfig",
+        # Filesystem
+        "filesystem": "fs",
+        # Network
+        "net": "network",
+        # Polling
+        "poller": "sqPoller",
+        "sq_poller": "sqPoller",
+        # Performance
+        "topmemory": "topmem",
+        "top_mem": "topmem",
+        "top_cpu": "topcpu",
+    }
+
     def __init__(
         self,
         tool_registry: ToolRegistry,
@@ -164,15 +199,43 @@ class StandardModeExecutor:
         # Get alias mapping for this tool
         aliases = self.PARAM_ALIASES.get(tool_name, {})
         if not aliases:
-            return parameters
+            mapped = parameters.copy()
+        else:
+            # Map parameter names
+            mapped = {}
+            for key, value in parameters.items():
+                mapped_key = aliases.get(key, key)
+                mapped[mapped_key] = value
 
-        # Map parameter names
-        mapped = {}
-        for key, value in parameters.items():
-            mapped_key = aliases.get(key, key)
-            mapped[mapped_key] = value
+        # For SuzieQ tools, map table names to actual SuzieQ table names
+        if tool_name in ("suzieq_query", "suzieq_tool"):
+            mapped = self._map_suzieq_table(mapped)
 
         return mapped
+
+    def _map_suzieq_table(self, parameters: dict[str, Any]) -> dict[str, Any]:
+        """Map user-friendly table names to actual SuzieQ table names.
+
+        Args:
+            parameters: Tool parameters that may contain 'table' field
+
+        Returns:
+            Parameters with table name mapped to actual SuzieQ table
+        """
+        if "table" not in parameters:
+            return parameters
+
+        table = parameters["table"]
+        table_lower = table.lower()
+
+        # Check alias mapping (case-insensitive)
+        if table_lower in self.SUZIEQ_TABLE_ALIASES:
+            actual_table = self.SUZIEQ_TABLE_ALIASES[table_lower]
+            logger.info(f"Mapped SuzieQ table: {table} → {actual_table}")
+            parameters = parameters.copy()
+            parameters["table"] = actual_table
+
+        return parameters
 
     async def execute(
         self,

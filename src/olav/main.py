@@ -18,11 +18,11 @@ if sys.platform == "win32":
         asyncio.WindowsSelectorEventLoopPolicy()  # type: ignore[attr-defined]
     )
 
-from config.settings import AgentConfig
+from config.settings import settings
 
 from olav import __version__
 from olav.core.logging_config import setup_logging
-from olav.core.settings import settings
+from config.settings import settings
 from olav.sync.rules.loader import get_hitl_required_tools
 
 # Agent imports moved to runtime (dynamic import based on --agent-mode)
@@ -34,7 +34,7 @@ console = Console()
 
 app = typer.Typer(
     name="olav",
-    help="OLAV - Omni-Layer Autonomous Verifier: Enterprise Network Operations ChatOps Platform",
+    help="OLAV (NetAIChatOps)",
     add_completion=False,
 )
 
@@ -92,22 +92,22 @@ def chat(
         uv run olav.py
 
         # Remote mode - Single query
-        uv run olav.py "查询设备 R1 的接口状态"
+        uv run olav.py "Query device R1 interface status"
 
         # Remote mode - Custom server
         uv run olav.py --server http://prod-olav.company.com:8000
 
         # Local mode - Direct execution (no API server)
-        uv run olav.py -L "查询 R1"
+        uv run olav.py -L "Query R1"
 
         # Expert mode - Complex diagnostics (remote)
-        uv run olav.py -e "审计所有边界路由器的 BGP 安全配置"
+        uv run olav.py -e "Audit all border routers BGP security configuration"
 
         # Expert mode - Local execution
-        uv run olav.py -L -e "为什么数据中心 A 无法访问数据中心 B？"
+        uv run olav.py -L -e "Why can't datacenter A access datacenter B?"
 
         # Verbose mode (show detailed logs)
-        uv run olav.py "查询 R1" --verbose
+        uv run olav.py "Query R1" --verbose
 
         # Resume previous conversation
         uv run olav.py --thread-id "session-123"
@@ -128,7 +128,7 @@ def chat(
 
     # YOLO mode: set global flag to skip HITL
     if yolo:
-        AgentConfig.YOLO_MODE = True
+        settings.yolo_mode = True
         console.print(
             "[bold red]⚠️  YOLO MODE ENABLED - All approvals will be auto-accepted![/bold red]"
         )
@@ -138,8 +138,8 @@ def chat(
     if lang not in valid_langs:
         console.print(f"[yellow]⚠️  Invalid language '{lang}', using default 'zh'[/yellow]")
         lang = "zh"
-    AgentConfig.LANGUAGE = lang  # type: ignore[assignment]
-    lang_names = {"zh": "中文", "en": "English", "ja": "日本語"}
+    settings.agent_language = lang  # type: ignore[assignment]
+    lang_names = {"zh": "Chinese", "en": "English", "ja": "Japanese"}
 
     console.print(f"[bold green]OLAV v{__version__}[/bold green] - Network Operations ChatOps")
     console.print(f"LLM: {settings.llm_provider} ({settings.llm_model_name})")
@@ -150,7 +150,7 @@ def chat(
     hitl_status = (
         "[red]YOLO (Auto-approve)[/red]"
         if yolo
-        else ("Enabled" if AgentConfig.ENABLE_HITL else "Disabled")
+        else ("Enabled" if settings.enable_hitl else "Disabled")
     )
     console.print(f"HITL: {hitl_status}")
 
@@ -295,7 +295,7 @@ async def _run_interactive_chat_new(
 
                 # Check if still interrupted (modified plan needs re-approval)
                 if resume_result.interrupted:
-                    console.print("\n[yellow]⏸️ 计划已修改，需要重新审批[/yellow]")
+                    console.print("\n[yellow]⏸️ Plan modified, requires re-approval[/yellow]")
                     pending_hitl = {
                         "workflow_type": resume_result.workflow_type,
                         "execution_plan": resume_result.execution_plan,
@@ -319,7 +319,7 @@ async def _run_interactive_chat_new(
 
             # Check if workflow was interrupted for HITL
             if result.interrupted:
-                console.print("\n[yellow]⏸️ 工作流已暂停，等待用户审批[/yellow]")
+                console.print("\n[yellow]⏸️ Workflow paused, awaiting user approval[/yellow]")
                 pending_hitl = {
                     "workflow_type": result.workflow_type,
                     "execution_plan": result.execution_plan,
@@ -350,7 +350,7 @@ def _display_hitl_prompt(console, result) -> None:
     task_map = {}
     for t in todos:
         if isinstance(t, dict):
-            task_map[t.get("id")] = t.get("task", "(描述缺失)")
+            task_map[t.get("id")] = t.get("task", "(no description)")
 
     feasible = execution_plan.get("feasible_tasks", [])
     uncertain = execution_plan.get("uncertain_tasks", [])
@@ -358,7 +358,7 @@ def _display_hitl_prompt(console, result) -> None:
     recommendations = execution_plan.get("recommendations", {})
 
     console.print("\n" + "=" * 60)
-    console.print("[bold]🗂️ 执行计划[/bold]")
+    console.print("[bold]🗂️ Execution Plan[/bold]")
     console.print("=" * 60)
 
     summary = execution_plan.get("summary") or execution_plan.get("plan_summary")
@@ -367,34 +367,34 @@ def _display_hitl_prompt(console, result) -> None:
         console.print("-" * 60)
 
     if feasible:
-        console.print(f"\n[green]✅ 可执行任务 ({len(feasible)} 个):[/green]")
+        console.print(f"\n[green]✅ Executable Tasks ({len(feasible)}):[/green]")
         for task_id in feasible:
-            desc = task_map.get(task_id, "(描述缺失)")
-            console.print(f"  - 任务 {task_id}: {desc}")
+            desc = task_map.get(task_id, "(no description)")
+            console.print(f"  - Task {task_id}: {desc}")
             if task_id in recommendations:
-                console.print(f"    建议: {recommendations[task_id]}")
+                console.print(f"    Recommendation: {recommendations[task_id]}")
 
     if uncertain:
-        console.print(f"\n[yellow]⚠️ 需进一步确认的任务 ({len(uncertain)} 个):[/yellow]")
+        console.print(f"\n[yellow]⚠️ Tasks Requiring Confirmation ({len(uncertain)}):[/yellow]")
         for task_id in uncertain:
-            desc = task_map.get(task_id, "(描述缺失)")
-            console.print(f"  - 任务 {task_id}: {desc}")
+            desc = task_map.get(task_id, "(no description)")
+            console.print(f"  - Task {task_id}: {desc}")
             if task_id in recommendations:
-                console.print(f"    建议: {recommendations[task_id]}")
+                console.print(f"    Recommendation: {recommendations[task_id]}")
 
     if infeasible:
-        console.print(f"\n[red]❌ 无法执行任务 ({len(infeasible)} 个):[/red]")
+        console.print(f"\n[red]❌ Non-executable Tasks ({len(infeasible)}):[/red]")
         for task_id in infeasible:
-            desc = task_map.get(task_id, "(描述缺失)")
-            console.print(f"  - 任务 {task_id}: {desc}")
+            desc = task_map.get(task_id, "(no description)")
+            console.print(f"  - Task {task_id}: {desc}")
             if task_id in recommendations:
-                console.print(f"    建议: {recommendations[task_id]}")
+                console.print(f"    Recommendation: {recommendations[task_id]}")
 
     console.print("\n" + "=" * 60)
-    console.print("[bold]请选择操作:[/bold]")
-    console.print("  [green]Y / approve[/green] - 批准执行可行任务")
-    console.print("  [red]N / abort[/red] - 中止执行")
-    console.print("  [cyan]其他文本[/cyan] - 输入修改请求")
+    console.print("[bold]Select an operation:[/bold]")
+    console.print("  [green]Y / approve[/green] - Approve executable tasks")
+    console.print("  [red]N / abort[/red] - Abort execution")
+    console.print("  [cyan]Other text[/cyan] - Enter modification request")
     console.print("=" * 60)
 
 
@@ -435,7 +435,7 @@ async def _run_single_query(query: str, expert: bool = False, thread_id: str | N
 
         # If interrupted, use route_result directly (contains execution_plan & todos)
         if route_result.get("interrupted"):
-            console.print("\n[bold yellow]⏸️  执行已暂停，等待用户审批[/bold yellow]")
+            console.print("\n[bold yellow]⏸️  Execution paused, awaiting user approval[/bold yellow]")
             execution_plan = route_result.get("execution_plan", {})
             todos = route_result.get("todos", [])
             # Build a mapping from id -> task text for display
@@ -443,7 +443,7 @@ async def _run_single_query(query: str, expert: bool = False, thread_id: str | N
 
             # Display execution plan
             console.print("\n" + "=" * 60)
-            console.print("[bold cyan]📋 执行计划（Schema 调研结果）[/bold cyan]")
+            console.print("[bold cyan]📋 Execution Plan (Schema Research Results)[/bold cyan]")
             console.print("=" * 60)
 
             feasible = execution_plan.get("feasible_tasks", [])
@@ -451,45 +451,45 @@ async def _run_single_query(query: str, expert: bool = False, thread_id: str | N
             infeasible = execution_plan.get("infeasible_tasks", [])
 
             if feasible:
-                console.print(f"\n[green]✅ 可执行任务 ({len(feasible)} 个):[/green]")
+                console.print(f"\n[green]✅ Executable Tasks ({len(feasible)}):[/green]")
                 for task_id in feasible:
-                    desc = task_map.get(task_id, "(描述缺失)")
-                    console.print(f"  - 任务 {task_id}: {desc}")
+                    desc = task_map.get(task_id, "(no description)")
+                    console.print(f"  - Task {task_id}: {desc}")
 
             if uncertain:
-                console.print(f"\n[yellow]⚠️  不确定任务 ({len(uncertain)} 个):[/yellow]")
+                console.print(f"\n[yellow]⚠️  Uncertain Tasks ({len(uncertain)}):[/yellow]")
                 for task_id in uncertain:
-                    desc = task_map.get(task_id, "(描述缺失)")
-                    console.print(f"  - 任务 {task_id}: {desc}")
+                    desc = task_map.get(task_id, "(no description)")
+                    console.print(f"  - Task {task_id}: {desc}")
                     recs = execution_plan.get("recommendations", {})
                     if task_id in recs:
-                        console.print(f"    建议: {recs[task_id]}")
+                        console.print(f"    Recommendation: {recs[task_id]}")
 
             if infeasible:
-                console.print(f"\n[red]❌ 无法执行任务 ({len(infeasible)} 个):[/red]")
+                console.print(f"\n[red]❌ Non-executable Tasks ({len(infeasible)}):[/red]")
                 for task_id in infeasible:
-                    desc = task_map.get(task_id, "(描述缺失)")
-                    console.print(f"  - 任务 {task_id}: {desc}")
+                    desc = task_map.get(task_id, "(no description)")
+                    console.print(f"  - Task {task_id}: {desc}")
 
             console.print("\n" + "=" * 60)
-            console.print("[bold]请选择操作:[/bold]")
-            console.print("  [green]Y[/green] - 批准执行可行任务")
-            console.print("  [red]N[/red] - 中止执行")
+            console.print("[bold]Select an operation:[/bold]")
+            console.print("  [green]Y[/green] - Approve executable tasks")
+            console.print("  [red]N[/red] - Abort execution")
             console.print(
-                "  [cyan]其他[/cyan] - 输入修改请求（例如：'跳过任务2，使用bgp表执行任务5'）"
+                "  [cyan]Other[/cyan] - Enter modification request (e.g., 'Skip task 2, use bgp table for task 5')"
             )
             console.print("=" * 60)
 
             # Enter approval loop
             while True:
-                user_input = input("\n您的决定: ").strip()
+                user_input = input("\nYour decision: ").strip()
 
                 if not user_input:
-                    console.print("[yellow]请输入有效选择 (Y/N/修改请求)[/yellow]")
+                    console.print("[yellow]Please enter a valid choice (Y/N/modification request)[/yellow]")
                     continue
 
                 # Resume execution with user input
-                console.print(f"\n[dim]处理用户输入: {user_input}[/dim]")
+                console.print(f"\n[dim]Processing user input: {user_input}[/dim]")
 
                 # Convert workflow_type string to enum
                 from olav.workflows.base import WorkflowType
@@ -502,7 +502,7 @@ async def _run_single_query(query: str, expert: bool = False, thread_id: str | N
 
                 # Check if resume resulted in another interrupt (modified plan needs re-approval)
                 if resume_result.get("interrupted"):
-                    console.print("\n[yellow]⏸️  计划已修改，需要重新审批[/yellow]")
+                    console.print("\n[yellow]⏸️  Plan modified, requires re-approval[/yellow]")
                     execution_plan = resume_result.get("execution_plan", {})
                     todos = resume_result.get("todos", todos)
                     task_map = {t.get("id"): t.get("task") for t in todos if isinstance(t, dict)}
@@ -512,7 +512,7 @@ async def _run_single_query(query: str, expert: bool = False, thread_id: str | N
                     infeasible = execution_plan.get("infeasible_tasks", [])
 
                     console.print("\n" + "=" * 60)
-                    console.print("[bold]🗂️ 更新后的执行计划[/bold]")
+                    console.print("[bold]🗂️ Updated Execution Plan[/bold]")
                     console.print("=" * 60)
                     summary = execution_plan.get("summary") or execution_plan.get("plan_summary")
                     if summary:
@@ -520,36 +520,36 @@ async def _run_single_query(query: str, expert: bool = False, thread_id: str | N
                         console.print("-" * 60)
 
                     if feasible:
-                        console.print(f"[green]✅ 可执行任务 ({len(feasible)} 个):[/green]")
+                        console.print(f"[green]✅ Executable Tasks ({len(feasible)}):[/green]")
                         for task_id in feasible:
-                            desc = task_map.get(task_id, "(描述缺失)")
-                            console.print(f"  - 任务 {task_id}: {desc}")
+                            desc = task_map.get(task_id, "(no description)")
+                            console.print(f"  - Task {task_id}: {desc}")
                             recs = execution_plan.get("recommendations", {})
                             if task_id in recs:
-                                console.print(f"    建议: {recs[task_id]}")
+                                console.print(f"    Recommendation: {recs[task_id]}")
 
                     if uncertain:
                         console.print(
-                            f"\n[yellow]⚠️  需进一步确认的任务 ({len(uncertain)} 个):[/yellow]"
+                            f"\n[yellow]⚠️  Tasks Requiring Confirmation ({len(uncertain)}):[/yellow]"
                         )
                         for task_id in uncertain:
-                            desc = task_map.get(task_id, "(描述缺失)")
-                            console.print(f"  - 任务 {task_id}: {desc}")
+                            desc = task_map.get(task_id, "(no description)")
+                            console.print(f"  - Task {task_id}: {desc}")
                             recs = execution_plan.get("recommendations", {})
                             if task_id in recs:
-                                console.print(f"    建议: {recs[task_id]}")
+                                console.print(f"    Recommendation: {recs[task_id]}")
 
                     if infeasible:
-                        console.print(f"\n[red]❌ 无法执行任务 ({len(infeasible)} 个):[/red]")
+                        console.print(f"\n[red]❌ Non-executable Tasks ({len(infeasible)}):[/red]")
                         for task_id in infeasible:
-                            desc = task_map.get(task_id, "(描述缺失)")
-                            console.print(f"  - 任务 {task_id}: {desc}")
+                            desc = task_map.get(task_id, "(no description)")
+                            console.print(f"  - Task {task_id}: {desc}")
 
                     console.print("\n" + "=" * 60)
-                    console.print("[bold]请选择操作:[/bold]")
-                    console.print("  [green]Y[/green] - 批准执行可行任务")
-                    console.print("  [red]N[/red] - 中止执行")
-                    console.print("  [cyan]其他[/cyan] - 输入进一步修改请求")
+                    console.print("[bold]Select an operation:[/bold]")
+                    console.print("  [green]Y[/green] - Approve executable tasks")
+                    console.print("  [red]N[/red] - Abort execution")
+                    console.print("  [cyan]Other[/cyan] - Enter further modification request")
                     console.print("=" * 60)
                     continue
 
@@ -582,13 +582,13 @@ async def _run_single_query(query: str, expert: bool = False, thread_id: str | N
                     },
                 )
             else:
-                ui.show_warning("未收到 Agent 响应")
+                ui.show_warning("No response received from Agent")
 
         # Cleanup checkpointer
         await checkpointer_ctx.__aexit__(None, None, None)
 
     except KeyboardInterrupt:
-        ui.show_warning("查询已中断")
+        ui.show_warning("Query interrupted")
     except Exception as e:
         logger.error(f"Failed to execute query: {e}", exc_info=True)
         ui.show_error(str(e))
@@ -619,7 +619,7 @@ async def _stream_agent_response(
     current_nodes = {}  # Map tool call IDs to tree nodes
     tool_start_times = {}  # Map tool call IDs to start timestamps
 
-    hitl_enabled = AgentConfig.ENABLE_HITL
+    hitl_enabled = settings.enable_hitl
     # Tools requiring HITL approval - loaded from config/rules/hitl_config.yaml
     hitl_required_tools = get_hitl_required_tools()
 
@@ -664,8 +664,8 @@ async def _stream_agent_response(
                                         kw in description
                                         for kw in [
                                             "schema",
-                                            "字段",
-                                            "表结构",
+                                            "field",
+                                            "table structure",
                                             "available",
                                             "fields",
                                         ]
@@ -706,29 +706,29 @@ async def _stream_agent_response(
                                 risk_note = "netbox-write"
 
                             if hitl_enabled and tool_name in hitl_required_tools and requires_gate:
-                                console.print("\n[bold yellow]🔔 HITL 审批请求[/bold yellow]")
-                                console.print(f"工具: [cyan]{tool_name}[/cyan]")
-                                console.print(f"风险类型: [magenta]{risk_note}[/magenta]")
-                                console.print(f"参数: [dim]{tool_args}[/dim]")
-                                decision = input("批准此操作? [Y/n/i(详情)]: ").strip().lower()
+                                console.print("\n[bold yellow]🔔 HITL Approval Request[/bold yellow]")
+                                console.print(f"Tool: [cyan]{tool_name}[/cyan]")
+                                console.print(f"Risk Type: [magenta]{risk_note}[/magenta]")
+                                console.print(f"Arguments: [dim]{tool_args}[/dim]")
+                                decision = input("Approve this operation? [Y/n/i(details)]: ").strip().lower()
                                 if decision == "i":
-                                    console.print("\n[bold]详细参数 (JSON):[/bold]")
+                                    console.print("\n[bold]Detailed Arguments (JSON):[/bold]")
                                     try:
                                         console.print(
                                             json.dumps(tool_args, indent=2, ensure_ascii=False)
                                         )
                                     except Exception:
                                         console.print(str(tool_args))
-                                    decision = input("批准此操作? [Y/n]: ").strip().lower()
+                                    decision = input("Approve this operation? [Y/n]: ").strip().lower()
                                 if decision in {"n", "no"}:
-                                    console.print("[red]❌ 操作已拒绝，终止执行流[/red]")
+                                    console.print("[red]❌ Operation rejected, terminating execution[/red]")
                                     return {
-                                        "content": "操作被人工拒绝，已安全中止。",
+                                        "content": "Operation rejected by human operator, safely aborted.",
                                         "tools_used": tools_used,
                                         "data_source": None,
                                         "timings": tool_timings,
                                     }
-                                console.print("[green]✅ 已批准，继续执行...[/green]")
+                                console.print("[green]✅ Approved, continuing execution...[/green]")
 
                             # Add tool node after approval
                             node = ui.add_tool_call(thinking_tree, display_tool_name, tool_args)
@@ -786,11 +786,11 @@ async def _stream_agent_response(
     # Determine data source from tools used
     data_source = None
     if any("suzieq" in t for t in tools_used):
-        data_source = "SuzieQ 历史数据"
+        data_source = "SuzieQ Historical Data"
     elif any("netconf" in t or "nornir" in t for t in tools_used):
-        data_source = "设备实时查询"
+        data_source = "Device Real-time Query"
     elif any("cli" in t for t in tools_used):
-        data_source = "CLI 命令执行"
+        data_source = "CLI Command Execution"
 
     # Check for HITL interrupt in final state
     interrupted = chunk.get("interrupted", False) if isinstance(chunk, dict) else False
@@ -847,7 +847,7 @@ async def _run_interactive_chat(expert: bool = False, thread_id: str | None = No
 
                     # Handle special commands
                     if user_input.lower() in ["exit", "quit", "q"]:
-                        console.print("[green]👋 再见![/green]")
+                        console.print("[green]👋 Goodbye![/green]")
                         break
                     if user_input.lower() == "help":
                         _show_help()
@@ -879,13 +879,13 @@ async def _run_interactive_chat(expert: bool = False, thread_id: str | None = No
                             },
                         )
                     else:
-                        ui.show_warning("未收到响应")
+                        ui.show_warning("No response received")
 
                 except KeyboardInterrupt:
-                    console.print("\n[yellow]使用 'exit' 退出会话[/yellow]\n")
+                    console.print("\n[yellow]Use 'exit' to quit the session[/yellow]\n")
                     continue
                 except EOFError:
-                    console.print("\n[green]👋 再见![/green]")
+                    console.print("\n[green]👋 Goodbye![/green]")
                     break
         finally:
             # Cleanup checkpointer
@@ -910,10 +910,10 @@ def _show_help() -> None:
 
 [bold]Example Queries:[/bold]
 
-• "查询设备 R1 的接口状态"
-• "检查网络中是否有 BGP 问题"
-• "显示设备 R2 的配置"
-• "分析全网接口错误"
+• "Query interface status of device R1"
+• "Check for BGP issues in the network"
+• "Show configuration of device R2"
+• "Analyze network-wide interface errors"
 """
     console.print(Panel(help_text, title="[bold]OLAV Help[/bold]", border_style="blue"))
 
@@ -925,7 +925,7 @@ def _show_status() -> None:
 
 • LLM Provider: [cyan]{settings.llm_provider}[/cyan]
 • Model: [cyan]{settings.llm_model_name}[/cyan]
-• HITL: [cyan]{"Enabled" if AgentConfig.ENABLE_HITL else "Disabled"}[/cyan]
+• HITL: [cyan]{"Enabled" if settings.enable_hitl else "Disabled"}[/cyan]
 • NetBox: [cyan]{settings.netbox_url}[/cyan]
 • Max Iterations: [cyan]{AgentConfig.MAX_ITERATIONS}[/cyan]
 """
@@ -1104,17 +1104,8 @@ def version() -> None:
 
 @app.command()
 def inspect(
-    profile: str | None = typer.Option(
-        None, "--profile", "-p", help="Inspection profile name (from config/inspections/)"
-    ),
-    config_path: str | None = typer.Option(
-        None, "--config", "-c", help="Path to inspection config YAML file"
-    ),
     daemon: bool = typer.Option(False, "--daemon", "-d", help="Run as background scheduler daemon"),
-    lang: str = typer.Option(
-        "zh", "--lang", "-l", help="Report language: zh (Chinese), en (English), ja (Japanese)"
-    ),
-    list_profiles: bool = typer.Option(False, "--list", help="List available inspection profiles"),
+    hours: int = typer.Option(24, "--hours", "-H", help="Time range for log analysis (hours)"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed logs"),
 ) -> None:
     """Run automated network inspection (no HITL required).
@@ -1122,86 +1113,48 @@ def inspect(
     Inspections are read-only health checks that run without user approval.
     Results are saved as timestamped Markdown reports in data/inspection-reports/.
 
+    Configuration:
+        All settings are in config/inspections/inspection.yaml including:
+        - Schedule (cron expression, timezone)
+        - Log analysis (OpenSearch syslog queries)
+        - Device checks (BGP, OSPF, interfaces, etc.)
+
     Modes:
         - One-shot (default): Run inspection once and exit
         - Daemon (-d/--daemon): Run scheduler in background with periodic execution
 
-    Configuration:
-        Inspection profiles are defined in config/inspections/*.yaml
-        Each profile specifies:
-        - Target devices (list, NetBox filter, or regex)
-        - Checks to run (SuzieQ queries with thresholds)
-        - Severity levels (critical, warning, info)
-
     Examples:
-        # List available profiles
-        uv run olav.py inspect --list
-
-        # Run default inspection profile
+        # Run inspection once
         uv run olav.py inspect
 
-        # Run specific profile
-        uv run olav.py inspect -p bgp_peer_audit
-
-        # Run with custom config file
-        uv run olav.py inspect -c my_inspection.yaml
+        # Run with custom time range (48 hours)
+        uv run olav.py inspect --hours 48
 
         # Start scheduler daemon (runs on schedule from config)
         uv run olav.py inspect --daemon
 
-        # Run in English
-        uv run olav.py inspect -p daily_core_check -l en
+        # Run with verbose output
+        uv run olav.py inspect -v
     """
     setup_logging(verbose)
-
-    # Validate language
-    valid_langs = ("zh", "en", "ja")
-    if lang not in valid_langs:
-        console.print(f"[yellow]⚠️  Invalid language '{lang}', using default 'zh'[/yellow]")
-        lang = "zh"
-    AgentConfig.LANGUAGE = lang  # type: ignore
 
     # Windows async compatibility
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-    # List profiles mode
-    if list_profiles:
-        from config.settings import Paths
-
-        profile_dir = Paths.INSPECTIONS_DIR
-        console.print("\n[bold]Available Inspection Profiles:[/bold]")
-        if profile_dir.exists():
-            for yaml_file in sorted(profile_dir.glob("*.yaml")):
-                # Try to get description from file
-                try:
-                    import yaml
-
-                    with open(yaml_file, encoding="utf-8") as f:
-                        cfg = yaml.safe_load(f)
-                        name = cfg.get("name", yaml_file.stem)
-                        desc = cfg.get("description", "")
-                        console.print(f"  • [cyan]{yaml_file.stem}[/cyan]: {name}")
-                        if desc:
-                            console.print(f"    {desc}")
-                except Exception:
-                    console.print(f"  • [cyan]{yaml_file.stem}[/cyan]")
-        else:
-            console.print(
-                "[yellow]  No profiles found. Create profiles in config/inspections/[/yellow]"
-            )
-        return
-
     # Daemon mode
     if daemon:
-        from config.settings import InspectionConfig
+        from olav.inspection import get_schedule_config
+
+        schedule = get_schedule_config()
+        schedule_info = schedule.get("cron", "Not configured") if schedule else "Disabled"
 
         console.print(
             Panel.fit(
                 f"[bold green]OLAV Inspection Scheduler[/bold green]\n\n"
-                f"Profile: {InspectionConfig.DEFAULT_PROFILE}\n"
-                f"Schedule: {InspectionConfig.SCHEDULE_CRON or f'Daily at {InspectionConfig.SCHEDULE_TIME}'}\n"
-                f"Reports: {InspectionConfig.REPORTS_DIR}\n\n"
+                f"Config: config/inspections/inspection.yaml\n"
+                f"Schedule: {schedule_info}\n"
+                f"Reports: data/inspection-reports/\n\n"
                 "[dim]Press Ctrl+C to stop[/dim]",
                 title="Daemon Mode",
             )
@@ -1212,51 +1165,36 @@ def inspect(
         asyncio.run(run_scheduler())
         return
 
-    # One-shot inspection mode (using new modes/inspection module)
-    from pathlib import Path
-    from olav.modes.inspection import run_inspection
+    # One-shot inspection mode
+    from olav.inspection import execute_inspection, get_inspection_config_path
 
-    # Resolve config path
-    if config_path:
-        resolved_path = Path(config_path)
-    else:
-        profile_name = profile or InspectionConfig.DEFAULT_PROFILE
-        resolved_path = Path("config/inspections") / f"{profile_name}.yaml"
-
-    console.print(f"\n[bold]Running Inspection: {resolved_path.stem}[/bold]")
-    console.print(f"Language: {lang}")
+    config_path = get_inspection_config_path()
+    console.print(f"\n[bold]Running Network Inspection[/bold]")
+    console.print(f"Config: {config_path}")
+    console.print(f"Time Range: {hours} hours")
     console.print("[dim]This is a read-only check (no HITL required)[/dim]\n")
 
-    AgentConfig.LANGUAGE = lang  # type: ignore
-
     try:
-        result = asyncio.run(
-            run_inspection(
-                config_path=resolved_path,
-                save_report=True,
-            )
-        )
+        report = asyncio.run(execute_inspection(hours=hours))
 
-        # Display results using InspectionResult properties
-        duration = result.duration_seconds
-        passed = result.checks_passed
-        total = result.total_checks
-        critical_count = len(result.critical_violations)
-
-        # Summary
-        status_emoji = "🔴" if result.has_critical else ("🟡" if result.warning_violations else "🟢")
+        # Display results
+        status_emoji = "🔴" if report.log_critical_events else ("🟡" if report.log_warning_events else "🟢")
         console.print(f"\n{status_emoji} [bold]Inspection Complete[/bold]")
-        console.print(f"  ✅ Passed: {passed}/{total}")
-        if critical_count > 0:
-            console.print(f"  🔴 Critical: {critical_count}")
-        if result.warning_violations:
-            console.print(f"  🟡 Warnings: {len(result.warning_violations)}")
-        console.print(f"  ⏱️  Duration: {duration:.1f}s")
-        console.print(f"  📄 Devices: {result.devices_passed}/{result.total_devices} passed")
+        console.print(f"  📊 Critical Events: {len(report.log_critical_events)}")
+        console.print(f"  ⚠️  Warning Events: {len(report.log_warning_events)}")
+        console.print(f"  🖥️  Affected Devices: {len(report.affected_devices)}")
+        console.print(f"  ✅ Device Checks: {report.passed_count}/{report.total_checks} passed")
+        console.print(f"  📄 Report: {report.name}")
+
+        # Show suggested commands if any
+        if report.suggested_commands:
+            console.print("\n[bold]Suggested Follow-up:[/bold]")
+            for cmd in report.suggested_commands[:3]:
+                console.print(f"  • {cmd}")
 
     except FileNotFoundError as e:
-        console.print(f"\n[red]❌ Profile not found: {e}[/red]")
-        console.print("[dim]Use --list to see available profiles[/dim]")
+        console.print(f"\n[red]❌ Config not found: {e}[/red]")
+        console.print("[dim]Ensure config/inspections/inspection.yaml exists[/dim]")
         raise typer.Exit(code=1)
     except Exception as e:
         console.print(f"\n[red]❌ Inspection error: {e}[/red]")

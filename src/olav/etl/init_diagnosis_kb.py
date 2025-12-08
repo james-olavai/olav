@@ -20,7 +20,8 @@ import logging
 
 from opensearchpy import OpenSearch
 
-from olav.core.settings import settings
+from olav.core.memory import create_opensearch_client
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +29,8 @@ DIAGNOSIS_REPORTS_INDEX = "diagnosis-reports"
 
 
 def _get_opensearch_client() -> OpenSearch:
-    """Get OpenSearch client using settings."""
-    return OpenSearch(
-        hosts=[settings.opensearch_url],
-        http_compress=True,
-        use_ssl=False,
-        verify_certs=False,
-    )
+    """Get OpenSearch client with auth support."""
+    return create_opensearch_client()
 
 
 def create_diagnosis_reports_index(client: OpenSearch, force: bool = False) -> bool:
@@ -173,7 +169,7 @@ def seed_sample_reports(client: OpenSearch) -> int:
     Returns:
         Number of reports seeded
     """
-    from olav.models.diagnosis_report import DiagnosisReport, DeviceSummary
+    from olav.models.diagnosis_report import DeviceSummary, DiagnosisReport
 
     sample_reports = [
         DiagnosisReport(

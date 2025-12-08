@@ -1,13 +1,12 @@
-import asyncio
 import pytest
-from types import SimpleNamespace
 
-from olav.tools.nornir_tool import cli_tool
 from olav.execution.backends.protocol import ExecutionResult
 from olav.tools.base import ToolRegistry
+from olav.tools.nornir_tool import cli_tool
+
 
 class MockSandbox:
-    def __init__(self):
+    def __init__(self) -> None:
         self.calls = []
         self.approval_mode = "approve"  # or "reject"
 
@@ -44,7 +43,7 @@ def patch_sandbox(monkeypatch):
     impl = ToolRegistry.get_tool("cli_execute")
     assert impl is not None, "cli_execute tool not registered"
     impl._sandbox = MockSandbox()  # type: ignore[attr-defined]
-    yield impl._sandbox
+    return impl._sandbox
 
 @pytest.mark.asyncio
 async def test_query_parsed_success(patch_sandbox):
@@ -73,8 +72,10 @@ async def test_query_blacklist_block(patch_sandbox):
 async def test_query_blacklist_variants(patch_sandbox):
     result1 = await cli_tool.ainvoke({"device": "R1", "command": "trace route 8.8.8.8"})
     result2 = await cli_tool.ainvoke({"device": "R1", "command": "trace-route 8.8.8.8"})
-    assert result1["success"] is False and "blacklisted" in result1["error"].lower()
-    assert result2["success"] is False and "blacklisted" in result2["error"].lower()
+    assert result1["success"] is False
+    assert "blacklisted" in result1["error"].lower()
+    assert result2["success"] is False
+    assert "blacklisted" in result2["error"].lower()
 
 @pytest.mark.asyncio
 async def test_query_custom_blacklist_reload(patch_sandbox):

@@ -10,6 +10,7 @@ with OpenRouter and other providers that don't fully support JSON mode.
 import json
 import logging
 import re
+from collections.abc import Callable
 from typing import Any, TypeVar
 
 from langchain_core.language_models import BaseChatModel
@@ -138,7 +139,7 @@ def safe_parse_json(content: str, default: dict[str, Any] | None = None) -> dict
 
 
 def safe_parse_pydantic(
-    content: str, model_class: type[T], default_factory: callable = None
+    content: str, model_class: type[T], default_factory: Callable[[], T] | None = None
 ) -> T | None:
     """Safely parse and validate JSON response into a Pydantic model.
 
@@ -197,7 +198,7 @@ class RobustStructuredOutputChain(RunnableSerializable[dict, T]):
         output_class: type[T],
         prompt_template: str | None = None,
         use_tool_strategy: bool = True,
-    ):
+    ) -> None:
         """Initialize the chain.
 
         Args:
@@ -327,7 +328,7 @@ def create_robust_structured_chain(
         >>>
         >>> llm = LLMFactory.get_chat_model()
         >>> chain = create_robust_structured_chain(llm, RouteDecision)
-        >>> result = await chain.ainvoke({"query": "查询 R1 BGP 状态"})
+        >>> result = await chain.ainvoke({"query": "Query R1 BGP status"})
     """
     return RobustStructuredOutputChain(
         llm=llm,
@@ -360,7 +361,7 @@ async def robust_structured_output(
         >>> result = await robust_structured_output(
         ...     llm=LLMFactory.get_chat_model(),
         ...     output_class=RouteDecision,
-        ...     prompt="Classify this query: 查询 R1 BGP 状态"
+        ...     prompt="Classify this query: Query R1 BGP status"
         ... )
     """
     # Strategy 1: Try with_structured_output (function calling)

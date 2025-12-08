@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from olav.core.memory import OpenSearchMemory
-from olav.core.settings import settings
+from config.settings import settings
 from olav.tools.base import ToolOutput
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ class MemoryWriter:
     Usage:
         writer = MemoryWriter()
         await writer.capture_success(
-            intent="查询 R1 BGP 状态",
+            intent="Query R1 BGP status",
             tool_used="suzieq_query",
             parameters={"table": "bgp", "hostname": "R1"},
             tool_output=tool_output,
@@ -59,7 +59,7 @@ class MemoryWriter:
         """Capture successful execution to episodic memory.
 
         Args:
-            intent: User intent in natural language (e.g., "查询 R1 BGP 状态")
+            intent: User intent in natural language (e.g., "Query R1 BGP status")
             tool_used: Tool name that executed successfully
             parameters: Tool parameters used
             tool_output: Tool execution result (must have success=True via no error)

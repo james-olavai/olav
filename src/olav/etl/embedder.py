@@ -18,7 +18,7 @@ from pathlib import Path
 
 from config.settings import DATA_DIR  # type: ignore
 
-from olav.core.settings import settings as env_settings  # type: ignore
+from config.settings import settings  # type: ignore
 
 
 def main() -> None:
@@ -29,9 +29,9 @@ def main() -> None:
     recreate = "--recreate" in sys.argv
 
     print("[embedder] Starting document RAG indexing")
-    print(f"[embedder] Environment: {env_settings.environment}")
+    print(f"[embedder] Environment: {settings.environment}")
     print(f"[embedder] Documents directory: {docs_dir}")
-    print(f"[embedder] OpenSearch URL: {env_settings.opensearch_url}")
+    print(f"[embedder] OpenSearch URL: {settings.opensearch_url}")
     print(f"[embedder] Recreate index: {recreate}")
 
     if not docs_dir.exists():

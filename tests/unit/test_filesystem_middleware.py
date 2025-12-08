@@ -9,9 +9,7 @@ Tests cover:
 - cache_tool_result() / get_cached_result()
 """
 
-import json
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
@@ -110,7 +108,7 @@ class TestReadFile:
 
         # Read lines 2-4 (0-indexed: start_line=1, num_lines=3)
         content = await filesystem.read_file("large.txt", start_line=1, num_lines=3)
-        
+
         # Should have line numbers
         assert "2 line 2" in content
         assert "3 line 3" in content
@@ -141,7 +139,7 @@ class TestWriteFile:
     async def test_write_new_file(self, filesystem, test_workspace):
         """Test writing new file."""
         await filesystem.write_file("new.txt", "content here")
-        
+
         # Verify file exists
         result_file = test_workspace / "new.txt"
         assert result_file.exists()
@@ -151,7 +149,7 @@ class TestWriteFile:
     async def test_write_with_subdirs(self, filesystem, test_workspace):
         """Test writing file in nested subdirectories."""
         await filesystem.write_file("sub/dir/file.txt", "nested content")
-        
+
         # Verify file exists
         result_file = test_workspace / "sub" / "dir" / "file.txt"
         assert result_file.exists()
@@ -166,7 +164,7 @@ class TestWriteFile:
 
         # Overwrite
         await filesystem.write_file("overwrite.txt", "new content")
-        
+
         assert test_file.read_text() == "new content"
 
     @pytest.mark.asyncio
@@ -183,7 +181,7 @@ class TestWriteFile:
         # Should succeed with auto-approval (for now)
         # TODO: Mock HITL interrupt when implemented
         await fs.write_file("hitl_test.txt", "content")
-        
+
         result_file = test_workspace / "hitl_test.txt"
         assert result_file.exists()
 
@@ -251,7 +249,7 @@ class TestDeleteFile:
         test_file.write_text("content")
 
         await filesystem.delete_file("delete_me.txt")
-        
+
         assert not test_file.exists()
 
     @pytest.mark.asyncio
@@ -278,7 +276,7 @@ class TestDeleteFile:
         # Should succeed with auto-approval (for now)
         # TODO: Mock HITL interrupt when implemented
         await fs.delete_file("hitl_delete.txt")
-        
+
         assert not test_file.exists()
 
 
@@ -312,7 +310,7 @@ class TestCaching:
         query = "show version"
         key1 = filesystem.get_cache_key(query)
         key2 = filesystem.get_cache_key(query)
-        
+
         assert key1 == key2
         assert key1.startswith("tool_results/")
         assert key1.endswith(".json")
@@ -322,7 +320,7 @@ class TestCaching:
         """Test cache keys are unique for different queries."""
         key1 = filesystem.get_cache_key("query 1")
         key2 = filesystem.get_cache_key("query 2")
-        
+
         assert key1 != key2
 
     @pytest.mark.asyncio
@@ -333,7 +331,7 @@ class TestCaching:
 
         await filesystem.cache_tool_result(query, result)
         cached = await filesystem.get_cached_result(query)
-        
+
         assert cached is not None
         assert cached["output"] == "BGP 状态: 正常"
 
@@ -357,7 +355,7 @@ class TestAuditLogging:
 
         with patch("olav.core.middleware.filesystem.logger") as mock_logger:
             await fs.read_file("test.txt")
-            
+
             # Verify audit log was called
             mock_logger.info.assert_called()
             call_args = mock_logger.info.call_args
@@ -379,7 +377,7 @@ class TestAuditLogging:
 
         with patch("olav.core.middleware.filesystem.logger") as mock_logger:
             await fs.read_file("test.txt")
-            
+
             # Verify audit log was NOT called (only file read log)
             info_calls = mock_logger.info.call_args_list
             audit_calls = [c for c in info_calls if "Filesystem audit" in str(c)]

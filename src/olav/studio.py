@@ -76,7 +76,7 @@ async def route_to_workflow(state: OrchestratorState) -> OrchestratorState:
     if not user_message:
         return {
             **state,
-            "messages": [AIMessage(content="未检测到用户查询")],
+            "messages": [AIMessage(content="No user query detected")],
         }
 
     # Generate thread_id

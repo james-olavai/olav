@@ -1,10 +1,10 @@
 """Workflow Orchestrator - Route user queries to appropriate workflow.
 
 Intent Classification:
-1. Query/Diagnostic: BGP状态查询、故障诊断、性能分析
-2. Device Execution: 配置变更、CLI 执行
-3. NetBox Management: 设备清单、IP分配、站点管理
-4. Deep Dive: 复杂多步任务、批量审计、递归诊断
+1. Query/Diagnostic: BGP status queries, fault diagnosis, performance analysis
+2. Device Execution: Configuration changes, CLI execution
+3. NetBox Management: Device inventory, IP allocation, site management
+4. Deep Dive: Complex multi-step tasks, batch audits, recursive diagnosis
 
 Routing Strategy (NEW - Dynamic Intent Router):
 - Phase 1: Semantic pre-filtering (vector similarity on workflow examples)
@@ -43,7 +43,7 @@ from olav.agents.network_relevance_guard import (
 )
 from olav.core.llm import LLMFactory
 from olav.core.prompt_manager import prompt_manager
-from olav.core.settings import settings
+from config.settings import settings
 from olav.workflows.base import WorkflowType
 from olav.workflows.deep_dive import DeepDiveWorkflow
 from olav.workflows.device_execution import DeviceExecutionWorkflow
@@ -59,7 +59,7 @@ class WorkflowOrchestrator:
 
     Mode Architecture:
     - Standard Mode (-S): Fast single-tool responses via StandardModeWorkflow
-    - Expert Mode (-E): L1-L4 layer analysis via SupervisorDrivenWorkflow  
+    - Expert Mode (-E): L1-L4 layer analysis via SupervisorDrivenWorkflow
     - Inspection Mode: YAML-driven batch audits via InspectionWorkflow
     - Fallback: Full workflow graph if mode execution fails
     """
@@ -104,7 +104,7 @@ class WorkflowOrchestrator:
         if self.use_dynamic_router:
             try:
                 # Detect OpenRouter key pattern (sk-or- prefix) which is incompatible with OpenAI embeddings
-                from olav.core.settings import settings as _env_settings
+                from config.settings import settings as _env_settings
 
                 key = _env_settings.llm_api_key.strip()
                 if key.startswith("sk-or-"):
@@ -207,24 +207,24 @@ class WorkflowOrchestrator:
 
         # Priority 1: Deep Dive (expert mode only)
         if self.expert_mode and any(
-            kw in query_lower for kw in ["审计", "audit", "批量", "为什么"]
+            kw in query_lower for kw in ["audit", "batch", "why"]
         ):
             logger.info("Fallback: Deep Dive keywords detected")
             return WorkflowType.DEEP_DIVE
 
         # Priority 2: Inspection (sync/diff)
-        if any(kw in query_lower for kw in ["巡检", "同步", "sync", "对比", "diff"]):
+        if any(kw in query_lower for kw in ["inspect", "sync", "diff", "compare"]):
             return WorkflowType.INSPECTION
 
         # Priority 3: NetBox management
         if any(
             kw in query_lower
-            for kw in ["设备清单", "inventory", "netbox", "ip分配", "ip地址", "站点", "机架"]
+            for kw in ["inventory", "netbox", "ip allocation", "ip address", "site", "rack"]
         ):
             return WorkflowType.NETBOX_MANAGEMENT
 
         # Priority 4: Device execution (config changes)
-        if any(kw in query_lower for kw in ["配置", "修改", "添加", "删除", "shutdown"]):
+        if any(kw in query_lower for kw in ["configure", "modify", "add", "delete", "shutdown"]):
             return WorkflowType.DEVICE_EXECUTION
 
         # Default: Query diagnostic
@@ -285,16 +285,30 @@ class WorkflowOrchestrator:
         if workflow_type == WorkflowType.QUERY_DIAGNOSTIC and self.use_strategy_optimization:
             try:
                 strategy_result = await self._execute_standard_mode(user_query)
-                if strategy_result and strategy_result.get("success"):
-                    print("[Orchestrator] fast_path succeeded")
-                    return {
-                        "workflow_type": workflow_type.name,
-                        "result": strategy_result,
-                        "interrupted": False,
-                        "final_message": strategy_result.get("answer"),
-                        "strategy_used": "fast_path",
-                        "mode": "standard",
-                    }
+                if strategy_result:
+                    # Check for HITL requirement first
+                    if strategy_result.get("hitl_required"):
+                        print("[Orchestrator] HITL required, returning approval prompt")
+                        return {
+                            "workflow_type": workflow_type.name,
+                            "result": strategy_result,
+                            "interrupted": True,  # Treat as interrupted for HITL
+                            "hitl_required": True,
+                            "final_message": strategy_result.get("answer"),
+                            "strategy_used": "fast_path",
+                            "mode": "standard",
+                        }
+                    # Check for success
+                    if strategy_result.get("success"):
+                        print("[Orchestrator] fast_path succeeded")
+                        return {
+                            "workflow_type": workflow_type.name,
+                            "result": strategy_result,
+                            "interrupted": False,
+                            "final_message": strategy_result.get("answer"),
+                            "strategy_used": "fast_path",
+                            "mode": "standard",
+                        }
                 print("[Orchestrator] fast_path failed, falling back to workflow graph")
             except Exception as e:
                 logger.warning(f"fast_path error: {e}, falling back to workflow graph")
@@ -359,6 +373,50 @@ class WorkflowOrchestrator:
             "final_message": result["messages"][-1].content if result.get("messages") else None,
         }
 
+    def _format_hitl_prompt(self, result) -> str:
+        """Format HITL approval prompt for user display.
+
+        Args:
+            result: StandardModeResult with hitl_required=True
+
+        Returns:
+            Formatted message asking for user approval
+        """
+        tool_name = result.tool_name or "unknown"
+        operation = result.hitl_operation or "configuration change"
+        params = result.hitl_parameters or {}
+
+        # Extract key info for display
+        device = params.get("device", params.get("hostname", "unknown"))
+        command = params.get("command", "")
+
+        lines = [
+            "## ⚠️ HITL Approval Required",
+            "",
+            f"**Tool**: `{tool_name}`",
+            f"**Device**: `{device}`",
+            f"**Operation**: {operation}",
+            "",
+        ]
+
+        if command:
+            lines.extend([
+                "**Command to execute**:",
+                "```",
+                command,
+                "```",
+                "",
+            ])
+
+        lines.extend([
+            "---",
+            "**This operation will modify device configuration.**",
+            "",
+            "Please review and approve or reject this action.",
+        ])
+
+        return "\n".join(lines)
+
     async def _execute_standard_mode(self, user_query: str) -> dict | None:
         """Execute query using Standard Mode workflow.
 
@@ -372,13 +430,15 @@ class WorkflowOrchestrator:
             Execution result dict or None if mode execution fails
         """
         try:
+            from config.settings import settings
+
             from olav.modes.standard import run_standard_mode
             from olav.tools.base import ToolRegistry
 
             result = await run_standard_mode(
                 query=user_query,
                 tool_registry=ToolRegistry(),
-                yolo_mode=True,  # Skip HITL for CLI mode
+                yolo_mode=settings.yolo_mode,  # Use global HITL config
             )
 
             if result.success:
@@ -390,6 +450,23 @@ class WorkflowOrchestrator:
                     "metadata": result.metadata,
                     "mode": "standard",
                 }
+
+            # Check for HITL requirement (write operation needs approval)
+            if result.hitl_required:
+                logger.info(f"HITL required for {result.tool_name}: {result.hitl_operation}")
+                return {
+                    "success": False,
+                    "hitl_required": True,
+                    "hitl_operation": result.hitl_operation,
+                    "hitl_parameters": result.hitl_parameters,
+                    "tool_name": result.tool_name,
+                    "answer": self._format_hitl_prompt(result),
+                    "strategy_used": "standard_mode",
+                    "reasoning_trace": [],
+                    "metadata": result.metadata or {},
+                    "mode": "standard",
+                }
+
             # Check for escalation to Expert Mode
             if result.escalated_to_expert:
                 logger.info(
@@ -528,7 +605,7 @@ class WorkflowOrchestrator:
             return {
                 "workflow_type": workflow_type.name,
                 "aborted": True,
-                "final_message": "❌ 无法获取当前状态，无法恢复执行。请检查thread_id是否正确。",
+                "final_message": "❌ Unable to get current state, cannot resume execution. Please check if thread_id is correct.",
             }
 
         # Process user input
@@ -539,7 +616,7 @@ class WorkflowOrchestrator:
             return {
                 "workflow_type": workflow_type.name,
                 "aborted": True,
-                "final_message": "⛔ 用户已中止执行计划。",
+                "final_message": "⛔ User has aborted the execution plan.",
             }
 
         # Build resume value for Command
@@ -600,9 +677,9 @@ class WorkflowOrchestrator:
         """
         normalized = user_input.strip().upper()
 
-        if normalized in {"Y", "YES", "APPROVE", "确认", "批准", "同意"}:
+        if normalized in {"Y", "YES", "APPROVE", "OK", "CONFIRM"}:
             return {"action": "approve"}
-        if normalized in {"N", "NO", "ABORT", "REJECT", "取消", "中止", "拒绝"}:
+        if normalized in {"N", "NO", "ABORT", "REJECT", "CANCEL"}:
             return {"action": "abort"}
         # Any other input treated as modification request
         return {"action": "modify", "content": user_input}
@@ -749,6 +826,12 @@ async def create_workflow_orchestrator(expert_mode: bool = False):
         interrupted: bool | None  # HITL interrupt flag
         execution_plan: dict | None  # Plan from schema investigation
         todos: list | None  # HITL: task list for approval display
+        # HITL additional info for CLI display
+        hitl_required: bool | None
+        tool_name: str | None
+        hitl_operation: str | None
+        hitl_parameters: dict | None
+        hitl_message: str | None
 
     from langchain_core.runnables import RunnableConfig
 
@@ -786,7 +869,7 @@ async def create_workflow_orchestrator(expert_mode: bool = False):
         if not user_message:
             return {
                 **state,
-                "messages": [AIMessage(content="未检测到用户查询")],
+                "messages": [AIMessage(content="No user query detected")],
             }
 
         # Get thread_id from config or generate new one
@@ -823,7 +906,7 @@ async def create_workflow_orchestrator(expert_mode: bool = False):
             output_messages = normalized_messages
 
         # Return updated state with workflow result (including interrupt info)
-        return {
+        output_state = {
             **state,
             "workflow_type": result.get("workflow_type"),
             "messages": output_messages,
@@ -831,6 +914,16 @@ async def create_workflow_orchestrator(expert_mode: bool = False):
             "execution_plan": result.get("execution_plan"),
             "todos": result.get("todos", []),  # HITL: pass todos for approval display
         }
+
+        # Include HITL info if present (for CLI to display approval prompt)
+        if result.get("hitl_required") or result_data.get("hitl_required"):
+            output_state["hitl_required"] = True
+            output_state["tool_name"] = result_data.get("tool_name")
+            output_state["hitl_operation"] = result_data.get("hitl_operation")
+            output_state["hitl_parameters"] = result_data.get("hitl_parameters")
+            output_state["hitl_message"] = result.get("final_message") or result_data.get("answer")
+
+        return output_state
 
     # Build orchestrator graph
     graph_builder = StateGraph(OrchestratorState)

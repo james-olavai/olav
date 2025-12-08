@@ -5,7 +5,8 @@ from datetime import UTC, datetime
 
 from opensearchpy import OpenSearch
 
-from olav.core.settings import settings
+from olav.core.memory import create_opensearch_client
+from config.settings import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ def main(force: bool = False) -> None:
         force: If True, delete existing index before recreating.
 
     Index Schema:
-        - intent (text): User intent in natural language (e.g., "查询 BGP 状态")
+        - intent (text): User intent in natural language (e.g., "query BGP status")
         - xpath (keyword): OpenConfig XPath or SuzieQ query used
         - tool_used (keyword): Tool name that executed successfully (suzieq_query, netconf_execute, etc.)
         - device_type (keyword): Device type or hostname
@@ -37,12 +38,7 @@ def main(force: bool = False) -> None:
     """
     logger.info("Initializing olav-episodic-memory index...")
 
-    client = OpenSearch(
-        hosts=[settings.opensearch_url],
-        http_compress=True,
-        use_ssl=False,
-        verify_certs=False,
-    )
+    client = create_opensearch_client()
 
     index_name = INDEX_NAME
 
@@ -96,7 +92,7 @@ def main(force: bool = False) -> None:
     # Insert sample historical data for RAG testing
     sample_memories = [
         {
-            "intent": "查询 R1 BGP 状态",
+            "intent": "Query R1 BGP status",
             "xpath": "table=bgp, hostname=R1",
             "tool_used": "suzieq_query",
             "device_type": "router",
@@ -108,7 +104,7 @@ def main(force: bool = False) -> None:
             "strategy_used": "fast_path",
         },
         {
-            "intent": "查询所有接口状态",
+            "intent": "Query all interface status",
             "xpath": "table=interfaces, method=summarize",
             "tool_used": "suzieq_query",
             "device_type": "router",
@@ -120,7 +116,7 @@ def main(force: bool = False) -> None:
             "strategy_used": "fast_path",
         },
         {
-            "intent": "配置 BGP neighbor 192.168.1.1",
+            "intent": "Configure BGP neighbor 192.168.1.1",
             "xpath": "/network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor[neighbor-address=192.168.1.1]/config",
             "tool_used": "netconf_execute",
             "device_type": "juniper",
@@ -136,7 +132,7 @@ def main(force: bool = False) -> None:
             "strategy_used": "fast_path",
         },
         {
-            "intent": "检查 OSPF 邻居状态",
+            "intent": "Check OSPF neighbor status",
             "xpath": "table=ospf, method=get",
             "tool_used": "suzieq_query",
             "device_type": "router",
@@ -148,7 +144,7 @@ def main(force: bool = False) -> None:
             "strategy_used": "fast_path",
         },
         {
-            "intent": "批量检查所有路由器 BGP 状态",
+            "intent": "Batch check all router BGP status",
             "xpath": "table=bgp, method=summarize",
             "tool_used": "suzieq_query",
             "device_type": "router",
@@ -160,7 +156,7 @@ def main(force: bool = False) -> None:
             "strategy_used": "batch_path",
         },
         {
-            "intent": "查看 R2 接口描述",
+            "intent": "View R2 interface descriptions",
             "xpath": "table=interfaces, hostname=R2, columns=hostname,ifname,description",
             "tool_used": "suzieq_query",
             "device_type": "router",

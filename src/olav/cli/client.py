@@ -566,7 +566,6 @@ class OLAVClient:
         except Exception as e:
             logger.error(f"Local execution failed: {e}")
             return ExecutionResult(success=False, messages=[], thread_id=thread_id, error=str(e))
-            return ExecutionResult(success=False, messages=[], thread_id=thread_id, error=str(e))
 
     async def health_check(self) -> dict[str, Any]:
         """

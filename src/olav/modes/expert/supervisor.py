@@ -29,27 +29,27 @@ NETWORK_LAYERS = ("L1", "L2", "L3", "L4")
 LAYER_INFO = {
     "L1": {
         "name": "Physical Layer",
-        "description": "接口状态、错误计数、链路状态、线缆",
+        "description": "Interface status, error counters, link state, cables",
         "suzieq_tables": ["interfaces", "device"],
-        "keywords": ["接口", "interface", "link", "down", "up", "cable", "物理"],
+        "keywords": ["interface", "link", "down", "up", "cable", "physical"],
     },
     "L2": {
         "name": "Data Link Layer",
-        "description": "VLAN、MAC 表、STP、LLDP 邻居",
+        "description": "VLAN, MAC table, STP, LLDP neighbors",
         "suzieq_tables": ["vlan", "macs", "lldp", "stp"],
-        "keywords": ["vlan", "mac", "stp", "lldp", "二层", "交换"],
+        "keywords": ["vlan", "mac", "stp", "lldp", "layer2", "switch"],
     },
     "L3": {
         "name": "Network Layer",
-        "description": "IP 地址、路由表、BGP/OSPF、ARP",
+        "description": "IP addresses, routing table, BGP/OSPF, ARP",
         "suzieq_tables": ["routes", "bgp", "ospf", "arpnd", "address"],
-        "keywords": ["route", "路由", "bgp", "ospf", "arp", "ip", "三层", "网络层"],
+        "keywords": ["route", "routing", "bgp", "ospf", "arp", "ip", "layer3", "network"],
     },
     "L4": {
         "name": "Transport Layer",
-        "description": "TCP/UDP 连接、会话状态、NAT",
+        "description": "TCP/UDP connections, session state, NAT",
         "suzieq_tables": [],  # Limited SuzieQ coverage
-        "keywords": ["tcp", "udp", "session", "nat", "四层", "传输层"],
+        "keywords": ["tcp", "udp", "session", "nat", "layer4", "transport"],
     },
 }
 
@@ -211,7 +211,7 @@ class ExpertModeSupervisor:
 
     Usage:
         supervisor = ExpertModeSupervisor()
-        state = supervisor.create_initial_state("R1 无法与 R2 建立 BGP")
+        state = supervisor.create_initial_state("R1 cannot establish BGP with R2")
 
         while state.should_continue():
             task = await supervisor.plan_next_task(state)
@@ -282,13 +282,16 @@ class ExpertModeSupervisor:
 
         # Query Syslog for recent events
         try:
-            from olav.tools.opensearch_tool import SyslogSearchTool
+            from olav.tools.syslog_tool import SyslogSearchTool
 
             syslog_tool = SyslogSearchTool()
+            # Extract key terms from query for syslog search
+            # Use common fault keywords combined with query terms
+            search_keyword = "DOWN|ERROR|FAILED|WARNING"
             events = await syslog_tool.execute(
-                query=query,
-                hours_ago=24,
-                size=10,
+                keyword=search_keyword,
+                start_time="now-24h",
+                limit=10,
             )
 
             if events and hasattr(events, "data"):
@@ -362,7 +365,7 @@ class ExpertModeSupervisor:
         if result.findings:
             # Simple heuristic: high-confidence findings might be root cause
             if result.confidence >= 0.8:
-                critical_keywords = ["down", "failed", "error", "mismatch", "异常", "故障"]
+                critical_keywords = ["down", "failed", "error", "mismatch", "anomaly", "fault"]
                 for finding in result.findings:
                     if any(kw in finding.lower() for kw in critical_keywords):
                         state.root_cause_found = True
@@ -395,7 +398,7 @@ class ExpertModeSupervisor:
             # Even if root cause found, check if it's policy-related
             # which requires Phase 2 confirmation
             if state.root_cause:
-                policy_keywords = ["route-map", "prefix-list", "acl", "policy", "策略"]
+                policy_keywords = ["route-map", "prefix-list", "acl", "policy"]
                 if any(kw in state.root_cause.lower() for kw in policy_keywords):
                     logger.info("Phase 2 needed: root cause is policy-related, needs confirmation")
                     return True
@@ -417,7 +420,7 @@ class ExpertModeSupervisor:
             return True
 
         # Trigger 3: Query involves policy keywords (SuzieQ blind spot)
-        policy_keywords = ["route-map", "prefix-list", "acl", "policy", "策略", "过滤"]
+        policy_keywords = ["route-map", "prefix-list", "acl", "policy", "filter"]
         query_lower = state.query.lower()
         if any(kw in query_lower for kw in policy_keywords):
             logger.info("Phase 2 needed: query involves routing policy")
@@ -431,7 +434,7 @@ class ExpertModeSupervisor:
                 logger.info("Phase 2 needed: missing routes may indicate policy issue")
                 return True
             # No route to destination
-            if "no route" in finding_lower or "路由缺失" in finding_lower:
+            if "no route" in finding_lower or "route missing" in finding_lower:
                 logger.info("Phase 2 needed: route missing, check policy")
                 return True
 
@@ -467,12 +470,12 @@ class ExpertModeSupervisor:
         # Generate hypothesis
         if hypothesis_parts:
             state.phase2_hypothesis = (
-                f"Phase 1 发现: {'; '.join(hypothesis_parts[:3])}. "
-                f"假设: 可能存在 BGP route-map/prefix-list 配置阻断路由传递。"
+                f"Phase 1 Findings: {'; '.join(hypothesis_parts[:3])}. "
+                f"Hypothesis: Possible BGP route-map/prefix-list configuration blocking route propagation."
             )
         else:
             state.phase2_hypothesis = (
-                "Phase 1 未能确认根因。需要检查设备实时配置验证假设。"
+                "Phase 1 could not confirm root cause. Need to check device real-time configuration to verify hypothesis."
             )
 
         state.phase2_suspected_devices = list(suspected_devices)

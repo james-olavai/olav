@@ -1,189 +1,515 @@
-# OLAV (Omni-Layer Autonomous Verifier)
+# OLAV (NetAIChatOps)
 
-Enterprise Network Operations ChatOps Platform using LangGraph Workflows.
+<div align="center">
 
-## Quick Start
-
-OLAV 使用**单一 Workflows Orchestrator 架构**，提供两种运行模式：
-
-### Normal Mode（普通模式，默认）
-
-标准网络运维场景，3 个专用工作流：
-
-```powershell
-# Interactive mode
-uv run olav.py
-
-# Single query
-uv run olav.py "查询 R1 接口状态"
-uv run olav.py "为什么 BGP 没有建立邻居？"
-uv run olav.py "修改 R1 MTU 为 9000"
+```
+   ____  _        ___     __
+  / __ \| |      / \ \   / /
+ | |  | | |     / _ \ \ / / 
+ | |  | | |    / ___ \ V /  
+ | |__| | |___/ ___ \ | |   
+  \____/|_____/_/   \_\|_|  
+                            
+  NetAIChatOps CLI
 ```
 
-**可用工作流**:
-- **QueryDiagnosticWorkflow**: 强制漏斗式排错（SuzieQ 宏观 → NETCONF 微观）
-- **DeviceExecutionWorkflow**: 配置变更（Planning → HITL 审批 → Execution → Validation）
-- **NetBoxManagementWorkflow**: 设备清单管理
+**LangGraph Workflows + SuzieQ + NETCONF/gNMI + NetBox**
 
-### Expert Mode（专家模式）
+[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-0.2+-green.svg)](https://langchain-ai.github.io/langgraph/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-复杂多步任务，启用 Deep Dive Workflow：
-
-```powershell
-# Batch audits (30+ devices)
-uv run olav.py -e "审计所有边界路由器的 BGP 安全配置"
-
-# Cross-domain troubleshooting
-uv run olav.py --expert "为什么数据中心 A 无法访问数据中心 B？"
-
-# Recursive diagnostics
-uv run olav.py -e "深入分析 OSPF 邻居关系异常"
-```
-
-**Deep Dive 能力**:
-- 自动任务分解（LLM 生成 Todo List）
-- 递归深入诊断（最大 3 层，已实现）
-- 批量并行执行（asyncio.gather，已实现并通过全部测试）
-- 进度追踪与恢复（PostgreSQL Checkpointer，支持断点续传）
+</div>
 
 ---
 
-## Architecture Overview（架构概览）
+## 🚀 Quick Start
 
-OLAV 采用 **Workflows Orchestrator** 单一架构（2025-11-23 简化）：
-
-```
-用户请求 → Orchestrator (Intent 分类)
-  ↓
-Workflow Selection (LLM 自动路由)
-  ↓
-├─ QueryDiagnosticWorkflow   (查询/诊断)
-├─ DeviceExecutionWorkflow    (配置变更)
-├─ NetBoxManagementWorkflow   (设备管理)
-└─ DeepDiveWorkflow           (复杂任务，需 -e 启用)
-```
-
-**已废弃架构**（2025-11-23 归档至 `archive/deprecated_agents/`）:
-- ❌ ReAct: 虽快（16s）但缺少显式流程控制
-- ❌ Legacy (SubAgent): 多层委托，性能差（72s）
-- ❌ Structured: 未完成
-- ❌ Simple: 功能重叠
-
-当前主线架构已实现：
-- Deep Dive Workflow 递归与并行批量执行（详见 DESIGN.md）
-- 所有相关测试已通过（21/21）
-- 文档与 TODO 已同步更新
-
-详见: `archive/deprecated_agents/README.md` 与 `docs/DESIGN.md`
-
----
-
-## Workflows Details（工作流详解）
-RAG   : search_episodic_memory, search_openconfig_schema
-NetCONF/CLI: netconf_tool, cli_tool (HITL 对写操作自动中断)
-NetBox: netbox_api_call, netbox_schema_search
-```
-关键策略：
-- 漏斗式排错：先宏观 `suzieq_query` → 再微观 `netconf_tool`
-- Schema-Aware：不确定表/字段/XPath 先调用 `*_schema_search`
-- 降级链：NETCONF → CLI（提示无原子回滚能力）
-- HITL：`netconf_tool` / `cli_tool` 写操作触发人工审批
-
-单步简单查询示例：
-```
-输入: 查询接口状态
-调用: suzieq_query(table="interfaces", method="summarize")
-输出: 总 222 接口，91% up，类型分布...
-耗时: ~16s (对比 legacy ~72s)
-```
-
-## 性能对比 (示例基准)
-
-| Query | ReAct (s) | Legacy (s) | Speedup |
-|-------|-----------|------------|---------|
-| 查询接口状态 | 16.3 | 72.5 | 77.5% |
-
-运行完整基准：
-```powershell
-uv run python scripts/benchmark_agents.py --mode both -n 8
-Get-Content benchmark_results.md | Select-Object -First 20
-```
-
-## Quick Start
-
-## Quick Start
+### 1. Environment Setup
 
 ```bash
+# Install uv (Linux/Mac)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone repository
+git clone <repo-url>
+cd Olav
+
 # Install dependencies
 uv sync --dev
 
-# Start Docker infrastructure
-docker-compose up -d opensearch postgres redis
-
-# Initialize databases
-docker-compose --profile init up olav-init
-
-# Run CLI (ReAct 默认)
-uv run python -m olav.main chat
-
-# Use legacy mode (对照测试)
-uv run python -m olav.main chat --agent-mode legacy
-
-# Run tests
-uv run pytest
+# Configure environment variables
+cp .env.example .env
+# Edit .env, required: LLM_API_KEY
 ```
 
-## Architecture
+### 2. Start Services
 
-| Layer | Purpose | Implementation |
-|-------|---------|---------------|
-| Prompt | 统一策略/安全规范 | `config/prompts/agents/root_agent_react.yaml` |
-| Agent  | 推理 + 工具调用 | `create_deep_agent(subagents=[])` |
-| Tools  | Schema-Aware 网络数据 & 控制 | `src/olav/tools/*.py` |
-| Safety | 写操作 HITL 审批 & 审计 | Interrupt + OpenSearch Logs |
-| State  | 会话与多轮推理持久化 | PostgreSQL Async Checkpointer |
+```bash
+# Start core infrastructure services (PostgreSQL, OpenSearch)
+docker-compose up -d
 
-核心原则：
-- **Schema-Aware**：减少工具数量（SuzieQ/NetBox/YANG 动态发现）
-- **漏斗式排错**：宏观 → 微观，避免盲目深入
-- **最小信任**：写操作必须人工审批 (HITL)
-- **可追溯性**：工具调用路径 + 结果审计
+# With Redis cache (optional, for multi-instance deployments)
+docker-compose --profile cache up -d
 
-更多细节见 `DESIGN.md` 与 `docs/` 内部文档。
-
-## 常用命令 (PowerShell)
-```powershell
-# 初始化（首次）
+# With built-in NetBox
 docker-compose --profile netbox up -d
 
-# 查看健康状态
-docker ps --format "table {{.Names}}\t{{.Status}}" | findstr olav
-
-# 运行单次查询 (ReAct)
-uv run python -m olav.main chat "查询接口状态"
-
-# 基准测试
-uv run python scripts/benchmark_agents.py --mode both
-
-# 查看最近提交
-git log --oneline -n 5
+# Full stack (all optional components)
+docker-compose --profile full --profile netbox up -d
 ```
 
-## 安全与合规
-- 所有写操作工具自动进入审批等待（HITL）
-- NETCONF 优先，失败后才降级 CLI 并提示风险
-- 审计日志包含：时间戳、设备、操作类型、结果
-- 推荐在生产启用 OpenSearch 索引生命周期管理（ILM）
+### 3. Initialize
 
+```bash
+# Check index status
+uv run olav init status
 
-## 后续路线
-- 多失败递归增强（Deep Dive 多点失败处理）
-- Checkpointer 恢复与断点续传测试
-- 性能基准与批量任务调优
-- 完整 100 查询基准测试覆盖
-- 引入 Prompt 结果缓存减少 token
-- 复杂任务早停 (early stopping) 策略
-- WebUI 展示工具调用链路
+# Initialize all infrastructure (PostgreSQL + all indexes)
+uv run olav init all
+
+# Or initialize specific components:
+uv run olav init schema    # Schema indexes only (SuzieQ/OpenConfig/NetBox)
+uv run olav init rag       # RAG indexes only (episodic memory, docs)
+uv run olav init postgres  # PostgreSQL Checkpointer only
+
+# Import devices from config/inventory.csv to NetBox
+uv run olav init netbox
+```
+
+### 4. Client Authentication
+
+```bash
+# Get server Master Token (check docker logs)
+docker-compose logs olav-server | grep "ACCESS TOKEN"
+
+# Register client to get Session Token (recommended)
+uv run olav register --name "my-laptop" --token "<master-token>" --server http://localhost:8001
+
+# Verify connection and system health
+uv run olav doctor
+```
+
+### 5. Start Using
+
+```bash
+# Interactive Dashboard (default)
+uv run olav
+
+# Lightweight REPL mode
+uv run olav repl
+
+# Single query
+uv run olav -q "Query BGP status of R1"
+
+# Expert mode (complex diagnostics)
+uv run olav -E -q "Audit security config of all border routers"
+
+# TUI dashboard with batch queries
+uv run olav dashboard -q "query1" -q "query2"
+```
+
+### 6. Administration (Server-Side)
+
+```bash
+# Create session tokens for clients
+uv run olav-admin token create --name "alice-laptop" --role operator
+
+# List active sessions
+uv run olav-admin token list
+
+# Revoke a session
+uv run olav-admin token revoke <client_id>
+
+# Initialize databases
+uv run olav-admin init
+```
 
 ---
-如需更多帮助：运行 `uv run python -m olav.main chat --verbose` 查看推理与工具调用细节。
+
+## 📋 CLI Command Reference
+
+### Main Command
+
+```bash
+olav [OPTIONS] COMMAND [ARGS]...
+```
+
+| Option | Description |
+|--------|-------------|
+| `-q, --query TEXT` | Single query text |
+| `--server TEXT` | API Server URL (default: http://localhost:8000) |
+| `-S, --standard` | Standard mode (default, fast path) |
+| `-E, --expert` | Expert mode (Deep Dive recursive diagnostics) |
+| `-v, --verbose` | Verbose output |
+| `--status` | Check system status |
+
+### Subcommands
+
+| Command | Description |
+|---------|-------------|
+| `init` | Initialize infrastructure and indexes |
+| `register` | Register client to get Session Token |
+| `doctor` | System health check (server, auth, components) |
+| `query` | Execute single query |
+| `dashboard` | Launch full-screen TUI dashboard |
+| `repl` | Lightweight REPL mode |
+| `session` | Manage authentication sessions |
+| `inspect` | Network inspection commands |
+| `report` | View inspection reports |
+| `doc` | RAG document management |
+| `config` | CLI configuration management |
+| `version` | Version information (use --banner for ASCII art) |
+
+### Init Commands
+
+```bash
+# Initialize all components (PostgreSQL + all indexes)
+olav init all
+
+# Initialize with force reset (delete and recreate indexes)
+olav init all --force
+
+# Initialize schema indexes only (preserves RAG data)
+olav init schema
+olav init schema --force    # Force reset
+
+# Initialize RAG indexes only (preserves schema data)
+olav init rag
+olav init rag --force       # Force reset
+
+# Initialize PostgreSQL Checkpointer
+olav init postgres
+
+# Import devices from config/inventory.csv to NetBox
+olav init netbox
+olav init netbox --force    # Force import even if devices exist
+
+# Check current index status
+olav init status
+```
+
+### Authentication Commands
+
+```bash
+# Register client
+olav register --name "client-name" --token "<master-token>" --server <url>
+
+# Check status
+olav status --server <url>
+
+# Session management
+olav session clients   # List all clients (requires admin privileges)
+olav session threads   # List conversation threads
+olav session logout    # Logout current session
+```
+
+### Inspection Commands
+
+```bash
+# List inspection configurations
+olav inspect list
+
+# Run inspection (async)
+olav inspect run <profile>
+
+# Wait for completion
+olav inspect run <profile> --wait
+
+# Check job status
+olav inspect status <job-id>
+olav inspect jobs
+```
+
+### Report Commands
+
+```bash
+# List reports
+olav report list
+
+# View report
+olav report show <report-id>
+
+# Download report
+olav report download <report-id> -o report.md
+```
+
+### Document Management
+
+```bash
+# List indexed documents
+olav doc list
+
+# Upload document
+olav doc upload <file>
+
+# Search documents
+olav doc search "BGP configuration best practices"
+```
+
+---
+
+## 🔐 Authentication System
+
+OLAV uses a two-tier Token authentication mechanism:
+
+### Token Types
+
+| Token Type | Validity | Purpose | Acquisition |
+|------------|----------|---------|-------------|
+| **Master Token** | 24 hours | Admin operations, client registration | Server startup logs |
+| **Session Token** | 7 days | Regular client operations | `olav register` |
+
+### Configure Token Validity
+
+Set in `.env` or environment variables:
+
+```bash
+# Master Token validity (hours)
+TOKEN_MAX_AGE_HOURS=48
+
+# Session Token validity (hours)
+SESSION_TOKEN_MAX_AGE_HOURS=720  # 30 days
+```
+
+### Authentication Flow
+
+```
+┌─────────────┐     Master Token      ┌─────────────┐
+│   Server    │ ◄──────────────────── │   Admin     │
+│  Startup    │    (from logs)        │             │
+└─────────────┘                       └─────────────┘
+       │
+       │ POST /auth/register
+       ▼
+┌─────────────┐     Session Token     ┌─────────────┐
+│   OLAV      │ ────────────────────► │   Client    │
+│   Server    │    (7 days valid)     │  ~/.olav/   │
+└─────────────┘                       │ credentials │
+       ▲                              └─────────────┘
+       │
+       │ Bearer Token (auto-loaded)
+       │
+┌─────────────┐
+│ olav status │
+│ olav query  │
+│ olav inspect│
+└─────────────┘
+```
+
+### Credential Storage
+
+```bash
+# Credentials auto-saved to
+~/.olav/credentials
+
+# Content format
+OLAV_SESSION_TOKEN=xxx
+OLAV_CLIENT_ID=xxx
+OLAV_CLIENT_NAME=my-laptop
+```
+
+---
+
+## 🏗️ Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        OLAV CLI (Thin Client)                    │
+│  olav register | status | query | inspect | report | session    │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │ HTTP/SSE (Bearer Token)
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      OLAV API Server (FastAPI)                   │
+│  /auth/* | /orchestrator/stream | /inspections/* | /reports/*  │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Workflow Orchestrator                         │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐             │
+│  │   Query      │ │   Device     │ │   NetBox     │             │
+│  │  Diagnostic  │ │  Execution   │ │  Management  │             │
+│  │  Workflow    │ │  Workflow    │ │  Workflow    │             │
+│  └──────────────┘ └──────────────┘ └──────────────┘             │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+          ┌────────────────────┼────────────────────┐
+          ▼                    ▼                    ▼
+    ┌──────────┐         ┌──────────┐         ┌──────────┐
+    │  SuzieQ  │         │ NETCONF/ │         │  NetBox  │
+    │ Parquet  │         │  gNMI    │         │   API    │
+    └──────────┘         └──────────┘         └──────────┘
+```
+
+### Core Components
+
+| Component | Tech Stack | Purpose |
+|-----------|------------|---------|
+| **CLI** | Typer + Rich | Command-line interface, TUI dashboard |
+| **API Server** | FastAPI + LangServe | RESTful API, SSE streaming responses |
+| **Orchestrator** | LangGraph | Workflow orchestration, intent classification |
+| **State Store** | PostgreSQL | Checkpointer state persistence |
+| **Schema Index** | OpenSearch | SuzieQ/OpenConfig Schema indexing |
+| **Cache** | Redis (optional) | Distributed cache (fallback: in-memory) |
+
+---
+
+## ⚙️ Configuration Reference
+
+### Environment Variables (.env)
+
+```bash
+# ============================================
+# Required - LLM Configuration
+# ============================================
+LLM_API_KEY=sk-...                    # OpenAI API Key
+LLM_PROVIDER=openai                   # openai | ollama | azure
+LLM_MODEL_NAME=gpt-4-turbo            # Model name
+
+# ============================================
+# Optional - NetBox Configuration
+# ============================================
+NETBOX_URL=http://localhost:8000      # NetBox URL
+NETBOX_TOKEN=your-token               # NetBox API Token
+
+# ============================================
+# Optional - Device Credentials
+# ============================================
+DEVICE_USERNAME=admin                 # SSH/NETCONF username
+DEVICE_PASSWORD=password              # SSH/NETCONF password
+
+# ============================================
+# Required - OpenSearch Authentication
+# ============================================
+OPENSEARCH_USERNAME=admin             # Default username
+OPENSEARCH_PASSWORD=OlavOS123!        # Change in production!
+OPENSEARCH_VERIFY_CERTS=false         # Set true for production TLS
+
+# ============================================
+# Optional - Token Validity
+# ============================================
+TOKEN_MAX_AGE_HOURS=24                # Master Token (default 24 hours)
+SESSION_TOKEN_MAX_AGE_HOURS=168       # Session Token (default 7 days)
+
+# ============================================
+# Optional - Infrastructure (Docker auto-configured)
+# ============================================
+# POSTGRES_URI=postgresql://olav:xxx@localhost:5432/olav
+# OPENSEARCH_URL=http://localhost:19200
+# REDIS_URL=redis://localhost:6379    # Optional: enables distributed cache
+```
+
+### Docker Compose Ports
+
+| Service | Internal Port | External Port | Notes |
+|---------|---------------|---------------|-------|
+| olav-server | 8000 | 8001 | API Server |
+| postgres | 5432 | 15432 | State persistence |
+| opensearch | 9200 | 19200 | Schema index |
+| redis | 6379 | 6379 | Optional (--profile cache) |
+| netbox | 8080 | 8080 | Optional (--profile netbox) |
+
+---
+
+## 🔧 Development Guide
+
+### Code Quality
+
+```bash
+# Format
+uv run ruff format src/ tests/
+
+# Lint + auto-fix
+uv run ruff check src/ tests/ --fix
+
+# Type checking
+uv run mypy src/ --strict
+
+# Run tests
+uv run pytest -v
+
+# Test coverage
+uv run pytest --cov=src/olav --cov-report=html
+```
+
+### Add Dependencies
+
+```bash
+uv add langchain-openai          # Runtime dependency
+uv add --dev pytest-asyncio      # Dev dependency
+```
+
+### Local API Server Startup
+
+```bash
+# Development mode (auto-reload)
+uv run python -m olav.main serve --reload
+
+# Or use LangGraph Studio
+uv add langgraph-cli[inmem]
+langgraph dev
+# Access: https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024
+```
+
+---
+
+## 📚 Documentation Index
+
+| Document | Description |
+|----------|-------------|
+| [MULTI_CLIENT_AUTH_DESIGN.md](docs/MULTI_CLIENT_AUTH_DESIGN.md) | Multi-client authentication design |
+| [ARCHITECTURE_EVALUATION.md](docs/ARCHITECTURE_EVALUATION.md) | Architecture evaluation report |
+| [DOCKER_DEPLOYMENT.md](docs/DOCKER_DEPLOYMENT.md) | Docker deployment guide |
+| [CHECKPOINTER_SETUP.md](docs/CHECKPOINTER_SETUP.md) | PostgreSQL Checkpointer configuration |
+| [API_USAGE.md](docs/API_USAGE.md) | API usage guide |
+
+---
+
+## ❓ FAQ
+
+### Q: How to get the Master Token?
+
+```bash
+docker-compose logs olav-server | grep "ACCESS TOKEN"
+# Output: 🔑 ACCESS TOKEN: http://localhost:3100?token=xxx
+```
+
+### Q: What to do when Session Token expires?
+
+```bash
+# Re-register
+uv run olav register --name "my-laptop" --token "<master-token>"
+```
+
+### Q: Windows platform reports ProactorEventLoop error?
+
+OLAV handles this automatically. If issues persist, add at script beginning:
+```python
+import asyncio
+asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+```
+
+### Q: How to disable authentication (dev environment only)?
+
+```bash
+# .env
+AUTH_DISABLED=true
+```
+
+---
+
+## 📄 License
+
+MIT License - See [LICENSE](LICENSE) for details.
+
+---
+
+<div align="center">
+
+**Built with ❄️ by OLAV Team**
+
+*NetAIChatOps - Making Network Operations Smarter*
+
+</div>

@@ -54,13 +54,13 @@ __all__ = [
     # Controller
     "InspectionModeController",
     "InspectionResult",
+    # Scheduler
+    "InspectionScheduler",
     # Compiler
     "IntentCompiler",
     "QueryPlan",
     "ThresholdConfig",
     "ValidationRule",
     "run_inspection",
-    # Scheduler
-    "InspectionScheduler",
     "run_scheduler",
 ]

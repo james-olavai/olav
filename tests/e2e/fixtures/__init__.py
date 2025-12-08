@@ -8,9 +8,8 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-import time
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
 
 import pytest
 
@@ -24,15 +23,12 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 # Import test cache and performance tracking
 from tests.e2e.test_cache import (
-    get_cache,
-    TestResultCache,
     PerformanceTracker,
-    PerformanceMetrics,
+    TestResultCache,
+    get_cache,
     get_current_tracker,
     set_current_tracker,
-    perf_logger,
 )
-
 
 # ============================================
 # Performance Tracking Storage
@@ -67,7 +63,7 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "performance: tests with performance requirements"
     )
-    
+
     # Print cache stats
     cache = get_cache()
     stats = cache.get_stats()
@@ -75,7 +71,7 @@ def pytest_configure(config):
         print(f"\n📦 Test cache: {stats['valid_cached']} tests will be skipped (cached)")
         if stats.get("timing", {}).get("avg_duration_ms", 0) > 0:
             print(f"⏱️  Avg test duration: {stats['timing']['avg_duration_ms']:.0f}ms")
-    
+
     # Print slow tests warning
     slow_tests = cache.get_slow_tests()
     if slow_tests:
@@ -86,11 +82,11 @@ def pytest_configure(config):
 def pytest_runtest_setup(item):
     """Skip cached tests and start performance tracking."""
     cache = get_cache()
-    
+
     # Check cache
     if cache.is_passed(item.nodeid):
         pytest.skip(f"Previously passed (cached, TTL={cache.ttl_hours}h)")
-    
+
     # Start performance tracking
     tracker = PerformanceTracker(item.nodeid)
     tracker.start()
@@ -103,15 +99,15 @@ def pytest_runtest_makereport(item, call):
     """Update cache with timing and performance data."""
     if call.when != "call":
         return
-    
+
     # Stop tracking
     tracker = _test_trackers.get(item.nodeid)
     if tracker:
         tracker.stop()
         set_current_tracker(None)
-    
+
     cache = get_cache()
-    
+
     if call.excinfo is None:
         # Test passed - save with timing
         duration_ms = call.duration * 1000 if call.duration else 0
@@ -120,7 +116,7 @@ def pytest_runtest_makereport(item, call):
     else:
         # Test failed - remove from cache
         cache.mark_failed(item.nodeid)
-    
+
     # Cleanup tracker
     if item.nodeid in _test_trackers:
         del _test_trackers[item.nodeid]
@@ -130,21 +126,21 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     """Print performance summary at end of test run."""
     cache = get_cache()
     stats = cache.get_stats()
-    
+
     terminalreporter.write_sep("=", "Performance Summary")
-    
+
     timing = stats.get("timing", {})
     if timing.get("total_duration_ms", 0) > 0:
         terminalreporter.write_line(f"Total test time: {timing['total_duration_ms']/1000:.1f}s")
         terminalreporter.write_line(f"Average per test: {timing['avg_duration_ms']:.0f}ms")
         terminalreporter.write_line(f"Min: {timing['min_duration_ms']:.0f}ms | Max: {timing['max_duration_ms']:.0f}ms")
-    
+
     perf = stats.get("performance", {})
     if perf.get("total_tokens", 0) > 0:
         terminalreporter.write_line(f"Total LLM tokens: {perf['total_tokens']:,}")
         terminalreporter.write_line(f"Total tool calls: {perf['total_tool_calls']}")
         terminalreporter.write_line(f"Total LLM calls: {perf['total_llm_calls']}")
-    
+
     # Show slow tests
     slow_tests = cache.get_slow_tests()
     if slow_tests:
@@ -195,11 +191,11 @@ def clean_env() -> Generator[dict, None, None]:
 
 
 @pytest.fixture
-def clear_test_cache() -> Generator[TestResultCache, None, None]:
+def clear_test_cache() -> TestResultCache:
     """Clear test cache for fresh run."""
     cache = get_cache()
     cache.clear()
-    yield cache
+    return cache
 
 
 # ============================================
@@ -286,7 +282,7 @@ def sample_device_response() -> dict:
 # ============================================
 class ResponseValidator:
     """Helper class for validating agent responses."""
-    
+
     @staticmethod
     def has_tool_call(response: str, tool_name: str) -> bool:
         """Check if response indicates a tool was called."""
@@ -298,7 +294,7 @@ class ResponseValidator:
         ]
         response_lower = response.lower()
         return any(p.lower() in response_lower for p in tool_patterns)
-    
+
     @staticmethod
     def has_data_table(response: str) -> bool:
         """Check if response contains structured data (table)."""
@@ -310,7 +306,7 @@ class ResponseValidator:
             "---",  # Markdown table
         ]
         return any(p in response for p in table_patterns)
-    
+
     @staticmethod
     def has_summary(response: str) -> bool:
         """Check if response contains summary information."""
@@ -323,7 +319,7 @@ class ResponseValidator:
         ]
         response_lower = response.lower()
         return any(p in response_lower for p in summary_patterns)
-    
+
     @staticmethod
     def is_error_response(response: str) -> bool:
         """Check if response indicates an error."""
@@ -336,12 +332,12 @@ class ResponseValidator:
         ]
         response_lower = response.lower()
         return any(p in response_lower for p in error_patterns)
-    
+
     @staticmethod
     def contains_device_name(response: str, device: str) -> bool:
         """Check if response mentions a specific device."""
         return device.lower() in response.lower()
-    
+
     @staticmethod
     def contains_protocol(response: str, protocol: str) -> bool:
         """Check if response mentions a specific protocol."""

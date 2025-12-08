@@ -16,7 +16,7 @@ Usage:
     result = await controller.run("config/inspections/daily_core_check.yaml")
 
     # Or direct query
-    result = await run_inspection("巡检所有核心路由器")
+    result = await run_inspection("Inspect all core routers")
 """
 
 from __future__ import annotations
@@ -209,10 +209,7 @@ class InspectionResult:
 
         # Format duration
         duration = self.duration_seconds
-        if duration >= 60:
-            duration_str = f"{duration / 60:.1f}m"
-        else:
-            duration_str = f"{duration:.1f}s"
+        duration_str = f"{duration / 60:.1f}m" if duration >= 60 else f"{duration:.1f}s"
 
         # Format timestamp (human readable)
         try:
@@ -314,7 +311,7 @@ class InspectionResult:
 
             # State counts (BGP, OSPF, etc.)
             for key in ["state_counts", "status_counts", "adminState_counts"]:
-                if key in d and d[key]:
+                if d.get(key):
                     counts = d[key]
                     # Format: "2 Established, 1 Active"
                     state_parts = [f"{v} {k}" for k, v in counts.items()]
@@ -364,20 +361,21 @@ class InspectionResult:
         """Save report to file.
 
         Args:
-            output_dir: Optional output directory. Defaults to ReportConfig.
+            output_dir: Optional output directory. Defaults to inspection_reports_dir.
 
         Returns:
             Path to saved report file.
         """
         from pathlib import Path
-        from config.settings import ReportConfig
+
+        from config.settings import get_path
 
         # Use provided dir or default
         if output_dir:
             reports_dir = Path(output_dir)
             reports_dir.mkdir(parents=True, exist_ok=True)
         else:
-            reports_dir = ReportConfig.get_inspection_dir()
+            reports_dir = get_path("inspection_reports")
 
         # Generate filename: inspection_{name}_{timestamp}.md
         # Sanitize config name for filename
@@ -647,7 +645,7 @@ class InspectionModeController:
                     operator=plan.validation.operator,  # type: ignore
                     value=plan.validation.expected,
                     severity=check.severity,
-                    message=f"{{device}}: {plan.validation.field} 不满足条件 {plan.validation.operator} {plan.validation.expected}",
+                    message=f"{{device}}: {plan.validation.field} does not satisfy condition {plan.validation.operator} {plan.validation.expected}",
                 )
 
             # Return tool based on source
@@ -676,7 +674,7 @@ class InspectionModeController:
                     operator=plan.validation.operator,  # type: ignore
                     value=plan.validation.expected,
                     severity=check.severity,
-                    message=f"{{device}}: {plan.validation.field} 不满足条件",
+                    message=f"{{device}}: {plan.validation.field} does not satisfy condition",
                 )
 
             tool_name = self._get_tool_name_for_source(plan)
@@ -1108,6 +1106,6 @@ async def run_inspection(
     # Auto-save report
     if save_report:
         report_path = result.save()
-        print(f"📄 Report saved: {report_path}")
+        logger.info(f"📄 Report saved: {report_path}")
 
     return result
