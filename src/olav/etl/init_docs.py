@@ -4,7 +4,7 @@ This script creates the OpenSearch index used for storing document embeddings
 from PDF/Markdown/Text files indexed by the document_indexer module.
 
 Index: olav-docs
-Purpose: Document RAG (厂商文档向量检索)
+Purpose: Document RAG (Vendor documentation vector search)
 Fields:
     - content: Document text chunk
     - embedding: 1536-dim vector (OpenAI text-embedding-3-small)
@@ -15,7 +15,8 @@ import logging
 
 from opensearchpy import OpenSearch
 
-from olav.core.settings import settings
+from olav.core.memory import create_opensearch_client
+from config.settings import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,12 +40,7 @@ def main() -> None:
     """
     logger.info("Initializing olav-docs index...")
 
-    client = OpenSearch(
-        hosts=[settings.opensearch_url],
-        http_compress=True,
-        use_ssl=False,
-        verify_certs=False,
-    )
+    client = create_opensearch_client()
 
     # Check if index exists
     if client.indices.exists(index=INDEX_NAME):

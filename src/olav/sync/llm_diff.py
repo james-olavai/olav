@@ -29,11 +29,10 @@ import json
 import logging
 from typing import Any, ClassVar, Literal
 
-from olav.core.prompt_manager import prompt_manager
-
 from pydantic import BaseModel, Field
 
 from olav.core.llm import LLMFactory
+from olav.core.prompt_manager import prompt_manager
 
 logger = logging.getLogger(__name__)
 

@@ -28,6 +28,8 @@ from typing import Any
 
 from opensearchpy import OpenSearch, helpers
 
+from olav.core.memory import create_opensearch_client
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -39,9 +41,8 @@ DESCRIPTION_RE = re.compile(r"description\s+\"(?P<desc>.*?)\";", re.DOTALL)
 
 
 def get_client() -> OpenSearch:
-    from olav.core.settings import settings
-    url = settings.opensearch_url
-    return OpenSearch(hosts=[url], use_ssl=False, verify_certs=False)
+    """Get OpenSearch client with auth support."""
+    return create_opensearch_client()
 
 
 def iter_yang_files(root: str) -> Iterator[str]:

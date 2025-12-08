@@ -12,27 +12,24 @@ Tests cover:
 8. Error Handling
 """
 
-import asyncio
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
-from dataclasses import dataclass
-from typing import Any
-from pathlib import Path
-import tempfile
+import contextlib
 import os
+import tempfile
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from olav.modes.inspection.controller import (
-    InspectionModeController,
     CheckConfig,
-    ThresholdConfig,
-    DeviceFilter,
     CheckResult,
-    InspectionResult,
+    DeviceFilter,
     InspectionConfig,
+    InspectionModeController,
+    InspectionResult,
+    ThresholdConfig,
     run_inspection,
 )
 from olav.modes.shared.debug import DebugContext
-
 
 # =============================================================================
 # Test Fixtures
@@ -66,7 +63,7 @@ checks:
       value: 1
       severity: critical
       message: "Device {device} has no BGP sessions"
-      
+
   - name: interface_errors
     description: Check for interface errors
     tool: suzieq_query
@@ -96,14 +93,12 @@ def temp_yaml_file(sample_yaml_content):
     ) as f:
         f.write(sample_yaml_content)
         temp_path = f.name
-    
+
     yield temp_path
-    
+
     # Cleanup
-    try:
+    with contextlib.suppress(Exception):
         os.unlink(temp_path)
-    except Exception:
-        pass
 
 
 @pytest.fixture
@@ -150,7 +145,7 @@ class TestYAMLLoading:
         """Test loading valid YAML configuration."""
         controller = InspectionModeController()
         config = controller.load_config(temp_yaml_file)
-        
+
         assert isinstance(config, InspectionConfig)
         assert config.name == "BGP Health Check"
         assert len(config.checks) == 2
@@ -160,7 +155,7 @@ class TestYAMLLoading:
     def test_load_yaml_file_not_found(self):
         """Test error handling for missing file."""
         controller = InspectionModeController()
-        
+
         with pytest.raises(FileNotFoundError, match="Config not found"):
             controller.load_config("nonexistent.yaml")
 
@@ -173,7 +168,7 @@ class TestYAMLLoading:
         ) as f:
             f.write("")
             temp_path = f.name
-        
+
         try:
             controller = InspectionModeController()
             with pytest.raises(ValueError, match="Empty config"):
@@ -185,7 +180,7 @@ class TestYAMLLoading:
         """Test threshold parsing from YAML."""
         controller = InspectionModeController()
         config = controller.load_config(temp_yaml_file)
-        
+
         threshold = config.checks[0].threshold
         assert isinstance(threshold, ThresholdConfig)
         assert threshold.field == "count"
@@ -211,11 +206,11 @@ checks:
         ) as f:
             f.write(yaml_content)
             temp_path = f.name
-        
+
         try:
             controller = InspectionModeController()
             config = controller.load_config(temp_path)
-            
+
             assert config.checks[0].threshold is None
         finally:
             os.unlink(temp_path)
@@ -233,7 +228,7 @@ class TestDeviceResolution:
         """Test resolving explicit device list."""
         controller = InspectionModeController()
         devices = await controller.resolve_devices(device_filter_explicit)
-        
+
         assert devices == ["router-01", "router-02"]
 
     @pytest.mark.asyncio
@@ -241,7 +236,7 @@ class TestDeviceResolution:
         """Test empty filter returns empty list."""
         controller = InspectionModeController()
         empty_filter = DeviceFilter()
-        
+
         devices = await controller.resolve_devices(empty_filter)
         assert devices == []
 
@@ -249,7 +244,7 @@ class TestDeviceResolution:
     async def test_resolve_netbox_filter(self, device_filter_netbox):
         """Test NetBox query resolution."""
         controller = InspectionModeController()
-        
+
         # Mock NetBox tool
         mock_result = MagicMock()
         mock_result.error = None
@@ -257,14 +252,14 @@ class TestDeviceResolution:
             {"name": "router-dc1-01", "site": "dc1"},
             {"name": "router-dc1-02", "site": "dc1"},
         ]
-        
+
         with patch("olav.tools.netbox_tool.NetBoxAPITool") as MockNetBox:
             mock_instance = MagicMock()
             mock_instance.execute = AsyncMock(return_value=mock_result)
             MockNetBox.return_value = mock_instance
-            
+
             devices = await controller.resolve_devices(device_filter_netbox)
-        
+
         assert "router-dc1-01" in devices
         assert "router-dc1-02" in devices
 
@@ -272,10 +267,10 @@ class TestDeviceResolution:
     async def test_resolve_netbox_error_handling(self, device_filter_netbox):
         """Test NetBox query error handling."""
         controller = InspectionModeController()
-        
+
         with patch("olav.tools.netbox_tool.NetBoxAPITool") as MockNetBox:
             MockNetBox.side_effect = Exception("Connection error")
-            
+
             # Should return empty list on error, not raise
             devices = await controller.resolve_devices(device_filter_netbox)
             assert devices == []
@@ -288,7 +283,7 @@ class TestDeviceResolution:
             explicit_devices=["explicit-router"],
             netbox_filter={"site": "dc1"},
         )
-        
+
         devices = await controller.resolve_devices(filter_with_both)
         assert devices == ["explicit-router"]
 
@@ -304,20 +299,20 @@ class TestCheckExecution:
     async def test_execute_suzieq_check(self, check_config):
         """Test executing a SuzieQ-based check."""
         controller = InspectionModeController()
-        
+
         mock_result = MagicMock()
         mock_result.data = [
             {"hostname": "router-01", "peer": "10.0.0.1", "state": "Established"},
         ]
         mock_result.error = None
-        
+
         with patch("olav.tools.suzieq_tool.SuzieQTool") as MockSuzieQ:
             mock_instance = MagicMock()
             mock_instance.execute = AsyncMock(return_value=mock_result)
             MockSuzieQ.return_value = mock_instance
-            
+
             result = await controller.execute_check("router-01", check_config)
-        
+
         assert isinstance(result, CheckResult)
         assert result.check_name == "bgp_count"
         assert result.device == "router-01"
@@ -331,9 +326,9 @@ class TestCheckExecution:
             tool="nonexistent_tool",
             parameters={},
         )
-        
+
         result = await controller.execute_check("router-01", check)
-        
+
         assert result.success is False
         assert "Unknown tool" in result.error
 
@@ -341,14 +336,14 @@ class TestCheckExecution:
     async def test_execute_check_with_exception(self, check_config):
         """Test handling of execution exception."""
         controller = InspectionModeController()
-        
+
         with patch("olav.tools.suzieq_tool.SuzieQTool") as MockSuzieQ:
             mock_instance = MagicMock()
             mock_instance.execute = AsyncMock(side_effect=Exception("Network error"))
             MockSuzieQ.return_value = mock_instance
-            
+
             result = await controller.execute_check("router-01", check_config)
-        
+
         assert result.success is False
         assert "Network error" in result.error
 
@@ -356,18 +351,18 @@ class TestCheckExecution:
     async def test_execute_check_records_duration(self, check_config):
         """Test check duration is recorded."""
         controller = InspectionModeController()
-        
+
         mock_result = MagicMock()
         mock_result.data = [{"count": 5}]
         mock_result.error = None
-        
+
         with patch("olav.tools.suzieq_tool.SuzieQTool") as MockSuzieQ:
             mock_instance = MagicMock()
             mock_instance.execute = AsyncMock(return_value=mock_result)
             MockSuzieQ.return_value = mock_instance
-            
+
             result = await controller.execute_check("router-01", check_config)
-        
+
         assert result.duration_ms >= 0
 
 
@@ -480,18 +475,18 @@ class TestInspectionWorkflow:
     async def test_run_inspection_full_workflow(self, temp_yaml_file):
         """Test running a complete inspection workflow."""
         controller = InspectionModeController()
-        
+
         mock_result = MagicMock()
         mock_result.data = [{"hostname": "router-dc1-01", "count": 5}]
         mock_result.error = None
-        
+
         with patch("olav.tools.suzieq_tool.SuzieQTool") as MockSuzieQ:
             mock_instance = MagicMock()
             mock_instance.execute = AsyncMock(return_value=mock_result)
             MockSuzieQ.return_value = mock_instance
-            
+
             result = await controller.run(temp_yaml_file)
-        
+
         assert isinstance(result, InspectionResult)
         assert result.config_name == "BGP Health Check"
         assert result.total_devices == 2  # From sample YAML
@@ -519,17 +514,17 @@ checks:
         ) as f:
             f.write(yaml_content)
             temp_path = f.name
-        
+
         try:
             controller = InspectionModeController()
-            
+
             with patch("olav.tools.netbox_tool.NetBoxAPITool") as MockNetBox:
                 mock_instance = MagicMock()
                 mock_instance.execute = AsyncMock(return_value=MagicMock(error=None, data=[]))
                 MockNetBox.return_value = mock_instance
-                
+
                 result = await controller.run(temp_path)
-            
+
             assert result.total_devices == 0
             assert len(result.check_results) == 0
         finally:
@@ -563,22 +558,22 @@ checks:
         ) as f:
             f.write(yaml_content)
             temp_path = f.name
-        
+
         try:
             controller = InspectionModeController()
-            
+
             # Return high error count to trigger violation
             mock_result = MagicMock()
             mock_result.data = {"errorsIn": 500}  # Above threshold
             mock_result.error = None
-            
+
             with patch("olav.tools.suzieq_tool.SuzieQTool") as MockSuzieQ:
                 mock_instance = MagicMock()
                 mock_instance.execute = AsyncMock(return_value=mock_result)
                 MockSuzieQ.return_value = mock_instance
-                
+
                 result = await controller.run(temp_path)
-            
+
             # Should have critical violation
             assert len(result.critical_violations) > 0
             assert result.has_critical is True
@@ -623,9 +618,9 @@ class TestReportGeneration:
                 ),
             ],
         )
-        
+
         markdown = result.to_markdown()
-        
+
         assert "# 📋 Inspection Report: Test Inspection" in markdown
         assert "Devices" in markdown
         assert "Critical" in markdown
@@ -639,7 +634,7 @@ class TestReportGeneration:
             completed_at="2024-01-01T10:00:30",
             total_devices=1,
         )
-        
+
         assert result.duration_seconds == 30.0
 
     def test_has_critical_property(self):
@@ -651,7 +646,7 @@ class TestReportGeneration:
             completed_at="2024-01-01T10:00:30",
         )
         assert result.has_critical is False
-        
+
         # With critical violation
         result_with_critical = InspectionResult(
             config_name="Test",
@@ -698,22 +693,22 @@ checks:
         ) as f:
             f.write(yaml_content)
             temp_path = f.name
-        
+
         try:
             controller = InspectionModeController()
             debug_ctx = DebugContext(enabled=True)
-            
+
             mock_result = MagicMock()
             mock_result.data = [{"count": 5}]
             mock_result.error = None
-            
+
             with patch("olav.tools.suzieq_tool.SuzieQTool") as MockSuzieQ:
                 mock_instance = MagicMock()
                 mock_instance.execute = AsyncMock(return_value=mock_result)
                 MockSuzieQ.return_value = mock_instance
-                
-                result = await controller.run(temp_path, debug_context=debug_ctx)
-            
+
+                await controller.run(temp_path, debug_context=debug_ctx)
+
             # Debug context should have recorded graph states
             output = debug_ctx.output
             assert len(output.graph_states) > 0
@@ -742,21 +737,21 @@ checks:
         ) as f:
             f.write(yaml_content)
             temp_path = f.name
-        
+
         try:
             controller = InspectionModeController()
-            
+
             mock_result = MagicMock()
             mock_result.data = [{"count": 5}]
             mock_result.error = None
-            
+
             with patch("olav.tools.suzieq_tool.SuzieQTool") as MockSuzieQ:
                 mock_instance = MagicMock()
                 mock_instance.execute = AsyncMock(return_value=mock_result)
                 MockSuzieQ.return_value = mock_instance
-                
+
                 result = await controller.run(temp_path)
-            
+
             assert result is not None
             assert isinstance(result, InspectionResult)
             assert result.debug_output is None
@@ -795,21 +790,21 @@ checks:
         ) as f:
             f.write(yaml_content)
             temp_path = f.name
-        
+
         try:
             controller = InspectionModeController(max_parallel_devices=10)
-            
+
             mock_result = MagicMock()
             mock_result.data = [{"count": 5}]
             mock_result.error = None
-            
+
             with patch("olav.tools.suzieq_tool.SuzieQTool") as MockSuzieQ:
                 mock_instance = MagicMock()
                 mock_instance.execute = AsyncMock(return_value=mock_result)
                 MockSuzieQ.return_value = mock_instance
-                
+
                 result = await controller.run(temp_path)
-            
+
             # Should have results for all 3 devices
             assert result.total_devices == 3
             assert len(result.check_results) == 3
@@ -842,22 +837,22 @@ checks:
         ) as f:
             f.write(yaml_content)
             temp_path = f.name
-        
+
         try:
             # Limit to 2 parallel devices
             controller = InspectionModeController(max_parallel_devices=2)
-            
+
             mock_result = MagicMock()
             mock_result.data = [{"count": 5}]
             mock_result.error = None
-            
+
             with patch("olav.tools.suzieq_tool.SuzieQTool") as MockSuzieQ:
                 mock_instance = MagicMock()
                 mock_instance.execute = AsyncMock(return_value=mock_result)
                 MockSuzieQ.return_value = mock_instance
-                
+
                 result = await controller.run(temp_path)
-            
+
             # Should still complete all devices
             assert result.total_devices == 5
         finally:
@@ -887,24 +882,25 @@ checks:
         ) as f:
             f.write(yaml_content)
             temp_path = f.name
-        
+
         try:
             controller = InspectionModeController()
             call_count = [0]  # Use list for closure
-            
+
             async def mock_execute(**kwargs):
                 call_count[0] += 1
                 if call_count[0] == 2:
-                    raise Exception("Simulated failure")
+                    msg = "Simulated failure"
+                    raise Exception(msg)
                 return MagicMock(data=[{"count": 5}], error=None)
-            
+
             with patch("olav.tools.suzieq_tool.SuzieQTool") as MockSuzieQ:
                 mock_instance = MagicMock()
                 mock_instance.execute = mock_execute
                 MockSuzieQ.return_value = mock_instance
-                
+
                 result = await controller.run(temp_path)
-            
+
             # Should complete despite one failure
             assert result.total_devices == 3
             # Should have mix of success and failure
@@ -942,19 +938,19 @@ checks:
         ) as f:
             f.write(yaml_content)
             temp_path = f.name
-        
+
         try:
             mock_result = MagicMock()
             mock_result.data = [{"count": 5}]
             mock_result.error = None
-            
+
             with patch("olav.tools.suzieq_tool.SuzieQTool") as MockSuzieQ:
                 mock_instance = MagicMock()
                 mock_instance.execute = AsyncMock(return_value=mock_result)
                 MockSuzieQ.return_value = mock_instance
-                
+
                 result = await run_inspection(temp_path)
-            
+
             assert isinstance(result, InspectionResult)
             assert result.config_name == "Convenience Test"
         finally:
@@ -971,17 +967,17 @@ class TestEdgeCases:
     def test_threshold_with_zero_value(self):
         """Test threshold evaluation with zero value."""
         controller = InspectionModeController()
-        
+
         result = controller._evaluate_threshold(0, "==", 0)
         assert result is True
-        
+
         result = controller._evaluate_threshold(0, ">=", 0)
         assert result is True
 
     def test_threshold_with_negative_value(self):
         """Test threshold evaluation with negative value."""
         controller = InspectionModeController()
-        
+
         result = controller._evaluate_threshold(-5, "<", 0)
         assert result is True
 
@@ -992,7 +988,7 @@ class TestEdgeCases:
             tool="suzieq_query",
             parameters={},
         )
-        
+
         assert check.description == ""
         assert check.enabled is True
         assert check.threshold is None
@@ -1000,14 +996,14 @@ class TestEdgeCases:
     def test_device_filter_defaults(self):
         """Test DeviceFilter default values."""
         device_filter = DeviceFilter()
-        
+
         assert device_filter.explicit_devices == []
         assert device_filter.netbox_filter == {}
 
     def test_inspection_config_defaults(self):
         """Test InspectionConfig default values."""
         config = InspectionConfig(name="Test")
-        
+
         assert config.description == ""
         assert config.timeout_seconds == 300
         assert config.schedule is None
@@ -1040,21 +1036,21 @@ checks:
         ) as f:
             f.write(yaml_content)
             temp_path = f.name
-        
+
         try:
             controller = InspectionModeController()
-            
+
             mock_result = MagicMock()
             mock_result.data = [{"count": 5}]
             mock_result.error = None
-            
+
             with patch("olav.tools.suzieq_tool.SuzieQTool") as MockSuzieQ:
                 mock_instance = MagicMock()
                 mock_instance.execute = AsyncMock(return_value=mock_result)
                 MockSuzieQ.return_value = mock_instance
-                
+
                 result = await controller.run(temp_path)
-            
+
             # Only enabled check should run
             assert result.total_checks == 1
             assert result.check_results[0].check_name == "enabled_check"

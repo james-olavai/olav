@@ -55,38 +55,38 @@ class DeepAnalyzerResult:
 # Prompts
 # =============================================================================
 
-DEEP_ANALYZER_SYSTEM_PROMPT = """你是网络故障诊断专家 OLAV 的深度分析器，负责通过实时设备访问验证故障假设。
+DEEP_ANALYZER_SYSTEM_PROMPT = """You are OLAV's Deep Analyzer for network fault diagnosis, responsible for verifying fault hypotheses through real-time device access.
 
-## 当前任务
-- **层级**: {layer} ({layer_name})
-- **假设**: {hypothesis}
-- **可疑设备**: {suspected_devices}
+## Current Task
+- **Layer**: {layer} ({layer_name})
+- **Hypothesis**: {hypothesis}
+- **Suspected Devices**: {suspected_devices}
 
-## Phase 1 发现 (SuzieQ 历史数据)
+## Phase 1 Findings (SuzieQ Historical Data)
 {phase1_findings}
 
-## 你的任务
-1. 使用 OpenConfig/CLI 工具读取设备**实时配置**
-2. 验证 Phase 1 假设是否正确
-3. 如果发现根因，提供明确证据
+## Your Task
+1. Use OpenConfig/CLI tools to read device **real-time configuration**
+2. Verify if Phase 1 hypothesis is correct
+3. If root cause is found, provide clear evidence
 
-## 可用工具
-- **openconfig_schema_search**: 查找 OpenConfig XPath
-- **netconf_get**: NETCONF 读取实时配置
-- **cli_show**: CLI show 命令 (厂商特定)
+## Available Tools
+- **openconfig_schema_search**: Find OpenConfig XPath
+- **netconf_get**: NETCONF read real-time configuration
+- **cli_show**: CLI show commands (vendor-specific)
 
-## 关键检查点 (路由策略问题)
-1. `show run | section route-map` - 查看 route-map 配置
-2. `show run | section prefix-list` - 查看 prefix-list 配置
-3. `show bgp neighbors X.X.X.X policy` - 查看 BGP 邻居策略
-4. `show ip bgp X.X.X.X/X longer-prefixes` - 验证前缀是否被通告
+## Key Checkpoints (Routing Policy Issues)
+1. `show run | section route-map` - View route-map configuration
+2. `show run | section prefix-list` - View prefix-list configuration
+3. `show bgp neighbors X.X.X.X policy` - View BGP neighbor policy
+4. `show ip bgp X.X.X.X/X longer-prefixes` - Verify if prefix is advertised
 
-## 输出格式
-分析完成后，总结：
-- **根因确认**: 是否确认根因
-- **证据**: 具体配置行或状态
-- **置信度**: 0.0-0.95 (实时数据上限)
-- **建议修复**: 具体修改建议 (只读模式，不执行)
+## Output Format
+After analysis, summarize:
+- **Root Cause Confirmed**: Whether root cause is confirmed
+- **Evidence**: Specific configuration lines or status
+- **Confidence**: 0.0-0.95 (real-time data upper limit)
+- **Recommended Fix**: Specific modification suggestions (read-only mode, not executed)
 """
 
 
@@ -259,7 +259,7 @@ class DeepAnalyzer:
         suspected_devices = task.suggested_filters.get("hostname", [])
 
         # Format phase1 findings
-        phase1_text = "\n".join(f"- {f}" for f in phase1_findings) if phase1_findings else "无"
+        phase1_text = "\n".join(f"- {f}" for f in phase1_findings) if phase1_findings else "None"
 
         # Build prompt
         prompt = ChatPromptTemplate.from_messages([
@@ -271,7 +271,7 @@ class DeepAnalyzer:
             layer=task.layer,
             layer_name=layer_info.get("name", "Unknown"),
             hypothesis=hypothesis,
-            suspected_devices=", ".join(suspected_devices) if suspected_devices else "未指定",
+            suspected_devices=", ".join(suspected_devices) if suspected_devices else "Unspecified",
             phase1_findings=phase1_text,
         )
 
@@ -294,16 +294,16 @@ class DeepAnalyzer:
             from langgraph.prebuilt import create_react_agent
 
             # Build input message
-            input_msg = f"""验证假设: {hypothesis}
+            input_msg = f"""Verify hypothesis: {hypothesis}
 
-可疑设备: {', '.join(suspected_devices) if suspected_devices else '根据 Phase 1 发现确定'}
+Suspected devices: {', '.join(suspected_devices) if suspected_devices else 'Determined from Phase 1 findings'}
 
-Phase 1 发现:
+Phase 1 Findings:
 {phase1_text}
 
-请使用 OpenConfig/CLI 工具验证假设，检查实时设备配置。
+Please use OpenConfig/CLI tools to verify the hypothesis and check real-time device configuration.
 
-关键命令参考:
+Key command reference:
 - `cli_show(device="R1", command="show run | section route-map")`
 - `cli_show(device="R1", command="show run | section prefix-list")`
 - `cli_show(device="R1", command="show ip bgp neighbors")`
@@ -322,7 +322,7 @@ Phase 1 发现:
                     layer=task.layer,
                     layer_name=layer_info.get("name", "Unknown"),
                     hypothesis=hypothesis,
-                    suspected_devices=", ".join(suspected_devices) if suspected_devices else "未指定",
+                    suspected_devices=", ".join(suspected_devices) if suspected_devices else "Unspecified",
                     phase1_findings=phase1_text,
                 )),
                 ("user", input_msg),
@@ -400,7 +400,7 @@ Phase 1 发现:
                     continue
 
                 # Extract findings from structured output
-                if "根因" in content or "root cause" in content.lower():
+                if "root cause" in content.lower():
                     root_cause = content
                     confidence = 0.90  # High confidence if root cause identified
 
@@ -410,7 +410,7 @@ Phase 1 发现:
                 findings.extend([item.strip() for item in items[:10]])
 
                 # Look for confidence mentions
-                conf_match = re.search(r"置信度[：:]\s*(\d+(?:\.\d+)?)", content)
+                conf_match = re.search(r"confidence[:：]\s*(\d+(?:\.\d+)?)", content, re.IGNORECASE)
                 if conf_match:
                     try:
                         confidence = float(conf_match.group(1))
@@ -469,7 +469,7 @@ Phase 1 发现:
                 map_name = match.group(1)
                 # Check if it's blocking traffic
                 if "deny 20" in all_text or "deny 10" in all_text:
-                    return f"BGP route-map '{map_name}' 可能阻止了路由通告 (包含 deny 规则)"
+                    return f"BGP route-map '{map_name}' may be blocking route advertisement (contains deny rules)"
 
         # Pattern 2: prefix-list not matching target prefix
         prefix_lists = re.findall(
@@ -481,7 +481,7 @@ Phase 1 发现:
             matched_10 = any("10.0" in pl[1] for pl in prefix_lists)
             if not matched_10:
                 prefixes = ", ".join(f"{pl[0]}={pl[1]}" for pl in prefix_lists[:3])
-                return f"Prefix-list 未包含目标网络: {prefixes} (未匹配 10.0.0.0/16)"
+                return f"Prefix-list does not include target network: {prefixes} (no match for 10.0.0.0/16)"
 
         # Pattern 3: BGP neighbor with route-map
         if "neighbor" in all_text and "route-map" in all_text:
@@ -491,7 +491,7 @@ Phase 1 发现:
             )
             if match:
                 neighbor, map_name, direction = match.groups()
-                return f"BGP 邻居 {neighbor} 应用了 route-map {map_name} ({direction}), 可能过滤了路由"
+                return f"BGP neighbor {neighbor} has route-map {map_name} applied ({direction}), may be filtering routes"
 
         return None
 
@@ -575,13 +575,13 @@ Phase 1 发现:
         root_cause_found = False
 
         # Build hypothesis string from Phase 1 findings
-        hypothesis = "\n".join(hypotheses[:10]) if hypotheses else "Phase 1 未发现明确假设"
+        hypothesis = "\n".join(hypotheses[:10]) if hypotheses else "Phase 1 did not find clear hypothesis"
 
         # Create a synthetic task for each investigation focus
         task = DiagnosisTask(
             task_id=0,
             layer="L4",  # Default to L4 for policy verification
-            description=f"深度验证: {query}",
+            description=f"Deep verification: {query}",
             suggested_tables=[],
             suggested_filters={"hostname": target_devices},
         )
@@ -600,14 +600,14 @@ Phase 1 发现:
             # Check if root cause identified
             for finding in result.findings:
                 finding_lower = finding.lower()
-                if any(kw in finding_lower for kw in ["根因", "root cause", "确认", "导致"]):
+                if any(kw in finding_lower for kw in ["root cause", "confirmed", "caused by"]):
                     root_cause_found = True
                     root_cause = finding
                     break
 
         except Exception as e:
             logger.exception(f"Deep analysis failed: {e}")
-            all_findings.append(f"深度分析失败: {e}")
+            all_findings.append(f"Deep analysis failed: {e}")
 
         return DeepAnalyzerResult(
             success=bool(all_findings),

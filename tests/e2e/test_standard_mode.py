@@ -8,10 +8,10 @@ These tests verify the complete Standard Mode workflow:
 Usage:
     # Run all Standard Mode tests
     uv run pytest tests/e2e/test_standard_mode.py -v
-    
+
     # Run with debug output
     OLAV_DEBUG=true uv run pytest tests/e2e/test_standard_mode.py -v
-    
+
     # Run specific test
     uv run pytest tests/e2e/test_standard_mode.py::TestStandardModeQuery -v
 """
@@ -23,7 +23,6 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -45,12 +44,11 @@ DEBUG_MODE = os.environ.get("OLAV_DEBUG", "").lower() in ("1", "true", "yes")
 
 def _check_dependencies() -> bool:
     """Check if required dependencies are available."""
-    try:
-        from olav.modes.standard import StandardModeWorkflow
-        from olav.tools.base import ToolRegistry
-        return True
-    except ImportError:
-        return False
+    import importlib.util
+    return (
+        importlib.util.find_spec("olav.modes.standard") is not None
+        and importlib.util.find_spec("olav.tools.base") is not None
+    )
 
 
 pytestmark = pytest.mark.skipif(
@@ -88,11 +86,11 @@ QUERY_TEST_CASES = [
     ("查询 R1 的接口状态", "suzieq_query", ["status", "result", "found"]),
     ("summarize all devices", "suzieq_query", ["status", "result", "found", "alive"]),
     ("查询所有设备的 OSPF 邻居", "suzieq_query", ["status", "result", "found"]),
-    
+
     # NetBox queries
     ("列出 NetBox 中所有设备", "netbox_api_call", ["device"]),
     ("查询 R1 在 NetBox 中的信息", "netbox_api_call", ["r1"]),
-    
+
     # Schema discovery
     ("有哪些 SuzieQ 表可用？", "suzieq_schema_search", ["table"]),
     ("BGP 表有哪些字段？", "suzieq_schema_search", ["field"]),
@@ -118,36 +116,36 @@ EDGE_CASES = [
 # ============================================
 class TestStandardModeClassifier:
     """Tests for Standard Mode classifier."""
-    
+
     @pytest.mark.asyncio
     async def test_classifier_initialization(self):
         """Test classifier can be initialized."""
         from olav.modes.standard import StandardModeClassifier
-        
+
         classifier = StandardModeClassifier()
         assert classifier.confidence_threshold == 0.7
-    
+
     @pytest.mark.asyncio
     async def test_classifier_returns_result(self):
         """Test classifier returns valid result."""
         from olav.modes.standard import classify_standard
-        
-        result, should_escalate = await classify_standard("查询 R1 BGP 状态")
-        
+
+        result, _should_escalate = await classify_standard("查询 R1 BGP 状态")
+
         assert result is not None
         assert hasattr(result, "intent_category")
         assert hasattr(result, "tool")
         assert hasattr(result, "confidence")
         assert 0.0 <= result.confidence <= 1.0
-    
+
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("query,expected_tool,_", QUERY_TEST_CASES[:3])
+    @pytest.mark.parametrize(("query", "expected_tool", "_"), QUERY_TEST_CASES[:3])
     async def test_classifier_tool_selection(self, query, expected_tool, _):
         """Test classifier selects correct tool."""
         from olav.modes.standard import classify_standard
-        
+
         result, _ = await classify_standard(query)
-        
+
         # Tool should match or be in same category
         assert result.tool is not None
         # Allow flexibility: suzieq_query or cli_tool are both valid for device queries
@@ -159,31 +157,31 @@ class TestStandardModeClassifier:
 
 class TestStandardModeExecutor:
     """Tests for Standard Mode executor."""
-    
+
     @pytest.mark.asyncio
     async def test_executor_initialization(self, tool_registry):
         """Test executor can be initialized."""
         from olav.modes.standard import StandardModeExecutor
-        
+
         executor = StandardModeExecutor(tool_registry)
         assert executor.yolo_mode is False
-    
+
     @pytest.mark.asyncio
     async def test_executor_hitl_detection(self, tool_registry):
         """Test HITL requirement detection."""
         from olav.modes.standard import StandardModeExecutor
-        
+
         executor = StandardModeExecutor(tool_registry, yolo_mode=False)
-        
+
         # Write operations should require HITL
         requires, reason = executor._requires_hitl(
             "netconf_tool",
             {"operation": "edit-config"}
         )
         assert requires is True
-        
+
         # Read operations should not
-        requires, reason = executor._requires_hitl(
+        requires, _reason = executor._requires_hitl(
             "suzieq_query",
             {"table": "bgp"}
         )
@@ -192,50 +190,50 @@ class TestStandardModeExecutor:
 
 class TestStandardModeWorkflow:
     """Tests for complete Standard Mode workflow."""
-    
+
     @pytest.mark.asyncio
     async def test_workflow_initialization(self, tool_registry):
         """Test workflow can be initialized."""
         from olav.modes.standard import StandardModeWorkflow
-        
+
         workflow = StandardModeWorkflow(tool_registry)
         assert workflow.confidence_threshold == 0.7
-    
+
     @pytest.mark.asyncio
     @pytest.mark.slow
     async def test_workflow_simple_query(self, tool_registry, debug_context):
         """Test workflow with simple query."""
-        from olav.modes.standard import run_standard_mode
         from olav.modes.shared.debug import set_debug_context
-        
+        from olav.modes.standard import run_standard_mode
+
         if debug_context:
             set_debug_context(debug_context)
-        
+
         result = await run_standard_mode(
             query="查询 R1 的 BGP 状态",
             tool_registry=tool_registry,
             yolo_mode=True,
         )
-        
+
         # Result should be returned (success or escalation)
         assert result is not None
-        
+
         # If successful, should have answer
         if result.success:
             assert result.answer is not None
             assert len(result.answer) > 0
-        
+
         # If escalated, should have reason
         if result.escalated_to_expert:
             assert result.escalation_reason is not None
-        
+
         # Debug output if enabled
         if debug_context:
             print("\n" + debug_context.output.summary())
-    
+
     @pytest.mark.asyncio
     @pytest.mark.slow
-    @pytest.mark.parametrize("query,expected_tool,expected_keywords", QUERY_TEST_CASES)
+    @pytest.mark.parametrize(("query", "expected_tool", "expected_keywords"), QUERY_TEST_CASES)
     async def test_workflow_query_types(
         self,
         tool_registry,
@@ -245,15 +243,15 @@ class TestStandardModeWorkflow:
     ):
         """Test workflow with different query types."""
         from olav.modes.standard import run_standard_mode
-        
+
         result = await run_standard_mode(
             query=query,
             tool_registry=tool_registry,
             yolo_mode=True,
         )
-        
+
         assert result is not None
-        
+
         # If successful, check output contains expected keywords
         if result.success and result.answer:
             output_lower = result.answer.lower()
@@ -265,55 +263,55 @@ class TestStandardModeWorkflow:
 
 class TestStandardModeHITL:
     """Tests for HITL (Human-in-the-Loop) functionality."""
-    
+
     @pytest.mark.asyncio
     async def test_hitl_triggered_for_write(self, tool_registry):
         """Test HITL is triggered for write operations."""
         from olav.modes.standard import run_standard_mode
-        
+
         result = await run_standard_mode(
             query="配置 R1 接口 Loopback100 IP 为 10.0.0.1",
             tool_registry=tool_registry,
             yolo_mode=False,  # HITL enabled
         )
-        
+
         # Should either require HITL or escalate to expert
         assert result.hitl_required or result.escalated_to_expert, \
             "Write operation should trigger HITL or escalation"
-    
+
     @pytest.mark.asyncio
     async def test_hitl_skipped_in_yolo_mode(self, tool_registry):
         """Test HITL is skipped in YOLO mode."""
         from olav.modes.standard import run_standard_mode
-        
+
         # Note: This test may fail if tool execution fails for other reasons
         result = await run_standard_mode(
             query="配置 R1 接口描述",
             tool_registry=tool_registry,
             yolo_mode=True,  # Skip HITL
         )
-        
+
         # HITL should not be triggered in YOLO mode
         assert not result.hitl_required or result.success or result.error
 
 
 class TestStandardModeEdgeCases:
     """Tests for edge cases and error handling."""
-    
+
     @pytest.mark.asyncio
     async def test_unknown_device_graceful(self, tool_registry):
         """Test graceful handling of unknown device."""
         from olav.modes.standard import run_standard_mode
-        
+
         result = await run_standard_mode(
             query="查询 NONEXISTENT_DEVICE_XYZ 的状态",
             tool_registry=tool_registry,
             yolo_mode=True,
         )
-        
+
         # Should not crash
         assert result is not None
-        
+
         # Should either succeed with "no data" or escalate
         if result.success:
             output_lower = result.answer.lower() if result.answer else ""
@@ -323,18 +321,18 @@ class TestStandardModeEdgeCases:
             )
             assert graceful or len(result.answer) < 50, \
                 "Unknown device should return graceful message"
-    
+
     @pytest.mark.asyncio
     async def test_mixed_language_query(self, tool_registry):
         """Test mixed Chinese/English query."""
         from olav.modes.standard import run_standard_mode
-        
+
         result = await run_standard_mode(
             query="check R1 的 BGP neighbors",
             tool_registry=tool_registry,
             yolo_mode=True,
         )
-        
+
         # Should handle mixed language
         assert result is not None
         assert result.success or result.escalated_to_expert
@@ -342,26 +340,26 @@ class TestStandardModeEdgeCases:
 
 class TestStandardModePerformance:
     """Tests for performance characteristics."""
-    
+
     @pytest.mark.asyncio
     @pytest.mark.slow
     async def test_simple_query_latency(self, tool_registry):
         """Test simple query completes within timeout."""
         from olav.modes.standard import run_standard_mode
-        
+
         start = time.perf_counter()
-        
+
         result = await run_standard_mode(
             query="查询 R1 的接口状态",
             tool_registry=tool_registry,
             yolo_mode=True,
         )
-        
+
         elapsed = time.perf_counter() - start
-        
+
         # Should complete within timeout
         assert elapsed < TIMEOUT_SIMPLE, f"Query took {elapsed:.1f}s > {TIMEOUT_SIMPLE}s"
-        
+
         # Log performance
         print(f"\nLatency: {elapsed*1000:.0f}ms")
         if result.execution_time_ms:
@@ -375,7 +373,7 @@ class TestStandardModePerformance:
 def session_summary(request):
     """Print session summary after all tests."""
     yield
-    
+
     print("\n" + "=" * 60)
     print("Standard Mode E2E Test Summary")
     print("=" * 60)

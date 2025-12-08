@@ -1,10 +1,9 @@
-import asyncio
-import json
-import pytest
 from pathlib import Path
-import pandas as pd
 
-from olav.tools.suzieq_parquet_tool import suzieq_query, suzieq_schema_search
+import pandas as pd
+import pytest
+
+from olav.tools.suzieq_parquet_tool import suzieq_query
 
 PARQUET_BASE = Path("data/suzieq-parquet")
 
@@ -18,7 +17,6 @@ def setup_parquet_extended():
         {"namespace": "lab", "hostname": "r1", "vrf": "default", "peer": "198.51.100.2", "asn": 65001, "peerAsn": 65003, "state": "Idle", "peerHostname": "r3"},
     ])
     df.to_parquet(table_dir / "data.parquet")
-    yield
 
 @pytest.mark.asyncio
 async def test_filter_state_established():
@@ -33,7 +31,7 @@ async def test_filter_state_established():
     result2 = await suzieq_query.ainvoke({"table": "bgp", "method": "get", "filters": {"state": "Established"}})
     if result2["count"] == 0:
         pytest.skip("No BGP parquet test data available - add real SuzieQ data to data/suzieq-parquet/bgp/")
-    
+
     assert result2.get("error") is None
     assert result2["count"] >= 1
     # assert all(r["state"] == "Established" for r in result2["data"])

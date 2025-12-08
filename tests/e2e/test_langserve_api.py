@@ -20,13 +20,12 @@ Run with full infrastructure:
 import asyncio
 import json
 import os
-from typing import AsyncIterator
-
-import httpx
 import threading
 import time
-import uvicorn
+
+import httpx
 import pytest
+import uvicorn
 from langserve import RemoteRunnable
 
 # Set Windows event loop policy for async tests
@@ -82,7 +81,7 @@ def start_uvicorn_server() -> None:
     app_module._routes_mounted = False
     app_module.orchestrator = None
     app_module.checkpointer = None
-    
+
     from olav.server.app import app  # Local import to avoid side effects before fixture
 
     config = uvicorn.Config(app, host="127.0.0.1", port=8000, log_level="info")
@@ -112,12 +111,12 @@ def start_uvicorn_server() -> None:
 @pytest.fixture(scope="module")
 def server_token() -> str:
     """Get the single access token from the server.
-    
+
     In single-token auth mode, the token is auto-generated on server startup.
     We import it directly from the auth module.
     """
-    from olav.server.auth import get_access_token, generate_access_token
-    
+    from olav.server.auth import generate_access_token, get_access_token
+
     # Ensure token is generated
     generate_access_token()
     token = get_access_token()
@@ -137,7 +136,7 @@ def auth_headers(server_token: str) -> dict:
 @pytest.mark.asyncio
 async def test_server_health_check(base_url: str):
     """Test server health endpoint and infrastructure connectivity.
-    
+
     Validates:
     - Server is running and responding
     - PostgreSQL connection established
@@ -146,7 +145,7 @@ async def test_server_health_check(base_url: str):
     """
     async with httpx.AsyncClient() as client:
         last_data = None
-        for attempt in range(15):  # up to ~7.5s (15 * 0.5s)
+        for _attempt in range(15):  # up to ~7.5s (15 * 0.5s)
             response = await client.get(f"{base_url}/health", timeout=10.0)
             assert response.status_code == 200, f"Health endpoint not reachable: {response.text}"
             last_data = response.json()
@@ -169,7 +168,7 @@ async def test_server_health_check(base_url: str):
 @pytest.mark.asyncio
 async def test_authentication_token_success(base_url: str, server_token: str):
     """Test successful token authentication.
-    
+
     Validates:
     - Server token allows access to protected endpoints
     - /me endpoint returns user info with token
@@ -181,9 +180,9 @@ async def test_authentication_token_success(base_url: str, server_token: str):
             headers={"Authorization": f"Bearer {server_token}"},
             timeout=10.0,
         )
-        
+
         assert response.status_code == 200, f"/me failed with token: {response.text}"
-        
+
         data = response.json()
         assert "username" in data, "Missing username field"
         assert "role" in data, "Missing role field"
@@ -197,7 +196,7 @@ async def test_authentication_token_success(base_url: str, server_token: str):
 @pytest.mark.asyncio
 async def test_authentication_invalid_token_failure(base_url: str):
     """Test authentication failure with invalid token.
-    
+
     Validates:
     - Invalid tokens are rejected with 401
     - Error message is informative
@@ -210,12 +209,12 @@ async def test_authentication_invalid_token_failure(base_url: str):
             headers={"Authorization": "Bearer invalid_token_12345"},
             timeout=10.0,
         )
-        
+
         assert response.status_code == 401, f"Expected 401, got {response.status_code}"
-        
+
         data = response.json()
         assert "detail" in data, "Missing error detail"
-        
+
         # Validate WWW-Authenticate header (RFC 7235 compliance)
         assert "www-authenticate" in response.headers, "Missing WWW-Authenticate header"
         assert response.headers["www-authenticate"] == "Bearer", "Invalid WWW-Authenticate value"
@@ -227,7 +226,7 @@ async def test_authentication_invalid_token_failure(base_url: str):
 @pytest.mark.asyncio
 async def test_protected_endpoint_with_valid_token(base_url: str, auth_headers: dict):
     """Test protected endpoint access with valid token.
-    
+
     Validates:
     - /me endpoint requires authentication
     - Valid token grants access
@@ -240,14 +239,14 @@ async def test_protected_endpoint_with_valid_token(base_url: str, auth_headers: 
             headers=auth_headers,
             timeout=10.0,
         )
-        
+
         assert response.status_code == 200, f"/me endpoint failed: {response.text}"
-        
+
         data = response.json()
         assert "username" in data, "Missing 'username' field"
         assert "role" in data, "Missing 'role' field"
         assert "disabled" in data, "Missing 'disabled' field"
-        
+
         # In single-token mode, user is admin
         assert data["role"] == "admin", f"Unexpected role: {data['role']}"
         assert data["disabled"] is False, "User should not be disabled"
@@ -259,7 +258,7 @@ async def test_protected_endpoint_with_valid_token(base_url: str, auth_headers: 
 @pytest.mark.asyncio
 async def test_protected_endpoint_without_token(base_url: str):
     """Test protected endpoint access without authentication.
-    
+
     Validates:
     - Protected endpoints reject unauthenticated requests
     - Returns 401 Unauthorized
@@ -269,16 +268,16 @@ async def test_protected_endpoint_without_token(base_url: str):
     async with httpx.AsyncClient() as client:
         # Test /me endpoint without token
         response = await client.get(f"{base_url}/me", timeout=10.0)
-        
+
         assert response.status_code == 401, f"Expected 401, got {response.status_code}"
-        
+
         # RFC 7235: 401 responses MUST include WWW-Authenticate header
         assert "www-authenticate" in response.headers, "Missing WWW-Authenticate header (RFC 7235 violation)"
         assert response.headers["www-authenticate"] == "Bearer", f"Expected 'Bearer', got '{response.headers.get('www-authenticate')}'"
-        
+
         data = response.json()
         assert "detail" in data, "Missing error detail"
-        
+
         # Test /status endpoint without token
         response = await client.get(f"{base_url}/status", timeout=10.0)
         assert response.status_code == 401, f"Expected 401 for /status, got {response.status_code}"
@@ -291,7 +290,7 @@ async def test_protected_endpoint_without_token(base_url: str):
 @pytest.mark.asyncio
 async def test_protected_endpoint_with_invalid_token(base_url: str):
     """Test protected endpoint access with malformed/invalid token.
-    
+
     Validates:
     - Invalid tokens are rejected
     - Returns 401 or 403
@@ -299,15 +298,15 @@ async def test_protected_endpoint_with_invalid_token(base_url: str):
     """
     async with httpx.AsyncClient() as client:
         invalid_headers = {"Authorization": "Bearer invalid_token_12345"}
-        
+
         response = await client.get(
             f"{base_url}/me",
             headers=invalid_headers,
             timeout=10.0,
         )
-        
+
         assert response.status_code in [401, 403], f"Expected 401/403, got {response.status_code}"
-        
+
         data = response.json()
         assert "detail" in data, "Missing error detail"
 
@@ -318,7 +317,7 @@ async def test_protected_endpoint_with_invalid_token(base_url: str):
 @pytest.mark.asyncio
 async def test_status_endpoint_with_auth(base_url: str, auth_headers: dict):
     """Test /status endpoint with authentication.
-    
+
     Validates:
     - Returns combined health + user data
     - Health data structure matches /health endpoint
@@ -330,19 +329,19 @@ async def test_status_endpoint_with_auth(base_url: str, auth_headers: dict):
             headers=auth_headers,
             timeout=10.0,
         )
-        
+
         assert response.status_code == 200, f"/status endpoint failed: {response.text}"
-        
+
         data = response.json()
         assert "health" in data, "Missing 'health' field"
         assert "user" in data, "Missing 'user' field"
-        
+
         # Validate health data
         health = data["health"]
         assert health["status"] == "healthy", f"Unexpected health status: {health['status']}"
         assert health["postgres_connected"] is True, "PostgreSQL should be connected"
         assert health["orchestrator_ready"] is True, "Orchestrator should be ready"
-        
+
         # Validate user data
         user = data["user"]
         assert user["role"] == "admin", f"Unexpected role: {user['role']}"
@@ -354,13 +353,13 @@ async def test_status_endpoint_with_auth(base_url: str, auth_headers: dict):
 @pytest.mark.asyncio
 async def test_workflow_invoke_endpoint(base_url: str, auth_headers: dict):
     """Test workflow execution via /orchestrator/invoke (non-streaming).
-    
+
     Validates:
     - Invoke endpoint is accessible
     - Accepts workflow input with config
     - Returns output structure
     - Handles simple query successfully
-    
+
     Note: This is a smoke test. Full workflow functionality tested separately.
     """
     async with httpx.AsyncClient(timeout=60.0) as client:  # Increased to 60s for complex workflows
@@ -377,16 +376,16 @@ async def test_workflow_invoke_endpoint(base_url: str, auth_headers: dict):
                 }
             }
         }
-        
+
         response = await client.post(
             f"{base_url}/orchestrator/invoke",
             headers={**auth_headers, "Content-Type": "application/json"},
             json=payload,
         )
-        
+
         # LangServe invoke endpoint should return 200
         assert response.status_code == 200, f"Invoke failed: {response.status_code} - {response.text}"
-        
+
         data = response.json()
         assert "output" in data or "messages" in data or isinstance(data, dict), \
             f"Unexpected response structure: {data}"
@@ -398,13 +397,13 @@ async def test_workflow_invoke_endpoint(base_url: str, auth_headers: dict):
 @pytest.mark.asyncio
 async def test_workflow_stream_endpoint(base_url: str, auth_headers: dict):
     """Test workflow execution via /orchestrator/stream (Server-Sent Events).
-    
+
     Validates:
     - Stream endpoint is accessible
     - Returns SSE stream (text/event-stream)
     - Receives at least one event
     - Events contain valid JSON data
-    
+
     Note: This is a smoke test. Full streaming tested in integration tests.
     """
     async with httpx.AsyncClient(timeout=60.0) as client:  # Increased to 60s for complex workflows
@@ -420,7 +419,7 @@ async def test_workflow_stream_endpoint(base_url: str, auth_headers: dict):
                 }
             }
         }
-        
+
         # Stream endpoint uses POST to /orchestrator/stream
         async with client.stream(
             "POST",
@@ -429,12 +428,12 @@ async def test_workflow_stream_endpoint(base_url: str, auth_headers: dict):
             json=payload,
         ) as response:
             assert response.status_code == 200, f"Stream failed: {response.status_code}"
-            
+
             # Check content type is SSE
             content_type = response.headers.get("content-type", "")
             assert "text/event-stream" in content_type or "application/x-ndjson" in content_type, \
                 f"Unexpected content type: {content_type}"
-            
+
             # Read at least one chunk from stream
             chunk_count = 0
             async for chunk in response.aiter_bytes():
@@ -445,11 +444,11 @@ async def test_workflow_stream_endpoint(base_url: str, auth_headers: dict):
                         # LangServe streams can be SSE or NDJSON
                         chunk_text = chunk.decode("utf-8")
                         assert len(chunk_text) > 0, "Empty first chunk"
-                    
+
                     # Limit test to first few chunks
                     if chunk_count >= 3:
                         break
-            
+
             assert chunk_count > 0, "No chunks received from stream"
 
 
@@ -459,25 +458,25 @@ async def test_workflow_stream_endpoint(base_url: str, auth_headers: dict):
 @pytest.mark.asyncio
 async def test_cli_client_remote_mode(base_url: str, server_token: str):
     """Test OLAV CLI client in remote mode (API-based execution).
-    
+
     Validates:
     - CLI client can connect to remote server
     - Authentication flow works via CLI
     - Can execute queries via API
-    
+
     Note: Tests the client.py module directly, not subprocess calls.
     """
     from olav.cli.client import OLAVClient
-    
+
     # Create client in remote mode with server token
     client = OLAVClient(local_mode=False, auth_token=server_token)
-    
+
     # Override server URL for test
     client._server_url = base_url
-    
+
     # Test connection (should work with token)
     await client.connect()
-    
+
     # Verify orchestrator is accessible
     assert client.remote_orchestrator is not None or client.remote_health is not None, \
         "Failed to connect to remote server"
@@ -489,7 +488,7 @@ async def test_cli_client_remote_mode(base_url: str, server_token: str):
 @pytest.mark.asyncio
 async def test_error_handling_malformed_request(base_url: str, auth_headers: dict):
     """Test API error handling for malformed requests.
-    
+
     Validates:
     - Server handles malformed JSON gracefully
     - Returns appropriate error status (400/422/500)
@@ -502,11 +501,11 @@ async def test_error_handling_malformed_request(base_url: str, auth_headers: dic
             headers={**auth_headers, "Content-Type": "application/json"},
             content=b'{"invalid": json}',  # Malformed JSON
         )
-        
+
         # Should return 422 (Unprocessable Entity) or 400 (Bad Request)
         assert response.status_code in [400, 422], \
             f"Expected 400/422 for malformed JSON, got {response.status_code}"
-        
+
         # Error response should be JSON
         try:
             error_data = response.json()
@@ -522,12 +521,12 @@ async def test_error_handling_malformed_request(base_url: str, auth_headers: dic
 @pytest.mark.asyncio
 async def test_langserve_remote_runnable(base_url: str, server_token: str):
     """Test LangServe RemoteRunnable client integration.
-    
+
     Validates:
     - Can create RemoteRunnable client
     - Can invoke workflow remotely
     - Response structure is valid
-    
+
     This tests the Python SDK usage pattern documented in API_USAGE.md.
     """
     # Create RemoteRunnable client (as documented in API_USAGE.md)
@@ -535,7 +534,7 @@ async def test_langserve_remote_runnable(base_url: str, server_token: str):
         url=f"{base_url}/orchestrator",
         headers={"Authorization": f"Bearer {server_token}"}
     )
-    
+
     # Test invoke
     try:
         result = await remote_runnable.ainvoke(
@@ -550,12 +549,12 @@ async def test_langserve_remote_runnable(base_url: str, server_token: str):
                 }
             }
         )
-        
+
         # Should return a result (structure varies by workflow)
         assert result is not None, "RemoteRunnable returned None"
-        assert isinstance(result, dict) or isinstance(result, list), \
+        assert isinstance(result, (dict, list)), \
             f"Unexpected result type: {type(result)}"
-    
+
     except Exception as e:
         # If workflow fails, at least verify connection was made
         assert "Connection" not in str(e), f"Connection error: {e}"
@@ -568,7 +567,7 @@ async def test_langserve_remote_runnable(base_url: str, server_token: str):
 @pytest.mark.asyncio
 async def test_sessions_list(base_url: str, server_token: str):
     """Test sessions list endpoint.
-    
+
     Validates:
     - GET /sessions returns 200 with valid token
     - Response contains sessions array and total count
@@ -580,16 +579,16 @@ async def test_sessions_list(base_url: str, server_token: str):
             f"{base_url}/sessions",
             headers={"Authorization": f"Bearer {server_token}"}
         )
-        
+
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
         data = response.json()
-        
+
         # Validate response structure
         assert "sessions" in data, "Response missing 'sessions' field"
         assert "total" in data, "Response missing 'total' field"
         assert isinstance(data["sessions"], list), "sessions should be a list"
         assert isinstance(data["total"], int), "total should be an integer"
-        
+
         # Test without token (should fail)
         response_no_auth = await client.get(f"{base_url}/sessions")
         assert response_no_auth.status_code == 401, "Expected 401 without auth"
@@ -601,7 +600,7 @@ async def test_sessions_list(base_url: str, server_token: str):
 @pytest.mark.asyncio
 async def test_sessions_get_not_found(base_url: str, server_token: str):
     """Test session get endpoint with non-existent session.
-    
+
     Validates:
     - GET /sessions/{id} returns 404 for non-existent session
     """
@@ -610,7 +609,7 @@ async def test_sessions_get_not_found(base_url: str, server_token: str):
             f"{base_url}/sessions/non-existent-session-12345",
             headers={"Authorization": f"Bearer {server_token}"}
         )
-        
+
         assert response.status_code == 404, f"Expected 404, got {response.status_code}"
 
 
@@ -620,7 +619,7 @@ async def test_sessions_get_not_found(base_url: str, server_token: str):
 @pytest.mark.asyncio
 async def test_topology_endpoint(base_url: str, server_token: str):
     """Test network topology endpoint.
-    
+
     Validates:
     - GET /topology returns 200 with valid token
     - Response contains nodes and edges arrays
@@ -632,30 +631,30 @@ async def test_topology_endpoint(base_url: str, server_token: str):
             f"{base_url}/topology",
             headers={"Authorization": f"Bearer {server_token}"}
         )
-        
+
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
         data = response.json()
-        
+
         # Validate response structure
         assert "nodes" in data, "Response missing 'nodes' field"
         assert "edges" in data, "Response missing 'edges' field"
         assert isinstance(data["nodes"], list), "nodes should be a list"
         assert isinstance(data["edges"], list), "edges should be a list"
-        
+
         # Validate node structure if any nodes exist
         if data["nodes"]:
             node = data["nodes"][0]
             assert "id" in node, "Node missing 'id' field"
             assert "hostname" in node, "Node missing 'hostname' field"
             assert "status" in node, "Node missing 'status' field"
-        
+
         # Validate edge structure if any edges exist
         if data["edges"]:
             edge = data["edges"][0]
             assert "id" in edge, "Edge missing 'id' field"
             assert "source" in edge, "Edge missing 'source' field"
             assert "target" in edge, "Edge missing 'target' field"
-        
+
         # Test without token (should fail)
         response_no_auth = await client.get(f"{base_url}/topology")
         assert response_no_auth.status_code == 401, "Expected 401 without auth"
@@ -664,7 +663,7 @@ async def test_topology_endpoint(base_url: str, server_token: str):
 @pytest.mark.asyncio
 async def test_history_endpoint(base_url: str, server_token: str):
     """Test execution history endpoint (sessions with pagination).
-    
+
     Validates:
     - GET /sessions?limit=10&offset=0 returns 200 with valid token
     - Response contains sessions array and total count
@@ -677,16 +676,16 @@ async def test_history_endpoint(base_url: str, server_token: str):
             f"{base_url}/sessions?limit=10&offset=0",
             headers={"Authorization": f"Bearer {server_token}"}
         )
-        
+
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
         data = response.json()
-        
+
         # Validate response structure (matches HistoryListResponse)
         assert "sessions" in data, "Response missing 'sessions' field"
         assert "total" in data, "Response missing 'total' field"
         assert isinstance(data["sessions"], list), "sessions should be a list"
         assert isinstance(data["total"], int), "total should be an integer"
-        
+
         # Validate session item structure if any sessions exist
         if data["sessions"]:
             session = data["sessions"][0]
@@ -694,7 +693,7 @@ async def test_history_endpoint(base_url: str, server_token: str):
             assert "created_at" in session, "Session missing 'created_at' field"
             assert "updated_at" in session, "Session missing 'updated_at' field"
             assert "message_count" in session, "Session missing 'message_count' field"
-        
+
         # Test without token (should fail)
         response_no_auth = await client.get(f"{base_url}/sessions?limit=10&offset=0")
         assert response_no_auth.status_code == 401, "Expected 401 without auth"
@@ -703,7 +702,7 @@ async def test_history_endpoint(base_url: str, server_token: str):
 @pytest.mark.asyncio
 async def test_reports_list_endpoint(base_url: str, server_token: str):
     """Test inspection reports list endpoint.
-    
+
     Validates:
     - GET /reports returns 200 with valid token
     - Response contains reports array and total count
@@ -715,16 +714,16 @@ async def test_reports_list_endpoint(base_url: str, server_token: str):
             f"{base_url}/reports?limit=10&offset=0",
             headers={"Authorization": f"Bearer {server_token}"}
         )
-        
+
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
         data = response.json()
-        
+
         # Validate response structure
         assert "reports" in data, "Response missing 'reports' field"
         assert "total" in data, "Response missing 'total' field"
         assert isinstance(data["reports"], list), "reports should be a list"
         assert isinstance(data["total"], int), "total should be an integer"
-        
+
         # Validate report item structure if any reports exist
         if data["reports"]:
             report = data["reports"][0]
@@ -733,7 +732,7 @@ async def test_reports_list_endpoint(base_url: str, server_token: str):
             assert "title" in report, "Report missing 'title' field"
             assert "executed_at" in report, "Report missing 'executed_at' field"
             assert "status" in report, "Report missing 'status' field"
-        
+
         # Test without token (should fail)
         response_no_auth = await client.get(f"{base_url}/reports")
         assert response_no_auth.status_code == 401, "Expected 401 without auth"
@@ -742,7 +741,7 @@ async def test_reports_list_endpoint(base_url: str, server_token: str):
 @pytest.mark.asyncio
 async def test_reports_detail_endpoint(base_url: str, server_token: str):
     """Test inspection report detail endpoint.
-    
+
     Validates:
     - GET /reports/{id} returns 200 for existing report
     - Response contains full report content
@@ -754,22 +753,22 @@ async def test_reports_detail_endpoint(base_url: str, server_token: str):
             f"{base_url}/reports?limit=1",
             headers={"Authorization": f"Bearer {server_token}"}
         )
-        
+
         assert list_response.status_code == 200
         list_data = list_response.json()
-        
+
         if list_data["reports"]:
             report_id = list_data["reports"][0]["id"]
-            
+
             # Test getting the report detail
             detail_response = await client.get(
                 f"{base_url}/reports/{report_id}",
                 headers={"Authorization": f"Bearer {server_token}"}
             )
-            
+
             assert detail_response.status_code == 200, f"Expected 200, got {detail_response.status_code}"
             detail_data = detail_response.json()
-            
+
             # Validate full report structure
             assert "id" in detail_data, "Report missing 'id' field"
             assert "content" in detail_data, "Report missing 'content' field"
@@ -778,7 +777,7 @@ async def test_reports_detail_endpoint(base_url: str, server_token: str):
             assert "warnings" in detail_data, "Report missing 'warnings' field"
             assert isinstance(detail_data["content"], str), "content should be a string"
             assert len(detail_data["content"]) > 0, "content should not be empty"
-        
+
         # Test non-existent report (should return 404)
         response_404 = await client.get(
             f"{base_url}/reports/non_existent_report_12345",
@@ -793,7 +792,7 @@ async def test_reports_detail_endpoint(base_url: str, server_token: str):
 @pytest.mark.asyncio
 async def test_inspections_list_endpoint(base_url: str, server_token: str):
     """Test /inspections endpoint returns list of inspection configurations.
-    
+
     Validates:
     - Returns 200 status with auth
     - Response has 'inspections' and 'total' fields
@@ -804,15 +803,15 @@ async def test_inspections_list_endpoint(base_url: str, server_token: str):
             f"{base_url}/inspections",
             headers={"Authorization": f"Bearer {server_token}"}
         )
-        
+
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
         data = response.json()
-        
+
         # Validate response structure
         assert "inspections" in data, "Response missing 'inspections' field"
         assert "total" in data, "Response missing 'total' field"
         assert isinstance(data["inspections"], list), "'inspections' should be a list"
-        
+
         # If inspections exist, validate their structure
         if data["inspections"]:
             inspection = data["inspections"][0]
@@ -828,7 +827,7 @@ async def test_inspections_list_endpoint(base_url: str, server_token: str):
 @pytest.mark.asyncio
 async def test_inspection_detail_endpoint(base_url: str, server_token: str):
     """Test /inspections/{id} endpoint returns inspection details.
-    
+
     Validates:
     - Returns 200 with valid ID
     - Returns 404 for non-existent ID
@@ -840,35 +839,35 @@ async def test_inspection_detail_endpoint(base_url: str, server_token: str):
             f"{base_url}/inspections",
             headers={"Authorization": f"Bearer {server_token}"}
         )
-        
+
         assert list_response.status_code == 200
         list_data = list_response.json()
-        
+
         if list_data["inspections"]:
             inspection_id = list_data["inspections"][0]["id"]
-            
+
             # Test getting details
             detail_response = await client.get(
                 f"{base_url}/inspections/{inspection_id}",
                 headers={"Authorization": f"Bearer {server_token}"}
             )
-            
+
             assert detail_response.status_code == 200
             detail = detail_response.json()
-            
+
             # Validate fields
             assert detail["id"] == inspection_id
             assert "name" in detail
             assert "checks" in detail
             assert isinstance(detail["checks"], list)
-            
+
             # Validate check structure if checks exist
             if detail["checks"]:
                 check = detail["checks"][0]
                 assert "name" in check, "Check missing 'name'"
                 assert "tool" in check, "Check missing 'tool'"
                 assert "enabled" in check, "Check missing 'enabled'"
-        
+
         # Test non-existent inspection
         response_404 = await client.get(
             f"{base_url}/inspections/non_existent_12345",
@@ -883,7 +882,7 @@ async def test_inspection_detail_endpoint(base_url: str, server_token: str):
 @pytest.mark.asyncio
 async def test_documents_list_endpoint(base_url: str, server_token: str):
     """Test /documents endpoint returns list of RAG documents.
-    
+
     Validates:
     - Returns 200 status with auth
     - Response has 'documents' and 'total' fields
@@ -894,15 +893,15 @@ async def test_documents_list_endpoint(base_url: str, server_token: str):
             f"{base_url}/documents",
             headers={"Authorization": f"Bearer {server_token}"}
         )
-        
+
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
         data = response.json()
-        
+
         # Validate response structure
         assert "documents" in data, "Response missing 'documents' field"
         assert "total" in data, "Response missing 'total' field"
         assert isinstance(data["documents"], list), "'documents' should be a list"
-        
+
         # If documents exist, validate their structure
         if data["documents"]:
             doc = data["documents"][0]
@@ -921,7 +920,7 @@ async def test_documents_list_endpoint(base_url: str, server_token: str):
 def print_test_summary(request):
     """Print test summary after all tests complete."""
     yield
-    
+
     # This runs after all tests
     print("\n" + "="*60)
     print("E2E Integration Test Summary")

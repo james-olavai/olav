@@ -4,7 +4,7 @@ import logging
 
 from langgraph.checkpoint.postgres import PostgresSaver
 
-from olav.core.settings import settings
+from config.settings import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

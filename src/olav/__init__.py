@@ -1,4 +1,4 @@
-"""OLAV - Omni-Layer Autonomous Verifier.
+"""OLAV (NetAIChatOps).
 
 Enterprise Network Operations ChatOps Platform using LangGraph + DeepAgents.
 """

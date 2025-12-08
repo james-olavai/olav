@@ -16,7 +16,7 @@ Refactored: Uses LangChain InMemoryVectorStore instead of sklearn cosine_similar
 Usage:
     router = DynamicIntentRouter(llm_factory, embeddings_factory)
     await router.build_index()  # One-time at startup
-    workflow_name = await router.route("查询 R1 的 BGP 状态")
+    workflow_name = await router.route("Query R1 BGP status")
 """
 
 import logging

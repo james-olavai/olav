@@ -12,7 +12,7 @@ Tool Chain:
 - CLI (fallback)
 
 Workflow:
-    User Request: "给所有交换机添加 VLAN 100"
+    User Request: "Add VLAN 100 to all switches"
     ↓
     [Task Planner] → Parse intent, operation type, params
     ↓
@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 
 
 class DeviceTask(TypedDict):
-    """单设备任务"""
+    """Single device task"""
 
     device: str
     operation_type: str  # "add_vlan", "change_mtu", etc.
@@ -67,7 +67,7 @@ class DeviceTask(TypedDict):
 
 
 class DeviceResult(TypedDict):
-    """单设备执行结果"""
+    """Single device execution result"""
 
     device: str
     success: bool
@@ -77,12 +77,12 @@ class DeviceResult(TypedDict):
 
 
 class BatchExecutionState(TypedDict):
-    """BatchExecutionWorkflow 状态"""
+    """BatchExecutionWorkflow state"""
 
     messages: Annotated[list, add_messages]
 
     # Task Planning
-    user_intent: str  # 原始用户请求
+    user_intent: str  # Original user request
     operation_type: str | None  # "add_vlan", "change_mtu", etc.
     operation_params: dict | None  # {"vlan_id": 100, "name": "Guest"}
 
@@ -91,12 +91,12 @@ class BatchExecutionState(TypedDict):
     resolved_devices: list[str] | None  # ["Switch-A", "Switch-B", ...]
 
     # HITL Approval
-    change_plan: str | None  # Markdown 格式变更计划
+    change_plan: str | None  # Markdown format change plan
     approval_status: str | None  # "pending" | "approved" | "rejected"
 
     # Parallel Execution
-    device_tasks: list[DeviceTask] | None  # Fan-out 任务
-    device_results: list[DeviceResult] | None  # Fan-in 结果
+    device_tasks: list[DeviceTask] | None  # Fan-out tasks
+    device_results: list[DeviceResult] | None  # Fan-in results
 
     # Final Report
     summary: dict | None  # {"total": 10, "success": 9, "failed": 1}
@@ -114,20 +114,16 @@ class DeviceWorkerState(TypedDict):
 
 @WorkflowRegistry.register(
     name="batch_execution",
-    description="多设备批量配置变更（Task Planning → Device Resolution → HITL → Parallel Execution）",
+    description="Multi-device batch configuration changes (Task Planning → Device Resolution → HITL → Parallel Execution)",
     examples=[
-        "给所有交换机添加 VLAN 100",
-        "在所有核心路由器上配置 NTP 服务器",
-        "批量修改所有设备的 SNMP community",
-        "给标签为 production 的设备配置 syslog",
-        "所有边界路由器添加 BGP community",
-        "批量更新设备描述信息",
+        "Add VLAN 100 to all switches",
+        "Configure NTP server on all core routers",
+        "Batch modify SNMP community on all devices",
+        "Configure syslog on devices tagged production",
+        "Add BGP community to all border routers",
+        "Batch update device descriptions",
     ],
     triggers=[
-        r"所有",
-        r"批量",
-        r"全部",
-        r"多台",
         r"all devices",
         r"batch",
         r"multiple",
@@ -143,29 +139,23 @@ class BatchExecutionWorkflow(BaseWorkflow):
 
     @property
     def description(self) -> str:
-        return "多设备批量配置变更（Task Planning → Device Resolution → HITL → Parallel Execution）"
+        return "Multi-device batch configuration changes (Task Planning → Device Resolution → HITL → Parallel Execution)"
 
     @property
     def tools_required(self) -> list[str]:
         return [
-            "netbox_api_call",  # 设备发现
-            "suzieq_query",  # 备用设备发现
-            "netconf_tool",  # 主要执行方式
-            "cli_tool",  # 降级方式
+            "netbox_api_call",  # Device discovery
+            "suzieq_query",  # Fallback device discovery
+            "netconf_tool",  # Primary execution method
+            "cli_tool",  # Fallback method
         ]
 
     async def validate_input(self, user_query: str) -> tuple[bool, str]:
         """Check if request is a batch configuration change."""
         query_lower = user_query.lower()
 
-        # 必须包含批量关键词
+        # Must contain batch keywords
         batch_keywords = [
-            "所有",
-            "批量",
-            "全部",
-            "多台",
-            "每个",
-            "每台",
             "all",
             "batch",
             "multiple",
@@ -174,14 +164,8 @@ class BatchExecutionWorkflow(BaseWorkflow):
         ]
         has_batch = any(kw in query_lower for kw in batch_keywords)
 
-        # 必须包含配置变更关键词
+        # Must contain configuration change keywords
         change_keywords = [
-            "配置",
-            "添加",
-            "修改",
-            "设置",
-            "删除",
-            "更新",
             "configure",
             "add",
             "modify",
@@ -193,12 +177,12 @@ class BatchExecutionWorkflow(BaseWorkflow):
         has_change = any(kw in query_lower for kw in change_keywords)
 
         if has_batch and has_change:
-            return True, "匹配批量配置变更场景"
+            return True, "Matched batch configuration change scenario"
 
         if has_batch and not has_change:
-            return False, "批量查询应使用 query_diagnostic workflow"
+            return False, "Batch queries should use query_diagnostic workflow"
 
-        return False, "非批量操作，应使用 device_execution workflow"
+        return False, "Non-batch operation, should use device_execution workflow"
 
     def build_graph(self, checkpointer: BaseCheckpointSaver) -> StateGraph:
         """Build batch execution workflow graph with parallel workers."""
@@ -213,27 +197,27 @@ class BatchExecutionWorkflow(BaseWorkflow):
 
             user_query = state["messages"][0].content
 
-            system_prompt = """你是一个网络配置解析专家。解析用户的批量配置请求。
+            system_prompt = """You are a network configuration parsing expert. Parse the user's batch configuration request.
 
-返回 JSON 格式：
+Return JSON format:
 {
-    "operation_type": "操作类型，如 add_vlan, change_mtu, configure_ntp, add_route 等",
+    "operation_type": "Operation type, e.g., add_vlan, change_mtu, configure_ntp, add_route",
     "operation_params": {
-        "参数名": "参数值"
+        "param_name": "param_value"
     },
     "device_filter": {
-        "role": "设备角色，如 switch, router, firewall（可选）",
-        "site": "站点名称（可选）",
-        "tag": "标签（可选）",
-        "name_pattern": "名称模式（可选）"
+        "role": "Device role, e.g., switch, router, firewall (optional)",
+        "site": "Site name (optional)",
+        "tag": "Tag (optional)",
+        "name_pattern": "Name pattern (optional)"
     }
 }
 
-示例：
-- "给所有交换机添加 VLAN 100" →
+Examples:
+- "Add VLAN 100 to all switches" ->
   {"operation_type": "add_vlan", "operation_params": {"vlan_id": 100}, "device_filter": {"role": "switch"}}
 
-- "在生产环境设备上配置 NTP 10.0.0.1" →
+- "Configure NTP 10.0.0.1 on production devices" ->
   {"operation_type": "configure_ntp", "operation_params": {"server": "10.0.0.1"}, "device_filter": {"tag": "production"}}
 """
 
@@ -324,41 +308,41 @@ class BatchExecutionWorkflow(BaseWorkflow):
 
             if not devices:
                 plan = """
-## 批量配置变更计划
+## Batch Configuration Change Plan
 
-⚠️ **警告**: 未找到匹配的设备
+⚠️ **Warning**: No matching devices found
 
-请检查设备过滤条件或确认设备已正确标记。
+Please check device filter conditions or confirm devices are properly tagged.
                 """
             else:
                 device_list = "\n".join(f"- {d}" for d in devices[:20])
                 more_devices = (
-                    f"\n... 还有 {len(devices) - 20} 台设备" if len(devices) > 20 else ""
+                    f"\n... and {len(devices) - 20} more devices" if len(devices) > 20 else ""
                 )
 
                 plan = f"""
-## 批量配置变更计划
+## Batch Configuration Change Plan
 
-**操作类型**: `{op_type}`
-**操作参数**: `{json.dumps(op_params, ensure_ascii=False)}`
-**影响设备**: {len(devices)} 台
+**Operation Type**: `{op_type}`
+**Operation Params**: `{json.dumps(op_params, ensure_ascii=False)}`
+**Affected Devices**: {len(devices)}
 
-### 设备列表
+### Device List
 {device_list}{more_devices}
 
-### 预期变更
-每台设备将执行 `{op_type}` 操作，参数: {json.dumps(op_params, ensure_ascii=False)}
+### Expected Changes
+Each device will execute `{op_type}` operation with params: {json.dumps(op_params, ensure_ascii=False)}
 
-### 执行策略
-- **并行度**: 最多 10 台设备同时执行
-- **回滚策略**: NETCONF 使用 commit-confirmed (60秒自动回滚)
-- **失败处理**: 单设备失败不影响其他设备
+### Execution Strategy
+- **Parallelism**: Up to 10 devices executing simultaneously
+- **Rollback Strategy**: NETCONF uses commit-confirmed (60s auto-rollback)
+- **Failure Handling**: Single device failure does not affect other devices
 
-### 风险评估
-- 设备数量: {len(devices)}
-- 操作类型: {'低风险' if op_type in ('add_vlan', 'configure_ntp') else '中等风险'}
+### Risk Assessment
+- Device Count: {len(devices)}
+- Operation Type: {'Low Risk' if op_type in ('add_vlan', 'configure_ntp') else 'Medium Risk'}
 
-**请审批此变更计划 (Y/N)**
+**Please approve this change plan (Y/N)**
                 """
 
             return {
@@ -369,13 +353,13 @@ class BatchExecutionWorkflow(BaseWorkflow):
 
         async def hitl_approval_node(state: BatchExecutionState) -> BatchExecutionState:
             """HITL approval - unified for all devices."""
-            from config.settings import AgentConfig
+            from config.settings import settings
             from langgraph.types import interrupt
 
             user_approval = state.get("approval_status")
 
             # YOLO mode: auto-approve
-            if AgentConfig.YOLO_MODE and user_approval == "pending":
+            if settings.yolo_mode and user_approval == "pending":
                 logger.info("[YOLO] Auto-approving batch execution...")
                 return {
                     **state,
@@ -393,7 +377,7 @@ class BatchExecutionWorkflow(BaseWorkflow):
                     **state,
                     "approval_status": "rejected",
                     "messages": state["messages"]
-                    + [AIMessage(content="未找到匹配的设备，操作已取消。")],
+                    + [AIMessage(content="No matching devices found, operation cancelled.")],
                 }
 
             # HITL: Request user approval
@@ -402,7 +386,7 @@ class BatchExecutionWorkflow(BaseWorkflow):
                     "action": "batch_approval_required",
                     "change_plan": state.get("change_plan"),
                     "device_count": len(devices),
-                    "message": f"请审批批量配置变更:\n\n{state.get('change_plan')}\n\n输入 Y 确认, N 取消:",
+                    "message": f"Please approve batch configuration change:\n\n{state.get('change_plan')}\n\nEnter Y to confirm, N to cancel:",
                 }
             )
 
@@ -553,24 +537,24 @@ class BatchExecutionWorkflow(BaseWorkflow):
 
             if approval_status == "rejected":
                 report = """
-## 批量配置变更报告
+## Batch Configuration Change Report
 
-**状态**: ⚠️ 已取消
+**Status**: ⚠️ Cancelled
 
-用户拒绝了变更计划，未执行任何操作。
+User rejected the change plan, no operations executed.
                 """
             elif not state.get("resolved_devices"):
                 report = """
-## 批量配置变更报告
+## Batch Configuration Change Report
 
-**状态**: ⚠️ 无设备
+**Status**: ⚠️ No Devices
 
-未找到符合条件的设备，无法执行操作。
+No devices matching the criteria found, unable to execute operation.
                 """
             elif summary:
                 failed_devices = "\n".join(
                     f"- {d}" for d in summary.get("failed_devices", [])
-                ) or "无"
+                ) or "None"
 
                 # Generate result table (limit to 30 rows)
                 result_rows = []
@@ -584,37 +568,37 @@ class BatchExecutionWorkflow(BaseWorkflow):
 
                 result_table = "\n".join(result_rows)
                 if len(results) > 30:
-                    result_table += f"\n| ... | | | 还有 {len(results) - 30} 条记录 |"
+                    result_table += f"\n| ... | | | {len(results) - 30} more records |"
 
                 report = f"""
-## 批量配置变更报告
+## Batch Configuration Change Report
 
-### 执行摘要
-- **操作类型**: `{op_type}`
-- **总设备数**: {summary.get('total', 0)}
-- **成功**: {summary.get('success', 0)} ✓
-- **失败**: {summary.get('failed', 0)} ✗
-- **成功率**: {summary.get('success_rate', 'N/A')}
-- **平均执行时间**: {summary.get('avg_execution_time_ms', 0):.0f} ms
+### Execution Summary
+- **Operation Type**: `{op_type}`
+- **Total Devices**: {summary.get('total', 0)}
+- **Success**: {summary.get('success', 0)} ✓
+- **Failed**: {summary.get('failed', 0)} ✗
+- **Success Rate**: {summary.get('success_rate', 'N/A')}
+- **Avg Execution Time**: {summary.get('avg_execution_time_ms', 0):.0f} ms
 
-### 失败设备
+### Failed Devices
 {failed_devices}
 
-### 详细结果
-| 设备 | 状态 | 耗时(ms) | 错误信息 |
-|------|------|----------|----------|
+### Detailed Results
+| Device | Status | Time(ms) | Error |
+|--------|--------|----------|-------|
 {result_table}
 
-### 后续建议
-{"- 所有设备配置成功，建议执行 commit confirm 永久保存" if summary.get('failed', 0) == 0 else "- 部分设备失败，请检查错误信息并重试"}
+### Recommendations
+{"- All devices configured successfully, recommend executing commit confirm to persist" if summary.get('failed', 0) == 0 else "- Some devices failed, please check error messages and retry"}
                 """
             else:
                 report = """
-## 批量配置变更报告
+## Batch Configuration Change Report
 
-**状态**: ⚠️ 执行异常
+**Status**: ⚠️ Execution Exception
 
-执行过程中发生异常，请检查日志。
+An exception occurred during execution, please check logs.
                 """
 
             return {
@@ -672,9 +656,9 @@ class BatchExecutionWorkflow(BaseWorkflow):
         workflow.add_edge("final_report", END)
 
         # Compile with HITL interrupt
-        from config.settings import AgentConfig
+        from config.settings import settings
 
-        if AgentConfig.YOLO_MODE:
+        if settings.yolo_mode:
             return workflow.compile(checkpointer=checkpointer)
 
         return workflow.compile(
@@ -706,7 +690,7 @@ def _generate_netconf_config(operation_type: str, params: dict) -> str:
 </config>
         """.strip()
 
-    elif operation_type == "configure_ntp":
+    if operation_type == "configure_ntp":
         server = params.get("server", "0.0.0.0")
         return f"""
 <config>
@@ -725,7 +709,7 @@ def _generate_netconf_config(operation_type: str, params: dict) -> str:
 </config>
         """.strip()
 
-    elif operation_type == "change_mtu":
+    if operation_type == "change_mtu":
         interface = params.get("interface", "*")
         mtu = params.get("mtu", 1500)
         return f"""
@@ -741,9 +725,8 @@ def _generate_netconf_config(operation_type: str, params: dict) -> str:
 </config>
         """.strip()
 
-    else:
-        # Generic: return params as comment for manual handling
-        return f"""
+    # Generic: return params as comment for manual handling
+    return f"""
 <config>
   <!-- Operation: {operation_type} -->
   <!-- Params: {json.dumps(params)} -->
@@ -752,4 +735,4 @@ def _generate_netconf_config(operation_type: str, params: dict) -> str:
         """.strip()
 
 
-__all__ = ["BatchExecutionState", "BatchExecutionWorkflow", "DeviceTask", "DeviceResult"]
+__all__ = ["BatchExecutionState", "BatchExecutionWorkflow", "DeviceResult", "DeviceTask"]

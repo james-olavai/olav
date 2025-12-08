@@ -14,7 +14,7 @@ Two-Phase Architecture:
 
 Usage:
     workflow = ExpertModeWorkflow()
-    result = await workflow.run("R1 无法与 R2 建立 BGP", path_devices=["R1", "R2"])
+    result = await workflow.run("R1 cannot establish BGP with R2", path_devices=["R1", "R2"])
     print(result.final_report)
 """
 
@@ -240,7 +240,7 @@ class ExpertModeWorkflow:
             if not guard_result.is_sufficient:
                 clarification_msg = (
                     guard_result.clarification_prompt
-                    or f"请补充以下信息: {', '.join(guard_result.missing_info)}"
+                    or f"Please provide the following information: {', '.join(guard_result.missing_info)}"
                 )
                 logger.info(f"Guard: Clarification needed: {clarification_msg}")
 

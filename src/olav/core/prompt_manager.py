@@ -42,13 +42,13 @@ class PromptManager:
 
         Args:
             prompts_dir: Directory containing prompt YAML files
-                        (defaults to config.settings.Paths.PROMPTS_DIR)
-            olav_config: User configuration from olav.yaml (optional)
+                        (defaults to settings.prompts_dir)
+            olav_config: User configuration (optional)
         """
         if prompts_dir is None:
-            from config.settings import Paths
+            from config.settings import settings
 
-            prompts_dir = Paths.PROMPTS_DIR
+            prompts_dir = settings.prompts_dir
         self.prompts_dir = Path(prompts_dir)
         self._defaults_dir = self.prompts_dir / "_defaults"
         self._overrides_dir = self.prompts_dir / "overrides"
@@ -358,25 +358,15 @@ class PromptManager:
         """Update configuration at runtime.
 
         Args:
-            config: New configuration dict (from olav.yaml)
+            config: New configuration dict
         """
         self._config = config
         self.reload()  # Clear cache to apply new settings
 
 
 def _create_prompt_manager() -> PromptManager:
-    """Create prompt manager with user configuration.
-
-    Loads olav.yaml if available for thinking mode settings.
-    """
-    try:
-        from src.olav.core.config_loader import get_config
-        config = get_config().to_dict()
-    except Exception:
-        # Fallback if config loader fails
-        config = {}
-
-    return PromptManager(olav_config=config)
+    """Create prompt manager with default configuration."""
+    return PromptManager(olav_config={})
 
 
 # Global prompt manager instance

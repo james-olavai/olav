@@ -212,7 +212,7 @@ class NetconfTool:
                         "status": "CONNECTION_ERROR",
                         "message": "Connection refused on port 830",
                         "hint": "Device may not support NETCONF. Try CLI instead.",
-                        "原始错误": str(e),
+                        "raw_error": str(e),
                     }
                 ],
                 metadata={**metadata, "elapsed_ms": elapsed_ms},
@@ -415,7 +415,7 @@ class CLITool:
                         "status": "CONNECTION_ERROR",
                         "message": "Connection refused on port 22",
                         "hint": "Check device SSH service and credentials",
-                        "原始错误": str(e),
+                        "raw_error": str(e),
                     }
                 ],
                 metadata={**metadata, "elapsed_ms": elapsed_ms},

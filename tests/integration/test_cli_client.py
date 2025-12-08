@@ -78,7 +78,6 @@ async def test_local_client():
 if __name__ == "__main__":
     # Windows requires SelectorEventLoop for psycopg async
     if sys.platform == "win32":
-        import selectors
 
         asyncio.set_event_loop_policy(
             asyncio.WindowsSelectorEventLoopPolicy()  # type: ignore[attr-defined]

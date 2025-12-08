@@ -14,7 +14,7 @@ Example:
 
     # Compile intent to query plan
     plan = await compiler.compile(
-        intent="检查 BGP 邻居状态是否 Established",
+        intent="Check if BGP neighbors are Established",
         severity="critical"
     )
 
@@ -115,55 +115,55 @@ class LLMCompilationResult(BaseModel):
 # Prompt Template
 # =============================================================================
 
-INTENT_COMPILER_PROMPT = """你是网络运维专家。根据用户的检查意图，生成 SuzieQ 查询计划。
+INTENT_COMPILER_PROMPT = """You are a network operations expert. Generate a SuzieQ query plan based on the user's inspection intent.
 
-## 可用的 SuzieQ 表
+## Available SuzieQ Tables
 
-| 表名 | 描述 | 常用字段 |
-|------|------|----------|
-| bgp | BGP 邻居状态 | hostname, peer, state, asn, peerAsn, vrf |
-| ospf | OSPF 邻居状态 | hostname, ifname, state, area, nbrHostname |
-| interfaces | 接口状态 | hostname, ifname, state, mtu, speed, errorsIn, errorsOut |
-| routes | 路由表 | hostname, prefix, nexthopIps, protocol, vrf |
-| macs | MAC 地址表 | hostname, macaddr, vlan, ifname |
-| arpnd | ARP/ND 表 | hostname, ipAddress, macaddr, ifname |
-| device | 设备信息 | hostname, model, vendor, version, uptime |
-| lldp | LLDP 邻居 | hostname, ifname, peerHostname, peerIfname |
-| vlan | VLAN 配置 | hostname, vlanId, vlanName, interfaces |
+| Table | Description | Common Fields |
+|-------|-------------|---------------|
+| bgp | BGP neighbor status | hostname, peer, state, asn, peerAsn, vrf |
+| ospf | OSPF neighbor status | hostname, ifname, state, area, nbrHostname |
+| interfaces | Interface status | hostname, ifname, state, mtu, speed, errorsIn, errorsOut |
+| routes | Routing table | hostname, prefix, nexthopIps, protocol, vrf |
+| macs | MAC address table | hostname, macaddr, vlan, ifname |
+| arpnd | ARP/ND table | hostname, ipAddress, macaddr, ifname |
+| device | Device information | hostname, model, vendor, version, uptime |
+| lldp | LLDP neighbors | hostname, ifname, peerHostname, peerIfname |
+| vlan | VLAN configuration | hostname, vlanId, vlanName, interfaces |
 
-## 查询方法
+## Query Methods
 
-- get: 获取原始数据
-- summarize: 获取汇总统计
-- unique: 获取唯一值
-- aver: 断言/验证
+- get: Get raw data
+- summarize: Get summary statistics
+- unique: Get unique values
+- aver: Assert/verify
 
-## 检查意图
+## Inspection Intent
 
-名称: {check_name}
-描述: {intent}
-严重级别: {severity}
+Name: {check_name}
+Description: {intent}
+Severity Level: {severity}
 
-## 输出要求
+## Output Requirements
 
-生成一个查询计划，包含：
-1. table: 最相关的 SuzieQ 表
-2. method: 查询方法 (通常用 get 或 summarize)
-3. filters: 查询过滤条件
-4. columns: 需要返回的列 (可选)
-5. validation_field: 需要验证的字段
-6. validation_operator: 验证操作符 (==, !=, >, <, >=, <=)
-7. validation_expected: 期望值或阈值
+Generate a query plan containing:
+1. table: Most relevant SuzieQ table
+2. method: Query method (typically get or summarize)
+3. filters: Query filter conditions
+4. columns: Columns to return (optional)
+5. validation_field: Field to validate
+6. validation_operator: Validation operator (==, !=, >, <, >=, <=)
+7. validation_expected: Expected value or threshold
 
-## 示例
+## Examples
 
-意图: "检查 BGP 邻居是否 Established"
+Intent: "Check if BGP neighbors are Established"
 → table: "bgp", validation_field: "state", validation_operator: "!=", validation_expected: "Established"
 
-意图: "检查接口是否有错误"
+Intent: "Check if interfaces have errors"
 → table: "interfaces", validation_field: "errorsIn", validation_operator: ">", validation_expected: 0
 
-请基于上述意图生成查询计划。"""
+Please generate a query plan based on the above intent."""
 
 
 # =============================================================================
@@ -209,7 +209,7 @@ class IntentCompiler:
     Usage:
         compiler = IntentCompiler()
         plan = await compiler.compile(
-            intent="检查 BGP 邻居状态",
+            intent="Check BGP neighbor status",
             severity="critical"
         )
     """
@@ -377,13 +377,13 @@ class IntentCompiler:
 
         # Keyword to table mapping
         table_keywords = {
-            "bgp": ["bgp", "邻居", "neighbor", "peer", "as"],
-            "ospf": ["ospf", "ospf邻居", "area"],
-            "interfaces": ["接口", "interface", "端口", "port", "错误", "error"],
-            "routes": ["路由", "route", "路由表"],
-            "device": ["设备", "device", "cpu", "内存", "memory", "uptime"],
-            "macs": ["mac", "mac地址"],
-            "lldp": ["lldp", "cdp", "拓扑"],
+            "bgp": ["bgp", "neighbor", "peer", "as"],
+            "ospf": ["ospf", "ospf neighbor", "area"],
+            "interfaces": ["interface", "port", "error"],
+            "routes": ["route", "routing table"],
+            "device": ["device", "cpu", "memory", "uptime"],
+            "macs": ["mac", "mac address"],
+            "lldp": ["lldp", "cdp", "topology"],
             "vlan": ["vlan"],
         }
 
@@ -482,22 +482,22 @@ class IntentCompiler:
 
             llm = LLMFactory.get_chat_model()
 
-            prompt = f"""你是网络运维专家。根据检查意图生成对应的 show 命令。
+            prompt = f"""You are a network operations expert. Generate the corresponding show command based on the inspection intent.
 
-## 检查意图
+## Inspection Intent
 {intent}
 
-## 目标数据
+## Target Data
 {table}
 
-## 约束
-- 只能生成 show 命令
-- 不能生成任何配置命令 (configure, set, delete 等)
-- 命令必须以 "show " 开头
-- 生成通用的 Cisco IOS/NX-OS 兼容命令
+## Constraints
+- Only generate show commands
+- Do not generate any configuration commands (configure, set, delete, etc.)
+- Command must start with "show "
+- Generate generic Cisco IOS/NX-OS compatible commands
 
-## 输出
-直接输出一条 show 命令，不要其他解释。"""
+## Output
+Output only one show command, no other explanations."""
 
             response = await llm.ainvoke(prompt)
             command = response.content.strip()

@@ -96,9 +96,9 @@ class TestRedisCache:
     async def test_get_hit(self, cache: RedisCache, mock_redis_client: AsyncMock) -> None:
         """Test cache get with hit."""
         mock_redis_client.get.return_value = '{"table": "bgp"}'
-        
+
         result = await cache.get("schema:suzieq")
-        
+
         assert result == {"table": "bgp"}
         mock_redis_client.get.assert_called_once_with("olav:schema:suzieq")
 
@@ -106,16 +106,16 @@ class TestRedisCache:
     async def test_get_miss(self, cache: RedisCache, mock_redis_client: AsyncMock) -> None:
         """Test cache get with miss."""
         mock_redis_client.get.return_value = None
-        
+
         result = await cache.get("schema:nonexistent")
-        
+
         assert result is None
 
     @pytest.mark.asyncio
     async def test_set_with_ttl(self, cache: RedisCache, mock_redis_client: AsyncMock) -> None:
         """Test cache set with custom TTL."""
         result = await cache.set("schema:suzieq", {"table": "bgp"}, ttl=600)
-        
+
         assert result is True
         mock_redis_client.set.assert_called_once()
         call_args = mock_redis_client.set.call_args
@@ -125,8 +125,8 @@ class TestRedisCache:
     @pytest.mark.asyncio
     async def test_set_with_default_ttl(self, cache: RedisCache, mock_redis_client: AsyncMock) -> None:
         """Test cache set with default TTL."""
-        result = await cache.set("key", "value")
-        
+        await cache.set("key", "value")
+
         call_args = mock_redis_client.set.call_args
         assert call_args[1]["ex"] == 3600  # Default TTL
 
@@ -134,9 +134,9 @@ class TestRedisCache:
     async def test_delete_existing_key(self, cache: RedisCache, mock_redis_client: AsyncMock) -> None:
         """Test deleting existing key."""
         mock_redis_client.delete.return_value = 1
-        
+
         result = await cache.delete("schema:suzieq")
-        
+
         assert result is True
         mock_redis_client.delete.assert_called_once_with("olav:schema:suzieq")
 
@@ -148,27 +148,27 @@ class TestRedisCache:
     ) -> None:
         """Test deleting nonexistent key."""
         mock_redis_client.delete.return_value = 0
-        
+
         result = await cache.delete("nonexistent")
-        
+
         assert result is False
 
     @pytest.mark.asyncio
     async def test_exists_true(self, cache: RedisCache, mock_redis_client: AsyncMock) -> None:
         """Test exists returns True for existing key."""
         mock_redis_client.exists.return_value = 1
-        
+
         result = await cache.exists("schema:suzieq")
-        
+
         assert result is True
 
     @pytest.mark.asyncio
     async def test_exists_false(self, cache: RedisCache, mock_redis_client: AsyncMock) -> None:
         """Test exists returns False for missing key."""
         mock_redis_client.exists.return_value = 0
-        
+
         result = await cache.exists("nonexistent")
-        
+
         assert result is False
 
     @pytest.mark.asyncio
@@ -180,9 +180,9 @@ class TestRedisCache:
             (0, []),
         ]
         mock_redis_client.delete.return_value = 2
-        
+
         result = await cache.clear_namespace("schema:")
-        
+
         assert result == 2
 
     @pytest.mark.asyncio
@@ -193,25 +193,25 @@ class TestRedisCache:
     ) -> None:
         """Test health check when Redis is healthy."""
         mock_redis_client.ping.return_value = True
-        
+
         result = await cache.health_check()
-        
+
         assert result is True
 
     @pytest.mark.asyncio
     async def test_health_check_failure(self, cache: RedisCache, mock_redis_client: AsyncMock) -> None:
         """Test health check when Redis is down."""
         mock_redis_client.ping.side_effect = Exception("Connection refused")
-        
+
         result = await cache.health_check()
-        
+
         assert result is False
 
     @pytest.mark.asyncio
     async def test_close(self, cache: RedisCache, mock_redis_client: AsyncMock) -> None:
         """Test closing Redis connection."""
         await cache.close()
-        
+
         mock_redis_client.close.assert_called_once()
         assert cache._client is None
         assert cache._connected is False
@@ -219,35 +219,35 @@ class TestRedisCache:
     def test_make_key_with_prefix(self, cache: RedisCache) -> None:
         """Test key prefix is applied correctly."""
         key = cache._make_key("schema:suzieq")
-        
+
         assert key == "olav:schema:suzieq"
 
     def test_serialize_dict(self, cache: RedisCache) -> None:
         """Test JSON serialization."""
         data = {"table": "bgp", "fields": ["peer", "state"]}
-        
+
         result = cache._serialize(data)
-        
+
         assert json.loads(result) == data
 
     def test_deserialize_valid_json(self, cache: RedisCache) -> None:
         """Test JSON deserialization."""
         data = '{"table": "bgp"}'
-        
+
         result = cache._deserialize(data)
-        
+
         assert result == {"table": "bgp"}
 
     def test_deserialize_none(self, cache: RedisCache) -> None:
         """Test deserialize returns None for None input."""
         result = cache._deserialize(None)
-        
+
         assert result is None
 
     def test_deserialize_invalid_json(self, cache: RedisCache) -> None:
         """Test deserialize handles invalid JSON gracefully."""
         result = cache._deserialize("not valid json")
-        
+
         assert result is None
 
 
@@ -276,9 +276,9 @@ class TestCacheManager:
         """Test getting cached schema."""
         expected_schema = {"bgp": {"fields": ["peer"]}}
         mock_backend.get.return_value = expected_schema
-        
+
         result = await manager.get_schema("suzieq")
-        
+
         assert result == expected_schema
         mock_backend.get.assert_called_once_with("schema:suzieq")
 
@@ -286,9 +286,9 @@ class TestCacheManager:
     async def test_set_schema(self, manager: CacheManager, mock_backend: AsyncMock) -> None:
         """Test caching schema."""
         schema = {"bgp": {"fields": ["peer"]}}
-        
+
         result = await manager.set_schema("suzieq", schema)
-        
+
         assert result is True
         mock_backend.set.assert_called_once_with("schema:suzieq", schema, 3600)
 
@@ -300,9 +300,9 @@ class TestCacheManager:
     ) -> None:
         """Test caching schema with custom TTL."""
         schema = {"bgp": {"fields": ["peer"]}}
-        
+
         await manager.set_schema("suzieq", schema, ttl=7200)
-        
+
         mock_backend.set.assert_called_once_with("schema:suzieq", schema, 7200)
 
     @pytest.mark.asyncio
@@ -313,7 +313,7 @@ class TestCacheManager:
     ) -> None:
         """Test invalidating cached schema."""
         result = await manager.invalidate_schema("suzieq")
-        
+
         assert result is True
         mock_backend.delete.assert_called_once_with("schema:suzieq")
 
@@ -322,9 +322,9 @@ class TestCacheManager:
         """Test getting cached session."""
         expected_session = {"user": "admin", "context": {}}
         mock_backend.get.return_value = expected_session
-        
+
         result = await manager.get_session("session123")
-        
+
         assert result == expected_session
         mock_backend.get.assert_called_once_with("session:session123")
 
@@ -332,9 +332,9 @@ class TestCacheManager:
     async def test_set_session(self, manager: CacheManager, mock_backend: AsyncMock) -> None:
         """Test caching session."""
         session = {"user": "admin"}
-        
+
         result = await manager.set_session("session123", session)
-        
+
         assert result is True
         mock_backend.set.assert_called_once_with("session:session123", session, 1800)
 
@@ -346,9 +346,9 @@ class TestCacheManager:
     ) -> None:
         """Test clearing all schemas."""
         mock_backend.clear_namespace.return_value = 5
-        
+
         result = await manager.clear_all_schemas()
-        
+
         assert result == 5
         mock_backend.clear_namespace.assert_called_once_with("schema:")
 
@@ -356,9 +356,9 @@ class TestCacheManager:
     async def test_health_check(self, manager: CacheManager, mock_backend: AsyncMock) -> None:
         """Test health check delegation."""
         mock_backend.health_check.return_value = True
-        
+
         result = await manager.health_check()
-        
+
         assert result is True
         mock_backend.health_check.assert_called_once()
 
@@ -372,7 +372,7 @@ class TestCacheManager:
         """Test custom default TTL values."""
         custom_ttls = {"schema:": 7200, "session:": 3600}
         manager = CacheManager(mock_backend, default_ttls=custom_ttls)
-        
+
         assert manager._default_ttls["schema:"] == 7200
         assert manager._default_ttls["session:"] == 3600
         # Original defaults preserved for non-overridden keys
@@ -388,18 +388,18 @@ class TestGlobalFunctions:
         # Clear global state
         import olav.core.cache as cache_module
         cache_module._cache_manager = None
-        
+
         # Mock the _get_settings function
         mock_settings = MagicMock()
         mock_settings.redis_url = ""  # No Redis configured
-        
+
         with patch.object(cache_module, "_get_settings", return_value=mock_settings):
             manager1 = get_cache_manager()
             manager2 = get_cache_manager()
-            
+
             assert manager1 is manager2
             assert isinstance(manager1.backend, NoOpCache)
-        
+
         # Reset for other tests
         cache_module._cache_manager = None
 
@@ -408,15 +408,15 @@ class TestGlobalFunctions:
         """Test get_cache_manager creates RedisCache when URL configured."""
         import olav.core.cache as cache_module
         cache_module._cache_manager = None
-        
+
         mock_settings = MagicMock()
         mock_settings.redis_url = "redis://localhost:6379"
-        
+
         with patch.object(cache_module, "_get_settings", return_value=mock_settings):
             manager = get_cache_manager()
-            
+
             assert isinstance(manager.backend, RedisCache)
-        
+
         # Reset for other tests
         cache_module._cache_manager = None
 
@@ -425,16 +425,16 @@ class TestGlobalFunctions:
         """Test init_cache verifies connection."""
         import olav.core.cache as cache_module
         cache_module._cache_manager = None
-        
+
         mock_settings = MagicMock()
         mock_settings.redis_url = ""
-        
+
         with patch.object(cache_module, "_get_settings", return_value=mock_settings):
             manager = await init_cache()
-            
+
             # NoOpCache always returns True for health_check
             healthy = await manager.health_check()
             assert healthy is True
-        
+
         # Reset for other tests
         cache_module._cache_manager = None

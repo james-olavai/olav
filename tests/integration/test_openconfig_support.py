@@ -13,7 +13,6 @@ import os
 
 import pytest
 
-
 # Skip all tests in this module if no NETCONF device is configured
 pytestmark = pytest.mark.skipif(
     not os.environ.get("NETCONF_HOST"),
@@ -25,12 +24,12 @@ pytestmark = pytest.mark.skipif(
 def netconf_connection():
     """Create NETCONF connection from environment variables."""
     from ncclient import manager
-    
+
     host = os.environ.get("NETCONF_HOST")
     port = int(os.environ.get("NETCONF_PORT", "830"))
     username = os.environ.get("NETCONF_USERNAME", "admin")
     password = os.environ.get("NETCONF_PASSWORD", "admin")
-    
+
     conn = manager.connect(
         host=host,
         port=port,
@@ -63,7 +62,7 @@ def test_openconfig_interfaces_supported(netconf_connection):
         if "openconfig-interfaces" in cap:
             openconfig_if_cap = cap
             break
-    
+
     # This is informational - device may not support OpenConfig
     if openconfig_if_cap:
         pytest.skip(f"OpenConfig interfaces supported: {openconfig_if_cap}")
@@ -74,7 +73,7 @@ def test_openconfig_interfaces_supported(netconf_connection):
 def test_get_interfaces_state(netconf_connection):
     """Test getting interface state via OpenConfig or native model."""
     from lxml import etree
-    
+
     # Try OpenConfig first
     openconfig_filter = """
     <interfaces xmlns="http://openconfig.net/yang/interfaces">
@@ -83,7 +82,7 @@ def test_get_interfaces_state(netconf_connection):
         </interface>
     </interfaces>
     """
-    
+
     try:
         result = netconf_connection.get(filter=("subtree", openconfig_filter))
         root = etree.fromstring(result.data_xml.encode())

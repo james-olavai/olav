@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
 RUN pip install --no-cache-dir uv
 
 # Copy dependency files
-COPY pyproject.toml README.MD ./
+COPY pyproject.toml README.md ./
 
 # Copy source code (required for editable install)
 COPY src ./src

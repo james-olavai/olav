@@ -1,6 +1,6 @@
 """Deep Dive Workflow - Funnel Debugging with OSI Layer-Based Diagnosis.
 
-This workflow implements **漏斗式排错 (Funnel Debugging)**:
+This workflow implements **Funnel Debugging**:
 1. Topology Analysis: Identify fault scope and affected devices
 2. Layered Hypothesis: Generate hypotheses per OSI layer (L1-L4+)
 3. Macro Scan (SuzieQ): Broad sweep to narrow down problem area
@@ -14,14 +14,14 @@ Key Principles:
 - Stop drilling when root cause identified
 
 Trigger scenarios:
-- Neighbor issues: "R1 和 R2 之间 BGP 邻居问题"
-- Connectivity: "为什么 A 无法访问 B"
-- Protocol failures: "OSPF 邻居关系异常"
-- Batch audits: "审计所有边界路由器"
+- Neighbor issues: "BGP neighbor issue between R1 and R2"
+- Connectivity: "Why can't A reach B"
+- Protocol failures: "OSPF neighbor relationship abnormal"
+- Batch audits: "Audit all border routers"
 
 Usage:
-    uv run olav.py -e "R1 和 R2 BGP 邻居建立失败"
-    uv run olav.py --expert "从 DataCenter-A 到 DataCenter-B 不通"
+    uv run olav.py -e "R1 and R2 BGP session failed"
+    uv run olav.py --expert "No connectivity from DataCenter-A to DataCenter-B"
 """
 
 import asyncio
@@ -43,7 +43,7 @@ from langgraph.graph import END, StateGraph
 from olav.core.llm import LLMFactory
 from olav.core.memory_writer import get_memory_writer
 from olav.core.prompt_manager import prompt_manager
-from olav.core.settings import settings
+from config.settings import settings
 from olav.workflows.base import BaseWorkflow
 from olav.workflows.registry import WorkflowRegistry
 
@@ -138,7 +138,7 @@ class TodoItem(TypedDict):
 # ============================================
 import contextlib
 
-from config.settings import AgentConfig
+from config.settings import settings
 
 I18N: dict[str, dict[str, str]] = {
     # Execution Plan Section
@@ -300,7 +300,7 @@ def tr(key: str, **kwargs: Any) -> str:
     Returns:
         Translated and formatted string
     """
-    lang = AgentConfig.LANGUAGE
+    lang = settings.agent_language
     if key not in I18N:
         return key  # Fallback to key itself
     translations = I18N[key]
@@ -378,29 +378,19 @@ class DeepDiveState(TypedDict):
         "Interface Gi0/0/1 frequently flapping",
     ],
     triggers=[
-        r"邻居.*问题",
-        r"邻居.*失败",
-        r"无法访问",
-        r"不通",
-        r"为什么",
-        r"排查",
-        r"诊断",
-        r"审计",
-        r"批量",
-        r"从.*到",
-        r"flapping",
-        r"异常",
+        # English patterns - LLM handles multilingual intent classification
         r"neighbor.*issue",
         r"neighbor.*failed",
         r"cannot access",
         r"not reachable",
-        r"why",
         r"troubleshoot",
         r"diagnose",
         r"audit",
         r"batch",
         r"from.*to",
+        r"flapping",
         r"abnormal",
+        r"why.*not",
     ],
 )
 class DeepDiveWorkflow(BaseWorkflow):
@@ -438,11 +428,11 @@ class DeepDiveWorkflow(BaseWorkflow):
         """Check if query requires Deep Dive workflow.
 
         Deep Dive triggers:
-        - Neighbor issues ("邻居问题", "邻居失败", "peer down")
-        - Connectivity ("无法访问", "不通", "unreachable")
-        - Diagnostics ("为什么", "排查", "诊断")
-        - Audit ("审计", "批量")
-        - Path issues ("从...到", "between")
+        - Neighbor issues ("neighbor issue", "neighbor failure", "peer down")
+        - Connectivity ("unreachable", "cannot access", "no connectivity")
+        - Diagnostics ("why", "troubleshoot", "diagnose")
+        - Audit ("audit", "batch")
+        - Path issues ("from...to", "between")
         """
         import re
 
@@ -487,14 +477,14 @@ class DeepDiveWorkflow(BaseWorkflow):
             Dict with historical diagnostic pattern if found, else None
 
         Example:
-            >>> pattern = await self._search_historical_diagnostics("R1 BGP 邻居问题")
+            >>> pattern = await self._search_historical_diagnostics("R1 BGP neighbor issue")
             >>> pattern
             {
-                "intent": "R1 R2 BGP 邻居建立失败",
+                "intent": "R1 R2 BGP neighbor establishment failure",
                 "phases_completed": 3,
                 "findings_count": 2,
                 "affected_devices": ["R1", "R2"],
-                "root_cause": "BGP peer IP 配置错误",
+                "root_cause": "BGP peer IP configuration error",
                 "confidence": 0.85
             }
         """
@@ -584,11 +574,11 @@ class DeepDiveWorkflow(BaseWorkflow):
                 f"(confidence: {historical_pattern['confidence']:.2f})"
             )
             historical_context = (
-                f"\n\n📚 **历史参考**: 发现类似问题的成功诊断记录\n"
-                f"- 历史问题: {historical_pattern['intent'][:100]}\n"
-                f"- 诊断阶段: {historical_pattern['phases_completed']} 个\n"
-                f"- 发现问题: {historical_pattern['findings_count']} 项\n"
-                f"- 参考价值: {historical_pattern['confidence']:.0%}\n"
+                f"\n\n📚 **Historical Reference**: Found successful diagnostic record for similar issue\n"
+                f"- Historical issue: {historical_pattern['intent'][:100]}\n"
+                f"- Diagnostic phases: {historical_pattern['phases_completed']}\n"
+                f"- Issues found: {historical_pattern['findings_count']}\n"
+                f"- Reference value: {historical_pattern['confidence']:.0%}\n"
             )
 
         # Extract device names using regex
@@ -622,7 +612,7 @@ class DeepDiveWorkflow(BaseWorkflow):
                         for r in lldp_result["data"][:10]
                         if r.get("hostname") and r.get("peerHostname")
                     ]
-                    topology_context = f"LLDP邻居: {', '.join(neighbors)}"
+                    topology_context = f"LLDP neighbors: {', '.join(neighbors)}"
             except Exception as e:
                 logger.warning(f"LLDP query failed: {e}")
 
@@ -631,12 +621,12 @@ class DeepDiveWorkflow(BaseWorkflow):
             category="workflows/deep_dive",
             name="topology_analysis",
             user_query=user_query,
-            devices_mentioned=", ".join(devices_mentioned) if devices_mentioned else "未明确指定",
+            devices_mentioned=", ".join(devices_mentioned) if devices_mentioned else "Not specified",
         )
 
         # Enhance prompt with historical context
         if historical_pattern:
-            prompt += f"\n\n历史参考信息:\n{historical_context}"
+            prompt += f"\n\nHistorical reference:\n{historical_context}"
 
         response = await self.llm_json.ainvoke(
             [
@@ -713,9 +703,9 @@ Generating layered diagnosis plan..."""
 
         # Build context for LLM
         topology_context = f"""
-受影响设备: {", ".join(affected_devices)}
-故障范围: {topology.get("scope", "unknown")}
-路径假设: {" → ".join(topology.get("path_hypothesis", []))}
+Affected devices: {", ".join(affected_devices)}
+Fault scope: {topology.get("scope", "unknown")}
+Path hypothesis: {" → ".join(topology.get("path_hypothesis", []))}
 """
 
         # Use LLM to generate funnel diagnosis plan
@@ -818,13 +808,13 @@ Generating layered diagnosis plan..."""
             DiagnosisPhase(
                 phase=1,
                 layer="L1",
-                name="物理层检查",
+                name="Physical Layer Check",
                 checks=[
                     PhaseCheck(
                         tool="suzieq_query",
                         table="interfaces",
                         filters=hostname_filter,
-                        purpose="检查接口状态",
+                        purpose="Check interface status",
                         result=None,
                         status="pending",
                     ),
@@ -832,25 +822,25 @@ Generating layered diagnosis plan..."""
                         tool="suzieq_query",
                         table="lldp",
                         filters=hostname_filter,
-                        purpose="验证物理邻居",
+                        purpose="Verify physical neighbors",
                         result=None,
                         status="pending",
                     ),
                 ],
-                deep_dive_trigger="接口 down 或 LLDP 邻居缺失",
+                deep_dive_trigger="Interface down or LLDP neighbor missing",
                 findings=[],
                 status="pending",
             ),
             DiagnosisPhase(
                 phase=2,
                 layer="L3",
-                name="网络层检查",
+                name="Network Layer Check",
                 checks=[
                     PhaseCheck(
                         tool="suzieq_query",
                         table="arpnd",
                         filters=hostname_filter,
-                        purpose="检查 ARP/ND 表",
+                        purpose="Check ARP/ND table",
                         result=None,
                         status="pending",
                     ),
@@ -858,25 +848,25 @@ Generating layered diagnosis plan..."""
                         tool="suzieq_query",
                         table="routes",
                         filters=hostname_filter,
-                        purpose="检查路由表",
+                        purpose="Check routing table",
                         result=None,
                         status="pending",
                     ),
                 ],
-                deep_dive_trigger="ARP 缺失或路由不存在",
+                deep_dive_trigger="ARP missing or route not found",
                 findings=[],
                 status="pending",
             ),
             DiagnosisPhase(
                 phase=3,
                 layer="L4",
-                name="协议层检查",
+                name="Protocol Layer Check",
                 checks=[
                     PhaseCheck(
                         tool="suzieq_query",
                         table="bgp",
                         filters=hostname_filter,
-                        purpose="检查 BGP 邻居状态",
+                        purpose="Check BGP neighbor status",
                         result=None,
                         status="pending",
                     ),
@@ -888,11 +878,11 @@ Generating layered diagnosis plan..."""
         ]
 
         return DiagnosisPlan(
-            summary="默认分层诊断计划: L1 物理层 → L3 网络层 → L4 协议层",
+            summary="Default layered diagnosis plan: L1 Physical → L3 Network → L4 Protocol",
             affected_scope=affected_devices,
             hypotheses=[
-                LayerHypothesis(layer="L4", issue="协议邻居未建立", probability="high", checks=[]),
-                LayerHypothesis(layer="L1", issue="物理接口故障", probability="medium", checks=[]),
+                LayerHypothesis(layer="L4", issue="Protocol neighbor not established", probability="high", checks=[]),
+                LayerHypothesis(layer="L1", issue="Physical interface failure", probability="medium", checks=[]),
             ],
             phases=phases,
             current_phase=0,
@@ -903,20 +893,20 @@ Generating layered diagnosis plan..."""
     def _format_diagnosis_plan(self, plan: DiagnosisPlan) -> str:
         """Format diagnosis plan for user review."""
         lines = [
-            "## 📋 漏斗式诊断计划\n",
-            f"**概述**: {plan['summary']}\n",
-            f"**受影响范围**: {', '.join(plan['affected_scope'])}\n",
+            "## 📋 Funnel Diagnosis Plan\n",
+            f"**Summary**: {plan['summary']}\n",
+            f"**Affected Scope**: {', '.join(plan['affected_scope'])}\n",
         ]
 
         if plan["hypotheses"]:
-            lines.append("\n### 🔍 初步假设\n")
+            lines.append("\n### 🔍 Initial Hypotheses\n")
             for h in plan["hypotheses"]:
                 prob_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(h["probability"], "⚪")
                 lines.append(
-                    f"- {prob_emoji} **{h['layer']}**: {h['issue']} (概率: {h['probability']})"
+                    f"- {prob_emoji} **{h['layer']}**: {h['issue']} (probability: {h['probability']})"
                 )
 
-        lines.append("\n### 📊 诊断阶段\n")
+        lines.append("\n### 📊 Diagnosis Phases\n")
         for phase in plan["phases"]:
             layer_emoji = {"L1": "🔌", "L2": "🔗", "L3": "🌐", "L4": "📡"}.get(phase["layer"], "📋")
             lines.append(
@@ -925,10 +915,10 @@ Generating layered diagnosis plan..."""
             for check in phase["checks"]:
                 lines.append(f"  - `{check['table']}`: {check['purpose']}")
             if phase["deep_dive_trigger"]:
-                lines.append(f"  - ⚡ 深入条件: {phase['deep_dive_trigger']}")
+                lines.append(f"  - ⚡ Deep dive trigger: {phase['deep_dive_trigger']}")
 
         lines.append("\n---")
-        lines.append(f"\n📊 **计划摘要**: {len(plan['phases'])} 个诊断阶段")
+        lines.append(f"\n📊 **Plan Summary**: {len(plan['phases'])} diagnosis phases")
         lines.append("\n```")
         lines.append(f"  {tr('action_approve')}")
         lines.append(f"  {tr('action_abort')}")
@@ -948,7 +938,7 @@ Generating layered diagnosis plan..."""
         Returns:
             Updated state with check results and findings
         """
-        from config.settings import AgentConfig
+        from config.settings import settings
         from langgraph.types import interrupt
 
         diagnosis_plan = state.get("diagnosis_plan")
@@ -958,7 +948,7 @@ Generating layered diagnosis plan..."""
         user_approval = state.get("user_approval")
 
         # YOLO mode: auto-approve
-        if AgentConfig.YOLO_MODE and user_approval is None:
+        if settings.yolo_mode and user_approval is None:
             logger.info("[YOLO] Auto-approving diagnosis plan...")
             user_approval = "approved"
 
@@ -995,7 +985,7 @@ Generating layered diagnosis plan..."""
         phases = diagnosis_plan.get("phases", [])
 
         if current_phase_idx >= len(phases):
-            return {"messages": [AIMessage(content="所有诊断阶段已完成。")]}
+            return {"messages": [AIMessage(content="All diagnosis phases completed.")]}
 
         phase = phases[current_phase_idx]
         phase["status"] = "running"
@@ -1028,7 +1018,7 @@ Generating layered diagnosis plan..."""
                 # Format result summary
                 count = result.get("count", len(result.get("data", [])))
                 table_name = self._get_table_display_name(check["table"])
-                check_results.append(f"✅ {table_name}: {count} 条记录")
+                check_results.append(f"✅ {table_name}: {count} records")
 
                 if findings:
                     for f in findings:
@@ -1045,13 +1035,13 @@ Generating layered diagnosis plan..."""
 
         # Format phase result
         layer_emoji = {"L1": "🔌", "L2": "🔗", "L3": "🌐", "L4": "📡"}.get(phase["layer"], "📋")
-        msg = f"""## {layer_emoji} Phase {phase["phase"]}: {phase["name"]} 完成
+        msg = f"""## {layer_emoji} Phase {phase["phase"]}: {phase["name"]} Completed
 
-### 检查结果
+### Check Results
 {chr(10).join(check_results)}
 
-### 发现 ({len(phase_findings)} 项)
-{chr(10).join(f"- {f}" for f in phase_findings) if phase_findings else "- 未发现异常"}
+### Findings ({len(phase_findings)})
+{chr(10).join(f"- {f}" for f in phase_findings) if phase_findings else "- No anomalies found"}
 """
 
         # Move to next phase
@@ -1066,12 +1056,18 @@ Generating layered diagnosis plan..."""
         }
 
     def _analyze_check_result(self, table: str, result: dict, purpose: str) -> list[str]:
-        """Analyze SuzieQ query result for anomalies."""
+        """Analyze SuzieQ query result for anomalies.
+        
+        Args:
+            table: SuzieQ table name
+            result: Query result dict
+            purpose: Analysis purpose context (used in error messages)
+        """
         findings = []
         data = result.get("data", [])
 
         if not data:
-            findings.append(f"{table}: 无数据（可能采集问题或范围错误）")
+            findings.append(f"{table} ({purpose}): No data (possible collection issue or scope error)")
             return findings
 
         # Table-specific anomaly detection
@@ -1082,14 +1078,14 @@ Generating layered diagnosis plan..."""
             if down_ifs:
                 for iface in down_ifs[:5]:
                     findings.append(
-                        f"接口 {iface.get('hostname')}:{iface.get('ifname')} 状态异常 (adminUp, operDown)"
+                        f"Interface {iface.get('hostname')}:{iface.get('ifname')} abnormal state (adminUp, operDown)"
                     )
 
         elif table == "bgp":
             not_estd = [r for r in data if r.get("state") != "Established"]
             if not_estd:
                 for peer in not_estd[:5]:
-                    reason = peer.get("reason") or peer.get("notificnReason") or "未知"
+                    reason = peer.get("reason") or peer.get("notificnReason") or "unknown"
                     findings.append(
                         f"BGP {peer.get('hostname')} ↔ {peer.get('peer')}: {peer.get('state')} ({reason})"
                     )
@@ -1099,20 +1095,20 @@ Generating layered diagnosis plan..."""
             if not_full:
                 for nbr in not_full[:5]:
                     findings.append(
-                        f"OSPF {nbr.get('hostname')}:{nbr.get('ifname')} 邻居状态: {nbr.get('state')}"
+                        f"OSPF {nbr.get('hostname')}:{nbr.get('ifname')} neighbor state: {nbr.get('state')}"
                     )
 
         elif table == "lldp":
             # Check for missing expected neighbors (would need topology baseline)
             if len(data) == 0:
-                findings.append("LLDP: 未发现邻居（物理连接可能断开）")
+                findings.append("LLDP: No neighbors found (physical connection may be down)")
 
         elif table == "arpnd":
             # Check for incomplete ARP entries
             incomplete = [r for r in data if r.get("state") in ("incomplete", "INCOMPLETE")]
             if incomplete:
                 for arp in incomplete[:5]:
-                    findings.append(f"ARP {arp.get('hostname')}: {arp.get('ipAddress')} 状态不完整")
+                    findings.append(f"ARP {arp.get('hostname')}: {arp.get('ipAddress')} state incomplete")
 
         return findings
 
@@ -1136,7 +1132,7 @@ Generating layered diagnosis plan..."""
         findings = state.get("findings", [])
 
         # Check if we have critical findings that need micro diagnosis
-        critical_keywords = ["down", "异常", "失败", "NotEstd", "incomplete"]
+        critical_keywords = ["down", "abnormal", "failure", "NotEstd", "incomplete"]
         critical_findings = [f for f in findings if any(k in f for k in critical_keywords)]
 
         if critical_findings and current_phase < len(phases):
@@ -1173,7 +1169,7 @@ Generating layered diagnosis plan..."""
 
         if not findings:
             return {
-                "messages": [AIMessage(content="📋 SuzieQ 未发现异常，跳过实时验证。")],
+                "messages": [AIMessage(content="📋 SuzieQ found no anomalies, skipping real-time verification.")],
                 "realtime_verified": True,
             }
 
@@ -1187,7 +1183,7 @@ Generating layered diagnosis plan..."""
             return {
                 "messages": [
                     AIMessage(
-                        content=f"⚠️ 无法初始化 CLI 工具: {e}\n将使用 SuzieQ 历史数据作为参考。"
+                        content=f"⚠️ Unable to initialize CLI tool: {e}\nUsing SuzieQ historical data as reference."
                     )
                 ],
                 "realtime_verified": False,
@@ -1225,8 +1221,7 @@ Generating layered diagnosis plan..."""
                         ]
                     )
                 elif (
-                    "接口" in finding_lower
-                    or "interface" in finding_lower
+                    "interface" in finding_lower
                     or "down" in finding_lower
                 ):
                     commands_to_run[device].extend(
@@ -1246,7 +1241,7 @@ Generating layered diagnosis plan..."""
                     commands_to_run[device].append("show arp")
                 elif "lldp" in finding_lower:
                     commands_to_run[device].append("show lldp neighbors")
-                elif "route" in finding_lower or "路由" in finding_lower:
+                elif "route" in finding_lower or "routing" in finding_lower:
                     commands_to_run[device].append("show ip route summary")
 
         # Deduplicate commands per device
@@ -1271,11 +1266,11 @@ Generating layered diagnosis plan..."""
                             }
                         )
                         verification_results.append(
-                            f"✅ {device} `{command}`: {len(result.data)} 条记录"
+                            f"✅ {device} `{command}`: {len(result.data)} records"
                         )
 
                 except Exception as e:
-                    verification_results.append(f"❌ {device} `{command}`: 执行失败 - {e}")
+                    verification_results.append(f"❌ {device} `{command}`: execution failed - {e}")
 
         # Verify findings against real-time data
         for finding in findings:
@@ -1297,7 +1292,7 @@ Generating layered diagnosis plan..."""
 
                     # Interface verification
                     elif (
-                        "down" in finding_lower or "接口" in finding_lower
+                        "down" in finding_lower or "interface" in finding_lower
                     ) and "interface" in data_entry.get("command", "").lower():
                         for row in data:
                             status = str(row.get("status", row.get("Status", ""))).lower()
@@ -1306,27 +1301,27 @@ Generating layered diagnosis plan..."""
                                 break
 
             if verified:
-                verified_findings.append(f"✅ [实时确认] {finding}")
+                verified_findings.append(f"✅ [Real-time confirmed] {finding}")
             else:
-                verified_findings.append(f"⚠️ [历史数据] {finding}")
+                verified_findings.append(f"⚠️ [Historical data] {finding}")
 
         # Format verification report
-        msg = f"""## 🔍 实时验证结果
+        msg = f"""## 🔍 Real-time Verification Results
 
-### 执行的命令
-{chr(10).join(verification_results) if verification_results else "- 无法执行实时命令"}
+### Executed Commands
+{chr(10).join(verification_results) if verification_results else "- Unable to execute real-time commands"}
 
-### 验证后的发现
+### Verified Findings
 {chr(10).join(f"- {f}" for f in verified_findings)}
 
-**说明**:
-- ✅ [实时确认] = CLI 实时数据证实了 SuzieQ 的发现
-- ⚠️ [历史数据] = 仅有 SuzieQ 历史记录，未能实时验证
+**Legend**:
+- ✅ [Real-time confirmed] = CLI live data confirmed SuzieQ findings
+- ⚠️ [Historical data] = Only SuzieQ historical records available, not verified in real-time
 """
 
         return {
             "findings": [
-                f.replace("✅ [实时确认] ", "").replace("⚠️ [历史数据] ", "")
+                f.replace("✅ [Real-time confirmed] ", "").replace("⚠️ [Historical data] ", "")
                 for f in verified_findings
             ],
             "realtime_data": realtime_data,
@@ -1395,7 +1390,7 @@ Generating layered diagnosis plan..."""
                 await memory_writer.memory.store_episodic_memory(
                     intent=user_query,
                     xpath=f"funnel_diagnosis:{len(findings)} findings",
-                    success=len([f for f in findings if "down" in f or "异常" in f]) == 0,
+                    success=len([f for f in findings if "down" in f or "anomaly" in f]) == 0,
                     context={
                         "tool_used": "deep_dive_funnel",
                         "phases_completed": len(diagnosis_plan.get("phases", [])),
@@ -1513,10 +1508,10 @@ Generating layered diagnosis plan..."""
                 if not available_tables:
                     # No schema match at all
                     todo["feasibility"] = "infeasible"
-                    todo["schema_notes"] = "系统中没有找到相关的数据表，可能需要直接连接设备查询"
+                    todo["schema_notes"] = "No relevant data tables found in system, may need to query device directly"
                     infeasible_tasks.append(task_id)
                     recommendations[task_id] = (
-                        "建议通过 NETCONF 直接查询设备，或检查数据采集是否正常"
+                        "Recommend querying device directly via NETCONF, or check if data collection is working"
                     )
 
                 elif heuristic_mapping:
@@ -1530,10 +1525,10 @@ Generating layered diagnosis plan..."""
                         fields = schema_result.get(heuristic_table, {}).get("fields", [])[:5]
                         field_desc = self._humanize_fields(fields)
                         todo["schema_notes"] = (
-                            f"将从 {heuristic_table} 表查询，包含 {field_desc} 等字段"
+                            f"Will query from {heuristic_table} table, containing fields: {field_desc}"
                         )
                         feasible_tasks.append(task_id)
-                        recommendations[task_id] = f"执行查询: {heuristic_table} 表"
+                        recommendations[task_id] = f"Execute query: {heuristic_table} table"
                     else:
                         # Heuristic mismatch - use first schema suggestion
                         suggested_table = available_tables[0]
@@ -1648,7 +1643,7 @@ Generating layered diagnosis plan..."""
             "zh": "设备配置查询: ",
             "en": "Device config query: ",
             "ja": "デバイス設定クエリ: ",
-        }.get(AgentConfig.LANGUAGE, "Device config query: ")
+        }.get(settings.agent_language, "Device config query: ")
 
         task = re.sub(r"suzieq_query\s*:?\s*", "", task, flags=re.IGNORECASE)
         task = re.sub(r"table\s*=\s*\w+\s*", "", task)
@@ -1673,7 +1668,7 @@ Generating layered diagnosis plan..."""
             readable.append(label if label != f"field_{f}" else f)
 
         # Use language-appropriate separator
-        separator = {"zh": "、", "en": ", ", "ja": "、"}.get(AgentConfig.LANGUAGE, ", ")
+        separator = {"zh": "、", "en": ", ", "ja": "、"}.get(settings.agent_language, ", ")
         return separator.join(readable)
 
     def _get_table_display_name(self, table: str) -> str:
@@ -1699,7 +1694,7 @@ Generating layered diagnosis plan..."""
         """
         import asyncio  # Local import to avoid global side-effects
 
-        from config.settings import AgentConfig
+        from config.settings import settings
         from langgraph.types import interrupt
 
         todos = state["todos"]
@@ -1708,8 +1703,8 @@ Generating layered diagnosis plan..."""
         user_approval = state.get("user_approval")
 
         # YOLO mode: auto-approve without user interaction
-        if AgentConfig.YOLO_MODE and user_approval is None:
-            print("[YOLO] Auto-approving execution plan...")
+        if settings.yolo_mode and user_approval is None:
+            logger.info("[YOLO] Auto-approving execution plan...")
             user_approval = "approved"
 
         # HITL: Check if approval is needed before first execution
@@ -1743,17 +1738,17 @@ Generating layered diagnosis plan..."""
                     # Then next loop iteration will have user_approval set
                     return {
                         "user_approval": user_approval,
-                        "messages": [AIMessage(content="✅ 用户已批准执行计划，开始执行任务...")],
+                        "messages": [AIMessage(content="✅ User approved execution plan, starting tasks...")],
                     }
                 # User aborted
                 return {
-                    "messages": [AIMessage(content="⛔ 用户已中止执行计划。")],
+                    "messages": [AIMessage(content="⛔ User aborted execution plan.")],
                     "user_approval": "aborted",
                 }
             # Simple resume value (just approval) - also return immediately
             return {
                 "user_approval": "approved",
-                "messages": [AIMessage(content="✅ 用户已批准执行计划，开始执行任务...")],
+                "messages": [AIMessage(content="✅ User approved execution plan, starting tasks...")],
             }
 
         # ------------------------------------------------------------------
@@ -1869,12 +1864,12 @@ Generating layered diagnosis plan..."""
                     }:
                         todo["status"] = "failed"
                         todo["result"] = (
-                            f"⚠️ 批量任务失败: {classified['status']} table={classified['table']}"
+                            f"⚠️ Batch task failed: {classified['status']} table={classified['table']}"
                         )
                         completed_results[todo["id"]] = todo["result"]
                         return todo, [AIMessage(content=todo["result"])]
 
-                    # 使用智能字段提取，避免截断关键诊断数据
+                    # Use smart field extraction to avoid truncating critical diagnostic data
                     data = tool_result.get("data", [])
                     tbl = classified.get("table", "unknown")
                     if isinstance(data, list) and data:
@@ -1929,13 +1924,13 @@ Generating layered diagnosis plan..."""
             aggregated_messages: list[BaseMessage] = []
             for res in results:
                 if isinstance(res, Exception):  # Defensive: unexpected batch error
-                    aggregated_messages.append(AIMessage(content=f"批量执行出现未捕获异常: {res}"))
+                    aggregated_messages.append(AIMessage(content=f"Batch execution uncaught exception: {res}"))
                 else:
                     _todo, msgs = res
                     aggregated_messages.extend(msgs)
 
             # Decide next step message
-            aggregated_messages.append(AIMessage(content=f"并行批次完成: {len(batch)} 个任务."))
+            aggregated_messages.append(AIMessage(content=f"Parallel batch completed: {len(batch)} tasks."))
             return {
                 "todos": todos,
                 "current_todo_id": batch[-1]["id"],
@@ -2005,7 +2000,7 @@ Generating layered diagnosis plan..."""
                             "status": "NO_DATA_FOUND",
                             "table": "syslog",
                             "message": syslog_result.get("error") or "No syslog entries found",
-                            "hint": f"尝试的关键词: {syslog_keywords}",
+                            "hint": f"Keywords tried: {syslog_keywords}",
                         }
                 except Exception as e:
                     tool_result = {
@@ -2030,7 +2025,7 @@ Generating layered diagnosis plan..."""
                     if table in available_tables:
                         tool_result = await suzieq_query.ainvoke(tool_input)
 
-                        # 方案2: 字段语义验证 - 检查返回字段是否与任务相关
+                        # Strategy 2: Field semantic validation - check if returned fields are task-relevant
                         if (
                             tool_result
                             and "columns" in tool_result
@@ -2047,9 +2042,9 @@ Generating layered diagnosis plan..."""
                                     "status": "DATA_NOT_RELEVANT",
                                     "table": table,
                                     "returned_columns": tool_result["columns"],
-                                    "message": f"表 '{table}' 返回了数据，但字段与任务需求不匹配。",
-                                    "hint": f"任务关键词: {self._extract_task_keywords(task_text)}，返回字段: {tool_result['columns'][:5]}",
-                                    "suggestion": "可能需要使用 NETCONF 查询或重新规划任务。",
+                                    "message": f"Table '{table}' returned data, but fields do not match task requirements.",
+                                    "hint": f"Task keywords: {self._extract_task_keywords(task_text)}, returned fields: {tool_result['columns'][:5]}",
+                                    "suggestion": "May need to use NETCONF query or re-plan the task.",
                                 }
                     else:
                         tool_result = {
@@ -2075,7 +2070,7 @@ Generating layered diagnosis plan..."""
                 f"count={classified['count']}"
             )
 
-            # CRITICAL: 防止 LLM 幻觉 - 在遇到错误状态时直接返回失败，不继续处理
+            # CRITICAL: Prevent LLM hallucination - directly return failure on error statuses, do not continue
             if classified["status"] in {
                 "SCHEMA_NOT_FOUND",
                 "NO_DATA_FOUND",
@@ -2083,21 +2078,21 @@ Generating layered diagnosis plan..."""
                 "TOOL_ERROR",
             }:
                 error_msg = (
-                    f"⚠️ 任务执行失败: {classified['status']}\n"
-                    f"表: {classified['table']}\n"
-                    f"原因: {tool_result.get('message') or tool_result.get('error', '未知错误')}\n"
-                    f"提示: {tool_result.get('hint', 'N/A')}\n"
+                    f"⚠️ Task execution failed: {classified['status']}\n"
+                    f"Table: {classified['table']}\n"
+                    f"Reason: {tool_result.get('message') or tool_result.get('error', 'Unknown error')}\n"
+                    f"Hint: {tool_result.get('hint', 'N/A')}\n"
                 )
 
-                # DATA_NOT_RELEVANT 需要额外说明
+                # DATA_NOT_RELEVANT requires additional explanation
                 if classified["status"] == "DATA_NOT_RELEVANT":
                     error_msg += (
-                        f"\n⚠️ **数据语义不匹配**: 查询的表返回了数据，但字段与任务需求不相关。\n"
-                        f"建议: {tool_result.get('suggestion', '重新规划任务或使用 NETCONF 直接查询')}\n"
+                        f"\n⚠️ **Data semantic mismatch**: Query returned data, but fields are not relevant to task requirements.\n"
+                        f"Suggestion: {tool_result.get('suggestion', 'Re-plan task or use NETCONF direct query')}\n"
                     )
 
                 error_msg += (
-                    "\n⛔ **严格禁止编造数据** - 无相关数据即报告失败，不推测或生成虚假结果。"
+                    "\n⛔ **Strictly prohibited: fabricating data** - Report failure when no relevant data, do not guess or generate false results."
                 )
 
                 next_todo["status"] = "failed"
@@ -2112,7 +2107,7 @@ Generating layered diagnosis plan..."""
                     "user_approval": user_approval,
                 }
 
-            # 成功状态：使用智能字段提取，避免截断关键诊断数据（如 state, reason 等）
+            # Success status: Use smart field extraction to avoid truncating critical diagnostic data (e.g., state, reason)
             data = tool_result.get("data", [])
             table = classified.get("table", "unknown")
             table_name_cn = self._get_table_display_name(table)
@@ -2165,7 +2160,7 @@ Generating layered diagnosis plan..."""
                     next_todo["failure_reason"] = eval_result.feedback
                     # Reclassify status to failed and append evaluator feedback
                     next_todo["status"] = "failed"
-                    appended = f"\n🔍 评估未通过: {eval_result.feedback}"
+                    appended = f"\n🔍 Evaluation failed: {eval_result.feedback}"
                     next_todo["result"] = (next_todo["result"] or "") + appended
         except Exception as eval_err:
             # Non-fatal – store failure_reason for visibility
@@ -2192,34 +2187,34 @@ Generating layered diagnosis plan..."""
 
         Method selection:
         - 'get': For detailed data queries (default for troubleshooting)
-        - 'summarize': Only for explicit aggregation requests (统计, 汇总, 概览)
+        - 'summarize': Only for explicit aggregation requests (statistics, aggregate, overview)
         """
         lower = task.lower()
 
         # Determine method based on task intent
         # Use 'summarize' only for explicit aggregation requests
         needs_summary = any(
-            k in lower for k in ["统计", "汇总", "概览", "总数", "count", "summary", "overview"]
+            k in lower for k in ["statistics", "aggregate", "overview", "total", "count", "summary"]
         )
         method = "summarize" if needs_summary else "get"
 
         candidates: list[tuple[list[str], str]] = [
             # Inventory / device list
-            (["设备列表", "所有设备", "审计设备", "device", "设备"], "device"),
+            (["device list", "all devices", "audit devices", "device", "devices"], "device"),
             # Interfaces
-            (["接口", "端口", "interface", "物理", "rx", "tx", "链路"], "interfaces"),
+            (["interface", "port", "interfaces", "physical", "rx", "tx", "link"], "interfaces"),
             # Routing / prefixes
-            (["路由", "前缀", "routes", "lpm"], "routes"),
+            (["route", "prefix", "routes", "lpm", "routing"], "routes"),
             # OSPF
             (["ospf"], "ospfIf"),
             # LLDP
             (["lldp"], "lldp"),
             # MAC
-            (["mac", "二层"], "macs"),
-            # BGP (put later to avoid greedy matching of '边界')
-            (["bgp", "peer", "邻居", "边界", "ebgp", "ibgp"], "bgp"),
+            (["mac", "layer2", "l2"], "macs"),
+            # BGP (put later to avoid greedy matching of 'border')
+            (["bgp", "peer", "neighbor", "border", "ebgp", "ibgp"], "bgp"),
             # Syslog (event-driven diagnostics - maps to OpenSearch, not SuzieQ)
-            (["syslog", "日志", "log", "事件", "告警", "down", "error", "warning"], "syslog"),
+            (["syslog", "log", "event", "alert", "down", "error", "warning"], "syslog"),
         ]
         for keywords, table in candidates:
             if any(k in lower for k in keywords):
@@ -2251,16 +2246,16 @@ Generating layered diagnosis plan..."""
         keyword_mappings = {
             "bgp": ["BGP", "ADJCHANGE", "NEIGHBOR", "NOTIFICATION"],
             "ospf": ["OSPF", "ADJACENCY", "NBRSTATE"],
-            "接口": ["LINK", "INTERFACE", "UPDOWN", "CARRIER"],
             "interface": ["LINK", "INTERFACE", "UPDOWN", "CARRIER"],
-            "链路": ["LINK", "UPDOWN", "DOWN"],
-            "配置": ["CONFIG", "COMMIT", "CONFIGURATION"],
+            "port": ["LINK", "INTERFACE", "UPDOWN", "CARRIER"],
+            "link": ["LINK", "UPDOWN", "DOWN"],
             "config": ["CONFIG", "COMMIT", "CONFIGURATION"],
+            "configuration": ["CONFIG", "COMMIT", "CONFIGURATION"],
             "cpu": ["CPU", "MEMORY", "UTILIZATION"],
-            "内存": ["MEMORY", "CPU"],
-            "温度": ["TEMPERATURE", "SENSOR", "FAN"],
-            "认证": ["AUTH", "LOGIN", "DENIED", "FAILED"],
+            "memory": ["MEMORY", "CPU"],
+            "temperature": ["TEMPERATURE", "SENSOR", "FAN"],
             "auth": ["AUTH", "LOGIN", "DENIED", "FAILED"],
+            "authentication": ["AUTH", "LOGIN", "DENIED", "FAILED"],
         }
 
         for trigger, kws in keyword_mappings.items():
@@ -2268,7 +2263,7 @@ Generating layered diagnosis plan..."""
                 keywords.extend(kws)
 
         # Common error keywords
-        error_triggers = ["故障", "问题", "失败", "异常", "错误", "error", "fail", "down"]
+        error_triggers = ["fault", "problem", "failure", "anomaly", "error", "fail", "down"]
         if any(t in lower for t in error_triggers):
             keywords.extend(["DOWN", "ERROR", "FAIL", "CRITICAL"])
 
@@ -2298,7 +2293,7 @@ Generating layered diagnosis plan..."""
             Formatted string with key diagnostic information
         """
         if not data:
-            return "无数据记录"
+            return "No data records"
 
         # Define key fields per table type (most important for diagnostics first)
         table_key_fields: dict[str, list[str]] = {
@@ -2344,37 +2339,37 @@ Generating layered diagnosis plan..."""
 
         # Human-readable field labels
         field_labels = {
-            "hostname": "主机",
-            "peer": "邻居",
-            "state": "状态",
-            "asn": "本地AS",
-            "peerAsn": "邻居AS",
-            "afi": "地址族",
-            "safi": "子族",
-            "reason": "原因",
-            "notificnReason": "通知原因",
-            "estdTime": "建立时间",
-            "pfxRx": "收到前缀",
-            "pfxTx": "发送前缀",
+            "hostname": "Host",
+            "peer": "Neighbor",
+            "state": "State",
+            "asn": "Local AS",
+            "peerAsn": "Peer AS",
+            "afi": "AFI",
+            "safi": "SAFI",
+            "reason": "Reason",
+            "notificnReason": "Notification Reason",
+            "estdTime": "Established Time",
+            "pfxRx": "Prefixes Received",
+            "pfxTx": "Prefixes Sent",
             "vrf": "VRF",
-            "ifname": "接口",
-            "adminState": "管理状态",
-            "speed": "速率",
+            "ifname": "Interface",
+            "adminState": "Admin State",
+            "speed": "Speed",
             "mtu": "MTU",
             "ipAddressList": "IP",
-            "prefix": "前缀",
-            "nexthopIp": "下一跳",
-            "protocol": "协议",
-            "preference": "优先级",
-            "metric": "度量值",
-            "model": "型号",
-            "version": "版本",
-            "vendor": "厂商",
-            "uptime": "运行时间",
-            "area": "区域",
-            "cost": "开销",
-            "peerHostname": "邻居主机",
-            "peerIfname": "邻居接口",
+            "prefix": "Prefix",
+            "nexthopIp": "Next Hop",
+            "protocol": "Protocol",
+            "preference": "Preference",
+            "metric": "Metric",
+            "model": "Model",
+            "version": "Version",
+            "vendor": "Vendor",
+            "uptime": "Uptime",
+            "area": "Area",
+            "cost": "Cost",
+            "peerHostname": "Peer Host",
+            "peerIfname": "Peer Interface",
         }
 
         # Get fields for this table, or use common fallback fields
@@ -2487,7 +2482,7 @@ Generating layered diagnosis plan..."""
     def _validate_field_relevance(
         self, task_text: str, returned_columns: list[str], queried_table: str
     ) -> bool:
-        """Validate if returned columns are semantically relevant to task (方案2).
+        """Validate if returned columns are semantically relevant to task (Strategy 2).
 
         Args:
             task_text: Original task description

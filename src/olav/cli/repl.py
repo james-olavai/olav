@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -65,7 +66,7 @@ class DynamicDeviceCompleter(Completer):
     Falls back to cached values if API is unavailable.
     """
 
-    def __init__(self, client: "OlavThinClient"):
+    def __init__(self, client: OlavThinClient) -> None:
         self.client = client
         self._cache: list[str] = []
         self._cache_time: float = 0
@@ -103,7 +104,7 @@ class DynamicDeviceCompleter(Completer):
             return self._cache
 
     def get_completions(
-        self, document: Document, complete_event
+        self, document: Document, _complete_event
     ) -> Iterable[Completion]:
         """Get completions for the current document.
 
@@ -124,7 +125,7 @@ class DynamicDeviceCompleter(Completer):
         # Trigger background fetch if cache is stale
         if self._should_refresh() and not self._fetching:
             self._fetching = True
-            asyncio.create_task(self._background_fetch())
+            self._background_task = asyncio.create_task(self._background_fetch())
 
         # Use cached devices
         word_lower = word.lower()
@@ -192,10 +193,10 @@ class REPLSession:
 
     def __init__(
         self,
-        client: "OlavThinClient",
+        client: OlavThinClient,
         console: Console,
         mode: str = "standard",
-    ):
+    ) -> None:
         self.client = client
         self.console = console
         self.mode = mode
@@ -226,7 +227,7 @@ class REPLSession:
             bottom_toolbar=get_toolbar_text,
         )
 
-    async def __aenter__(self) -> "REPLSession":
+    async def __aenter__(self) -> REPLSession:
         """Context manager entry - prefetch devices and show welcome."""
         from olav.cli.display import show_welcome_banner
 
@@ -234,12 +235,11 @@ class REPLSession:
         show_welcome_banner(self.console)
 
         # Prefetch device names in background
-        asyncio.create_task(self.device_completer.prefetch())
+        self._prefetch_task = asyncio.create_task(self.device_completer.prefetch())
         return self
 
     async def __aexit__(self, *args) -> None:
         """Context manager exit."""
-        pass
 
     def _get_prompt_message(self, hitl_pending: bool = False) -> list:
         """Generate prompt message with rich formatting."""
@@ -372,7 +372,7 @@ def handle_slash_command(repl: REPLSession, command: str) -> bool:
         return True
 
     # Help
-    elif cmd in ("h", "help"):
+    if cmd in ("h", "help"):
         repl.show_help()
 
     # Standard mode

@@ -57,14 +57,14 @@ class SandboxBackendProtocol(BackendProtocol, Protocol):
     async def execute(
         self,
         command: str,
-        background: bool = False,
+        _background: bool = False,
         requires_approval: bool = True,
     ) -> ExecutionResult:
         """Execute command in sandbox with optional approval.
 
         Args:
             command: Command to execute
-            background: Run in background
+            _background: Run in background (unused, for interface compatibility)
             requires_approval: Whether to request HITL approval
 
         Returns:

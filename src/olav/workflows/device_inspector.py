@@ -27,7 +27,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -129,7 +129,7 @@ def create_initial_state(
         layers_to_check=layers_to_check or list(NETWORK_LAYERS),
         known_issues=known_issues or [],
         layer_findings={layer: [] for layer in NETWORK_LAYERS},
-        layer_confidence={layer: 0.0 for layer in NETWORK_LAYERS},
+        layer_confidence=dict.fromkeys(NETWORK_LAYERS, 0.0),
         overall_status="unknown",
         inspection_complete=False,
     )
@@ -154,11 +154,11 @@ async def inspect_node(state: DeviceInspectorState) -> dict:
     known_issues = state.get("known_issues", [])
 
     # Get SuzieQ tools
-    from olav.tools.suzieq_parquet_tool import suzieq_query, suzieq_schema_search
     from olav.tools.suzieq_analyzer_tool import (
         suzieq_health_check,
         suzieq_topology_analyze,
     )
+    from olav.tools.suzieq_parquet_tool import suzieq_query, suzieq_schema_search
 
     tools = [
         suzieq_schema_search,
@@ -240,7 +240,7 @@ Be thorough but efficient. Focus only on device {device}.
         # Extract the final message
         final_messages = result.get("messages", [])
         if final_messages:
-            final_content = final_messages[-1].content if hasattr(final_messages[-1], 'content') else str(final_messages[-1])
+            final_content = final_messages[-1].content if hasattr(final_messages[-1], "content") else str(final_messages[-1])
         else:
             final_content = "No results from inspection."
 
@@ -258,8 +258,8 @@ Be thorough but efficient. Focus only on device {device}.
     except Exception as e:
         logger.error(f"Device inspection failed for {device}: {e}")
         return {
-            "layer_findings": {layer: [f"Error: {str(e)}"] for layer in NETWORK_LAYERS},
-            "layer_confidence": {layer: 0.0 for layer in NETWORK_LAYERS},
+            "layer_findings": {layer: [f"Error: {e!s}"] for layer in NETWORK_LAYERS},
+            "layer_confidence": dict.fromkeys(NETWORK_LAYERS, 0.0),
             "overall_status": "unknown",
             "inspection_complete": True,
             "messages": [AIMessage(content=f"Inspection failed: {e}")],
@@ -277,7 +277,7 @@ def parse_inspection_results(
     import re
 
     layer_findings: dict[str, list[str]] = {layer: [] for layer in NETWORK_LAYERS}
-    layer_confidence: dict[str, float] = {layer: 0.0 for layer in NETWORK_LAYERS}
+    layer_confidence: dict[str, float] = dict.fromkeys(NETWORK_LAYERS, 0.0)
     overall_status = "unknown"
 
     # Parse LAYER_FINDINGS section
@@ -427,7 +427,7 @@ async def inspect_device(
             status=result.get("overall_status", "unknown"),
             layer_findings=result.get("layer_findings", {}),
             confidence=sum(result.get("layer_confidence", {}).values()) / 4,
-            checked_at=datetime.now(timezone.utc).isoformat(),
+            checked_at=datetime.now(UTC).isoformat(),
         )
 
         # Get raw findings from messages
@@ -501,7 +501,7 @@ async def parallel_inspect_devices(
 
     # Convert exceptions to error outputs
     outputs: list[DeviceInspectorOutput] = []
-    for device, result in zip(devices, results):
+    for device, result in zip(devices, results, strict=False):
         if isinstance(result, Exception):
             outputs.append(DeviceInspectorOutput(
                 device=device,

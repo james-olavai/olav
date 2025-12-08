@@ -28,14 +28,7 @@ from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import OpenAIEmbeddings
 
-# Add config to path if not already there
-config_path = Path(__file__).parent.parent.parent.parent / "config"
-if str(config_path) not in sys.path:
-    sys.path.insert(0, str(config_path.parent))
-
-from config.settings import LLMConfig, LLMRetryConfig
-
-from olav.core.settings import settings as env_settings
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -52,22 +45,22 @@ def configure_langsmith() -> bool:
     Returns:
         True if LangSmith was enabled, False otherwise
     """
-    if not env_settings.langsmith_enabled:
+    if not settings.langsmith_enabled:
         return False
 
-    if not env_settings.langsmith_api_key:
+    if not settings.langsmith_api_key:
         logger.warning("LangSmith enabled but LANGSMITH_API_KEY not set")
         return False
 
     # Set LangChain environment variables
     os.environ["LANGCHAIN_TRACING_V2"] = "true"
-    os.environ["LANGCHAIN_API_KEY"] = env_settings.langsmith_api_key
-    os.environ["LANGCHAIN_PROJECT"] = env_settings.langsmith_project
-    os.environ["LANGCHAIN_ENDPOINT"] = env_settings.langsmith_endpoint
+    os.environ["LANGCHAIN_API_KEY"] = settings.langsmith_api_key
+    os.environ["LANGCHAIN_PROJECT"] = settings.langsmith_project
+    os.environ["LANGCHAIN_ENDPOINT"] = settings.langsmith_endpoint
 
     logger.info(
-        f"LangSmith tracing enabled: project={env_settings.langsmith_project}, "
-        f"endpoint={env_settings.langsmith_endpoint}"
+        f"LangSmith tracing enabled: project={settings.langsmith_project}, "
+        f"endpoint={settings.langsmith_endpoint}"
     )
     return True
 
@@ -130,19 +123,19 @@ class LLMFactory:
         Returns:
             Configured chat model instance
         """
-        temp = temperature if temperature is not None else LLMConfig.TEMPERATURE
-        provider = env_settings.llm_provider
-        model_name = env_settings.llm_model_name or LLMConfig.MODEL_NAME
+        temp = temperature if temperature is not None else settings.llm_temperature
+        provider = settings.llm_provider
+        model_name = settings.llm_model_name
 
         # Build configuration based on provider
         config: dict[str, Any] = {
             "temperature": temp,
-            "max_tokens": LLMConfig.MAX_TOKENS,
+            "max_tokens": settings.llm_max_tokens,
         }
 
         if provider == "ollama":
             # Use LangChain ChatOllama
-            config["base_url"] = env_settings.llm_base_url or "http://localhost:11434"
+            config["base_url"] = settings.llm_base_url or "http://localhost:11434"
             if json_mode:
                 config["format"] = "json"
             logger.debug(
@@ -150,16 +143,16 @@ class LLMFactory:
                 f"base_url={config['base_url']}, json_mode={json_mode}"
             )
         elif provider == "openai":
-            config["api_key"] = env_settings.llm_api_key
+            config["api_key"] = settings.llm_api_key
             # Use environment variable for base_url (supports OpenRouter, etc.)
-            if env_settings.llm_base_url:
-                config["base_url"] = env_settings.llm_base_url
+            if settings.llm_base_url:
+                config["base_url"] = settings.llm_base_url
             # Sequential tool execution for OpenRouter compatibility
             config["model_kwargs"] = {"parallel_tool_calls": False}
             if json_mode:
                 config["model_kwargs"]["response_format"] = {"type": "json_object"}
         elif provider == "azure_openai":
-            config["api_key"] = env_settings.llm_api_key
+            config["api_key"] = settings.llm_api_key
 
         logger.debug(f"Initializing chat model: provider={provider}, model={model_name}")
         return init_chat_model(model_name, model_provider=provider, **config, **kwargs)
@@ -178,10 +171,10 @@ class LLMFactory:
             ValueError: If provider is not supported
         """
         # Use dedicated embedding settings (not LLM settings)
-        provider = env_settings.embedding_provider
-        api_key = env_settings.embedding_api_key or env_settings.llm_api_key
-        base_url = env_settings.embedding_base_url
-        model = env_settings.embedding_model
+        provider = settings.embedding_provider
+        api_key = settings.embedding_api_key or settings.llm_api_key
+        base_url = settings.embedding_base_url
+        model = settings.embedding_model
 
         if provider == "openai":
             if not api_key:
@@ -205,41 +198,6 @@ class LLMFactory:
             return OllamaEmbeddings(model=model_name, base_url=ollama_url)
 
         msg = f"Unsupported embedding provider: {provider}"
-        raise ValueError(msg)
-
-    @staticmethod
-    def get_vision_model():
-        """Create a vision-capable model instance.
-
-        Used for analyzing network diagrams, topology screenshots, etc.
-
-        Returns:
-            Configured vision model instance (ChatOpenAI with vision support)
-        """
-        from langchain_openai import ChatOpenAI
-
-        provider = env_settings.vision_provider
-        api_key = env_settings.vision_api_key or env_settings.llm_api_key
-        base_url = env_settings.vision_base_url
-        model = env_settings.vision_model
-
-        if provider == "openai":
-            return ChatOpenAI(
-                model=model,
-                api_key=api_key,
-                base_url=base_url,
-                max_tokens=4096,
-            )
-        if provider == "ollama":
-            try:
-                from langchain_ollama import ChatOllama
-            except ImportError as e:
-                msg = "langchain-ollama not installed. Run: uv add langchain-ollama"
-                raise ImportError(msg) from e
-
-            return ChatOllama(model="llava")  # LLaVA for local vision
-
-        msg = f"Unsupported vision provider: {provider}"
         raise ValueError(msg)
 
     # ============================================
@@ -277,11 +235,11 @@ class LLMFactory:
         """
         if cls._retry_middleware is None:
             # Use config defaults if not specified
-            _max_retries = max_retries if max_retries is not None else LLMRetryConfig.MAX_RETRIES
-            _backoff_factor = backoff_factor if backoff_factor is not None else LLMRetryConfig.BACKOFF_FACTOR
-            _initial_delay = initial_delay if initial_delay is not None else LLMRetryConfig.INITIAL_DELAY
-            _max_delay = max_delay if max_delay is not None else LLMRetryConfig.MAX_DELAY
-            _jitter = jitter if jitter is not None else LLMRetryConfig.JITTER
+            _max_retries = max_retries if max_retries is not None else settings.llm_max_retries
+            _backoff_factor = backoff_factor if backoff_factor is not None else settings.llm_retry_backoff_multiplier
+            _initial_delay = initial_delay if initial_delay is not None else settings.llm_retry_delay
+            _max_delay = max_delay if max_delay is not None else settings.llm_retry_max_delay
+            _jitter = jitter if jitter is not None else True
 
             cls._retry_middleware = ModelRetryMiddleware(
                 max_retries=_max_retries,
@@ -329,7 +287,7 @@ class LLMFactory:
 
             if not fallback_models:
                 # No fallbacks configured - create with primary model as fallback
-                primary = f"{env_settings.llm_provider}:{env_settings.llm_model_name}"
+                primary = f"{settings.llm_provider}:{settings.llm_model_name}"
                 logger.warning(
                     f"No fallback models configured, using primary model only: {primary}"
                 )
@@ -374,20 +332,15 @@ class LLMFactory:
 
 
 def _get_default_fallback_models() -> list[str]:
-    """Get default fallback model chain from config or environment.
+    """Get default fallback model chain from environment.
 
     Priority:
-    1. LLMConfig.FALLBACK_MODELS if defined
-    2. Environment variable LLM_FALLBACK_MODELS (comma-separated)
-    3. Empty list (no fallbacks)
+    1. Environment variable LLM_FALLBACK_MODELS (comma-separated)
+    2. Empty list (no fallbacks)
 
     Returns:
         List of model strings in fallback order
     """
-    # Try config first
-    if hasattr(LLMConfig, "FALLBACK_MODELS") and LLMConfig.FALLBACK_MODELS:
-        return LLMConfig.FALLBACK_MODELS
-
     # Try environment variable
     import os
 
@@ -396,7 +349,7 @@ def _get_default_fallback_models() -> list[str]:
         return [m.strip() for m in fallback_env.split(",") if m.strip()]
 
     # Default: use a smaller/cheaper model as fallback
-    provider = env_settings.llm_provider
+    provider = settings.llm_provider
     if provider == "openai":
         return ["openai:gpt-4o-mini"]
     if provider == "ollama":

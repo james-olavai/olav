@@ -30,25 +30,25 @@ logger = logging.getLogger(__name__)
 # Prompts
 # =============================================================================
 
-QUICK_ANALYZER_SYSTEM_PROMPT = """你是网络故障诊断专家 OLAV 的快速分析器，负责调查特定网络层的故障。
+QUICK_ANALYZER_SYSTEM_PROMPT = """You are OLAV's Quick Analyzer for network fault diagnosis, responsible for investigating faults in specific network layers.
 
-## 当前任务
-- **层级**: {layer} ({layer_name})
-- **描述**: {task_description}
-- **建议表**: {suggested_tables}
+## Current Task
+- **Layer**: {layer} ({layer_name})
+- **Description**: {task_description}
+- **Suggested Tables**: {suggested_tables}
 
-## 执行策略
-1. 使用 SuzieQ 工具查询相关表
-2. 分析返回的数据，寻找异常
-3. 总结发现，给出置信度评估
+## Execution Strategy
+1. Use SuzieQ tools to query relevant tables
+2. Analyze returned data, look for anomalies
+3. Summarize findings and provide confidence assessment
 
-## 输出格式
-分析完成后，总结以下内容：
-- 发现的问题（每个问题一行）
-- 置信度评估（0.0-0.6，SuzieQ 历史数据上限）
-- 是否需要实时验证（如需 CLI/NETCONF 确认）
+## Output Format
+After analysis, summarize:
+- Found issues (one issue per line)
+- Confidence assessment (0.0-0.6, SuzieQ historical data upper limit)
+- Whether real-time verification is needed (if CLI/NETCONF confirmation required)
 
-## 可用 SuzieQ 表
+## Available SuzieQ Tables
 {available_tables}
 """
 
@@ -194,9 +194,9 @@ STOP IMMEDIATELY once you have enough data to identify the root cause. Do NOT ke
 - **suzieq_schema_search**: Search for available tables and fields (use once at start)
 - **suzieq_query**: Query network data from tables (routes, interfaces, vlan, arpnd, macs, lldp)
 
-## Connectivity Diagnosis Methodology (连通性排错方法)
+## Connectivity Diagnosis Methodology
 
-When diagnosing "Device A cannot access Device B" (e.g., "SW1 E0/1下的PC1无法访问SW2 E0/2下的IOT设备"):
+When diagnosing "Device A cannot access Device B" (e.g., "PC1 on SW1 E0/1 cannot access IOT device on SW2 E0/2"):
 
 ### Step 1: Identify the endpoints (2-3 queries max)
 Query interfaces to find the VLAN and IP configuration:
@@ -365,7 +365,7 @@ Based on the data, identify:
             # Capture bullet points or significant statements
             if line.startswith(("- ", "* ")):
                 findings.append(line[2:])
-            elif any(kw in line.lower() for kw in ["down", "failed", "error", "异常", "故障"]):
+            elif any(kw in line.lower() for kw in ["down", "failed", "error", "anomaly", "fault"]):
                 findings.append(line)
 
         return findings[:10]  # Limit to 10 findings
@@ -477,7 +477,7 @@ Based on the data, identify:
         base_confidence = min(len(findings) * 0.1, 0.4)
 
         # Critical findings boost confidence
-        critical_keywords = ["down", "failed", "error", "异常", "故障"]
+        critical_keywords = ["down", "failed", "error", "anomaly", "fault"]
         critical_count = sum(
             1 for f in findings
             if any(kw in f.lower() for kw in critical_keywords)

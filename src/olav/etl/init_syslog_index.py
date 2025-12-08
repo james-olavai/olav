@@ -4,7 +4,7 @@ This script creates the OpenSearch index used for storing network device
 syslog messages received via rsyslog collector.
 
 Index: syslog-raw
-Purpose: Event-driven diagnostics (事件驱动诊断)
+Purpose: Event-driven diagnostics
 Fields:
     - @timestamp: Log timestamp (RFC3339)
     - device_ip: Source device IP address
@@ -24,7 +24,8 @@ import logging
 
 from opensearchpy import OpenSearch
 
-from olav.core.settings import settings
+from olav.core.memory import create_opensearch_client
+from config.settings import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -115,14 +116,8 @@ ISM_POLICY = {
 
 
 def get_opensearch_client() -> OpenSearch:
-    """Create OpenSearch client from settings."""
-    return OpenSearch(
-        hosts=[settings.opensearch_url],
-        http_compress=True,
-        use_ssl=settings.opensearch_url.startswith("https"),
-        verify_certs=False,
-        ssl_show_warn=False,
-    )
+    """Create OpenSearch client with auth support."""
+    return create_opensearch_client()
 
 
 def create_ism_policy(client: OpenSearch) -> bool:

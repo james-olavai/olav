@@ -1,368 +1,291 @@
-"""OLAV Application Configuration Center.
+# -*- coding: utf-8 -*-
+"""
+OLAV Unified Configuration - Single Source of Truth
+====================================================
 
-This module defines all application settings including:
-- Path configurations
-- Network topology
-- Agent configurations
-- Tool parameters
+Usage:
+1. Copy .env.example to .env and configure your credentials
+2. All settings load from .env file
+3. Use config classes for default values that rarely change
 
-Sensitive data (API keys, passwords) are loaded from .env via src.olav.core.settings
+Priority:
+1. Environment variables (highest priority)
+2. .env file values
+3. Default values in this file
 """
 
 from pathlib import Path
 from typing import Literal
 
-# Project structure
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# =============================================================================
+# Project Root Detection
+# =============================================================================
+
 PROJECT_ROOT = Path(__file__).parent.parent
-CONFIG_DIR = PROJECT_ROOT / "config"
+ENV_FILE_PATH = PROJECT_ROOT / ".env"
 DATA_DIR = PROJECT_ROOT / "data"
+CONFIG_DIR = PROJECT_ROOT / "config"
 
-# ============================================
-# Path Configuration
-# ============================================
-class Paths:
-    """File and directory paths."""
+
+# =============================================================================
+# Environment Settings (loads from .env)
+# =============================================================================
+
+class EnvSettings(BaseSettings):
+    """Environment-based configuration loaded from .env file.
     
-    # Config files
-    INVENTORY_CSV = CONFIG_DIR / "inventory.csv"
-    PROMPTS_DIR = CONFIG_DIR / "prompts"
-    INSPECTIONS_DIR = CONFIG_DIR / "inspections"
-    CLI_BLACKLIST = CONFIG_DIR / "cli_blacklist.yaml"
-    COMMAND_BLACKLIST = CONFIG_DIR / "command_blacklist.txt"
-    
-    # Data directories (runtime generated)
-    SUZIEQ_PARQUET_DIR = DATA_DIR / "suzieq-parquet"
-    DOCUMENTS_DIR = DATA_DIR / "documents"
-    GENERATED_CONFIGS_DIR = DATA_DIR / "generated_configs"
-    
-    @classmethod
-    def ensure_directories(cls):
-        """Create all required directories."""
-        for attr_name in dir(cls):
-            if attr_name.isupper() and "DIR" in attr_name:
-                path = getattr(cls, attr_name)
-                if isinstance(path, Path):
-                    path.mkdir(parents=True, exist_ok=True)
-
-
-# ============================================
-# LLM Configuration
-# ============================================
-class LLMConfig:
-    """LLM provider settings (non-sensitive defaults).
-
-    Adjusted to match legacy test expectations (MODEL_NAME == "gpt-4-turbo").
-    New code should prefer dynamic model selection via `olav.core.settings`.
+    All sensitive credentials and runtime configurations should be set here.
     """
-    PROVIDER: Literal["openai", "ollama", "azure"] = "ollama"
-   # BASE_URL: str = "https://openrouter.ai/api/v1"
-    BASE_URL: str = "http://127.0.0.1:11434"  # Ollama local
-   # MODEL_NAME = "x-ai/grok-4.1-fast"
-    MODEL_NAME = "qwen3:30b"
-    TEMPERATURE = 0  # Use greedy decoding for deterministic classification
-    MAX_TOKENS = 512  # Classification output is ~200 tokens max
-    
-    # Fallback models for ModelFallbackMiddleware (LangChain 1.10)
-    # Format: ["provider:model_name", ...] in priority order
-    FALLBACK_MODELS: list[str] = ["openai:gpt-4o-mini"]
 
+    model_config = SettingsConfigDict(
+        env_file=str(ENV_FILE_PATH),
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
-class EmbeddingConfig:
-    """Embedding model settings for Agentic RAG.
-    
-    Note: OpenRouter does NOT support embeddings API.
-    Use OpenAI direct API or local Ollama for embeddings.
-    
-    nomic-embed-text-v1.5: 768 dimensions (Matryoshka, can truncate to 512/256/128)
-    """
-    PROVIDER: Literal["openai", "ollama"] = "ollama"
-    BASE_URL: str = "http://127.0.0.1:11434"  # Ollama local
-    MODEL: str = "nomic-embed-text:latest"
-    DIMENSIONS: int = 768  # nomic-embed-text native dimension
+    # =========================================================================
+    # LLM Configuration
+    # =========================================================================
+    llm_provider: Literal["openai", "ollama", "azure"] = "ollama"
+    llm_api_key: str = ""
+    llm_base_url: str = "http://127.0.0.1:11434"
+    llm_model_name: str = "qwen3:30b"
+    llm_fast_model: str = "qwen3:8b"
+    llm_temperature: float = 0.1
+    llm_max_tokens: int = 16384
 
+    # =========================================================================
+    # Embedding Configuration
+    # =========================================================================
+    embedding_provider: Literal["openai", "ollama"] = "ollama"
+    embedding_api_key: str = ""
+    embedding_base_url: str = "http://127.0.0.1:11434"
+    embedding_model: str = "nomic-embed-text:latest"
+    embedding_dimensions: int = 768
 
-class VisionConfig:
-    """Vision model settings for network diagram analysis.
-    
-    Used for:
-    - Analyzing network topology screenshots
-    - Understanding Visio/draw.io diagrams
-    - Processing monitoring dashboard images
-    """
-    PROVIDER: Literal["openai", "ollama"] = "ollama"
-    BASE_URL: str = "127.0.0.1:11434"  # OpenAI direct (not OpenRouter)
-    MODEL: str = "llava:latest"  # GPT-4o has vision capabilities
-    MAX_TOKENS: int = 4096
+    # =========================================================================
+    # PostgreSQL (LangGraph Checkpointer)
+    # =========================================================================
+    postgres_host: str = "localhost"
+    postgres_port: int = 55432
+    postgres_user: str = "olav"
+    postgres_password: str = "OlavPG123!"
+    postgres_db: str = "olav"
 
-
-class LLMRetryConfig:
-    """LLM retry/resilience settings (LangChain 1.10 Middleware).
-    
-    These settings configure ModelRetryMiddleware for automatic retry
-    with exponential backoff on transient errors.
-    """
-    # Maximum retry attempts for transient errors
-    MAX_RETRIES: int = 3
-    
-    # Exponential backoff settings
-    BACKOFF_FACTOR: float = 2.0  # Multiplier for each retry
-    INITIAL_DELAY: float = 1.0   # Initial delay in seconds
-    MAX_DELAY: float = 60.0      # Maximum delay cap in seconds
-    
-    # Add randomness to prevent thundering herd
-    JITTER: bool = True
-
-
-class ToolRetryConfig:
-    """Tool execution retry settings (for network tools).
-    
-    These settings configure retry behavior for SuzieQ, CLI, NETCONF tools
-    when encountering transient network errors.
-    """
-    # Maximum retry attempts
-    MAX_RETRIES: int = 3
-    
-    # Exponential backoff settings
-    BACKOFF_FACTOR: float = 2.0
-    INITIAL_DELAY: float = 1.0
-    MAX_DELAY: float = 30.0  # Lower than LLM since network calls are faster
-    
-    # Add randomness to prevent thundering herd
-    JITTER: bool = True
-
-
-# ============================================
-# Infrastructure Configuration
-# ============================================
-class InfrastructureConfig:
-    """Infrastructure service endpoints (Docker container names)."""
-    
-    # Local development
-    POSTGRES_HOST_LOCAL = "localhost"
-    POSTGRES_PORT_LOCAL = 55432
-    OPENSEARCH_HOST_LOCAL = "localhost"
-    OPENSEARCH_PORT_LOCAL = 9200
-    REDIS_HOST_LOCAL = "localhost"
-    REDIS_PORT_LOCAL = 6379
-    
-    # Docker environment
-    POSTGRES_HOST_DOCKER = "postgres"
-    POSTGRES_PORT_DOCKER = 5432
-    OPENSEARCH_HOST_DOCKER = "opensearch"
-    OPENSEARCH_PORT_DOCKER = 9200
-    REDIS_HOST_DOCKER = "redis"
-    REDIS_PORT_DOCKER = 6379
-    
-    # Database
-    POSTGRES_DB = "olav"
-    
-    @classmethod
-    def get_postgres_uri(cls, host: str, port: int, user: str, password: str) -> str:
+    @property
+    def postgres_uri(self) -> str:
         """Build PostgreSQL connection URI."""
-        return f"postgresql://{user}:{password}@{host}:{port}/{cls.POSTGRES_DB}"
-    
-    @classmethod
-    def get_opensearch_url(cls, host: str, port: int) -> str:
+        return f"postgresql://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+
+    # =========================================================================
+    # OpenSearch
+    # =========================================================================
+    opensearch_host: str = "localhost"
+    opensearch_port: int = 19200
+    opensearch_username: str = ""
+    opensearch_password: str = ""
+    opensearch_verify_certs: bool = False
+    opensearch_index_prefix: str = "olav"
+
+    @property
+    def opensearch_url(self) -> str:
         """Build OpenSearch URL."""
-        return f"http://{host}:{port}"
-    
-    @classmethod
-    def get_redis_url(cls, host: str, port: int) -> str:
-        """Build Redis URL."""
-        return f"redis://{host}:{port}"
+        return f"http://{self.opensearch_host}:{self.opensearch_port}"
+
+    # =========================================================================
+    # Redis
+    # =========================================================================
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_password: str = ""
+
+    @property
+    def redis_url(self) -> str:
+        """Build Redis connection URL."""
+        if self.redis_password:
+            return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}"
+        return f"redis://{self.redis_host}:{self.redis_port}"
+
+    # =========================================================================
+    # NetBox (Single Source of Truth for Inventory)
+    # =========================================================================
+    netbox_url: str = ""
+    netbox_token: str = ""
+    netbox_verify_ssl: bool = True
+
+    # =========================================================================
+    # Device Credentials
+    # =========================================================================
+    device_username: str = "cisco"
+    device_password: str = "cisco"
+
+    # =========================================================================
+    # API Server
+    # =========================================================================
+    server_host: str = "0.0.0.0"
+    server_port: int = 8000
+    cors_origins: str = "*"
+    cors_allow_credentials: bool = True
+    api_rate_limit_rpm: int = 60
+    api_rate_limit_enabled: bool = False
+
+    # =========================================================================
+    # Authentication
+    # =========================================================================
+    token_max_age_hours: int = 24
+    session_token_max_age_hours: int = 168
+    auth_disabled: bool = False
+
+    # =========================================================================
+    # WebSocket
+    # =========================================================================
+    websocket_heartbeat_interval: int = 30
+    websocket_max_connections: int = 100
+
+    # =========================================================================
+    # Feature Flags
+    # =========================================================================
+    expert_mode: bool = False
+    use_dynamic_router: bool = True  # Enable DynamicIntentRouter
+    enable_agentic_rag: bool = True
+    enable_deep_dive_memory: bool = True
+    stream_stateless: bool = True  # Enable streaming
+    enable_guard_mode: bool = True
+    enable_hitl: bool = True
+    yolo_mode: bool = False  # Skip approval (dangerous, test only)
+
+    # =========================================================================
+    # Agent Configuration
+    # =========================================================================
+    agent_max_tool_calls: int = 10
+    agent_tool_timeout: int = 30
+    agent_memory_window: int = 10
+    agent_max_reflections: int = 3
+    agent_language: Literal["auto", "zh", "en"] = "auto"
+
+    # =========================================================================
+    # Diagnosis Configuration
+    # =========================================================================
+    diagnosis_max_iterations: int = 5
+    diagnosis_confidence_threshold: float = 0.8
+    diagnosis_methodology: Literal["funnel", "parallel"] = "funnel"
+
+    # =========================================================================
+    # LangSmith Tracing (optional)
+    # =========================================================================
+    langsmith_enabled: bool = False
+    langsmith_api_key: str = ""
+    langsmith_project: str = "olav-dev"
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
+
+    # =========================================================================
+    # Collector/Sandbox Configuration
+    # =========================================================================
+    collector_force_enable: bool = False
+    collector_min_privilege: int = 15
+    collector_blacklist_file: str = "command_blacklist.txt"
+    collector_capture_diff: bool = True
+
+    # =========================================================================
+    # Paths (can be overridden via env vars)
+    # =========================================================================
+    suzieq_data_dir: str = "data/suzieq-parquet"
+    documents_dir: str = "data/documents"
+    reports_dir: str = "data/reports"
+    inspection_reports_dir: str = "data/inspection-reports"
+    cache_dir: str = "data/cache"
+    logs_dir: str = "logs"
+    prompts_dir: str = "config/prompts"
+    inspections_dir: str = "config/inspections"
+
+    # =========================================================================
+    # Logging
+    # =========================================================================
+    log_level: str = "INFO"
+    log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    log_file_enabled: bool = True
+    log_file_path: str = "logs/olav.log"
+    log_file_max_size_mb: int = 10
+    log_file_backup_count: int = 5
+
+    # =========================================================================
+    # Inspection
+    # =========================================================================
+    inspection_enabled: bool = True
+    inspection_parallel_devices: int = 5
+    inspection_device_timeout: int = 120
+    inspection_notify_on_critical: bool = True
+    inspection_notify_on_complete: bool = True
+    inspection_notify_on_failure: bool = True
+    inspection_notify_webhook_url: str = ""
+
+    # =========================================================================
+    # Tool Configuration
+    # =========================================================================
+    nornir_num_workers: int = 10
+    command_timeout: int = 30
+    suzieq_timeout: int = 60
+
+    # =========================================================================
+    # LLM Retry Configuration
+    # =========================================================================
+    llm_max_retries: int = 3
+    llm_retry_delay: float = 1.0
+    llm_retry_backoff_multiplier: float = 2.0
+    llm_retry_max_delay: float = 30.0
 
 
-# ============================================
-# Agent Configuration
-# ============================================
-class AgentConfig:
-    """DeepAgents orchestration settings."""
-    
-    MAX_ITERATIONS = 20
-    ENABLE_HITL = True  # Human-in-the-Loop approval
-    YOLO_MODE = False  # YOLO mode: skip all HITL approvals (dangerous!)
-    
-    # Language for workflow output (affects prompts and UI strings)
-    # Supported: "zh" (Chinese), "en" (English), "ja" (Japanese)
-    LANGUAGE: Literal["zh", "en", "ja"] = "zh"
-    
-    # SubAgent timeout (seconds)
-    SUBAGENT_TIMEOUT = 300
-    
-    # Middleware settings
-    ENABLE_TODO_LIST = True
-    ENABLE_SUMMARIZATION = True
-    SUMMARIZATION_THRESHOLD = 170_000  # tokens
+# =============================================================================
+# Global Settings Instance
+# =============================================================================
+
+settings = EnvSettings()
 
 
-# ============================================
-# Report Output Configuration
-# ============================================
-class ReportConfig:
-    """Unified report output settings for all modes."""
+# =============================================================================
+# Path Helper Functions
+# =============================================================================
+
+def get_path(name: str) -> Path:
+    """Get absolute path for a configured directory.
     
-    # Base reports directory
-    REPORTS_DIR = DATA_DIR / "reports"
-    
-    # Subdirectories by mode
-    INSPECTION_DIR = REPORTS_DIR / "inspection"
-    EXPERT_DIR = REPORTS_DIR / "expert"
-    SYNC_DIR = REPORTS_DIR / "sync"
-    
-    # Output format
-    FORMAT: Literal["markdown", "json", "html"] = "markdown"
-    
-    # Retention policy
-    KEEP_DAYS = 30  # Auto-cleanup reports older than N days
-    
-    @classmethod
-    def ensure_dirs(cls) -> None:
-        """Create all report directories."""
-        cls.INSPECTION_DIR.mkdir(parents=True, exist_ok=True)
-        cls.EXPERT_DIR.mkdir(parents=True, exist_ok=True)
-        cls.SYNC_DIR.mkdir(parents=True, exist_ok=True)
-    
-    @classmethod
-    def get_inspection_dir(cls) -> "Path":
-        """Get inspection reports directory."""
-        cls.INSPECTION_DIR.mkdir(parents=True, exist_ok=True)
-        return cls.INSPECTION_DIR
-    
-    @classmethod
-    def get_expert_dir(cls) -> "Path":
-        """Get expert/deep-dive reports directory."""
-        cls.EXPERT_DIR.mkdir(parents=True, exist_ok=True)
-        return cls.EXPERT_DIR
+    Args:
+        name: Path name (suzieq_data, documents, reports, cache, logs, prompts, inspections)
+        
+    Returns:
+        Absolute path
+    """
+    paths_map = {
+        "suzieq_data": settings.suzieq_data_dir,
+        "documents": settings.documents_dir,
+        "reports": settings.reports_dir,
+        "inspection_reports": settings.inspection_reports_dir,
+        "cache": settings.cache_dir,
+        "logs": settings.logs_dir,
+        "prompts": settings.prompts_dir,
+        "inspections": settings.inspections_dir,
+    }
+    rel_path = paths_map.get(name)
+    if rel_path is None:
+        raise ValueError(f"Unknown path: {name}")
+    return PROJECT_ROOT / rel_path
 
 
-# ============================================
-# Inspection Configuration
-# ============================================
-class InspectionConfig:
-    """Automated inspection settings."""
-    
-    # Enable scheduled inspection
-    ENABLED = False  # Set to True to enable scheduled inspections
-    
-    # Schedule settings (cron-style)
-    # Format: "HH:MM" for daily, or cron expression for complex schedules
-    SCHEDULE_TIME = "09:00"  # Run at 9:00 AM daily
-    SCHEDULE_CRON = None  # Optional: "0 9 * * *" (overrides SCHEDULE_TIME if set)
-    SCHEDULE_INTERVAL_MINUTES = None  # Optional: Run every N minutes (for testing)
-    
-    # Default inspection profile to run
-    DEFAULT_PROFILE = "daily_core_check"  # Profile name from config/inspections/
-    
-    # Output settings (uses ReportConfig)
-    REPORTS_DIR = ReportConfig.INSPECTION_DIR
-    REPORT_FORMAT = "markdown"  # markdown, json, html
-    KEEP_REPORTS_DAYS = 30  # Auto-cleanup reports older than N days
-    
-    # Notification (optional)
-    NOTIFY_ON_FAILURE = True
-    NOTIFY_WEBHOOK_URL: str | None = None  # Slack/Teams webhook for alerts
-    
-    # Execution settings
-    PARALLEL_DEVICES = 10  # Max concurrent device checks
-    TIMEOUT_PER_CHECK = 60  # seconds per check
-    RETRY_FAILED_CHECKS = 1  # Number of retries for failed checks
-    
-    @classmethod
-    def get_reports_dir(cls) -> "Path":
-        """Ensure reports directory exists and return path."""
-        cls.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-        return cls.REPORTS_DIR
+# =============================================================================
+# Exports
+# =============================================================================
 
-
-# ============================================
-# Tool Configuration
-# ============================================
-class ToolConfig:
-    """Tool-specific parameters."""
-    
-    # SuzieQ
-    SUZIEQ_TABLES_LIMIT = 30  # Max tables to return in schema search
-    SUZIEQ_QUERY_TIMEOUT = 30  # seconds
-    
-    # Nornir
-    NORNIR_NUM_WORKERS = 100
-    NORNIR_CONNECTION_TIMEOUT = 30
-    
-    # OpenConfig XPath
-    OPENCONFIG_MAX_DEPTH = 10  # Max XPath depth
-    
-    # RAG
-    RAG_TOP_K = 5  # Top K results
-    RAG_SIMILARITY_THRESHOLD = 0.7
-
-
-# ============================================
-# Network Topology
-# ============================================
-class NetworkTopology:
-    """Network device inventory and topology."""
-    
-    # Device roles (from inventory.csv)
-    DEVICE_ROLES = ["core", "dist", "access"]
-    
-    # Platforms (Nornir platform keys)
-    SUPPORTED_PLATFORMS = ["cisco_ios", "cisco_nxos", "arista_eos", "junos"]
-    
-    # Sites
-    SITES = ["lab", "dc1", "branch-sh"]
-
-
-# ============================================
-# OpenSearch Index Configuration
-# ============================================
-class OpenSearchIndices:
-    """OpenSearch index names and settings."""
-    
-    # Schema indices
-    OPENCONFIG_SCHEMA = "openconfig-schema"
-    SUZIEQ_SCHEMA = "suzieq-schema"
-    
-    # Memory indices
-    EPISODIC_MEMORY = "olav-episodic-memory"
-    
-    # Document indices
-    DOCUMENTS = "olav-docs"
-    
-    # Index settings
-    NUM_SHARDS = 1
-    NUM_REPLICAS = 0
-    
-    @classmethod
-    def get_all_indices(cls) -> list[str]:
-        """Get all index names."""
-        return [
-            cls.OPENCONFIG_SCHEMA,
-            cls.SUZIEQ_SCHEMA,
-            cls.EPISODIC_MEMORY,
-            cls.DOCUMENTS,
-        ]
-
-
-# ============================================
-# Logging Configuration
-# ============================================
-class LoggingConfig:
-    """Logging settings."""
-    
-    LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
-    
-    # Format
-    FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-    
-    # File logging
-    LOG_FILE = DATA_DIR / "olav.log"
-    MAX_BYTES = 10 * 1024 * 1024  # 10MB
-    BACKUP_COUNT = 5
-
-
-# ============================================
-# Initialize
-# ============================================
-# Ensure all directories exist on import
-Paths.ensure_directories()
+__all__ = [
+    # Settings
+    "EnvSettings",
+    "settings",
+    # Paths
+    "PROJECT_ROOT",
+    "ENV_FILE_PATH",
+    "DATA_DIR",
+    "CONFIG_DIR",
+    "get_path",
+]

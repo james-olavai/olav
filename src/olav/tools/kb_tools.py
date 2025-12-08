@@ -21,7 +21,7 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.tools import tool
 from opensearchpy import OpenSearch
 
-from olav.core.settings import settings
+from config.settings import settings
 from olav.models.diagnosis_report import DiagnosisReport
 
 logger = logging.getLogger(__name__)
@@ -416,10 +416,10 @@ def kb_stats() -> dict[str, Any]:
 
 
 __all__ = [
-    "kb_search",
-    "kb_index_report",
-    "kb_get_report",
-    "kb_delete_report",
-    "kb_stats",
     "DIAGNOSIS_REPORTS_INDEX",
+    "kb_delete_report",
+    "kb_get_report",
+    "kb_index_report",
+    "kb_search",
+    "kb_stats",
 ]

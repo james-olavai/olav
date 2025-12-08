@@ -24,7 +24,7 @@ import numpy as np
 
 # Lazy import to avoid circular imports and allow mocking in tests
 if TYPE_CHECKING:
-    from olav.core.settings import EnvSettings
+    from config.settings import EnvSettings
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def safe_json_dumps(obj: Any, **kwargs: Any) -> str:
 
 def _get_settings() -> EnvSettings:
     """Get settings lazily to allow mocking in tests."""
-    from olav.core.settings import settings
+    from config.settings import settings
 
     return settings
 

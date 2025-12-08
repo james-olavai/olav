@@ -76,19 +76,19 @@ class ConfigComplianceEvaluator(TaskEvaluatorProtocol):
             # Empty result - could be legitimate (no config) or error
             # Use task context to decide
             task_text = task.get("task", "").lower()
-            if any(kw in task_text for kw in ["审计", "检查", "audit", "check", "verify"]):
+            if any(kw in task_text for kw in ["audit", "check", "verify"]):
                 # Audit tasks expect data - empty = fail
                 return EvaluationResult(
                     passed=False,
                     score=0.0,
-                    feedback="审计任务未返回数据，可能配置缺失或查询表错误",
+                    feedback="Audit task returned no data, possible missing config or wrong query table",
                     details={"status": "NO_DATA_FOUND"},
                 )
             # Query tasks - empty may be legitimate
             return EvaluationResult(
                 passed=True,
                 score=0.5,  # Partial score - query succeeded but no data
-                feedback="查询成功，但无相关数据",
+                feedback="Query succeeded, but no relevant data found",
                 details={"status": "NO_DATA_FOUND"},
             )
 
@@ -98,7 +98,7 @@ class ConfigComplianceEvaluator(TaskEvaluatorProtocol):
             return EvaluationResult(
                 passed=False,
                 score=0.0,
-                feedback="执行输出无数据（data 字段为空）",
+                feedback="Execution output has no data (data field is empty)",
                 details={"data_type": type(data).__name__},
             )
 
@@ -111,7 +111,7 @@ class ConfigComplianceEvaluator(TaskEvaluatorProtocol):
             return EvaluationResult(
                 passed=False,
                 score=0.3,  # Partial - data exists but may not be relevant
-                feedback=f"返回字段与任务语义不匹配。任务关键词: {self._extract_task_keywords(task_text)}, 返回字段: {columns[:5]}",
+                feedback=f"Returned fields do not match task semantics. Task keywords: {self._extract_task_keywords(task_text)}, Returned fields: {columns[:5]}",
                 details={"columns": columns, "table": queried_table},
             )
 
@@ -120,7 +120,7 @@ class ConfigComplianceEvaluator(TaskEvaluatorProtocol):
         return EvaluationResult(
             passed=True,
             score=1.0,
-            feedback=f"数据验证通过：返回 {data_count} 条记录，字段语义相关",
+            feedback=f"Data validation passed: returned {data_count} records, fields semantically relevant",
             details={"count": data_count, "table": queried_table, "columns": columns[:10]},
         )
 

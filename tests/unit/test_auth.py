@@ -25,7 +25,7 @@ async def test_auth_module():
         # Use temp path for testing
         test_creds_path = Path.home() / ".olav" / "test_credentials"
         creds_manager = CredentialsManager(credentials_path=test_creds_path)
-        print(f"   ✅ CredentialsManager created")
+        print("   ✅ CredentialsManager created")
         print(f"   Path: {creds_manager.credentials_path}")
     except Exception as e:
         print(f"   ❌ Failed: {e}")

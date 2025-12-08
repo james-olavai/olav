@@ -1,27 +1,24 @@
 """OLAV Configuration Package.
 
-This package contains all application configuration.
-Sensitive data is loaded from .env via src.olav.core.settings.
+Single configuration entry point - all config from .env via EnvSettings.
 """
 
 from config.settings import (
-    AgentConfig,
-    InfrastructureConfig,
-    LLMConfig,
-    LoggingConfig,
-    NetworkTopology,
-    OpenSearchIndices,
-    Paths,
-    ToolConfig,
+    EnvSettings,
+    settings,
+    PROJECT_ROOT,
+    ENV_FILE_PATH,
+    DATA_DIR,
+    CONFIG_DIR,
+    get_path,
 )
 
 __all__ = [
-    "Paths",
-    "LLMConfig",
-    "InfrastructureConfig",
-    "AgentConfig",
-    "ToolConfig",
-    "NetworkTopology",
-    "OpenSearchIndices",
-    "LoggingConfig",
+    "EnvSettings",
+    "settings",
+    "PROJECT_ROOT",
+    "ENV_FILE_PATH",
+    "DATA_DIR",
+    "CONFIG_DIR",
+    "get_path",
 ]

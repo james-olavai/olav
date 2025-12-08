@@ -94,7 +94,7 @@ class ReportGenerator:
 
         # Alternative: simple generate() for workflow integration
         text_report = generator.generate(
-            query="R1 无法 ping 通 R2",
+            query="R1 cannot ping R2",
             state=supervisor_state,
             phase2_executed=True,
             phase2_findings=["R1 route-map blocks prefix"],
@@ -129,29 +129,29 @@ class ReportGenerator:
 
         lines = [
             "=" * 60,
-            "OLAV Expert Mode 诊断报告",
+            "OLAV Expert Mode Diagnosis Report",
             "=" * 60,
             "",
-            f"查询: {query}",
-            f"时间: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC",
-            f"执行轮次: {state.current_round}",
-            f"Phase 2 执行: {'是' if phase2_executed else '否'}",
+            f"Query: {query}",
+            f"Time: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC",
+            f"Execution Rounds: {state.current_round}",
+            f"Phase 2 Executed: {'Yes' if phase2_executed else 'No'}",
             "",
         ]
 
         # Root cause
         lines.append("-" * 40)
         if state.root_cause_found:
-            lines.append("✅ 根因已定位:")
+            lines.append("✅ Root Cause Identified:")
             lines.append(f"   {state.root_cause}")
         else:
-            lines.append("⚠️ 根因未确定")
-            lines.append("   建议: 需要进一步调查或收集更多数据")
+            lines.append("⚠️ Root Cause Not Determined")
+            lines.append("   Recommendation: Further investigation or additional data collection needed")
         lines.append("")
 
         # Phase 1 Layer findings
         lines.append("-" * 40)
-        lines.append("Phase 1 分析结果 (SuzieQ 历史数据):")
+        lines.append("Phase 1 Analysis Results (SuzieQ Historical Data):")
         lines.append("")
 
         for layer, status in state.layer_coverage.items():
@@ -161,13 +161,13 @@ class ReportGenerator:
                 for finding in status.findings:
                     lines.append(f"    • {finding}")
                 if not status.findings:
-                    lines.append("    • (无异常发现)")
+                    lines.append("    • (No anomalies found)")
                 lines.append("")
 
         # Phase 2 findings
         if phase2_executed and phase2_findings:
             lines.append("-" * 40)
-            lines.append("Phase 2 验证结果 (CLI/NETCONF 实时数据):")
+            lines.append("Phase 2 Verification Results (CLI/NETCONF Real-time Data):")
             lines.append("")
             for finding in phase2_findings:
                 lines.append(f"  • {finding}")
@@ -179,7 +179,7 @@ class ReportGenerator:
             default=0.0
         )
         lines.append("=" * 60)
-        lines.append(f"最终置信度: {max_conf:.0%}")
+        lines.append(f"Final Confidence: {max_conf:.0%}")
         lines.append("=" * 60)
 
         return "\n".join(lines)
@@ -216,7 +216,7 @@ class ReportGenerator:
             "findings": findings,
             "phase2_executed": phase2_executed,
             "timestamp": datetime.now(UTC).isoformat(),
-            "content": f"问题: {query}\n根因: {root_cause}\n发现: {'; '.join(findings)}",
+            "content": f"Problem: {query}\nRoot Cause: {root_cause}\nFindings: {'; '.join(findings)}",
         }
 
         doc_id = f"diag-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{hash(query) % 10000:04d}"
@@ -351,22 +351,22 @@ class ReportGenerator:
         Returns:
             Markdown-formatted summary.
         """
-        lines = ["## 诊断报告\n"]
+        lines = ["## Diagnosis Report\n"]
 
-        lines.append(f"**查询**: {state.query}\n")
+        lines.append(f"**Query**: {state.query}\n")
 
         if state.root_cause_found:
-            lines.append("### ✅ 根因已确认\n")
-            lines.append(f"**根因**: {state.root_cause}\n")
+            lines.append("### ✅ Root Cause Confirmed\n")
+            lines.append(f"**Root Cause**: {state.root_cause}\n")
         else:
-            lines.append("### ⚠️ 根因未完全确认\n")
-            lines.append("需要进一步调查或 Phase 2 实时验证。\n")
+            lines.append("### ⚠️ Root Cause Not Fully Confirmed\n")
+            lines.append("Further investigation or Phase 2 real-time verification needed.\n")
 
-        lines.append("\n### 证据链\n")
+        lines.append("\n### Evidence Chain\n")
         for i, e in enumerate(evidence[:10], 1):
-            lines.append(f"{i}. [{e.phase.upper()}] {e.finding} (置信度: {e.confidence*100:.0f}%)")
+            lines.append(f"{i}. [{e.phase.upper()}] {e.finding} (Confidence: {e.confidence*100:.0f}%)")
 
-        lines.append("\n### 层级覆盖\n")
+        lines.append("\n### Layer Coverage\n")
         lines.append(state.get_coverage_summary())
 
         return "\n".join(lines)
@@ -388,25 +388,25 @@ class ReportGenerator:
         # Route-map / prefix-list issues
         if "route-map" in root_cause_lower or "prefix-list" in root_cause_lower:
             return (
-                "建议检查并修改相关的 route-map 或 prefix-list 配置，"
-                "确保目标前缀被正确匹配和放行。"
-                "\n\n**注意**: Expert Mode 为只读模式，请手动执行配置变更。"
+                "Recommend checking and modifying the related route-map or prefix-list configuration, "
+                "ensure target prefixes are correctly matched and permitted."
+                "\n\n**Note**: Expert Mode is read-only, please execute configuration changes manually."
             )
 
         # Interface down
         if "down" in root_cause_lower and "interface" in root_cause_lower:
             return (
-                "建议检查接口物理状态和配置，"
-                "确认线缆连接和 no shutdown 配置。"
+                "Recommend checking interface physical status and configuration, "
+                "confirm cable connection and no shutdown configuration."
             )
 
         # BGP neighbor issues
         if "bgp" in root_cause_lower and "neighbor" in root_cause_lower:
             return (
-                "建议检查 BGP 邻居配置，确认 AS 号、IP 地址和认证配置正确。"
+                "Recommend checking BGP neighbor configuration, confirm AS number, IP address and authentication settings are correct."
             )
 
-        return "建议进一步分析相关配置和状态。"
+        return "Recommend further analysis of related configuration and status."
 
     async def _index_to_episodic_memory(self, report: DiagnosisReport) -> None:
         """Index successful diagnosis to Episodic Memory.
@@ -493,20 +493,20 @@ class ReportGenerator:
         Returns:
             Markdown summary.
         """
-        lines = ["## 诊断报告\n"]
-        lines.append(f"**查询**: {report.original_query}\n")
+        lines = ["## Diagnosis Report\n"]
+        lines.append(f"**Query**: {report.original_query}\n")
 
         if report.root_cause_found:
-            lines.append(f"### ✅ 根因: {report.root_cause}\n")
-            lines.append(f"- **层级**: {report.layer}")
-            lines.append(f"- **类型**: {report.root_cause_type}")
-            lines.append(f"- **设备**: {', '.join(report.affected_devices)}")
+            lines.append(f"### ✅ Root Cause: {report.root_cause}\n")
+            lines.append(f"- **Layer**: {report.layer}")
+            lines.append(f"- **Type**: {report.root_cause_type}")
+            lines.append(f"- **Devices**: {', '.join(report.affected_devices)}")
             if report.relevant_configs:
-                lines.append(f"- **配置**: {', '.join(report.relevant_configs)}")
+                lines.append(f"- **Configuration**: {', '.join(report.relevant_configs)}")
         else:
-            lines.append("### ⚠️ 需要进一步调查\n")
+            lines.append("### ⚠️ Further Investigation Needed\n")
 
         if report.recommended_resolution:
-            lines.append(f"\n### 建议\n{report.recommended_resolution}")
+            lines.append(f"\n### Recommendations\n{report.recommended_resolution}")
 
         return "\n".join(lines)

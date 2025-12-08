@@ -105,12 +105,11 @@ def calculate_confidence(data_age_seconds: int) -> float:
     """
     if data_age_seconds <= 60:
         return 0.60
-    elif data_age_seconds <= 180:
+    if data_age_seconds <= 180:
         return 0.50
-    elif data_age_seconds <= 300:
+    if data_age_seconds <= 300:
         return 0.40
-    else:
-        return 0.25
+    return 0.25
 
 
 def get_suzieq_context():
@@ -171,12 +170,11 @@ def format_data_freshness(data_age_seconds: int) -> str:
     """
     if data_age_seconds < 60:
         return f"Data from {data_age_seconds} seconds ago"
-    elif data_age_seconds < 3600:
+    if data_age_seconds < 3600:
         minutes = data_age_seconds // 60
         return f"Data from {minutes} minute{'s' if minutes > 1 else ''} ago"
-    else:
-        hours = data_age_seconds // 3600
-        return f"Data from {hours} hour{'s' if hours > 1 else ''} ago (may be stale)"
+    hours = data_age_seconds // 3600
+    return f"Data from {hours} hour{'s' if hours > 1 else ''} ago (may be stale)"
 
 
 # =============================================================================
@@ -254,7 +252,7 @@ def suzieq_path_trace(
         path_devices = []
         path_hops = []
 
-        for idx, row in path_df.iterrows():
+        for _idx, row in path_df.iterrows():
             device = row.get("hostname", "")
             if device and device not in path_devices:
                 path_devices.append(device)
@@ -322,7 +320,7 @@ def suzieq_path_trace(
 
     except Exception as e:
         logger.error(f"Error in path trace: {e}")
-        result["topology_anomalies"].append(f"Path trace error: {str(e)}")
+        result["topology_anomalies"].append(f"Path trace error: {e!s}")
 
     result["scan_duration_ms"] = (time.perf_counter() - start_time) * 1000
     return result
@@ -641,7 +639,7 @@ def suzieq_topology_analyze(
 
     except Exception as e:
         logger.error(f"Topology analysis error: {e}")
-        result["anomalies"].append(f"Analysis error: {str(e)}")
+        result["anomalies"].append(f"Analysis error: {e!s}")
 
     return result
 
@@ -657,14 +655,14 @@ ANALYZER_TOOLS = [
 ]
 
 __all__ = [
-    "SuspectedIssue",
+    "ANALYZER_TOOLS",
+    "HealthCheckResult",
     "PathHop",
     "QuickScanResult",
-    "HealthCheckResult",
+    "SuspectedIssue",
     "TopologyAnalysisResult",
     "calculate_confidence",
-    "suzieq_path_trace",
     "suzieq_health_check",
+    "suzieq_path_trace",
     "suzieq_topology_analyze",
-    "ANALYZER_TOOLS",
 ]

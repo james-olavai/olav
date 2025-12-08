@@ -48,10 +48,10 @@ class WorkflowRegistry:
         ...     name="network_diagnosis",
         ...     description="Network state queries, BGP/OSPF diagnostics",
         ...     examples=[
-        ...         "查询 R1 的 BGP 邻居状态",
-        ...         "为什么 Switch-A 和 Switch-B 之间丢包？",
+        ...         "Query BGP neighbor status of R1",
+        ...         "Why is there packet loss between Switch-A and Switch-B?",
         ...     ],
-        ...     triggers=[r"BGP", r"OSPF", r"接口.*状态"]
+        ...     triggers=[r"BGP", r"OSPF", r"interface.*status"]
         ... )
         ... class NetworkDiagnosisWorkflow(BaseWorkflow):
         ...     pass

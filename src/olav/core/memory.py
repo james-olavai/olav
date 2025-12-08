@@ -6,9 +6,46 @@ from typing import Any
 
 from opensearchpy import OpenSearch
 
-from olav.core.settings import settings as env_settings
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
+
+
+def create_opensearch_client(url: str | None = None) -> OpenSearch:
+    """Create OpenSearch client with proper authentication.
+
+    This is the shared factory function for creating OpenSearch clients.
+    It reads authentication settings from environment variables via settings.
+
+    Args:
+        url: OpenSearch URL (defaults to settings.opensearch_url)
+
+    Returns:
+        Configured OpenSearch client with auth if available.
+
+    Example:
+        >>> from olav.core.memory import create_opensearch_client
+        >>> client = create_opensearch_client()
+        >>> client.info()  # Check connection
+    """
+    url = url or settings.opensearch_url
+
+    # Build client kwargs
+    client_kwargs: dict[str, Any] = {
+        "hosts": [url],
+        "http_compress": True,
+        "use_ssl": url.startswith("https"),
+        "verify_certs": settings.opensearch_verify_certs,
+    }
+
+    # Add basic auth if configured
+    if settings.opensearch_username and settings.opensearch_password:
+        client_kwargs["http_auth"] = (
+            settings.opensearch_username,
+            settings.opensearch_password,
+        )
+
+    return OpenSearch(**client_kwargs)
 
 
 class OpenSearchMemory:
@@ -18,15 +55,10 @@ class OpenSearchMemory:
         """Initialize OpenSearch client.
 
         Args:
-            url: OpenSearch URL (defaults to env_settings.opensearch_url)
+            url: OpenSearch URL (defaults to settings.opensearch_url)
         """
-        self.url = url or env_settings.opensearch_url
-        self.client = OpenSearch(
-            hosts=[self.url],
-            http_compress=True,
-            use_ssl=False,
-            verify_certs=False,
-        )
+        self.url = url or settings.opensearch_url
+        self.client = create_opensearch_client(self.url)
 
     async def search_schema(
         self,
@@ -138,27 +170,27 @@ class OpenSearchMemory:
         doc_id: str | None = None,
     ) -> dict[str, Any]:
         """Index a document into OpenSearch.
-        
+
         Generic document indexing method for Agentic learning loop.
         Used by MemoryStoreTool to index diagnosis reports.
-        
+
         Args:
             index: Target OpenSearch index name
             document: Document to index (dict)
             doc_id: Optional document ID. If None, OpenSearch generates one.
-            
+
         Returns:
             OpenSearch indexing response with _id, result, etc.
-            
+
         Raises:
             Exception: On indexing failure
         """
         from datetime import datetime
-        
+
         # Ensure timestamp exists
         if "timestamp" not in document:
             document["timestamp"] = datetime.now(UTC).isoformat()
-        
+
         try:
             if doc_id:
                 response = self.client.index(
@@ -173,10 +205,10 @@ class OpenSearchMemory:
                     body=document,
                     refresh=True,
                 )
-            
+
             logger.info(f"Indexed document to {index}: {response.get('_id')}")
             return response
-            
+
         except Exception as e:
             logger.error(f"Failed to index document to {index}: {e}")
             raise

@@ -40,21 +40,21 @@ def make_request_body(query: str) -> dict:
 
 def check_response(result: dict, keywords: list[str], allow_llm_fallback: bool = True) -> bool:
     """Check if response contains expected keywords or is a valid fallback.
-    
+
     Args:
         result: API response JSON
         keywords: List of expected keywords
         allow_llm_fallback: If True, accept LLM fallback as valid (skip scenario)
-        
+
     Returns:
         True if response is valid (contains keywords or is fallback)
     """
     output = str(result.get("final_message", "") or result.get("result", "")).lower()
-    
+
     # Check for LLM fallback response (service unavailable)
     if allow_llm_fallback and ("暂时无法访问" in output or "llm" in output or "占位" in output):
         pytest.skip("LLM service temporarily unavailable")
-    
+
     return any(kw in output for kw in keywords)
 
 
@@ -80,10 +80,10 @@ class TestStandardModeToolCalls:
                 "/orchestrator/invoke",
                 json=make_request_body("查询所有设备的接口状态"),
             )
-            
+
             if response.status_code != 200:
                 pytest.skip(f"API not available: {response.status_code}")
-            
+
             result = response.json()
             # Check if response mentions interfaces or devices
             assert check_response(result, ["interface", "device", "接口", "设备", "status", "状态", "query", "suzieq"])
@@ -97,10 +97,10 @@ class TestStandardModeToolCalls:
                 "/orchestrator/invoke",
                 json=make_request_body("列出 NetBox 中所有设备"),
             )
-            
+
             if response.status_code != 200:
                 pytest.skip(f"API not available: {response.status_code}")
-            
+
             result = response.json()
             # Accept either success or "no devices" result
             assert check_response(result, ["netbox", "device", "设备", "inventory", "dcim"])
@@ -114,10 +114,10 @@ class TestStandardModeToolCalls:
                 "/orchestrator/invoke",
                 json=make_request_body("搜索最近的 BGP 相关日志"),
             )
-            
+
             if response.status_code != 200:
                 pytest.skip(f"API not available: {response.status_code}")
-            
+
             result = response.json()
             # Should mention syslog or logs
             assert check_response(result, ["log", "syslog", "日志", "bgp", "event", "found", "未找到", "search", "搜索"])
@@ -144,10 +144,10 @@ class TestNetBoxCRUDOperations:
                 "/orchestrator/invoke",
                 json=make_request_body("从 NetBox 获取所有设备列表"),
             )
-            
+
             if response.status_code != 200:
                 pytest.skip(f"API not available: {response.status_code}")
-            
+
             result = response.json()
             assert check_response(result, ["netbox", "device", "设备", "list", "列表"])
 
@@ -159,10 +159,10 @@ class TestNetBoxCRUDOperations:
                 "/orchestrator/invoke",
                 json=make_request_body("查询 NetBox 中 R1 设备的详细信息"),
             )
-            
+
             if response.status_code != 200:
                 pytest.skip(f"API not available: {response.status_code}")
-            
+
             result = response.json()
             assert check_response(result, ["netbox", "r1", "device", "设备", "info", "信息"])
 
@@ -189,14 +189,14 @@ class TestCLIExecution:
                 "/orchestrator/invoke",
                 json=make_request_body("在 R1 上执行 show version 命令"),
             )
-            
+
             if response.status_code != 200:
                 pytest.skip(f"API not available: {response.status_code}")
-            
+
             result = response.json()
             # Should either show version output or connection error (if device not reachable)
             assert check_response(result, [
-                "version", "ios", "software", 
+                "version", "ios", "software",
                 "connection", "error", "unreachable", "不可达",
                 "cli", "执行", "show", "r1"
             ])
@@ -204,10 +204,10 @@ class TestCLIExecution:
 
 class TestHITLTrigger:
     """Test Human-in-the-Loop approval trigger for write operations.
-    
+
     Note: These tests verify that HITL is triggered, not that writes succeed.
     Write operations require explicit approval which is blocked in automated tests.
-    
+
     Device capabilities:
     - R1: Supports OpenConfig/NETCONF (use netconf_execute)
     - R3: CLI-only device (use cli_execute)
@@ -233,10 +233,10 @@ class TestHITLTrigger:
                 "/orchestrator/invoke",
                 json=make_request_body("在 NetBox 中创建一个新设备 TestDevice01，设备类型为 Cisco Router，站点为 DC1"),
             )
-            
+
             if response.status_code != 200:
                 pytest.skip(f"API not available: {response.status_code}")
-            
+
             result = response.json()
             # Should mention approval/HITL or NetBox create action
             hitl_keywords = [
@@ -254,10 +254,10 @@ class TestHITLTrigger:
                 "/orchestrator/invoke",
                 json=make_request_body("从 NetBox 中删除设备 TestDevice01"),
             )
-            
+
             if response.status_code != 200:
                 pytest.skip(f"API not available: {response.status_code}")
-            
+
             result = response.json()
             # Should mention approval/HITL or delete action
             hitl_keywords = [
@@ -277,10 +277,10 @@ class TestHITLTrigger:
                 "/orchestrator/invoke",
                 json=make_request_body("在 R1 上使用 OpenConfig 创建 ACL test，添加规则 index 10 deny any any"),
             )
-            
+
             if response.status_code != 200:
                 pytest.skip(f"API not available: {response.status_code}")
-            
+
             result = response.json()
             # Should use NETCONF/OpenConfig and trigger HITL for write
             expected_keywords = [
@@ -298,10 +298,10 @@ class TestHITLTrigger:
                 "/orchestrator/invoke",
                 json=make_request_body("在 R1 上修改 ACL test 的规则 index 10，将 deny any any 改为 permit any any"),
             )
-            
+
             if response.status_code != 200:
                 pytest.skip(f"API not available: {response.status_code}")
-            
+
             result = response.json()
             # Should use NETCONF/OpenConfig and trigger HITL for write
             expected_keywords = [
@@ -321,10 +321,10 @@ class TestHITLTrigger:
                 "/orchestrator/invoke",
                 json=make_request_body("在 R3 上创建 Loopback10 接口，描述为 test，IP 地址 10.10.10.10/32"),
             )
-            
+
             if response.status_code != 200:
                 pytest.skip(f"API not available: {response.status_code}")
-            
+
             result = response.json()
             # Should use CLI (not NETCONF) and trigger HITL for config
             expected_keywords = [
@@ -342,10 +342,10 @@ class TestHITLTrigger:
                 "/orchestrator/invoke",
                 json=make_request_body("在 R3 上删除 Loopback10 接口"),
             )
-            
+
             if response.status_code != 200:
                 pytest.skip(f"API not available: {response.status_code}")
-            
+
             result = response.json()
             # Should use CLI and trigger HITL for config deletion
             expected_keywords = [
@@ -377,10 +377,10 @@ class TestKnowledgeBaseLayers:
                 "/orchestrator/invoke",
                 json=make_request_body("查找 BGP 相关的 OpenConfig YANG 路径"),
             )
-            
+
             if response.status_code != 200:
                 pytest.skip(f"API not available: {response.status_code}")
-            
+
             result = response.json()
             # Should mention OpenConfig or schema paths
             assert check_response(result, [
@@ -396,9 +396,9 @@ class TestKnowledgeBaseLayers:
                 "/orchestrator/invoke",
                 json=make_request_body("搜索关于 OSPF 配置的文档"),
             )
-            
+
             if response.status_code != 200:
                 pytest.skip(f"API not available: {response.status_code}")
-            
+
             result = response.json()
             assert check_response(result, ["ospf", "document", "文档", "search", "搜索", "config", "配置"])

@@ -12,12 +12,12 @@ import logging
 import re
 from pathlib import Path
 
-from config.settings import ToolConfig
+from config.settings import settings
 from nornir import InitNornir
 from nornir.core import Nornir
 
 from olav.core.memory import OpenSearchMemory
-from olav.core.settings import settings
+from config.settings import settings
 from olav.execution.backends.protocol import ExecutionResult, SandboxBackendProtocol
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ class NornirSandbox(SandboxBackendProtocol):
             runner={
                 "plugin": "threaded",
                 "options": {
-                    "num_workers": ToolConfig.NORNIR_NUM_WORKERS,
+                    "num_workers": settings.nornir_num_workers,
                 },
             },
             inventory={
@@ -220,7 +220,7 @@ class NornirSandbox(SandboxBackendProtocol):
         self,
         command: str,
         device: str | None = None,
-        background: bool = False,
+        _background: bool = False,
         requires_approval: bool = True,
     ) -> ExecutionResult:
         """Execute NETCONF/gNMI command with optional HITL approval.
@@ -228,18 +228,18 @@ class NornirSandbox(SandboxBackendProtocol):
         Args:
             command: NETCONF/gNMI command to execute
             device: Target device hostname (optional, runs on all devices if None)
-            background: Run in background (not supported yet)
+            _background: Run in background (not implemented, for interface compatibility)
             requires_approval: Whether to require HITL approval
 
         Returns:
             Execution result with success status and output
         """
-        from config.settings import AgentConfig
+        from config.settings import settings
 
         is_write = self._is_write_operation(command)
 
         # Request approval for write operations
-        if is_write and requires_approval and AgentConfig.ENABLE_HITL:
+        if is_write and requires_approval and settings.enable_hitl:
             approval = await self._request_approval(command)
 
             if approval.decision == "reject":
@@ -385,7 +385,7 @@ class NornirSandbox(SandboxBackendProtocol):
         blocked = self._is_blacklisted(command)
         if blocked:
             reason = f"Command contains blacklisted pattern: '{blocked}'"
-            resolution = "使用安全的查询替代；禁止执行潜在危险/破坏性命令。"
+            resolution = "Use safe query alternatives; dangerous/destructive commands are prohibited."
             await self.memory.log_execution(
                 action="cli_blacklist_block",
                 command=command,
@@ -475,7 +475,7 @@ class NornirSandbox(SandboxBackendProtocol):
 
         except Exception as e:
             reason = str(e)
-            resolution = "检查设备连接、命令语法或特权级；必要时提升为 enable 模式。"
+            resolution = "Check device connection, command syntax, or privilege level; escalate to enable mode if needed."
             logger.error(f"CLI command execution failed: {reason}")
             await self.memory.log_execution(
                 action="cli_error",
@@ -509,11 +509,11 @@ class NornirSandbox(SandboxBackendProtocol):
         Note:
             ⚠️ CLI mode has no atomic rollback - backup running-config first
         """
-        from config.settings import AgentConfig
+        from config.settings import settings
 
         # Request approval for config commands
         command_str = "; ".join(commands)
-        if requires_approval and AgentConfig.ENABLE_HITL:
+        if requires_approval and settings.enable_hitl:
             approval = await self._request_approval(command_str)
 
             if approval.decision == "reject":
@@ -623,7 +623,7 @@ class NornirSandbox(SandboxBackendProtocol):
 
         except Exception as e:
             reason = str(e)
-            resolution = "检查命令语法、设备特权或连接状态；必要时分步下发。"
+            resolution = "Check command syntax, device privilege, or connection status; consider sending commands in steps."
             logger.error(f"CLI configuration failed: {reason}")
             await self.memory.log_execution(
                 action="cli_config_error",

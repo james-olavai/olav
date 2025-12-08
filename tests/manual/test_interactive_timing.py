@@ -9,14 +9,12 @@ import sys
 
 import pytest
 
-
 # Skip when imported by pytest - this is a manual script
 pytestmark = pytest.mark.skip(reason="Manual test - run directly with 'python tests/manual/test_interactive_timing.py'")
 
 
 def test_interactive_timing():
     """Placeholder test that explains how to run this manual test."""
-    pass
 
 
 if __name__ == "__main__":

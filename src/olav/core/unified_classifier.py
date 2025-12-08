@@ -82,7 +82,7 @@ class UnifiedClassifier:
 
     Usage:
         classifier = UnifiedClassifier()
-        result = await classifier.classify("查询 R1 BGP 状态")
+        result = await classifier.classify("Query R1 BGP status")
         print(result.intent_category)  # "suzieq"
         print(result.tool)  # "suzieq_query"
         print(result.parameters)  # {"table": "bgp", "hostname": "R1"}
@@ -200,7 +200,7 @@ Query: "Find device R1 in NetBox"
             UnifiedClassificationResult with intent, tool, and parameters.
         """
         import time
-        
+
         # =================================================================
         # Fast Path: Try regex matching first (50ms vs 1.5s LLM)
         # =================================================================
@@ -212,7 +212,7 @@ Query: "Find device R1 in NetBox"
                     f"(confidence: {fast_result.confidence:.2f}, pattern: regex)"
                 )
                 return fast_result
-        
+
         # =================================================================
         # Slow Path: LLM classification
         # =================================================================
@@ -223,7 +223,7 @@ Query: "Find device R1 in NetBox"
                 schema_info = "\n".join(
                     [f"- {name}: {info.get('description', '')}" for name, info in schema_context.items()]
                 )
-                enhanced_prompt += f"\n\n## 已发现的 Schema\n{schema_info}\n\n⚠️ 使用上述发现的表名/端点！"
+                enhanced_prompt += f"\n\n## Discovered Schema\n{schema_info}\n\n⚠️ Use the discovered table names/endpoints above!"
 
             messages = [
                 SystemMessage(content=enhanced_prompt),
@@ -233,7 +233,7 @@ Query: "Find device R1 in NetBox"
             llm_start = time.perf_counter()
             result = await self.structured_llm.ainvoke(messages)
             llm_duration_ms = (time.perf_counter() - llm_start) * 1000
-            
+
             logger.debug(f"LLM classification took {llm_duration_ms:.0f}ms")
 
             if isinstance(result, UnifiedClassificationResult):
@@ -261,24 +261,24 @@ Query: "Find device R1 in NetBox"
     def _try_fast_path(self, query: str) -> UnifiedClassificationResult | None:
         """
         Try regex-based fast path classification.
-        
+
         Returns UnifiedClassificationResult if a pattern matches, None otherwise.
         Falls back to None for diagnostic queries (requiring Expert Mode).
         """
         try:
             from olav.modes.shared.preprocessor import preprocess_query
-            
+
             result = preprocess_query(query)
-            
+
             # Diagnostic queries should not use fast path
             if result.is_diagnostic:
-                logger.debug(f"Fast path skipped: diagnostic query detected")
+                logger.debug("Fast path skipped: diagnostic query detected")
                 return None
-            
+
             # Check if we have a fast path match
             if result.can_use_fast_path and result.fast_path_match:
                 match = result.fast_path_match
-                
+
                 # Map tool to intent category
                 tool_to_category = {
                     "suzieq_query": "suzieq",
@@ -287,7 +287,7 @@ Query: "Find device R1 in NetBox"
                     "netconf_tool": "netconf",
                 }
                 intent_category = tool_to_category.get(match.tool, "suzieq")
-                
+
                 classification = UnifiedClassificationResult(
                     intent_category=intent_category,
                     tool=match.tool,
@@ -298,11 +298,11 @@ Query: "Find device R1 in NetBox"
                 # Mark as fast path for performance tracking
                 classification._llm_time_ms = 0.0
                 classification._fast_path = True
-                
+
                 return classification
-            
+
             return None
-            
+
         except ImportError as e:
             logger.warning(f"Fast path unavailable: {e}")
             return None
@@ -318,7 +318,7 @@ Query: "Find device R1 in NetBox"
         query_lower = query.lower()
 
         # NetBox keywords
-        if any(kw in query_lower for kw in ["netbox", "cmdb", "资产", "设备清单", "inventory"]):
+        if any(kw in query_lower for kw in ["netbox", "cmdb", "asset", "device list", "inventory"]):
             return UnifiedClassificationResult(
                 intent_category="netbox",
                 tool="netbox_api_call",
@@ -348,7 +348,7 @@ Query: "Find device R1 in NetBox"
             )
 
         # CLI keywords
-        if any(kw in query_lower for kw in ["cli", "ssh", "命令行", "show run"]):
+        if any(kw in query_lower for kw in ["cli", "ssh", "command line", "show run"]):
             return UnifiedClassificationResult(
                 intent_category="cli",
                 tool="cli_tool",

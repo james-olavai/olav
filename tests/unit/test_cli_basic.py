@@ -15,7 +15,7 @@ sys.path.insert(0, str(project_root / "src"))
 
 async def test_client_structure():
     """Test client initialization structure."""
-    from olav.cli.client import OLAVClient, ServerConfig, ExecutionResult
+    from olav.cli.client import ExecutionResult, OLAVClient, ServerConfig
 
     print("🧪 Testing OLAV CLI Client Structure...\n")
 

@@ -13,7 +13,7 @@ Usage:
     # Check if query is network-related
     result = await guard.check(user_query)
     if not result.is_relevant:
-        return f"抱歉，我是网络运维助手 OLAV，无法回答此问题：{result.reason}"
+        return f"Sorry, I am OLAV the network operations assistant, unable to answer this question: {result.reason}"
 """
 
 import logging
@@ -70,12 +70,12 @@ class NetworkRelevanceGuard:
     LLM-based pre-filter to detect non-network queries.
 
     This guard prevents expensive LLM reasoning on irrelevant queries like
-    "1+1=?" or "今天天气怎么样?".
+    "1+1=?" or "What's the weather today?".
 
     Uses a fast, focused LLM call with structured output.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the guard with LLM."""
         self._llm = None  # Lazy initialization
 
@@ -205,8 +205,8 @@ If you have network-related questions, please rephrase your request."""
 
 
 __all__ = [
+    "REJECTION_MESSAGE",
     "NetworkRelevanceGuard",
     "RelevanceResult",
     "get_network_guard",
-    "REJECTION_MESSAGE",
 ]

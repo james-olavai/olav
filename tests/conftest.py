@@ -7,12 +7,13 @@ for `olav.*` modules when running tests directly from the repo.
 
 import os
 import sys
+
 import pytest
 from langgraph.checkpoint.postgres import PostgresSaver
 
 # Ensure both `src` and project root are on the import path
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-SRC_PATH = os.path.join(PROJECT_ROOT, 'src')
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+SRC_PATH = os.path.join(PROJECT_ROOT, "src")
 if SRC_PATH not in sys.path:
     sys.path.insert(0, SRC_PATH)
 # Add project root for config.settings imports
@@ -22,22 +23,23 @@ if PROJECT_ROOT not in sys.path:
 # If a top-level module file (olav.py) was imported before the package,
 # remove it so the package directory `olav/` can be imported.
 import importlib
-if 'olav' in sys.modules and not hasattr(sys.modules['olav'], '__path__'):
-    del sys.modules['olav']
+
+if "olav" in sys.modules and not hasattr(sys.modules["olav"], "__path__"):
+    del sys.modules["olav"]
 
 # Safe/import-tolerant fallbacks to avoid hard failures in minimal test contexts
 try:  # pragma: no cover - defensive import
     from olav.core.memory import OpenSearchMemory  # type: ignore
 except Exception:  # pragma: no cover
     class OpenSearchMemory:  # type: ignore
-        def __init__(self, url: str):  # minimal stub
+        def __init__(self, url: str) -> None:  # minimal stub
             self.url = url
 
 try:  # pragma: no cover - defensive import
-    from olav.core.settings import EnvSettings  # type: ignore
+    from config.settings import EnvSettings  # type: ignore
 except Exception:  # pragma: no cover
     class EnvSettings:  # type: ignore
-        def __init__(self, **kwargs):
+        def __init__(self, **kwargs) -> None:
             for k, v in kwargs.items():
                 setattr(self, k, v)
 
@@ -73,69 +75,63 @@ def opensearch_memory() -> OpenSearchMemory:
 def mock_suzieq_context():
     """Mock SuzieQ context for testing."""
     # TODO: Implement mock SuzieQ context
-    pass
 
 
-@pytest.fixture(scope="function", autouse=True)
+@pytest.fixture(autouse=True)
 def reset_tool_registry():
     """Ensure ToolRegistry is populated before each test.
-    
+
     Problem: Tools register themselves at module import time via:
         ToolRegistry.register(SuzieQTool())
-    
+
     This causes state pollution when running full test suite because:
     1. Import order is non-deterministic
     2. Some tests may run before tool modules are imported
     3. Registration tests expect specific tools to be registered
-    
+
     Solution: Import tool modules at test start (without reload) to ensure
     registration happens. Don't clear registry to avoid breaking isinstance checks.
     """
     # Import tool modules to trigger registration (if not already done)
     # importlib.import_module handles already-imported modules gracefully
-    import importlib
     from olav.tools.base import ToolRegistry
-    
+
     tool_modules = [
         "olav.tools.suzieq_tool",
         "olav.tools.netbox_tool",
         "olav.tools.nornir_tool",
         "olav.tools.opensearch_tool",
-        "olav.tools.datetime_tool",
     ]
-    
+
     for module_name in tool_modules:
         try:
             importlib.import_module(module_name)
         except Exception as e:
             # Log import errors for debugging
             print(f"Warning: Failed to import {module_name}: {e}")
-    
+
     # Debug: Print registered tools
     registered_tools = [t.name for t in ToolRegistry.list_tools()]
     if not registered_tools:
         print("WARNING: ToolRegistry is empty after imports!")
-    
-    yield
+
 
 
 def pytest_configure(config):
     """Pytest hook called after command line options have been parsed.
-    
+
     Pre-import tool modules to ensure ToolRegistry is populated BEFORE
     any tests run. This solves the state pollution issue where tests
     run before tools are registered.
     """
-    import importlib
-    
+
     tool_modules = [
         "olav.tools.suzieq_tool",
         "olav.tools.netbox_tool",
         "olav.tools.nornir_tool",
         "olav.tools.opensearch_tool",
-        "olav.tools.datetime_tool",
     ]
-    
+
     for module_name in tool_modules:
         try:
             importlib.import_module(module_name)

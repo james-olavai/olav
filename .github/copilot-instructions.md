@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-OLAV (Omni-Layer Autonomous Verifier) is an enterprise network operations ChatOps platform using **LangGraph Workflows** for orchestration. It follows a **Schema-Aware** architecture to avoid tool proliferation and implements **漏斗式排错** (Funnel Debugging): macro analysis (SuzieQ) → micro diagnostics (NETCONF).
+OLAV (NetAIChatOps) is an enterprise network operations ChatOps platform using **LangGraph Workflows** for orchestration. It follows a **Schema-Aware** architecture to avoid tool proliferation and implements **Funnel Debugging**: macro analysis (SuzieQ) → micro diagnostics (NETCONF).
 
 **Core Philosophy**: Safety First - all write operations require **HITL (Human-in-the-Loop)** approval via LangGraph interrupts.
 

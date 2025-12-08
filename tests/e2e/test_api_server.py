@@ -4,7 +4,6 @@ Usage:
     pytest tests/e2e/test_api_server.py -v
 """
 
-import asyncio
 import sys
 from pathlib import Path
 
@@ -23,7 +22,7 @@ async def test_server_startup():
     from olav.server.auth import generate_access_token
 
     app = create_app()
-    
+
     # Generate access token for tests
     access_token = generate_access_token()
 

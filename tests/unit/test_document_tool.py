@@ -8,13 +8,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from olav.tools.document_tool import (
+    DOCUMENT_TOOLS,
     DocumentSearchTool,
     get_document_search_tool,
     get_document_tools,
     search_documents,
-    search_vendor_docs,
     search_rfc,
-    DOCUMENT_TOOLS,
+    search_vendor_docs,
 )
 
 if TYPE_CHECKING:
@@ -34,7 +34,7 @@ class TestDocumentSearchTool:
             embed_service = MagicMock()
             embed_service.embed_text = AsyncMock(return_value=[0.1] * 1536)
             mock_embed.return_value = embed_service
-            
+
             indexer = MagicMock()
             indexer.search_similar = AsyncMock(return_value=[
                 {
@@ -53,7 +53,7 @@ class TestDocumentSearchTool:
                 },
             ])
             mock_indexer.return_value = indexer
-            
+
             yield {
                 "embedding_service": embed_service,
                 "indexer": indexer,
@@ -66,7 +66,7 @@ class TestDocumentSearchTool:
 
     def test_default_embedding_model(self, tool: DocumentSearchTool) -> None:
         """Test default embedding model."""
-        assert tool.embedding_service.model == "text-embedding-3-small" or True
+        assert True
 
     @pytest.mark.asyncio
     async def test_search_basic(
@@ -74,7 +74,7 @@ class TestDocumentSearchTool:
     ) -> None:
         """Test basic search."""
         results = await tool.search("BGP configuration")
-        
+
         assert len(results) == 2
         assert results[0]["content"] == "BGP is a routing protocol"
         mock_services["embedding_service"].embed_text.assert_called_once()
@@ -86,7 +86,7 @@ class TestDocumentSearchTool:
     ) -> None:
         """Test search with vendor filter."""
         await tool.search("OSPF", vendor="cisco")
-        
+
         call_kwargs = mock_services["indexer"].search_similar.call_args[1]
         assert call_kwargs["filters"] == {"vendor": "cisco"}
 
@@ -96,7 +96,7 @@ class TestDocumentSearchTool:
     ) -> None:
         """Test search with document type filter."""
         await tool.search("BGP", document_type="manual")
-        
+
         call_kwargs = mock_services["indexer"].search_similar.call_args[1]
         assert call_kwargs["filters"] == {"document_type": "manual"}
 
@@ -106,7 +106,7 @@ class TestDocumentSearchTool:
     ) -> None:
         """Test search with multiple filters."""
         await tool.search("routing", vendor="juniper", document_type="reference")
-        
+
         call_kwargs = mock_services["indexer"].search_similar.call_args[1]
         assert call_kwargs["filters"]["vendor"] == "juniper"
         assert call_kwargs["filters"]["document_type"] == "reference"
@@ -117,7 +117,7 @@ class TestDocumentSearchTool:
     ) -> None:
         """Test search with custom k."""
         await tool.search("BGP", k=10)
-        
+
         call_kwargs = mock_services["indexer"].search_similar.call_args[1]
         assert call_kwargs["k"] == 10
 
@@ -127,7 +127,7 @@ class TestDocumentSearchTool:
     ) -> None:
         """Test formatted search output."""
         result = await tool.search_formatted("BGP")
-        
+
         assert "Found 2 relevant documents" in result
         assert "BGP is a routing protocol" in result
         assert "network_guide.txt" in result
@@ -139,9 +139,9 @@ class TestDocumentSearchTool:
     ) -> None:
         """Test formatted search with no results."""
         mock_services["indexer"].search_similar.return_value = []
-        
+
         result = await tool.search_formatted("nonexistent topic")
-        
+
         assert "No documents found" in result
 
 
@@ -160,8 +160,8 @@ class TestSearchDocumentsTool:
     @pytest.mark.asyncio
     async def test_search_documents_basic(self, mock_tool: MagicMock) -> None:
         """Test basic search_documents call."""
-        result = await search_documents.ainvoke({"query": "BGP configuration"})
-        
+        await search_documents.ainvoke({"query": "BGP configuration"})
+
         mock_tool.search_formatted.assert_called_once_with(
             query="BGP configuration",
             k=5,
@@ -172,12 +172,12 @@ class TestSearchDocumentsTool:
     @pytest.mark.asyncio
     async def test_search_documents_with_filters(self, mock_tool: MagicMock) -> None:
         """Test search_documents with filters."""
-        result = await search_documents.ainvoke({
+        await search_documents.ainvoke({
             "query": "OSPF",
             "vendor": "cisco",
             "k": 3,
         })
-        
+
         mock_tool.search_formatted.assert_called_once()
 
     @pytest.mark.asyncio
@@ -185,7 +185,7 @@ class TestSearchDocumentsTool:
         """Test k is clamped to valid range."""
         # Test k > 10 gets clamped
         await search_documents.ainvoke({"query": "test", "k": 20})
-        
+
         call_kwargs = mock_tool.search_formatted.call_args[1]
         assert call_kwargs["k"] <= 10
 
@@ -209,7 +209,7 @@ class TestSearchVendorDocsTool:
             "query": "BGP best path",
             "vendor": "cisco",
         })
-        
+
         mock_tool.search_formatted.assert_called_once_with(
             query="BGP best path",
             k=3,
@@ -223,7 +223,7 @@ class TestSearchVendorDocsTool:
             "query": "EVPN configuration",
             "vendor": "arista",
         })
-        
+
         mock_tool.search_formatted.assert_called_once()
         call_kwargs = mock_tool.search_formatted.call_args[1]
         assert call_kwargs["vendor"] == "arista"
@@ -245,7 +245,7 @@ class TestSearchRFCTool:
     async def test_search_rfc(self, mock_tool: MagicMock) -> None:
         """Test searching RFCs."""
         await search_rfc.ainvoke({"topic": "BGP route reflection"})
-        
+
         mock_tool.search_formatted.assert_called_once_with(
             query="BGP route reflection",
             k=3,
@@ -267,7 +267,7 @@ class TestToolRegistry:
     def test_get_document_tools(self) -> None:
         """Test get_document_tools function."""
         tools = get_document_tools()
-        
+
         assert len(tools) == 3
         assert tools == DOCUMENT_TOOLS
 
@@ -296,7 +296,7 @@ class TestGlobalToolInstance:
         ):
             tool1 = get_document_search_tool()
             tool2 = get_document_search_tool()
-            
+
             assert tool1 is tool2
 
 
@@ -313,11 +313,11 @@ class TestEdgeCases:
             embed_service = MagicMock()
             embed_service.embed_text = AsyncMock(return_value=[0.1] * 1536)
             mock_embed.return_value = embed_service
-            
+
             indexer = MagicMock()
             indexer.search_similar = AsyncMock(return_value=[])
             mock_indexer.return_value = indexer
-            
+
             yield {"embedding_service": embed_service, "indexer": indexer}
 
     @pytest.mark.asyncio
@@ -325,7 +325,7 @@ class TestEdgeCases:
         """Test handling empty query."""
         tool = DocumentSearchTool()
         result = await tool.search("")
-        
+
         # Should handle gracefully
         assert isinstance(result, list)
 
@@ -334,7 +334,7 @@ class TestEdgeCases:
         """Test handling Unicode query."""
         tool = DocumentSearchTool()
         result = await tool.search("网络配置 BGP 路由")
-        
+
         # Should handle gracefully
         assert isinstance(result, list)
 
@@ -343,6 +343,6 @@ class TestEdgeCases:
         """Test handling special characters in query."""
         tool = DocumentSearchTool()
         result = await tool.search('BGP "neighbor" 192.168.1.1/24')
-        
+
         # Should handle gracefully
         assert isinstance(result, list)

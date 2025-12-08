@@ -16,7 +16,8 @@ from typing import Any
 
 from opensearchpy import OpenSearch, helpers
 
-from olav.core.settings import settings
+from olav.core.memory import create_opensearch_client
+from config.settings import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,16 +27,8 @@ FIELDS_INDEX_NAME = "suzieq-schema-fields"
 
 
 def get_client() -> OpenSearch:
-    """Get OpenSearch client."""
-    url = getattr(settings, "opensearch_url", None) or os.getenv(
-        "OPENSEARCH_URL", "http://localhost:9200"
-    )
-    return OpenSearch(
-        hosts=[url],
-        http_compress=True,
-        use_ssl=False,
-        verify_certs=False,
-    )
+    """Get OpenSearch client with auth support."""
+    return create_opensearch_client()
 
 
 def main(force: bool = False) -> None:

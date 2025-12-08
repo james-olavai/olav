@@ -41,19 +41,16 @@ class BaseAgent(ABC):
     @abstractmethod
     def name(self) -> str:
         """Agent identifier."""
-        pass
 
     @property
     @abstractmethod
     def description(self) -> str:
         """Agent purpose description."""
-        pass
 
     @property
     @abstractmethod
     def tools_count(self) -> int:
         """Number of tools this agent has (should be 3-7)."""
-        pass
 
     @abstractmethod
     async def run(self, query: str, thread_id: str | None = None) -> dict:
@@ -68,7 +65,6 @@ class BaseAgent(ABC):
             - messages: List of conversation messages
             - Any agent-specific result fields
         """
-        pass
 
     @abstractmethod
     def build_graph(self):
@@ -77,7 +73,6 @@ class BaseAgent(ABC):
         Returns:
             Compiled LangGraph workflow
         """
-        pass
 
 
 __all__ = ["AgentProtocol", "BaseAgent"]
