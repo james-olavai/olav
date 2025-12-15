@@ -61,12 +61,11 @@ dmypy.json
 logs/
 
 # Data directories
-data/suzieq-parquet/*
-!data/suzieq-parquet/.gitkeep
-data/documents/*
-!data/documents/.gitkeep
-data/cache/*
-!data/cache/.gitkeep
+data/
+
+# Scripts and Docs (User requested exclusion)
+scripts/
+docs/
 
 # Docker
 docker-compose.override.yml
@@ -92,14 +91,3 @@ docker-compose.dev.yml
 Dockerfile.tests
 ssh_config
 
-# Dev Scripts
-scripts/debug_*.py
-scripts/create_test_parquet.py
-scripts/generate_dev_token.py
-
-# Local Data & Reports
-data/inspection-reports/
-data/netbox-media/
-data/netbox-reports/
-data/netbox-scripts/
-data/bootstrap/
