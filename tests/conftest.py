@@ -58,8 +58,8 @@ def test_settings() -> EnvSettings:
     return EnvSettings(
         llm_provider="openai",
         llm_api_key="test-key",
-        postgres_uri=os.getenv("POSTGRES_URI", "postgresql://olav:OlavPG123!@localhost:55432/olav"),
-        opensearch_url=os.getenv("OPENSEARCH_URL", "http://localhost:19200"),
+        postgres_uri=os.getenv("POSTGRES_URI", "postgresql://olav:OlavPG123!@localhost:5432/olav"),
+        opensearch_url=os.getenv("OPENSEARCH_URL", "http://localhost:9200"),
         redis_url=os.getenv("REDIS_URL", ""),
     )
 
@@ -75,7 +75,7 @@ async def checkpointer():
     if settings is not None:
         conn_string = settings.postgres_uri
     else:
-        conn_string = os.getenv("POSTGRES_URI", "postgresql://olav:OlavPG123!@localhost:55432/olav")
+        conn_string = os.getenv("POSTGRES_URI", "postgresql://olav:OlavPG123!@localhost:5432/olav")
 
     try:
         async with PostgresSaver.from_conn_string(conn_string) as saver:
@@ -91,7 +91,7 @@ def opensearch_memory() -> OpenSearchMemory:
     if settings is not None:
         url = settings.opensearch_url
     else:
-        url = os.getenv("OPENSEARCH_URL", "http://localhost:19200")
+        url = os.getenv("OPENSEARCH_URL", "http://localhost:9200")
     return OpenSearchMemory(url=url)
 
 

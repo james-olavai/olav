@@ -37,10 +37,10 @@ def _check_infrastructure() -> bool:
     """Check if PostgreSQL is available (minimal infrastructure check)."""
     import socket
     try:
-        # Check PostgreSQL (port 55432 from docker-compose)
+        # Check PostgreSQL (port 5432 from docker-compose)
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
-        result = sock.connect_ex(("localhost", 55432))
+        result = sock.connect_ex(("localhost", 5432))
         sock.close()
         return result == 0
     except Exception:

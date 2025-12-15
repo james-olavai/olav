@@ -71,7 +71,7 @@ class EnvSettings(BaseSettings):
     # PostgreSQL (LangGraph Checkpointer)
     # =========================================================================
     postgres_host: str = "localhost"
-    postgres_port: int = 55432
+    postgres_port: int = 5432
     postgres_user: str = "olav"
     postgres_password: str = ""
     postgres_db: str = "olav"
@@ -88,7 +88,7 @@ class EnvSettings(BaseSettings):
     # OpenSearch
     # =========================================================================
     opensearch_host: str = "localhost"
-    opensearch_port: int = 19200
+    opensearch_port: int = 9200
     opensearch_username: str = ""
     opensearch_password: str = ""
     opensearch_verify_certs: bool = False
