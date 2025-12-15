@@ -408,7 +408,7 @@ services:
       - olav-network
     profiles:
       - testing
-    command: ["python", "scripts/run_e2e_tests.py"]
+    command: ["uv", "run", "pytest", "tests/e2e"]
 
 volumes:
   opensearch_data:
