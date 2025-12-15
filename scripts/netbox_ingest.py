@@ -142,6 +142,10 @@ def parse_csv(path: str) -> List[Dict[str,str]]:
                     row[k] = r.get(k, "").strip()
                 elif k in compat_map:
                     row[k] = r.get(compat_map[k], "").strip()
+            # Optional tags column
+            if "tags" in r:
+                row["tags"] = r.get("tags", "").strip()
+            
             # Provide default mgmt_interface if missing (legacy mode)
             if not row.get("mgmt_interface"):
                 row["mgmt_interface"] = "Mgmt"
@@ -165,6 +169,25 @@ def ensure_baseline(base: str, rows: List[Dict[str,str]]) -> Dict[str,int]:
     # Platforms
     for plat in sorted({r["platform"] for r in rows}):
         ids[f"platform:{plat}"] = ensure_object(base, API["platforms"], "name", {"name": plat, "slug": plat})
+
+    # Collect all unique tags from CSV
+    csv_tags = set()
+    for r in rows:
+        if r.get("tags"):
+            for t in r["tags"].split(","):
+                t_clean = t.strip()
+                if t_clean:
+                    csv_tags.add(t_clean)
+    
+    # Ensure CSV tags exist
+    for tag_name in sorted(csv_tags):
+        tag_slug = tag_name.lower()
+        ids[f"tag:{tag_slug}"] = ensure_object(
+            base,
+            API["tags"],
+            "slug",
+            {"name": tag_name, "slug": tag_slug},
+        )
 
     # Tags (optional)
     # If AUTO_TAG_ALL is enabled, ensure the tag exists before creating devices referencing it.
@@ -262,10 +285,30 @@ def ensure_device(base: str, row: Dict[str,str], ids: Dict[str,int]) -> Dict[str
         "platform": ids[f"platform:{row['platform']}"] ,
     }
 
+    # Build tags list
+    device_tags = []
+    
+    # 1. Global auto-tag
     if AUTO_TAG_ALL and TAG_NAME:
         tag_slug = TAG_NAME.strip().lower()
         if tag_slug:
-            body["tags"] = [{"name": TAG_NAME, "slug": tag_slug}]
+            device_tags.append({"name": TAG_NAME, "slug": tag_slug})
+            
+    # 2. CSV tags
+    if row.get("tags"):
+        for t in row["tags"].split(","):
+            t_clean = t.strip()
+            if t_clean:
+                t_slug = t_clean.lower()
+                # We already ensured these exist in ensure_baseline, so we can just reference them
+                # But for the device payload, we can pass name/slug or id. 
+                # Using name/slug is safer if we didn't store the ID in a global map perfectly,
+                # but here we can just pass the object structure.
+                device_tags.append({"name": t_clean, "slug": t_slug})
+
+    if device_tags:
+        body["tags"] = device_tags
+
     create = post_with_retry(base, API["devices"], body)
     if create.status_code not in (200,201):
         # Capture a bit more structured error information if available
