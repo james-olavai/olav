@@ -64,7 +64,7 @@ uv sync --dev
 # 5) Register a client (persists server URL to ~/.olav/config.toml)
 # Note: Use the SAME token you put in .env
 $env:OLAV_API_TOKEN = '<your-token-from-.env>'
-uv run olav register --name "my-laptop" --server http://127.0.0.1:18001
+uv run olav register --name "my-laptop" --server http://127.0.0.1:8000
 
 # 6) Start using
 uv run olav
@@ -107,7 +107,7 @@ ${EDITOR:-vi} .env
 # 4) Register a client
 # Note: Use the SAME token you put in .env
 export OLAV_API_TOKEN='<your-token-from-.env>'
-uv run olav register --name "my-laptop" --server http://127.0.0.1:18001
+uv run olav register --name "my-laptop" --server http://127.0.0.1:8000
 
 # 5) Start using
 uv run olav
@@ -237,7 +237,7 @@ Important: this repository contains **two** CLIs that both expose an `olav` comm
 ```powershell
 # From repository root
 uv run --project client olav --help
-uv run --project client olav register --name "my-laptop" --token "<master-token>" --server http://localhost:18001
+uv run --project client olav register --name "my-laptop" --token "<master-token>" --server http://localhost:8000
 uv run --project client olav status
 uv run --project client olav -q "Query BGP status of R1"
 ```
@@ -939,7 +939,7 @@ SESSION_TOKEN_MAX_AGE_HOURS=168       # Session Token (default 7 days)
 # Optional - Infrastructure (Docker auto-configured)
 # ============================================
 # POSTGRES_URI=postgresql://olav:xxx@localhost:5432/olav
-# OPENSEARCH_URL=http://localhost:19200
+# OPENSEARCH_URL=http://localhost:9200
 # REDIS_URL=redis://localhost:6379    # Optional: enables distributed cache
 ```
 
@@ -947,9 +947,9 @@ SESSION_TOKEN_MAX_AGE_HOURS=168       # Session Token (default 7 days)
 
 | Service | Internal Port | External Port | Notes |
 |---------|---------------|---------------|-------|
-| olav-server | 8000 | 8001 | API Server |
-| postgres | 5432 | 15432 | State persistence |
-| opensearch | 9200 | 19200 | Schema index |
+| olav-server | 8000 | 8000 | API Server |
+| postgres | 5432 | 5432 | State persistence |
+| opensearch | 9200 | 9200 | Schema index |
 | redis | 6379 | 6379 | Optional (--profile cache) |
 | netbox | 8080 | 8080 | Optional (--profile netbox) |
 
@@ -1042,7 +1042,7 @@ langgraph dev
 
 | Variable | Required | Default | Description | Example |
 |----------|----------|---------|-------------|---------|
-| `OLAV_SERVER_URL` | ❌ | `http://localhost:8001` | Server URL override | `http://127.0.0.1:18001` |
+| `OLAV_SERVER_URL` | ❌ | `http://localhost:8000` | Server URL override | `http://127.0.0.1:8000` |
 | `OLAV_SESSION_TOKEN` | ❌ | From `~/.olav/credentials` | Session Token (override) | `xyz789abc...` |
 | `OLAV_CLIENT_ID` | ❌ | From `~/.olav/credentials` | Client UUID (override) | `550e8400-e29b-...` |
 
@@ -1385,7 +1385,7 @@ retention:
 docker-compose exec postgres pg_dump -U olav olav > backup_$(date +%Y%m%d).sql
 
 # OpenSearch (schema indices)
-curl -X POST "http://localhost:19200/_snapshot/backup/snapshot_1?wait_for_completion=true"
+curl -X POST "http://localhost:9200/_snapshot/backup/snapshot_1?wait_for_completion=true"
 
 # NetBox (SSOT data)
 docker-compose exec netbox python /opt/netbox/netbox/manage.py dumpdata > netbox_backup.json
@@ -1409,7 +1409,7 @@ tar czf suzieq_backup.tar.gz data/suzieq-parquet/
 
 ```bash
 # Check OpenSearch index status
-curl http://localhost:19200/_cat/indices?v | grep olav
+curl http://localhost:9200/_cat/indices?v | grep olav
 
 # Re-index schemas if needed
 docker-compose exec olav-server python -m olav.etl.init_schema

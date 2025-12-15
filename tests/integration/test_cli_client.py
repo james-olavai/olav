@@ -24,7 +24,7 @@ def _postgres_available() -> bool:
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
-        result = sock.connect_ex(("localhost", 55432))
+        result = sock.connect_ex(("localhost", 5432))
         sock.close()
         return result == 0
     except Exception:
@@ -33,7 +33,7 @@ def _postgres_available() -> bool:
 
 @pytest.mark.skipif(
     not _postgres_available(),
-    reason="PostgreSQL not available at localhost:55432. Run 'docker-compose up -d postgres' first."
+    reason="PostgreSQL not available at localhost:5432. Run 'docker-compose up -d postgres' first."
 )
 @pytest.mark.asyncio
 async def test_local_client():

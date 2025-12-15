@@ -22,7 +22,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 console = Console()
 
 # Configuration
-SERVER_URL = os.getenv("OLAV_SERVER_URL", "http://localhost:18001")
+SERVER_URL = os.getenv("OLAV_SERVER_URL", "http://localhost:8000")
 API_TOKEN = os.getenv("OLAV_API_TOKEN", "")
 CONCURRENT_USERS = 20
 TOTAL_REQUESTS = 200  # Total requests to send across all users
