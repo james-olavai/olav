@@ -277,8 +277,8 @@ def init_netbox_devices(csv_path: str = "config/inventory.csv", force: bool = Fa
         if force:
             env["NETBOX_INGEST_FORCE"] = "true"
 
-        # Run device import script
-        cmd = ["uv", "run", "python", "scripts/netbox_ingest.py"]
+        # Run device import script (moved to src/olav/etl/netbox_ingest.py)
+        cmd = ["uv", "run", "python", "-m", "olav.etl.netbox_ingest", "--csv", csv_path]
 
         logger.info(f"  Running: {' '.join(cmd)}")
         result = subprocess.run(
