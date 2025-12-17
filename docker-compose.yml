@@ -397,7 +397,7 @@ services:
       OLAV_SERVER_URL: http://olav-server:8000
       OLAV_API_URL: http://olav-server:8000
       # Container network URLs (hardcoded for Docker network)
-      POSTGRES_URI: postgresql://olav:${POSTGRES_PASSWORD:-OlavPG123!}@postgres:5432/olav
+      POSTGRES_URI: postgresql://olav:${POSTGRES_PASSWORD:-changeme}@postgres:5432/olav
       OPENSEARCH_URL: http://opensearch:9200
     depends_on:
       olav-server:

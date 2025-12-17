@@ -214,7 +214,14 @@ async def detailed_health_check() -> dict[str, Any]:
     try:
         import asyncpg
         # Use settings or fallback. Note: In Docker it uses 'postgres' host, locally we might need localhost if running outside
-        postgres_uri = settings.postgres_uri or "postgresql://olav:OlavPG123!@postgres:5432/olav"
+        # Use settings or fail if not configured
+        postgres_uri = settings.postgres_uri
+        if not postgres_uri:
+            return {
+                "status": "unknown",
+                "error": "PostgreSQL URI not configured",
+                "latency_ms": None
+            }
         
         # Connect directly
         conn = await asyncpg.connect(postgres_uri, timeout=5)
