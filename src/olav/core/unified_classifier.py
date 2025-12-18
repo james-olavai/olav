@@ -40,7 +40,7 @@ class UnifiedClassificationResult(BaseModel):
     """
 
     # Intent classification
-    intent_category: Literal["suzieq", "netbox", "openconfig", "cli", "netconf"] = Field(
+    intent_category: Literal["suzieq", "netbox", "openconfig", "cli", "netconf", "syslog", "knowledge"] = Field(
         description="Classified intent category"
     )
 
@@ -55,6 +55,8 @@ class UnifiedClassificationResult(BaseModel):
         "netconf_execute",
         "netconf_tool",
         "openconfig_schema_search",
+        "syslog_search",
+        "kb_search",
     ] = Field(description="Selected tool for execution")
 
     # Tool parameters
