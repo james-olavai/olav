@@ -42,7 +42,6 @@ _project_root = _os.path.dirname(_config_dir)
 PROJECT_ROOT = Path(_project_root)
 ENV_FILE = PROJECT_ROOT / ".env"
 OLAV_DIR = PROJECT_ROOT / ".olav"
-DATA_DIR = PROJECT_ROOT / "data"
 
 # Agent directory configuration (can be .olav, .claude, .cursor, etc.)
 # Defaults to .olav for backward compatibility
@@ -241,12 +240,13 @@ class Settings(BaseSettings):
     # =========================================================================
     # Database Configuration
     # =========================================================================
-    # DuckDB: Capability library (OLAP - analytical queries)
-    #   Stores: CLI commands, APIs, NETCONF capabilities
-    duckdb_path: str = str(OLAV_DIR / "capabilities.db")
-
-    # Knowledge database: Vendor docs, team wiki, learned solutions
-    knowledge_db_path: str = str(OLAV_DIR / "data" / "knowledge.db")
+    # NOTE: Database paths are now centralized in config/paths.py
+    # - NETWORK_SNAPSHOT_PATH: Network snapshot data warehouse
+    # - NETWORK_COMMANDS_PATH: Command whitelist registry
+    # - KNOWLEDGE_PATH: RAG knowledge base
+    #
+    # Legacy fields removed (no longer used):
+    # - duckdb_path, knowledge_db_path, checkpoint_db_path
 
     # =========================================================================
     # Agent Configuration (Claude Code Compatibility)
@@ -258,10 +258,8 @@ class Settings(BaseSettings):
     # Skills format: "auto" (detect), "legacy" (flat files), "claude-code" (SKILL.md)
     skill_format: Literal["auto", "legacy", "claude-code"] = "auto"
 
-    # SQLite: Agent session persistence (OLTP - transactional queries)
-    #   Stores: DeepAgents checkpoints, conversation history
-    #   Used in production mode; development uses in-memory storage
-    checkpoint_db_path: str = str(OLAV_DIR / "checkpoints.db")
+    # NOTE: Checkpoint database path removed - now managed by DeepAgents runtime
+    # Agent session persistence is handled by LangGraph's built-in checkpoint system
 
     # =========================================================================
     # Network Device Configuration

@@ -1,6 +1,6 @@
-# CLI 命令黑名单
+# CLI Command Blacklist
 
-# 危险命令 - 禁止执行
+# Dangerous commands - Execution prohibited
 reload
 reboot
 shutdown

@@ -23,12 +23,12 @@ class OlavDatabase:
         """Initialize database connection.
 
         Args:
-            db_path: Path to DuckDB database file (defaults to agent_dir/db/registry.duckdb)
+            db_path: Path to DuckDB database file (defaults to agent_dir/db/network_commands.duckdb)
         """
         if db_path is None:
-            from config.settings import settings
+            from config.paths import NETWORK_COMMANDS_PATH
 
-            db_path = Path(settings.agent_dir) / "db" / "registry.duckdb"
+            db_path = NETWORK_COMMANDS_PATH
 
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -436,10 +436,11 @@ def init_knowledge_db(db_path: str | None = None) -> duckdb.DuckDBPyConnection:
         >>> # Use connection for indexing...
         >>> conn.close()
     """
+    from config.paths import KNOWLEDGE_PATH
     from config.settings import settings
 
     if db_path is None:
-        db_path = str(Path(settings.agent_dir) / "db" / "knowledge.duckdb")
+        db_path = str(KNOWLEDGE_PATH)
 
     # Ensure directory exists
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -568,7 +569,7 @@ def init_topology_db(db_path: str | None = None) -> duckdb.DuckDBPyConnection:
     - Topology discovery timestamps
 
     Args:
-        db_path: Path to topology database file (default: .olav/db/network_warehouse.duckdb)
+        db_path: Path to topology database file (default: .olav/db/network_snapshot.duckdb)
 
     Returns:
         DuckDB connection object
@@ -578,10 +579,11 @@ def init_topology_db(db_path: str | None = None) -> duckdb.DuckDBPyConnection:
         >>> # Use connection for topology operations...
         >>> conn.close()
     """
+    from config.paths import NETWORK_SNAPSHOT_PATH
     from config.settings import settings
 
     if db_path is None:
-        db_path = str(Path(settings.agent_dir) / "db" / "network_warehouse.duckdb")
+        db_path = str(NETWORK_SNAPSHOT_PATH)
 
     # Ensure directory exists
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -700,4 +702,259 @@ def init_topology_db(db_path: str | None = None) -> duckdb.DuckDBPyConnection:
         ON log_analysis(status)
     """)
 
+    return conn
+
+
+def init_structured_tables(db_path: str | None = None) -> duckdb.DuckDBPyConnection:
+    """Initialize structured network data tables for parsed command outputs.
+    
+    This creates tables for storing parsed network data:
+    - interfaces: Interface status and configuration
+    - routes: Routing table entries
+    - bgp_neighbors: BGP peer information
+    - ospf_neighbors: OSPF neighbor relationships  
+    - vlans: VLAN configurations
+    - system_info: Device system information
+    - health_scores: Historical health metrics
+    
+    Args:
+        db_path: Path to database file (default: .olav/db/network_snapshot.duckdb)
+        
+    Returns:
+        DuckDB connection object
+        
+    Example:
+        >>> conn = init_structured_tables()
+        >>> # Tables are ready for parsed data import
+        >>> conn.close()
+    """
+    from config.paths import NETWORK_SNAPSHOT_PATH
+    
+    if db_path is None:
+        db_path = str(NETWORK_SNAPSHOT_PATH)
+    
+    # Ensure directory exists
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    
+    # Connect to DuckDB
+    conn = duckdb.connect(db_path)
+    
+    # =============================================================================
+    # 接口表: 存储解析后的接口状态
+    # =============================================================================
+    conn.execute("""
+        CREATE SEQUENCE IF NOT EXISTS interfaces_id_seq START 1
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS interfaces (
+            id INTEGER PRIMARY KEY DEFAULT nextval('interfaces_id_seq'),
+            snapshot_date DATE NOT NULL,           -- 快照日期
+            device_name VARCHAR NOT NULL,          -- 设备名
+            interface_name VARCHAR NOT NULL,       -- 接口名
+            ip_address VARCHAR,                    -- IP地址
+            subnet_mask VARCHAR,                   -- 子网掩码
+            admin_status VARCHAR,                  -- 管理状态 (up/down)
+            oper_status VARCHAR,                   -- 操作状态 (up/down)
+            protocol_status VARCHAR,               -- 协议状态
+            description VARCHAR,                   -- 接口描述
+            mtu INTEGER,                           -- MTU
+            speed VARCHAR,                         -- 速率
+            duplex VARCHAR,                        -- 双工模式
+            input_errors INTEGER DEFAULT 0,        -- 输入错误
+            output_errors INTEGER DEFAULT 0,       -- 输出错误
+            crc_errors INTEGER DEFAULT 0,          -- CRC错误
+            discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(snapshot_date, device_name, interface_name)
+        )
+    """)
+    
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_interfaces_ip ON interfaces(ip_address)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_interfaces_device ON interfaces(device_name)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_interfaces_status ON interfaces(oper_status)
+    """)
+    
+    # =============================================================================
+    # 路由表: 存储路由信息
+    # =============================================================================
+    conn.execute("""
+        CREATE SEQUENCE IF NOT EXISTS routes_id_seq START 1
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS routes (
+            id INTEGER PRIMARY KEY DEFAULT nextval('routes_id_seq'),
+            snapshot_date DATE NOT NULL,
+            device_name VARCHAR NOT NULL,
+            network VARCHAR NOT NULL,              -- 目标网络
+            mask VARCHAR,                          -- 掩码
+            next_hop VARCHAR,                      -- 下一跳
+            interface VARCHAR,                     -- 出接口
+            protocol VARCHAR,                      -- 路由协议 (C/S/O/B/R)
+            metric INTEGER,                        -- 度量值
+            admin_distance INTEGER,                -- 管理距离
+            age VARCHAR,                           -- 路由年龄
+            discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(snapshot_date, device_name, network, next_hop)
+        )
+    """)
+    
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_routes_network ON routes(network)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_routes_protocol ON routes(protocol)
+    """)
+    
+    # =============================================================================
+    # BGP邻居表: 存储BGP会话信息
+    # =============================================================================
+    conn.execute("""
+        CREATE SEQUENCE IF NOT EXISTS bgp_neighbors_id_seq START 1
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bgp_neighbors (
+            id INTEGER PRIMARY KEY DEFAULT nextval('bgp_neighbors_id_seq'),
+            snapshot_date DATE NOT NULL,
+            device_name VARCHAR NOT NULL,
+            neighbor_ip VARCHAR NOT NULL,          -- 邻居IP
+            remote_as INTEGER,                     -- 远端AS号
+            local_as INTEGER,                      -- 本地AS号
+            state VARCHAR,                         -- 状态 (Established/Idle/Active)
+            uptime VARCHAR,                        -- 会话时长
+            prefixes_received INTEGER DEFAULT 0,   -- 收到的前缀数
+            prefixes_sent INTEGER DEFAULT 0,       -- 发送的前缀数
+            state_changes INTEGER DEFAULT 0,       -- 状态变化次数
+            last_error VARCHAR,                    -- 最后错误
+            discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(snapshot_date, device_name, neighbor_ip)
+        )
+    """)
+    
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_bgp_neighbor_ip ON bgp_neighbors(neighbor_ip)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_bgp_state ON bgp_neighbors(state)
+    """)
+    
+    # =============================================================================
+    # OSPF邻居表
+    # =============================================================================
+    conn.execute("""
+        CREATE SEQUENCE IF NOT EXISTS ospf_neighbors_id_seq START 1
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ospf_neighbors (
+            id INTEGER PRIMARY KEY DEFAULT nextval('ospf_neighbors_id_seq'),
+            snapshot_date DATE NOT NULL,
+            device_name VARCHAR NOT NULL,
+            neighbor_id VARCHAR NOT NULL,          -- 邻居Router ID
+            neighbor_ip VARCHAR,                   -- 邻居IP
+            interface VARCHAR,                     -- 接口
+            area VARCHAR,                          -- 区域
+            state VARCHAR,                         -- 状态 (FULL/2WAY/DOWN)
+            priority INTEGER,                      -- 优先级
+            dr_status VARCHAR,                     -- DR/BDR/DROTHER
+            uptime VARCHAR,
+            discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(snapshot_date, device_name, neighbor_id, interface)
+        )
+    """)
+    
+    # =============================================================================
+    # VLAN表
+    # =============================================================================
+    conn.execute("""
+        CREATE SEQUENCE IF NOT EXISTS vlans_id_seq START 1
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS vlans (
+            id INTEGER PRIMARY KEY DEFAULT nextval('vlans_id_seq'),
+            snapshot_date DATE NOT NULL,
+            device_name VARCHAR NOT NULL,
+            vlan_id INTEGER NOT NULL,
+            vlan_name VARCHAR,
+            status VARCHAR,                        -- active/act/lshut/suspended
+            ports TEXT,                            -- 端口列表 (JSON array)
+            discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(snapshot_date, device_name, vlan_id)
+        )
+    """)
+    
+    # =============================================================================
+    # ARP表
+    # =============================================================================
+    conn.execute("""
+        CREATE SEQUENCE IF NOT EXISTS arp_table_id_seq START 1
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS arp_table (
+            id INTEGER PRIMARY KEY DEFAULT nextval('arp_table_id_seq'),
+            snapshot_date DATE NOT NULL,
+            device_name VARCHAR NOT NULL,
+            ip_address VARCHAR NOT NULL,
+            mac_address VARCHAR,
+            interface VARCHAR,
+            discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(snapshot_date, device_name, ip_address, mac_address)
+        )
+    """)
+    
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_arp_ip ON arp_table(ip_address)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_arp_device ON arp_table(device_name)
+    """)
+    
+    # =============================================================================
+    # 系统信息表
+    # =============================================================================
+    conn.execute("""
+        CREATE SEQUENCE IF NOT EXISTS system_info_id_seq START 1
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS system_info (
+            id INTEGER PRIMARY KEY DEFAULT nextval('system_info_id_seq'),
+            snapshot_date DATE NOT NULL,
+            device_name VARCHAR NOT NULL,
+            hostname VARCHAR,
+            platform VARCHAR,                      -- 平台型号
+            software_version VARCHAR,              -- 软件版本
+            serial_number VARCHAR,                 -- 序列号
+            uptime VARCHAR,                        -- 运行时间
+            cpu_usage FLOAT,                       -- CPU使用率
+            memory_usage FLOAT,                    -- 内存使用率
+            config_register VARCHAR,
+            last_reload_reason VARCHAR,
+            discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(snapshot_date, device_name)
+        )
+    """)
+    
+    # =============================================================================
+    # 历史健康评分表 (用于趋势分析)
+    # =============================================================================
+    conn.execute("""
+        CREATE SEQUENCE IF NOT EXISTS health_scores_id_seq START 1
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS health_scores (
+            id INTEGER PRIMARY KEY DEFAULT nextval('health_scores_id_seq'),
+            snapshot_date DATE NOT NULL,
+            layer VARCHAR NOT NULL,                -- L1/L2/L3/L4/Overall
+            score INTEGER NOT NULL,                -- 0-100
+            ok_count INTEGER DEFAULT 0,
+            warning_count INTEGER DEFAULT 0,
+            critical_count INTEGER DEFAULT 0,
+            details TEXT,                          -- JSON详情
+            calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(snapshot_date, layer)
+        )
+    """)
+    
     return conn

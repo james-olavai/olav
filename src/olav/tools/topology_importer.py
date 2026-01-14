@@ -1,11 +1,3 @@
-"""
-务实的双引擎拓扑导入器 - 完整实现
-
-您提议的改进方案的完整实现，支持两种数据导入策略：
-1. Parsed JSON 优先 (快速、可靠)
-2. Raw + LLM 备选 (灵活、智能)
-"""
-
 import json
 import logging
 import re
@@ -92,7 +84,7 @@ class TopologyLink(BaseModel):
 # ============================================================================
 
 
-def _get_known_devices(db_path: str = ".olav/db/network_warehouse.duckdb") -> set[str]:
+def _get_known_devices(db_path: str = ".olav/db/network_snapshot.duckdb") -> set[str]:
     """从数据库读取已知设备列表"""
     try:
         db = duckdb.connect(db_path)
@@ -123,7 +115,7 @@ class TopologyImporter:
     策略2: Raw数据 + LLM → Pydantic验证 (灵活, 智能)
     """
 
-    def __init__(self, db_path: str = ".olav/db/network_warehouse.duckdb") -> None:
+    def __init__(self, db_path: str = ".olav/db/network_snapshot.duckdb") -> None:
         self.db_path = db_path
         self.db = duckdb.connect(db_path)
         self.known_devices = self._load_known_devices()

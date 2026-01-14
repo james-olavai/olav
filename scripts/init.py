@@ -87,7 +87,10 @@ def init_settings(olav_dir: Path, force: bool = False) -> bool:
 
 
 def init_aliases_from_nornir(olav_dir: Path, force: bool = False) -> bool:
-    """Generate .olav/knowledge/aliases.md from nornir hosts.yaml.
+    """Generate .olav/knowledge/aliases.md from Nornir inventory.
+
+    Supports both SimpleInventory (hosts.yaml) and external inventories
+    (NetBox, Nautobot, etc.) by using Nornir API to query devices.
 
     Args:
         olav_dir: Path to .olav directory
@@ -97,28 +100,56 @@ def init_aliases_from_nornir(olav_dir: Path, force: bool = False) -> bool:
         True if created/updated, False if skipped
     """
     aliases_file = olav_dir / "knowledge" / "aliases.md"
-    hosts_file = olav_dir / "config" / "nornir" / "hosts.yaml"
 
     if aliases_file.exists() and not force:
         print("  ⏭️  aliases.md already exists (use --force to overwrite)")
         return False
 
-    if not hosts_file.exists():
-        print("  ⚠️  hosts.yaml not found, creating empty aliases.md template")
-        hosts_data = {}  # type: ignore[assignment]
-    else:
-        try:
-            import yaml
+    # Try to initialize Nornir and query inventory directly
+    hosts_data = {}
+    try:
+        from nornir import InitNornir
 
-            loaded = yaml.safe_load(hosts_file.read_text(encoding="utf-8"))
-            hosts_data = loaded if isinstance(loaded, dict) else {}  # type: ignore[assignment]
-            print(f"  📖 Loaded {len(hosts_data)} devices from hosts.yaml")  # type: ignore[arg-type]
-        except ImportError:
-            print("  ⚠️  PyYAML not installed, creating empty aliases.md template")
-            hosts_data = {}  # type: ignore[assignment]
-        except Exception as e:
-            print(f"  ⚠️  Error reading hosts.yaml: {e}")
-            hosts_data = {}  # type: ignore[assignment]
+        # Initialize Nornir using config.yaml (supports any inventory plugin)
+        config_file = olav_dir / "config" / "nornir" / "config.yaml"
+        if not config_file.exists():
+            print("  ⚠️  config.yaml not found, cannot initialize Nornir")
+        else:
+            nr = InitNornir(config_file=str(config_file))
+            print(f"  📡 Loaded {len(nr.inventory.hosts)} devices from Nornir inventory")
+
+            # Extract device data from Nornir inventory
+            for hostname, host in nr.inventory.hosts.items():
+                hosts_data[hostname] = {
+                    "hostname": host.hostname,  # IP address
+                    "platform": host.platform or "unknown",
+                    "data": {
+                        "role": host.data.get("role", ""),
+                        "site": host.data.get("site", ""),
+                        "aliases": host.data.get("aliases", []),
+                    },
+                }
+    except ImportError:
+        print("  ⚠️  Nornir not installed, falling back to hosts.yaml")
+    except Exception as e:
+        print(f"  ⚠️  Error initializing Nornir: {e}, falling back to hosts.yaml")
+
+    # Fallback: Try to read hosts.yaml directly if Nornir failed
+    if not hosts_data:
+        hosts_file = olav_dir / "config" / "nornir" / "hosts.yaml"
+        if not hosts_file.exists():
+            print("  ⚠️  hosts.yaml not found, creating empty aliases.md template")
+        else:
+            try:
+                import yaml
+
+                loaded = yaml.safe_load(hosts_file.read_text(encoding="utf-8"))
+                hosts_data = loaded if isinstance(loaded, dict) else {}
+                print(f"  📖 Loaded {len(hosts_data)} devices from hosts.yaml (fallback)")
+            except ImportError:
+                print("  ⚠️  PyYAML not installed, creating empty aliases.md template")
+            except Exception as e:
+                print(f"  ⚠️  Error reading hosts.yaml: {e}")
 
     # Build aliases markdown
     content = """# Device Aliases
@@ -136,8 +167,8 @@ Agent should consult this file before executing commands to convert user-provide
 |-------|--------------|------|----------|-------|
 """
 
-    # Generate aliases from hosts.yaml
-    for hostname, host_data in hosts_data.items():  # type: ignore[union-attr]
+    # Generate aliases from inventory data
+    for hostname, host_data in hosts_data.items():
         if not isinstance(host_data, dict):
             continue
 
@@ -302,6 +333,8 @@ def init_directories(olav_dir: Path) -> None:
         olav_dir / "imports" / "commands",
         olav_dir / "imports" / "apis",
         olav_dir / "config" / "nornir",
+        Path("logs"),  # Nornir log directory
+        Path("exports"),  # Snapshot exports
     ]
 
     for dir_path in directories:

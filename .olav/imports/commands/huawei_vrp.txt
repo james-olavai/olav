@@ -1,5 +1,4 @@
 # Huawei VRP Command Whitelist
-# 华为VRP命令白名单
 
 # === Basic Information ===
 display version

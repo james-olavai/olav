@@ -20,7 +20,7 @@ from olav.tools.knowledge_embedder import KnowledgeEmbedder
 class UpdateAliasesInput(BaseModel):
     """Input schema for update_aliases tool."""
 
-    alias: str = Field(description="The alias (e.g., '核心路由器')")
+    alias: str = Field(description="The alias (e.g., 'core_routers')")
     actual_value: str = Field(description="What it maps to (e.g., 'R1, R2, R3, R4')")
     alias_type: str = Field(description="Type of alias: device, interface, vlan, etc.")
     platform: str = Field(
@@ -41,8 +41,8 @@ class UpdateAliasesTool(BaseTool):
 
     Use this tool when the user clarifies what a specific term means.
     For example:
-    - User: "核心路由器是R1和R2"
-    - You should: update_aliases(alias="核心路由器", actual_value="R1, R2", alias_type="device")
+    - User: "core_routers are R1 and R2"
+    - You should: update_aliases(alias="core_routers", actual_value="R1, R2", alias_type="device")
 
     The alias is saved to agent_dir/knowledge/aliases.md.
     """

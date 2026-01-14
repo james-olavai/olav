@@ -23,20 +23,6 @@ LANG_STRINGS: dict[str, dict[str, str]] = {
         "no_issues": "No issues found",
         "issues_found": "Issues Found",
     },
-    "zh-CN": {
-        "title": "巡检报告",
-        "time": "巡检时间",
-        "devices": "设备总数",
-        "summary": "概览",
-        "device": "设备",
-        "status": "状态",
-        "details": "详细信息",
-        "command": "命令",
-        "result": "结果",
-        "recommendations": "建议",
-        "no_issues": "未发现问题",
-        "issues_found": "发现问题",
-    },
 }
 
 
