@@ -82,7 +82,7 @@ class MacroAnalyzer:
     def _get_latest_snapshot_date(self) -> str:
         """Get the most recent snapshot date from database."""
         result = self.db.query(
-            "SELECT MAX(snapshot_date) FROM snapshot.arp_table"
+            "SELECT MAX(snapshot_date) FROM main.arp_table"
         )
         if result and result[0][0]:
             return str(result[0][0])
@@ -153,7 +153,7 @@ class MacroAnalyzer:
                 SUM(CASE WHEN protocol = 'C' THEN 1 ELSE 0 END) as connected,
                 SUM(CASE WHEN protocol = 'S' THEN 1 ELSE 0 END) as static,
                 SUM(CASE WHEN protocol = 'O' THEN 1 ELSE 0 END) as ospf
-            FROM snapshot.routes
+            FROM main.routes
             WHERE snapshot_date = ?
         """,
             [snapshot_date],
@@ -185,13 +185,13 @@ class MacroAnalyzer:
 
         # Check for missing expected routes
         device_count = self.db.query(
-            "SELECT COUNT(*) FROM snapshot.topology_devices"
+            "SELECT COUNT(*) FROM main.topology_devices"
         )[0][0]
 
         route_count = self.db.query(
             """
             SELECT COUNT(DISTINCT device_name) 
-            FROM snapshot.routes 
+            FROM main.routes 
             WHERE snapshot_date = ?
         """,
             [snapshot_date],
@@ -211,7 +211,7 @@ class MacroAnalyzer:
         arp_results = self.db.query(
             """
             SELECT device_name, COUNT(*) as arp_count
-            FROM snapshot.arp_table
+            FROM main.arp_table
             WHERE snapshot_date = ?
             GROUP BY device_name
             HAVING COUNT(*) < 3
@@ -242,7 +242,7 @@ class MacroAnalyzer:
             List of device health summaries
         """
         devices = self.db.query(
-            "SELECT name FROM snapshot.topology_devices ORDER BY name"
+            "SELECT name FROM main.topology_devices ORDER BY name"
         )
 
         device_health = []
@@ -272,11 +272,11 @@ class MacroAnalyzer:
                 COUNT(DISTINCT l.id) as link_count,
                 COUNT(DISTINCT r.network) as route_count,
                 COUNT(DISTINCT a.ip_address) as arp_count
-            FROM snapshot.topology_devices d
-            LEFT JOIN snapshot.topology_links l ON d.name = l.local_device
-            LEFT JOIN snapshot.routes r 
+            FROM main.topology_devices d
+            LEFT JOIN main.topology_links l ON d.name = l.local_device
+            LEFT JOIN main.routes r 
                 ON d.name = r.device_name AND r.snapshot_date = ?
-            LEFT JOIN snapshot.arp_table a 
+            LEFT JOIN main.arp_table a 
                 ON d.name = a.device_name AND a.snapshot_date = ?
             GROUP BY d.name, d.role
             ORDER BY link_count DESC, route_count DESC
