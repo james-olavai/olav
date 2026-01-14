@@ -3,62 +3,62 @@ name: Log Analyzer
 description: Per-device log event analysis (Map phase) with keyword triggers
 version: 1.0.0
 intent: analyze
-mode: map  # 每设备独立调用
+mode: map  # Per-device independent invocation
 ---
 
-## Log Analyzer - Map 阶段日志分析
+## Log Analyzer - Log Analysis (Map Phase)
 
-### 输入
+### Input
 
-单个设备的日志原文或解析后的 NetworkEvent 列表:
+Per-device log raw text or parsed NetworkEvent list:
 - device: "R1"
-- raw_log: show logging 输出 (如未解析)
-- parsed_events: NetworkEvent JSON 列表 (如已解析)
+- raw_log: show logging output (if unparsed)
+- parsed_events: NetworkEvent JSON list (if pre-parsed)
 
-### 关键词触发规则
+### Keyword Trigger Rules
 
-#### 第一阶段: 关键词匹配 (快速过滤)
+#### Phase 1: Keyword Matching (Quick Filter)
 
-| 类别 | 触发关键词 | Severity |
-|------|-----------|----------|
-| **错误** | `%ERROR`, `%CRITICAL`, `%ALERT` | 0-3 |
-| **接口** | `UPDOWN`, `LINK-3-UPDOWN`, `changed state to down` | 3 |
-| **路由** | `OSPF-5-ADJCHG`, `ADJCHG`, `neighbor down`, `went down` | 5 |
+| Category | Trigger Keywords | Severity |
+|----------|------------------|----------|
+| **Errors** | `%ERROR`, `%CRITICAL`, `%ALERT` | 0-3 |
+| **Interface** | `UPDOWN`, `LINK-3-UPDOWN`, `changed state to down` | 3 |
+| **Routing** | `OSPF-5-ADJCHG`, `ADJCHG`, `neighbor down`, `went down` | 5 |
 | **BGP** | `BGP-5-ADJCHANGE`, `session reset`, `connection closed` | 5 |
 | **STP** | `SPANTREE-2-`, `topology change`, `root change` | 2-5 |
-| **硬件** | `FAN`, `POWER`, `TEMP`, `%ENVMON` | 2-4 |
-| **安全** | `SEC_LOGIN`, `AUTHEN`, `failed`, `denied` | 4-5 |
-| **重启** | `RESTART`, `RELOAD`, `BOOT`, `Initializing` | 5 |
+| **Hardware** | `FAN`, `POWER`, `TEMP`, `%ENVMON` | 2-4 |
+| **Security** | `SEC_LOGIN`, `AUTHEN`, `failed`, `denied` | 4-5 |
+| **Restart** | `RESTART`, `RELOAD`, `BOOT`, `Initializing` | 5 |
 
-#### 第二阶段: 上报判断 (LLM 分析)
+#### Phase 2: Reporting Decision (LLM Analysis)
 
-匹配关键词后，LLM 判断是否需要上报:
+After keyword matching, LLM determines if reporting is needed:
 
-| 情况 | 判断 | 上报? |
-|------|------|-------|
-| 接口 DOWN 后立即 UP (抖动) | flap_count > 3 | ⚠️ WARNING |
-| 接口 DOWN 后未恢复 | 持续 DOWN | 🔴 CRITICAL |
-| 接口 DOWN 后正常恢复 | 维护窗口内 | ❌ 不上报 |
-| OSPF 邻居 DOWN 后恢复 | <5min 恢复 | ❌ 不上报 |
-| OSPF 邻居持续 DOWN | >5min 未恢复 | ⚠️ WARNING |
-| 多个 OSPF 邻居同时 DOWN | 本设备可能故障 | 🔴 CRITICAL |
-| 单次登录失败 | 正常现象 | ❌ 不上报 |
-| 多次连续登录失败 | >3 次失败 | ⚠️ WARNING |
-| 设备重启 | 计划外 | 🔴 CRITICAL |
+| Scenario | Decision | Report? |
+|----------|----------|---------|
+| Interface DOWN then UP immediately (flapping) | flap_count > 3 | ⚠️ WARNING |
+| Interface DOWN without recovery | Persistent DOWN | 🔴 CRITICAL |
+| Interface DOWN then normal recovery | During maintenance window | ❌ No Report |
+| OSPF neighbor DOWN then recovery | Recovered <5min | ❌ No Report |
+| OSPF neighbor persistent DOWN | Unrecovered >5min | ⚠️ WARNING |
+| Multiple OSPF neighbors DOWN simultaneously | Device may be down | 🔴 CRITICAL |
+| Single login failure | Normal occurrence | ❌ No Report |
+| Multiple consecutive login failures | >3 failures | ⚠️ WARNING |
+| Device restart | Unplanned | 🔴 CRITICAL |
 
-### 异常模式识别
+### Anomaly Pattern Recognition
 
-| 模式 | 定义 | 状态 |
-|------|------|------|
-| **Flapping** | 同一接口 >3 次 UP/DOWN (1h内) | WARNING |
-| **邻居丢失** | OSPF/BGP neighbor DOWN 未恢复 | WARNING |
-| **批量事件** | >10 条相同类型事件 (1h内) | WARNING |
-| **严重事件** | severity <= 3 | CRITICAL |
-| **重启事件** | 非计划重启 | CRITICAL |
+| Pattern | Definition | Status |
+|---------|------------|--------|
+| **Flapping** | Same interface >3 UP/DOWN cycles (within 1h) | WARNING |
+| **Neighbor Loss** | OSPF/BGP neighbor DOWN unrecovered | WARNING |
+| **Bulk Events** | >10 same-type events (within 1h) | WARNING |
+| **Severe Events** | severity <= 3 | CRITICAL |
+| **Restart Events** | Unplanned restart | CRITICAL |
 
-## 输出格式 (必须严格遵循)
+## Output Format (Must Follow Strictly)
 
-### 有异常需上报
+### Anomalies Detected - Report Required
 ```json
 {
   "device": "R1",
@@ -73,31 +73,31 @@ mode: map  # 每设备独立调用
       "first_seen": "2026-01-13T02:15:00Z",
       "last_seen": "2026-01-13T05:30:00Z",
       "recovered": false,
-      "detail": "3个OSPF邻居DOWN超过5分钟未恢复"
+      "detail": "3 OSPF neighbors DOWN for >5 minutes, no recovery"
     },
     {
       "type": "link_flapping",
       "severity": "warning",
       "interface": "Gi0/2",
       "flap_count": 5,
-      "detail": "接口在1小时内UP/DOWN 5次"
+      "detail": "Interface UP/DOWN 5 times within 1 hour"
     }
   ]
 }
 ```
 
-### 无异常或已恢复
+### No Anomalies or Recovered
 ```json
 {
   "device": "R2",
   "status": "ok",
   "event_count": 0,
   "events": [],
-  "note": "检测到2条OSPF事件，但均已恢复，不上报"
+  "note": "Detected 2 OSPF events but both recovered, no report needed"
 }
 ```
 
-### 有关键词匹配但判定为正常
+### Keywords Matched But Assessed as Normal
 ```json
 {
   "device": "R3",
@@ -105,16 +105,16 @@ mode: map  # 每设备独立调用
   "event_count": 0,
   "events": [],
   "filtered": [
-    {"type": "interface_down", "interface": "Gi0/3", "reason": "维护窗口内正常操作"},
-    {"type": "ospf_adjchg", "reason": "邻居在2分钟内恢复"}
+    {"type": "interface_down", "interface": "Gi0/3", "reason": "Normal operation during maintenance window"},
+    {"type": "ospf_adjchg", "reason": "Neighbor recovered within 2 minutes"}
   ]
 }
 ```
 
-## 注意事项
+## Important Notes
 
-1. **先匹配关键词**，再判断是否上报
-2. **考虑时间上下文**：事件是否已恢复
-3. **考虑数量**：单次事件 vs 重复事件
-4. **不上报也要记录**：在 `filtered` 字段说明原因
-5. **结构化输出**，便于 Reduce 阶段汇总
+1. **Match keywords first**, then decide if reporting is needed
+2. **Consider time context**: Has the event recovered?
+3. **Consider quantity**: Single event vs repeated events
+4. **Record even when no report**: In `filtered` field explain why
+5. **Structured output** for easy aggregation in Reduce phase

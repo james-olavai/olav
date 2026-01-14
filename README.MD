@@ -303,25 +303,22 @@ Describe what you want, and the Agent plans the execution using its Skills.
 ### Workflow Commands (`/`)
 For frequent tasks, use Slash Commands to trigger **Schema-Aware Workflows**. These are faster, cheaper (fewer tokens), and more reliable than free-form chat.
 
-**Detailed Usage:**
+**Core Commands:**
 
-*   **`/analyze [query]`**: Starts the MicroAnalyzer sub-agent.
+*   **`/snapshot`**: Captures network state snapshot with L1-L4 health analysis.
+    *   *Example*: `/snapshot` (all devices) or `/snapshot group:core`
+*   **`/analyze [query]`**: Starts the MicroAnalyzer sub-agent for deep diagnosis.
     *   *Example*: `/analyze "Why is BGP peering down on Core-01?"`
-*   **`/inspect [target]`**: Runs health checks (L1-L4).
-    *   *Example*: `/inspect group:core` or `/inspect R1`
-*   **`/backup`**: Backs up running-config for all/specific devices.
-    *   *Example*: `/backup` (all) or `/backup group:access`
+*   **`/search [query]`**: Hybrid search across knowledge base and web.
+    *   *Example*: `/search "OSPF adjacency troubleshooting"`
 
 | Command | Description | Agentic Level |
 |---------|-------------|---------------|
-| `/analyze` | **Deep Diagnosis**: Starts the MicroAnalyzer sub-agent for root cause analysis. | ⭐⭐⭐ |
-| `/inspect` | **Health Check**: Runs L1-L4 checks based on known schemas. | ⭐⭐ |
-| `/backup` | **Config Backup**: Standardized workflow to save running-configs. | ⭐ |
-| `/search` | **RAG Search**: Hybrid search across Local Knowledge (.md) and Web. | ⭐ |
+| `/snapshot` | **Network Snapshot**: Full L1-L4 health check with topology visualization. | ⭐⭐ |
+| `/analyze` | **Deep Diagnosis**: MicroAnalyzer sub-agent for root cause analysis. | ⭐⭐⭐ |
+| `/search` | **RAG Search**: Hybrid search across Local Knowledge and Web. | ⭐ |
 | `/devices` | **Inventory**: List connected devices and their connection status. | - |
 | `/skills` | **Skill Inventory**: List loaded Markdown SOPs. | - |
-| `/stats` | **Token Usage**: Show cost and token consumption stats. | - |
-| `/plan` | **Debug**: Show the Agent's current chain-of-thought and plan. | - |
 | `/clear` | Clear screen. | - |
 | `/quit` | Exit. | - |
 
@@ -352,15 +349,74 @@ OLAV follows a **"Documents as Truth"** philosophy.
 | Function | I/O | Path | Format |
 |---|---|---|---|
 | **Knowledge Base** | Input | `.olav/knowledge/` | `.md`, `.txt`, `.pdf` |
-| **Reports** | Output | `.olav/reports/` | `.html` (Dashboard), `.json` |
+| **Snapshot Reports** | Output | `exports/reports/snapshots/` | `.md` (Daily health reports) |
+| **Topology** | Output | `exports/visualizations/` | `.html` (Interactive topology) |
 | **Skills** | Input | `.olav/skills/` | `.md` (Claude Code format) |
 | **Inventory** | Input | `.olav/config/nornir/hosts.yaml` | YAML |
 
+**Internal Data (Advanced):**
+| Function | Path | Description |
+|---|---|---|
+| **Sync Cache** | `data/sync/{date}/` | Raw/Parsed device output (intermediate data) |
+
 **Usage:**
 - Place local site docs into `knowledge/` and run `uv run python scripts/index_knowledge.py`.
-- Find generated health reports (from `/inspect` or `/analyze`) in `reports/`.
+- Find generated snapshot reports in `exports/reports/snapshots/YYYYMMDD.md`.
+- View network topology in `exports/visualizations/topology.html`.
 
-### 5. Agentic Self-Learning
+### 5. Scheduled Snapshots (Cron)
+
+OLAV supports automated scheduled snapshots using your operating system's native task scheduler. This is more reliable than in-process schedulers and survives system restarts.
+
+**Linux/macOS (crontab):**
+```bash
+# Edit crontab
+crontab -e
+
+# Add scheduled snapshot (daily at 6:00 AM)
+0 6 * * * cd /path/to/olav && uv run olav query "/snapshot" >> .olav/logs/cron.log 2>&1
+
+# Alternative: Weekly report (Monday at 9:00 AM)
+0 9 * * 1 cd /path/to/olav && uv run olav query "/snapshot --report" >> .olav/logs/cron.log 2>&1
+```
+
+**Windows (Task Scheduler):**
+1. Open **Task Scheduler** (taskschd.msc)
+2. Click **Create Basic Task**
+3. Set trigger: Daily at 6:00 AM
+4. Set action: Start a program
+   - Program: `cmd.exe`
+   - Arguments: `/c cd /d C:\path\to\olav && uv run olav query "/snapshot"`
+5. Enable "Run whether user is logged on or not"
+
+**Output Location:**
+```
+exports/
+├── reports/
+│   └── snapshots/
+│       └── 20260114.md      # Daily snapshot report
+└── visualizations/
+    └── topology.html        # Network topology
+```
+
+**Cron Schedule Syntax:**
+```
+┌───────────── minute (0-59)
+│ ┌───────────── hour (0-23)
+│ │ ┌───────────── day of month (1-31)
+│ │ │ ┌───────────── month (1-12)
+│ │ │ │ ┌───────────── day of week (0-6, Sunday=0)
+│ │ │ │ │
+* * * * * command
+```
+
+Common examples:
+- `0 6 * * *` - Daily at 6:00 AM
+- `0 */4 * * *` - Every 4 hours
+- `0 9 * * 1` - Every Monday at 9:00 AM
+- `0 0 1 * *` - First day of each month at midnight
+
+### 6. Agentic Self-Learning
 OLAV can learn from successful troubleshooting sessions and user interactions:
 
 **Auto-Generated Content:**

@@ -15,6 +15,7 @@ from pathlib import Path
 import duckdb
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from config.paths import KNOWLEDGE_PATH
 from config.settings import settings
 
 
@@ -37,7 +38,7 @@ class KnowledgeEmbedder:
         Args:
             db_path: Optional path to knowledge database (uses default if not provided)
         """
-        self.db_path = db_path or str(Path(settings.agent_dir) / "db" / "knowledge.duckdb")
+        self.db_path = db_path or str(KNOWLEDGE_PATH)
         self.embeddings = self._get_embeddings()
         self.splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,

@@ -83,7 +83,7 @@ def list_devices(
         site: Optional site filter (e.g., "lab", "datacenter")
         platform: Optional platform filter (e.g., "cisco_ios", "huawei_vrp")
         group: Optional group filter (e.g., "test", "core", "border")
-        alias: Optional alias search term (e.g., "核心路由器", "边界")
+        alias: Optional alias search term (e.g., "core_routers", "border")
                Searches device name, hostname, role, and aliases field
 
     Returns:

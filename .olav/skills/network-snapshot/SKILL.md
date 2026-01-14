@@ -52,6 +52,10 @@ intent: snapshot
 - intent: "interface status"
 - intent: "interface counters"
 
+#### switching
+- intent: "vlan information"
+- intent: "spanning-tree status"
+
 #### system
 - intent: "device version"
 - intent: "cpu usage"

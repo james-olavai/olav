@@ -31,12 +31,12 @@ class TopologyGraph:
         """Initialize topology graph manager.
 
         Args:
-            db_path: Path to topology database (default: .olav/db/network_warehouse.duckdb)
+            db_path: Path to topology database (default: .olav/db/network_snapshot.duckdb)
         """
         if db_path is None:
-            from config.settings import settings
+            from config.paths import NETWORK_SNAPSHOT_PATH
 
-            db_path = Path(settings.agent_dir) / "db" / "network_warehouse.duckdb"
+            db_path = NETWORK_SNAPSHOT_PATH
 
         self.db_path = Path(db_path)
         self._graph: nx.MultiDiGraph | None = None

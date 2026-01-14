@@ -18,6 +18,7 @@ import duckdb
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
+from config.paths import NETWORK_SNAPSHOT_PATH
 from olav.tools.sync_tools import get_latest_sync_dir, get_sync_dir
 
 # =============================================================================
@@ -312,24 +313,11 @@ def query_events(
         >>> query_events(severity_max=3)
         "Found 5 critical events..."
     """
-    # Get database path
-    if date:
-        db_path = get_sync_dir(date) / "reports" / "topology.db"
-    else:
-        sync_dir = get_latest_sync_dir()
-        if not sync_dir:
-            return "No sync data found."
-        db_path = sync_dir / "reports" / "topology.db"
+    # Use unified database
+    db_path = NETWORK_SNAPSHOT_PATH
 
     if not db_path.exists():
-        # Initialize database if not exists
-        from olav.tools.sync_tools import _init_sync_db
-
-        sync_dir = get_latest_sync_dir()
-        if not sync_dir:
-            return "No sync data found."
-        _init_sync_db(sync_dir)
-        db_path = sync_dir / "reports" / "topology.db"
+        return "No sync data found. Run device synchronization first."
 
     try:
         conn = duckdb.connect(str(db_path), read_only=True)
@@ -413,17 +401,11 @@ def detect_topology_changes(time_range: str = "24h", date: str | None = None) ->
     # Query for topology-related events
     conn = None
     try:
-        # Get database
-        if date:
-            db_path = get_sync_dir(date) / "reports" / "topology.db"
-        else:
-            sync_dir = get_latest_sync_dir()
-            if not sync_dir:
-                return "No sync data found."
-            db_path = sync_dir / "reports" / "topology.db"
+        # Use unified database
+        db_path = NETWORK_SNAPSHOT_PATH
 
         if not db_path.exists():
-            return "No events database found."
+            return "No events database found. Run device synchronization first."
 
         conn = duckdb.connect(str(db_path), read_only=True)
 

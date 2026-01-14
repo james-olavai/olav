@@ -4,12 +4,12 @@ This module configures the CompositeBackend for DeepAgents, defining
 which paths the agent can read/write vs read-only vs temporary.
 
 Based on DESIGN_V0.8.md Section 7.4:
-- skills/ → Agent可写
-- knowledge/ → Agent可写
-- tools/commands/ → Agent可写 (只读命令)
-- tools/apis/ → Agent只读 (API定义由人类维护)
-- OLAV.md → Agent只读 (核心规则由人类维护)
-- .env → 不可访问 (敏感配置)
+- skills/ → Agent writable
+- knowledge/ → Agent writable
+- tools/commands/ → Agent writable (read-only commands)
+- tools/apis/ → Agent read-only (API definitions maintained by humans)
+- OLAV.md → Agent read-only (core rules maintained by humans)
+- .env → Not accessible (sensitive configuration)
 """
 
 from pathlib import Path

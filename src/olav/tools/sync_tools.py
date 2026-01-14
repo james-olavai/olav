@@ -20,7 +20,7 @@ from pathlib import Path
 import duckdb
 from langchain_core.tools import tool
 
-from config.settings import settings
+from config.paths import NETWORK_SNAPSHOT_PATH
 
 # =============================================================================
 # Data Directory Management
@@ -63,7 +63,7 @@ def get_sync_dir(date: str | None = None) -> Path:
     (sync_dir / "map").mkdir(exist_ok=True)
     (sync_dir / "map" / "inspect").mkdir(parents=True, exist_ok=True)
     (sync_dir / "map" / "logs").mkdir(parents=True, exist_ok=True)
-    (sync_dir / "reports").mkdir(exist_ok=True)
+    (sync_dir / "reduce").mkdir(exist_ok=True)
 
     return sync_dir
 
@@ -132,7 +132,7 @@ def sync_all(devices: str = "all", group: str = "test", categories: str | None =
 
     DESIGN: Two-stage pipeline:
     - Stage 1 (sync_all): Fast data collection → disk (parallel via Nornir)
-    - Stage 2 (async): Parse + LLM analysis (non-blocking)
+    - Stage 2 (async): Parse + LLM analysis (non-blocking in interactive mode, blocking in CLI)
 
     Args:
         devices: Device filter (default: "all")
@@ -144,7 +144,7 @@ def sync_all(devices: str = "all", group: str = "test", categories: str | None =
             - "core": Core/production devices
             - "border": Border devices
         categories: Optional comma-separated list of categories to collect
-            (configs, neighbors, routing, interfaces, system, environment, logging)
+            (configs, neighbors, routing, interfaces, switching, system, environment, logging)
             If None, collects all categories
 
     Returns:
@@ -200,6 +200,7 @@ def sync_all(devices: str = "all", group: str = "test", categories: str | None =
             "neighbors": ["cdp neighbors", "lldp neighbors"],
             "routing": ["ospf neighbor", "bgp summary", "ip route"],
             "interfaces": ["show interface", "show mac address-table"],
+            "switching": ["show vlan", "show spanning-tree"],  # L2 switching
             "system": ["show version", "show processes cpu", "show memory"],
             "environment": ["show environment", "show arp"],
             "logging": ["show logging", "show debug"],
@@ -252,11 +253,15 @@ def sync_all(devices: str = "all", group: str = "test", categories: str | None =
             (sync_dir / "parsed" / device_name).mkdir(exist_ok=True)
 
             # Execute commands for this device's platform (allow fallback to all commands)
-            device_commands = [cmd for cmd in all_commands if cmd["platform"] == platform]
+            # Support platform prefix matching (e.g., cisco_ios matches _cisco_ios_original)
+            device_commands = [
+                cmd for cmd in all_commands
+                if cmd["platform"] == platform or platform in cmd["platform"] or cmd["platform"] in platform
+            ]
 
             # If no platform-specific commands, use all commands (failover)
             if not device_commands:
-                device_commands = [cmd for cmd in all_commands if cmd["platform"] == "cisco_ios"]
+                device_commands = all_commands  # Use all available commands as fallback
 
             for cmd_info in device_commands:
                 command = cmd_info["name"]
@@ -277,6 +282,17 @@ def sync_all(devices: str = "all", group: str = "test", categories: str | None =
                         cmd_safe = command.lower().replace(" ", "-").replace("/", "-")
                         output_file = sync_dir / "raw" / device_name / f"{cmd_safe}.txt"
                         output_file.write_text(result[device_name].result, encoding="utf-8")
+
+                        # Store sync output metadata in database
+                        _store_sync_output(
+                            sync_dir=sync_dir,
+                            sync_date=sync_date,
+                            device=device_name,
+                            category=cmd_info.get("category", "unknown"),
+                            command=command,
+                            output_path=str(output_file),
+                            output_size=output_file.stat().st_size,
+                        )
 
                         success_count += 1
                     else:
@@ -310,22 +326,38 @@ def sync_all(devices: str = "all", group: str = "test", categories: str | None =
         )
 
         # =====================================================================
-        # STAGE 2: Asynchronous post-processing (non-blocking)
+        # STAGE 2: Asynchronous post-processing (non-blocking in agent mode)
         # This runs in background: parse + LLM analysis
         # =====================================================================
         # Import here to avoid circular dependency
+        import os
         import threading
 
-        def _stage2_async_processing():
+        # Check if called from CLI (has OLAV_CLI_MODE env var set by cli_main.py)
+        is_cli_mode = os.environ.get("OLAV_CLI_MODE") == "1"
+
+        def _stage2_async_processing() -> None:
             """Non-blocking Stage 2: parse + LLM analysis."""
             try:
                 _process_sync_stage2(sync_dir, device_names)
             except Exception as e:
                 print(f"[WARN] Stage 2 processing failed: {e}", flush=True)
 
-        # Start Stage 2 in background thread (non-blocking)
-        thread = threading.Thread(target=_stage2_async_processing, daemon=True)
+        # Start Stage 2 in background thread
+        # Use daemon=False for CLI to ensure completion
+        thread = threading.Thread(
+            target=_stage2_async_processing, daemon=not is_cli_mode, name="Stage2-Async"
+        )
         thread.start()
+
+        # In CLI mode, wait for Stage 2 to complete
+        if is_cli_mode:
+            print("[Stage2] Waiting for post-processing to complete...", flush=True)
+            thread.join(timeout=300)  # 5 min timeout
+            if thread.is_alive():
+                print("[WARN] Stage 2 timeout after 5 minutes", flush=True)
+            else:
+                print("[Stage2] ✅ Post-processing complete!", flush=True)
 
         return result_message
 
@@ -437,7 +469,7 @@ def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> None:
         from olav.tools.topology_viz import visualize_full_topology
 
         # Initialize topology database and load devices
-        db_path = str(Path(settings.agent_dir) / "db" / "network_warehouse.duckdb")
+        db_path = str(NETWORK_SNAPSHOT_PATH)
         conn = init_topology_db(db_path)
 
         # Load devices from Nornir inventory
@@ -469,6 +501,18 @@ def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> None:
         visualize_full_topology.invoke({})
     except Exception as e:
         print(f"[Stage2] Visualization error: {e}", flush=True)
+
+    # Import structured data to database
+    try:
+        print("[Stage2] Importing structured data to database...", flush=True)
+        from olav.tools.data_importer import NetworkDataImporter
+
+        importer = NetworkDataImporter(str(NETWORK_SNAPSHOT_PATH))
+        stats = importer.import_all_from_snapshot(sync_dir)
+        print(f"[Stage2] Imported: {stats}", flush=True)
+        importer.close()
+    except Exception as e:
+        print(f"[Stage2] Data import error: {e}", flush=True)
 
     # Generate sync summary report (Stage 2) - AFTER topology so links work
     try:
@@ -523,7 +567,9 @@ def _get_command_category(command: str) -> str:
 
 
 def _init_sync_db(sync_dir: Path) -> duckdb.DuckDBPyConnection:
-    """Initialize the sync database (unified location: .olav/db/network_warehouse.duckdb).
+    """Initialize the sync database (unified location: .olav/db/network_snapshot.duckdb).
+
+    from config.paths import NETWORK_SNAPSHOT_PATH
 
     Args:
         sync_dir: Path to sync directory (used only for reference)
@@ -531,7 +577,7 @@ def _init_sync_db(sync_dir: Path) -> duckdb.DuckDBPyConnection:
     Returns:
         DuckDB connection
     """
-    db_path = Path(settings.agent_dir) / "db" / "network_warehouse.duckdb"
+    db_path = NETWORK_SNAPSHOT_PATH
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     conn = duckdb.connect(str(db_path))
@@ -566,6 +612,44 @@ def _init_sync_db(sync_dir: Path) -> duckdb.DuckDBPyConnection:
     return conn
 
 
+def _store_sync_output(
+    sync_dir: Path,
+    sync_date: str,
+    device: str,
+    category: str,
+    command: str,
+    output_path: str,
+    output_size: int,
+) -> None:
+    """Store individual sync output record in database.
+
+    Args:
+        sync_dir: Path to sync directory
+        sync_date: Date string (YYYY-MM-DD)
+        device: Device name
+        category: Command category (e.g., 'interfaces', 'routing')
+        command: Command executed
+        output_path: Path to output file
+        output_size: Size of output file in bytes
+    """
+    conn = _init_sync_db(sync_dir)
+
+    # Get next ID
+    result = conn.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM sync_outputs").fetchone()
+    next_id = result[0] if result else 1
+
+    conn.execute(
+        """
+        INSERT INTO sync_outputs
+        (id, sync_date, device, category, command, output_path, output_size)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """,
+        [next_id, sync_date, device, category, command, output_path, output_size],
+    )
+
+    conn.close()
+
+
 def _store_sync_metadata(
     sync_dir: Path,
     sync_date: str,
@@ -574,7 +658,7 @@ def _store_sync_metadata(
     success_count: int,
     error_count: int,
 ) -> None:
-    """Store sync metadata in database (unified location: .olav/db/network_warehouse.duckdb).
+    """Store sync metadata in database (unified location: .olav/db/network_snapshot.duckdb).
 
     Args:
         sync_dir: Path to sync directory
@@ -584,7 +668,9 @@ def _store_sync_metadata(
         success_count: Successful commands
         error_count: Failed commands
     """
-    db_path = Path(settings.agent_dir) / "db" / "network_warehouse.duckdb"
+    from config.paths import NETWORK_SNAPSHOT_PATH
+
+    db_path = NETWORK_SNAPSHOT_PATH
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Ensure tables exist before inserting
@@ -641,10 +727,10 @@ def _generate_sync_summary(
         ],
         "raw_data_path": str(sync_dir / "raw"),
         "parsed_data_path": str(sync_dir / "parsed"),
-        "database_path": str(Path(settings.agent_dir) / "db" / "network_warehouse.duckdb"),
+        "database_path": str(NETWORK_SNAPSHOT_PATH),
     }
 
-    summary_file = sync_dir / "reports" / "sync_summary.json"
+    summary_file = sync_dir / "reduce" / "sync_summary.json"
     with open(summary_file, "w") as f:
         json.dump(summary, f, indent=2)
 
@@ -1116,10 +1202,10 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         # Top events
         top_events = log_summary.get("top_events", [])
         if top_events:
-            report_lines.append("### 重要事件 (Top Events)")
+            report_lines.append("### Top Events")
             report_lines.append("")
-            report_lines.append("| 设备 | 时间 | 类型 | 消息 |")
-            report_lines.append("|------|------|------|------|")
+            report_lines.append("| Device | Time | Type | Message |")
+            report_lines.append("|--------|------|------|---------|")
             for event in top_events[:5]:
                 ts = event.get("timestamp", "")[:19] if event.get("timestamp") else ""
                 msg = event.get("message", "")[:50]
@@ -1132,10 +1218,10 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         # Event categories
         event_cats = log_summary.get("event_categories", {})
         if event_cats:
-            report_lines.append("### 事件类别分布")
+            report_lines.append("### Event Category Distribution")
             report_lines.append("")
-            report_lines.append("| 类别 | 数量 |")
-            report_lines.append("|------|------|")
+            report_lines.append("| Category | Count |")
+            report_lines.append("|----------|-------|")
             for cat, count in sorted(event_cats.items(), key=lambda x: -x[1])[:10]:
                 report_lines.append(f"| {cat} | {count} |")
             report_lines.append("")
@@ -1143,15 +1229,15 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         # =================================================================
         # Topology Section
         # =================================================================
-        report_lines.append("## 🗺️ 网络拓扑 (Network Topology)")
+        report_lines.append("## 🗺️ Network Topology")
         report_lines.append("")
-        report_lines.append("可用的拓扑可视化:")
+        report_lines.append("Available topology visualizations:")
         report_lines.append("")
 
         topology_files = {
-            "CDP/LLDP 物理拓扑 (L1)": "cdp-lldp.html",
-            "OSPF 路由拓扑 (L3)": "ospf.html",
-            "BGP 路由拓扑 (L3)": "bgp.html",
+            "CDP/LLDP Physical Topology (L1)": "cdp-lldp.html",
+            "OSPF Routing Topology (L3)": "ospf.html",
+            "BGP Routing Topology (L3)": "bgp.html",
         }
 
         # Use correct path: exports/topology (simplified)
@@ -1292,7 +1378,7 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         report_lines.append("*Auto-generated by OLAV v0.8*")
         report_lines.append("")
 
-        # Write report to exports/reports/snapshots/YYYYMMDD.md
+        # Write report to exports/reports/snapshots/YYYYMMDD.md (single source of truth)
         from config.paths import REPORTS_SNAPSHOTS_DIR
 
         sync_date = sync_dir.name  # YYYY-MM-DD
@@ -1301,11 +1387,6 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         report_filename = sync_date.replace("-", "") + ".md"
         report_file = REPORTS_SNAPSHOTS_DIR / report_filename
         report_file.write_text("\n".join(report_lines), encoding="utf-8")
-
-        # Also keep a copy in sync_dir for backwards compatibility
-        sync_report = sync_dir / "reports" / "INSPECTION_ANALYSIS_REPORT.md"
-        sync_report.parent.mkdir(parents=True, exist_ok=True)
-        sync_report.write_text("\n".join(report_lines), encoding="utf-8")
 
     except Exception:
         pass  # Report generation is optional
@@ -1598,14 +1679,8 @@ def query_sync_db(sql: str, date: str | None = None) -> str:
     if not sql_lower.startswith("select"):
         return "Error: Only SELECT queries are allowed for safety."
 
-    # Get database path
-    if date:
-        db_path = get_sync_dir(date) / "reports" / "topology.db"
-    else:
-        latest_dir = get_latest_sync_dir()
-        if not latest_dir:
-            return "No sync data found."
-        db_path = latest_dir / "reports" / "topology.db"
+    # Use unified database
+    db_path = NETWORK_SNAPSHOT_PATH
 
     if not db_path.exists():
         return f"Database not found: {db_path}"
