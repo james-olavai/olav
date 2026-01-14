@@ -6,11 +6,14 @@ enabling natural language access to network data.
 
 from typing import Any
 
+from langchain_core.tools import tool
+
 from olav.analysis.macro_analyzer import MacroAnalyzer
 from olav.core.unified_database import UnifiedDatabase
 
 
-def find_ip_location_tool(ip_address: str) -> dict[str, Any]:
+@tool
+def find_ip_location(ip_address: str) -> dict[str, Any]:
     """Find the location of an IP address in the network.
 
     Args:
@@ -42,7 +45,8 @@ def find_ip_location_tool(ip_address: str) -> dict[str, Any]:
     }
 
 
-def get_device_health_tool(device_name: str) -> dict[str, Any]:
+@tool
+def get_device_health(device_name: str) -> dict[str, Any]:
     """Get comprehensive health information for a device.
 
     Args:
@@ -79,7 +83,8 @@ def get_device_health_tool(device_name: str) -> dict[str, Any]:
     }
 
 
-def get_network_summary_tool() -> dict[str, Any]:
+@tool
+def get_network_summary() -> dict[str, Any]:
     """Get a summary of the entire network.
 
     Returns:
@@ -108,7 +113,8 @@ def get_network_summary_tool() -> dict[str, Any]:
     }
 
 
-def search_ip_across_network_tool(ip_pattern: str) -> list[dict[str, Any]]:
+@tool
+def search_ip_across_network(ip_pattern: str) -> list[dict[str, Any]]:
     """Search for IPs matching a pattern across the network.
 
     Args:
@@ -137,7 +143,8 @@ def search_ip_across_network_tool(ip_pattern: str) -> list[dict[str, Any]]:
     ]
 
 
-def analyze_network_health_tool(snapshot_date: str | None = None) -> dict[str, Any]:
+@tool
+def analyze_network_health(snapshot_date: str | None = None) -> dict[str, Any]:
     """Generate comprehensive network health analysis.
 
     Args:
@@ -167,7 +174,8 @@ def analyze_network_health_tool(snapshot_date: str | None = None) -> dict[str, A
     }
 
 
-def query_database_tool(sql_query: str) -> list[dict[str, Any]]:
+@tool
+def query_database(sql_query: str) -> list[dict[str, Any]]:
     """Execute a SQL query across the unified database.
 
     WARNING: Use with caution. Only SELECT queries are allowed.

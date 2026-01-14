@@ -36,18 +36,18 @@ User questions contain: "find", "locate", "where", "health", "analyze", "check",
 
 ### Priority 1: Database Query (Preferred)
 For these queries, use database tools (faster, more powerful):
-- **IP Location**: `find_ip_location_tool(ip_address)`
-- **Device Health**: `get_device_health_tool(device_name)`
-- **Network Summary**: `get_network_summary_tool()`
-- **IP Search**: `search_ip_across_network_tool(ip_pattern)`
-- **Health Analysis**: `analyze_network_health_tool(snapshot_date)`
+- **IP Location**: `find_ip_location(ip_address)`
+- **Device Health**: `get_device_health(device_name)`
+- **Network Summary**: `get_network_summary()`
+- **IP Search**: `search_ip_across_network(ip_pattern)`
+- **Health Analysis**: `analyze_network_health(snapshot_date)`
 Example 1: IP Location Query (Database)
 **Trigger**: "Where is IP 10.1.12.1?", "Find 10.1.12.1"
 **Method**: Database query (instant)
 **Code**:
 ```python
-from olav.tools.database_tools import find_ip_location_tool
-result = find_ip_location_tool("10.1.12.1")
+from olav.tools.database_tools import find_ip_location
+result = find_ip_location("10.1.12.1")
 ```
 **Output**:
 ```
@@ -62,7 +62,7 @@ IP 10.1.12.1 Location
 **Method**: Database query (instant)
 **Code**:
 ```python
-result = get_device_health_tool("R1")
+result = get_device_health("R1")
 ```
 **Output**:
 ```
@@ -79,7 +79,7 @@ R1 Health Summary
 **Method**: Database analysis with L1-L4 scoring
 **Code**:
 ```python
-result = analyze_network_health_tool()
+result = analyze_network_health()
 print(result["markdown_report"])
 ```
 **Output**: Comprehensive health report with scores
@@ -110,12 +110,12 @@ result = find_ip_location_tool("10.1.12.1")
 }
 ```
 
-### get_device_health_tool(device_name)
+### get_device_health(device_name)
 Get comprehensive health info for a device.
 
 **Usage**:
 ```python
-result = get_device_health_tool("R1")
+result = get_device_health("R1")
 ```
 
 **Returns**:
@@ -132,12 +132,12 @@ result = get_device_health_tool("R1")
 }
 ```
 
-### get_network_summary_tool()
+### get_network_summary()
 Get network-wide statistics.
 
 **Usage**:
 ```python
-result = get_network_summary_tool()
+result = get_network_summary()
 ```
 
 **Returns**:
@@ -151,22 +151,22 @@ result = get_network_summary_tool()
 }
 ```
 
-### search_ip_across_network_tool(ip_pattern)
+### search_ip_across_network(ip_pattern)
 Search for IPs matching a pattern.
 
 **Usage**:
 ```python
-result = search_ip_across_network_tool("10.1.%")
+result = search_ip_across_network("10.1%")
 ```
 
 **Returns**: List of IP locations
 
-### analyze_network_health_tool(snapshot_date=None)
+### analyze_network_health(snapshot_date=None)
 Generate comprehensive health analysis with L1-L4 scoring.
 
 **Usage**:
 ```python
-result = analyze_network_health_tool()
+result = analyze_network_health()
 print(result["markdown_report"])
 ```
 
