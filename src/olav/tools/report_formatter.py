@@ -116,7 +116,7 @@ def _resolve_language(language: str) -> str:
     output:
       language: auto  # or 'en-US', 'zh-CN'
     ```
-    
+
     The 'auto' setting lets the LLM detect and adapt to user's language.
     This function provides a fallback default only.
 

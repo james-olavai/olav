@@ -41,7 +41,6 @@ CRON_SCHEDULES = {
             "stages": ["snapshot", "topology", "inspect", "logs"],  # Full pipeline
         },
     },
-    
     # Weekly health report
     "weekly-health-report": {
         "enabled": False,  # Disabled by default
@@ -52,7 +51,6 @@ CRON_SCHEDULES = {
             "format": "pdf",  # or "markdown"
         },
     },
-    
     # Monthly configuration backup
     "monthly-config-backup": {
         "enabled": False,
@@ -63,7 +61,6 @@ CRON_SCHEDULES = {
             "archive": True,
         },
     },
-    
     # Snapshot retention cleanup (weekly)
     "snapshot-cleanup": {
         "enabled": True,

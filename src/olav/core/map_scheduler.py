@@ -112,7 +112,9 @@ async def run_inspect_map(
 
                 # Call LLM
                 result = await asyncio.wait_for(
-                    llm.analyze_inspect(device=device, layer=layer, check_type=check, raw_output=raw_output),
+                    llm.analyze_inspect(
+                        device=device, layer=layer, check_type=check, raw_output=raw_output
+                    ),
                     timeout=config.timeout_per_call,
                 )
 
@@ -121,13 +123,20 @@ async def run_inspect_map(
                 map_file.parent.mkdir(parents=True, exist_ok=True)
                 import json
 
-                map_file.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+                map_file.write_text(
+                    json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
 
                 return {"device": device, "check": check, "status": "success"}
 
             except TimeoutError:
                 if config.continue_on_error:
-                    return {"device": device, "check": check, "status": "failed", "error": "timeout"}
+                    return {
+                        "device": device,
+                        "check": check,
+                        "status": "failed",
+                        "error": "timeout",
+                    }
                 else:
                     raise
             except Exception as e:
@@ -137,7 +146,9 @@ async def run_inspect_map(
                     raise
 
     # Execute all tasks concurrently
-    results = await asyncio.gather(*[process_single_check(d, l, c) for d, l, c in tasks], return_exceptions=True)
+    results = await asyncio.gather(
+        *[process_single_check(d, l, c) for d, l, c in tasks], return_exceptions=True
+    )
 
     # Aggregate results
     success = []
@@ -261,7 +272,9 @@ async def run_logs_map(
                 map_file.parent.mkdir(parents=True, exist_ok=True)
                 import json
 
-                map_file.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+                map_file.write_text(
+                    json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
 
                 return {"device": device, "status": "success"}
 
@@ -277,7 +290,9 @@ async def run_logs_map(
                     raise
 
     # Execute all tasks concurrently
-    results = await asyncio.gather(*[process_device_logs(d) for d in devices], return_exceptions=True)
+    results = await asyncio.gather(
+        *[process_device_logs(d) for d in devices], return_exceptions=True
+    )
 
     # Aggregate results
     success = []

@@ -77,18 +77,19 @@ def render_topology_html(
 
     Examples:
         >>> render_topology_html(description="bgp", protocols="BGP")
-        "data/visualizations/topology/bgp.html"
+        "exports/topology/bgp.html"
 
         >>> render_topology_html(description="ospf", protocols="OSPF")
-        "data/visualizations/topology/ospf.html"
+        "exports/topology/ospf.html"
 
         >>> render_topology_html(description="cdp-lldp", protocols="CDP,LLDP")
-        "exports/visualizations/topology/cdp-lldp.html"
+        "exports/topology/cdp-lldp.html"
     """
     from pyvis.network import Network
 
-    # Create output directory (exports/visualizations, not .olav/db/)
-    output_dir = Path("exports/visualizations") / viz_type
+    # Create output directory (exports/topology, simplified path)
+    # Note: viz_type is "topology" for topology visualizations
+    output_dir = Path("exports") / viz_type
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Use description as filename without timestamp (forces update each run)
