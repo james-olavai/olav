@@ -100,7 +100,7 @@ def get_network_summary() -> dict[str, Any]:
         
         # Get platforms list
         platforms_result = udb.query(
-            "SELECT DISTINCT platform FROM snapshot.topology_devices"
+            "SELECT DISTINCT platform FROM main.topology_devices"
         )
         platforms = [row[0] for row in platforms_result]
 

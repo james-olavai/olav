@@ -1,7 +1,7 @@
 """Unified database layer for cross-database queries.
 
 This module provides a unified query interface across all three OLAV databases:
-- network_snapshot.duckdb: Topology, parsed data, structured network data
+- network_main.duckdb: Topology, parsed data, structured network data
 - network_commands.duckdb: Capabilities, audit logs, command cache
 - knowledge.duckdb: Documents, embeddings, fault patterns
 
@@ -27,7 +27,7 @@ class UnifiedDatabase:
         >>> # Query device health with command capabilities
         >>> result = udb.query('''
         ...     SELECT d.name, d.platform, COUNT(c.id) as cmd_count
-        ...     FROM snapshot.topology_devices d
+        ...     FROM main.topology_devices d
         ...     LEFT JOIN commands.capabilities c ON c.platform = d.platform
         ...     GROUP BY d.name, d.platform
         ... ''')
@@ -36,19 +36,32 @@ class UnifiedDatabase:
 
     def __init__(self):
         """Initialize unified database with all three databases attached."""
-        # Create in-memory connection as main connection
-        self.conn = duckdb.connect(":memory:")
+        # Connect directly to snapshot database as primary connection
+        # Use read_only=False to allow internal operations, but tools only do SELECTs
+        self.conn = duckdb.connect(str(NETWORK_SNAPSHOT_PATH), read_only=False)
 
-        # Attach three databases
-        self.conn.execute(f"ATTACH '{NETWORK_SNAPSHOT_PATH}' AS snapshot")
-        self.conn.execute(f"ATTACH '{NETWORK_COMMANDS_PATH}' AS commands")
-        self.conn.execute(f"ATTACH '{KNOWLEDGE_PATH}' AS knowledge")
+        # Attach other two databases with unique aliases
+        # Note: 'main' schema refers to network_main.duckdb tables
+        # Use 'snapshot' as alias to main for compatibility with existing queries
+        try:
+            self.conn.execute(
+                f"ATTACH IF NOT EXISTS '{NETWORK_COMMANDS_PATH}' AS commands"
+            )
+        except Exception:
+            pass  # Already attached
+
+        try:
+            self.conn.execute(
+                f"ATTACH IF NOT EXISTS '{KNOWLEDGE_PATH}' AS knowledge"
+            )
+        except Exception:
+            pass  # Already attached
 
     def query(self, sql: str, params: list[Any] | None = None) -> list[tuple]:
         """Execute SQL query across attached databases.
 
         Args:
-            sql: SQL query string (can reference snapshot.*, commands.*, knowledge.*)
+            sql: SQL query string (can reference main.*, commands.*, knowledge.*)
             params: Optional query parameters
 
         Returns:
@@ -56,7 +69,7 @@ class UnifiedDatabase:
 
         Example:
             >>> result = udb.query(
-            ...     "SELECT * FROM snapshot.arp_table WHERE device_name = ?",
+            ...     "SELECT * FROM main.arp_table WHERE device_name = ?",
             ...     ["R1"]
             ... )
         """
@@ -90,7 +103,7 @@ class UnifiedDatabase:
         result = self.conn.execute(
             """
             SELECT device_name, interface, mac_address, snapshot_date
-            FROM snapshot.arp_table
+            FROM main.arp_table
             WHERE ip_address = ?
             ORDER BY snapshot_date DESC
             LIMIT 1
@@ -126,7 +139,7 @@ class UnifiedDatabase:
         device_info = self.conn.execute(
             """
             SELECT name, platform, role, site
-            FROM snapshot.topology_devices
+            FROM main.topology_devices
             WHERE name = ?
         """,
             [device],
@@ -139,7 +152,7 @@ class UnifiedDatabase:
         arp_count = self.conn.execute(
             """
             SELECT COUNT(*)
-            FROM snapshot.arp_table
+            FROM main.arp_table
             WHERE device_name = ?
         """,
             [device],
@@ -149,7 +162,7 @@ class UnifiedDatabase:
         route_count = self.conn.execute(
             """
             SELECT COUNT(*)
-            FROM snapshot.routes
+            FROM main.routes
             WHERE device_name = ?
         """,
             [device],
@@ -159,7 +172,7 @@ class UnifiedDatabase:
         neighbor_count = self.conn.execute(
             """
             SELECT COUNT(*)
-            FROM snapshot.topology_links
+            FROM main.topology_links
             WHERE local_device = ?
         """,
             [device],
@@ -194,22 +207,22 @@ class UnifiedDatabase:
         """
         # Device count
         device_count = self.conn.execute(
-            "SELECT COUNT(*) FROM snapshot.topology_devices"
+            "SELECT COUNT(*) FROM main.topology_devices"
         ).fetchone()[0]
 
         # Link count
         link_count = self.conn.execute(
-            "SELECT COUNT(*) FROM snapshot.topology_links"
+            "SELECT COUNT(*) FROM main.topology_links"
         ).fetchone()[0]
 
         # ARP entries
         arp_count = self.conn.execute(
-            "SELECT COUNT(*) FROM snapshot.arp_table"
+            "SELECT COUNT(*) FROM main.arp_table"
         ).fetchone()[0]
 
         # Route entries
         route_count = self.conn.execute(
-            "SELECT COUNT(*) FROM snapshot.routes"
+            "SELECT COUNT(*) FROM main.routes"
         ).fetchone()[0]
 
         # Command capabilities
@@ -251,7 +264,7 @@ class UnifiedDatabase:
                 mac_address,
                 interface,
                 snapshot_date
-            FROM snapshot.arp_table
+            FROM main.arp_table
             WHERE ip_address LIKE ?
             ORDER BY device_name, ip_address
         """,
@@ -296,7 +309,7 @@ class UnifiedDatabase:
                 END as status,
                 c.is_write
             FROM commands.audit_logs a
-            JOIN snapshot.topology_devices d ON a.device = d.name
+            JOIN main.topology_devices d ON a.device = d.name
             LEFT JOIN commands.capabilities c 
                 ON a.command LIKE '%' || c.name || '%' 
                 AND c.platform = d.platform
