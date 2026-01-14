@@ -437,4 +437,7 @@ def _format_skills_for_prompt(skills: dict[str, Any]) -> str:
             else:
                 skill_lines.append(f"- **{skill_id}** ({skill.complexity}): {description}")
 
-    return "## Available Execution Strategies\n\nWhen approaching tasks, use these Skill-based strategies:" + "\n".join(skill_lines)
+    return (
+        "## Available Execution Strategies\n\nWhen approaching tasks, use these Skill-based strategies:"
+        + "\n".join(skill_lines)
+    )

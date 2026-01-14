@@ -23,14 +23,13 @@ load_dotenv()
 def main():
     """Execute sync workflow."""
     parser = argparse.ArgumentParser(
-        description="Network sync - Collect network data",
-        prog="/sync"
+        description="Network sync - Collect network data", prog="/sync"
     )
     parser.add_argument(
         "devices",
         nargs="?",
         default="all",
-        help="Device filter: 'all' or comma-separated list (R1,R2,R3)"
+        help="Device filter: 'all' or comma-separated list (R1,R2,R3)",
     )
 
     args = parser.parse_args()
