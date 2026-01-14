@@ -1038,6 +1038,18 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
             report_lines.append(f"| {layer} | {layer_names[layer]} | {score}% | {status_icon} |")
         report_lines.append("")
 
+        # Explain L1 score calculation
+        l1_score = layer_scores.get("L1", 100)
+        if l1_score < 100:
+            report_lines.append(
+                "> **L1评分说明**: L1评分基于24小时日志中的链路状态变化(UPDOWN事件)。"
+            )
+            report_lines.append(
+                "> 每台设备若>5次链路变化则标记为警告。评分 = 正常设备数/总设备数 × 100%"
+            )
+            report_lines.append("> 如果链路持续稳定24小时无变化,下次检测时评分将恢复。")
+            report_lines.append("")
+
         # Overall stats table
         report_lines.append("### 检测统计")
         report_lines.append("")
@@ -1147,10 +1159,8 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         for name, filename in topology_files.items():
             topo_path = topo_base / filename
             if topo_path.exists():
-                # Relative path from reports/INSPECTION_ANALYSIS_REPORT.md
-                # reports/ -> exports/topology requires ../../exports/topology/
-                rel_path = f"../../../exports/topology/{filename}"
-                report_lines.append(f"- [{name}]({rel_path})")
+                # Use path relative to project root (works from any report location)
+                report_lines.append(f"- [{name}](../../topology/{filename})")
 
         report_lines.append("")
 
@@ -1282,9 +1292,19 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         report_lines.append("*报告由 OLAV v0.8 自动生成*")
         report_lines.append("")
 
-        # Write report
-        report_file = sync_dir / "reports" / "INSPECTION_ANALYSIS_REPORT.md"
+        # Write report to exports/reports/snapshots/{date}/
+        from config.paths import REPORTS_SNAPSHOTS_DIR
+
+        sync_date = sync_dir.name  # YYYY-MM-DD
+        report_output_dir = REPORTS_SNAPSHOTS_DIR / sync_date
+        report_output_dir.mkdir(parents=True, exist_ok=True)
+        report_file = report_output_dir / "INSPECTION_ANALYSIS_REPORT.md"
         report_file.write_text("\n".join(report_lines), encoding="utf-8")
+
+        # Also keep a copy in sync_dir for backwards compatibility
+        sync_report = sync_dir / "reports" / "INSPECTION_ANALYSIS_REPORT.md"
+        sync_report.parent.mkdir(parents=True, exist_ok=True)
+        sync_report.write_text("\n".join(report_lines), encoding="utf-8")
 
     except Exception:
         pass  # Report generation is optional
