@@ -31,11 +31,11 @@ def get_sync_base_dir() -> Path:
     """Get the base directory for sync data.
 
     Returns:
-        Path to exports/snapshots/sync/ directory (in project root, not .olav/)
+        Path to exports/snapshots/ directory (simplified structure)
     """
     from config.settings import PROJECT_ROOT
 
-    return PROJECT_ROOT / "exports" / "snapshots" / "sync"
+    return PROJECT_ROOT / "exports" / "snapshots"
 
 
 def get_sync_dir(date: str | None = None) -> Path:
@@ -45,7 +45,7 @@ def get_sync_dir(date: str | None = None) -> Path:
         date: Date string in YYYY-MM-DD format (default: today)
 
     Returns:
-        Path to exports/snapshots/sync/YYYY-MM-DD/ directory
+        Path to exports/snapshots/YYYY-MM-DD/ directory
     """
     base_dir = get_sync_base_dir()
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -428,27 +428,7 @@ def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> None:
     except Exception as e:
         print(f"[Stage2] Database error: {e}", flush=True)
 
-    # Generate sync summary report (Stage 2)
-    try:
-        print("[Stage2] Generating reports...", flush=True)
-        # Calculate actual stats from raw files (Stage 1 data)
-        raw_dir = sync_dir / "raw"
-        total_commands = 0
-        success_count = 0
-        if raw_dir.exists():
-            for device_dir in raw_dir.iterdir():
-                if device_dir.is_dir():
-                    txt_files = list(device_dir.glob("*.txt"))
-                    total_commands += len(txt_files)
-                    success_count += len(txt_files)  # All saved files are successful
-
-        _generate_sync_summary(sync_dir, len(device_names), total_commands, success_count)
-        _generate_map_phase_summaries(sync_dir, device_names)
-        _generate_inspection_analysis_report(sync_dir, device_names)
-    except Exception as e:
-        print(f"[Stage2] Report generation error: {e}", flush=True)
-
-    # Generate topology visualizations (Stage 2)
+    # Generate topology visualizations BEFORE reports (so report can link to them)
     try:
         print("[Stage2] Generating topology visualizations...", flush=True)
         from olav.core.database import init_topology_db
@@ -489,6 +469,26 @@ def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> None:
         visualize_full_topology.invoke({})
     except Exception as e:
         print(f"[Stage2] Visualization error: {e}", flush=True)
+
+    # Generate sync summary report (Stage 2) - AFTER topology so links work
+    try:
+        print("[Stage2] Generating reports...", flush=True)
+        # Calculate actual stats from raw files (Stage 1 data)
+        raw_dir = sync_dir / "raw"
+        total_commands = 0
+        success_count = 0
+        if raw_dir.exists():
+            for device_dir in raw_dir.iterdir():
+                if device_dir.is_dir():
+                    txt_files = list(device_dir.glob("*.txt"))
+                    total_commands += len(txt_files)
+                    success_count += len(txt_files)  # All saved files are successful
+
+        _generate_sync_summary(sync_dir, len(device_names), total_commands, success_count)
+        _generate_map_phase_summaries(sync_dir, device_names)
+        _generate_inspection_analysis_report(sync_dir, device_names)
+    except Exception as e:
+        print(f"[Stage2] Report generation error: {e}", flush=True)
 
     print("[Stage2] Post-processing complete!", flush=True)
 
@@ -891,24 +891,40 @@ def _generate_map_phase_summaries(sync_dir: Path, device_names: list[str]) -> No
     }
 
     # Track which commands/data sources were used for each layer
+    # More comprehensive list with actual command variants
     layer_commands = {
         "L1": [
-            "show logging (link up/down events)",
+            "show logging",
             "show cdp neighbors",
+            "show cdp neighbors detail",
             "show lldp neighbors",
+            "show lldp neighbors detail",
+            "show interface status",
+            "show interface summary",
+            "show inventory",
         ],
         "L2": [
             "show arp",
             "show mac address-table",
+            "show vlan",
+            "show vlan brief",
+            "show spanning-tree",
+            "show interfaces switchport",
         ],
         "L3": [
             "show ip ospf neighbor",
+            "show ip ospf interface brief",
             "show ip bgp summary",
+            "show ip bgp neighbors",
             "show ip route",
+            "show ip interface brief",
             "show memory statistics",
         ],
         "L4": [
             "show processes cpu",
+            "show processes cpu history",
+            "show tcp brief",
+            "show ntp status",
         ],
     }
 
@@ -1121,15 +1137,20 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         report_lines.append("")
 
         topology_files = {
-            "CDP/LLDP 发现拓扑": "cdp-lldp.html",
-            "OSPF 路由拓扑": "ospf.html",
-            "BGP 路由拓扑": "bgp.html",
+            "CDP/LLDP 物理拓扑 (L1)": "cdp-lldp.html",
+            "OSPF 路由拓扑 (L3)": "ospf.html",
+            "BGP 路由拓扑 (L3)": "bgp.html",
         }
 
+        # Use correct path: exports/topology (simplified)
+        topo_base = Path("exports/topology")
         for name, filename in topology_files.items():
-            topo_path = Path("data/visualizations/topology") / filename
+            topo_path = topo_base / filename
             if topo_path.exists():
-                report_lines.append(f"- [{name}](../../../{topo_path})")
+                # Relative path from reports/INSPECTION_ANALYSIS_REPORT.md
+                # reports/ -> exports/topology requires ../../exports/topology/
+                rel_path = f"../../../exports/topology/{filename}"
+                report_lines.append(f"- [{name}]({rel_path})")
 
         report_lines.append("")
 
@@ -1167,24 +1188,95 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         report_lines.append("")
 
         # =================================================================
-        # Recommendations
+        # Recommendations with Concrete Commands
         # =================================================================
-        report_lines.append("## 💡 建议 (Recommendations)")
+        report_lines.append("## 💡 建议与行动计划 (Recommendations & Action Plan)")
         report_lines.append("")
 
-        if critical_count > 0:
-            report_lines.append("1. **立即处理**: 存在严重告警，需要立即关注")
-        if warning_count > 0:
-            report_lines.append("2. **计划检查**: 存在警告项，建议安排检查")
+        recommendation_num = 0
 
+        # L1 Physical Layer Issues
+        layer_scores = inspect_summary.get("layer_scores", {})
+        l1_score = layer_scores.get("L1", 100)
+        if l1_score < 80:
+            recommendation_num += 1
+            report_lines.append(f"### {recommendation_num}. 物理层告警 (L1 Physical Layer)")
+            report_lines.append("")
+            report_lines.append("**问题**: 检测到接口频繁变化（link flapping）")
+            report_lines.append("")
+            report_lines.append("**建议检查命令**:")
+            report_lines.append("```bash")
+            report_lines.append("show interface status")
+            report_lines.append("show interface counters errors")
+            report_lines.append("show logging | include UPDOWN|LINK")
+            report_lines.append("```")
+            report_lines.append("")
+            report_lines.append("**行动计划**:")
+            report_lines.append("1. 检查物理连接（光纤/网线）")
+            report_lines.append("2. 检查接口错误计数器")
+            report_lines.append("3. 考虑启用 `carrier-delay` 延迟载波检测")
+            report_lines.append("")
+
+        # Critical alerts
+        if critical_count > 0:
+            recommendation_num += 1
+            report_lines.append(f"### {recommendation_num}. 严重告警处理")
+            report_lines.append("")
+            report_lines.append("**问题**: 系统检测到严重告警")
+            report_lines.append("")
+            report_lines.append("**建议检查命令**:")
+            report_lines.append("```bash")
+            report_lines.append("show processes cpu history")
+            report_lines.append("show memory statistics")
+            report_lines.append("show logging | include %")
+            report_lines.append("```")
+            report_lines.append("")
+
+        # Warning alerts
+        if warning_count > 0:
+            recommendation_num += 1
+            report_lines.append(f"### {recommendation_num}. 警告项检查")
+            report_lines.append("")
+            report_lines.append("**问题**: 存在需要关注的警告项")
+            report_lines.append("")
+            report_lines.append("**建议检查命令**:")
+            report_lines.append("```bash")
+            report_lines.append("show ip ospf neighbor")
+            report_lines.append("show ip bgp summary")
+            report_lines.append("show interface status err-disabled")
+            report_lines.append("```")
+            report_lines.append("")
+
+        # High frequency log events
         high_event_cats = [cat for cat, count in event_cats.items() if count > 100]
         if high_event_cats:
-            report_lines.append(f"3. **日志审查**: 以下类别事件频繁: {', '.join(high_event_cats)}")
+            recommendation_num += 1
+            report_lines.append(f"### {recommendation_num}. 日志事件分析")
+            report_lines.append("")
+            report_lines.append(f"**问题**: 以下类别事件频繁: {', '.join(high_event_cats)}")
+            report_lines.append("")
+            report_lines.append("**建议检查命令**:")
+            report_lines.append("```bash")
+            for cat in high_event_cats[:3]:
+                report_lines.append(f"show logging | include {cat}")
+            report_lines.append("```")
+            report_lines.append("")
 
-        if not anomalies and critical_count == 0:
-            report_lines.append("✅ 网络运行状态良好，未检测到明显异常")
+        # All good scenario
+        if recommendation_num == 0:
+            report_lines.append("### ✅ 网络运行状态良好")
+            report_lines.append("")
+            report_lines.append("未检测到明显异常，建议继续定期检查：")
+            report_lines.append("")
+            report_lines.append("**日常巡检命令**:")
+            report_lines.append("```bash")
+            report_lines.append("show ip interface brief")
+            report_lines.append("show ip ospf neighbor")
+            report_lines.append("show ip bgp summary")
+            report_lines.append("show processes cpu | include five")
+            report_lines.append("```")
+            report_lines.append("")
 
-        report_lines.append("")
         report_lines.append("---")
         report_lines.append("")
         report_lines.append("*报告由 OLAV v0.8 自动生成*")

@@ -548,7 +548,9 @@ Output ONLY a valid JSON object (no markdown, no code blocks).
                     continue
                 else:
                     # Fallback: generate basic report
-                    return self._generate_fallback_report(inspect_summary, log_summary, topology_path)
+                    return self._generate_fallback_report(
+                        inspect_summary, log_summary, topology_path
+                    )
 
     def _load_report_skill(self) -> str:
         """Load daily-report skill prompt.
@@ -705,7 +707,9 @@ Generate a structured network daily report in Markdown format.
                 detail = a.get("detail", "-")
 
                 status_icon = "🔴" if status == "critical" else "⚠️"
-                lines.append(f"| {device} | {check} | {status_icon} {status} | {value} | {detail} |")
+                lines.append(
+                    f"| {device} | {check} | {status_icon} {status} | {value} | {detail} |"
+                )
 
         if log_anomalies:
             lines.append("")

@@ -60,9 +60,10 @@ def main():
 
     try:
         # Import directly to avoid olav/__init__.py which loads deepagents
+        from datetime import datetime
+
         from olav.tools.network import list_devices, nornir_execute
         from olav.tools.sync_tools import get_sync_dir, update_latest_link
-        from datetime import datetime
 
         # Parse filter
         filter_params = parse_filter(args.filter)

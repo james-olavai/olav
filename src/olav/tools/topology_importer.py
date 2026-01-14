@@ -165,11 +165,20 @@ class TopologyImporter:
             logger.warning(f"Parsed directory not found: {parsed_dir}")
             return self.stats
 
+        # Clear existing topology_links before fresh import
+        try:
+            self.db.execute("DELETE FROM topology_links")
+            print("🗑️  已清空 topology_links 表")
+        except Exception as e:
+            logger.warning(f"Failed to clear topology_links: {e}")
+
         # Build OSPF neighbor ID to device name mapping
         ospf_id_to_device = self._build_ospf_id_mapping(parsed_dir)
 
-        # Build ARP table for CDP IP lookup: {device: {interface: ip}}
-        arp_tables = self._build_arp_tables(parsed_dir)
+        # Build ARP tables for IP lookup
+        # local_ips: device's own interface IPs (AGE="-")
+        # neighbor_ips: learned neighbor IPs on each interface
+        local_ips, neighbor_ips = self._build_arp_tables(parsed_dir)
 
         # ============================================================
         # 第一阶段: 收集所有链接 (不直接插入)
@@ -251,34 +260,46 @@ class TopologyImporter:
                                 continue
 
                             elif "bgp" in filename_lower:
-                                # BGP Neighbor: use Neighbor IP or router ID
-                                # The "Neighbor" or "network" field contains the peer IP/ID
+                                # BGP Neighbor: Parse from BGP summary output
+                                # NTC templates may parse as "Neighbor" or "network" field
                                 neighbor_ip = link_data.get("Neighbor", "") or link_data.get(
                                     "network", ""
                                 )
 
-                                # Skip header lines that aren't actual neighbors
-                                if not neighbor_ip or neighbor_ip in ("Neighbor", "BGP", "Codes:"):
+                                # Skip header/garbage lines
+                                if not neighbor_ip:
+                                    continue
+                                # Skip common header keywords
+                                skip_values = {
+                                    "Neighbor",
+                                    "BGP",
+                                    "Codes:",
+                                    "9",
+                                    "11",
+                                    "0",
+                                    "1",
+                                    "6/4",
+                                }
+                                if neighbor_ip in skip_values:
                                     continue
 
-                                # Skip non-IP entries (header parsing artifacts)
+                                # Must be a valid IP address for actual BGP neighbor
                                 if not _is_ip_address(neighbor_ip):
                                     continue
 
                                 # Try to map neighbor IP to device name
                                 remote_device = ospf_id_to_device.get(neighbor_ip, "")
 
-                                # If not found by router ID, try IP-based lookup
+                                # If not found by router ID, skip
                                 if not remote_device:
-                                    # Skip if we can't identify the neighbor
                                     self.stats["skipped"] += 1
                                     continue
 
                                 # Get AS numbers for eBGP/iBGP determination
-                                # "metric" field often contains remote AS in parsed output
-                                remote_as = link_data.get("metric", "") or link_data.get("AS", "")
-                                # Local AS derived from device's router ID pattern
-                                # (In real scenarios, would parse from 'show ip bgp' output)
+                                # In parsed output, AS is in "metric" field due to parsing
+                                remote_as = str(
+                                    link_data.get("metric", "") or link_data.get("AS", "")
+                                )
                                 local_as = self._get_device_as(device)
 
                                 # 计算 BGP 类型 (在导入阶段完成)
@@ -384,14 +405,23 @@ class TopologyImporter:
         for link in all_links:
             if link["protocol"] in ("CDP", "LLDP"):
                 device = link["local_device"]
+                remote_device = link["remote_device"]
                 local_port = link["local_port"]
+                remote_port = link["remote_port"]
 
-                # 标准化接口名并查找IP
-                if device in arp_tables and local_port:
+                # Get local IP from local device's ARP (own interface IP)
+                if device in local_ips and local_port:
                     normalized_port = self._normalize_interface_name(local_port)
-                    local_ip = arp_tables[device].get(normalized_port, "")
+                    local_ip = local_ips[device].get(normalized_port, "")
                     if local_ip:
                         link["local_ip"] = local_ip
+
+                # Get remote IP from remote device's ARP (their interface IP)
+                if remote_device in local_ips and remote_port:
+                    normalized_remote = self._normalize_interface_name(remote_port)
+                    remote_ip = local_ips[remote_device].get(normalized_remote, "")
+                    if remote_ip:
+                        link["remote_ip"] = remote_ip
 
         # ============================================================
         # 第三阶段: 验证并插入数据库
@@ -440,13 +470,18 @@ class TopologyImporter:
         self._print_stats("Parsed JSON")
         return self.stats
 
-    def _build_arp_tables(self, parsed_dir: Path) -> dict[str, dict[str, str]]:
+    def _build_arp_tables(
+        self, parsed_dir: Path
+    ) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]]]:
         """Build ARP tables from parsed show-arp.json files.
 
         Returns:
-            {device: {normalized_interface: ip_address}}
+            Tuple of:
+            - local_ips: {device: {normalized_interface: local_ip}}  (AGE="-")
+            - neighbor_ips: {device: {normalized_interface: neighbor_ip}}  (AGE!="-")
         """
-        arp_tables: dict[str, dict[str, str]] = {}
+        local_ips: dict[str, dict[str, str]] = {}
+        neighbor_ips: dict[str, dict[str, str]] = {}
 
         for device_dir in parsed_dir.glob("*/"):
             device = device_dir.name
@@ -463,27 +498,32 @@ class TopologyImporter:
                 if not entries:
                     continue
 
-                device_arp: dict[str, str] = {}
+                device_local: dict[str, str] = {}
+                device_neighbor: dict[str, str] = {}
+
                 for entry in entries:
                     interface = entry.get("INTERFACE", "")
                     address = entry.get("ADDRESS", "")
                     age = entry.get("AGE_MIN", "")
 
-                    # Only include entries with valid interface and address
-                    # Prefer entries with AGE "-" (local addresses) over aged ones
                     if interface and address:
                         normalized = self._normalize_interface_name(interface)
-                        # If "-" age (local), always use it; otherwise only if not set
-                        if age == "-" or normalized not in device_arp:
-                            device_arp[normalized] = address
+                        if age == "-":
+                            # Local IP (self interface)
+                            device_local[normalized] = address
+                        else:
+                            # Neighbor IP (learned via ARP)
+                            device_neighbor[normalized] = address
 
-                if device_arp:
-                    arp_tables[device] = device_arp
+                if device_local:
+                    local_ips[device] = device_local
+                if device_neighbor:
+                    neighbor_ips[device] = device_neighbor
 
             except (json.JSONDecodeError, OSError) as e:
                 logger.debug(f"Failed to load ARP table for {device}: {e}")
 
-        return arp_tables
+        return local_ips, neighbor_ips
 
     def _normalize_interface_name(self, name: str) -> str:
         """Normalize interface name for consistent lookup.
@@ -495,21 +535,27 @@ class TopologyImporter:
         """
         name = name.strip()
 
-        # Common abbreviation mappings
+        # If already full name, return as-is
+        if name.startswith(("GigabitEthernet", "FastEthernet", "TenGigabitEthernet", "Ethernet")):
+            return name
+        if name.startswith(("Loopback", "Vlan")):
+            return name
+
+        # Common abbreviation mappings (only for short forms)
         abbrev_map = [
-            (r"^Eth\s*", "Ethernet"),
-            (r"^Gig\s*", "GigabitEthernet"),
-            (r"^Gi\s*", "GigabitEthernet"),
-            (r"^Fa\s*", "FastEthernet"),
-            (r"^Te\s*", "TenGigabitEthernet"),
-            (r"^Lo\s*", "Loopback"),
-            (r"^Vl\s*", "Vlan"),
+            (r"^Gi\s*(\S+)$", r"GigabitEthernet\1"),
+            (r"^Gig\s*(\S+)$", r"GigabitEthernet\1"),
+            (r"^Fa\s*(\S+)$", r"FastEthernet\1"),
+            (r"^Eth\s*(\S+)$", r"Ethernet\1"),
+            (r"^Te\s*(\S+)$", r"TenGigabitEthernet\1"),
+            (r"^Lo\s*(\S+)$", r"Loopback\1"),
+            (r"^Vl\s*(\S+)$", r"Vlan\1"),
         ]
 
         for pattern, replacement in abbrev_map:
-            if re.match(pattern, name, re.IGNORECASE):
-                name = re.sub(pattern, replacement, name, flags=re.IGNORECASE)
-                break
+            match = re.match(pattern, name, re.IGNORECASE)
+            if match:
+                return re.sub(pattern, replacement, name, flags=re.IGNORECASE)
 
         return name
 

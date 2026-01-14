@@ -8,9 +8,7 @@ Usage:
     db_path = NETWORK_WAREHOUSE_PATH
 """
 
-from pathlib import Path
-
-from config.settings import PROJECT_ROOT, AGENT_DIR
+from config.settings import AGENT_DIR, PROJECT_ROOT
 
 # =============================================================================
 # Database Paths (Internal - .olav/db/)
@@ -26,13 +24,21 @@ KNOWLEDGE_PATH = DB_DIR / "knowledge.duckdb"
 # =============================================================================
 
 EXPORTS_DIR = PROJECT_ROOT / "exports"
+
+# Snapshots: exports/snapshots/<YYYY-MM-DD>/
+# Simplified structure (removed /sync/ layer)
 SNAPSHOTS_DIR = EXPORTS_DIR / "snapshots"
-SNAPSHOT_SYNC_DIR = SNAPSHOTS_DIR / "sync"
+# Note: SNAPSHOT_SYNC_DIR kept for backwards compatibility, maps to SNAPSHOTS_DIR
+SNAPSHOT_SYNC_DIR = SNAPSHOTS_DIR  # Alias - sync is implied
+
+# Reports (standalone analysis reports)
 REPORTS_DIR = EXPORTS_DIR / "reports"
 REPORTS_ANALYSIS_DIR = REPORTS_DIR / "analysis"
 REPORTS_SNAPSHOTS_DIR = REPORTS_DIR / "snapshots"
+
+# Visualizations: exports/topology/ (simplified from exports/visualizations/topology)
 VISUALIZATION_DIR = EXPORTS_DIR / "visualizations"
-TOPOLOGY_VIZ_DIR = VISUALIZATION_DIR / "topology"
+TOPOLOGY_VIZ_DIR = EXPORTS_DIR / "topology"  # Simplified path
 
 # =============================================================================
 # Configuration & Retention
