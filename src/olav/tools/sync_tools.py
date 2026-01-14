@@ -980,11 +980,11 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
 
         # Build report content
         report_lines = []
-        report_lines.append("# 网络运维分析报告 (Network Operations Analysis Report)")
+        report_lines.append("# Network Operations Analysis Report")
         report_lines.append("")
-        report_lines.append(f"**报告生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        report_lines.append("**检测范围**: L1 (物理层) 至 L4 (传输层)")
-        report_lines.append(f"**设备数量**: {len(device_names)} 台")
+        report_lines.append(f"**Report Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        report_lines.append("**Scope**: L1 (Physical) to L4 (Transport)")
+        report_lines.append(f"**Total Devices**: {len(device_names)}")
         report_lines.append("")
         report_lines.append("---")
         report_lines.append("")
@@ -992,7 +992,7 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         # =================================================================
         # Executive Summary with Health Score
         # =================================================================
-        report_lines.append("## 📊 执行摘要 (Executive Summary)")
+        report_lines.append("## 📊 Executive Summary")
         report_lines.append("")
 
         # Calculate health score
@@ -1007,24 +1007,24 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
             health_score = 100  # No issues detected
 
         health_status = (
-            "🟢 健康" if health_score >= 80 else ("🟡 警告" if health_score >= 50 else "🔴 严重")
+            "🟢 Healthy" if health_score >= 80 else ("🟡 Warning" if health_score >= 50 else "🔴 Critical")
         )
 
-        report_lines.append(f"### 网络健康评分: {health_score}% {health_status}")
+        report_lines.append(f"### Network Health Score: {health_score}% {health_status}")
         report_lines.append("")
 
         # L1-L4 Layer Health Scores
         layer_scores = inspect_summary.get("layer_scores", {})
-        report_lines.append("### 分层健康评分 (Layer Health Scores)")
+        report_lines.append("### Layer Health Scores")
         report_lines.append("")
-        report_lines.append("| 层级 | 名称 | 健康度 | 状态 |")
-        report_lines.append("|------|------|--------|------|")
+        report_lines.append("| Layer | Name | Score | Status |")
+        report_lines.append("|-------|------|-------|--------|")
 
         layer_names = {
-            "L1": "物理层 (Physical)",
-            "L2": "数据链路层 (Data Link)",
-            "L3": "网络层 (Network)",
-            "L4": "传输层 (Transport)",
+            "L1": "Physical",
+            "L2": "Data Link",
+            "L3": "Network",
+            "L4": "Transport",
         }
 
         for layer in ["L1", "L2", "L3", "L4"]:
@@ -1042,24 +1042,24 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         l1_score = layer_scores.get("L1", 100)
         if l1_score < 100:
             report_lines.append(
-                "> **L1评分说明**: L1评分基于24小时日志中的链路状态变化(UPDOWN事件)。"
+                "> **L1 Score Explanation**: Based on link state changes (UPDOWN events) in 24-hour logs."
             )
             report_lines.append(
-                "> 每台设备若>5次链路变化则标记为警告。评分 = 正常设备数/总设备数 × 100%"
+                "> Devices with >5 link changes are marked as warning. Score = ok_devices / total_devices × 100%"
             )
-            report_lines.append("> 如果链路持续稳定24小时无变化,下次检测时评分将恢复。")
+            report_lines.append("> If links remain stable for 24 hours, score will recover on next check.")
             report_lines.append("")
 
         # Overall stats table
-        report_lines.append("### 检测统计")
+        report_lines.append("### Inspection Statistics")
         report_lines.append("")
-        report_lines.append("| 指标 | 值 |")
-        report_lines.append("|------|-----|")
-        report_lines.append(f"| **设备总数** | {len(device_names)} |")
-        report_lines.append(f"| **检测项数** | {total_checks} |")
-        report_lines.append(f"| **正常** | {ok_count} ✅ |")
-        report_lines.append(f"| **警告** | {warning_count} ⚠️ |")
-        report_lines.append(f"| **严重** | {critical_count} 🔴 |")
+        report_lines.append("| Metric | Value |")
+        report_lines.append("|--------|-------|")
+        report_lines.append(f"| **Total Devices** | {len(device_names)} |")
+        report_lines.append(f"| **Check Items** | {total_checks} |")
+        report_lines.append(f"| **OK** | {ok_count} ✅ |")
+        report_lines.append(f"| **Warning** | {warning_count} ⚠️ |")
+        report_lines.append(f"| **Critical** | {critical_count} 🔴 |")
         report_lines.append("")
 
         # =================================================================
@@ -1067,10 +1067,10 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         # =================================================================
         anomalies = inspect_summary.get("anomalies", [])
         if anomalies:
-            report_lines.append("## ⚠️ 检测到的异常 (Detected Anomalies)")
+            report_lines.append("## ⚠️ Detected Anomalies")
             report_lines.append("")
-            report_lines.append("| 设备 | 类型 | 值 | 严重程度 |")
-            report_lines.append("|------|------|-----|---------|")
+            report_lines.append("| Device | Type | Value | Severity |")
+            report_lines.append("|--------|------|-------|----------|")
             for anomaly in anomalies[:10]:
                 sev_icon = "🔴" if anomaly.get("severity") == "critical" else "⚠️"
                 report_lines.append(
@@ -1082,26 +1082,26 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         # =================================================================
         # Log Analysis Section (24-hour window)
         # =================================================================
-        report_lines.append("## 📋 日志分析 (Log Analysis)")
+        report_lines.append("## 📋 Log Analysis")
         report_lines.append("")
-        report_lines.append("**分析范围: 最近24小时**")
+        report_lines.append("**Analysis Scope: Last 24 Hours**")
         report_lines.append("")
 
         total_events = log_summary.get("total_events", 0)
         events_in_window = log_summary.get("events_in_window", total_events)
         devices_analyzed = log_summary.get("devices_analyzed", 0)
-        report_lines.append(f"- **分析设备数**: {devices_analyzed}")
-        report_lines.append(f"- **24小时内事件**: {events_in_window}")
-        report_lines.append(f"- **历史事件总数**: {total_events}")
+        report_lines.append(f"- **Devices Analyzed**: {devices_analyzed}")
+        report_lines.append(f"- **Events in 24h**: {events_in_window}")
+        report_lines.append(f"- **Total Historical Events**: {total_events}")
         report_lines.append("")
 
         # Severity distribution
         sev_dist = log_summary.get("severity_distribution", {})
         if sev_dist:
-            report_lines.append("### 事件严重程度分布")
+            report_lines.append("### Event Severity Distribution")
             report_lines.append("")
-            report_lines.append("| 级别 | 数量 |")
-            report_lines.append("|------|------|")
+            report_lines.append("| Severity | Count |")
+            report_lines.append("|----------|-------|")
             for sev in ["emergency", "alert", "critical", "error", "warning", "notice", "info"]:
                 count = sev_dist.get(sev, 0)
                 if count > 0:
@@ -1167,10 +1167,10 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         # =================================================================
         # Device Inventory
         # =================================================================
-        report_lines.append("## 📱 设备清单 (Device Inventory)")
+        report_lines.append("## 📱 Device Inventory")
         report_lines.append("")
-        report_lines.append("| 设备 | 状态 | 健康 |")
-        report_lines.append("|------|------|------|")
+        report_lines.append("| Device | Status | Health |")
+        report_lines.append("|--------|--------|--------|")
         devices_status = inspect_summary.get("devices_status", {})
         for device in sorted(device_names):
             status = devices_status.get(device, "active")
@@ -1180,7 +1180,7 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         # =================================================================
         # Data Collection Details
         # =================================================================
-        report_lines.append("## 📁 数据收集详情 (Data Collection Details)")
+        report_lines.append("## 📁 Data Collection Details")
         report_lines.append("")
 
         total_raw_files = 0
@@ -1192,15 +1192,15 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
             if device_dir.is_dir():
                 total_parsed_files += len(list(device_dir.glob("*.json")))
 
-        report_lines.append(f"- **原始命令输出**: {total_raw_files} 个文件")
-        report_lines.append(f"- **解析后的JSON**: {total_parsed_files} 个文件")
-        report_lines.append(f"- **日志事件解析**: {total_events} 条")
+        report_lines.append(f"- **Raw Command Output**: {total_raw_files} files")
+        report_lines.append(f"- **Parsed JSON Files**: {total_parsed_files} files")
+        report_lines.append(f"- **Log Events Parsed**: {total_events} events")
         report_lines.append("")
 
         # =================================================================
         # Recommendations with Concrete Commands
         # =================================================================
-        report_lines.append("## 💡 建议与行动计划 (Recommendations & Action Plan)")
+        report_lines.append("## 💡 Recommendations & Action Plan")
         report_lines.append("")
 
         recommendation_num = 0
@@ -1210,31 +1210,31 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         l1_score = layer_scores.get("L1", 100)
         if l1_score < 80:
             recommendation_num += 1
-            report_lines.append(f"### {recommendation_num}. 物理层告警 (L1 Physical Layer)")
+            report_lines.append(f"### {recommendation_num}. L1 Physical Layer Alert")
             report_lines.append("")
-            report_lines.append("**问题**: 检测到接口频繁变化（link flapping）")
+            report_lines.append("**Issue**: Detected frequent interface state changes (link flapping)")
             report_lines.append("")
-            report_lines.append("**建议检查命令**:")
+            report_lines.append("**Recommended Commands**:")
             report_lines.append("```bash")
             report_lines.append("show interface status")
             report_lines.append("show interface counters errors")
             report_lines.append("show logging | include UPDOWN|LINK")
             report_lines.append("```")
             report_lines.append("")
-            report_lines.append("**行动计划**:")
-            report_lines.append("1. 检查物理连接（光纤/网线）")
-            report_lines.append("2. 检查接口错误计数器")
-            report_lines.append("3. 考虑启用 `carrier-delay` 延迟载波检测")
+            report_lines.append("**Action Plan**:")
+            report_lines.append("1. Check physical connections (fiber/cable)")
+            report_lines.append("2. Check interface error counters")
+            report_lines.append("3. Consider enabling `carrier-delay` for carrier detection")
             report_lines.append("")
 
         # Critical alerts
         if critical_count > 0:
             recommendation_num += 1
-            report_lines.append(f"### {recommendation_num}. 严重告警处理")
+            report_lines.append(f"### {recommendation_num}. Critical Alert Handling")
             report_lines.append("")
-            report_lines.append("**问题**: 系统检测到严重告警")
+            report_lines.append("**Issue**: System detected critical alerts")
             report_lines.append("")
-            report_lines.append("**建议检查命令**:")
+            report_lines.append("**Recommended Commands**:")
             report_lines.append("```bash")
             report_lines.append("show processes cpu history")
             report_lines.append("show memory statistics")
@@ -1245,11 +1245,11 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         # Warning alerts
         if warning_count > 0:
             recommendation_num += 1
-            report_lines.append(f"### {recommendation_num}. 警告项检查")
+            report_lines.append(f"### {recommendation_num}. Warning Items Review")
             report_lines.append("")
-            report_lines.append("**问题**: 存在需要关注的警告项")
+            report_lines.append("**Issue**: Warning items require attention")
             report_lines.append("")
-            report_lines.append("**建议检查命令**:")
+            report_lines.append("**Recommended Commands**:")
             report_lines.append("```bash")
             report_lines.append("show ip ospf neighbor")
             report_lines.append("show ip bgp summary")
@@ -1261,11 +1261,11 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
         high_event_cats = [cat for cat, count in event_cats.items() if count > 100]
         if high_event_cats:
             recommendation_num += 1
-            report_lines.append(f"### {recommendation_num}. 日志事件分析")
+            report_lines.append(f"### {recommendation_num}. Log Event Analysis")
             report_lines.append("")
-            report_lines.append(f"**问题**: 以下类别事件频繁: {', '.join(high_event_cats)}")
+            report_lines.append(f"**Issue**: High frequency events in categories: {', '.join(high_event_cats)}")
             report_lines.append("")
-            report_lines.append("**建议检查命令**:")
+            report_lines.append("**Recommended Commands**:")
             report_lines.append("```bash")
             for cat in high_event_cats[:3]:
                 report_lines.append(f"show logging | include {cat}")
@@ -1274,11 +1274,11 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
 
         # All good scenario
         if recommendation_num == 0:
-            report_lines.append("### ✅ 网络运行状态良好")
+            report_lines.append("### ✅ Network Operating Normally")
             report_lines.append("")
-            report_lines.append("未检测到明显异常，建议继续定期检查：")
+            report_lines.append("No significant anomalies detected. Continue routine monitoring:")
             report_lines.append("")
-            report_lines.append("**日常巡检命令**:")
+            report_lines.append("**Routine Inspection Commands**:")
             report_lines.append("```bash")
             report_lines.append("show ip interface brief")
             report_lines.append("show ip ospf neighbor")
@@ -1289,16 +1289,17 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
 
         report_lines.append("---")
         report_lines.append("")
-        report_lines.append("*报告由 OLAV v0.8 自动生成*")
+        report_lines.append("*Auto-generated by OLAV v0.8*")
         report_lines.append("")
 
-        # Write report to exports/reports/snapshots/{date}/
+        # Write report to exports/reports/snapshots/YYYYMMDD.md
         from config.paths import REPORTS_SNAPSHOTS_DIR
 
         sync_date = sync_dir.name  # YYYY-MM-DD
-        report_output_dir = REPORTS_SNAPSHOTS_DIR / sync_date
-        report_output_dir.mkdir(parents=True, exist_ok=True)
-        report_file = report_output_dir / "INSPECTION_ANALYSIS_REPORT.md"
+        REPORTS_SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+        # Convert YYYY-MM-DD to YYYYMMDD for filename
+        report_filename = sync_date.replace("-", "") + ".md"
+        report_file = REPORTS_SNAPSHOTS_DIR / report_filename
         report_file.write_text("\n".join(report_lines), encoding="utf-8")
 
         # Also keep a copy in sync_dir for backwards compatibility
