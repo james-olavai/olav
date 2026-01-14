@@ -172,13 +172,24 @@ class TopologyImporter:
         except Exception as e:
             logger.warning(f"Failed to clear topology_links: {e}")
 
-        # Build OSPF neighbor ID to device name mapping
+        # Build OSPF neighbor ID to device name mapping (router IDs like 1.1.1.1)
         ospf_id_to_device = self._build_ospf_id_mapping(parsed_dir)
 
         # Build ARP tables for IP lookup
         # local_ips: device's own interface IPs (AGE="-")
         # neighbor_ips: learned neighbor IPs on each interface
         local_ips, neighbor_ips = self._build_arp_tables(parsed_dir)
+
+        # Build IP-to-device mapping for BGP neighbor resolution
+        # Includes both Router IDs and interface IPs
+        ip_to_device = dict(ospf_id_to_device)  # Start with router IDs
+        for device, ips in local_ips.items():
+            for _iface, ip in ips.items():
+                if ip and ip not in ip_to_device:
+                    ip_to_device[ip] = device
+
+        # Build device AS mapping from parsed BGP output
+        device_as_map = self._build_device_as_mapping(parsed_dir)
 
         # ============================================================
         # 第一阶段: 收集所有链接 (不直接插入)
@@ -288,19 +299,21 @@ class TopologyImporter:
                                     continue
 
                                 # Try to map neighbor IP to device name
-                                remote_device = ospf_id_to_device.get(neighbor_ip, "")
+                                # Uses both router IDs and interface IPs
+                                remote_device = ip_to_device.get(neighbor_ip, "")
 
-                                # If not found by router ID, skip
+                                # If not found, skip
                                 if not remote_device:
                                     self.stats["skipped"] += 1
                                     continue
 
-                                # Get AS numbers for eBGP/iBGP determination
-                                # In parsed output, AS is in "metric" field due to parsing
+                                # Get AS numbers from parsed BGP data
+                                # metric field contains remote AS in parsed output
                                 remote_as = str(
                                     link_data.get("metric", "") or link_data.get("AS", "")
                                 )
-                                local_as = self._get_device_as(device)
+                                # Get local AS from device_as_map (parsed from actual BGP output)
+                                local_as = device_as_map.get(device, "65000")
 
                                 # 计算 BGP 类型 (在导入阶段完成)
                                 bgp_type = "iBGP" if local_as == remote_as else "eBGP"
@@ -617,15 +630,38 @@ class TopologyImporter:
             return f"{num}.{num}.{num}.{num}"
         return ""
 
-    def _get_device_as(self, device: str) -> str:
-        """Get AS number for a device.
+    def _build_device_as_mapping(self, parsed_dir: Path) -> dict[str, str]:
+        """Build mapping from device name to its local AS number.
 
-        This is a simplified lookup. In production, would parse from config.
-        For lab topology, use naming convention or default AS.
+        Parses from show-ip-bgp-summary.json which contains:
+        'BGP router identifier X.X.X.X, local AS number XXXXX'
         """
-        # For lab: assume all routers in same AS unless different naming
-        # Could be enhanced to read from show ip bgp output
-        return "65000"  # Default AS
+        device_as: dict[str, str] = {}
+
+        for device_dir in parsed_dir.glob("*/"):
+            device = device_dir.name
+            bgp_file = device_dir / "show-ip-bgp-summary.json"
+
+            if not bgp_file.exists():
+                continue
+
+            try:
+                # Read raw file to extract local AS (parsed JSON doesn't have it)
+                raw_file = parsed_dir.parent / "raw" / device / "show-ip-bgp-summary.txt"
+                if raw_file.exists():
+                    content = raw_file.read_text(encoding="utf-8")
+                    # Pattern: 'local AS number 65000'
+                    match = re.search(r"local AS number\s+(\d+)", content)
+                    if match:
+                        device_as[device] = match.group(1)
+            except Exception as e:
+                logger.debug(f"Failed to get AS for {device}: {e}")
+
+        return device_as
+
+    def _get_device_as(self, device: str) -> str:
+        """Get AS number for a device (deprecated, use device_as_map)."""
+        return "65000"  # Fallback default
 
     def _insert_link(
         self,
