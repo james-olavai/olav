@@ -16,6 +16,14 @@ from olav.core.skill_loader import get_skill_loader
 from olav.core.storage import get_storage_permissions
 from olav.core.subagent_manager import format_subagent_descriptions, get_subagent_middleware
 from olav.tools.capabilities import api_call, search_capabilities
+from olav.tools.database_tools import (
+    analyze_network_health,
+    find_ip_location,
+    get_device_health,
+    get_network_summary,
+    query_database,
+    search_ip_across_network,
+)
 from olav.tools.inspection_tools import generate_report
 from olav.tools.learning_tools import update_aliases_tool
 from olav.tools.loader import reload_capabilities
@@ -188,6 +196,13 @@ User asks about: call API, external system integration
         nornir_execute,  # Secondary: Direct command execution
         api_call,  # Secondary: API calls
         research_problem_tool,  # Phase 3: Research tool (knowledge + web search)
+        # Phase 4: Database query tools - fast access to historical data
+        find_ip_location,  # Find IP location in network (from ARP/routes)
+        get_device_health,  # Get device health metrics (cross-DB query)
+        get_network_summary,  # Get network-wide statistics
+        search_ip_across_network,  # Search IPs by pattern
+        analyze_network_health,  # L1-L4 health analysis with anomaly detection
+        query_database,  # Direct SQL query (SELECT only)
         # Phase 4: Learning tools - update device aliases
         update_aliases_tool,  # Update device naming conventions
         # Phase 6: Storage tools - file operations with HITL
@@ -222,6 +237,14 @@ User asks about: call API, external system integration
             "nornir_execute": False,  # Safe: whitelist + blacklist enforcement
             "api_call": False,  # Safe: API validation in tool layer
             "research_problem": False,  # Read-only: local search + web search
+            # Phase 4: Database query tools - all read-only
+            "find_ip_location": False,  # Read-only: ARP/routes lookup
+            "get_device_health": False,  # Read-only: cross-DB query
+            "get_network_summary": False,  # Read-only: statistics
+            "search_ip_across_network": False,  # Read-only: pattern search
+            "analyze_network_health": False,  # Read-only: health analysis
+            "query_database": False,  # Read-only: SELECT only
+            # Phase 4: Learning tools
             "update_aliases": True,  # Phase 4: Learning - requires approval (writes to disk)
             # Phase 6: Storage tools - file operations
             "write_file": True,  # Filesystem write requires approval
