@@ -8,6 +8,7 @@ from pathlib import Path
 
 import duckdb
 
+from config.paths import KNOWLEDGE_PATH
 from config.settings import settings
 
 
@@ -104,7 +105,7 @@ def search_knowledge(
     Returns:
         Formatted search results with content snippets
     """
-    db_path = Path(settings.agent_dir) / "db" / "knowledge.duckdb"
+    db_path = KNOWLEDGE_PATH
 
     if not db_path.exists():
         return ""  # Knowledge base not initialized

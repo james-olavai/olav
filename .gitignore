@@ -63,6 +63,10 @@ test_*.py
 .olav/scratch/
 *.sqlite
 
+# Platform Logs
+logs/
+*.log
+
 # Exported Data (User-Facing, Version Controlled Optional)
 # Uncomment to ignore exported data:
 exports/snapshots/*
@@ -75,14 +79,6 @@ exports/visualizations/*
 !exports/reports/analysis/.gitkeep
 !exports/reports/snapshots/.gitkeep
 !exports/visualizations/.gitkeep
-
-# Legacy data directories (deprecated after v0.8.2 restructure)
-data/sync/
-data/visualizations/
-data/e2e_test_backups/
-data/exports/*
-data/reports/*
-data/logs/*
 
 # Sensitive Configuration (User-Specific)
 # NEVER commit these files - they contain API keys, passwords, and secrets

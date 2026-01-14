@@ -303,25 +303,22 @@ OLAV 在两种模式下运行：**自然语言**（Agentic）和**工作流**（
 ### 工作流命令（`/`）
 对于频繁的任务，使用斜杠命令触发**Schema 感知工作流**。这些比自由形式的聊天更快、更便宜（更少的令牌）且更可靠。
 
-**详细用法：**
+**核心命令：**
 
-*   **`/analyze [query]`**: 启动 MicroAnalyzer 子智能体。
+*   **`/snapshot`**: 采集网络状态快照并进行 L1-L4 健康分析。
+    *   *示例*: `/snapshot`（所有设备）或 `/snapshot group:core`
+*   **`/analyze [query]`**: 启动 MicroAnalyzer 子智能体进行深度诊断。
     *   *示例*: `/analyze "为什么 Core-01 上的 BGP 对等连接断开？"`
-*   **`/inspect [target]`**: 运行健康检查（L1-L4）。
-    *   *示例*: `/inspect group:core` 或 `/inspect R1`
-*   **`/backup`**: 为所有/特定设备备份 running-config。
-    *   *示例*: `/backup`（所有）或 `/backup group:access`
+*   **`/search [query]`**: 跨知识库和网络的混合搜索。
+    *   *示例*: `/search "OSPF 邻接故障排除"`
 
 | 命令 | 描述 | Agentic 等级 |
 |------|------|------------|
-| `/analyze` | **深度诊断**: 启动 MicroAnalyzer 子智能体进行根本原因分析。 | ⭐⭐⭐ |
-| `/inspect` | **健康检查**: 基于已知 schema 运行 L1-L4 检查。 | ⭐⭐ |
-| `/backup` | **配置备份**: 用于保存 running-config 的标准化工作流。 | ⭐ |
-| `/search` | **RAG 搜索**: 跨本地知识（.md）和网络的混合搜索。 | ⭐ |
+| `/snapshot` | **网络快照**: 完整的 L1-L4 健康检查，含拓扑可视化。 | ⭐⭐ |
+| `/analyze` | **深度诊断**: MicroAnalyzer 子智能体进行根本原因分析。 | ⭐⭐⭐ |
+| `/search` | **RAG 搜索**: 跨本地知识和网络的混合搜索。 | ⭐ |
 | `/devices` | **清单**: 列出已连接设备及其连接状态。 | - |
 | `/skills` | **技能清单**: 列出已加载的 Markdown SOP。 | - |
-| `/stats` | **令牌使用**: 显示成本和令牌消耗统计。 | - |
-| `/plan` | **调试**: 显示智能体的当前思维链和规划。 | - |
 | `/clear` | 清屏。 | - |
 | `/quit` | 退出。 | - |
 
@@ -352,15 +349,74 @@ OLAV 遵循**"文档即真实"**哲学。
 | 功能 | 输入/输出 | 路径 | 格式 |
 |------|---------|------|------|
 | **知识库** | 输入 | `.olav/knowledge/` | `.md`、`.txt`、`.pdf` |
-| **报告** | 输出 | `.olav/reports/` | `.html`（仪表板）、`.json` |
+| **快照报告** | 输出 | `exports/reports/snapshots/` | `.md`（每日健康报告） |
+| **拓扑图** | 输出 | `exports/visualizations/` | `.html`（交互式拓扑） |
 | **技能** | 输入 | `.olav/skills/` | `.md`（Claude Code 格式） |
 | **清单** | 输入 | `.olav/config/nornir/hosts.yaml` | YAML |
 
+**内部数据（高级）：**
+| 功能 | 路径 | 描述 |
+|---|---|---|
+| **同步缓存** | `data/sync/{date}/` | Raw/Parsed 设备输出（中间数据） |
+
 **用法：**
 - 将本地站点文档放入 `knowledge/` 并运行 `uv run python scripts/index_knowledge.py`。
-- 在 `reports/` 中找到生成的健康报告（来自 `/inspect` 或 `/analyze`）。
+- 在 `exports/reports/snapshots/YYYYMMDD.md` 中找到生成的快照报告。
+- 在 `exports/visualizations/topology.html` 中查看网络拓扑。
 
-### 5. Agentic 自主学习
+### 5. 定时快照（Cron）
+
+OLAV 支持使用操作系统原生任务调度器进行自动定时快照。这比进程内调度器更可靠，且能在系统重启后自动恢复。
+
+**Linux/macOS（crontab）：**
+```bash
+# 编辑 crontab
+crontab -e
+
+# 添加定时快照（每天 6:00 AM）
+0 6 * * * cd /path/to/olav && uv run olav query "/snapshot" >> .olav/logs/cron.log 2>&1
+
+# 备选：每周报告（周一 9:00 AM）
+0 9 * * 1 cd /path/to/olav && uv run olav query "/snapshot --report" >> .olav/logs/cron.log 2>&1
+```
+
+**Windows（任务计划程序）：**
+1. 打开**任务计划程序**（taskschd.msc）
+2. 点击**创建基本任务**
+3. 设置触发器：每天 6:00 AM
+4. 设置操作：启动程序
+   - 程序：`cmd.exe`
+   - 参数：`/c cd /d C:\path\to\olav && uv run olav query "/snapshot"`
+5. 勾选"不管用户是否登录都要运行"
+
+**输出位置：**
+```
+exports/
+├── reports/
+│   └── snapshots/
+│       └── 20260114.md      # 每日快照报告
+└── visualizations/
+    └── topology.html        # 网络拓扑
+```
+
+**Cron 调度语法：**
+```
+┌───────────── 分钟 (0-59)
+│ ┌───────────── 小时 (0-23)
+│ │ ┌───────────── 日期 (1-31)
+│ │ │ ┌───────────── 月份 (1-12)
+│ │ │ │ ┌───────────── 星期几 (0-6, 周日=0)
+│ │ │ │ │
+* * * * * 命令
+```
+
+常见示例：
+- `0 6 * * *` - 每天 6:00 AM
+- `0 */4 * * *` - 每 4 小时
+- `0 9 * * 1` - 每周一 9:00 AM
+- `0 0 1 * *` - 每月 1 日午夜
+
+### 6. Agentic 自主学习
 OLAV 可以从成功的故障排除会话和用户交互中学习：
 
 **自动生成的内容：**

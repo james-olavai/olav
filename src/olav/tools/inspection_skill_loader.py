@@ -135,9 +135,9 @@ class InspectionSkillLoader:
 
         name = title_match.group(1).strip()
 
-        # Extract target (检查目标)
+        # Extract target (Inspection target)
         target_match = re.search(
-            r"## 检查目标\s*\n(.*?)(?=\n##|\Z)",
+            r"## Inspection Target\s*\n(.*?)(?=\n##|\Z)",
             content,
             re.DOTALL,
         )
@@ -178,7 +178,7 @@ class InspectionSkillLoader:
     def _extract_parameters(self, content: str) -> list[SkillParameter]:
         """Extract parameter definitions from skill content.
 
-        Looks for a parameters table with columns: 参数, 类型, 默认值, 说明
+        Looks for a parameters table with columns: Parameter, Type, Default Value, Description
 
         Args:
             content: Raw Markdown content
@@ -190,7 +190,7 @@ class InspectionSkillLoader:
 
         # Find parameters table
         table_match = re.search(
-            r"## 巡检参数\s*\n.*?\n\|.*?\n\|-+\|.*?\|.*?\|(.*?)(?=\n## |\Z)",
+            r"## Inspection Parameters\s*\n.*?\n\|.*?\n\|-+\|.*?\|.*?\|(.*?)(?=\n## |\Z)",
             content,
             re.DOTALL,
         )
@@ -228,7 +228,7 @@ class InspectionSkillLoader:
 
         # Find steps section
         steps_match = re.search(
-            r"## 执行步骤\s*\n(.*?)(?=\n## |\Z)",
+            r"## Execution Steps\s*\n(.*?)(?=\n## |\Z)",
             content,
             re.DOTALL,
         )
@@ -260,7 +260,7 @@ class InspectionSkillLoader:
 
         # Find acceptance criteria section
         criteria_match = re.search(
-            r"## 验收标准\s*\n(.*?)(?=\n## |\Z)",
+            r"## Acceptance Criteria\s*\n(.*?)(?=\n## |\Z)",
             content,
             re.DOTALL,
         )
@@ -272,7 +272,7 @@ class InspectionSkillLoader:
 
         # Extract PASS conditions
         pass_match = re.search(
-            r"###?\s*✅\s*PASS\s*条件(.*?)(?=\n###|$)",
+            r"###?\s*✅\s*PASS\s*Condition(.*?)(?=\n###|$)",
             criteria_content,
             re.DOTALL | re.IGNORECASE,
         )
@@ -286,7 +286,7 @@ class InspectionSkillLoader:
 
         # Extract WARNING conditions
         warn_match = re.search(
-            r"###?\s*⚠️\s*WARNING\s*条件(.*?)(?=\n###|$)",
+            r"###?\s*⚠️\s*WARNING\s*Condition(.*?)(?=\n###|$)",
             criteria_content,
             re.DOTALL | re.IGNORECASE,
         )
@@ -300,7 +300,7 @@ class InspectionSkillLoader:
 
         # Extract FAIL conditions
         fail_match = re.search(
-            r"###?\s*❌\s*FAIL\s*条件(.*?)(?=\n###|$)",
+            r"###?\s*❌\s*FAIL\s*Condition(.*?)(?=\n###|$)",
             criteria_content,
             re.DOTALL | re.IGNORECASE,
         )
@@ -327,7 +327,7 @@ class InspectionSkillLoader:
 
         # Find troubleshooting section
         ts_match = re.search(
-            r"## 故障排查\s*\n(.*?)(?=\n## |\Z)",
+            r"## Troubleshooting\s*\n(.*?)(?=\n## |\Z)",
             content,
             re.DOTALL,
         )
@@ -339,7 +339,7 @@ class InspectionSkillLoader:
 
         # Extract problem/solution pairs
         problems = re.findall(
-            r"### 问题[:\s]*(.+?)(?=\n###|\Z)",
+            r"### Issue[:\s]*(.+?)(?=\n###|\Z)",
             ts_content,
             re.DOTALL,
         )

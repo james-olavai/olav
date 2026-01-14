@@ -395,6 +395,42 @@ def version() -> None:
     )
 
 
+@app.command()
+def snapshot(
+    group: str = typer.Option("test", "--group", "-g", help="Nornir group to snapshot"),
+    devices: str = typer.Option("all", "--devices", "-d", help="Devices to snapshot (comma-separated or 'all')"),
+) -> None:
+    """Capture network device state snapshot (Stage 1: collect, Stage 2: parse+analyze).
+
+    Examples:
+        olav snapshot                    # Snapshot all devices in 'test' group
+        olav snapshot --group production # Snapshot production group
+        olav snapshot --devices R1,R2    # Snapshot specific devices
+    """
+    import os
+
+    from olav.tools.sync_tools import sync_all
+
+    # Set CLI mode flag for sync_tools to wait for Stage 2
+    os.environ["OLAV_CLI_MODE"] = "1"
+
+    console.print(
+        Panel(
+            f"[bold cyan]Capturing Network Snapshot[/bold cyan]\n"
+            f"Group: {group}\nDevices: {devices}",
+            border_style="cyan",
+        )
+    )
+
+    try:
+        # sync_all is a StructuredTool, use .invoke() to call it
+        result = sync_all.invoke({"devices": devices, "group": group})
+        console.print(Panel(result, title="[bold green]Snapshot Complete[/bold green]", border_style="green"))
+    except Exception as e:
+        console.print(f"[bold red]❌ Snapshot Error: {str(e)}[/bold red]")
+        raise typer.Exit(1) from None
+
+
 @app.callback(invoke_without_command=True)
 def interactive_mode(ctx: typer.Context) -> None:
     """Start interactive OLAV session (default when no command given)."""

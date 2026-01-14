@@ -8,7 +8,7 @@ This module provides safe file storage operations for:
 
 All write operations require HITL approval for safety.
 
-Phase 7: Agentic Report Embedding - automatically embeds reports written to data/reports/
+Phase 7: Agentic Report Embedding - automatically embeds reports written to exports/reports/
 """
 
 import logging
@@ -30,9 +30,8 @@ def _get_allowed_dirs() -> list[str]:
     """
     agent_dir = settings.agent_dir
     return [
-        "data/exports",  # Exported device data (configs, MAC tables, etc.)
-        "data/reports",  # Analysis reports
-        "data/logs",  # Application and Nornir logs
+        "exports",  # Exported device data, snapshots, reports
+        "logs",  # Application and Nornir logs
         f"{agent_dir}/knowledge/solutions",  # Troubleshooting solutions
         f"{agent_dir}/scratch",  # Temporary files
     ]
@@ -86,7 +85,7 @@ def _is_path_allowed(filepath: str, allowed_dirs: list[str]) -> bool:
 def _auto_embed_report(filepath: str) -> str:
     """Auto-embed markdown reports to knowledge base (Phase 7).
 
-    When a report is written to data/reports/*.md, automatically embed it
+    When a report is written to exports/reports/*.md, automatically embed it
     to the DuckDB knowledge vector store for retrieval.
 
     Args:
@@ -98,8 +97,8 @@ def _auto_embed_report(filepath: str) -> str:
     try:
         path = Path(filepath)
 
-        # Only auto-embed markdown reports in data/reports/
-        if not (path.suffix.lower() == ".md" and "data/reports" in str(path)):
+        # Only auto-embed markdown reports in exports/reports/
+        if not (path.suffix.lower() == ".md" and "exports/reports" in str(path)):
             return ""  # Silent skip for non-markdown files
 
         # Lazy import to avoid circular dependencies
@@ -131,19 +130,18 @@ def write_file(
     """Write content to a file in the OLAV knowledge base.
 
     This tool saves data to the local filesystem. Allowed directories:
-    - data/exports/ - Exported device data (configs, MAC tables, ARP, etc.)
-    - data/reports/ - Analysis reports (auto-embedded to KB)
-    - data/logs/ - Application and Nornir logs
+    - exports/ - Exported device data, snapshots, reports, topology
+    - logs/ - Application and Nornir logs
     - agent_dir/knowledge/solutions/ - Troubleshooting solutions
     - agent_dir/scratch/ - Temporary files
 
     IMPORTANT: This operation requires HITL approval.
 
-    Phase 7 Enhancement: Markdown reports (.md) in data/reports/ are automatically
+    Phase 7 Enhancement: Markdown reports (.md) in exports/reports/ are automatically
     embedded to the knowledge vector store for agentic retrieval.
 
     Args:
-        filepath: Path to write (relative to project root, e.g., "data/exports/R1-config.txt")
+        filepath: Path to write (relative to project root, e.g., "exports/snapshots/2025-01-14/raw/R1-config.txt")
         content: Content to write
         create_dirs: Whether to create parent directories if they don't exist
 
@@ -151,7 +149,7 @@ def write_file(
         Success message with filepath, or error message
 
     Examples:
-        path = "data/exports/R1-running-config.txt"
+        path = "exports/snapshots/2025-01-14/raw/R1-running-config.txt"
         write_file(path, config_output)
     """
     # Validate path
@@ -202,7 +200,7 @@ def read_file(
         File content, or error message
 
     Examples:
-        read_file("data/exports/R1-running-config.txt")
+        read_file("exports/snapshots/2025-01-14/raw/R1-running-config.txt")
         read_file(f"{settings.agent_dir}/skills/quick-query.md")
     """
     # Validate path

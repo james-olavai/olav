@@ -14,7 +14,7 @@ from pathlib import Path
 
 def setup_logging(
     log_level: str = "INFO",
-    log_file: str = "data/logs/olav.log",
+    log_file: str = "logs/olav.log",
     max_bytes: int = 10 * 1024 * 1024,  # 10MB
     backup_count: int = 5,
 ) -> None:
