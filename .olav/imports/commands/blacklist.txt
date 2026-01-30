@@ -1,9 +1,0 @@
-# CLI Command Blacklist
-
-# Dangerous commands - Execution prohibited
-reload
-reboot
-shutdown
-delete
-erase
-format

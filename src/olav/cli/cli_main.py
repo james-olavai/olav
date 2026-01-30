@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 console = Console()
 app = typer.Typer(
     name="olav",
-    help="OLAV v0.8 - Network Operations AI Assistant",
+    help="OLAV v0.9.6 - Network Operations AI Assistant",
     no_args_is_help=False,  # Default to interactive mode
     invoke_without_command=True,
 )
@@ -32,188 +32,125 @@ app = typer.Typer(
 
 async def stream_agent_response(
     agent: Any,
-    messages: list[dict],
+    inputs: dict[str, Any] | list[dict[str, Any]],
     verbose: bool = False,
     memory: "AgentMemory | None" = None,
 ) -> str:
-    """Stream agent response with hierarchical output display.
-
-    P8 Enhancement: Added layered streaming with tool call visibility and
-    structured output. Supports verbose mode for debugging.
-
-    Displays in compact mode (default):
-    - Tool calls: Highlighted panels showing device/command
-    - Results: Standard formatted output
-    - Progress: Spinner while LLM is thinking (if display_thinking enabled)
-
-    Displays in verbose mode (--verbose flag):
-    - Full LLM thinking process as it streams
-    - Tool calls with execution status
-    - Final results with full context
+    """Stream agent response (simplified to invoke for reliable table output).
 
     Args:
-        agent: OLAV agent instance
-        messages: Conversation messages
-        verbose: If True, show full thinking process; else show tools + results only
+        agent: OLAV agent instance (CompiledGraph)
+        inputs: Input dict
+        verbose: If True, show thinking
+        memory: Agent memory
 
     Returns:
-        Complete response text (final result only)
+        Final result string
     """
-    from config.settings import settings
     from olav.cli.display import StreamingDisplay
 
-    # Use display_thinking config - if true, show streaming tokens
-    show_thinking = settings.display_thinking or verbose
-    # Enable streaming display when display_thinking is on
-    stream_tokens = show_thinking
-    display = StreamingDisplay(verbose=stream_tokens, show_spinner=not stream_tokens)
+    # P8 Enhancement: Always enable streaming for better responsiveness
+    is_tty = sys.stdin.isatty()
 
-    full_response = ""
-    accumulated_content = ""
-    previous_tool = None
-    displayed_tool_types: set[str] = set()  # Track displayed tool types
-    first_content_seen = False
-    spinner_started = False
+    if isinstance(inputs, dict):
+        base_inputs = inputs
+    else:
+        base_inputs = {"messages": inputs, "retry_count": 0}
 
-    # Tools that deserve full panel display
-    IMPORTANT_TOOLS = {"nornir_execute", "smart_query", "api_call"}  # noqa: N806
+    display = StreamingDisplay(verbose=verbose, show_spinner=True, quiet=not is_tty)
 
-    def extract_ai_content(msg: Any) -> str:
-        """Extract content from AIMessage, ignoring tool calls."""
-        if hasattr(msg, "content") and msg.content:
-            if hasattr(msg, "tool_calls") and msg.tool_calls and not msg.content:
-                return ""
-            return msg.content
-        return ""
+    # Show spinner if not verbose (in verbose, logs will show activity)
+    if not verbose:
+        display.show_processing_status("Generating SQL and querying...")
 
-    def parse_tool_call(tool_call: Any) -> tuple[str, str | None, str | None] | None:
-        """Parse tool call to extract name, device, and command.
+    try:
+        # Use ainvoke directly to ensure we get the final state with the result
+        final_state = await agent.ainvoke(base_inputs)
 
-        Args:
-            tool_call: Tool call object from AIMessage
-
-        Returns:
-            Tuple of (tool_name, device, command) or None if not parseable
-        """
-        try:
-            name = getattr(tool_call, "name", "") or tool_call.get("name", "")
-            if not name:
-                return None
-
-            # Extract device and command from args
-            args = getattr(tool_call, "args", {}) or tool_call.get("args", {})
-            if isinstance(args, str):
-                # Try to parse if it's a JSON string
-                import json
-
-                try:
-                    args = json.loads(args)
-                except (json.JSONDecodeError, TypeError):
-                    args = {}
-
-            device = args.get("device") or args.get("target")
-            command = args.get("command")
-
-            return (name, device, command)
-        except (AttributeError, TypeError):
-            return None
-
-    # Stream tokens as they arrive - use stream_mode="messages" for token-level streaming
-    # "messages" mode provides incremental token updates (real streaming)
-    event_count = 0
-    accumulated_content = ""
-
-    async for chunk in agent.astream({"messages": messages}, stream_mode="messages"):
-        event_count += 1
-
-        # messages mode returns (message, metadata) tuples
-        if isinstance(chunk, tuple) and len(chunk) >= 1:
-            msg = chunk[0]  # First element is the message
-            msg_type = type(msg).__name__
-
-            # Handle tool calls (AIMessage/AIMessageChunk with tool_calls)
-            if msg_type in ("AIMessage", "AIMessageChunk") and hasattr(msg, "tool_calls"):
-                if msg.tool_calls:
-                    # Stop spinner before showing tool calls
-                    if spinner_started:
-                        display.stop_processing_status()
-                        spinner_started = False
-
-                    for tool_call in msg.tool_calls:
-                        # Avoid duplicate display of same tool call
-                        tool_id = getattr(tool_call, "id", "") or tool_call.get("id")
-                        if tool_id == previous_tool:
-                            continue
-
-                        parsed = parse_tool_call(tool_call)
-                        if parsed:
-                            tool_name, device, command = parsed
-
-                            # Important tools get full panel
-                            if tool_name in IMPORTANT_TOOLS:
-                                display.show_tool_call(
-                                    tool_name=tool_name,
-                                    device=device,
-                                    command=command,
-                                    status="executing",
-                                )
-                            else:
-                                # Other tools: show compact, but only first time per type
-                                if tool_name not in displayed_tool_types:
-                                    display.show_tool_call(
-                                        tool_name=tool_name,
-                                        device=device,
-                                        command=command,
-                                        status="executing",
-                                        compact=True,
-                                    )
-                                    displayed_tool_types.add(tool_name)
-
-                            previous_tool = tool_id
-
-            # Handle AI response content - stream it token by token
-            if msg_type in ("AIMessage", "AIMessageChunk") and hasattr(msg, "content"):
-                content_chunk = msg.content
-                # Accept empty strings too (they still count as chunks)
-                if content_chunk is not None:
-                    # This is a delta token from the LLM
-                    if not first_content_seen and content_chunk:
-                        first_content_seen = True
-                        # Only show spinner in compact mode (non-streaming)
-                        if not spinner_started and not stream_tokens:
-                            display.show_processing_status("🤔 Thinking...")
-                            spinner_started = True
-
-                    # Accumulate and display content deltas
-                    if content_chunk:
-                        accumulated_content += content_chunk
-
-                        if stream_tokens:
-                            # Stream mode: show each token as it arrives
-                            display.show_thinking(content_chunk, end="")
-                        elif spinner_started:
-                            # Compact mode with spinner, just accumulate for now
-                            pass
-                        else:
-                            # Compact mode without spinner, stream directly
-                            display.show_result(content_chunk, end="")
-
-    # Stop spinner if still running
-    if spinner_started:
         display.stop_processing_status()
-        # In compact mode with spinner, show accumulated result with Markdown
-        if accumulated_content.strip():
-            display.show_result(accumulated_content, markdown=True)
-    elif stream_tokens and accumulated_content.strip():
-        # After streaming tokens, just add newline (content already shown)
-        display.show_result("\n")
-    elif accumulated_content.strip():
-        # Compact mode without streaming, show with Markdown
-        display.show_result(accumulated_content, markdown=True)
 
-    full_response = accumulated_content
+        result = final_state.get("result")
+        error = final_state.get("error")
+        sql_query = final_state.get("sql_query")
 
-    return full_response
+        # If verbose mode or if result is missing, check message content
+        messages = final_state.get("messages", [])
+        last_message_content = ""
+        if messages:
+            last_msg = messages[-1]
+            if hasattr(last_msg, "content") and last_msg.content:
+                last_message_content = last_msg.content
+
+        if verbose and sql_query:
+            from rich.panel import Panel
+
+            # In verbose mode, show the generated SQL
+            if display.console:
+                display.console.print(Panel(sql_query, title="Generated SQL", border_style="dim"))
+
+        if error:
+            display.show_error(error)
+            return f"Error: {error}"
+
+        if result:
+            # P10: Ensure result is displayed even if it's a string JSON
+            display.show_json_table(result)
+            
+            # P10 Fix: Ensure output is flushed to stdout when piped (bypassing Rich/print stack)
+            if not is_tty:
+                # If it's a complex object (Table), print it as JSON string for parsability
+                val_to_print = str(result)
+                if isinstance(result, (dict, list)):
+                   import json
+                   val_to_print = json.dumps(result, ensure_ascii=False)
+                
+                # Use os.write to guarantee output to stdout (fd 1) even if Python buffers/redirects
+                import os
+                os.write(1, (val_to_print + "\n").encode())
+
+            if is_tty:
+                print()  # Final newline for prompt-toolkit
+            return str(result)
+
+        # If no structured result, but we have text content (explanation), show that
+        if last_message_content and not result:
+            display.show_result(last_message_content, markdown=True)
+            if is_tty:
+                print()  # Final newline for prompt-toolkit
+            return last_message_content
+
+        return "No result returned."
+
+    except Exception as e:
+        display.stop_processing_status()
+        import traceback
+
+        traceback.print_exc()
+        display.show_error(str(e))
+        return f"Error: {e}"
+
+
+def _get_snapshot_time() -> str | None:
+    """Get snapshot timestamp from database.
+
+    Returns:
+        Snapshot timestamp string or None if unavailable
+    """
+    try:
+        from olav.core.unified_database import UnifiedDatabase
+
+        with UnifiedDatabase() as db:
+            # Try to get snapshot time from views
+            result = db.query("""
+                SELECT DISTINCT snapshot_date
+                FROM main.v_system
+                LIMIT 1
+            """)
+            if result and result[0]:
+                return str(result[0][0])
+    except Exception:
+        pass
+    return None
 
 
 def run_interactive_loop(
@@ -228,22 +165,143 @@ def run_interactive_loop(
         session: Prompt session
         agent: OLAV agent instance
     """
+    from pathlib import Path
+
     from config.settings import settings
     from olav.cli.commands import execute_command
     from olav.cli.input_parser import parse_input
+    from olav.core.query_router import QueryRouter
+    from olav.agents.query_agent_v2 import QueryAgentV2
 
-    print("Type /help for available commands or just ask a question.\n")
+    # Initialize QueryRouter and Display
+    is_tty = sys.stdin.isatty()
+    from olav.cli.display import StreamingDisplay
+    display = StreamingDisplay(console=console, verbose=False, show_spinner=is_tty, quiet=not is_tty)
+
+    try:
+        config_path = Path(".olav/config/routing_rules.yaml")
+        router = QueryRouter(config_path)
+        if is_tty:
+            print("✅ QueryRouter initialized")
+    except FileNotFoundError:
+        router = None
+        if is_tty:
+            print("⚠️  QueryRouter config not found, using default routing")
+
+    if is_tty:
+        print("Type /help for available commands or just ask a question.\n")
 
     while True:
         try:
             # Get user input (synchronous - prompt-toolkit handles its own event loop)
-            user_input = session.prompt_sync("OLAV> ")
+            prompt_str = "OLAV> " if is_tty else ""
+            user_input = session.prompt_sync(prompt_str)
 
             # Strip BOM and whitespace (PowerShell on Windows adds BOM to piped input)
             user_input = user_input.lstrip("\ufeff").strip()
 
             if not user_input:
                 continue
+
+            # =========================================================================
+            # QueryRouter: Route user input before processing
+            # =========================================================================
+            if router:
+                routing_decision = router.route(user_input)
+
+                # Handle Guard rejections
+                if routing_decision.action == "reject":
+                    print(f"🚫 {routing_decision.message}")
+                    continue
+
+                # Handle approval requirements
+                if routing_decision.action == "require_approval":
+                    print(f"⚠️  {routing_decision.message}")
+                    confirm = session.prompt_sync("Continue? (yes/no): ")
+                    if confirm.lower() not in ["yes", "y"]:
+                        print("❌ Cancelled")
+                        continue
+
+                # Log routing decision for debugging (if verbose)
+                if settings.display_thinking and is_tty:
+                    print(f"🎯 Route: {routing_decision.expert} -> {routing_decision.tool}")
+
+                # Fast-Path: Direct tool execution if tool and params are provided
+                if routing_decision.expert == "database" and routing_decision.tool and routing_decision.params:
+                    # Look for the tool in the agent's scripts/skills
+                    # For simplicity, we can use the agent's existing tool runners if possible
+                    # or call the SkillAdapter directly.
+                    try:
+                        from olav.core.skill_adapter import SkillAdapter
+                        from olav.core.skill_loader import get_skill_loader
+                        
+                        loader = get_skill_loader()
+                        skill = loader.get_skill("network-query")
+                        
+                        # Find the tool in the skill
+                        tool_def = next((t for t in skill.frontmatter.get("tools", []) if t["name"] == routing_decision.tool), None)
+                        
+                        if tool_def:
+                            display.show_processing_status(f"⚡ Fast-Path: Executing {routing_decision.tool}...")
+                            executor = SkillAdapter._create_executor(tool_def["script"])
+                            result = executor(**routing_decision.params)
+                            display.stop_processing_status()
+                            
+                            # Standardize result check (handle both 'data' and 'results' keys)
+                            tool_data = result.get("data") or result.get("results")
+                            has_data = tool_data is not None and len(tool_data) > 0 if isinstance(tool_data, (list, dict)) else tool_data is not None
+
+                            if not has_data:
+                                if is_tty:
+                                    print("📊 Database lookup yielded no results. Falling back to Agent analysis...")
+                                # Do NOT continue; fall through to normal agent query
+                            else:
+                                # Check if it's a semantic tier hit (Tier 0 or Tier 1)
+                                is_semantic = routing_decision.message and ("Tier 0" in routing_decision.message or "Tier 1" in routing_decision.message)
+
+                                if is_semantic:
+                                    # Add data source indicator before synthesis
+                                    if routing_decision.tool == "query_database":
+                                        snapshot_time = _get_snapshot_time()
+                                        display.show_data_source_indicator("sql", snapshot_time=snapshot_time)
+                                    elif routing_decision.tool == "smart_query":
+                                        device = routing_decision.params.get("device") if routing_decision.params else None
+                                        display.show_data_source_indicator("cli", device=device)
+
+                                    display.show_processing_status("🤔 Synthesizing response...")
+                                    if hasattr(agent, "synthesis"):
+                                        synthesis_output = asyncio.run(agent.synthesis(user_input, tool_data))
+                                        display.stop_processing_status()
+                                        display.show_result(synthesis_output, end="\n")  # Ensure newline
+                                        continue
+                                    else:
+                                        display.stop_processing_status()
+
+                                # Fallback to standard result display (for regex-matched fast-path)
+                                # Add data source indicator
+                                if routing_decision.tool == "query_database":
+                                    # SQL database source
+                                    snapshot_time = _get_snapshot_time()
+                                    display.show_data_source_indicator("sql", snapshot_time=snapshot_time)
+                                elif routing_decision.tool == "smart_query":
+                                    # CLI live query source
+                                    device = routing_decision.params.get("device") if routing_decision.params else None
+                                    display.show_data_source_indicator("cli", device=device)
+                                else:
+                                    # Unknown source
+                                    display.show_data_source_indicator("unknown")
+
+                                display.show_result(f"✅ Fast-Path Result for {routing_decision.tool}:")
+                                if isinstance(tool_data, (list, dict)):
+                                    display.show_json_table(tool_data)
+                                else:
+                                    display.show_result(str(tool_data), end="\n")
+                                
+                                continue # Skip the agent loop
+                    except Exception as e:
+                        display.stop_processing_status()
+                        display.show_error(f"Fast-path execution failed: {e}")
+                        # Fall through to normal agent query
 
             # Check for slash commands first
             if user_input.startswith("/"):
@@ -257,7 +315,27 @@ def run_interactive_loop(
                         )
                     )
                     if result:
-                        print(result)
+                        # Check if result should be sent to Agent
+                        if result.startswith("AGENT_PROMPT::"):
+                            # Extract prompt and send to Agent
+                            agent_prompt = result[len("AGENT_PROMPT::") :]
+                            print("🤖 Sending to Agent for analysis...\n")
+                            memory.add("user", agent_prompt)
+                            history = memory.get_conversation_messages(max_turns=10, max_chars=8000)
+                            messages = [
+                                {"role": role, "content": content} for role, content in history
+                            ] + [{"role": "user", "content": agent_prompt}]
+                            use_verbose = settings.display_thinking
+                            inputs = {"messages": messages, "retry_count": 0}
+                            output = asyncio.run(
+                                stream_agent_response(
+                                    agent, inputs, verbose=use_verbose, memory=memory
+                                )
+                            )
+                            if output:
+                                memory.add("assistant", output)
+                        else:
+                            print(result)
                 except EOFError:
                     # /quit raises EOFError - re-raise to exit
                     raise
@@ -295,19 +373,33 @@ def run_interactive_loop(
             memory.add("user", processed_text)
 
             # P8: Stream agent response with layered output
-            print("🔍 Processing...", flush=True)
+            if is_tty:
+                print("🔍 Processing...", flush=True)
             try:
                 # Build messages with conversation history
                 history = memory.get_conversation_messages(max_turns=10, max_chars=8000)
-                # Format: history + current message (convert tuples to dicts)
-                messages = [{"role": role, "content": content} for role, content in history] + [
-                    {"role": "user", "content": processed_text}
-                ]
+
+                # Phase 15: Intent Masking (Protocol Isolation)
+                agent_messages = [{"role": role, "content": content} for role, content in history]
+                # Phase 17: Intent masking removed. SQL Assistant handles domain focus dynamically.
+                pass
+
+                agent_messages.append({"role": "user", "content": processed_text})
+
+                # Phase 17: Resolve Expert Skill (Federated Specialists)
+                skill_name = "network-query"
+                if router and routing_decision.expert:
+                    expert_cfg = router.get_expert_config(routing_decision.expert)
+                    skill_name = expert_cfg.get("skill", skill_name)
+
+                # Initialize Query Agent V2 with specific skill
+                agent = QueryAgentV2(mode="standard", skill_name=skill_name)
 
                 # Use verbose mode only if DISPLAY_THINKING=true
                 use_verbose = settings.display_thinking
+                inputs = {"messages": agent_messages, "retry_count": 0}
                 output = asyncio.run(
-                    stream_agent_response(agent, messages, verbose=use_verbose, memory=memory)
+                    stream_agent_response(agent, inputs, verbose=use_verbose, memory=memory)
                 )
 
                 if output:
@@ -320,7 +412,8 @@ def run_interactive_loop(
 
         except EOFError:
             # User pressed Ctrl+D or /quit
-            print("\n👋 Goodbye! Session saved.")
+            if sys.stdin.isatty():
+                print("\n👋 Goodbye! Session saved.")
             break
         except KeyboardInterrupt:
             print("\n⚠️ Interrupted. Type /quit to exit.")
@@ -343,21 +436,49 @@ def query(
         olav query "R1 的 BGP 邻居" --debug
         olav query "Check R2 BGP" --verbose
     """
-    from olav.agent import create_olav_agent
+    from olav.agents.query_agent_v2 import QueryAgentV2
+    from olav.cli.display import StreamingDisplay
+
+    display = StreamingDisplay(console=console, verbose=verbose, show_spinner=not verbose)
 
     console.print(Panel(f"[bold cyan]Query[/bold cyan]: {query_text}", border_style="cyan"))
 
     try:
-        agent = create_olav_agent(debug=debug)
-        messages = [{"role": "user", "content": query_text}]
+        if not verbose:
+            display.show_processing_status("Processing query...")
 
-        console.print("[dim]🔍 Processing...[/dim]")
-        output = asyncio.run(stream_agent_response(agent, messages, verbose=verbose))
+        import asyncio
 
-        if not output:
-            console.print("[yellow]No response received[/yellow]")
+        # Phase 17: Intent Routing for single query
+        from olav.core.query_router import QueryRouter
+        router = QueryRouter()
+        routing_decision = router.route(query_text)
+        
+        skill_name = "network-query"
+        if routing_decision.expert:
+            expert_cfg = router.get_expert_config(routing_decision.expert)
+            skill_name = expert_cfg.get("skill", skill_name)
+
+        # Initialize QueryAgentV2 with routed skill
+        agent = QueryAgentV2(mode="standard", skill_name=skill_name)
+
+        # Execute query
+        result = asyncio.run(agent.query(query_text))
+
+        display.stop_processing_status()
+
+        # Handle result
+        if result["status"] == "success":
+            console.print(f"\n[bold green]✓[/bold green] {result['output']}\n")
+        elif result["status"] == "not_implemented":
+            console.print(f"\n[bold yellow]⚠[/bold yellow] {result['message']}\n")
+        else:
+            console.print(
+                f"\n[bold red]❌ Error:[/bold red] {result.get('error', 'Unknown error')}\n"
+            )
 
     except Exception as e:
+        display.stop_processing_status()
         console.print(f"[bold red]❌ Error: {str(e)}[/bold red]")
         if debug:
             import traceback
@@ -369,11 +490,13 @@ def query(
 @app.command()
 def devices() -> None:
     """List all managed network devices."""
-    from olav.tools.network import list_devices as nornir_list_devices
+    from olav.tools.network import list_devices as nornir_list_devices_tool
 
     console.print("[bold cyan]Loading network devices...[/bold cyan]")
     try:
-        result = nornir_list_devices()  # type: ignore[call-arg]
+        # The @tool decorator wraps the function, so we need to call it via the tool's func attribute
+        # or directly use the underlying function
+        result = nornir_list_devices_tool.func()  # type: ignore[call-arg]
         console.print(
             Panel(result, title="[bold cyan]Network Devices[/bold cyan]", border_style="cyan")
         )
@@ -387,9 +510,9 @@ def version() -> None:
     """Show OLAV version and information."""
     console.print(
         Panel(
-            "[bold cyan]OLAV v0.8[/bold cyan]\n"
+            "[bold cyan]OLAV v0.9.6[/bold cyan]\n"
             "Network Operations AI Assistant\n"
-            "Powered by DeepAgents + LangChain",
+            "Unified Schema & Zero-ETL Architecture",
             border_style="cyan",
         )
     )
@@ -398,7 +521,9 @@ def version() -> None:
 @app.command()
 def snapshot(
     group: str = typer.Option("test", "--group", "-g", help="Nornir group to snapshot"),
-    devices: str = typer.Option("all", "--devices", "-d", help="Devices to snapshot (comma-separated or 'all')"),
+    devices: str = typer.Option(
+        "all", "--devices", "-d", help="Devices to snapshot (comma-separated or 'all')"
+    ),
 ) -> None:
     """Capture network device state snapshot (Stage 1: collect, Stage 2: parse+analyze).
 
@@ -423,11 +548,106 @@ def snapshot(
     )
 
     try:
+        # Parse devices parameter: convert comma-separated string to list
+        device_list = None if devices == "all" else [d.strip() for d in devices.split(",")]
+
         # sync_all is a StructuredTool, use .invoke() to call it
-        result = sync_all.invoke({"devices": devices, "group": group})
-        console.print(Panel(result, title="[bold green]Snapshot Complete[/bold green]", border_style="green"))
+        result = sync_all.invoke({"devices": device_list})  # type: ignore[attr-defined]
+
+        console.print(
+            Panel(result, title="[bold green]Snapshot Complete[/bold green]", border_style="green")
+        )
     except Exception as e:
         console.print(f"[bold red]❌ Snapshot Error: {str(e)}[/bold red]")
+        raise typer.Exit(1) from None
+
+
+@app.command()
+def inspect(
+    test: bool = typer.Option(
+        False, "--test", "-t", help="Run in test mode (no snapshot, mock LLM)"
+    ),
+    refresh: bool = typer.Option(
+        False, "--refresh", "-r", help="Force a new snapshot before inspection"
+    ),
+    group: str = typer.Option(None, "--group", "-g", help="Group filter (Nornir)"),
+    device: str = typer.Option(None, "--device", "-d", help="Device filter (Nornir)"),
+    date: str = typer.Option(None, "--date", help="Inspect data from a specific date (YYYY-MM-DD)"),
+) -> None:
+    """Run Skill-Centric Agentic Inspection.
+
+    Examples:
+        olav inspect             # Use latest snapshot
+        olav inspect --test      # Fast test mode
+        olav inspect --refresh   # Snapshot then inspect
+        olav inspect --group test # Filter by group
+    """
+    import asyncio
+
+    from olav.agents.inspector import InspectionOrchestrator
+
+    console.print(
+        Panel("[bold cyan]Starting Agentic Network Inspection[/bold cyan]", border_style="cyan")
+    )
+
+    try:
+        if refresh:
+            from olav.tools.sync_tools import sync_all
+
+            console.print("🔄 Refreshing snapshot data...")
+            sync_all.invoke({"devices": device or group})  # Pass filter to sync_all
+
+        # Phase 15: Resolve Nornir filters to device list
+        device_list = None
+        if device or group:
+            from olav.tools.network import get_nornir
+            nr = get_nornir()
+            matched_devices = []
+            
+            # Simple manual filtering for robustness
+            for name, host in nr.inventory.hosts.items():
+                # Check group
+                group_match = True
+                if group:
+                    host_groups = [g.name if hasattr(g, "name") else str(g) for g in host.groups]
+                    if group not in host_groups:
+                        group_match = False
+                
+                # Check device
+                device_match = True
+                if device:
+                    target_devices = [d.strip() for d in device.split(",")]
+                    if name not in target_devices:
+                        device_match = False
+                
+                if group_match and device_match:
+                    matched_devices.append(name)
+            
+            device_list = matched_devices
+            
+            if not device_list:
+                console.print(f"[yellow]⚠️  No devices found matching filter (group={group}, device={device})[/yellow]")
+                raise typer.Exit(0)
+
+        # Run async inspection
+        orchestrator = InspectionOrchestrator()
+        report = asyncio.run(orchestrator.run_inspection(test_mode=test, device_filter=device_list))
+
+        console.print(Panel("[bold green]Inspection Complete[/bold green]", border_style="green"))
+
+        # Display report location
+        from config.paths import REPORTS_DIR
+
+        report_dir = REPORTS_DIR / "inspection"
+        console.print(f"📄 Report saved to: [bold]{report_dir}/latest.md[/bold]")
+
+        # Optionally print the summary part of the report
+        if "\n## " in report:
+            summary = report.split("\n## ")[0] + "\n## " + report.split("\n## ")[1]
+            console.print(Panel(summary, title="Report Summary", border_style="blue"))
+
+    except Exception as e:
+        console.print(f"[bold red]❌ Inspection Error: {str(e)}[/bold red]")
         raise typer.Exit(1) from None
 
 
@@ -439,7 +659,6 @@ def interactive_mode(ctx: typer.Context) -> None:
         return
 
     # Import heavy modules only when needed
-    from olav.agent import create_olav_agent
     from olav.cli.display import display_banner, load_banner_from_config
     from olav.cli.memory import AgentMemory
     from olav.cli.session import OlavPromptSession
@@ -447,21 +666,19 @@ def interactive_mode(ctx: typer.Context) -> None:
     is_interactive = sys.stdin.isatty()
 
     try:
-        console.print("\n" + "=" * 60)
-        console.print("💬 OLAV Interactive CLI - v0.8")
-        console.print("=" * 60 + "\n")
+        if is_interactive:
+            console.print("\n" + "=" * 60)
+            console.print("💬 OLAV Interactive CLI - v0.9.6")
+            console.print("=" * 60 + "\n")
 
         # Create memory manager
         from pathlib import Path
 
         from config.settings import settings
 
-        memory_file = str(Path(settings.agent_dir) / ".agent_memory.json")
         history_file = str(Path(settings.agent_dir) / ".cli_history")
-
         memory = AgentMemory(
             max_messages=100,
-            memory_file=memory_file,
         )
 
         # Create CLI session
@@ -487,12 +704,13 @@ def interactive_mode(ctx: typer.Context) -> None:
             if banner_text:
                 display_banner(banner_text)
 
-        # Create agent
-        agent = create_olav_agent(
-            enable_skill_routing=True,
-            enable_subagents=True,
-            debug=False,
-        )
+        # Phase 17: Federated Specialists - Initial agent is a Router
+        from olav.agents.query_agent_v2 import QueryAgentV2
+
+        # Note: In interactive loop, we re-initialize the agent per query 
+        # or use the Router to select. For now, we pass a dummy or None 
+        # and let the loop handle it.
+        agent = QueryAgentV2(mode="standard")
 
         # Run interactive loop
         run_interactive_loop(memory, session, agent)

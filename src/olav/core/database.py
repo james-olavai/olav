@@ -1,11 +1,14 @@
-"""DuckDB database module for OLAV v0.8.
+"""DuckDB database module for OLAV v0.9.
 
 This module provides the core database functionality for storing and querying
-network capabilities, audit logs, and command caches.
+audit logs and command caches.
+
+NOTE: The capabilities table has been removed in v0.9 and replaced by the
+file-based CommandRegistry (see olav.core.registry). Command discovery and
+validation is now handled through TextFSM templates rather than database entries.
 """
 
 from pathlib import Path
-from typing import Any
 
 import duckdb
 
@@ -14,63 +17,47 @@ class OlavDatabase:
     """OLAV database manager using DuckDB.
 
     This database stores:
-    - capabilities: CLI commands and API endpoints (from imports/)
     - audit_logs: Execution history and audit trail
     - command_cache: Cached command outputs (optional, not used in MVP)
+
+    NOTE: The capabilities table has been removed. Use CommandRegistry for
+    command discovery and validation.
     """
 
-    def __init__(self, db_path: str | Path | None = None) -> None:
+    def __init__(
+        self, db_path: str | Path | None = None, read_only: bool = False
+    ) -> None:
         """Initialize database connection.
 
         Args:
-            db_path: Path to DuckDB database file (defaults to agent_dir/db/network_commands.duckdb)
+            db_path: Path to DuckDB database file
+            read_only: Whether to open in read-only mode (default: False)
         """
         if db_path is None:
-            from config.paths import NETWORK_COMMANDS_PATH
+            from config.paths import NETWORK_DB_PATH
 
-            db_path = NETWORK_COMMANDS_PATH
+            db_path = NETWORK_DB_PATH
 
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Connect to DuckDB
-        self.conn = duckdb.connect(str(self.db_path))
+        self.conn = duckdb.connect(str(self.db_path), read_only=read_only)
 
-        # Initialize schema
-        self._init_schema()
+        # Initialize schema (skip if read-only)
+        if not read_only:
+            self._init_schema()
 
     def _init_schema(self) -> None:
         """Create database tables if they don't exist."""
-        # Capabilities table
+        # Device capabilities cache (platinum/gold driver mapping)
         self.conn.execute("""
-            CREATE SEQUENCE IF NOT EXISTS capabilities_id_seq START 1
-        """)
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS capabilities (
-                id INTEGER PRIMARY KEY DEFAULT nextval('capabilities_id_seq'),
-                type TEXT NOT NULL,
-                platform TEXT NOT NULL,
-                name TEXT NOT NULL,
-                method TEXT,
-                description TEXT,
-                parameters TEXT,
-                is_write BOOLEAN DEFAULT FALSE,
-                source_file TEXT NOT NULL
+            CREATE TABLE IF NOT EXISTS device_capabilities (
+                hostname VARCHAR PRIMARY KEY,
+                preferred_driver VARCHAR,
+                last_success TIMESTAMP,
+                features JSON
             )
-        """)
-
-        # Create indexes for capabilities
-        self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_cap_type
-            ON capabilities(type)
-        """)
-        self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_cap_platform
-            ON capabilities(platform)
-        """)
-        self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_cap_name
-            ON capabilities(name)
         """)
 
         # Audit logs table
@@ -117,172 +104,40 @@ class OlavDatabase:
             )
         """)
 
-        # Auto-load command whitelist if capabilities table is empty or has few commands
-        self._ensure_command_whitelist_loaded()
+        # Raw outputs table (v0.9.6 Unified)
+        self.conn.execute("""
+            CREATE SEQUENCE IF NOT EXISTS raw_outputs_seq START 1
+        """)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS raw_outputs (
+                id INTEGER PRIMARY KEY DEFAULT nextval('raw_outputs_seq'),
+                device VARCHAR NOT NULL,
+                command VARCHAR NOT NULL,
+                output TEXT,
+                sync_date DATE DEFAULT CURRENT_DATE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(device, command, sync_date)
+            )
+        """)
 
-    def _ensure_command_whitelist_loaded(self) -> None:
-        """Ensure command whitelist is loaded into capabilities table."""
-        # Check if we have enough commands loaded
-        result = self.conn.execute(
-            "SELECT COUNT(*) FROM capabilities WHERE type = 'command'"
-        ).fetchone()
-        command_count = result[0] if result else 0
+        # Sync metadata table (v0.9.6 Unified)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS sync_metadata (
+                id INTEGER PRIMARY KEY,
+                sync_date DATE NOT NULL,
+                sync_dir VARCHAR NOT NULL,
+                device_count INTEGER,
+                command_count INTEGER,
+                success_count INTEGER,
+                failed_count INTEGER,
+                duration_seconds FLOAT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(sync_date)
+            )
+        """)
 
-        if command_count >= 10:
-            # Already have commands loaded
-            return
-
-        # Load from whitelist files
-        from config.settings import settings
-
-        whitelist_dir = Path(settings.agent_dir) / "imports" / "commands"
-        if not whitelist_dir.exists():
-            return
-
-        for platform_file in whitelist_dir.glob("*.txt"):
-            if platform_file.name == "blacklist.txt":
-                continue
-
-            platform = platform_file.stem
-
-            for line in platform_file.read_text(encoding="utf-8").split("\n"):
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-
-                # Skip HITL commands (those starting with !)
-                is_write = line.startswith("!")
-                cmd = line[1:] if is_write else line
-
-                try:
-                    self.insert_capability(
-                        cap_type="command",
-                        platform=platform,
-                        name=cmd,
-                        source_file=str(platform_file),
-                        is_write=is_write,
-                    )
-                except Exception:  # noqa: S110
-                    # Ignore duplicates
-                    pass
-
-    def search_capabilities(
-        self,
-        query: str,
-        cap_type: str = "all",
-        platform: str | None = None,
-        limit: int = 20,
-    ) -> list[dict[str, Any]]:
-        """Search capabilities by keyword.
-
-        Args:
-            query: Search keyword
-            cap_type: Filter by type ("command", "api", or "all")
-            platform: Filter by platform (e.g., "cisco_ios", "netbox")
-            limit: Maximum results to return
-
-        Returns:
-            List of matching capabilities
-        """
-        # Build base query
-        sql = """
-            SELECT type, platform, name, method, description, parameters, is_write
-            FROM capabilities
-            WHERE (name ILIKE ? OR description ILIKE ?)
-        """
-        pattern = f"%{query}%"
-        params = [pattern, pattern]
-
-        # Add platform filter
-        if platform:
-            sql += " AND platform = ?"
-            params.append(platform)
-
-        # Add type filter
-        if cap_type != "all":
-            sql += " AND type = ?"
-            params.append(cap_type)
-
-        sql += f" LIMIT {limit}"
-
-        results = self.conn.execute(sql, params).fetchall()
-        columns = ["type", "platform", "name", "method", "description", "parameters", "is_write"]
-
-        return [dict(zip(columns, row, strict=False)) for row in results]
-
-    def is_command_allowed(self, command: str, platform: str) -> bool:
-        """Check if a command is in the whitelist.
-
-        Args:
-            command: Command to check
-            platform: Platform name (e.g., "cisco_ios")
-
-        Returns:
-            True if command is allowed, False otherwise
-        """
-        cmd_lower = command.lower().strip()
-
-        # Get all command patterns for this platform
-        patterns = self.conn.execute(
-            """
-            SELECT name FROM capabilities
-            WHERE type = 'command' AND platform = ?
-        """,
-            [platform],
-        ).fetchall()
-
-        for (pattern,) in patterns:
-            pattern = pattern.lower().strip()
-            if pattern.endswith("*"):
-                # Wildcard match
-                prefix = pattern[:-1]
-                if cmd_lower.startswith(prefix):
-                    return True
-            else:
-                # Exact match
-                if cmd_lower == pattern:
-                    return True
-
-        return False
-
-    def insert_capability(
-        self,
-        cap_type: str,
-        platform: str,
-        name: str,
-        source_file: str,
-        method: str | None = None,
-        description: str | None = None,
-        parameters: str | None = None,
-        is_write: bool = False,
-    ) -> None:
-        """Insert a capability into the database.
-
-        Args:
-            cap_type: Type ("command" or "api")
-            platform: Platform name
-            name: Command or endpoint name
-            source_file: Source file path
-            method: HTTP method (for APIs)
-            description: Optional description
-            parameters: JSON string of parameters (for APIs)
-            is_write: Whether this requires HITL approval
-        """
-        self.conn.execute(
-            """
-            INSERT INTO capabilities
-            (type, platform, name, method, description, parameters, is_write, source_file)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            [cap_type, platform, name, method, description, parameters, is_write, source_file],
-        )
-
-    def clear_capabilities(self) -> None:
-        """Clear all capabilities from the database.
-
-        Used during 'olav reload' operations.
-        """
-        self.conn.execute("DELETE FROM capabilities")
+        # NOTE: View initialization moved to sync_tools.py (Snapshot-Time)
+        # to prevent write-write conflicts during queries (EQP Phase).
 
     def log_execution(
         self,
@@ -381,11 +236,14 @@ class OlavDatabase:
 _db_instance: OlavDatabase | None = None
 
 
-def get_database(db_path: str | Path | None = None) -> OlavDatabase:
+def get_database(
+    db_path: str | Path | None = None, read_only: bool = False
+) -> OlavDatabase:
     """Get the global database instance.
 
     Args:
         db_path: Optional database path (uses default if not provided)
+        read_only: Whether to open in read-only mode
 
     Returns:
         OlavDatabase instance
@@ -393,7 +251,7 @@ def get_database(db_path: str | Path | None = None) -> OlavDatabase:
     global _db_instance
 
     if _db_instance is None:
-        _db_instance = OlavDatabase(db_path)
+        _db_instance = OlavDatabase(db_path, read_only=read_only)
 
     return _db_instance
 
@@ -437,7 +295,6 @@ def init_knowledge_db(db_path: str | None = None) -> duckdb.DuckDBPyConnection:
         >>> conn.close()
     """
     from config.paths import KNOWLEDGE_PATH
-    from config.settings import settings
 
     if db_path is None:
         db_path = str(KNOWLEDGE_PATH)
@@ -569,7 +426,7 @@ def init_topology_db(db_path: str | None = None) -> duckdb.DuckDBPyConnection:
     - Topology discovery timestamps
 
     Args:
-        db_path: Path to topology database file (default: .olav/db/network_snapshot.duckdb)
+        db_path: Path to topology database file (default: .olav/db/network.duckdb)
 
     Returns:
         DuckDB connection object
@@ -580,7 +437,6 @@ def init_topology_db(db_path: str | None = None) -> duckdb.DuckDBPyConnection:
         >>> conn.close()
     """
     from config.paths import NETWORK_SNAPSHOT_PATH
-    from config.settings import settings
 
     if db_path is None:
         db_path = str(NETWORK_SNAPSHOT_PATH)
@@ -702,43 +558,90 @@ def init_topology_db(db_path: str | None = None) -> duckdb.DuckDBPyConnection:
         ON log_analysis(status)
     """)
 
+    # =========================================================================
+    # NEW: Unified command outputs table (v0.8.4)
+    # Stores TextFSM parsed data as JSON for flexible querying
+    # =========================================================================
+    conn.execute("""
+        CREATE SEQUENCE IF NOT EXISTS command_outputs_id_seq START 1
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS command_outputs (
+            id INTEGER PRIMARY KEY DEFAULT nextval('command_outputs_id_seq'),
+            snapshot_date DATE NOT NULL,
+            device_name VARCHAR NOT NULL,
+            platform VARCHAR DEFAULT 'cisco_ios',
+            command VARCHAR NOT NULL,
+            raw_output TEXT,
+            parsed_data JSON,
+            row_count INTEGER DEFAULT 0,
+            parse_success BOOLEAN DEFAULT FALSE,
+            collected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(snapshot_date, device_name, command)
+        )
+    """)
+
+    # Indexes for command_outputs
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_cmd_outputs_command
+        ON command_outputs(command)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_cmd_outputs_device
+        ON command_outputs(device_name)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_cmd_outputs_date
+        ON command_outputs(snapshot_date)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_cmd_outputs_platform
+        ON command_outputs(platform)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_cmd_outputs_parse_success
+        ON command_outputs(parse_success)
+    """)
+
     return conn
 
 
 def init_structured_tables(db_path: str | None = None) -> duckdb.DuckDBPyConnection:
     """Initialize structured network data tables for parsed command outputs.
-    
+
     This creates tables for storing parsed network data:
     - interfaces: Interface status and configuration
     - routes: Routing table entries
     - bgp_neighbors: BGP peer information
-    - ospf_neighbors: OSPF neighbor relationships  
+    - ospf_neighbors: OSPF neighbor relationships
     - vlans: VLAN configurations
+    - arp_table: ARP cache entries
     - system_info: Device system information
     - health_scores: Historical health metrics
-    
+    - raw_outputs: Raw command outputs (v0.9.3)
+
     Args:
-        db_path: Path to database file (default: .olav/db/network_snapshot.duckdb)
-        
+        db_path: Path to database file (default: .olav/db/network.duckdb)
+
     Returns:
         DuckDB connection object
-        
+
     Example:
         >>> conn = init_structured_tables()
         >>> # Tables are ready for parsed data import
         >>> conn.close()
     """
     from config.paths import NETWORK_SNAPSHOT_PATH
-    
+
     if db_path is None:
         db_path = str(NETWORK_SNAPSHOT_PATH)
-    
+
     # Ensure directory exists
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    
+
     # Connect to DuckDB
     conn = duckdb.connect(db_path)
-    
+
     # =============================================================================
     # 接口表: 存储解析后的接口状态
     # =============================================================================
@@ -767,7 +670,7 @@ def init_structured_tables(db_path: str | None = None) -> duckdb.DuckDBPyConnect
             UNIQUE(snapshot_date, device_name, interface_name)
         )
     """)
-    
+
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_interfaces_ip ON interfaces(ip_address)
     """)
@@ -777,7 +680,7 @@ def init_structured_tables(db_path: str | None = None) -> duckdb.DuckDBPyConnect
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_interfaces_status ON interfaces(oper_status)
     """)
-    
+
     # =============================================================================
     # 路由表: 存储路由信息
     # =============================================================================
@@ -801,14 +704,14 @@ def init_structured_tables(db_path: str | None = None) -> duckdb.DuckDBPyConnect
             UNIQUE(snapshot_date, device_name, network, next_hop)
         )
     """)
-    
+
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_routes_network ON routes(network)
     """)
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_routes_protocol ON routes(protocol)
     """)
-    
+
     # =============================================================================
     # BGP邻居表: 存储BGP会话信息
     # =============================================================================
@@ -833,14 +736,14 @@ def init_structured_tables(db_path: str | None = None) -> duckdb.DuckDBPyConnect
             UNIQUE(snapshot_date, device_name, neighbor_ip)
         )
     """)
-    
+
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_bgp_neighbor_ip ON bgp_neighbors(neighbor_ip)
     """)
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_bgp_state ON bgp_neighbors(state)
     """)
-    
+
     # =============================================================================
     # OSPF邻居表
     # =============================================================================
@@ -864,7 +767,7 @@ def init_structured_tables(db_path: str | None = None) -> duckdb.DuckDBPyConnect
             UNIQUE(snapshot_date, device_name, neighbor_id, interface)
         )
     """)
-    
+
     # =============================================================================
     # VLAN表
     # =============================================================================
@@ -884,7 +787,7 @@ def init_structured_tables(db_path: str | None = None) -> duckdb.DuckDBPyConnect
             UNIQUE(snapshot_date, device_name, vlan_id)
         )
     """)
-    
+
     # =============================================================================
     # ARP表
     # =============================================================================
@@ -903,14 +806,14 @@ def init_structured_tables(db_path: str | None = None) -> duckdb.DuckDBPyConnect
             UNIQUE(snapshot_date, device_name, ip_address, mac_address)
         )
     """)
-    
+
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_arp_ip ON arp_table(ip_address)
     """)
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_arp_device ON arp_table(device_name)
     """)
-    
+
     # =============================================================================
     # 系统信息表
     # =============================================================================
@@ -935,7 +838,7 @@ def init_structured_tables(db_path: str | None = None) -> duckdb.DuckDBPyConnect
             UNIQUE(snapshot_date, device_name)
         )
     """)
-    
+
     # =============================================================================
     # 历史健康评分表 (用于趋势分析)
     # =============================================================================
@@ -956,5 +859,231 @@ def init_structured_tables(db_path: str | None = None) -> duckdb.DuckDBPyConnect
             UNIQUE(snapshot_date, layer)
         )
     """)
-    
+
+    # =============================================================================
+    # 原始命令输出表 (v0.9.3 新增)
+    # =============================================================================
+    conn.execute("""
+        CREATE SEQUENCE IF NOT EXISTS raw_outputs_id_seq START 1
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS raw_outputs (
+            id INTEGER PRIMARY KEY DEFAULT nextval('raw_outputs_id_seq'),
+            snapshot_date DATE NOT NULL,
+            device_name VARCHAR NOT NULL,
+            command VARCHAR NOT NULL,              -- 执行的命令
+            raw_output TEXT,                       -- 原始输出文本
+            output_file VARCHAR,                   -- 输出文件路径 (相对路径)
+            command_status VARCHAR,                -- success/failed/timeout
+            execution_time_ms INTEGER,             -- 执行耗时 (毫秒)
+    collected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(snapshot_date, device_name, command)
+        )
+    """)
+
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_raw_outputs_device ON raw_outputs(device_name)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_raw_outputs_command ON raw_outputs(command)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_raw_outputs_status ON raw_outputs(command_status)
+    """)
+
+    # =============================================================================
+    # 创建分层视图 (L1-L4 Normalized Views)
+    # =============================================================================
+    _create_normalized_views(conn)
+
     return conn
+
+
+def _create_normalized_views(conn: duckdb.DuckDBPyConnection) -> None:
+    """创建 L1-L4 分层视图，简化 SQL 查询。
+
+    分层视图设计:
+        - L1 物理视图: 设备、接口、线缆信息
+        - L2 拓扑视图: CDP/LLDP 邻居、ARP 表
+        - L3 路由视图: 路由表、BGP、OSPF
+        - L4 服务视图: VLAN、系统信息
+    """
+    # =========================================================================
+    # GOLD VIEWS (v0.9.6 Unified Query Layer)
+    # These views are the primary entry point for LLM queries
+    # =========================================================================
+
+    # v_interfaces: Interface status and summary
+    conn.execute("""
+        CREATE OR REPLACE VIEW v_interfaces AS
+        SELECT
+            device_name as device,
+            interface_name as interface,
+            ip_address,
+            oper_status as status,
+            description,
+            speed,
+            input_errors,
+            output_errors,
+            snapshot_date as timestamp
+        FROM interfaces
+        ORDER BY device, interface
+    """)
+
+    # v_bgp_neighbors: BGP session state
+    conn.execute("""
+        CREATE OR REPLACE VIEW v_bgp_neighbors AS
+        SELECT
+            device_name as device,
+            neighbor_ip as neighbor,
+            remote_as as as_number,
+            state,
+            uptime,
+            prefixes_received as pfx_rcv,
+            snapshot_date as timestamp
+        FROM bgp_neighbors
+        ORDER BY device, neighbor
+    """)
+
+    # v_routes: Routing table summary
+    conn.execute("""
+        CREATE OR REPLACE VIEW v_routes AS
+        SELECT
+            device_name as device,
+            network,
+            mask,
+            next_hop,
+            interface,
+            protocol,
+            snapshot_date as timestamp
+        FROM routes
+        ORDER BY device, network
+    """)
+
+    # Keep existing normalized views for internal logic
+    # L1 物理视图: 设备和接口信息
+    conn.execute("""
+        CREATE OR REPLACE VIEW l1_physical_view AS
+        SELECT
+            i.snapshot_date,
+            i.device_name,
+            s.platform,
+            i.interface_name,
+            i.ip_address,
+            i.subnet_mask,
+            i.admin_status,
+            i.oper_status,
+            i.description,
+            i.mtu,
+            i.speed,
+            i.duplex,
+            i.input_errors,
+            i.output_errors,
+            i.crc_errors
+        FROM interfaces i
+        LEFT JOIN system_info s ON i.snapshot_date = s.snapshot_date AND i.device_name = s.device_name
+        ORDER BY i.device_name, i.interface_name
+    """)
+    conn.execute("""
+        COMMENT ON VIEW l1_physical_view IS 'L1 Physical Layer: Devices and interfaces with physical characteristics'
+    """)
+
+    # L2 拓扑视图: 邻居关系和 ARP 表
+    conn.execute("""
+        CREATE OR REPLACE VIEW l2_topology_view AS
+        SELECT
+            snapshot_date,
+            device_name,
+            interface,
+            ip_address,
+            mac_address
+        FROM arp_table
+        ORDER BY device_name, interface
+    """)
+    conn.execute("""
+        COMMENT ON VIEW l2_topology_view IS 'L2 Data Link Layer: ARP table and neighbor relationships'
+    """)
+
+    # L3 路由视图: 路由表和路由协议
+    conn.execute("""
+        CREATE OR REPLACE VIEW l3_routing_view AS
+        SELECT
+            snapshot_date,
+            device_name,
+            network,
+            mask,
+            next_hop,
+            interface,
+            protocol,
+            metric,
+            admin_distance
+        FROM routes
+        ORDER BY device_name, protocol, network
+    """)
+    conn.execute("""
+        COMMENT ON VIEW l3_routing_view IS 'L3 Network Layer: Routing table and routing protocols'
+    """)
+
+    # L3 BGP 视图
+    conn.execute("""
+        CREATE OR REPLACE VIEW l3_bgp_view AS
+        SELECT
+            snapshot_date,
+            device_name,
+            neighbor_ip,
+            remote_as,
+            local_as,
+            state,
+            uptime,
+            prefixes_received,
+            prefixes_sent
+        FROM bgp_neighbors
+        ORDER BY device_name, neighbor_ip
+    """)
+    conn.execute("""
+        COMMENT ON VIEW l3_bgp_view IS 'L3 BGP Layer: BGP neighbor sessions and statistics'
+    """)
+
+    # L3 OSPF 视图
+    conn.execute("""
+        CREATE OR REPLACE VIEW l3_ospf_view AS
+        SELECT
+            snapshot_date,
+            device_name,
+            neighbor_id,
+            neighbor_ip,
+            interface,
+            area,
+            state,
+            priority,
+            dr_status
+        FROM ospf_neighbors
+        ORDER BY device_name, area, neighbor_id
+    """)
+    conn.execute("""
+        COMMENT ON VIEW l3_ospf_view IS 'L3 OSPF Layer: OSPF neighbor relationships and states'
+    """)
+
+    # L4 服务视图: VLAN 和系统信息
+    conn.execute("""
+        CREATE OR REPLACE VIEW l4_services_view AS
+        SELECT
+            v.snapshot_date,
+            v.device_name,
+            v.vlan_id,
+            v.vlan_name,
+            v.status,
+            v.ports,
+            s.hostname,
+            s.platform,
+            s.software_version,
+            s.uptime,
+            s.cpu_usage,
+            s.memory_usage
+        FROM vlans v
+        LEFT JOIN system_info s ON v.snapshot_date = s.snapshot_date AND v.device_name = s.device_name
+        ORDER BY v.device_name, v.vlan_id
+    """)
+    conn.execute("""
+        COMMENT ON VIEW l4_services_view IS 'L4 Services Layer: VLANs, system info, and service status'
+    """)

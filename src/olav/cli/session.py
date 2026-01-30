@@ -80,7 +80,6 @@ class OlavPromptSession:
         # Check if stdin is a TTY (interactive terminal)
         # If not (piped input), fall back to basic input
         if not sys.stdin.isatty():
-            print("Note: Non-interactive mode detected, using basic input")
             return
 
         if PromptSession is None:
@@ -168,7 +167,7 @@ class OlavPromptSession:
 
         try:
             # Use plain string prompt to avoid XML parsing issues
-            result = await self._session.prompt_async(message)
+            result: str = await self._session.prompt_async(message)
             return result
         except (EOFError, KeyboardInterrupt):
             raise EOFError from None
@@ -188,7 +187,7 @@ class OlavPromptSession:
         try:
             # Use plain string prompt to avoid XML parsing issues
             # (HTML formatting breaks when message contains > or <)
-            result = self._session.prompt(message)
+            result: str = self._session.prompt(message)
             return result
         except (EOFError, KeyboardInterrupt):
             raise EOFError from None

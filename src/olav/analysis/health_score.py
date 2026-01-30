@@ -68,9 +68,7 @@ HEALTH_SCORING_RULES = {
 }
 
 
-def calculate_layer_score(
-    layer: str, metrics: dict[str, int]
-) -> dict[str, Any]:
+def calculate_layer_score(layer: str, metrics: dict[str, int]) -> dict[str, Any]:
     """Calculate health score for a specific layer.
 
     Args:
@@ -93,8 +91,8 @@ def calculate_layer_score(
     metric_rules = rules["metrics"]
 
     # Calculate raw score
-    raw_score = 0
-    breakdown = []
+    raw_score: int = 0
+    breakdown: list[dict[str, Any]] = []
 
     for metric_name, count in metrics.items():
         if metric_name in metric_rules:
@@ -113,10 +111,10 @@ def calculate_layer_score(
     # Normalize to 0-100 scale
     # Assume baseline of 100, adjust based on negative factors
     base_score = 100
-    normalized_score = max(0, min(100, base_score + raw_score))
+    normalized_score: int = max(0, min(100, base_score + raw_score))
 
     # Determine status
-    thresholds = rules["thresholds"]
+    thresholds: dict[str, int] = rules["thresholds"]
     if normalized_score >= thresholds["healthy"]:
         status = "healthy"
         icon = "🟢"
@@ -138,9 +136,7 @@ def calculate_layer_score(
     }
 
 
-def calculate_overall_score(
-    layer_scores: dict[str, int]
-) -> dict[str, Any]:
+def calculate_overall_score(layer_scores: dict[str, int]) -> dict[str, Any]:
     """Calculate overall network health score from layer scores.
 
     Args:
@@ -219,8 +215,8 @@ def format_score_report(score_data: dict[str, Any]) -> str:
         if score_data.get("layer_scores"):
             report += "### Layer Scores\n\n"
             for layer, score in sorted(score_data["layer_scores"].items()):
-                rules = HEALTH_SCORING_RULES.get(layer, {})
-                name = rules.get("name", layer)
+                rules: dict[str, Any] = HEALTH_SCORING_RULES.get(layer, {})
+                name: str = rules.get("name", layer)  # type: ignore[assignment]
                 if score >= 80:
                     icon = "🟢"
                 elif score >= 50:

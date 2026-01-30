@@ -8,13 +8,11 @@ Performs comprehensive network analysis using unified database queries:
 """
 
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 from olav.analysis.health_score import (
     calculate_layer_score,
     calculate_overall_score,
-    format_score_report,
 )
 from olav.core.unified_database import UnifiedDatabase
 
@@ -39,9 +37,7 @@ class MacroAnalyzer:
         """Initialize analyzer with unified database connection."""
         self.db = UnifiedDatabase()
 
-    def generate_full_analysis(
-        self, snapshot_date: str | None = None
-    ) -> dict[str, Any]:
+    def generate_full_analysis(self, snapshot_date: str | None = None) -> dict[str, Any]:
         """Generate comprehensive network analysis report.
 
         Args:
@@ -60,30 +56,22 @@ class MacroAnalyzer:
         }
 
         # 1. Network health scoring
-        report["sections"]["health_summary"] = self._analyze_health(
-            snapshot_date
-        )
+        report["sections"]["health_summary"] = self._analyze_health(snapshot_date)
 
         # 2. Anomaly detection
         report["sections"]["anomalies"] = self._detect_anomalies(snapshot_date)
 
         # 3. Device-level analysis
-        report["sections"]["device_health"] = self._analyze_devices(
-            snapshot_date
-        )
+        report["sections"]["device_health"] = self._analyze_devices(snapshot_date)
 
         # 4. Topology correlation
-        report["sections"]["topology_health"] = (
-            self._correlate_topology_health(snapshot_date)
-        )
+        report["sections"]["topology_health"] = self._correlate_topology_health(snapshot_date)
 
         return report
 
     def _get_latest_snapshot_date(self) -> str:
         """Get the most recent snapshot date from database."""
-        result = self.db.query(
-            "SELECT MAX(snapshot_date) FROM main.arp_table"
-        )
+        result = self.db.query("SELECT MAX(snapshot_date) FROM main.arp_table")
         if result and result[0][0]:
             return str(result[0][0])
         return datetime.now().strftime("%Y-%m-%d")
@@ -159,7 +147,7 @@ class MacroAnalyzer:
             [snapshot_date],
         )
 
-        if result and result[0]:
+        if result and len(result) > 0 and len(result[0]) == 4:
             total, connected, static, ospf = result[0]
             return {
                 "route_active": total or 0,
@@ -181,12 +169,10 @@ class MacroAnalyzer:
         Returns:
             List of detected anomalies
         """
-        anomalies = []
+        anomalies: list[dict[str, Any]] = []
 
         # Check for missing expected routes
-        device_count = self.db.query(
-            "SELECT COUNT(*) FROM main.topology_devices"
-        )[0][0]
+        device_count = self.db.query("SELECT COUNT(*) FROM main.topology_devices")[0][0]
 
         route_count = self.db.query(
             """
@@ -241,11 +227,9 @@ class MacroAnalyzer:
         Returns:
             List of device health summaries
         """
-        devices = self.db.query(
-            "SELECT name FROM main.topology_devices ORDER BY name"
-        )
+        devices = self.db.query("SELECT name FROM main.topology_devices ORDER BY name")
 
-        device_health = []
+        device_health: list[dict[str, Any]] = []
         for (device_name,) in devices:
             health = self.db.get_device_health(device_name)
             health["snapshot_date"] = snapshot_date
@@ -253,9 +237,7 @@ class MacroAnalyzer:
 
         return device_health
 
-    def _correlate_topology_health(
-        self, snapshot_date: str
-    ) -> list[dict[str, Any]]:
+    def _correlate_topology_health(self, snapshot_date: str) -> list[dict[str, Any]]:
         """Correlate topology with health metrics.
 
         Args:
@@ -284,7 +266,7 @@ class MacroAnalyzer:
             [snapshot_date, snapshot_date],
         )
 
-        correlations = []
+        correlations: list[dict[str, Any]] = []
         for row in results:
             name, role, links, routes, arps = row
             correlations.append(
@@ -300,9 +282,7 @@ class MacroAnalyzer:
 
         return correlations
 
-    def _format_health_summary(
-        self, overall: dict, layer_scores: dict
-    ) -> str:
+    def _format_health_summary(self, overall: dict, layer_scores: dict) -> str:
         """Format health summary as markdown.
 
         Args:
@@ -312,7 +292,7 @@ class MacroAnalyzer:
         Returns:
             Markdown formatted summary
         """
-        summary = f"# Network Health Report\n\n"
+        summary = "# Network Health Report\n\n"
         summary += f"## {overall['icon']} Overall: {overall['score']}/100 ({overall['status'].upper()})\n\n"
 
         if layer_scores:
@@ -346,7 +326,7 @@ class MacroAnalyzer:
         Returns:
             Markdown formatted report
         """
-        md = f"# Network Analysis Report\n\n"
+        md = "# Network Analysis Report\n\n"
         md += f"**Generated**: {report['generated_at']}\n"
         md += f"**Snapshot Date**: {report['snapshot_date']}\n\n"
 
@@ -367,9 +347,7 @@ class MacroAnalyzer:
                         "warning": "🟡",
                         "info": "🔵",
                     }
-                    icon = severity_icon.get(
-                        anomaly["severity"], "⚪"
-                    )
+                    icon = severity_icon.get(anomaly["severity"], "⚪")
                     md += f"- {icon} **{anomaly['type']}**: {anomaly['description']}\n"
                 md += "\n"
 

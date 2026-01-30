@@ -1,0 +1,23 @@
+# OLAV Cron Jobs
+#
+# This file contains scheduled tasks for OLAV maintenance.
+# Install with: crontab .olav/config/crontab
+#
+# View current crontab: crontab -l
+# Remove crontab: crontab -r
+
+# Data Retention Cleanup (Daily at 2:00 AM)
+# Cleans up old snapshots according to retention policy
+0 2 * * * cd /home/yhvh/Olav && uv run python .olav/scripts/cleanup_snapshots.py >> /var/log/olav/cleanup.log 2>&1
+
+# Database Optimization (Weekly on Sunday at 3:00 AM)
+# Rebuilds indexes and analyzes tables for better performance
+0 3 * * 0 cd /home/yhvh/Olav && uv run python .olav/scripts/optimize_database.py >> /var/log/olav/optimize.log 2>&1
+
+# Snapshot Collection (Every 6 hours)
+# Collects network snapshots from all devices
+0 */6 * * * cd /home/yhvh/Olav && uv run olav snapshot --group all >> /var/log/olav/snapshot.log 2>&1
+
+# Network Inspection (Daily at 8:00 AM)
+# Runs full network inspection and generates reports
+0 8 * * * cd /home/yhvh/Olav && uv run olav inspect >> /var/log/olav/inspect.log 2>&1

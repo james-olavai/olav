@@ -1,173 +1,102 @@
 """Agent Memory - Session persistence for OLAV agent.
 
-Provides persistent storage for conversation history across CLI sessions.
+Provides persistent storage for conversation history using DuckDB.
 """
 
 import json
-from pathlib import Path
+
+from olav.core.unified_database import UnifiedDatabase
 
 
 class AgentMemory:
-    """Session memory persistence for OLAV agent.
+    """Session memory persistence using User-Local DuckDB."""
 
-    Stores conversation history and context between CLI sessions.
-    Memory is persisted to agent_dir/.agent_memory.json
-    """
-
-    MEMORY_FILE = None  # Set dynamically in __init__
-
-    def __init__(self, max_messages: int = 100, memory_file: str | Path | None = None) -> None:
-        """Initialize agent memory.
-
-        Args:
-            max_messages: Maximum number of messages to keep
-            memory_file: Custom memory file path (defaults to agent_dir/.agent_memory.json)
-        """
+    def __init__(self, max_messages: int = 100, memory_file: str | None = None) -> None:
+        """Initialize agent memory (memory_file arg is deprecated but kept for compat)."""
         self.max_messages = max_messages
+        self.session_id = None  # Could be generated per session if needed
+        # Ensure schema exists by triggering UDB init
+        with UnifiedDatabase():
+            pass
 
-        if memory_file:
-            self.memory_file = Path(memory_file)
-        elif self.MEMORY_FILE:
-            self.memory_file = self.MEMORY_FILE
-        else:
-            from config.settings import settings
-
-            self.memory_file = Path(settings.agent_dir) / ".agent_memory.json"
-
-        self.messages: list[dict[str, object]] = []
-        self.metadata: dict[str, object] = {}
-        self._load()
-
-    def _load(self) -> None:
-        """Load memory from file."""
-        if self.memory_file.exists():
-            try:
-                content = self.memory_file.read_text()
-                data = json.loads(content)
-                self.messages = data.get("messages", [])
-                self.metadata = data.get("metadata", {})
-            except (json.JSONDecodeError, KeyError):
-                # Corrupt file, start fresh
-                self.messages = []
-                self.metadata = {}
-        else:
-            # Ensure directory exists
-            self.memory_file.parent.mkdir(parents=True, exist_ok=True)
-
-    def save(self) -> None:
-        """Save memory to file."""
-        # Keep only recent messages
-        self.messages = self.messages[-self.max_messages :]
-
-        data = {
-            "messages": self.messages,
-            "metadata": self.metadata,
-        }
-
-        self.memory_file.write_text(json.dumps(data, indent=2))
-
-    def add(self, role: str, content: str, **kwargs: object) -> None:  # noqa: ANN003
-        """Add a message to memory.
-
-        Args:
-            role: Message role (user, assistant, system, tool)
-            content: Message content
-            **kwargs: Additional metadata (tool_name, device, etc.)
-        """
-        message = {
-            "role": role,
-            "content": content,
-            **kwargs,
-        }
-        self.messages.append(message)
-        self.save()
-
-    def clear(self) -> None:
-        """Clear all messages and metadata."""
-        self.messages = []
-        self.metadata = {}
-        self.save()
+    def add(self, role: str, content: str, **kwargs: object) -> None:
+        """Add a message to memory."""
+        try:
+            metadata_json = json.dumps(kwargs)
+            with UnifiedDatabase() as db:
+                db.conn.execute(
+                    """
+                    INSERT INTO commands.main.session_history (role, content, metadata)
+                    VALUES (?, ?, ?)
+                """,
+                    [role, content, metadata_json],
+                )
+        except Exception:
+            # Setup fallback to file or just log error? For now silent fail to avoid crashing CLI interactive loop
+            pass
 
     def get_context(self, max_messages: int | None = None) -> list[dict[str, object]]:
-        """Get conversation context for agent.
+        """Get conversation context."""
+        limit = max_messages if max_messages else self.max_messages
+        try:
+            with UnifiedDatabase() as db:
+                # Get recent messages (use parameterized query to avoid SQL injection)
+                rows = db.conn.execute(
+                    """
+                    SELECT role, content, metadata
+                    FROM commands.main.session_history
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """,
+                    [limit],
+                ).fetchall()
 
-        Args:
-            max_messages: Maximum messages to return (default: all)
+                messages = []
+                for row in reversed(rows):  # Reverse to get chronological order
+                    metadata = json.loads(row[2]) if row[2] else {}
+                    messages.append(
+                        {
+                            "role": row[0],
+                            "content": row[1],
+                            **metadata,
+                        }
+                    )
+                return messages
+        except Exception:
+            return []
 
-        Returns:
-            List of message dictionaries
-        """
-        if max_messages is None:
-            return self.messages.copy()
-        return self.messages[-max_messages:]
+    def clear(self) -> None:
+        """Clear all messages."""
+        try:
+            with UnifiedDatabase() as db:
+                db.conn.execute("DELETE FROM commands.main.session_history")
+        except Exception:
+            pass
 
-    def set_metadata(self, key: str, value: object) -> None:  # noqa: ANN401
-        """Set metadata value.
-
-        Args:
-            key: Metadata key
-            value: Metadata value
-        """
-        self.metadata[key] = value
-        self.save()
-
-    def get_metadata(self, key: str, default: object = None) -> object:  # noqa: ANN401
-        """Get metadata value.
-
-        Args:
-            key: Metadata key
-            default: Default value if key not found
-
-        Returns:
-            Metadata value or default
-        """
-        return self.metadata.get(key, default)
+    def save(self) -> None:
+        """No-op for DuckDB implementation (auto-saved)."""
+        pass
 
     def get_stats(self) -> dict[str, object]:
-        """Get memory statistics.
+        """Get memory statistics."""
+        try:
+            with UnifiedDatabase() as db:
+                total = db.conn.execute("SELECT COUNT(*) FROM commands.main.session_history").fetchone()[0]
+                return {
+                    "total_messages": total,
+                    "storage": "DuckDB (User-Local)",
+                }
+        except Exception:
+            return {"error": "DB Unreachable"}
 
-        Returns:
-            Dictionary with memory stats
-        """
-        user_messages = sum(1 for m in self.messages if m.get("role") == "user")
-        assistant_messages = sum(1 for m in self.messages if m.get("role") == "assistant")
-        tool_messages = sum(1 for m in self.messages if m.get("role") == "tool")
-
-        return {
-            "total_messages": len(self.messages),
-            "user_messages": user_messages,
-            "assistant_messages": assistant_messages,
-            "tool_messages": tool_messages,
-            "max_messages": self.max_messages,
-            "memory_file": str(self.memory_file),
-        }
-
-    def get_conversation_messages(
-        self,
-        max_turns: int = 10,
-        max_chars: int = 8000,
-    ) -> list[tuple[str, str]]:
-        """Get recent conversation messages formatted for LangChain.
-
-        Implements automatic context compression by:
-        1. Limiting to recent N turns
-        2. Truncating long messages
-        3. Summarizing old context if needed
-
-        Args:
-            max_turns: Maximum conversation turns to include
-            max_chars: Maximum total characters for context
-
-        Returns:
-            List of (role, content) tuples for LangChain
-        """
-        # Get recent messages (user + assistant pairs = turns)
-        recent = self.messages[-(max_turns * 2) :]
+    def get_conversation_messages(self, max_turns: int = 10, max_chars: int = 8000) -> list[tuple[str, str]]:
+        """Get recent conversation messages formatted for LangChain."""
+        messages = self.get_context(max_messages=max_turns * 2)
 
         result = []
         total_chars = 0
 
-        for msg in recent:
+        for msg in messages:
             role = str(msg.get("role", "user"))
             content = str(msg.get("content", ""))
 
@@ -181,11 +110,8 @@ class AgentMemory:
 
             # Check total character limit
             if total_chars + len(content) > max_chars:
-                # Add summary of older context instead
                 if result:
-                    result.insert(
-                        0, ("system", "[Earlier conversation context was truncated to save tokens]")
-                    )
+                    result.insert(0, ("system", "[Earlier conversation context was truncated]"))
                 break
 
             result.append((role, content))

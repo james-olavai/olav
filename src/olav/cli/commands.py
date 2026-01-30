@@ -74,9 +74,9 @@ async def execute_command(
 
         if inspect.iscoroutinefunction(func):
             # Call async function directly (we're already in async context)
-            result = await func(args)
+            result: str | None = await func(args)
         else:
-            result = func(args)
+            result: str | None = func(args)
         return result
     except EOFError:
         raise
@@ -154,106 +154,6 @@ async def cmd_skills(args: str) -> str:
         return "\n".join(output)
 
 
-@register_command("inspect")
-async def cmd_inspect(args: str) -> str:
-    """Run quick inspection on devices.
-
-    Usage:
-        /inspect [scope] [--layer L1|L2|L3|L4|all] [--report]
-
-    Examples:
-        /inspect all
-        /inspect R1, R2, R5
-        /inspect role:core --layer L3
-        /inspect all --report
-
-    Layers:
-        L1    - Physical layer (interfaces, inventory)
-        L2    - Data link (VLANs, STP, MAC)
-        L3    - Network (routing, OSPF, BGP)
-        L4    - Transport (CPU, memory, errors)
-        all   - All layers (default)
-    """
-    import subprocess
-    import sys
-    from pathlib import Path
-
-    try:
-        from config.settings import settings
-
-        # Use network_inspect.py to avoid shadowing Python's built-in inspect module
-        inspect_script = Path(settings.agent_dir) / "commands" / "network_inspect.py"
-
-        cmd_args = args.split() if args else ["all"]
-        result = subprocess.run(  # noqa: ASYNC221, S603
-            [sys.executable, str(inspect_script)] + cmd_args,
-            capture_output=True,
-            text=True,
-            cwd=str(Path.cwd()),
-        )
-
-        output = result.stdout
-        if result.stderr:
-            output += "\n" + result.stderr
-
-        return output if output.strip() else "Inspection complete."
-
-    except Exception as e:
-        return f"Error executing inspect: {str(e)}"
-
-
-@register_command("query")
-async def cmd_query(args: str) -> str:
-    """Execute quick network query.
-
-    Usage:
-        /query [device] [query]
-
-    Examples:
-        /query R1 interface status
-        /query S1 version
-        /query R1 bgp neighbors
-        /query all cpu
-
-    Common Queries:
-        interface status   - Show interface status
-        version           - Show device version
-        bgp               - Show BGP summary
-        ospf              - Show OSPF neighbors
-        route             - Show routing table
-        vlan              - Show VLAN configuration
-        cpu               - Show CPU usage
-        memory            - Show memory stats
-    """
-    import subprocess
-    import sys
-    from pathlib import Path
-
-    if not args:
-        return "Usage: /query <device> <query>\nExample: /query R1 interface status"
-
-    try:
-        from config.settings import settings
-
-        query_script = Path(settings.agent_dir) / "commands" / "query.py"
-
-        result = subprocess.run(  # noqa: ASYNC221, S603
-            [sys.executable, str(query_script)] + args.split(),
-            capture_output=True,
-            text=True,
-            cwd=str(Path.cwd()),
-        )
-
-        output = result.stdout
-        if result.stderr:
-            output += "\n" + result.stderr
-
-        return output if output.strip() else "Query complete."
-
-    except Exception as e:
-        return f"Error executing query: {str(e)}"
-
-
 @register_command("reload")
 async def cmd_reload(args: str) -> str:
     """Reload skills and capabilities.
@@ -273,19 +173,156 @@ async def cmd_reload(args: str) -> str:
 
 @register_command("clear")
 async def cmd_clear(args: str) -> str:
-    """Clear session memory.
+    """Clear conversation memory.
 
     Usage:
         /clear
     """
     try:
-        from olav.cli.memory import AgentMemory
-
-        memory = AgentMemory()
-        memory.clear()
-        return "✅ Session memory cleared"
+        # Memory will be cleared by the caller
+        return "Conversation memory cleared."
     except Exception as e:
         return f"Error clearing memory: {str(e)}"
+
+
+@register_command("teach")
+async def cmd_teach(args: str) -> str:
+    """Teach OLAV the correct response for the last query.
+
+    Usage:
+        /teach "The correct SQL is..."
+        /teach "Use command: show interfaces"
+        /teach "sql: SELECT * FROM devices WHERE name='R1'"
+
+    Examples:
+        /teach "The correct SQL is SELECT * FROM v_bgp_neighbors"
+        /teach "sql: SELECT * FROM interfaces WHERE status='up'"
+        /teach "cli: show ip route"
+
+    The command will:
+    1. Get your last query from conversation history
+    2. Parse your correction
+    3. Update the memory with the correct action
+    4. Confirm the update
+    """
+    from olav.core.embeddings import get_embedder
+    from olav.core.memory_manager import MemoryManager, MemoryRecord, Namespace
+
+    try:
+        correction = args.strip()
+        if not correction:
+            return """Usage: /teach "correction"
+
+Examples:
+  /teach "The correct SQL is SELECT * FROM v_bgp_neighbors"
+  /teach "sql: SELECT * FROM interfaces WHERE status='up'"
+  /teach "cli: show ip route"
+
+The correction will be associated with your last query."""
+
+        # Get agent and memory from the context (passed via kwargs)
+        # For now, we'll use a simpler approach: parse the correction
+        # and store it in the appropriate namespace
+
+        # Parse correction to extract namespace and action
+        namespace = Namespace.SQL  # Default to SQL namespace
+        action = correction
+
+        # Check for explicit namespace prefix
+        if correction.lower().startswith("sql:"):
+            namespace = Namespace.SQL
+            action = correction[4:].strip()
+        elif correction.lower().startswith("cli:"):
+            namespace = Namespace.CLI
+            action = correction[4:].strip()
+        elif "SELECT" in correction.upper() or "select" in correction:
+            namespace = Namespace.SQL
+        elif "show" in correction.lower():
+            namespace = Namespace.CLI
+
+        # Get embedder
+        embedder = get_embedder()
+
+        # For now, we'll use a placeholder query
+        # In a full implementation, we'd get the last query from memory
+        # TODO: Get last query from agent memory
+        placeholder_query = "last_user_query"
+
+        # Generate embedding
+        embedding = embedder.embed_query(placeholder_query)
+
+        # Create memory record
+        record = MemoryRecord(
+            query=placeholder_query,
+            namespace=namespace,
+            action=action,
+            embedding=embedding,
+            confidence=1.0,  # User corrections have high confidence
+        )
+
+        # Store in memory
+        manager = MemoryManager(embedder=embedder)
+        success = await manager.upsert(record)
+
+        if success:
+            return f"""✅ Memory updated successfully!
+
+Namespace: {namespace.value}
+Correction: {action}
+
+Note: This is a simplified version. In production, this command will:
+  • Get your actual last query from conversation history
+  • Associate the correction with that specific query
+  • Update the vector database with the correct action
+
+下次遇到类似问题时，OLAV 将使用您提供的正确答案。"""
+        else:
+            return "❌ Failed to update memory. Please try again."
+
+    except Exception as e:
+        return f"Error processing correction: {str(e)}"
+
+
+@register_command("help")
+async def cmd_help(args: str) -> str:
+    """Show available commands.
+
+    Usage:
+        /help
+    """
+    help_text = """
+Available Commands:
+  /devices [filter]  - List or filter devices
+  /skills [name]     - List or view skill details
+  /reload           - Reload skills and capabilities
+  /clear            - Clear conversation memory
+  /teach "correction"- Teach OLAV the correct response
+  /help             - Show this help message
+  /quit, /exit      - Exit OLAV
+
+For more information on a specific command, type: /help <command>
+"""
+    return help_text.strip()
+
+
+@register_command("quit")
+async def cmd_quit(args: str) -> str:
+    """Exit OLAV.
+
+    Usage:
+        /quit
+    """
+    raise EOFError()
+
+
+@register_command("exit")
+async def cmd_exit(args: str) -> str:
+    """Exit OLAV.
+
+    Usage:
+        /exit
+    """
+    raise EOFError()
 
 
 @register_command("history")
@@ -331,11 +368,8 @@ async def cmd_help(args: str) -> str:
         return """OLAV CLI Commands:
 
   Workflow Commands:
-    /backup [filter] [type] [options]  - Backup device configurations
-    /analyze [src] [dst] [options]     - Analyze network path
-    /inspect [scope] [--layer] [--report] - Device inspection
-    /query [device] [query]            - Quick device query
-    /search <query>                    - Web search for troubleshooting
+    /analyze [device|all] [--error "desc"]  - Fault diagnosis & health analysis
+    /search <query>                          - Search knowledge base
 
   Device Commands:
     /devices [filter]   - List devices (e.g., /devices role:core)
@@ -348,114 +382,82 @@ async def cmd_help(args: str) -> str:
     /help [command]     - Show this help or command-specific help
     /quit, /exit        - Exit OLAV
 
+  Natural Language Queries (no command needed):
+    "10.1.12.1在哪个设备?"      - IP location lookup
+    "R1的健康状态"            - Device health check
+    "网络概览"                  - Network summary
+    "显示拓扑"                  - Topology view
+
   Input Features:
     @file.txt           - Include file content in your query
     !command            - Execute shell command
     Multi-line          - Press Enter twice to submit
 
   Examples:
-    olav> /backup role:core running
-    olav> /analyze R1 R3 --error "packet loss"
-    olav> /inspect all --layer L3
-    olav> /query R1 bgp neighbors
-    olav> /search cisco bgp flapping troubleshooting
+    olav> /analyze R1 --error "BGP neighbor down"
+    olav> /analyze all
+    olav> 10.1.12.1在哪个设备?
+    olav> R1的BGP邻居状态
     olav> @config.txt analyze this configuration
-    olav> !ping 8.8.8.8
 """
-
-
-@register_command("backup")
-async def cmd_backup(args: str) -> str:
-    """Execute backup workflow.
-
-    Usage:
-        /backup [filter] [type] [--commands "cmd1,cmd2"]
-
-    Examples:
-        /backup role:core running
-        /backup site:lab all
-        /backup R1,R2 running
-        /backup all custom --commands "show version"
-
-    Filters:
-        role:core    - Devices with role="core"
-        site:lab     - Devices at site="lab"
-        group:test   - Devices in "test" group
-        R1,R2,R3     - Specific device list
-        all          - All devices
-
-    Backup Types:
-        running      - show running-config
-        startup      - show startup-config
-        all          - Both running and startup
-        custom       - Use --commands parameter
-    """
-    import subprocess
-    import sys
-    from pathlib import Path
-
-    try:
-        from config.settings import settings
-
-        backup_script = Path(settings.agent_dir) / "commands" / "backup.py"
-        result = subprocess.run(  # noqa: ASYNC221, S603
-            [sys.executable, str(backup_script)] + args.split(),
-            capture_output=True,
-            text=True,
-            cwd=str(Path.cwd()),
-        )
-
-        output = result.stdout
-        if result.stderr:
-            output += "\n" + result.stderr
-
-        return output
-
-    except Exception as e:
-        return f"Error executing backup: {str(e)}"
 
 
 @register_command("analyze")
 async def cmd_analyze(args: str) -> str:
-    """Execute network path analysis workflow.
+    """Fault diagnosis and health analysis (Analyzer Agent).
 
     Usage:
-        /analyze [source] [destination] [--error "desc"] [--plan] [--interactive]
+        /analyze [query]
 
     Examples:
-        /analyze R1 R3
-        /analyze R1 R3 --error "high latency"
-        /analyze R1 R3 --plan
-        /analyze R1 R3 --interactive
+        /analyze show interface errors       - Query interface errors
+        /analyze diagnose slow network       - Complex network diagnosis
+        /analyze check BGP status           - Real-time BGP verification
+        /analyze find anomalies            - Anomaly detection
 
-    Performs deep analysis using:
-        - Phase 1: Macro analysis (path tracing, fault domain)
-        - Phase 2: Micro analysis (layer-by-layer troubleshooting)
-        - Phase 3: Synthesis (root cause, recommendations)
+    This command triggers the Analyzer Agent directly with Data Fusion logic:
+        - Phase 1: Query DuckDB snapshot (Instant, 60% confidence)
+        - Phase 2: Real-time CLI verification (if anomaly or stale data)
+        - Phase 3: Fusion analysis with recommendations
+
+    Task 9.1: Direct integration bypasses generic agent loop.
     """
-    import subprocess
-    import sys
-    from pathlib import Path
+    # Import here to avoid circular dependency
+    from olav.agents.analyzer import analyze_network
+
+    if not args.strip():
+        args = "network health check"
 
     try:
-        from config.settings import settings
+        # Call Analyzer Agent directly
+        result = await analyze_network(args)
 
-        analyze_script = Path(settings.agent_dir) / "commands" / "analyze.py"
-        result = subprocess.run(  # noqa: ASYNC221, S603
-            [sys.executable, str(analyze_script)] + args.split(),
-            capture_output=True,
-            text=True,
-            cwd=str(Path.cwd()),
-        )
+        if result["status"] == "success":
+            path_icon = "⚡" if result["routing_decision"] == "static_only" else "🔍"
+            output = [
+                f"{path_icon} Analysis complete",
+                f"Routing: {result['routing_decision']}",
+                f"DB rows: {result.get('db_rows', 0)}",
+                "",
+                result["analysis"],
+            ]
 
-        output = result.stdout
-        if result.stderr:
-            output += "\n" + result.stderr
+            if result.get("recommendations"):
+                output.extend(
+                    [
+                        "",
+                        "## Recommendations:",
+                    ]
+                )
+                for rec in result["recommendations"]:
+                    output.append(f"  • {rec}")
 
-        return output
+            return "\n".join(output)
+        else:
+            return f"❌ Analysis failed: {result.get('error', 'Unknown error')}"
 
     except Exception as e:
-        return f"Error executing analyze: {str(e)}"
+        return f"❌ Analysis error: {e}"
 
 
 @register_command("search")
@@ -494,6 +496,36 @@ async def cmd_search(args: str) -> str:
         return f"Search error: {str(e)}"
 
 
+@register_command("query")
+async def cmd_query(args: str) -> str:
+    """Query network data using natural language.
+
+    Uses ReAct agent with DuckDB to query JSON data files.
+
+    Usage:
+        /query <natural language question>
+
+    Examples:
+        /query 显示 router1 的接口状态
+        /query router1 有多少 BGP 邻居
+        /query 查看所有设备的路由表
+        /query 有哪些接口是 Down 的
+    """
+    from olav.agents.query_agent_v2 import QueryAgentV2
+
+    question = args.strip()
+    if not question:
+        return "Usage: /query <question>\nExample: /query 显示 router1 的接口状态"
+
+    try:
+        # Use QueryAgentV2 (Skill-Centric ReAct)
+        agent = QueryAgentV2()
+        result = await agent.query(question)
+        return result
+    except Exception as e:
+        return f"Query failed: {e}"
+
+
 @register_command("quit")
 async def cmd_quit(args: str) -> str:
     """Exit OLAV.
@@ -512,6 +544,94 @@ async def cmd_exit(args: str) -> str:
         /exit
     """
     raise EOFError
+
+
+@register_command("lib")
+async def cmd_lib(args: str) -> str:
+    """Browse command library and templates.
+
+    Usage:
+        /lib [search_term]
+
+    Examples:
+        /lib              - List all available commands
+        /lib bgp          - Search for BGP commands
+        /lib interface    - Search for interface commands
+    """
+    from olav.core.command_registry import get_command_registry
+
+    registry = get_command_registry()
+
+    # Parse search term
+    search_term = args.strip() if args else None
+
+    if search_term:
+        # Search for commands
+        results = registry.search_commands(search_term)
+        if not results:
+            return f"No commands found matching '{search_term}'"
+
+        # Format results
+        output = [f"Commands matching '{search_term}':", ""]
+        for meta in results:
+            inspection = "✅" if meta.has_inspection_rules else "❌"
+            output.append(f"{inspection} {meta.display_name}")
+            output.append(f"   Devices: {', '.join(meta.devices[:5])}")
+            if meta.sample_fields:
+                output.append(f"   Fields: {', '.join(meta.sample_fields[:5])}")
+            output.append("")
+        return "\n".join(output)
+    else:
+        # List all commands
+        return registry.format_command_list()
+
+
+@register_command("template")
+async def cmd_template(args: str) -> str:
+    """Generate TextFSM template using Coder Agent.
+
+    Usage:
+        /template <platform> <command>
+
+    The command will prompt you to paste raw output.
+
+    Examples:
+        /template cisco_ios "show ip bgp summary"
+        /template huawei_vrp "display bgp peer"
+    """
+
+    # Parse arguments
+    parts = args.strip().split(maxsplit=1)
+    if len(parts) < 2:
+        return """Usage: /template <platform> <command>
+
+Example:
+    /template cisco_ios "show ip bgp summary"
+
+Then paste the raw command output when prompted."""
+
+    platform = parts[0]
+    command_name = parts[1].strip("\"'")
+
+    # For CLI, we'd need to prompt for output
+    # For now, return instructions
+    return f"""To generate TextFSM template for {platform} {command_name}:
+
+Please use the Python API directly:
+
+    from olav.agents.coder import generate_template
+
+    result = await generate_template(
+        raw_output="<paste raw output here>",
+        command_name="{command_name}",
+        platform="{platform}",
+    )
+
+    if result['status'] == 'success':
+        print(result['template'])
+    else:
+        print(f"Failed: {{result['error']}}")
+"""
 
 
 # =============================================================================

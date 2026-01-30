@@ -46,7 +46,7 @@ class ConfigCommand:
         Returns:
             Formatted configuration display
         """
-        lines = []
+        lines: list[str] = []
         lines.append("=" * 70)
         lines.append("OLAV Configuration")
         lines.append("=" * 70)
@@ -169,7 +169,7 @@ class ConfigCommand:
         lines.append("Validating OLAV Configuration...")
         lines.append("-" * 50)
 
-        issues = []
+        issues: list[str] = []
 
         # Check LLM configuration
         if not self.settings.llm_model_name:

@@ -1,0 +1,3 @@
+Template, Hostname, Platform, Command
+
+cisco_ios_show_ip_bgp_summary.textfsm, .*, cisco_ios, sh[[ow]] ip bgp su[[mmary]]

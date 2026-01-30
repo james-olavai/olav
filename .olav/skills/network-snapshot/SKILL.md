@@ -8,7 +8,7 @@ intent: snapshot
 
 ## Network Snapshot - 采集定义
 
-通过 `search_capabilities(intent, platform)` 动态查询命令。
+通过 `search_device_commands(device, intent)` 动态查询命令。
 
 ### 执行参数
 
