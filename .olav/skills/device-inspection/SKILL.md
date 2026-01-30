@@ -1,11 +1,21 @@
 ---
 name: Device Inspection
 description: Execute comprehensive L1-L4 network device inspection. Use when user asks to "inspect all devices", "run comprehensive health check", "full network audit", or needs systematic L1-L4 analysis across multiple devices.
-version: 1.0.0
+version: 2.0.0
 
 # OLAV Extended Fields
 intent: inspect
 complexity: medium
+
+# Execution Configuration (v0.9.4 Map-Reduce)
+execution:
+  mode: map-reduce
+  parallel: true
+  intermediate_output: true
+  orchestrator: inspect_orchestrator
+  # Map Phase: 为每个设备创建独立的 ReAct Agent
+  # Reduce Phase: 汇总所有设备报告，生成完整分析
+  # Intermediate Files: exports/reports/inspection_{timestamp}/devices/*.json
 
 # Output Configuration
 output:
@@ -28,16 +38,78 @@ output:
 ## Identification Signals
 User questions contain: "inspect", "comprehensive", "full check", "all devices", "L1-L4"
 
-## Execution Strategy (Two-Stage Pipeline)
+## Execution Strategy (v0.9.4 Map-Reduce + ReAct)
 
-**Stage 1 - Data Collection (Fast):**
-1. Call `sync_all(devices="all", group="<target_group>", categories="...")` 
-2. Data automatically saved to disk (parallel via Nornir)
-3. Returns immediately with collection summary
+**Architecture**: Python Orchestrator + Per-Device ReAct Agents
 
-**Stage 2 - Analysis (Async):**
-4. Data parsing + LLM analysis runs in background (non-blocking)
-5. Reports generated to `data/sync/YYYY-MM-DD/reports/`
+**Map Phase (Parallel/Serial)**:
+1. Python loop ensures **all devices are processed** (no missing devices)
+2. Each device gets a dedicated ReAct Agent for flexible L1-L4 analysis
+3. Agent uses `query_database` for Zero-ETL data access
+4. Intermediate results saved to `exports/reports/inspection_{timestamp}/devices/{device}.json`
+
+**Reduce Phase (Aggregation)**:
+5. Collect all device reports (from intermediate files or in-memory)
+6. Generate summary table (Device | Version | L1 | L2 | L3 | L4 | Status)
+7. Consolidate issues and recommendations
+8. Output final Markdown report: `exports/reports/inspection_{timestamp}/report.md`
+
+**Advantages**:
+- ✅ **Completeness**: Python loop guarantees all devices inspected
+- ✅ **Flexibility**: ReAct Agents adapt to each device's capabilities
+- ✅ **Recoverability**: Intermediate files allow resume from failures
+- ✅ **Auditability**: Full trace of per-device analysis
+- ✅ **Scalability**: Parallel execution for large networks
+
+### Data Access Methods
+
+**Primary: query_database (Zero-ETL - Recommended)**
+Use SQL queries on snapshot JSON files for fast analysis:
+
+```sql
+-- Version info for device
+SELECT data[1].hostname, data[1].version, data[1].uptime
+FROM read_json_auto('exports/snapshots/latest/parsed/R1/show-version.json')
+
+-- Interface status
+SELECT unnest(data).interface, unnest(data).status
+FROM read_json_auto('exports/snapshots/latest/parsed/R1/show-ip-interface-brief.json')
+
+-- ARP entries count
+SELECT COUNT(*) FROM (
+  SELECT unnest(data) FROM read_json_auto('exports/snapshots/latest/parsed/R1/show-arp.json')
+)
+
+-- OSPF neighbor st(v0.9.4)
+
+**CLI Command**:
+```bash
+# Basic inspection (uses latest snapshot)
+olav inspect
+
+# With data collection
+olav inspect --snapshot
+
+# Device filtering
+olav inspect --device R1,R2
+olav inspect --role router
+olav inspect --group core
+
+# Execution modes
+olav inspect --parallel          # Parallel map phase (default)
+olav inspect --no-parallel       # Serial map phase (debugging)
+olav inspect --no-intermediate   # Skip intermediate files
+```
+
+**Orchestrator**: `inspect_orchestrator.inspect_all_devices()`
+- Python handles device iteration (not LLM)
+- ReAct Agent analyzes each device independently
+- Final report aggregates all device
+- `get_device_health(device)` - Quick device health summary
+- `analyze_network_health()` - Full network L1-L4 analysis
+
+**Tertiary: Real-time (Only if no snapshot)**
+- `smart_query(device, intent)` - Live command execution
 
 ### Implementation Details
 - Use `sync_all(group="test")` for test devices (default)
@@ -48,7 +120,7 @@ User questions contain: "inspect", "comprehensive", "full check", "all devices",
 
 ## Comprehensive Inspection Framework (L1-L4)
 
-Use `search_capabilities(query, platform)` to find appropriate commands for each layer.
+Use `search_device_commands(device, query)` to find appropriate commands for each layer.
 
 ### L1 - Physical Layer
 **What to check**:

@@ -1,0 +1,9 @@
+{
+  "v_device_status": "View: v_device_status\nColumns: device (VARCHAR), version (VARCHAR), uptime (VARCHAR), hostname (VARCHAR)",
+  "v_arp": "View: v_arp\nColumns: device (VARCHAR), address (VARCHAR), hardware_address (VARCHAR), interface (VARCHAR), protocol (VARCHAR)",
+  "v_cdp_neighbors": "View: v_cdp_neighbors\nColumns: device (VARCHAR), local_interface (VARCHAR), neighbor_name (VARCHAR), neighbor_interface (VARCHAR), platform (VARCHAR)",
+  "v_interfaces": "View: v_interfaces\nColumns: device (VARCHAR), interface (VARCHAR), port (VARCHAR), link_status (VARCHAR), protocol_status (VARCHAR), status (VARCHAR), ip_address (VARCHAR), vrf (VARCHAR), proto (VARCHAR), bandwidth_kbps (BIGINT), in_errors (BIGINT), out_errors (BIGINT), crc_errors (BIGINT)",
+  "v_ospf_neighbors": "View: v_ospf_neighbors\nColumns: device (VARCHAR), neighbor_id (VARCHAR), ip_address (VARCHAR), priority (VARCHAR), state (VARCHAR), interface (VARCHAR), dead_time (TIME)",
+  "v_routes": "View: v_routes\nColumns: device (VARCHAR), network (VARCHAR), prefix_length (VARCHAR), nexthop_ip (VARCHAR), nexthop_if (VARCHAR), protocol (VARCHAR), type (VARCHAR), vrf (VARCHAR), distance (VARCHAR), metric (BIGINT), uptime (VARCHAR)",
+  "v_cpu_utilization": "View: v_cpu_utilization\nColumns: device (VARCHAR), process_name (VARCHAR), cpu_5sec (DOUBLE), cpu_1min (DOUBLE), cpu_5min (DOUBLE)"
+}

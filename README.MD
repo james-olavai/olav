@@ -48,7 +48,7 @@ Enforce type safety and parameter validation at execution boundaries.
 - **3-Layer Knowledge Brain**: Decouples **Skills** (How), **Knowledge** (What), and **Capabilities** (Tools).
 - **Human-in-the-Loop (HITL)**: Sensitive commands (`reload`, `config`) trigger mandatory approval gates—critical decisions require human validation.
 - **Prompt Guard**: Automatic intent filtering blocks non-network queries, preventing prompt injection and off-topic requests.
-- **Command Whitelisting & Blacklisting**: All executable commands are strictly whitelisted per platform (Cisco, Juniper, etc.), with explicit blacklist of forbidden operations (reload, reboot, erase, etc.), preventing dangerous or unintended operations.
+- **Command Blacklisting**: Explicit blacklist of dangerous operations (reload, reboot, erase, etc.) enforced at the execution layer, preventing unintended operations.
 - **Multi-Vendor**: Native support for Cisco, Huawei, Juniper, Arista, and any SSH-compatible device.
 
 ---
@@ -144,7 +144,7 @@ python scripts/init.py
 **What it does:**
 - ✅ Generates `.olav/settings.json` from your `.env` values (model, temperature, etc.)
 - ✅ Generates `.olav/knowledge/aliases.md` from your `hosts.yaml` device names
-- ✅ Loads command whitelists into `capabilities.db`
+- ✅ Creates database schema for network data storage
 - ✅ Creates `knowledge.db` schema for RAG search
 
 **Additional options:**
@@ -152,7 +152,6 @@ python scripts/init.py
 # With uv
 uv run python scripts/init.py --check           # Check initialization status
 uv run python scripts/init.py --force           # Regenerate settings.json and aliases.md
-uv run python scripts/init.py --reload-commands # Re-import commands after editing whitelists
 
 # With pip/venv
 python scripts/init.py --check
@@ -211,55 +210,56 @@ Guards against prompt injection attacks and off-topic requests by validating tha
 }
 ```
 
-### 2. **Command Whitelisting** - Capability Control
-All executable commands are strictly whitelisted per vendor platform. OLAV will **never** execute commands not in the whitelist.
+### 2. **Command Blacklisting** - Security Control
 
-**Whitelist Location**: `.olav/imports/commands/{platform}.txt`
+OLAV v0.9+ uses a **blacklist-only** approach for security, enforcing restrictions at the Nornir execution layer.
 
-Example `.olav/imports/commands/cisco_ios.txt`:
-```
-# Read-only commands
-show version
-show interfaces
-show running-config
-# Blocked by default:
-# reload        ← NOT in whitelist, BLOCKED
-# write erase   ← NOT in whitelist, BLOCKED
-```
-
-**Benefits**:
-- Prevents accidental dangerous commands (reload, factory reset)
-- Vendor-specific: Different allowed commands per platform
-- Easily auditable: All permitted commands in one place
-
-To add new commands: Edit the platform file and run:
-```bash
-uv run python scripts/init.py --reload-commands
-```
-
-### 2b. **Command Blacklist** - Forbidden Operations
-In addition to whitelisting, OLAV maintains an explicit **blacklist** of dangerous commands that are **always** forbidden, regardless of whitelist status.
-
-**Blacklist Location**: `.olav/imports/commands/blacklist.txt`
+**Blacklist Location**: `.olav/config/guard_rules.yaml` (dangerous_commands pattern)
 
 Example forbidden commands:
-```
-# Absolutely forbidden - no exceptions
-reload
-reboot
-erase
-format
-delete filesystem
-write erase
-factory reset
-shutdown
-halt
+```yaml
+dangerous_commands:
+  - "^reload"
+  - "^reboot"
+  - "^erase"
+  - "^format"
+  - "^delete\\s+flash:"
+  - "^write\\s+erase"
 ```
 
-**Why Both?**
-- **Whitelist** = Explicit permission (positive control) - only listed commands are allowed
-- **Blacklist** = Explicit prohibition (negative control) - even if somehow whitelisted, these are forbidden
-- **Defense-in-depth**: Dual protection against accidental misconfigurations
+**How it works**:
+1. User/Agent issues command
+2. Guard checks against dangerous patterns (BEFORE LLM)
+3. If matched → Block immediately with error message
+4. If safe → Execute via Nornir
+
+**Benefits**:
+- ✅ Simplified: No need to maintain per-platform whitelists
+- ✅ Flexible: Any command allowed except explicitly blocked
+- ✅ Fail-safe: Enforced at lowest execution layer (can't bypass)
+- ✅ Bilingual: Supports Chinese/English error messages
+
+**Previous Approach (v0.8)**:
+Used whitelist files (`.olav/imports/commands/{platform}.txt`) - removed in v0.9 for flexibility.
+
+### 2b. **Guard Configuration** - Multi-Layer Security
+### 2b. **Guard Configuration** - Multi-Layer Security
+
+The Guard system provides multiple security checks:
+
+**1. Pattern Matching** (Fast, Deterministic):
+- Dangerous commands (reload, erase)
+- Config changes (configure terminal, write memory)
+- Sensitive data access (show run | include password)
+
+**2. LLM Intent Classification** (Optional, Complex Scenarios):
+- Analyzes natural language queries
+- Detects suspicious intent patterns
+- Requires approval for ambiguous requests
+
+**Configuration**: `.olav/config/guard_rules.yaml`
+
+See [Guard Rules Documentation](docs/guard_rules.md) for detailed configuration.
 
 ### 3. **Human-in-the-Loop (HITL)** - Approval Gates
 Critical operations automatically pause for human approval before execution.

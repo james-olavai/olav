@@ -48,3 +48,7 @@ Agent Parsing:
 - Aliases are auto-generated from hosts.yaml during init
 - Agent can learn new aliases during conversations
 - Run `uv run python scripts/init.py --force` to regenerate from hosts.yaml
+
+| router1 | R1 | device | cisco_ios | Inferred from user queries matching R1 (border router); confirmed via BGP neighbor pattern |
+
+| router1 | R1 | device | cisco_ios |  |

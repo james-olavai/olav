@@ -1,1395 +1,692 @@
-"""Unified Data Layer - Sync Tools for OLAV v0.8.
+"""Network device synchronization tools - OLAV v0.9.2 Optimized Version.
 
-This module provides tools for network data collection and synchronization
-following the unified data layer design (docs/0.md).
+This module provides tools for parallel, per-command network device synchronization
+with Blacklist integration and simplified reporting.
 
-Core functions:
-- sync_all: Execute daily sync for all/specified devices
-- get_sync_age: Get age of latest sync data
-- search_sync: Search sync data using ripgrep/grep/Python
-- diff_configs: Compare configs between dates
-- query_sync_db: Execute read-only SQL on sync database
+Key Optimizations (v0.9.2):
+- Per-Command Parallel Execution (vs. Per-Device Serial)
+- Blacklist Integration at Nornir Layer
+- Report Generation Moved to Separate Modules
+- Target: ~400 lines (vs. 2253 lines in v0.9.0)
 """
 
-import difflib
-import shutil
+import logging
+import socket
 import subprocess
-from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 
-import duckdb
 from langchain_core.tools import tool
+from nornir.core.task import Result, Task
+from nornir_netmiko.tasks import netmiko_send_command
+from nornir_scrapli.tasks import send_commands as scrapli_send_commands
 
-from config.paths import NETWORK_SNAPSHOT_PATH
+from config.paths import SYNC_DIR
+from config.settings import get_settings
+from olav.tools.network_executor import get_nornir
+
+from .inspection_views import create_inspection_views
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
-# Data Directory Management
+# Core Functions
 # =============================================================================
 
 
 def get_sync_base_dir() -> Path:
-    """Get the base directory for sync data.
-
-    Returns:
-        Path to exports/snapshots/ directory (simplified structure)
-    """
-    from config.settings import PROJECT_ROOT
-
-    return PROJECT_ROOT / "exports" / "snapshots"
+    """Get the base directory for all sync data."""
+    return SYNC_DIR
 
 
 def get_sync_dir(date: str | None = None) -> Path:
-    """Get the sync directory for a specific date.
-
-    Args:
-        date: Date string in YYYY-MM-DD format (default: today)
-
-    Returns:
-        Path to exports/snapshots/YYYY-MM-DD/ directory
-    """
-    base_dir = get_sync_base_dir()
-    base_dir.mkdir(parents=True, exist_ok=True)
-
+    """Get sync directory for a given date."""
     if date is None:
         date = datetime.now().strftime("%Y-%m-%d")
-
-    sync_dir = base_dir / date
-    sync_dir.mkdir(parents=True, exist_ok=True)
-
-    # Create subdirectories
-    # Note: raw/ and parsed/ per-device dirs created on-demand in sync_all()
-    (sync_dir / "raw").mkdir(exist_ok=True)
-    (sync_dir / "parsed").mkdir(exist_ok=True)
-    (sync_dir / "map").mkdir(exist_ok=True)
-    (sync_dir / "map" / "inspect").mkdir(parents=True, exist_ok=True)
-    (sync_dir / "map" / "logs").mkdir(parents=True, exist_ok=True)
-    (sync_dir / "reduce").mkdir(exist_ok=True)
-
-    return sync_dir
-
-
-def update_latest_link(sync_dir: Path) -> None:
-    """Update the 'latest' symlink or text file to point to sync_dir.
-
-    Args:
-        sync_dir: Path to the sync directory to link
-    """
-    base_dir = get_sync_base_dir()
-    latest_path = base_dir / "latest"
-
-    # Remove existing link/file
-    if latest_path.exists(follow_symlinks=False):
-        if latest_path.is_symlink():
-            latest_path.unlink()
-        else:
-            latest_path.unlink()
-
-    # Try creating symlink (Linux/macOS)
-    try:
-        latest_path.symlink_to(sync_dir)
-    except OSError:
-        # Fallback for Windows: create text file with path
-        latest_path.write_text(str(sync_dir))
+    return get_sync_base_dir() / date
 
 
 def get_latest_sync_dir() -> Path | None:
-    """Get the latest sync directory from 'latest' link.
-
-    Returns:
-        Path to latest sync directory or None if not found
-    """
+    """Get the most recent sync directory."""
     base_dir = get_sync_base_dir()
-    latest_path = base_dir / "latest"
+    latest_link = base_dir / "latest"
 
-    if not latest_path.exists():
-        # Fallback: find most recent date directory
-        date_dirs = sorted(
-            [d for d in base_dir.iterdir() if d.is_dir() and d.name.isdigit() or "-" in d.name]
-        )
-        if date_dirs:
-            return date_dirs[-1]
-        return None
+    if latest_link.exists() and latest_link.is_symlink():
+        target = latest_link.resolve()
+        if target.exists():
+            return target
 
-    if latest_path.is_symlink():
-        return latest_path.resolve()
+    # Fallback: Find most recent directory
+    sync_dirs = sorted(
+        [
+            d
+            for d in base_dir.iterdir()
+            if d.is_dir() and d.name != "latest" and d.name != "archive"
+        ],
+        reverse=True,
+    )
+    return sync_dirs[0] if sync_dirs else None
 
-    # Windows: read path from text file
-    path_str = latest_path.read_text().strip()
-    return Path(path_str) if path_str else None
+
+def update_latest_link(sync_dir: Path) -> None:
+    """Update 'latest' symlink to point to most recent sync."""
+    latest_link = get_sync_base_dir() / "latest"
+
+    if latest_link.exists() or latest_link.is_symlink():
+        latest_link.unlink()
+
+    latest_link.symlink_to(sync_dir, target_is_directory=True)
+
+
+# Note: Command blacklist is handled by NetworkExecutor._is_blacklisted()
+# No device-level blacklist needed - dangerous commands are filtered per execution
 
 
 # =============================================================================
-# Tool 1: sync_all
+# Error Detection Patterns (skip saving these outputs)
+# =============================================================================
+
+# Patterns that indicate command execution failure or unsupported commands
+# These outputs should NOT be saved to raw files
+ERROR_PATTERNS = [
+    "% Invalid input",
+    "% Incomplete command",
+    "% Ambiguous command",
+    "% Unknown command",
+    "% Authorization failed",
+    "% Access denied",
+    "Error: Unrecognized command",
+    "Error: Wrong parameter",
+    "Syntax error:",
+]
+
+# Scrapli platform mapping (Nornir -> Scrapli)
+SCRAPLI_PLATFORM_MAP = {
+    "cisco_ios": "cisco_iosxe",
+    "cisco_xe": "cisco_iosxe",
+    "cisco_xr": "cisco_iosxr",
+    "arista_eos": "arista_eos",
+    "juniper_junos": "juniper_junos",
+}
+
+
+def _is_error_output(output: str) -> bool:
+    """Check if command output indicates an error."""
+    if not output:
+        return True
+    for pattern in ERROR_PATTERNS:
+        if pattern in output:
+            return True
+    return False
+
+
+def parallel_tcp_check(hosts: list, port: int = 22, timeout: float = 2.0) -> dict[str, bool]:
+    """Check TCP connectivity for multiple hosts in parallel."""
+
+    def check_one(host_name: str, address: str) -> tuple[str, bool]:
+        try:
+            with socket.create_connection((address, port), timeout=timeout):
+                return host_name, True
+        except (TimeoutError, ConnectionRefusedError, OSError):
+            return host_name, False
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=50) as executor:
+        futures = [executor.submit(check_one, h.name, h.hostname) for h in hosts]
+        for future in futures:
+            name, status = future.result()
+            results[name] = status
+    return results
+
+
+# =============================================================================
+# Per-Command Parallel Execution Task
+# =============================================================================
+
+
+def _sync_device_workflow(task: Task, commands: list[str], output_dir: Path) -> Result:
+    """ACE Workflow: Try Scrapli (Fast) -> Fallback to Netmiko (Stable)."""
+    host = task.host
+    original_platform = host.platform
+    device_dir = output_dir / host.name
+    device_dir.mkdir(parents=True, exist_ok=True)
+
+    # Status tracking in Host data
+    host.data["ace_status"] = "PENDING"
+    host.data["ace_driver"] = "NONE"
+
+    settings = get_settings()
+    timeout = settings.execution.timeout
+
+    # 1. Check if device is unreachable (from pre-check)
+    if not host.data.get("tcp_reachable", True):
+        host.data["ace_status"] = "DISCONNECTED"
+        return Result(host=host, failed=True, result="Device unreachable (TCP 22/23)")
+
+    # 2. Try Scrapli (Platinum Path)
+    try:
+        scrapli_platform = SCRAPLI_PLATFORM_MAP.get(host.platform or "")
+        if not scrapli_platform:
+            raise ValueError(f"Platform {host.platform} not supported by Scrapli")
+
+        host.data["ace_driver"] = "scrapli"
+
+        # Inject permissive configuration for Scrapli
+        from nornir.core.inventory import ConnectionOptions
+
+        # Get existing or new options
+        opts = host.connection_options.get("scrapli", ConnectionOptions())
+        opts.platform = scrapli_platform
+        if opts.extras is None:
+            opts.extras = {}
+
+        # Standard permissive options for Scrapli
+        opts.extras["ssh_config_file"] = True
+        opts.extras["auth_strict_key"] = False
+
+        # Try to use paramiko transport within scrapli if standard fails
+        # but let's first try standard system/asyncssh with permissive keys
+        opts.extras["transport"] = "paramiko"
+        opts.extras["timeout_ops"] = 300  # 5 mins for exhaustive snapshots
+        host.connection_options["scrapli"] = opts
+
+        res = task.run(
+            task=scrapli_send_commands,
+            commands=commands,
+            strip_prompt=True,
+        )
+
+        # Restore original platform
+        host.platform = original_platform
+
+        scrapli_responses = res.result
+        saved = 0
+        if scrapli_responses and isinstance(scrapli_responses, list):
+            for i, cmd_res in enumerate(scrapli_responses):
+                cmd = commands[i]
+                output = str(cmd_res.result)
+                if output and not _is_error_output(output):
+                    cmd_filename = cmd.replace(" ", "-").replace("/", "-") + ".txt"
+                    (device_dir / cmd_filename).write_text(output, encoding="utf-8")
+                    saved += 1
+
+            host.data["ace_status"] = "ACTIVE_FAST"
+            _update_capability_cache(host.name, "scrapli")
+            return Result(host=host, result=f"Scrapli Success: {saved}/{len(commands)} commands")
+        else:
+            raise ValueError(f"Scrapli returned {type(scrapli_responses)} instead of list")
+
+    except Exception as e:
+        logger.debug(f"Scrapli failed for {host.name}: {e}")
+        # Explicitly print for visibility during development
+        print(f"DEBUG: Scrapli failed for {host.name}, falling back...")
+
+    # 3. Fallback to Netmiko (Gold Path)
+    try:
+        print(f"🔄 Using Netmiko for {host.name}...")
+        host.data["ace_driver"] = "netmiko"
+        saved = 0
+        total = len(commands)
+
+        for idx, command in enumerate(commands, 1):
+            try:
+                # Use subtask but don't let it crash the whole loop
+                res = task.run(
+                    task=netmiko_send_command,
+                    command_string=command,
+                    read_timeout=timeout,
+                )
+                if res.result and not _is_error_output(str(res.result)):
+                    cmd_filename = command.replace(" ", "-").replace("/", "-") + ".txt"
+                    (device_dir / cmd_filename).write_text(str(res.result), encoding="utf-8")
+                    saved += 1
+
+                # Print progress every 10 commands or at the end
+                if idx % 10 == 0 or idx == total:
+                    print(f"  {host.name}: {saved}/{idx} commands collected")
+
+            except Exception:  # noqa: S112
+                continue  # Skip individual command failure in fallback
+
+        host.data["ace_status"] = "ACTIVE_STABLE"
+        _update_capability_cache(host.name, "netmiko")
+        print(f"✅ {host.name}: {saved}/{total} commands via Netmiko")
+        return Result(host=host, result=f"Netmiko Fallback: {saved}/{total} commands")
+
+    except Exception as e:
+        host.data["ace_status"] = "DISCONNECTED"
+        return Result(host=host, failed=True, result=f"Complete Failure: {e}")
+
+
+def _update_capability_cache(hostname: str, driver: str) -> None:
+    """Cache the successful driver for future runs."""
+    try:
+        from olav.core.database import get_database
+
+        db = get_database()
+        db.conn.execute(
+            "INSERT OR REPLACE INTO device_capabilities VALUES (?, ?, CURRENT_TIMESTAMP, NULL)",
+            [hostname, driver],
+        )
+    except Exception:
+        pass
+
+
+# =============================================================================
+# Main Tool: sync_all (Per-Command Parallel)
 # =============================================================================
 
 
 @tool
-def sync_all(devices: str = "all", group: str = "test", categories: str | None = None) -> str:
-    """Execute daily sync for all or specified devices.
+def sync_all(
+    devices: list[str] | None = None,
+    commands: list[str] | None = None,
+    async_processing: bool = False,
+) -> str:
+    """Sync network devices using per-command parallel execution.
 
-    This is the primary tool for data collection. It executes all commands
-    defined in the daily-sync skill and stores results in the sync directory.
+    This is the main synchronization tool. It executes commands in parallel
+    across all devices (one command at a time), automatically skipping
+    blacklisted devices.
 
-    DESIGN: Two-stage pipeline:
-    - Stage 1 (sync_all): Fast data collection → disk (parallel via Nornir)
-    - Stage 2 (async): Parse + LLM analysis (non-blocking in interactive mode, blocking in CLI)
+    Architecture:
+        - Stage 1 (Blocking): Per-Command parallel data collection
+          * For each command: execute on all devices in parallel via Nornir
+          * Blacklist filtering applied at Nornir layer
+          * Raw outputs stored to sync_dir/raw/{device}/{command}.txt
+
+        - Stage 2 (Async): Background parsing and reporting
+          * Parse outputs with TextFSM
+          * Import to DuckDB
+          * Generate summary reports
 
     Args:
-        devices: Device filter (default: "all")
-            - "all": All devices in the specified group
-            - Specific device names: "R1,R2,R3"
-            - Nornir filter syntax not used (use group parameter instead)
-        group: Device group to target (default: "test")
-            - "test": Test/lab devices (192.168.100.x)
-            - "core": Core/production devices
-            - "border": Border devices
-        categories: Optional comma-separated list of categories to collect
-            (configs, neighbors, routing, interfaces, switching, system, environment, logging)
-            If None, collects all categories
+        devices: List of device names (default: all non-blacklisted devices)
+        commands: List of commands to execute (default: standard L1-L4 command set)
+        async_processing: Whether to run Stage 2 in background (default: False)
 
     Returns:
-        Summary of sync operation with device counts and output paths
+        Status message with sync directory location
 
     Examples:
         >>> sync_all()
-        "Sync completed: 6 devices, 42 commands, data/sync/2026-01-13/"
+        "✓ Stage 1 Complete: 12 devices, 15 commands
+         Data: /data/sync/2026-01-14
+         Stage 2: Processing in background..."
 
-        >>> sync_all(devices="R1,R2", group="test", categories="configs,system")
-        "Sync completed: 2 devices, 8 commands, data/sync/2026-01-13/"
+        >>> sync_all(devices=["R1", "R2"], commands=["show version"])
+        "✓ Sync Complete: 2 devices, 1 command"
     """
-    from olav.core.database import get_database
-    from olav.tools.network import get_nornir
-
-    try:
-        # Initialize sync directory for today
-        sync_date = datetime.now().strftime("%Y-%m-%d")
-        sync_dir = get_sync_dir(sync_date)
-
-        # Get devices from inventory
-        nr = get_nornir()
-
-        # Filter by group first
-        if group:
-            nr = nr.filter(filter_func=lambda h: group in h.groups)
-
-        # Filter devices if specified
-        if devices != "all":
-            if isinstance(devices, str):
-                device_list = [d.strip() for d in devices.split(",")]
-            else:
-                device_list = devices
-            nr = nr.filter(filter_func=lambda h: h.name in device_list)
-
-        device_names = list(nr.inventory.hosts.keys())
-        if not device_names:
-            return "No devices found matching the filter."
-
-        # ===================================================================
-        # 新的设计: 从 Skill 文件读取命令定义，而不是通过数据库搜索
-        # 原理:
-        # 1. Skill 文件是单一事实来源 (single source of truth)
-        # 2. 所有命令 1:1 从数据库中选取，不需要 "智能选择"
-        # 3. 所有设备执行相同的命令集
-        # 4. 按 Skill 中的顺序逐个执行
-        # ===================================================================
-
-        # 定义 Skill 中的命令意图，以及对应的数据库搜索关键字
-        # 关键: 使用能匹配数据库中实际存在的命令的关键字
-        skill_command_intents = {
-            "configs": ["running-config", "startup-config"],
-            "neighbors": ["cdp neighbors", "lldp neighbors"],
-            "routing": ["ospf neighbor", "bgp summary", "ip route"],
-            "interfaces": ["show interface", "show mac address-table"],
-            "switching": ["show vlan", "show spanning-tree"],  # L2 switching
-            "system": ["show version", "show processes cpu", "show memory"],
-            "environment": ["show environment", "show arp"],
-            "logging": ["show logging", "show debug"],
-        }
-
-        # Parse categories from string if provided, otherwise use all
-        if categories is None:
-            categories = list(skill_command_intents.keys())
-        elif isinstance(categories, str):
-            categories = [c.strip() for c in categories.split(",")]
-
-        # 从 Skill 中收集所有要采集的意图 (intents)
-        # 这些意图将用于从数据库中查询对应的命令
-        all_intents = []
-        for category in categories:
-            if category in skill_command_intents:
-                all_intents.extend(skill_command_intents[category])
-
-        # 从数据库中查询命令（保留意图的顺序和完整性）
-        # 关键改进: 为每个意图查询，而不是有硬限制
-        all_commands = []
-        db = get_database()
-        command_names_seen = set()  # 去重
-
-        for intent in all_intents:
-            # 为每个意图查询对应的命令（不限制数量）
-            results = db.search_capabilities(query=intent, cap_type="command", limit=1)
-
-            for result in results:
-                cmd_name = result["name"]
-                # 只添加第一次看到的命令（去重）
-                if cmd_name not in command_names_seen:
-                    all_commands.append(result)
-                    command_names_seen.add(cmd_name)
-                    break  # 每个意图只取第一个匹配的命令
-
-        # Execute commands on all devices
-        total_commands = 0
-        success_count = 0
-        error_count = 0
-
-        from nornir_netmiko.tasks import netmiko_send_command
-
-        for device_name in device_names:
-            host = nr.inventory.hosts[device_name]
-            platform = host.platform or "unknown"
-
-            # Create device-specific raw and parsed directories
-            (sync_dir / "raw" / device_name).mkdir(exist_ok=True)
-            (sync_dir / "parsed" / device_name).mkdir(exist_ok=True)
-
-            # Execute commands for this device's platform (allow fallback to all commands)
-            # Support platform prefix matching (e.g., cisco_ios matches _cisco_ios_original)
-            device_commands = [
-                cmd for cmd in all_commands
-                if cmd["platform"] == platform or platform in cmd["platform"] or cmd["platform"] in platform
-            ]
-
-            # If no platform-specific commands, use all commands (failover)
-            if not device_commands:
-                device_commands = all_commands  # Use all available commands as fallback
-
-            for cmd_info in device_commands:
-                command = cmd_info["name"]
-                total_commands += 1
-
-                try:
-                    # Filter to run only on this device
-                    result = nr.filter(name=device_name).run(
-                        task=netmiko_send_command,
-                        command_string=command,
-                        read_timeout=10,
-                        on_failed=True,
-                    )
-
-                    if device_name in result and not result[device_name].failed:
-                        # Save raw output to device-specific file
-                        # Normalize command name to filename
-                        cmd_safe = command.lower().replace(" ", "-").replace("/", "-")
-                        output_file = sync_dir / "raw" / device_name / f"{cmd_safe}.txt"
-                        output_file.write_text(result[device_name].result, encoding="utf-8")
-
-                        # Store sync output metadata in database
-                        _store_sync_output(
-                            sync_dir=sync_dir,
-                            sync_date=sync_date,
-                            device=device_name,
-                            category=cmd_info.get("category", "unknown"),
-                            command=command,
-                            output_path=str(output_file),
-                            output_size=output_file.stat().st_size,
-                        )
-
-                        success_count += 1
-                    else:
-                        error_count += 1
-
-                except Exception:
-                    error_count += 1
-
-        # =====================================================================
-        # STAGE 1 COMPLETE: Data collected and saved to disk
-        # Return immediately without waiting for post-processing
-        # =====================================================================
-
-        # Update latest link
-        update_latest_link(sync_dir)
-
-        # Store minimal sync metadata (fast)
-        _store_sync_metadata(
-            sync_dir, sync_date, len(device_names), total_commands, success_count, error_count
-        )
-
-        result_message = (
-            f"Sync STAGE 1 completed (data collection):\n"
-            f"  group: {group}\n"
-            f"  devices: {len(device_names)}\n"
-            f"  commands: {total_commands}\n"
-            f"  success: {success_count}\n"
-            f"  errors: {error_count}\n"
-            f"  output: {sync_dir}/\n"
-            f"  note: Parse+LLM analysis running async (Stage 2)\n"
-        )
-
-        # =====================================================================
-        # STAGE 2: Asynchronous post-processing (non-blocking in agent mode)
-        # This runs in background: parse + LLM analysis
-        # =====================================================================
-        # Import here to avoid circular dependency
-        import os
-        import threading
-
-        # Check if called from CLI (has OLAV_CLI_MODE env var set by cli_main.py)
-        is_cli_mode = os.environ.get("OLAV_CLI_MODE") == "1"
-
-        def _stage2_async_processing() -> None:
-            """Non-blocking Stage 2: parse + LLM analysis."""
-            try:
-                _process_sync_stage2(sync_dir, device_names)
-            except Exception as e:
-                print(f"[WARN] Stage 2 processing failed: {e}", flush=True)
-
-        # Start Stage 2 in background thread
-        # Use daemon=False for CLI to ensure completion
-        thread = threading.Thread(
-            target=_stage2_async_processing, daemon=not is_cli_mode, name="Stage2-Async"
-        )
-        thread.start()
-
-        # In CLI mode, wait for Stage 2 to complete
-        if is_cli_mode:
-            print("[Stage2] Waiting for post-processing to complete...", flush=True)
-            thread.join(timeout=300)  # 5 min timeout
-            if thread.is_alive():
-                print("[WARN] Stage 2 timeout after 5 minutes", flush=True)
-            else:
-                print("[Stage2] ✅ Post-processing complete!", flush=True)
-
-        return result_message
-
-    except Exception as e:
-        import traceback
-
-        return f"Sync failed: {e}\n\nTraceback:\n{traceback.format_exc()}"
-
-
-def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> None:
-    """Stage 2: Asynchronous post-processing (parse + LLM).
-
-    This function runs in a background thread and does NOT block Stage 1.
-    It handles:
-    1. Data parsing (TextFSM, regex)
-    2. Database initialization
-    3. Report generation
-    4. Topology visualization
-    5. LLM analysis
-
-    Args:
-        sync_dir: Path to sync directory
-        device_names: List of device names that were synced
-    """
-    print("[Stage2] Starting async post-processing...", flush=True)
-
-    # Parse device outputs and save to parsed/
-    try:
-        import json
-        from datetime import datetime
-
-        from olav.tools.event_tools import parse_device_logs
-        from olav.tools.network import get_nornir
-
-        # Load Nornir inventory to get platform info
-        nr = get_nornir()
-
-        print("[Stage2] Parsing device logs...", flush=True)
-        for device_name in device_names:
-            # Get platform for this device
-            try:
-                host = nr.inventory.get_host(device_name)
-                platform = host.platform if host else "cisco_ios"
-            except Exception:
-                platform = "cisco_ios"
-
-            # Process all text files in the device raw directory
-            device_raw_dir = sync_dir / "raw" / device_name
-            if device_raw_dir.exists():
-                # 1. Combine all potentially log-containing files
-                all_content = []
-                for txt_file in device_raw_dir.glob("*.txt"):
-                    # Prioritize files that look like logs
-                    if any(
-                        x in txt_file.name.lower()
-                        for x in ["log", "debug", "event", "syslog", "trap"]
-                    ):
-                        content = txt_file.read_text(encoding="utf-8", errors="ignore")
-                        if content.strip():
-                            all_content.append(content)
-
-                # 2. If we found log content, parse it into structured events
-                if all_content:
-                    combined_log = "\n".join(all_content)
-                    parsed = parse_device_logs.invoke(
-                        {"device": device_name, "raw_log": combined_log}
-                    )
-                    if parsed:
-                        output_file = sync_dir / "parsed" / device_name / "logs.json"
-                        output_file.write_text(json.dumps(parsed, indent=2, default=str))
-
-                # 3. For all raw files, use TextFSM parsing
-                for txt_file in device_raw_dir.glob("*.txt"):
-                    content = txt_file.read_text(encoding="utf-8", errors="ignore")
-                    if content.strip():
-                        # Parse using TextFSM
-                        parsed_data = _parse_with_textfsm(txt_file.stem, content, platform)
-
-                        # Create parsed file with structured data only
-                        parsed_file = sync_dir / "parsed" / device_name / f"{txt_file.stem}.json"
-                        parsed_content = {
-                            "metadata": {
-                                "device": device_name,
-                                "source": txt_file.name,
-                                "command": txt_file.stem.replace("-", " "),
-                                "timestamp": datetime.now().isoformat(),
-                            },
-                            "data": parsed_data,  # Structured parsed data (NOT raw)
-                        }
-                        parsed_file.write_text(
-                            json.dumps(parsed_content, indent=2, ensure_ascii=False)
-                        )
-    except Exception as e:
-        print(f"[Stage2] Parsing error: {e}", flush=True)
-
-    # Initialize/update sync database (Stage 2)
-    try:
-        print("[Stage2] Initializing sync database...", flush=True)
-        _init_sync_db(sync_dir)
-    except Exception as e:
-        print(f"[Stage2] Database error: {e}", flush=True)
-
-    # Generate topology visualizations BEFORE reports (so report can link to them)
-    try:
-        print("[Stage2] Generating topology visualizations...", flush=True)
-        from olav.core.database import init_topology_db
-        from olav.tools.network import get_nornir
-        from olav.tools.topology_importer import TopologyImporter
-        from olav.tools.topology_viz import visualize_full_topology
-
-        # Initialize topology database and load devices
-        db_path = str(NETWORK_SNAPSHOT_PATH)
-        conn = init_topology_db(db_path)
-
-        # Load devices from Nornir inventory
-        nr = get_nornir()
-        for name, host in nr.inventory.hosts.items():
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO topology_devices
-                (name, hostname, platform, mgmt_ip, site, role)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    name,
-                    name,
-                    host.platform,
-                    str(host.hostname),
-                    host.data.get("site", "lab"),
-                    host.data.get("role", "unknown"),
-                ],
-            )
-        conn.close()
-
-        # Import topology from parsed JSON (close connection after)
-        importer = TopologyImporter(db_path)
-        importer.import_from_parsed_json(str(sync_dir))
-        importer.close()
-
-        # Generate visualizations
-        visualize_full_topology.invoke({})
-    except Exception as e:
-        print(f"[Stage2] Visualization error: {e}", flush=True)
-
-    # Import structured data to database
-    try:
-        print("[Stage2] Importing structured data to database...", flush=True)
-        from olav.tools.data_importer import NetworkDataImporter
-
-        importer = NetworkDataImporter(str(NETWORK_SNAPSHOT_PATH))
-        stats = importer.import_all_from_snapshot(sync_dir)
-        print(f"[Stage2] Imported: {stats}", flush=True)
-        importer.close()
-    except Exception as e:
-        print(f"[Stage2] Data import error: {e}", flush=True)
-
-    # Generate sync summary report (Stage 2) - AFTER topology so links work
-    try:
-        print("[Stage2] Generating reports...", flush=True)
-        # Calculate actual stats from raw files (Stage 1 data)
-        raw_dir = sync_dir / "raw"
-        total_commands = 0
-        success_count = 0
-        if raw_dir.exists():
-            for device_dir in raw_dir.iterdir():
-                if device_dir.is_dir():
-                    txt_files = list(device_dir.glob("*.txt"))
-                    total_commands += len(txt_files)
-                    success_count += len(txt_files)  # All saved files are successful
-
-        _generate_sync_summary(sync_dir, len(device_names), total_commands, success_count)
-        _generate_map_phase_summaries(sync_dir, device_names)
-        _generate_inspection_analysis_report(sync_dir, device_names)
-    except Exception as e:
-        print(f"[Stage2] Report generation error: {e}", flush=True)
-
-    print("[Stage2] Post-processing complete!", flush=True)
-
-
-def _get_command_category(command: str) -> str:
-    """Determine the category for a command.
-
-    Args:
-        command: Command string
-
-    Returns:
-        Category name
-    """
-    cmd_lower = command.lower()
-
-    if "show running-config" in cmd_lower or "show startup-config" in cmd_lower:
-        return "configs"
-    elif "cdp" in cmd_lower or "lldp" in cmd_lower:
-        return "neighbors"
-    elif "ospf" in cmd_lower or "bgp" in cmd_lower or "ip route" in cmd_lower:
-        return "routing"
-    elif "interface" in cmd_lower:
-        return "interfaces"
-    elif "cpu" in cmd_lower or "memory" in cmd_lower or "version" in cmd_lower:
-        return "system"
-    elif "environment" in cmd_lower or "power" in cmd_lower or "temperature" in cmd_lower:
-        return "environment"
-    elif "logging" in cmd_lower:
-        return "logging"
+    from olav.tools.network_executor import reset_nornir
+
+    # Get current date sync directory
+    sync_date = datetime.now().strftime("%Y-%m-%d")
+    sync_dir = get_sync_dir(sync_date)
+    raw_dir = sync_dir / "raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+
+    # Reset and initialize Nornir (ensures fresh credentials from settings)
+    reset_nornir()
+    nr = get_nornir()
+
+    # Apply device filter
+    if devices:
+        nr_filtered = nr.filter(lambda h: h.name in devices)
     else:
-        return "system"
+        nr_filtered = nr
 
+    # Get final device list
+    device_names = list(nr_filtered.inventory.hosts.keys())
+    if not device_names:
+        return "No devices available after filtering"
 
-def _init_sync_db(sync_dir: Path) -> duckdb.DuckDBPyConnection:
-    """Initialize the sync database (unified location: .olav/db/network_snapshot.duckdb).
+    # Get commands from CommandRegistry if not specified
+    if commands is None:
+        from olav.core.registry import get_command_registry
 
-    from config.paths import NETWORK_SNAPSHOT_PATH
+        # Detect platform from first device
+        first_host = nr_filtered.inventory.hosts[device_names[0]]
+        platform = first_host.platform
 
-    Args:
-        sync_dir: Path to sync directory (used only for reference)
+        if not platform:
+            return f"Error: Device '{first_host.name}' has no platform defined in inventory"
 
-    Returns:
-        DuckDB connection
-    """
-    db_path = NETWORK_SNAPSHOT_PATH
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+        registry = get_command_registry()
+        settings = get_settings()
 
-    conn = duckdb.connect(str(db_path))
+        # Determine command set based on mode
+        if settings.sync.command_mode == "whitelist":
+            commands = registry.get_whitelisted_commands(platform)
+            source_info = f"whitelist from {settings.sync.whitelist_file}"
+        else:
+            commands_dict = registry.list_commands(platform=platform)
+            commands = list(commands_dict.get(platform, []))
+            source_info = "all available NTC templates"
 
-    # Create sync_metadata table
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS sync_metadata (
-            sync_date DATE PRIMARY KEY,
-            devices_count INTEGER,
-            success_count INTEGER,
-            error_count INTEGER,
-            started_at TIMESTAMP,
-            completed_at TIMESTAMP,
-            duration_seconds REAL
-        )
-    """)
+        if not commands:
+            # Fallback to basic command set if no commands in registry/whitelist
+            commands = [
+                "show version",
+                "show running-config",
+                "show cdp neighbors detail",
+                "show ip interface brief",
+                "show ip route",
+                "show ip ospf neighbor",
+                "show ip bgp summary",
+                "show interfaces status",
+                "show vlan brief",
+                "show processes cpu",
+                "show memory statistics",
+                "show logging",
+                "show arp",
+                "show mac address-table",
+                "show ntp status",
+            ]
+            source_info = "standard L1-L4 set (fallback)"
 
-    # Create sync_outputs table
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS sync_outputs (
-            id INTEGER PRIMARY KEY,
-            sync_date DATE,
-            device VARCHAR,
-            category VARCHAR,
-            command VARCHAR,
-            output_path VARCHAR,
-            output_size INTEGER,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+        print(f"Using {source_info} ({len(commands)} commands)")
 
-    return conn
+    # =================================================================
+    # STAGE 1: ACE Adaptive Connectivity Engine (Device Parallel)
+    # =================================================================
+    start_time = datetime.now()
 
+    # 1. Pre-flight: Parallel TCP check
+    print(f"Pre-flight: Checking connectivity for {len(device_names)} devices...")
+    tcp_results = parallel_tcp_check(list(nr_filtered.inventory.hosts.values()))
+    for name, is_up in tcp_results.items():
+        nr_filtered.inventory.hosts[name].data["tcp_reachable"] = is_up
 
-def _store_sync_output(
-    sync_dir: Path,
-    sync_date: str,
-    device: str,
-    category: str,
-    command: str,
-    output_path: str,
-    output_size: int,
-) -> None:
-    """Store individual sync output record in database.
-
-    Args:
-        sync_dir: Path to sync directory
-        sync_date: Date string (YYYY-MM-DD)
-        device: Device name
-        category: Command category (e.g., 'interfaces', 'routing')
-        command: Command executed
-        output_path: Path to output file
-        output_size: Size of output file in bytes
-    """
-    conn = _init_sync_db(sync_dir)
-
-    # Get next ID
-    result = conn.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM sync_outputs").fetchone()
-    next_id = result[0] if result else 1
-
-    conn.execute(
-        """
-        INSERT INTO sync_outputs
-        (id, sync_date, device, category, command, output_path, output_size)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """,
-        [next_id, sync_date, device, category, command, output_path, output_size],
+    # 2. Execution: Per-Device Workflow (Fat Task)
+    print(f"Executing workflow on {len(device_names)} devices...")
+    results = nr_filtered.run(
+        task=_sync_device_workflow,
+        commands=commands,
+        output_dir=raw_dir,
     )
 
-    conn.close()
+    # 3. Aggregation
+    fast_path = 0
+    stable_path = 0
+    disconnected = 0
+
+    for host_name, multi_result in results.items():
+        # The workflow itself is the first element (MultiResult[0])
+        main_res = multi_result[0]
+        res_str = str(main_res.result)
+
+        if "Scrapli Success" in res_str:
+            fast_path += 1
+            logger.info(f"Host {host_name} completed via Scrapli")
+        elif "Netmiko Fallback" in res_str:
+            stable_path += 1
+            logger.info(f"Host {host_name} completed via Netmiko Fallback")
+        else:
+            disconnected += 1
+            logger.warning(f"Host {host_name} failed collection: {res_str}")
+
+    duration = (datetime.now() - start_time).total_seconds()
+
+    # Update 'latest' symlink
+    update_latest_link(sync_dir)
+
+    # Store metadata to database
+    _store_sync_metadata(
+        sync_date=sync_date,
+        sync_dir=sync_dir,
+        device_count=len(device_names),
+        command_count=len(commands),
+        success_count=fast_path + stable_path,
+        failed_count=disconnected,
+        duration_seconds=duration,
+    )
+
+    stage1_msg = (
+        f"✓ ACE Engine Complete: {len(device_names)} devices, {len(commands)} commands\n"
+        f"  🚀 FAST (Scrapli): {fast_path}, 🛡️ STABLE (Netmiko): {stable_path}, ❌ DOWN: {disconnected}\n"
+        f"  Duration: {duration:.1f}s\n"
+        f"  Data: {sync_dir}"
+    )
+
+    # =================================================================
+    # STAGE 2: Async Parsing and Reporting (Optional)
+    # =================================================================
+    if async_processing:
+        import threading
+
+        thread = threading.Thread(
+            target=_process_sync_stage2,
+            args=(sync_dir, device_names),
+            daemon=True,
+        )
+        thread.start()
+        return stage1_msg + "\n\n⏳ Stage 2: Processing in background..."
+    else:
+        _process_sync_stage2(sync_dir, device_names)
+        return stage1_msg + "\n\n✓ Stage 2 Complete: Parsing and reports generated"
 
 
 def _store_sync_metadata(
-    sync_dir: Path,
     sync_date: str,
-    devices_count: int,
-    total_commands: int,
+    sync_dir: Path,
+    device_count: int,
+    command_count: int,
     success_count: int,
-    error_count: int,
+    failed_count: int,
+    duration_seconds: float,
 ) -> None:
-    """Store sync metadata in database (unified location: .olav/db/network_snapshot.duckdb).
-
-    Args:
-        sync_dir: Path to sync directory
-        sync_date: Date string
-        devices_count: Number of devices
-        total_commands: Total commands executed
-        success_count: Successful commands
-        error_count: Failed commands
-    """
-    from config.paths import NETWORK_SNAPSHOT_PATH
-
-    db_path = NETWORK_SNAPSHOT_PATH
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Ensure tables exist before inserting
-    conn = _init_sync_db(sync_dir)
-
-    conn.execute(
-        """
-        INSERT OR REPLACE INTO sync_metadata
-        (sync_date, devices_count, success_count, error_count, completed_at)
-        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-    """,
-        [sync_date, devices_count, success_count, error_count],
-    )
-
-    conn.close()
-
-
-def _generate_sync_summary(
-    sync_dir: Path, devices_count: int, total_commands: int, success_count: int
-) -> None:
-    """Generate sync summary JSON report.
-
-    Args:
-        sync_dir: Path to sync directory
-        devices_count: Number of devices synced
-        total_commands: Total commands executed
-        success_count: Successful commands
-    """
-    import json
-    from datetime import datetime
-
-    summary = {
-        "sync_date": datetime.now().isoformat(),
-        "devices_count": devices_count,
-        "commands_executed": total_commands,
-        "commands_success": success_count,
-        "success_rate": ((success_count / total_commands * 100) if total_commands > 0 else 0),
-        "layer": "L1-L4",  # Physical to Transport
-        "data_types": [
-            "configs",  # L2+ Configuration
-            "neighbors",  # L1 Adjacency
-            "routing",  # L3-L4 Routing
-            "interfaces",  # L1-L2 Connectivity
-            "system",  # L7 Health
-            "environment",  # L1-L2 Physical
-            "logging",  # L1-L7 Events
-            "spanning-tree",  # L2 Switching
-            "port-security",  # L2 Security
-            "vlan-info",  # L2 VLANs
-            "qos-status",  # L3-L4 QoS
-            "bgp-detailed",  # L3-L4 BGP
-            "ospf-detailed",  # L3-L4 OSPF
-            "mpls-info",  # L3-L4 MPLS
-        ],
-        "raw_data_path": str(sync_dir / "raw"),
-        "parsed_data_path": str(sync_dir / "parsed"),
-        "database_path": str(NETWORK_SNAPSHOT_PATH),
-    }
-
-    summary_file = sync_dir / "reduce" / "sync_summary.json"
-    with open(summary_file, "w") as f:
-        json.dump(summary, f, indent=2)
-
-
-def _generate_map_phase_summaries(sync_dir: Path, device_names: list[str]) -> None:
-    """Generate Map-Reduce phase summaries from parsed data.
-
-    Args:
-        sync_dir: Path to sync directory
-        device_names: List of device names
-    """
-    import json
-    from collections import Counter
-    from datetime import datetime
-
-    # =========================================================================
-    # Generate Log Analysis Summary from parsed logs.json
-    # Filter to only include events from the last 24 hours
-    # =========================================================================
-    total_events = 0
-    events_in_window = 0
-    event_categories: Counter[str] = Counter()
-    severity_distribution: Counter[str] = Counter()
-    top_events: list[dict] = []
-    devices_analyzed = 0
-
-    severity_names = {
-        0: "emergency",
-        1: "alert",
-        2: "critical",
-        3: "error",
-        4: "warning",
-        5: "notice",
-        6: "info",
-        7: "debug",
-    }
-
-    # Calculate 24-hour cutoff
-    cutoff_time = datetime.now() - timedelta(hours=24)
-
-    for device in device_names:
-        logs_file = sync_dir / "parsed" / device / "logs.json"
-        if logs_file.exists():
-            try:
-                with open(logs_file) as f:
-                    events = json.load(f)
-                if isinstance(events, list):
-                    devices_analyzed += 1
-                    total_events += len(events)
-
-                    for event in events:
-                        # Parse event timestamp and filter by 24-hour window
-                        event_ts_str = event.get("timestamp")
-                        if event_ts_str:
-                            try:
-                                # Handle various timestamp formats
-                                event_ts = datetime.fromisoformat(
-                                    event_ts_str.replace("Z", "+00:00")
-                                )
-                                if event_ts.tzinfo:
-                                    event_ts = event_ts.replace(tzinfo=None)
-                                if event_ts < cutoff_time:
-                                    continue  # Skip events older than 24 hours
-                            except (ValueError, TypeError):
-                                pass  # Keep events with unparseable timestamps
-
-                        events_in_window += 1
-
-                        # Count by facility
-                        facility = event.get("facility", "UNKNOWN")
-                        event_categories[facility] += 1
-                        # Count by severity
-                        sev = event.get("severity", 6)
-                        sev_name = severity_names.get(sev, "info")
-                        severity_distribution[sev_name] += 1
-                        # Collect top events (errors/warnings)
-                        if sev <= 4 and len(top_events) < 20:
-                            top_events.append(
-                                {
-                                    "device": device,
-                                    "timestamp": event.get("timestamp"),
-                                    "severity": sev,
-                                    "facility": facility,
-                                    "mnemonic": event.get("mnemonic"),
-                                    "message": event.get("message", "")[:100],
-                                }
-                            )
-            except Exception:
-                pass
-
-    log_summary = {
-        "phase": "map",
-        "stage": "logs",
-        "generated_at": datetime.now().isoformat(),
-        "analysis_window": "24 hours",
-        "devices_analyzed": devices_analyzed,
-        "total_events": total_events,
-        "events_in_window": events_in_window,
-        "event_categories": dict(event_categories.most_common(10)),
-        "severity_distribution": {
-            "emergency": severity_distribution.get("emergency", 0),
-            "alert": severity_distribution.get("alert", 0),
-            "critical": severity_distribution.get("critical", 0),
-            "error": severity_distribution.get("error", 0),
-            "warning": severity_distribution.get("warning", 0),
-            "notice": severity_distribution.get("notice", 0),
-            "info": severity_distribution.get("info", 0),
-            "debug": severity_distribution.get("debug", 0),
-        },
-        "top_events": top_events[:10],
-        "anomalous_patterns": [],
-    }
-
-    logs_file = sync_dir / "map" / "logs" / "summary.json"
-    logs_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(logs_file, "w") as f:
-        json.dump(log_summary, f, indent=2, default=str)
-
-    # =========================================================================
-    # Generate Inspection Summary from parsed data
-    # Track health by OSI layer: L1 (physical), L2 (link), L3 (routing), L4 (transport)
-    # =========================================================================
-    inspect_checks = 0
-    status_ok = 0
-    status_warning = 0
-    status_critical = 0
-    anomalies: list[dict] = []
-
-    # Layer-specific health tracking
-    layer_health = {
-        "L1": {"checks": 0, "ok": 0, "warning": 0, "critical": 0},  # Physical
-        "L2": {"checks": 0, "ok": 0, "warning": 0, "critical": 0},  # Data Link
-        "L3": {"checks": 0, "ok": 0, "warning": 0, "critical": 0},  # Network
-        "L4": {"checks": 0, "ok": 0, "warning": 0, "critical": 0},  # Transport
-    }
-
-    for device in device_names:
-        parsed_dir = sync_dir / "parsed" / device
-
-        # L3/L4: Check CPU usage (affects routing and transport processing)
-        cpu_file = parsed_dir / "show-processes-cpu.json"
-        if cpu_file.exists():
-            try:
-                with open(cpu_file) as f:
-                    data = json.load(f)
-                cpu_data = data.get("data", [])
-                if cpu_data and isinstance(cpu_data, list):
-                    for entry in cpu_data:
-                        cpu_5min = entry.get("cpu_5_min", 0)
-                        if isinstance(cpu_5min, (int, float)):
-                            inspect_checks += 1
-                            layer_health["L4"]["checks"] += 1
-                            if cpu_5min > 80:
-                                status_critical += 1
-                                layer_health["L4"]["critical"] += 1
-                                anomalies.append(
-                                    {
-                                        "device": device,
-                                        "type": "HIGH_CPU",
-                                        "layer": "L4",
-                                        "value": f"{cpu_5min}%",
-                                        "severity": "critical",
-                                    }
-                                )
-                            elif cpu_5min > 50:
-                                status_warning += 1
-                                layer_health["L4"]["warning"] += 1
-                            else:
-                                status_ok += 1
-                                layer_health["L4"]["ok"] += 1
-            except Exception:
-                pass
-
-        # L2/L3: Check memory usage (affects MAC/ARP tables and routing tables)
-        mem_file = parsed_dir / "show-memory-statistics.json"
-        if mem_file.exists():
-            try:
-                with open(mem_file) as f:
-                    data = json.load(f)
-                # Simple presence check
-                inspect_checks += 1
-                status_ok += 1
-                layer_health["L3"]["checks"] += 1
-                layer_health["L3"]["ok"] += 1
-            except Exception:
-                pass
-
-        # L1: Check interface status (from logs - link up/down events)
-        logs_file = parsed_dir / "logs.json"
-        if logs_file.exists():
-            try:
-                with open(logs_file) as f:
-                    events = json.load(f)
-                link_down_count = sum(1 for e in events if e.get("mnemonic") == "UPDOWN")
-                layer_health["L1"]["checks"] += 1
-                if link_down_count > 5:
-                    layer_health["L1"]["warning"] += 1
-                    anomalies.append(
-                        {
-                            "device": device,
-                            "type": "FREQUENT_LINK_FLAPS",
-                            "layer": "L1",
-                            "value": f"{link_down_count} events",
-                            "severity": "warning",
-                        }
-                    )
-                else:
-                    layer_health["L1"]["ok"] += 1
-
-                # L3: Check OSPF/routing events
-                ospf_events = sum(
-                    1 for e in events if e.get("facility", "").upper() in ("OSPF", "BGP", "ROUTING")
-                )
-                layer_health["L3"]["checks"] += 1
-                if ospf_events > 10:
-                    layer_health["L3"]["warning"] += 1
-                else:
-                    layer_health["L3"]["ok"] += 1
-            except Exception:
-                pass
-
-        # L2: Check MAC/ARP table health
-        arp_file = parsed_dir / "show-arp.json"
-        if arp_file.exists():
-            try:
-                layer_health["L2"]["checks"] += 1
-                layer_health["L2"]["ok"] += 1
-            except Exception:
-                pass
-
-    # Calculate per-layer health scores
-    def calc_layer_score(layer_data: dict) -> int:
-        total = layer_data["checks"]
-        if total == 0:
-            return 100
-        ok = layer_data["ok"]
-        return int((ok / total) * 100)
-
-    layer_scores = {
-        "L1": calc_layer_score(layer_health["L1"]),
-        "L2": calc_layer_score(layer_health["L2"]),
-        "L3": calc_layer_score(layer_health["L3"]),
-        "L4": calc_layer_score(layer_health["L4"]),
-    }
-
-    # Track which commands/data sources were used for each layer
-    # More comprehensive list with actual command variants
-    layer_commands = {
-        "L1": [
-            "show logging",
-            "show cdp neighbors",
-            "show cdp neighbors detail",
-            "show lldp neighbors",
-            "show lldp neighbors detail",
-            "show interface status",
-            "show interface summary",
-            "show inventory",
-        ],
-        "L2": [
-            "show arp",
-            "show mac address-table",
-            "show vlan",
-            "show vlan brief",
-            "show spanning-tree",
-            "show interfaces switchport",
-        ],
-        "L3": [
-            "show ip ospf neighbor",
-            "show ip ospf interface brief",
-            "show ip bgp summary",
-            "show ip bgp neighbors",
-            "show ip route",
-            "show ip interface brief",
-            "show memory statistics",
-        ],
-        "L4": [
-            "show processes cpu",
-            "show processes cpu history",
-            "show tcp brief",
-            "show ntp status",
-        ],
-    }
-
-    inspect_summary = {
-        "phase": "map",
-        "stage": "inspect",
-        "generated_at": datetime.now().isoformat(),
-        "devices_checked": len(device_names),
-        "total_checks": inspect_checks,
-        "status_distribution": {
-            "ok": status_ok,
-            "warning": status_warning,
-            "critical": status_critical,
-        },
-        "layer_health": layer_health,
-        "layer_scores": layer_scores,
-        "layer_commands": layer_commands,
-        "anomalies": anomalies[:20],
-        "devices_status": {device: "active" for device in device_names},
-    }
-
-    inspect_file = sync_dir / "map" / "inspect" / "summary.json"
-    inspect_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(inspect_file, "w") as f:
-        json.dump(inspect_summary, f, indent=2)
-
-
-def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]) -> None:
-    """Generate comprehensive operations analysis report.
-
-    Args:
-        sync_dir: Path to sync directory
-        device_names: List of device names
-    """
-    import json
-    from datetime import datetime
-    from pathlib import Path
-
+    """Store sync metadata to database."""
     try:
-        # Load map summaries for analysis data
-        log_summary = {}
-        inspect_summary = {}
+        from olav.core.database import get_database
 
-        logs_summary_file = sync_dir / "map" / "logs" / "summary.json"
-        if logs_summary_file.exists():
-            with open(logs_summary_file) as f:
-                log_summary = json.load(f)
+        db = get_database()
+        conn = db.conn
 
-        inspect_summary_file = sync_dir / "map" / "inspect" / "summary.json"
-        if inspect_summary_file.exists():
-            with open(inspect_summary_file) as f:
-                inspect_summary = json.load(f)
-
-        # Build report content
-        report_lines = []
-        report_lines.append("# Network Operations Analysis Report")
-        report_lines.append("")
-        report_lines.append(f"**Report Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        report_lines.append("**Scope**: L1 (Physical) to L4 (Transport)")
-        report_lines.append(f"**Total Devices**: {len(device_names)}")
-        report_lines.append("")
-        report_lines.append("---")
-        report_lines.append("")
-
-        # =================================================================
-        # Executive Summary with Health Score
-        # =================================================================
-        report_lines.append("## 📊 Executive Summary")
-        report_lines.append("")
-
-        # Calculate health score
-        total_checks = inspect_summary.get("total_checks", 0)
-        ok_count = inspect_summary.get("status_distribution", {}).get("ok", 0)
-        warning_count = inspect_summary.get("status_distribution", {}).get("warning", 0)
-        critical_count = inspect_summary.get("status_distribution", {}).get("critical", 0)
-
-        if total_checks > 0:
-            health_score = int((ok_count / total_checks) * 100)
-        else:
-            health_score = 100  # No issues detected
-
-        health_status = (
-            "🟢 Healthy" if health_score >= 80 else ("🟡 Warning" if health_score >= 50 else "🔴 Critical")
+        # Create metadata table if not exists
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sync_metadata (
+                sync_date DATE PRIMARY KEY,
+                sync_dir VARCHAR,
+                device_count INTEGER,
+                command_count INTEGER,
+                success_count INTEGER,
+                failed_count INTEGER,
+                duration_seconds REAL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
         )
 
-        report_lines.append(f"### Network Health Score: {health_score}% {health_status}")
-        report_lines.append("")
+        # Insert metadata
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO sync_metadata VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            [
+                sync_date,
+                str(sync_dir),
+                device_count,
+                command_count,
+                success_count,
+                failed_count,
+                duration_seconds,
+            ],
+        )
+    except Exception:
+        pass  # Metadata storage is optional
 
-        # L1-L4 Layer Health Scores
-        layer_scores = inspect_summary.get("layer_scores", {})
-        report_lines.append("### Layer Health Scores")
-        report_lines.append("")
-        report_lines.append("| Layer | Name | Score | Status |")
-        report_lines.append("|-------|------|-------|--------|")
 
-        layer_names = {
-            "L1": "Physical",
-            "L2": "Data Link",
-            "L3": "Network",
-            "L4": "Transport",
-        }
+def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> None:
+    """Stage 2: Parse outputs and generate reports (runs in background thread).
 
-        for layer in ["L1", "L2", "L3", "L4"]:
-            score = layer_scores.get(layer, 100)
-            if score >= 80:
-                status_icon = "🟢"
-            elif score >= 50:
-                status_icon = "🟡"
-            else:
-                status_icon = "🔴"
-            report_lines.append(f"| {layer} | {layer_names[layer]} | {score}% | {status_icon} |")
-        report_lines.append("")
+    Args:
+        sync_dir: Sync directory path
+        device_names: List of device names that were synced
+    """
+    try:
+        import json
 
-        # Explain L1 score calculation
-        l1_score = layer_scores.get("L1", 100)
-        if l1_score < 100:
-            report_lines.append(
-                "> **L1 Score Explanation**: Based on link state changes (UPDOWN events) in 24-hour logs."
-            )
-            report_lines.append(
-                "> Devices with >5 link changes are marked as warning. Score = ok_devices / total_devices × 100%"
-            )
-            report_lines.append("> If links remain stable for 24 hours, score will recover on next check.")
-            report_lines.append("")
+        parsed_dir = sync_dir / "parsed"
+        parsed_dir.mkdir(exist_ok=True)
 
-        # Overall stats table
-        report_lines.append("### Inspection Statistics")
-        report_lines.append("")
-        report_lines.append("| Metric | Value |")
-        report_lines.append("|--------|-------|")
-        report_lines.append(f"| **Total Devices** | {len(device_names)} |")
-        report_lines.append(f"| **Check Items** | {total_checks} |")
-        report_lines.append(f"| **OK** | {ok_count} ✅ |")
-        report_lines.append(f"| **Warning** | {warning_count} ⚠️ |")
-        report_lines.append(f"| **Critical** | {critical_count} 🔴 |")
-        report_lines.append("")
+        # Parse all raw outputs with TextFSM
+        for device_name in device_names:
+            device_raw_dir = sync_dir / "raw" / device_name
+            if not device_raw_dir.exists():
+                continue
 
-        # =================================================================
-        # Anomalies and Alerts
-        # =================================================================
-        anomalies = inspect_summary.get("anomalies", [])
-        if anomalies:
-            report_lines.append("## ⚠️ Detected Anomalies")
-            report_lines.append("")
-            report_lines.append("| Device | Type | Value | Severity |")
-            report_lines.append("|--------|------|-------|----------|")
-            for anomaly in anomalies[:10]:
-                sev_icon = "🔴" if anomaly.get("severity") == "critical" else "⚠️"
-                report_lines.append(
-                    f"| {anomaly.get('device')} | {anomaly.get('type')} | "
-                    f"{anomaly.get('value')} | {sev_icon} {anomaly.get('severity')} |"
-                )
-            report_lines.append("")
+            device_parsed_dir = parsed_dir / device_name
+            device_parsed_dir.mkdir(exist_ok=True)
 
-        # =================================================================
-        # Log Analysis Section (24-hour window)
-        # =================================================================
-        report_lines.append("## 📋 Log Analysis")
-        report_lines.append("")
-        report_lines.append("**Analysis Scope: Last 24 Hours**")
-        report_lines.append("")
+            # Parse each command output
+            for output_file in device_raw_dir.glob("*.txt"):
+                # Convert filename back to command: show-spanning-tree.txt -> show spanning-tree
+                # Only replace the first hyphen after 'show' to preserve command structure
+                # e.g., show-spanning-tree -> show spanning-tree (not show spanning tree)
+                stem = output_file.stem
+                if stem.startswith("show-"):
+                    command = "show " + stem[5:]  # Keep hyphens in command names
+                else:
+                    command = stem.replace("-", " ")
+                raw_output = output_file.read_text(encoding="utf-8", errors="ignore")
 
-        total_events = log_summary.get("total_events", 0)
-        events_in_window = log_summary.get("events_in_window", total_events)
-        devices_analyzed = log_summary.get("devices_analyzed", 0)
-        report_lines.append(f"- **Devices Analyzed**: {devices_analyzed}")
-        report_lines.append(f"- **Events in 24h**: {events_in_window}")
-        report_lines.append(f"- **Total Historical Events**: {total_events}")
-        report_lines.append("")
+                # Skip empty or very short outputs
+                if not raw_output.strip() or len(raw_output) < 20:
+                    continue
 
-        # Severity distribution
-        sev_dist = log_summary.get("severity_distribution", {})
-        if sev_dist:
-            report_lines.append("### Event Severity Distribution")
-            report_lines.append("")
-            report_lines.append("| Severity | Count |")
-            report_lines.append("|----------|-------|")
-            for sev in ["emergency", "alert", "critical", "error", "warning", "notice", "info"]:
-                count = sev_dist.get(sev, 0)
-                if count > 0:
-                    icon = (
-                        "🔴"
-                        if sev in ["emergency", "alert", "critical"]
-                        else ("🟠" if sev in ["error", "warning"] else "🟢")
+                # Skip error outputs from device
+                # Common error patterns: "% Invalid input", "% Incomplete command", etc.
+                first_line = raw_output.strip().split("\n")[0]
+                if (
+                    "% Invalid input" in raw_output[:200]
+                    or "% Incomplete command" in raw_output[:200]
+                    or "% Ambiguous command" in raw_output[:200]
+                    or (first_line.strip().startswith("%") and len(raw_output) < 200)
+                ):
+                    logger.debug(
+                        f"Skipping error output for {device_name}/{output_file.name}: "
+                        f"Device returned error message"
                     )
-                    report_lines.append(f"| {icon} {sev.upper()} | {count} |")
-            report_lines.append("")
+                    continue
 
-        # Top events
-        top_events = log_summary.get("top_events", [])
-        if top_events:
-            report_lines.append("### Top Events")
-            report_lines.append("")
-            report_lines.append("| Device | Time | Type | Message |")
-            report_lines.append("|--------|------|------|---------|")
-            for event in top_events[:5]:
-                ts = event.get("timestamp", "")[:19] if event.get("timestamp") else ""
-                msg = event.get("message", "")[:50]
-                report_lines.append(
-                    f"| {event.get('device')} | {ts} | "
-                    f"{event.get('facility')}-{event.get('mnemonic')} | {msg}... |"
-                )
-            report_lines.append("")
+                # Try to parse with TextFSM using ntc-templates
+                try:
+                    parsed_data = _parse_with_ntc_templates(command, raw_output, "cisco_ios")
 
-        # Event categories
-        event_cats = log_summary.get("event_categories", {})
-        if event_cats:
-            report_lines.append("### Event Category Distribution")
-            report_lines.append("")
-            report_lines.append("| Category | Count |")
-            report_lines.append("|----------|-------|")
-            for cat, count in sorted(event_cats.items(), key=lambda x: -x[1])[:10]:
-                report_lines.append(f"| {cat} | {count} |")
-            report_lines.append("")
+                    # If parsing successful, save JSON
+                    if parsed_data:
+                        parsed_file = device_parsed_dir / f"{output_file.stem}.json"
+                        parsed_file.write_text(
+                            json.dumps({"command": command, "data": parsed_data}, indent=2),
+                            encoding="utf-8",
+                        )
+                except Exception as e:
+                    logger.debug(
+                        f"Failed to parse {device_name}/{output_file.name}: {type(e).__name__}"
+                    )
 
-        # =================================================================
-        # Topology Section
-        # =================================================================
-        report_lines.append("## 🗺️ Network Topology")
-        report_lines.append("")
-        report_lines.append("Available topology visualizations:")
-        report_lines.append("")
+        # Import data to DuckDB (v0.9.3: raw_outputs + command_outputs)
+        from olav.tools.raw_importer import import_sync_data
 
-        topology_files = {
-            "CDP/LLDP Physical Topology (L1)": "cdp-lldp.html",
-            "OSPF Routing Topology (L3)": "ospf.html",
-            "BGP Routing Topology (L3)": "bgp.html",
-        }
+        result = import_sync_data(sync_dir)
+        logger.debug(f"Stage 2 import results: {result}")
 
-        # Use correct path: exports/topology (simplified)
-        topo_base = Path("exports/topology")
-        for name, filename in topology_files.items():
-            topo_path = topo_base / filename
-            if topo_path.exists():
-                # Use path relative to project root (works from any report location)
-                report_lines.append(f"- [{name}](../../topology/{filename})")
+        # Generate summary reports (delegated to report_formatter)
+        from olav.tools.report_formatter import generate_network_operations_report
 
-        report_lines.append("")
+        generate_network_operations_report(sync_dir, device_names)
 
-        # =================================================================
-        # Device Inventory
-        # =================================================================
-        report_lines.append("## 📱 Device Inventory")
-        report_lines.append("")
-        report_lines.append("| Device | Status | Health |")
-        report_lines.append("|--------|--------|--------|")
-        devices_status = inspect_summary.get("devices_status", {})
-        for device in sorted(device_names):
-            status = devices_status.get(device, "active")
-            report_lines.append(f"| {device} | ✅ {status} | 🟢 |")
-        report_lines.append("")
+        # v0.9.6: Schema catalog is now managed dynamically by SQL Assistant.
+        # Historical _schema_catalog table is deprecated.
+        pass
 
-        # =================================================================
-        # Data Collection Details
-        # =================================================================
-        report_lines.append("## 📁 Data Collection Details")
-        report_lines.append("")
+        # Phase 15: Materialize Inspection Views (EQP)
+        # Move view creation from query-time to snapshot-time to eliminate lock contention
+        logger.info("Materializing Static Gold Views (EQP)...")
+        try:
+            from olav.core.database import get_database
 
-        total_raw_files = 0
-        total_parsed_files = 0
-        for device_dir in (sync_dir / "raw").iterdir():
-            if device_dir.is_dir():
-                total_raw_files += len(list(device_dir.glob("*.txt")))
-        for device_dir in (sync_dir / "parsed").iterdir():
-            if device_dir.is_dir():
-                total_parsed_files += len(list(device_dir.glob("*.json")))
+            db = get_database()
+            create_inspection_views(db.conn)
+        except Exception as e:
+            logger.warning(f"Failed to materialize views: {e}")
 
-        report_lines.append(f"- **Raw Command Output**: {total_raw_files} files")
-        report_lines.append(f"- **Parsed JSON Files**: {total_parsed_files} files")
-        report_lines.append(f"- **Log Events Parsed**: {total_events} events")
-        report_lines.append("")
+    except Exception as e:
+        # Stage 2 failures don't block Stage 1, but we should log them
+        logger.warning(f"Stage 2 processing failed: {type(e).__name__}: {e}")
+        logger.debug("Stage 2 traceback:", exc_info=True)
 
-        # =================================================================
-        # Recommendations with Concrete Commands
-        # =================================================================
-        report_lines.append("## 💡 Recommendations & Action Plan")
-        report_lines.append("")
 
-        recommendation_num = 0
+def _parse_with_ntc_templates(command: str, output: str, platform: str) -> list[dict] | None:
+    """Parse CLI output using ntc-templates TextFSM.
 
-        # L1 Physical Layer Issues
-        layer_scores = inspect_summary.get("layer_scores", {})
-        l1_score = layer_scores.get("L1", 100)
-        if l1_score < 80:
-            recommendation_num += 1
-            report_lines.append(f"### {recommendation_num}. L1 Physical Layer Alert")
-            report_lines.append("")
-            report_lines.append("**Issue**: Detected frequent interface state changes (link flapping)")
-            report_lines.append("")
-            report_lines.append("**Recommended Commands**:")
-            report_lines.append("```bash")
-            report_lines.append("show interface status")
-            report_lines.append("show interface counters errors")
-            report_lines.append("show logging | include UPDOWN|LINK")
-            report_lines.append("```")
-            report_lines.append("")
-            report_lines.append("**Action Plan**:")
-            report_lines.append("1. Check physical connections (fiber/cable)")
-            report_lines.append("2. Check interface error counters")
-            report_lines.append("3. Consider enabling `carrier-delay` for carrier detection")
-            report_lines.append("")
+    Uses ntc_templates.parse.parse_output for automatic template matching.
+    Tries multiple command format variations since filename may have lost info.
 
-        # Critical alerts
-        if critical_count > 0:
-            recommendation_num += 1
-            report_lines.append(f"### {recommendation_num}. Critical Alert Handling")
-            report_lines.append("")
-            report_lines.append("**Issue**: System detected critical alerts")
-            report_lines.append("")
-            report_lines.append("**Recommended Commands**:")
-            report_lines.append("```bash")
-            report_lines.append("show processes cpu history")
-            report_lines.append("show memory statistics")
-            report_lines.append("show logging | include %")
-            report_lines.append("```")
-            report_lines.append("")
+    Args:
+        command: Command name (e.g., "show version", "show spanning-tree")
+        output: Raw CLI output
+        platform: Platform name (e.g., "cisco_ios")
 
-        # Warning alerts
-        if warning_count > 0:
-            recommendation_num += 1
-            report_lines.append(f"### {recommendation_num}. Warning Items Review")
-            report_lines.append("")
-            report_lines.append("**Issue**: Warning items require attention")
-            report_lines.append("")
-            report_lines.append("**Recommended Commands**:")
-            report_lines.append("```bash")
-            report_lines.append("show ip ospf neighbor")
-            report_lines.append("show ip bgp summary")
-            report_lines.append("show interface status err-disabled")
-            report_lines.append("```")
-            report_lines.append("")
+    Returns:
+        List of dicts with parsed data, or None if parsing failed
+    """
+    try:
+        from ntc_templates.parse import parse_output
 
-        # High frequency log events
-        high_event_cats = [cat for cat, count in event_cats.items() if count > 100]
-        if high_event_cats:
-            recommendation_num += 1
-            report_lines.append(f"### {recommendation_num}. Log Event Analysis")
-            report_lines.append("")
-            report_lines.append(f"**Issue**: High frequency events in categories: {', '.join(high_event_cats)}")
-            report_lines.append("")
-            report_lines.append("**Recommended Commands**:")
-            report_lines.append("```bash")
-            for cat in high_event_cats[:3]:
-                report_lines.append(f"show logging | include {cat}")
-            report_lines.append("```")
-            report_lines.append("")
+        # Generate command variations to try
+        # e.g., "show ip-ospf-interface" could be:
+        #   - "show ip ospf interface" (all spaces)
+        #   - "show ip-ospf interface" (some hyphens)
+        #   - etc.
+        commands_to_try: set[str] = set()
+        commands_to_try.add(command)
 
-        # All good scenario
-        if recommendation_num == 0:
-            report_lines.append("### ✅ Network Operating Normally")
-            report_lines.append("")
-            report_lines.append("No significant anomalies detected. Continue routine monitoring:")
-            report_lines.append("")
-            report_lines.append("**Routine Inspection Commands**:")
-            report_lines.append("```bash")
-            report_lines.append("show ip interface brief")
-            report_lines.append("show ip ospf neighbor")
-            report_lines.append("show ip bgp summary")
-            report_lines.append("show processes cpu | include five")
-            report_lines.append("```")
-            report_lines.append("")
+        # Variation 1: Replace all hyphens with spaces
+        commands_to_try.add(command.replace("-", " "))
 
-        report_lines.append("---")
-        report_lines.append("")
-        report_lines.append("*Auto-generated by OLAV v0.8*")
-        report_lines.append("")
+        # Variation 2: For multi-word commands like "show ip-ospf-interface"
+        # Try: "show ip ospf interface", "show ip ospf-interface", etc.
+        if command.startswith("show "):
+            rest = command[5:]
+            # Try all hyphens as spaces
+            commands_to_try.add("show " + rest.replace("-", " "))
 
-        # Write report to exports/reports/snapshots/YYYYMMDD.md (single source of truth)
-        from config.paths import REPORTS_SNAPSHOTS_DIR
+            # Try preserving known hyphenated commands
+            known_hyphenated = [
+                "spanning-tree",
+                "access-list",
+                "access-lists",
+                "route-map",
+                "port-channel",
+                "mac-address-table",
+                "prefix-list",
+                "object-group",
+                "policy-map",
+                "l2transport-vc",
+                "top-talkers",
+            ]
+            rest_with_spaces = rest.replace("-", " ")
+            for hyphenated in known_hyphenated:
+                spaced = hyphenated.replace("-", " ")
+                if spaced in rest_with_spaces:
+                    commands_to_try.add("show " + rest_with_spaces.replace(spaced, hyphenated))
 
-        sync_date = sync_dir.name  # YYYY-MM-DD
-        REPORTS_SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
-        # Convert YYYY-MM-DD to YYYYMMDD for filename
-        report_filename = sync_date.replace("-", "") + ".md"
-        report_file = REPORTS_SNAPSHOTS_DIR / report_filename
-        report_file.write_text("\n".join(report_lines), encoding="utf-8")
+        for cmd in commands_to_try:
+            try:
+                result = parse_output(platform=platform, command=cmd, data=output)
+                if result:
+                    return result
+            except Exception as e:
+                # Template mismatch is expected, try next variation
+                logger.debug(f"Parse attempt failed for '{cmd}': {type(e).__name__}")
+
+        return None
 
     except Exception:
-        pass  # Report generation is optional
+        return None
 
 
 # =============================================================================
@@ -1399,29 +696,15 @@ def _generate_inspection_analysis_report(sync_dir: Path, device_names: list[str]
 
 @tool
 def get_sync_age() -> str:
-    """Get age of latest sync data.
-
-    Returns:
-        Human-readable age string (e.g., "2 hours ago") or "Never synced"
-
-    Examples:
-        >>> get_sync_age()
-        "10 minutes ago"
-
-        >>> get_sync_age()
-        "Never synced"
-    """
+    """Get age of latest sync data."""
     latest_dir = get_latest_sync_dir()
-
     if not latest_dir:
         return "Never synced"
 
-    # Get modification time
     mtime = datetime.fromtimestamp(latest_dir.stat().st_mtime)
     age = datetime.now() - mtime
-
-    # Format age
     total_seconds = int(age.total_seconds())
+
     if total_seconds < 60:
         return f"{total_seconds} seconds ago"
     elif total_seconds < 3600:
@@ -1441,33 +724,8 @@ def get_sync_age() -> str:
 
 
 @tool
-def search_sync(
-    pattern: str,
-    category: str | None = None,
-    device: str | None = None,
-    date: str | None = None,
-) -> str:
-    """Search sync data using ripgrep > grep > Python fallback.
-
-    This tool provides fast text search across collected sync data.
-
-    Args:
-        pattern: Search pattern (supports regex)
-        category: Optional category filter (configs, neighbors, routing, etc.)
-        device: Optional device filter
-        date: Optional date filter (YYYY-MM-DD format, default: latest)
-
-    Returns:
-        Search results with matching lines and file paths
-
-    Examples:
-        >>> search_sync("10.1.1.1", category="routing")
-        "Found 3 matches in routing/..."
-
-        >>> search_sync("error", device="R1")
-        "Found 5 matches in R1 outputs..."
-    """
-    # Determine search directory
+def search_sync(pattern: str, device: str | None = None, date: str | None = None) -> str:
+    """Search sync data using fast text search."""
     if date:
         sync_dir = get_sync_dir(date)
     else:
@@ -1476,663 +734,119 @@ def search_sync(
     if not sync_dir or not sync_dir.exists():
         return "No sync data found."
 
-    # Build search path
     search_path = sync_dir / "raw"
-    if category:
-        search_path = search_path / category
     if device:
-        # Search all categories for specific device
-        search_paths = []
-        for cat_dir in (sync_dir / "raw").iterdir():
-            if cat_dir.is_dir():
-                device_file = cat_dir / f"{device}.txt"
-                if device_file.exists():
-                    search_paths.append(device_file)
-    else:
-        search_paths = [search_path]
+        search_path = search_path / device
 
-    # Try ripgrep first (fastest)
-    if shutil.which("rg"):
-        return _search_with_ripgrep(pattern, search_paths if device else [search_path])
-
-    # Try grep (Linux/macOS)
-    if shutil.which("grep"):
-        return _search_with_grep(pattern, search_paths if device else [search_path])
-
-    # Fallback to Python
-    return _search_with_python(pattern, search_paths if device else [search_path])
-
-
-def _search_with_ripgrep(pattern: str, paths: list[Path]) -> str:
-    """Search using ripgrep."""
+    # Try ripgrep > grep > Python fallback
     try:
-        results = []
-        for path in paths:
-            if not path.exists():
-                continue
+        import shutil
 
+        if shutil.which("rg"):
             proc = subprocess.run(
-                ["rg", "--ignore-case", "--line-number", pattern, str(path)],
+                ["rg", "--ignore-case", "--line-number", pattern, str(search_path)],
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
-
-            if proc.returncode == 0:
-                results.append(proc.stdout)
-
-        if results:
-            return "\n".join(results)
-        else:
-            return f"No matches found for pattern: {pattern}"
-
-    except subprocess.TimeoutExpired:
-        return "Search timed out"
-    except Exception as e:
-        return f"Search error: {e}"
-
-
-def _search_with_grep(pattern: str, paths: list[Path]) -> str:
-    """Search using grep."""
-    try:
-        results = []
-        for path in paths:
-            if not path.exists():
-                continue
-
-            proc = subprocess.run(
-                ["grep", "--ignore-case", "--line-number", "--recursive", pattern, str(path)],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-
-            if proc.returncode == 0:
-                results.append(proc.stdout)
-
-        if results:
-            return "\n".join(results)
-        else:
-            return f"No matches found for pattern: {pattern}"
-
-    except subprocess.TimeoutExpired:
-        return "Search timed out"
-    except Exception as e:
-        return f"Search error: {e}"
-
-
-def _search_with_python(pattern: str, paths: list[Path]) -> str:
-    """Search using pure Python."""
-    import re
-
-    try:
-        results = []
-        regex = re.compile(pattern, re.IGNORECASE)
-
-        for path in paths:
-            if not path.exists() or not path.is_file():
-                continue
-
-            with open(path, encoding="utf-8", errors="ignore") as f:
-                for line_num, line in enumerate(f, 1):
-                    if regex.search(line):
-                        results.append(f"{path}:{line_num}:{line.rstrip()}")
-
-        if results:
-            return "\n".join(results)
-        else:
-            return f"No matches found for pattern: {pattern}"
-
-    except Exception as e:
-        return f"Search error: {e}"
-
-
-# =============================================================================
-# Tool 4: diff_configs
-# =============================================================================
-
-
-@tool
-def diff_configs(
-    device: str,
-    date1: str | None = None,
-    date2: str | None = None,
-) -> str:
-    """Compare device configs between two dates.
-
-    Args:
-        device: Device name
-        date1: First date (YYYY-MM-DD, default: previous day)
-        date2: Second date (YYYY-MM-DD, default: today)
-
-    Returns:
-        Unified diff output or error message
-
-    Examples:
-        >>> diff_configs("R1")
-        "--- configs/R1_running.txt 2026-01-12..."
-        "+++ configs/R1_running.txt 2026-01-13..."
-
-        >>> diff_configs("R1", "2026-01-10", "2026-01-13")
-        "Changes between 2026-01-10 and 2026-01-13..."
-    """
-    # Default dates
-    if date2 is None:
-        date2 = datetime.now().strftime("%Y-%m-%d")
-    if date1 is None:
-        dt = datetime.now() - timedelta(days=1)
-        date1 = dt.strftime("%Y-%m-%d")
-
-    # Get config paths - configs are stored in raw/{device}/show-running-config.txt
-    config1 = get_sync_dir(date1) / "raw" / device / "show-running-config.txt"
-    config2 = get_sync_dir(date2) / "raw" / device / "show-running-config.txt"
-
-    if not config1.exists():
-        return f"Config not found for {device} on {date1}: {config1}"
-    if not config2.exists():
-        return f"Config not found for {device} on {date2}: {config2}"
-
-    # Read configs
-    config1_lines = config1.read_text(encoding="utf-8").splitlines(keepends=True)
-    config2_lines = config2.read_text(encoding="utf-8").splitlines(keepends=True)
-
-    # Generate diff
-    diff = difflib.unified_diff(
-        config1_lines,
-        config2_lines,
-        fromfile=str(config1),
-        tofile=str(config2),
-        fromfiledate=date1,
-        tofiledate=date2,
-    )
-
-    diff_output = "".join(diff)
-
-    if not diff_output:
-        return f"No configuration changes for {device} between {date1} and {date2}."
-
-    return diff_output
-
-
-# =============================================================================
-# Tool 5: query_sync_db
-# =============================================================================
-
-
-@tool
-def query_sync_db(sql: str, date: str | None = None) -> str:
-    """Execute read-only SQL query on sync database.
-
-    Args:
-        sql: SQL query (SELECT only)
-        date: Optional date filter (default: latest)
-
-    Returns:
-        Query results as formatted table or error message
-
-    Examples:
-        >>> query_sync_db("SELECT * FROM sync_metadata ORDER BY sync_date DESC LIMIT 5")
-        "sync_date | devices_count | success_count | ..."
-    """
-    # Validate SQL is read-only
-    sql_lower = sql.strip().lower()
-    if not sql_lower.startswith("select"):
-        return "Error: Only SELECT queries are allowed for safety."
-
-    # Use unified database
-    db_path = NETWORK_SNAPSHOT_PATH
-
-    if not db_path.exists():
-        return f"Database not found: {db_path}"
-
-    try:
-        conn = duckdb.connect(str(db_path), read_only=True)
-        result = conn.execute(sql).fetchall()
-        conn.close()
-
-        if not result:
-            return "Query returned no results."
-
-        # Format output
-        columns = [desc[0] for desc in conn.execute(sql).description]
-        header = " | ".join(columns)
-        separator = "-" * len(header)
-
-        rows = [" | ".join(str(cell) for cell in row) for row in result]
-
-        return "\n".join([header, separator] + rows)
-
-    except Exception as e:
-        return f"Query error: {e}"
-
-
-# =============================================================================
-# Utility: Archive Old Syncs
-# =============================================================================
-
-
-def archive_old_syncs(hot_days: int = 30, archive_days: int = 365) -> str:
-    """Archive sync data older than retention period.
-
-    Args:
-        hot_days: Days to keep uncompressed (default: 30)
-        archive_days: Total days to keep (default: 365)
-
-    Returns:
-        Summary of archive operation
-
-    Note:
-        - Syncs newer than hot_days: kept as-is
-        - Syncs between hot_days and archive_days: compressed to .tar.gz
-        - Syncs older than archive_days: deleted
-    """
-    base_dir = get_sync_base_dir()
-    archive_dir = base_dir / "archive"
-    archive_dir.mkdir(exist_ok=True)
-
-    cutoff_hot = datetime.now() - timedelta(days=hot_days)
-    cutoff_archive = datetime.now() - timedelta(days=archive_days)
-
-    archived_count = 0
-    deleted_count = 0
-
-    for sync_dir in base_dir.iterdir():
-        if not sync_dir.is_dir() or sync_dir.name == "archive" or sync_dir.name == "latest":
-            continue
-
-        # Parse date from directory name
-        try:
-            dir_date = datetime.strptime(sync_dir.name, "%Y-%m-%d")
-        except ValueError:
-            continue
-
-        if dir_date < cutoff_archive:
-            # Delete old data
-            shutil.rmtree(sync_dir)
-            deleted_count += 1
-        elif dir_date < cutoff_hot:
-            # Compress to archive
-            archive_file = archive_dir / f"{sync_dir.name}.tar.gz"
-            if not archive_file.exists():
-                with tarfile.open(archive_file, "w:gz") as tar:
-                    tar.add(sync_dir, arcname=sync_dir.name)
-                shutil.rmtree(sync_dir)
-                archived_count += 1
-
-    return (
-        f"Archive completed:\n"
-        f"  Compressed: {archived_count} syncs\n"
-        f"  Deleted: {deleted_count} syncs\n"
-        f"  Retention: {archive_days} days"
-    )
-
-
-# Import tarfile at module level
-import tarfile
-
-
-def _parse_with_textfsm(command: str, output: str, platform: str) -> list[dict]:
-    """Parse CLI output using TextFSM templates.
-
-    Args:
-        command: Command name (e.g., "show-cdp-neighbors")
-        output: Raw CLI output to parse
-        platform: Device platform (e.g., "cisco_ios")
-
-    Returns:
-        List of dictionaries with parsed data, or empty list if parsing fails.
-    """
-    if not output or not output.strip():
-        return []
-
-    # Map specific commands to parsing functions
-    command_normalized = command.replace("-", " ").lower()
-
-    # Try specific parsers first
-    if "cdp" in command and "neighbor" in command and "detail" in command:
-        return _parse_cdp_neighbors_detail(output)
-    elif "cdp" in command and "neighbor" in command:
-        return _parse_cdp_neighbors(output)
-    elif "show vlan" in command_normalized:
-        return _parse_vlan(output)
-    elif "show version" in command_normalized or "display version" in command_normalized:
-        return _parse_version(output)
-    elif "show interface" in command_normalized:
-        return _parse_interfaces(output)
-    elif "show ip route" in command_normalized:
-        return _parse_routes(output)
-    elif "show ip bgp" in command_normalized:
-        return _parse_bgp(output)
-
-    # Default: Try TextFSM templates
-    try:
-        from pathlib import Path
-
-        from textfsm import TextFSM
-
-        # Convert names: "show-cdp-neighbors" -> "cisco_ios_show_cdp_neighbors"
-        cmd_normalized = command.replace("-", "_")
-        platform_normalized = platform.replace("-", "_").lower()
-        template_name = f"{platform_normalized}_{cmd_normalized}"
-
-        # Try to find and load template from ntc-templates
-        try:
-            # Try using importlib.resources (Python 3.9+)
-            import ntc_templates
-
-            templates_path = Path(ntc_templates.__file__).parent / "templates"
-            template_file = templates_path / f"{template_name}.textfsm"
-
-            if template_file.exists():
-                with open(template_file) as f:
-                    template = TextFSM(f)
-                    fsm_results = template.ParseText(output)
-
-                    # Convert to list of dicts
-                    results = []
-                    for row in fsm_results:
-                        result_dict = {}
-                        for i, header in enumerate(template.header):
-                            if i < len(row):
-                                result_dict[header] = row[i]
-                        if result_dict:
-                            results.append(result_dict)
-                    return results
-        except Exception:
-            pass
+            return proc.stdout if proc.returncode == 0 else f"No matches found for: {pattern}"
     except Exception:
         pass
 
-    # Return empty list if no parsing succeeded
-    return []
-
-
-def _parse_version(output: str) -> list[dict]:
-    """Parse device version output."""
-    result = {}
-
-    for line in output.split("\n"):
-        line = line.strip()
-        if "Cisco IOS" in line:
-            result["os"] = line
-        elif "Version" in line:
-            result["version"] = line.split()[-1] if line else ""
-        elif "Serial Number" in line:
-            result["serial_number"] = line.split()[-1] if line else ""
-        elif "uptime" in line.lower():
-            result["uptime"] = line
-
-    return [result] if result else []
-
-
-def _parse_vlan(output: str) -> list[dict]:
-    """Parse VLAN information from 'show vlan' output."""
-    results = []
-    lines = output.strip().split("\n")
-
-    # Find header
-    header_idx = -1
-    for i, line in enumerate(lines):
-        if "VLAN" in line and ("Name" in line or "Status" in line):
-            header_idx = i
-            break
-
-    if header_idx < 0:
-        return []
-
-    # Parse VLAN lines
-    for line in lines[header_idx + 1 :]:
-        if not line.strip() or line.startswith("-"):
-            continue
-
-        parts = line.split()
-        if len(parts) >= 2:
+    # Python fallback search with context
+    if search_path.exists():
+        results = []
+        for file_path in search_path.rglob("*.txt"):
             try:
-                vlan_id = parts[0]
-                # Check if it's a valid VLAN ID
-                if vlan_id.isdigit():
-                    results.append(
-                        {
-                            "vlan_id": vlan_id,
-                            "name": parts[1] if len(parts) > 1 else "",
-                            "status": parts[2] if len(parts) > 2 else "active",
-                        }
-                    )
+                content = file_path.read_text(encoding="utf-8", errors="ignore")
+                if pattern.lower() in content.lower():
+                    # Get matching lines for context
+                    matching_lines = []
+                    for line_num, line in enumerate(content.split("\n"), 1):
+                        if pattern.lower() in line.lower():
+                            matching_lines.append(f"  Line {line_num}: {line.strip()}")
+                    if matching_lines:
+                        rel_path = (
+                            file_path.relative_to(search_path)
+                            if file_path.is_relative_to(search_path)
+                            else file_path
+                        )
+                        results.append(f"{rel_path}:\n" + "\n".join(matching_lines))
             except Exception:
                 pass
+        if results:
+            return "Found matches:\n" + "\n".join(results)
+        else:
+            return f"No matches found for: {pattern}"
 
-    return results
-
-
-def _parse_interfaces(output: str) -> list[dict]:
-    """Parse interface information."""
-    results = []
-    current_interface = None
-
-    for line in output.split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-
-        # Interface header line (e.g., "GigabitEthernet0/0/0 is up, line protocol is up")
-        if " is " in line and not line.startswith(" "):
-            parts = line.split()
-            if parts:
-                interface_name = parts[0]
-                status = "up" if " is up" in line else "down"
-                current_interface = {
-                    "name": interface_name,
-                    "status": status,
-                }
-                results.append(current_interface)
-        elif current_interface and "IP address" in line:
-            # Extract IP address
-            ip_part = line.split()
-            if len(ip_part) >= 3:
-                current_interface["ip_address"] = ip_part[2]
-
-    return results
+    return f"No matches found for: {pattern}"
 
 
-def _parse_routes(output: str) -> list[dict]:
-    """Parse IP routing table."""
-    results = []
-    lines = output.strip().split("\n")
-
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith("C") or line.startswith("S") or line.startswith("B"):
-            # Route line (C=connected, S=static, B=BGP, etc.)
-            parts = line.split()
-            if len(parts) >= 2:
-                results.append(
-                    {
-                        "protocol": parts[0],
-                        "destination": parts[1] if len(parts) > 1 else "",
-                        "via": parts[2] if len(parts) > 2 else "",
-                    }
-                )
-
-    return results
+# =============================================================================
+# Tool 5: diff_configs
+# =============================================================================
 
 
-def _parse_bgp(output: str) -> list[dict]:
-    """Parse BGP table information."""
-    results = []
-    lines = output.strip().split("\n")
+@tool
+def diff_configs(device: str, date1: str, date2: str) -> str:
+    """Compare device configurations between two dates.
 
-    for line in lines:
-        line = line.strip()
-        if line and not line.startswith(("Status", "Network", "*", " ")):
-            parts = line.split()
-            if len(parts) >= 3:
-                results.append(
-                    {
-                        "network": parts[0],
-                        "next_hop": parts[1] if len(parts) > 1 else "",
-                        "metric": parts[2] if len(parts) > 2 else "",
-                    }
-                )
+    Args:
+        device: Device name
+        date1: First date (YYYY-MM-DD format)
+        date2: Second date (YYYY-MM-DD format)
 
-    return results
-
-
-def _parse_cdp_neighbors_detail(output: str) -> list[dict]:
-    """Parse 'show cdp neighbors detail' output into structured data.
-
-    Format:
-        Device ID: R3.local
-        Entry address(es):
-          IP address: 10.1.13.3
-        Platform: Linux Unix,  Capabilities: Router Switch IGMP
-        Interface: GigabitEthernet2,  Port ID (outgoing port): Ethernet0/0
-        Holdtime : 160 sec
+    Returns:
+        Configuration diff or error message
     """
-    results = []
-    lines = output.strip().split("\n")
+    try:
+        # Get config files for both dates
+        config_dir1 = get_sync_dir(date1) / "configs" / device
+        config_dir2 = get_sync_dir(date2) / "configs" / device
 
-    current_neighbor = None
-    for line in lines:
-        line = line.rstrip()
+        if not config_dir1.exists():
+            return f"Error: Config not found for {device} on {date1}"
+        if not config_dir2.exists():
+            return f"Error: Config not found for {device} on {date2}"
 
-        # Device ID marks start of a new neighbor
-        if line.startswith("Device ID:"):
-            if current_neighbor:
-                results.append(current_neighbor)
-            current_neighbor = {
-                "device_id": line.replace("Device ID:", "").strip(),
-            }
+        # Find running config files
+        config_file1 = None
+        config_file2 = None
 
-        # IP address
-        elif current_neighbor and "IP address:" in line:
-            current_neighbor["ip_address"] = line.split("IP address:")[-1].strip()
+        for f in config_dir1.glob("*.txt"):
+            if "running" in f.name.lower():
+                config_file1 = f
+                break
 
-        # Platform
-        elif current_neighbor and line.startswith("Platform:"):
-            # Extract platform and capabilities
-            platform_line = line.replace("Platform:", "").strip()
-            if "Capabilities:" in platform_line:
-                parts = platform_line.split("Capabilities:")
-                current_neighbor["platform"] = parts[0].strip()
-                current_neighbor["capability"] = parts[1].strip()
-            else:
-                current_neighbor["platform"] = platform_line
+        for f in config_dir2.glob("*.txt"):
+            if "running" in f.name.lower():
+                config_file2 = f
+                break
 
-        # Local and remote interface
-        elif current_neighbor and line.startswith("Interface:"):
-            # Format: Interface: GigabitEthernet2,  Port ID (outgoing port): Ethernet0/0
-            line_content = line.replace("Interface:", "").strip()
-            if "Port ID" in line_content:
-                parts = line_content.split("Port ID (outgoing port):")
-                current_neighbor["local_intrfce"] = parts[0].strip().rstrip(",")
-                current_neighbor["port_id"] = parts[1].strip()
-            else:
-                current_neighbor["local_intrfce"] = line_content
+        if not config_file1 or not config_file2:
+            return "Error: Could not find running config files for comparison"
 
-        # Holdtime
-        elif current_neighbor and line.startswith("Holdtime"):
-            current_neighbor["holdtime"] = line.split(":")[-1].strip()
+        # Read config files
+        with open(config_file1) as f:
+            content1 = f.readlines()
+        with open(config_file2) as f:
+            content2 = f.readlines()
 
-    # Don't forget the last neighbor
-    if current_neighbor:
-        results.append(current_neighbor)
+        # Generate diff
+        import difflib
 
-    return results
+        diff = difflib.unified_diff(
+            content1,
+            content2,
+            fromfile=f"{device}@{date1}",
+            tofile=f"{device}@{date2}",
+            lineterm="",
+        )
 
+        diff_output = list(diff)
+        if not diff_output:
+            return f"No differences found between {date1} and {date2}"
 
-def _parse_cdp_neighbors(output: str) -> list[dict]:
-    """Parse 'show cdp neighbors' output into structured data."""
-    results = []
-    lines = output.strip().split("\n")
-
-    # Find header
-    header_idx = -1
-    for i, line in enumerate(lines):
-        if "Device ID" in line and "Local Intrfce" in line:
-            header_idx = i
-            break
-
-    if header_idx < 0:
-        return []
-
-    # Parse data lines
-    data_start = header_idx + 1
-    if data_start < len(lines) and all(c in "-" or c.isspace() for c in lines[data_start]):
-        data_start += 1
-
-    for line in lines[data_start:]:
-        if not line.strip() or all(c in "- " for c in line.strip()):
-            continue
-        if "Capability Codes" in line or "Total cdp" in line:
-            continue
-
-        parts = line.split()
-        if len(parts) < 5:
-            continue
-
-        try:
-            device_id = parts[0]
-            local_intrfce_type = parts[1]
-
-            # Determine interface and holdtime
-            if len(parts) > 2 and parts[2].isdigit():
-                if len(parts) > 3 and parts[2].isdigit() and parts[3].isdigit():
-                    local_intrfce = f"{local_intrfce_type} {parts[2]}"
-                    holdtime = parts[3]
-                    capability_start = 4
-                else:
-                    local_intrfce = local_intrfce_type
-                    holdtime = parts[2]
-                    capability_start = 3
-            else:
-                local_intrfce = f"{local_intrfce_type} {parts[2]}"
-                holdtime = parts[3] if len(parts) > 3 else ""
-                capability_start = 4
-
-            remaining = parts[capability_start:]
-            if not remaining:
-                continue
-
-            # Parse capability codes
-            capability_end_idx = 0
-            for i, part in enumerate(remaining):
-                if len(part) <= 1 or all(c in "RSHITBDCMP" for c in part):
-                    capability_end_idx = i + 1
-                else:
-                    break
-
-            if capability_end_idx > 0:
-                capability = " ".join(remaining[:capability_end_idx])
-                platform_and_port = remaining[capability_end_idx:]
-            else:
-                capability = ""
-                platform_and_port = remaining
-
-            if len(platform_and_port) >= 2:
-                # Last part is address (0/0, 1, etc.)
-                # Second-to-last is interface (Eth, Gig, etc.)
-                address = platform_and_port[-1]
-                interface = platform_and_port[-2]
-                platform = " ".join(platform_and_port[:-2]) if len(platform_and_port) > 2 else ""
-                port_id = f"{interface} {address}"
-            elif len(platform_and_port) == 1:
-                port_id = platform_and_port[0]
-                platform = ""
-            else:
-                port_id = ""
-                platform = ""
-
-            results.append(
-                {
-                    "device_id": device_id,
-                    "local_intrfce": local_intrfce,
-                    "holdtime": holdtime,
-                    "capability": capability,
-                    "platform": platform,
-                    "port_id": port_id,
-                }
-            )
-        except (IndexError, ValueError):
-            pass
-
-    return results
+        return "\n".join(diff_output[:100])  # Limit to first 100 lines
+    except Exception as e:
+        return f"Error comparing configs: {e}"

@@ -1,0 +1,349 @@
+> """Query Router - 统一查询路由器.
+  
+> 分离架构:
+> - Guard (guard_rules.yaml): 安全检查 (规则 + LLM意图)
+> - Router (routing_rules.yaml): 查询路由 (斜杠命令 + 模式匹配 + LLM fallback)
+> """
+  
+! import re
+! from dataclasses import dataclass
+! from pathlib import Path
+! from typing import Any
+  
+! import yaml
+  
+! from config.paths import GUARD_RULES_PATH, ROUTING_RULES_PATH
+  
+  
+! @dataclass
+! class RoutingDecision:
+!     """路由决策结果."""
+  
+!     expert: str | None  # database, cli, analysis, None表示拒绝或需要审批
+!     action: str  # route, reject, require_approval
+!     tool: str | None = None  # 具体调用的工具
+!     params: dict[str, Any] | None = None  # 提取的参数
+!     fallback: str | None = None  # 回落策略 (cli, None)
+!     message: str | None = None  # 提示消息
+!     intent: str | None = None  # LLM分类的意图 (query, analysis, etc.)
+  
+  
+! @dataclass
+! class GuardResult:
+!     """Guard检查结果."""
+  
+!     action: str  # pass, reject, require_approval, warn
+!     message: str | None = None
+!     matched_pattern: str | None = None
+!     severity: str | None = None  # critical, high, medium, low
+!     intent: str | None = None  # LLM分类的意图
+  
+  
+! class Guard:
+!     """安全守卫 - 规则检查 + LLM意图分类."""
+  
+!     def __init__(self, config_path: str | Path | None = None, language: str = "zh") -> None:
+!         """初始化Guard.
+  
+!         Args:
+!             config_path: guard_rules.yaml路径
+!             language: 消息语言 ("zh" or "en")
+!         """
+!         if config_path is None:
+!             config_path = GUARD_RULES_PATH
+!         else:
+!             config_path = Path(config_path)
+  
+!         self.rules: dict[str, Any] = {}
+!         self.language = language
+!         if config_path.exists():
+!             with open(config_path) as f:
+!                 self.rules = yaml.safe_load(f) or {}
+  
+!     def _get_message(self, message_dict: str | dict[str, str], **kwargs: str) -> str:
+!         """获取本地化消息.
+  
+!         Args:
+!             message_dict: 消息字符串或字典 {"en": "...", "zh": "..."}
+!             **kwargs: 格式化参数
+  
+!         Returns:
+!             格式化后的消息
+!         """
+!         if isinstance(message_dict, str):
+!             return message_dict.format(**kwargs)
+  
+          # 支持中英文
+!         msg = message_dict.get(self.language, message_dict.get("en", ""))
+!         return msg.format(**kwargs)
+  
+!     def check(self, user_input: str) -> GuardResult:
+!         """检查用户输入是否安全.
+  
+!         Args:
+!             user_input: 用户输入
+  
+!         Returns:
+!             GuardResult: 检查结果
+!         """
+          # Step 1: 白名单检查 - 快速放行
+!         if self._is_whitelisted(user_input):
+!             return GuardResult(action="pass")
+  
+          # Step 2: 正则规则检查 - 快速确定性检查
+!         pattern_result = self._check_patterns(user_input)
+!         if pattern_result.action != "pass":
+!             return pattern_result
+  
+          # Step 3: LLM意图分类 (可选, 复杂场景)
+!         llm_config = self.rules.get("llm_classification", {})
+!         if llm_config.get("enabled", False) and not llm_config.get("fallback_only", True):
+              # TODO: 实现LLM意图分类
+!             pass
+  
+!         return GuardResult(action="pass")
+  
+!     def _is_whitelisted(self, user_input: str) -> bool:
+!         """检查是否在白名单中."""
+!         whitelist = self.rules.get("whitelist", {})
+!         prefixes = whitelist.get("command_prefixes", [])
+  
+          # 检查命令前缀
+!         input_lower = user_input.lower().strip()
+!         for prefix in prefixes:
+!             if input_lower.startswith(prefix.lower()):
+!                 return True
+  
+!         return False
+  
+!     def _check_patterns(self, user_input: str) -> GuardResult:
+!         """检查正则规则."""
+!         patterns = self.rules.get("patterns", {})
+  
+          # 检查所有规则类别
+!         for _category, rules in patterns.items():
+!             for rule in rules:
+!                 pattern = rule.get("pattern", "")
+!                 if re.search(pattern, user_input, re.IGNORECASE):
+!                     message = self._get_message(rule.get("message", ""), matched=user_input)
+!                     return GuardResult(
+!                         action=rule.get("action", "reject"),
+!                         message=message,
+!                         matched_pattern=pattern,
+!                         severity=rule.get("severity"),
+!                     )
+  
+!         return GuardResult(action="pass")
+  
+  
+! class QueryRouter:
+!     """问题路由器 - 查询路由 (不含Guard)."""
+  
+!     def __init__(
+!         self,
+!         config_path: str | Path | None = None,
+!         guard: Guard | None = None,
+!     ) -> None:
+!         """初始化路由器.
+  
+!         Args:
+!             config_path: routing_rules.yaml路径
+!             guard: Guard实例，如果为None则自动创建
+!         """
+!         if config_path is None:
+!             config_path = ROUTING_RULES_PATH
+!         else:
+!             config_path = Path(config_path)
+  
+!         if not config_path.exists():
+!             raise FileNotFoundError(
+!                 f"Routing rules not found: {config_path}\n"
+!                 "Please ensure .olav/config/routing_rules.yaml exists"
+!             )
+  
+!         with open(config_path) as f:
+!             self.rules = yaml.safe_load(f)
+  
+          # 初始化Guard (独立的安全检查)
+!         self.guard = guard if guard is not None else Guard()
+  
+!     def check_guard(self, user_input: str) -> GuardResult:
+!         """检查用户输入是否安全.
+  
+!         Args:
+!             user_input: 用户输入
+  
+!         Returns:
+!             GuardResult: 检查结果
+!         """
+!         return self.guard.check(user_input)
+  
+!     def route(self, user_input: str) -> RoutingDecision:
+!         """路由用户输入到合适的专家.
+  
+!         Args:
+!             user_input: 用户输入的问题或命令
+  
+!         Returns:
+!             RoutingDecision: 路由决策结果
+!         """
+          # Step 1: Guard检查 (最高优先级, 使用独立Guard)
+!         guard_result = self.guard.check(user_input)
+!         if guard_result.action == "reject":
+!             return RoutingDecision(
+!                 expert=None,
+!                 action="reject",
+!                 message=guard_result.message,
+!             )
+!         if guard_result.action == "require_approval":
+!             return RoutingDecision(
+!                 expert=None,
+!                 action="require_approval",
+!                 message=guard_result.message,
+!             )
+  
+          # Step 2: 斜杠命令检查
+!         if user_input.strip().startswith("/"):
+!             return self._handle_slash_command(user_input)
+  
+          # Step 3: 模式匹配 (规则驱动)
+!         pattern_match = self._match_patterns(user_input)
+!         if pattern_match:
+!             return pattern_match
+  
+          # Step 4: LLM意图分类 (fallback)
+          # TODO: 实现LLM意图分类，目前默认路由到database
+!         return RoutingDecision(
+!             expert="database",
+!             action="route",
+!             message="No pattern matched, routing to database expert",
+!         )
+  
+!     def _handle_slash_command(self, user_input: str) -> RoutingDecision:
+!         """处理斜杠命令.
+  
+!         Args:
+!             user_input: 用户输入的斜杠命令
+  
+!         Returns:
+!             RoutingDecision: 路由决策
+!         """
+!         command = user_input.split()[0]  # 提取命令部分
+!         slash_commands = self.rules.get("slash_commands", {})
+  
+!         if command == "/analyze":
+!             cmd_config = slash_commands.get("/analyze", {})
+!             return RoutingDecision(
+!                 expert=cmd_config.get("expert", "analysis"),
+!                 action="route",
+!                 tool="analyze",  # 将路由到/analyze命令处理器
+!                 params={"command_text": user_input},
+!             )
+  
+          # 其他系统命令由CLI原生处理
+!         return RoutingDecision(
+!             expert=None,
+!             action="system_command",
+!             tool=command,
+!             message=f"System command: {command}",
+!         )
+  
+!     def _match_patterns(self, user_input: str) -> RoutingDecision | None:
+!         """模式匹配.
+  
+!         Args:
+!             user_input: 用户输入
+  
+!         Returns:
+!             RoutingDecision | None: 匹配结果，无匹配返回None
+!         """
+!         patterns = self.rules.get("patterns", {})
+  
+          # 检查CLI必需模式
+!         for pattern_rule in patterns.get("cli_required", []):
+!             pattern = pattern_rule["pattern"]
+!             if re.search(pattern, user_input, re.IGNORECASE):
+!                 return RoutingDecision(
+!                     expert="cli",
+!                     action="route",
+!                     message=pattern_rule.get("reason"),
+!                 )
+  
+          # 检查DB优先模式
+!         for pattern_rule in patterns.get("database_first", []):
+!             pattern = pattern_rule["pattern"]
+!             match = re.search(pattern, user_input, re.IGNORECASE)
+!             if match:
+                  # 提取参数
+!                 params: dict[str, Any] | None = None
+!                 if "extract" in pattern_rule:
+                      # 简单参数提取 (实际应更复杂)
+!                     extract_key = pattern_rule["extract"]
+!                     params = {extract_key: match.group(0)}
+  
+!                 return RoutingDecision(
+!                     expert="database",
+!                     action="route",
+!                     tool=pattern_rule.get("tool"),
+!                     params=params,
+!                     fallback=pattern_rule.get("fallback"),
+!                 )
+  
+!         return None
+  
+!     def get_expert_config(self, expert_name: str) -> dict[str, Any]:
+!         """获取专家配置.
+  
+!         Args:
+!             expert_name: 专家名称 (database, cli, analysis)
+  
+!         Returns:
+!             dict: 专家配置
+!         """
+!         experts = self.rules.get("experts", {})
+!         return experts.get(expert_name, {})
+  
+!     def should_fallback_to_cli(
+!         self, db_result: list | dict | None, completeness_threshold: float = 0.7
+!     ) -> tuple[bool, str]:
+!         """检查是否应该回落到CLI.
+  
+!         Args:
+!             db_result: 数据库查询结果
+!             completeness_threshold: 数据完整性阈值
+  
+!         Returns:
+!             tuple[bool, str]: (是否回落, 原因)
+!         """
+          # 如果结果为空，回落到CLI
+!         if not db_result or (isinstance(db_result, (list, dict)) and len(db_result) == 0):
+!             return True, "Database returned no results"
+  
+          # 检查数据完整性 (简单实现: 检查None值比例)
+!         if isinstance(db_result, list):
+!             total_fields = 0
+!             none_fields = 0
+!             for item in db_result:
+!                 if isinstance(item, dict):
+!                     for value in item.values():
+!                         total_fields += 1
+!                         if value is None:
+!                             none_fields += 1
+  
+!             if total_fields > 0:
+!                 completeness = 1 - (none_fields / total_fields)
+!                 if completeness < completeness_threshold:
+!                     return (
+!                         True,
+!                         f"Data incomplete ({completeness:.1%} < {completeness_threshold:.1%})",
+!                     )
+  
+!         return False, "Data is complete"
+  
+!     def get_fallback_strategy(self) -> dict[str, Any]:
+!         """获取回落策略配置.
+  
+!         Returns:
+!             dict: 回落策略配置
+!         """
+!         return self.rules.get("fallback", {})

@@ -7,6 +7,7 @@ Separated from network.py for better maintainability (per DESIGN_V0.81.md optimi
 
 from datetime import datetime
 from pathlib import Path
+import sys
 
 from nornir import InitNornir
 from nornir.core import Nornir
@@ -125,7 +126,7 @@ class NetworkExecutor:
         if not self.blacklist_file.exists():
             return set()
 
-        blacklist = set()
+        blacklist: set[str] = set()
         for line in self.blacklist_file.read_text(encoding="utf-8").split("\n"):
             line = line.strip()
             if line and not line.startswith("#"):
@@ -184,18 +185,22 @@ class NetworkExecutor:
         self,
         device: str,
         command: str,
-        timeout: int = 30,
+        timeout: int | None = None,
     ) -> CommandExecutionResult:
         """Execute a command on a network device.
 
         Args:
             device: Device name or IP
             command: Command to execute
-            timeout: Command timeout in seconds
+            timeout: Command timeout in seconds (defaults to settings.execution.timeout)
 
         Returns:
             CommandExecutionResult
         """
+        # Task 11.4: Use centralized timeout from settings
+        if timeout is None:
+            timeout = settings.execution.timeout
+
         start_time = datetime.now()
 
         # Check blacklist
@@ -212,14 +217,17 @@ class NetworkExecutor:
         # Detect platform
         platform = self._detect_platform(device)
 
-        # Check whitelist
+        # Check command is allowed via CommandRegistry
         if platform:
-            if not self.db.is_command_allowed(command, platform):
+            from olav.core.registry import get_command_registry
+
+            registry = get_command_registry()
+            if not registry.validate_command(platform, command):
                 return CommandExecutionResult(
                     device=device,
                     command=command,
                     success=False,
-                    error=f"Command not in whitelist for platform {platform}",
+                    error=f"Command not allowed for platform {platform} (no template found)",
                     duration_ms=0,
                 )
 
@@ -231,13 +239,17 @@ class NetworkExecutor:
             nr_filtered = nr.filter(name=device)
 
             if not nr_filtered.inventory.hosts:
+                msg = f"❌ Device '{device}' not found in inventory"
+                print(msg, file=sys.stderr)
                 return CommandExecutionResult(
                     device=device,
                     command=command,
                     success=False,
-                    error=f"Device '{device}' not found in inventory",
+                    error=msg,
                     duration_ms=0,
                 )
+
+            print(f"📡 Executing '{command}' on {device} (timeout={timeout}s)...", file=sys.stderr)
 
             # Run command
             result: AggregatedResult = nr_filtered.run(

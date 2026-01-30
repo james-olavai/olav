@@ -1,0 +1,443 @@
+> """Slash Commands - Quick command system for OLAV CLI.
+  
+> Provides fast, dedicated commands for common operations.
+> Commands are prefixed with '/' (e.g., /devices, /help).
+> """
+  
+! from collections.abc import Callable
+  
+  # Registry for slash commands
+! SLASH_COMMANDS: dict[str, Callable] = {}
+  
+  
+! def register_command(name: str) -> Callable:
+!     """Decorator to register a slash command.
+  
+!     Args:
+!         name: Command name (without / prefix)
+  
+!     Returns:
+!         Decorator function
+  
+!     Example:
+!         @register_command("devices")
+!         def cmd_devices(args: str) -> str:
+!             return "Device list..."
+!     """
+  
+!     def decorator(func: Callable) -> Callable:
+!         SLASH_COMMANDS[name] = func
+!         return func
+  
+!     return decorator
+  
+  
+! async def execute_command(
+!     full_command: str,
+!     agent: object | None = None,  # noqa: ANN401
+!     memory: object | None = None,  # noqa: ANN401
+! ) -> str | None:
+!     """Execute a slash command.
+  
+!     Args:
+!         full_command: Full command string (e.g., "/devices core")
+!         agent: OLAV agent instance (optional)
+!         memory: Agent memory manager (optional)
+  
+!     Returns:
+!         Command output string
+  
+!     Raises:
+!         EOFError: If /quit or /exit command is executed
+!     """
+!     full_command = full_command.strip()
+  
+      # Must start with /
+!     if not full_command.startswith("/"):
+!         raise ValueError(f"Not a slash command: {full_command}")
+  
+      # Parse command and args
+!     parts = full_command[1:].split(None, 1)
+!     cmd_name = parts[0]
+!     args = parts[1] if len(parts) > 1 else ""
+  
+      # Look up command
+!     if cmd_name not in SLASH_COMMANDS:
+!         return f"Unknown command: /{cmd_name}. Type /help for available commands."
+  
+      # Execute command
+!     try:
+!         func = SLASH_COMMANDS[cmd_name]
+  
+          # Check if function is async
+!         import inspect
+  
+!         if inspect.iscoroutinefunction(func):
+              # Call async function directly (we're already in async context)
+!             result = await func(args)
+!         else:
+!             result = func(args)
+!         return result
+!     except EOFError:
+!         raise
+!     except Exception as e:
+!         return f"Error executing /{cmd_name}: {str(e)}"
+  
+  
+  # =============================================================================
+  # Slash Command Implementations
+  # =============================================================================
+  
+  
+! @register_command("devices")
+! async def cmd_devices(args: str) -> str:
+!     """List devices or filter devices.
+  
+!     Usage:
+!         /devices [filter]
+  
+!     Examples:
+!         /devices              - List all devices
+!         /devices role:core    - List core devices
+!         /devices site:DC1     - List devices in DC1
+!     """
+!     from olav.tools.network import list_devices
+  
+!     filter_expr = args.strip() if args else None
+!     try:
+          # Parse filter like "role:core" into kwargs
+!         if filter_expr:
+!             if ":" in filter_expr:
+!                 key, value = filter_expr.split(":", 1)
+                  # Use invoke() for langchain StructuredTool
+!                 result = list_devices.invoke(**{key.strip(): value.strip()})  # type: ignore[call-arg]
+!             else:
+                  # Treat as alias search
+!                 result = list_devices.invoke({"alias": filter_expr})  # type: ignore[call-arg]
+!         else:
+!             result = list_devices.invoke({})  # type: ignore[call-arg]
+!         return result
+!     except Exception as e:
+!         return f"Error listing devices: {str(e)}"
+  
+  
+! @register_command("skills")
+! async def cmd_skills(args: str) -> str:
+!     """List skills or view skill details.
+  
+!     Usage:
+!         /skills [name]
+  
+!     Examples:
+!         /skills             - List all skills
+!         /skills deep        - Show deep-analysis skill details
+!     """
+!     from olav.core.skill_loader import get_skill_loader
+  
+!     loader = get_skill_loader()
+  
+!     if args:
+          # Show specific skill
+!         skill_name = args.strip()
+!         skill = loader.get_skill(skill_name)
+!         if skill:
+!             return f"Skill: {skill.id}\n\n{skill.content}"
+!         else:
+!             return f"Skill '{skill_name}' not found"
+!     else:
+          # List all skills
+!         skills = loader.load_all()
+!         output = []
+!         for skill_name, skill in skills.items():
+!             status = "✅" if skill_name.startswith("_") is False else "❌"
+!             output.append(f"{status} {skill_name}: {skill.description}")
+!         return "\n".join(output)
+  
+  
+! @register_command("reload")
+! async def cmd_reload(args: str) -> str:
+!     """Reload skills and capabilities.
+  
+!     Usage:
+!         /reload
+!     """
+!     try:
+!         from olav.core.skill_loader import get_skill_loader
+  
+!         loader = get_skill_loader()
+!         loader.load_all()  # Reload skills by re-running load_all
+!         return "✅ Skills and capabilities reloaded successfully"
+!     except Exception as e:
+!         return f"Error reloading: {str(e)}"
+  
+  
+! @register_command("clear")
+! async def cmd_clear(args: str) -> str:
+!     """Clear session memory.
+  
+!     Usage:
+!         /clear
+!     """
+!     try:
+!         from olav.cli.memory import AgentMemory
+  
+!         memory = AgentMemory()
+!         memory.clear()
+!         return "✅ Session memory cleared"
+!     except Exception as e:
+!         return f"Error clearing memory: {str(e)}"
+  
+  
+! @register_command("history")
+! async def cmd_history(args: str) -> str:
+!     """Show command history statistics.
+  
+!     Usage:
+!         /history
+!     """
+!     try:
+!         from olav.cli.memory import AgentMemory
+  
+!         memory = AgentMemory()
+!         stats = memory.get_stats()
+!         return f"""Session History Stats:
+!   Total Messages: {stats["total_messages"]}
+!   User Messages: {stats["user_messages"]}
+!   Assistant Messages: {stats["assistant_messages"]}
+!   Tool Messages: {stats["tool_messages"]}
+!   Memory File: {stats["memory_file"]}"""
+!     except Exception as e:
+!         return f"Error showing history: {str(e)}"
+  
+  
+! @register_command("help")
+! async def cmd_help(args: str) -> str:
+!     """Show help information.
+  
+!     Usage:
+!         /help [command]
+!     """
+!     if args:
+          # Show specific command help
+!         cmd_name = args.strip().lstrip("/")
+!         if cmd_name in SLASH_COMMANDS:
+!             func = SLASH_COMMANDS[cmd_name]
+!             doc = func.__doc__ or "No documentation available"
+!             return f"Help for /{cmd_name}:\n\n{doc}"
+!         else:
+!             return f"Unknown command: /{cmd_name}"
+!     else:
+          # Show general help
+!         return """OLAV CLI Commands:
+  
+!   Workflow Commands:
+!     /analyze [device|all] [--error "desc"]  - Fault diagnosis & health analysis
+!     /search <query>                          - Search knowledge base
+  
+!   Device Commands:
+!     /devices [filter]   - List devices (e.g., /devices role:core)
+!     /skills [name]      - List skills or view skill details
+  
+!   Session Commands:
+!     /reload             - Reload skills and capabilities
+!     /clear              - Clear session memory
+!     /history            - Show session statistics
+!     /help [command]     - Show this help or command-specific help
+!     /quit, /exit        - Exit OLAV
+  
+!   Natural Language Queries (no command needed):
+!     "10.1.12.1在哪个设备?"      - IP location lookup
+!     "R1的健康状态"            - Device health check
+!     "网络概览"                  - Network summary
+!     "显示拓扑"                  - Topology view
+  
+!   Input Features:
+!     @file.txt           - Include file content in your query
+!     !command            - Execute shell command
+!     Multi-line          - Press Enter twice to submit
+  
+!   Examples:
+!     olav> /analyze R1 --error "BGP neighbor down"
+!     olav> /analyze all
+!     olav> 10.1.12.1在哪个设备?
+!     olav> R1的BGP邻居状态
+!     olav> @config.txt analyze this configuration
+! """
+  
+  
+! @register_command("analyze")
+! async def cmd_analyze(args: str) -> str:
+!     """Fault diagnosis and health analysis (Agent-driven).
+  
+!     Usage:
+!         /analyze [device|all] [--error "description"]
+  
+!     Examples:
+!         /analyze R1                  - Diagnose specific device
+!         /analyze all                 - Full network health analysis
+!         /analyze R1 --error "BGP down"  - Diagnose with error context
+!         /analyze role:core           - Diagnose core devices
+  
+!     This command triggers Agent-driven diagnostic workflow using health-analysis Skill:
+!         - Phase 1: Macro analysis (overall health, anomalies)
+!         - Phase 2: Micro analysis (layer-by-layer troubleshooting)
+!         - Phase 3: Synthesis (root cause, recommendations)
+!     """
+      # Parse arguments
+!     target = "all"
+!     error_desc = ""
+  
+!     if args:
+!         parts = args.split("--error")
+!         target = parts[0].strip() if parts[0].strip() else "all"
+!         if len(parts) > 1:
+              # Extract error description (remove quotes)
+!             error_desc = parts[1].strip().strip('"').strip("'")
+  
+      # Build Agent prompt for health-analysis Skill
+!     if target.lower() == "all":
+!         prompt = """Execute comprehensive network health analysis.
+  
+! 按照 health-analysis Skill 执行全网健康诊断:
+  
+! 1. 使用 `analyze_network_health()` 工具进行全网分析
+! 2. 或使用 `query_database` 查询快照数据分析各设备
+  
+! 输出格式:
+! - 汇总表格: | Device | Health | Issues |
+! - 按严重程度列出问题
+! - 给出修复建议
+! """
+!     else:
+!         error_context = f"\n分析错误: {error_desc}" if error_desc else ""
+!         prompt = f"""Execute health diagnosis for device: {target}
+! {error_context}
+! 按照 health-analysis Skill 执行设备诊断:
+  
+! 1. 使用 `get_device_health("{target}")` 工具获取设备健康状态
+! 2. 或使用 `query_database` 查询设备的快照数据
+  
+! 输出格式:
+! - 设备状态摘要
+! - 各层检查结果 (L1/L2/L3/L4)
+! - 问题列表和建议
+! """
+  
+      # Return with AGENT_PROMPT marker for main loop to send to Agent
+!     return f"AGENT_PROMPT::{prompt}"
+  
+  
+! @register_command("search")
+! async def cmd_search(args: str) -> str:
+!     """Search the web for troubleshooting information.
+  
+!     Usage:
+!         /search <query>
+!         /search bgp flapping cisco
+!         /search "ospf neighbor stuck in exstart"
+  
+!     Examples:
+!         /search cisco ios xr bgp community filtering
+!         /search juniper mx series interface crc errors
+!         /search arista eos vxlan troubleshooting
+!     """
+!     if not args.strip():
+!         return "Usage: /search <query>\nExample: /search bgp flapping cisco"
+  
+!     query = args.strip()
+  
+!     try:
+!         from langchain_community.tools import DuckDuckGoSearchResults
+  
+!         search = DuckDuckGoSearchResults(num_results=5)  # type: ignore[call-arg]
+!         results = search.invoke(query)
+  
+!         if not results:
+!             return f"No results found for: {query}"
+  
+!         return f"🔍 Search results for: {query}\n\n{results}"
+  
+!     except ImportError:
+!         return "Error: DuckDuckGo search not available.\nInstall with: uv add duckduckgo-search"
+!     except Exception as e:
+!         return f"Search error: {str(e)}"
+  
+  
+! @register_command("query")
+! async def cmd_query(args: str) -> str:
+!     """Query network data using natural language.
+  
+!     Uses ReAct agent with DuckDB to query JSON data files.
+  
+!     Usage:
+!         /query <natural language question>
+  
+!     Examples:
+!         /query 显示 router1 的接口状态
+!         /query router1 有多少 BGP 邻居
+!         /query 查看所有设备的路由表
+!         /query 有哪些接口是 Down 的
+!     """
+!     from olav.tools.react_agent import run_query
+  
+!     question = args.strip()
+!     if not question:
+!         return "Usage: /query <question>\nExample: /query 显示 router1 的接口状态"
+  
+!     try:
+!         result = await run_query(question)
+!         return result
+!     except Exception as e:
+!         return f"Query failed: {e}"
+  
+  
+! @register_command("quit")
+! async def cmd_quit(args: str) -> str:
+!     """Exit OLAV.
+  
+!     Usage:
+!         /quit
+!     """
+!     raise EOFError
+  
+  
+! @register_command("exit")
+! async def cmd_exit(args: str) -> str:
+!     """Exit OLAV (alias for /quit).
+  
+!     Usage:
+!         /exit
+!     """
+!     raise EOFError
+  
+  
+  # =============================================================================
+  # Command Help Utilities
+  # =============================================================================
+  
+  
+! def get_all_commands() -> dict[str, str]:
+!     """Get all registered commands with descriptions.
+  
+!     Returns:
+!         Dictionary mapping command names to descriptions
+!     """
+!     commands = {}
+!     for name, func in SLASH_COMMANDS.items():
+          # Extract first line of docstring
+!         doc = func.__doc__ or ""
+!         first_line = doc.split("\n")[0] if doc else "No description"
+!         commands[name] = first_line.strip()
+!     return commands
+  
+  
+! def is_slash_command(text: str) -> bool:
+!     """Check if text is a slash command.
+  
+!     Args:
+!         text: Input text
+  
+!     Returns:
+!         True if text starts with /
+!     """
+!     return text.strip().startswith("/")

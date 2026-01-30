@@ -108,6 +108,15 @@ class ExecutionSettings(BaseSettings):
     )
     enable_token_statistics: bool = Field(default=True, description="Enable token statistics")
 
+    # Task 11.4: Centralize Timeouts and Concurrency
+    # Default timeout for network device commands (in seconds)
+    timeout: int = Field(default=30, ge=5, le=300, description="Network command timeout in seconds")
+
+    # Nornir concurrency (num_workers for parallel execution)
+    concurrency: int = Field(
+        default=10, ge=1, le=100, description="Number of parallel workers for network operations"
+    )
+
 
 class DiagnosisSettings(BaseSettings):
     """Diagnosis Module Configuration"""
@@ -149,6 +158,23 @@ class LoggingSettings(BaseSettings):
 
     level: str = Field(default="INFO", description="Logging level")
     audit_enabled: bool = Field(default=True, description="Enable audit logging")
+
+
+class SyncSettings(BaseSettings):
+    """Snapshot Synchronization Configuration"""
+
+    command_mode: Literal["whitelist", "blacklist", "hybrid"] = Field(
+        default="hybrid",
+        description="Execution mode: whitelist (strict), blacklist (permissive), or hybrid (recommended)"
+    )
+    whitelist_file: str = Field(
+        default=".olav/config/command_whitelist.yaml",
+        description="Path to command whitelist YAML",
+    )
+    command_mode_config: str = Field(
+        default=".olav/config/command_mode.yaml",
+        description="Path to command mode configuration YAML",
+    )
 
 
 # =============================================================================
@@ -235,6 +261,9 @@ class Settings(BaseSettings):
     )
     logging_settings: LoggingSettings = Field(
         default_factory=LoggingSettings, description="Logging configuration"
+    )
+    sync: SyncSettings = Field(
+        default_factory=SyncSettings, description="Synchronization configuration"
     )
 
     # =========================================================================
@@ -379,6 +408,7 @@ class Settings(BaseSettings):
                 "temperature": "llm_temperature",
                 "enabledSkills": "enabled_skills",
                 "disabledSkills": "disabled_skills",
+                "displayThinking": "display_thinking",
             }
 
             # Get environment variable names for checking if explicitly set
@@ -408,6 +438,7 @@ class Settings(BaseSettings):
                 "diagnosis": ("diagnosis", DiagnosisSettings),
                 "execution": ("execution", ExecutionSettings),
                 "logging": ("logging_settings", LoggingSettings),
+                "sync": ("sync", SyncSettings),
             }
 
             for json_key, (attr_name, cls) in nested_mapping.items():
@@ -474,6 +505,7 @@ class Settings(BaseSettings):
             "hitl": hitl_dict_camel,
             "diagnosis": diagnosis_dict_camel,
             "logging": self.logging_settings.model_dump(),
+            "sync": self.sync.model_dump(),
         }
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")

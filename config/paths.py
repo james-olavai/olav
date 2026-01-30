@@ -9,19 +9,36 @@ Usage:
 """
 
 from config.settings import AGENT_DIR, PROJECT_ROOT
+import os
+from pathlib import Path
 
 # =============================================================================
 # Database Paths (Internal - .olav/db/)
 # =============================================================================
 
 DB_DIR = AGENT_DIR / "db"
-NETWORK_SNAPSHOT_PATH = DB_DIR / "network_snapshot.duckdb"
-NETWORK_COMMANDS_PATH = DB_DIR / "network_commands.duckdb"
-KNOWLEDGE_PATH = DB_DIR / "knowledge.duckdb"
+# v0.9.9: Unified Database Core
+OLAV_DB_PATH = DB_DIR / "olav.duckdb"
+
+# User-Local Cache (Phase 8 Multi-User Architecture)
+# Resolves locking issues by giving each user their own writeable DB
+try:
+    # Prioritize environment variable for container/test support
+    _username = os.environ.get("USER") or os.getlogin()
+except Exception:
+    _username = "default_user"
+
+USER_CACHE_FILENAME = f"cache_{_username}.duckdb"
+USER_CACHE_PATH = Path.home() / ".olav" / USER_CACHE_FILENAME
+
+# Map all legacy/specific paths to the unified core
+NETWORK_DB_PATH = OLAV_DB_PATH
+NETWORK_COMMANDS_PATH = OLAV_DB_PATH # Default shared commands (read-only fallback)
+KNOWLEDGE_PATH = OLAV_DB_PATH
 
 # Backwards compatibility aliases (deprecated - use new names)
-NETWORK_WAREHOUSE_PATH = NETWORK_SNAPSHOT_PATH  # Legacy alias
-REGISTRY_PATH = NETWORK_COMMANDS_PATH  # Legacy alias
+NETWORK_SNAPSHOT_PATH = NETWORK_DB_PATH  # Legacy alias - use NETWORK_DB_PATH
+NETWORK_WAREHOUSE_PATH = NETWORK_DB_PATH  # Legacy alias
 
 # =============================================================================
 # Export Paths (User-Facing - exports/)
@@ -34,6 +51,9 @@ EXPORTS_DIR = PROJECT_ROOT / "exports"
 SNAPSHOTS_DIR = EXPORTS_DIR / "snapshots"
 # Note: SNAPSHOT_SYNC_DIR kept for backwards compatibility, maps to SNAPSHOTS_DIR
 SNAPSHOT_SYNC_DIR = SNAPSHOTS_DIR  # Alias - sync is implied
+
+# Sync data directory (for sync_tools)
+SYNC_DIR = SNAPSHOTS_DIR  # Unified with snapshots directory
 
 # Reports (standalone analysis reports)
 REPORTS_DIR = EXPORTS_DIR / "reports"
@@ -49,6 +69,36 @@ TOPOLOGY_VIZ_DIR = EXPORTS_DIR / "topology"  # Simplified path
 # =============================================================================
 
 LOGS_DIR = PROJECT_ROOT / "logs"
+
+# =============================================================================
+# Agent Configuration Paths (.olav/config/)
+# =============================================================================
+
+CONFIG_DIR = AGENT_DIR / "config"
+GUARD_RULES_PATH = CONFIG_DIR / "guard_rules.yaml"
+ROUTING_RULES_PATH = CONFIG_DIR / "routing_rules.yaml"
+SETTINGS_JSON_PATH = AGENT_DIR / "settings.json"
+
+# =============================================================================
+# Skills Directory (.olav/skills/)
+# =============================================================================
+
+SKILLS_DIR = AGENT_DIR / "skills"
+SKILL_INSPECT_ANALYZER = SKILLS_DIR / "inspect-analyzer" / "SKILL.md"
+SKILL_LOG_ANALYZER = SKILLS_DIR / "log-analyzer" / "SKILL.md"
+SKILL_DAILY_REPORT = SKILLS_DIR / "daily-report" / "SKILL.md"
+
+# =============================================================================
+# Documentation Paths
+# =============================================================================
+
+OLAV_README = PROJECT_ROOT / "OLAV.md"
+
+# =============================================================================
+# Snapshot Latest Symlink
+# =============================================================================
+
+SNAPSHOTS_LATEST_DIR = SNAPSHOTS_DIR / "latest"
 
 # =============================================================================
 # Configuration & Retention

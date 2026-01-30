@@ -1,0 +1,247 @@
+# =============================================================================
+# OLAV Guard Rules - Security Configuration
+# OLAV 安全守卫配置
+# =============================================================================
+#
+# Purpose: Independent security layer focused on threat detection and prevention
+# 用途：独立的安全层，专注于威胁检测和预防
+#
+# Processing Flow / 处理流程:
+#   1. Pattern-based rules (fast, deterministic)
+#      正则规则检查 (快速，确定性)
+#   2. LLM intent classification (complex scenarios, context understanding)
+#      LLM意图分类 (复杂场景，上下文理解)
+#
+# Action Types / 动作类型:
+#   - reject: Block immediately, no execution
+#             直接拒绝，不执行
+#   - require_approval: Require user confirmation (HITL)
+#                       需要用户确认 (人工介入)
+#   - warn: Warning but allow execution
+#           警告但允许执行
+#   - pass: Pass security check
+#           通过检查
+
+version: "1.0"
+
+# =============================================================================
+# Pattern-based Rules / 正则规则 - Fast Deterministic Checks / 快速确定性检查
+# =============================================================================
+patterns:
+  # Dangerous Commands / 危险命令 - Immediate Rejection / 直接拒绝
+  dangerous_commands:
+    - pattern: "(reload|reboot|erase|delete|format|write erase)"
+      action: reject
+      message:
+        en: "⛔ Dangerous command blocked: {matched}"
+        zh: "⛔ 危险命令被阻止: {matched}"
+      severity: critical
+
+    - pattern: "(shutdown|no shutdown)(?!.*interface)"
+      action: reject
+      message:
+        en: "⛔ Global shutdown command blocked"
+        zh: "⛔ 全局 shutdown 命令被阻止"
+      severity: critical
+
+    - pattern: "(?i)(rm|del|remove).*(-rf?|/s|\\*)"
+      action: reject
+      message:
+        en: "⛔ Dangerous delete command blocked"
+        zh: "⛔ 危险删除命令被阻止"
+      severity: critical
+
+  # Configuration Changes / 配置变更 - Require Approval / 需要审批
+  config_changes:
+    - pattern: "(copy|tftp|scp|ftp).*(startup|running|flash)"
+      action: require_approval
+      message:
+        en: "⚠️ Configuration change requires approval"
+        zh: "⚠️ 配置变更需要审批"
+      severity: high
+
+    - pattern: "(write|wr)\\s*(mem|memory)?"
+      action: require_approval
+      message:
+        en: "⚠️ Saving configuration requires approval"
+        zh: "⚠️ 保存配置需要审批"
+      severity: high
+
+    - pattern: "configure\\s+(terminal|replace|revert)"
+      action: require_approval
+      message:
+        en: "⚠️ Entering configuration mode requires approval"
+        zh: "⚠️ 进入配置模式需要审批"
+      severity: high
+
+  # Sensitive Data / 敏感信息 - Require Confirmation / 需要确认
+  sensitive_data:
+    - pattern: "(password|secret|key|credential|token|cert)"
+      action: require_approval
+      message:
+        en: "⚠️ Sensitive information query requires confirmation"
+        zh: "⚠️ 敏感信息查询需要确认"
+      severity: medium
+
+    - pattern: "(snmp|community|radius|tacacs)"
+      action: warn
+      message:
+        en: "⚠️ Authentication-related query"
+        zh: "⚠️ 认证相关查询"
+      severity: medium
+
+# =============================================================================
+# LLM Intent Classification / LLM意图分类 - Complex Scenario Understanding / 复杂场景理解
+# =============================================================================
+llm_classification:
+  enabled: true
+  
+  # Only invoke LLM when pattern rules don't match
+  # 仅当正则规则未匹配时才调用LLM
+  fallback_only: true
+  
+  # Intent Categories / 意图类别
+  intents:
+    # Dangerous Intent / 危险意图 - High Alert / 需要特别警惕
+    dangerous:
+      description:
+        en: "Operations that may cause service disruption or data loss"
+        zh: "可能造成服务中断或数据丢失的操作"
+      action: require_approval
+      examples:
+        en:
+          - "Reboot all core routers"
+          - "Clear all device configurations"
+          - "Delete all BGP neighbors"
+          - "Shut down all interfaces"
+        zh:
+          - "帮我重启所有核心路由器"
+          - "清空所有设备的配置"
+          - "删除所有BGP邻居"
+          - "把所有接口都关掉"
+      
+    # Modification Intent / 变更意图 - Require Approval / 需要审批
+    modification:
+      description:
+        en: "Operations that modify device configurations"
+        zh: "修改设备配置的操作"
+      action: require_approval
+      examples:
+        en:
+          - "Modify BGP configuration on R1"
+          - "Update NTP server on all devices"
+          - "Add new VLAN"
+        zh:
+          - "修改R1的BGP配置"
+          - "更新所有设备的NTP服务器"
+          - "添加新的VLAN"
+        
+    # Batch Operation Intent / 批量操作意图 - Require Confirmation / 需要确认
+    batch_operation:
+      description:
+        en: "Operations affecting multiple devices"
+        zh: "影响多台设备的操作"
+      action: require_approval
+      examples:
+        en:
+          - "Execute on all devices..."
+          - "Batch update..."
+          - "On the entire network..."
+        zh:
+          - "在所有设备上执行..."
+          - "批量更新..."
+          - "对整个网络..."
+        
+    # Query Intent / 查询意图 - Allow / 允许
+    query:
+      description:
+        en: "Read-only query operations"
+        zh: "只读查询操作"
+      action: pass
+      examples:
+        en:
+          - "Check R1 interface status"
+          - "Where is 10.1.1.1"
+          - "Network health status"
+        zh:
+          - "查看R1的接口状态"
+          - "10.1.1.1在哪个设备"
+          - "网络健康状况"
+        
+    # Analysis Intent / 分析意图 - Allow / 允许
+    analysis:
+      description:
+        en: "Analysis and diagnostic operations"
+        zh: "分析和诊断操作"
+      action: pass
+      examples:
+        en:
+          - "Analyze network failure"
+          - "Why is connectivity between R1 and R2 down"
+          - "Why did BGP disconnect"
+        zh:
+          - "分析网络故障"
+          - "为什么R1和R2之间不通"
+          - "BGP为什么断开"
+
+  # LLM Prompt Templates / LLM提示模板
+  prompt_template:
+    en: |
+      You are a network security guard. Analyze the user's request intent and determine if there are risks.
+      
+      User request: {user_input}
+      
+      Determine which intent category this request belongs to:
+      - dangerous: May cause service disruption or data loss
+      - modification: Modifies device configuration
+      - batch_operation: Batch operation affecting multiple devices
+      - query: Read-only query
+      - analysis: Analysis and diagnostics
+      
+      Output only one intent category name, no explanation.
+    
+    zh: |
+      你是一个网络安全守卫。分析用户请求的意图，判断是否存在风险。
+      
+      用户请求: {user_input}
+      
+      请判断这个请求属于以下哪个意图类别:
+      - dangerous: 可能造成服务中断或数据丢失
+      - modification: 修改设备配置
+      - batch_operation: 影响多台设备的批量操作
+      - query: 只读查询
+      - analysis: 分析诊断
+      
+      只输出一个意图类别名称，不要解释。
+
+# =============================================================================
+# Whitelist / 白名单 - Skip Security Checks / 跳过检查
+# =============================================================================
+whitelist:
+  # Always allowed command prefixes / 始终允许的命令前缀
+  command_prefixes:
+    - "show"
+    - "display"
+    - "get"
+    - "list"
+    - "describe"
+    
+  # Always allowed users (future expansion) / 始终允许的用户 (未来扩展)
+  users: []
+  
+  # Always allowed devices (lab environment) / 始终允许的设备 (实验室环境)
+  devices: []
+
+# =============================================================================
+# Audit Log / 审计日志
+# =============================================================================
+audit:
+  enabled: true
+  log_path: "logs/guard_audit.log"
+  log_level: "INFO"  # DEBUG, INFO, WARN
+  
+  # Actions to log / 需要记录的动作
+  log_actions:
+    - reject
+    - require_approval
+    - warn
