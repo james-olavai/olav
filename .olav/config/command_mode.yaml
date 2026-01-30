@@ -1,0 +1,218 @@
+# =============================================================================
+# OLAV Command Mode Configuration
+# OLAV 命令验证模式配置
+# =============================================================================
+#
+# This file defines how CLI commands are validated and executed.
+# 此文件定义CLI命令如何验证和执行。
+#
+# Mode Selection / 模式选择:
+#   - blacklist: 黑名单模式 - 允许所有show/display命令，只拦截危险命令
+#   - whitelist: 白名单模式 - 只允许预定义的命令（严格但限制性强）
+#   - hybrid: 混合模式 - 黑名单+智能检查（推荐）
+#
+# Processing Flow / 处理流程:
+#   1. Guard blacklist check (always) - 守卫黑名单检查（始终执行）
+#   2. Command prefix check (mode-dependent) - 命令前缀检查（取决于模式）
+#   3. TextFSM template check (optional) - TextFSM模板检查（可选）
+#
+# =============================================================================
+
+version: "1.0"
+
+# =============================================================================
+# Command Mode / 命令模式
+# =============================================================================
+mode: "hybrid"  # Options: "blacklist", "whitelist", "hybrid"
+
+# =============================================================================
+# Mode Configuration / 模式配置
+# =============================================================================
+modes:
+  # Blacklist Mode / 黑名单模式 (最灵活)
+  blacklist:
+    description: "Allow all show/display commands, only block dangerous ones"
+    description_zh: "允许所有show/display命令，只拦截危险命令"
+
+    # Allowed command prefixes / 允许的命令前缀
+    allowed_prefixes:
+      - "show"
+      - "display"
+      - "get"
+      - "list"
+      - "describe"
+
+    # Require TextFSM template? / 是否需要TextFSM模板
+    require_template: false
+
+    # Fallback behavior when no template / 无模板时的回落行为
+    no_template_fallback: "raw_output"  # Options: "raw_output", "reject"
+
+    # Pipe support / 管道符支持
+    allow_pipe: true
+
+    # Regex filtering support / 正则过滤支持
+    allow_regex_filter: true
+
+  # Whitelist Mode / 白名单模式 (最严格)
+  whitelist:
+    description: "Only allow predefined commands from command_whitelist.yaml"
+    description_zh: "只允许command_whitelist.yaml中的预定义命令"
+
+    # Must be in whitelist file / 必须在白名单文件中
+    require_whitelist: true
+
+    # Require TextFSM template / 需要TextFSM模板
+    require_template: true
+
+    # Pipe support / 管道符支持
+    allow_pipe: false
+
+    # Regex filtering support / 正则过滤支持
+    allow_regex_filter: false
+
+  # Hybrid Mode / 混合模式 (推荐)
+  hybrid:
+    description: "Smart validation: blacklist + prefix check + best-effort parsing"
+    description_zh: "智能验证：黑名单+前缀检查+尽力而为的解析"
+
+    # Allowed command prefixes / 允许的命令前缀
+    allowed_prefixes:
+      - "show"
+      - "display"
+      - "get"
+      - "list"
+      - "describe"
+
+    # Check TextFSM template but allow execution without it / 检查模板但允许无模板执行
+    require_template: false
+
+    # Prefer template but fall back to raw / 优先使用模板，无模板时返回原始输出
+    template_preference: "prefer"  # Options: "prefer", "require"
+
+    # Fallback behavior when no template / 无模板时的回落行为
+    no_template_fallback: "raw_output"  # Options: "raw_output", "reject"
+
+    # Pipe support / 管道符支持
+    allow_pipe: true
+
+    # Regex filtering support / 正则过滤支持
+    allow_regex_filter: true
+
+    # Advanced patterns / 高级模式
+    allow_advanced_patterns:
+      - "| include"
+      - "| exclude"
+      - "| section"
+      - "| begin"
+      - "| grep"
+      - "| grep -v"
+      - "| count"
+      - "| format"
+
+# =============================================================================
+# Pipe Command Configuration / 管道命令配置
+# =============================================================================
+pipe_commands:
+  # Include filter / 包含过滤
+  include:
+    patterns:
+      - "\\|\\s*include\\s+"
+      - "\\|\\s*i\\s+"
+    description: "Filter output to include only lines matching pattern"
+    safe: true
+
+  # Exclude filter / 排除过滤
+  exclude:
+    patterns:
+      - "\\|\\s*exclude\\s+"
+      - "\\|\\s*e\\s+"
+    description: "Filter output to exclude lines matching pattern"
+    safe: true
+
+  # Section filter / 节过滤
+  section:
+    patterns:
+      - "\\|\\s*section\\s+"
+    description: "Show specific section of output"
+    safe: true
+
+  # Begin filter / 开始过滤
+  begin:
+    patterns:
+      - "\\|\\s*begin\\s+"
+    description: "Start output from specific line"
+    safe: true
+
+  # Grep filter / Grep过滤
+  grep:
+    patterns:
+      - "\\|\\s*grep\\s+"
+      - "\\|\\s*grep\\s+-v\\s+"
+    description: "Unix-style grep filtering"
+    safe: true
+
+  # Count / 计数
+  count:
+    patterns:
+      - "\\|\\s*count\\s*"
+    description: "Count matching lines"
+    safe: true
+
+  # Format / 格式化
+  format:
+    patterns:
+      - "\\|\\s*format\\s+"
+    description: "Format output in specific way"
+    safe: true
+
+# =============================================================================
+# Validation Behavior / 验证行为
+# =============================================================================
+validation:
+  # Strip leading/trailing whitespace / 去除首尾空格
+  trim_command: true
+
+  # Case sensitivity / 大小写敏感
+  case_sensitive: false
+
+  # Maximum command length / 最大命令长度
+  max_length: 200
+
+  # Allow multiple pipes / 允许多个管道符
+  allow_multiple_pipes: true
+
+  # Max pipes per command / 每个命令最大管道符数量
+  max_pipes: 3
+
+# =============================================================================
+# Template Fallback / 模板回落
+# =============================================================================
+template_fallback:
+  # When no template is available / 当没有模板可用时
+  behavior: "attempt_parse"  # Options: "attempt_parse", "raw_output", "reject"
+
+  # Attempt to use similar template / 尝试使用相似模板
+  use_similar_template: true
+
+  # Similarity threshold (0.0-1.0) / 相似度阈值
+  similarity_threshold: 0.7
+
+  # Return raw output if all parsing fails / 如果所有解析失败，返回原始输出
+  return_raw_on_failure: true
+
+# =============================================================================
+# Logging / 日志
+# =============================================================================
+logging:
+  # Log all commands / 记录所有命令
+  log_all_commands: true
+
+  # Log command validation results / 记录命令验证结果
+  log_validation: true
+
+  # Log template fallback attempts / 记录模板回落尝试
+  log_template_fallback: true
+
+  # Log level / 日志级别
+  level: "INFO"  # Options: "DEBUG", "INFO", "WARN", "ERROR"

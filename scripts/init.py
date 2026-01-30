@@ -19,13 +19,18 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# Add project root to path
+# Add project root and src to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / "src"))
 
 from dotenv import load_dotenv
+from rich.console import Console
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
 load_dotenv()
+
+console = Console()
 
 
 def init_settings(olav_dir: Path, force: bool = False) -> bool:
@@ -57,7 +62,7 @@ def init_settings(olav_dir: Path, force: bool = False) -> bool:
         "agent": {
             "name": "OLAV",
             "description": "Network Operations AI Assistant",
-            "version": "0.8",
+            "version": "0.9",
         },
         "llm": {
             "provider": llm_provider,
@@ -76,7 +81,6 @@ def init_settings(olav_dir: Path, force: bool = False) -> bool:
             "enableTokenStatistics": True,
         },
         "learning": {"autoSaveSolutions": False, "autoLearnAliases": True},
-        "subagents": {"enabled": True},
     }
 
     # Write settings.json
@@ -224,73 +228,11 @@ Agent Parsing:
 
 
 def init_capabilities(olav_dir: Path, reload: bool = False) -> bool:
-    """Initialize capabilities database from whitelist files.
+    """[DEPRECATED] Command discovery is now handled by CommandRegistry.
 
-    Args:
-        olav_dir: Path to .olav directory
-        reload: If True, delete and reload all commands
-
-    Returns:
-        True if initialized successfully
+    In v0.9+, commands are discovered from TextFSM templates.
     """
-    from olav.core.database import get_database
-
-    db = get_database()
-
-    # Check if already initialized
-    try:
-        result = db.conn.execute("SELECT COUNT(*) as count FROM capabilities").fetchall()
-        count = result[0][0]
-        if count > 0 and not reload:
-            print(f"  ⏭️  capabilities.db already has {count} entries")
-            return False
-    except Exception as e:
-        print(f"     Error accessing capabilities.db: {e}")
-
-    if reload:
-        print("  🔄 Reloading capabilities (deleting old entries)...")
-        try:
-            db.conn.execute("DELETE FROM capabilities WHERE cap_type = 'command'")
-            db.conn.commit()
-            print("     Cleared existing command capabilities")
-        except Exception as e:
-            print(f"     Warning: Could not clear capabilities: {e}")
-
-    print("  🔄 Loading capabilities from whitelist files...")
-
-    # Load whitelist files
-    whitelist_dir = olav_dir / "imports" / "commands"
-    total_loaded = 0
-
-    if whitelist_dir.exists():
-        for platform_file in whitelist_dir.glob("*.txt"):
-            platform = platform_file.stem
-
-            commands: list[str] = []
-            for line in platform_file.read_text().split("\n"):
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    commands.append(line)
-
-            # Load into database
-            count = 0
-            for cmd in commands:
-                try:
-                    db.insert_capability(
-                        cap_type="command",
-                        platform=platform,
-                        name=cmd,
-                        source_file=str(platform_file),
-                        is_write=False,
-                    )
-                    count += 1
-                except Exception as e:
-                    print(f"     Warning parsing {cmd}: {e}")
-
-            print(f"     Loaded {count} commands for {platform}")
-            total_loaded += count
-
-    print(f"  ✅ Loaded {total_loaded} total capabilities")
+    console.print("  ⏭️  Skipping capabilities.db (deprecated in v0.9)")
     return True
 
 
@@ -317,6 +259,148 @@ def init_knowledge_db(olav_dir: Path) -> bool:
     return True
 
 
+def init_network_db(olav_dir: Path) -> bool:
+    """Initialize network snapshot database with minimal tables.
+
+    Per the Zero-ETL design, we do NOT create structured tables like
+    interfaces, routes, bgp_neighbors, etc. Instead, parsed JSON files
+    are queried directly using read_json_auto().
+
+    This function only creates:
+    - raw_outputs: For tracking raw command outputs (optional metadata)
+    - sync_metadata: For tracking sync operations
+
+    Args:
+        olav_dir: Path to .olav directory
+
+    Returns:
+        True if initialized successfully
+    """
+    import duckdb
+
+    db_dir = olav_dir / "db"
+    db_dir.mkdir(parents=True, exist_ok=True)
+    db_path = db_dir / "olav.duckdb"
+
+    if db_path.exists():
+        print("  ⏭️  olav.duckdb already exists")
+        return False
+
+    try:
+        from olav.core.database import get_database
+
+        get_database(db_path)
+        print("  ✅ Initialized olav.duckdb (Zero-ETL: minimal tables)")
+        print("     → Parsed data accessed via read_json_auto()")
+        return True
+    except Exception as e:
+        print(f"  ❌ Error initializing olav.duckdb: {e}")
+        return False
+
+def validate_hosts_yaml(olav_dir: Path) -> tuple[bool, str]:
+    """Validate hosts.yaml exists and has valid structure.
+
+    Args:
+        olav_dir: Path to .olav directory
+
+    Returns:
+        Tuple of (is_valid, message)
+    """
+    hosts_file = olav_dir / "config" / "nornir" / "hosts.yaml"
+
+    if not hosts_file.exists():
+        return False, f"hosts.yaml not found at {hosts_file}"
+
+    try:
+        import yaml
+
+        content = hosts_file.read_text(encoding="utf-8")
+        data = yaml.safe_load(content)
+
+        if not isinstance(data, dict):
+            return False, "hosts.yaml must contain a YAML dictionary"
+
+        if len(data) == 0:
+            return False, "hosts.yaml has no devices defined"
+
+        # Validate each host has required fields
+        for hostname, host_data in data.items():
+            if not isinstance(host_data, dict):
+                return False, f"Host {hostname} must be a dictionary"
+            if "hostname" not in host_data:
+                return False, f"Host {hostname} missing 'hostname' field (IP address)"
+
+        return True, f"hosts.yaml valid with {len(data)} devices"
+
+    except ImportError:
+        return False, "PyYAML not installed, cannot validate hosts.yaml"
+    except Exception as e:
+        return False, f"Error parsing hosts.yaml: {e}"
+
+
+def test_device_connectivity(olav_dir: Path, sample_count: int = 1) -> tuple[bool, str]:
+    """Test connectivity to sample devices.
+
+    Args:
+        olav_dir: Path to .olav directory
+        sample_count: Number of devices to test (default: 1)
+
+    Returns:
+        Tuple of (all_success, message)
+    """
+    try:
+        from nornir_netmiko.tasks import netmiko_send_command
+
+        from olav.tools.network_executor import get_nornir, reset_nornir
+
+        # Reset to ensure fresh credentials are applied
+        reset_nornir()
+        nr = get_nornir()
+
+        hosts = list(nr.inventory.hosts.keys())[:sample_count]
+        if not hosts:
+            return False, "No devices found in inventory"
+
+        print(f"  🔌 Testing connectivity to {len(hosts)} device(s)...")
+
+        success_count = 0
+        failed_devices = []
+
+        for host_name in hosts:
+            try:
+                result = nr.filter(lambda h, name=host_name: h.name == name).run(
+                    task=netmiko_send_command,
+                    command_string="show version",
+                )
+
+                host_result = result.get(host_name)
+                if host_result and not host_result.failed:
+                    success_count += 1
+                    print(f"     ✓ {host_name}: Connected successfully")
+                else:
+                    failed_devices.append(host_name)
+                    error = str(host_result.exception) if host_result else "Unknown error"
+                    print(f"     ✗ {host_name}: {error[:60]}...")
+            except Exception as e:
+                failed_devices.append(host_name)
+                print(f"     ✗ {host_name}: {str(e)[:60]}...")
+
+        if success_count == len(hosts):
+            return True, f"All {success_count} device(s) connected successfully"
+        elif success_count > 0:
+            return (
+                True,
+                f"{success_count}/{len(hosts)} devices connected ({', '.join(failed_devices)} failed)",
+            )
+        else:
+            return False, f"All {len(hosts)} device(s) failed to connect"
+
+    except ImportError as e:
+        return False, f"Missing dependency: {e}"
+    except Exception as e:
+        return False, f"Connection test error: {e}"
+
+
 def init_directories(olav_dir: Path) -> None:
     """Ensure all required directories exist.
 
@@ -326,12 +410,13 @@ def init_directories(olav_dir: Path) -> None:
     directories = [
         olav_dir / "knowledge" / "solutions",
         olav_dir / "data",
+        olav_dir / "db",
         olav_dir / "reports",
         olav_dir / "scratch",
         olav_dir / "skills",
         olav_dir / "commands",
-        olav_dir / "imports" / "commands",
-        olav_dir / "imports" / "apis",
+        olav_dir / "config" / "nornir",
+        olav_dir / "config" / "textfsm",  # Custom TextFSM templates
         olav_dir / "config" / "nornir",
         Path("logs"),  # Nornir log directory
         Path("exports"),  # Snapshot exports
@@ -382,7 +467,7 @@ def check_status(olav_dir: Path) -> None:
         print("❌ capabilities.db missing")
 
     # Check knowledge.db
-    knowledge_db = olav_dir / "data" / "knowledge.db"
+    knowledge_db = olav_dir / "db" / "knowledge.duckdb" # v0.9 update
     if knowledge_db.exists():
         print("✅ knowledge.db exists")
     else:
@@ -398,6 +483,13 @@ def check_status(olav_dir: Path) -> None:
     print("=" * 50)
 
 
+
+
+
+# Logic moved to olav.tools.schema_catalog
+
+
+
 def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -408,7 +500,8 @@ Examples:
     uv run python scripts/init.py                  # Initialize all components
     uv run python scripts/init.py --force          # Overwrite existing files
     uv run python scripts/init.py --check          # Check status only
-    uv run python scripts/init.py --reload-commands # Reload commands from whitelists
+    uv run python scripts/init.py --refresh-schema # Refresh schema catalog from JSON files
+    uv run python scripts/init.py --validate       # Validate configuration only (non-interactive)
         """,
     )
     parser.add_argument("--force", "-f", action="store_true", help="Overwrite existing files")
@@ -416,10 +509,22 @@ Examples:
         "--check", "-c", action="store_true", help="Check status only, don't initialize"
     )
     parser.add_argument(
+        "--validate",
+        "-v",
+        action="store_true",
+        help="Validate configuration only (non-interactive, exit on failure)",
+    )
+    parser.add_argument(
+        "--refresh-schema",
+        "-s",
+        action="store_true",
+        help="Refresh _schema_catalog table from JSON files",
+    )
+    parser.add_argument(
         "--reload-commands",
         "-r",
         action="store_true",
-        help="Reload commands from whitelist files (deletes and re-imports)",
+        help="[DEPRECATED] Reload commands from whitelist files",
     )
     parser.add_argument(
         "--olav-dir",
@@ -435,41 +540,104 @@ Examples:
         check_status(olav_dir)
         return
 
-    print("\n🚀 OLAV Initialization")
-    print(f"   Directory: {olav_dir}")
-    print(f"   Reload Commands: {args.reload_commands}")
-    print(f"   Force: {args.force}")
-    print(f"   Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=" * 50)
+    # Refresh schema mode: (No-op in v0.9.6 - Dynamic Discovery used)
+    if args.refresh_schema:
+        console.print("\n🔄 [bold]Refreshing Schema Catalog[/bold]")
+        console.print("=" * 50)
+        console.print("[yellow]⚠️  Manual schema refresh is deprecated. Dynamic discovery enabled.[/yellow]")
+        console.print("=" * 50)
+        return
+
+    # Validation mode: non-interactive, exit on failure
+    if args.validate:
+        console.print("\n🔍 [bold]OLAV Configuration Validation[/bold]")
+        console.print("=" * 50)
+
+        # Validate hosts.yaml
+        is_valid, message = validate_hosts_yaml(olav_dir)
+        if is_valid:
+            console.print(f"✅ {message}")
+        else:
+            console.print(f"[red]❌ {message}[/red]")
+            sys.exit(1)
+
+        # Check if network database exists
+        db_path = olav_dir / "db" / "olav.duckdb"
+        if db_path.exists():
+            console.print(f"✅ olav.duckdb exists at {db_path}")
+        else:
+            console.print("⚠️  olav.duckdb not found (will be created)")
+
+        # Check settings.json
+        settings_file = olav_dir / "settings.json"
+        if settings_file.exists():
+            console.print("✅ settings.json exists")
+        else:
+            console.print("⚠️  settings.json not found (will be created)")
+
+        console.print("=" * 50)
+        console.print("[green]✅ Validation passed - ready for snapshot[/green]")
+        return
+
+    console.print("\n🚀 [bold]OLAV Initialization[/bold]")
+    console.print(f"   Directory: {olav_dir}")
+    console.print(f"   Force: {args.force}")
+    console.print(f"   Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    console.print("=" * 50)
+
+    # Validate hosts.yaml first (fail fast)
+    console.print("\n🔍 [bold]Validating hosts.yaml...[/bold]")
+    is_valid, message = validate_hosts_yaml(olav_dir)
+    if is_valid:
+        console.print(f"  ✅ {message}")
+    else:
+        console.print(f"  [red]❌ {message}[/red]")
+        console.print("\n[yellow]⚠️  Please configure hosts.yaml before running init:[/yellow]")
+        console.print("   1. Copy .olav/config/nornir/hosts.yaml.example to hosts.yaml")
+        console.print("   2. Add your network devices")
+        console.print("   3. Run init again")
+        sys.exit(1)
 
     # Ensure directories exist
-    print("\n📁 Creating directories...")
+    console.print("\n📁 [bold]Creating directories...[/bold]")
     init_directories(olav_dir)
-    print("  ✅ All directories ready")
+    console.print("  ✅ All directories ready")
 
     # Initialize settings.json
-    print("\n⚙️  Initializing settings.json...")
+    console.print("\n⚙️  [bold]Initializing settings.json...[/bold]")
     init_settings(olav_dir, args.force)
 
     # Initialize aliases.md from nornir
-    print("\n📝 Initializing aliases.md from nornir...")
+    console.print("\n📝 [bold]Initializing aliases.md from nornir...[/bold]")
     init_aliases_from_nornir(olav_dir, args.force)
 
     # Initialize capabilities database
-    print("\n🗃️  Initializing capabilities.db...")
+    console.print("\n🗃️  [bold]Initializing capabilities.db...[/bold]")
     init_capabilities(olav_dir, reload=args.reload_commands)
 
     # Initialize knowledge database
-    print("\n📚 Initializing knowledge.db...")
+    console.print("\n📚 [bold]Initializing knowledge.db...[/bold]")
     init_knowledge_db(olav_dir)
 
-    print("\n" + "=" * 50)
-    print("✅ OLAV initialization complete!")
-    print("\nNext steps:")
-    print("  1. Edit .olav/config/nornir/hosts.yaml with your devices")
-    print("  2. Run: uv run python scripts/init.py --reload-commands  (after adding commands)")
-    print("  4. Run: uv run python scripts/init.py --force  (to regenerate aliases)")
-    print("  3. Run: uv run olav.py  (to start the agent)")
+    # Initialize network snapshot database
+    console.print("\n🌐 [bold]Initializing olav.duckdb...[/bold]")
+    init_network_db(olav_dir)
+
+    # Test device connectivity
+    console.print("\n🔌 [bold]Testing device connectivity...[/bold]")
+    conn_ok, conn_msg = test_device_connectivity(olav_dir, sample_count=1)
+    if conn_ok:
+        console.print(f"  ✅ {conn_msg}")
+    else:
+        console.print(f"  [yellow]⚠️  {conn_msg}[/yellow]")
+        console.print("     (Connectivity issues - check credentials in .env)")
+
+    console.print("\n" + "=" * 50)
+    console.print("[bold green]✅ OLAV initialization complete![/bold green]")
+    console.print("\n[bold]Next steps:[/bold]")
+    console.print("  1. Run: [cyan]uv run olav snapshot[/cyan]  (to collect network data)")
+    console.print("  2. Run: [cyan]uv run olav inspect[/cyan]   (to analyze data)")
+    console.print("  3. Run: [cyan]uv run olav[/cyan]           (to start interactive query)")
 
 
 if __name__ == "__main__":

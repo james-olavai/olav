@@ -6,6 +6,7 @@ Separated from network.py for better maintainability (per DESIGN_V0.81.md optimi
 
 import json
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -40,10 +41,10 @@ def execute_with_textfsm(
     nr: Nornir,
     device: str,
     command: str,
-    timeout: int,
-    db: "OlavDatabase",
-    blacklist_checker: object,  # Function that takes str and returns str|None
-    platform_detector: object,  # Function that takes str and returns str|None
+    timeout: int | None = None,
+    db: "OlavDatabase" = None,
+    blacklist_checker: object = None,  # Function that takes str and returns str|None
+    platform_detector: object = None,  # Function that takes str and returns str|None
 ) -> "CommandExecutionResult":
     """Execute command with TextFSM parsing.
 
@@ -51,7 +52,7 @@ def execute_with_textfsm(
         nr: Nornir instance
         device: Device name or IP
         command: Command to execute
-        timeout: Command timeout in seconds
+        timeout: Command timeout in seconds (defaults to settings.execution.timeout)
         db: Database instance for whitelist/audit
         blacklist_checker: Function to check if command is blacklisted
         platform_detector: Function to detect device platform
@@ -62,6 +63,10 @@ def execute_with_textfsm(
     Raises:
         Exception: If TextFSM parsing fails
     """
+    # Task 11.4: Use centralized timeout from settings
+    if timeout is None:
+        timeout = settings.execution.timeout
+
     from olav.tools.network_executor import CommandExecutionResult
 
     start_time = datetime.now()
@@ -80,16 +85,31 @@ def execute_with_textfsm(
     # Detect platform
     platform = platform_detector(device) if callable(platform_detector) else None  # type: ignore[arg-type]
 
-    # Check whitelist
+    # Check command is allowed via CommandValidator (supports blacklist/whitelist/hybrid modes)
     if platform and isinstance(platform, str):
-        if not db.is_command_allowed(command, platform):
+        from olav.core.command_validator import get_command_validator
+
+        validator = get_command_validator()
+        validation_result = validator.validate_command(platform, command)
+
+        if not validation_result.allowed:
             return CommandExecutionResult(
                 device=device,
                 command=command,
                 success=False,
-                error=f"Command not in whitelist for platform {platform}",
+                error=f"Command validation failed: {validation_result.reason}",
                 duration_ms=0,
             )
+
+        # If no template but raw_fallback is allowed, use raw mode
+        if not validation_result.has_template and validation_result.raw_fallback:
+            print(f"⚠️ No TextFSM template for '{command}', using raw output mode", file=sys.stderr)
+            # Execute without TextFSM
+            use_textfsm = False
+        else:
+            use_textfsm = True
+    else:
+        use_textfsm = True
 
     # Set custom TextFSM template directory if exists (higher priority)
     custom_textfsm_dir = Path(settings.agent_dir) / "config" / "textfsm"
@@ -101,20 +121,25 @@ def execute_with_textfsm(
         nr_filtered = nr.filter(name=device)
 
         if not nr_filtered.inventory.hosts:
+            msg = f"❌ Device '{device}' not found in inventory"
+            print(msg, file=sys.stderr)
             return CommandExecutionResult(
                 device=device,
                 command=command,
                 success=False,
-                error=f"Device '{device}' not found in inventory",
+                error=msg,
                 duration_ms=0,
             )
 
-        # Run command with TextFSM
+        mode_str = "parsed" if use_textfsm else "raw"
+        print(f"📡 Executing '{command}' ({mode_str}) on {device} (timeout={timeout}s)...", file=sys.stderr)
+
+        # Run command with or without TextFSM
         result: AggregatedResult = nr_filtered.run(
             task=netmiko_send_command,
             command_string=command,
             read_timeout=timeout,
-            use_textfsm=True,  # Enable TextFSM parsing
+            use_textfsm=use_textfsm,  # Conditional TextFSM parsing
         )
 
         host_result: Result = result[device]  # type: ignore[assignment]
@@ -130,40 +155,78 @@ def execute_with_textfsm(
                 duration_ms=duration_ms,
             )
 
-        # Get parsed result (list or dict)
-        parsed_output = host_result.result
+        # Get result (parsed or raw)
+        if use_textfsm:
+            # TextFSM parsed result (list or dict)
+            parsed_output = host_result.result
 
-        # Estimate tokens
-        structured_output = json.dumps(parsed_output, default=str)
-        parsed_tokens = estimate_tokens(structured_output)
-        raw_tokens = int(parsed_tokens * 3)  # Estimate raw was 3x larger
-        tokens_saved = raw_tokens - parsed_tokens
+            # Estimate tokens
+            structured_output = json.dumps(parsed_output, default=str)
+            parsed_tokens = estimate_tokens(structured_output)
+            raw_tokens = int(parsed_tokens * 3)  # Estimate raw was 3x larger
+            tokens_saved = raw_tokens - parsed_tokens
 
-        # Log to audit trail
-        db.log_execution(
-            thread_id="main",
-            device=device,
-            command=command,
-            output=structured_output,
-            success=True,
-            duration_ms=duration_ms,
-        )
+            # Log to audit trail
+            if db:
+                db.log_execution(
+                    thread_id="main",
+                    device=device,
+                    command=command,
+                    output=structured_output,
+                    success=True,
+                    duration_ms=duration_ms,
+                )
 
-        return CommandExecutionResult(
-            device=device,
-            command=command,
-            success=True,
-            output=structured_output,
-            raw_output=str(parsed_output),  # Store raw parsed result
-            duration_ms=duration_ms,
-            structured=True,
-            raw_tokens=raw_tokens,
-            parsed_tokens=parsed_tokens,
-            tokens_saved=tokens_saved,
-        )
+            return CommandExecutionResult(
+                device=device,
+                command=command,
+                success=True,
+                output=structured_output,
+                raw_output=str(parsed_output),
+                duration_ms=duration_ms,
+                structured=True,
+                raw_tokens=raw_tokens,
+                parsed_tokens=parsed_tokens,
+                tokens_saved=tokens_saved,
+            )
+        else:
+            # Raw output mode (no TextFSM)
+            raw_output = str(host_result.result)
+
+            # Estimate tokens (raw is larger)
+            raw_tokens = estimate_tokens(raw_output)
+            parsed_tokens = 0
+            tokens_saved = 0
+
+            # Log to audit trail
+            if db:
+                db.log_execution(
+                    thread_id="main",
+                    device=device,
+                    command=command,
+                    output=raw_output,
+                    success=True,
+                    duration_ms=duration_ms,
+                )
+
+            return CommandExecutionResult(
+                device=device,
+                command=command,
+                success=True,
+                output=raw_output,
+                raw_output=raw_output,
+                duration_ms=duration_ms,
+                structured=False,  # Raw output, not structured
+                raw_tokens=raw_tokens,
+                parsed_tokens=parsed_tokens,
+                tokens_saved=tokens_saved,
+            )
 
     except NornirSubTaskError as e:
-        # TextFSM parsing error
-        raise Exception(f"TextFSM parsing failed: {e}") from e
+        # TextFSM parsing error (only in TextFSM mode)
+        if use_textfsm:
+            raise Exception(f"TextFSM parsing failed: {e}") from e
+        else:
+            raise Exception(f"Command execution failed: {e}") from e
     except Exception as e:
-        raise Exception(f"TextFSM execution failed: {e}") from e
+        raise Exception(f"Command execution failed: {e}") from e

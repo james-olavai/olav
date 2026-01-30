@@ -1,0 +1,261 @@
+# OLAV Query Router Configuration
+# 路由规则配置 - 仅负责查询路由
+#
+# 注意: Guard 规则已移至 guard_rules.yaml
+#
+# 路由优先级: slash_commands > patterns > llm_fallback
+#
+# 设计原则:
+# - 斜杠命令仅用于系统管理 + 强制触发复杂工作流
+# - 查询类需求通过自然语言触发DB Agent tools
+# - 不添加: /ip, /health, /summary, /topology, /path (都由DB tools处理)
+
+version: "1.0"
+
+# =============================================================================
+# Slash Commands (斜杠命令 - 仅系统管理和强制工作流)
+# =============================================================================
+#
+# 保留的命令:
+#   /devices  - 系统管理 - 列出设备清单
+#   /skills   - 系统管理 - 列出可用技能
+#   /analyze  - 工作流   - 故障诊断与健康分析 (唯一工作流命令)
+#   /search   - 系统管理 - 搜索知识库
+#   /reload   - 系统管理 - 重新加载配置
+#   /clear    - 系统管理 - 清空对话历史
+#   /history  - 系统管理 - 查看对话历史
+#   /help     - 系统管理 - 显示帮助
+#   /quit     - 系统管理 - 退出程序
+#
+# 已删除的命令:
+#   /inspect  - 合并到 olav snapshot
+#   /query    - 冗余，直接用自然语言提问
+#   /backup   - 合并到 olav snapshot
+#
+# 不添加的命令:
+#   /ip, /health, /summary, /topology, /path, /diagnose
+#   这些都由DB Agent tools通过自然语言处理
+#
+slash_commands:
+  # 故障诊断 - 触发完整诊断工作流
+  "/analyze":
+    expert: "analysis"
+    description: "故障诊断与健康分析 (强制工作流)"
+    skill: "network-analysis"  # Agent loads this skill
+    usage: "/analyze [device|all] [--error <description>]"
+    examples:
+      - "/analyze R1"                      # 诊断R1
+      - "/analyze all"                     # 全网健康分析
+      - "/analyze R1 --error 'BGP down'"   # 带错误描述
+
+# =============================================================================
+# Pattern Matching (模式匹配 - 规则驱动路由到DB Agent)
+# =============================================================================
+patterns:
+  # DB优先的查询模式 - 匹配后调用对应的database_tools
+  database_first:
+    - pattern: "(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}).*(在哪|位置|where|location|属于|哪个设备)"
+      tool: "find_ip_location"
+      extract: "ip_address"  # 从输入提取IP参数
+
+    - pattern: "(\\S+).*(健康|状态|health|status)"
+      tool: "get_device_health"
+      extract: "device_name"
+
+    - pattern: "(网络|network).*(概览|统计|summary|overview|总体)"
+      tool: "get_network_summary"
+
+    # Phase 2.1: Precompiled SQL rules for fast execution
+    - pattern: "(\\S+).*(版本|version|软件|software)"
+      tool: "query_database"
+      precompiled_sql: "SELECT device, version, platform FROM v_system WHERE device = ?"
+      extract: "device"
+
+    - pattern: "(\\S+).*(接口数|interface count|多少接口)"
+      tool: "query_database"
+      precompiled_sql: "SELECT device, COUNT(*) as interface_count FROM v_interfaces WHERE device = ? GROUP BY device"
+      extract: "device"
+
+    - pattern: "(\\S+).*(cpu|内存|memory|utilization)"
+      tool: "query_database"
+      precompiled_sql: "SELECT * FROM v_device_status WHERE device = ?"
+      extract: "device"
+
+    - pattern: "(\\S+).*(接口|interface).*(状态|status)"
+      tool: "query_database"
+      precompiled_sql: "SELECT * FROM v_interfaces WHERE device = ?"
+      extract: "device"
+
+    - pattern: "(\\S+).*(路由|route|routing table)"
+      tool: "query_database"
+      precompiled_sql: "SELECT * FROM v_routes WHERE device = ? LIMIT 100"
+      extract: "device"
+
+    - pattern: "(拓扑|topology|邻居|neighbor)"
+      tool: "query_database"
+      query_hint: "topology"
+
+    - pattern: "(路径|path|从.*到|from.*to)"
+      tool: "query_database"
+      query_hint: "path"
+
+    - pattern: "(arp|mac|接口|interface|路由|route|bgp|ospf|vlan)"
+      tool: "query_database"  # 通用DB查询
+      fallback: "cli"  # DB失败后回落CLI
+
+    - pattern: "(搜索|search|查找|find).*(全网|所有设备|across)"
+      tool: "search_ip_across_network"
+      extract: "ip_address"
+
+  # 明确需要CLI的模式 (实时数据)
+  cli_required:
+    - pattern: "(实时|real-?time|当前|current|now|live)"
+      expert: "cli"
+      reason: "用户明确要求实时数据"
+
+    - pattern: "(执行|run|execute).*(命令|command|show)"
+      expert: "cli"
+      reason: "用户要求执行特定命令"
+
+    - pattern: "(ssh|telnet|连接).*(设备|device)"
+      expert: "cli"
+      reason: "用户要求直接连接设备"
+
+  # 领域专家路由
+  domain_experts:
+    - pattern: "(vpn|ipsec|ike|tunnel|firewall|acl|nat|security|安全|防火墙).*"
+      expert: "security-expert"
+      reason: "安全领域相关问题"
+
+    - pattern: "(ospf|eigrp|static route|路由|next hop|ping|traceroute).*"
+      expert: "routing-expert"
+      reason: "路由层连通性问题"
+
+    - pattern: "(stp|spanning tree|vlan|trunk|mac|l2|loop|环路|交换).*"
+      expert: "switching-expert"
+      reason: "交换层/L2问题"
+
+    - pattern: "(bgp|peer|as|autonomous system|邻居).*"
+      expert: "bgp-expert"
+      reason: "BGP协议问题"
+
+# =============================================================================
+# Fallback Strategy (回落策略)
+# =============================================================================
+fallback:
+  # DB查询失败时的处理
+  database_failure:
+    action: "fallback_to_cli"
+    message: "📊 数据库无结果，正在通过SSH查询设备..."
+
+  # 数据不完整时的处理
+  incomplete_data:
+    threshold: 0.7  # 完整度阈值
+    action: "supplement_with_cli"
+    message: "📊 数据可能不完整，正在补充最新信息..."
+
+  # 无法匹配任何规则
+  no_match:
+    action: "llm_classify"  # 使用LLM进行意图分类
+    allowed_intents:
+      - "database_query"
+      - "cli_query"
+      - "general_question"
+    # 注意: 不允许LLM路由到analysis，必须用/analyze命令
+
+# =============================================================================
+# Expert Definitions (专家定义)
+# =============================================================================
+experts:
+  database:
+    description: "数据库专家 - 历史数据、统计、拓扑"
+    tools:
+      - find_ip_location
+      - get_device_health
+      - get_network_summary
+      - search_ip_across_network
+      - analyze_network_health
+      - query_database
+    priority: 1  # 最高优先级
+
+  cli:
+    description: "CLI专家 - 实时SSH查询"
+    tools:
+      - smart_query       # SSH单设备查询
+      - nornir_execute    # SSH批量执行
+      # 注: list_devices, search_capabilities 已移至 DB 专家
+    priority: 2  # DB失败后使用
+
+  analysis:
+    description: "分析专家 - 故障诊断、健康分析、根因定位"
+    skill: "network-analysis"  # Single Agent + tool layering
+    trigger: "slash_command_only"  # 仅通过/命令触发
+    commands:
+      - /analyze  # 唯一入口，合并原/diagnose功能
+
+  security-expert:
+    description: "安全专家 - VPN/Firewall/ACL 故障排除"
+    skill: "security-expert"
+    trigger: "pattern_match"
+
+  routing-expert:
+    description: "路由专家 - OSPF/Static/L3 连通性"
+    skill: "routing-expert"
+    trigger: "pattern_match"
+
+  switching-expert:
+    description: "交换专家 - STP/VLAN/L2 问题"
+    skill: "switching-expert"
+    trigger: "pattern_match"
+
+  bgp-expert:
+    description: "BGP专家 - 邻居状态与路由传播"
+    skill: "bgp-expert"
+    trigger: "pattern_match"
+
+# =============================================================================
+# Natural Language Examples (自然语言示例 - 用于帮助信息)
+# =============================================================================
+examples:
+  database_queries:
+    - question: "10.1.12.1在哪个设备?"
+      tool: find_ip_location
+
+    - question: "R1的健康状态如何?"
+      tool: get_device_health
+
+    - question: "网络概览"
+      tool: get_network_summary
+
+    - question: "显示拓扑"
+      tool: query_database
+
+    - question: "R1到R5的路径"
+      tool: query_database
+
+    - question: "列出所有BGP邻居"
+      tool: query_database
+
+  cli_queries:
+    - question: "实时查看R1的接口状态"
+      action: ssh_to_device
+
+    - question: "在R1上执行show ip route"
+      action: execute_command
+
+  analysis_commands:
+    - command: "/analyze R1"
+      description: "诊断R1设备"
+
+    - command: "/analyze all"
+      description: "全网健康分析"
+
+    - command: "/analyze R1 --error 'BGP neighbor down'"
+      description: "带错误描述的诊断"
+
+# =============================================================================
+# Semantic Cache Configuration
+# =============================================================================
+semantic_cache:
+  threshold: 0.98  # 提升至98%以防止跨设备匹配错误
+  enabled: true

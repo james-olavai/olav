@@ -64,7 +64,7 @@ class LLMFactory:
             config["api_key"] = settings.llm_api_key
             logger.debug(f"Creating Azure chat model: {model_name}")
 
-        return init_chat_model(model_name, model_provider=provider, **config, **kwargs)
+        return init_chat_model(model_name, model_provider=provider, **config, **kwargs)  # type: ignore[return-value]
 
     @staticmethod
     def get_embedding_model() -> OpenAIEmbeddings:

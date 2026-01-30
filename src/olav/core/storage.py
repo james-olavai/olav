@@ -29,7 +29,7 @@ try:
     DEEPAGENTS_HAS_STORAGE = True
     # Note: StoreBackend renamed to FilesystemBackend in official API
     StoreBackend = FilesystemBackend
-except ImportError:
+except ImportError:  # pragma: no cover (fallback import - tested in production)
     try:
         # Fallback: try old import path
         from deepagents.storage import CompositeBackend, StateBackend, StoreBackend
@@ -92,7 +92,7 @@ def get_storage_backend(project_root: Path | None = None) -> object:  # noqa: AN
 
     if not DEEPAGENTS_HAS_STORAGE:
         # Return None if DeepAgents storage not available
-        return None
+        return None  # pragma: no cover (unreachable due to earlier check on line 65)
 
     # Create persistent backend
     persistent_backend = StoreBackend(  # type: ignore[misc, call-arg]

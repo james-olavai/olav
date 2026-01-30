@@ -1,0 +1,331 @@
+> """Main OLAV agent module for v0.8.
+  
+> This module creates and configures the OLAV DeepAgent with all necessary tools,
+> middleware, and system prompts.
+> """
+  
+! from pathlib import Path
+! from typing import TYPE_CHECKING, Any
+  
+! from deepagents import create_deep_agent
+! from langchain_core.tools import BaseTool
+  
+! from config.paths import OLAV_README
+! from config.settings import settings
+! from olav.core.llm import LLMFactory
+! from olav.core.skill_loader import get_skill_loader
+! from olav.core.storage import get_storage_permissions
+! from olav.tools.capabilities import api_call, search_device_commands
+! from olav.tools.database_tools import (
+!     analyze_network_health,
+!     find_ip_location,
+!     get_device_health,
+!     get_network_summary,
+!     query_database,
+!     search_ip_across_network,
+! )
+! from olav.tools.learning_tools import update_aliases_tool
+! from olav.tools.loader import reload_capabilities
+! from olav.tools.network import list_devices, nornir_execute
+! from olav.tools.research_tool import research_problem_tool
+! from olav.tools.smart_query import smart_query
+! from olav.tools.storage_tools import (
+!     list_saved_files,
+!     read_file,
+!     save_device_config,
+!     save_tech_support,
+!     write_file,
+! )
+  
+  # NOTE: Topology tools deprecated in v0.9.3 - moved to archive/deprecated/
+  # Users can query topology directly using SQL on structured tables
+  # from olav.tools.topology_tools import (
+  #     discover_topology,
+  #     get_topology_age,
+  #     query_neighbors,
+  #     query_path,
+  #     show_topology,
+  # )
+  # from olav.tools.topology_viz import render_topology_html, visualize_path, visualize_site
+  
+- if TYPE_CHECKING:
+-     from langgraph.graph.state import CompiledStateGraph
+  
+  
+! def create_olav_agent(
+!     model: str | None = None,
+!     checkpointer: object | None = None,
+!     debug: bool = False,
+!     enable_skill_routing: bool = True,
+!     enable_hitl: bool | None = None,
+! ) -> "CompiledStateGraph":
+!     """Create the OLAV DeepAgent.
+  
+!     This function creates and configures the main OLAV agent with:
+!     - Network execution tools (nornir_execute, list_devices)
+!     - Capability search tools (search_capabilities, api_call)
+!     - Filesystem access (for Skills/Knowledge management)
+!     - HITL approval for write operations
+!     - Skill routing (optional, default enabled)
+  
+!     Args:
+!         model: Model name or instance (defaults to configured LLM)
+!         checkpointer: Optional checkpointer for state persistence
+!         debug: Enable debug mode
+!         enable_skill_routing: Enable skill-based routing (default True)
+!         enable_hitl: Enable HITL approval for write operations.
+!                      If None, uses settings.enable_hitl (default True).
+!                      Set to False for automated testing.
+!                      Set to False for automated testing.
+  
+!     Returns:
+!         Compiled DeepAgent ready to use
+!     """
+      # Use settings default if not explicitly provided
+!     if enable_hitl is None:
+!         enable_hitl = settings.enable_hitl
+      # Initialize model from configuration or parameter
+!     if model is None:
+!         llm = LLMFactory.get_chat_model()
+!     elif isinstance(model, str):
+!         llm = LLMFactory.get_chat_model()  # model_name parameter overridden in init_chat_model
+!     else:
+!         llm = model
+  
+      # Load base system prompt from OLAV.md or use default
+!     if OLAV_README.exists():
+!         base_prompt = OLAV_README.read_text(encoding="utf-8")
+!     else:
+          # P1: Optimized compact system prompt (~500 tokens vs ~3000)
+!         base_prompt = """# OLAV - Network AI Assistant
+  
+! You are OLAV, an AI for network operations. Execute queries efficiently.
+  
+  ## Decision Tree: Choose the Right Tool/Skill
+  
+  ### Topology Questions?
+! User asks about: "topology", "path between", "neighbors", "connections", "network map"
+! **Action**: Use SQL query on structured tables
+! - Example: `query_database("SELECT * FROM l2_topology_view WHERE device='R1'")`
+! - Topology data is available in normalized L1/L2/L3/L4 views
+! - For path tracing, use `query_database()` with JOIN queries
+  
+  ### Single Device Query?
+! User asks about: interface, bgp, ospf, route, version, config on ONE device
+! **Action**: Use smart_query() first
+! - Example: smart_query("R1", "interface") → auto selects "show ip interface brief"
+  
+  ### Multiple Device Query?
+! User asks about: interface, bgp, ospf, route, version on MULTIPLE devices
+! **Action**: Use batch_query()
+! - Example: batch_query("R1,R2", "bgp") or batch_query("all", "version")
+  
+  ### Device Discovery?
+! User asks about: "list devices", "show all devices", "inventory"
+! **Action**: Use list_devices()
+  
+  ### Advanced Search?
+! User asks about: specific command for platform, cross-platform query
+! **Action**: Use search_device_commands(device, query)
+! - Example: search_device_commands("R1", "interface errors")
+  
+  ### Network Execution?
+! User asks about: run a specific command directly
+! **Action**: Use nornir_execute(device, command)
+! - Use only when specific command is given
+  
+  ### External Integration?
+! User asks about: call API, external system integration
+! **Action**: Use api_call(system, method, endpoint)
+  
+  ## Quick Reference
+! | Intent | Tool | Example |
+! |--------|------|---------|
+! | interface | smart_query | smart_query("R1", "interface") |
+! | bgp | smart_query/batch_query | batch_query("R1,R2", "bgp") |
+! | ospf | smart_query/batch_query | smart_query("R1", "ospf") |
+! | route | smart_query/batch_query | batch_query("all", "route") |
+! | topology | query_database | query_database("SELECT * FROM l2_topology_view") |
+! | neighbors | query_database | query_database("SELECT * FROM l2_topology_view WHERE device='R1'") |
+! | version | batch_query | batch_query("all", "version") |
+  
+  ## Rules
+! - Topology data is in normalized views (L1/L2/L3/L4) - use SQL to query
+! - All commands are pre-approved (whitelist). Execute directly.
+! - Dangerous commands are blocked (blacklist).
+! - For file writes, ask for approval.
+! """
+  
+      # Inject skill guidance if enabled
+!     if enable_skill_routing:
+!         skill_loader = get_skill_loader()
+!         skills = skill_loader.load_all()
+!         if skills:
+!             skill_summary = _format_skills_for_prompt(skills)
+!             system_prompt = f"{base_prompt}\n\n## Skill Guidance\n{skill_summary}"
+!         else:
+!             system_prompt = base_prompt
+!     else:
+!         system_prompt = base_prompt
+  
+      # Inject storage permissions (Phase 4)
+      # Note: Removed learning_guidance to reduce LLM exploration behavior
+      # Learning tools are still available but not actively guided
+!     storage_permissions = get_storage_permissions()
+!     system_prompt = f"{system_prompt}\n\n{storage_permissions}"
+  
+      # Define tools - smart_query is primary (unified single/batch queries)
+      # Secondary tools kept for edge cases
+      # Note: Group/role/site filtering is handled by smart_query filters
+!     tools: list[BaseTool] = [
+          # P0: Primary tool - single or batch queries with auto command selection
+          # Supports: "R1", "R1,R2", "all", "role:core", "site:lab", "group:test"
+!         smart_query,
+!         list_devices,  # List available devices with group/role/site info
+!         search_device_commands,  # Device-specific command search (auto-detects platform)
+!         nornir_execute,  # Secondary: Direct command execution
+!         api_call,  # Secondary: API calls
+!         research_problem_tool,  # Phase 3: Research tool (knowledge + web search)
+          # Phase 4: Database query tools - fast access to historical data
+!         find_ip_location,  # Find IP location in network (from ARP/routes)
+!         get_device_health,  # Get device health metrics (cross-DB query)
+!         get_network_summary,  # Get network-wide statistics
+!         search_ip_across_network,  # Search IPs by pattern
+!         analyze_network_health,  # L1-L4 health analysis with anomaly detection
+!         query_database,  # Direct SQL query (SELECT only)
+          # Phase 4: Learning tools - update device aliases
+!         update_aliases_tool,  # Update device naming conventions
+          # Phase 6: Storage tools - file operations with HITL
+!         write_file,  # Generic file write (requires HITL)
+!         read_file,  # Read files from agent_dir/
+!         save_device_config,  # Save device configs (requires HITL)
+!         save_tech_support,  # Save tech-support output (requires HITL)
+!         list_saved_files,  # List saved files
+          # NOTE: Topology tools deprecated in v0.9.3 - use SQL on structured tables instead
+          # Topology data is available in L1/L2/L3/L4 normalized views
+          # Example: query_database("SELECT * FROM l2_topology_view WHERE device='R1'")
+          # discover_topology,  # Discover network topology (L1/L3)
+          # show_topology,  # Show topology summary
+          # query_path,  # Query path between devices
+          # query_neighbors,  # Query device neighbors
+          # get_topology_age,  # Get topology data age
+          # render_topology_html,  # Generate HTML visualization
+          # visualize_path,  # Visualize path between devices
+          # visualize_site,  # Visualize site topology
+          # Note: Batch backup by group/role/site is skill-driven, not tool-driven
+          # Agent uses list_devices + nornir_execute + save_device_config combo
+!     ]
+  
+      # Configure HITL - interrupt only on filesystem operations
+      # Note: nornir_execute and api_call are safe because they enforce:
+      # 1. Whitelist of approved commands (by platform and device type)
+      # 2. Blacklist of dangerous patterns (reload, erase, rewrite, etc)
+      # All read-only operations proceed automatically. HITL interrupts disabled here.
+!     if enable_hitl:
+!         interrupt_on = {
+!             "smart_query": False,  # Safe: uses whitelist internally (handles batch too)
+!             "nornir_execute": False,  # Safe: whitelist + blacklist enforcement
+!             "api_call": False,  # Safe: API validation in tool layer
+!             "research_problem": False,  # Read-only: local search + web search
+              # Phase 4: Database query tools - all read-only
+!             "find_ip_location": False,  # Read-only: ARP/routes lookup
+!             "get_device_health": False,  # Read-only: cross-DB query
+!             "get_network_summary": False,  # Read-only: statistics
+!             "search_ip_across_network": False,  # Read-only: pattern search
+!             "analyze_network_health": False,  # Read-only: health analysis
+!             "query_database": False,  # Read-only: SELECT only
+              # Phase 4: Learning tools
+!             "update_aliases": True,  # Phase 4: Learning - requires approval (writes to disk)
+              # Phase 6: Storage tools - file operations
+!             "write_file": True,  # Filesystem write requires approval
+!             "read_file": False,  # Read-only is safe
+!             "save_device_config": True,  # Config backup requires approval
+!             "save_tech_support": True,  # Tech-support save requires approval
+!             "list_saved_files": False,  # Listing is read-only
+              # NOTE: Topology tools deprecated in v0.9.3
+              # "discover_topology": False,
+              # "show_topology": False,
+              # "query_path": False,
+              # "query_neighbors": False,
+              # "get_topology_age": False,
+              # "render_topology_html": False,
+              # "visualize_path": False,
+              # "visualize_site": False,
+!         }
+!     else:
+          # HITL disabled - all operations proceed without approval (for testing)
+!         interrupt_on = None
+  
+      # Create agent
+!     agent = create_deep_agent(
+!         model=llm,
+!         tools=tools,
+!         system_prompt=system_prompt,
+!         checkpointer=checkpointer,  # type: ignore[arg-type]
+!         interrupt_on=interrupt_on,  # type: ignore[arg-type]
+!         debug=debug,
+!         name="olav",
+!     )
+  
+!     return agent
+  
+  
+! def initialize_olav() -> "CompiledStateGraph":
+!     """Initialize OLAV agent and reload capabilities.
+  
+!     This is the main entry point for OLAV. It:
+!     1. Reloads capabilities from imports/ directory
+!     2. Creates the OLAV agent
+!     3. Returns the agent for use
+  
+!     Returns:
+!         Compiled OLAV DeepAgent
+!     """
+      # Reload capabilities
+!     imports_dir = Path(settings.agent_dir) / "imports"
+!     print(f"Loading capabilities from {imports_dir}/...")
+!     counts = reload_capabilities(imports_dir=str(imports_dir))
+!     print(
+!         f"Loaded {counts['commands']} commands and {counts['apis']} API endpoints "
+!         f"(total: {counts['total']})"
+!     )
+  
+      # Create and return agent
+!     return create_olav_agent()
+  
+  
+! def _format_skills_for_prompt(skills: dict[str, Any]) -> str:
+!     """Format skills for inclusion in system prompt.
+  
+!     Args:
+!         skills: Dictionary of Skill objects
+  
+!     Returns:
+!         Formatted skill descriptions for prompt
+!     """
+!     skill_lines = []
+  
+      # Group skills by intent for better organization
+!     skills_by_intent = {}
+!     for skill_id, skill in skills.items():
+!         intent = getattr(skill, "intent", "general")
+!         if intent not in skills_by_intent:
+!             skills_by_intent[intent] = []
+!         skills_by_intent[intent].append((skill_id, skill))
+  
+      # Format each intent group
+!     for intent, skill_list in sorted(skills_by_intent.items()):
+!         skill_lines.append(f"\n### {intent.capitalize()} Tasks")
+!         for skill_id, skill in skill_list:
+!             description = skill.description
+!             signals = getattr(skill, "identification_signals", "")
+!             if signals:
+!                 skill_lines.append(f"- **{skill_id}** ({skill.complexity}): {description}")
+!                 skill_lines.append(f"  Triggers: {signals}")
+!             else:
+!                 skill_lines.append(f"- **{skill_id}** ({skill.complexity}): {description}")
+  
+!     return (
+!         "## Available Execution Strategies\n\nWhen approaching tasks, use these Skill-based strategies:"
+!         + "\n".join(skill_lines)
+!     )

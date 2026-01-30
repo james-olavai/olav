@@ -65,6 +65,20 @@ def setup_logging(
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("openai").setLevel(logging.WARNING)
     logging.getLogger("anthropic").setLevel(logging.WARNING)
+    logging.getLogger("paramiko").setLevel(logging.WARNING)
+    
+    # Nornir noise
+    logging.getLogger("nornir").setLevel(logging.ERROR)  # High noise
+    import warnings
+    warnings.filterwarnings("ignore", category=UserWarning, module="nornir")
+    
+    # Internal OLAV noise
+    logging.getLogger("olav.core.registry").setLevel(logging.WARNING)
+    logging.getLogger("olav.core.query_router").setLevel(logging.WARNING)
+    logging.getLogger("olav.tools.schema_catalog").setLevel(logging.WARNING)
+    logging.getLogger("olav.tools.raw_importer").setLevel(logging.WARNING)
+    logging.getLogger("olav.agents").setLevel(logging.WARNING)
+    logging.getLogger("olav.analysis").setLevel(logging.WARNING)
 
 
 def get_logger(name: str) -> logging.Logger:
