@@ -19,6 +19,7 @@ from rich.panel import Panel
 if TYPE_CHECKING:
     from olav.cli.memory import AgentMemory
     from olav.cli.session import OlavPromptSession
+    from olav.core.unified_cache_manager import UnifiedCacheManager
 
 # Lazy imports to speed up --help
 console = Console()
