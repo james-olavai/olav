@@ -162,6 +162,18 @@ class UnifiedDatabase:
                             last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                         );
 
+                        -- Create Intent Cache table (Fast Path - Phase 4)
+                        CREATE TABLE IF NOT EXISTS commands.main.intent_cache (
+                            id INTEGER PRIMARY KEY,
+                            query_text TEXT,
+                            query_embedding FLOAT[768],
+                            execution_plan JSON,
+                            confidence FLOAT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            hit_count INTEGER DEFAULT 1
+                        );
+
                         -- Create Session History table (Phase 8)
                         CREATE TABLE IF NOT EXISTS commands.main.session_history (
                             id UUID DEFAULT uuid(),
@@ -390,6 +402,75 @@ class UnifiedDatabase:
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).error(f"Save semantic cache failed: {e}")
+
+    def search_intent_cache(self, embedding: list[float], threshold: float = 0.9, top_k: int = 1) -> list[dict[str, Any]]:
+        """
+        Search intent cache for matching execution plans.
+
+        Args:
+            embedding: Query embedding vector
+            threshold: Similarity threshold (0.0-1.0)
+            top_k: Number of results to return
+
+        Returns:
+            List of matching intent cache entries with query, execution_plan, confidence
+        """
+        with UnifiedDatabase._lock:
+            try:
+                results = self.conn.execute(f"""
+                    SELECT
+                        query_text,
+                        execution_plan,
+                        confidence,
+                        created_at
+                    FROM commands.main.intent_cache
+                    WHERE array_cosine_similarity(query_embedding::FLOAT[{len(embedding)}], ?::FLOAT[{len(embedding)}]) >= ?
+                    ORDER BY confidence DESC, created_at DESC
+                    LIMIT ?
+                """, [embedding, threshold, top_k]).fetchall()
+
+                return [
+                    {
+                        "query_text": row[0],
+                        "execution_plan": row[1],
+                        "confidence": row[2],
+                        "created_at": row[3],
+                    }
+                    for row in results
+                ]
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Search intent cache failed: {e}")
+                return []
+
+    def save_intent_cache(
+        self,
+        query: str,
+        embedding: list[float],
+        plan: dict[str, Any],
+        confidence: float = 1.0
+    ) -> None:
+        """
+        Save a successful execution plan to intent cache.
+
+        This method is thread-safe.
+
+        Args:
+            query: Original user query
+            embedding: Query embedding vector
+            plan: Execution plan as JSON
+            confidence: Confidence score (0.0-1.0)
+        """
+        import json
+        with UnifiedDatabase._lock:
+            try:
+                self.conn.execute("""
+                    INSERT INTO commands.main.intent_cache (query_text, query_embedding, execution_plan, confidence)
+                    VALUES (?, ?::FLOAT[], ?, ?)
+                """, [query, embedding, json.dumps(plan), confidence])
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Save intent cache failed: {e}")
 
     def close(self) -> None:
         """Close database connection."""
