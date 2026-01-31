@@ -220,6 +220,36 @@ class QueryRouter:
             )
             return decision
 
+
+    
+        # Step 1.5: 命令白名单检查 (Tier 0.5 - 快速路径，最高优先级)
+        whitelist_file = Path(".olav/config/command_whitelist.yaml")
+        if whitelist_file.exists():
+            import yaml
+            try:
+                with open(whitelist_file) as f:
+                    whitelist_config = yaml.safe_load(f)
+                    command_whitelist = whitelist_config.get("command_whitelist", {})
+                    mode = whitelist_config.get("mode", "simple_match")
+
+                if mode == "simple_match" and user_input.strip():
+                    for pattern, sql_query in command_whitelist.items():
+                        if re.match(pattern, user_input.strip()):
+                            device = self._extract_device_from_pattern(pattern, user_input)
+                            params = {"sql": sql_query, "device": device}
+                            
+                            decision = RoutingDecision(
+                                expert="database",
+                                action="route",
+                                tool="query_database",
+                                params=params,
+                                message=f"Whitelist match: {pattern}",
+                            )
+                            
+                            return decision
+            except Exception:
+                pass  # 白名单检查失败不影响其他路径
+
         # Step 2: 斜杠命令检查
         if user_input.strip().startswith("/"):
             start = time.time()
