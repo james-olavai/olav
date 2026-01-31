@@ -252,6 +252,27 @@ def run_interactive_loop(
                             has_data = tool_data is not None and len(tool_data) > 0 if isinstance(tool_data, (list, dict)) else tool_data is not None
 
                             if not has_data:
+                            
+                            # ============ 命令历史记录 (新增) ============
+                            # 记录 Fast-Path 或白名单命令执行到命令历史
+                            # 支持后续 tab 补全和命令重现
+                            
+                            # 提取信息
+                            command_used = routing_decision.tool if routing_decision else ""
+                            device_queried = routing_decision.params.get("device") if routing_decision and routing_decision.params else ""
+                            sql_used = tool_data.get("sql_query") if routing_decision and routing_decision.tool == "query_database" and isinstance(tool_data, dict) else ""
+                            
+                            # 记录到历史
+                            session.record_query(
+                                query=user_input,
+                                command_used=command_used,
+                                device=device_queried,
+                                sql_query=sql_used
+                            )
+                            
+                            # 注意：memory 记录在内存中，由 session.save() 持久化
+                            
+
                                 if is_tty:
                                     print("📊 Database lookup yielded no results. Falling back to Agent analysis...")
                                 # Do NOT continue; fall through to normal agent query
