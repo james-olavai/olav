@@ -12,6 +12,7 @@ from deepagents import create_deep_agent
 from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.middleware.skills import SkillsMiddleware
 
+from olav.agents.intent_agent import IntentAgent
 from olav.core.llm import LLMFactory
 from olav.core.skill_adapter import SkillAdapter
 from olav.core.skill_loader import get_skill_loader
@@ -30,6 +31,9 @@ class QueryAgentV2:
         self.mode = mode
         self.skill_loader = get_skill_loader()
         self.skill = self.skill_loader.get_skill(skill_name)
+
+        # Phase 4: Initialize IntentAgent for Fast Path
+        self.intent_agent = IntentAgent()
 
         # 1. Load tools dynamically from Skill metadata (Agent-Agnostic)
         self.tools = SkillAdapter.load_tools_from_skill(self.skill)
