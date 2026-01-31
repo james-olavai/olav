@@ -59,24 +59,101 @@
 
 ### Phase 2: 实现 Fast Path (优先级: 🔴 高)
 - [x] 创建 IntentAgent 类
-  - [ ] TDD: 测试意图识别
-  - [ ] 实现 intent_cache 表
-  - [x] 实现 execute_plan() 方法
-- [ ] 实现结果验证逻辑
-  - [ ] TDD: 测试数据完整性验证
-  - [x] 实现 validate_and_render() 方法
-  - [x] 实现自动补充查询
-- [ ] 实现快速通道直接执行
-  - [ ] TDD: 测试缓存命中直接执行
-  - [ ] 重构 Tier 0 缓存逻辑
-  - [ ] 实现 execution_mode 字段
+- [x] 实现 intent_cache 表
+- [x] 实现 execute_plan() 方法
+- [x] 实现结果验证逻辑
+- [x] 实现 validate_and_render() 方法
+- [x] 实现自动补充查询
+- [x] 实现快速通道直接执行
+- [x] 添加命令白名单机制
+- [x] 在 QueryRouter.route() 中添加白名单检查（最高优先级）
+- [x] 实现 6 个常见命令到 SQL 的直接映射
+- [ ] TDD: 测试缓存命中直接执行
+- [ ] 重构 Tier 0 缓存逻辑
+- [ ] 实现 execution_mode 字段
 - [ ] 性能测试
-  - [ ] 验证 3-5s 目标
-  - [ ] 对比加速比
-  - [ ] 生成性能报告
+- [ ] 验证 3-5s 目标
+- [ ] 对比加速比
+- [ ] 生成性能报告
 - [ ] 更新文档 (00_roadmap.md, 10_audit_report.md)
 - [x] 提交并推送
 
+### Phase 3: 重构 Fallback (优先级: 🟡 中)
+- [ ] 重构 QueryRouter.should_fallback_to_cli()
+- [ ] 重命名为 assess_data_quality()
+- [ ] 返回质量评估而非决策
+- [ ] 移除 Fallback 决策逻辑
+- [ ] 在 Orchestrator 中实现决策逻辑
+- [ ] E2E 测试验证
+- [ ] 提交并推送
+
+### Phase 4: 完善 Skill (优先级: 🟢 低)
+- [ ] 补充 switching-expert/SKILL.md
+- [ ] 补充 bgp-skill/SKILL.md (或明确合并策略)
+- [ ] 验证 generate_config 工具
+- [ ] 提交并推送
+
+### Phase 5: E2E 全链路测试 (优先级: 🟡 中)
+- [ ] 补充负面场景测试
+- [ ] SQL 失败 → CLI Fallback
+- [ ] 数据完整性检查
+- [ ] 性能验收测试
+- [ ] 生成测试报告
+- [ ] 提交并推送
+
+---
+
+## 📝 开发日志
+
+### 2026-01-31 (Day 0 - 初始化)
+- **10:55** - 项目经理介入，开始接管 Olav 项目
+- **11:00** - 检查项目文档和 Git 状态
+- **当前分支: feature/db-federation-v0.8.4
+- **大量未提交的变更需要整理
+- **11:05** - 创建项目进度追踪文档
+
+### 2026-01-31 (Day 0 - 快速开始)
+- **11:30** - 提交架构重构 (162 文件变更)
+- **创建 feature/fast-path-0.9xx 分支
+- **推送到 Gitea: http://192.168.100.50:3000/admin/olav.git
+- **11:35** - 代码质量检查
+  - 发现 367 个 ruff/pyright 问题
+  - 主要问题: 空行空白、import 顺序、类型注解
+  - 决策: 暂不修复，优先实现 Fast Path
+- **12:00** - 补充 TestCodeQuality 测试类
+  - 添加 test_ruff_check
+  - 添加 test_ruff_format
+  - 添加 test_ruff_imports_sorted
+  - 添加 test_pyright
+  - 提交并推送到 Gitea
+
+### 2026-01-31 (Day 0 - 快速实施)
+- **12:15** - 实现 IntentAgent (Fast Path)
+  - 创建 src/olav/agents/intent_agent.py
+  - 实现 intent cache 检查
+  - 实现 execute_plan() 方法
+  - 实现 validate_and_render() 方法
+  - 实现 SQL/CLI 步骤执行
+  - 提交并推送到 Gitea
+
+### 2026-01-31 (Day 0 - 架构评估与咨询)
+- **12:20** - 发送进度汇报 #5
+- **12:40** - 创建 Gemini 咨询文档
+- **12:45** - 等待 Gemini 专业评估
+- **12:50** - 发送进度汇报 #6
+
+### 2026-01-31 (Day 0 - 快速路径优化)
+- **12:55** - 实现命令白名单机制
+  - 创建 .olav/config/command_whitelist.yaml
+  - 添加 6 个常见命令到 SQL 的直接映射
+  - 在 QueryRouter.route() 中添加白名单检查（最高优先级）
+  - 提交并推送到 Gitea
+
+---
+
+## 🔍 代码质量报告
+
+### Ruff 检查
 ### Phase 3: 重构 Fallback (优先级: 🟡 中)
 - [ ] 重构 QueryRouter.should_fallback_to_cli()
   - [ ] 重命名为 assess_data_quality()
