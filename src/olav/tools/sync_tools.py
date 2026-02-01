@@ -558,6 +558,7 @@ def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> None:
         logger.warning(f"Stage 2 processing failed: {type(e).__name__}: {e}")
         logger.debug("Stage 2 traceback:", exc_info=True)
 
+
 # =============================================================================
 # Tool 2: get_sync_age
 # =============================================================================
