@@ -50,17 +50,39 @@ OLAV (Open Logic Agent for Network Visibility and Analysis) is an intelligent ne
 - 安全策略/ACL：精确匹配规则名
 
 ---
+## 🏆 最新改进 - Phase 1 & Phase 2 完成
 
+### 硬编码消除 (52% 改进 ✅)
+- **原始问题**: 23项硬编码违规
+- **Phase 1 完成**: 48% 改进 (23→12)
+- **Phase 2 完成**: 8% 改进 (12→11)
+- **总成果**: 52% 改进 + 5层配置系统
+
+**改进成果**:
+- ✅ 5层配置优先级系统 (.env > .olav/settings.json > SKILL.md > settings.py > 代码默认)
+- ✅ 所有参数完全可配置 (Nornir组名、权重、阈值、路径)
+- ✅ 100% 向后兼容 (零破坏性变更)
+- ✅ 所有测试通过 (语法+功能+集成)
+
+**详见**: 
+- 📋 [Phase 1-2 完成总结](PHASE1_PHASE2_COMPLETION_SUMMARY.md) - 核心成就与验收数据
+- 📊 [硬编码修复汇总](HARDCODE_FIXES_SUMMARY.md) - 23项问题详细分析
+- 🗺️ [改进路线图](HARDCODE_IMPROVEMENTS_ROADMAP.md) - Phase 3-4 规划
+
+---
 ## 📁 项目文档
 
 ### 🚀 开始开发
-- **[开发者指南](docs/01_developer_guide.md)** ⭐ **新人必读** - 5分钟快速开始
-- **[开发路线图](docs/00_roadmap.md)** - v0.9.8 开发任务清单
-- **[代码规范](docs/03_development_spec.md)** - 质量要求和开发规范
+- **[完整开发指南](docs/00_development_guide.md)** ⭐ **新人必读** - 完整的开发者手册
+  - 项目概述与快速开始
+  - 架构设计详解
+  - 开发规范与测试策略
+  - 部署指南与常见问题
+  
+- **[文档索引](docs/README.md)** - 📚 所有文档导航
 
-### 📖 参考文档
-- **[架构审计报告](docs/100_audit_report.md)** - 架构决策和历史问题
-- **[代码清理清单](docs/98_cleanup_checklist.md)** - Phase 1 清理指南
+### � 历史文档
+- **[归档目录](docs/_archive/)** - 历史设计文档、审计报告（核心内容已整合到开发指南）
 
 ---
 

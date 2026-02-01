@@ -77,7 +77,7 @@ exports/visualizations/*
 !exports/snapshots/.gitkeep
 !exports/reports/.gitkeep
 !exports/reports/analysis/.gitkeep
-!exports/reports/snapshots/.gitkeep
+!exports/reports/.gitkeep
 !exports/visualizations/.gitkeep
 
 # Sensitive Configuration (User-Specific)

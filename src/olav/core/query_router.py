@@ -5,6 +5,7 @@
 - Router (routing_rules.yaml): 查询路由 (斜杠命令 + 模式匹配 + LLM fallback)
 """
 
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -269,6 +270,8 @@ class QueryRouter:
         timings["pattern_match"] = time.time() - start
         if pattern_match:
             pattern_match.timings = timings
+            # Save to cache for FastPath
+            self._save_to_cache(user_input, pattern_match)
             return pattern_match
 
         # Step 4: LLM意图分类 (fallback)
@@ -277,6 +280,8 @@ class QueryRouter:
         timings["llm_fallback"] = time.time() - start
         if llm_decision:
             llm_decision.timings = timings
+            # Save to cache for FastPath
+            self._save_to_cache(user_input, llm_decision)
             return llm_decision
 
         decision = RoutingDecision(
@@ -285,6 +290,8 @@ class QueryRouter:
             message="No pattern matched, defaulting to database expert",
             timings=timings,
         )
+        # Save to cache for FastPath
+        self._save_to_cache(user_input, decision)
         return decision
 
     def _classify_intent_with_llm(self, user_input: str) -> RoutingDecision | None:
@@ -326,25 +333,97 @@ Return only the expert name as a single word. If unsure, return 'database'."""
             return None
 
     def _check_semantic_cache(self, user_input: str) -> RoutingDecision | None:
-        """Check if query exists in exact match cache (Tier 0)."""
+        """Check if query exists in exact match cache (Tier 0 - FastPath)."""
         try:
             with UnifiedDatabase() as db:
-                # Search for exact match query
-                action = db.search_cache(query_text=user_input)
-
-                if action:
-                    return RoutingDecision(
-                        expert=action.get("expert"),
-                        action="route",
-                        tool=action.get("tool"),
-                        params=action.get("params"),
-                        message="Cache hit! (Tier 0)",
-                        intent=action.get("intent"),
+                # Try DataGateway first (v0.10.0+ architecture)
+                if db.gw:
+                    action = db.gw.get_skill_cache("network-query", user_input)
+                    if action:
+                        logger.debug(f"Cache hit (DataGateway): {user_input}")
+                        return RoutingDecision(
+                            expert=action.get("expert"),
+                            action="route",
+                            tool=action.get("tool"),
+                            params=action.get("params"),
+                            message="Cache hit! (Tier 0 - DataGateway)",
+                            intent=action.get("intent"),
+                        )
+                
+                # Fallback: search in semantic_cache table directly
+                try:
+                    import json
+                    result = db.query(
+                        "SELECT action_json FROM semantic_cache WHERE query_text = ? LIMIT 1",
+                        [user_input]
                     )
+                    if result and result[0]:
+                        action = json.loads(result[0][0])
+                        logger.debug(f"Cache hit (semantic_cache): {user_input}")
+                        
+                        # Update hit_count
+                        db.query(
+                            "UPDATE semantic_cache SET last_used = CURRENT_TIMESTAMP, "
+                            "hit_count = hit_count + 1 WHERE query_text = ?",
+                            [user_input]
+                        )
+                        
+                        return RoutingDecision(
+                            expert=action.get("expert"),
+                            action="route",
+                            tool=action.get("tool"),
+                            params=action.get("params"),
+                            message="Cache hit! (Tier 0 - semantic_cache)",
+                            intent=action.get("intent"),
+                        )
+                except Exception as e:
+                    logger.debug(f"semantic_cache lookup failed: {e}")
+                    
         except Exception as e:
             logger.debug(f"Cache check failed: {e}")
 
         return None
+
+    def _save_to_cache(self, user_input: str, decision: RoutingDecision) -> None:
+        """Save routing decision to cache (Tier 0 - FastPath).
+
+        Args:
+            user_input: User query text
+            decision: Routing decision to cache
+        """
+        try:
+            with UnifiedDatabase() as db:
+                action_json = {
+                    "expert": decision.expert,
+                    "tool": decision.tool,
+                    "params": decision.params or {},
+                    "intent": decision.intent or decision.expert,
+                }
+                
+                # Save to DataGateway (v0.10.0+ architecture)
+                if db.gw:
+                    try:
+                        db.gw.save_skill_cache("network-query", user_input, action_json)
+                        logger.debug(f"Saved to DataGateway cache: {user_input[:50]}...")
+                    except Exception as e:
+                        logger.debug(f"DataGateway cache save failed: {e}")
+                
+                # Also save to semantic_cache table for redundancy
+                try:
+                    import json
+                    action_json_str = json.dumps(action_json)
+                    db.query(
+                        """INSERT OR REPLACE INTO semantic_cache 
+                           (query_text, action_json, created_at, last_used, hit_count)
+                           VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)""",
+                        [user_input, action_json_str]
+                    )
+                    logger.debug(f"Saved to semantic_cache: {user_input[:50]}...")
+                except Exception as e:
+                    logger.debug(f"semantic_cache save failed: {e}")
+                    
+        except Exception as e:
+            logger.debug(f"Failed to save cache: {e}")
 
     def _handle_slash_command(self, user_input: str) -> RoutingDecision:
         """处理斜杠命令.
