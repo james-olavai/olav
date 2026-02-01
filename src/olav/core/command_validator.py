@@ -26,10 +26,9 @@ Usage:
 from __future__ import annotations
 
 import logging
-import re
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
@@ -76,14 +75,13 @@ class CommandValidator:
         registry: CommandRegistry instance
     """
 
-    def __init__(self, mode: str | None = None, config_path: str | None = None):
+    def __init__(self, mode: str | None = None, config_path: str | None = None) -> None:
         """Initialize Command Validator.
 
         Args:
             mode: Validation mode (blacklist/whitelist/hybrid). If None, uses settings.sync.command_mode
             config_path: Path to command_mode.yaml config file
         """
-        from config.settings import settings
 
         # Determine mode
         if mode is None:
@@ -314,9 +312,7 @@ class CommandValidator:
             raw_fallback=raw_fallback,
         )
 
-    def _validate_hybrid(
-        self, platform: str, command: str, mode_config: dict
-    ) -> ValidationResult:
+    def _validate_hybrid(self, platform: str, command: str, mode_config: dict) -> ValidationResult:
         """Validate in hybrid mode (smart).
 
         Combines blacklist and whitelist approaches.
@@ -374,7 +370,7 @@ def get_command_validator() -> CommandValidator:
     return _validator
 
 
-def reset_command_validator():
+def reset_command_validator() -> None:
     """Reset the global Command Validator instance (mainly for testing)."""
     global _validator
     _validator = None

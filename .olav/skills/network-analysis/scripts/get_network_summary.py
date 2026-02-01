@@ -1,13 +1,15 @@
-import sys
 import json
+
 from olav.core.unified_database import UnifiedDatabase
+
 
 def main(params: dict = None) -> dict:
     """Get network-wide summary statistics."""
     with UnifiedDatabase() as db:
         result = db.get_network_summary()
-    
+
     return {"status": "success", "data": result}
+
 
 if __name__ == "__main__":
     try:

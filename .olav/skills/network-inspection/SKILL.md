@@ -5,6 +5,11 @@ description: 生产级网络健康巡检 - 多层级自适应检测（L1-L4）
 version: 2.1.0
 intent: inspection
 
+tools:
+  - name: find_ip_location
+    script: scripts/find_ip_location.py
+    description: "Find which device/interface an IP address is located on."
+
 # 巡检层级定义
 inspection:
   layers:

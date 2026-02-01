@@ -42,7 +42,7 @@ def execute_with_textfsm(
     device: str,
     command: str,
     timeout: int | None = None,
-    db: "OlavDatabase" = None,
+    db: "OlavDatabase | None" = None,
     blacklist_checker: object = None,  # Function that takes str and returns str|None
     platform_detector: object = None,  # Function that takes str and returns str|None
 ) -> "CommandExecutionResult":
@@ -132,7 +132,10 @@ def execute_with_textfsm(
             )
 
         mode_str = "parsed" if use_textfsm else "raw"
-        print(f"📡 Executing '{command}' ({mode_str}) on {device} (timeout={timeout}s)...", file=sys.stderr)
+        print(
+            f"📡 Executing '{command}' ({mode_str}) on {device} (timeout={timeout}s)...",
+            file=sys.stderr,
+        )
 
         # Run command with or without TextFSM
         result: AggregatedResult = nr_filtered.run(

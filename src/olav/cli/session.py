@@ -8,10 +8,10 @@ Features:
 - Multi-line input support
 """
 
-import json
 import logging
+import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Dict, List
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from olav.cli.command_history import CommandHistory
@@ -41,6 +41,7 @@ class OlavPromptSession:
         """
         if history_file is None:
             from config.settings import settings
+
             history_file = Path(settings.agent_dir) / "cli_history"
 
         self.history_file = Path(history_file)
@@ -66,7 +67,7 @@ class OlavPromptSession:
         # Try to initialize prompt-toolkit session
         self._init_session()
 
-    def _load_whitelist(self) -> Dict[str, str]:
+    def _load_whitelist(self) -> dict[str, str]:
         """Load command whitelist for auto-completion."""
         whitelist_file = Path(".olav/config/command_whitelist.yaml")
 
@@ -76,9 +77,10 @@ class OlavPromptSession:
 
         try:
             import yaml
-            with open(whitelist_file, 'r', encoding='utf-8') as f:
+
+            with open(whitelist_file, encoding="utf-8") as f:
                 whitelist_config = yaml.safe_load(f)
-                return whitelist_config.get('command_whitelist', {})
+                return whitelist_config.get("command_whitelist", {})
         except Exception as e:
             logger.error(f"Failed to load command whitelist: {e}")
             return {}
@@ -87,10 +89,9 @@ class OlavPromptSession:
         """Initialize prompt-toolkit session with history completion."""
         try:
             # Import prompt-toolkit modules
-            from prompt_toolkit import PromptSession, Prompt, FileHistory
+            from prompt_toolkit import FileHistory, PromptSession
             from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
             from prompt_toolkit.completion import WordCompleter
-            from prompt_toolkit.formatted_text import HTML
             from prompt_toolkit.key_binding import KeyBindings
 
             # Create prompt session
@@ -99,7 +100,7 @@ class OlavPromptSession:
             # Setup history persistence
             if self.enable_history and self.history_file:
                 try:
-                    history = FileHistory(self.history_file)
+                    FileHistory(self.history_file)
                     session.history.load_history()
                     logger.info(f"Loaded command history from {self.history_file}")
                 except Exception as e:
@@ -112,13 +113,10 @@ class OlavPromptSession:
                     recent_commands = self.command_history.get_recent_commands(limit=50)
 
                     # Create completer from history
-                    completer = AutoSuggestFromHistory(
-                        lambda: recent_commands,
-                        max_suggestions=5
-                    )
+                    completer = AutoSuggestFromHistory(lambda: recent_commands, max_suggestions=5)
 
                     # Create word completer for commands
-                    command_words = list(set(cmd.get('command', '') for cmd in recent_commands))
+                    command_words = list(set(cmd.get("command", "") for cmd in recent_commands))
                     word_completer = WordCompleter(words=command_words, ignore_case=True)
 
                     # Add completers to session
@@ -144,7 +142,7 @@ class OlavPromptSession:
             logger.warning(f"Failed to initialize prompt-toolkit session: {e}")
             self._session = None
 
-    def _get_completion_suggestions(self, text: str, limit: int = 10) -> List[str]:
+    def _get_completion_suggestions(self, text: str, limit: int = 10) -> list[str]:
         """Get auto-completion suggestions based on input.
 
         Args:
@@ -178,11 +176,13 @@ class OlavPromptSession:
             if len(suggestions) < limit and self.command_history:
                 recent_commands = self.command_history.get_recent_commands(limit=10)
                 for entry in recent_commands:
-                    cmd = entry.get('command', '')
-                    if cmd and cmd not in [s.strip('/') for s in suggestions]:
+                    cmd = entry.get("command", "")
+                    if cmd and cmd not in [s.strip("/") for s in suggestions]:
                         suggestions.append(f"/{cmd}")
                         if len(suggestions) >= limit:
                             break
+        except Exception as e:
+            logger.debug(f"Completion error: {e}")  # Ignore errors in completion
 
         return suggestions
 
@@ -226,8 +226,9 @@ class OlavPromptSession:
         except (EOFError, KeyboardInterrupt):
             raise EOFError from None
 
-    def record_query(self, query: str, command_used: str = "",
-                   device: str = "", sql_query: str = "") -> None:
+    def record_query(
+        self, query: str, command_used: str = "", device: str = "", sql_query: str = ""
+    ) -> None:
         """Record a query in command history.
 
         Args:
@@ -241,13 +242,10 @@ class OlavPromptSession:
         """
         if self.command_history:
             self.command_history.record_query(
-                query=query,
-                command_used=command_used,
-                device=device,
-                sql_query=sql_query
+                query=query, command_used=command_used, device=device, sql_query=sql_query
             )
 
-    def get_completions(self, prefix: str, limit: int = 10) -> List[str]:
+    def get_completions(self, prefix: str, limit: int = 10) -> list[str]:
         """Get command completions for tab completion.
 
         Args:
@@ -262,7 +260,18 @@ class OlavPromptSession:
 
         # Get completions from session
         try:
-            completions = self._session.completer.get_completions(prefix, limit)
+            # Import prompt_toolkit types for runtime use
+            from prompt_toolkit.completion import CompleteEvent
+            from prompt_toolkit.document import Document
+
+            # Create Document and CompleteEvent for the completer
+            document = Document(prefix, cursor_position=len(prefix))
+            complete_event = CompleteEvent()
+
+            completions = self._session.completer.get_completions(document, complete_event)
+            # Apply limit
+            if limit:
+                completions = list(completions)[:limit]
             # Format completions
             formatted = [c.text for c in completions]
             return formatted
@@ -278,7 +287,7 @@ class OlavPromptSession:
             self._session.history.clear()
         logger.info("Command history cleared")
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get usage statistics.
 
         Returns:

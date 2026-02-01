@@ -56,8 +56,6 @@ load_dotenv(ENV_FILE)
 # This fixes issues where old values might be cached
 if not os.getenv("LLM_PROVIDER"):
     os.environ["LLM_PROVIDER"] = "openai"
-if not os.getenv("EMBEDDING_PROVIDER"):
-    os.environ["EMBEDDING_PROVIDER"] = "ollama"  # Default to Ollama (free local embeddings)
 if not os.getenv("OLAV_MODE"):
     os.environ["OLAV_MODE"] = "QuickTest"
 
@@ -165,7 +163,7 @@ class SyncSettings(BaseSettings):
 
     command_mode: Literal["whitelist", "blacklist", "hybrid"] = Field(
         default="hybrid",
-        description="Execution mode: whitelist (strict), blacklist (permissive), or hybrid (recommended)"
+        description="Execution mode: whitelist (strict), blacklist (permissive), or hybrid (recommended)",
     )
     whitelist_file: str = Field(
         default=".olav/config/command_whitelist.yaml",
@@ -229,17 +227,6 @@ class Settings(BaseSettings):
     disabled_skills: list[str] = Field(
         default_factory=list, description="List of disabled Skill IDs"
     )
-
-    # =========================================================================
-    # Embedding Configuration (Phase 4: Knowledge Base Integration)
-    # =========================================================================
-    enable_embedding: bool = True
-    embedding_provider: Literal["ollama", "openai", "none"] = (
-        "ollama"  # Default to Ollama (free local)
-    )
-    embedding_model: str = "nomic-embed-text"  # Ollama model (768 dimensions)
-    embedding_base_url: str = "http://localhost:11434"  # Ollama default URL
-    embedding_api_key: str = ""  # Only needed for OpenAI embeddings
 
     # =========================================================================
     # Nested Configuration Objects (Phase C-1)

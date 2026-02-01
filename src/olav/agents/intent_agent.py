@@ -12,12 +12,11 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
 from typing import Any
 
-from olav.core.embeddings import get_embedder
-from olav.core.unified_database import UnifiedDatabase
 from olav.core.llm import LLMFactory
+from olav.core.unified_database import UnifiedDatabase
+from olav.lib.data_gateway import get_gateway
 
 logger = logging.getLogger(__name__)
 
@@ -28,17 +27,15 @@ class IntentAgent:
 
     The Intent Agent is the central coordinator for the fast path architecture:
     1. Check intent cache for pre-computed execution plans
-    2. For high-confidence hits (>0.95), execute directly (Fast Path)
+    2. For exact match hits, execute directly (Fast Path)
     3. Validate results and supplement with additional queries if needed
     4. Render final Markdown output
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize Intent Agent with necessary components."""
-        self.embedder = get_embedder()
         self.llm = LLMFactory.get_chat_model()
-        self.confidence_threshold = 0.95  # Fast Path threshold
-        self.verification_threshold = 0.85  # Verification execution threshold
+        self.gw = get_gateway()
 
     async def process_query(self, query: str) -> str:
         """
@@ -50,50 +47,38 @@ class IntentAgent:
         Returns:
             Markdown formatted response
         """
-        # Phase 1: Check intent cache
+        # Phase 1: Check intent cache for exact match
         cached_plan = await self._check_intent_cache(query)
 
-        if cached_plan and cached_plan.get("confidence", 0.0) > self.confidence_threshold:
-            # Fast Path: High confidence, execute directly
-            logger.info(f"Fast Path: Using cached plan (confidence: {cached_plan['confidence']:.2f})")
+        if cached_plan:
+            # Fast Path: Exact match, execute directly
+            logger.info("Fast Path: Using cached plan (exact match)")
             return await self._execute_plan(cached_plan["execution_plan"])
 
-        # Phase 2: No cached plan or low confidence, fall back to Orchestrator
-        logger.info("No high-confidence cached plan, delegating to Orchestrator")
+        # Phase 2: No cached plan, fall back to Orchestrator
+        logger.info("No cached plan found, delegating to Orchestrator")
         return await self._orchestrate_query(query)
 
     async def _check_intent_cache(self, query: str) -> dict[str, Any] | None:
         """
-        Check intent cache for a matching execution plan.
+        Check intent cache for an exact match execution plan.
 
         Args:
             query: User's query
 
         Returns:
-            Cached plan dict with confidence and execution_plan, or None
+            Cached plan dict with execution_plan, or None
         """
-        query_embedding = self.embedder.embed_query(query)
+        result = self.gw.get_skill_cache("network-query", f"intent:{query}")
 
-        with UnifiedDatabase() as db:
-            results = db.search_intent_cache(
-                query_embedding,
-                threshold=0.9,  # Semantic similarity threshold
-                top_k=1
-            )
-
-        if not results:
+        if not result:
             return None
 
-        result = results[0]
-        confidence = result.get("confidence", 0.0)
-
-        logger.info(f"Intent cache: Found plan with confidence {confidence:.2f}")
+        logger.info("Intent cache: Found exact match plan")
 
         return {
             "query": query,
-            "confidence": confidence,
-            "execution_plan": json.loads(result["execution_plan"]),
-            "cached_at": result.get("created_at"),
+            "execution_plan": result,
         }
 
     async def _execute_plan(self, plan: dict[str, Any]) -> str:
@@ -134,16 +119,18 @@ class IntentAgent:
         Returns:
             Query results (list of dicts)
         """
-        with UnifiedDatabase() as db:
-            query = step.get("query")
+        query = step.get("query")
 
-            try:
-                results = db.query(query)
-                logger.info(f"SQL executed successfully: {query[:50]}...")
-                return results
-            except Exception as e:
-                logger.error(f"SQL execution failed: {e}")
-                raise RuntimeError(f"SQL execution failed: {e}")
+        if not query:
+            raise ValueError("SQL query is required but not provided")
+
+        try:
+            results = self.gw.query_snapshots(query)
+            logger.info(f"SQL executed successfully: {query[:50]}...")
+            return results
+        except Exception as e:
+            logger.error(f"SQL execution failed: {e}")
+            raise RuntimeError(f"SQL execution failed: {e}") from e
 
     async def _execute_cli_step(self, step: dict[str, Any]) -> str:
         """
@@ -157,8 +144,8 @@ class IntentAgent:
         """
         from olav.tools.network_executor import get_executor
 
-        device = step.get("device")
-        command = step.get("command")
+        device = step.get("device") or ""
+        command = step.get("command") or ""
 
         executor = get_executor()
         result = executor.execute_with_parsing(device, command)
@@ -171,9 +158,7 @@ class IntentAgent:
             raise RuntimeError(f"CLI execution failed: {result.error}")
 
     async def _validate_and_render(
-        self,
-        results: list[dict[str, Any]],
-        plan: dict[str, Any]
+        self, results: list[dict[str, Any]], plan: dict[str, Any]
     ) -> str:
         """
         Validate result completeness and render Markdown.
@@ -195,8 +180,7 @@ class IntentAgent:
             if validation.get("missing_fields"):
                 # Need additional SQL queries
                 additional_data = await self._generate_additional_queries(
-                    validation["missing_fields"],
-                    results
+                    validation["missing_fields"], results
                 )
                 results.extend(additional_data)
 
@@ -214,9 +198,7 @@ class IntentAgent:
         return self._render_markdown(results, plan)
 
     async def _validate_results(
-        self,
-        results: list[dict[str, Any]],
-        plan: dict[str, Any]
+        self, results: list[dict[str, Any]], plan: dict[str, Any]
     ) -> dict[str, Any]:
         """
         Validate result completeness.
@@ -267,9 +249,7 @@ class IntentAgent:
         return validation
 
     async def _generate_additional_queries(
-        self,
-        missing_fields: list[str],
-        results: list[dict[str, Any]]
+        self, missing_fields: list[str], results: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """
         Generate and execute additional SQL queries for missing fields.
@@ -285,26 +265,29 @@ class IntentAgent:
 
         for field in missing_fields:
             # Generate SQL to fetch the missing field
-            # This is a simplified version - in production, use LLM to generate
-            sql = f"SELECT {field} FROM v_interfaces WHERE device != 'NULL' LIMIT 10"
+            # Use fixed column name in SQL but parameterize where possible
+            # Note: Field names cannot be parameterized in SQL, but we validate it's alphanumeric
+            if not field.isalnum():
+                continue
+            sql = f"SELECT {field} FROM v_interfaces WHERE device != 'NULL' LIMIT 10"  # noqa: S608
 
             with UnifiedDatabase() as db:
                 try:
                     data = db.query(sql)
-                    additional_results.append({
-                        "type": "sql",
-                        "data": data,
-                    })
+                    additional_results.append(
+                        {
+                            "type": "sql",
+                            "data": data,
+                        }
+                    )
                     logger.info(f"Additional query executed for field: {field}")
                 except Exception as e:
+                    logger.error(f"Additional query failed for field {field}: {e}")
                     logger.error(f"Additional query failed for field {field}: {e}")
 
         return additional_results
 
-    async def _execute_cli_commands(
-        self,
-        commands: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    async def _execute_cli_commands(self, commands: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Execute CLI commands for real-time data.
 
@@ -319,24 +302,24 @@ class IntentAgent:
         for cmd in commands:
             try:
                 data = await self._execute_cli_step(cmd)
-                results.append({
-                    "type": "cli",
-                    "data": data,
-                })
+                results.append(
+                    {
+                        "type": "cli",
+                        "data": data,
+                    }
+                )
             except Exception as e:
                 logger.error(f"CLI command execution failed: {e}")
-                results.append({
-                    "type": "cli",
-                    "data": f"Error: {str(e)}",
-                })
+                results.append(
+                    {
+                        "type": "cli",
+                        "data": f"Error: {str(e)}",
+                    }
+                )
 
         return results
 
-    def _render_markdown(
-        self,
-        results: list[dict[str, Any]],
-        plan: dict[str, Any]
-    ) -> str:
+    def _render_markdown(self, results: list[dict[str, Any]], plan: dict[str, Any]) -> str:
         """
         Render results as Markdown.
 
@@ -444,40 +427,23 @@ class IntentAgent:
                 break
 
             # Get next action
-            from olav.agents.orchestrator import OrchestratorState
             routing_decision = orchestrator.query_router.route(query)
 
             if routing_decision and routing_decision.get("expert"):
-                # Execute expert
-                expert_name = routing_decision["expert"]
-                # Execute and update state (simplified)
+                # Execute expert (simplified for MVP)
                 break  # For MVP, single step
 
         # Render final result
         return f"Orchestrator mode: Complex query processed for: {query}\n\n(注: 这是简化版本，生产环境将使用完整的 Orchestrator ReAct 循环)"
 
-    async def save_to_intent_cache(
-        self,
-        query: str,
-        plan: dict[str, Any],
-        confidence: float = 1.0
-    ) -> None:
+    async def save_to_intent_cache(self, query: str, plan: dict[str, Any]) -> None:
         """
         Save a successful execution plan to intent cache.
 
         Args:
             query: Original query
             plan: Execution plan
-            confidence: Confidence score (0.0-1.0)
         """
-        query_embedding = self.embedder.embed_query(query)
+        self.gw.save_skill_cache("network-query", f"intent:{query}", plan)
 
-        with UnifiedDatabase() as db:
-            db.save_intent_cache(
-                query=query,
-                embedding=query_embedding,
-                plan=json.dumps(plan),
-                confidence=confidence,
-            )
-
-        logger.info(f"Saved to intent cache: {query[:50]}... (confidence: {confidence:.2f})")
+        logger.info(f"Saved to intent cache: {query[:50]}...")

@@ -178,7 +178,7 @@ class CommandRegistry:
         self._ensure_cache()
 
         # Exact match
-        if command_name in self._cache:
+        if self._cache and command_name in self._cache:
             return self._cache[command_name]
 
         # Fuzzy match (case-insensitive)
