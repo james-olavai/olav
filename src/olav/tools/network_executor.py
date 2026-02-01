@@ -5,9 +5,9 @@ on network devices using Nornir/Netmiko.
 Separated from network.py for better maintainability (per DESIGN_V0.81.md optimization).
 """
 
+import sys
 from datetime import datetime
 from pathlib import Path
-import sys
 
 from nornir import InitNornir
 from nornir.core import Nornir

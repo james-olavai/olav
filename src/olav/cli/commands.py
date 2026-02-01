@@ -189,140 +189,28 @@ async def cmd_clear(args: str) -> str:
 async def cmd_teach(args: str) -> str:
     """Teach OLAV the correct response for the last query.
 
-    Usage:
-        /teach "The correct SQL is..."
-        /teach "Use command: show interfaces"
-        /teach "sql: SELECT * FROM devices WHERE name='R1'"
-
-    Examples:
-        /teach "The correct SQL is SELECT * FROM v_bgp_neighbors"
-        /teach "sql: SELECT * FROM interfaces WHERE status='up'"
-        /teach "cli: show ip route"
-
-    The command will:
-    1. Get your last query from conversation history
-    2. Parse your correction
-    3. Update the memory with the correct action
-    4. Confirm the update
+    NOTE: DEPRECATED in v0.9.8 - vector-based teaching removed.
+    OLAV now uses exact match caching. To correct OLAV's behavior,
+    simply ask the same question again and OLAV will use the new response.
     """
-    from olav.core.embeddings import get_embedder
-    from olav.core.memory_manager import MemoryManager, MemoryRecord, Namespace
+    return """❌ /teach command is deprecated in OLAV v0.9.8
 
-    try:
-        correction = args.strip()
-        if not correction:
-            return """Usage: /teach "correction"
+In v0.9.8, OLAV uses exact match caching (no vector search).
+The /teach command relied on vector embeddings and semantic search,
+which have been removed to simplify the architecture.
 
-Examples:
-  /teach "The correct SQL is SELECT * FROM v_bgp_neighbors"
-  /teach "sql: SELECT * FROM interfaces WHERE status='up'"
-  /teach "cli: show ip route"
+How to correct OLAV in v0.9.8:
+1. Ask the same question again
+2. OLAV will cache the new response
+3. Next time, the new response will be returned
 
-The correction will be associated with your last query."""
-
-        # Get agent and memory from the context (passed via kwargs)
-        # For now, we'll use a simpler approach: parse the correction
-        # and store it in the appropriate namespace
-
-        # Parse correction to extract namespace and action
-        namespace = Namespace.SQL  # Default to SQL namespace
-        action = correction
-
-        # Check for explicit namespace prefix
-        if correction.lower().startswith("sql:"):
-            namespace = Namespace.SQL
-            action = correction[4:].strip()
-        elif correction.lower().startswith("cli:"):
-            namespace = Namespace.CLI
-            action = correction[4:].strip()
-        elif "SELECT" in correction.upper() or "select" in correction:
-            namespace = Namespace.SQL
-        elif "show" in correction.lower():
-            namespace = Namespace.CLI
-
-        # Get embedder
-        embedder = get_embedder()
-
-        # For now, we'll use a placeholder query
-        # In a full implementation, we'd get the last query from memory
-        # TODO: Get last query from agent memory
-        placeholder_query = "last_user_query"
-
-        # Generate embedding
-        embedding = embedder.embed_query(placeholder_query)
-
-        # Create memory record
-        record = MemoryRecord(
-            query=placeholder_query,
-            namespace=namespace,
-            action=action,
-            embedding=embedding,
-            confidence=1.0,  # User corrections have high confidence
-        )
-
-        # Store in memory
-        manager = MemoryManager(embedder=embedder)
-        success = await manager.upsert(record)
-
-        if success:
-            return f"""✅ Memory updated successfully!
-
-Namespace: {namespace.value}
-Correction: {action}
-
-Note: This is a simplified version. In production, this command will:
-  • Get your actual last query from conversation history
-  • Associate the correction with that specific query
-  • Update the vector database with the correct action
+This follows the K.I.S.S. principle: exact matches are simpler
+and more predictable than semantic vector search.
 
 下次遇到类似问题时，OLAV 将使用您提供的正确答案。"""
-        else:
-            return "❌ Failed to update memory. Please try again."
-
-    except Exception as e:
-        return f"Error processing correction: {str(e)}"
 
 
-@register_command("help")
-async def cmd_help(args: str) -> str:
-    """Show available commands.
-
-    Usage:
-        /help
-    """
-    help_text = """
-Available Commands:
-  /devices [filter]  - List or filter devices
-  /skills [name]     - List or view skill details
-  /reload           - Reload skills and capabilities
-  /clear            - Clear conversation memory
-  /teach "correction"- Teach OLAV the correct response
-  /help             - Show this help message
-  /quit, /exit      - Exit OLAV
-
-For more information on a specific command, type: /help <command>
-"""
-    return help_text.strip()
-
-
-@register_command("quit")
-async def cmd_quit(args: str) -> str:
-    """Exit OLAV.
-
-    Usage:
-        /quit
-    """
-    raise EOFError()
-
-
-@register_command("exit")
-async def cmd_exit(args: str) -> str:
-    """Exit OLAV.
-
-    Usage:
-        /exit
-    """
-    raise EOFError()
+# cmd_quit, cmd_exit are defined later with more detailed implementations
 
 
 @register_command("history")
@@ -521,7 +409,11 @@ async def cmd_query(args: str) -> str:
         # Use QueryAgentV2 (Skill-Centric ReAct)
         agent = QueryAgentV2()
         result = await agent.query(question)
-        return result
+
+        # Extract output from result dict
+        if isinstance(result, dict):
+            return str(result.get("output", result.get("result", str(result))))
+        return str(result)
     except Exception as e:
         return f"Query failed: {e}"
 

@@ -4,8 +4,11 @@ Provides persistent storage for conversation history using DuckDB.
 """
 
 import json
+import logging
 
 from olav.core.unified_database import UnifiedDatabase
+
+logger = logging.getLogger(__name__)
 
 
 class AgentMemory:
@@ -31,9 +34,8 @@ class AgentMemory:
                 """,
                     [role, content, metadata_json],
                 )
-        except Exception:
-            # Setup fallback to file or just log error? For now silent fail to avoid crashing CLI interactive loop
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to save message to database: {e}")
 
     def get_context(self, max_messages: int | None = None) -> list[dict[str, object]]:
         """Get conversation context."""
@@ -62,7 +64,8 @@ class AgentMemory:
                         }
                     )
                 return messages
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to get context from database: {e}")
             return []
 
     def clear(self) -> None:
@@ -70,8 +73,8 @@ class AgentMemory:
         try:
             with UnifiedDatabase() as db:
                 db.conn.execute("DELETE FROM commands.main.session_history")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to clear session history: {e}")
 
     def save(self) -> None:
         """No-op for DuckDB implementation (auto-saved)."""
@@ -81,7 +84,9 @@ class AgentMemory:
         """Get memory statistics."""
         try:
             with UnifiedDatabase() as db:
-                total = db.conn.execute("SELECT COUNT(*) FROM commands.main.session_history").fetchone()[0]
+                total = db.conn.execute(
+                    "SELECT COUNT(*) FROM commands.main.session_history"
+                ).fetchone()[0]
                 return {
                     "total_messages": total,
                     "storage": "DuckDB (User-Local)",
@@ -89,7 +94,9 @@ class AgentMemory:
         except Exception:
             return {"error": "DB Unreachable"}
 
-    def get_conversation_messages(self, max_turns: int = 10, max_chars: int = 8000) -> list[tuple[str, str]]:
+    def get_conversation_messages(
+        self, max_turns: int = 10, max_chars: int = 8000
+    ) -> list[tuple[str, str]]:
         """Get recent conversation messages formatted for LangChain."""
         messages = self.get_context(max_messages=max_turns * 2)
 

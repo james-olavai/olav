@@ -333,7 +333,7 @@ class StreamingDisplay:
         self,
         source: str,  # "sql" or "cli"
         snapshot_time: str | None = None,
-        device: str | None = None
+        device: str | None = None,
     ) -> None:
         """Display data source information.
 
@@ -402,9 +402,9 @@ class StreamingDisplay:
                 header_style="bold magenta",
                 border_style="cyan",
                 title_style="bold",
-                expand=True
+                expand=True,
             )
-            
+
             for col in sorted_cols:
                 # Use ratio for some known columns to prevent squashing
                 if col.lower() in ("interface", "neighbor"):
@@ -421,15 +421,16 @@ class StreamingDisplay:
                 for col in sorted_cols:
                     val = item.get(col)
                     val_str = ""
-                    
+
                     if val is None:
                         val_str = "-"
                     elif isinstance(val, (dict, list)):
                         import json
+
                         val_str = json.dumps(val, ensure_ascii=False)
                     else:
                         val_str = str(val)
-                    
+
                     # Status coloring
                     if "status" in col.lower() or "state" in col.lower() or "link" in col.lower():
                         v_lower = val_str.lower()
@@ -439,7 +440,7 @@ class StreamingDisplay:
                             val_str = f"[red]{val_str}[/red]"
                         elif "admin" in v_lower:
                             val_str = f"[yellow]{val_str}[/yellow]"
-                            
+
                     row.append(val_str)
                 table.add_row(*row)
 
@@ -449,4 +450,5 @@ class StreamingDisplay:
         else:
             # Fallback to pretty JSON
             import json
+
             self.show_result(json.dumps(json_data, indent=2, ensure_ascii=False), end="\n")

@@ -5,6 +5,7 @@
 - Router (routing_rules.yaml): 查询路由 (斜杠命令 + 模式匹配 + LLM fallback)
 """
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,8 @@ import yaml
 from config.paths import GUARD_RULES_PATH, ROUTING_RULES_PATH
 from olav.core.unified_database import UnifiedDatabase
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class RoutingDecision:
@@ -24,7 +27,6 @@ class RoutingDecision:
     action: str  # route, reject, require_approval
     tool: str | None = None  # 具体调用的工具
     params: dict[str, Any] | None = None  # 提取的参数
-    fallback: str | None = None  # 回落策略 (cli, None)
     message: str | None = None  # 提示消息
     intent: str | None = None  # LLM分类的意图 (query, analysis, etc.)
     protocol: str | None = None  # Phase 15: 意图遮罩 (ospf, bgp, interface)
@@ -170,11 +172,6 @@ class QueryRouter:
         # 初始化Guard (独立的安全检查)
         self.guard = guard if guard is not None else Guard()
 
-        # Lazy initialization for semantic components
-        self.embedder = None
-        self.expert_index = None
-        self.semantic_threshold = self.rules.get("semantic_cache", {}).get("threshold", 0.9)
-
     def check_guard(self, user_input: str) -> GuardResult:
         """检查用户输入是否安全.
 
@@ -196,6 +193,7 @@ class QueryRouter:
             RoutingDecision: 路由决策结果
         """
         import time
+
         timings = {}
 
         # Step 1: Guard检查 (最高优先级, 使用独立Guard)
@@ -220,12 +218,11 @@ class QueryRouter:
             )
             return decision
 
-
-    
         # Step 1.5: 命令白名单检查 (Tier 0.5 - 快速路径，最高优先级)
         whitelist_file = Path(".olav/config/command_whitelist.yaml")
         if whitelist_file.exists():
             import yaml
+
             try:
                 with open(whitelist_file) as f:
                     whitelist_config = yaml.safe_load(f)
@@ -237,7 +234,7 @@ class QueryRouter:
                         if re.match(pattern, user_input.strip()):
                             device = self._extract_device_from_pattern(pattern, user_input)
                             params = {"sql": sql_query, "device": device}
-                            
+
                             decision = RoutingDecision(
                                 expert="database",
                                 action="route",
@@ -245,10 +242,10 @@ class QueryRouter:
                                 params=params,
                                 message=f"Whitelist match: {pattern}",
                             )
-                            
+
                             return decision
-            except Exception:
-                pass  # 白名单检查失败不影响其他路径
+            except Exception as e:
+                logger.debug(f"Whitelist check failed: {e}")  # 白名单检查失败不影响其他路径
 
         # Step 2: 斜杠命令检查
         if user_input.strip().startswith("/"):
@@ -273,14 +270,6 @@ class QueryRouter:
         if pattern_match:
             pattern_match.timings = timings
             return pattern_match
-
-        # Tier 1: Neural Router (向量匹配专家描述)
-        start = time.time()
-        neural_decision = self._check_neural_router(user_input)
-        timings["neural_router"] = time.time() - start
-        if neural_decision:
-            neural_decision.timings = timings
-            return neural_decision
 
         # Step 4: LLM意图分类 (fallback)
         start = time.time()
@@ -315,7 +304,15 @@ Return only the expert name as a single word. If unsure, return 'database'."""
             expert = str(response.content).strip().lower()
 
             # Basic validation
-            valid_experts = ["database", "cli", "analysis", "security-expert", "routing-expert", "switching-expert", "bgp-expert"]
+            valid_experts = [
+                "database",
+                "cli",
+                "analysis",
+                "security-expert",
+                "routing-expert",
+                "switching-expert",
+                "bgp-expert",
+            ]
             if expert not in valid_experts:
                 expert = "database"
 
@@ -323,132 +320,31 @@ Return only the expert name as a single word. If unsure, return 'database'."""
                 expert=expert,
                 action="route",
                 intent=expert,
-                message=f"LLM classified intent as {expert}"
+                message=f"LLM classified intent as {expert}",
             )
         except Exception:
             return None
 
     def _check_semantic_cache(self, user_input: str) -> RoutingDecision | None:
-        """Check if query exists in vector semantic cache (Tier 0)."""
-        if not self.embedder:
-            # Lazy init
-            from olav.core.embeddings import get_embedder
-            self.embedder = get_embedder()
-
-        embedding = self.embedder.embed_query(user_input)
-        if not embedding:
-            return None
-
+        """Check if query exists in exact match cache (Tier 0)."""
         try:
             with UnifiedDatabase() as db:
-                # Search for similar queries using vector distance (cosine similarity)
-                # DuckDB array_cosine_similarity returns -1 to 1. We want > threshold.
-                # Optimized: Added WHERE clause to enable early termination
-                sql = f"""
-                    SELECT
-                        query_text,
-                        action_json,
-                        array_cosine_similarity(query_embedding::FLOAT[{len(embedding)}], ?::FLOAT[{len(embedding)}]) as similarity
-                    FROM commands.main.semantic_cache
-                    WHERE array_cosine_similarity(query_embedding::FLOAT[{len(embedding)}], ?::FLOAT[{len(embedding)}]) >= ?
-                    ORDER BY similarity DESC
-                    LIMIT 1
-                """
-                # Handle empty table gracefully via try/except in execution or result check
-                try:
-                    result = db.query(sql, [embedding, embedding, self.semantic_threshold])
-                except Exception:
-                    # Table might not exist or be empty
-                    return None
+                # Search for exact match query
+                action = db.search_cache(query_text=user_input)
 
-                if result:
-                    query_text, action_json, similarity = result[0]
-                    # Note: similarity already >= threshold due to WHERE clause
-                    import json
-                    action = json.loads(action_json) if isinstance(action_json, str) else action_json
+                if action:
                     return RoutingDecision(
                         expert=action.get("expert"),
                         action="route",
                         tool=action.get("tool"),
                         params=action.get("params"),
-                        message="Semantic cache hit! (Tier 0)",
-                        intent=action.get("intent")
+                        message="Cache hit! (Tier 0)",
+                        intent=action.get("intent"),
                     )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Cache check failed: {e}")
 
         return None
-
-    def _check_neural_router(self, user_input: str) -> RoutingDecision | None:
-        """Tier 1: Semantic matching against expert capabilities."""
-        try:
-            from olav.core.embeddings import get_embedder
-
-            if self.embedder is None:
-                self.embedder = get_embedder()
-
-            # Build expert index if not exists
-            if self.expert_index is None:
-                self._build_expert_index()
-
-            if not self.expert_index:
-                return None
-
-            query_vec = self.embedder.embed_query(user_input)
-
-            # Match
-            best_score = -1.0
-            best_expert = None
-
-            for expert_name, expert_vec in self.expert_index.items():
-                score = self._cosine_similarity(query_vec, expert_vec)
-                if score > best_score:
-                    best_score = score
-                    best_expert = expert_name
-
-            # Threshold for Tier 1 matching (0.8)
-            if best_score > 0.8:
-                return RoutingDecision(
-                    expert=best_expert,
-                    action="route",
-                    intent=best_expert,
-                    message=f"Neural router matched expert: {best_expert} (Tier 1, score: {best_score:.2f})"
-                )
-        except Exception:
-            pass
-        return None
-
-    def _build_expert_index(self) -> None:
-        """Build vector index for all available experts."""
-        try:
-            experts = self.rules.get("experts", {})
-            self.expert_index = {}
-
-            texts_to_embed = []
-            expert_names = []
-
-            for name, cfg in experts.items():
-                desc = cfg.get("description", "")
-                tools = ", ".join(cfg.get("tools", []))
-                # Add descriptive context for embedding
-                full_desc = f"Expert: {name}. Matches queries about: {desc}. Tools available: {tools}."
-                texts_to_embed.append(full_desc)
-                expert_names.append(name)
-
-            if texts_to_embed:
-                embeddings = self.embedder.embed_documents(texts_to_embed) # type: ignore
-                self.expert_index = dict(zip(expert_names, embeddings))
-        except Exception:
-            self.expert_index = {}
-
-    def _cosine_similarity(self, v1: list[float], v2: list[float]) -> float:
-        """Calculate cosine similarity between two vectors."""
-        dot_product = sum(a * b for a, b in zip(v1, v2))
-        magnitude1 = sum(a * a for a in v1) ** 0.5
-        magnitude2 = sum(b * b for b in v2) ** 0.5
-        if magnitude1 == 0 or magnitude2 == 0:
-            return 0.0
-        return dot_product / (magnitude1 * magnitude2)
 
     def _handle_slash_command(self, user_input: str) -> RoutingDecision:
         """处理斜杠命令.
@@ -535,9 +431,8 @@ Return only the expert name as a single word. If unsure, return 'database'."""
                     action="route",
                     tool=pattern_rule.get("tool"),
                     params=params,
-                    fallback=pattern_rule.get("fallback"),
                     protocol=protocol,
-                    message=f"Pattern matched: {pattern_rule.get('tool', 'database')}"
+                    message=f"Pattern matched: {pattern_rule.get('tool', 'database')}",
                 )
 
         return None
@@ -553,48 +448,3 @@ Return only the expert name as a single word. If unsure, return 'database'."""
         """
         experts = self.rules.get("experts", {})
         return experts.get(expert_name, {})
-
-    def should_fallback_to_cli(
-        self, db_result: list | dict | None, completeness_threshold: float = 0.7
-    ) -> tuple[bool, str]:
-        """检查是否应该回落到CLI.
-
-        Args:
-            db_result: 数据库查询结果
-            completeness_threshold: 数据完整性阈值
-
-        Returns:
-            tuple[bool, str]: (是否回落, 原因)
-        """
-        # 如果结果为空，回落到CLI
-        if not db_result or (isinstance(db_result, (list, dict)) and len(db_result) == 0):
-            return True, "Database returned no results"
-
-        # 检查数据完整性 (简单实现: 检查None值比例)
-        if isinstance(db_result, list):
-            total_fields = 0
-            none_fields = 0
-            for item in db_result:
-                if isinstance(item, dict):
-                    for value in item.values():
-                        total_fields += 1
-                        if value is None:
-                            none_fields += 1
-
-            if total_fields > 0:
-                completeness = 1 - (none_fields / total_fields)
-                if completeness < completeness_threshold:
-                    return (
-                        True,
-                        f"Data incomplete ({completeness:.1%} < {completeness_threshold:.1%})",
-                    )
-
-        return False, "Data is complete"
-
-    def get_fallback_strategy(self) -> dict[str, Any]:
-        """获取回落策略配置.
-
-        Returns:
-            dict: 回落策略配置
-        """
-        return self.rules.get("fallback", {})

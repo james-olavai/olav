@@ -9,8 +9,8 @@ Usage:
     echo '{"sql": "SELECT * FROM v_interfaces LIMIT 5"}' | uv run python3 .olav/scripts/query_database.py
 """
 
-import sys
 import json
+import sys
 from pathlib import Path
 
 # Add src to Python Path
@@ -21,12 +21,12 @@ from olav.core.unified_database import UnifiedDatabase
 
 def main(params: dict) -> dict:
     """Query DuckDB database
-    
+
     Args:
         params: {
             "sql": "SELECT * FROM v_interfaces WHERE device='R1'"
         }
-    
+
     Returns:
         {
             "results": [...],
@@ -35,26 +35,23 @@ def main(params: dict) -> dict:
         }
     """
     sql = params.get("sql")
-    
+
     if not sql:
-        return {
-            "error": "Missing 'sql' parameter",
-            "status": "failed"
-        }
-    
+        return {"error": "Missing 'sql' parameter", "status": "failed"}
+
     try:
         udb = UnifiedDatabase()
         raw_results = udb.query(sql)
-        
+
         # Convert tuples to dicts (UnifiedDatabase returns tuples)
         if raw_results:
             # Get column names from the connection
             conn = udb.conn
             columns = [desc[0] for desc in conn.description]
-            results = [dict(zip(columns, row)) for row in raw_results]
+            results = [dict(zip(columns, row, strict=False)) for row in raw_results]
         else:
             results = []
-        
+
         # Get data timestamp (try multiple sources)
         timestamp = None
         try:
@@ -69,7 +66,9 @@ def main(params: dict) -> dict:
         except Exception:
             # raw_outputs table doesn't exist, try alternatives
             try:
-                timestamp_result = udb.query("SELECT MAX(snapshot_date) as latest_timestamp FROM v_system LIMIT 1")
+                timestamp_result = udb.query(
+                    "SELECT MAX(snapshot_date) as latest_timestamp FROM v_system LIMIT 1"
+                )
                 if timestamp_result and timestamp_result[0]:
                     timestamp = timestamp_result[0][0]
             except Exception:
@@ -79,26 +78,26 @@ def main(params: dict) -> dict:
             "data": results,
             "count": len(results),
             "timestamp": str(timestamp) if timestamp else None,
-            "status": "success"
+            "status": "success",
         }
-    
+
     except Exception as e:
         error_msg = str(e)
 
         # Check if error is about missing views/tables
-        if "does not exist" in error_msg or "no such table" in error_msg.lower() or "catalog error" in error_msg.lower():
+        if (
+            "does not exist" in error_msg
+            or "no such table" in error_msg.lower()
+            or "catalog error" in error_msg.lower()
+        ):
             return {
                 "error": error_msg,
                 "error_type": "missing_view",
                 "suggestion": "Database views not found. Use inspect_schema to check available views, or use smart_query for live CLI commands.",
-                "status": "failed"
+                "status": "failed",
             }
 
-        return {
-            "error": error_msg,
-            "error_type": "database_error",
-            "status": "failed"
-        }
+        return {"error": error_msg, "error_type": "database_error", "status": "failed"}
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -106,6 +105,7 @@ class DateTimeEncoder(json.JSONEncoder):
         if hasattr(obj, "isoformat"):
             return obj.isoformat()
         return super().default(obj)
+
 
 if __name__ == "__main__":
     # Standard input/output (all scripts follow this pattern)
@@ -115,21 +115,15 @@ if __name__ == "__main__":
             input_data = {}
         else:
             input_data = json.loads(input_str)
-            
+
         result = main(input_data)
         print(json.dumps(result, ensure_ascii=False, indent=2, cls=DateTimeEncoder))
     except json.JSONDecodeError as e:
-        error_result = {
-            "error": f"Invalid JSON input: {str(e)}",
-            "status": "failed"
-        }
+        error_result = {"error": f"Invalid JSON input: {str(e)}", "status": "failed"}
         print(json.dumps(error_result, ensure_ascii=False, indent=2), file=sys.stderr)
         sys.exit(1)
     except Exception as e:
-        error_result = {
-            "error": f"Unexpected error: {str(e)}",
-            "status": "failed"
-        }
+        error_result = {"error": f"Unexpected error: {str(e)}", "status": "failed"}
         # Print to stderr so SkillAdapter can see it
         print(json.dumps(error_result, ensure_ascii=False, indent=2), file=sys.stderr)
         sys.exit(1)

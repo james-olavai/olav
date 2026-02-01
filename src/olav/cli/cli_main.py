@@ -9,17 +9,20 @@ Supports:
 """
 
 import asyncio
+import logging
 import sys
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import typer
+
+logger = logging.getLogger(__name__)
 from rich.console import Console
 from rich.panel import Panel
 
 if TYPE_CHECKING:
     from olav.cli.memory import AgentMemory
     from olav.cli.session import OlavPromptSession
-    from olav.core.unified_cache_manager import UnifiedCacheManager
 
 # Lazy imports to speed up --help
 console = Console()
@@ -36,6 +39,7 @@ async def stream_agent_response(
     inputs: dict[str, Any] | list[dict[str, Any]],
     verbose: bool = False,
     memory: "AgentMemory | None" = None,
+    learn_callback: "Callable[[str], str | None] | None" = None,
 ) -> str:
     """Stream agent response (simplified to invoke for reliable table output).
 
@@ -44,6 +48,7 @@ async def stream_agent_response(
         inputs: Input dict
         verbose: If True, show thinking
         memory: Agent memory
+        learn_callback: Optional callback for interactive alias learning
 
     Returns:
         Final result string
@@ -66,7 +71,7 @@ async def stream_agent_response(
 
     try:
         # Use ainvoke directly to ensure we get the final state with the result
-        final_state = await agent.ainvoke(base_inputs)
+        final_state = await agent.ainvoke(base_inputs, learn_callback=learn_callback)
 
         display.stop_processing_status()
 
@@ -95,18 +100,22 @@ async def stream_agent_response(
 
         if result:
             # P10: Ensure result is displayed even if it's a string JSON
-            display.show_json_table(result)
-            
+            # Only use Rich display for TTY, use plain output for piped
+            if is_tty:
+                display.show_json_table(result)
+
             # P10 Fix: Ensure output is flushed to stdout when piped (bypassing Rich/print stack)
             if not is_tty:
                 # If it's a complex object (Table), print it as JSON string for parsability
                 val_to_print = str(result)
                 if isinstance(result, (dict, list)):
-                   import json
-                   val_to_print = json.dumps(result, ensure_ascii=False)
-                
+                    import json
+
+                    val_to_print = json.dumps(result, ensure_ascii=False)
+
                 # Use os.write to guarantee output to stdout (fd 1) even if Python buffers/redirects
                 import os
+
                 os.write(1, (val_to_print + "\n").encode())
 
             if is_tty:
@@ -149,9 +158,59 @@ def _get_snapshot_time() -> str | None:
             """)
             if result and result[0]:
                 return str(result[0][0])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to get snapshot time: {e}")
     return None
+
+
+def _create_learning_callback(session: "OlavPromptSession") -> Callable[[str], str | None]:
+    """Create a callback function for interactive alias learning.
+
+    Args:
+        session: OlavPromptSession instance for user interaction
+
+    Returns:
+        Callback function that prompts user and returns canonical form
+    """
+
+    def learn_alias(entity: str) -> str | None:
+        """Prompt user to teach the meaning of an unknown entity.
+
+        Args:
+            entity: The unknown entity (e.g., "核心路由器")
+
+        Returns:
+            Canonical form (e.g., "R1,R2,R3") or None if user declines
+        """
+        try:
+            # Prompt user with context
+            prompt_msg = f"\n🎓 Learning: I don't know '{entity}'. Which devices do you mean?\n"
+            prompt_msg += "  Enter device names (comma-separated), or press Enter to skip: "
+
+            # Use synchronous prompt (called from async context but callback is sync)
+            user_response = session.prompt_sync(prompt_msg)
+
+            if not user_response or not user_response.strip():
+                print(f"  ⏭️  Skipped learning '{entity}'")
+                return None
+
+            # Validate response (basic check for device-like patterns)
+            response = user_response.strip()
+
+            # Confirm with user
+            confirm_msg = f"  ✅ Learned: '{entity}' = '{response}'. Got it!\n"
+            print(confirm_msg)
+
+            return response
+
+        except (EOFError, KeyboardInterrupt):
+            print(f"  ⏭️  Skipped learning '{entity}' (interrupted)")
+            return None
+        except Exception as e:
+            logger.warning(f"Learning callback error: {e}")
+            return None
+
+    return learn_alias
 
 
 def run_interactive_loop(
@@ -169,15 +228,18 @@ def run_interactive_loop(
     from pathlib import Path
 
     from config.settings import settings
+    from olav.agents.query_agent_v2 import QueryAgentV2
     from olav.cli.commands import execute_command
     from olav.cli.input_parser import parse_input
     from olav.core.query_router import QueryRouter
-    from olav.agents.query_agent_v2 import QueryAgentV2
 
     # Initialize QueryRouter and Display
     is_tty = sys.stdin.isatty()
     from olav.cli.display import StreamingDisplay
-    display = StreamingDisplay(console=console, verbose=False, show_spinner=is_tty, quiet=not is_tty)
+
+    display = StreamingDisplay(
+        console=console, verbose=False, show_spinner=is_tty, quiet=not is_tty
+    )
 
     try:
         config_path = Path(".olav/config/routing_rules.yaml")
@@ -228,73 +290,113 @@ def run_interactive_loop(
                     print(f"🎯 Route: {routing_decision.expert} -> {routing_decision.tool}")
 
                 # Fast-Path: Direct tool execution if tool and params are provided
-                if routing_decision.expert == "database" and routing_decision.tool and routing_decision.params:
+                if (
+                    routing_decision.expert == "database"
+                    and routing_decision.tool
+                    and routing_decision.params
+                ):
                     # Look for the tool in the agent's scripts/skills
                     # For simplicity, we can use the agent's existing tool runners if possible
                     # or call the SkillAdapter directly.
                     try:
                         from olav.core.skill_adapter import SkillAdapter
                         from olav.core.skill_loader import get_skill_loader
-                        
+
                         loader = get_skill_loader()
                         skill = loader.get_skill("network-query")
-                        
+
                         # Find the tool in the skill
-                        tool_def = next((t for t in skill.frontmatter.get("tools", []) if t["name"] == routing_decision.tool), None)
-                        
+                        tool_def = next(
+                            (
+                                t
+                                for t in skill.frontmatter.get("tools", [])
+                                if t["name"] == routing_decision.tool
+                            ),
+                            None,
+                        )
+
                         if tool_def:
-                            display.show_processing_status(f"⚡ Fast-Path: Executing {routing_decision.tool}...")
+                            display.show_processing_status(
+                                f"⚡ Fast-Path: Executing {routing_decision.tool}..."
+                            )
                             executor = SkillAdapter._create_executor(tool_def["script"])
                             result = executor(**routing_decision.params)
                             display.stop_processing_status()
-                            
+
                             # Standardize result check (handle both 'data' and 'results' keys)
                             tool_data = result.get("data") or result.get("results")
-                            has_data = tool_data is not None and len(tool_data) > 0 if isinstance(tool_data, (list, dict)) else tool_data is not None
+                            has_data = (
+                                tool_data is not None and len(tool_data) > 0
+                                if isinstance(tool_data, (list, dict))
+                                else tool_data is not None
+                            )
 
                             if not has_data:
-                            
-                            # ============ 命令历史记录 (新增) ============
-                            # 记录 Fast-Path 或白名单命令执行到命令历史
-                            # 支持后续 tab 补全和命令重现
-                            
-                            # 提取信息
-                            command_used = routing_decision.tool if routing_decision else ""
-                            device_queried = routing_decision.params.get("device") if routing_decision and routing_decision.params else ""
-                            sql_used = tool_data.get("sql_query") if routing_decision and routing_decision.tool == "query_database" and isinstance(tool_data, dict) else ""
-                            
-                            # 记录到历史
-                            session.record_query(
-                                query=user_input,
-                                command_used=command_used,
-                                device=device_queried,
-                                sql_query=sql_used
-                            )
-                            
-                            # 注意：memory 记录在内存中，由 session.save() 持久化
-                            
-
                                 if is_tty:
-                                    print("📊 Database lookup yielded no results. Falling back to Agent analysis...")
+                                    print(
+                                        "📊 Database lookup yielded no results. Falling back to Agent analysis..."
+                                    )
                                 # Do NOT continue; fall through to normal agent query
                             else:
+                                # ============ 命令历史记录 ============
+                                # 记录 Fast-Path 或白名单命令执行到命令历史
+                                # 支持后续 tab 补全和命令重现
+
+                                # 提取信息
+                                command_used = routing_decision.tool if routing_decision else ""
+                                device_queried = (
+                                    routing_decision.params.get("device")
+                                    if routing_decision and routing_decision.params
+                                    else ""
+                                )
+                                sql_used = (
+                                    tool_data.get("sql_query")
+                                    if routing_decision
+                                    and routing_decision.tool == "query_database"
+                                    and isinstance(tool_data, dict)
+                                    else ""
+                                )
+
+                                # 记录到历史
+                                session.record_query(
+                                    query=user_input,
+                                    command_used=command_used or "",
+                                    device=device_queried or "",
+                                    sql_query=sql_used or "",
+                                )
+
+                                # 注意：memory 记录在内存中，由 session.save() 持久化
+
                                 # Check if it's a semantic tier hit (Tier 0 or Tier 1)
-                                is_semantic = routing_decision.message and ("Tier 0" in routing_decision.message or "Tier 1" in routing_decision.message)
+                                is_semantic = routing_decision.message and (
+                                    "Tier 0" in routing_decision.message
+                                    or "Tier 1" in routing_decision.message
+                                )
 
                                 if is_semantic:
                                     # Add data source indicator before synthesis
                                     if routing_decision.tool == "query_database":
                                         snapshot_time = _get_snapshot_time()
-                                        display.show_data_source_indicator("sql", snapshot_time=snapshot_time)
+                                        display.show_data_source_indicator(
+                                            "sql", snapshot_time=snapshot_time
+                                        )
                                     elif routing_decision.tool == "smart_query":
-                                        device = routing_decision.params.get("device") if routing_decision.params else None
+                                        device = (
+                                            routing_decision.params.get("device")
+                                            if routing_decision.params
+                                            else None
+                                        )
                                         display.show_data_source_indicator("cli", device=device)
 
                                     display.show_processing_status("🤔 Synthesizing response...")
                                     if hasattr(agent, "synthesis"):
-                                        synthesis_output = asyncio.run(agent.synthesis(user_input, tool_data))
+                                        synthesis_output = asyncio.run(
+                                            agent.synthesis(user_input, tool_data)
+                                        )
                                         display.stop_processing_status()
-                                        display.show_result(synthesis_output, end="\n")  # Ensure newline
+                                        display.show_result(
+                                            synthesis_output, end="\n"
+                                        )  # Ensure newline
                                         continue
                                     else:
                                         display.stop_processing_status()
@@ -304,22 +406,30 @@ def run_interactive_loop(
                                 if routing_decision.tool == "query_database":
                                     # SQL database source
                                     snapshot_time = _get_snapshot_time()
-                                    display.show_data_source_indicator("sql", snapshot_time=snapshot_time)
+                                    display.show_data_source_indicator(
+                                        "sql", snapshot_time=snapshot_time
+                                    )
                                 elif routing_decision.tool == "smart_query":
                                     # CLI live query source
-                                    device = routing_decision.params.get("device") if routing_decision.params else None
+                                    device = (
+                                        routing_decision.params.get("device")
+                                        if routing_decision.params
+                                        else None
+                                    )
                                     display.show_data_source_indicator("cli", device=device)
                                 else:
                                     # Unknown source
                                     display.show_data_source_indicator("unknown")
 
-                                display.show_result(f"✅ Fast-Path Result for {routing_decision.tool}:")
+                                display.show_result(
+                                    f"✅ Fast-Path Result for {routing_decision.tool}:"
+                                )
                                 if isinstance(tool_data, (list, dict)):
                                     display.show_json_table(tool_data)
                                 else:
                                     display.show_result(str(tool_data), end="\n")
-                                
-                                continue # Skip the agent loop
+
+                                continue  # Skip the agent loop
                     except Exception as e:
                         display.stop_processing_status()
                         display.show_error(f"Fast-path execution failed: {e}")
@@ -417,11 +527,21 @@ def run_interactive_loop(
                 # Initialize Query Agent V2 with specific skill
                 agent = QueryAgentV2(mode="standard", skill_name=skill_name)
 
+                # === NEW: Create learning callback ===
+                # Only enable interactive learning in TTY mode
+                learn_callback = _create_learning_callback(session) if is_tty else None
+
                 # Use verbose mode only if DISPLAY_THINKING=true
                 use_verbose = settings.display_thinking
                 inputs = {"messages": agent_messages, "retry_count": 0}
                 output = asyncio.run(
-                    stream_agent_response(agent, inputs, verbose=use_verbose, memory=memory)
+                    stream_agent_response(
+                        agent,
+                        inputs,
+                        verbose=use_verbose,
+                        memory=memory,
+                        learn_callback=learn_callback,
+                    )
                 )
 
                 if output:
@@ -473,9 +593,10 @@ def query(
 
         # Phase 17: Intent Routing for single query
         from olav.core.query_router import QueryRouter
+
         router = QueryRouter()
         routing_decision = router.route(query_text)
-        
+
         skill_name = "network-query"
         if routing_decision.expert:
             expert_cfg = router.get_expert_config(routing_decision.expert)
@@ -623,9 +744,10 @@ def inspect(
         device_list = None
         if device or group:
             from olav.tools.network import get_nornir
+
             nr = get_nornir()
             matched_devices = []
-            
+
             # Simple manual filtering for robustness
             for name, host in nr.inventory.hosts.items():
                 # Check group
@@ -634,21 +756,23 @@ def inspect(
                     host_groups = [g.name if hasattr(g, "name") else str(g) for g in host.groups]
                     if group not in host_groups:
                         group_match = False
-                
+
                 # Check device
                 device_match = True
                 if device:
                     target_devices = [d.strip() for d in device.split(",")]
                     if name not in target_devices:
                         device_match = False
-                
+
                 if group_match and device_match:
                     matched_devices.append(name)
-            
+
             device_list = matched_devices
-            
+
             if not device_list:
-                console.print(f"[yellow]⚠️  No devices found matching filter (group={group}, device={device})[/yellow]")
+                console.print(
+                    f"[yellow]⚠️  No devices found matching filter (group={group}, device={device})[/yellow]"
+                )
                 raise typer.Exit(0)
 
         # Run async inspection
@@ -729,8 +853,8 @@ def interactive_mode(ctx: typer.Context) -> None:
         # Phase 17: Federated Specialists - Initial agent is a Router
         from olav.agents.query_agent_v2 import QueryAgentV2
 
-        # Note: In interactive loop, we re-initialize the agent per query 
-        # or use the Router to select. For now, we pass a dummy or None 
+        # Note: In interactive loop, we re-initialize the agent per query
+        # or use the Router to select. For now, we pass a dummy or None
         # and let the loop handle it.
         agent = QueryAgentV2(mode="standard")
 

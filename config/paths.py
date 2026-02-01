@@ -8,16 +8,30 @@ Usage:
     db_path = NETWORK_SNAPSHOT_PATH
 """
 
-from config.settings import AGENT_DIR, PROJECT_ROOT
 import os
 from pathlib import Path
+
+from config.settings import AGENT_DIR, PROJECT_ROOT
+
+# =============================================================================
+# v0.10.0: OLAV Base Directories
+# =============================================================================
+
+OLAV_BASE_DIR = AGENT_DIR  # Points to .olav/
+LIB_DIR = OLAV_BASE_DIR / "lib"  # Platform-agnostic utilities (data_gateway.py)
 
 # =============================================================================
 # Database Paths (Internal - .olav/db/)
 # =============================================================================
 
 DB_DIR = AGENT_DIR / "db"
-# v0.9.9: Unified Database Core
+
+# v0.10.0: Separated Shared Databases
+SNAPSHOTS_DB = DB_DIR / "snapshots.duckdb"  # Network snapshot data (read-only)
+TOPOLOGY_DB = DB_DIR / "topology.duckdb"  # Topology data (read-only)
+AUDIT_LOGS_DB = DB_DIR / "audit_logs.duckdb"  # Command audit logs (write-only)
+
+# v0.9.9: Unified Database Core (deprecated - use SNAPSHOTS_DB instead)
 OLAV_DB_PATH = DB_DIR / "olav.duckdb"
 
 # User-Local Cache (Phase 8 Multi-User Architecture)
@@ -33,11 +47,11 @@ USER_CACHE_PATH = Path.home() / ".olav" / USER_CACHE_FILENAME
 
 # Map all legacy/specific paths to the unified core
 NETWORK_DB_PATH = OLAV_DB_PATH
-NETWORK_COMMANDS_PATH = OLAV_DB_PATH # Default shared commands (read-only fallback)
+NETWORK_COMMANDS_PATH = OLAV_DB_PATH  # Default shared commands (read-only fallback)
 KNOWLEDGE_PATH = OLAV_DB_PATH
 
 # Backwards compatibility aliases (deprecated - use new names)
-NETWORK_SNAPSHOT_PATH = NETWORK_DB_PATH  # Legacy alias - use NETWORK_DB_PATH
+NETWORK_SNAPSHOT_PATH = SNAPSHOTS_DB  # v0.10.0: Points to separated snapshots DB
 NETWORK_WAREHOUSE_PATH = NETWORK_DB_PATH  # Legacy alias
 
 # =============================================================================

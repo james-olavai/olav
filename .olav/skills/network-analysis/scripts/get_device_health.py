@@ -1,20 +1,23 @@
-import sys
 import json
+import sys
+
 from olav.core.unified_database import UnifiedDatabase
 
+
 def main(params: dict) -> dict:
-    """Find IP location in the network."""
-    ip = params.get("ip_address") or params.get("arg")
-    if not ip:
-        return {"error": "Missing 'ip_address' parameter"}
-    
+    """Get health status for a specific device."""
+    device = params.get("device_name") or params.get("arg")
+    if not device:
+        return {"error": "Missing 'device_name' parameter"}
+
     with UnifiedDatabase() as db:
-        result = db.find_ip_location(ip)
-    
-    if not result:
-        return {"status": "not_found", "message": f"IP {ip} not found in ARP table"}
-    
+        result = db.get_device_health(device)
+
+    if "error" in result:
+        return {"status": "error", "message": result["error"]}
+
     return {"status": "success", "data": result}
+
 
 if __name__ == "__main__":
     try:
