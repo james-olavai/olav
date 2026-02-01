@@ -526,66 +526,10 @@ def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> None:
         device_names: List of device names that were synced
     """
     try:
-        import json
-
-        parsed_dir = sync_dir / "parsed"
-        parsed_dir.mkdir(exist_ok=True)
-
-        # Parse all raw outputs with TextFSM
-        for device_name in device_names:
-            device_raw_dir = sync_dir / "raw" / device_name
-            if not device_raw_dir.exists():
-                continue
-
-            device_parsed_dir = parsed_dir / device_name
-            device_parsed_dir.mkdir(exist_ok=True)
-
-            # Parse each command output
-            for output_file in device_raw_dir.glob("*.txt"):
-                # Convert filename back to command: show-spanning-tree.txt -> show spanning-tree
-                # Only replace the first hyphen after 'show' to preserve command structure
-                # e.g., show-spanning-tree -> show spanning-tree (not show spanning tree)
-                stem = output_file.stem
-                if stem.startswith("show-"):
-                    command = "show " + stem[5:]  # Keep hyphens in command names
-                else:
-                    command = stem.replace("-", " ")
-                raw_output = output_file.read_text(encoding="utf-8", errors="ignore")
-
-                # Skip empty or very short outputs
-                if not raw_output.strip() or len(raw_output) < 20:
-                    continue
-
-                # Skip error outputs from device
-                # Common error patterns: "% Invalid input", "% Incomplete command", etc.
-                first_line = raw_output.strip().split("\n")[0]
-                if (
-                    "% Invalid input" in raw_output[:200]
-                    or "% Incomplete command" in raw_output[:200]
-                    or "% Ambiguous command" in raw_output[:200]
-                    or (first_line.strip().startswith("%") and len(raw_output) < 200)
-                ):
-                    logger.debug(
-                        f"Skipping error output for {device_name}/{output_file.name}: "
-                        f"Device returned error message"
-                    )
-                    continue
-
-                # Try to parse with TextFSM using ntc-templates
-                try:
-                    parsed_data = _parse_with_ntc_templates(command, raw_output, "cisco_ios")
-
-                    # If parsing successful, save JSON
-                    if parsed_data:
-                        parsed_file = device_parsed_dir / f"{output_file.stem}.json"
-                        parsed_file.write_text(
-                            json.dumps({"command": command, "data": parsed_data}, indent=2),
-                            encoding="utf-8",
-                        )
-                except Exception as e:
-                    logger.debug(
-                        f"Failed to parse {device_name}/{output_file.name}: {type(e).__name__}"
-                    )
+        # Stage 2 now only does:
+        # 1. Import raw outputs to DuckDB
+        # 2. Generate summary reports
+        # (Parsed data is no longer stored separately, only raw data)
 
         # Import data to DuckDB (v0.9.3: raw_outputs + command_outputs)
         from olav.tools.raw_importer import import_sync_data
@@ -597,10 +541,6 @@ def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> None:
         from olav.tools.report_formatter import generate_network_operations_report
 
         generate_network_operations_report(sync_dir, device_names)
-
-        # v0.9.6: Schema catalog is now managed dynamically by SQL Assistant.
-        # Historical _schema_catalog table is deprecated.
-        pass
 
         # Phase 15: Materialize Inspection Views (EQP)
         # Move view creation from query-time to snapshot-time to eliminate lock contention
@@ -617,77 +557,6 @@ def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> None:
         # Stage 2 failures don't block Stage 1, but we should log them
         logger.warning(f"Stage 2 processing failed: {type(e).__name__}: {e}")
         logger.debug("Stage 2 traceback:", exc_info=True)
-
-
-def _parse_with_ntc_templates(command: str, output: str, platform: str) -> list[dict] | None:
-    """Parse CLI output using ntc-templates TextFSM.
-
-    Uses ntc_templates.parse.parse_output for automatic template matching.
-    Tries multiple command format variations since filename may have lost info.
-
-    Args:
-        command: Command name (e.g., "show version", "show spanning-tree")
-        output: Raw CLI output
-        platform: Platform name (e.g., "cisco_ios")
-
-    Returns:
-        List of dicts with parsed data, or None if parsing failed
-    """
-    try:
-        from ntc_templates.parse import parse_output
-
-        # Generate command variations to try
-        # e.g., "show ip-ospf-interface" could be:
-        #   - "show ip ospf interface" (all spaces)
-        #   - "show ip-ospf interface" (some hyphens)
-        #   - etc.
-        commands_to_try: set[str] = set()
-        commands_to_try.add(command)
-
-        # Variation 1: Replace all hyphens with spaces
-        commands_to_try.add(command.replace("-", " "))
-
-        # Variation 2: For multi-word commands like "show ip-ospf-interface"
-        # Try: "show ip ospf interface", "show ip ospf-interface", etc.
-        if command.startswith("show "):
-            rest = command[5:]
-            # Try all hyphens as spaces
-            commands_to_try.add("show " + rest.replace("-", " "))
-
-            # Try preserving known hyphenated commands
-            known_hyphenated = [
-                "spanning-tree",
-                "access-list",
-                "access-lists",
-                "route-map",
-                "port-channel",
-                "mac-address-table",
-                "prefix-list",
-                "object-group",
-                "policy-map",
-                "l2transport-vc",
-                "top-talkers",
-            ]
-            rest_with_spaces = rest.replace("-", " ")
-            for hyphenated in known_hyphenated:
-                spaced = hyphenated.replace("-", " ")
-                if spaced in rest_with_spaces:
-                    commands_to_try.add("show " + rest_with_spaces.replace(spaced, hyphenated))
-
-        for cmd in commands_to_try:
-            try:
-                result = parse_output(platform=platform, command=cmd, data=output)
-                if result:
-                    return result
-            except Exception as e:
-                # Template mismatch is expected, try next variation
-                logger.debug(f"Parse attempt failed for '{cmd}': {type(e).__name__}")
-
-        return None
-
-    except Exception:
-        return None
-
 
 # =============================================================================
 # Tool 2: get_sync_age

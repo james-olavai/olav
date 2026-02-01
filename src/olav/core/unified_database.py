@@ -450,19 +450,21 @@ class UnifiedDatabase:
             stacklevel=2,
         )
         import json
+        from datetime import datetime
 
         with UnifiedDatabase._lock:
             try:
+                now = datetime.now()
                 self.conn.execute(
                     """
-                    INSERT INTO commands.main.semantic_cache (query_text, action_json, hit_count)
-                    VALUES (?, ?, 1)
+                    INSERT INTO commands.main.semantic_cache (query_text, action_json, hit_count, last_used)
+                    VALUES (?, ?, 1, ?)
                     ON CONFLICT (query_text) DO UPDATE SET
                         action_json = excluded.action_json,
-                        hit_count = hit_count + 1,
-                        last_used = CURRENT_TIMESTAMP
+                        hit_count = semantic_cache.hit_count + 1,
+                        last_used = excluded.last_used
                 """,
-                    [query_text, json.dumps(action)],
+                    [query_text, json.dumps(action), now],
                 )
             except Exception as e:
                 import logging

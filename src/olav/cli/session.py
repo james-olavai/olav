@@ -11,14 +11,16 @@ Features:
 import logging
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from olav.cli.command_history import CommandHistory
-else:
-    CommandHistory = None  # type: ignore[assignment]
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Try to import CommandHistory, but don't fail if it doesn't exist
+try:
+    from olav.cli.command_history import CommandHistory
+except (ImportError, ModuleNotFoundError):
+    CommandHistory = None  # type: ignore[assignment]
+    logger.debug("CommandHistory module not available, using in-memory history")
 
 
 class OlavPromptSession:
@@ -39,6 +41,8 @@ class OlavPromptSession:
             enable_history: Enable history persistence
             multiline: Enable multi-line input
         """
+        import sys
+        
         if history_file is None:
             from config.settings import settings
 
@@ -48,6 +52,7 @@ class OlavPromptSession:
         self.enable_completion = enable_completion
         self.enable_history = enable_history
         self.multiline = multiline
+        self.is_tty = sys.stdin.isatty()
 
         # Ensure data directory exists
         self.history_file.parent.mkdir(parents=True, exist_ok=True)
@@ -59,13 +64,16 @@ class OlavPromptSession:
         if CommandHistory:
             self.command_history = CommandHistory(history_file=self.history_file)
         else:
-            logger.warning("CommandHistory module not available, history disabled")
+            logger.debug("CommandHistory module not available, history disabled")
             self.command_history = None
 
         self._session = None  # type: ignore[assignment]
 
-        # Try to initialize prompt-toolkit session
-        self._init_session()
+        # Only initialize prompt-toolkit in TTY mode
+        if self.is_tty:
+            self._init_session()
+        else:
+            logger.debug("Non-TTY mode detected, using basic input")
 
     def _load_whitelist(self) -> dict[str, str]:
         """Load command whitelist for auto-completion."""
@@ -87,24 +95,30 @@ class OlavPromptSession:
 
     def _init_session(self) -> None:
         """Initialize prompt-toolkit session with history completion."""
+        logger.info("Initializing prompt-toolkit session in TTY mode...")
         try:
             # Import prompt-toolkit modules
-            from prompt_toolkit import FileHistory, PromptSession
+            from prompt_toolkit import PromptSession
             from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
             from prompt_toolkit.completion import WordCompleter
+            from prompt_toolkit.history import FileHistory
             from prompt_toolkit.key_binding import KeyBindings
 
-            # Create prompt session
-            session = PromptSession()
-
-            # Setup history persistence
+            # Create file history for persistence
+            history = None
             if self.enable_history and self.history_file:
                 try:
-                    FileHistory(self.history_file)
-                    session.history.load_history()
-                    logger.info(f"Loaded command history from {self.history_file}")
+                    # Create FileHistory object
+                    history = FileHistory(str(self.history_file))
+                    logger.info(f"Initialized history file: {self.history_file}")
                 except Exception as e:
-                    logger.error(f"Failed to load history: {e}")
+                    logger.debug(f"Failed to create FileHistory: {e}")
+                    history = None
+
+            # Create prompt session with history
+            logger.debug("Creating PromptSession...")
+            session = PromptSession(history=history)
+            logger.debug("PromptSession created successfully")
 
             # Setup auto-completion from command history
             if self.enable_completion and self.command_history:
@@ -112,31 +126,22 @@ class OlavPromptSession:
                     # Get recent commands for auto-completion
                     recent_commands = self.command_history.get_recent_commands(limit=50)
 
-                    # Create completer from history
-                    completer = AutoSuggestFromHistory(lambda: recent_commands, max_suggestions=5)
-
-                    # Create word completer for commands
-                    command_words = list(set(cmd.get("command", "") for cmd in recent_commands))
-                    word_completer = WordCompleter(words=command_words, ignore_case=True)
-
-                    # Add completers to session
-                    session.completer = completer
-                    session.completer = word_completer
+                    if recent_commands:
+                        # Create word completer for commands
+                        command_words = list(set(cmd.get("command", "") for cmd in recent_commands))
+                        if command_words:
+                            word_completer = WordCompleter(words=command_words, ignore_case=True)
+                            session.completer = word_completer
+                            logger.debug(f"Loaded {len(command_words)} commands for completion")
                 except Exception as e:
-                    logger.error(f"Failed to setup auto-completion: {e}")
-                    session = None
-
-            # Setup key bindings
-            kb = KeyBindings()
-            kb.add("c-c")
-            kb.add("c-d")
-            kb.add("ctrl-r")  # History search
+                    logger.debug(f"Failed to setup auto-completion: {e}")
 
             # Setup multiline
             if self.multiline:
                 session.multiline = True
 
             self._session = session
+            logger.info("Prompt-toolkit session initialized successfully")
 
         except Exception as e:
             logger.warning(f"Failed to initialize prompt-toolkit session: {e}")
@@ -216,13 +221,19 @@ class OlavPromptSession:
         Returns:
             User input string
         """
-        if self._session is None:
+        # In non-TTY mode, always use basic input to avoid hanging
+        if not self.is_tty or self._session is None:
             return input(message)
 
         try:
             # Use plain string prompt to avoid XML parsing issues
             result = self._session.prompt(message)
             return result
+        except (EOFError, KeyboardInterrupt):
+            raise EOFError from None
+        except Exception as e:
+            logger.debug(f"Prompt session error: {e}, falling back to input()")
+            return input(message)
         except (EOFError, KeyboardInterrupt):
             raise EOFError from None
 

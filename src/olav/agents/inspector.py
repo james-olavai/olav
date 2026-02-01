@@ -28,6 +28,21 @@ class MapPhase:
         Returns: {device_name: {metric_name: value, _layer_map: {metric: layer}}}
         """
         all_data = {}
+        
+        # First, get all available devices from raw_outputs
+        try:
+            cursor = self.udb.conn.execute("SELECT DISTINCT device FROM raw_outputs ORDER BY device")
+            available_devices = [row[0] for row in cursor.fetchall()]
+            
+            # Apply device_filter if provided
+            if device_filter:
+                available_devices = [d for d in available_devices if d in device_filter]
+            
+            # Initialize all_data with all available devices
+            for device in available_devices:
+                all_data[device] = {"_layer_map": {}}
+        except Exception as e:
+            logger.warning(f"Could not get device list from raw_outputs: {e}")
 
         for layer in layers:
             sql = layer.get("sql")
@@ -112,98 +127,24 @@ class ReducePhase:
 
 
 class ReportRenderer:
-    """Renders the final report using the specified report skill template."""
-
-    def __init__(self, skill_id: str) -> None:
-        loader = get_skill_loader()
-        self.skill = loader.get_skill(skill_id)
-        if not self.skill:
-            raise ValueError(f"Report skill {skill_id} not found.")
+    """Renders the final report using professional inspection template."""
 
     def render(self, result: dict[str, Any]) -> str:
-        """Render the report."""
-        # Extract template from SKILL.md
-        # Assuming the template starts after a certain marker or just uses the whole content
-        template_str = self.skill.content
-        if template_str and "```markdown" in template_str:
-            template_str = template_str.split("```markdown")[1].split("```")[0].strip()
-
-        # Prepare template variables
-        # This part should be sophisticated, but for MVP we'll map the common ones
-        template_vars = self._prepare_vars(result)
-
-        if not template_str:
-            template_str = "{% block content %}{% endblock %}"
-
-        template = Template(template_str)
-        return template.render(**template_vars)
-
-    def _prepare_vars(self, result: dict[str, Any]) -> dict[str, Any]:
-        """Convert result into template-friendly variables."""
-        anomalies = result["anomalies"]
-        all_devices = result["metadata"]["all_devices"]  # 新增：所有设备列表
-        devices_list = []
-        critical_issues = []
-        warning_issues = []
-
-        # 遍历所有设备，而不仅仅是有异常的设备
-        for device in all_devices:
-            device_anomalies = anomalies.get(device, [])
-            device_status = "✅ Normal"
-            l1, l2, l3, l4 = "✅", "✅", "✅", "✅"
-
-            for a in device_anomalies:
-                severity = a["severity"]
-                layer = a.get("layer", "L4_Application")
-                icon = "🔴" if severity == "critical" else "⚠️"
-
-                if severity == "critical":
-                    device_status = "🔴 Critical"
-                    critical_issues.append({"device": device, **a})
-                elif severity == "warning" and device_status == "✅ Normal":
-                    device_status = "⚠️ Warning"
-                    warning_issues.append({"device": device, **a})
-
-                # Layer mapping (simplistic)
-                if "L1" in layer:
-                    l1 = icon
-                elif "L2" in layer:
-                    l2 = icon
-                elif "L3" in layer:
-                    l3 = icon
-                else:
-                    l4 = icon
-
-            devices_list.append(
-                {"device": device, "l1": l1, "l2": l2, "l3": l3, "l4": l4, "status": device_status}
-            )
-
-        return {
-            "timestamp": result["metadata"]["timestamp"],
-            "device_count": result["metadata"]["device_count"],
-            "overall_status": result["summary"]["overall_status"],
-            "normal_count": result["summary"]["normal_count"],
-            "warning_count": result["summary"]["warning_count"],
-            "critical_count": result["summary"]["critical_count"],
-            "devices": devices_list,
-            "critical_issues": critical_issues,
-            "warning_issues": warning_issues,
-            "immediate_actions": [
-                r["action"]
-                for r in result["llm_analysis"].get("recommendations", [])
-                if r.get("priority") == "critical"
-            ],
-            "planned_actions": [
-                r["action"]
-                for r in result["llm_analysis"].get("recommendations", [])
-                if r.get("priority") == "warning"
-            ],
-            "optimization_suggestions": [
-                r["action"]
-                for r in result["llm_analysis"].get("recommendations", [])
-                if r.get("priority") == "info"
-            ],
-        }
+        """Render professional inspection report.
+        
+        Args:
+            result: Inspection result dictionary with metadata, summary, anomalies, llm_analysis
+            
+        Returns:
+            Professional markdown report string
+        """
+        from olav.tools.report_formatter import generate_professional_inspection_report
+        
+        return generate_professional_inspection_report(
+            metadata=result["metadata"],
+            anomalies=result["anomalies"],
+            llm_analysis=result["llm_analysis"],
+        )
 
 
 class InspectionOrchestrator:
@@ -216,9 +157,15 @@ class InspectionOrchestrator:
         self.reduce_phase = ReducePhase()
 
     async def run_inspection(
-        self, test_mode: bool = False, device_filter: list[str] | None = None
+        self, test_mode: bool = False, device_filter: list[str] | None = None, inspection_type: str = "manual"
     ) -> str:
-        """Run the full or test inspection."""
+        """Run the full or test inspection.
+        
+        Args:
+            test_mode: Run in test mode
+            device_filter: Filter devices to inspect
+            inspection_type: Type of inspection ("manual" or "scheduled")
+        """
         logger.info("Starting inspection...")
 
         # 1. Load skill
@@ -259,6 +206,7 @@ class InspectionOrchestrator:
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "device_count": len(all_device_metrics),
                 "all_devices": sorted(all_device_metrics.keys()),  # 新增：所有设备列表
+                "inspection_type": inspection_type,  # manual 或 scheduled
             },
             "summary": self._calculate_summary(len(all_device_metrics), all_anomalies),
             "anomalies": all_anomalies,
@@ -266,10 +214,7 @@ class InspectionOrchestrator:
         }
 
         # 6. Render Report
-        report_skill_id = inspection_skill.frontmatter.get("output", {}).get(
-            "report_skill", "inspect-report"
-        )
-        renderer = ReportRenderer(report_skill_id)
+        renderer = ReportRenderer()
         report = renderer.render(result)
 
         # 7. Save report
@@ -280,6 +225,23 @@ class InspectionOrchestrator:
     def _calculate_summary(
         self, total_devices: int, anomalies: dict[str, list[dict[str, Any]]]
     ) -> dict[str, Any]:
+        # Load scoring config from SKILL
+        from olav.core.skill_loader import get_skill_loader
+        
+        loader = get_skill_loader()
+        inspection_skill = loader.get_skill("network-inspection")
+        scoring_config = inspection_skill.frontmatter.get("scoring", {}) if inspection_skill else {}
+        
+        # Use SKILL config or fall back to settings
+        if not scoring_config:
+            from config.settings import settings
+            health_config = settings.health_score_config
+            critical_weight = health_config["critical_weight"]
+            warning_weight = health_config["warning_weight"]
+        else:
+            critical_weight = scoring_config.get("critical_weight", 20)
+            warning_weight = scoring_config.get("warning_weight", 5)
+        
         critical_count = sum(
             1 for d in anomalies.values() if any(a["severity"] == "critical" for a in d)
         )
@@ -290,6 +252,11 @@ class InspectionOrchestrator:
             and not any(a["severity"] == "critical" for a in d)
         )
         normal_count = total_devices - critical_count - warning_count
+
+        # Health score = max_score - (critical_count * critical_weight + warning_count * warning_weight)
+        max_score = scoring_config.get("max_score", 100) if scoring_config else 100
+        health_score = max_score - (critical_count * critical_weight + warning_count * warning_weight)
+        health_score = max(0, min(max_score, health_score))
 
         status = "normal"
         if critical_count > 0:
@@ -302,14 +269,14 @@ class InspectionOrchestrator:
             "warning_count": warning_count,
             "critical_count": critical_count,
             "overall_status": status,
+            "health_score": health_score,  # 新增：计算出的健康分数
         }
 
     def _save_report(self, report: str) -> None:
         from config.paths import REPORTS_DIR
 
-        report_path = (
-            REPORTS_DIR / "inspection" / f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
-        )
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        report_path = REPORTS_DIR / f"report_{timestamp}.md"
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(report, encoding="utf-8")
         logger.info(f"Report saved to {report_path}")

@@ -72,7 +72,6 @@ SYNC_DIR = SNAPSHOTS_DIR  # Unified with snapshots directory
 # Reports (standalone analysis reports)
 REPORTS_DIR = EXPORTS_DIR / "reports"
 REPORTS_ANALYSIS_DIR = REPORTS_DIR / "analysis"
-REPORTS_SNAPSHOTS_DIR = REPORTS_DIR / "snapshots"
 
 # Visualizations: exports/topology/ (simplified from exports/visualizations/topology)
 VISUALIZATION_DIR = EXPORTS_DIR / "visualizations"
