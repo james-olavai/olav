@@ -399,36 +399,40 @@ def generate_professional_inspection_report(
         Professional markdown report string
     """
     lines = []
-    
+
     # =========================================================================
     # 1. HEADER & EXECUTIVE SUMMARY
     # =========================================================================
     lines.append("# 🔍 Network Health Inspection Report")
     lines.append("")
     lines.append(f"**Inspection Time**: {metadata['timestamp']}")
-    inspection_type = metadata.get('inspection_type', 'manual')
+    inspection_type = metadata.get("inspection_type", "manual")
     type_label = "📅 Scheduled" if inspection_type == "scheduled" else "👤 Manual"
     lines.append(f"**Type**: {type_label}")
     lines.append(f"**Devices Inspected**: {metadata['device_count']}")
     lines.append("")
-    
+
     # Calculate overall status
-    total_devices = metadata['device_count']
-    critical_count = sum(1 for d in anomalies.values() 
-                        if any(a['severity'] == 'critical' for a in d))
-    warning_count = sum(1 for d in anomalies.values() 
-                       if any(a['severity'] == 'warning' for a in d) 
-                       and not any(a['severity'] == 'critical' for a in d))
+    total_devices = metadata["device_count"]
+    critical_count = sum(
+        1 for d in anomalies.values() if any(a["severity"] == "critical" for a in d)
+    )
+    warning_count = sum(
+        1
+        for d in anomalies.values()
+        if any(a["severity"] == "warning" for a in d)
+        and not any(a["severity"] == "critical" for a in d)
+    )
     normal_count = total_devices - critical_count - warning_count
-    
+
     # Load scoring configuration from SKILL or settings
-    from olav.core.skill_loader import get_skill_loader
     from config.settings import settings
-    
+    from olav.core.skill_loader import get_skill_loader
+
     loader = get_skill_loader()
     inspection_skill = loader.get_skill("network-inspection")
     scoring_config = inspection_skill.frontmatter.get("scoring", {}) if inspection_skill else {}
-    
+
     if not scoring_config:
         # Fall back to settings if SKILL config not found
         health_config = settings.health_score_config
@@ -441,11 +445,11 @@ def generate_professional_inspection_report(
         warning_weight = scoring_config.get("warning_weight", 5)
         max_score = scoring_config.get("max_score", 100)
         thresholds = scoring_config.get("thresholds", {"healthy": 90, "warning": 70, "critical": 0})
-    
+
     # Health score calculation (now configurable via SKILL or settings)
     health_score = max_score - (critical_count * critical_weight + warning_count * warning_weight)
     health_score = max(0, min(max_score, health_score))
-    
+
     # Determine health status based on configurable thresholds
     if health_score >= thresholds.get("healthy", 90):
         health_status = "✅ HEALTHY"
@@ -456,20 +460,20 @@ def generate_professional_inspection_report(
     else:
         health_status = "🔴 CRITICAL"
         health_color = "red"
-    
+
     lines.append("## 📊 Executive Summary")
     lines.append("")
-    lines.append(f"| Metric | Value |")
-    lines.append(f"|--------|-------|")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|-------|")
     lines.append(f"| Overall Health Score | **{health_score}%** {health_status} |")
     lines.append(f"| Normal Devices | {normal_count}/{total_devices} ✅ |")
     lines.append(f"| Warning Devices | {warning_count}/{total_devices} ⚠️ |")
     lines.append(f"| Critical Devices | {critical_count}/{total_devices} 🔴 |")
     lines.append("")
-    
+
     lines.append(llm_analysis.get("impact", "Network status under review."))
     lines.append("")
-    
+
     # =========================================================================
     # 2. INSPECTION SCOPE & METHODOLOGY
     # =========================================================================
@@ -483,12 +487,20 @@ def generate_professional_inspection_report(
     lines.append("")
     lines.append("| Layer | Scope | Items Checked |")
     lines.append("|-------|-------|---------------|")
-    lines.append("| **L1 Physical** | Device Health | Uptime, CPU, Memory, Temperature, Power Supply, Fans |")
-    lines.append("| **L2 DataLink** | Interface Status | Interface State, Errors, Drops, VLAN, STP |")
-    lines.append("| **L3 Network** | Routing Health | Route Table, OSPF Neighbors, BGP Sessions, VPN Status |")
-    lines.append("| **L4 Application** | Service Status | Protocol Sessions, Queue Depth, Service Health |")
+    lines.append(
+        "| **L1 Physical** | Device Health | Uptime, CPU, Memory, Temperature, Power Supply, Fans |"
+    )
+    lines.append(
+        "| **L2 DataLink** | Interface Status | Interface State, Errors, Drops, VLAN, STP |"
+    )
+    lines.append(
+        "| **L3 Network** | Routing Health | Route Table, OSPF Neighbors, BGP Sessions, VPN Status |"
+    )
+    lines.append(
+        "| **L4 Application** | Service Status | Protocol Sessions, Queue Depth, Service Health |"
+    )
     lines.append("")
-    
+
     # =========================================================================
     # 3. DEVICE STATUS MATRIX
     # =========================================================================
@@ -500,36 +512,36 @@ def generate_professional_inspection_report(
     lines.append("")
     lines.append("| Device | L1 Physical | L2 DataLink | L3 Network | L4 Application | Overall |")
     lines.append("|--------|-------------|------------|-----------|----------------|---------|")
-    
-    for device in sorted(metadata['all_devices']):
+
+    for device in sorted(metadata["all_devices"]):
         device_anomalies = anomalies.get(device, [])
-        
+
         # Determine layer status
-        layer_status = {'L1': '✅', 'L2': '✅', 'L3': '✅', 'L4': '✅'}
+        layer_status = {"L1": "✅", "L2": "✅", "L3": "✅", "L4": "✅"}
         for anomaly in device_anomalies:
-            layer = anomaly.get('layer', 'L4')
-            for l in ['L1', 'L2', 'L3', 'L4']:
+            layer = anomaly.get("layer", "L4")
+            for l in ["L1", "L2", "L3", "L4"]:
                 if l in layer:
-                    if anomaly['severity'] == 'critical':
-                        layer_status[l] = '🔴'
-                    elif anomaly['severity'] == 'warning' and layer_status[l] == '✅':
-                        layer_status[l] = '⚠️'
-        
+                    if anomaly["severity"] == "critical":
+                        layer_status[l] = "🔴"
+                    elif anomaly["severity"] == "warning" and layer_status[l] == "✅":
+                        layer_status[l] = "⚠️"
+
         # Overall device status
-        if any(a['severity'] == 'critical' for a in device_anomalies):
-            overall = '🔴 Critical'
-        elif any(a['severity'] == 'warning' for a in device_anomalies):
-            overall = '⚠️ Warning'
+        if any(a["severity"] == "critical" for a in device_anomalies):
+            overall = "🔴 Critical"
+        elif any(a["severity"] == "warning" for a in device_anomalies):
+            overall = "⚠️ Warning"
         else:
-            overall = '✅ Normal'
-        
+            overall = "✅ Normal"
+
         lines.append(
             f"| {device} | {layer_status['L1']} | {layer_status['L2']} | "
             f"{layer_status['L3']} | {layer_status['L4']} | {overall} |"
         )
-    
+
     lines.append("")
-    
+
     # =========================================================================
     # 4. EXPECTED vs ACTUAL STATE
     # =========================================================================
@@ -537,50 +549,56 @@ def generate_professional_inspection_report(
     lines.append("")
     lines.append("## 📋 Expected vs Actual State Analysis")
     lines.append("")
-    
+
     if anomalies:
         # Group by severity
         critical_issues = []
         warning_issues = []
-        
+
         for device, device_anomalies in anomalies.items():
             for anomaly in device_anomalies:
-                if anomaly['severity'] == 'critical':
+                if anomaly["severity"] == "critical":
                     critical_issues.append((device, anomaly))
                 else:
                     warning_issues.append((device, anomaly))
-        
+
         # Critical issues
         if critical_issues:
             lines.append("### 🔴 Critical Issues")
             lines.append("")
             for device, issue in critical_issues:
-                lines.append(f"**{device} - {issue.get('metric', 'Unknown')}** [{issue.get('layer', 'L4')}]")
+                lines.append(
+                    f"**{device} - {issue.get('metric', 'Unknown')}** [{issue.get('layer', 'L4')}]"
+                )
                 lines.append("")
                 lines.append(f"- **Expected State**: {issue.get('threshold', 'Normal')} or better")
                 lines.append(f"- **Actual State**: {issue.get('value', 'N/A')}")
-                lines.append(f"- **Severity**: 🔴 CRITICAL")
-                if issue.get('detail'):
+                lines.append("- **Severity**: 🔴 CRITICAL")
+                if issue.get("detail"):
                     lines.append(f"- **Details**: {issue['detail']}")
                 lines.append("")
-        
+
         # Warning issues
         if warning_issues:
             lines.append("### ⚠️ Warning Issues")
             lines.append("")
             for device, issue in warning_issues:
-                lines.append(f"**{device} - {issue.get('metric', 'Unknown')}** [{issue.get('layer', 'L4')}]")
+                lines.append(
+                    f"**{device} - {issue.get('metric', 'Unknown')}** [{issue.get('layer', 'L4')}]"
+                )
                 lines.append("")
                 lines.append(f"- **Expected State**: {issue.get('threshold', 'Normal')} or better")
                 lines.append(f"- **Actual State**: {issue.get('value', 'N/A')}")
-                lines.append(f"- **Severity**: ⚠️ WARNING")
-                if issue.get('detail'):
+                lines.append("- **Severity**: ⚠️ WARNING")
+                if issue.get("detail"):
                     lines.append(f"- **Details**: {issue['detail']}")
                 lines.append("")
     else:
-        lines.append("✅ **No anomalies detected** - All devices are operating within expected parameters.")
+        lines.append(
+            "✅ **No anomalies detected** - All devices are operating within expected parameters."
+        )
         lines.append("")
-    
+
     # =========================================================================
     # 5. ROOT CAUSE & IMPACT ANALYSIS
     # =========================================================================
@@ -588,17 +606,17 @@ def generate_professional_inspection_report(
     lines.append("")
     lines.append("## 🔎 Root Cause & Impact Analysis")
     lines.append("")
-    
+
     lines.append("### Root Cause Analysis")
     lines.append("")
     lines.append(llm_analysis.get("root_cause", "No root cause identified."))
     lines.append("")
-    
+
     lines.append("### Business Impact Assessment")
     lines.append("")
     lines.append(llm_analysis.get("impact", "No significant impact identified."))
     lines.append("")
-    
+
     # =========================================================================
     # 6. RECOMMENDATIONS WITH ACTION STEPS
     # =========================================================================
@@ -606,9 +624,9 @@ def generate_professional_inspection_report(
     lines.append("")
     lines.append("## 💡 Recommendations & Action Plan")
     lines.append("")
-    
+
     recommendations = llm_analysis.get("recommendations", [])
-    
+
     if recommendations:
         # Immediate actions (critical priority)
         immediate = [r for r in recommendations if r.get("priority") == "critical"]
@@ -618,7 +636,7 @@ def generate_professional_inspection_report(
             for i, rec in enumerate(immediate, 1):
                 lines.append(f"**Step {i}**: {rec.get('action', 'Action')}")
                 lines.append("")
-        
+
         # Planned actions (warning priority)
         planned = [r for r in recommendations if r.get("priority") == "warning"]
         if planned:
@@ -627,7 +645,7 @@ def generate_professional_inspection_report(
             for i, rec in enumerate(planned, 1):
                 lines.append(f"**Step {i}**: {rec.get('action', 'Action')}")
                 lines.append("")
-        
+
         # Optimization (info priority)
         optimization = [r for r in recommendations if r.get("priority") == "info"]
         if optimization:
@@ -639,7 +657,7 @@ def generate_professional_inspection_report(
     else:
         lines.append("✅ No actions required at this time. Continue routine monitoring.")
         lines.append("")
-    
+
     # =========================================================================
     # 7. NEXT STEPS WITH COMMANDS
     # =========================================================================
@@ -668,7 +686,7 @@ def generate_professional_inspection_report(
     lines.append("olav export --inspection --format json > inspection_$(date +%Y%m%d).json")
     lines.append("```")
     lines.append("")
-    
+
     # =========================================================================
     # 8. FOOTER
     # =========================================================================
@@ -677,11 +695,13 @@ def generate_professional_inspection_report(
     lines.append("**Report Generated**: OLAV v0.9.8 - Professional Network Health Inspector")
     lines.append(f"**Timestamp**: {metadata['timestamp']}")
     lines.append("")
-    
+
     return "\n".join(lines)
 
 
-def generate_network_operations_report(sync_dir: Path, device_names: list[str], success_devices: int = None, failed_devices: int = None) -> None:
+def generate_network_operations_report(
+    sync_dir: Path, device_names: list[str], success_devices: int = None, failed_devices: int = None
+) -> None:
     """Generate comprehensive network operations analysis report.
 
     This is called from sync_tools Stage 2 after data collection and parsing.
@@ -709,20 +729,22 @@ def generate_network_operations_report(sync_dir: Path, device_names: list[str], 
         lines.append(f"**Report Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         lines.append(f"**Snapshot Date**: {sync_dir.name}")
         lines.append("")
-        
+
         # Inspection execution statistics
         if success_devices is not None or failed_devices is not None:
             total_inspected = (success_devices or 0) + (failed_devices or 0)
             lines.append("## 📊 Inspection Execution Summary")
             lines.append("")
-            lines.append(f"| Metric | Count |")
-            lines.append(f"|--------|-------|")
+            lines.append("| Metric | Count |")
+            lines.append("|--------|-------|")
             lines.append(f"| Total Devices | {total_devices} |")
             lines.append(f"| Successfully Inspected | {success_devices or 0} |")
             lines.append(f"| Failed Inspection | {failed_devices or 0} |")
-            lines.append(f"| Success Rate | {(success_devices or 0) * 100 // total_inspected if total_inspected > 0 else 0}% |")
+            lines.append(
+                f"| Success Rate | {(success_devices or 0) * 100 // total_inspected if total_inspected > 0 else 0}% |"
+            )
             lines.append("")
-        
+
         lines.append(f"**Total Command Outputs Collected**: {total_files}")
         lines.append("")
         lines.append("---")
@@ -741,8 +763,9 @@ def generate_network_operations_report(sync_dir: Path, device_names: list[str], 
         try:
             # Import here to ensure database is properly initialized
             import time
+
             from olav.core.unified_database import UnifiedDatabase
-            
+
             # Retry logic for database connection
             max_retries = 3
             db = None
@@ -753,15 +776,15 @@ def generate_network_operations_report(sync_dir: Path, device_names: list[str], 
                     test = db.query("SELECT COUNT(*) FROM raw_outputs")
                     if test:
                         break
-                except Exception as e:
+                except Exception:
                     if attempt < max_retries - 1:
                         time.sleep(0.5)
                     else:
                         raise
-            
+
             if not db:
                 raise Exception("Failed to connect to database after retries")
-            
+
             # Interfaces section
             lines.append("## 🔌 Interfaces Summary")
             lines.append("")
@@ -781,9 +804,9 @@ def generate_network_operations_report(sync_dir: Path, device_names: list[str], 
                     lines.append(f"\n**Total**: {total_interfaces} interface-related commands\n")
                 else:
                     lines.append("*No interface-specific commands captured*\n")
-            except Exception as e:
-                lines.append(f"*Note: Could not retrieve interface data*\n")
-            
+            except Exception:
+                lines.append("*Note: Could not retrieve interface data*\n")
+
             # Routing section
             lines.append("## 🛣️ Routing Summary")
             lines.append("")
@@ -803,9 +826,9 @@ def generate_network_operations_report(sync_dir: Path, device_names: list[str], 
                     lines.append(f"\n**Total**: {total_routes} routing commands\n")
                 else:
                     lines.append("*No routing-specific commands captured*\n")
-            except Exception as e:
-                lines.append(f"*Note: Could not retrieve routing data*\n")
-            
+            except Exception:
+                lines.append("*Note: Could not retrieve routing data*\n")
+
             # Protocol section (BGP, OSPF, etc)
             lines.append("## 📡 Protocol Summary")
             lines.append("")
@@ -818,14 +841,14 @@ def generate_network_operations_report(sync_dir: Path, device_names: list[str], 
                 ospf = db.query(
                     "SELECT device, COUNT(*) as count FROM raw_outputs WHERE command LIKE '%ospf%' GROUP BY device ORDER BY device"
                 )
-                
+
                 has_data = False
                 if bgp and len(bgp) > 0:
                     lines.append("**BGP Adjacencies:**")
                     for device, count in bgp:
                         lines.append(f"- {device}: {count} BGP-related commands")
                     has_data = True
-                
+
                 if ospf and len(ospf) > 0:
                     if has_data:
                         lines.append("")
@@ -833,23 +856,25 @@ def generate_network_operations_report(sync_dir: Path, device_names: list[str], 
                     for device, count in ospf:
                         lines.append(f"- {device}: {count} OSPF-related commands")
                     has_data = True
-                
+
                 if not has_data:
                     lines.append("*No protocol-specific data captured*")
-                
+
                 lines.append("")
-            except Exception as e:
-                lines.append(f"*Note: Could not retrieve protocol data*\n")
-                
-        except Exception as e:
-            lines.append(f"## 📊 Data Status\n\nReport enhancement in progress - partial data captured.\n\n")
+            except Exception:
+                lines.append("*Note: Could not retrieve protocol data*\n")
+
+        except Exception:
+            lines.append(
+                "## 📊 Data Status\n\nReport enhancement in progress - partial data captured.\n\n"
+            )
 
         # Data collection summary
         lines.append("## 📁 Data Collection Summary")
         lines.append("")
         lines.append(f"- **Raw Command Outputs**: {total_files} files")
         lines.append(f"- **Storage Location**: `{sync_dir}`")
-        lines.append(f"- **Database**: Available for detailed queries")
+        lines.append("- **Database**: Available for detailed queries")
         lines.append("")
 
         # Recommendations
@@ -880,5 +905,3 @@ def generate_network_operations_report(sync_dir: Path, device_names: list[str], 
         import logging
 
         logging.warning(f"Failed to generate operations report: {e}")
-
-

@@ -175,7 +175,6 @@ def verify_migration(db_path: str) -> bool:
 
 def main():
     """Run the migration."""
-    import sys
 
     # Get database path from config
     from config.settings import settings

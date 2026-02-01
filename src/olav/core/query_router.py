@@ -5,7 +5,6 @@
 - Router (routing_rules.yaml): 查询路由 (斜杠命令 + 模式匹配 + LLM fallback)
 """
 
-import json
 import logging
 import re
 from dataclasses import dataclass
@@ -349,25 +348,26 @@ Return only the expert name as a single word. If unsure, return 'database'."""
                             message="Cache hit! (Tier 0 - DataGateway)",
                             intent=action.get("intent"),
                         )
-                
+
                 # Fallback: search in semantic_cache table directly
                 try:
                     import json
+
                     result = db.query(
                         "SELECT action_json FROM semantic_cache WHERE query_text = ? LIMIT 1",
-                        [user_input]
+                        [user_input],
                     )
                     if result and result[0]:
                         action = json.loads(result[0][0])
                         logger.debug(f"Cache hit (semantic_cache): {user_input}")
-                        
+
                         # Update hit_count
                         db.query(
                             "UPDATE semantic_cache SET last_used = CURRENT_TIMESTAMP, "
                             "hit_count = hit_count + 1 WHERE query_text = ?",
-                            [user_input]
+                            [user_input],
                         )
-                        
+
                         return RoutingDecision(
                             expert=action.get("expert"),
                             action="route",
@@ -378,7 +378,7 @@ Return only the expert name as a single word. If unsure, return 'database'."""
                         )
                 except Exception as e:
                     logger.debug(f"semantic_cache lookup failed: {e}")
-                    
+
         except Exception as e:
             logger.debug(f"Cache check failed: {e}")
 
@@ -399,7 +399,7 @@ Return only the expert name as a single word. If unsure, return 'database'."""
                     "params": decision.params or {},
                     "intent": decision.intent or decision.expert,
                 }
-                
+
                 # Save to DataGateway (v0.10.0+ architecture)
                 if db.gw:
                     try:
@@ -407,21 +407,22 @@ Return only the expert name as a single word. If unsure, return 'database'."""
                         logger.debug(f"Saved to DataGateway cache: {user_input[:50]}...")
                     except Exception as e:
                         logger.debug(f"DataGateway cache save failed: {e}")
-                
+
                 # Also save to semantic_cache table for redundancy
                 try:
                     import json
+
                     action_json_str = json.dumps(action_json)
                     db.query(
                         """INSERT OR REPLACE INTO semantic_cache 
                            (query_text, action_json, created_at, last_used, hit_count)
                            VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)""",
-                        [user_input, action_json_str]
+                        [user_input, action_json_str],
                     )
                     logger.debug(f"Saved to semantic_cache: {user_input[:50]}...")
                 except Exception as e:
                     logger.debug(f"semantic_cache save failed: {e}")
-                    
+
         except Exception as e:
             logger.debug(f"Failed to save cache: {e}")
 

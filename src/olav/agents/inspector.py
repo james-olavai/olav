@@ -3,7 +3,6 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from jinja2 import Template
 from langchain_core.messages import SystemMessage
 
 from olav.agents.threshold_agent import ThresholdAgent
@@ -28,16 +27,18 @@ class MapPhase:
         Returns: {device_name: {metric_name: value, _layer_map: {metric: layer}}}
         """
         all_data = {}
-        
+
         # First, get all available devices from raw_outputs
         try:
-            cursor = self.udb.conn.execute("SELECT DISTINCT device FROM raw_outputs ORDER BY device")
+            cursor = self.udb.conn.execute(
+                "SELECT DISTINCT device FROM raw_outputs ORDER BY device"
+            )
             available_devices = [row[0] for row in cursor.fetchall()]
-            
+
             # Apply device_filter if provided
             if device_filter:
                 available_devices = [d for d in available_devices if d in device_filter]
-            
+
             # Initialize all_data with all available devices
             for device in available_devices:
                 all_data[device] = {"_layer_map": {}}
@@ -131,15 +132,15 @@ class ReportRenderer:
 
     def render(self, result: dict[str, Any]) -> str:
         """Render professional inspection report.
-        
+
         Args:
             result: Inspection result dictionary with metadata, summary, anomalies, llm_analysis
-            
+
         Returns:
             Professional markdown report string
         """
         from olav.tools.report_formatter import generate_professional_inspection_report
-        
+
         return generate_professional_inspection_report(
             metadata=result["metadata"],
             anomalies=result["anomalies"],
@@ -157,10 +158,13 @@ class InspectionOrchestrator:
         self.reduce_phase = ReducePhase()
 
     async def run_inspection(
-        self, test_mode: bool = False, device_filter: list[str] | None = None, inspection_type: str = "manual"
+        self,
+        test_mode: bool = False,
+        device_filter: list[str] | None = None,
+        inspection_type: str = "manual",
     ) -> str:
         """Run the full or test inspection.
-        
+
         Args:
             test_mode: Run in test mode
             device_filter: Filter devices to inspect
@@ -227,21 +231,22 @@ class InspectionOrchestrator:
     ) -> dict[str, Any]:
         # Load scoring config from SKILL
         from olav.core.skill_loader import get_skill_loader
-        
+
         loader = get_skill_loader()
         inspection_skill = loader.get_skill("network-inspection")
         scoring_config = inspection_skill.frontmatter.get("scoring", {}) if inspection_skill else {}
-        
+
         # Use SKILL config or fall back to settings
         if not scoring_config:
             from config.settings import settings
+
             health_config = settings.health_score_config
             critical_weight = health_config["critical_weight"]
             warning_weight = health_config["warning_weight"]
         else:
             critical_weight = scoring_config.get("critical_weight", 20)
             warning_weight = scoring_config.get("warning_weight", 5)
-        
+
         critical_count = sum(
             1 for d in anomalies.values() if any(a["severity"] == "critical" for a in d)
         )
@@ -255,7 +260,9 @@ class InspectionOrchestrator:
 
         # Health score = max_score - (critical_count * critical_weight + warning_count * warning_weight)
         max_score = scoring_config.get("max_score", 100) if scoring_config else 100
-        health_score = max_score - (critical_count * critical_weight + warning_count * warning_weight)
+        health_score = max_score - (
+            critical_count * critical_weight + warning_count * warning_weight
+        )
         health_score = max(0, min(max_score, health_score))
 
         status = "normal"
@@ -275,7 +282,7 @@ class InspectionOrchestrator:
     def _save_report(self, report: str) -> None:
         from config.paths import REPORTS_DIR
 
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         report_path = REPORTS_DIR / f"report_{timestamp}.md"
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(report, encoding="utf-8")
