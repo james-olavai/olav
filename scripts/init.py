@@ -26,7 +26,6 @@ sys.path.insert(0, str(project_root / "src"))
 
 from dotenv import load_dotenv
 from rich.console import Console
-from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
 load_dotenv()
 
@@ -276,7 +275,6 @@ def init_network_db(olav_dir: Path) -> bool:
     Returns:
         True if initialized successfully
     """
-    import duckdb
 
     db_dir = olav_dir / "db"
     db_dir.mkdir(parents=True, exist_ok=True)
@@ -296,6 +294,7 @@ def init_network_db(olav_dir: Path) -> bool:
     except Exception as e:
         print(f"  ❌ Error initializing olav.duckdb: {e}")
         return False
+
 
 def validate_hosts_yaml(olav_dir: Path) -> tuple[bool, str]:
     """Validate hosts.yaml exists and has valid structure.
@@ -467,7 +466,7 @@ def check_status(olav_dir: Path) -> None:
         print("❌ capabilities.db missing")
 
     # Check knowledge.db
-    knowledge_db = olav_dir / "db" / "knowledge.duckdb" # v0.9 update
+    knowledge_db = olav_dir / "db" / "knowledge.duckdb"  # v0.9 update
     if knowledge_db.exists():
         print("✅ knowledge.db exists")
     else:
@@ -483,11 +482,7 @@ def check_status(olav_dir: Path) -> None:
     print("=" * 50)
 
 
-
-
-
 # Logic moved to olav.tools.schema_catalog
-
 
 
 def main() -> None:
@@ -544,7 +539,9 @@ Examples:
     if args.refresh_schema:
         console.print("\n🔄 [bold]Refreshing Schema Catalog[/bold]")
         console.print("=" * 50)
-        console.print("[yellow]⚠️  Manual schema refresh is deprecated. Dynamic discovery enabled.[/yellow]")
+        console.print(
+            "[yellow]⚠️  Manual schema refresh is deprecated. Dynamic discovery enabled.[/yellow]"
+        )
         console.print("=" * 50)
         return
 

@@ -122,7 +122,6 @@ class CommandRegistry:
         - \s+ -> space
         - ^ and $ -> removed
         """
-        import re
 
         # 1. Remove brackets sh[[ow]] -> show
         cmd = raw.replace("[[", "").replace("]]", "")

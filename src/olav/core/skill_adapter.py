@@ -14,7 +14,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from langchain_core.tools import Tool, StructuredTool
+from langchain_core.tools import StructuredTool, Tool
 
 if TYPE_CHECKING:
     from olav.core.skill_loader import Skill
@@ -39,43 +39,49 @@ class SkillAdapter:
             script_path = tool_def["script"]
             name = tool_def["name"]
             description = tool_def["description"]
-            
+
+            # Get skill directory for relative path resolution
+            skill_file = Path(skill.file_path)
+            skill_dir = skill_file.parent if skill_file.is_file() else Path(skill.file_path)
+
             # Create the executor
-            executor = SkillAdapter._create_executor(script_path)
-            
+            executor = SkillAdapter._create_executor(script_path, skill_dir)
+
             # Use StructuredTool for proper Schema support
             # This prevents parameter hallucination (e.g., passing 'hostname' instead of 'device')
             parameters = tool_def.get("parameters")
             if parameters and parameters.get("properties"):
                 from pydantic import create_model
-                
+
                 properties = parameters.get("properties", {})
                 required = parameters.get("required", [])
-                
+
                 # Build field definitions for create_model
                 # We use (type, default) or (type, ...) for required
                 fields = {}
                 for prop_name, prop_def in properties.items():
-                    prop_type = Any # Default
+                    prop_type = Any  # Default
                     t = prop_def.get("type")
-                    if t == "string": prop_type = str
-                    elif t == "integer": prop_type = int
-                    elif t == "boolean": prop_type = bool
-                    elif t == "array": prop_type = list
-                    elif t == "object": prop_type = dict
-                    
+                    if t == "string":
+                        prop_type = str
+                    elif t == "integer":
+                        prop_type = int
+                    elif t == "boolean":
+                        prop_type = bool
+                    elif t == "array":
+                        prop_type = list
+                    elif t == "object":
+                        prop_type = dict
+
                     default_val = ... if prop_name in required else None
                     fields[prop_name] = (prop_type, default_val)
 
                 # Create dynamic Pydantic model for schema enforcement
-                ArgsModel = create_model(f"{name}Args", **fields)
-                
+                args_model = create_model(f"{name}Args", **fields)
+
                 tools.append(
                     StructuredTool.from_function(
-                        func=executor,
-                        name=name,
-                        description=description,
-                        args_schema=ArgsModel
+                        func=executor, name=name, description=description, args_schema=args_model
                     )
                 )
             else:
@@ -91,18 +97,20 @@ class SkillAdapter:
         return tools
 
     @staticmethod
-    def _create_executor(script_path: str) -> Callable:
+    def _create_executor(script_path: str, skill_dir: Path | None = None) -> Callable:
         """Create script executor function
 
         Args:
-            script_path: Path to the script (e.g., '.olav/scripts/query_database.py')
+            script_path: Path to the script (e.g., '.olav/scripts/query_database.py' or 'scripts/query_database.py')
+            skill_dir: Skill directory path (for resolving relative scripts/ paths)
 
         Returns:
             Callable function that executes the script
         """
 
         def executor(
-            arg: str | dict[str, Any] | None = None, **kwargs: Any  # noqa: ANN401
+            arg: str | dict[str, Any] | None = None,
+            **kwargs: Any,  # noqa: ANN401
         ) -> dict[str, Any]:
             """Execute script with strict parameter passing.
 
@@ -113,11 +121,11 @@ class SkillAdapter:
             Returns:
                 Script output as dict
             """
-            # Strict mode: parameters are passed as kwargs. 
-            # If LangChain passes a single 'arg' (common for simple Tools), 
+            # Strict mode: parameters are passed as kwargs.
+            # If LangChain passes a single 'arg' (common for simple Tools),
             # we don't try to guess its name unless we have to.
             # With proper SKILL.md schemas, ReAct agents will pass named kwargs.
-            
+
             params = kwargs.copy()
             if arg:
                 if isinstance(arg, dict):
@@ -125,10 +133,22 @@ class SkillAdapter:
                 else:
                     # Fallback for simple tools that might still pass a single string
                     params["__arg1"] = arg
-            
+
             # Resolve script path
             project_root = Path.cwd()
             full_script_path = project_root / script_path
+
+            # Handle relative scripts/ paths within skill directory
+            if skill_dir and not Path(script_path).is_absolute():
+                # Check if this is a relative path like "scripts/query_database.py"
+                if script_path.startswith("scripts/"):
+                    # Resolve relative to skill directory
+                    full_script_path = skill_dir / script_path
+                    if not full_script_path.exists():
+                        raise RuntimeError(f"Script not found: {full_script_path}")
+                elif not full_script_path.exists():
+                    # Try resolving from skill directory as fallback
+                    full_script_path = skill_dir / script_path
 
             if not full_script_path.exists():
                 raise RuntimeError(f"Script not found: {full_script_path}")
@@ -140,12 +160,14 @@ class SkillAdapter:
 
                     # Use a unique module name for the script
                     module_name = f"olav.tools.{full_script_path.stem}"
-                    
+
                     # Check cache first
                     if module_name in sys.modules:
                         module = sys.modules[module_name]
                     else:
-                        spec = importlib.util.spec_from_file_location(module_name, str(full_script_path))
+                        spec = importlib.util.spec_from_file_location(
+                            module_name, str(full_script_path)
+                        )
                         if spec and spec.loader:
                             module = importlib.util.module_from_spec(spec)
                             sys.modules[module_name] = module
@@ -189,10 +211,10 @@ class SkillAdapter:
                                 error_msg = result.stdout.strip()
                         except json.JSONDecodeError:
                             error_msg = result.stdout.strip()
-                    
+
                     if not error_msg:
                         error_msg = f"Exit code {result.returncode}"
-                        
+
                     raise RuntimeError(f"Script failed: {error_msg}")
 
                 return json.loads(result.stdout)

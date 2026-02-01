@@ -6,12 +6,10 @@ This script generates the consultation prompt for Gemini CLI,
 which can be used to get professional architecture evaluation.
 """
 
-import json
-import os
 
 def generate_gemini_consultation_prompt():
     """Generate the prompt for Gemini CLI consultation."""
-    
+
     prompt_content = """# OLAV v0.9.0 Fast Path Architecture Consultation
 
 ## Context
@@ -101,14 +99,14 @@ Please be specific and practical. Focus on "stupid simple" design that meets all
 def save_to_file(prompt: str, filename: str = "gemini_consultation_prompt.md"):
     """Save the consultation prompt to a file."""
     filepath = f"docs/{filename}"
-    
-    with open(filepath, 'w', encoding='utf-8') as f:
+
+    with open(filepath, "w", encoding="utf-8") as f:
         f.write(prompt)
-    
+
     print(f"✅ Consultation prompt saved to: {filepath}")
     print(f"   You can now use: gemini chat -f {filepath}")
     print(f"   Or: cat {filepath}")
-    
+
     return filepath
 
 
@@ -117,11 +115,11 @@ if __name__ == "__main__":
     print("OLAV - Generate Gemini Consultation Prompt")
     print("=" * 60)
     print()
-    
+
     # Generate prompt
     prompt = generate_gemini_consultation_prompt()
     filepath = save_to_file(prompt)
-    
+
     print()
     print("📄 Next Steps:")
     print(f"   1. Review the consultation prompt in: {filepath}")

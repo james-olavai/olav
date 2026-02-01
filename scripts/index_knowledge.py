@@ -24,9 +24,10 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from olav.tools.knowledge_embedder import KnowledgeEmbedder
+
 from config.settings import settings
 from olav.core.database import init_knowledge_db
-from olav.tools.knowledge_embedder import KnowledgeEmbedder
 
 
 def register_source(conn: object, source_name: str, source_path: Path, platform: str = None) -> int:

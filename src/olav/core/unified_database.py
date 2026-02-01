@@ -3,17 +3,25 @@
 This module provides a unified query interface across all three OLAV databases:
 - network_main.duckdb: Topology, parsed data, structured network data
 - network_commands.duckdb: Capabilities, audit logs, command cache
-- knowledge.duckdb: Documents, embeddings, fault patterns
+- knowledge.duckdb: Documents, FTS full-text search, fault patterns
 
 Uses DuckDB's ATTACH mechanism to enable cross-database JOINs.
 """
 
+import threading
 from typing import Any
 
 import duckdb
-import threading
 
 from config.paths import KNOWLEDGE_PATH, NETWORK_COMMANDS_PATH, NETWORK_SNAPSHOT_PATH
+
+# v0.10.0: Import DataGateway for backward compatibility wrappers
+try:
+    from olav.lib.data_gateway import get_gateway
+
+    DATA_GATEWAY_AVAILABLE = True
+except ImportError:
+    DATA_GATEWAY_AVAILABLE = False
 
 
 class UnifiedDatabase:
@@ -38,6 +46,12 @@ class UnifiedDatabase:
 
     def __init__(self):
         """Initialize unified database with all three databases attached."""
+        # v0.10.0: Initialize DataGateway for new architecture
+        if DATA_GATEWAY_AVAILABLE:
+            self.gw = get_gateway()
+        else:
+            self.gw = None
+
         with UnifiedDatabase._lock:
             # Create a private connection for this instance (Ephemeral Model)
             self.conn = duckdb.connect()
@@ -53,16 +67,17 @@ class UnifiedDatabase:
             # 2. Attach Commands (User-Local Cache - Primary RW)
             import time
             from pathlib import Path
+
             from config.paths import USER_CACHE_PATH
-            
+
             # Ensure user cache directory exists
             try:
                 Path(USER_CACHE_PATH).parent.mkdir(parents=True, exist_ok=True)
             except Exception:
                 pass
-                
+
             user_cache_path = str(USER_CACHE_PATH)
-            
+
             for attempt in range(3):
                 try:
                     # Attempt 1: Mount User-Local Cache as 'commands' (Read-Write)
@@ -73,11 +88,13 @@ class UnifiedDatabase:
                     if attempt < 2 and "being detached" in str(e):
                         time.sleep(0.2)
                         continue
-                    
+
                     try:
                         # Fallback: Mount Shared Commands as 'commands' (Read-Only)
                         # This allows reading pre-seeded semantic cache if user cache fails
-                        self.conn.execute(f"ATTACH IF NOT EXISTS '{commands_path}' AS commands (READ_ONLY)")
+                        self.conn.execute(
+                            f"ATTACH IF NOT EXISTS '{commands_path}' AS commands (READ_ONLY)"
+                        )
                         attached_paths.add(commands_path)
                         break
                     except Exception:
@@ -92,8 +109,8 @@ class UnifiedDatabase:
                     self.conn.execute(f"ATTACH IF NOT EXISTS '{snapshot_path}' AS db_snapshot")
                     attached_paths.add(snapshot_path)
                 except Exception:
-                     pass
-            
+                    pass
+
             # 4. Attach Knowledge (Skip if already attached)
             if knowledge_path not in attached_paths:
                 try:
@@ -103,7 +120,9 @@ class UnifiedDatabase:
                     pass
 
             # Update search path dynamically based on attached catalogs
-            catalogs = self.conn.execute("SELECT catalog_name FROM information_schema.schemata").fetchall()
+            catalogs = self.conn.execute(
+                "SELECT catalog_name FROM information_schema.schemata"
+            ).fetchall()
             attached = {c[0] for c in catalogs}
             paths = ["main", "commands", "db_snapshot", "knowledge"]
             active_paths = [p for p in paths if p in attached or p == "main"]
@@ -113,7 +132,7 @@ class UnifiedDatabase:
             try:
                 # Core views that MUST exist for agents to function
                 # Mapping: view_name -> source_table
-                CORE_VIEWS = {
+                core_views = {
                     "v_interfaces": "v_interfaces",
                     "v_bgp_neighbors": "v_bgp_neighbors",
                     "v_routes": "v_routes",
@@ -123,52 +142,57 @@ class UnifiedDatabase:
                     "v_cdp_neighbors": "v_cdp_neighbors",
                     "v_cpu_utilization": "v_cpu_utilization",
                     "v_memory_utilization": "v_memory_utilization",
-                    "v_device_capabilities": "v_device_capabilities"
+                    "v_device_capabilities": "v_device_capabilities",
                 }
 
-                source = "commands" # Primary catalog
+                source = "commands"  # Primary catalog
                 # Verify if 'commands' catalog is actually attached
-                catalogs = self.conn.execute("SELECT catalog_name FROM information_schema.schemata").fetchall()
+                catalogs = self.conn.execute(
+                    "SELECT catalog_name FROM information_schema.schemata"
+                ).fetchall()
                 is_commands_attached = any(c[0] == "commands" for c in catalogs)
 
                 if is_commands_attached:
                     # Method 1: Dynamic exposure (if schemas are ready)
                     try:
-                        views = self.conn.execute(f"SELECT table_name FROM {source}.information_schema.tables WHERE table_name LIKE 'v_%'").fetchall()
+                        views = self.conn.execute(
+                            f"SELECT table_name FROM {source}.information_schema.tables WHERE table_name LIKE 'v_%'"
+                        ).fetchall()
                         for v in views:
-                            self.conn.execute(f"CREATE OR REPLACE VIEW main.{v[0]} AS SELECT * FROM {source}.{v[0]}")
+                            self.conn.execute(
+                                f"CREATE OR REPLACE VIEW main.{v[0]} AS SELECT * FROM {source}.{v[0]}"
+                            )
                     except Exception:
                         # Method 2: Static fallback (if info_schema is stubborn)
-                        for view_name in CORE_VIEWS:
+                        for view_name in core_views:
                             try:
-                                self.conn.execute(f"CREATE VIEW IF NOT EXISTS main.{view_name} AS SELECT * FROM {source}.{view_name}")
+                                self.conn.execute(
+                                    f"CREATE VIEW IF NOT EXISTS main.{view_name} AS SELECT * FROM {source}.{view_name}"
+                                )
                             except Exception:
                                 pass
             except Exception:
                 pass
-            
+
             # 6. Initialize Semantic Cache table (Safe check)
             try:
                 if is_commands_attached:
                     # Ensure schema exists (User-local DB might be empty)
                     self.conn.execute("CREATE SCHEMA IF NOT EXISTS commands.main")
-                    
+
                     self.conn.execute("""
                         CREATE TABLE IF NOT EXISTS commands.main.semantic_cache (
-                            query_text TEXT,
-                            query_embedding FLOAT[768],
+                            query_text TEXT PRIMARY KEY,
                             action_json JSON,
-                            confidence FLOAT,
+                            hit_count INTEGER DEFAULT 0,
                             last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                         );
 
                         -- Create Intent Cache table (Fast Path - Phase 4)
                         CREATE TABLE IF NOT EXISTS commands.main.intent_cache (
                             id INTEGER PRIMARY KEY,
-                            query_text TEXT,
-                            query_embedding FLOAT[768],
+                            query_text TEXT PRIMARY KEY,
                             execution_plan JSON,
-                            confidence FLOAT,
                             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                             last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                             hit_count INTEGER DEFAULT 1
@@ -189,7 +213,7 @@ class UnifiedDatabase:
 
     def query(self, sql: str, params: list[Any] | None = None) -> list[tuple]:
         """Execute SQL query across attached databases.
-        
+
         This method is thread-safe.
         """
         with UnifiedDatabase._lock:
@@ -199,7 +223,7 @@ class UnifiedDatabase:
 
     def query_df(self, sql: str, params: list[Any] | None = None) -> Any:
         """Execute SQL query and return pandas DataFrame.
-        
+
         This method is thread-safe.
         """
         with UnifiedDatabase._lock:
@@ -209,7 +233,7 @@ class UnifiedDatabase:
 
     def find_ip_location(self, ip: str) -> dict[str, Any]:
         """Find which device and interface has this IP address.
-        
+
         This method is thread-safe.
         """
         with UnifiedDatabase._lock:
@@ -233,7 +257,7 @@ class UnifiedDatabase:
 
     def get_device_health(self, device: str) -> dict[str, Any]:
         """Get comprehensive health status for a device.
-        
+
         This method is thread-safe.
         """
         with UnifiedDatabase._lock:
@@ -251,9 +275,15 @@ class UnifiedDatabase:
                 return {"error": f"Device {device} not found in version data"}
 
             # Get counts using main schema views
-            arp_count = self.conn.execute("SELECT COUNT(*) FROM main.v_arp WHERE device = ?", [device_info[0]]).fetchone()[0]
-            route_count = self.conn.execute("SELECT COUNT(*) FROM main.v_routes WHERE device = ?", [device_info[0]]).fetchone()[0]
-            int_count = self.conn.execute("SELECT COUNT(*) FROM main.v_interfaces WHERE device = ?", [device_info[0]]).fetchone()[0]
+            arp_count = self.conn.execute(
+                "SELECT COUNT(*) FROM main.v_arp WHERE device = ?", [device_info[0]]
+            ).fetchone()[0]
+            route_count = self.conn.execute(
+                "SELECT COUNT(*) FROM main.v_routes WHERE device = ?", [device_info[0]]
+            ).fetchone()[0]
+            int_count = self.conn.execute(
+                "SELECT COUNT(*) FROM main.v_interfaces WHERE device = ?", [device_info[0]]
+            ).fetchone()[0]
 
             return {
                 "device_name": device_info[0],
@@ -267,7 +297,9 @@ class UnifiedDatabase:
     def get_network_summary(self) -> dict[str, Any]:
         """Get network-wide summary statistics using main schema views."""
         with UnifiedDatabase._lock:
-            device_count = self.conn.execute("SELECT COUNT(DISTINCT device) FROM main.v_device_status").fetchone()[0]
+            device_count = self.conn.execute(
+                "SELECT COUNT(DISTINCT device) FROM main.v_device_status"
+            ).fetchone()[0]
             arp_count = self.conn.execute("SELECT COUNT(*) FROM main.v_arp").fetchone()[0]
             route_count = self.conn.execute("SELECT COUNT(*) FROM main.v_routes").fetchone()[0]
 
@@ -279,7 +311,7 @@ class UnifiedDatabase:
 
     def search_ip_across_network(self, ip_pattern: str) -> list[dict]:
         """Search for IP addresses matching pattern across all devices.
-        
+
         This method is thread-safe.
         """
         with UnifiedDatabase._lock:
@@ -311,7 +343,7 @@ class UnifiedDatabase:
 
     def audit_command_authorization(self, hours: int = 24) -> list[dict[str, Any]]:
         """Audit recent commands against whitelist.
-        
+
         This method is thread-safe.
         """
         with UnifiedDatabase._lock:
@@ -355,122 +387,299 @@ class UnifiedDatabase:
                 for r in results
             ]
 
-    def search_semantic_cache(self, embedding: list[float], threshold: float = 0.95) -> dict[str, Any] | None:
-        """Search the semantic cache for a similar query.
-        
+    def search_cache(self, query_text: str) -> dict[str, Any] | None:
+        """[DEPRECATED] Use DataGateway.get_skill_cache() instead.
+
+        This method is deprecated and will be removed in v0.11.0.
+        Use gw.get_skill_cache("network-query", query_text) instead.
+
         This method is thread-safe.
         """
+        import warnings
+
+        warnings.warn(
+            "search_cache() is deprecated, use DataGateway.get_skill_cache() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         import json
+
         with UnifiedDatabase._lock:
             try:
-                res = self.conn.execute("""
-                    SELECT action_json, array_cosine_similarity(query_embedding, ?::FLOAT[]) as score
+                res = self.conn.execute(
+                    """
+                    SELECT action_json
                     FROM commands.main.semantic_cache
-                    WHERE score > ?
-                    ORDER BY score DESC
+                    WHERE query_text = ?
                     LIMIT 1
-                """, [embedding, threshold]).fetchone()
-                
+                """,
+                    [query_text],
+                ).fetchone()
+
                 if res:
                     action_json = res[0]
-                    # Update last_used
+                    # Update last_used and hit_count
                     try:
                         self.conn.execute(
-                            "UPDATE commands.main.semantic_cache SET last_used = CURRENT_TIMESTAMP WHERE action_json = ?",
-                            [action_json]
+                            """UPDATE commands.main.semantic_cache
+                               SET last_used = CURRENT_TIMESTAMP, hit_count = hit_count + 1
+                               WHERE query_text = ?""",
+                            [query_text],
                         )
                     except Exception:
                         pass
                     return json.loads(action_json)
             except Exception:
                 pass
-                
+
             return None
 
-    def save_semantic_cache(self, query: str, embedding: list[float], action: dict[str, Any], confidence: float = 1.0) -> None:
-        """Save a successful query and its action to the semantic cache.
-        
+    def save_cache(self, query_text: str, action: dict[str, Any]) -> None:
+        """[DEPRECATED] Use save_cache_gateway() instead.
+
+        This method is deprecated and will be removed in v0.11.0.
+        Use self.save_cache_gateway(query_text, action) instead.
+
         This method is thread-safe.
         """
+        import warnings
+
+        warnings.warn(
+            "save_cache() is deprecated, use save_cache_gateway() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         import json
+
         with UnifiedDatabase._lock:
             try:
-                self.conn.execute("""
-                    INSERT INTO commands.main.semantic_cache (query_text, query_embedding, action_json, confidence)
-                    VALUES (?, ?::FLOAT[], ?, ?)
-                """, [query, embedding, json.dumps(action), confidence])
+                self.conn.execute(
+                    """
+                    INSERT INTO commands.main.semantic_cache (query_text, action_json, hit_count)
+                    VALUES (?, ?, 1)
+                    ON CONFLICT (query_text) DO UPDATE SET
+                        action_json = excluded.action_json,
+                        hit_count = hit_count + 1,
+                        last_used = CURRENT_TIMESTAMP
+                """,
+                    [query_text, json.dumps(action)],
+                )
             except Exception as e:
                 import logging
-                logging.getLogger(__name__).error(f"Save semantic cache failed: {e}")
 
-    def search_intent_cache(self, embedding: list[float], threshold: float = 0.9, top_k: int = 1) -> list[dict[str, Any]]:
-        """
-        Search intent cache for matching execution plans.
+                logging.getLogger(__name__).error(f"Save cache failed: {e}")
+
+    def search_intent_cache(self, query_text: str) -> dict[str, Any] | None:
+        """[DEPRECATED] Use search_intent_cache_gateway() instead.
+
+        This method is deprecated and will be removed in v0.11.0.
+        Use self.search_intent_cache_gateway(query_text) instead.
 
         Args:
-            embedding: Query embedding vector
-            threshold: Similarity threshold (0.0-1.0)
-            top_k: Number of results to return
+            query_text: Query text to match
 
         Returns:
-            List of matching intent cache entries with query, execution_plan, confidence
+            Intent cache entry with query, execution_plan or None
         """
+        import warnings
+
+        warnings.warn(
+            "search_intent_cache() is deprecated, use search_intent_cache_gateway() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        import json
+
         with UnifiedDatabase._lock:
             try:
-                results = self.conn.execute(f"""
+                result = self.conn.execute(
+                    """
                     SELECT
                         query_text,
-                        execution_plan,
-                        confidence,
-                        created_at
+                        execution_plan
                     FROM commands.main.intent_cache
-                    WHERE array_cosine_similarity(query_embedding::FLOAT[{len(embedding)}], ?::FLOAT[{len(embedding)}]) >= ?
-                    ORDER BY confidence DESC, created_at DESC
-                    LIMIT ?
-                """, [embedding, threshold, top_k]).fetchall()
+                    WHERE query_text = ?
+                    LIMIT 1
+                """,
+                    [query_text],
+                ).fetchone()
 
-                return [
-                    {
-                        "query_text": row[0],
-                        "execution_plan": row[1],
-                        "confidence": row[2],
-                        "created_at": row[3],
+                if result:
+                    # Update hit_count and last_used
+                    try:
+                        self.conn.execute(
+                            """UPDATE commands.main.intent_cache
+                               SET hit_count = hit_count + 1, last_used = CURRENT_TIMESTAMP
+                               WHERE query_text = ?""",
+                            [query_text],
+                        )
+                    except Exception:
+                        pass
+                    return {
+                        "query_text": result[0],
+                        "execution_plan": json.loads(result[1])
+                        if isinstance(result[1], str)
+                        else result[1],
                     }
-                    for row in results
-                ]
             except Exception as e:
                 import logging
-                logging.getLogger(__name__).error(f"Search intent cache failed: {e}")
-                return []
 
-    def save_intent_cache(
-        self,
-        query: str,
-        embedding: list[float],
-        plan: dict[str, Any],
-        confidence: float = 1.0
-    ) -> None:
-        """
-        Save a successful execution plan to intent cache.
+                logging.getLogger(__name__).error(f"Search intent cache failed: {e}")
+
+            return None
+
+    def save_intent_cache(self, query: str, plan: dict[str, Any]) -> None:
+        """[DEPRECATED] Use save_intent_cache_gateway() instead.
+
+        This method is deprecated and will be removed in v0.11.0.
+        Use self.save_intent_cache_gateway(query, plan) instead.
 
         This method is thread-safe.
 
         Args:
             query: Original user query
-            embedding: Query embedding vector
             plan: Execution plan as JSON
-            confidence: Confidence score (0.0-1.0)
         """
+        import warnings
+
+        warnings.warn(
+            "save_intent_cache() is deprecated, use save_intent_cache_gateway() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         import json
+
         with UnifiedDatabase._lock:
             try:
-                self.conn.execute("""
-                    INSERT INTO commands.main.intent_cache (query_text, query_embedding, execution_plan, confidence)
-                    VALUES (?, ?::FLOAT[], ?, ?)
-                """, [query, embedding, json.dumps(plan), confidence])
+                self.conn.execute(
+                    """
+                    INSERT INTO commands.main.intent_cache (query_text, execution_plan, hit_count)
+                    VALUES (?, ?, 1)
+                    ON CONFLICT (query_text) DO UPDATE SET
+                        execution_plan = excluded.execution_plan,
+                        hit_count = hit_count + 1,
+                        last_used = CURRENT_TIMESTAMP
+                """,
+                    [query, json.dumps(plan)],
+                )
             except Exception as e:
                 import logging
+
                 logging.getLogger(__name__).error(f"Save intent cache failed: {e}")
+
+    # =========================================================================
+    # v0.10.0: DataGateway Delegation Methods (Backward Compatibility)
+    # =========================================================================
+    # These methods provide a smooth migration path to the new DataGateway
+    # architecture while maintaining full backward compatibility with existing code.
+    #
+    # Strategy:
+    # - Try DataGateway first (new v0.10.0 architecture)
+    # - Fall back to legacy implementation if DataGateway unavailable or fails
+    # - This allows gradual migration without breaking existing functionality
+    # =========================================================================
+
+    def query_gateway(self, sql: str, params: list[Any] | None = None) -> list[dict]:
+        """
+        Query using DataGateway (v0.10.0+).
+
+        This method returns dicts (key-value pairs) instead of tuples,
+        making it more convenient for modern Python code.
+
+        Args:
+            sql: SQL query string
+            params: Optional query parameters
+
+        Returns:
+            List of dicts (one per row)
+        """
+        if self.gw:
+            try:
+                return self.gw.query_snapshots(sql, params or [])
+            except Exception:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "DataGateway query failed, falling back to legacy"
+                )
+
+        # Fallback to legacy query()
+        legacy_result = self.query(sql, params)
+        # Convert list of tuples to list of dicts
+        if legacy_result and len(legacy_result) > 0:
+            # Try to get column names from the query
+            # This is a simplified fallback - column names may not be available
+            return [dict(enumerate(row)) for row in legacy_result]
+        return []
+
+    def search_intent_cache_gateway(self, query_text: str) -> dict[str, Any] | None:
+        """
+        Search intent cache using DataGateway (v0.10.0+).
+
+        Args:
+            query_text: Query text to match
+
+        Returns:
+            Intent cache entry or None
+        """
+        if self.gw:
+            try:
+                result = self.gw.get_skill_cache("network-query", f"intent:{query_text}")
+                if result:
+                    return {"query": query_text, "execution_plan": result}
+            except Exception:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "DataGateway intent cache lookup failed, falling back to legacy"
+                )
+
+        # Fallback to legacy search_intent_cache()
+        return self.search_intent_cache(query_text)
+
+    def save_intent_cache_gateway(self, query: str, plan: dict[str, Any]) -> None:
+        """
+        Save intent cache using DataGateway (v0.10.0+).
+
+        Args:
+            query: Original user query
+            plan: Execution plan
+        """
+        if self.gw:
+            try:
+                self.gw.save_skill_cache("network-query", f"intent:{query}", plan)
+                return
+            except Exception:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "DataGateway save failed, falling back to legacy"
+                )
+
+        # Fallback to legacy save_intent_cache()
+        self.save_intent_cache(query, plan)
+
+    def save_cache_gateway(self, query_text: str, action: dict[str, Any]) -> None:
+        """
+        Save cache using DataGateway (v0.10.0+).
+
+        Args:
+            query_text: Query text
+            action: Action dict
+        """
+        if self.gw:
+            try:
+                self.gw.save_skill_cache("network-query", query_text, action)
+                return
+            except Exception:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "DataGateway save failed, falling back to legacy"
+                )
+
+        # Fallback to legacy save_cache()
+        self.save_cache(query_text, action)
 
     def close(self) -> None:
         """Close database connection."""

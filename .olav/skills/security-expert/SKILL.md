@@ -5,7 +5,7 @@ description: "Security Specialist - VPN, ACL, NAT and Firewall analysis."
 version: 1.0.0
 tools:
   - name: query_database
-    script: .olav/scripts/query_database.py
+    script: scripts/query_database.py
     description: "Query security policies and VPN status."
     parameters:
       type: object
@@ -15,7 +15,7 @@ tools:
           description: "SQL query for security data."
       required: ["sql"]
   - name: smart_query
-    script: .olav/scripts/smart_query.py
+    script: scripts/smart_query.py
     description: "Run live security show commands."
     parameters:
       type: object

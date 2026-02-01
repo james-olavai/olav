@@ -24,9 +24,7 @@ class OlavDatabase:
     command discovery and validation.
     """
 
-    def __init__(
-        self, db_path: str | Path | None = None, read_only: bool = False
-    ) -> None:
+    def __init__(self, db_path: str | Path | None = None, read_only: bool = False) -> None:
         """Initialize database connection.
 
         Args:
@@ -236,9 +234,7 @@ class OlavDatabase:
 _db_instance: OlavDatabase | None = None
 
 
-def get_database(
-    db_path: str | Path | None = None, read_only: bool = False
-) -> OlavDatabase:
+def get_database(db_path: str | Path | None = None, read_only: bool = False) -> OlavDatabase:
     """Get the global database instance.
 
     Args:
@@ -351,8 +347,7 @@ def init_knowledge_db(db_path: str | None = None) -> duckdb.DuckDBPyConnection:
 
     conn.commit()
 
-    # Create knowledge chunks table with vector embeddings
-    # Note: embedding dimension depends on model
+    # Create knowledge chunks table with full-text search (v0.9.8: no vector embeddings)
     conn.execute("""
         CREATE SEQUENCE IF NOT EXISTS knowledge_chunks_id_seq START 1
     """)
@@ -367,13 +362,12 @@ def init_knowledge_db(db_path: str | None = None) -> duckdb.DuckDBPyConnection:
             platform TEXT,
             doc_type TEXT,
             keywords TEXT[],
-            embedding FLOAT[768],
             file_hash TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
-    # Create full-text search index
+    # Create full-text search index (v0.9.8: keyword-based search only)
     try:
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_chunks_fts
@@ -381,17 +375,6 @@ def init_knowledge_db(db_path: str | None = None) -> duckdb.DuckDBPyConnection:
         """)
     except Exception as e:
         print(f"Warning: Could not create FTS index: {e}")
-
-    # Create vector index (HNSW - Hierarchical Navigable Small World)
-    # This provides fast approximate nearest neighbor search
-    try:
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_chunks_vector
-            ON knowledge_chunks USING HNSW(embedding)
-        """)
-    except Exception as e:
-        print(f"Warning: Could not create vector index: {e}")
-        print("Vector search performance will be degraded.")
 
     # Create other indexes for efficient querying
     conn.execute("""

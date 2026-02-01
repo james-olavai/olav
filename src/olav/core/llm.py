@@ -1,7 +1,9 @@
-"""LLM Factory for creating chat and embedding models.
+"""LLM Factory for creating chat models.
 
 Uses LangChain's init_chat_model() for unified provider support including
 OpenAI, Azure, and Ollama.
+
+NOTE: v0.9.8 - Embedding support removed, using exact match caching only.
 """
 
 import logging
@@ -9,7 +11,6 @@ from typing import Any
 
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
-from langchain_openai import OpenAIEmbeddings
 
 from config.settings import settings
 
@@ -65,37 +66,3 @@ class LLMFactory:
             logger.debug(f"Creating Azure chat model: {model_name}")
 
         return init_chat_model(model_name, model_provider=provider, **config, **kwargs)  # type: ignore[return-value]
-
-    @staticmethod
-    def get_embedding_model() -> OpenAIEmbeddings:
-        """Create an embedding model instance.
-
-        Returns:
-            Configured embedding model instance
-        """
-        provider = settings.embedding_provider
-        api_key = settings.embedding_api_key or settings.llm_api_key
-        model = settings.embedding_model
-
-        if provider == "openai":
-            if not api_key:
-                logger.warning("No embedding API key set")
-            from pydantic import SecretStr
-
-            return OpenAIEmbeddings(
-                model=model,
-                api_key=SecretStr(api_key) if api_key else None,  # type: ignore[arg-type]
-            )
-
-        if provider == "ollama":
-            try:
-                from langchain_ollama import OllamaEmbeddings
-            except ImportError as e:
-                msg = "langchain-ollama not installed"
-                raise ImportError(msg) from e
-
-            base_url = settings.embedding_base_url or "http://localhost:11434"
-            return OllamaEmbeddings(model=model, base_url=base_url)  # type: ignore[return-value]
-
-        msg = f"Unsupported embedding provider: {provider}"
-        raise ValueError(msg)

@@ -19,7 +19,12 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 
+from olav.lib.data_gateway import get_gateway
+
 logger = logging.getLogger(__name__)
+
+# Initialize DataGateway for learning
+_gw = get_gateway()
 
 
 # =============================================================================
@@ -39,6 +44,7 @@ class AnalyzerState:
         recommendations: Actionable recommendations
         status: Current status
         error_message: Error message if failed
+        similar_cases: Similar historical cases for reference
     """
 
     user_query: str = ""
@@ -49,6 +55,7 @@ class AnalyzerState:
     status: str = "pending"  # pending, db_query, cli_verify, analyzing, complete, failed
     error_message: str = ""
     routing_decision: str = ""  # "static_only" or "verify_realtime"
+    similar_cases: list[dict[str, Any]] = field(default_factory=list)  # Similar historical cases
 
 
 # =============================================================================
@@ -78,7 +85,9 @@ def _should_verify_realtime(user_query: str, db_data: dict[str, Any]) -> bool:
     query_lower = user_query.lower()
 
     # Priority 1: User explicitly asks for real-time
-    if any(k in query_lower for k in ["current", "live", "now", "verify", "check status", "up to date"]):
+    if any(
+        k in query_lower for k in ["current", "live", "now", "verify", "check status", "up to date"]
+    ):
         return True
 
     # Priority 2: Simple listing queries should NOT trigger real-time verification
@@ -131,6 +140,11 @@ async def db_query_node(state: AnalyzerState) -> AnalyzerState:
                 "sql": state.user_query,  # Best effort sql tracking
                 "row_count": len(rows),
             }
+
+        # Search for similar historical cases (Agentic Learning)
+        state.similar_cases = _search_similar_cases(state.user_query)
+        if state.similar_cases:
+            logger.info(f"Found {len(state.similar_cases)} similar historical cases")
 
         # Determine if real-time verification is needed
         needs_realtime = _should_verify_realtime(state.user_query, state.db_data)
@@ -229,6 +243,52 @@ async def analyze_node(state: AnalyzerState) -> AnalyzerState:
         state.analysis = analysis
         state.recommendations = _extract_recommendations(analysis)
 
+        # Extract root cause and solution for learning (simple extraction)
+        root_cause = "Unknown"
+        solution = "See recommendations"
+
+        # Try to extract structured information from analysis
+        lines = analysis.split("\n")
+        for i, line in enumerate(lines):
+            if "root cause" in line.lower() or "根因" in line:
+                root_cause = (
+                    line.split(":", 1)[-1].strip()
+                    if ":" in line
+                    else lines[i + 1].strip()
+                    if i + 1 < len(lines)
+                    else line
+                )
+            if "solution" in line.lower() or "解决方案" in line.lower():
+                solution = line.split(":", 1)[-1].strip() if ":" in line else line
+
+        # Collect devices and commands for learning
+        devices_checked = []
+        commands_used = []
+
+        if state.db_data.get("data"):
+            # Extract device names from data
+            for row in state.db_data["data"][:10]:
+                if isinstance(row, dict):
+                    if "device" in row:
+                        devices_checked.append(row["device"])
+                    elif "name" in row:
+                        devices_checked.append(row["name"])
+
+        if state.cli_data.get("command"):
+            commands_used.append(state.cli_data["command"])
+
+        # Save diagnosis case for future learning (Agentic Learning)
+        try:
+            _save_diagnosis_case(
+                symptom=state.user_query,
+                root_cause=root_cause,
+                solution=solution,
+                devices_checked=list(set(devices_checked)),  # Deduplicate
+                commands_used=commands_used,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to save diagnosis case: {e}")
+
         state.status = "complete"
 
         logger.info("Analysis completed successfully")
@@ -260,6 +320,20 @@ def _build_analysis_prompt(state: AnalyzerState) -> str:
         "",
         "Data Sources:",
     ]
+
+    # Add similar historical cases (Agentic Learning)
+    if state.similar_cases:
+        prompt_parts.append("0. Similar Historical Cases (for reference):")
+        for i, case in enumerate(state.similar_cases[:3], 1):
+            age = case.get("age_days", 0)
+            prompt_parts.append(f"   Case {i} ({age} days ago):")
+            prompt_parts.append(f"     Symptom: {case.get('symptom', 'Unknown')}")
+            prompt_parts.append(f"     Root Cause: {case.get('root_cause', 'Unknown')}")
+            prompt_parts.append(f"     Solution: {case.get('solution', 'Unknown')}")
+        prompt_parts.append(
+            "   ⚠️ Important: Historical cases are for reference only. Verify in current state."
+        )
+        prompt_parts.append("")
 
     # Add DB data
     if state.db_data.get("data"):
@@ -329,6 +403,103 @@ def _extract_recommendations(analysis: str) -> list[str]:
     return recommendations
 
 
+def _search_similar_cases(
+    symptom: str, skill_name: str = "network-analysis"
+) -> list[dict[str, Any]]:
+    """Search for similar historical diagnosis cases.
+
+    Args:
+        symptom: User's problem description
+        skill_name: Name of the skill
+
+    Returns:
+        List of similar cases
+    """
+    try:
+        # Extract keywords from symptom (simple implementation)
+        keywords = [w for w in symptom.split() if len(w) > 3][:3]
+        similar_cases = []
+
+        for keyword in keywords:
+            cases = _gw.search_similar_cases(skill_name, keyword, max_age_days=30, limit=2)
+            similar_cases.extend(cases)
+
+        # Deduplicate by case content
+        seen = set()
+        unique_cases = []
+        for case in similar_cases:
+            key = (case.get("symptom", ""), case.get("root_cause", ""))
+            if key not in seen:
+                seen.add(key)
+                unique_cases.append(case)
+
+        return unique_cases[:5]  # Return top 5
+    except Exception as e:
+        logger.warning(f"Failed to search similar cases: {e}")
+        return []
+
+
+def _build_diagnosis_context(symptom: str, similar_cases: list[dict[str, Any]]) -> str:
+    """Build diagnosis context including historical cases.
+
+    Args:
+        symptom: Current problem symptom
+        similar_cases: List of similar historical cases
+
+    Returns:
+        Context string with historical cases
+    """
+    context = f"当前问题: {symptom}\n"
+
+    if similar_cases:
+        context += "\n相似历史案例 (仅供参考，需验证当前状态):\n"
+        for case in similar_cases:
+            age = case.get("age_days", 0)
+            context += f"""
+- 时间: {case.get("created_at", "Unknown")} ({age} 天前)
+  症状: {case.get("symptom", "Unknown")}
+  根因: {case.get("root_cause", "Unknown")}
+  解决方案: {case.get("solution", "Unknown")}
+"""
+        context += "\n⚠️ 重要: 历史案例仅供参考，必须在当前状态中验证。\n"
+    else:
+        context += "\n未找到相似历史案例。\n"
+
+    return context
+
+
+def _save_diagnosis_case(
+    symptom: str,
+    root_cause: str,
+    solution: str,
+    devices_checked: list[str] | None = None,
+    commands_used: list[str] | None = None,
+    skill_name: str = "network-analysis",
+) -> None:
+    """Save diagnosis case to learning database.
+
+    Args:
+        symptom: Problem symptom
+        root_cause: Identified root cause
+        solution: Applied solution
+        devices_checked: List of devices examined
+        commands_used: List of commands executed
+        skill_name: Name of the skill
+    """
+    try:
+        _gw.save_diagnosis_case(
+            skill_name=skill_name,
+            symptom=symptom,
+            devices_checked=devices_checked or [],
+            commands_used=commands_used or [],
+            root_cause=root_cause,
+            solution=solution,
+        )
+        logger.info(f"Saved diagnosis case for: {symptom}")
+    except Exception as e:
+        logger.warning(f"Failed to save diagnosis case: {e}")
+
+
 # =============================================================================
 # Graph Creation
 # =============================================================================
@@ -364,7 +535,7 @@ def create_analyzer_graph() -> StateGraph:
     workflow.add_edge("cli_verify", "analyze")
     workflow.add_edge("analyze", END)
 
-    return workflow.compile()
+    return workflow.compile()  # type: ignore[return-value]
 
 
 @tool
@@ -374,7 +545,7 @@ async def analyze_network(
     """Analyze network using Analyzer Agent with Data Fusion logic.
 
     Implements:
-    1. Static First: Always query DuckDB snapshot first (Instant, 60% confidence)
+    1. Static First: Always query DuckDB snapshot first (Instant access)
     2. Real-time Verify: If DB data indicates anomaly OR is stale, trigger CLI
     3. Fusion: Merge DB context with CLI reality
 
