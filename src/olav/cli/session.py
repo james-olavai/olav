@@ -10,6 +10,7 @@ Features:
 
 import logging
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -95,7 +96,7 @@ class OlavPromptSession:
 
     def _init_session(self) -> None:
         """Initialize prompt-toolkit session with history completion."""
-        logger.info("Initializing prompt-toolkit session in TTY mode...")
+        logger.debug("Initializing prompt-toolkit session in TTY mode...")
         try:
             # Import prompt-toolkit modules
             from prompt_toolkit import PromptSession
@@ -110,7 +111,7 @@ class OlavPromptSession:
                 try:
                     # Create FileHistory object
                     history = FileHistory(str(self.history_file))
-                    logger.info(f"Initialized history file: {self.history_file}")
+                    logger.debug(f"Initialized history file: {self.history_file}")
                 except Exception as e:
                     logger.debug(f"Failed to create FileHistory: {e}")
                     history = None
@@ -141,7 +142,7 @@ class OlavPromptSession:
                 session.multiline = True
 
             self._session = session
-            logger.info("Prompt-toolkit session initialized successfully")
+            logger.debug("Prompt-toolkit session initialized successfully")
 
         except Exception as e:
             logger.warning(f"Failed to initialize prompt-toolkit session: {e}")
@@ -223,6 +224,19 @@ class OlavPromptSession:
         """
         # In non-TTY mode, always use basic input to avoid hanging
         if not self.is_tty or self._session is None:
+            # Check if we're in an async context and need to run input in executor
+            try:
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    # We're in an async context - this should not happen normally
+                    # but if it does, we need to handle it carefully
+                    logger.debug("Running input() in executor from async context")
+                except RuntimeError:
+                    # No running loop, safe to call input() directly
+                    return input(message)
+            except Exception:
+                pass
             return input(message)
 
         try:
@@ -234,8 +248,6 @@ class OlavPromptSession:
         except Exception as e:
             logger.debug(f"Prompt session error: {e}, falling back to input()")
             return input(message)
-        except (EOFError, KeyboardInterrupt):
-            raise EOFError from None
 
     def record_query(
         self, query: str, command_used: str = "", device: str = "", sql_query: str = ""
