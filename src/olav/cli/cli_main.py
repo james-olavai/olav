@@ -213,12 +213,12 @@ def _create_learning_callback(session: "OlavPromptSession") -> Callable[[str], s
     return learn_alias
 
 
-def run_interactive_loop(
+async def run_interactive_loop_async(
     memory: "AgentMemory",
     session: "OlavPromptSession",
     agent: Any,
 ) -> None:
-    """Run the OLAV CLI (synchronous main loop).
+    """Run the OLAV CLI (asynchronous version for proper event loop handling).
 
     Args:
         memory: Agent memory manager
@@ -242,8 +242,8 @@ def run_interactive_loop(
     )
 
     try:
-        config_path = Path(".olav/config/routing_rules.yaml")
-        router = QueryRouter(config_path)
+        from config.paths import ROUTING_RULES_PATH
+        router = QueryRouter(ROUTING_RULES_PATH)
         if is_tty:
             print("✅ QueryRouter initialized")
     except FileNotFoundError:
@@ -390,9 +390,7 @@ def run_interactive_loop(
 
                                     display.show_processing_status("🤔 Synthesizing response...")
                                     if hasattr(agent, "synthesis"):
-                                        synthesis_output = asyncio.run(
-                                            agent.synthesis(user_input, tool_data)
-                                        )
+                                        synthesis_output = await agent.synthesis(user_input, tool_data)
                                         display.stop_processing_status()
                                         display.show_result(
                                             synthesis_output, end="\n"
@@ -438,13 +436,11 @@ def run_interactive_loop(
             # Check for slash commands first
             if user_input.startswith("/"):
                 try:
-                    # Run async command handler synchronously
-                    result = asyncio.run(
-                        execute_command(
-                            user_input,
-                            agent=agent,
-                            memory=memory,
-                        )
+                    # Run async command handler with await
+                    result = await execute_command(
+                        user_input,
+                        agent=agent,
+                        memory=memory,
                     )
                     if result:
                         # Check if result should be sent to Agent
@@ -459,10 +455,8 @@ def run_interactive_loop(
                             ] + [{"role": "user", "content": agent_prompt}]
                             use_verbose = settings.display_thinking
                             inputs = {"messages": messages, "retry_count": 0}
-                            output = asyncio.run(
-                                stream_agent_response(
-                                    agent, inputs, verbose=use_verbose, memory=memory
-                                )
+                            output = await stream_agent_response(
+                                agent, inputs, verbose=use_verbose, memory=memory
                             )
                             if output:
                                 memory.add("assistant", output)
@@ -534,14 +528,14 @@ def run_interactive_loop(
                 # Use verbose mode only if DISPLAY_THINKING=true
                 use_verbose = settings.display_thinking
                 inputs = {"messages": agent_messages, "retry_count": 0}
-                output = asyncio.run(
-                    stream_agent_response(
-                        agent,
-                        inputs,
-                        verbose=use_verbose,
-                        memory=memory,
-                        learn_callback=learn_callback,
-                    )
+                
+                # Use await instead of asyncio.run() to properly handle async context
+                output = await stream_agent_response(
+                    agent,
+                    inputs,
+                    verbose=use_verbose,
+                    memory=memory,
+                    learn_callback=learn_callback,
                 )
 
                 if output:
@@ -663,7 +657,7 @@ def version() -> None:
 
 @app.command()
 def snapshot(
-    group: str = typer.Option("test", "--group", "-g", help="Nornir group to snapshot"),
+    group: str = typer.Option(None, "--group", "-g", help="Nornir group to snapshot (defaults to NORNIR_DEFAULT_GROUP in settings)"),
     devices: str = typer.Option(
         "all", "--devices", "-d", help="Devices to snapshot (comma-separated or 'all')"
     ),
@@ -671,13 +665,20 @@ def snapshot(
     """Capture network device state snapshot (Stage 1: collect, Stage 2: parse+analyze).
 
     Examples:
-        olav snapshot                    # Snapshot all devices in 'test' group
+        olav snapshot                    # Snapshot all devices in configured default group
         olav snapshot --group production # Snapshot production group
         olav snapshot --devices R1,R2    # Snapshot specific devices
     """
     import os
 
     from olav.tools.sync_tools import sync_all
+    
+    # Load settings to get default group
+    from config.settings import settings
+    
+    # Use provided group or fall back to settings default
+    if group is None:
+        group = settings.nornir_default_group
 
     # Set CLI mode flag for sync_tools to wait for Stage 2
     os.environ["OLAV_CLI_MODE"] = "1"
@@ -742,7 +743,7 @@ def inspect(
 
         # Phase 15: Resolve Nornir filters to device list
         device_list = None
-        if device or group:
+        if device or group or test:
             from olav.tools.network import get_nornir
 
             nr = get_nornir()
@@ -777,15 +778,19 @@ def inspect(
 
         # Run async inspection
         orchestrator = InspectionOrchestrator()
-        report = asyncio.run(orchestrator.run_inspection(test_mode=test, device_filter=device_list))
+        inspection_type = "scheduled" if "cronjob" in str(test) else "manual"
+        report = asyncio.run(orchestrator.run_inspection(
+            test_mode=test, 
+            device_filter=device_list,
+            inspection_type=inspection_type
+        ))
 
         console.print(Panel("[bold green]Inspection Complete[/bold green]", border_style="green"))
 
         # Display report location
         from config.paths import REPORTS_DIR
 
-        report_dir = REPORTS_DIR / "inspection"
-        console.print(f"📄 Report saved to: [bold]{report_dir}/latest.md[/bold]")
+        console.print(f"📄 Report saved to: [bold]{REPORTS_DIR}/latest.md[/bold]")
 
         # Optionally print the summary part of the report
         if "\n## " in report:
@@ -858,8 +863,8 @@ def interactive_mode(ctx: typer.Context) -> None:
         # and let the loop handle it.
         agent = QueryAgentV2(mode="standard")
 
-        # Run interactive loop
-        run_interactive_loop(memory, session, agent)
+        # Run interactive loop (async mode for proper event loop handling)
+        asyncio.run(run_interactive_loop_async(memory, session, agent))
         memory.save()
 
     except KeyboardInterrupt:

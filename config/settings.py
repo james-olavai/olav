@@ -348,6 +348,41 @@ class Settings(BaseSettings):
     # Master switch for Human-in-the-Loop - set ENABLE_HITL=false in .env for yolo mode
     enable_hitl: bool = True  # Reads from ENABLE_HITL env var
     hitl_require_approval_for_write: bool = True
+
+    # =========================================================================
+    # Network Inspection Configuration (Moved from hardcoded values)
+    # =========================================================================
+    # Default Nornir group for network operations (snapshot, inspect)
+    nornir_default_group: str = Field(
+        default="test",
+        description="Default Nornir group for network device operations"
+    )
+
+    # Device platform configuration
+    device_default_platform: str = Field(
+        default="cisco_ios",
+        description="Default device platform when not specified"
+    )
+    device_supported_platforms: list[str] = Field(
+        default_factory=lambda: ["cisco_ios", "arista_eos", "juniper", "h3c"],
+        description="List of supported device platforms"
+    )
+
+    # Health score configuration (previously hardcoded)
+    # Used for device health assessment and reporting
+    health_score_config: dict = Field(
+        default_factory=lambda: {
+            "max_score": 100,
+            "critical_weight": 20,
+            "warning_weight": 5,
+            "thresholds": {
+                "healthy": 90,      # >= 90: HEALTHY
+                "warning": 70,      # >= 70: WARNING
+                "critical": 0       # < 70: CRITICAL
+            }
+        },
+        description="Health score calculation parameters"
+    )
     hitl_require_approval_for_skill_update: bool = True
     hitl_approval_timeout_seconds: int = 300
 
