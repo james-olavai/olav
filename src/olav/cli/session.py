@@ -42,8 +42,7 @@ class OlavPromptSession:
             enable_history: Enable history persistence
             multiline: Enable multi-line input
         """
-        import sys
-        
+
         if history_file is None:
             from config.settings import settings
 
@@ -100,10 +99,8 @@ class OlavPromptSession:
         try:
             # Import prompt-toolkit modules
             from prompt_toolkit import PromptSession
-            from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
             from prompt_toolkit.completion import WordCompleter
             from prompt_toolkit.history import FileHistory
-            from prompt_toolkit.key_binding import KeyBindings
 
             # Create file history for persistence
             history = None
@@ -227,6 +224,7 @@ class OlavPromptSession:
             # Check if we're in an async context and need to run input in executor
             try:
                 import asyncio
+
                 try:
                     loop = asyncio.get_running_loop()
                     # We're in an async context - this should not happen normally

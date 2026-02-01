@@ -225,7 +225,6 @@ async def run_interactive_loop_async(
         session: Prompt session
         agent: OLAV agent instance
     """
-    from pathlib import Path
 
     from config.settings import settings
     from olav.agents.query_agent_v2 import QueryAgentV2
@@ -243,6 +242,7 @@ async def run_interactive_loop_async(
 
     try:
         from config.paths import ROUTING_RULES_PATH
+
         router = QueryRouter(ROUTING_RULES_PATH)
         if is_tty:
             print("✅ QueryRouter initialized")
@@ -390,7 +390,9 @@ async def run_interactive_loop_async(
 
                                     display.show_processing_status("🤔 Synthesizing response...")
                                     if hasattr(agent, "synthesis"):
-                                        synthesis_output = await agent.synthesis(user_input, tool_data)
+                                        synthesis_output = await agent.synthesis(
+                                            user_input, tool_data
+                                        )
                                         display.stop_processing_status()
                                         display.show_result(
                                             synthesis_output, end="\n"
@@ -528,7 +530,7 @@ async def run_interactive_loop_async(
                 # Use verbose mode only if DISPLAY_THINKING=true
                 use_verbose = settings.display_thinking
                 inputs = {"messages": agent_messages, "retry_count": 0}
-                
+
                 # Use await instead of asyncio.run() to properly handle async context
                 output = await stream_agent_response(
                     agent,
@@ -657,7 +659,12 @@ def version() -> None:
 
 @app.command()
 def snapshot(
-    group: str = typer.Option(None, "--group", "-g", help="Nornir group to snapshot (defaults to NORNIR_DEFAULT_GROUP in settings)"),
+    group: str = typer.Option(
+        None,
+        "--group",
+        "-g",
+        help="Nornir group to snapshot (defaults to NORNIR_DEFAULT_GROUP in settings)",
+    ),
     devices: str = typer.Option(
         "all", "--devices", "-d", help="Devices to snapshot (comma-separated or 'all')"
     ),
@@ -671,11 +678,10 @@ def snapshot(
     """
     import os
 
-    from olav.tools.sync_tools import sync_all
-    
     # Load settings to get default group
     from config.settings import settings
-    
+    from olav.tools.sync_tools import sync_all
+
     # Use provided group or fall back to settings default
     if group is None:
         group = settings.nornir_default_group
@@ -779,11 +785,11 @@ def inspect(
         # Run async inspection
         orchestrator = InspectionOrchestrator()
         inspection_type = "scheduled" if "cronjob" in str(test) else "manual"
-        report = asyncio.run(orchestrator.run_inspection(
-            test_mode=test, 
-            device_filter=device_list,
-            inspection_type=inspection_type
-        ))
+        report = asyncio.run(
+            orchestrator.run_inspection(
+                test_mode=test, device_filter=device_list, inspection_type=inspection_type
+            )
+        )
 
         console.print(Panel("[bold green]Inspection Complete[/bold green]", border_style="green"))
 

@@ -10,10 +10,10 @@ This module initializes all 5 DuckDB databases with their tables:
 Reference: docs/00_development_guide.md §3.2 Database Design
 """
 
-from pathlib import Path
-import duckdb
-from typing import Optional
 import logging
+from pathlib import Path
+
+import duckdb
 
 logger = logging.getLogger(__name__)
 
@@ -162,28 +162,29 @@ class DatabaseSchemaManager:
     CREATE INDEX IF NOT EXISTS idx_case_created ON history_cases(created_at);
     """
 
-    def __init__(self, db_dir: Optional[Path] = None):
+    def __init__(self, db_dir: Path | None = None):
         """Initialize schema manager.
-        
+
         Args:
             db_dir: Base directory for database files (default: .olav/db/)
         """
         if db_dir is None:
             from config.settings import settings
+
             db_dir = Path(settings.project_paths.project_root) / ".olav" / "db"
-        
+
         self.db_dir = Path(db_dir)
         self.db_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Database file paths
         self.orchestrator_db = self.db_dir / "orchestrator.duckdb"
         self.snapshots_db = self.db_dir / "snapshots.duckdb"
         self.topology_db = self.db_dir / "topology.duckdb"
         self.knowledge_db = self.db_dir / "knowledge.duckdb"
-        
+
     def initialize_all(self) -> bool:
         """Initialize all database schemas.
-        
+
         Returns:
             True if all databases initialized successfully
         """
@@ -197,7 +198,7 @@ class DatabaseSchemaManager:
         except Exception as e:
             logger.error(f"Failed to initialize database schemas: {e}")
             return False
-    
+
     def initialize_orchestrator(self) -> None:
         """Initialize orchestrator database."""
         logger.info(f"Initializing orchestrator database: {self.orchestrator_db}")
@@ -207,7 +208,7 @@ class DatabaseSchemaManager:
             logger.info("Orchestrator database schema created")
         finally:
             conn.close()
-    
+
     def initialize_snapshots(self) -> None:
         """Initialize snapshots database."""
         logger.info(f"Initializing snapshots database: {self.snapshots_db}")
@@ -217,7 +218,7 @@ class DatabaseSchemaManager:
             logger.info("Snapshots database schema created")
         finally:
             conn.close()
-    
+
     def initialize_topology(self) -> None:
         """Initialize topology database (legacy)."""
         logger.info(f"Initializing topology database: {self.topology_db}")
@@ -241,7 +242,7 @@ class DatabaseSchemaManager:
             logger.info("Topology database schema created")
         finally:
             conn.close()
-    
+
     def initialize_knowledge(self) -> None:
         """Initialize knowledge base database."""
         logger.info(f"Initializing knowledge database: {self.knowledge_db}")
@@ -251,74 +252,68 @@ class DatabaseSchemaManager:
             logger.info("Knowledge database schema created")
         finally:
             conn.close()
-    
+
     def initialize_skill_db(self, skill_dir: Path) -> None:
         """Initialize skill database for a specific skill.
-        
+
         Args:
             skill_dir: Skill directory path (e.g., .olav/skills/network-expert/)
         """
         skill_db = skill_dir / "skill.duckdb"
         logger.info(f"Initializing skill database: {skill_db}")
-        
+
         # Ensure skill directory exists
         skill_dir.mkdir(parents=True, exist_ok=True)
-        
+
         conn = duckdb.connect(str(skill_db))
         try:
             conn.execute(self.SKILL_SCHEMA)
             logger.info(f"Skill database schema created: {skill_db}")
         finally:
             conn.close()
-    
+
     def validate_all(self) -> dict[str, bool]:
         """Validate all database schemas exist.
-        
+
         Returns:
             Dictionary mapping database names to validation status
         """
         results = {}
-        
+
         # Check orchestrator
         results["orchestrator"] = self._validate_db(
-            self.orchestrator_db,
-            ["execution_plan_cache", "quality_metrics"]
+            self.orchestrator_db, ["execution_plan_cache", "quality_metrics"]
         )
-        
+
         # Check snapshots
         results["snapshots"] = self._validate_db(
-            self.snapshots_db,
-            ["device_snapshots", "topology"]
+            self.snapshots_db, ["device_snapshots", "topology"]
         )
-        
+
         # Check topology
-        results["topology"] = self._validate_db(
-            self.topology_db,
-            ["topology"]
-        )
-        
+        results["topology"] = self._validate_db(self.topology_db, ["topology"])
+
         # Check knowledge
         results["knowledge"] = self._validate_db(
-            self.knowledge_db,
-            ["knowledge_sources", "knowledge_chunks"]
+            self.knowledge_db, ["knowledge_sources", "knowledge_chunks"]
         )
-        
+
         return results
-    
+
     def _validate_db(self, db_path: Path, expected_tables: list[str]) -> bool:
         """Validate database has expected tables.
-        
+
         Args:
             db_path: Path to database file
             expected_tables: List of expected table names
-            
+
         Returns:
             True if all tables exist
         """
         if not db_path.exists():
             logger.warning(f"Database file not found: {db_path}")
             return False
-        
+
         try:
             conn = duckdb.connect(str(db_path), read_only=True)
             try:
@@ -327,13 +322,13 @@ class DatabaseSchemaManager:
                     "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
                 ).fetchall()
                 tables = {row[0] for row in result}
-                
+
                 # Check all expected tables exist
                 missing = set(expected_tables) - tables
                 if missing:
                     logger.warning(f"Missing tables in {db_path.name}: {missing}")
                     return False
-                
+
                 return True
             finally:
                 conn.close()
@@ -342,12 +337,12 @@ class DatabaseSchemaManager:
             return False
 
 
-def init_databases(db_dir: Optional[Path] = None) -> bool:
+def init_databases(db_dir: Path | None = None) -> bool:
     """Initialize all OLAV databases.
-    
+
     Args:
         db_dir: Base directory for database files (default: .olav/db/)
-        
+
     Returns:
         True if initialization successful
     """
@@ -355,12 +350,12 @@ def init_databases(db_dir: Optional[Path] = None) -> bool:
     return manager.initialize_all()
 
 
-def validate_databases(db_dir: Optional[Path] = None) -> dict[str, bool]:
+def validate_databases(db_dir: Path | None = None) -> dict[str, bool]:
     """Validate all OLAV database schemas.
-    
+
     Args:
         db_dir: Base directory for database files (default: .olav/db/)
-        
+
     Returns:
         Dictionary mapping database names to validation status
     """
