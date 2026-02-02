@@ -94,7 +94,22 @@ class OlavPromptSession:
             return {}
 
     def _init_session(self) -> None:
-        """Initialize prompt-toolkit session with history completion."""
+        """Initialize prompt-toolkit session with history completion.
+        
+        Note: prompt-toolkit is disabled in async contexts to avoid event loop conflicts.
+        """
+        import asyncio
+        
+        # Check if we're in an async event loop
+        try:
+            asyncio.get_running_loop()
+            logger.debug("Async context detected, disabling prompt-toolkit")
+            self._session = None
+            return
+        except RuntimeError:
+            # No running loop, safe to use prompt-toolkit
+            pass
+        
         logger.debug("Initializing prompt-toolkit session in TTY mode...")
         try:
             # Import prompt-toolkit modules
@@ -221,11 +236,23 @@ class OlavPromptSession:
         Returns:
             User input string
         """
+        import asyncio
         import warnings
+
+        # Check if we're in an async event loop context
+        try:
+            asyncio.get_running_loop()
+            # We're in async context - must use basic input to avoid prompt-toolkit issues
+            logger.debug("In async context, using basic input()")
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=RuntimeWarning)
+                return input(message)
+        except RuntimeError:
+            # No running loop, safe to use prompt-toolkit
+            pass
 
         # In non-TTY mode, always use basic input to avoid hanging
         if not self.is_tty or self._session is None:
-            # Suppress RuntimeWarning when using input() in async context
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=RuntimeWarning)
                 return input(message)
@@ -238,9 +265,7 @@ class OlavPromptSession:
             raise EOFError from None
         except Exception as e:
             # If prompt-toolkit fails, fall back to basic input
-            # This should be rare and indicates prompt-toolkit issues
-            logger.warning(f"Prompt session error: {e}, falling back to input()")
-            # Suppress RuntimeWarning when using input() in async context
+            logger.debug(f"Prompt session error: {e}, falling back to input()")
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=RuntimeWarning)
                 return input(message)
