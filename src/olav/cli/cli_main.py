@@ -319,7 +319,12 @@ async def run_interactive_loop_async(
                             display.show_processing_status(
                                 f"⚡ Fast-Path: Executing {routing_decision.tool}..."
                             )
-                            executor = SkillAdapter._create_executor(tool_def["script"])
+                            # Get skill directory for relative path resolution
+                            from pathlib import Path
+                            skill_file = Path(skill.file_path)
+                            skill_dir = skill_file.parent if skill_file.is_file() else skill_file
+                            
+                            executor = SkillAdapter._create_executor(tool_def["script"], skill_dir=skill_dir)
                             result = executor(**routing_decision.params)
                             display.stop_processing_status()
 
