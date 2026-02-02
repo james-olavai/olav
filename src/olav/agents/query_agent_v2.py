@@ -264,6 +264,7 @@ class QueryAgentV2:
             last_user_msg = str(messages[-1].content)
 
         # Phase 1: Process aliases - replace user aliases with canonical names
+        logger.debug(f"Processing aliases for query: {last_user_msg}")
         original_query = last_user_msg
         last_user_msg = self._process_aliases(last_user_msg, learn_callback=learn_callback)
         if last_user_msg != original_query:
@@ -276,9 +277,12 @@ class QueryAgentV2:
                 from langchain_core.messages import HumanMessage
 
                 messages = messages[:-1] + [HumanMessage(content=last_user_msg)]
+        
+        logger.debug(f"Alias processing completed in {time.time() - start_time:.2f}s")
 
         try:
             # Execute ReAct loop
+            logger.debug(f"Starting agent execution in {self.mode} mode")
             if self.mode == "analysis":
                 final_state = await self.agent.ainvoke({"messages": messages})
             else:
