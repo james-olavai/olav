@@ -441,8 +441,25 @@ class QueryAgentV2:
         return {"status": "success", "output": result.get("result", "")}
 
     def invoke(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        """Synchronous version of ainvoke"""
+        """Synchronous version of ainvoke.
+        
+        NOTE: This method should not be called from async context.
+        Use ainvoke() directly instead.
+        """
         import asyncio
+
+        try:
+            # Check if we're already in an async context
+            asyncio.get_running_loop()
+            # If we get here, we're in async context - cannot use asyncio.run()
+            raise RuntimeError(
+                "invoke() cannot be called from async context. Use ainvoke() directly."
+            )
+        except RuntimeError as e:
+            if "asyncio.run()" in str(e) or "already" in str(e).lower():
+                raise e
+            # No running loop, safe to proceed with asyncio.run()
+            pass
 
         return asyncio.run(self.ainvoke(inputs))
 
