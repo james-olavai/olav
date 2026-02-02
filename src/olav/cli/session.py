@@ -10,7 +10,6 @@ Features:
 
 import logging
 import re
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +41,8 @@ class OlavPromptSession:
             enable_history: Enable history persistence
             multiline: Enable multi-line input
         """
-
+        import sys
+        
         if history_file is None:
             from config.settings import settings
 
@@ -99,8 +99,10 @@ class OlavPromptSession:
         try:
             # Import prompt-toolkit modules
             from prompt_toolkit import PromptSession
+            from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
             from prompt_toolkit.completion import WordCompleter
             from prompt_toolkit.history import FileHistory
+            from prompt_toolkit.key_binding import KeyBindings
 
             # Create file history for persistence
             history = None
@@ -219,23 +221,14 @@ class OlavPromptSession:
         Returns:
             User input string
         """
+        import warnings
+
         # In non-TTY mode, always use basic input to avoid hanging
         if not self.is_tty or self._session is None:
-            # Check if we're in an async context and need to run input in executor
-            try:
-                import asyncio
-
-                try:
-                    loop = asyncio.get_running_loop()
-                    # We're in an async context - this should not happen normally
-                    # but if it does, we need to handle it carefully
-                    logger.debug("Running input() in executor from async context")
-                except RuntimeError:
-                    # No running loop, safe to call input() directly
-                    return input(message)
-            except Exception:
-                pass
-            return input(message)
+            # Suppress RuntimeWarning when using input() in async context
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=RuntimeWarning)
+                return input(message)
 
         try:
             # Use plain string prompt to avoid XML parsing issues
@@ -244,8 +237,13 @@ class OlavPromptSession:
         except (EOFError, KeyboardInterrupt):
             raise EOFError from None
         except Exception as e:
-            logger.debug(f"Prompt session error: {e}, falling back to input()")
-            return input(message)
+            # If prompt-toolkit fails, fall back to basic input
+            # This should be rare and indicates prompt-toolkit issues
+            logger.warning(f"Prompt session error: {e}, falling back to input()")
+            # Suppress RuntimeWarning when using input() in async context
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=RuntimeWarning)
+                return input(message)
 
     def record_query(
         self, query: str, command_used: str = "", device: str = "", sql_query: str = ""
