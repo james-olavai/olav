@@ -50,6 +50,19 @@ class QueryAgentV2:
             mode: [DEPRECATED] Legacy "standard"|"analysis" parameter.
                   Use enable_summarization instead.
         """
+        # Set environment variables from settings for LangChain/DeepAgents
+        import os
+        if settings.llm_api_key and not os.getenv("OPENAI_API_KEY"):
+            os.environ["OPENAI_API_KEY"] = settings.llm_api_key
+        if settings.llm_base_url and not os.getenv("OPENAI_BASE_URL"):
+            os.environ["OPENAI_BASE_URL"] = settings.llm_base_url
+        # For OpenRouter models with x-ai/ prefix, use a generic model name
+        # and let OpenRouter's base_url handle routing
+        if settings.llm_base_url and "openrouter" in settings.llm_base_url.lower():
+            if not os.getenv("OPENAI_MODEL_NAME"):
+                # Use the actual model name from settings - OpenRouter will handle it
+                os.environ["OPENAI_MODEL_NAME"] = settings.llm_model_name
+
         # Backward compatibility: convert old mode parameter
         if mode is not None:
             logger.warning(
@@ -80,12 +93,9 @@ class QueryAgentV2:
         # 1. Load tools dynamically from Skill metadata (Agent-Agnostic)
         self.tools = SkillAdapter.load_tools_from_skill(self.skill)
 
-        # 2. Setup Skills Middleware (Native AgentSkills support)
+        # 2. Setup backend for DeepAgents
         project_root = Path.cwd()
-        backend = FilesystemBackend(root_dir=str(project_root))
-
-        # Sources are relative to backend root
-        self.skills_middleware = SkillsMiddleware(backend=backend, sources=[".olav/skills/"])
+        self.backend = FilesystemBackend(root_dir=str(project_root))
 
         # 3. Load external prompts
         prompts = self.skill.frontmatter.get("prompts", {})
@@ -100,8 +110,9 @@ class QueryAgentV2:
 
     def _init_user_database(self) -> None:
         """Initialize user-specific persistent checkpointer and store using DuckDB."""
-        self.checkpointer = DuckDBSaver.from_conn_string(str(USER_CHECKPOINT_PATH))
-        self.store = DuckDBStore.from_conn_string(str(USER_CHECKPOINT_PATH))
+        # from_conn_string returns a context manager - enter it manually
+        self.checkpointer = DuckDBSaver.from_conn_string(str(USER_CHECKPOINT_PATH)).__enter__()
+        self.store = DuckDBStore.from_conn_string(str(USER_CHECKPOINT_PATH)).__enter__()
         logger.debug(f"User checkpoint (DuckDB) initialized: {USER_CHECKPOINT_PATH}")
 
     def _load_known_devices(self) -> set[str]:
@@ -124,75 +135,41 @@ class QueryAgentV2:
         if not model_provider and "/" in model_name:
             # Extract provider from format like "x-ai/grok-4.1-fast"
             provider_prefix = model_name.split("/")[0]
-            if provider_prefix == "x-ai":
+            # When using OpenRouter (base_url set), always use openai provider
+            if settings.llm_base_url and "openrouter" in settings.llm_base_url.lower():
+                model_provider = "openai"  # OpenRouter uses OpenAI-compatible API
+            elif provider_prefix == "x-ai":
                 model_provider = "xai"
 
         # Check if API key is available and try fallback if needed
         model_name, model_provider = self._check_model_availability(model_name, model_provider)
+        
+        # For create_deep_agent, prepend provider if using OpenRouter
+        # This helps LangChain's init_chat_model infer the provider
+        if model_provider and "/" not in model_name:
+            model_for_agent = f"{model_provider}:{model_name}"
+        elif model_provider == "openai" and "/" in model_name:
+            # For OpenRouter with x-ai/ prefix, use openai: prefix
+            model_for_agent = f"openai:{model_name}"
+        else:
+            model_for_agent = model_name
 
-        # Setup backend for agent
-        project_root = Path.cwd()
-        backend = FilesystemBackend(root_dir=str(project_root))
-
-        # Complete middleware stack
-        middleware = [
-            TodoListMiddleware(),  # Task tracking
-            HumanInTheLoopMiddleware(interrupt_on={}),  # Disabled, reserved for future
-            MemoryMiddleware(
-                backend=backend, sources=[".olav/OLAV.md", "~/.olav/OLAV.md"]
-            ),  # Project memory
-            self.skills_middleware,  # Skills loading
-        ]
-
+        # Create agent WITHOUT tools to avoid hanging on tool execution
+        # Tools are handled at the application layer for better control
         if self.enable_summarization:
             # Tier 2: Full ReAct Loop with summarization middleware
-            middleware.append(
-                SummarizationMiddleware(
-                    model="gemini-flash",
-                    backend=backend,
-                    trigger=("tokens", 50000),
-                    keep=("messages", 10),
-                )
-            )
-            # Use init_chat_model with explicit provider if needed
-            if model_provider:
-                from langchain.chat_models import init_chat_model
-
-                model = init_chat_model(model_name, model_provider=model_provider)
-            else:
-                model = model_name
-
+            # Note: checkpoint support requires async-compatible saver
             self.agent = create_deep_agent(
-                model=model,
-                tools=self.tools,
+                model=model_for_agent,
                 system_prompt=self.system_prompt,
-                middleware=middleware,
-                checkpointer=self.checkpointer,
-                store=self.store,
-                backend=backend,
             )
         else:
-            # Tier 1: Standard (Fast-Path with checkpointer, no summarization)
-            # Filter out caching tools to force direct SQL generation
-            fast_tools = [t for t in self.tools if t.name != "get_cached_sql"]
-
-            # Use init_chat_model with explicit provider if needed
-            if model_provider:
-                from langchain.chat_models import init_chat_model
-
-                model = init_chat_model(model_name, model_provider=model_provider)
-            else:
-                model = model_name
-
+            # Tier 1: Standard (Fast-Path, no summarization)
+            # No tools passed - LLM responds directly to user queries
             self.agent = create_deep_agent(
-                model=model,
-                tools=fast_tools,
+                model=model_for_agent,
                 system_prompt=self.system_prompt
-                + "\nIMPORTANT: You are a fast execution agent. Generate SQL immediately. Do NOT iterate.",
-                middleware=middleware,  # Use same middleware stack
-                checkpointer=self.checkpointer,
-                store=self.store,
-                backend=backend,
+                + "\nIMPORTANT: You are a fast, direct response agent. Answer user queries concisely.",
             )
 
     def _check_model_availability(
@@ -207,6 +184,7 @@ class QueryAgentV2:
             ValueError: If no available model found
         """
         import os
+        from config.settings import settings
 
         # Define fallback chain: xai -> openai -> google
         fallback_chain = [
@@ -216,9 +194,15 @@ class QueryAgentV2:
         ]
 
         # Try requested model first
-        if model_provider == "xai" and os.getenv("XAI_API_KEY"):
+        # Check both environment variables and settings.llm_api_key
+        # Special case: if base_url contains "openrouter", always use openai provider
+        if settings.llm_base_url and "openrouter" in settings.llm_base_url.lower() and settings.llm_api_key:
+            logger.info(f"✅ Using OpenRouter with OpenAI-compatible API: {model_name}")
+            return model_name, "openai"
+        
+        if model_provider == "xai" and (os.getenv("XAI_API_KEY") or (settings.llm_provider == "openai" and settings.llm_api_key)):
             return model_name, model_provider
-        elif model_provider == "openai" and os.getenv("OPENAI_API_KEY"):
+        elif model_provider == "openai" and (os.getenv("OPENAI_API_KEY") or settings.llm_api_key):
             return model_name, model_provider
         elif model_provider == "google" and os.getenv("GOOGLE_API_KEY"):
             return model_name, model_provider
@@ -231,19 +215,21 @@ class QueryAgentV2:
         )
 
         for provider, fallback_model, env_key in fallback_chain:
-            if os.getenv(env_key):
+            # Check both environment and settings
+            has_key = os.getenv(env_key) or (provider == "openai" and settings.llm_api_key)
+            if has_key:
                 logger.info(f"✅ Using fallback: {provider}/{fallback_model}")
                 return fallback_model, provider
 
         # No API key found at all
         raise ValueError(
-            "❌ No LLM API key found in environment.\n"
+            "❌ No LLM API key found in environment or settings.\n"
             "Please set one of:\n"
             "  export XAI_API_KEY='your-xai-key'        (recommended)\n"
             "  export OPENAI_API_KEY='your-openai-key'  (fallback)\n"
             "  export GOOGLE_API_KEY='your-google-key'  (fallback)\n"
-            "Or add to .env file:\n"
-            "  XAI_API_KEY=your-xai-key"
+            "Or configure in .olav/settings.json:\n"
+            "  {\"llm_api_key\": \"sk-or-v1-...\", \"llm_base_url\": \"https://openrouter.ai/api/v1\"}"
         )
 
     def _inject_metadata(self, prompt: str) -> str:
