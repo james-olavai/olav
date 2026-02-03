@@ -3,10 +3,16 @@
 分离架构:
 - Guard (guard_rules.yaml): 安全检查 (规则 + LLM意图)
 - Router (routing_rules.yaml): 查询路由 (斜杠命令 + 模式匹配 + LLM fallback)
+
+P2优化: 路由决策缓存
+- Guard检查结果缓存 (确定性结果)
+- 白名单匹配缓存 (快速路径)
+- 模式匹配缓存 (规则驱动)
 """
 
 import logging
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,7 +20,6 @@ from typing import Any
 import yaml
 
 from config.paths import GUARD_RULES_PATH, ROUTING_RULES_PATH
-from olav.core.unified_database import UnifiedDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +177,59 @@ class QueryRouter:
         # 初始化Guard (独立的安全检查)
         self.guard = guard if guard is not None else Guard()
 
+        # P2优化: 启动时缓存白名单配置 (避免每次route()都读YAML)
+        self._whitelist_config = None
+        self._load_whitelist_config()
+
+    def _load_whitelist_config(self) -> None:
+        """启动时加载白名单配置到内存.
+        
+        P2优化: 避免每次route()调用都从磁盘读取YAML文件
+        """
+        whitelist_file = Path(".olav/config/command_whitelist.yaml")
+        if whitelist_file.exists():
+            try:
+                with open(whitelist_file) as f:
+                    self._whitelist_config = yaml.safe_load(f) or {}
+                logger.debug(
+                    f"QueryRouter白名单已缓存 "
+                    f"({len(self._whitelist_config.get('command_whitelist', {}))}条规则)"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to load whitelist config: {e}")
+                self._whitelist_config = {}
+        else:
+            self._whitelist_config = {}
+
+    def _get_routing_cache_key(self, user_input: str) -> str:
+        """生成路由缓存键 (基于用户输入的hash).
+        
+        P2优化: 用于缓存相同输入的路由决策
+        """
+        import hashlib
+        return hashlib.md5(user_input.strip().encode()).hexdigest()
+
+    def _get_routing_cache(self, cache_key: str) -> RoutingDecision | None:
+        """获取缓存的路由决策."""
+        if not hasattr(self, '_routing_cache'):
+            self._routing_cache = {}
+        return self._routing_cache.get(cache_key)
+
+    def _set_routing_cache(self, cache_key: str, decision: RoutingDecision) -> None:
+        """缓存路由决策 (LRU: 最多缓存1000条).
+        
+        P2优化: 避免重复分析相同的输入
+        """
+        if not hasattr(self, '_routing_cache'):
+            self._routing_cache = {}
+
+        # 简单LRU实现: 超过1000条时清空
+        if len(self._routing_cache) >= 1000:
+            self._routing_cache.clear()
+            logger.debug("QueryRouter缓存已满, 清空重置")
+
+        self._routing_cache[cache_key] = decision
+
     def check_guard(self, user_input: str) -> GuardResult:
         """检查用户输入是否安全.
 
@@ -192,9 +250,16 @@ class QueryRouter:
         Returns:
             RoutingDecision: 路由决策结果
         """
-        import time
 
         timings = {}
+
+        # P2优化: 检查路由缓存 (如果命中，跳过所有分析步骤)
+        cache_key = self._get_routing_cache_key(user_input)
+        cached_decision = self._get_routing_cache(cache_key)
+        if cached_decision is not None:
+            timings["cache_hit"] = 0.0001  # 缓存命中时间近乎为0
+            cached_decision.timings = timings
+            return cached_decision
 
         # Step 1: Guard检查 (最高优先级, 使用独立Guard)
         start = time.time()
@@ -219,15 +284,12 @@ class QueryRouter:
             return decision
 
         # Step 1.5: 命令白名单检查 (Tier 0.5 - 快速路径，最高优先级)
-        whitelist_file = Path(".olav/config/command_whitelist.yaml")
-        if whitelist_file.exists():
-            import yaml
-
+        # P2优化: 使用启动时缓存的白名单配置（避免每次都读YAML）
+        start = time.time()
+        if self._whitelist_config:
             try:
-                with open(whitelist_file) as f:
-                    whitelist_config = yaml.safe_load(f)
-                    command_whitelist = whitelist_config.get("command_whitelist", {})
-                    mode = whitelist_config.get("mode", "simple_match")
+                command_whitelist = self._whitelist_config.get("command_whitelist", {})
+                mode = self._whitelist_config.get("mode", "simple_match")
 
                 if mode == "simple_match" and user_input.strip():
                     for pattern, sql_query in command_whitelist.items():
@@ -242,10 +304,14 @@ class QueryRouter:
                                 params=params,
                                 message=f"Whitelist match: {pattern}",
                             )
-
+                            timings["whitelist"] = time.time() - start
+                            decision.timings = timings
+                            self._set_routing_cache(cache_key, decision)  # P2优化: 缓存决策
                             return decision
             except Exception as e:
                 logger.debug(f"Whitelist check failed: {e}")  # 白名单检查失败不影响其他路径
+
+        timings["whitelist"] = time.time() - start
 
         # Step 2: 斜杠命令检查
         if user_input.strip().startswith("/"):
@@ -253,15 +319,8 @@ class QueryRouter:
             decision = self._handle_slash_command(user_input)
             timings["slash_command"] = time.time() - start
             decision.timings = timings
+            self._set_routing_cache(cache_key, decision)  # P2优化: 缓存决策
             return decision
-
-        # Tier 0: Semantic Cache (向量匹配历史成功查询)
-        start = time.time()
-        semantic_decision = self._check_semantic_cache(user_input)
-        timings["semantic_cache"] = time.time() - start
-        if semantic_decision:
-            semantic_decision.timings = timings
-            return semantic_decision
 
         # Step 3: 模式匹配 (规则驱动)
         start = time.time()
@@ -269,8 +328,7 @@ class QueryRouter:
         timings["pattern_match"] = time.time() - start
         if pattern_match:
             pattern_match.timings = timings
-            # Save to cache for FastPath
-            self._save_to_cache(user_input, pattern_match)
+            self._set_routing_cache(cache_key, pattern_match)  # P2优化: 缓存决策
             return pattern_match
 
         # Step 4: LLM意图分类 (fallback)
@@ -279,8 +337,7 @@ class QueryRouter:
         timings["llm_fallback"] = time.time() - start
         if llm_decision:
             llm_decision.timings = timings
-            # Save to cache for FastPath
-            self._save_to_cache(user_input, llm_decision)
+            self._set_routing_cache(cache_key, llm_decision)  # P2优化: 缓存决策
             return llm_decision
 
         decision = RoutingDecision(
@@ -289,8 +346,7 @@ class QueryRouter:
             message="No pattern matched, defaulting to database expert",
             timings=timings,
         )
-        # Save to cache for FastPath
-        self._save_to_cache(user_input, decision)
+        self._set_routing_cache(cache_key, decision)  # P2优化: 缓存决策
         return decision
 
     def _classify_intent_with_llm(self, user_input: str) -> RoutingDecision | None:
@@ -330,101 +386,6 @@ Return only the expert name as a single word. If unsure, return 'database'."""
             )
         except Exception:
             return None
-
-    def _check_semantic_cache(self, user_input: str) -> RoutingDecision | None:
-        """Check if query exists in exact match cache (Tier 0 - FastPath)."""
-        try:
-            with UnifiedDatabase() as db:
-                # Try DataGateway first (v0.10.0+ architecture)
-                if db.gw:
-                    action = db.gw.get_skill_cache("network-query", user_input)
-                    if action:
-                        logger.debug(f"Cache hit (DataGateway): {user_input}")
-                        return RoutingDecision(
-                            expert=action.get("expert"),
-                            action="route",
-                            tool=action.get("tool"),
-                            params=action.get("params"),
-                            message="Cache hit! (Tier 0 - DataGateway)",
-                            intent=action.get("intent"),
-                        )
-
-                # Fallback: search in semantic_cache table directly
-                try:
-                    import json
-
-                    result = db.query(
-                        "SELECT action_json FROM semantic_cache WHERE query_text = ? LIMIT 1",
-                        [user_input],
-                    )
-                    if result and result[0]:
-                        action = json.loads(result[0][0])
-                        logger.debug(f"Cache hit (semantic_cache): {user_input}")
-
-                        # Update hit_count
-                        db.query(
-                            "UPDATE semantic_cache SET last_used = CURRENT_TIMESTAMP, "
-                            "hit_count = hit_count + 1 WHERE query_text = ?",
-                            [user_input],
-                        )
-
-                        return RoutingDecision(
-                            expert=action.get("expert"),
-                            action="route",
-                            tool=action.get("tool"),
-                            params=action.get("params"),
-                            message="Cache hit! (Tier 0 - semantic_cache)",
-                            intent=action.get("intent"),
-                        )
-                except Exception as e:
-                    logger.debug(f"semantic_cache lookup failed: {e}")
-
-        except Exception as e:
-            logger.debug(f"Cache check failed: {e}")
-
-        return None
-
-    def _save_to_cache(self, user_input: str, decision: RoutingDecision) -> None:
-        """Save routing decision to cache (Tier 0 - FastPath).
-
-        Args:
-            user_input: User query text
-            decision: Routing decision to cache
-        """
-        try:
-            with UnifiedDatabase() as db:
-                action_json = {
-                    "expert": decision.expert,
-                    "tool": decision.tool,
-                    "params": decision.params or {},
-                    "intent": decision.intent or decision.expert,
-                }
-
-                # Save to DataGateway (v0.10.0+ architecture)
-                if db.gw:
-                    try:
-                        db.gw.save_skill_cache("network-query", user_input, action_json)
-                        logger.debug(f"Saved to DataGateway cache: {user_input[:50]}...")
-                    except Exception as e:
-                        logger.debug(f"DataGateway cache save failed: {e}")
-
-                # Also save to semantic_cache table for redundancy
-                try:
-                    import json
-
-                    action_json_str = json.dumps(action_json)
-                    db.query(
-                        """INSERT OR REPLACE INTO semantic_cache 
-                           (query_text, action_json, created_at, last_used, hit_count)
-                           VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)""",
-                        [user_input, action_json_str],
-                    )
-                    logger.debug(f"Saved to semantic_cache: {user_input[:50]}...")
-                except Exception as e:
-                    logger.debug(f"semantic_cache save failed: {e}")
-
-        except Exception as e:
-            logger.debug(f"Failed to save cache: {e}")
 
     def _handle_slash_command(self, user_input: str) -> RoutingDecision:
         """处理斜杠命令.

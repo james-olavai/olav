@@ -14,9 +14,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 
 from olav.lib.data_gateway import get_gateway
@@ -63,7 +63,7 @@ class AnalyzerState:
 # =============================================================================
 
 
-def create_llm() -> ChatOpenAI:
+def create_llm() -> BaseChatModel:
     """Create LLM instance for analyzer agent."""
     from olav.core.llm_interface import MapReduceLLM
 

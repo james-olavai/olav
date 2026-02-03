@@ -129,87 +129,6 @@ class DataGateway:
 
     # ==================== Skill 私有数据 API ====================
 
-    def get_skill_cache(self, skill_name: str, key: str) -> dict | None:
-        """读取 Skill 缓存 (私有数据)
-
-        Args:
-            skill_name: Skill 名称 (e.g., 'network-query')
-            key: 缓存键
-
-        Returns:
-            缓存值，未找到返回 None
-
-        Example:
-            >>> plan = gw.get_skill_cache("network-query", "query:show interfaces")
-        """
-        # Updated: Use skill.duckdb instead of cache.duckdb
-        skill_db = self.skills_dir / skill_name / "skill.duckdb"
-        if not skill_db.exists():
-            return None
-
-        conn = duckdb.connect(str(skill_db), read_only=True)
-        try:
-            # Try intent_cache table first
-            result = conn.execute(
-                "SELECT execution_plan FROM intent_cache WHERE query_text = ?", [key]
-            ).fetchone()
-
-            if result:
-                return json.loads(result[0])
-
-            # Fall back to generic cache table
-            result = conn.execute("SELECT value FROM cache WHERE key = ?", [key]).fetchone()
-            return json.loads(result[0]) if result else None
-        finally:
-            conn.close()
-
-    def save_skill_cache(self, skill_name: str, key: str, value: dict) -> None:
-        """保存 Skill 缓存 (私有数据)
-
-        Args:
-            skill_name: Skill 名称
-            key: 缓存键
-            value: 缓存值 (JSON 可序列化)
-
-        Example:
-            >>> gw.save_skill_cache("network-query", "intent:show bgp", {
-            ...     "execution_plan": {"steps": [...]}
-            ... })
-        """
-        # Updated: Use skill.duckdb instead of cache.duckdb
-        skill_db = self.skills_dir / skill_name / "skill.duckdb"
-        skill_db.parent.mkdir(parents=True, exist_ok=True)
-
-        conn = duckdb.connect(str(skill_db))
-        try:
-            # Try to save to intent_cache table first
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS intent_cache (
-                    query_text TEXT PRIMARY KEY,
-                    execution_plan JSON,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    hit_count INTEGER DEFAULT 1
-                )
-            """)
-
-            # Insert or update intent_cache
-            import time
-
-            now = time.strftime("%Y-%m-%d %H:%M:%S")
-            conn.execute(
-                """
-                INSERT INTO intent_cache (query_text, execution_plan, last_used) VALUES (?, ?, ?)
-                ON CONFLICT (query_text) DO UPDATE SET
-                    execution_plan = excluded.execution_plan,
-                    last_used = excluded.last_used,
-                    hit_count = hit_count + 1
-            """,
-                [key, json.dumps(value), now],
-            )
-        finally:
-            conn.close()
-
     def query_skill_memory(
         self, skill_name: str, sql: str, params: list | None = None
     ) -> list[dict]:
@@ -287,7 +206,9 @@ class DataGateway:
     def save_user_alias(
         self, skill_name: str, alias: str, canonical: str, type: str = "device"
     ) -> None:
-        """保存用户别名学习
+        """保存用户别名学习（使用 DuckDBStore）
+
+        存储在 USER_CHECKPOINT_PATH 的 DuckDBStore 中。
 
         Args:
             skill_name: Skill 名称 (e.g., 'network-query')
@@ -298,38 +219,59 @@ class DataGateway:
         Example:
             >>> gw.save_user_alias("network-query", "核心路由器", "R1,R2,R3", "device")
         """
-        skill_db = self.skills_dir / skill_name / "skill.duckdb"
-        skill_db.parent.mkdir(parents=True, exist_ok=True)
+        from datetime import datetime
 
-        conn = duckdb.connect(str(skill_db))
+        import duckdb
+        from langgraph.store.duckdb import DuckDBStore
+
+        from config.paths import USER_CHECKPOINT_PATH
+
+        USER_CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+        # Use read-write connection
+        conn = duckdb.connect(str(USER_CHECKPOINT_PATH))
+
         try:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS user_aliases (
-                    alias TEXT PRIMARY KEY,
-                    canonical TEXT,
-                    type TEXT,
-                    usage_count INTEGER DEFAULT 1,
-                    created_at TIMESTAMP DEFAULT current_localtimestamp(),
-                    last_used TIMESTAMP DEFAULT current_localtimestamp()
-                )
-            """)
-            conn.execute(
-                """
-                INSERT INTO user_aliases (alias, canonical, type)
-                VALUES (?, ?, ?)
-                ON CONFLICT (alias) DO UPDATE SET
-                    canonical = excluded.canonical,
-                    type = excluded.type,
-                    usage_count = usage_count + 1,
-                    last_used = current_localtimestamp()
-            """,
-                [alias, canonical, type],
+            store = DuckDBStore(conn)
+            # Only setup if tables don't exist
+            try:
+                store.setup()
+            except Exception:
+                # Tables likely already exist from previous setup
+                pass
+
+            namespace = (skill_name, "aliases")
+            key = alias.upper()  # 大小写不敏感
+
+            # 尝试获取现有记录
+            existing = store.get(namespace, key)
+            usage_count = 1
+            created_at = datetime.now().isoformat()
+
+            if existing:
+                usage_count = existing.value.get("usage_count", 0) + 1
+                created_at = existing.value.get("created_at", created_at)
+
+            # 存储/更新别名
+            store.put(
+                namespace,
+                key,
+                {
+                    "canonical": canonical.upper(),
+                    "type": type,
+                    "usage_count": usage_count,
+                    "created_at": created_at,
+                    "last_used": datetime.now().isoformat(),
+                },
             )
         finally:
             conn.close()
 
+    # Alias for backward compatibility
+    learn_user_alias = save_user_alias
+
     def get_user_alias(self, skill_name: str, alias: str) -> str | None:
-        """获取别名映射
+        """获取别名映射（使用 DuckDBStore）
 
         Args:
             skill_name: Skill 名称
@@ -342,16 +284,22 @@ class DataGateway:
             >>> canonical = gw.get_user_alias("network-query", "核心路由器")
             >>> assert canonical == "R1,R2,R3"
         """
-        skill_db = self.skills_dir / skill_name / "skill.duckdb"
-        if not skill_db.exists():
+        import duckdb
+        from langgraph.store.duckdb import DuckDBStore
+
+        from config.paths import USER_CHECKPOINT_PATH
+
+        if not USER_CHECKPOINT_PATH.exists():
             return None
 
-        conn = duckdb.connect(str(skill_db), read_only=True)
+        conn = duckdb.connect(str(USER_CHECKPOINT_PATH), read_only=True)
         try:
-            result = conn.execute(
-                "SELECT canonical FROM user_aliases WHERE alias = ?", [alias]
-            ).fetchone()
-            return result[0] if result else None
+            store = DuckDBStore(conn)
+            namespace = (skill_name, "aliases")
+            key = alias.upper()  # 大小写不敏感
+
+            item = store.get(namespace, key)
+            return item.value.get("canonical") if item else None
         finally:
             conn.close()
 
@@ -386,7 +334,6 @@ class DataGateway:
             ...     "Set MTU to 1500"
             ... )
         """
-        import json
 
         skill_db = self.skills_dir / skill_name / "skill.duckdb"
         skill_db.parent.mkdir(parents=True, exist_ok=True)

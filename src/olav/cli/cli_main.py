@@ -19,9 +19,9 @@ import typer
 logger = logging.getLogger(__name__)
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 
 if TYPE_CHECKING:
-    from olav.cli.memory import AgentMemory
     from olav.cli.session import OlavPromptSession
 
 # Lazy imports to speed up --help
@@ -34,25 +34,68 @@ app = typer.Typer(
 )
 
 
+def _display_todos(agent_graph: Any) -> None:
+    """Display todo list from agent state using Rich.
+    
+    Args:
+        agent_graph: Compiled LangGraph agent with state
+    """
+    try:
+        # Get the latest state from the graph
+        state = agent_graph.get_state()
+        todos = state.values.get("todos", []) if state and hasattr(state, "values") else []
+
+        if not todos:
+            return
+
+        table = Table(show_header=True, header_style="bold magenta", border_style="blue")
+        table.add_column("ID", style="dim", width=4)
+        table.add_column("Status", width=15)
+        table.add_column("Task", min_width=30)
+
+        status_icons = {
+            "not-started": "⬜",
+            "in-progress": "🔄",
+            "completed": "✅"
+        }
+
+        for todo in todos:
+            icon = status_icons.get(todo.get("status", "not-started"), "⬜")
+            table.add_row(
+                str(todo.get("id", "")),
+                f"{icon} {todo.get('status', 'not-started')}",
+                todo.get("title", "")
+            )
+
+        panel = Panel(table, title="📋 Task Progress", border_style="blue")
+        console.print(panel)
+    except Exception as e:
+        logger.debug(f"Could not display todos: {e}")
+
+
 async def stream_agent_response(
     agent: Any,
     inputs: dict[str, Any] | list[dict[str, Any]],
     verbose: bool = False,
-    memory: "AgentMemory | None" = None,
     learn_callback: "Callable[[str], str | None] | None" = None,
+    thread_id: str | None = None,  # LangGraph thread_id for session
+    timeout: float = 60.0,  # Query timeout in seconds
 ) -> str:
-    """Stream agent response (simplified to invoke for reliable table output).
+    """Stream agent response with timeout and session support.
 
     Args:
         agent: OLAV agent instance (CompiledGraph)
         inputs: Input dict
-        verbose: If True, show thinking
-        memory: Agent memory
+        verbose: Show reasoning process
         learn_callback: Optional callback for interactive alias learning
+        thread_id: Session thread_id for checkpointer
+        timeout: Query timeout in seconds
 
     Returns:
         Final result string
     """
+    import asyncio
+
     from olav.cli.display import StreamingDisplay
 
     # P8 Enhancement: Always enable streaming for better responsiveness
@@ -63,6 +106,11 @@ async def stream_agent_response(
     else:
         base_inputs = {"messages": inputs, "retry_count": 0}
 
+    # Add thread_id to config for checkpointer
+    config = {}
+    if thread_id:
+        config["configurable"] = {"thread_id": thread_id}
+
     display = StreamingDisplay(verbose=verbose, show_spinner=True, quiet=not is_tty)
 
     # Show spinner if not verbose (in verbose, logs will show activity)
@@ -70,8 +118,11 @@ async def stream_agent_response(
         display.show_processing_status("Generating SQL and querying...")
 
     try:
-        # Use ainvoke directly to ensure we get the final state with the result
-        final_state = await agent.ainvoke(base_inputs, learn_callback=learn_callback)
+        # Use ainvoke with timeout
+        final_state = await asyncio.wait_for(
+            agent.ainvoke(base_inputs, config=config, learn_callback=learn_callback),
+            timeout=timeout,
+        )
 
         display.stop_processing_status()
 
@@ -125,11 +176,14 @@ async def stream_agent_response(
         # If no structured result, but we have text content (explanation), show that
         if last_message_content and not result:
             display.show_result(last_message_content, markdown=True)
-            if is_tty:
-                print()  # Final newline for prompt-toolkit
             return last_message_content
+        return "No result available"
 
-        return "No result returned."
+    except TimeoutError:
+        display.stop_processing_status()
+        error_msg = f"Query timed out after {timeout} seconds"
+        display.show_error(error_msg)
+        return f"Error: {error_msg}"
 
     except Exception as e:
         display.stop_processing_status()
@@ -187,8 +241,9 @@ def _create_learning_callback(session: "OlavPromptSession") -> Callable[[str], s
             prompt_msg = f"\n🎓 Learning: I don't know '{entity}'. Which devices do you mean?\n"
             prompt_msg += "  Enter device names (comma-separated), or press Enter to skip: "
 
-            # Use synchronous prompt (called from async context but callback is sync)
-            user_response = session.prompt_sync(prompt_msg)
+            # Use input() fallback since callback context cannot be async
+            # TODO: Consider moving learning to main loop for proper async handling
+            user_response = input(prompt_msg)
 
             if not user_response or not user_response.strip():
                 print(f"  ⏭️  Skipped learning '{entity}'")
@@ -214,23 +269,26 @@ def _create_learning_callback(session: "OlavPromptSession") -> Callable[[str], s
 
 
 async def run_interactive_loop_async(
-    memory: "AgentMemory",
     session: "OlavPromptSession",
     agent: Any,
 ) -> None:
     """Run the OLAV CLI (asynchronous version for proper event loop handling).
 
     Args:
-        memory: Agent memory manager
         session: Prompt session
-        agent: OLAV agent instance
+        agent: OLAV agent instance (with checkpointer for state management)
     """
+    import uuid
 
     from config.settings import settings
     from olav.agents.query_agent_v2 import QueryAgentV2
     from olav.cli.commands import execute_command
     from olav.cli.input_parser import parse_input
     from olav.core.query_router import QueryRouter
+
+    # Generate session thread_id for checkpointer
+    thread_id = str(uuid.uuid4())
+    logger.debug(f"Starting interactive session with thread_id: {thread_id}")
 
     # Initialize QueryRouter and Display
     is_tty = sys.stdin.isatty()
@@ -250,15 +308,28 @@ async def run_interactive_loop_async(
         router = None
         if is_tty:
             print("⚠️  QueryRouter config not found, using default routing")
+    
+    # Display cache metrics on startup (TTY only)
+    if is_tty:
+        try:
+            from olav.cache import cache
+            metrics = cache.get_cache_metrics()
+            intent = metrics['intent']
+            if intent['total_entries'] > 0:
+                print(f"📊 Cache: {intent['total_entries']} entries, "
+                      f"{intent['total_hits']} hits, "
+                      f"hit rate {intent['hit_rate_pct']}%")
+        except Exception as e:
+            logger.debug(f"Failed to display cache metrics: {e}")
 
     if is_tty:
         print("Type /help for available commands or just ask a question.\n")
 
     while True:
         try:
-            # Get user input (synchronous - prompt-toolkit handles its own event loop)
+            # Get user input asynchronously
             prompt_str = "OLAV> " if is_tty else ""
-            user_input = session.prompt_sync(prompt_str)
+            user_input = await session.prompt_async(prompt_str)
 
             # Strip BOM and whitespace (PowerShell on Windows adds BOM to piped input)
             user_input = user_input.lstrip("\ufeff").strip()
@@ -280,7 +351,7 @@ async def run_interactive_loop_async(
                 # Handle approval requirements
                 if routing_decision.action == "require_approval":
                     print(f"⚠️  {routing_decision.message}")
-                    confirm = session.prompt_sync("Continue? (yes/no): ")
+                    confirm = await session.prompt_async("Continue? (yes/no): ")
                     if confirm.lower() not in ["yes", "y"]:
                         print("❌ Cancelled")
                         continue
@@ -321,10 +392,13 @@ async def run_interactive_loop_async(
                             )
                             # Get skill directory for relative path resolution
                             from pathlib import Path
+
                             skill_file = Path(skill.file_path)
                             skill_dir = skill_file.parent if skill_file.is_file() else skill_file
-                            
-                            executor = SkillAdapter._create_executor(tool_def["script"], skill_dir=skill_dir)
+
+                            executor = SkillAdapter._create_executor(
+                                tool_def["script"], skill_dir=skill_dir
+                            )
                             result = executor(**routing_decision.params)
                             display.stop_processing_status()
 
@@ -370,7 +444,7 @@ async def run_interactive_loop_async(
                                     sql_query=sql_used or "",
                                 )
 
-                                # 注意：memory 记录在内存中，由 session.save() 持久化
+                                # Note: Session history auto-persisted by FileHistory + checkpointer
 
                                 # Check if it's a semantic tier hit (Tier 0 or Tier 1)
                                 is_semantic = routing_decision.message and (
@@ -447,7 +521,6 @@ async def run_interactive_loop_async(
                     result = await execute_command(
                         user_input,
                         agent=agent,
-                        memory=memory,
                     )
                     if result:
                         # Check if result should be sent to Agent
@@ -455,18 +528,15 @@ async def run_interactive_loop_async(
                             # Extract prompt and send to Agent
                             agent_prompt = result[len("AGENT_PROMPT::") :]
                             print("🤖 Sending to Agent for analysis...\n")
-                            memory.add("user", agent_prompt)
-                            history = memory.get_conversation_messages(max_turns=10, max_chars=8000)
-                            messages = [
-                                {"role": role, "content": content} for role, content in history
-                            ] + [{"role": "user", "content": agent_prompt}]
+                            # Checkpointer automatically manages history
                             use_verbose = settings.display_thinking
-                            inputs = {"messages": messages, "retry_count": 0}
+                            inputs = {
+                                "messages": [{"role": "user", "content": agent_prompt}],
+                                "retry_count": 0,
+                            }
                             output = await stream_agent_response(
-                                agent, inputs, verbose=use_verbose, memory=memory
+                                agent, inputs, verbose=use_verbose, thread_id=thread_id
                             )
-                            if output:
-                                memory.add("assistant", output)
                         else:
                             print(result)
                 except EOFError:
@@ -502,22 +572,14 @@ async def run_interactive_loop_async(
                 continue
 
             # Handle normal queries
-            # Store in memory
-            memory.add("user", processed_text)
+            # Checkpointer automatically manages conversation history
 
             # P8: Stream agent response with layered output
             if is_tty:
                 print("🔍 Processing...", flush=True)
             try:
-                # Build messages with conversation history
-                history = memory.get_conversation_messages(max_turns=10, max_chars=8000)
-
-                # Phase 15: Intent Masking (Protocol Isolation)
-                agent_messages = [{"role": role, "content": content} for role, content in history]
-                # Phase 17: Intent masking removed. SQL Assistant handles domain focus dynamically.
-                pass
-
-                agent_messages.append({"role": "user", "content": processed_text})
+                # Checkpointer will retrieve conversation history automatically
+                agent_messages = [{"role": "user", "content": processed_text}]
 
                 # Phase 17: Resolve Expert Skill (Federated Specialists)
                 skill_name = "network-query"
@@ -526,7 +588,7 @@ async def run_interactive_loop_async(
                     skill_name = expert_cfg.get("skill", skill_name)
 
                 # Initialize Query Agent V2 with specific skill
-                agent = QueryAgentV2(mode="standard", skill_name=skill_name)
+                agent = QueryAgentV2(enable_summarization=False, skill_name=skill_name)
 
                 # === NEW: Create learning callback ===
                 # Only enable interactive learning in TTY mode
@@ -541,12 +603,13 @@ async def run_interactive_loop_async(
                     agent,
                     inputs,
                     verbose=use_verbose,
-                    memory=memory,
                     learn_callback=learn_callback,
+                    thread_id=thread_id,  # Session thread_id
                 )
 
                 if output:
-                    memory.add("assistant", output)
+                    # Display todos if present in agent state
+                    _display_todos(agent.agent)
                 else:
                     print("\n⚠️ No response from agent\n")
 
@@ -604,7 +667,7 @@ def query(
             skill_name = expert_cfg.get("skill", skill_name)
 
         # Initialize QueryAgentV2 with routed skill
-        agent = QueryAgentV2(mode="standard", skill_name=skill_name)
+        agent = QueryAgentV2(enable_summarization=False, skill_name=skill_name)
 
         # Execute query
         result = asyncio.run(agent.query(query_text))
@@ -822,7 +885,6 @@ def interactive_mode(ctx: typer.Context) -> None:
 
     # Import heavy modules only when needed
     from olav.cli.display import display_banner, load_banner_from_config
-    from olav.cli.memory import AgentMemory
     from olav.cli.session import OlavPromptSession
 
     is_interactive = sys.stdin.isatty()
@@ -833,30 +895,19 @@ def interactive_mode(ctx: typer.Context) -> None:
             console.print("💬 OLAV Interactive CLI - v0.9.6")
             console.print("=" * 60 + "\n")
 
-        # Create memory manager
-        from pathlib import Path
+        # Create CLI session (checkpointer manages state)
 
-        from config.settings import settings
 
-        history_file = str(Path(settings.agent_dir) / ".cli_history")
-        memory = AgentMemory(
-            max_messages=100,
-        )
-
-        # Create CLI session
+        # Create CLI session (history_file handled by session.py via USER_HISTORY_PATH)
         try:
             session = OlavPromptSession(
-                history_file=history_file,
                 enable_completion=is_interactive,
-                enable_history=is_interactive,
                 multiline=False,
             )
         except Exception as e:
             console.print(f"[yellow]⚠️ Warning: {e}[/yellow]")
             session = OlavPromptSession(
-                history_file=history_file,
                 enable_completion=False,
-                enable_history=False,
                 multiline=False,
             )
 
@@ -872,11 +923,11 @@ def interactive_mode(ctx: typer.Context) -> None:
         # Note: In interactive loop, we re-initialize the agent per query
         # or use the Router to select. For now, we pass a dummy or None
         # and let the loop handle it.
-        agent = QueryAgentV2(mode="standard")
+        agent = QueryAgentV2(enable_summarization=False)
 
         # Run interactive loop (async mode for proper event loop handling)
-        asyncio.run(run_interactive_loop_async(memory, session, agent))
-        memory.save()
+        asyncio.run(run_interactive_loop_async(session, agent))
+        # Note: History is auto-saved by FileHistory, session state by checkpointer
 
     except KeyboardInterrupt:
         console.print("\n\n👋 Interrupted. Goodbye!")
@@ -894,6 +945,10 @@ def main() -> None:
 
     log_level = settings.log_level if hasattr(settings, "log_level") else "INFO"
     setup_logging(log_level=log_level)
+
+    # P1: Initialize SkillConfig at startup for better performance
+    from olav.core.skill_config import SkillConfig
+    SkillConfig.initialize()
 
     try:
         app()

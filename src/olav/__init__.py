@@ -1,9 +1,9 @@
 """
-OLAV v0.8 - Network AI Operations Assistant
+OLAV v0.9.8 - Network AI Operations Assistant
 DeepAgents Native Framework
 """
 
-__version__ = "0.8.0"
+__version__ = "0.9.8"
 
 
 def __getattr__(name: str) -> object:  # noqa: ANN401

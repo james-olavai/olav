@@ -91,10 +91,32 @@ OLAV (Open Logic Agent for Network Visibility and Analysis) is an intelligent ne
 ### 环境要求
 
 ```bash
-# 安装依赖
-pip install duckdb langchain openai
+# 安装 Python 依赖
+uv sync
+
+# 或使用 pip
 pip install -e .[dev]
 ```
+
+### 配置 API Key
+
+OLAV 使用 xAI (Grok) 作为默认 LLM 提供商。需要配置 API key：
+
+```bash
+# 方法 1: 环境变量
+export XAI_API_KEY='your-api-key-here'
+
+# 方法 2: .env 文件 (推荐)
+echo "XAI_API_KEY=your-api-key-here" >> .env
+
+# 方法 3: 使用其他 LLM 提供商
+# 编辑 .env 文件:
+LLM_MODEL_NAME=gpt-4o
+LLM_MODEL_PROVIDER=openai
+OPENAI_API_KEY=your-openai-key
+```
+
+**获取 xAI API Key**: https://x.ai/api
 
 ### 运行 OLAV
 
