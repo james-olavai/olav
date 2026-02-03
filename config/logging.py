@@ -4,12 +4,14 @@ Configures application-wide logging with:
 - Console output for interactive use
 - File output to data/logs/olav.log
 - Rotating file handler to prevent log bloat
+- Optional JSON structured logging (settings.log_format="json")
 """
 
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Literal
 
 
 def setup_logging(
@@ -17,6 +19,7 @@ def setup_logging(
     log_file: str = "logs/olav.log",
     max_bytes: int = 10 * 1024 * 1024,  # 10MB
     backup_count: int = 5,
+    log_format: Literal["text", "json"] = "text",
 ) -> None:
     """Configure application logging.
 
@@ -25,7 +28,21 @@ def setup_logging(
         log_file: Path to log file
         max_bytes: Maximum size of log file before rotation
         backup_count: Number of backup files to keep
+        log_format: Log format ("text" or "json")
     """
+    # Use JSON logging if requested
+    if log_format == "json":
+        from config.structured_logging import setup_structured_logging
+        
+        setup_structured_logging(
+            log_level=log_level,
+            log_file=log_file.replace(".log", ".json"),
+            enable_console=True,
+            max_bytes=max_bytes,
+            backup_count=backup_count,
+        )
+        return
+    
     # Create logs directory if it doesn't exist
     log_path = Path(log_file)
     log_path.parent.mkdir(parents=True, exist_ok=True)
