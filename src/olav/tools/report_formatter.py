@@ -520,9 +520,9 @@ def generate_professional_inspection_report(
             for layer_level in ["L1", "L2", "L3", "L4"]:
                 if layer_level in layer:
                     if anomaly["severity"] == "critical":
-                        layer_status[l] = "🔴"
-                    elif anomaly["severity"] == "warning" and layer_status[l] == "✅":
-                        layer_status[l] = "⚠️"
+                        layer_status[layer_level] = "🔴"
+                    elif anomaly["severity"] == "warning" and layer_status[layer_level] == "✅":
+                        layer_status[layer_level] = "⚠️"
 
         # Overall device status
         if any(a["severity"] == "critical" for a in device_anomalies):
