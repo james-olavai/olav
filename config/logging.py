@@ -33,7 +33,7 @@ def setup_logging(
     # Use JSON logging if requested
     if log_format == "json":
         from config.structured_logging import setup_structured_logging
-        
+
         setup_structured_logging(
             log_level=log_level,
             log_file=log_file.replace(".log", ".json"),
@@ -42,7 +42,7 @@ def setup_logging(
             backup_count=backup_count,
         )
         return
-    
+
     # Create logs directory if it doesn't exist
     log_path = Path(log_file)
     log_path.parent.mkdir(parents=True, exist_ok=True)
