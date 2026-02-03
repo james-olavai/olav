@@ -22,16 +22,16 @@ init_cache()
 async def orchestrate_with_guard(query: str) -> dict[str, Any]:
     """
     完整请求处理流程（带 Guard 和缓存）
-    
+
     Tier 0   → Guard 静态黑名单（可关闭）
     Tier 0.5 → Guard 动态拒绝缓存（可关闭）
     Tier 1   → Intent 缓存（可调整置信度）
     Tier 2   → 主 Agent 网络相关性判断（可关闭）
     Tier 3   → LLM 执行
-    
+
     Args:
         query: 用户查询
-        
+
     Returns:
         执行结果字典
     """
@@ -99,10 +99,10 @@ async def orchestrate_with_guard(query: str) -> dict[str, Any]:
 async def cli_handle_query(query: str) -> str:
     """
     CLI 入口处理查询（集成 Guard）
-    
+
     Args:
         query: 用户查询
-        
+
     Returns:
         Markdown 格式响应
     """
@@ -130,7 +130,7 @@ async def cli_handle_query(query: str) -> str:
 
 if __name__ == "__main__":
     # 测试示例
-    async def test():
+    async def test() -> None:
         print("=== 测试 1: 网络查询（应该通过）===")
         result = await cli_handle_query("查看 R1 的状态")
         print(result)

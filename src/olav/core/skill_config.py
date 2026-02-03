@@ -28,10 +28,10 @@ class SkillConfig:
     def initialize(cls) -> None:
         """
         Initialize SkillConfig by preloading all skill configurations.
-        
+
         Call this once at application startup to avoid repeated disk I/O
         and YAML parsing during request handling.
-        
+
         Performance: ~100ms (one-time cost at startup)
         """
         if cls._initialized:

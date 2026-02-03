@@ -453,13 +453,10 @@ def generate_professional_inspection_report(
     # Determine health status based on configurable thresholds
     if health_score >= thresholds.get("healthy", 90):
         health_status = "✅ HEALTHY"
-        health_color = "green"
     elif health_score >= thresholds.get("warning", 70):
         health_status = "⚠️ WARNING"
-        health_color = "yellow"
     else:
         health_status = "🔴 CRITICAL"
-        health_color = "red"
 
     lines.append("## 📊 Executive Summary")
     lines.append("")
@@ -520,8 +517,8 @@ def generate_professional_inspection_report(
         layer_status = {"L1": "✅", "L2": "✅", "L3": "✅", "L4": "✅"}
         for anomaly in device_anomalies:
             layer = anomaly.get("layer", "L4")
-            for l in ["L1", "L2", "L3", "L4"]:
-                if l in layer:
+            for layer_level in ["L1", "L2", "L3", "L4"]:
+                if layer_level in layer:
                     if anomaly["severity"] == "critical":
                         layer_status[l] = "🔴"
                     elif anomaly["severity"] == "warning" and layer_status[l] == "✅":
@@ -790,8 +787,8 @@ def generate_network_operations_report(
             lines.append("")
             try:
                 interfaces = db.query(
-                    """SELECT device, COUNT(*) as count FROM raw_outputs 
-                       WHERE command LIKE '%interface%' OR command LIKE '%int%brief%' 
+                    """SELECT device, COUNT(*) as count FROM raw_outputs
+                       WHERE command LIKE '%interface%' OR command LIKE '%int%brief%'
                        GROUP BY device ORDER BY device"""
                 )
                 if interfaces and len(interfaces) > 0:
@@ -812,8 +809,8 @@ def generate_network_operations_report(
             lines.append("")
             try:
                 routes = db.query(
-                    """SELECT device, COUNT(*) as count FROM raw_outputs 
-                       WHERE command LIKE '%route%' OR command LIKE '%ip route%' 
+                    """SELECT device, COUNT(*) as count FROM raw_outputs
+                       WHERE command LIKE '%route%' OR command LIKE '%ip route%'
                        GROUP BY device ORDER BY device"""
                 )
                 if routes and len(routes) > 0:

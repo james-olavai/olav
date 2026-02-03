@@ -26,21 +26,21 @@ class DatabaseSchemaManager:
     -- Execution plan cache (exact matching + learning)
     CREATE TABLE IF NOT EXISTS execution_plan_cache (
         id VARCHAR PRIMARY KEY DEFAULT uuid(),
-        
+
         -- Query information
         query_text TEXT NOT NULL UNIQUE,
         query_category TEXT,
-        
+
         -- Execution plan
         execution_plan JSON NOT NULL,
-        
+
         -- Routing learning
         agents_involved JSON,
         is_multi_agent BOOLEAN,
         initial_route TEXT,
         final_route TEXT,
         was_upgraded BOOLEAN,
-        
+
         -- Performance metrics
         success_rate FLOAT DEFAULT 1.0,
         avg_execution_time FLOAT,
@@ -101,7 +101,7 @@ class DatabaseSchemaManager:
     KNOWLEDGE_SCHEMA = """
     -- Sequence for knowledge sources
     CREATE SEQUENCE IF NOT EXISTS knowledge_sources_id_seq START 1;
-    
+
     -- Document sources
     CREATE TABLE IF NOT EXISTS knowledge_sources (
         id INTEGER PRIMARY KEY DEFAULT nextval('knowledge_sources_id_seq'),
@@ -113,7 +113,7 @@ class DatabaseSchemaManager:
 
     -- Sequence for knowledge chunks
     CREATE SEQUENCE IF NOT EXISTS knowledge_chunks_id_seq START 1;
-    
+
     -- Document chunks (vectorized)
     CREATE TABLE IF NOT EXISTS knowledge_chunks (
         id INTEGER PRIMARY KEY DEFAULT nextval('knowledge_chunks_id_seq'),
@@ -138,20 +138,20 @@ class DatabaseSchemaManager:
     -- Historical diagnosis cases (semantic retrieval)
     CREATE TABLE IF NOT EXISTS history_cases (
         id VARCHAR PRIMARY KEY DEFAULT uuid(),
-        
+
         -- Symptom (semantic retrieval)
         symptom TEXT NOT NULL,
         symptom_embedding FLOAT[768],
-        
+
         -- Diagnosis process
         devices_checked JSON,
         commands_used JSON,
         diagnosis_steps TEXT,
-        
+
         -- Conclusion
         root_cause TEXT,
         solution TEXT,
-        
+
         -- Time information
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         age_days INTEGER
@@ -162,7 +162,7 @@ class DatabaseSchemaManager:
     CREATE INDEX IF NOT EXISTS idx_case_created ON history_cases(created_at);
     """
 
-    def __init__(self, db_dir: Path | None = None):
+    def __init__(self, db_dir: Path | None = None) -> None:
         """Initialize schema manager.
 
         Args:
@@ -235,7 +235,7 @@ class DatabaseSchemaManager:
                     link_type TEXT,
                     discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
-                
+
                 CREATE INDEX IF NOT EXISTS idx_topo_source ON topology(source_device);
                 CREATE INDEX IF NOT EXISTS idx_topo_target ON topology(target_device);
             """)
