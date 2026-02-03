@@ -24,6 +24,7 @@ from langgraph.store.duckdb import DuckDBStore
 from config.paths import USER_CHECKPOINT_PATH
 from config.settings import settings
 from olav.agents.intent_agent import IntentAgent
+from olav.core.query_cache import get_query_cache
 from olav.core.skill_adapter import SkillAdapter
 from olav.core.skill_loader import get_skill_loader
 from olav.lib.data_gateway import get_gateway
@@ -107,6 +108,9 @@ class QueryAgentV2:
 
         # 5. Create the agent
         self._create_agent()
+
+        # 6. Initialize query result cache
+        self.query_cache = get_query_cache()
 
     def _init_user_database(self) -> None:
         """Initialize user-specific persistent checkpointer and store using DuckDB."""
@@ -384,9 +388,34 @@ class QueryAgentV2:
         elif messages:
             last_user_msg = str(messages[-1].content)
 
+        # Phase 4 Day 5: Prepare cache context (used throughout)
+        skill_name = self.skill.name if hasattr(self.skill, "name") else "network-query"
+        cache_context = {
+            "skill": skill_name,
+            "mode": "analysis" if self.enable_summarization else "standard",
+        }
+
+        # Check query cache BEFORE expensive operations
+        if last_user_msg:
+            cached_result = self.query_cache.get(last_user_msg, context=cache_context)
+            if cached_result:
+                elapsed = time.time() - start_time
+                logger.info(f"✅ Cache HIT: {last_user_msg[:50]}... ({elapsed*1000:.2f}ms)")
+                # Return cached result with updated performance metadata
+                return {
+                    **cached_result,
+                    "performance": {
+                        **cached_result.get("performance", {}),
+                        "cache_hit": True,
+                        "total_seconds": round(elapsed, 2),
+                    },
+                }
+            
+            logger.info(f"❌ Cache MISS: {last_user_msg[:50]}... (will store after execution)")
+
         # Phase 1: Process aliases - replace user aliases with canonical names
         logger.debug(f"Processing aliases for query: {last_user_msg}")
-        original_query = last_user_msg
+        original_query = last_user_msg  # Save for caching (user's original input)
         last_user_msg = self._process_aliases(last_user_msg, learn_callback=learn_callback)
         if last_user_msg != original_query:
             logger.info(f"Alias processed: {original_query} -> {last_user_msg}")
@@ -398,6 +427,9 @@ class QueryAgentV2:
                 from langchain_core.messages import HumanMessage
 
                 messages = messages[:-1] + [HumanMessage(content=last_user_msg)]
+
+        # Store original query for caching (user's intent, not processed form)
+        cache_query = original_query
 
         logger.debug(f"Alias processing completed in {time.time() - start_time:.2f}s")
 
@@ -499,14 +531,33 @@ class QueryAgentV2:
                         result_content = f"Error executing tool {tool_name}: {e}"
 
                 # Standard Mode Caching & Return
-                # We return immediately to avoid ReAct message extraction logic overwriting our result
-                if (successful_sql or tool_name) and last_user_msg:
-                    # Only cache if not an execution error (unless it's a "Not Found" result)
-                    if (
-                        "Error" not in str(result_content)
-                        or "not found" in str(result_content).lower()
-                    ):
-                        pass  # Cache logic removed, placeholder for future logic
+                # Phase 4 Day 5: Cache any successful query result (not limited to SQL tools)
+                if cache_query and result_content:
+                    # Only cache if not an execution error
+                    if "Error" not in str(result_content) or "not found" in str(result_content).lower():
+                        # Store in query cache for future fast retrieval
+                        # Convert AIMessage to serializable format
+                        serializable_msg = {
+                            "role": "assistant",
+                            "content": str(msg.content) if hasattr(msg, "content") else str(msg),
+                        }
+                        result_to_cache = {
+                            "messages": [serializable_msg],
+                            "result": str(result_content),
+                            "sql_query": successful_sql or "",
+                            "error": None,
+                        }
+                        mode_str = "analysis" if self.enable_summarization else "standard"
+                        try:
+                            self.query_cache.set(
+                                cache_query,  # Use original user query
+                                result_to_cache,
+                                context=cache_context,
+                                metadata={"mode": mode_str, "tool": tool_name or "unknown"},
+                            )
+                            logger.info(f"✅ Stored in cache: {cache_query[:50]}...")
+                        except Exception as cache_err:
+                            logger.warning(f"Cache store failed: {cache_err}")
 
                 elapsed = time.time() - start_time
                 mode_str = "analysis" if self.enable_summarization else "standard"
@@ -515,7 +566,7 @@ class QueryAgentV2:
                     "result": str(result_content),
                     "sql_query": successful_sql or "",
                     "error": None,
-                    "performance": {"total_seconds": round(elapsed, 2), "mode": mode_str},
+                    "performance": {"total_seconds": round(elapsed, 2), "mode": mode_str, "cache_hit": False},
                 }
 
             # Extract final answer and find successful SQL for caching
@@ -551,13 +602,40 @@ class QueryAgentV2:
                 if not last_msg_content:
                     last_msg_content = str(all_messages[-1].content)
 
-            # Performance Optimization: Cache successful SQL interaction
-            # Also cache "Not Found" results (Negative Caching) for Tier 0
-            if (
-                successful_sql or tool_name or "not found" in last_msg_content.lower()
-            ) and last_user_msg:
+            # Performance Optimization: Cache successful query results
+            # Phase 4 Day 5: Cache any successful result (not limited to SQL tools)
+            if cache_query and last_msg_content:
+                # Cache if no error, or if it's a "not found" result (negative caching)
                 if "Error" not in last_msg_content or "not found" in last_msg_content.lower():
-                    pass  # Cache logic removed
+                    # Convert LangChain messages to serializable format
+                    serializable_messages = []
+                    for m in all_messages:
+                        if hasattr(m, "type"):
+                            serializable_messages.append({
+                                "role": "assistant" if m.type == "ai" else m.type,
+                                "content": str(m.content),
+                            })
+                        else:
+                            serializable_messages.append({"role": "unknown", "content": str(m)})
+                    
+                    # Store in query cache
+                    result_to_cache = {
+                        "messages": serializable_messages,
+                        "result": last_msg_content,
+                        "sql_query": successful_sql or "",
+                        "error": None,
+                    }
+                    mode_str = "analysis" if self.enable_summarization else "standard"
+                    try:
+                        self.query_cache.set(
+                            cache_query,  # Use original user query
+                            result_to_cache,
+                            context=cache_context,
+                            metadata={"mode": mode_str, "tool": tool_name or "unknown"},
+                        )
+                        logger.info(f"✅ Stored in cache: {cache_query[:50]}...")
+                    except Exception as cache_err:
+                        logger.warning(f"Cache store failed: {cache_err}")
 
             # DeepAgents typical result extraction
             elapsed = time.time() - start_time
@@ -567,7 +645,7 @@ class QueryAgentV2:
                 "result": last_msg_content,
                 "sql_query": successful_sql or "",
                 "error": None,
-                "performance": {"total_seconds": round(elapsed, 2), "mode": mode_str},
+                "performance": {"total_seconds": round(elapsed, 2), "mode": mode_str, "cache_hit": False},
             }
         except Exception as e:
             elapsed = time.time() - start_time

@@ -210,9 +210,12 @@ class OlavDatabase:
         """
         self.conn.execute(
             """
-            INSERT OR REPLACE INTO command_cache
+            INSERT INTO command_cache
             (device, command, output, ttl_seconds)
             VALUES (?, ?, ?, ?)
+            ON CONFLICT (device, command) DO UPDATE SET
+                output = excluded.output,
+                ttl_seconds = excluded.ttl_seconds
         """,
             [device, command, output, ttl_seconds],
         )
