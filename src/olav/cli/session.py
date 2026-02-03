@@ -201,18 +201,21 @@ class Session:
     - Optional persistence
     """
 
-    def __init__(self, context_window: int = 10, persist: bool = False) -> None:
+    def __init__(self, context_window: int = 10, persist: bool = False, user_id: str | None = None) -> None:
         """Initialize conversation session.
 
         Args:
             context_window: Max messages to keep in context (0 = unlimited)
             persist: Whether to persist session to disk
+            user_id: Optional user identifier for session tracking
         """
         self.messages: list[Message] = []
         self.context_window = context_window
         self.persist = persist
         self.context: dict = {}
         self._session_id = None
+        self.user_id = user_id
+        self._storage: dict = {}  # Key-value storage for session data
 
     def add_message(self, role: str, content: str) -> None:
         """Add message to conversation.
@@ -275,3 +278,24 @@ class Session:
             List of messages with matching role
         """
         return [msg for msg in self.messages if msg.role == role]
+
+    def set(self, key: str, value: any) -> None:
+        """Store key-value data in session.
+
+        Args:
+            key: Storage key
+            value: Value to store
+        """
+        self._storage[key] = value
+
+    def get(self, key: str, default: any = None) -> any:
+        """Retrieve value from session storage.
+
+        Args:
+            key: Storage key
+            default: Default value if key not found
+
+        Returns:
+            Stored value or default
+        """
+        return self._storage.get(key, default)
