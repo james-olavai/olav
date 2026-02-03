@@ -54,10 +54,8 @@ async def check_network_relevance(query: str, timeout: float = 1.0) -> tuple[boo
 
         # 使用 timeout 控制
         import asyncio
-        response = await asyncio.wait_for(
-            llm.ainvoke(prompt),
-            timeout=timeout
-        )
+
+        response = await asyncio.wait_for(llm.ainvoke(prompt), timeout=timeout)
 
         answer = response.content.strip().upper()
 
@@ -70,7 +68,9 @@ async def check_network_relevance(query: str, timeout: float = 1.0) -> tuple[boo
             return (False, rejection)
 
     except TimeoutError:
-        logger.warning(f"⏱️ Network relevance check timeout ({timeout}s), allowing query: {query[:50]}")
+        logger.warning(
+            f"⏱️ Network relevance check timeout ({timeout}s), allowing query: {query[:50]}"
+        )
         # 超时时允许查询（保守策略）
         return (True, None)
     except Exception as e:

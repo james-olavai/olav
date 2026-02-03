@@ -277,9 +277,7 @@ class OlavCache:
             "blacklist_count": conn.execute("SELECT COUNT(*) FROM guard_blacklist").fetchone()[0],
             "rejected_count": conn.execute("SELECT COUNT(*) FROM guard_rejected").fetchone()[0],
             "intent_count": conn.execute("SELECT COUNT(*) FROM intent_cache").fetchone()[0],
-            "rejected_hits": conn.execute("SELECT SUM(hit_count) FROM guard_rejected").fetchone()[
-                0
-            ]
+            "rejected_hits": conn.execute("SELECT SUM(hit_count) FROM guard_rejected").fetchone()[0]
             or 0,
             "intent_hits": conn.execute("SELECT SUM(hit_count) FROM intent_cache").fetchone()[0]
             or 0,
@@ -323,7 +321,11 @@ class OlavCache:
         # Calculate hit rate
         total_entries = intent_stats[0] or 0
         total_hits = intent_stats[1] or 0
-        cache_hit_rate = (total_hits / (total_hits + total_entries)) * 100 if (total_hits + total_entries) > 0 else 0
+        cache_hit_rate = (
+            (total_hits / (total_hits + total_entries)) * 100
+            if (total_hits + total_entries) > 0
+            else 0
+        )
 
         return {
             "intent": {
@@ -340,7 +342,7 @@ class OlavCache:
             "recent_24h": {
                 "queries": recent_stats[0] or 0,
                 "hits": recent_stats[1] or 0,
-            }
+            },
         }
 
     def log_cache_metrics(self) -> None:

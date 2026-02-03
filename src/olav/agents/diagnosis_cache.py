@@ -120,7 +120,7 @@ class DiagnosisCache:
         return {
             "cache_size": len(cls._cache),
             "max_size": cls._max_size,
-            "utilization": f"{len(cls._cache)/cls._max_size*100:.1f}%",
+            "utilization": f"{len(cls._cache) / cls._max_size * 100:.1f}%",
             "oldest_key": cls._access_order[0] if cls._access_order else None,
             "newest_key": cls._access_order[-1] if cls._access_order else None,
         }
@@ -164,7 +164,7 @@ class DiagnosisCache:
             filepath: 输出文件路径
         """
         try:
-            with open(filepath, 'w') as f:
+            with open(filepath, "w") as f:
                 json.dump(cls._cache, f, indent=2, default=str)
             logger.info(f"Diagnosis cache saved to: {filepath}")
         except Exception as e:
