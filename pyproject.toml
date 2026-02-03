@@ -7,7 +7,7 @@ packages = ["src/olav", "config"]
 
 [project]
 name = "olav"
-version = "0.8.2"
+version = "0.9.8"
 description = "OLAV - Network Operations AI Assistant with DeepAgents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -42,6 +42,7 @@ dependencies = [
     "typer>=0.9.0",
     "rich>=13.0",
     "prompt-toolkit>=3.0.0", # Phase 6: Enhanced CLI input
+    "nest-asyncio>=1.5.0", # Async context support for prompt-toolkit
     # Utilities
     "python-dotenv>=1.0",
     "python-dateutil>=2.8.0",
@@ -55,6 +56,7 @@ dependencies = [
     "scrapli-community>=2025.1.30",
     "langgraph>=1.0.5",
     "duckdb-engine>=0.17.0",
+    "langgraph-checkpoint-duckdb>=2.0.2",
 ]
 
 [project.scripts]

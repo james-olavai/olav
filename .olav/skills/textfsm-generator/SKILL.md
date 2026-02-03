@@ -15,8 +15,12 @@ triggers:
     - Placeholder template detected
     - Field mapping missing in field_mappings.py
   manual:
-    - User query: "generate template", "create parser", "textfsm template"
-    - User query: "learn field mapping", "create mapping", "normalize vendor data"
+    - "User query: generate template"
+    - "User query: create parser"
+    - "User query: textfsm template"
+    - "User query: learn field mapping"
+    - "User query: create mapping"
+    - "User query: normalize vendor data"
 
 # Constraints
 constraints:

@@ -11,6 +11,13 @@ examples:
   - "list OSPF neighbors"
   - "find IP 10.1.1.1"
 
+# Cache configuration (P1 Optimization)
+cache:
+  enabled: true
+  match_mode: "exact"          # 精确匹配（Query SubAgent 必须精确）
+  confidence_threshold: 1.0     # 置信度 100%
+  ttl_hours: 168               # 7 天过期
+
 tools:
   - name: query_database
     script: scripts/query_database.py

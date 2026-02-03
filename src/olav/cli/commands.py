@@ -35,14 +35,12 @@ def register_command(name: str) -> Callable:
 async def execute_command(
     full_command: str,
     agent: object | None = None,  # noqa: ANN401
-    memory: object | None = None,  # noqa: ANN401
 ) -> str | None:
     """Execute a slash command.
 
     Args:
         full_command: Full command string (e.g., "/devices core")
         agent: OLAV agent instance (optional)
-        memory: Agent memory manager (optional)
 
     Returns:
         Command output string
@@ -221,16 +219,11 @@ async def cmd_history(args: str) -> str:
         /history
     """
     try:
-        from olav.cli.memory import AgentMemory
-
-        memory = AgentMemory()
-        stats = memory.get_stats()
-        return f"""Session History Stats:
-  Total Messages: {stats["total_messages"]}
-  User Messages: {stats["user_messages"]}
-  Assistant Messages: {stats["assistant_messages"]}
-  Tool Messages: {stats["tool_messages"]}
-  Memory File: {stats["memory_file"]}"""
+        # History now managed by LangGraph checkpointer
+        return """Session History Info:
+  History is now managed by LangGraph checkpointer.
+  Use `uv run olav query "what did we discuss?"` to review context.
+  Checkpoint database: ~/.olav/checkpoints/<username>.duckdb"""
     except Exception as e:
         return f"Error showing history: {str(e)}"
 

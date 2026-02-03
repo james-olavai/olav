@@ -19,9 +19,11 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage
-from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
+
+from olav.core.llm import LLMFactory
 
 logger = logging.getLogger(__name__)
 
@@ -67,17 +69,17 @@ class CoderState:
 # =============================================================================
 
 
-def create_llm(model: str = "gpt-4o") -> ChatOpenAI:
+def create_llm(model: str = "gpt-4o") -> BaseChatModel:
     """Create LLM for template generation.
 
     Args:
         model: Model name
 
     Returns:
-        ChatOpenAI instance
+        ChatModel instance from LLMFactory (supports base_url)
     """
 
-    return ChatOpenAI(model=model, temperature=0)
+    return LLMFactory.get_chat_model(temperature=0)
 
 
 # =============================================================================

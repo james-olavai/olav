@@ -12,9 +12,9 @@ from datetime import datetime
 from typing import Any, Literal
 
 from langchain_core.messages import SystemMessage
-from langchain_openai import ChatOpenAI
 
 from config.paths import SKILL_DAILY_REPORT, SKILL_INSPECT_ANALYZER, SKILL_LOG_ANALYZER
+from olav.core.llm import LLMFactory
 
 # =============================================================================
 # Map-Reduce LLM Interface
@@ -59,23 +59,10 @@ class MapReduceLLM:
         self.retry_count = retry_count
         self.retry_delay = retry_delay
 
-        # Initialize LLM client
-        if provider == "anthropic":
-            # Use Anthropic via OpenAI-compatible API
-            self.llm = ChatOpenAI(
-                model=model,
-                temperature=0,
-                max_tokens=2000,
-                api_key=self._get_api_key("anthropic"),
-                base_url="https://api.anthropic.com/v1/",
-            )
-        else:  # openai
-            self.llm = ChatOpenAI(
-                model=model,
-                temperature=0,
-                max_tokens=2000,
-                api_key=self._get_api_key("openai"),
-            )
+        # Initialize LLM client using LLMFactory (supports base_url from .env)
+        self.llm = LLMFactory.get_chat_model(
+            temperature=0,
+        )
 
     def _get_api_key(self, provider: str) -> str:
         """Get API key from environment.
