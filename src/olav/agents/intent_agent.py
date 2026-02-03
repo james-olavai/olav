@@ -22,6 +22,7 @@ from olav.lib.data_gateway import get_gateway
 
 logger = logging.getLogger(__name__)
 
+
 class IntentAgent:
     """
     Intent Agent - Fast Path Execution Orchestrator
@@ -93,8 +94,7 @@ class IntentAgent:
             return None
 
         logger.info(
-            f"✅ Intent cache HIT ({skill_id}, "
-            f"{cache_cfg.get('match_mode')}): {query[:50]}"
+            f"✅ Intent cache HIT ({skill_id}, {cache_cfg.get('match_mode')}): {query[:50]}"
         )
 
         # Return execution_plan directly

@@ -54,7 +54,7 @@ async def orchestrate_with_guard(query: str) -> dict[str, Any]:
     cached_result = cache.get_intent(
         query,
         match_mode=settings.routing.cache_match_mode,  # fuzzy
-        confidence_threshold=settings.routing.cache_confidence_threshold  # 0.85
+        confidence_threshold=settings.routing.cache_confidence_threshold,  # 0.85
     )
     if cached_result:
         logger.info(f"✅ Cache HIT (confidence={cached_result.get('_confidence', 1.0):.2f})")
@@ -62,14 +62,13 @@ async def orchestrate_with_guard(query: str) -> dict[str, Any]:
             "status": "cached",
             "result": cached_result,
             "confidence": cached_result.get("_confidence"),
-            "match_mode": cached_result.get("_match_mode")
+            "match_mode": cached_result.get("_match_mode"),
         }
 
     # ==================== Tier 2: 网络相关性判断 ====================
     if settings.guard.enabled and settings.guard.check_network_relevance:
         is_relevant, rejection = await check_network_relevance(
-            query,
-            timeout=settings.guard.relevance_check_timeout
+            query, timeout=settings.guard.relevance_check_timeout
         )
 
         if not is_relevant:
@@ -82,10 +81,7 @@ async def orchestrate_with_guard(query: str) -> dict[str, Any]:
     # 这里调用实际的 Orchestrator
     # from olav.agents.orchestrator import Orchestrator
     # result = await Orchestrator().orchestrate(query)
-    result = {
-        "status": "success",
-        "message": "模拟执行成功（请替换为实际 Orchestrator 调用）"
-    }
+    result = {"status": "success", "message": "模拟执行成功（请替换为实际 Orchestrator 调用）"}
 
     # 缓存成功结果
     if result.get("status") == "success":
@@ -95,6 +91,7 @@ async def orchestrate_with_guard(query: str) -> dict[str, Any]:
 
 
 # ==================== CLI 集成示例 ====================
+
 
 async def cli_handle_query(query: str) -> str:
     """
@@ -112,7 +109,7 @@ async def cli_handle_query(query: str) -> str:
         return f"## ⛔ 安全拦截\n\n{result['message']}"
 
     elif result["status"] == "rejected":
-        return result['message']  # 礼貌拒绝消息已经是 Markdown
+        return result["message"]  # 礼貌拒绝消息已经是 Markdown
 
     elif result["status"] == "cached":
         confidence = result.get("confidence", 1.0)

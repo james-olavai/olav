@@ -207,11 +207,12 @@ class QueryRouter:
         P2优化: 用于缓存相同输入的路由决策
         """
         import hashlib
+
         return hashlib.md5(user_input.strip().encode()).hexdigest()
 
     def _get_routing_cache(self, cache_key: str) -> RoutingDecision | None:
         """获取缓存的路由决策."""
-        if not hasattr(self, '_routing_cache'):
+        if not hasattr(self, "_routing_cache"):
             self._routing_cache = {}
         return self._routing_cache.get(cache_key)
 
@@ -220,7 +221,7 @@ class QueryRouter:
 
         P2优化: 避免重复分析相同的输入
         """
-        if not hasattr(self, '_routing_cache'):
+        if not hasattr(self, "_routing_cache"):
             self._routing_cache = {}
 
         # 简单LRU实现: 超过1000条时清空
