@@ -38,6 +38,8 @@ dependencies = [
     # API & HTTP
     "httpx>=0.24.0",
     "requests>=2.31.0",
+    "fastapi>=0.109.0",  # Phase 5: Health check & metrics API
+    "uvicorn[standard]>=0.27.0",  # Phase 5: ASGI server
     # CLI
     "typer>=0.9.0",
     "rich>=13.0",
