@@ -53,18 +53,14 @@ def _display_todos(agent_graph: Any) -> None:
         table.add_column("Status", width=15)
         table.add_column("Task", min_width=30)
 
-        status_icons = {
-            "not-started": "⬜",
-            "in-progress": "🔄",
-            "completed": "✅"
-        }
+        status_icons = {"not-started": "⬜", "in-progress": "🔄", "completed": "✅"}
 
         for todo in todos:
             icon = status_icons.get(todo.get("status", "not-started"), "⬜")
             table.add_row(
                 str(todo.get("id", "")),
                 f"{icon} {todo.get('status', 'not-started')}",
-                todo.get("title", "")
+                todo.get("title", ""),
             )
 
         panel = Panel(table, title="📋 Task Progress", border_style="blue")
@@ -313,12 +309,15 @@ async def run_interactive_loop_async(
     if is_tty:
         try:
             from olav.cache import cache
+
             metrics = cache.get_cache_metrics()
-            intent = metrics['intent']
-            if intent['total_entries'] > 0:
-                print(f"📊 Cache: {intent['total_entries']} entries, "
-                      f"{intent['total_hits']} hits, "
-                      f"hit rate {intent['hit_rate_pct']}%")
+            intent = metrics["intent"]
+            if intent["total_entries"] > 0:
+                print(
+                    f"📊 Cache: {intent['total_entries']} entries, "
+                    f"{intent['total_hits']} hits, "
+                    f"hit rate {intent['hit_rate_pct']}%"
+                )
         except Exception as e:
             logger.debug(f"Failed to display cache metrics: {e}")
 
@@ -897,7 +896,6 @@ def interactive_mode(ctx: typer.Context) -> None:
 
         # Create CLI session (checkpointer manages state)
 
-
         # Create CLI session (history_file handled by session.py via USER_HISTORY_PATH)
         try:
             session = OlavPromptSession(
@@ -948,6 +946,7 @@ def main() -> None:
 
     # P1: Initialize SkillConfig at startup for better performance
     from olav.core.skill_config import SkillConfig
+
     SkillConfig.initialize()
 
     try:

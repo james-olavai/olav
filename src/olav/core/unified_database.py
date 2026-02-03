@@ -353,8 +353,6 @@ class UnifiedDatabase:
                 for r in results
             ]
 
-
-
     def search_intent_cache(self, query_text: str) -> dict[str, Any] | None:
         """[DEPRECATED] Use search_intent_cache_gateway() instead.
 

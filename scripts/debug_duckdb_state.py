@@ -1,4 +1,5 @@
 """Debug DuckDB connection state"""
+
 from pathlib import Path
 
 import duckdb
@@ -39,5 +40,5 @@ try:
     print("   ✓ Success")
 except TypeError as e:
     print(f"   ✗ Failed: {e}")
-    
+
 print("\nDone")
