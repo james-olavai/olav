@@ -14,6 +14,7 @@ from typing import Any
 import duckdb
 
 from config.paths import KNOWLEDGE_PATH, NETWORK_COMMANDS_PATH, NETWORK_SNAPSHOT_PATH
+from olav.core.query_optimizer import init_query_optimization
 
 # v0.10.0: Import DataGateway for backward compatibility wrappers
 try:
@@ -173,6 +174,16 @@ class UnifiedDatabase:
                                 pass
             except Exception:
                 pass
+
+            # 6. Phase 4 Day 3: Query optimization (indexes already exist)
+            # Base table indexes from db_schema.py are effective
+            # Focus on: connection pooling and caching (next days)
+            try:
+                init_query_optimization(self.conn)
+            except Exception as e:
+                import logging
+
+                logging.debug(f"Query optimization init: {e}")
 
             # Note: Cache tables removed - now using unified olav.cache module
             # Semantic cache and intent cache have been migrated to .olav/cache/olav_cache.db
