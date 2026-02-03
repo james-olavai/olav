@@ -310,6 +310,28 @@ class NetworkExecutor:
                 duration_ms=duration_ms,
             )
 
+    def execute_command(
+        self,
+        devices: list[str],
+        command: str,
+        timeout: int | None = None,
+    ) -> list[CommandExecutionResult]:
+        """Execute a command on multiple devices (batch execution).
+        
+        Args:
+            devices: List of device names or IPs
+            command: Command to execute on all devices
+            timeout: Command timeout in seconds (defaults to settings.execution.timeout)
+        
+        Returns:
+            List of CommandExecutionResult, one per device
+        """
+        results = []
+        for device in devices:
+            result = self.execute(device=device, command=command, timeout=timeout)
+            results.append(result)
+        return results
+
     def execute_with_parsing(
         self,
         device: str,
