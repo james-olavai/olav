@@ -1,443 +1,236 @@
-"""Orchestrator Agent - ReAct-based Meta-Agent.
+"""Orchestrator Agent - SubAgent-based Meta-Agent (v0.10.0)
 
 The Orchestrator is the central coordinator that:
-1. Routes user queries to appropriate specialists
+1. Routes user queries to appropriate specialist SubAgents
 2. Executes ReAct loops for complex multi-step tasks
 3. Aggregates and synthesizes results from multiple specialists
 
-Architecture:
+Architecture (SubAgent-based):
 - Tier 0: Cache (instant responses)
-- Tier 1: Fast Router (direct specialist dispatch)
+- Tier 1: SubAgent Router (declarative specialist dispatch)
 - Tier 2: ReAct Orchestrator (multi-step reasoning)
 
-Roadmap: Phase 2 - Orchestrator & Router
+Specialists as SubAgents:
+- database: Network database queries via query_network tool
+- cli: CLI command execution via network-query skill
+- analysis: Network data analysis via analyzer tool
+
+Migration: v0.9.8 -> v0.10.0
+- Replaced manual _get_specialist_agent() with SubAgent declarations
+- Unified QueryAgentV2 mode parameter -> enable_summarization
+- Native DeepAgents SubAgent middleware integration
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
-from langgraph.graph import END, StateGraph
+from deepagents import create_deep_agent
+from deepagents.middleware.subagents import SubAgent
+from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.checkpoint.duckdb import DuckDBSaver
+from langgraph.store.duckdb import DuckDBStore
 
-from olav.core.query_router import QueryRouter, RoutingDecision
+from config.paths import USER_CHECKPOINT_PATH
+from olav.agents.analyzer import analyze_network
+from olav.core.query_router import QueryRouter
+from olav.tools.react_query import query_network
 
 logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# State Definition
+# SubAgent Configuration (Declarative Specialists)
 # =============================================================================
 
 
-@dataclass
-class OrchestratorState:
-    """State for the Orchestrator Agent.
-
-    Attributes:
-        user_query: User's natural language query
-        routing_decision: Routing decision from QueryRouter
-        step_results: Results from each specialist execution step
-        final_answer: Synthesized final answer
-        status: Current status in the workflow
-        error_message: Error message if failed
-        iteration: Current ReAct iteration (for multi-step loops)
-        max_iterations: Maximum allowed iterations
-    """
-
-    user_query: str = ""
-    routing_decision: RoutingDecision | None = None
-    step_results: list[dict[str, Any]] = field(default_factory=list)
-    final_answer: str = ""
-    status: str = "pending"  # pending, routing, executing, synthesizing, complete, failed
-    error_message: str = ""
-    iteration: int = 0
-    max_iterations: int = 10
-
-
-# =============================================================================
-# Orchestrator Nodes
-# =============================================================================
-
-
-def create_llm() -> ChatOpenAI:
-    """Create LLM instance for orchestrator.
+def _create_subagents() -> list[SubAgent]:
+    """Create declarative SubAgent specialist configurations.
 
     Returns:
-        ChatOpenAI instance
+        List of SubAgent configurations for orchestrator
     """
-    from olav.core.llm_interface import MapReduceLLM
-
-    # Use standard settings via MapReduceLLM
-    mr = MapReduceLLM(provider="openai")
-    return mr.llm
-
-
-async def route_node(
-    state: OrchestratorState, router: QueryRouter | None = None
-) -> OrchestratorState:
-    """Route user query to appropriate specialist.
-
-    Args:
-        state: Current agent state
-        router: QueryRouter instance (if None, creates default)
-
-    Returns:
-        Updated state with routing decision
-    """
-    logger.info(f"Routing query: {state.user_query[:50]}...")
-
-    state.status = "routing"
-
-    try:
-        if router is None:
-            router = QueryRouter()
-
-        decision = router.route(state.user_query)
-        state.routing_decision = decision
-
-        # Determine next status based on decision
-        if decision.action == "reject":
-            state.status = "failed"
-            state.error_message = decision.message or "Query rejected by guard"
-        elif decision.action == "require_approval":
-            state.status = "failed"
-            state.error_message = decision.message or "Approval required"
-        else:
-            state.status = "executing"
-
-        logger.info(f"Routing decision: {decision.expert} ({decision.action})")
-
-    except Exception as e:
-        state.error_message = f"Routing failed: {e}"
-        state.status = "failed"
-        logger.error(state.error_message)
-
-    return state
-
-
-async def execute_node(
-    state: OrchestratorState,
-    agent: Any | None = None,
-) -> OrchestratorState:
-    """Execute query using the selected specialist.
-
-    Args:
-        state: Current agent state
-        agent: Specialist agent instance (if None, creates default based on routing)
-
-    Returns:
-        Updated state with execution result
-    """
-    logger.info(f"Executing with specialist: {state.routing_decision.expert}")
-
-    state.status = "executing"
-    state.iteration += 1
-
-    try:
-        # Get the appropriate specialist agent
-        if agent is None:
-            expert = state.routing_decision.expert or "database"
-            agent = _get_specialist_agent(expert)
-
-        # Execute the query
-        result = await agent.ainvoke(HumanMessage(content=state.user_query))
-
-        # Store result
-        step_result = {
-            "expert": state.routing_decision.expert,
-            "action": state.routing_decision.action,
-            "tool": state.routing_decision.tool,
-            "result": str(result.content) if isinstance(result, AIMessage) else str(result),
-            "iteration": state.iteration,
-        }
-        state.step_results.append(step_result)
-
-        # Agent makes autonomous decision - proceed to synthesis
-        state.status = "synthesizing"
-        logger.info("Execution successful, proceeding to synthesis")
-
-    except Exception as e:
-        logger.error(f"Execution failed: {e}")
-        state.step_results.append(
-            {
-                "expert": state.routing_decision.expert,
-                "error": str(e),
-                "iteration": state.iteration,
-            }
-        )
-
-        # Agent should handle failures via ReAct loop internally
-        # If execution fails, mark as failed
-        state.status = "failed"
-        state.error_message = f"Execution failed: {e}"
-
-    return state
-
-
-async def synthesize_node(
-    state: OrchestratorState,
-    llm: ChatOpenAI | None = None,
-) -> OrchestratorState:
-    """Synthesize results from multiple specialists into final answer.
-
-    Args:
-        state: Current agent state
-        llm: LLM instance for synthesis
-
-    Returns:
-        Updated state with final answer
-    """
-    logger.info("Synthesizing results")
-
-    state.status = "synthesizing"
-
-    try:
-        if llm is None:
-            llm = create_llm()
-
-        # Build synthesis prompt
-        prompt = _build_synthesis_prompt(state)
-
-        messages = [
-            SystemMessage(content=prompt),
-            HumanMessage(content=state.user_query),
-        ]
-
-        response = await llm.ainvoke(messages)
-
-        state.final_answer = (
-            response.content if isinstance(response.content, str) else str(response.content)
-        )
-        state.status = "complete"
-
-        logger.info("Synthesis completed successfully")
-
-    except Exception as e:
-        # Fallback to simple concatenation if LLM synthesis fails
-        logger.warning(f"LLM synthesis failed, using simple aggregation: {e}")
-        state.final_answer = _simple_synthesis(state)
-        state.status = "complete"
-
-    return state
-
-
-# =============================================================================
-# Helper Functions
-# =============================================================================
-
-
-def _get_specialist_agent(expert_name: str) -> Any:
-    """Get specialist agent by name.
-
-    Args:
-        expert_name: Name of the specialist (database, cli, analysis, etc.)
-
-    Returns:
-        Agent instance
-
-    Raises:
-        ValueError: If expert not found
-    """
-    from olav.agents.query_agent_v2 import QueryAgentV2
-    from olav.tools.react_query import query_network
-
-    if expert_name == "database":
-        # Use QueryAgentV2 with database tools
-        return QueryAgentV2(tools=[query_network], model="gpt-4o")
-
-    elif expert_name == "cli":
-        # Load network-query skill with all tools including smart_query for CLI fallback
-        # This gives agent access to: query_database, inspect_schema, smart_query, etc.
-        return QueryAgentV2(skill_name="network-query", mode="standard")
-
-    elif expert_name == "analysis":
-        # Use Analyzer agent
-        from olav.agents.analyzer import analyze_network
-
-        # Return a wrapper that makes it compatible with ainvoke
-        class AgentWrapper:
-            def __init__(self, tool: Any) -> None:
-                self.tool = tool
-
-            async def ainvoke(self, message: Any) -> Any:
-                result = await self.tool.ainvoke({"user_query": message.content})
-                return AIMessage(content=result)
-
-        return AgentWrapper(analyze_network)
-
-    else:
-        # Default to database agent
-        logger.warning(f"Unknown expert '{expert_name}', defaulting to database")
-        return QueryAgentV2(tools=[query_network], model="gpt-4o")
-
-
-def _build_synthesis_prompt(state: OrchestratorState) -> str:
-    """Build synthesis prompt.
-
-    Args:
-        state: Current agent state
-
-    Returns:
-        Synthesis prompt
-    """
-    prompt_parts = [
-        "You are an Orchestrator synthesizing results from multiple network specialists.",
-        "",
-        "User Query:",
-        state.user_query,
-        "",
-        f"Execution Steps ({len(state.step_results)}):",
+    return [
+        SubAgent(
+            name="database",
+            description="Network database specialist for querying device data",
+            system_prompt=(
+                "You are a network database specialist. "
+                "Use the query_network tool to answer questions about network devices, "
+                "interfaces, configurations, and performance metrics."
+            ),
+            tools=[query_network],
+        ),
+        SubAgent(
+            name="cli",
+            description="CLI command execution specialist for network operations",
+            system_prompt=(
+                "You are a CLI execution specialist. "
+                "You have access to network-query skill with tools including: "
+                "query_database, inspect_schema, smart_query, and CLI commands. "
+                "Use these tools to execute network operations."
+            ),
+            tools=[query_network],  # Will be augmented by SkillsMiddleware if needed
+        ),
+        SubAgent(
+            name="analysis",
+            description="Network data analysis specialist",
+            system_prompt=(
+                "You are a network analysis specialist. "
+                "Use the analyze_network tool to perform advanced analytics, "
+                "identify patterns, and provide actionable insights."
+            ),
+            tools=[analyze_network],
+        ),
     ]
 
-    for i, step in enumerate(state.step_results, 1):
-        expert = step.get("expert", "unknown")
-        result = step.get("result", step.get("error", "No result"))
-        prompt_parts.append(f"\n{i}. {expert}:")
-        prompt_parts.append(f"   {result[:200]}...")  # Truncate long results
 
-    prompt_parts.extend(
-        [
-            "",
-            "Your task:",
-            "1. Synthesize the results into a coherent answer",
-            "2. Highlight key findings",
-            "3. Note any discrepancies between specialists",
-            "4. Provide actionable recommendations",
-            "",
-            "Format your response as:",
-            "## Summary",
-            "[Concise summary]",
-            "",
-            "## Key Findings",
-            "- [Finding 1]",
-            "- [Finding 2]",
-            "",
-            "## Recommendations",
-            "- [Recommendation 1]",
-            "- [Recommendation 2]",
-        ]
-    )
-
-    return "\n".join(prompt_parts)
+# =============================================================================
+# Orchestrator Factory
+# =============================================================================
 
 
-def _simple_synthesis(state: OrchestratorState) -> str:
-    """Simple fallback synthesis without LLM.
+def create_orchestrator(
+    *,
+    user_id: str | None = None,
+    thread_id: str | None = None,
+    enable_summarization: bool = False,
+) -> Any:
+    """Create SubAgent-based orchestrator.
 
     Args:
-        state: Current agent state
+        user_id: User identifier for session management
+        thread_id: Thread identifier for conversation tracking
+        enable_summarization: Enable conversation summarization middleware
 
     Returns:
-        Synthesized answer
+        Compiled LangGraph agent with SubAgent routing
     """
-    parts = ["## Execution Results\n"]
+    # Persistence layer (shared by all SubAgents)
+    checkpointer = DuckDBSaver.from_conn_string(str(USER_CHECKPOINT_PATH))
+    store = DuckDBStore.from_conn_string(str(USER_CHECKPOINT_PATH))
 
-    for i, step in enumerate(state.step_results, 1):
-        expert = step.get("expert", "unknown")
-        result = step.get("result", step.get("error", "No result"))
-        parts.append(f"### {i}. {expert}")
-        parts.append(result)
-        parts.append("")
+    # SubAgent configuration
+    subagents = _create_subagents()
 
-    return "\n".join(parts)
+    # System prompt for orchestrator
+    system_prompt = """You are the Orchestrator - a meta-agent coordinating specialist SubAgents.
 
+Your capabilities:
+1. Route queries to appropriate specialists: database, cli, analysis
+2. Execute multi-step reasoning for complex tasks
+3. Synthesize results from multiple specialists
 
-# =============================================================================
-# Graph Creation
-# =============================================================================
+Available SubAgents:
+- database: Query network device data
+- cli: Execute CLI commands
+- analysis: Perform advanced analytics
 
+Your workflow:
+1. Analyze user query to determine required specialist(s)
+2. Delegate subtasks to SubAgents
+3. Synthesize results into coherent answer
+4. Provide actionable recommendations
 
-def create_orchestrator_graph() -> StateGraph:
-    """Create the Orchestrator Agent workflow graph.
+Always be concise, accurate, and cite which specialist provided each insight."""
 
-    Returns:
-        LangGraph StateGraph
-    """
-    workflow = StateGraph(OrchestratorState)
+    # Middleware stack
+    middleware = []
+    if enable_summarization:
+        from pathlib import Path
 
-    # Add nodes
-    workflow.add_node("route", route_node)
-    workflow.add_node("execute", execute_node)
-    workflow.add_node("synthesize", synthesize_node)
+        from deepagents.backends.filesystem import FilesystemBackend
+        from deepagents.middleware.summarization import SummarizationMiddleware
 
-    # Add edges
-    workflow.set_entry_point("route")
+        # FilesystemBackend for summarization storage
+        backend = FilesystemBackend(root_dir=str(Path.cwd()))
 
-    # Conditional routing from route node
-    workflow.add_conditional_edges(
-        "route",
-        lambda s: s.status,
-        {
-            "executing": "execute",
-            "failed": END,
-        },
+        middleware.append(
+            SummarizationMiddleware(
+                model="gemini-flash",
+                backend=backend,
+                trigger=("tokens", 50000),
+                keep=("messages", 10),
+            )
+        )
+
+    # Create orchestrator with SubAgent routing
+    return create_deep_agent(
+        model="gpt-4o",
+        system_prompt=system_prompt,
+        subagents=subagents,
+        middleware=middleware,
+        checkpointer=checkpointer,
+        store=store,
+        name="orchestrator",
     )
 
-    # Conditional routing from execute node
-    workflow.add_conditional_edges(
-        "execute",
-        lambda s: s.status,
-        {
-            "synthesizing": "synthesize",
-            "failed": END,
-        },
-    )
-
-    workflow.add_edge("synthesize", END)
-
-    return workflow.compile()  # type: ignore[return-value]
-
 
 # =============================================================================
-# Main Interface
+# Simplified Interface (Backward Compatibility)
 # =============================================================================
 
 
-async def orchestrate_query(user_query: str, router: QueryRouter | None = None) -> dict[str, Any]:
-    """Orchestrate a user query through the complete workflow.
+async def orchestrate_query(
+    user_query: str,
+    router: QueryRouter | None = None,
+    user_id: str | None = None,
+    thread_id: str | None = None,
+) -> dict[str, Any]:
+    """Orchestrate a user query through SubAgent specialists.
 
     Args:
         user_query: User's natural language query
-        router: Optional QueryRouter instance
+        router: Optional QueryRouter (legacy, kept for compatibility)
+        user_id: User identifier
+        thread_id: Thread identifier
 
     Returns:
         Dictionary containing:
-            - status: final status (complete, failed)
-            - final_answer: synthesized answer
-            - step_results: list of individual specialist results
-            - error_message: error if failed
+            - status: "complete" or "failed"
+            - final_answer: Agent response
+            - error_message: Error if failed
     """
     logger.info(f"Orchestrating query: {user_query[:50]}...")
 
     try:
-        # Create graph
-        app = create_orchestrator_graph()
+        # Create orchestrator with SubAgent routing
+        orchestrator = create_orchestrator(
+            user_id=user_id,
+            thread_id=thread_id,
+        )
 
-        # Initial state
-        initial_state = OrchestratorState(user_query=user_query)
+        # Execute query
+        config = {"configurable": {}}
+        if user_id:
+            config["configurable"]["user_id"] = user_id
+        if thread_id:
+            config["configurable"]["thread_id"] = thread_id
 
-        # Execute graph with router injection
-        # Note: We need to pass the router to the route_node
-        # This is a simplified version - in production, use proper dependency injection
-        result = await app.ainvoke(initial_state)
+        result = await orchestrator.ainvoke(
+            {"messages": [HumanMessage(content=user_query)]},
+            config=config,
+        )
+
+        # Extract final answer from messages
+        final_answer = ""
+        if result.get("messages"):
+            last_msg = result["messages"][-1]
+            if isinstance(last_msg, AIMessage):
+                final_answer = last_msg.content
 
         return {
-            "status": result.status,
-            "final_answer": result.final_answer,
-            "step_results": result.step_results,
-            "error_message": result.error_message,
+            "status": "complete",
+            "final_answer": final_answer,
+            "error_message": "",
         }
 
     except Exception as e:
-        logger.error(f"Orchestration failed: {e}")
+        logger.error(f"Orchestration failed: {e}", exc_info=True)
         return {
             "status": "failed",
             "final_answer": "",
-            "step_results": [],
             "error_message": str(e),
         }
 
@@ -451,7 +244,7 @@ if __name__ == "__main__":
     import asyncio
 
     async def test() -> None:
-        # Test query
+        """Test orchestrator with SubAgent routing."""
         test_query = "List all devices with high CPU usage"
         result = await orchestrate_query(test_query)
 

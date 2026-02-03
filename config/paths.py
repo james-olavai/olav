@@ -40,10 +40,20 @@ try:
     # Prioritize environment variable for container/test support
     _username = os.environ.get("USER") or os.getlogin()
 except Exception:
-    _username = "default_user"
+    # Windows fallback
+    _username = os.environ.get("USERNAME", "default_user")
 
 USER_CACHE_FILENAME = f"cache_{_username}.duckdb"
 USER_CACHE_PATH = Path.home() / ".olav" / USER_CACHE_FILENAME
+
+# Cache directory for unified cache system (v0.10.0+)
+CACHE_DIR = AGENT_DIR / "cache"
+
+# User-Local Checkpoint & History (LangGraph Native - Phase 9)
+USER_CHECKPOINT_DIR = Path.home() / ".olav" / "checkpoints"
+USER_CHECKPOINT_PATH = USER_CHECKPOINT_DIR / f"{_username}.duckdb"
+USER_HISTORY_DIR = Path.home() / ".olav" / "history"
+USER_HISTORY_PATH = USER_HISTORY_DIR / f"{_username}.txt"
 
 # Map all legacy/specific paths to the unified core
 NETWORK_DB_PATH = OLAV_DB_PATH
@@ -63,6 +73,7 @@ EXPORTS_DIR = PROJECT_ROOT / "exports"
 # Snapshots: exports/snapshots/<YYYY-MM-DD>/
 # Simplified structure (removed /sync/ layer)
 SNAPSHOTS_DIR = EXPORTS_DIR / "snapshots"
+EXPORTS_SNAPSHOTS_DIR = SNAPSHOTS_DIR  # v0.10.0: Explicit export alias for tests
 # Note: SNAPSHOT_SYNC_DIR kept for backwards compatibility, maps to SNAPSHOTS_DIR
 SNAPSHOT_SYNC_DIR = SNAPSHOTS_DIR  # Alias - sync is implied
 
@@ -71,6 +82,7 @@ SYNC_DIR = SNAPSHOTS_DIR  # Unified with snapshots directory
 
 # Reports (standalone analysis reports)
 REPORTS_DIR = EXPORTS_DIR / "reports"
+EXPORTS_REPORTS_DIR = REPORTS_DIR  # v0.10.0: Explicit export alias for tests
 REPORTS_ANALYSIS_DIR = REPORTS_DIR / "analysis"
 
 # Visualizations: exports/topology/ (simplified from exports/visualizations/topology)

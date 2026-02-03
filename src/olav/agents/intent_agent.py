@@ -14,12 +14,13 @@ import json
 import logging
 from typing import Any
 
+from olav.cache import cache as olav_cache  # 新的统一缓存
 from olav.core.llm import LLMFactory
+from olav.core.skill_config import SkillConfig  # P1: Load cache config from SKILL
 from olav.core.unified_database import UnifiedDatabase
 from olav.lib.data_gateway import get_gateway
 
 logger = logging.getLogger(__name__)
-
 
 class IntentAgent:
     """
@@ -53,33 +54,51 @@ class IntentAgent:
         if cached_plan:
             # Fast Path: Exact match, execute directly
             logger.info("Fast Path: Using cached plan (exact match)")
-            return await self._execute_plan(cached_plan["execution_plan"])
+            # Execute the cached plan directly（no wrapper dict）
+            return await self._execute_plan(cached_plan)
 
         # Phase 2: No cached plan, fall back to Orchestrator
         logger.info("No cached plan found, delegating to Orchestrator")
         return await self._orchestrate_query(query)
 
-    async def _check_intent_cache(self, query: str) -> dict[str, Any] | None:
+    async def _check_intent_cache(
+        self, query: str, skill_id: str = "network-query"
+    ) -> dict[str, Any] | None:
         """
         Check intent cache for an exact match execution plan.
+        P1: Load cache strategy from SKILL.md configuration
 
         Args:
             query: User's query
+            skill_id: Skill identifier (default: network-query)
 
         Returns:
-            Cached plan dict with execution_plan, or None
+            Cached execution_plan, or None
         """
-        result = self.gw.get_skill_cache("network-query", f"intent:{query}")
+        # P1: Load cache config from SKILL.md
+        cache_cfg = SkillConfig.get_cache_config(skill_id)
 
-        if not result:
+        if not cache_cfg.get("enabled", True):
+            logger.debug(f"Cache disabled for skill {skill_id}")
             return None
 
-        logger.info("Intent cache: Found exact match plan")
+        # Execute cache lookup with SKILL-configured strategy
+        cached_result = olav_cache.get_intent(
+            query,
+            match_mode=cache_cfg.get("match_mode", "exact"),
+            confidence_threshold=cache_cfg.get("confidence_threshold", 1.0),
+        )
 
-        return {
-            "query": query,
-            "execution_plan": result,
-        }
+        if not cached_result:
+            return None
+
+        logger.info(
+            f"✅ Intent cache HIT ({skill_id}, "
+            f"{cache_cfg.get('match_mode')}): {query[:50]}"
+        )
+
+        # Return execution_plan directly
+        return cached_result
 
     async def _execute_plan(self, plan: dict[str, Any]) -> str:
         """
@@ -444,6 +463,5 @@ class IntentAgent:
             query: Original query
             plan: Execution plan
         """
-        self.gw.save_skill_cache("network-query", f"intent:{query}", plan)
-
-        logger.info(f"Saved to intent cache: {query[:50]}...")
+        # 使用新的统一缓存系统
+        olav_cache.set_intent(query, plan)

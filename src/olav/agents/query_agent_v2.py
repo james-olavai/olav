@@ -1,8 +1,10 @@
 """
-Query Agent V2 - ReAct Powered by DeepAgents
+Query Agent V2 - ReAct Powered by DeepAgents with Native LangGraph Components
 
-This module provides the QueryAgentV2 class which uses the DeepAgents framework
-to implement a self-healing, caching, and introspection-capable network query agent.
+Uses:
+- DuckDBSaver: LangGraph native checkpointer for session state
+- DuckDBStore: LangGraph native KV store for aliases
+- SummarizationMiddleware: Native conversation summarization
 """
 
 import logging
@@ -12,10 +14,16 @@ from typing import Any
 
 from deepagents import create_deep_agent
 from deepagents.backends.filesystem import FilesystemBackend
+from deepagents.middleware.memory import MemoryMiddleware
 from deepagents.middleware.skills import SkillsMiddleware
+from deepagents.middleware.summarization import SummarizationMiddleware
+from langchain.agents.middleware import HumanInTheLoopMiddleware, TodoListMiddleware
+from langgraph.checkpoint.duckdb import DuckDBSaver
+from langgraph.store.duckdb import DuckDBStore
 
+from config.paths import USER_CHECKPOINT_PATH
+from config.settings import settings
 from olav.agents.intent_agent import IntentAgent
-from olav.core.llm import LLMFactory
 from olav.core.skill_adapter import SkillAdapter
 from olav.core.skill_loader import get_skill_loader
 from olav.lib.data_gateway import get_gateway
@@ -26,25 +34,48 @@ logger = logging.getLogger(__name__)
 class QueryAgentV2:
     """Query Agent using DeepAgents ReAct architecture"""
 
-    def __init__(self, mode: str = "standard", skill_name: str = "network-query") -> None:
+    def __init__(
+        self,
+        enable_summarization: bool = False,
+        skill_name: str = "network-query",
+        mode: str | None = None,  # Deprecated, kept for backward compatibility
+    ) -> None:
         """Initialize QueryAgentV2.
 
         Args:
-            mode: "standard" (Zero-shot, Fast) or "analysis" (ReAct, Slow).
-            skill_name: Name of the skill to load (e.g., "network-query", "bgp-expert").
+            enable_summarization: Enable conversation summarization middleware
+                - False: Standard mode (zero-shot, fast, direct SQL)
+                - True: Analysis mode (ReAct loop, summarization, multi-step)
+            skill_name: Name of the skill to load (e.g., "network-query", "bgp-expert")
+            mode: [DEPRECATED] Legacy "standard"|"analysis" parameter.
+                  Use enable_summarization instead.
         """
-        self.mode = mode
+        # Backward compatibility: convert old mode parameter
+        if mode is not None:
+            logger.warning(
+                f"Parameter 'mode={mode}' is deprecated. "
+                f"Use 'enable_summarization=True/False' instead."
+            )
+            enable_summarization = mode == "analysis"
+
+        self.enable_summarization = enable_summarization
         self.skill_loader = get_skill_loader()
         self.skill = self.skill_loader.get_skill(skill_name)
 
         if not self.skill:
             raise ValueError(f"Skill '{skill_name}' not found")
 
-        # Phase 4: Initialize IntentAgent for Fast Path
+        # Initialize IntentAgent for Fast Path
         self.intent_agent = IntentAgent()
 
         # Initialize DataGateway
         self.gw = get_gateway()
+
+        # Initialize user-specific checkpoint and store (LangGraph native)
+        self._init_user_database()
+
+        # Cache known devices for fast lookup
+        self._known_devices = self._load_known_devices()
 
         # 1. Load tools dynamically from Skill metadata (Agent-Agnostic)
         self.tools = SkillAdapter.load_tools_from_skill(self.skill)
@@ -64,41 +95,156 @@ class QueryAgentV2:
         # 4. Inject dynamic metadata (Phase 4.3 Optimization)
         self.system_prompt = self._inject_metadata(base_system_prompt)
 
-        # 5. Create the DeepAgent (LangGraph Compiled Graph)
-        model = LLMFactory.get_chat_model()
+        # 5. Create the agent
+        self._create_agent()
 
-        if self.mode == "analysis":
-            # Tier 2: Full ReAct Loop (Federated specialist)
+    def _init_user_database(self) -> None:
+        """Initialize user-specific persistent checkpointer and store using DuckDB."""
+        self.checkpointer = DuckDBSaver.from_conn_string(str(USER_CHECKPOINT_PATH))
+        self.store = DuckDBStore.from_conn_string(str(USER_CHECKPOINT_PATH))
+        logger.debug(f"User checkpoint (DuckDB) initialized: {USER_CHECKPOINT_PATH}")
+
+    def _load_known_devices(self) -> set[str]:
+        """Load known device names from database for fast validation."""
+        try:
+            devices = self.gw.query_snapshots("SELECT DISTINCT device FROM v_system")
+            return {str(d["device"]).upper() for d in devices}
+        except Exception as e:
+            logger.debug(f"No device data loaded (database may not be initialized): {e}")
+            # Return empty set if database not initialized - this is normal on first run
+            return set()
+
+    def _create_agent(self) -> None:
+        """Create the DeepAgent with native components."""
+        # 5. Create the DeepAgent with native components
+        model_name = settings.llm_model_name  # Use string directly
+
+        # Infer model provider from model name if not explicitly set
+        model_provider = settings.llm_model_provider or None
+        if not model_provider and "/" in model_name:
+            # Extract provider from format like "x-ai/grok-4.1-fast"
+            provider_prefix = model_name.split("/")[0]
+            if provider_prefix == "x-ai":
+                model_provider = "xai"
+
+        # Check if API key is available and try fallback if needed
+        model_name, model_provider = self._check_model_availability(model_name, model_provider)
+
+        # Setup backend for agent
+        project_root = Path.cwd()
+        backend = FilesystemBackend(root_dir=str(project_root))
+
+    def _check_model_availability(
+        self, model_name: str, model_provider: str | None
+    ) -> tuple[str, str | None]:
+        """Check if the requested model is available, fallback to alternatives if needed.
+
+        Returns:
+            Tuple of (model_name, model_provider) that should be used
+
+        Raises:
+            ValueError: If no available model found
+        """
+        import os
+
+        # Define fallback chain: xai -> openai -> google
+        fallback_chain = [
+            ("xai", "x-ai/grok-4.1-fast", "XAI_API_KEY"),
+            ("openai", "gpt-4o-mini", "OPENAI_API_KEY"),
+            ("google", "gemini-2.0-flash-exp", "GOOGLE_API_KEY"),
+        ]
+
+        # Try requested model first
+        if model_provider == "xai" and os.getenv("XAI_API_KEY"):
+            return model_name, model_provider
+        elif model_provider == "openai" and os.getenv("OPENAI_API_KEY"):
+            return model_name, model_provider
+        elif model_provider == "google" and os.getenv("GOOGLE_API_KEY"):
+            return model_name, model_provider
+        elif model_provider == "anthropic" and os.getenv("ANTHROPIC_API_KEY"):
+            return model_name, model_provider
+
+        # Try fallback chain
+        logger.warning(
+            f"⚠️  {model_provider or 'Requested'} model not available, trying fallback..."
+        )
+
+        for provider, fallback_model, env_key in fallback_chain:
+            if os.getenv(env_key):
+                logger.info(f"✅ Using fallback: {provider}/{fallback_model}")
+                return fallback_model, provider
+
+        # No API key found at all
+        raise ValueError(
+            "❌ No LLM API key found in environment.\n"
+            "Please set one of:\n"
+            "  export XAI_API_KEY='your-xai-key'        (recommended)\n"
+            "  export OPENAI_API_KEY='your-openai-key'  (fallback)\n"
+            "  export GOOGLE_API_KEY='your-google-key'  (fallback)\n"
+            "Or add to .env file:\n"
+            "  XAI_API_KEY=your-xai-key"
+        )
+
+        # Complete middleware stack
+        middleware = [
+            TodoListMiddleware(),  # Task tracking
+            HumanInTheLoopMiddleware(interrupt_on={}),  # Disabled, reserved for future
+            MemoryMiddleware(
+                backend=backend, sources=[".olav/OLAV.md", "~/.olav/OLAV.md"]
+            ),  # Project memory
+            self.skills_middleware,  # Skills loading
+        ]
+
+        if self.enable_summarization:
+            # Tier 2: Full ReAct Loop with summarization middleware
+            middleware.append(
+                SummarizationMiddleware(
+                    model="gemini-flash",
+                    backend=backend,
+                    trigger=("tokens", 50000),
+                    keep=("messages", 10),
+                )
+            )
+            # Use init_chat_model with explicit provider if needed
+            if model_provider:
+                from langchain.chat_models import init_chat_model
+
+                model = init_chat_model(model_name, model_provider=model_provider)
+            else:
+                model = model_name
+
             self.agent = create_deep_agent(
                 model=model,
                 tools=self.tools,
                 system_prompt=self.system_prompt,
-                middleware=[self.skills_middleware],
+                middleware=middleware,
+                checkpointer=self.checkpointer,
+                store=self.store,
+                backend=backend,
             )
         else:
-            # Tier 1: Standard (Zero-Shot Pipeline)
-            # Use raw LLM with bound tools, completely bypassing DeepAgents graph
-            from langchain_core.prompts import ChatPromptTemplate
-
-            # Filter out caching tools to force direct SQL generation (Single-Step)
-            # Since Standard Mode doesn't iterate, checking cache (Step 1) results in premature stop.
+            # Tier 1: Standard (Fast-Path with checkpointer, no summarization)
+            # Filter out caching tools to force direct SQL generation
             fast_tools = [t for t in self.tools if t.name != "get_cached_sql"]
 
-            # Create a simple chain: Prompt -> LLM.bind_tools -> Result
-            prompt = ChatPromptTemplate.from_messages(
-                [
-                    (
-                        "system",
-                        self.system_prompt
-                        + "\nIMPORTANT: You are a fast execution agent. Do not iterate. Generate the SQL or Tool call immediately. Do NOT use get_cached_sql.",
-                    ),
-                    ("user", "{messages}"),
-                ]
-            )
+            # Use init_chat_model with explicit provider if needed
+            if model_provider:
+                from langchain.chat_models import init_chat_model
 
-            # Bind tools to model
-            model_with_tools = model.bind_tools(fast_tools)
-            self.agent = prompt | model_with_tools
+                model = init_chat_model(model_name, model_provider=model_provider)
+            else:
+                model = model_name
+
+            self.agent = create_deep_agent(
+                model=model,
+                tools=fast_tools,
+                system_prompt=self.system_prompt
+                + "\nIMPORTANT: You are a fast execution agent. Generate SQL immediately. Do NOT iterate.",
+                middleware=middleware,  # Use same middleware stack
+                checkpointer=self.checkpointer,
+                store=self.store,
+                backend=backend,
+            )
 
     def _inject_metadata(self, prompt: str) -> str:
         """Inject current snapshot date and available views into prompt."""
@@ -149,19 +295,15 @@ class QueryAgentV2:
         learn_callback: "Callable[[str], str | None] | None" = None,
         max_prompts: int = 3,
     ) -> str:
-        """Process aliases in user query with optional interactive learning.
+        """Process aliases in user query with device existence validation.
 
         Extracts potential device names/aliases from the query and replaces them
-        with canonical forms based on learned user aliases. If an unknown entity
-        is encountered and a learn_callback is provided, prompts the user to
-        teach the system the canonical form.
+        with canonical forms. Skips known devices to avoid unnecessary learning prompts.
 
         Args:
             query: User's original query string
             learn_callback: Optional callback for interactive learning.
-                           Signature: (unknown_entity: str) -> canonical_form: str | None
-                           Returns None if user declines to teach.
-            max_prompts: Maximum learning prompts per query (prevents excessive prompting)
+            max_prompts: Maximum learning prompts per query
 
         Returns:
             Query with aliases replaced by canonical names
@@ -172,7 +314,6 @@ class QueryAgentV2:
         skill_name = self.skill.name if hasattr(self.skill, "name") else "network-query"
 
         # Extract potential entities: Chinese phrases or device names like R1, SW1, etc.
-        # Pattern: Chinese characters OR uppercase letter + number
         entities = re.findall(r"[\u4e00-\u9fa5]+|[A-Z]+\d*", query)
 
         learning_count = 0
@@ -181,15 +322,25 @@ class QueryAgentV2:
             if not entity or len(entity) < 2:
                 continue
 
-            # Try to get existing alias
-            canonical = self.gw.get_user_alias(skill_name, entity)
+            # Skip if it's a known device in database
+            if entity.upper() in self._known_devices:
+                logger.debug(f"Skipping known device: {entity}")
+                continue
 
-            if canonical:
-                # Known alias - replace it
-                processed = processed.replace(entity, canonical)
-                logger.debug(f"Alias resolved: {entity} -> {canonical}")
-            elif learn_callback and learning_count < max_prompts:
-                # Unknown alias - trigger interactive learning
+            # Check DuckDBStore for user alias
+            try:
+                result = self.store.get((skill_name, "aliases"), entity)
+                if result:
+                    canonical = result.value.get("canonical")
+                    if canonical:
+                        processed = processed.replace(entity, canonical)
+                        logger.debug(f"Alias resolved from store: {entity} -> {canonical}")
+                        continue
+            except Exception as e:
+                logger.debug(f"Store lookup failed: {e}")
+
+            # Unknown entity - trigger learning if callback provided
+            if learn_callback and learning_count < max_prompts:
                 logger.info(
                     f"Unknown entity '{entity}' (prompt {learning_count + 1}/{max_prompts})"
                 )
@@ -199,49 +350,32 @@ class QueryAgentV2:
                     learning_count += 1
 
                     if user_response and user_response.strip():
-                        # User provided a canonical form
                         canonical = user_response.strip()
 
-                        # Save to database for future use
-                        self.gw.save_user_alias(
-                            skill_name=skill_name, alias=entity, canonical=canonical, type="device"
+                        # Save to DuckDBStore
+                        self.store.put(
+                            (skill_name, "aliases"),
+                            entity,
+                            {"canonical": canonical, "type": "device"},
                         )
 
                         # Replace in query
                         processed = processed.replace(entity, canonical)
                         logger.info(f"Learned new alias: {entity} -> {canonical}")
                     else:
-                        # User declined to teach - continue without this entity
                         logger.debug(f"User declined to teach alias for '{entity}'")
                 except Exception as e:
-                    # Learning failed - continue gracefully
                     logger.warning(f"Interactive learning failed for '{entity}': {e}")
 
         return processed
 
-    async def _save_to_semantic_cache(
-        self,
-        user_query: str,
-        successful_sql: str | None = None,
-        tool_name: str | None = None,
-        params: dict[str, Any] | None = None,
-    ) -> None:
-        """Save a successful query interaction to cache (exact match)."""
-        try:
-            action = {
-                "expert": "database",
-                "tool": tool_name if tool_name else ("query_database" if successful_sql else None),
-                "params": params if params else ({"sql": successful_sql} if successful_sql else {}),
-                "sql": successful_sql,
-                "intent": "database",
-            }
-
-            self.gw.save_skill_cache("network-query", user_query, action)
-        except Exception as e:
-            logger.debug(f"Failed to save to cache: {e}")
+        return processed
 
     async def ainvoke(
-        self, inputs: dict[str, Any], learn_callback: "Callable[[str], str | None] | None" = None
+        self,
+        inputs: dict[str, Any],
+        config: dict[str, Any] | None = None,
+        learn_callback: "Callable[[str], str | None] | None" = None,
     ) -> dict[str, Any]:
         """Async invoke for CLI compatibility with optional learning callback.
 
@@ -249,6 +383,7 @@ class QueryAgentV2:
 
         Args:
             inputs: Message dictionary with 'messages' key
+            config: Optional LangGraph config (e.g., for thread_id)
             learn_callback: Optional callback for interactive alias learning
         """
         import time
@@ -277,28 +412,60 @@ class QueryAgentV2:
                 from langchain_core.messages import HumanMessage
 
                 messages = messages[:-1] + [HumanMessage(content=last_user_msg)]
-        
+
         logger.debug(f"Alias processing completed in {time.time() - start_time:.2f}s")
 
         try:
             # Execute ReAct loop
-            logger.debug(f"Starting agent execution in {self.mode} mode")
-            if self.mode == "analysis":
-                final_state = await self.agent.ainvoke({"messages": messages})
+            logger.debug(
+                f"Starting agent execution in {'analysis' if self.enable_summarization else 'standard'} mode"
+            )
+
+            # Prepare agent invocation config with thread_id for checkpointer
+            import uuid
+
+            agent_config = config or {}
+            if "configurable" not in agent_config:
+                agent_config["configurable"] = {"thread_id": str(uuid.uuid4())}
+            elif "thread_id" not in agent_config.get("configurable", {}):
+                agent_config["configurable"]["thread_id"] = str(uuid.uuid4())
+
+            if self.enable_summarization:
+                # Analysis Mode: Full ReAct Loop
+                final_state = await self.agent.ainvoke({"messages": messages}, config=agent_config)
             else:
                 # Standard Mode returns specific AIMessage, not state dict
                 # We need to wrap it to look like final_state for compatibility
-                response = await self.agent.ainvoke({"messages": messages})
-                # If response is a list, take the last one (rare in simple chain)
-                msg = response[-1] if isinstance(response, list) else response
+                response = await self.agent.ainvoke({"messages": messages}, config=agent_config)
 
-                result_content = str(msg.content)
+                # Handle different response types from DeepAgents
+                if isinstance(response, dict):
+                    # Response is already a state dict
+                    final_state = response
+                    # Extract last message for compatibility
+                    all_messages = final_state.get("messages", [])
+                    if all_messages:
+                        last_msg = all_messages[-1]
+                        msg = last_msg if hasattr(last_msg, "content") else None
+                    else:
+                        msg = None
+                else:
+                    # Response is AIMessage or list of messages
+                    msg = response[-1] if isinstance(response, list) else response
+
+                if msg and hasattr(msg, "content"):
+                    result_content = str(msg.content)
+                else:
+                    # Fallback: use full response
+                    result_content = str(response)
+                    msg = None
+
                 successful_sql = None
                 tool_name = None
                 params = None
 
                 # Optimization: Execute tool call locally if present (Single-Step ReAct)
-                if hasattr(msg, "tool_calls") and msg.tool_calls:
+                if msg and hasattr(msg, "tool_calls") and msg.tool_calls:
                     try:
                         tc = msg.tool_calls[0]
                         tool_name = tc["name"]
@@ -353,20 +520,16 @@ class QueryAgentV2:
                         "Error" not in str(result_content)
                         or "not found" in str(result_content).lower()
                     ):
-                        await self._save_to_semantic_cache(
-                            last_user_msg,
-                            successful_sql=successful_sql,
-                            tool_name=tool_name,
-                            params=params,
-                        )
+                        pass  # Cache logic removed, placeholder for future logic
 
                 elapsed = time.time() - start_time
+                mode_str = "analysis" if self.enable_summarization else "standard"
                 return {
                     "messages": [msg],
                     "result": str(result_content),
                     "sql_query": successful_sql or "",
                     "error": None,
-                    "performance": {"total_seconds": round(elapsed, 2), "mode": self.mode},
+                    "performance": {"total_seconds": round(elapsed, 2), "mode": mode_str},
                 }
 
             # Extract final answer and find successful SQL for caching
@@ -408,29 +571,26 @@ class QueryAgentV2:
                 successful_sql or tool_name or "not found" in last_msg_content.lower()
             ) and last_user_msg:
                 if "Error" not in last_msg_content or "not found" in last_msg_content.lower():
-                    await self._save_to_semantic_cache(
-                        last_user_msg,
-                        successful_sql=successful_sql,
-                        tool_name=tool_name,
-                        params=params,
-                    )
+                    pass  # Cache logic removed
 
             # DeepAgents typical result extraction
             elapsed = time.time() - start_time
+            mode_str = "analysis" if self.enable_summarization else "standard"
             return {
                 "messages": all_messages,
                 "result": last_msg_content,
                 "sql_query": successful_sql or "",
                 "error": None,
-                "performance": {"total_seconds": round(elapsed, 2), "mode": self.mode},
+                "performance": {"total_seconds": round(elapsed, 2), "mode": mode_str},
             }
         except Exception as e:
             elapsed = time.time() - start_time
+            mode_str = "analysis" if self.enable_summarization else "standard"
             return {
                 "messages": messages,
                 "result": None,
                 "error": str(e),
-                "performance": {"total_seconds": round(elapsed, 2), "mode": self.mode},
+                "performance": {"total_seconds": round(elapsed, 2), "mode": mode_str},
             }
 
     async def query(self, user_query: str) -> dict[str, Any]:
@@ -442,7 +602,7 @@ class QueryAgentV2:
 
     def invoke(self, inputs: dict[str, Any]) -> dict[str, Any]:
         """Synchronous version of ainvoke.
-        
+
         NOTE: This method should not be called from async context.
         Use ainvoke() directly instead.
         """
@@ -474,11 +634,14 @@ class QueryAgentV2:
 
             import json
 
+            from langchain_google_genai import ChatGoogleGenerativeAI
+
             data_snippet = json.dumps(data, indent=2, default=str)[:6000]
 
             prompt = synthesis_template.format(user_query=user_query, data_snippet=data_snippet)
 
-            model = LLMFactory.get_chat_model()
+            # Use native LangChain model directly
+            model = ChatGoogleGenerativeAI(model=settings.llm_model_name)
             response = await model.ainvoke(prompt)
             return str(response.content)
         except Exception as e:

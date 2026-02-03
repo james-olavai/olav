@@ -68,9 +68,23 @@ if not os.getenv("OLAV_MODE"):
 class GuardSettings(BaseSettings):
     """Guard Intent Filter Configuration"""
 
-    enabled: bool = Field(default=True, description="Enable Guard filtering")
+    enabled: bool = Field(default=True, description="Enable Guard filtering (Tier 0/0.5/2)")
     strict_mode: bool = Field(
         default=False, description="Strict mode: only allow explicit network operations requests"
+    )
+    # Tier 0: Static blacklist
+    check_blacklist: bool = Field(default=True, description="Enable static blacklist check")
+    # Tier 0.5: Dynamic rejection cache (learning mechanism)
+    enable_dynamic_learning: bool = Field(
+        default=True, description="Enable dynamic learning for non-network queries"
+    )
+    # Tier 2: Network relevance check
+    check_network_relevance: bool = Field(
+        default=True, description="Enable LLM-based network relevance check"
+    )
+    # Performance tuning
+    relevance_check_timeout: float = Field(
+        default=1.0, ge=0.1, le=5.0, description="Network relevance check timeout (seconds)"
     )
 
 
@@ -81,6 +95,31 @@ class RoutingSettings(BaseSettings):
         default=0.6, ge=0.0, le=1.0, description="Skill matching confidence threshold"
     )
     fallback_skill: str = Field(default="quick-query", description="Fallback target Skill ID")
+
+    # Cache confidence settings (场景化配置)
+    # 主路由 / Orchestrator: fuzzy 模式（容错）
+    cache_match_mode: Literal["exact", "fuzzy", "semantic"] = Field(
+        default="fuzzy",
+        description="Cache matching mode: exact (hash), fuzzy (threshold), semantic (embedding)",
+    )
+    cache_confidence_threshold: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description="Cache match confidence threshold (for fuzzy/semantic mode)",
+    )
+
+    # SubAgent 专用配置（精确匹配）
+    query_agent_cache_mode: Literal["exact", "fuzzy"] = Field(
+        default="exact", description="Query SubAgent cache mode (must be exact)"
+    )
+    cli_agent_cache_mode: Literal["exact", "fuzzy"] = Field(
+        default="exact", description="CLI SubAgent cache mode (must be exact)"
+    )
+
+    cache_ttl_hours: int = Field(
+        default=168, ge=1, le=8760, description="Cache time-to-live in hours (default: 7 days)"
+    )
 
 
 class HITLSettings(BaseSettings):
@@ -211,9 +250,10 @@ class Settings(BaseSettings):
     # =========================================================================
     # LLM Configuration
     # =========================================================================
-    llm_provider: Literal["openai", "ollama", "azure"] = "openai"
+    llm_provider: Literal["openai", "ollama", "azure", "xai", "anthropic"] = "openai"
     llm_api_key: str = ""
     llm_model_name: str = "gpt-4-turbo"
+    llm_model_provider: str = ""  # Optional: explicit provider for create_deep_agent
     llm_base_url: str = ""
     llm_temperature: float = 0.1
     llm_max_tokens: int = 16000

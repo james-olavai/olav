@@ -1,11 +1,11 @@
-"""OLAV v0.8 CLI Module - Phase 6 Enhanced CLI.
+"""OLAV v0.9 CLI Module - Native LangGraph Components.
 
 This module provides an enhanced CLI experience using prompt-toolkit:
-- Persistent command history
+- Persistent command history (FileHistory)
 - Slash commands for quick actions
 - File references (@file.txt)
 - Shell command execution (!command)
-- Agent memory persistence
+- Session state via DuckDBSaver
 - Customizable banners
 """
 
@@ -23,13 +23,11 @@ from olav.cli.display import (
     print_success,
     print_welcome,
 )
-from olav.cli.memory import AgentMemory
 from olav.cli.session import OlavPromptSession
 
 __all__ = [
     "main",
     "OlavPromptSession",
-    "AgentMemory",
     "SLASH_COMMANDS",
     "register_command",
     "execute_command",

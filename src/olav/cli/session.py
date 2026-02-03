@@ -1,75 +1,54 @@
 """
-OLAV Prompt Session - Enhanced with Command History and Auto-Completion
+OLAV Prompt Session - Using Native prompt-toolkit with async support
 
 Features:
-- Command history tracking with frequency counting
-- Auto-completion for commands using whitelist
-- Tab completion support for historical commands
+- Native FileHistory for command persistence
+- nest_asyncio for async context compatibility
+- Auto-completion from whitelist
 - Multi-line input support
 """
 
 import logging
-import re
+import sys
 from pathlib import Path
-from typing import Any
+
+import nest_asyncio
+
+from config.paths import USER_HISTORY_PATH
 
 logger = logging.getLogger(__name__)
 
-# Try to import CommandHistory, but don't fail if it doesn't exist
-try:
-    from olav.cli.command_history import CommandHistory
-except (ImportError, ModuleNotFoundError):
-    CommandHistory = None  # type: ignore[assignment]
-    logger.debug("CommandHistory module not available, using in-memory history")
+# Apply nest_asyncio globally to allow prompt-toolkit in async contexts
+nest_asyncio.apply()
 
 
 class OlavPromptSession:
-    """Enhanced OLAV prompt session with command history."""
+    """OLAV prompt session using native prompt-toolkit."""
 
     def __init__(
         self,
-        history_file: str | Path | None = None,
         enable_completion: bool = True,
-        enable_history: bool = True,
         multiline: bool = True,
     ) -> None:
         """Initialize OlavPromptSession.
 
         Args:
-            history_file: Path to history file. Default: .olav/data/command_history.json
-            enable_completion: Enable auto-completion
-            enable_history: Enable history persistence
+            enable_completion: Enable auto-completion from whitelist
             multiline: Enable multi-line input
         """
-        import sys
-        
-        if history_file is None:
-            from config.settings import settings
-
-            history_file = Path(settings.agent_dir) / "cli_history"
-
-        self.history_file = Path(history_file)
         self.enable_completion = enable_completion
-        self.enable_history = enable_history
         self.multiline = multiline
         self.is_tty = sys.stdin.isatty()
 
-        # Ensure data directory exists
-        self.history_file.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure history directory exists
+        USER_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-        # Load command whitelist
+        # Load command whitelist for completion
         self.whitelist = self._load_whitelist()
 
-        # Initialize CommandHistory module
-        if CommandHistory:
-            self.command_history = CommandHistory(history_file=self.history_file)
-        else:
-            logger.debug("CommandHistory module not available, history disabled")
-            self.command_history = None
+        self._session = None
 
-        self._session = None  # type: ignore[assignment]
-
-        # Only initialize prompt-toolkit in TTY mode
+        # Initialize prompt-toolkit session
         if self.is_tty:
             self._init_session()
         else:
@@ -80,7 +59,6 @@ class OlavPromptSession:
         whitelist_file = Path(".olav/config/command_whitelist.yaml")
 
         if not whitelist_file.exists():
-            logger.warning("Command whitelist file not found")
             return {}
 
         try:
@@ -90,253 +68,94 @@ class OlavPromptSession:
                 whitelist_config = yaml.safe_load(f)
                 return whitelist_config.get("command_whitelist", {})
         except Exception as e:
-            logger.error(f"Failed to load command whitelist: {e}")
+            logger.debug(f"Failed to load command whitelist: {e}")
             return {}
 
     def _init_session(self) -> None:
-        """Initialize prompt-toolkit session with history completion.
-        
-        Note: prompt-toolkit is disabled in async contexts to avoid event loop conflicts.
-        """
-        import asyncio
-        
-        # Check if we're in an async event loop
+        """Initialize prompt-toolkit session with FileHistory."""
         try:
-            asyncio.get_running_loop()
-            logger.debug("Async context detected, disabling prompt-toolkit")
-            self._session = None
-            return
-        except RuntimeError:
-            # No running loop, safe to use prompt-toolkit
-            pass
-        
-        logger.debug("Initializing prompt-toolkit session in TTY mode...")
-        try:
-            # Import prompt-toolkit modules
             from prompt_toolkit import PromptSession
             from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
             from prompt_toolkit.completion import WordCompleter
             from prompt_toolkit.history import FileHistory
-            from prompt_toolkit.key_binding import KeyBindings
 
-            # Create file history for persistence
-            history = None
-            if self.enable_history and self.history_file:
-                try:
-                    # Create FileHistory object
-                    history = FileHistory(str(self.history_file))
-                    logger.debug(f"Initialized history file: {self.history_file}")
-                except Exception as e:
-                    logger.debug(f"Failed to create FileHistory: {e}")
-                    history = None
+            # Create FileHistory (native persistence)
+            history = FileHistory(str(USER_HISTORY_PATH))
 
-            # Create prompt session with history
-            logger.debug("Creating PromptSession...")
-            session = PromptSession(history=history)
-            logger.debug("PromptSession created successfully")
+            # Create word completer from whitelist
+            completer = None
+            if self.enable_completion and self.whitelist:
+                words = [cmd.strip() for cmd in self.whitelist.keys()]
+                if words:
+                    completer = WordCompleter(words=words, ignore_case=True)
 
-            # Setup auto-completion from command history
-            if self.enable_completion and self.command_history:
-                try:
-                    # Get recent commands for auto-completion
-                    recent_commands = self.command_history.get_recent_commands(limit=50)
+            # Create prompt session
+            self._session = PromptSession(
+                history=history,
+                auto_suggest=AutoSuggestFromHistory(),
+                completer=completer,
+                multiline=self.multiline,
+            )
 
-                    if recent_commands:
-                        # Create word completer for commands
-                        command_words = list(set(cmd.get("command", "") for cmd in recent_commands))
-                        if command_words:
-                            word_completer = WordCompleter(words=command_words, ignore_case=True)
-                            session.completer = word_completer
-                            logger.debug(f"Loaded {len(command_words)} commands for completion")
-                except Exception as e:
-                    logger.debug(f"Failed to setup auto-completion: {e}")
-
-            # Setup multiline
-            if self.multiline:
-                session.multiline = True
-
-            self._session = session
-            logger.debug("Prompt-toolkit session initialized successfully")
+            logger.debug(f"Prompt-toolkit session initialized with history: {USER_HISTORY_PATH}")
 
         except Exception as e:
             logger.warning(f"Failed to initialize prompt-toolkit session: {e}")
             self._session = None
 
-    def _get_completion_suggestions(self, text: str, limit: int = 10) -> list[str]:
-        """Get auto-completion suggestions based on input.
+    async def prompt_async(self, message: str = "olav> ", **kwargs) -> str:
+        """Get user input asynchronously (for use in async context).
 
         Args:
-            text: Current input text
-            limit: Maximum number of suggestions
-
-        Returns:
-            List of completion suggestions
-        """
-        suggestions = []
-
-        if not self._session:
-            return suggestions
-
-        # Get current prompt content
-        try:
-            # Extract text after "olav> " prefix
-            if "olav>" in text:
-                current_text = text.split("olav>")[-1].strip()
-            else:
-                current_text = text.strip()
-
-            # Check whitelist for exact matches
-            for pattern in self.whitelist:
-                if re.search(pattern, current_text, re.IGNORECASE):
-                    suggestions.append(f"/{pattern.split('.')[0]}")
-                    if len(suggestions) >= limit:
-                        break
-
-            # Check command history for frequent commands
-            if len(suggestions) < limit and self.command_history:
-                recent_commands = self.command_history.get_recent_commands(limit=10)
-                for entry in recent_commands:
-                    cmd = entry.get("command", "")
-                    if cmd and cmd not in [s.strip("/") for s in suggestions]:
-                        suggestions.append(f"/{cmd}")
-                        if len(suggestions) >= limit:
-                            break
-        except Exception as e:
-            logger.debug(f"Completion error: {e}")  # Ignore errors in completion
-
-        return suggestions
-
-    async def prompt(self, message: str = "olav> ") -> str:
-        """Get user input asynchronously.
-
-        Args:
-            message: Prompt message to display
+            message: Prompt message
+            **kwargs: Additional prompt-toolkit arguments
 
         Returns:
             User input string
         """
-        if self._session is None:
-            # Fallback to basic input
-            logger.warning("Prompt session not initialized, using basic input")
+        # Use prompt-toolkit async if available, otherwise fallback to input()
+        if self._session:
+            try:
+                return await self._session.prompt_async(message, **kwargs)
+            except Exception as e:
+                logger.debug(f"Prompt-toolkit async failed, using fallback: {e}")
+                return input(message)
+        else:
             return input(message)
 
-        try:
-            # Use plain string prompt to avoid XML parsing issues
-            result = await self._session.prompt_async(message)
-            return result
-        except (EOFError, KeyboardInterrupt):
-            raise EOFError from None
-
-    def prompt_sync(self, message: str = "olav> ") -> str:
-        """Get user input synchronously.
+    def prompt_sync(self, message: str = "olav> ", **kwargs) -> str:
+        """Get user input synchronously (DEPRECATED - use prompt_async in async context).
 
         Args:
-            message: Prompt message to display
+            message: Prompt message
+            **kwargs: Additional prompt-toolkit arguments
 
         Returns:
             User input string
         """
-        import asyncio
-        import warnings
-
-        # Check if we're in an async event loop context
-        try:
-            asyncio.get_running_loop()
-            # We're in async context - must use basic input to avoid prompt-toolkit issues
-            logger.debug("In async context, using basic input()")
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=RuntimeWarning)
-                return input(message)
-        except RuntimeError:
-            # No running loop, safe to use prompt-toolkit
-            pass
-
-        # In non-TTY mode, always use basic input to avoid hanging
-        if not self.is_tty or self._session is None:
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=RuntimeWarning)
-                return input(message)
-
-        try:
-            # Use plain string prompt to avoid XML parsing issues
-            result = self._session.prompt(message)
-            return result
-        except (EOFError, KeyboardInterrupt):
-            raise EOFError from None
-        except Exception as e:
-            # If prompt-toolkit fails, fall back to basic input
-            logger.debug(f"Prompt session error: {e}, falling back to input()")
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=RuntimeWarning)
-                return input(message)
-
-    def record_query(
-        self, query: str, command_used: str = "", device: str = "", sql_query: str = ""
-    ) -> None:
-        """Record a query in command history.
-
-        Args:
-            query: User's input query
-            command_used: The command that was executed (for tracking)
-            device: Device queried (for context)
-            sql_query: SQL query executed (for caching)
-
-        Returns:
-            None
-        """
-        if self.command_history:
-            self.command_history.record_query(
-                query=query, command_used=command_used, device=device, sql_query=sql_query
-            )
-
-    def get_completions(self, prefix: str, limit: int = 10) -> list[str]:
-        """Get command completions for tab completion.
-
-        Args:
-            prefix: The prefix typed by user (e.g., "/sh", "/disp")
-            limit: Maximum number of completions
-
-        Returns:
-            List of command completions
-        """
-        if not self._session:
-            return []
-
-        # Get completions from session
-        try:
-            # Import prompt_toolkit types for runtime use
-            from prompt_toolkit.completion import CompleteEvent
-            from prompt_toolkit.document import Document
-
-            # Create Document and CompleteEvent for the completer
-            document = Document(prefix, cursor_position=len(prefix))
-            complete_event = CompleteEvent()
-
-            completions = self._session.completer.get_completions(document, complete_event)
-            # Apply limit
-            if limit:
-                completions = list(completions)[:limit]
-            # Format completions
-            formatted = [c.text for c in completions]
-            return formatted
-        except Exception as e:
-            logger.error(f"Failed to get completions: {e}")
-            return []
-
-    def clear_history(self) -> None:
-        """Clear all command history."""
-        if self.command_history:
-            self.command_history.clear_history()
+        # Use prompt-toolkit if available, otherwise fallback to input()
         if self._session:
-            self._session.history.clear()
-        logger.info("Command history cleared")
+            try:
+                return self._session.prompt(message, **kwargs)
+            except Exception as e:
+                logger.debug(f"Prompt-toolkit failed, using fallback: {e}")
+                return input(message)
+        else:
+            return input(message)
 
-    def get_stats(self) -> dict[str, Any]:
-        """Get usage statistics.
+    def add_history(self, command: str) -> None:
+        """Add command to history.
 
-        Returns:
-            Dictionary with total queries, unique commands, top commands
+        Args:
+            command: Command to add to history
+
+        Note: FileHistory automatically persists, no manual save needed
         """
-        if self.command_history:
-            return self.command_history.get_stats()
-        return {}
+        # FileHistory automatically handles persistence
+        # This method is kept for API compatibility but does nothing
+        pass
+
+    def close(self) -> None:
+        """Close the prompt session."""
+        # FileHistory automatically saves on close
+        self._session = None

@@ -174,42 +174,8 @@ class UnifiedDatabase:
             except Exception:
                 pass
 
-            # 6. Initialize Semantic Cache table (Safe check)
-            try:
-                if is_commands_attached:
-                    # Ensure schema exists (User-local DB might be empty)
-                    self.conn.execute("CREATE SCHEMA IF NOT EXISTS commands.main")
-
-                    self.conn.execute("""
-                        CREATE TABLE IF NOT EXISTS commands.main.semantic_cache (
-                            query_text TEXT PRIMARY KEY,
-                            action_json JSON,
-                            hit_count INTEGER DEFAULT 0,
-                            last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        );
-
-                        -- Create Intent Cache table (Fast Path - Phase 4)
-                        CREATE TABLE IF NOT EXISTS commands.main.intent_cache (
-                            id INTEGER PRIMARY KEY,
-                            query_text TEXT PRIMARY KEY,
-                            execution_plan JSON,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            hit_count INTEGER DEFAULT 1
-                        );
-
-                        -- Create Session History table (Phase 8)
-                        CREATE TABLE IF NOT EXISTS commands.main.session_history (
-                            id UUID DEFAULT uuid(),
-                            session_id UUID,
-                            role TEXT,
-                            content TEXT,
-                            metadata JSON,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        );
-                    """)
-            except Exception:
-                pass
+            # Note: Cache tables removed - now using unified olav.cache module
+            # Semantic cache and intent cache have been migrated to .olav/cache/olav_cache.db
 
     def query(self, sql: str, params: list[Any] | None = None) -> list[tuple]:
         """Execute SQL query across attached databases.
@@ -387,89 +353,7 @@ class UnifiedDatabase:
                 for r in results
             ]
 
-    def search_cache(self, query_text: str) -> dict[str, Any] | None:
-        """[DEPRECATED] Use DataGateway.get_skill_cache() instead.
 
-        This method is deprecated and will be removed in v0.11.0.
-        Use gw.get_skill_cache("network-query", query_text) instead.
-
-        This method is thread-safe.
-        """
-        import warnings
-
-        warnings.warn(
-            "search_cache() is deprecated, use DataGateway.get_skill_cache() instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        import json
-
-        with UnifiedDatabase._lock:
-            try:
-                res = self.conn.execute(
-                    """
-                    SELECT action_json
-                    FROM commands.main.semantic_cache
-                    WHERE query_text = ?
-                    LIMIT 1
-                """,
-                    [query_text],
-                ).fetchone()
-
-                if res:
-                    action_json = res[0]
-                    # Update last_used and hit_count
-                    try:
-                        self.conn.execute(
-                            """UPDATE commands.main.semantic_cache
-                               SET last_used = CURRENT_TIMESTAMP, hit_count = hit_count + 1
-                               WHERE query_text = ?""",
-                            [query_text],
-                        )
-                    except Exception:
-                        pass
-                    return json.loads(action_json)
-            except Exception:
-                pass
-
-            return None
-
-    def save_cache(self, query_text: str, action: dict[str, Any]) -> None:
-        """[DEPRECATED] Use save_cache_gateway() instead.
-
-        This method is deprecated and will be removed in v0.11.0.
-        Use self.save_cache_gateway(query_text, action) instead.
-
-        This method is thread-safe.
-        """
-        import warnings
-
-        warnings.warn(
-            "save_cache() is deprecated, use save_cache_gateway() instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        import json
-        from datetime import datetime
-
-        with UnifiedDatabase._lock:
-            try:
-                now = datetime.now()
-                self.conn.execute(
-                    """
-                    INSERT INTO commands.main.semantic_cache (query_text, action_json, hit_count, last_used)
-                    VALUES (?, ?, 1, ?)
-                    ON CONFLICT (query_text) DO UPDATE SET
-                        action_json = excluded.action_json,
-                        hit_count = semantic_cache.hit_count + 1,
-                        last_used = excluded.last_used
-                """,
-                    [query_text, json.dumps(action), now],
-                )
-            except Exception as e:
-                import logging
-
-                logging.getLogger(__name__).error(f"Save cache failed: {e}")
 
     def search_intent_cache(self, query_text: str) -> dict[str, Any] | None:
         """[DEPRECATED] Use search_intent_cache_gateway() instead.
@@ -624,64 +508,36 @@ class UnifiedDatabase:
         Returns:
             Intent cache entry or None
         """
-        if self.gw:
-            try:
-                result = self.gw.get_skill_cache("network-query", f"intent:{query_text}")
-                if result:
-                    return {"query": query_text, "execution_plan": result}
-            except Exception:
-                import logging
-
-                logging.getLogger(__name__).warning(
-                    "DataGateway intent cache lookup failed, falling back to legacy"
-                )
-
-        # Fallback to legacy search_intent_cache()
-        return self.search_intent_cache(query_text)
+        # Removed: All cache operations moved to olav.cache module
+        return None
 
     def save_intent_cache_gateway(self, query: str, plan: dict[str, Any]) -> None:
         """
-        Save intent cache using DataGateway (v0.10.0+).
+        Save intent cache using new unified cache module.
+        
+        .. deprecated:: v0.10.0
+            Cache operations moved to olav.cache module. This method is a no-op.
 
         Args:
             query: Original user query
             plan: Execution plan
         """
-        if self.gw:
-            try:
-                self.gw.save_skill_cache("network-query", f"intent:{query}", plan)
-                return
-            except Exception:
-                import logging
-
-                logging.getLogger(__name__).warning(
-                    "DataGateway save failed, falling back to legacy"
-                )
-
-        # Fallback to legacy save_intent_cache()
-        self.save_intent_cache(query, plan)
+        # Removed: All cache operations moved to olav.cache module
+        pass
 
     def save_cache_gateway(self, query_text: str, action: dict[str, Any]) -> None:
         """
-        Save cache using DataGateway (v0.10.0+).
+        Save cache using new unified cache module.
+        
+        .. deprecated:: v0.10.0
+            Cache operations moved to olav.cache module. This method is a no-op.
 
         Args:
             query_text: Query text
             action: Action dict
         """
-        if self.gw:
-            try:
-                self.gw.save_skill_cache("network-query", query_text, action)
-                return
-            except Exception:
-                import logging
-
-                logging.getLogger(__name__).warning(
-                    "DataGateway save failed, falling back to legacy"
-                )
-
-        # Fallback to legacy save_cache()
-        self.save_cache(query_text, action)
+        # Removed: All cache operations moved to olav.cache module
+        pass
 
     def close(self) -> None:
         """Close database connection."""
