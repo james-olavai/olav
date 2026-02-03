@@ -439,3 +439,95 @@ def get_gateway(base_dir: str | None = None) -> DataGateway:
 
     base = Path(base_dir or os.getenv("OLAV_BASE_DIR", ".olav"))
     return DataGateway(base)
+
+
+# ==================== 通用查询函数 ====================
+
+
+def get_connection(db_path: str | None = None):
+    """获取数据库连接 (支持 Mock)
+
+    Args:
+        db_path: 数据库文件路径
+
+    Returns:
+        DuckDB 连接对象
+    """
+    if not db_path:
+        base_dir = Path.cwd()
+        if (base_dir / ".olav").exists():
+            db_path = str(base_dir / ".olav" / "db" / "main.duckdb")
+        else:
+            db_path = ".olav/db/main.duckdb"
+
+    return duckdb.connect(db_path)
+
+
+def query_database(sql: str, params: list | None = None, db_path: str | None = None) -> list[dict]:
+    """执行通用数据库查询 (线程安全、参数化)
+
+    Features:
+    - 参数化查询防护 SQL 注入
+    - 自动行转换为字典列表
+    - 错误处理和日志记录
+    - 支持自定义数据库路径
+
+    Args:
+        sql: DuckDB SQL 查询语句
+        params: 查询参数列表（用于参数化查询）
+        db_path: 数据库文件路径（默认 .olav/db/main.duckdb）
+
+    Returns:
+        查询结果列表（每个元素为字典）
+
+    Raises:
+        ValueError: SQL 为空
+        RuntimeError: 数据库连接/执行错误
+
+    Example:
+        >>> result = query_database(
+        ...     "SELECT * FROM devices WHERE name = ?",
+        ...     ["router1"]
+        ... )
+        >>> print(result)
+        [{'id': 1, 'name': 'router1', 'type': 'cisco'}]
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    if not sql or not sql.strip():
+        raise ValueError("SQL query cannot be empty")
+
+    try:
+        # 使用 get_connection 获取连接（支持 Mock）
+        conn = get_connection(db_path)
+
+        try:
+            # 参数化查询（防护 SQL 注入）
+            if params:
+                logger.debug(f"Executing parameterized query with {len(params)} params")
+                result = conn.execute(sql, params)
+            else:
+                logger.debug("Executing query without parameters")
+                result = conn.execute(sql)
+
+            # 获取列名
+            columns = [desc[0] for desc in result.description] if result.description else []
+
+            # 获取所有行
+            rows = result.fetchall()
+
+            # 转换为字典列表
+            results = [dict(zip(columns, row, strict=False)) for row in rows]
+
+            logger.debug(f"Query returned {len(results)} rows with columns: {columns}")
+
+            return results
+
+        finally:
+            conn.close()
+
+    except Exception as e:
+        logger.error(f"Database query failed: {e}", exc_info=True)
+        raise RuntimeError(f"Database query error: {str(e)}") from e

@@ -159,3 +159,119 @@ class OlavPromptSession:
         """Close the prompt session."""
         # FileHistory automatically saves on close
         self._session = None
+
+
+# ==================== Conversation Memory ====================
+
+
+class Message:
+    """Single conversation message"""
+
+    def __init__(self, role: str, content: str, timestamp: "datetime | None" = None) -> None:
+        """Initialize message.
+
+        Args:
+            role: 'user', 'assistant', 'system', etc.
+            content: Message content
+            timestamp: Message creation time (auto-filled if None)
+        """
+        from datetime import datetime
+
+        self.role = role
+        self.content = content
+        self.timestamp = timestamp or datetime.now()
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        return {
+            "role": self.role,
+            "content": self.content,
+            "timestamp": self.timestamp.isoformat() if isinstance(self.timestamp, object) else str(self.timestamp),
+        }
+
+
+class Session:
+    """Conversation session with message history and context management.
+
+    Features:
+    - Message storage (user, assistant, system)
+    - Multi-turn context tracking
+    - Message history retrieval
+    - Context window management
+    - Optional persistence
+    """
+
+    def __init__(self, context_window: int = 10, persist: bool = False) -> None:
+        """Initialize conversation session.
+
+        Args:
+            context_window: Max messages to keep in context (0 = unlimited)
+            persist: Whether to persist session to disk
+        """
+        self.messages: list[Message] = []
+        self.context_window = context_window
+        self.persist = persist
+        self.context: dict = {}
+        self._session_id = None
+
+    def add_message(self, role: str, content: str) -> None:
+        """Add message to conversation.
+
+        Args:
+            role: Message role ('user', 'assistant', 'system')
+            content: Message content
+        """
+        message = Message(role, content)
+        self.messages.append(message)
+
+        # Enforce context window limit
+        if self.context_window > 0 and len(self.messages) > self.context_window:
+            self.messages.pop(0)
+
+    def get_history(self) -> list[dict] | None:
+        """Get conversation history.
+
+        Returns:
+            List of message dictionaries or None if empty
+        """
+        if not self.messages:
+            return None
+
+        return [msg.to_dict() for msg in self.messages]
+
+    def get_context(self) -> dict:
+        """Get conversation context (enriched with metadata).
+
+        Returns:
+            Dictionary with context information
+        """
+        return {
+            "messages": self.get_history(),
+            "message_count": len(self.messages),
+            "context": self.context,
+            "context_window": self.context_window,
+        }
+
+    def clear(self) -> None:
+        """Clear conversation history."""
+        self.messages = []
+        self.context = {}
+
+    def get_last_message(self) -> Message | None:
+        """Get last message in conversation.
+
+        Returns:
+            Last Message or None if empty
+        """
+        return self.messages[-1] if self.messages else None
+
+    def get_messages_by_role(self, role: str) -> list[Message]:
+        """Get all messages with specific role.
+
+        Args:
+            role: Role to filter by
+
+        Returns:
+            List of messages with matching role
+        """
+        return [msg for msg in self.messages if msg.role == role]
