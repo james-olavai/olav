@@ -14,10 +14,6 @@ from typing import Any
 
 from deepagents import create_deep_agent
 from deepagents.backends.filesystem import FilesystemBackend
-from deepagents.middleware.memory import MemoryMiddleware
-from deepagents.middleware.skills import SkillsMiddleware
-from deepagents.middleware.summarization import SummarizationMiddleware
-from langchain.agents.middleware import HumanInTheLoopMiddleware, TodoListMiddleware
 from langgraph.checkpoint.duckdb import DuckDBSaver
 from langgraph.store.duckdb import DuckDBStore
 
@@ -53,6 +49,7 @@ class QueryAgentV2:
         """
         # Set environment variables from settings for LangChain/DeepAgents
         import os
+
         if settings.llm_api_key and not os.getenv("OPENAI_API_KEY"):
             os.environ["OPENAI_API_KEY"] = settings.llm_api_key
         if settings.llm_base_url and not os.getenv("OPENAI_BASE_URL"):
@@ -147,7 +144,7 @@ class QueryAgentV2:
 
         # Check if API key is available and try fallback if needed
         model_name, model_provider = self._check_model_availability(model_name, model_provider)
-        
+
         # For create_deep_agent, prepend provider if using OpenRouter
         # This helps LangChain's init_chat_model infer the provider
         if model_provider and "/" not in model_name:
@@ -188,6 +185,7 @@ class QueryAgentV2:
             ValueError: If no available model found
         """
         import os
+
         from config.settings import settings
 
         # Define fallback chain: xai -> openai -> google
@@ -200,11 +198,17 @@ class QueryAgentV2:
         # Try requested model first
         # Check both environment variables and settings.llm_api_key
         # Special case: if base_url contains "openrouter", always use openai provider
-        if settings.llm_base_url and "openrouter" in settings.llm_base_url.lower() and settings.llm_api_key:
+        if (
+            settings.llm_base_url
+            and "openrouter" in settings.llm_base_url.lower()
+            and settings.llm_api_key
+        ):
             logger.info(f"✅ Using OpenRouter with OpenAI-compatible API: {model_name}")
             return model_name, "openai"
-        
-        if model_provider == "xai" and (os.getenv("XAI_API_KEY") or (settings.llm_provider == "openai" and settings.llm_api_key)):
+
+        if model_provider == "xai" and (
+            os.getenv("XAI_API_KEY") or (settings.llm_provider == "openai" and settings.llm_api_key)
+        ):
             return model_name, model_provider
         elif model_provider == "openai" and (os.getenv("OPENAI_API_KEY") or settings.llm_api_key):
             return model_name, model_provider
@@ -233,7 +237,7 @@ class QueryAgentV2:
             "  export OPENAI_API_KEY='your-openai-key'  (fallback)\n"
             "  export GOOGLE_API_KEY='your-google-key'  (fallback)\n"
             "Or configure in .olav/settings.json:\n"
-            "  {\"llm_api_key\": \"sk-or-v1-...\", \"llm_base_url\": \"https://openrouter.ai/api/v1\"}"
+            '  {"llm_api_key": "sk-or-v1-...", "llm_base_url": "https://openrouter.ai/api/v1"}'
         )
 
     def _inject_metadata(self, prompt: str) -> str:
@@ -400,7 +404,7 @@ class QueryAgentV2:
             cached_result = self.query_cache.get(last_user_msg, context=cache_context)
             if cached_result:
                 elapsed = time.time() - start_time
-                logger.info(f"✅ Cache HIT: {last_user_msg[:50]}... ({elapsed*1000:.2f}ms)")
+                logger.info(f"✅ Cache HIT: {last_user_msg[:50]}... ({elapsed * 1000:.2f}ms)")
                 # Return cached result with updated performance metadata
                 return {
                     **cached_result,
@@ -410,7 +414,7 @@ class QueryAgentV2:
                         "total_seconds": round(elapsed, 2),
                     },
                 }
-            
+
             logger.info(f"❌ Cache MISS: {last_user_msg[:50]}... (will store after execution)")
 
         # Phase 1: Process aliases - replace user aliases with canonical names
@@ -534,7 +538,10 @@ class QueryAgentV2:
                 # Phase 4 Day 5: Cache any successful query result (not limited to SQL tools)
                 if cache_query and result_content:
                     # Only cache if not an execution error
-                    if "Error" not in str(result_content) or "not found" in str(result_content).lower():
+                    if (
+                        "Error" not in str(result_content)
+                        or "not found" in str(result_content).lower()
+                    ):
                         # Store in query cache for future fast retrieval
                         # Convert AIMessage to serializable format
                         serializable_msg = {
@@ -566,7 +573,11 @@ class QueryAgentV2:
                     "result": str(result_content),
                     "sql_query": successful_sql or "",
                     "error": None,
-                    "performance": {"total_seconds": round(elapsed, 2), "mode": mode_str, "cache_hit": False},
+                    "performance": {
+                        "total_seconds": round(elapsed, 2),
+                        "mode": mode_str,
+                        "cache_hit": False,
+                    },
                 }
 
             # Extract final answer and find successful SQL for caching
@@ -611,13 +622,15 @@ class QueryAgentV2:
                     serializable_messages = []
                     for m in all_messages:
                         if hasattr(m, "type"):
-                            serializable_messages.append({
-                                "role": "assistant" if m.type == "ai" else m.type,
-                                "content": str(m.content),
-                            })
+                            serializable_messages.append(
+                                {
+                                    "role": "assistant" if m.type == "ai" else m.type,
+                                    "content": str(m.content),
+                                }
+                            )
                         else:
                             serializable_messages.append({"role": "unknown", "content": str(m)})
-                    
+
                     # Store in query cache
                     result_to_cache = {
                         "messages": serializable_messages,
@@ -645,7 +658,11 @@ class QueryAgentV2:
                 "result": last_msg_content,
                 "sql_query": successful_sql or "",
                 "error": None,
-                "performance": {"total_seconds": round(elapsed, 2), "mode": mode_str, "cache_hit": False},
+                "performance": {
+                    "total_seconds": round(elapsed, 2),
+                    "mode": mode_str,
+                    "cache_hit": False,
+                },
             }
         except Exception as e:
             elapsed = time.time() - start_time

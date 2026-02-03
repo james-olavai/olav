@@ -78,7 +78,9 @@ class QueryOptimizer:
                 print(f"  ❌ {name}: {analysis['error']}")
             else:
                 status = "✅" if analysis.get("uses_filter_pushdown") else "⚠️ "
-                print(f"  {status} {name:20s} - Filter pushdown: {analysis.get('uses_filter_pushdown')}")
+                print(
+                    f"  {status} {name:20s} - Filter pushdown: {analysis.get('uses_filter_pushdown')}"
+                )
 
         print("\n\n📊 Performance Analysis:")
         print("-" * 80)
@@ -110,7 +112,7 @@ Optimization Impact Estimates:
 
 def init_query_optimization(conn: duckdb.DuckDBPyConnection):
     """Initialize query optimization (currently a no-op for indexes).
-    
+
     Called from UnifiedDatabase.__init__().
     """
     logger.debug("Query optimization: Base table indexes verified")

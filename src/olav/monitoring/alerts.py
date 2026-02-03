@@ -10,19 +10,18 @@ Monitors JSON structured logs and triggers alerts based on critical thresholds:
 import json
 import logging
 import time
-from collections import defaultdict, deque
+from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Callable, Literal
-
-from config.settings import settings
+from typing import Literal
 
 
 @dataclass
 class AlertRule:
     """Alert rule definition.
-    
+
     Attributes:
         name: Rule name
         description: Human-readable description
@@ -32,7 +31,7 @@ class AlertRule:
         cooldown_seconds: Minimum time between alerts
         severity: Alert severity level
     """
-    
+
     name: str
     description: str
     condition: Callable[[dict], bool]
@@ -46,20 +45,20 @@ class AlertRule:
 
 class AlertManager:
     """Alert manager for monitoring log events.
-    
+
     Monitors structured logs and triggers alerts based on rules:
     - Maintains sliding windows for metrics
     - Respects cooldown periods
     - Supports multiple alert handlers (email, webhook, log)
     """
-    
+
     def __init__(self):
         """Initialize alert manager."""
         self.rules: dict[str, AlertRule] = {}
         self.handlers: list[Callable[[str, str, dict], None]] = []
         self.logger = logging.getLogger(__name__)
         self._setup_default_rules()
-    
+
     def _setup_default_rules(self):
         """Setup default alert rules."""
         # Query latency alert
@@ -74,7 +73,7 @@ class AlertManager:
                 severity="warning",
             )
         )
-        
+
         # Cache efficiency alert
         self.add_rule(
             AlertRule(
@@ -87,7 +86,7 @@ class AlertManager:
                 severity="warning",
             )
         )
-        
+
         # Error rate alert
         self.add_rule(
             AlertRule(
@@ -100,7 +99,7 @@ class AlertManager:
                 severity="critical",
             )
         )
-        
+
         # LLM token usage alert
         self.add_rule(
             AlertRule(
@@ -113,26 +112,26 @@ class AlertManager:
                 severity="info",
             )
         )
-    
+
     def add_rule(self, rule: AlertRule):
         """Add alert rule.
-        
+
         Args:
             rule: Alert rule to add
         """
         self.rules[rule.name] = rule
-    
+
     def add_handler(self, handler: Callable[[str, str, dict], None]):
         """Add alert handler.
-        
+
         Args:
             handler: Callable(rule_name, message, context)
         """
         self.handlers.append(handler)
-    
+
     def process_log_event(self, log_line: str):
         """Process a log event and check alert rules.
-        
+
         Args:
             log_line: JSON log line
         """
@@ -140,14 +139,14 @@ class AlertManager:
             event = json.loads(log_line)
         except json.JSONDecodeError:
             return
-        
+
         # Add timestamp if not present
         if "@timestamp" not in event:
             event["@timestamp"] = datetime.utcnow().isoformat() + "Z"
-        
+
         # Route event to relevant rules
         event_type = event.get("extra", {}).get("event")
-        
+
         if event_type == "query_end":
             self._check_rule("query_latency_high", event)
         elif event_type in ["cache_hit", "cache_miss"]:
@@ -156,51 +155,51 @@ class AlertManager:
             self._check_rule("error_rate_high", event)
         elif event_type == "llm_call":
             self._check_rule("llm_tokens_high", event)
-    
+
     def _check_rule(self, rule_name: str, event: dict):
         """Check if rule should trigger.
-        
+
         Args:
             rule_name: Rule name
             event: Log event
         """
         if rule_name not in self.rules:
             return
-        
+
         rule = self.rules[rule_name]
-        
+
         # Add timestamp to event if not present
         if "@timestamp" not in event:
             event["@timestamp"] = datetime.utcnow().isoformat() + "Z"
-        
+
         # Add current Unix timestamp for easier comparison
         event["_unix_time"] = self._parse_timestamp(event["@timestamp"])
-        
+
         # Add event to sliding window
         rule.events.append(event)
-        
+
         # Remove old events outside window
         cutoff = time.time() - rule.window_seconds
         while rule.events and rule.events[0].get("_unix_time", 0) < cutoff:
             rule.events.popleft()
-        
+
         # Check cooldown
         if time.time() - rule.last_triggered < rule.cooldown_seconds:
             return
-        
+
         # Evaluate condition
         if rule.condition(list(rule.events)):
             self._trigger_alert(rule, event)
-    
+
     def _trigger_alert(self, rule: AlertRule, event: dict):
         """Trigger alert.
-        
+
         Args:
             rule: Alert rule that triggered
             event: Log event that triggered the alert
         """
         rule.last_triggered = time.time()
-        
+
         message = f"[{rule.severity.upper()}] {rule.description}"
         context = {
             "rule": rule.name,
@@ -210,7 +209,7 @@ class AlertManager:
             "event": event,
             "timestamp": datetime.utcnow().isoformat() + "Z",
         }
-        
+
         # Log alert
         if rule.severity == "critical":
             self.logger.critical(message, extra={"alert": context})
@@ -218,47 +217,47 @@ class AlertManager:
             self.logger.warning(message, extra={"alert": context})
         else:
             self.logger.info(message, extra={"alert": context})
-        
+
         # Call handlers
         for handler in self.handlers:
             try:
                 handler(rule.name, message, context)
             except Exception as e:
                 self.logger.error(f"Alert handler failed: {e}")
-    
+
     @staticmethod
     def _parse_timestamp(ts: str) -> float:
         """Parse ISO timestamp to Unix time.
-        
+
         Args:
             ts: ISO timestamp string or Unix timestamp
-            
+
         Returns:
             Unix timestamp
         """
         if not ts:
             return time.time()
-        
+
         # Handle Unix timestamp strings
         try:
             return float(ts)
         except (ValueError, TypeError):
             pass
-        
+
         # Handle ISO format
         try:
             dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
             return dt.timestamp()
         except Exception:
             return time.time()
-    
+
     def _check_latency(self, events: list[dict], threshold: float) -> bool:
         """Check if any query exceeds latency threshold.
-        
+
         Args:
             events: List of query_end events
             threshold: Latency threshold in seconds
-            
+
         Returns:
             True if alert should fire
         """
@@ -267,49 +266,49 @@ class AlertManager:
             if duration > threshold:
                 return True
         return False
-    
+
     def _check_cache_hit_rate(self, events: list[dict], threshold: float) -> bool:
         """Check if cache hit rate is below threshold.
-        
+
         Args:
             events: List of cache_hit/cache_miss events
             threshold: Hit rate threshold (0.0-1.0)
-            
+
         Returns:
             True if alert should fire
         """
         if not events:
             return False
-        
+
         hits = sum(1 for e in events if e.get("extra", {}).get("event") == "cache_hit")
         total = len(events)
-        
+
         if total < 10:  # Need at least 10 events
             return False
-        
+
         hit_rate = hits / total
         return hit_rate < threshold
-    
+
     def _check_error_rate(self, events: list[dict], threshold: int) -> bool:
         """Check if error rate exceeds threshold.
-        
+
         Args:
             events: List of ERROR level events
             threshold: Error count threshold per window
-            
+
         Returns:
             True if alert should fire
         """
         error_count = len([e for e in events if e.get("level") == "ERROR"])
         return error_count > threshold
-    
+
     def _check_llm_tokens(self, events: list[dict], threshold: int) -> bool:
         """Check if LLM token usage exceeds threshold.
-        
+
         Args:
             events: List of llm_call events
             threshold: Token count threshold per window
-            
+
         Returns:
             True if alert should fire
         """
@@ -323,7 +322,7 @@ _alert_manager = None
 
 def get_alert_manager() -> AlertManager:
     """Get global alert manager instance.
-    
+
     Returns:
         AlertManager instance
     """
@@ -337,7 +336,7 @@ def get_alert_manager() -> AlertManager:
 
 def log_alert_handler(rule_name: str, message: str, context: dict):
     """Default alert handler that logs to file.
-    
+
     Args:
         rule_name: Alert rule name
         message: Alert message
@@ -346,7 +345,7 @@ def log_alert_handler(rule_name: str, message: str, context: dict):
     # Write to alerts log file
     alerts_log = Path("logs/alerts.json")
     alerts_log.parent.mkdir(parents=True, exist_ok=True)
-    
+
     with open(alerts_log, "a", encoding="utf-8") as f:
         alert_event = {
             "timestamp": context["timestamp"],
@@ -367,7 +366,7 @@ def email_alert_handler(
     password: str = "",
 ):
     """Create email alert handler.
-    
+
     Args:
         smtp_host: SMTP server host
         smtp_port: SMTP server port
@@ -375,55 +374,55 @@ def email_alert_handler(
         to_addrs: List of recipient email addresses
         username: SMTP username (optional)
         password: SMTP password (optional)
-        
+
     Returns:
         Email alert handler function
     """
     import smtplib
     from email.message import EmailMessage
-    
+
     def handler(rule_name: str, message: str, context: dict):
         """Send alert email."""
         msg = EmailMessage()
         msg["Subject"] = f"OLAV Alert: {rule_name}"
         msg["From"] = from_addr
         msg["To"] = ", ".join(to_addrs)
-        
+
         body = f"""
 Alert: {message}
 
 Rule: {rule_name}
-Severity: {context['severity']}
-Timestamp: {context['timestamp']}
-Threshold: {context['threshold']}
-Window: {context['window_seconds']}s
+Severity: {context["severity"]}
+Timestamp: {context["timestamp"]}
+Threshold: {context["threshold"]}
+Window: {context["window_seconds"]}s
 
 Event Details:
-{json.dumps(context['event'], indent=2)}
+{json.dumps(context["event"], indent=2)}
 """
         msg.set_content(body)
-        
+
         with smtplib.SMTP(smtp_host, smtp_port) as server:
             if username and password:
                 server.starttls()
                 server.login(username, password)
             server.send_message(msg)
-    
+
     return handler
 
 
 def webhook_alert_handler(webhook_url: str, headers: dict | None = None):
     """Create webhook alert handler.
-    
+
     Args:
         webhook_url: Webhook URL
         headers: Optional HTTP headers
-        
+
     Returns:
         Webhook alert handler function
     """
     import httpx
-    
+
     def handler(rule_name: str, message: str, context: dict):
         """Send alert to webhook."""
         payload = {
@@ -433,12 +432,12 @@ def webhook_alert_handler(webhook_url: str, headers: dict | None = None):
             "timestamp": context["timestamp"],
             "context": context,
         }
-        
+
         httpx.post(
             webhook_url,
             json=payload,
             headers=headers or {},
             timeout=5.0,
         )
-    
+
     return handler
