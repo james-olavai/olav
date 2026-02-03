@@ -54,6 +54,7 @@ USER_CHECKPOINT_DIR = Path.home() / ".olav" / "checkpoints"
 USER_CHECKPOINT_PATH = USER_CHECKPOINT_DIR / f"{_username}.duckdb"
 USER_HISTORY_DIR = Path.home() / ".olav" / "history"
 USER_HISTORY_PATH = USER_HISTORY_DIR / f"{_username}.txt"
+USER_SESSION_DIR = Path.home() / ".olav" / "sessions"
 
 # Map all legacy/specific paths to the unified core
 NETWORK_DB_PATH = OLAV_DB_PATH

@@ -21,20 +21,24 @@ Expected Improvements:
 
 import logging
 import threading
-from queue import Queue, Empty, Full
-from typing import Optional
+from pathlib import Path
+from queue import Empty, Full, Queue
 
 import duckdb
 
-from config.paths import KNOWLEDGE_PATH, NETWORK_COMMANDS_PATH, NETWORK_SNAPSHOT_PATH, USER_CACHE_PATH
-from pathlib import Path
+from config.paths import (
+    KNOWLEDGE_PATH,
+    NETWORK_COMMANDS_PATH,
+    NETWORK_SNAPSHOT_PATH,
+    USER_CACHE_PATH,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class ConnectionPool:
     """Thread-safe connection pool for DuckDB with pre-attached databases.
-    
+
     Features:
     - Configurable pool size
     - Pre-attached databases (commands, snapshot, knowledge)
@@ -45,7 +49,7 @@ class ConnectionPool:
 
     def __init__(self, max_size: int = 5, timeout_seconds: float = 5.0):
         """Initialize connection pool.
-        
+
         Args:
             max_size: Maximum number of pooled connections
             timeout_seconds: Timeout for acquire() operation
@@ -59,9 +63,9 @@ class ConnectionPool:
 
         logger.info(f"ConnectionPool initialized (max_size={max_size})")
 
-    def _create_connection(self) -> Optional[duckdb.DuckDBPyConnection]:
+    def _create_connection(self) -> duckdb.DuckDBPyConnection | None:
         """Create a single connection with all databases attached.
-        
+
         Returns:
             DuckDB connection or None if failed
         """
@@ -86,16 +90,20 @@ class ConnectionPool:
                 except Exception as e:
                     if attempt < 2 and "being detached" in str(e):
                         import time
+
                         time.sleep(0.2)
                         continue
                     # Fallback to commands RO
                     try:
-                        conn.execute(f"ATTACH IF NOT EXISTS '{commands_path}' AS commands (READ_ONLY)")
+                        conn.execute(
+                            f"ATTACH IF NOT EXISTS '{commands_path}' AS commands (READ_ONLY)"
+                        )
                         attached_paths.add(commands_path)
                         break
                     except Exception:
                         if attempt < 2:
                             import time
+
                             time.sleep(0.2)
 
             # Attach snapshot
@@ -116,7 +124,9 @@ class ConnectionPool:
 
             # Update search path
             try:
-                catalogs = conn.execute("SELECT catalog_name FROM information_schema.schemata").fetchall()
+                catalogs = conn.execute(
+                    "SELECT catalog_name FROM information_schema.schemata"
+                ).fetchall()
                 attached = {c[0] for c in catalogs}
                 paths = ["main", "commands", "db_snapshot", "knowledge"]
                 active_paths = [p for p in paths if p in attached or p == "main"]
@@ -173,12 +183,12 @@ class ConnectionPool:
             logger.error(f"Failed to create connection: {e}")
             return None
 
-    def initialize(self, warmup_size: Optional[int] = None) -> int:
+    def initialize(self, warmup_size: int | None = None) -> int:
         """Pre-warm the connection pool.
-        
+
         Args:
             warmup_size: Number of connections to pre-create (default: min(3, max_size))
-            
+
         Returns:
             Number of connections successfully created
         """
@@ -206,7 +216,7 @@ class ConnectionPool:
 
     def acquire(self) -> duckdb.DuckDBPyConnection:
         """Acquire a connection from the pool.
-        
+
         Returns:
             DuckDB connection (pooled or ephemeral)
         """
@@ -226,10 +236,10 @@ class ConnectionPool:
 
     def release(self, conn: duckdb.DuckDBPyConnection) -> bool:
         """Release a connection back to the pool.
-        
+
         Args:
             conn: DuckDB connection to release
-            
+
         Returns:
             True if returned to pool, False if pool full (connection closed)
         """
@@ -274,16 +284,16 @@ class ConnectionPool:
 
 
 # Global pool instance (singleton pattern)
-_global_pool: Optional[ConnectionPool] = None
+_global_pool: ConnectionPool | None = None
 _pool_lock = threading.Lock()
 
 
 def get_connection_pool(max_size: int = 5) -> ConnectionPool:
     """Get or create the global connection pool.
-    
+
     Args:
         max_size: Maximum pool size (only used on first call)
-        
+
     Returns:
         Global ConnectionPool instance
     """

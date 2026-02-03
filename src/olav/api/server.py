@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -48,9 +48,9 @@ async def lifespan(app: FastAPI):
     logger.info("Starting OLAV API server")
     global _startup_time
     _startup_time = time.time()
-    
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down OLAV API server")
 
@@ -71,7 +71,7 @@ async def check_database() -> dict[str, Any]:
             # Simple query to verify database is accessible
             result = db.conn.execute("SELECT COUNT(*) as count FROM v_device_status").fetchone()
             device_count = result[0] if result else 0
-            
+
             return {
                 "status": "healthy",
                 "message": "Database accessible",
@@ -91,7 +91,7 @@ async def check_cache() -> dict[str, Any]:
     try:
         cache = get_query_cache()
         stats = cache.stats()
-        
+
         # Cache is healthy if it's accessible
         return {
             "status": "healthy",
@@ -115,10 +115,10 @@ async def check_llm() -> dict[str, Any]:
         # Check if API key is configured
         api_key = settings.llm_api_key
         has_api_key = bool(api_key and len(api_key) > 0)
-        
+
         # Check base URL if using third-party provider
         base_url = settings.llm_base_url
-        
+
         if has_api_key:
             return {
                 "status": "healthy",
@@ -145,10 +145,10 @@ async def check_llm() -> dict[str, Any]:
 @app.get("/health", response_model=HealthStatus, status_code=status.HTTP_200_OK)
 async def health_check() -> HealthStatus:
     """Health check endpoint for monitoring and load balancers.
-    
+
     Returns:
         HealthStatus: Comprehensive health status of all components
-        
+
     Status Codes:
         - 200: All components healthy or degraded (service operational)
         - 503: One or more critical components unhealthy (service degraded)
@@ -159,11 +159,11 @@ async def health_check() -> HealthStatus:
         "cache": await check_cache(),
         "llm": await check_llm(),
     }
-    
+
     # Determine overall status
     unhealthy_count = sum(1 for check in checks.values() if check["status"] == "unhealthy")
     degraded_count = sum(1 for check in checks.values() if check["status"] == "degraded")
-    
+
     if unhealthy_count > 0:
         overall_status = "unhealthy"
         http_status = status.HTTP_503_SERVICE_UNAVAILABLE
@@ -173,10 +173,10 @@ async def health_check() -> HealthStatus:
     else:
         overall_status = "healthy"
         http_status = status.HTTP_200_OK
-    
+
     # Calculate uptime
     uptime = time.time() - _startup_time
-    
+
     # Build response
     health_status = HealthStatus(
         status=overall_status,
@@ -185,14 +185,14 @@ async def health_check() -> HealthStatus:
         checks=checks,
         uptime_seconds=round(uptime, 2),
     )
-    
+
     # Return with appropriate status code
     if http_status != status.HTTP_200_OK:
         return JSONResponse(
             status_code=http_status,
             content=health_status.model_dump(),
         )
-    
+
     return health_status
 
 
@@ -204,11 +204,11 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     uvicorn.run(
         "olav.api.server:app",
         host="0.0.0.0",
         port=8000,
         log_level="info",
-        reload=settings.debug if hasattr(settings, 'debug') else False,
+        reload=settings.debug if hasattr(settings, "debug") else False,
     )

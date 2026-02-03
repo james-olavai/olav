@@ -6,7 +6,7 @@ Usage:
     # Automatic pooling (context manager recommended)
     with get_pooled_database() as db:
         result = db.query("SELECT * FROM v_interfaces")
-    
+
     # Or manual
     db = get_pooled_database()
     result = db.query("SELECT ...")
@@ -14,19 +14,17 @@ Usage:
 """
 
 import threading
-from typing import Any, Optional
-
-import duckdb
+from typing import Any
 
 from olav.core.connection_pool import get_connection_pool
 
 
 class PooledUnifiedDatabase:
     """Unified database wrapper using connection pooling.
-    
+
     Provides same interface as UnifiedDatabase but uses ConnectionPool
     for reduced initialization overhead.
-    
+
     Thread-safe for multi-threaded applications.
     """
 
@@ -34,7 +32,7 @@ class PooledUnifiedDatabase:
 
     def __init__(self, use_pool: bool = True):
         """Initialize pooled database.
-        
+
         Args:
             use_pool: If True, use connection pool; if False, create ephemeral connection
         """
@@ -89,10 +87,10 @@ class PooledUnifiedDatabase:
 
 def get_pooled_database(use_pool: bool = True) -> PooledUnifiedDatabase:
     """Get a pooled database instance.
-    
+
     Args:
         use_pool: If True, use connection pool (recommended)
-        
+
     Returns:
         PooledUnifiedDatabase instance
     """
