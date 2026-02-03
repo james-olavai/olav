@@ -15,7 +15,6 @@ import hashlib
 import json
 import logging
 import sqlite3
-from pathlib import Path
 from typing import Literal
 
 try:
@@ -147,8 +146,8 @@ class OlavCache:
         if result:
             # 更新命中统计
             conn.execute(
-                """UPDATE guard_rejected 
-                   SET hit_count = hit_count + 1, last_hit = CURRENT_TIMESTAMP 
+                """UPDATE guard_rejected
+                   SET hit_count = hit_count + 1, last_hit = CURRENT_TIMESTAMP
                    WHERE query_hash = ?""",
                 [query_hash],
             )
@@ -165,7 +164,7 @@ class OlavCache:
         query_hash = self._hash(query)
         conn = sqlite3.connect(self.db_path)
         conn.execute(
-            """INSERT OR REPLACE INTO guard_rejected 
+            """INSERT OR REPLACE INTO guard_rejected
                (query_hash, query_text, reject_reason)
                VALUES (?, ?, ?)""",
             [query_hash, query, reason],
@@ -260,7 +259,7 @@ class OlavCache:
         query_hash = self._hash(query)
         conn = sqlite3.connect(self.db_path)
         conn.execute(
-            """INSERT OR REPLACE INTO intent_cache 
+            """INSERT OR REPLACE INTO intent_cache
                (query_hash, query_text, result)
                VALUES (?, ?, ?)""",
             [query_hash, query, json.dumps(result, ensure_ascii=False)],
@@ -287,45 +286,45 @@ class OlavCache:
         }
         conn.close()
         return stats
-    
+
     def get_cache_metrics(self) -> dict:
         """获取详细缓存指标，包括命中率"""
         conn = sqlite3.connect(self.db_path)
-        
+
         # Intent cache metrics
         intent_stats = conn.execute("""
-            SELECT 
+            SELECT
                 COUNT(*) as total_entries,
                 SUM(hit_count) as total_hits,
                 AVG(hit_count) as avg_hits_per_entry,
                 MAX(hit_count) as max_hits
             FROM intent_cache
         """).fetchone()
-        
+
         # Guard rejected metrics
         guard_stats = conn.execute("""
-            SELECT 
+            SELECT
                 COUNT(*) as total_rejected,
                 SUM(hit_count) as total_hits
             FROM guard_rejected
         """).fetchone()
-        
+
         # Recent activity (last 24 hours)
         recent_stats = conn.execute("""
-            SELECT 
+            SELECT
                 COUNT(*) as recent_queries,
                 SUM(hit_count) as recent_hits
             FROM intent_cache
             WHERE datetime(created_at) > datetime('now', '-1 day')
         """).fetchone()
-        
+
         conn.close()
-        
+
         # Calculate hit rate
         total_entries = intent_stats[0] or 0
         total_hits = intent_stats[1] or 0
         cache_hit_rate = (total_hits / (total_hits + total_entries)) * 100 if (total_hits + total_entries) > 0 else 0
-        
+
         return {
             "intent": {
                 "total_entries": total_entries,
@@ -343,7 +342,7 @@ class OlavCache:
                 "hits": recent_stats[1] or 0,
             }
         }
-    
+
     def log_cache_metrics(self) -> None:
         """记录缓存指标到日志"""
         metrics = self.get_cache_metrics()

@@ -36,7 +36,7 @@ app = typer.Typer(
 
 def _display_todos(agent_graph: Any) -> None:
     """Display todo list from agent state using Rich.
-    
+
     Args:
         agent_graph: Compiled LangGraph agent with state
     """
@@ -308,7 +308,7 @@ async def run_interactive_loop_async(
         router = None
         if is_tty:
             print("⚠️  QueryRouter config not found, using default routing")
-    
+
     # Display cache metrics on startup (TTY only)
     if is_tty:
         try:

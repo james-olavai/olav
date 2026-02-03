@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 class SubAgentPool:
     """SubAgent实例缓存池.
-    
+
     P3优化: 避免每次查询都创建新的SubAgent实例
-    
+
     特点:
     - 线程安全
     - 每种类型维持单一实例
@@ -38,10 +38,10 @@ class SubAgentPool:
     @classmethod
     def get_agent(cls, agent_type: str) -> Any:
         """获取或创建SubAgent实例.
-        
+
         Args:
             agent_type: Agent类型 ("database", "cli", "analysis", etc)
-            
+
         Returns:
             SubAgent实例 (同一类型返回同一实例)
         """
@@ -68,7 +68,7 @@ class SubAgentPool:
     @classmethod
     def clear(cls) -> None:
         """清空实例池.
-        
+
         注意: 仅用于测试或重启场景
         """
         with cls._lock:
@@ -78,7 +78,7 @@ class SubAgentPool:
     @classmethod
     def get_stats(cls) -> dict[str, int]:
         """获取实例池统计.
-        
+
         Returns:
             包含实例数量的字典
         """
@@ -90,10 +90,10 @@ class SubAgentPool:
 
 def initialize_subagent_pool() -> None:
     """初始化SubAgent实例池.
-    
+
     在应用启动时调用此方法以预加载SubAgent实例。
     这样所有后续查询都可以直接使用缓存的实例。
-    
+
     预加载成本: ~50-100ms (一次性)
     """
     logger.info("Initializing SubAgent pool...")
