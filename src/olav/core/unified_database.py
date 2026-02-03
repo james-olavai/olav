@@ -514,7 +514,7 @@ class UnifiedDatabase:
     def save_intent_cache_gateway(self, query: str, plan: dict[str, Any]) -> None:
         """
         Save intent cache using new unified cache module.
-        
+
         .. deprecated:: v0.10.0
             Cache operations moved to olav.cache module. This method is a no-op.
 
@@ -528,7 +528,7 @@ class UnifiedDatabase:
     def save_cache_gateway(self, query_text: str, action: dict[str, Any]) -> None:
         """
         Save cache using new unified cache module.
-        
+
         .. deprecated:: v0.10.0
             Cache operations moved to olav.cache module. This method is a no-op.
 

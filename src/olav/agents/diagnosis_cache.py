@@ -3,7 +3,7 @@
 缓存SubAgent的诊断结果，避免对相同或相似问题重复分析。
 
 优化效果:
-- LLM分析成本: 1000-3000ms per query  
+- LLM分析成本: 1000-3000ms per query
 - 缓存命中时: <10ms
 - 性能提升: 100-300倍
 
@@ -24,10 +24,10 @@ logger = logging.getLogger(__name__)
 
 def _hash_query(query: str) -> str:
     """生成query的哈希键.
-    
+
     Args:
         query: 用户查询字符串
-        
+
     Returns:
         MD5哈希值
     """
@@ -36,9 +36,9 @@ def _hash_query(query: str) -> str:
 
 class DiagnosisCache:
     """诊断结果缓存.
-    
+
     P3优化: 缓存SubAgent的完整诊断结果
-    
+
     特点:
     - LRU缓存 (最多500条)
     - 包含完整诊断信息
@@ -53,10 +53,10 @@ class DiagnosisCache:
     @classmethod
     def get(cls, query: str) -> dict[str, Any] | None:
         """获取缓存的诊断结果.
-        
+
         Args:
             query: 用户查询
-            
+
         Returns:
             缓存的诊断结果，未命中返回None
         """
@@ -76,7 +76,7 @@ class DiagnosisCache:
     @classmethod
     def set(cls, query: str, result: dict[str, Any]) -> None:
         """保存诊断结果.
-        
+
         Args:
             query: 用户查询
             result: 诊断结果 (包含status, analysis, recommendations等)
@@ -103,7 +103,7 @@ class DiagnosisCache:
     @classmethod
     def clear(cls) -> None:
         """清空缓存.
-        
+
         注意: 仅用于测试或强制刷新
         """
         cls._cache.clear()
@@ -113,7 +113,7 @@ class DiagnosisCache:
     @classmethod
     def get_stats(cls) -> dict[str, Any]:
         """获取缓存统计.
-        
+
         Returns:
             包含缓存大小、限制等信息的字典
         """
@@ -128,7 +128,7 @@ class DiagnosisCache:
     @classmethod
     def set_max_size(cls, size: int) -> None:
         """设置最大缓存大小.
-        
+
         Args:
             size: 最大缓存条数
         """
@@ -138,10 +138,10 @@ class DiagnosisCache:
     @classmethod
     def invalidate(cls, query: str) -> bool:
         """使特定查询的缓存失效.
-        
+
         Args:
             query: 要失效的查询
-            
+
         Returns:
             是否成功失效
         """
@@ -159,7 +159,7 @@ class DiagnosisCache:
     @classmethod
     def save_to_file(cls, filepath: str) -> None:
         """将缓存保存到文件 (持久化).
-        
+
         Args:
             filepath: 输出文件路径
         """
@@ -173,7 +173,7 @@ class DiagnosisCache:
     @classmethod
     def load_from_file(cls, filepath: str) -> None:
         """从文件加载缓存 (恢复).
-        
+
         Args:
             filepath: 输入文件路径
         """

@@ -134,57 +134,6 @@ class QueryAgentV2:
         project_root = Path.cwd()
         backend = FilesystemBackend(root_dir=str(project_root))
 
-    def _check_model_availability(
-        self, model_name: str, model_provider: str | None
-    ) -> tuple[str, str | None]:
-        """Check if the requested model is available, fallback to alternatives if needed.
-
-        Returns:
-            Tuple of (model_name, model_provider) that should be used
-
-        Raises:
-            ValueError: If no available model found
-        """
-        import os
-
-        # Define fallback chain: xai -> openai -> google
-        fallback_chain = [
-            ("xai", "x-ai/grok-4.1-fast", "XAI_API_KEY"),
-            ("openai", "gpt-4o-mini", "OPENAI_API_KEY"),
-            ("google", "gemini-2.0-flash-exp", "GOOGLE_API_KEY"),
-        ]
-
-        # Try requested model first
-        if model_provider == "xai" and os.getenv("XAI_API_KEY"):
-            return model_name, model_provider
-        elif model_provider == "openai" and os.getenv("OPENAI_API_KEY"):
-            return model_name, model_provider
-        elif model_provider == "google" and os.getenv("GOOGLE_API_KEY"):
-            return model_name, model_provider
-        elif model_provider == "anthropic" and os.getenv("ANTHROPIC_API_KEY"):
-            return model_name, model_provider
-
-        # Try fallback chain
-        logger.warning(
-            f"⚠️  {model_provider or 'Requested'} model not available, trying fallback..."
-        )
-
-        for provider, fallback_model, env_key in fallback_chain:
-            if os.getenv(env_key):
-                logger.info(f"✅ Using fallback: {provider}/{fallback_model}")
-                return fallback_model, provider
-
-        # No API key found at all
-        raise ValueError(
-            "❌ No LLM API key found in environment.\n"
-            "Please set one of:\n"
-            "  export XAI_API_KEY='your-xai-key'        (recommended)\n"
-            "  export OPENAI_API_KEY='your-openai-key'  (fallback)\n"
-            "  export GOOGLE_API_KEY='your-google-key'  (fallback)\n"
-            "Or add to .env file:\n"
-            "  XAI_API_KEY=your-xai-key"
-        )
-
         # Complete middleware stack
         middleware = [
             TodoListMiddleware(),  # Task tracking
@@ -245,6 +194,57 @@ class QueryAgentV2:
                 store=self.store,
                 backend=backend,
             )
+
+    def _check_model_availability(
+        self, model_name: str, model_provider: str | None
+    ) -> tuple[str, str | None]:
+        """Check if the requested model is available, fallback to alternatives if needed.
+
+        Returns:
+            Tuple of (model_name, model_provider) that should be used
+
+        Raises:
+            ValueError: If no available model found
+        """
+        import os
+
+        # Define fallback chain: xai -> openai -> google
+        fallback_chain = [
+            ("xai", "x-ai/grok-4.1-fast", "XAI_API_KEY"),
+            ("openai", "gpt-4o-mini", "OPENAI_API_KEY"),
+            ("google", "gemini-2.0-flash-exp", "GOOGLE_API_KEY"),
+        ]
+
+        # Try requested model first
+        if model_provider == "xai" and os.getenv("XAI_API_KEY"):
+            return model_name, model_provider
+        elif model_provider == "openai" and os.getenv("OPENAI_API_KEY"):
+            return model_name, model_provider
+        elif model_provider == "google" and os.getenv("GOOGLE_API_KEY"):
+            return model_name, model_provider
+        elif model_provider == "anthropic" and os.getenv("ANTHROPIC_API_KEY"):
+            return model_name, model_provider
+
+        # Try fallback chain
+        logger.warning(
+            f"⚠️  {model_provider or 'Requested'} model not available, trying fallback..."
+        )
+
+        for provider, fallback_model, env_key in fallback_chain:
+            if os.getenv(env_key):
+                logger.info(f"✅ Using fallback: {provider}/{fallback_model}")
+                return fallback_model, provider
+
+        # No API key found at all
+        raise ValueError(
+            "❌ No LLM API key found in environment.\n"
+            "Please set one of:\n"
+            "  export XAI_API_KEY='your-xai-key'        (recommended)\n"
+            "  export OPENAI_API_KEY='your-openai-key'  (fallback)\n"
+            "  export GOOGLE_API_KEY='your-google-key'  (fallback)\n"
+            "Or add to .env file:\n"
+            "  XAI_API_KEY=your-xai-key"
+        )
 
     def _inject_metadata(self, prompt: str) -> str:
         """Inject current snapshot date and available views into prompt."""

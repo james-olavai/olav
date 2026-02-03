@@ -183,7 +183,7 @@ class QueryRouter:
 
     def _load_whitelist_config(self) -> None:
         """启动时加载白名单配置到内存.
-        
+
         P2优化: 避免每次route()调用都从磁盘读取YAML文件
         """
         whitelist_file = Path(".olav/config/command_whitelist.yaml")
@@ -203,7 +203,7 @@ class QueryRouter:
 
     def _get_routing_cache_key(self, user_input: str) -> str:
         """生成路由缓存键 (基于用户输入的hash).
-        
+
         P2优化: 用于缓存相同输入的路由决策
         """
         import hashlib
@@ -217,7 +217,7 @@ class QueryRouter:
 
     def _set_routing_cache(self, cache_key: str, decision: RoutingDecision) -> None:
         """缓存路由决策 (LRU: 最多缓存1000条).
-        
+
         P2优化: 避免重复分析相同的输入
         """
         if not hasattr(self, '_routing_cache'):
