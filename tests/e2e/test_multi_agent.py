@@ -21,7 +21,12 @@ import pytest
 
 # Test Configuration
 REAL_AGENTS_AVAILABLE = True  # Set to False to skip agent tests
-HAS_API_KEY = bool(os.getenv("OPENAI_API_KEY") or os.getenv("OPENROUTER_API_KEY"))  # Check API key
+# OpenRouter is OpenAI-compatible, check for either key
+HAS_API_KEY = bool(
+    os.getenv("OPENAI_API_KEY") 
+    or os.getenv("OPENROUTER_API_KEY") 
+    or (os.getenv("LLM_PROVIDER") == "openai" and os.getenv("LLM_API_KEY"))
+)
 
 
 # =============================================================================
@@ -35,7 +40,6 @@ class TestOrchestrator:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(60)
-    @pytest.mark.skipif(not HAS_API_KEY, reason="需要 OpenAI/OpenRouter API key")
     async def test_orchestrator_creation(self) -> None:
         """1.1 测试 Orchestrator 创建。
         
@@ -60,7 +64,6 @@ class TestOrchestrator:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(120)
-    @pytest.mark.skipif(not HAS_API_KEY, reason="需要 OpenAI/OpenRouter API key")
     async def test_orchestrator_query_routing(self) -> None:
         """1.2 测试 Orchestrator 查询路由。
         
@@ -96,7 +99,6 @@ class TestOrchestrator:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(180)
-    @pytest.mark.skipif(not HAS_API_KEY, reason="需要 OpenAI/OpenRouter API key")
     async def test_orchestrator_multi_step(self) -> None:
         """1.3 测试 Orchestrator 多步推理。
         
@@ -304,7 +306,6 @@ class TestResultAggregation:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(180)
-    @pytest.mark.skipif(not HAS_API_KEY, reason="需要 OpenAI/OpenRouter API key")
     async def test_multi_agent_result_synthesis(self) -> None:
         """4.1 测试多 Agent 结果综合。
         
