@@ -13,12 +13,12 @@ from dotenv import load_dotenv
 ENV_FILE = Path(__file__).parent.parent.parent / ".env"
 if ENV_FILE.exists():
     load_dotenv(ENV_FILE, override=True)
-    
+
     # Map LLM_API_KEY to OPENAI_API_KEY for OpenAI-compatible providers
     if os.getenv("LLM_PROVIDER") == "openai" and os.getenv("LLM_API_KEY"):
         os.environ["OPENAI_API_KEY"] = os.getenv("LLM_API_KEY")
         print(f"✅ Loaded API key from .env (provider: {os.getenv('LLM_PROVIDER')})")
-    
+
     # Also set OpenRouter API key if available
     if os.getenv("OPENROUTER_API_KEY"):
         os.environ["OPENAI_API_KEY"] = os.getenv("OPENROUTER_API_KEY")
