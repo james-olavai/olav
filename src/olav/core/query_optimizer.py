@@ -51,7 +51,7 @@ class QueryOptimizer:
             return {"query": name, "error": str(e)}
 
     @staticmethod
-    def print_optimization_report(conn: duckdb.DuckDBPyConnection):
+    def print_optimization_report(conn: duckdb.DuckDBPyConnection) -> None:
         """Print comprehensive optimization status report."""
         print("\n" + "=" * 80)
         print("PHASE 4 DAY 3: Query Optimization Analysis")
@@ -110,7 +110,7 @@ Optimization Impact Estimates:
         print("=" * 80 + "\n")
 
 
-def init_query_optimization(conn: duckdb.DuckDBPyConnection):
+def init_query_optimization(conn: duckdb.DuckDBPyConnection) -> None:
     """Initialize query optimization (currently a no-op for indexes).
 
     Called from UnifiedDatabase.__init__().

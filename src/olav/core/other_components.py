@@ -64,7 +64,7 @@ class InputParser:
         strategy: ParseStrategy = ParseStrategy.INTELLIGENT,
         max_args: int = 10,
         max_arg_length: int = 1000,
-    ):
+    ) -> None:
         """Initialize parser."""
         self.strategy = strategy
         self.max_args = max_args
@@ -274,7 +274,7 @@ class NetworkRequest:
 class NetworkExecutor:
     """Executes network operations with timeout and retry logic."""
 
-    def __init__(self, max_workers: int = 5, default_timeout: float = 30.0):
+    def __init__(self, max_workers: int = 5, default_timeout: float = 30.0) -> None:
         """Initialize executor."""
         self.max_workers = max_workers
         self.default_timeout = default_timeout
@@ -448,7 +448,7 @@ class StorageItem:
 class PersistentStorage:
     """Thread-safe persistent storage with TTL support."""
 
-    def __init__(self, storage_dir: Path | None = None):
+    def __init__(self, storage_dir: Path | None = None) -> None:
         """Initialize storage."""
         self.storage_dir = Path(storage_dir or Path.home() / ".olav" / "storage")
         self.storage_dir.mkdir(parents=True, exist_ok=True)
@@ -613,7 +613,7 @@ class APIRequest:
 class APIClient:
     """API client with retry logic and error handling."""
 
-    def __init__(self, base_url: str = "", max_retries: int = 3):
+    def __init__(self, base_url: str = "", max_retries: int = 3) -> None:
         """Initialize client."""
         self.base_url = base_url
         self.max_retries = max_retries

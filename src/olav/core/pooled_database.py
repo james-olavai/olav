@@ -30,7 +30,7 @@ class PooledUnifiedDatabase:
 
     _lock = threading.RLock()
 
-    def __init__(self, use_pool: bool = True):
+    def __init__(self, use_pool: bool = True) -> None:
         """Initialize pooled database.
 
         Args:
@@ -66,7 +66,7 @@ class PooledUnifiedDatabase:
                 return self.conn.execute(sql, params).df()
             return self.conn.execute(sql).df()
 
-    def close(self):
+    def close(self) -> None:
         """Release connection back to pool."""
         if self.conn and self.pool:
             self.pool.release(self.conn)
@@ -80,7 +80,7 @@ class PooledUnifiedDatabase:
         """Context manager exit."""
         self.close()
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Cleanup on deletion."""
         self.close()
 
