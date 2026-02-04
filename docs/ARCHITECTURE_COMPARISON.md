@@ -478,94 +478,243 @@ LLM ReAct循环 (单次会话):
 
 ## 🚀 实施方案与验收标准
 
-### Phase 1: SubAgent扩展 (1周)
+**重要说明**: 当前v0.9.8已采用SubAgent架构，orchestrator.py已声明3个SubAgent(database/cli/analysis)。实施重点是将独立Agent迁移为SubAgent声明，而非添加新功能。
 
-#### 1.1 添加安全分析SubAgent
+### Phase 1: Agent迁移为SubAgent (3天)
 
-**目标**: 增强网络安全分析能力
+#### 1.1 迁移QueryAgentV2为SubAgent声明
+
+**现状分析**:
+- 当前: `query_agent_v2.py` (730行) 独立实现
+- 已有: orchestrator中`database` SubAgent (基础版)
+- 问题: 功能重复，QueryAgentV2更完善但未集成
+
+**目标**: 将QueryAgentV2的能力声明为orchestrator的SubAgent
 
 **实施步骤**:
+**实施步骤**:
 ```python
-# Step 1: 创建安全工具 (TDD - 先写测试)
-# tests/unit/test_security_tools.py
-def test_security_scan_vulnerability():
-    """测试漏洞扫描功能"""
-    result = await security_scan(target="R1", scan_type="vulnerability")
-    assert "vulnerabilities" in result
-    assert isinstance(result["vulnerabilities"], list)
+# TDD Step 1: 写测试 - 验证SubAgent能复用QueryAgentV2的能力
+# tests/unit/test_query_subagent_migration.py
 
-def test_security_scan_compliance():
-    """测试合规性检查"""
-    result = await security_scan(target="R1", scan_type="compliance")
-    assert "compliance_score" in result
-    assert 0 <= result["compliance_score"] <= 100
+@pytest.mark.asyncio
+async def test_query_subagent_has_intent_detection():
+    """测试query SubAgent具有意图检测能力"""
+    from olav.agents.orchestrator import create_orchestrator
+    
+    orchestrator = create_orchestrator()
+    
+    # 简单查询应触发Fast Path (QueryAgentV2的IntentAgent)
+    result = await orchestrator.ainvoke({
+        "messages": [HumanMessage(content="列出所有设备")]
+    })
+    
+    # 验证使用了Fast Path (响应时间应<1秒)
+    # 这是QueryAgentV2的核心能力
+    assert result["execution_time"] < 1.0
 
-# Step 2: 实现工具
-# src/olav/tools/security.py
-async def security_scan(target: str, scan_type: str = "vulnerability") -> dict:
-    """扫描设备安全状态"""
-    if scan_type == "vulnerability":
-        return {"vulnerabilities": await _check_vulnerabilities(target)}
-    elif scan_type == "compliance":
-        return {"compliance_score": await _check_compliance(target)}
+@pytest.mark.asyncio
+async def test_query_subagent_has_cache():
+    """测试query SubAgent具有缓存能力"""
+    orchestrator = create_orchestrator()
+    
+    # 第一次查询
+    result1 = await orchestrator.ainvoke({
+        "messages": [HumanMessage(content="show version R1")]
+    })
+    
+    # 第二次相同查询应命中缓存
+    result2 = await orchestrator.ainvoke({
+        "messages": [HumanMessage(content="show version R1")]
+    })
+    
+    assert result2["from_cache"] is True
 
-# Step 3: 添加SubAgent
+# TDD Step 2: 实现 - 增强orchestrator中的SubAgent配置
 # src/olav/agents/orchestrator.py
-SubAgent(
-    name="security",
-    description="Network security and compliance specialist",
-    system_prompt="You are a security expert. Scan for vulnerabilities and compliance issues.",
-    tools=[security_scan],
-)
+
+def _create_subagents() -> list[SubAgent]:
+    """增强版SubAgent配置 - 复用QueryAgentV2能力"""
+    
+    # 导入QueryAgentV2的核心组件
+    from olav.agents.query_agent_v2 import QueryAgentV2
+    from olav.core.query_cache import get_query_cache
+    
+    # 复用QueryAgentV2的工具和中间件
+    query_agent = QueryAgentV2(skill_name="network-query")
+    
+    return [
+        SubAgent(
+            name="query",  # 重命名为query，明确其职责
+            description="Network query specialist with intent detection and caching",
+            system_prompt=(
+                "You are a network query specialist. "
+                "You have Fast Path for simple queries and ReAct loop for complex ones. "
+                "Always check cache first before querying."
+            ),
+            tools=query_agent._create_tools(),  # 复用QueryAgentV2的工具
+            # 未来: 添加IntentMiddleware和CacheMiddleware
+        ),
+        SubAgent(
+            name="cli",
+            description="CLI command execution specialist",
+            tools=[execute_cli_command],
+        ),
+        SubAgent(
+            name="analysis",
+            description="Network data analysis specialist",
+            tools=[analyze_network],
+        ),
+    ]
+
+# TDD Step 3: 重构 - 提取QueryAgentV2的中间件为通用组件
+# src/olav/middleware/intent_detection.py
+
+class IntentDetectionMiddleware:
+    """从QueryAgentV2提取的意图检测中间件"""
+    
+    def __init__(self, intent_agent: IntentAgent):
+        self.intent_agent = intent_agent
+    
+    async def __call__(self, state, config):
+        query = state["messages"][-1].content
+        
+        # Fast Path检测
+        intent = await self.intent_agent.detect_intent(query)
+        if intent["is_simple"]:
+            # 直接SQL查询，跳过ReAct循环
+            result = await self._fast_query(intent["sql"])
+            return {"messages": [AIMessage(content=result)], "fast_path": True}
+        
+        # 复杂查询走ReAct
+        return state
 ```
 
 **验收标准**:
-- [ ] 单元测试通过: `test_security_tools.py` 100%覆盖
-- [ ] E2E测试通过: 能正确路由安全相关查询
-- [ ] 性能测试: 安全扫描 <5秒
-- [ ] 准确率: 漏洞检测准确率 >95%
+- [ ] QueryAgentV2的核心能力已迁移到SubAgent
+- [ ] Fast Path功能正常 (简单查询<1秒)
+- [ ] 缓存功能正常 (命中率>60%)
+- [ ] 原query_agent_v2.py可标记为deprecated
+- [ ] 单元测试覆盖率>85%
+
+**时间估算**: 1天
 
 ---
 
-#### 1.2 添加性能优化SubAgent
+#### 1.2 迁移Analyzer为SubAgent声明
 
-**目标**: 提供网络性能优化建议
+**现状分析**:
+- 当前: `analyzer.py` (651行) 独立LangGraph实现
+- 已有: orchestrator中`analysis` SubAgent (基础版)
+- 问题: Analyzer功能更强大(DB+CLI双重验证)，但未集成
 
 **实施步骤**:
 ```python
-# TDD测试先行
-# tests/unit/test_performance_tools.py
-def test_performance_analysis():
-    """测试性能分析"""
-    result = await analyze_performance(
-        device="R1",
-        metrics=["cpu", "memory", "bandwidth"]
-    )
-    assert "bottlenecks" in result
-    assert "recommendations" in result
+# TDD测试
+# tests/unit/test_analyzer_subagent_migration.py
 
-# 实现工具
-# src/olav/tools/performance.py
-async def analyze_performance(device: str, metrics: list[str]) -> dict:
-    """分析设备性能瓶颈"""
-    data = await collect_metrics(device, metrics)
-    bottlenecks = await detect_bottlenecks(data)
-    recommendations = await generate_recommendations(bottlenecks)
-    return {"bottlenecks": bottlenecks, "recommendations": recommendations}
+@pytest.mark.asyncio
+async def test_analysis_subagent_has_db_cli_verification():
+    """测试analysis SubAgent具有DB+CLI双重验证"""
+    orchestrator = create_orchestrator()
+    
+    result = await orchestrator.ainvoke({
+        "messages": [HumanMessage(
+            content="诊断R1的BGP问题，需要验证实际状态"
+        )]
+    })
+    
+    # 应该同时使用了DB查询和CLI验证
+    assert "db_verification" in result["metadata"]
+    assert "cli_verification" in result["metadata"]
 
-# 添加SubAgent
-SubAgent(
-    name="performance",
-    description="Network performance optimization specialist",
-    tools=[analyze_performance, optimize_config],
-)
+# 实现 - 复用Analyzer的工具
+def _create_subagents() -> list[SubAgent]:
+    from olav.agents.analyzer import create_analyzer_tools
+    
+    analyzer_tools = create_analyzer_tools()
+    
+    return [
+        # ... query SubAgent ...
+        SubAgent(
+            name="analysis",
+            description="Network analysis specialist with DB+CLI verification",
+            system_prompt=(
+                "You are a network analyst. "
+                "Always verify DB results with real-time CLI data. "
+                "Provide root cause analysis and recommendations."
+            ),
+            tools=analyzer_tools,  # 复用Analyzer的DB+CLI工具
+        ),
+    ]
 ```
 
 **验收标准**:
-- [ ] 单元测试覆盖率 >90%
-- [ ] E2E场景: 复杂性能问题诊断准确率 >85%
-- [ ] 响应时间: <3秒
-- [ ] 建议质量: 人工评审通过率 >80%
+- [ ] Analyzer的DB+CLI验证能力已迁移
+- [ ] 分析准确率>90% (与独立Analyzer对比)
+- [ ] 原analyzer.py可标记为deprecated
+- [ ] E2E测试通过率>90%
+
+**时间估算**: 1天
+
+---
+
+#### 1.3 迁移Coder为SubAgent声明
+
+**现状分析**:
+- 当前: `coder.py` (570行) 独立LangGraph实现
+- 功能: TextFSM模板生成 (Generate→Test→Analyze迭代)
+- 特点: 多步状态机，需要特殊处理
+
+**实施步骤**:
+```python
+# TDD测试
+@pytest.mark.asyncio
+async def test_coder_subagent_can_generate_template():
+    """测试coder SubAgent能生成TextFSM模板"""
+    orchestrator = create_orchestrator()
+    
+    result = await orchestrator.ainvoke({
+        "messages": [HumanMessage(
+            content="为'show ip bgp summary'生成TextFSM模板"
+        )]
+    })
+    
+    # 应该返回有效的TextFSM模板
+    assert "Value " in result["messages"][-1].content
+    assert "Start" in result["messages"][-1].content
+
+# 实现 - 将Coder作为独立SubAgent
+def _create_subagents() -> list[SubAgent]:
+    from olav.agents.coder import create_coder_agent
+    
+    coder_agent = create_coder_agent()
+    
+    return [
+        # ... 其他SubAgents ...
+        SubAgent(
+            name="template_generator",
+            description="TextFSM template generation specialist",
+            system_prompt=(
+                "You are a template generator. "
+                "Generate, test, and iterate TextFSM templates for CLI outputs."
+            ),
+            tools=[
+                generate_textfsm_template,
+                test_textfsm_template,
+                analyze_template_failures,
+            ],
+        ),
+    ]
+```
+
+**验收标准**:
+- [ ] 模板生成成功率>80%
+- [ ] 迭代收敛 (<5次迭代)
+- [ ] 原coder.py可标记为deprecated
+- [ ] 单元测试通过
+
+**时间估算**: 1天
 
 ---
 
