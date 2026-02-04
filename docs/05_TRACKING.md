@@ -2103,3 +2103,30 @@ Test results:
 - `e9a354f` test: fix migration test issues
 
 ---
+
+### 迁移进度更新 (80%)
+
+**实施完成**:
+- ✅ Query SubAgent配置 (orchestrator.py line 45-77)
+- ✅ 工具复用 (QueryAgent.tools → query SubAgent)
+- ✅ CachedOrchestrator wrapper (Fast Path缓存)
+- ✅ 缓存读写验证 (query_cache覆盖率 39% → 64%)
+- ✅ 5/7测试通过
+
+**测试状态**:
+```
+✅ test_fast_path_for_simple_queries     - 缓存集成验证
+✅ test_react_loop_for_complex_queries   - 配置验证
+✅ test_cache_hit_for_repeated_queries   - 缓存读写
+✅ test_skill_tools_available            - Orchestrator配置
+✅ test_feature_parity                   - 功能对等性
+⏸️ test_cache_invalidation_after_ttl    - TTL测试（跳过）
+⏸️ test_query_agent_marked_deprecated   - 弃用标记（跳过）
+```
+
+**下一步 (20%)**:
+- 标记QueryAgent为deprecated
+- 更新文档说明迁移完成
+- 运行完整测试套件验证无回归
+
+---
