@@ -33,7 +33,7 @@ Successfully implemented JSON structured logging and critical metrics alerting s
 {
   "@timestamp": "2025-01-16T10:00:00Z",
   "level": "INFO",
-  "logger": "olav.agents.query_agent_v2",
+  "logger": "olav.agents.query_agent",
   "message": "Query completed: SELECT * FROM devices (2.35s)",
   "hostname": "prod-server-01",
   "process": {"pid": 12345, "thread": 67890, "thread_name": "MainThread"},

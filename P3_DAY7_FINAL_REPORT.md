@@ -35,7 +35,7 @@
 ### Good Coverage (40-60%)
 | Module | Coverage | Status |
 |--------|----------|--------|
-| query_agent_v2.py | 46% | ⭐ |
+| query_agent.py | 46% | ⭐ |
 | unified_database.py | 42% | ⭐ |
 | data_gateway.py | 40% | ⭐ |
 | command_registry.py | 42% | ⭐ |
@@ -119,7 +119,7 @@
 
 ### Hour 1-2: Agent & Skills Testing
 - Created test_phase3_agent_skills.py
-- Covered QueryAgentV2, SkillAdapter, SkillConfig
+- Covered QueryAgent, SkillAdapter, SkillConfig
 - Result: +4% coverage contribution
 
 ### Hour 3-4: Comprehensive Module Testing

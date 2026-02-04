@@ -5,8 +5,8 @@
 **Original Issue**: DeepAgent would hang for 60+ seconds when tools were passed, blocking all E2E tests.
 
 ```
-QueryAgentV2 initialization: ✅ 3 seconds
-QueryAgentV2.ainvoke() with tools: ❌ 60+ seconds (timeout)
+QueryAgent initialization: ✅ 3 seconds
+QueryAgent.ainvoke() with tools: ❌ 60+ seconds (timeout)
 ```
 
 ## Root Cause Analysis
@@ -36,8 +36,8 @@ agent = create_deep_agent(
 ```
 
 ### Key Changes
-1. **QueryAgentV2.__init__()**: Removed tools, checkpointer, store from agent creation
-2. **QueryAgentV2.ainvoke()**: Simplified response handling for direct LLM output
+1. **QueryAgent.__init__()**: Removed tools, checkpointer, store from agent creation
+2. **QueryAgent.ainvoke()**: Simplified response handling for direct LLM output
 3. **Environment Config**: Export OpenRouter settings to `os.environ`
 4. **New Tests**: Created 11 E2E integration tests
 
@@ -75,7 +75,7 @@ $ python verify_phase2.py
 
 PHASE 2 FINAL VERIFICATION TEST
 ================================================
-1. Testing QueryAgentV2 initialization...
+1. Testing QueryAgent initialization...
    ✅ Agent initialized successfully
 2. Testing simple math query...
    ✅ Math query successful: **42**...
@@ -93,7 +93,7 @@ PHASE 2 VERIFICATION COMPLETE ✅
 
 | File | Changes | Impact |
 |------|---------|--------|
-| `src/olav/agents/query_agent_v2.py` | Remove tools/checkpointer, fix response handling | 🟢 Fixed hanging |
+| `src/olav/agents/query_agent.py` | Remove tools/checkpointer, fix response handling | 🟢 Fixed hanging |
 | `tests/test_phase2_e2e_openrouter.py` | New 11-test E2E suite | 🟢 Added coverage |
 | `PHASE2_COMPLETION_REPORT.md` | Documentation | 📝 Reference |
 
@@ -108,7 +108,7 @@ Date:   2025-01-16
     
     - Remove tools from create_deep_agent to fix 60s timeout
     - Remove DuckDBSaver checkpointer (async not implemented)
-    - Simplify QueryAgentV2 to direct LLM responses
+    - Simplify QueryAgent to direct LLM responses
     - Add 11 E2E integration tests with OpenRouter
     - Verify LLM latency <20s, initialization <5s
     - All tests passing (11/11 PASS, 1 SKIP)
