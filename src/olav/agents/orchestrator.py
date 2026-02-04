@@ -202,7 +202,7 @@ async def orchestrate_query(
             user_id = "default_user"
         if not thread_id:
             thread_id = "default_thread"
-        
+
         # Create orchestrator with SubAgent routing
         orchestrator = create_orchestrator(
             user_id=user_id,
