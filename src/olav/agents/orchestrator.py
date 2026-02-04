@@ -29,10 +29,7 @@ from typing import Any
 from deepagents import create_deep_agent
 from deepagents.middleware.subagents import SubAgent
 from langchain_core.messages import AIMessage, HumanMessage
-from langgraph.checkpoint.duckdb import DuckDBSaver
-from langgraph.store.duckdb import DuckDBStore
 
-from config.paths import USER_CHECKPOINT_PATH
 from olav.agents.analyzer import analyze_network
 from olav.core.query_router import QueryRouter
 from olav.tools.react_query import query_network
