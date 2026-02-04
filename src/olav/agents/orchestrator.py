@@ -17,7 +17,7 @@ Specialists as SubAgents:
 
 Migration: v0.9.8 -> v0.10.0
 - Replaced manual _get_specialist_agent() with SubAgent declarations
-- Unified QueryAgentV2 mode parameter -> enable_summarization
+- Unified QueryAgent mode parameter -> enable_summarization
 - Native DeepAgents SubAgent middleware integration
 """
 

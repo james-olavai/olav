@@ -1,7 +1,7 @@
 """OLAV Agents Package - Unified Core.
 
 This package contains the core agents of the v0.10.0 architecture:
-1. QueryAgentV2: The query engine with dynamic tool registration (Skill-Centric).
+1. QueryAgent: The query engine with dynamic tool registration (Skill-Centric).
 2. Analyzer: The complex diagnosis expert (Data Fusion).
 3. Orchestrator: The ReAct-based Meta-Agent for multi-specialist coordination.
 4. Coder: The automation engineer (Template Generation).
@@ -10,7 +10,7 @@ This package contains the core agents of the v0.10.0 architecture:
 from olav.agents.analyzer import analyze_network
 from olav.agents.coder import create_coder_graph
 from olav.agents.orchestrator import orchestrate_query
-from olav.agents.query_agent_v2 import QueryAgentV2
+from olav.agents.query_agent import QueryAgent
 from olav.agents.tool_loader import (
     get_tool_whitelist,
     load_tools_for_agent,
@@ -35,7 +35,7 @@ except ImportError:
 
 __all__ = [
     # Core Agents
-    "QueryAgentV2",
+    "QueryAgent",
     "analyze_network",
     "create_coder_graph",
     "OrchestratorState",

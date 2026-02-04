@@ -72,9 +72,9 @@ async def query_network(question: str | None = None, sql: str | None = None) -> 
         return "Error: No question or SQL query provided."
 
     try:
-        from olav.agents.query_agent_v2 import QueryAgentV2
+        from olav.agents.query_agent import QueryAgent
 
-        agent = QueryAgentV2()
+        agent = QueryAgent()
         result = await agent.query(query_text)
         if isinstance(result, dict):
             return result.get("output") or result.get("error") or str(result)

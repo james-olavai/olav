@@ -1,6 +1,6 @@
 """
-QueryAgentV2 → SubAgent Migration Tests (TDD - Phase 1.1)
-测试QueryAgentV2的核心能力迁移到orchestrator SubAgent
+QueryAgent → SubAgent Migration Tests (TDD - Phase 1.1)
+测试QueryAgent的核心能力迁移到orchestrator SubAgent
 """
 
 import pytest
@@ -10,7 +10,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 
 
 class TestQuerySubAgentIntentDetection:
-    """测试query SubAgent的意图检测能力 (来自QueryAgentV2)"""
+    """测试query SubAgent的意图检测能力 (来自QueryAgent)"""
 
     @pytest.mark.asyncio
     async def test_fast_path_for_simple_queries(self):
@@ -53,7 +53,7 @@ class TestQuerySubAgentIntentDetection:
 
 
 class TestQuerySubAgentCache:
-    """测试query SubAgent的缓存能力 (来自QueryAgentV2)"""
+    """测试query SubAgent的缓存能力 (来自QueryAgent)"""
 
     @pytest.mark.asyncio
     async def test_cache_hit_for_repeated_queries(self):
@@ -88,7 +88,7 @@ class TestQuerySubAgentCache:
 
 
 class TestQuerySubAgentSkillIntegration:
-    """测试query SubAgent的Skill集成 (来自QueryAgentV2)"""
+    """测试query SubAgent的Skill集成 (来自QueryAgent)"""
 
     @pytest.mark.asyncio
     async def test_skill_tools_available(self):
@@ -103,20 +103,20 @@ class TestQuerySubAgentSkillIntegration:
         })
 
         assert result is not None
-        # QueryAgentV2应该提供query_database, inspect_schema等工具
+        # QueryAgent应该提供query_database, inspect_schema等工具
 
 
 class TestQuerySubAgentVsStandalone:
-    """对比测试: SubAgent vs 独立QueryAgentV2"""
+    """对比测试: SubAgent vs 独立QueryAgent"""
 
     @pytest.mark.asyncio
     async def test_feature_parity(self):
-        """测试功能对等性 - SubAgent应具备QueryAgentV2的所有核心能力"""
+        """测试功能对等性 - SubAgent应具备QueryAgent的所有核心能力"""
         from olav.agents.orchestrator import create_orchestrator
-        from olav.agents.query_agent_v2 import QueryAgentV2
+        from olav.agents.query_agent import QueryAgent
 
-        # 独立QueryAgentV2
-        standalone = QueryAgentV2(skill_name="network-query")
+        # 独立QueryAgent
+        standalone = QueryAgent(skill_name="network-query")
 
         # SubAgent模式
         orchestrator = create_orchestrator()
@@ -146,18 +146,18 @@ class TestQuerySubAgentVsStandalone:
 
 
 class TestQuerySubAgentDeprecation:
-    """测试独立QueryAgentV2的弃用路径"""
+    """测试独立QueryAgent的弃用路径"""
 
-    def test_query_agent_v2_marked_deprecated(self):
-        """测试QueryAgentV2是否标记为deprecated"""
+    def test_query_agent_marked_deprecated(self):
+        """测试QueryAgent是否标记为deprecated"""
         pytest.skip("迁移完成后标记弃用")
 
-        from olav.agents.query_agent_v2 import QueryAgentV2
+        from olav.agents.query_agent import QueryAgent
 
         # 应该有弃用警告
         import warnings
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            agent = QueryAgentV2(skill_name="network-query")
+            agent = QueryAgent(skill_name="network-query")
             assert len(w) == 1
             assert "deprecated" in str(w[-1].message).lower()

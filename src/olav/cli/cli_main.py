@@ -277,7 +277,7 @@ async def run_interactive_loop_async(
     import uuid
 
     from config.settings import settings
-    from olav.agents.query_agent_v2 import QueryAgentV2
+    from olav.agents.query_agent import QueryAgent
     from olav.cli.commands import execute_command
     from olav.cli.input_parser import parse_input
     from olav.core.query_router import QueryRouter
@@ -586,8 +586,8 @@ async def run_interactive_loop_async(
                     expert_cfg = router.get_expert_config(routing_decision.expert)
                     skill_name = expert_cfg.get("skill", skill_name)
 
-                # Initialize Query Agent V2 with specific skill
-                agent = QueryAgentV2(enable_summarization=False, skill_name=skill_name)
+                # Initialize Query Agent with specific skill
+                agent = QueryAgent(enable_summarization=False, skill_name=skill_name)
 
                 # === NEW: Create learning callback ===
                 # Only enable interactive learning in TTY mode
@@ -641,7 +641,7 @@ def query(
         olav query "R1 的 BGP 邻居" --debug
         olav query "Check R2 BGP" --verbose
     """
-    from olav.agents.query_agent_v2 import QueryAgentV2
+    from olav.agents.query_agent import QueryAgent
     from olav.cli.display import StreamingDisplay
 
     display = StreamingDisplay(console=console, verbose=verbose, show_spinner=not verbose)
@@ -665,8 +665,8 @@ def query(
             expert_cfg = router.get_expert_config(routing_decision.expert)
             skill_name = expert_cfg.get("skill", skill_name)
 
-        # Initialize QueryAgentV2 with routed skill
-        agent = QueryAgentV2(enable_summarization=False, skill_name=skill_name)
+        # Initialize QueryAgent with routed skill
+        agent = QueryAgent(enable_summarization=False, skill_name=skill_name)
 
         # Execute query
         result = asyncio.run(agent.query(query_text))
@@ -916,12 +916,12 @@ def interactive_mode(ctx: typer.Context) -> None:
                 display_banner(banner_text)
 
         # Phase 17: Federated Specialists - Initial agent is a Router
-        from olav.agents.query_agent_v2 import QueryAgentV2
+        from olav.agents.query_agent import QueryAgent
 
         # Note: In interactive loop, we re-initialize the agent per query
         # or use the Router to select. For now, we pass a dummy or None
         # and let the loop handle it.
-        agent = QueryAgentV2(enable_summarization=False)
+        agent = QueryAgent(enable_summarization=False)
 
         # Run interactive loop (async mode for proper event loop handling)
         asyncio.run(run_interactive_loop_async(session, agent))

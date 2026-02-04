@@ -1,5 +1,5 @@
 """
-Query Agent V2 - ReAct Powered by DeepAgents with Native LangGraph Components
+Query Agent - ReAct Powered by DeepAgents with Native LangGraph Components
 
 Uses:
 - DuckDBSaver: LangGraph native checkpointer for session state
@@ -28,7 +28,7 @@ from olav.lib.data_gateway import get_gateway
 logger = logging.getLogger(__name__)
 
 
-class QueryAgentV2:
+class QueryAgent:
     """Query Agent using DeepAgents ReAct architecture"""
 
     def __init__(
@@ -37,7 +37,7 @@ class QueryAgentV2:
         skill_name: str = "network-query",
         mode: str | None = None,  # Deprecated, kept for backward compatibility
     ) -> None:
-        """Initialize QueryAgentV2.
+        """Initialize QueryAgent.
 
         Args:
             enable_summarization: Enable conversation summarization middleware
