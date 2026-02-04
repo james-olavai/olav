@@ -2074,3 +2074,32 @@ Test results:
 - Total coverage: 68% → 97% (+29%)
 ```
 
+
+---
+
+## 2026-02-04: V2命名清理 + QueryAgent迁移准备
+
+### 已完成
+1. **V2命名清理** (100%)
+   - ✅ 代码: query_agent_v2.py → query_agent.py
+   - ✅ 引用: QueryAgentV2 → QueryAgent (9文件+tests)
+   - ✅ 文档: 13个文档文件更新
+   - ✅ 验证: 19/19测试通过
+   
+2. **迁移测试修复** (100%)
+   - ✅ 修复: aquery() → query()
+   - ✅ 环境: 测试环境变量设置
+   - ✅ 状态: 7个测试跳过等待实施
+
+### 进行中
+3. **QueryAgent → SubAgent迁移** (0% - 开始实施)
+   - ⏳ 目标: 将QueryAgent能力迁移到orchestrator SubAgent
+   - ⏳ 方法: 声明式SubAgent配置 + 工具复用
+   - ⏳ 验收: TDD测试通过
+
+### Commits
+- `c6ed0a0` docs: remove all V2 naming references
+- `9f92f7c` refactor: remove V2 naming convention across codebase
+- `e9a354f` test: fix migration test issues
+
+---
