@@ -956,13 +956,9 @@ def main() -> None:
     ]
     
     for db_path in critical_dbs:
-        if db_path.suffix in [".db", ".duckdb"]:
-            try:
-                migrated = ensure_schema(db_path)
-                if migrated:
-                    logger.info(f"Schema initialized: {db_path.name}")
-            except Exception as e:
-                logger.warning(f"Schema init failed for {db_path.name}: {e}")
+        migrated = ensure_schema(db_path)
+        if migrated:
+            logger.info(f"Schema initialized: {db_path.name}")
 
     # P1: Initialize SkillConfig at startup for better performance
     from olav.core.skill_config import SkillConfig
