@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class HelpCommand:
     """Help command handler for CLI."""
 
-    def __init__(self, commands: dict[str, dict[str, Any]] | None = None):
+    def __init__(self, commands: dict[str, dict[str, Any]] | None = None) -> None:
         """Initialize help command.
 
         Args:
@@ -105,7 +105,7 @@ class HelpCommand:
 class ShellCommand:
     """Shell command execution handler."""
 
-    def __init__(self, timeout: float = 30.0, shell: str = "/bin/bash"):
+    def __init__(self, timeout: float = 30.0, shell: str = "/bin/bash") -> None:
         """Initialize shell command handler.
 
         Args:
@@ -180,7 +180,7 @@ class ShellCommand:
 class ConfigCommand:
     """Configuration management command handler."""
 
-    def __init__(self, config_path: Path | None = None):
+    def __init__(self, config_path: Path | None = None) -> None:
         """Initialize config command.
 
         Args:
@@ -269,7 +269,7 @@ class ConfigCommand:
 class SkillManagementCommand:
     """Skill management command handler."""
 
-    def __init__(self, skills_dir: Path | None = None):
+    def __init__(self, skills_dir: Path | None = None) -> None:
         """Initialize skill management.
 
         Args:
@@ -424,7 +424,7 @@ class SkillManagementCommand:
             v1_parts = [int(x) for x in version1.split(".")]
             v2_parts = [int(x) for x in version2.split(".")]
 
-            for v1, v2 in zip(v1_parts, v2_parts):
+            for v1, v2 in zip(v1_parts, v2_parts, strict=False):
                 if v1 > v2:
                     return 1
                 elif v1 < v2:
@@ -617,7 +617,7 @@ class AsyncCLISupport:
 class CommandTimeout:
     """Command timeout management."""
 
-    def __init__(self, timeout_seconds: float = 30.0):
+    def __init__(self, timeout_seconds: float = 30.0) -> None:
         """Initialize command timeout.
 
         Args:

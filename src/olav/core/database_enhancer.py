@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class DatabaseTransaction:
     """Context manager for database transactions with automatic rollback."""
 
-    def __init__(self, conn: duckdb.DuckDBPyConnection, timeout: float | None = None):
+    def __init__(self, conn: duckdb.DuckDBPyConnection, timeout: float | None = None) -> None:
         """Initialize transaction.
 
         Args:
@@ -83,7 +83,7 @@ class DatabaseTransaction:
 class QueryCache:
     """Simple query result caching for frequently executed queries."""
 
-    def __init__(self, max_size: int = 100, ttl_seconds: float = 3600):
+    def __init__(self, max_size: int = 100, ttl_seconds: float = 3600) -> None:
         """Initialize query cache.
 
         Args:
@@ -177,7 +177,9 @@ class QueryCache:
 class BatchOperation:
     """Batch operation builder for efficient bulk inserts/updates."""
 
-    def __init__(self, conn: duckdb.DuckDBPyConnection, table: str, operation: str = "INSERT"):
+    def __init__(
+        self, conn: duckdb.DuckDBPyConnection, table: str, operation: str = "INSERT"
+    ) -> None:
         """Initialize batch operation.
 
         Args:
@@ -279,7 +281,7 @@ class BatchOperation:
 class QueryTimeout:
     """Manages query execution timeout."""
 
-    def __init__(self, timeout_seconds: float = 30.0):
+    def __init__(self, timeout_seconds: float = 30.0) -> None:
         """Initialize query timeout manager.
 
         Args:
@@ -343,7 +345,7 @@ class QueryTimeout:
 class DatabaseEnhancer:
     """Enhanced database operations with transactions, caching, batch ops, and timeouts."""
 
-    def __init__(self, pool_size: int = 5):
+    def __init__(self, pool_size: int = 5) -> None:
         """Initialize database enhancer.
 
         Args:

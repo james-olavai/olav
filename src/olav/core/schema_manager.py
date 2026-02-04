@@ -11,18 +11,16 @@ Design:
 
 Usage:
     from olav.core.schema_manager import ensure_schema, get_current_version
-    
+
     # On startup
     await ensure_schema(db_path)
-    
+
     # Check version
     version = get_current_version(db_path)
 """
 
 import logging
-from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 import duckdb
 
@@ -61,9 +59,9 @@ SCHEMA_DEFINITIONS = {
 class SchemaManager:
     """Manages database schema versions and migrations."""
 
-    def __init__(self, db_path: str | Path):
+    def __init__(self, db_path: str | Path) -> None:
         """Initialize schema manager.
-        
+
         Args:
             db_path: Path to DuckDB database file
         """
@@ -72,7 +70,7 @@ class SchemaManager:
 
     def get_current_version(self) -> str | None:
         """Get current schema version from database.
-        
+
         Returns:
             Version string (e.g., "1.0.0") or None if no version table exists
         """
@@ -95,27 +93,25 @@ class SchemaManager:
         conn.close()
         logger.info("Created schema_version table")
 
-    def apply_migration(
-        self, version: str, description: str = "", sql: str = ""
-    ) -> None:
+    def apply_migration(self, version: str, description: str = "", sql: str = "") -> None:
         """Apply a migration to the database.
-        
+
         Args:
             version: Version string (e.g., "1.0.0")
             description: Migration description
             sql: SQL statements to execute
         """
         conn = duckdb.connect(str(self.db_path))
-        
+
         try:
             # Execute migration SQL
             if sql:
                 conn.execute(sql)
-            
+
             # Record migration
             conn.execute(
                 "INSERT INTO schema_version (version, description) VALUES (?, ?)",
-                [version, description or f"Schema version {version}"]
+                [version, description or f"Schema version {version}"],
             )
             conn.commit()
             logger.info(f"Applied migration: {version} - {description}")
@@ -128,38 +124,36 @@ class SchemaManager:
 
     def ensure_schema(self, target_version: str = CURRENT_SCHEMA_VERSION) -> bool:
         """Ensure database schema is at target version.
-        
+
         Args:
             target_version: Target schema version (default: CURRENT_SCHEMA_VERSION)
-        
+
         Returns:
             True if migration was needed and applied, False if already at target version
-        
+
         Raises:
             ValueError: If version upgrade is needed but not supported
         """
         current_version = self.get_current_version()
-        
+
         if current_version == target_version:
             logger.debug(f"Schema already at version {target_version}")
             return False
-        
+
         if current_version is None:
             # Fresh database - create version table and apply schema
             self.create_version_table()
-            
+
             if target_version not in SCHEMA_DEFINITIONS:
                 raise ValueError(f"Schema definition not found for version {target_version}")
-            
+
             all_sql = "\n".join(SCHEMA_DEFINITIONS[target_version].values())
             self.apply_migration(
-                target_version,
-                f"Initial schema creation for {target_version}",
-                all_sql
+                target_version, f"Initial schema creation for {target_version}", all_sql
             )
             logger.info(f"Initialized database with schema {target_version}")
             return True
-        
+
         # Version mismatch on existing database - fail fast
         raise ValueError(
             f"Schema version mismatch: current={current_version}, required={target_version}. "
@@ -170,10 +164,10 @@ class SchemaManager:
 # Convenience functions for global use
 def get_current_version(db_path: str | Path) -> str | None:
     """Get current schema version of a database.
-    
+
     Args:
         db_path: Path to DuckDB database
-    
+
     Returns:
         Version string or None
     """
@@ -183,11 +177,11 @@ def get_current_version(db_path: str | Path) -> str | None:
 
 def ensure_schema(db_path: str | Path, version: str = CURRENT_SCHEMA_VERSION) -> bool:
     """Ensure database schema is at specified version.
-    
+
     Args:
         db_path: Path to DuckDB database
         version: Target schema version (default: CURRENT_SCHEMA_VERSION)
-    
+
     Returns:
         True if migration was applied, False if already at target version
     """

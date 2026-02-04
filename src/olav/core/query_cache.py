@@ -73,7 +73,7 @@ class QueryResultCache:
         db_path: Path | None = None,
         l1_max_size: int = 100,
         ttl_seconds: int = 3600,
-    ):
+    ) -> None:
         """Initialize query result cache.
 
         Args:
@@ -105,7 +105,7 @@ class QueryResultCache:
             self._local.conn.row_factory = sqlite3.Row
         return self._local.conn
 
-    def _init_db(self):
+    def _init_db(self) -> None:
         """Initialize SQLite cache database schema."""
         conn = self._get_conn()
         conn.execute("""
@@ -122,7 +122,7 @@ class QueryResultCache:
 
         # Index for TTL cleanup
         conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_created_at 
+            CREATE INDEX IF NOT EXISTS idx_created_at
             ON query_cache(created_at)
         """)
 
@@ -255,7 +255,7 @@ class QueryResultCache:
         context: dict[str, Any] | None = None,
         ttl_seconds: int | None = None,
         metadata: dict[str, Any] | None = None,
-    ):
+    ) -> None:
         """Store query result in cache.
 
         Args:
@@ -281,7 +281,7 @@ class QueryResultCache:
         conn = self._get_conn()
         conn.execute(
             """
-            INSERT OR REPLACE INTO query_cache 
+            INSERT OR REPLACE INTO query_cache
             (cache_key, result_json, created_at, ttl_seconds, metadata_json, hit_count, last_accessed)
             VALUES (?, ?, ?, ?, ?, 0, ?)
             """,
@@ -301,7 +301,7 @@ class QueryResultCache:
 
         logger.debug(f"Cache SET: {cache_key[:16]}... (TTL={ttl}s)")
 
-    def _promote_to_l1(self, entry: CacheEntry):
+    def _promote_to_l1(self, entry: CacheEntry) -> None:
         """Promote entry to L1 cache (with LRU eviction)."""
         with self._l1_lock:
             # If at capacity, evict oldest
@@ -315,7 +315,7 @@ class QueryResultCache:
             self._l1_cache[entry.key] = entry
             logger.debug(f"L1 promotion: {entry.key[:16]}...")
 
-    def invalidate(self, query_text: str, context: dict[str, Any] | None = None):
+    def invalidate(self, query_text: str, context: dict[str, Any] | None = None) -> None:
         """Invalidate cached entry."""
         cache_key = self.generate_cache_key(query_text, context)
 
@@ -342,8 +342,8 @@ class QueryResultCache:
         # Find expired entries
         current_time = time.time()
         cursor = conn.execute("""
-            SELECT cache_key, created_at, ttl_seconds 
-            FROM query_cache 
+            SELECT cache_key, created_at, ttl_seconds
+            FROM query_cache
             WHERE ttl_seconds > 0
         """)
 
@@ -390,7 +390,7 @@ class QueryResultCache:
 
         # L2 stats
         row = conn.execute("""
-            SELECT 
+            SELECT
                 COUNT(*) as total_entries,
                 SUM(hit_count) as total_hits,
                 AVG(hit_count) as avg_hits_per_entry
