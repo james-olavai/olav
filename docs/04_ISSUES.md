@@ -486,12 +486,13 @@ src/olav/agents/orchestrator.py       # ✅ 已使用SubAgent
 
 ---
 
-### ISSUE-007: 删除5个冗余组件 [P1]
+### ISSUE-007: 删除5个冗余组件 [P1] ✅ 已完成
 
 **分类**: 代码清理  
-**工时**: 4小时  
+**工时**: 4小时 → 1小时  
 **阶段**: Phase 1 - Week 2  
 **优先级**: P1 (降低维护成本)  
+**状态**: ✅ 2026-02-03完成（ThresholdAgent→threshold_detector）  
 
 #### 问题描述
 代码审计发现5个冗余组件，它们的功能已被Orchestrator吸收：
@@ -598,12 +599,13 @@ config/settings.py                    # 迁移阈值配置
 
 ---
 
-### ISSUE-008: 语义缓存Schema版本化 [P1]
+### ISSUE-008: 语义缓存Schema版本化 [P1] ✅ 已完成
 
 **分类**: 数据库架构  
-**工时**: 4小时  
+**工时**: 4小时 → 1小时  
 **阶段**: Phase 1 - Week 3  
 **优先级**: P1 (防止生产数据损坏)  
+**状态**: ✅ 2026-02-03完成（SchemaManager已实现）  
 
 #### 问题描述
 5个DuckDB数据库无Schema版本管理：
