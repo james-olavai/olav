@@ -317,12 +317,12 @@ class NetworkExecutor:
         timeout: int | None = None,
     ) -> list[CommandExecutionResult]:
         """Execute a command on multiple devices (batch execution).
-        
+
         Args:
             devices: List of device names or IPs
             command: Command to execute on all devices
             timeout: Command timeout in seconds (defaults to settings.execution.timeout)
-        
+
         Returns:
             List of CommandExecutionResult, one per device
         """
