@@ -43,7 +43,7 @@ tests/unit/test_coder_subagent_migration.py    (105行)  ✅ Agent迁移
 ### 现有独立Agent (待迁移)
 | 文件 | 行数 | 核心能力 | 目标SubAgent |
 |------|------|---------|-------------|
-| query_agent_v2.py | 730 | IntentAgent + Cache + Skill | `query` |
+| query_agent.py | 730 | IntentAgent + Cache + Skill | `query` |
 | analyzer.py | 651 | DB+CLI验证 + 根因分析 | `analysis` |
 | coder.py | 570 | TextFSM生成 (状态机) | `template_generator` |
 | **总计** | **1951** | - | **3个SubAgent** |
@@ -65,7 +65,7 @@ SubAgent(name="analysis", ...)   # 基础分析
 
 ## 🎓 TDD流程 (修正后)
 
-### Phase 1.1: 迁移QueryAgentV2 → query SubAgent
+### Phase 1.1: 迁移QueryAgent → query SubAgent
 
 #### RED: 测试先行
 ```python
@@ -101,7 +101,7 @@ uv run pytest tests/unit/test_query_subagent_migration.py -v
 # src/olav/middleware/intent_detection.py
 
 class IntentDetectionMiddleware:
-    """从QueryAgentV2提取的意图检测中间件"""
+    """从QueryAgent提取的意图检测中间件"""
     
     def __init__(self, intent_agent: IntentAgent):
         self.intent_agent = intent_agent
@@ -123,11 +123,11 @@ class IntentDetectionMiddleware:
 # src/olav/agents/orchestrator.py
 
 from olav.middleware.intent_detection import IntentDetectionMiddleware
-from olav.agents.query_agent_v2 import QueryAgentV2
+from olav.agents.query_agent import QueryAgent
 
 def create_orchestrator():
-    # 复用QueryAgentV2的组件
-    query_agent = QueryAgentV2(skill_name="network-query")
+    # 复用QueryAgent的组件
+    query_agent = QueryAgent(skill_name="network-query")
     intent_middleware = IntentDetectionMiddleware(query_agent.intent_agent)
     
     subagents = [
@@ -156,16 +156,16 @@ uv run pytest tests/unit/test_query_subagent_migration.py::test_fast_path_for_si
 
 #### REFACTOR: 优化代码
 
-**Step 3: 标记QueryAgentV2为deprecated**
+**Step 3: 标记QueryAgent为deprecated**
 ```python
-# src/olav/agents/query_agent_v2.py
+# src/olav/agents/query_agent.py
 
 import warnings
 
-class QueryAgentV2:
+class QueryAgent:
     def __init__(self, ...):
         warnings.warn(
-            "QueryAgentV2 is deprecated. Use orchestrator's query SubAgent instead.",
+            "QueryAgent is deprecated. Use orchestrator's query SubAgent instead.",
             DeprecationWarning,
             stacklevel=2
         )
@@ -174,7 +174,7 @@ class QueryAgentV2:
 
 **Step 4: 提取通用组件**
 ```python
-# 将QueryAgentV2的组件移动到可复用位置
+# 将QueryAgent的组件移动到可复用位置
 src/olav/middleware/intent_detection.py  ✅ 意图检测
 src/olav/middleware/query_cache.py       ✅ 查询缓存
 src/olav/core/skill_adapter.py           ✅ Skill适配器 (已存在)
@@ -185,7 +185,7 @@ src/olav/core/skill_adapter.py           ✅ Skill适配器 (已存在)
 ## 📈 验收标准
 
 ### 功能对等性
-- [ ] query SubAgent性能 ≥ 独立QueryAgentV2
+- [ ] query SubAgent性能 ≥ 独立QueryAgent
 - [ ] analysis SubAgent功能 ≥ 独立Analyzer
 - [ ] template_generator SubAgent ≥ 独立Coder
 
@@ -205,7 +205,7 @@ src/olav/core/skill_adapter.py           ✅ Skill适配器 (已存在)
 
 | Phase | 任务 | 时间 |
 |-------|-----|-----|
-| 1.1 | QueryAgentV2迁移 | 2天 |
+| 1.1 | QueryAgent迁移 | 2天 |
 | 1.2 | Analyzer迁移 | 1天 |
 | 1.3 | Coder迁移 | 1天 |
 | 2.0 | 代码清理+文档 | 1天 |

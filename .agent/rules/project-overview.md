@@ -260,7 +260,7 @@ Python 脚本 (.olav/scripts/*.py)
 - `src/olav/cli/cli_main.py`: Main entry point (CLI)
 - `src/olav/core/skill_adapter.py`: Skill-to-Tool adapter (dynamic registration)
 - `src/olav/core/unified_database.py`: DuckDB connection management
-- `src/olav/agents/query_agent_v2.py`: Query Agent (Skill-Centric)
+- `src/olav/agents/query_agent.py`: Query Agent (Skill-Centric)
 - `src/olav/agents/inspector.py`: Inspection Agent (MapReduce)
 - `.olav/skills/`: Skill definitions (platform-agnostic)
 - `.olav/scripts/`: Tool implementations (platform-agnostic)

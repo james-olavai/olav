@@ -135,7 +135,7 @@ Total:     +114 tests (326% growth) 🚀
 | db_schema.py | 59% | 稳定 ⭐ |
 | registry.py | 55% | 稳定 ⭐ |
 | session.py | 51% | +16pp ⭐ |
-| query_agent_v2.py | 46% | 稳定 |
+| query_agent.py | 46% | 稳定 |
 | command_validator.py | 46% | 稳定 |
 | command_registry.py | 42% | +8pp |
 | unified_database.py | 42% | 稳定 |

@@ -29,7 +29,7 @@
 ### 2. **2-Tier缓存架构**
 ```
 ┌─────────────────────────────────────┐
-│   QueryAgentV2.ainvoke()            │
+│   QueryAgent.ainvoke()            │
 │   ↓                                 │
 │   1. 检查缓存 (normalize + SHA256)   │
 │      ├── L1 Hit? → 返回 (0.1ms)     │

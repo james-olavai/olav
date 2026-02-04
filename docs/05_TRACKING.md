@@ -80,7 +80,7 @@
 - 验证通过: 文件不存在，无引用
 
 #### ✅ ISSUE-004: 修复Ruff关键错误
-- 修复 F821: query_agent_v2.py中backend未定义问题
+- 修复 F821: query_agent.py中backend未定义问题
 - 修复 F841: backend赋值但未使用问题
 - 自动修复: 73个格式和空白行问题
 - 剩余: 11个警告性错误（S324安全警告、ANN类型注解等）
@@ -157,7 +157,7 @@
   ```
 
 - [x] 3.2 手动修复F821未定义名称 (6h) ✅
-  - [x] 修复query_agent_v2.py中backend变量作用域问题
+  - [x] 修复query_agent.py中backend变量作用域问题
   - [x] 修复导入和变量声明
 
 **验收标准**:
@@ -596,7 +596,7 @@
 
 #### ✅ Day 7: 全面测试扩展 (10h)
 - [x] 创建test_phase3_agent_skills.py (340行, 23测试)
-  - QueryAgentV2, SkillAdapter, SkillConfig, CommandRegistry
+  - QueryAgent, SkillAdapter, SkillConfig, CommandRegistry
 - [x] 创建test_phase3_comprehensive.py (400+行, 31测试)
   - QueryRouter, CLI, Database, SkillLoader全面测试
 - [x] 创建test_phase3_cli_direct.py (300+行, 23测试)
@@ -947,7 +947,7 @@ _里程碑达成时记录_
 **Day 5-6 完成成果 (2026-02-03)**:
 - ✅ **查询缓存实现**: 2-tier架构 (L1内存 + L2 SQLite)
   - src/olav/core/query_cache.py: 完整实现
-  - QueryAgentV2集成: ainvoke()缓存检查
+  - QueryAgent集成: ainvoke()缓存检查
   - 测试覆盖: 11/11通过
   
 - ✅ **性能改进**: 

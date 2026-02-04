@@ -5,7 +5,7 @@
 **当前阶段**: Phase 0 - Red (测试先行) ✅  
 **创建时间**: 2026-02-04  
 **架构版本**: v0.9.8 (SubAgent)  
-**实施重点**: 将独立Agent (QueryAgentV2/Analyzer/Coder) 迁移为orchestrator的SubAgent声明
+**实施重点**: 将独立Agent (QueryAgent/Analyzer/Coder) 迁移为orchestrator的SubAgent声明
 
 ---
 
@@ -17,7 +17,7 @@
 
 ### 正确的理解
 - ✅ **现状**: orchestrator.py已采用SubAgent模式（database/cli/analysis三个基础SubAgent）
-- ✅ **问题**: 存在功能更强的独立Agent (query_agent_v2.py 730行, analyzer.py 651行, coder.py 570行)
+- ✅ **问题**: 存在功能更强的独立Agent (query_agent.py 730行, analyzer.py 651行, coder.py 570行)
 - ✅ **目标**: 将独立Agent的能力迁移到orchestrator的SubAgent声明中，实现统一架构
 
 ---
@@ -26,7 +26,7 @@
 
 ### Phase 1: Agent迁移测试
 
-#### 1.1 QueryAgentV2 → query SubAgent
+#### 1.1 QueryAgent → query SubAgent
 **文件**: `tests/unit/test_query_subagent_migration.py` (133行)
 
 **测试覆盖**:
@@ -91,7 +91,7 @@ openai.OpenAIError: The api_key client option must be set
 ## 📋 验收标准清单
 
 ### 功能验收 (Agent迁移完成标准)
-- [ ] QueryAgentV2能力已迁移到query SubAgent
+- [ ] QueryAgent能力已迁移到query SubAgent
   - [ ] Fast Path意图检测 (简单查询<1秒)
   - [ ] 查询缓存 (命中率>60%)
   - [ ] Skill工具集成
@@ -105,7 +105,7 @@ openai.OpenAIError: The api_key client option must be set
   - [ ] 收敛率>80%
 
 ### 性能验收 (不应降级)
-- [ ] query SubAgent性能 ≥ 独立QueryAgentV2
+- [ ] query SubAgent性能 ≥ 独立QueryAgent
 - [ ] analysis SubAgent性能 ≥ 独立Analyzer  
 - [ ] template_generator SubAgent性能 ≥ 独立Coder
 
@@ -126,7 +126,7 @@ openai.OpenAIError: The api_key client option must be set
 
 ## 🚀 下一步行动 (Green阶段)
 
-### 优先级1: 迁移QueryAgentV2 (2天)
+### 优先级1: 迁移QueryAgent (2天)
 
 #### 1. 创建安全工具模块
 ```bash

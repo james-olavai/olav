@@ -5,7 +5,7 @@ OLAV (Orchestrator Language Agent Virtuoso) is a network query assistant that tr
 
 ## Key Components
 - **DataGateway**: DuckDB-based snapshot query engine (`.olav/data/snapshots.duckdb`)
-- **QueryAgentV2**: ReAct agent using DeepAgents framework for intelligent query execution
+- **QueryAgent**: ReAct agent using DeepAgents framework for intelligent query execution
 - **Orchestrator**: SubAgent-based meta-agent for routing and coordination
 - **SubAgents**: Specialized agents (database, cli, analysis)
 

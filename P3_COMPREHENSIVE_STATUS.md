@@ -175,7 +175,7 @@ src/olav/lib/data_gateway.py        22% (↑ from 0%)
 src/olav/cli/session.py              42% (↑ from 0%)
 src/olav/core/skill_loader.py        69%
 src/olav/cli/commands.py             21%
-src/olav/agents/query_agent_v2.py     0% (not tested in Phase 3)
+src/olav/agents/query_agent.py     0% (not tested in Phase 3)
 src/olav/core/skill_adapter.py       37%
 ```
 
