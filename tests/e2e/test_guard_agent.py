@@ -214,19 +214,11 @@ class TestGuardDynamicLearning:
 # =============================================================================
 
 
-@pytest.mark.skipif(
-    not (
-        os.getenv("OPENAI_API_KEY")
-        or os.getenv("OPENROUTER_API_KEY")
-        or (os.getenv("LLM_PROVIDER") == "openai" and os.getenv("LLM_API_KEY"))
-    ),
-    reason="需要 OpenAI/OpenRouter API key"
-)
 class TestGuardNetworkRelevance:
     """Guard network relevance check tests - LLM-based validation."""
 
     @pytest.mark.asyncio
-    @pytest.mark.timeout(10)
+    @pytest.mark.timeout(30)  # 增加超时时间，LLM 调用可能较慢
     async def test_guard_network_relevant_query(self) -> None:
         """3.1 测试网络相关查询通过。
         
@@ -388,14 +380,6 @@ class TestGuardCacheStatistics:
 # =============================================================================
 
 
-@pytest.mark.skipif(
-    not (
-        os.getenv("OPENAI_API_KEY")
-        or os.getenv("OPENROUTER_API_KEY")
-        or (os.getenv("LLM_PROVIDER") == "openai" and os.getenv("LLM_API_KEY"))
-    ),
-    reason="需要 OpenAI/OpenRouter API key"
-)
 class TestGuardIntegration:
     """Guard integration tests - full flow validation."""
 
