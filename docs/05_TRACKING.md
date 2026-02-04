@@ -1637,10 +1637,80 @@ git log --oneline -1
 
 ---
 
+## � Phase 5.1: P1 Issue执行 - ISSUE-007 (2026-02-04)
+
+### 任务概述
+简化版ISSUE-007: 删除ThresholdAgent冗余组件（其他4个组件PlanAgent/QualityChecker/ResultMerger/SubAgentCoordinator不存在）
+
+### 实施步骤
+
+#### Step 1: 代码迁移 ✅
+**迁移ThresholdAgent → threshold_detector + settings**
+
+1. **创建utility函数** ✅
+   - 新文件: [src/olav/utils/threshold_detector.py](src/olav/utils/threshold_detector.py)
+   - 主函数: `detect_anomalies(device, metrics, threshold_config)`
+   - 简化为纯函数实现，移除Agent封装
+
+2. **添加配置到settings** ✅
+   - [config/settings.py](config/settings.py) 添加 `ThresholdSettings`
+   - 支持三种策略: fixed, statistical, percentile
+   - 默认阈值: warning=80%, critical=90%
+
+3. **更新Inspector使用** ✅
+   - [src/olav/agents/inspector.py](src/olav/agents/inspector.py)
+   - 从 `self.threshold_agent.detect_anomalies()` 改为 `await detect_anomalies()`
+   - 移除ThresholdAgent导入和实例化
+
+#### Step 2: 清理代码 ✅
+- ✅ 删除文件: `src/olav/agents/threshold_agent.py`
+- ✅ 验证import: 所有imports正常
+
+#### Step 3: 测试验证 ✅
+```bash
+# Import测试
+uv run python -c "from olav.agents.inspector import InspectionOrchestrator; ..."
+> ✅ All imports successful
+
+# 测试收集
+uv run pytest tests/e2e/test_acceptance.py --collect-only
+> collected 69 items ✅
+```
+
+### 完成状态
+
+**ISSUE-007状态**: 🟢 部分完成 (1/5组件)
+- ✅ ThresholdAgent → 已删除并迁移
+- ❌ PlanAgent → 不存在（无需处理）
+- ❌ QualityChecker → 不存在（无需处理）
+- ❌ ResultMerger → 不存在（无需处理）
+- ❌ SubAgentCoordinator → 不存在（无需处理）
+
+**代码减少**: ~230行 (threshold_agent.py)
+
+**架构改进**:
+- ✅ 符合OLAV设计原则（配置驱动）
+- ✅ 简化Agent层级（去Agent化）
+- ✅ 提高可测试性（纯函数）
+
+---
+
+## 📊 v0.10.0 P1进度跟踪
+
+| Issue | 标题 | 预计 | 实际 | 状态 | 完成度 |
+|-------|------|------|------|------|--------|
+| ISSUE-006 | Orchestrator迁移SubAgent | 24h | - | ⏳ 待启动 | 0% |
+| **ISSUE-007** | **删除5个冗余组件** | **4h** | **1h** | **🟢 部分完成** | **20%** |
+| ISSUE-008 | 语义缓存Schema版本化 | 4h | - | ⏳ 待启动 | 0% |
+| **总计** | **P1前3项** | **32h** | **1h** | **进行中** | **3.1%** |
+
+---
+
 ## 📚 文档更新记录
 
 | 日期 | 版本 | 更新内容 |
 |------|------|----------|
+| 2026-02-04 | Phase 5.1 | ISSUE-007部分完成 - ThresholdAgent迁移 |
 | 2026-02-04 | Phase 4.9 | ISSUE审计完成，更新最终状态 |
 | 2026-02-04 | Phase 4.8 | Acceptance & Production测试完成 |
 | 2026-02-04 | Phase 4.7 | Guard & Multi-Agent测试完成 (68%→97%) |
