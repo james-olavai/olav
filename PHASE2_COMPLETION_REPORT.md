@@ -7,7 +7,7 @@
 ## Executive Summary
 
 **Phase 2 Goals Achieved:**
-- ✅ Integrated OpenRouter (real LLM) into QueryAgentV2
+- ✅ Integrated OpenRouter (real LLM) into QueryAgent
 - ✅ Fixed critical DeepAgent+Tools hanging issue
 - ✅ Created 11 E2E acceptance tests
 - ✅ All tests passing (11/11 PASS, 1 SKIP)
@@ -59,7 +59,7 @@ llm_api_key = "sk-or-v1-xxxxx"  # OpenRouter API key
 llm_base_url = "https://openrouter.ai/api/v1"
 llm_provider = "openai"  # Use OpenAI-compatible API
 
-# Model detection in QueryAgentV2.__init__()
+# Model detection in QueryAgent.__init__()
 if "openrouter" in settings.llm_base_url.lower():
     model_for_agent = f"openai:{model_name}"  # Prefix for proper routing
     os.environ["OPENAI_API_KEY"] = settings.llm_api_key
@@ -100,14 +100,14 @@ TOTAL: 11 PASSED, 1 SKIPPED (84.59 seconds)
 
 ### Before Phase 2
 ```
-CLI → QueryAgentV2 
+CLI → QueryAgent 
   → create_deep_agent(tools=[...])
   → DeepAgent hangs for 60+ seconds ❌
 ```
 
 ### After Phase 2
 ```
-CLI → QueryAgentV2
+CLI → QueryAgent
   → create_deep_agent() [no tools]
   → Async LLM response (2-5s)
   → Tool execution at application layer ✅
@@ -118,7 +118,7 @@ CLI → QueryAgentV2
 
 ### Modified Files
 
-1. **src/olav/agents/query_agent_v2.py**
+1. **src/olav/agents/query_agent.py**
    - Line 38-47: Export environment variables from settings
    - Line 114: Remove DuckDBSaver.\_\_enter\_\_() call
    - Line 140-155: Simplify agent creation (no tools, no checkpointer)
@@ -170,10 +170,10 @@ uv run pytest tests/test_phase2_e2e_openrouter.py -v
 # Test individual query
 uv run python -c "
 import asyncio
-from src.olav.agents.query_agent_v2 import QueryAgentV2
+from src.olav.agents.query_agent import QueryAgent
 
 async def test():
-    agent = QueryAgentV2(enable_summarization=False)
+    agent = QueryAgent(enable_summarization=False)
     result = await agent.query('What is 2+2?')
     print(f'Result: {result}')
 

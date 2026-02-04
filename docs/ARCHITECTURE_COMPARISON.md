@@ -282,7 +282,7 @@ orchestrator → coordinator → [8个Agent]
 ```
 src/olav/agents/
 ├── orchestrator.py        (261 行) # 包含所有逻辑
-└── query_agent_v2.py      (200 行) # 可选
+└── query_agent.py      (200 行) # 可选
 
 总计: 261 行
 
@@ -482,19 +482,19 @@ LLM ReAct循环 (单次会话):
 
 ### Phase 1: Agent迁移为SubAgent (3天)
 
-#### 1.1 迁移QueryAgentV2为SubAgent声明
+#### 1.1 迁移QueryAgent为SubAgent声明
 
 **现状分析**:
-- 当前: `query_agent_v2.py` (730行) 独立实现
+- 当前: `query_agent.py` (730行) 独立实现
 - 已有: orchestrator中`database` SubAgent (基础版)
-- 问题: 功能重复，QueryAgentV2更完善但未集成
+- 问题: 功能重复，QueryAgent更完善但未集成
 
-**目标**: 将QueryAgentV2的能力声明为orchestrator的SubAgent
+**目标**: 将QueryAgent的能力声明为orchestrator的SubAgent
 
 **实施步骤**:
 **实施步骤**:
 ```python
-# TDD Step 1: 写测试 - 验证SubAgent能复用QueryAgentV2的能力
+# TDD Step 1: 写测试 - 验证SubAgent能复用QueryAgent的能力
 # tests/unit/test_query_subagent_migration.py
 
 @pytest.mark.asyncio
@@ -504,13 +504,13 @@ async def test_query_subagent_has_intent_detection():
     
     orchestrator = create_orchestrator()
     
-    # 简单查询应触发Fast Path (QueryAgentV2的IntentAgent)
+    # 简单查询应触发Fast Path (QueryAgent的IntentAgent)
     result = await orchestrator.ainvoke({
         "messages": [HumanMessage(content="列出所有设备")]
     })
     
     # 验证使用了Fast Path (响应时间应<1秒)
-    # 这是QueryAgentV2的核心能力
+    # 这是QueryAgent的核心能力
     assert result["execution_time"] < 1.0
 
 @pytest.mark.asyncio
@@ -534,14 +534,14 @@ async def test_query_subagent_has_cache():
 # src/olav/agents/orchestrator.py
 
 def _create_subagents() -> list[SubAgent]:
-    """增强版SubAgent配置 - 复用QueryAgentV2能力"""
+    """增强版SubAgent配置 - 复用QueryAgent能力"""
     
-    # 导入QueryAgentV2的核心组件
-    from olav.agents.query_agent_v2 import QueryAgentV2
+    # 导入QueryAgent的核心组件
+    from olav.agents.query_agent import QueryAgent
     from olav.core.query_cache import get_query_cache
     
-    # 复用QueryAgentV2的工具和中间件
-    query_agent = QueryAgentV2(skill_name="network-query")
+    # 复用QueryAgent的工具和中间件
+    query_agent = QueryAgent(skill_name="network-query")
     
     return [
         SubAgent(
@@ -552,7 +552,7 @@ def _create_subagents() -> list[SubAgent]:
                 "You have Fast Path for simple queries and ReAct loop for complex ones. "
                 "Always check cache first before querying."
             ),
-            tools=query_agent._create_tools(),  # 复用QueryAgentV2的工具
+            tools=query_agent._create_tools(),  # 复用QueryAgent的工具
             # 未来: 添加IntentMiddleware和CacheMiddleware
         ),
         SubAgent(
@@ -567,11 +567,11 @@ def _create_subagents() -> list[SubAgent]:
         ),
     ]
 
-# TDD Step 3: 重构 - 提取QueryAgentV2的中间件为通用组件
+# TDD Step 3: 重构 - 提取QueryAgent的中间件为通用组件
 # src/olav/middleware/intent_detection.py
 
 class IntentDetectionMiddleware:
-    """从QueryAgentV2提取的意图检测中间件"""
+    """从QueryAgent提取的意图检测中间件"""
     
     def __init__(self, intent_agent: IntentAgent):
         self.intent_agent = intent_agent
@@ -591,10 +591,10 @@ class IntentDetectionMiddleware:
 ```
 
 **验收标准**:
-- [ ] QueryAgentV2的核心能力已迁移到SubAgent
+- [ ] QueryAgent的核心能力已迁移到SubAgent
 - [ ] Fast Path功能正常 (简单查询<1秒)
 - [ ] 缓存功能正常 (命中率>60%)
-- [ ] 原query_agent_v2.py可标记为deprecated
+- [ ] 原query_agent.py可标记为deprecated
 - [ ] 单元测试覆盖率>85%
 
 **时间估算**: 1天
