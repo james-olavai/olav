@@ -134,6 +134,9 @@ class SchemaManager:
         
         Returns:
             True if migration was needed and applied, False if already at target version
+        
+        Raises:
+            ValueError: If version upgrade is needed but not supported
         """
         current_version = self.get_current_version()
         
@@ -142,27 +145,26 @@ class SchemaManager:
             return False
         
         if current_version is None:
-            # Fresh database - create version table first
+            # Fresh database - create version table and apply schema
             self.create_version_table()
             
-            # Apply all schemas for target version
-            if target_version in SCHEMA_DEFINITIONS:
-                all_sql = "\n".join(SCHEMA_DEFINITIONS[target_version].values())
-                self.apply_migration(
-                    target_version,
-                    f"Initial schema creation for {target_version}",
-                    all_sql
-                )
-                logger.info(f"Initialized database with schema {target_version}")
-                return True
-        else:
-            # TODO: Implement version comparison and incremental migrations
-            logger.warning(
-                f"Schema migration from {current_version} to {target_version} not yet implemented"
+            if target_version not in SCHEMA_DEFINITIONS:
+                raise ValueError(f"Schema definition not found for version {target_version}")
+            
+            all_sql = "\n".join(SCHEMA_DEFINITIONS[target_version].values())
+            self.apply_migration(
+                target_version,
+                f"Initial schema creation for {target_version}",
+                all_sql
             )
-            return False
+            logger.info(f"Initialized database with schema {target_version}")
+            return True
         
-        return False
+        # Version mismatch on existing database - fail fast
+        raise ValueError(
+            f"Schema version mismatch: current={current_version}, required={target_version}. "
+            "Incremental migrations not implemented. Manual intervention required."
+        )
 
 
 # Convenience functions for global use
