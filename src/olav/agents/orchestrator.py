@@ -108,8 +108,10 @@ def create_orchestrator(
         Compiled LangGraph agent with SubAgent routing
     """
     # Persistence layer (shared by all SubAgents)
-    checkpointer = DuckDBSaver.from_conn_string(str(USER_CHECKPOINT_PATH))
-    store = DuckDBStore.from_conn_string(str(USER_CHECKPOINT_PATH))
+    # Note: DuckDBSaver doesn't support async operations in current version
+    # Disable checkpointing for now to avoid NotImplementedError
+    checkpointer = None  # Will use in-memory state only
+    store = None  # DuckDBStore.from_conn_string(str(USER_CHECKPOINT_PATH))
 
     # SubAgent configuration
     subagents = _create_subagents()
@@ -195,6 +197,12 @@ async def orchestrate_query(
     logger.info(f"Orchestrating query: {user_query[:50]}...")
 
     try:
+        # Default IDs if not provided
+        if not user_id:
+            user_id = "default_user"
+        if not thread_id:
+            thread_id = "default_thread"
+        
         # Create orchestrator with SubAgent routing
         orchestrator = create_orchestrator(
             user_id=user_id,
