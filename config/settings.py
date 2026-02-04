@@ -197,6 +197,67 @@ class LoggingSettings(BaseSettings):
     audit_enabled: bool = Field(default=True, description="Enable audit logging")
 
 
+class ThresholdSettings(BaseSettings):
+    """Threshold Detection Configuration.
+    
+    Migrated from ThresholdAgent (v0.9.8) to align with OLAV design principles.
+    
+    Configuration structure:
+    - defaults: Default threshold values for all metrics
+    - metrics: Metric-specific threshold configurations
+    - devices: Device-specific threshold overrides
+    
+    Threshold strategies:
+    - fixed: Static thresholds (warning/critical values)
+    - statistical: Mean + N*std deviation
+    - percentile: Percentile-based thresholds
+    """
+
+    model_config = SettingsConfigDict(env_prefix="THRESHOLD_")
+
+    # Default thresholds (fallback)
+    default_warning: float = Field(
+        default=80.0,
+        ge=0.0,
+        le=100.0,
+        description="Default warning threshold (percentage)",
+    )
+    default_critical: float = Field(
+        default=90.0,
+        ge=0.0,
+        le=100.0,
+        description="Default critical threshold (percentage)",
+    )
+
+    # Strategy defaults
+    default_strategy: Literal["fixed", "statistical", "percentile"] = Field(
+        default="fixed",
+        description="Default threshold strategy",
+    )
+    warning_sigma: float = Field(
+        default=2.0,
+        ge=0.1,
+        le=10.0,
+        description="Warning threshold sigma multiplier (statistical strategy)",
+    )
+    critical_sigma: float = Field(
+        default=3.0,
+        ge=0.1,
+        le=10.0,
+        description="Critical threshold sigma multiplier (statistical strategy)",
+    )
+
+    # Metric-specific thresholds (can be extended via .olav/settings.json)
+    # Example format in settings.json:
+    # {
+    #   "threshold": {
+    #     "metrics": {
+    #       "cpu_5sec": {"strategy": "fixed", "warning": 75, "critical": 85}
+    #     }
+    #   }
+    # }
+
+
 class SyncSettings(BaseSettings):
     """Snapshot Synchronization Configuration"""
 
@@ -285,6 +346,9 @@ class Settings(BaseSettings):
     )
     execution: ExecutionSettings = Field(
         default_factory=ExecutionSettings, description="Command execution configuration"
+    )
+    threshold: ThresholdSettings = Field(
+        default_factory=ThresholdSettings, description="Threshold detection configuration"
     )
     logging_settings: LoggingSettings = Field(
         default_factory=LoggingSettings, description="Logging configuration"

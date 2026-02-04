@@ -5,10 +5,10 @@ from typing import Any
 
 from langchain_core.messages import SystemMessage
 
-from olav.agents.threshold_agent import ThresholdAgent
 from olav.core.llm import LLMFactory
 from olav.core.skill_loader import get_skill_loader
 from olav.core.unified_database import UnifiedDatabase
+from olav.utils.threshold_detector import detect_anomalies
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +154,6 @@ class InspectionOrchestrator:
     def __init__(self) -> None:
         self.udb = UnifiedDatabase()
         self.map_phase = MapPhase(self.udb)
-        self.threshold_agent = ThresholdAgent()
         self.reduce_phase = ReducePhase()
 
     async def run_inspection(
@@ -190,7 +189,7 @@ class InspectionOrchestrator:
             # 提取 layer_map（如果存在）
             layer_map = metrics.pop("_layer_map", {})
 
-            anomalies = await self.threshold_agent.detect_anomalies(device, metrics)
+            anomalies = await detect_anomalies(device, metrics)
 
             # 为每个异常添加 layer 信息
             for anomaly in anomalies:
