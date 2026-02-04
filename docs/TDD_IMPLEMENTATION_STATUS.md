@@ -1,139 +1,132 @@
-# TDD实施状态报告
+# TDD实施状态报告 (修正版)
 
 ## 📊 总体进度
 
 **当前阶段**: Phase 0 - Red (测试先行) ✅  
 **创建时间**: 2026-02-04  
-**架构版本**: v0.9.8 (SubAgent)
+**架构版本**: v0.9.8 (SubAgent)  
+**实施重点**: 将独立Agent (QueryAgentV2/Analyzer/Coder) 迁移为orchestrator的SubAgent声明
 
 ---
 
-## ✅ 已完成: 测试用例创建
+## ⚠️ 重要澄清
 
-### Phase 1: SubAgent扩展测试
+### 之前的错误理解
+- ❌ **错误**: 计划添加新的安全SubAgent、性能SubAgent等新功能
+- ❌ **问题**: 偏离了实际需求，增加了不必要的复杂性
 
-#### 1.1 安全分析SubAgent
-**文件**: `tests/unit/test_security_tools.py` (92行)
-
-**测试覆盖**:
-- ✅ 基础漏洞扫描 (3个测试)
-- ✅ 高级功能测试 (4个测试)
-- ✅ 集成测试骨架 (1个测试 - 已skip)
-
-**当前状态**: 🔴 **RED** - 全部失败
-```
-ModuleNotFoundError: No module named 'olav.tools.security'
-```
-
-**预期结果**: 8/8 测试失败 ✅ (符合TDD预期)
+### 正确的理解
+- ✅ **现状**: orchestrator.py已采用SubAgent模式（database/cli/analysis三个基础SubAgent）
+- ✅ **问题**: 存在功能更强的独立Agent (query_agent_v2.py 730行, analyzer.py 651行, coder.py 570行)
+- ✅ **目标**: 将独立Agent的能力迁移到orchestrator的SubAgent声明中，实现统一架构
 
 ---
 
-### Phase 2: Middleware增强测试
+## ✅ 已完成: 迁移测试用例创建
 
-#### 2.1 智能缓存Middleware
-**文件**: `tests/unit/test_cache_middleware.py` (117行)
+### Phase 1: Agent迁移测试
+
+#### 1.1 QueryAgentV2 → query SubAgent
+**文件**: `tests/unit/test_query_subagent_migration.py` (133行)
 
 **测试覆盖**:
-- ✅ 基础缓存测试 (4个测试)
-- ✅ 性能测试 (2个测试)
-- ✅ 边界情况测试 (4个测试)
+- ✅ 意图检测 (2个测试) - Fast Path vs ReAct循环
+- ✅ 缓存能力 (2个测试) - 缓存命中和TTL
+- ✅ Skill集成 (1个测试) - 工具可用性
+- ✅ 功能对等 (1个测试) - 与独立版对比
+- ✅ 弃用路径 (1个测试 - 已skip)
 
-**当前状态**: 🔴 **RED** - 全部失败
+**当前状态**: 🔴 **RED** - API key配置缺失
 ```
-ModuleNotFoundError: No module named 'olav.middleware'
+openai.OpenAIError: The api_key client option must be set
 ```
 
-**预期结果**: 10/10 测试失败 ✅
+**待迁移能力**:
+1. IntentAgent - Fast Path意图检测
+2. QueryCache - 查询缓存
+3. SkillAdapter - Skill工具加载
+4. DuckDBSaver - 会话状态持久化
 
 ---
 
-#### 2.2 限流与熔断Middleware
-**文件**: `tests/unit/test_rate_limiter.py` (159行)
+#### 1.2 Analyzer → analysis SubAgent
+**文件**: `tests/unit/test_analyzer_subagent_migration.py` (113行)
 
 **测试覆盖**:
-- ✅ 限流器测试 (3个测试)
-- ✅ 熔断器测试 (3个测试)
-- ✅ 集成测试 (2个测试)
+- ✅ DB+CLI双重验证 (2个测试)
+- ✅ 建议能力 (1个测试)
+- ✅ 历史案例参考 (1个测试 - 已skip)
+- ✅ 功能对等 (1个测试)
+- ✅ 弃用路径 (1个测试 - 已skip)
 
 **当前状态**: 🔴 **RED** - 预期全部失败
-```
-ModuleNotFoundError: No module named 'olav.middleware.resilience'
-```
+
+**待迁移能力**:
+1. DB查询工具 - 从DuckDB获取历史数据
+2. CLI验证工具 - 实时CLI命令验证
+3. 根因分析 - 多步推理找出问题根源
+4. 建议生成 - 可执行的优化建议
 
 ---
 
-### Phase 4: E2E测试完善
-
-#### 4.1 SubAgent路由测试
-**文件**: `tests/e2e/test_subagent_routing.py` (163行)
+#### 1.3 Coder → template_generator SubAgent
+**文件**: `tests/unit/test_coder_subagent_migration.py` (105行)
 
 **测试覆盖**:
-- ✅ 路由准确性测试 (3个测试)
-- ✅ 多SubAgent协作 (2个测试)
-- ✅ 失败降级测试 (2个测试)
-- ✅ 准确率基准测试 (2个测试)
+- ✅ 模板生成 (2个测试)
+- ✅ 测试和分析 (1个测试 - 已skip)
+- ✅ 功能对等 (1个测试)
+- ✅ 弃用路径 (1个测试 - 已skip)
 
-**当前状态**: 🟡 **PARTIAL** - 部分可运行(需要orchestrator支持agent_path)
+**当前状态**: 🔴 **RED** - 预期全部失败
 
----
-
-#### 4.2 性能基准测试
-**文件**: `tests/e2e/test_performance_benchmark.py` (237行)
-
-**测试覆盖**:
-- ✅ 简单查询性能 (2个测试)
-- ✅ 复杂查询性能 (2个测试)
-- ✅ 并发性能 (2个测试)
-- ✅ 内存性能 (1个测试)
-- ✅ 缓存性能 (1个测试 - 已skip)
-- ✅ 资源利用率 (1个测试)
-
-**当前状态**: 🟡 **PARTIAL** - 可运行，但性能未达标
+**待迁移能力**:
+1. Generate节点 - 生成初始TextFSM模板
+2. Test节点 - 测试模板解析效果
+3. Analyze节点 - 分析失败原因并迭代
+4. 状态机逻辑 - Generate→Test→Analyze循环
 
 ---
 
 ## 📋 验收标准清单
 
-### 功能验收 (已定义，待实现)
-- [ ] 6个SubAgent正常工作 (database, cli, analysis, security, performance, config)
-- [ ] 智能缓存命中率 >60%
-- [ ] 限流保护有效 (不允许超限)
-- [ ] 熔断器自动恢复
-- [ ] 结构化日志完整
+### 功能验收 (Agent迁移完成标准)
+- [ ] QueryAgentV2能力已迁移到query SubAgent
+  - [ ] Fast Path意图检测 (简单查询<1秒)
+  - [ ] 查询缓存 (命中率>60%)
+  - [ ] Skill工具集成
+- [ ] Analyzer能力已迁移到analysis SubAgent
+  - [ ] DB+CLI双重验证
+  - [ ] 根因分析和建议生成
+  - [ ] 历史案例参考 (可选)
+- [ ] Coder能力已迁移到template_generator SubAgent
+  - [ ] TextFSM模板生成
+  - [ ] 迭代测试和优化
+  - [ ] 收敛率>80%
 
-### 性能验收 (已定义，待达标)
-- [ ] 简单查询P95 <2秒
-- [ ] 复杂查询P95 <5秒
-- [ ] 并发10查询 <15秒
-- [ ] 缓存命中响应 <50ms
-- [ ] 内存占用稳定 (<500MB)
+### 性能验收 (不应降级)
+- [ ] query SubAgent性能 ≥ 独立QueryAgentV2
+- [ ] analysis SubAgent性能 ≥ 独立Analyzer  
+- [ ] template_generator SubAgent性能 ≥ 独立Coder
 
-### 质量验收 (已定义，待达标)
-- [ ] 单元测试覆盖率 >90%
-- [ ] E2E测试通过率 >95%
-- [ ] 路由准确率 >95%
-- [ ] 无P0/P1 Bug
-- [ ] Ruff检查通过 (0 errors)
+### 质量验收 (代码清理)
+- [ ] 独立Agent文件标记为@deprecated
+- [ ] 单元测试覆盖率 >85%
+- [ ] E2E测试通过率 >90%
+- [ ] 无新增Ruff错误
+- [ ] 文档更新完成
 
-### 可观测性验收 (已定义，待实现)
-- [ ] Prometheus metrics导出
-- [ ] Grafana Dashboard可用
-- [ ] 分布式追踪集成
-- [ ] 告警规则配置
-
-### 生产验收 (已定义，待实现)
-- [ ] 健康检查端点
-- [ ] 优雅关闭
-- [ ] 配置热重载
-- [ ] 滚动升级支持
-- [ ] 备份恢复流程
+### 架构验收 (统一SubAgent模式)
+- [ ] 所有Agent功能通过orchestrator统一入口
+- [ ] SubAgent声明清晰 (name/description/tools)
+- [ ] 中间件可复用 (IntentMiddleware/CacheMiddleware)
+- [ ] 状态管理统一 (DuckDBSaver)
 
 ---
 
 ## 🚀 下一步行动 (Green阶段)
 
-### 优先级1: 实现基础组件 (2天)
+### 优先级1: 迁移QueryAgentV2 (2天)
 
 #### 1. 创建安全工具模块
 ```bash
