@@ -99,7 +99,7 @@ class TestOrchestrator:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(180)
-    @pytest.mark.skip(reason="Orchestrator checkpointer 功能尚未完全支持")
+    @pytest.mark.skip(reason="框架限制: DuckDBSaver 不支持异步 aget_tuple() - 可升级 LanggGraph 或改用异步兼容 checkpointer")
     async def test_orchestrator_multi_step(self) -> None:
         """1.3 测试 Orchestrator 多步推理。
         
@@ -107,6 +107,8 @@ class TestOrchestrator:
         - 复杂查询可以被分解为多个步骤
         - 步骤执行顺序正确
         - 结果聚合有效
+        
+        跳过原因: 需要状态持久化。当前使用内存态仅供单次调用。
         """
         from olav.agents.orchestrator import orchestrate_query
         
@@ -307,7 +309,7 @@ class TestResultAggregation:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(180)
-    @pytest.mark.skip(reason="Orchestrator checkpointer 功能尚未完全支持")
+    @pytest.mark.skip(reason="框架限制: DuckDBSaver 不支持异步 aget_tuple() - 可升级 LanggGraph 或改用异步兼容 checkpointer")
     async def test_multi_agent_result_synthesis(self) -> None:
         """4.1 测试多 Agent 结果综合。
         
@@ -316,7 +318,7 @@ class TestResultAggregation:
         - 综合结果连贯
         - 包含来自不同 agent 的信息
         
-        注意: 使用 orchestrate_query 验证综合能力
+        跳过原因: 需要检索前面步骤的保存状态，同样需要异步兼容的 checkpointer。
         """
         from olav.agents.orchestrator import orchestrate_query
         
