@@ -48,7 +48,32 @@ def _create_subagents() -> list[SubAgent]:
     Returns:
         List of SubAgent configurations for orchestrator
     """
+    # Import QueryAgent to access its tools
+    from olav.agents.query_agent import QueryAgent
+    
+    # Initialize QueryAgent to reuse its tool configuration
+    # Use minimal setup to just get the tools
+    query_agent = QueryAgent(skill_name="network-query", enable_summarization=False)
+    
+    # Get tools from QueryAgent (stored in query_agent.tools)
+    query_tools = query_agent.tools if hasattr(query_agent, 'tools') else [query_network]
+    
     return [
+        SubAgent(
+            name="query",
+            description="Enhanced network query specialist with Fast Path and caching (from QueryAgent)",
+            system_prompt=(
+                "You are an enhanced network query specialist powered by QueryAgent capabilities. "
+                "You have access to:\n"
+                "1. Fast Path intent detection for simple queries\n"
+                "2. Query caching for repeated requests\n"
+                "3. Skill-based tool loading (network-query skill)\n"
+                "4. Database query tools: query_database, inspect_schema, smart_query\n\n"
+                "For simple device queries, use Fast Path for sub-second responses. "
+                "For complex analysis, engage ReAct reasoning loop."
+            ),
+            tools=query_tools,
+        ),
         SubAgent(
             name="database",
             description="Network database specialist for querying device data",
@@ -117,14 +142,21 @@ def create_orchestrator(
     system_prompt = """You are the Orchestrator - a meta-agent coordinating specialist SubAgents.
 
 Your capabilities:
-1. Route queries to appropriate specialists: database, cli, analysis
+1. Route queries to appropriate specialists: query, database, cli, analysis
 2. Execute multi-step reasoning for complex tasks
 3. Synthesize results from multiple specialists
 
 Available SubAgents:
+- query: Enhanced query specialist (Fast Path + caching, from QueryAgent)
 - database: Query network device data
 - cli: Execute CLI commands
 - analysis: Perform advanced analytics
+
+Routing Strategy:
+- Simple device queries → query SubAgent (Fast Path, <1s)
+- Direct database operations → database SubAgent
+- CLI commands → cli SubAgent
+- Network analysis → analysis SubAgent
 
 Your workflow:
 1. Analyze user query to determine required specialist(s)
