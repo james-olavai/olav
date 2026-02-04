@@ -944,6 +944,26 @@ def main() -> None:
     log_level = settings.log_level if hasattr(settings, "log_level") else "INFO"
     setup_logging(log_level=log_level)
 
+    # P5.2: Initialize database schemas (ISSUE-008)
+    from config.paths import CACHE_DIR, DB_DIR
+    from olav.core.schema_manager import ensure_schema
+
+    # Ensure critical databases have schema versioning
+    critical_dbs = [
+        CACHE_DIR / "query_result_cache.db",
+        DB_DIR / "snapshots.duckdb",
+        DB_DIR / "audit_logs.duckdb",
+    ]
+    
+    for db_path in critical_dbs:
+        if db_path.suffix in [".db", ".duckdb"]:
+            try:
+                migrated = ensure_schema(db_path)
+                if migrated:
+                    logger.info(f"Schema initialized: {db_path.name}")
+            except Exception as e:
+                logger.warning(f"Schema init failed for {db_path.name}: {e}")
+
     # P1: Initialize SkillConfig at startup for better performance
     from olav.core.skill_config import SkillConfig
 

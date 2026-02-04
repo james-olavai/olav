@@ -1706,6 +1706,92 @@ uv run pytest tests/e2e/test_acceptance.py --collect-only
 
 ---
 
+## 🗄️ Phase 5.2: P1 Issue执行 - ISSUE-008 (2026-02-04)
+
+### 任务概述
+实现语义缓存Schema版本化，防止生产数据损坏
+
+### 实施步骤
+
+#### Step 1: 创建Schema管理框架 ✅
+**新文件**: [src/olav/core/schema_manager.py](src/olav/core/schema_manager.py)
+
+**功能**:
+- `SchemaManager`: 管理数据库schema版本和迁移
+- `get_current_version()`: 获取当前schema版本
+- `ensure_schema()`: 确保数据库在指定版本
+- `apply_migration()`: 应用迁移脚本
+
+**Schema版本定义**:
+```python
+CURRENT_SCHEMA_VERSION = "1.0.0"
+
+SCHEMA_DEFINITIONS = {
+    "1.0.0": {
+        "query_cache": "CREATE TABLE IF NOT EXISTS query_cache...",
+        "schema_version": "CREATE TABLE IF NOT EXISTS schema_version..."
+    }
+}
+```
+
+#### Step 2: 集成到启动流程 ✅
+**修改**: [src/olav/cli/cli_main.py](src/olav/cli/cli_main.py)
+
+**启动时自动迁移**:
+```python
+# Critical databases
+- query_result_cache.db
+- snapshots.duckdb
+- audit_logs.duckdb
+
+# On startup
+for db_path in critical_dbs:
+    migrated = ensure_schema(db_path)
+    if migrated:
+        logger.info(f"Schema initialized: {db_path.name}")
+```
+
+#### Step 3: 测试验证 ✅
+```bash
+# 单元测试
+uv run python -c "from olav.core.schema_manager import ..."
+> ✅ All schema manager tests passed!
+
+# 集成测试 (CLI启动)
+uv run olav --version
+> INFO - Created schema_version table
+> INFO - Applied migration: 1.0.0
+> INFO - Schema initialized: query_result_cache.db
+```
+
+### 完成状态
+
+**ISSUE-008状态**: ✅ 完成
+- ✅ Schema版本表创建
+- ✅ Migration框架实现
+- ✅ 启动时自动迁移
+- ✅ 单元测试通过
+- ✅ 集成测试通过
+
+**代码新增**: ~180行 (schema_manager.py + cli_main.py)
+
+**架构改进**:
+- ✅ 防止生产数据损坏
+- ✅ 支持版本回滚
+- ✅ 自动迁移机制
+- ✅ 清晰的版本追踪
+
+---
+
+## 📊 v0.10.0 P1进度跟踪
+
+| Issue | 标题 | 预计 | 实际 | 状态 | 完成度 |
+|-------|------|------|------|------|--------|
+| ISSUE-006 | Orchestrator迁移SubAgent | 24h | - | ⏳ 待启动 | 0% |
+| **ISSUE-007** | **删除5个冗余组件** | **4h** | **1h** | **✅ 完成** | **100%** |
+| **ISSUE-008** | **语义缓存Schema版本化** | **4h** | **1h** | **✅ 完成** | **100%** |
+| **总计** | **P1前3项** | **32h** | **2h** | **部分完成** | **6.25%** |
+
 ## 📚 文档更新记录
 
 | 日期 | 版本 | 更新内容 |
