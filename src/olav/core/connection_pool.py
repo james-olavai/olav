@@ -47,7 +47,7 @@ class ConnectionPool:
     - Graceful degradation (ephemeral mode if pool exhausted)
     """
 
-    def __init__(self, max_size: int = 5, timeout_seconds: float = 5.0):
+    def __init__(self, max_size: int = 5, timeout_seconds: float = 5.0) -> None:
         """Initialize connection pool.
 
         Args:
@@ -200,7 +200,7 @@ class ConnectionPool:
                 warmup_size = min(3, self.max_size)
 
             created = 0
-            for i in range(warmup_size):
+            for _i in range(warmup_size):
                 conn = self._create_connection()
                 if conn:
                     try:
@@ -256,7 +256,7 @@ class ConnectionPool:
             logger.debug("Pool full, closed connection")
             return False
 
-    def close_all(self):
+    def close_all(self) -> None:
         """Close all pooled connections."""
         while True:
             try:
@@ -308,7 +308,7 @@ def get_connection_pool(max_size: int = 5) -> ConnectionPool:
     return _global_pool
 
 
-def close_connection_pool():
+def close_connection_pool() -> None:
     """Close the global connection pool."""
     global _global_pool
 

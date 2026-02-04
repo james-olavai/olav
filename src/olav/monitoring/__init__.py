@@ -24,7 +24,7 @@ class LogMonitor:
     - Multi-file monitoring support
     """
 
-    def __init__(self, log_file: str | Path):
+    def __init__(self, log_file: str | Path) -> None:
         """Initialize log monitor.
 
         Args:
@@ -36,7 +36,7 @@ class LogMonitor:
         self.running = False
         self.thread = None
 
-    def start(self):
+    def start(self) -> None:
         """Start monitoring log file in background thread."""
         if self.running:
             return
@@ -46,14 +46,14 @@ class LogMonitor:
         self.thread.start()
         self.logger.info(f"Started monitoring {self.log_file}")
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop monitoring log file."""
         self.running = False
         if self.thread:
             self.thread.join(timeout=5.0)
         self.logger.info(f"Stopped monitoring {self.log_file}")
 
-    def _monitor_loop(self):
+    def _monitor_loop(self) -> None:
         """Monitor loop that tails log file."""
         # Wait for log file to exist
         while self.running and not self.log_file.exists():
@@ -98,12 +98,12 @@ class LogMonitorService:
     - Centralized lifecycle management
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize log monitor service."""
         self.monitors: dict[str, LogMonitor] = {}
         self.logger = logging.getLogger(__name__)
 
-    def add_log_file(self, log_file: str | Path, name: str = ""):
+    def add_log_file(self, log_file: str | Path, name: str = "") -> None:
         """Add log file to monitor.
 
         Args:
@@ -121,7 +121,7 @@ class LogMonitorService:
         self.monitors[monitor_name] = monitor
         self.logger.info(f"Added log monitor: {monitor_name}")
 
-    def remove_log_file(self, name: str):
+    def remove_log_file(self, name: str) -> None:
         """Remove log file monitor.
 
         Args:
@@ -134,13 +134,13 @@ class LogMonitorService:
         monitor.stop()
         self.logger.info(f"Removed log monitor: {name}")
 
-    def start_all(self):
+    def start_all(self) -> None:
         """Start all log monitors."""
         for monitor in self.monitors.values():
             monitor.start()
         self.logger.info(f"Started {len(self.monitors)} log monitors")
 
-    def stop_all(self):
+    def stop_all(self) -> None:
         """Stop all log monitors."""
         for monitor in self.monitors.values():
             monitor.stop()
@@ -165,13 +165,13 @@ def get_log_monitor_service() -> LogMonitorService:
     return _log_monitor_service
 
 
-def start_monitoring():
+def start_monitoring() -> None:
     """Start log monitoring service."""
     service = get_log_monitor_service()
     service.start_all()
 
 
-def stop_monitoring():
+def stop_monitoring() -> None:
     """Stop log monitoring service."""
     service = get_log_monitor_service()
     service.stop_all()

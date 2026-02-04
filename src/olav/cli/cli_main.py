@@ -954,7 +954,7 @@ def main() -> None:
         DB_DIR / "snapshots.duckdb",
         DB_DIR / "audit_logs.duckdb",
     ]
-    
+
     for db_path in critical_dbs:
         migrated = ensure_schema(db_path)
         if migrated:

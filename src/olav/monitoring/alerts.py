@@ -52,14 +52,14 @@ class AlertManager:
     - Supports multiple alert handlers (email, webhook, log)
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize alert manager."""
         self.rules: dict[str, AlertRule] = {}
         self.handlers: list[Callable[[str, str, dict], None]] = []
         self.logger = logging.getLogger(__name__)
         self._setup_default_rules()
 
-    def _setup_default_rules(self):
+    def _setup_default_rules(self) -> None:
         """Setup default alert rules."""
         # Query latency alert
         self.add_rule(
@@ -113,7 +113,7 @@ class AlertManager:
             )
         )
 
-    def add_rule(self, rule: AlertRule):
+    def add_rule(self, rule: AlertRule) -> None:
         """Add alert rule.
 
         Args:
@@ -121,7 +121,7 @@ class AlertManager:
         """
         self.rules[rule.name] = rule
 
-    def add_handler(self, handler: Callable[[str, str, dict], None]):
+    def add_handler(self, handler: Callable[[str, str, dict], None]) -> None:
         """Add alert handler.
 
         Args:
@@ -129,7 +129,7 @@ class AlertManager:
         """
         self.handlers.append(handler)
 
-    def process_log_event(self, log_line: str):
+    def process_log_event(self, log_line: str) -> None:
         """Process a log event and check alert rules.
 
         Args:
@@ -156,7 +156,7 @@ class AlertManager:
         elif event_type == "llm_call":
             self._check_rule("llm_tokens_high", event)
 
-    def _check_rule(self, rule_name: str, event: dict):
+    def _check_rule(self, rule_name: str, event: dict) -> None:
         """Check if rule should trigger.
 
         Args:
@@ -191,7 +191,7 @@ class AlertManager:
         if rule.condition(list(rule.events)):
             self._trigger_alert(rule, event)
 
-    def _trigger_alert(self, rule: AlertRule, event: dict):
+    def _trigger_alert(self, rule: AlertRule, event: dict) -> None:
         """Trigger alert.
 
         Args:
@@ -334,7 +334,7 @@ def get_alert_manager() -> AlertManager:
     return _alert_manager
 
 
-def log_alert_handler(rule_name: str, message: str, context: dict):
+def log_alert_handler(rule_name: str, message: str, context: dict) -> None:
     """Default alert handler that logs to file.
 
     Args:
@@ -381,7 +381,7 @@ def email_alert_handler(
     import smtplib
     from email.message import EmailMessage
 
-    def handler(rule_name: str, message: str, context: dict):
+    def handler(rule_name: str, message: str, context: dict) -> None:
         """Send alert email."""
         msg = EmailMessage()
         msg["Subject"] = f"OLAV Alert: {rule_name}"
@@ -423,7 +423,7 @@ def webhook_alert_handler(webhook_url: str, headers: dict | None = None):
     """
     import httpx
 
-    def handler(rule_name: str, message: str, context: dict):
+    def handler(rule_name: str, message: str, context: dict) -> None:
         """Send alert to webhook."""
         payload = {
             "rule": rule_name,

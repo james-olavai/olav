@@ -31,7 +31,7 @@ class QueryAgentTool:
 class QueryAgent:
     """QueryAgent with tool access and execution."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize QueryAgent."""
         self.tools: dict[str, QueryAgentTool] = {}
         self._executor = ThreadPoolExecutor(max_workers=5)
@@ -136,7 +136,7 @@ class Intent:
 class IntentAgent:
     """IntentAgent for intent extraction."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize IntentAgent."""
         self.intent_keywords = {
             "query": ["show", "list", "get", "find", "display", "what", "where"],
@@ -274,7 +274,7 @@ class IntentAgent:
 class SubAgentPool:
     """Pool of SubAgents for parallel task execution."""
 
-    def __init__(self, max_agents: int = 5):
+    def __init__(self, max_agents: int = 5) -> None:
         """Initialize SubAgent pool.
 
         Args:
@@ -407,7 +407,7 @@ class SubAgentPool:
 class AgentErrorHandler:
     """Error handling and recovery for agents."""
 
-    def __init__(self, max_failures: int = 5):
+    def __init__(self, max_failures: int = 5) -> None:
         """Initialize error handler.
 
         Args:
@@ -502,7 +502,7 @@ class AgentErrorHandler:
 
         result = [None]
 
-        def wrapper():
+        def wrapper() -> None:
             try:
                 result[0] = func()
             except Exception as e:
