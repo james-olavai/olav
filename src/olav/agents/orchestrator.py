@@ -187,7 +187,7 @@ Always be concise, accurate, and cite which specialist provided each insight."""
         )
 
     # Create orchestrator with SubAgent routing
-    return create_deep_agent(
+    agent = create_deep_agent(
         model="gpt-4o",
         system_prompt=system_prompt,
         subagents=subagents,
@@ -196,6 +196,134 @@ Always be concise, accurate, and cite which specialist provided each insight."""
         store=store,
         name="orchestrator",
     )
+    
+    # Wrap with cache-aware execution
+    return CachedOrchestrator(agent)
+
+
+# =============================================================================
+# Cache-Aware Orchestrator Wrapper
+# =============================================================================
+
+
+class CachedOrchestrator:
+    """Wrapper that adds Fast Path caching to orchestrator.
+    
+    This enables QueryAgent-style caching for the SubAgent orchestrator:
+    1. Check cache before delegating to SubAgents
+    2. Store successful results in cache
+    3. Fast Path for repeated queries (<0.5s vs 5-10s)
+    """
+    
+    def __init__(self, agent: Any) -> None:
+        """Initialize cached orchestrator wrapper.
+        
+        Args:
+            agent: Underlying DeepAgent orchestrator
+        """
+        self.agent = agent
+        
+        # Import cache components
+        from olav.core.query_cache import get_query_cache
+        self.query_cache = get_query_cache()
+        
+    async def ainvoke(self, inputs: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Invoke orchestrator with caching.
+        
+        Args:
+            inputs: Input dictionary with 'messages' key
+            config: Optional config for agent execution
+            
+        Returns:
+            Result dictionary with messages and metadata
+        """
+        import time
+        start_time = time.time()
+        
+        # Extract user query from messages
+        messages = inputs.get("messages", [])
+        user_query = ""
+        if messages:
+            last_msg = messages[-1]
+            if isinstance(last_msg, dict):
+                user_query = last_msg.get("content", "")
+            elif hasattr(last_msg, "content"):
+                user_query = str(last_msg.content)
+        
+        # Check cache for this query
+        cache_context = {"skill": "orchestrator", "mode": "subagent"}
+        if user_query:
+            cached_result = self.query_cache.get(user_query, context=cache_context)
+            if cached_result:
+                elapsed = time.time() - start_time
+                logger.info(f"✅ Orchestrator Cache HIT: {user_query[:50]}... ({elapsed * 1000:.2f}ms)")
+                return {
+                    **cached_result,
+                    "performance": {
+                        "cache_hit": True,
+                        "total_seconds": round(elapsed, 3),
+                    },
+                }
+        
+        # Cache miss - delegate to underlying agent
+        logger.debug(f"Cache MISS: {user_query[:50]}... - delegating to SubAgents")
+        
+        try:
+            # Execute underlying orchestrator
+            result = await self.agent.ainvoke(inputs, config)
+            
+            # Cache successful results
+            elapsed = time.time() - start_time
+            if user_query and result.get("messages"):
+                # Extract final answer
+                final_msg = result["messages"][-1]
+                final_content = final_msg.content if hasattr(final_msg, "content") else str(final_msg)
+                
+                # Cache if no error
+                if "Error" not in final_content or "not found" in final_content.lower():
+                    cache_result = {
+                        "messages": result["messages"],
+                        "performance": {
+                            "cache_hit": False,
+                            "total_seconds": round(elapsed, 3),
+                        },
+                    }
+                    try:
+                        self.query_cache.set(
+                            user_query,
+                            cache_result,
+                            context=cache_context,
+                            metadata={"mode": "subagent", "tool": "orchestrator"},
+                        )
+                        logger.info(f"✅ Stored in cache: {user_query[:50]}...")
+                    except Exception as cache_err:
+                        logger.warning(f"Cache storage failed: {cache_err}")
+            
+            # Add performance metadata
+            result["performance"] = {
+                "cache_hit": False,
+                "total_seconds": round(elapsed, 3),
+            }
+            
+            return result
+            
+        except Exception as e:
+            elapsed = time.time() - start_time
+            logger.error(f"Orchestrator execution failed: {e}")
+            return {
+                "messages": inputs.get("messages", []),
+                "error": str(e),
+                "performance": {
+                    "cache_hit": False,
+                    "total_seconds": round(elapsed, 3),
+                },
+            }
+    
+    # Expose agent's config for compatibility
+    @property
+    def config(self) -> dict[str, Any]:
+        """Get underlying agent config."""
+        return getattr(self.agent, "config", {})
 
 
 # =============================================================================
