@@ -392,15 +392,15 @@ async def cmd_query(args: str) -> str:
         /query 查看所有设备的路由表
         /query 有哪些接口是 Down 的
     """
-    from olav.agents.query_agent_v2 import QueryAgentV2
+    from olav.agents.query_agent import QueryAgent
 
     question = args.strip()
     if not question:
         return "Usage: /query <question>\nExample: /query 显示 router1 的接口状态"
 
     try:
-        # Use QueryAgentV2 (Skill-Centric ReAct)
-        agent = QueryAgentV2()
+        # Use QueryAgent (Skill-Centric ReAct)
+        agent = QueryAgent()
         result = await agent.query(question)
 
         # Extract output from result dict
