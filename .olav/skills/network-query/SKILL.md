@@ -23,7 +23,7 @@ cache:
 
 tools:
   - name: query_database
-    script: scripts/query_database.py
+    script: ../../tools/database/query_database.py
     description: "Execute SELECT query on DuckDB snapshot views (ALWAYS FIRST)."
     parameters:
       type: object
@@ -32,11 +32,11 @@ tools:
       required: ["sql"]
 
   - name: inspect_schema
-    script: scripts/inspect_schema.py
+    script: ../../tools/database/inspect_schema.py
     description: "Check available views/columns if SQL fails."
 
   - name: smart_query
-    script: scripts/smart_query.py
+    script: ../../tools/network/smart_query.py
     description: "Execute live CLI command ONLY if SQL fails or user requests real-time data."
     parameters:
       type: object
@@ -46,7 +46,7 @@ tools:
       required: ["device", "command"]
 
   - name: get_cached_sql
-    script: scripts/get_cached_sql.py
+    script: ../../tools/cache/get_cached_sql.py
     description: "Retrieve cached SQL queries from intent cache."
 
 prompts:
