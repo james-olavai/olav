@@ -29,7 +29,18 @@ logger = logging.getLogger(__name__)
 
 
 class QueryAgent:
-    """Query Agent using DeepAgents ReAct architecture"""
+    """Query Agent using DeepAgents ReAct architecture.
+
+    DEPRECATED: This standalone agent is being migrated to orchestrator's query SubAgent.
+    Use orchestrator.create_orchestrator() with the 'query' SubAgent instead.
+
+    Migration timeline:
+    - v0.10.0: query SubAgent available in orchestrator (current)
+    - v0.11.0: QueryAgent will show deprecation warnings
+    - v0.12.0: QueryAgent will be removed
+
+    See: docs/ARCHITECTURE_COMPARISON.md for migration guide
+    """
 
     def __init__(
         self,
@@ -39,6 +50,8 @@ class QueryAgent:
     ) -> None:
         """Initialize QueryAgent.
 
+        DEPRECATED: Use orchestrator.create_orchestrator() instead.
+
         Args:
             enable_summarization: Enable conversation summarization middleware
                 - False: Standard mode (zero-shot, fast, direct SQL)
@@ -47,6 +60,16 @@ class QueryAgent:
             mode: [DEPRECATED] Legacy "standard"|"analysis" parameter.
                   Use enable_summarization instead.
         """
+        import warnings
+
+        warnings.warn(
+            "QueryAgent is deprecated and will be removed in v0.12.0. "
+            "Use orchestrator.create_orchestrator() with query SubAgent instead. "
+            "See docs/ARCHITECTURE_COMPARISON.md for migration guide.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         # Set environment variables from settings for LangChain/DeepAgents
         import os
 
@@ -119,7 +142,8 @@ class QueryAgent:
     def _load_known_devices(self) -> set[str]:
         """Load known device names from database for fast validation."""
         try:
-            devices = self.gw.query_snapshots("SELECT DISTINCT device FROM v_system")
+            # Query olav.duckdb/raw_outputs instead of non-existent v_system view
+            devices = self.gw.query_main("SELECT DISTINCT device FROM raw_outputs")
             return {str(d["device"]).upper() for d in devices}
         except Exception as e:
             logger.debug(f"No device data loaded (database may not be initialized): {e}")
@@ -155,22 +179,23 @@ class QueryAgent:
         else:
             model_for_agent = model_name
 
-        # Create agent WITHOUT tools to avoid hanging on tool execution
-        # Tools are handled at the application layer for better control
+        # Create agent WITH tools for SQL + CLI fallback capability
+        # Tools are loaded from skill metadata (query_database, inspect_schema, smart_query, get_cached_sql)
         if self.enable_summarization:
             # Tier 2: Full ReAct Loop with summarization middleware
             # Note: checkpoint support requires async-compatible saver
             self.agent = create_deep_agent(
                 model=model_for_agent,
                 system_prompt=self.system_prompt,
+                tools=self.tools,  # CRITICAL: Pass tools so LLM can invoke smart_query for CLI fallback
             )
         else:
             # Tier 1: Standard (Fast-Path, no summarization)
-            # No tools passed - LLM responds directly to user queries
+            # LLM must invoke tools (query_database → smart_query) to get data
             self.agent = create_deep_agent(
                 model=model_for_agent,
-                system_prompt=self.system_prompt
-                + "\nIMPORTANT: You are a fast, direct response agent. Answer user queries concisely.",
+                system_prompt=self.system_prompt,
+                tools=self.tools,  # CRITICAL: Pass tools so LLM can invoke smart_query for CLI fallback
             )
 
     def _check_model_availability(
@@ -310,10 +335,18 @@ class QueryAgent:
         # Extract potential entities: Chinese phrases or device names like R1, SW1, etc.
         entities = re.findall(r"[\u4e00-\u9fa5]+|[A-Z]+\d*", query)
 
+        # Pattern for standard device names (skip learning for these)
+        _device_pattern = re.compile(r"^(R|SW|S|FW|WLC|AP)\d+$", re.IGNORECASE)
+
         learning_count = 0
 
         for entity in set(entities):  # Deduplicate
             if not entity or len(entity) < 2:
+                continue
+
+            # Skip standard device name patterns (R1-R99, SW1-SW99, etc.)
+            if _device_pattern.match(entity):
+                logger.debug(f"Skipping standard device name pattern: {entity}")
                 continue
 
             # Skip if it's a known device in database

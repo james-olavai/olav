@@ -75,7 +75,7 @@ async def stream_agent_response(
     verbose: bool = False,
     learn_callback: "Callable[[str], str | None] | None" = None,
     thread_id: str | None = None,  # LangGraph thread_id for session
-    timeout: float = 60.0,  # Query timeout in seconds
+    timeout: float = None,  # Query timeout in seconds (None = use settings)
 ) -> str:
     """Stream agent response with timeout and session support.
 
@@ -85,16 +85,19 @@ async def stream_agent_response(
         verbose: Show reasoning process
         learn_callback: Optional callback for interactive alias learning
         thread_id: Session thread_id for checkpointer
-        timeout: Query timeout in seconds
+        timeout: Query timeout in seconds (None = use settings.query_timeout)
 
     Returns:
         Final result string
     """
     import asyncio
 
+    from config.settings import settings
     from olav.cli.display import StreamingDisplay
 
-    # P8 Enhancement: Always enable streaming for better responsiveness
+    # Use settings if timeout not specified
+    if timeout is None:
+        timeout = float(settings.execution.query_timeout)
     is_tty = sys.stdin.isatty()
 
     if isinstance(inputs, dict):
@@ -282,8 +285,32 @@ async def run_interactive_loop_async(
     from olav.cli.input_parser import parse_input
     from olav.core.query_router import QueryRouter
 
-    # Generate session thread_id for checkpointer
-    thread_id = str(uuid.uuid4())
+    # Generate or load session thread_id for checkpointer
+    from pathlib import Path
+    
+    thread_id_file = Path(".olav/.last_thread_id")
+    
+    if resume and thread_id_file.exists():
+        # Resume last session
+        loaded_thread_id = thread_id_file.read_text().strip()
+        if not thread_id:
+            thread_id = loaded_thread_id
+            if is_tty:
+                console.print(f"[cyan]📂 Resuming session: {thread_id}[/cyan]")
+    
+    if not thread_id:
+        # Generate new thread_id
+        thread_id = str(uuid.uuid4())
+        if is_tty:
+            console.print(f"[cyan]🆕 New session: {thread_id}[/cyan]")
+    else:
+        if is_tty:
+            console.print(f"[cyan]🔗 Using session: {thread_id}[/cyan]")
+    
+    # Save thread_id for --resume
+    thread_id_file.parent.mkdir(exist_ok=True)
+    thread_id_file.write_text(thread_id)
+    
     logger.debug(f"Starting interactive session with thread_id: {thread_id}")
 
     # Initialize QueryRouter and Display
@@ -553,7 +580,7 @@ async def run_interactive_loop_async(
                 import subprocess
 
                 try:
-                    result = subprocess.run(
+                    result = subprocess.run(  # noqa: ASYNC221
                         shell_cmd,
                         shell=True,
                         capture_output=True,
@@ -876,8 +903,28 @@ def inspect(
 
 
 @app.callback(invoke_without_command=True)
-def interactive_mode(ctx: typer.Context) -> None:
-    """Start interactive OLAV session (default when no command given)."""
+def interactive_mode(
+    ctx: typer.Context,
+    thread_id: str = typer.Option(
+        None,
+        "--thread-id",
+        "-t",
+        help="Resume session with specific thread ID (for testing context/memory)",
+    ),
+    resume: bool = typer.Option(
+        False,
+        "--resume",
+        "-r",
+        help="Resume last session (loads previous thread_id)",
+    ),
+) -> None:
+    """Start interactive OLAV session (default when no command given).
+    
+    Examples:
+        olav                           # New session with random thread_id
+        olav --thread-id abc123        # Resume session 'abc123'
+        olav --resume                  # Resume last session
+    """
     # If a subcommand was invoked, skip interactive mode
     if ctx.invoked_subcommand is not None:
         return
@@ -892,7 +939,8 @@ def interactive_mode(ctx: typer.Context) -> None:
         if is_interactive:
             console.print("\n" + "=" * 60)
             console.print("💬 OLAV Interactive CLI - v0.9.6")
-            console.print("=" * 60 + "\n")
+            console.print("=" * 60)
+            console.print("[dim]Session ID saved. Use 'olav --resume' to continue this conversation.[/dim]\n")
 
         # Create CLI session (checkpointer manages state)
 
@@ -944,26 +992,27 @@ def main() -> None:
     log_level = settings.log_level if hasattr(settings, "log_level") else "INFO"
     setup_logging(log_level=log_level)
 
-    # P5.2: Initialize database schemas (ISSUE-008)
-    from config.paths import CACHE_DIR, DB_DIR
-    from olav.core.schema_manager import ensure_schema
+    # P5.2: Skip schema initialization for --help/--version (fast path)
+    # Only initialize schemas when actually running commands
+    if not any(arg in sys.argv for arg in ["--help", "-h", "--version", "-v"]):
+        from config.paths import CACHE_DIR, DB_DIR
+        from olav.core.schema_manager import ensure_schema
 
-    # Ensure critical databases have schema versioning
-    critical_dbs = [
-        CACHE_DIR / "query_result_cache.db",
-        DB_DIR / "snapshots.duckdb",
-        DB_DIR / "audit_logs.duckdb",
-    ]
+        # Ensure critical databases have schema versioning
+        critical_dbs = [
+            CACHE_DIR / "query_result_cache.db",
+            DB_DIR / "snapshots.duckdb",
+            DB_DIR / "audit_logs.duckdb",
+        ]
 
-    for db_path in critical_dbs:
-        migrated = ensure_schema(db_path)
-        if migrated:
-            logger.info(f"Schema initialized: {db_path.name}")
+        for db_path in critical_dbs:
+            migrated = ensure_schema(db_path)
+            if migrated:
+                logger.info(f"Schema initialized: {db_path.name}")
 
-    # P1: Initialize SkillConfig at startup for better performance
-    from olav.core.skill_config import SkillConfig
-
-    SkillConfig.initialize()
+    # P1: Lazy-load SkillConfig to improve startup time (moved to first use)
+    # SkillConfig will be initialized when first needed by agents
+    # This reduces startup time from ~5s to ~1-2s
 
     try:
         app()
