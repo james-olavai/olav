@@ -175,6 +175,15 @@ async def cli_verify_node(state: AnalyzerState) -> AnalyzerState:
 
     state.status = "cli_verify"
 
+    # Skip CLI verification for queries that are clearly database queries
+    # CLI verification should only happen for real-time diagnostics, not data exports
+    query_lower = state.user_query.lower()
+    if any(keyword in query_lower for keyword in ["save", "export", "list", "show all", "get all", "version info"]):
+        logger.info("Skipping CLI verification for database-focused query")
+        state.cli_data = {"skipped": "Database-only query"}
+        state.status = "analyzing"
+        return state
+
     try:
         from olav.tools.network import nornir_execute
 
@@ -421,7 +430,7 @@ def _search_similar_cases(
         similar_cases = []
 
         for keyword in keywords:
-            cases = _gw.search_similar_cases(skill_name, keyword, max_age_days=30, limit=2)
+            cases = _gw.search_similar_cases(skill_name, symptom=keyword, max_age_days=30, limit=2)
             similar_cases.extend(cases)
 
         # Deduplicate by case content

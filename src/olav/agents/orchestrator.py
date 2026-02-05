@@ -24,10 +24,10 @@ Migration: v0.9.8 -> v0.10.0
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Sequence
 
 from deepagents import create_deep_agent
-from deepagents.middleware.subagents import SubAgent
+from deepagents.middleware.subagents import SubAgent, CompiledSubAgent
 from langchain_core.messages import AIMessage, HumanMessage
 
 from olav.agents.analyzer import analyze_network
@@ -48,12 +48,19 @@ def _create_subagents() -> list[SubAgent]:
     Returns:
         List of SubAgent configurations for orchestrator
     """
-    # Import agents to access their tools
-    from olav.agents.query_agent import QueryAgent
-
-    # Initialize QueryAgent to reuse its tool configuration
-    query_agent = QueryAgent(skill_name="network-query", enable_summarization=False)
-    query_tools = query_agent.tools if hasattr(query_agent, "tools") else [query_network]
+    # Import direct database tools (NO agent creation - Fix for query routing failure)
+    from olav.tools.react_query import (
+        query_database,    # Direct SQL access
+        inspect_schema,    # Schema inspection  
+        discover_data,     # File discovery
+    )
+    
+    # Database tools for query SubAgent
+    database_tools = [
+        query_database,
+        inspect_schema,
+        discover_data,
+    ]
 
     # Get Analyzer tools (graph-based agent)
     analyzer_tools = _get_analyzer_tools()
@@ -64,32 +71,41 @@ def _create_subagents() -> list[SubAgent]:
     return [
         SubAgent(
             name="query",
-            description="Enhanced network query specialist with Fast Path and caching (from QueryAgent)",
+            description="Database query specialist with direct SQL access",
             system_prompt=(
-                "You are an enhanced network query specialist powered by QueryAgent capabilities. "
-                "You have access to:\n"
-                "1. Fast Path intent detection for simple queries\n"
-                "2. Query caching for repeated requests\n"
-                "3. Skill-based tool loading (network-query skill)\n"
-                "4. Database query tools: query_database, inspect_schema, smart_query\n\n"
+                "You are a database query specialist with direct SQL access to network database.\n\n"
+                "**Available Tools:**\n"
+                "1. query_database(sql, params) - Execute SQL on .olav/db/main.duckdb\n"
+                "2. inspect_schema(table_name) - Check available tables and columns\n"
+                "3. discover_data(pattern) - Find parsed data files in exports/\n\n"
                 "**Available Database Tables:**\n"
-                "1. **devices** - Device Inventory (PRIMARY)\n"
+                "1. **devices** - Device Inventory (PRIMARY) - GUARANTEED TO EXIST\n"
                 "   Columns: hostname, ip_address, vendor, model, ios_version, device_role, site\n"
+                "   Database: .olav/db/main.duckdb\n"
                 "   Description: Network device catalog with basic information\n"
                 "   Examples:\n"
-                "   - SELECT hostname FROM devices WHERE vendor='Cisco'\n"
-                "   - SELECT hostname FROM devices WHERE device_role='core'\n"
-                "   - SELECT hostname, ios_version FROM devices WHERE ios_version < '16.12'\n\n"
-                "2. **v_lldp** - LLDP Neighbors (device, neighbor, local_interface, remote_interface)\n"
-                "3. **v_bgp_neighbors** - BGP State (device, neighbor, state, asn)\n"
-                "4. **v_ospf_neighbors** - OSPF State (device, neighbor, state, router_id)\n\n"
-                "**IMPORTANT:** Always check 'devices' table FIRST for device information!\n"
-                "DO NOT try to query a non-existent 'device_info' or 'device_catalog' table - use 'devices' instead.\n\n"
-                "For simple device queries, use Fast Path for sub-second responses. "
-                "For complex analysis, engage ReAct reasoning loop.\n\n"
-                "⚠️ If query returns empty/insufficient results, inform orchestrator to upgrade to Expert."
+                "   - query_database(\"SELECT hostname, ip_address FROM devices WHERE hostname='R2'\")\n"
+                "   - query_database(\"SELECT hostname FROM devices WHERE vendor='Cisco'\")\n"
+                "   - query_database(\"SELECT hostname, ios_version FROM devices WHERE ios_version < '16.12'\")\n\n"
+                "2. **raw_outputs** - CLI Command Outputs (device, command, output, timestamp)\n"
+                "   Use for accessing raw CLI output data\n\n"
+                "3. **Other tables** - Use inspect_schema() to discover (v_lldp, v_bgp_neighbors may exist)\n\n"
+                "**Workflow:**\n"
+                "1. If unsure about schema, call inspect_schema() or inspect_schema('table_name')\n"
+                "2. Execute SQL query with query_database(sql)\n"
+                "3. If table doesn't exist, inform orchestrator (don't try to create it)\n"
+                "4. Return query results as JSON to orchestrator\n"
+                "5. Let orchestrator handle file exports - YOU only retrieve data\n\n"
+                "**Critical Rules:**\n"
+                "- ALWAYS use 'devices' table for device inventory (hostname, IP, vendor, etc.)\n"
+                "- For interface data: Return what exists in DB, or inform 'data not in database'\n"
+                "- DO NOT create agents or call complex workflows\n"
+                "- DO NOT attempt to export files - that's orchestrator's job\n"
+                "- If query returns empty, suggest checking with inspect_schema()\n\n"
+                "⚠️ YOU are responsible for data retrieval ONLY. "
+                "Return results, don't try to process or export them."
             ),
-            tools=query_tools,
+            tools=database_tools,  # Direct DB tools, NO agent recursion
         ),
         SubAgent(
             name="analysis",
@@ -117,7 +133,7 @@ def _create_subagents() -> list[SubAgent]:
                 "⚠️ If CLI execution fails or requires multi-device coordination, "
                 "inform orchestrator to upgrade to Expert."
             ),
-            tools=query_tools,  # Reuse query tools which include CLI capabilities
+            tools=database_tools,  # Reuse database tools for now (CLI tools TBD)
         ),
         SubAgent(
             name="expert",
@@ -133,8 +149,9 @@ def _create_subagents() -> list[SubAgent]:
                 "5. **Root Cause Localization** - Cross-layer (L1-L4) diagnosis\n"
                 "6. **Professional Reports** - Generate comprehensive diagnosis reports\n\n"
                 "**Available Database Tables:**\n"
-                "- **devices**: Device inventory (hostname, vendor, model, ios_version, device_role, site)\n"
-                "- v_lldp, v_bgp_neighbors, v_ospf_neighbors: Network topology\n\n"
+                "- **devices**: Device inventory (hostname, ip_address, vendor, model, ios_version, device_role, site)\n"
+                "- **raw_outputs**: CLI command outputs (device, command, output, timestamp)\n"
+                "- Check for topology views (v_lldp, v_bgp_neighbors, v_ospf_neighbors) before using\n\n"
                 "Workflow:\n"
                 "1. Analyze symptom and existing info from previous SubAgent\n"
                 "2. Query devices table to get device information (use devices table!)\n"
@@ -166,9 +183,8 @@ def _get_analyzer_tools() -> list[Any]:
     Returns:
         List of tools for analysis SubAgent
     """
-    from olav.lib.data_gateway import query_database
     from olav.tools.network import list_devices, nornir_execute
-    from olav.tools.react_query import query_network
+    from olav.tools.react_query import query_database, query_network
 
     # Analyzer's main tool + supporting data access tools
     return [
@@ -217,95 +233,62 @@ def create_orchestrator(
     Returns:
         Compiled LangGraph agent with SubAgent routing
     """
-    # Persistence layer (shared by all SubAgents)
-    # Note: DuckDBSaver doesn't support async operations in current version
-    # Disable checkpointing for now to avoid NotImplementedError
-    checkpointer = None  # Will use in-memory state only
-    store = None  # DuckDBStore.from_conn_string(str(USER_CHECKPOINT_PATH))
+    # Import orchestrator's own tools (separate from SubAgent tools)
+    from olav.tools.data_export import format_and_export
+    
+    # Orchestrator's own tools for file export
+    orchestrator_tools = [
+        format_and_export,  # File export capability
+    ]
+    
+    # Persistence layer (skill-level checkpoint - v0.10.0+)
+    # Each skill has its own isolated checkpoint database
+    from langgraph.checkpoint.duckdb import DuckDBSaver
+    from langgraph.store.duckdb import DuckDBStore
+    from config.paths import ORCHESTRATOR_CHECKPOINT_PATH
+    
+    ORCHESTRATOR_CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        checkpointer = DuckDBSaver.from_conn_string(str(ORCHESTRATOR_CHECKPOINT_PATH)).__enter__()
+        store = DuckDBStore.from_conn_string(str(ORCHESTRATOR_CHECKPOINT_PATH)).__enter__()
+        logger.info(f"Orchestrator checkpoint enabled: {ORCHESTRATOR_CHECKPOINT_PATH}")
+    except Exception as e:
+        logger.warning(f"Failed to initialize Orchestrator checkpoint: {e}")
+        checkpointer = None
+        store = None
 
     # SubAgent configuration
     subagents = _create_subagents()
 
-    # System prompt for orchestrator
-    system_prompt = """You are the Orchestrator - a meta-agent coordinating specialist SubAgents.
-
-Your capabilities:
-1. Route queries to appropriate specialists: query, analysis, cli, expert
-2. Execute multi-step reasoning for complex tasks
-3. Synthesize results from multiple specialists
-4. Evaluate result quality and upgrade to Expert when needed
-5. Export results to files when user requests
-
-Available SubAgents:
-- query: Enhanced query specialist (Fast Path + caching, from QueryAgent)
-  * Simple device queries, database operations, data retrieval
-  * Skill-based tools: query_database, inspect_schema, smart_query
-- analysis: Network analysis specialist (health diagnostics, from Analyzer)
-  * Health diagnostics, anomaly detection, performance analysis
-  * Root cause analysis, optimization recommendations
-- cli: CLI command execution specialist
-  * Network commands, configuration changes, device interaction
-- expert: Advanced problem analysis specialist (UPGRADE TARGET)
-  * Topology-aware analysis, dynamic scope expansion
-  * Cross-device correlation, root cause localization
-  * Professional diagnosis reports
-
-File Export Tool:
-- format_and_export(data, filename, format) - Save results to exports/
-
-**Export Guidelines:**
-1. Call format_and_export() ONLY when user explicitly asks to save/export
-   Keywords: 保存/导出/存储/写入/save/export/write
-2. Auto-detect format from content (md/json/txt/csv) or use user preference
-3. All files go to exports/ directory
-4. SubAgents return content, Orchestrator handles file writing
-
-**Export Examples:**
-User: "诊断OSPF问题并保存报告"
-→ 1. Call expert SubAgent → get diagnosis content
-→ 2. Call format_and_export(content, filename="ospf_diagnosis")
-→ Output: "✅ 报告已保存到 exports/ospf_diagnosis.md"
-
-User: "查询所有VLAN信息，导出CSV"
-→ 1. Call query SubAgent → get VLAN data
-→ 2. Call format_and_export(data, format="csv", filename="vlans")
-→ Output: "✅ 已导出到 exports/vlans.csv"
-
-User: "在R1执行show tech，保存到文件"
-→ 1. Call cli SubAgent → get command output
-→ 2. Call format_and_export(output, filename="R1_tech_support")
-→ Output: "✅ 已保存到 exports/R1_tech_support.txt"
-
-User: "诊断OSPF问题" (NO save/export mentioned)
-→ 1. Call expert SubAgent → get diagnosis
-→ 2. Return content directly (DO NOT call format_and_export)
-→ Output: Display diagnosis content inline
-
-Routing Strategy:
-- Simple queries (list/show/get) → query SubAgent (Fast Path, <1s)
-- Health/diagnostics/analysis → analysis SubAgent
-- Command execution/configuration → cli SubAgent
-- Complex investigation/troubleshooting → expert SubAgent
-- Quality issues → UPGRADE to expert SubAgent
-
-Quality Evaluation (when to upgrade to expert):
-1. SubAgent returns empty/error result
-2. User explicitly asks "why/原因/根因/investigate"
-3. Query requires cross-device correlation/comparison
-4. Query requires topology analysis
-5. Result is too brief (<100 chars) and not a simple list
-6. SubAgent execution timeout (>30s)
-
-Your workflow:
-1. Analyze user query to determine required specialist(s)
-2. Delegate subtasks to SubAgents
-3. EVALUATE result quality after SubAgent execution
-4. If quality insufficient, UPGRADE to expert SubAgent
-5. If user wants to save, call format_and_export
-6. Synthesize results into coherent answer
-7. Provide actionable recommendations
-
-Always be concise, accurate, and cite which specialist provided each insight."""
+    # Load system prompt from SKILL.md (v0.10.0+ Skill-Centric Architecture)
+    from olav.core.skill_loader import get_skill_loader
+    
+    loader = get_skill_loader()
+    orchestrator_skill = loader.get_skill("orchestrator")
+    
+    if orchestrator_skill and orchestrator_skill.content:
+        # Extract system prompt from markdown content (after frontmatter)
+        content_lines = orchestrator_skill.content.split('\n')
+        
+        # Find where frontmatter ends (second '---')
+        fm_end = 0
+        count = 0
+        for i, line in enumerate(content_lines):
+            if line.strip() == '---':
+                count += 1
+                if count == 2:
+                    fm_end = i + 1
+                    break
+        
+        # Use markdown content as system prompt (everything after frontmatter)
+        system_prompt = '\n'.join(content_lines[fm_end:]).strip()
+        logger.info(f"Loaded Orchestrator system prompt from {orchestrator_skill.file_path} ({len(system_prompt)} chars)")
+    else:
+        raise ValueError(
+            "Orchestrator SKILL.md not found or empty at .olav/skills/orchestrator/SKILL.md. "
+            "This file is required for Skill-Centric Architecture."
+        )
 
     # Middleware stack
     middleware = []
@@ -331,8 +314,9 @@ Always be concise, accurate, and cite which specialist provided each insight."""
     agent = create_deep_agent(
         model="gpt-4o",
         system_prompt=system_prompt,
-        subagents=subagents,
-        middleware=middleware,
+        tools=orchestrator_tools,  # Orchestrator's own tools (format_and_export)
+        subagents=tuple(subagents) if subagents else None,  # Convert list to Sequence (tuple)
+        middleware=tuple(middleware) if middleware else (),  # Convert list to Sequence (tuple)
         checkpointer=checkpointer,
         store=store,
         name="orchestrator",

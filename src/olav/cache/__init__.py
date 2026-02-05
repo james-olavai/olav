@@ -15,7 +15,7 @@ import hashlib
 import json
 import logging
 import sqlite3
-from typing import Literal
+from typing import Any, Literal
 
 try:
     from langchain_community.cache import SQLiteCache
@@ -106,7 +106,7 @@ class OlavCache:
         # 保留关键差异（如设备名 R1 vs R2）
         normalized = re.sub(r"\s+", " ", normalized)
         normalized = re.sub(r"[？?!！。.,，]", "", normalized)
-        return hashlib.md5(normalized.encode()).hexdigest()
+        return hashlib.md5(normalized.encode()).hexdigest()  # noqa: S324
 
     def _calculate_similarity(self, query1: str, query2: str) -> float:
         """计算两个查询的相似度（Fuzzy 模式用）"""
@@ -236,7 +236,7 @@ class OlavCache:
 
             if best_score >= confidence_threshold:
                 conn.close()
-                cached_data = json.loads(best_match)
+                cached_data = json.loads(best_match if isinstance(best_match, str) else '{}')
                 cached_data["_confidence"] = best_score
                 cached_data["_match_mode"] = "fuzzy"
                 cached_data["_cached_query"] = best_cached_query
@@ -270,10 +270,10 @@ class OlavCache:
 
     # ==================== 统计 ====================
 
-    def stats(self) -> dict:
+    def stats(self) -> dict[str, int]:
         """缓存统计"""
         conn = sqlite3.connect(self.db_path)
-        stats = {
+        stats: dict[str, int] = {
             "blacklist_count": conn.execute("SELECT COUNT(*) FROM guard_blacklist").fetchone()[0],
             "rejected_count": conn.execute("SELECT COUNT(*) FROM guard_rejected").fetchone()[0],
             "intent_count": conn.execute("SELECT COUNT(*) FROM intent_cache").fetchone()[0],
@@ -285,7 +285,7 @@ class OlavCache:
         conn.close()
         return stats
 
-    def get_cache_metrics(self) -> dict:
+    def get_cache_metrics(self) -> dict[str, Any]:
         """获取详细缓存指标，包括命中率"""
         conn = sqlite3.connect(self.db_path)
 

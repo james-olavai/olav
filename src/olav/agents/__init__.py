@@ -4,13 +4,20 @@ This package contains the core agents of the v0.10.0 architecture:
 1. QueryAgent: The query engine with dynamic tool registration (Skill-Centric).
 2. Analyzer: The complex diagnosis expert (Data Fusion).
 3. Orchestrator: The ReAct-based Meta-Agent for multi-specialist coordination.
-4. Coder: The automation engineer (Template Generation).
+4. TextfsmAgent: The automation engineer (Template Generation).
 """
 
 from olav.agents.analyzer import analyze_network
-from olav.agents.coder import create_coder_graph
 from olav.agents.orchestrator import orchestrate_query
 from olav.agents.query_agent import QueryAgent
+from olav.agents.textfsm_agent import create_textfsm_agent_graph
+
+__all__ = [
+    "analyze_network",
+    "orchestrate_query",
+    "QueryAgent",
+    "create_textfsm_agent_graph",
+]
 from olav.agents.tool_loader import (
     get_tool_whitelist,
     load_tools_for_agent,

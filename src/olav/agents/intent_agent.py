@@ -435,25 +435,12 @@ class IntentAgent:
         Returns:
             Markdown formatted response from Orchestrator
         """
-        from olav.agents.orchestrator import Orchestrator
+        from olav.agents.orchestrator import orchestrate_query
 
-        orchestrator = Orchestrator()
-        state = orchestrator.initial_state(query)
-
-        # Execute ReAct loop (simplified - in production, use full orchestrator)
-        for _ in range(5):  # Max 5 iterations
-            if state.get("finished"):
-                break
-
-            # Get next action
-            routing_decision = orchestrator.query_router.route(query)
-
-            if routing_decision and routing_decision.get("expert"):
-                # Execute expert (simplified for MVP)
-                break  # For MVP, single step
-
-        # Render final result
-        return f"Orchestrator mode: Complex query processed for: {query}\n\n(注: 这是简化版本，生产环境将使用完整的 Orchestrator ReAct 循环)"
+        # Call the real orchestrator with full ReAct loop
+        logger.info(f"Delegating to Orchestrator: {query}")
+        result = await orchestrate_query(query)
+        return result
 
     async def save_to_intent_cache(self, query: str, plan: dict[str, Any]) -> None:
         """

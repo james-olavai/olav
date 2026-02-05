@@ -149,6 +149,11 @@ class ExecutionSettings(BaseSettings):
     # Default timeout for network device commands (in seconds)
     timeout: int = Field(default=30, ge=5, le=300, description="Network command timeout in seconds")
 
+    # Query timeout for CLI interactive mode (in seconds)
+    query_timeout: int = Field(
+        default=180, ge=30, le=600, description="CLI query timeout in seconds (for complex queries)"
+    )
+
     # Nornir concurrency (num_workers for parallel execution)
     concurrency: int = Field(
         default=10, ge=1, le=100, description="Number of parallel workers for network operations"
@@ -199,14 +204,14 @@ class LoggingSettings(BaseSettings):
 
 class ThresholdSettings(BaseSettings):
     """Threshold Detection Configuration.
-    
+
     Migrated from ThresholdAgent (v0.9.8) to align with OLAV design principles.
-    
+
     Configuration structure:
     - defaults: Default threshold values for all metrics
     - metrics: Metric-specific threshold configurations
     - devices: Device-specific threshold overrides
-    
+
     Threshold strategies:
     - fixed: Static thresholds (warning/critical values)
     - statistical: Mean + N*std deviation

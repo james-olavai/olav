@@ -50,6 +50,7 @@ dependencies = [
     "python-dateutil>=2.8.0",
     "deepagents",
     "langchain-community>=0.4.1",
+    "ddgs>=9.10.0",  # DuckDuckGo web search for Expert Agent
     # Topology visualization
     "networkx>=3.0",
     "pyvis>=0.3.0",

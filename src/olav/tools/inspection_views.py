@@ -20,8 +20,12 @@ Views use:
 import logging
 
 import duckdb
+from config.paths import SNAPSHOTS_DIR  # 使用统一配置
 
 logger = logging.getLogger(__name__)
+
+# 使用配置路径而非硬编码
+LATEST_PARSED_PATH = str(SNAPSHOTS_DIR / "latest" / "parsed")
 
 ## L0 Infrastructure Views
 CREATE_V_DEVICE_CAPABILITIES = """
@@ -35,17 +39,17 @@ FROM device_capabilities;
 """
 
 ## L1 Physical Layer Views
-CREATE_V_DEVICE_STATUS = """
+CREATE_V_DEVICE_STATUS = f"""
 CREATE OR REPLACE VIEW v_device_status AS
 SELECT
     regexp_extract(filename, 'parsed/([^/]+)/', 1) AS device,
     data[1].version AS version,
     data[1].uptime AS uptime,
     data[1].hostname AS hostname
-FROM read_json_auto('exports/snapshots/latest/parsed/*/*ver*.json', filename=true);
+FROM read_json_auto('{LATEST_PARSED_PATH}/*/*ver*.json', filename=true);
 """
 
-CREATE_V_ENVIRONMENT = """
+CREATE_V_ENVIRONMENT = f"""
 CREATE OR REPLACE VIEW v_environment AS
 SELECT
     regexp_extract(filename, 'parsed/([^/]+)/', 1) AS device,
@@ -56,12 +60,12 @@ SELECT
     ) AS sensor_reading
 FROM (
     SELECT filename, unnest(data) AS d
-    FROM read_json_auto('exports/snapshots/latest/parsed/*/show-environment*.json', filename=true)
+    FROM read_json_auto('{LATEST_PARSED_PATH}/*/show-environment*.json', filename=true)
 );
 """
 
 ## L2 Data Link Layer Views
-CREATE_V_INTERFACES = """
+CREATE_V_INTERFACES = f"""
 CREATE OR REPLACE VIEW v_interfaces AS
 SELECT
     regexp_extract(filename, 'parsed/([^/]+)/', 1) AS device,
@@ -79,11 +83,11 @@ SELECT
     COALESCE(try_cast(json_extract_string(d, '$.crc') AS BIGINT), 0) AS crc_errors
 FROM (
     SELECT filename, unnest(data) AS d
-    FROM read_json_auto('exports/snapshots/latest/parsed/*/*ip*int*.json', filename=true)
+    FROM read_json_auto('{LATEST_PARSED_PATH}/*/*ip*int*.json', filename=true)
 );
 """
 
-CREATE_V_CDP_NEIGHBORS = """
+CREATE_V_CDP_NEIGHBORS = f"""
 CREATE OR REPLACE VIEW v_cdp_neighbors AS
 SELECT
     regexp_extract(filename, 'parsed/([^/]+)/', 1) AS device,
@@ -93,11 +97,11 @@ SELECT
     d.platform AS platform
 FROM (
     SELECT filename, unnest(data) AS d
-    FROM read_json_auto('exports/snapshots/latest/parsed/*/show-cdp-neighbor*.json', filename=true)
+    FROM read_json_auto('{LATEST_PARSED_PATH}/*/show-cdp-neighbor*.json', filename=true)
 );
 """
 
-CREATE_V_ARP = """
+CREATE_V_ARP = f"""
 CREATE OR REPLACE VIEW v_arp AS
 SELECT
     regexp_extract(filename, 'parsed/([^/]+)/', 1) AS device,
@@ -107,12 +111,12 @@ SELECT
     d.protocol AS protocol
 FROM (
     SELECT filename, unnest(data) AS d
-    FROM read_json_auto('exports/snapshots/latest/parsed/*/show-*arp*.json', filename=true)
+    FROM read_json_auto('{LATEST_PARSED_PATH}/*/show-*arp*.json', filename=true)
 );
 """
 
 ## L3 Network Layer Views
-CREATE_V_BGP_NEIGHBORS = """
+CREATE_V_BGP_NEIGHBORS = f"""
 CREATE OR REPLACE VIEW v_bgp_neighbors AS
 SELECT
     regexp_extract(filename, 'parsed/([^/]+)/', 1) AS device,
@@ -125,11 +129,11 @@ SELECT
     ) AS prefixes_received
 FROM (
     SELECT filename, unnest(data) AS d
-    FROM read_json_auto('exports/snapshots/latest/parsed/*/*bgp*sum*.json', filename=true)
+    FROM read_json_auto('{LATEST_PARSED_PATH}/*/*bgp*sum*.json', filename=true)
 );
 """
 
-CREATE_V_OSPF_NEIGHBORS = """
+CREATE_V_OSPF_NEIGHBORS = f"""
 CREATE OR REPLACE VIEW v_ospf_neighbors AS
 SELECT
     regexp_extract(filename, 'parsed/([^/]+)/', 1) AS device,
@@ -141,7 +145,7 @@ SELECT
     d.dead_time AS dead_time
 FROM (
     SELECT filename, unnest(data) AS d
-    FROM read_json_auto('exports/snapshots/latest/parsed/*/*ospf*nei*.json', filename=true)
+    FROM read_json_auto('{LATEST_PARSED_PATH}/*/*ospf*nei*.json', filename=true)
 );
 """
 
@@ -150,7 +154,7 @@ FROM (
 # - vrf, protocol, type, network, prefix_length
 # - nexthop_ip, nexthop_if, nexthop_vrf (NOT next_hop)
 # - distance, metric, uptime, flag
-CREATE_V_ROUTES = """
+CREATE_V_ROUTES = f"""
 CREATE OR REPLACE VIEW v_routes AS
 SELECT
     regexp_extract(filename, 'parsed/([^/]+)/', 1) AS device,
@@ -166,12 +170,12 @@ SELECT
     d.uptime AS uptime
 FROM (
     SELECT filename, unnest(data) AS d
-    FROM read_json_auto('exports/snapshots/latest/parsed/*/*ip*route*.json', filename=true)
+    FROM read_json_auto('{LATEST_PARSED_PATH}/*/*ip*route*.json', filename=true)
 );
 """
 
 ## L4 System Performance Views
-CREATE_V_CPU = """
+CREATE_V_CPU = f"""
 CREATE OR REPLACE VIEW v_cpu_utilization AS
 SELECT
     regexp_extract(filename, 'parsed/([^/]+)/', 1) AS device,
@@ -187,7 +191,7 @@ SELECT
     ) AS cpu_5min
 FROM (
     SELECT filename, unnest(data) AS d
-    FROM read_json_auto('exports/snapshots/latest/parsed/*/show-processes-cpu*.json', filename=true)
+    FROM read_json_auto('{LATEST_PARSED_PATH}/*/show-processes-cpu*.json', filename=true)
 );
 """
 
@@ -197,7 +201,7 @@ FROM (
 # - memory_free: VARCHAR
 # - process_id: [VARCHAR]
 # - process_allocated: [VARCHAR]
-CREATE_V_MEMORY = """
+CREATE_V_MEMORY = f"""
 CREATE OR REPLACE VIEW v_memory_utilization AS
 SELECT
     regexp_extract(filename, 'parsed/([^/]+)/', 1) AS device,
@@ -211,7 +215,7 @@ SELECT
     END AS memory_used_percent
 FROM (
     SELECT filename, unnest(data) AS d
-    FROM read_json_auto('exports/snapshots/latest/parsed/*/show-processes-memory*.json', filename=true)
+    FROM read_json_auto('{LATEST_PARSED_PATH}/*/show-processes-memory*.json', filename=true)
 );
 """
 

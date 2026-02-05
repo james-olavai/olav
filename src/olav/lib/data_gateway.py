@@ -8,6 +8,10 @@ from pathlib import Path
 
 import duckdb
 
+from config.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class DataGateway:
     """统一数据访问接口 - 平台无关
@@ -38,6 +42,36 @@ class DataGateway:
         self.skills_dir.mkdir(parents=True, exist_ok=True)
 
     # ==================== 共享数据层 API ====================
+
+    def query_main(self, sql: str, params: list | None = None) -> list[dict]:
+        """查询主数据库 olav.duckdb (包含 raw_outputs, command_cache 等)
+
+        Args:
+            sql: DuckDB SQL 查询
+            params: 查询参数
+
+        Returns:
+            查询结果列表
+
+        Example:
+            >>> gw.query_main("SELECT DISTINCT device FROM raw_outputs")
+            [{'device': 'R1'}, {'device': 'R2'}, ...]
+        """
+        conn = duckdb.connect(str(self.db_dir / "olav.duckdb"), read_only=True)
+        try:
+            if params:
+                result = conn.execute(sql, params)
+            else:
+                result = conn.execute(sql)
+
+            # Get column names from description
+            columns = [desc[0] for desc in result.description]
+            rows = result.fetchall()
+
+            # Convert to list of dicts
+            return [dict(zip(columns, row, strict=False)) for row in rows]
+        finally:
+            conn.close()
 
     def query_snapshots(self, sql: str, params: list | None = None) -> list[dict]:
         """查询网络快照数据 (只读)
@@ -236,9 +270,9 @@ class DataGateway:
             # Only setup if tables don't exist
             try:
                 store.setup()
-            except Exception:
+            except Exception as e:
                 # Tables likely already exist from previous setup
-                pass
+                logger.debug(f"DuckDBStore setup skipped (likely already exists): {e}")
 
             namespace = (skill_name, "aliases")
             key = alias.upper()  # 大小写不敏感
@@ -454,11 +488,8 @@ def get_connection(db_path: str | None = None):
         DuckDB 连接对象
     """
     if not db_path:
-        base_dir = Path.cwd()
-        if (base_dir / ".olav").exists():
-            db_path = str(base_dir / ".olav" / "db" / "main.duckdb")
-        else:
-            db_path = ".olav/db/main.duckdb"
+        from config.paths import MAIN_DB_PATH
+        db_path = str(MAIN_DB_PATH)
 
     return duckdb.connect(db_path)
 
@@ -530,4 +561,33 @@ def query_database(sql: str, params: list | None = None, db_path: str | None = N
 
     except Exception as e:
         logger.error(f"Database query failed: {e}", exc_info=True)
-        raise RuntimeError(f"Database query error: {str(e)}") from e
+
+        # Provide helpful error messages for common issues
+        error_msg = str(e)
+        if "Table with name" in error_msg and "does not exist" in error_msg:
+            # Extract table name from error
+            import re
+
+            match = re.search(r"Table with name (\w+) does not exist", error_msg)
+            table_name = match.group(1) if match else "unknown"
+
+            # Try to list available tables
+            try:
+                conn = duckdb.connect(str(db_path), read_only=True)
+                available_tables = conn.execute(
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+                ).fetchall()
+                conn.close()
+
+                table_list = ", ".join([t[0] for t in available_tables])
+                raise RuntimeError(
+                    f"Table '{table_name}' does not exist in database. "
+                    f"Available tables: {table_list}. "
+                    f"Please check your SQL query or database schema."
+                ) from e
+            except RuntimeError:
+                # Re-raise our custom error
+                raise
+            except Exception as list_err:
+                # Fallback if we can't list tables
+                logger.debug(f"Could not list available tables: {list_err}")

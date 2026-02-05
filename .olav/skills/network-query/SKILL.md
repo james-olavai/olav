@@ -10,6 +10,9 @@ examples:
   - "show interfaces on R1"
   - "list OSPF neighbors"
   - "find IP 10.1.1.1"
+  - "list interfaces with OSPF enabled"
+  - "show interfaces and their BGP neighbors"
+  - "find all interfaces on devices running OSPF"
 
 # Cache configuration (P1 Optimization)
 cache:
@@ -72,6 +75,43 @@ prompts:
     - OSPF: "show ip ospf neighbor"
     - Routes: "show ip route"
     - Configs: "show running-config"
+
+    ## DuckDB Advanced Queries
+
+    ### Table Relationships
+    - v_interfaces.device = v_routes.device (device column joins)
+    - v_interfaces.device = v_neighbors.device (device column joins)
+    - v_routes.next_hop = v_interfaces.ip_address (IP address joins - may need LIKE or CONTAINS)
+
+    ### JOIN Query Examples
+    1. **Interfaces with OSPF routes:**
+       ```sql
+       SELECT DISTINCT i.device, i.name, i.ip_address, i.status
+       FROM v_interfaces i
+       JOIN v_routes r ON i.device = r.device
+       WHERE r.protocol = 'OSPF' AND i.status = 'up'
+       ```
+
+    2. **Interfaces with protocol neighbors:**
+       ```sql
+       SELECT i.device, i.name, i.ip_address, n.neighbor_ip, n.state
+       FROM v_interfaces i
+       LEFT JOIN v_neighbors n ON i.device = n.device AND n.protocol = 'OSPF'
+       WHERE i.status = 'up'
+       ```
+
+    3. **Devices running specific protocol:**
+       ```sql
+       SELECT DISTINCT device FROM v_routes WHERE protocol = 'OSPF'
+       UNION
+       SELECT DISTINCT device FROM v_neighbors WHERE protocol = 'OSPF'
+       ```
+
+    ### Query Tips
+    - Use DISTINCT when joining tables to avoid duplicates
+    - Use LEFT JOIN if you want all interfaces even without neighbors
+    - Protocol names: 'OSPF', 'BGP', 'ISIS', 'static', 'connected'
+    - Always filter by status='up' for active interfaces
 
     ## FORBIDDEN Responses
     ❌ "No data found" (without calling smart_query)

@@ -53,6 +53,11 @@ class SkillConfig:
                 if not skill_dir.is_dir():
                     continue
 
+                # Skip special directories (_archive, test, __pycache__)
+                if skill_dir.name.startswith("_") or skill_dir.name in ("test", "__pycache__"):
+                    logger.debug(f"Skipping special directory: {skill_dir.name}")
+                    continue
+
                 skill_id = skill_dir.name
                 try:
                     config = cls._load_skill_frontmatter(skill_id)

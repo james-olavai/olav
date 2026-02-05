@@ -20,7 +20,7 @@ from olav.tools.sync_tools import sync_all
 
 logger = logging.getLogger(__name__)
 
-AgentType = Literal["detective", "coder", "analyzer", "general"]
+AgentType = Literal["detective", "textfsm_agent", "analyzer", "general"]
 
 
 def load_tools_for_agent(
@@ -41,14 +41,14 @@ def load_tools_for_agent(
 
     Examples:
         >>> detective_tools = load_tools_for_agent("detective")
-        >>> coder_tools = load_tools_for_agent("coder")
+        >>> textfsm_agent_tools = load_tools_for_agent("textfsm_agent")
     """
     tool_registry: dict[AgentType, list[Callable[..., Any] | BaseTool]] = {
         "detective": [
             # SQL/Graph query tools
             query_network,
         ],
-        "coder": [
+        "textfsm_agent": [
             # Code execution and generation tools
             # Note: Python sandbox execution will be added separately
         ],
@@ -100,9 +100,9 @@ def get_tool_whitelist(agent_type: AgentType) -> list[str]:
             "query_network",
             # Explicitly BLOCKED: execute_network_command (read-only access)
         ],
-        "coder": [
+        "textfsm_agent": [
             # Code generation tools only
-            # Network execution is BLOCKED for coder agent
+            # Network execution is BLOCKED for textfsm_agent
         ],
         "analyzer": [
             "query_network",
