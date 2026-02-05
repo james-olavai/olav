@@ -308,116 +308,14 @@ class QueryAgent:
         # Otherwise treat as direct content
         return prompt_value
 
-    def _process_aliases(
-        self,
-        query: str,
-        learn_callback: "Callable[[str], str | None] | None" = None,
-        max_prompts: int = 3,
-    ) -> str:
-        """Process aliases in user query with device existence validation.
-
-        Extracts potential device names/aliases from the query and replaces them
-        with canonical forms. Skips known devices to avoid unnecessary learning prompts.
-
-        Args:
-            query: User's original query string
-            learn_callback: Optional callback for interactive learning.
-            max_prompts: Maximum learning prompts per query
-
-        Returns:
-            Query with aliases replaced by canonical names
-        """
-        import re
-
-        processed = query
-        skill_name = self.skill.name if hasattr(self.skill, "name") else "network-query"
-
-        # Extract potential entities: Chinese phrases or device names like R1, SW1, etc.
-        entities = re.findall(r"[\u4e00-\u9fa5]+|[A-Z]+\d*", query)
-
-        # Protocol whitelist (should NOT trigger learning)
-        _protocol_whitelist = {
-            "OSPF", "BGP", "ISIS", "EIGRP", "RIP", "VRRP", "HSRP",
-            "LACP", "STP", "RSTP", "MSTP", "VTP", "CDP", "LLDP",
-            "SNMP", "NTP", "DHCP", "DNS", "HTTP", "HTTPS", "SSH",
-            "VLAN", "VRF", "ACL", "QOS", "MPLS", "VPN", "ARP", "ICMP"
-        }
-
-        # Pattern for standard device names (skip learning for these)
-        _device_pattern = re.compile(r"^(R|SW|S|FW|WLC|AP)\d+$", re.IGNORECASE)
-
-        learning_count = 0
-
-        for entity in set(entities):  # Deduplicate
-            if not entity or len(entity) < 2:
-                continue
-
-            # Skip protocol names (OSPF, BGP, ISIS, etc.)
-            if entity.upper() in _protocol_whitelist:
-                logger.debug(f"Skipping protocol name: {entity}")
-                continue
-
-            # Skip standard device name patterns (R1-R99, SW1-SW99, etc.)
-            if _device_pattern.match(entity):
-                logger.debug(f"Skipping standard device name pattern: {entity}")
-                continue
-
-            # Skip if it's a known device in database
-            if entity.upper() in self._known_devices:
-                logger.debug(f"Skipping known device: {entity}")
-                continue
-
-            # Check DuckDBStore for user alias
-            try:
-                result = self.store.get((skill_name, "aliases"), entity)
-                if result:
-                    canonical = result.value.get("canonical")
-                    if canonical:
-                        processed = processed.replace(entity, canonical)
-                        logger.debug(f"Alias resolved from store: {entity} -> {canonical}")
-                        continue
-            except Exception as e:
-                logger.debug(f"Store lookup failed: {e}")
-
-            # Unknown entity - trigger learning if callback provided
-            if learn_callback and learning_count < max_prompts:
-                logger.info(
-                    f"Unknown entity '{entity}' (prompt {learning_count + 1}/{max_prompts})"
-                )
-
-                try:
-                    user_response = learn_callback(entity)
-                    learning_count += 1
-
-                    if user_response and user_response.strip():
-                        canonical = user_response.strip()
-
-                        # Save to DuckDBStore
-                        self.store.put(
-                            (skill_name, "aliases"),
-                            entity,
-                            {"canonical": canonical, "type": "device"},
-                        )
-
-                        # Replace in query
-                        processed = processed.replace(entity, canonical)
-                        logger.info(f"Learned new alias: {entity} -> {canonical}")
-                    else:
-                        logger.debug(f"User declined to teach alias for '{entity}'")
-                except Exception as e:
-                    logger.warning(f"Interactive learning failed for '{entity}': {e}")
-
-        return processed
-
-        return processed
+    # Alias processing removed - LLM handles entity resolution naturally
 
     async def ainvoke(
         self,
         inputs: dict[str, Any],
         config: dict[str, Any] | None = None,
-        learn_callback: "Callable[[str], str | None] | None" = None,
     ) -> dict[str, Any]:
-        """Async invoke for CLI compatibility with optional learning callback.
+        """Async invoke for CLI compatibility.
 
         Processes messages and returns a state dictionary including 'result'.
 
@@ -463,25 +361,8 @@ class QueryAgent:
 
             logger.info(f"❌ Cache MISS: {last_user_msg[:50]}... (will store after execution)")
 
-        # Phase 1: Process aliases - replace user aliases with canonical names
-        logger.debug(f"Processing aliases for query: {last_user_msg}")
-        original_query = last_user_msg  # Save for caching (user's original input)
-        last_user_msg = self._process_aliases(last_user_msg, learn_callback=learn_callback)
-        if last_user_msg != original_query:
-            logger.info(f"Alias processed: {original_query} -> {last_user_msg}")
-            # Update the messages with processed query
-            if messages and isinstance(messages[-1], dict):
-                messages[-1]["content"] = last_user_msg
-            elif messages and hasattr(messages[-1], "content"):
-                # For LangChain messages, create new message with processed content
-                from langchain_core.messages import HumanMessage
-
-                messages = messages[:-1] + [HumanMessage(content=last_user_msg)]
-
-        # Store original query for caching (user's intent, not processed form)
-        cache_query = original_query
-
-        logger.debug(f"Alias processing completed in {time.time() - start_time:.2f}s")
+        # Store original query for caching
+        cache_query = last_user_msg
 
         try:
             # Execute ReAct loop

@@ -3,37 +3,37 @@ name: Network Snapshot
 description: Network data collection definitions (formerly daily-sync)
 version: 2.0.0
 intent: snapshot
-# schedule 由 daily-run workflow 控制，此处不单独定义
+# schedule controlled by daily-run workflow，not defined here
 ---
 
-## Network Snapshot - 采集定义
+## Network Snapshot - Collection Definition
 
-通过 `search_device_commands(device, intent)` 动态查询命令。
+Query commands dynamically through `search_device_commands(device, intent)`.
 
-### 执行参数
+### Execution Parameters
 
-#### 群组选择 (MANDATORY)
-- `group="test"` (默认) - 测试设备 (192.168.100.x)
-- `group="core"` - 生产核心设备
-- `group="border"` - 边界设备
+#### Group Selection (MANDATORY)
+- `group="test"` (default) - Test devices (192.168.100.x)
+- `group="core"` - Production core devices
+- `group="border"` - Border devices
 
-#### 设备过滤 (可选)
-- `devices="all"` (默认) - 所有设备
-- `devices="R1,R2,R3"` - 指定设备名称
+#### Device Filtering (OPTIONAL)
+- `devices="all"` (default) - All devices
+- `devices="R1,R2,R3"` - Specific device names
 
-### 两阶段流程设计
+### Two-Stage Pipeline Design
 
-**Stage 1 (快速数据收集)**:
-- 使用Nornir并行执行命令（快速）
-- 命令结果落盘到 `data/sync/YYYY-MM-DD/raw/`
-- 立即返回，不阻塞用户
+**Stage 1 (Fast Data Collection)**:
+- Execute commands in parallel via Nornir (fast)
+- Store results to `data/sync/YYYY-MM-DD/raw/`
+- Return immediately, non-blocking to user
 
-**Stage 2 (异步后处理)**:
-- 后台线程运行解析、数据库初始化、LLM分析
-- 生成报告到 `data/sync/YYYY-MM-DD/reports/`
-- 不影响Stage 1的响应时间
+**Stage 2 (Async Post-Processing)**:
+- Background thread runs parsing, DB init, LLM analysis
+- Generate reports to `data/sync/YYYY-MM-DD/reports/`
+- Does not affect Stage 1 response time
 
-### 采集类别
+### Collection Categories
 
 #### configs
 - intent: "running configuration"
@@ -67,17 +67,17 @@ intent: snapshot
 
 #### logging
 - intent: "device logging"
-- parse: true  # 需要事件解析
+- parse: true  # Requires event parsing
 
-## 使用方式
+## Usage
 
-此 Skill 由 `/sync` 命令或 `/daily-run` workflow 的 Stage 1 调用。
+This Skill is called by `/sync` command or Stage 1 of `/daily-run` workflow.
 
-工具函数: `sync_all(devices="all", categories=None)`
+Tool function: `sync_all(devices="all", categories=None)`
 
-## 输出
+## Output
 
-采集数据存储在 `data/sync/YYYY-MM-DD/`:
-- `configs/`: 配置文件
-- `raw/<category>/`: 原始命令输出
-- `parsed/<category>/`: TextFSM 解析结果 (可选)
+Collection data stored in `data/sync/YYYY-MM-DD/`:
+- `configs/`: Configuration files
+- `raw/<category>/`: Raw commandOutput
+- `parsed/<category>/`: TextFSM parsed results (optional)

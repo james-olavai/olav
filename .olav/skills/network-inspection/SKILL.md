@@ -1,7 +1,7 @@
 ---
 name: Network Health Inspection
 id: network-inspection
-description: 生产级网络健康巡检 - 多层级自适应检测（L1-L4）
+description: Production-Grade Network Health Inspection - Multi-layer Adaptive Detection（L1-L4）
 version: 2.1.0
 intent: inspection
 
@@ -11,32 +11,32 @@ tools:
     description: "Find which device/interface an IP address is located on."
 
 # ============================================================================
-# 健康评分配置 (Health Score Configuration)
-# 不再硬编码在Python代码中，而是在Skill中定义
+# Health Score Configuration (Health Score Configuration)
+# No longer hardcoded in Python, defined in Skill
 # ============================================================================
 scoring:
-  # 健康分的最大值（通常100）
+  # Maximum health score value（typically 100）
   max_score: 100
   
-  # 严重程度权重配置
-  critical_weight: 20      # 每个critical异常扣20分
-  warning_weight: 5       # 每个warning异常扣5分
+  # Severity weight configuration
+  critical_weight: 20      # each critical anomaly deducts 20 points
+  warning_weight: 5       # each warning anomaly deducts 5 points
   
-  # 健康状态阈值
+  # Health status thresholds
   thresholds:
     healthy: 90   # >= 90: HEALTHY ✅
     warning: 70   # >= 70: WARNING ⚠️
     critical: 0   # < 70: CRITICAL 🔴
 
 # ============================================================================
-# 巡检层级定义
+# Inspection Layer Definitions
 # ============================================================================
-# 巡检层级定义
+# Inspection Layer Definitions
 inspection:
   layers:
-    # L1: 物理层
+    # L1: Physical Layer
     - name: L1_Physical
-      description: "设备基础健康检查"
+      description: "Basic device health check"
       sql: |
         SELECT DISTINCT device, 50 as cpu, 'up' as status, '30 days' as uptime
         FROM (
@@ -46,32 +46,32 @@ inspection:
           UNION ALL SELECT DISTINCT device FROM v_bgp_neighbors
         ) all_devices
       
-    # L2: 数据链路层 - 接口
+    # L2: Data Link Layer - Interface
     - name: L2_DataLink
-      description: "接口状态和错误检查"
+      description: "Interface status and error checks"
       sql: |
         SELECT device, interface, status, protocol as protocol_status, 0 as in_errors, 0 as out_errors, 0 as crc_errors
         FROM v_interfaces
       
-    # L2: 数据链路层 - 邻居
+    # L2: Data Link Layer - Neighbor
     - name: L2_Neighbors
-      description: "邻居发现协议检查"
+      description: "Neighbor discovery protocol checks"
       sql: |
         SELECT device, '' as local_interface, 'neighbor' as neighbor_name, '' as neighbor_interface, 'device' as platform
         FROM (SELECT DISTINCT device FROM v_device_status)
         WHERE 1=0
       
-    # L3: 网络层 - OSPF
+    # L3: Network Layer - OSPF
     - name: L3_OSPF
-      description: "OSPF 邻居状态检查"
+      description: "OSPF neighbor state checks"
       sql: |
         SELECT device, '' as neighbor_id, 'unknown' as ospf_state, '0.0.0.0' as ip_address, 0 as dead_time
         FROM (SELECT DISTINCT device FROM v_device_status)
         WHERE 1=0
       
-    # L3: 网络层 - 路由
+    # L3: Network Layer - Routing
     - name: L3_Routes
-      description: "路由表完整性检查"
+      description: "Routing table completeness check"
       sql: |
         SELECT 
           device,
@@ -83,21 +83,21 @@ inspection:
         FROM v_routes
         GROUP BY device
       
-    # L4: 应用层 - CPU
+    # L4: Application Layer - CPU
     - name: L4_CPU
-      description: "CPU 使用率检查"
+      description: "CPU utilization check"
       sql: |
         SELECT device, cpu_utilization as cpu_5sec, cpu_utilization as cpu_1min, cpu_utilization as cpu_5min
         FROM v_device_status
       
-    # L4: 应用层 - 内存
+    # L4: Application Layer - Memory
     - name: L4_Memory
-      description: "内存使用率检查"
+      description: "Memory utilization check"
       sql: |
         SELECT device, 50 as memory_used_percent, 1000 as memory_total, 500 as memory_free
         FROM v_device_status
 
-# 输出配置
+# OutputConfiguration
 output:
   format: markdown
   report_skill: inspect-report
@@ -106,7 +106,7 @@ output:
 
 # Network Health Inspection
 
-生产级网络健康巡检，覆盖 L1-L4 多层级检测。
+Production-Grade Network Health Inspection，covers L1-L4 multi-layer detection。
 
-**使用**: `olav inspect [--test] [--refresh]`  
-**配置**: `.olav/config/thresholds.yaml`
+**Usage**: `olav inspect [--test] [--refresh]`  
+**Configuration**: `.olav/skills/network-inspection/config/thresholds.yaml`

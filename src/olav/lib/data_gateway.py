@@ -350,7 +350,7 @@ class DataGateway:
         """保存诊断案例学习
 
         Args:
-            skill_name: Skill 名称 (e.g., 'network-analysis')
+            skill_name: Skill 名称 (e.g., 'network-expert')
             symptom: 症状描述
             devices_checked: 检查的设备列表
             commands_used: 执行的命令列表
@@ -360,7 +360,7 @@ class DataGateway:
 
         Example:
             >>> gw.save_diagnosis_case(
-            ...     "network-analysis",
+            ...     "network-expert",
             ...     "BGP neighbor down",
             ...     ["R1", "R2"],
             ...     ["show ip bgp summary", "show interface"],
@@ -420,7 +420,7 @@ class DataGateway:
             案例列表
 
         Example:
-            >>> cases = gw.search_similar_cases("network-analysis", "BGP")
+            >>> cases = gw.search_similar_cases("network-expert", "BGP")
             >>> for case in cases:
             ...     print(f"{case['symptom']}: {case['root_cause']}")
         """
