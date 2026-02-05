@@ -17,7 +17,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from langchain_core.tools import tool
 
+
+@tool
 def format_and_export(
     data: Any,  # noqa: ANN401
     filename: str | None = None,
@@ -47,8 +50,10 @@ def format_and_export(
         >>> format_and_export(data, filename="vlans", format="csv")
         {"path": "exports/vlans.csv", "size": 256}
     """
-    # 1. 统一输出目录
-    output_dir = Path("exports")
+    # 1. 统一输出目录 - 使用绝对路径确保在exports/下生成
+    from config.paths import REPORTS_DIR
+    
+    output_dir = REPORTS_DIR  # exports/reports/
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # 2. 自动检测格式（如果未指定）
@@ -66,9 +71,10 @@ def format_and_export(
     # 5. 根据格式写入文件
     _write_file(filepath, data, format)
 
-    # 6. 返回结果
+    # 6. 返回结果（使用相对路径给用户看）
     return {
-        "path": str(filepath),
+        "path": str(filepath.relative_to(Path.cwd())),  # 相对路径：exports/reports/xxx.csv
+        "absolute_path": str(filepath.absolute()),
         "size": filepath.stat().st_size,
         "format": format,
     }

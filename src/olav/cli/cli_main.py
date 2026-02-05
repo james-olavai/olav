@@ -43,7 +43,7 @@ def _display_todos(agent_graph: Any) -> None:
     try:
         # Get the latest state from the graph
         state = agent_graph.get_state()
-        todos = state.values.get("todos", []) if state and hasattr(state, "values") else []
+        todos: list[dict[str, Any]] = state.values.get("todos", []) if state and hasattr(state, "values") else []
 
         if not todos:
             return
@@ -60,7 +60,7 @@ def _display_todos(agent_graph: Any) -> None:
             table.add_row(
                 str(todo.get("id", "")),
                 f"{icon} {todo.get('status', 'not-started')}",
-                todo.get("title", ""),
+                str(todo.get("title", "")),
             )
 
         panel = Panel(table, title="📋 Task Progress", border_style="blue")
@@ -75,7 +75,7 @@ async def stream_agent_response(
     verbose: bool = False,
     learn_callback: "Callable[[str], str | None] | None" = None,
     thread_id: str | None = None,  # LangGraph thread_id for session
-    timeout: float = None,  # Query timeout in seconds (None = use settings)
+    timeout: float | None = None,  # Query timeout in seconds (None = use settings)
 ) -> str:
     """Stream agent response with timeout and session support.
 
@@ -245,7 +245,7 @@ def _create_learning_callback(session: "OlavPromptSession") -> Callable[[str], s
             user_response = input(prompt_msg)
 
             if not user_response or not user_response.strip():
-                print(f"  ⏭️  Skipped learning '{entity}'")
+                print(f"  ⏭️  Skipped learning '{entity}' (will not affect query)")
                 return None
 
             # Validate response (basic check for device-like patterns)
@@ -270,12 +270,16 @@ def _create_learning_callback(session: "OlavPromptSession") -> Callable[[str], s
 async def run_interactive_loop_async(
     session: "OlavPromptSession",
     agent: Any,
+    resume: bool = False,
+    thread_id: str | None = None,
 ) -> None:
     """Run the OLAV CLI (asynchronous version for proper event loop handling).
 
     Args:
         session: Prompt session
         agent: OLAV agent instance (with checkpointer for state management)
+        resume: Resume last session
+        thread_id: Specific thread ID to use or resume
     """
     import uuid
 
@@ -284,6 +288,9 @@ async def run_interactive_loop_async(
     from olav.cli.commands import execute_command
     from olav.cli.input_parser import parse_input
     from olav.core.query_router import QueryRouter
+
+    # Check if running in TTY mode
+    is_tty = sys.stdin.isatty()
 
     # Generate or load session thread_id for checkpointer
     from pathlib import Path
@@ -314,7 +321,6 @@ async def run_interactive_loop_async(
     logger.debug(f"Starting interactive session with thread_id: {thread_id}")
 
     # Initialize QueryRouter and Display
-    is_tty = sys.stdin.isatty()
     from olav.cli.display import StreamingDisplay
 
     display = StreamingDisplay(
@@ -752,25 +758,305 @@ def version() -> None:
 
 
 @app.command()
-def snapshot(
+def clean(
+    all: bool = typer.Option(False, "--all", "-a", help="Clean everything (cache + checkpoints + databases)"),
+    cache: bool = typer.Option(False, "--cache", "-c", help="Clean cache only"),
+    checkpoints: bool = typer.Option(False, "--checkpoints", "-p", help="Clean checkpoints only"),
+    databases: bool = typer.Option(False, "--databases", "-d", help="Clean snapshot databases only (keeps device inventory)"),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
+) -> None:
+    """Clean OLAV data: cache, checkpoints, and databases.
+    
+    Examples:
+        olav clean --cache              # Clear query cache only
+        olav clean --checkpoints        # Clear session checkpoints
+        olav clean --all                # Clean everything (with confirmation)
+        olav clean --all --force        # Clean everything (no confirmation)
+        olav clean --databases          # Clear snapshot data (keeps devices table)
+    """
+    from pathlib import Path
+    import shutil
+    
+    # If no specific flags, show help
+    if not (all or cache or checkpoints or databases):
+        console.print("[yellow]Please specify what to clean:[/yellow]")
+        console.print("  --cache        Cache files")
+        console.print("  --checkpoints  Session checkpoints")
+        console.print("  --databases    Snapshot databases")
+        console.print("  --all          Everything")
+        console.print("\nUse --help for more info")
+        return
+    
+    # Determine what to clean
+    clean_cache = all or cache
+    clean_checkpoints = all or checkpoints
+    clean_databases = all or databases
+    
+    # Show what will be cleaned
+    items = []
+    if clean_cache:
+        items.append("• Query cache (.olav/cache/*.db)")
+    if clean_checkpoints:
+        items.append("• Session checkpoints (.olav/user_checkpoint.db, .olav/.last_thread_id)")
+    if clean_databases:
+        items.append("• Snapshot databases (raw_outputs, views - keeps devices table)")
+    
+    console.print("\n[bold yellow]⚠️  The following will be deleted:[/bold yellow]")
+    for item in items:
+        console.print(f"  {item}")
+    console.print()
+    
+    # Confirmation
+    if not force:
+        confirm = typer.confirm("Are you sure you want to continue?")
+        if not confirm:
+            console.print("[cyan]Aborted.[/cyan]")
+            return
+    
+    console.print("\n[cyan]🧹 Cleaning...[/cyan]\n")
+    
+    # Clean cache
+    if clean_cache:
+        try:
+            cache_dir = Path(".olav/cache")
+            if cache_dir.exists():
+                for db_file in cache_dir.glob("*.db"):
+                    db_file.unlink()
+                    console.print(f"  ✅ Deleted: {db_file}")
+                console.print("  ✅ Cache cleaned")
+            else:
+                console.print("  ℹ️  No cache directory found")
+        except Exception as e:
+            console.print(f"  ❌ Cache cleanup failed: {e}")
+    
+    # Clean checkpoints
+    if clean_checkpoints:
+        try:
+            checkpoint_file = Path(".olav/user_checkpoint.db")
+            if checkpoint_file.exists():
+                checkpoint_file.unlink()
+                console.print(f"  ✅ Deleted: {checkpoint_file}")
+            
+            thread_id_file = Path(".olav/.last_thread_id")
+            if thread_id_file.exists():
+                thread_id_file.unlink()
+                console.print(f"  ✅ Deleted: {thread_id_file}")
+            
+            console.print("  ✅ Checkpoints cleaned")
+        except Exception as e:
+            console.print(f"  ❌ Checkpoint cleanup failed: {e}")
+    
+    # Clean databases (keep devices table)
+    if clean_databases:
+        try:
+            import duckdb
+            main_db = Path(".olav/db/main.duckdb")
+            
+            if main_db.exists():
+                conn = duckdb.connect(str(main_db))
+                
+                # Drop raw_outputs
+                try:
+                    conn.execute("DROP TABLE IF EXISTS raw_outputs")
+                    console.print("  ✅ Dropped: raw_outputs table")
+                except Exception as e:
+                    console.print(f"  ⚠️  Could not drop raw_outputs: {e}")
+                
+                # Drop all views
+                tables = conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main' AND table_type='VIEW'").fetchall()
+                for (view_name,) in tables:
+                    try:
+                        conn.execute(f"DROP VIEW IF EXISTS {view_name}")
+                        console.print(f"  ✅ Dropped: view {view_name}")
+                    except Exception as e:
+                        console.print(f"  ⚠️  Could not drop {view_name}: {e}")
+                
+                conn.close()
+                console.print("  ✅ Snapshot data cleaned (devices table preserved)")
+            else:
+                console.print("  ℹ️  No main database found")
+        except Exception as e:
+            console.print(f"  ❌ Database cleanup failed: {e}")
+    
+    console.print("\n[bold green]✅ Cleanup complete![/bold green]\n")
+
+
+@app.command()
+def doctor() -> None:
+    """Run system health check and display diagnostics.
+    
+    Checks:
+    - Database connectivity and schema
+    - LLM API availability
+    - Nornir inventory configuration
+    - Network device reachability
+    - Cache and checkpoint status
+    """
+    from pathlib import Path
+    
+    console.print("\n[bold cyan]🏥 OLAV System Health Check[/bold cyan]\n")
+    
+    # Check 1: Database
+    console.print("[cyan]1. Database Status[/cyan]")
+    try:
+        import duckdb
+        main_db = Path(".olav/db/main.duckdb")
+        if not main_db.exists():
+            console.print("  ❌ Database not found")
+            console.print("     Run: olav snapshot")
+        else:
+            conn = duckdb.connect(str(main_db), read_only=True)
+            
+            # Check devices table
+            device_count = conn.execute('SELECT COUNT(*) FROM devices').fetchone()[0]
+            console.print(f"  ✅ Devices table: {device_count} devices")
+            
+            # Check raw_outputs
+            try:
+                output_count = conn.execute('SELECT COUNT(*) FROM raw_outputs').fetchone()[0]
+                console.print(f"  ✅ Raw outputs: {output_count} records")
+            except:
+                console.print("  ⚠️  Raw outputs: Table not initialized")
+            
+            # Check views
+            tables = conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main' AND table_type='VIEW'").fetchall()
+            if tables:
+                console.print(f"  ✅ Views: {len(tables)} initialized ({', '.join([t[0] for t in tables[:3]])}...)")
+            else:
+                console.print("  ⚠️  Views: None initialized")
+                console.print("     Run: olav snapshot (to create views)")
+            
+            conn.close()
+    except Exception as e:
+        console.print(f"  ❌ Database error: {e}")
+    
+    console.print()
+    
+    # Check 2: LLM API
+    console.print("[cyan]2. LLM API Configuration[/cyan]")
+    try:
+        from config.settings import settings
+        console.print(f"  Provider: {settings.llm_provider}")
+        console.print(f"  Model: {settings.llm_model_name}")
+        console.print(f"  Base URL: {settings.llm_base_url or 'default'}")
+        console.print(f"  API Key: {'✅ Set' if settings.llm_api_key else '❌ Missing'}")
+        
+        if settings.llm_api_key:
+            try:
+                from olav.core.llm import LLMFactory
+                llm = LLMFactory.get_chat_model()
+                console.print("  ✅ LLM API: Ready")
+            except Exception as e:
+                console.print(f"  ❌ LLM API: {str(e)[:50]}...")
+        else:
+            console.print("  ❌ Set LLM_API_KEY in .env")
+    except Exception as e:
+        console.print(f"  ❌ Configuration error: {e}")
+    
+    console.print()
+    
+    # Check 3: Nornir Inventory
+    console.print("[cyan]3. Nornir Inventory[/cyan]")
+    try:
+        from olav.tools.network import get_nornir
+        nr = get_nornir()
+        console.print(f"  ✅ Hosts: {len(nr.inventory.hosts)}")
+        console.print(f"  ✅ Groups: {len(nr.inventory.groups)}")
+        
+        # Show first 3 hosts
+        for i, (name, host) in enumerate(list(nr.inventory.hosts.items())[:3]):
+            console.print(f"     • {name}: {host.hostname}")
+    except Exception as e:
+        console.print(f"  ❌ Nornir error: {e}")
+    
+    console.print()
+    
+    # Check 4: Network Reachability
+    console.print("[cyan]4. Network Connectivity[/cyan]")
+    try:
+        from olav.tools.network import get_nornir
+        import socket
+        nr = get_nornir()
+        
+        reachable = []
+        unreachable = []
+        
+        for name, host in list(nr.inventory.hosts.items())[:5]:  # Test first 5
+            try:
+                socket.create_connection((host.hostname, 22), timeout=2)
+                reachable.append(name)
+            except:
+                unreachable.append(name)
+        
+        if reachable:
+            console.print(f"  ✅ Reachable: {', '.join(reachable)}")
+        if unreachable:
+            console.print(f"  ⚠️  Unreachable: {', '.join(unreachable)}")
+            console.print("     Check: VPN, firewall, SSH service")
+        
+        if not reachable and not unreachable:
+            console.print("  ℹ️  No devices to test")
+    except Exception as e:
+        console.print(f"  ⚠️  Connectivity check failed: {e}")
+    
+    console.print()
+    
+    # Check 5: Cache Status
+    console.print("[cyan]5. Cache & Checkpoints[/cyan]")
+    try:
+        cache_dir = Path(".olav/cache")
+        if cache_dir.exists():
+            cache_files = list(cache_dir.glob("*.db"))
+            total_size = sum(f.stat().st_size for f in cache_files) / 1024 / 1024
+            console.print(f"  ✅ Cache: {len(cache_files)} files ({total_size:.1f} MB)")
+        else:
+            console.print("  ℹ️  Cache: Not initialized")
+        
+        checkpoint = Path(".olav/user_checkpoint.db")
+        if checkpoint.exists():
+            size = checkpoint.stat().st_size / 1024 / 1024
+            console.print(f"  ✅ Checkpoint: {size:.1f} MB")
+        else:
+            console.print("  ℹ️  Checkpoint: Not initialized")
+        
+        thread_id = Path(".olav/.last_thread_id")
+        if thread_id.exists():
+            tid = thread_id.read_text().strip()[:16]
+            console.print(f"  ✅ Last session: {tid}...")
+    except Exception as e:
+        console.print(f"  ⚠️  Cache check failed: {e}")
+    
+    console.print("\n[bold green]✅ Health check complete![/bold green]\n")
+
+
+@app.command()
+def init(
     group: str = typer.Option(
         None,
         "--group",
         "-g",
-        help="Nornir group to snapshot (defaults to NORNIR_DEFAULT_GROUP in settings)",
+        help="Nornir group to initialize (defaults to NORNIR_DEFAULT_GROUP in settings)",
     ),
     devices: str = typer.Option(
-        "all", "--devices", "-d", help="Devices to snapshot (comma-separated or 'all')"
+        "all", "--devices", "-d", help="Devices to initialize (comma-separated or 'all')"
+    ),
+    diagnose: bool = typer.Option(
+        True, "--diagnose/--no-diagnose", help="Show detailed diagnostic information"
     ),
 ) -> None:
-    """Capture network device state snapshot (Stage 1: collect, Stage 2: parse+analyze).
+    """Initialize OLAV database with network device snapshot and diagnostics.
+
+    First-time setup: Captures network device state, initializes database views,
+    and verifies all systems are working.
 
     Examples:
-        olav snapshot                    # Snapshot all devices in configured default group
-        olav snapshot --group production # Snapshot production group
-        olav snapshot --devices R1,R2    # Snapshot specific devices
+        olav init                    # Initialize all devices with full diagnostics
+        olav init --group production # Initialize production group only
+        olav init --devices R1,R2    # Initialize specific devices
+        olav init --no-diagnose      # Skip diagnostic output (automated)
     """
     import os
+    from pathlib import Path
 
     # Load settings to get default group
     from config.settings import settings
@@ -785,11 +1071,62 @@ def snapshot(
 
     console.print(
         Panel(
-            f"[bold cyan]Capturing Network Snapshot[/bold cyan]\n"
+            f"[bold cyan]Initializing OLAV Database[/bold cyan]\n"
             f"Group: {group}\nDevices: {devices}",
             border_style="cyan",
         )
     )
+
+    # Pre-flight diagnostics
+    if diagnose:
+        console.print("\n[cyan]🔍 Running pre-flight diagnostics...[/cyan]")
+        
+        # Check 1: Database connectivity
+        try:
+            import duckdb
+            conn = duckdb.connect('.olav/db/main.duckdb')
+            device_count = conn.execute('SELECT COUNT(*) FROM devices').fetchone()[0]
+            conn.close()
+            console.print(f"  ✅ Database: Connected ({device_count} devices registered)")
+        except Exception as e:
+            console.print(f"  ⚠️  Database: {str(e)}")
+        
+        # Check 2: LLM API availability
+        try:
+            from olav.core.llm import LLMFactory
+            llm = LLMFactory.get_chat_model()
+            console.print(f"  ✅ LLM API: {settings.llm_provider}/{settings.llm_model_name}")
+        except Exception as e:
+            console.print(f"  ❌ LLM API: {str(e)}")
+        
+        # Check 3: Nornir inventory
+        try:
+            from olav.tools.network import get_nornir
+            nr = get_nornir()
+            console.print(f"  ✅ Nornir: {len(nr.inventory.hosts)} hosts configured")
+        except Exception as e:
+            console.print(f"  ❌ Nornir: {str(e)}")
+        
+        # Check 4: Network connectivity preview
+        try:
+            from olav.tools.network import get_nornir
+            nr = get_nornir()
+            reachable = 0
+            for host in list(nr.inventory.hosts.values())[:3]:  # Test first 3
+                try:
+                    import socket
+                    socket.create_connection((host.hostname, 22), timeout=2)
+                    reachable += 1
+                except:
+                    pass
+            if reachable > 0:
+                console.print(f"  ✅ Network: {reachable}/3 sample devices reachable")
+            else:
+                console.print(f"  ⚠️  Network: No devices reachable (may need VPN)")
+        except Exception as e:
+            console.print(f"  ⚠️  Network: {str(e)}")
+        
+        console.print()
 
     try:
         # Parse devices parameter: convert comma-separated string to list
@@ -799,10 +1136,45 @@ def snapshot(
         result = sync_all.invoke({"devices": device_list})  # type: ignore[attr-defined]
 
         console.print(
-            Panel(result, title="[bold green]Snapshot Complete[/bold green]", border_style="green")
+            Panel(result, title="[bold green]✅ Initialization Complete[/bold green]", border_style="green")
         )
+        
+        # Post-snapshot diagnostics
+        if diagnose:
+            console.print("\n[cyan]📊 Post-initialization status:[/cyan]")
+            try:
+                import duckdb
+                conn = duckdb.connect('.olav/db/main.duckdb', read_only=True)
+                
+                # Check raw_outputs
+                raw_count = conn.execute('SELECT COUNT(*) FROM raw_outputs').fetchone()[0]
+                console.print(f"  📝 Raw outputs: {raw_count} records")
+                
+                # Check if views exist
+                tables = conn.execute("SELECT table_name, table_type FROM information_schema.tables WHERE table_schema='main'").fetchall()
+                view_count = sum(1 for _, type in tables if type == 'VIEW')
+                console.print(f"  📊 Database views: {view_count} initialized")
+                
+                if view_count == 0:
+                    console.print("  💡 Tip: Run 'olav database init-views' to create query views")
+                
+                conn.close()
+            except Exception as e:
+                console.print(f"  ⚠️  Status check failed: {str(e)}")
+            
+            console.print()
+        
     except Exception as e:
-        console.print(f"[bold red]❌ Snapshot Error: {str(e)}[/bold red]")
+        console.print(f"[bold red]❌ Initialization Error: {str(e)}[/bold red]")
+        if "connection" in str(e).lower():
+            console.print("\n💡 Troubleshooting:")
+            console.print("  • Check device IP addresses in inventory")
+            console.print("  • Verify SSH credentials")
+            console.print("  • Ensure network connectivity (VPN if needed)")
+        elif "api" in str(e).lower() or "key" in str(e).lower():
+            console.print("\n💡 Troubleshooting:")
+            console.print("  • Check LLM_API_KEY in .env")
+            console.print("  • Verify API provider is accessible")
         raise typer.Exit(1) from None
 
 
@@ -972,14 +1344,16 @@ def interactive_mode(
         agent = QueryAgent(enable_summarization=False)
 
         # Run interactive loop (async mode for proper event loop handling)
-        asyncio.run(run_interactive_loop_async(session, agent))
+        asyncio.run(run_interactive_loop_async(session, agent, resume=resume, thread_id=thread_id))
         # Note: History is auto-saved by FileHistory, session state by checkpointer
 
     except KeyboardInterrupt:
         console.print("\n\n👋 Interrupted. Goodbye!")
         sys.exit(0)
     except Exception as e:
+        import traceback
         console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
+        logger.error(f"Full traceback:\n{traceback.format_exc()}")
         raise typer.Exit(1) from None
 
 
@@ -995,12 +1369,12 @@ def main() -> None:
     # P5.2: Skip schema initialization for --help/--version (fast path)
     # Only initialize schemas when actually running commands
     if not any(arg in sys.argv for arg in ["--help", "-h", "--version", "-v"]):
-        from config.paths import CACHE_DIR, DB_DIR
+        from config.paths import DB_DIR
         from olav.core.schema_manager import ensure_schema
 
-        # Ensure critical databases have schema versioning
+        # Ensure critical DuckDB databases have schema versioning
+        # NOTE: query_result_cache.db uses SQLite (not DuckDB), don't initialize it here
         critical_dbs = [
-            CACHE_DIR / "query_result_cache.db",
             DB_DIR / "snapshots.duckdb",
             DB_DIR / "audit_logs.duckdb",
         ]

@@ -281,14 +281,28 @@ class StreamingDisplay:
             markdown: If True, render text as Markdown with syntax highlighting
         """
         if markdown and text.strip():
-            from rich.markdown import Markdown
+            try:
+                from rich.markdown import Markdown
 
-            # P10: Clean up Markdown that Rich doesn't handle well
-            # Replace <br> with space or newline (Rich Markdown doesn't support HTML tags in tables)
-            cleaned_text = text.replace("<br>", "  \n")  # Standard Markdown line break
+                # P10: Clean up Markdown that Rich doesn't handle well
+                # Replace <br> with space or newline (Rich Markdown doesn't support HTML tags in tables)
+                cleaned_text = text.replace("<br>", "  \n")  # Standard Markdown line break
+                
+                # 移除代码块中的markdown标记（如果存在）
+                if cleaned_text.startswith("```markdown"):
+                    cleaned_text = cleaned_text.replace("```markdown\n", "").replace("\n```", "")
+                elif cleaned_text.startswith("```"):
+                    # 移除其他代码块包装
+                    lines = cleaned_text.split("\n")
+                    if lines[0].startswith("```") and lines[-1].strip() == "```":
+                        cleaned_text = "\n".join(lines[1:-1])
 
-            md = Markdown(cleaned_text)
-            self.console.print(md)
+                md = Markdown(cleaned_text)
+                self.console.print(md)
+            except Exception as e:
+                # Fallback: 如果markdown渲染失败，使用纯文本
+                self.console.print(f"[dim]Warning: Markdown rendering failed: {e}[/dim]")
+                self.console.print(text, end=end, highlight=False)
         else:
             self.console.print(text, end=end, highlight=False)
         # Force flush to show streaming tokens immediately

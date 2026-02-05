@@ -473,7 +473,7 @@ async def cmd_lib(args: str) -> str:
 
 @register_command("template")
 async def cmd_template(args: str) -> str:
-    """Generate TextFSM template using Coder Agent.
+    """Generate TextFSM template using TextfsmAgent.
 
     Usage:
         /template <platform> <command>
@@ -504,7 +504,7 @@ Then paste the raw command output when prompted."""
 
 Please use the Python API directly:
 
-    from olav.agents.coder import generate_template
+    from olav.agents.textfsm_agent import generate_template
 
     result = await generate_template(
         raw_output="<paste raw output here>",

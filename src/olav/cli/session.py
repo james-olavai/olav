@@ -30,13 +30,13 @@ class OlavPromptSession:
 
     def __init__(
         self,
-        enable_completion: bool = True,
+        enable_completion: bool = False,  # 禁用TAB补全（有问题），仅保留历史记录
         multiline: bool = True,
     ) -> None:
         """Initialize OlavPromptSession.
 
         Args:
-            enable_completion: Enable auto-completion from whitelist
+            enable_completion: Enable auto-completion from whitelist (DISABLED - 功能有问题)
             multiline: Enable multi-line input
         """
         self.enable_completion = enable_completion
@@ -79,24 +79,20 @@ class OlavPromptSession:
         try:
             from prompt_toolkit import PromptSession
             from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-            from prompt_toolkit.completion import WordCompleter
             from prompt_toolkit.history import FileHistory
 
             # Create FileHistory (native persistence)
             history = FileHistory(str(USER_HISTORY_PATH))
 
-            # Create word completer from whitelist
+            # TAB补全已禁用（功能有问题），仅保留历史记录
             completer = None
-            if self.enable_completion and self.whitelist:
-                words = [cmd.strip() for cmd in self.whitelist.keys()]
-                if words:
-                    completer = WordCompleter(words=words, ignore_case=True)
 
             # Create prompt session
             self._session = PromptSession(
                 history=history,
                 auto_suggest=AutoSuggestFromHistory(),
                 completer=completer,
+                complete_while_typing=True,  # Enable real-time completion
                 multiline=self.multiline,
             )
 
@@ -762,11 +758,11 @@ class Session:
             "model": model,
         }
 
-    def get_token_limit(self, model: str = "gpt-3.5-turbo") -> dict:
+    def get_token_limit(self, model: str | None = None) -> dict:
         """Get token limit information for a model.
 
         Args:
-            model: Model name
+            model: Model name (defaults to configured LLM model)
 
         Returns:
             Dictionary with token limit information:
@@ -775,29 +771,24 @@ class Session:
             - estimated_input_tokens: Estimated tokens used
             - available_tokens: Remaining tokens for response
             - usage_percent: Percentage of context used
+        
+        Note: Uses settings.llm_max_tokens as context window (no hardcoded limits).
         """
-        # Common model context windows
-        model_limits = {
-            "gpt-3.5-turbo": 4096,
-            "gpt-3.5-turbo-16k": 16384,
-            "gpt-4": 8192,
-            "gpt-4-turbo": 128000,
-            "gpt-4o": 128000,
-            "gpt-4o-mini": 128000,
-            "claude-2": 100000,
-            "claude-3-opus": 200000,
-            "claude-3-sonnet": 200000,
-            "claude-3-haiku": 200000,
-        }
-
-        context_limit = model_limits.get(model, 4096)
+        from config.settings import settings
+        
+        # Use configured model if not specified
+        if not model:
+            model = settings.llm_model_name
+        
+        # Use configured context window (no hardcoded model-specific limits)
+        context_limit = settings.llm_max_tokens  # 从配置读取，而非硬编码
 
         # Get estimated tokens
         estimate = self.estimate_context_size_tokens()
         estimated_tokens = estimate["estimated_tokens"]
 
         available = max(0, context_limit - estimated_tokens)
-        usage_percent = (estimated_tokens / context_limit) * 100
+        usage_percent = (estimated_tokens / context_limit) * 100 if context_limit > 0 else 0.0
 
         return {
             "model": model,
@@ -928,8 +919,8 @@ class Session:
                 last_ts = self.messages[-1].timestamp
                 if isinstance(first_ts, object) and isinstance(last_ts, object):
                     duration = (last_ts - first_ts).total_seconds()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to calculate conversation duration: {e}")
 
         return {
             "total_messages": len(self.messages),

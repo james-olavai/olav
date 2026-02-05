@@ -52,8 +52,8 @@ class DatabaseTransaction:
             logger.warning(f"Transaction timeout ({self.timeout}s exceeded)")
             try:
                 self.conn.rollback()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to rollback after timeout: {e}")
             return False
 
         if exc_type is not None:
@@ -75,8 +75,8 @@ class DatabaseTransaction:
                 logger.error(f"Commit failed: {e}")
                 try:
                     self.conn.rollback()
-                except Exception:
-                    pass
+                except Exception as e2:
+                    logger.debug(f"Failed to rollback after commit error: {e2}")
                 return False
 
 
