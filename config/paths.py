@@ -102,7 +102,6 @@ LOGS_DIR = PROJECT_ROOT / "logs"
 # =============================================================================
 
 CONFIG_DIR = AGENT_DIR / "config"
-GUARD_RULES_PATH = CONFIG_DIR / "guard_rules.yaml"
 ROUTING_RULES_PATH = CONFIG_DIR / "routing_rules.yaml"
 SETTINGS_JSON_PATH = AGENT_DIR / "settings.json"
 
@@ -110,8 +109,19 @@ SETTINGS_JSON_PATH = AGENT_DIR / "settings.json"
 # Skills Directory (.olav/skills/)
 # =============================================================================
 
-SKILLS_DIR = AGENT_DIR / "skills"
+SKILL_BASE_PATH = AGENT_DIR / "skills"
+SKILLS_DIR = SKILL_BASE_PATH  # Alias for backward compatibility
 SKILL_INSPECT_ANALYZER = SKILLS_DIR / "inspect-analyzer" / "SKILL.md"
+SKILL_LOG_ANALYZER = SKILLS_DIR / "log-analyzer" / "SKILL.md"
+SKILL_DAILY_REPORT = SKILLS_DIR / "daily-report" / "SKILL.md"
+
+# =============================================================================
+# Security Configuration (Guard Skill)
+# =============================================================================
+
+GUARD_SKILL_DIR = SKILL_BASE_PATH / "guard"
+GUARD_RULES_PATH = GUARD_SKILL_DIR / "rules.yaml"
+GUARD_WHITELIST_PATH = GUARD_SKILL_DIR / "whitelist.yaml"
 SKILL_LOG_ANALYZER = SKILLS_DIR / "log-analyzer" / "SKILL.md"
 SKILL_DAILY_REPORT = SKILLS_DIR / "daily-report" / "SKILL.md"
 

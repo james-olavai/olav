@@ -186,7 +186,7 @@ class QueryRouter:
 
         P2优化: 避免每次route()调用都从磁盘读取YAML文件
         """
-        whitelist_file = Path(".olav/config/command_whitelist.yaml")
+        whitelist_file = Path(".olav/skills/guard/whitelist.yaml")
         if whitelist_file.exists():
             try:
                 with open(whitelist_file) as f:
