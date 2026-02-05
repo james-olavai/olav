@@ -3,16 +3,67 @@
 ## Overview
 OLAV (Orchestrator Language Agent Virtuoso) is a network query assistant that translates natural language to SQL queries against network device snapshots stored in DuckDB.
 
-## Key Components
-- **DataGateway**: DuckDB-based snapshot query engine (`.olav/data/snapshots.duckdb`)
-- **QueryAgent**: ReAct agent using DeepAgents framework for intelligent query execution
-- **Orchestrator**: SubAgent-based meta-agent for routing and coordination
-- **SubAgents**: Specialized agents (database, cli, analysis)
-
 ## Architecture
-- **Cache System**: SQLiteCache for LLM calls, Fuzzy/Exact matching for Guard/Intent
-- **Persistence**: DuckDB for checkpointer/store (session state and aliases)
+- **Framework**: DeepAgents (LangGraph-based multi-agent orchestration)
+- **Cache System**: SQLiteCache for LLM calls (transparent prompt-level caching)
+- **Persistence**: DuckDB for checkpointer/store (session state management)
 - **Skills**: Loaded from `.olav/skills/*/SKILL.md` frontmatter
+- **SubAgents**: Declarative specialist configurations (defined below)
+
+---
+
+## SubAgent Registry
+<!-- Orchestrator dynamically loads SubAgent references from this section -->
+<!-- Actual tools and prompts are defined in each agent's .olav/skills/*/SKILL.md -->
+
+### query
+```yaml
+---
+name: query
+agent_skill: network-query
+description: Database query specialist - SQL queries, schema inspection, data discovery
+capabilities:
+  - Device inventory queries (devices table)
+  - SQL execution on network database
+  - Schema inspection and data discovery
+  - Automatic LLM caching for repeated queries
+enabled: true
+---
+```
+
+### expert
+```yaml
+---
+name: expert
+agent_skill: network-expert
+description: CCIE-level Network Expert for complex troubleshooting and root cause analysis
+capabilities:
+  - Multi-domain expertise (R&S, DC, SP, Security)
+  - Topology-aware analysis with dynamic scope expansion
+  - Cross-layer correlation (L1-L7)
+  - Knowledge base and case study integration
+  - Professional-grade diagnosis reports
+enabled: true
+---
+```
+
+### cli
+```yaml
+---
+name: cli
+agent_skill: network-query  # Reuses query skill for now (CLI tools TBD)
+description: CLI command execution specialist for network operations
+capabilities:
+  - Network command execution
+  - Configuration changes
+  - Device interaction
+enabled: true
+---
+```
+
+
+
+---
 
 ## User Preferences
 <!-- Agent will learn and update this section -->

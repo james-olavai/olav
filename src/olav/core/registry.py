@@ -41,10 +41,12 @@ class CommandRegistry:
         Args:
             custom_dir: Path to custom TextFSM template directory
         """
+        from config.paths import TEXTFSM_TEMPLATES_DIR
         from config.settings import settings
 
         if custom_dir is None:
-            custom_dir = Path(settings.agent_dir) / "config" / "textfsm"
+            # v0.10.1: Use skill-level config path
+            custom_dir = TEXTFSM_TEMPLATES_DIR
 
         self.custom_index = custom_dir
         self.ntc_template_dir: Path | None = None
@@ -190,7 +192,7 @@ class CommandRegistry:
         """Get TextFSM template for a platform/command pair.
 
         Priority:
-        1. Custom templates (.olav/config/textfsm/)
+        1. Custom templates (.olav/skills/textfsm-generator/config/textfsm/)
         2. ntc-templates (if available)
 
         Args:

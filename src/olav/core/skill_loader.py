@@ -1,4 +1,9 @@
-"""Skill Loader - 从 Markdown frontmatter 加载和索引技能."""
+"""Skill Loader - 从 Markdown frontmatter 加载和索引技能.
+
+v0.10.1+: 支持skill级配置加载
+- skill/config/*.yaml 自动加载
+- 统一配置管理机制
+"""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +29,7 @@ class Skill:
     file_path: str
     content: str | None = None  # 延迟加载
     frontmatter: dict[str, Any] | None = None  # Frontmatter 数据 (延迟加载)
+    config: dict[str, Any] | None = None  # Skill级配置 (延迟加载, v0.10.1+)
 
 
 class SkillLoader:
@@ -175,6 +181,62 @@ class SkillLoader:
                 for skill_id, skill in self._index.items()
             },
         }
+
+    def load_skill_config(self, skill_id: str, config_name: str | None = None) -> dict[str, Any]:
+        """加载skill级别的配置文件 (v0.10.1+).
+        
+        路径解析:
+            .olav/skills/{skill_id}/config/{config_name}.yaml
+        
+        Args:
+            skill_id: Skill ID (e.g., "network-expert")
+            config_name: 配置文件名（不含.yaml后缀），None则加载所有配置
+        
+        Returns:
+            配置字典，找不到返回空dict
+        
+        Examples:
+            # 加载单个配置
+            thresholds = loader.load_skill_config("network-expert", "thresholds")
+            
+            # 加载所有配置
+            all_configs = loader.load_skill_config("network-expert")
+            # Returns: {"thresholds": {...}, "models": {...}}
+        """
+        if skill_id not in self._index:
+            return {}
+        
+        skill = self._index[skill_id]
+        skill_dir = Path(skill.file_path).parent
+        config_dir = skill_dir / "config"
+        
+        if not config_dir.exists():
+            return {}
+        
+        # 加载单个配置文件
+        if config_name:
+            config_file = config_dir / f"{config_name}.yaml"
+            if not config_file.exists():
+                return {}
+            
+            try:
+                with open(config_file, encoding="utf-8") as f:
+                    return yaml.safe_load(f) or {}
+            except Exception as e:
+                print(f"Warning: Failed to load {config_file}: {e}")
+                return {}
+        
+        # 加载所有配置文件
+        all_configs = {}
+        for config_file in config_dir.glob("*.yaml"):
+            config_key = config_file.stem  # 文件名（不含.yaml）
+            try:
+                with open(config_file, encoding="utf-8") as f:
+                    all_configs[config_key] = yaml.safe_load(f) or {}
+            except Exception as e:
+                print(f"Warning: Failed to load {config_file}: {e}")
+        
+        return all_configs
 
 
 def get_skill_loader(skills_dir: Path | None = None) -> SkillLoader:

@@ -17,9 +17,9 @@ examples:
 # Cache configuration (P1 Optimization)
 cache:
   enabled: true
-  match_mode: "exact"          # 精确匹配（Query SubAgent 必须精确）
-  confidence_threshold: 1.0     # 置信度 100%
-  ttl_hours: 168               # 7 天过期
+  match_mode: "exact"          # exact match（Query SubAgent must be exact）
+  confidence_threshold: 1.0     # confidence 100%
+  ttl_hours: 168               # 7 days expiration
 
 tools:
   - name: query_database
