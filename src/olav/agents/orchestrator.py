@@ -258,20 +258,16 @@ def create_orchestrator(
     
     # Persistence layer (skill-level checkpoint - v0.10.0+)
     # Each skill has its own isolated checkpoint database
-    from langgraph.checkpoint.duckdb import DuckDBSaver
-    from langgraph.store.duckdb import DuckDBStore
-    from config.paths import ORCHESTRATOR_CHECKPOINT_PATH
+    # Note: DeepAgents handles checkpoint internally, we pass None to use in-memory
+    checkpointer = None
+    store = None
     
-    ORCHESTRATOR_CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    
-    try:
-        checkpointer = DuckDBSaver.from_conn_string(str(ORCHESTRATOR_CHECKPOINT_PATH)).__enter__()
-        store = DuckDBStore.from_conn_string(str(ORCHESTRATOR_CHECKPOINT_PATH)).__enter__()
-        logger.info(f"Orchestrator checkpoint enabled: {ORCHESTRATOR_CHECKPOINT_PATH}")
-    except Exception as e:
-        logger.warning(f"Failed to initialize Orchestrator checkpoint: {e}")
-        checkpointer = None
-        store = None
+    # For persistent checkpointing with DuckDB, would use:
+    # from langgraph.checkpoint.duckdb import DuckDBSaver
+    # checkpointer = DuckDBSaver.from_conn_string(str(checkpoint_path))
+    # But this creates context manager issues in async context
+    # DeepAgents subagents handle their own checkpoint/state management
+    logger.debug("Orchestrator using DeepAgents built-in state management (no explicit checkpoint)")
 
     # SubAgent configuration (v0.10.1 - Dynamic Loading from OLAV.md)
     try:
