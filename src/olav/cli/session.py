@@ -59,7 +59,7 @@ class OlavPromptSession:
 
     def _load_whitelist(self) -> dict[str, str]:
         """Load command whitelist for auto-completion."""
-        whitelist_file = Path(".olav/config/command_whitelist.yaml")
+        whitelist_file = Path(".olav/skills/guard/whitelist.yaml")
 
         if not whitelist_file.exists():
             return {}
