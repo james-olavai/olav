@@ -11,9 +11,9 @@ import json
 from pathlib import Path
 
 from langchain_core.tools import tool
-from config.paths import EXPORTS_BASE  # 使用统一配置
+from config.paths import EXPORTS_DIR  # 使用统一配置
 
-EXPORTS_DIR = EXPORTS_BASE  # exports/
+EXPORTS_BASE = EXPORTS_DIR  # exports/
 
 
 @tool

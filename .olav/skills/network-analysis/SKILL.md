@@ -14,7 +14,7 @@ examples:
 
 tools:
   - name: query_database
-    script: scripts/query_database.py
+    script: ../../tools/database/query_database.py
     description: "Query network state from database (L1-L4 data)."
     parameters:
       type: object
@@ -23,19 +23,19 @@ tools:
       required: ["sql"]
 
   - name: smart_query
-    script: scripts/smart_query.py
+    script: ../../tools/network/smart_query.py
     description: "Run live CLI commands for real-time verification."
 
   - name: analyze_topology
-    script: scripts/analyze_topology.py
+    script: ../../tools/analysis/analyze_topology.py
     description: "Analyze network topology and connections."
 
   - name: get_network_summary
-    script: scripts/get_network_summary.py
+    script: ../../tools/analysis/get_network_summary.py
     description: "Get overall network summary and health."
 
   - name: get_device_health
-    script: scripts/get_device_health.py
+    script: ../../tools/analysis/get_device_health.py
     description: "Get health status for specific devices."
 
 prompts:

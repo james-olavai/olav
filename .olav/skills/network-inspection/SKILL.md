@@ -7,7 +7,7 @@ intent: inspection
 
 tools:
   - name: find_ip_location
-    script: scripts/find_ip_location.py
+    script: ../../tools/inspection/find_ip_location.py
     description: "Find which device/interface an IP address is located on."
 
 # ============================================================================
