@@ -31,7 +31,7 @@ def _hash_query(query: str) -> str:
     Returns:
         MD5哈希值
     """
-    return hashlib.md5(query.strip().lower().encode()).hexdigest()
+    return hashlib.md5(query.strip().lower().encode()).hexdigest()  # noqa: S324
 
 
 class DiagnosisCache:

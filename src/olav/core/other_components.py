@@ -390,7 +390,7 @@ class NetworkExecutor:
     def _get_cache_key(self, request: NetworkRequest) -> str:
         """Generate cache key for request."""
         key_str = f"{request.method}:{request.url}"
-        return hashlib.md5(key_str.encode()).hexdigest()
+        return hashlib.md5(key_str.encode()).hexdigest()  # noqa: S324
 
     def _get_from_cache(self, cache_key: str) -> Any | None:
         """Get cached response if valid."""

@@ -111,16 +111,16 @@ class ConnectionPool:
                 try:
                     conn.execute(f"ATTACH IF NOT EXISTS '{snapshot_path}' AS db_snapshot")
                     attached_paths.add(snapshot_path)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to attach snapshot database: {e}")
 
             # Attach knowledge
             if knowledge_path not in attached_paths:
                 try:
                     conn.execute(f"ATTACH IF NOT EXISTS '{knowledge_path}' AS knowledge")
                     attached_paths.add(knowledge_path)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to attach knowledge database: {e}")
 
             # Update search path
             try:
@@ -131,8 +131,8 @@ class ConnectionPool:
                 paths = ["main", "commands", "db_snapshot", "knowledge"]
                 active_paths = [p for p in paths if p in attached or p == "main"]
                 conn.execute(f"SET search_path = '{','.join(active_paths)}'")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to set search_path: {e}")
 
             # Create views
             try:
@@ -171,10 +171,10 @@ class ConnectionPool:
                                 conn.execute(
                                     f"CREATE VIEW IF NOT EXISTS main.{view_name} AS SELECT * FROM commands.{view_name}"
                                 )
-                            except Exception:
-                                pass
-            except Exception:
-                pass
+                            except Exception as e:
+                                logger.debug(f"Failed to create view {view_name}: {e}")
+            except Exception as e:
+                logger.debug(f"Failed to expose views from commands catalog: {e}")
 
             logger.debug("Connection created and configured")
             return conn
@@ -232,7 +232,7 @@ class ConnectionPool:
                 logger.debug("Created ephemeral connection (pool exhausted)")
                 return conn
             else:
-                raise RuntimeError("Failed to create DuckDB connection")
+                raise RuntimeError("Failed to create DuckDB connection") from None
 
     def release(self, conn: duckdb.DuckDBPyConnection) -> bool:
         """Release a connection back to the pool.
@@ -251,8 +251,8 @@ class ConnectionPool:
             # Pool full, close the connection
             try:
                 conn.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to close connection when pool full: {e}")
             logger.debug("Pool full, closed connection")
             return False
 
@@ -263,8 +263,8 @@ class ConnectionPool:
                 conn = self.pool.get(block=False)
                 try:
                     conn.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to close pooled connection: {e}")
             except Empty:
                 break
 

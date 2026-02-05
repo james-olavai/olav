@@ -30,6 +30,7 @@ DB_DIR = AGENT_DIR / "db"
 SNAPSHOTS_DB = DB_DIR / "snapshots.duckdb"  # Network snapshot data (read-only)
 TOPOLOGY_DB = DB_DIR / "topology.duckdb"  # Topology data (read-only)
 AUDIT_LOGS_DB = DB_DIR / "audit_logs.duckdb"  # Command audit logs (write-only)
+MAIN_DB_PATH = DB_DIR / "main.duckdb"  # Main database for devices table and structured data
 
 # v0.9.9: Unified Database Core (deprecated - use SNAPSHOTS_DB instead)
 OLAV_DB_PATH = DB_DIR / "olav.duckdb"
@@ -113,6 +114,34 @@ SKILLS_DIR = AGENT_DIR / "skills"
 SKILL_INSPECT_ANALYZER = SKILLS_DIR / "inspect-analyzer" / "SKILL.md"
 SKILL_LOG_ANALYZER = SKILLS_DIR / "log-analyzer" / "SKILL.md"
 SKILL_DAILY_REPORT = SKILLS_DIR / "daily-report" / "SKILL.md"
+
+# =============================================================================
+# Skill-Level Cache/Checkpoint Paths (v0.10.0+)
+# Each skill has its own isolated cache/checkpoint database
+# =============================================================================
+
+def get_skill_checkpoint_path(skill_name: str) -> Path:
+    """Get checkpoint database path for a specific skill.
+    
+    Args:
+        skill_name: Name of the skill (e.g., 'orchestrator', 'network-query')
+    
+    Returns:
+        Path to skill's checkpoint database (.olav/skills/{skill_name}/skill.duckdb)
+    
+    Examples:
+        >>> get_skill_checkpoint_path('orchestrator')
+        Path('.olav/skills/orchestrator/skill.duckdb')
+        >>> get_skill_checkpoint_path('network-query')
+        Path('.olav/skills/network-query/skill.duckdb')
+    """
+    skill_dir = SKILLS_DIR / skill_name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    return skill_dir / "skill.duckdb"
+
+# Pre-defined skill checkpoint paths (most commonly used)
+ORCHESTRATOR_CHECKPOINT_PATH = get_skill_checkpoint_path("orchestrator")
+NETWORK_QUERY_CHECKPOINT_PATH = get_skill_checkpoint_path("network-query")
 
 # =============================================================================
 # Documentation Paths

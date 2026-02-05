@@ -11,8 +11,9 @@ import json
 from pathlib import Path
 
 from langchain_core.tools import tool
+from config.paths import EXPORTS_BASE  # 使用统一配置
 
-EXPORTS_DIR = Path("exports")
+EXPORTS_DIR = EXPORTS_BASE  # exports/
 
 
 @tool
@@ -54,19 +55,105 @@ def discover_data(pattern: str = "*") -> str:
 
 
 @tool
-async def query_network(question: str | None = None, sql: str | None = None) -> str:
-    """执行网络数据查询。
-
-    支持直接的 SQL 语句或自然语言问题。
-    使用专门的 SQL Assistant Agent，具备跨表关联、自省 Schema 和错误自愈能力。
-
+def query_database(sql: str, params: list | None = None) -> str:
+    """Execute SQL query on network database (.olav/db/main.duckdb).
+    
+    Direct database access without agent recursion. Returns query results as JSON.
+    
     Args:
-        question: 自然语言问题 (可选，优先)
-        sql: SQL 查询语句 (可选，fallback)
-
+        sql: SQL SELECT statement (e.g., "SELECT * FROM devices")
+        params: Optional parameters for parameterized query
+        
     Returns:
-        查询分析结果
+        Query results as JSON string
+        
+    Examples:
+        >>> query_database("SELECT hostname, ios_version FROM devices")
+        [{"hostname": "R1", "ios_version": "16.12.5"}, ...]
+        
+        >>> query_database("SELECT * FROM devices WHERE hostname = ?", ["R1"])
+        [{"hostname": "R1", "ip_address": "10.0.0.1", ...}]
     """
+    try:
+        from olav.lib.data_gateway import query_database as db_query
+        
+        results = db_query(sql, params or [])
+        return json.dumps(results, indent=2, default=str)
+    except Exception as e:
+        return f"Database Error: {e}\n\nTip: Use inspect_schema() to check available tables and columns"
+
+
+@tool
+def inspect_schema(table_name: str | None = None) -> str:
+    """Inspect database schema to see available tables and columns.
+    
+    Args:
+        table_name: Optional table name to inspect specific table
+        
+    Returns:
+        Schema information as text
+        
+    Examples:
+        >>> inspect_schema()  # List all tables
+        Available tables: devices, raw_outputs, v_lldp, v_bgp_neighbors
+        
+        >>> inspect_schema("devices")  # Show columns for devices table
+        Table: devices
+        Columns:
+        - hostname (VARCHAR)
+        - ip_address (VARCHAR)
+        - vendor (VARCHAR)
+        ...
+    """
+    try:
+        from olav.lib.data_gateway import query_database as db_query
+        
+        if table_name:
+            # Get columns for specific table (DuckDB syntax)
+            sql = f"DESCRIBE {table_name}"
+            try:
+                result = db_query(sql)
+                if result:
+                    columns_info = "\n".join(
+                        f"- {row['column_name']} ({row['column_type']})"
+                        for row in result
+                    )
+                    return f"Table: {table_name}\nColumns:\n{columns_info}"
+                else:
+                    return f"Table '{table_name}' not found or has no columns"
+            except Exception:
+                # Fallback: Try to query the table and infer schema
+                result = db_query(f"SELECT * FROM {table_name} LIMIT 0")
+                if isinstance(result, list):
+                    return f"Table: {table_name}\nNote: Table exists but schema inspection failed. Try querying it directly."
+                raise
+        else:
+            # List all tables (DuckDB syntax)
+            sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+            result = db_query(sql)
+            if result:
+                tables = [row['table_name'] for row in result]
+                return f"Available tables: {', '.join(tables)}\n\nTip: Use inspect_schema('table_name') to see columns"
+            else:
+                return "No tables found in database"
+    except Exception as e:
+        return f"Schema Error: {e}\n\nNote: Database might be empty or inaccessible"
+
+
+@tool
+async def query_network(question: str | None = None, sql: str | None = None) -> str:
+    """[DEPRECATED] Legacy tool - Use query_database() instead.
+    
+    This tool creates a new QueryAgent which can cause context loss.
+    Prefer direct database access via query_database().
+    """
+    import warnings
+    warnings.warn(
+        "query_network is deprecated. Use query_database() for direct SQL access.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    
     query_text = question or sql
     if not query_text:
         return "Error: No question or SQL query provided."

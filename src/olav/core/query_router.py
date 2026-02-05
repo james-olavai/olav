@@ -208,7 +208,7 @@ class QueryRouter:
         """
         import hashlib
 
-        return hashlib.md5(user_input.strip().encode()).hexdigest()
+        return hashlib.md5(user_input.strip().encode()).hexdigest()  # noqa: S324
 
     def _get_routing_cache(self, cache_key: str) -> RoutingDecision | None:
         """获取缓存的路由决策."""

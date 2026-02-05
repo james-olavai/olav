@@ -335,6 +335,14 @@ class QueryAgent:
         # Extract potential entities: Chinese phrases or device names like R1, SW1, etc.
         entities = re.findall(r"[\u4e00-\u9fa5]+|[A-Z]+\d*", query)
 
+        # Protocol whitelist (should NOT trigger learning)
+        _protocol_whitelist = {
+            "OSPF", "BGP", "ISIS", "EIGRP", "RIP", "VRRP", "HSRP",
+            "LACP", "STP", "RSTP", "MSTP", "VTP", "CDP", "LLDP",
+            "SNMP", "NTP", "DHCP", "DNS", "HTTP", "HTTPS", "SSH",
+            "VLAN", "VRF", "ACL", "QOS", "MPLS", "VPN", "ARP", "ICMP"
+        }
+
         # Pattern for standard device names (skip learning for these)
         _device_pattern = re.compile(r"^(R|SW|S|FW|WLC|AP)\d+$", re.IGNORECASE)
 
@@ -342,6 +350,11 @@ class QueryAgent:
 
         for entity in set(entities):  # Deduplicate
             if not entity or len(entity) < 2:
+                continue
+
+            # Skip protocol names (OSPF, BGP, ISIS, etc.)
+            if entity.upper() in _protocol_whitelist:
+                logger.debug(f"Skipping protocol name: {entity}")
                 continue
 
             # Skip standard device name patterns (R1-R99, SW1-SW99, etc.)
