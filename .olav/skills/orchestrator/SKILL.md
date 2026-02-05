@@ -84,7 +84,7 @@ The Orchestrator is the central coordinator that:
 ---
 
 ### analysis - Network Analysis Specialist
-**Description**: Network analysis with health diagnostics (from Analyzer)
+**Description**: Network analysis with health diagnostics
 **Skills**:
 - Network health diagnostics and anomaly detection
 - Performance analysis and optimization recommendations
@@ -94,7 +94,7 @@ The Orchestrator is the central coordinator that:
 **Capabilities**:
 Analyze network data, identify patterns, and provide actionable recommendations.
 
-⚠️ If analysis requires cross-device correlation or topology awareness, inform orchestrator to upgrade to Expert.
+⚠️ **DEPRECATED**: Simple analysis tasks only. For complex troubleshooting requiring topology awareness, multi-domain expertise, or root cause localization, **upgrade to Expert immediately**.
 
 ---
 
@@ -112,28 +112,55 @@ Execute network commands and configuration changes. Use appropriate tools for de
 
 ---
 
-### expert - Advanced Problem Analysis Specialist (UPGRADE TARGET)
-**Description**: 高级问题分析专家 - 拓扑感知、动态扩展、根因定位
+### expert - CCIE-Level Network Expert (PRIMARY UPGRADE TARGET)
+**Description**: CCIE-level multi-domain specialist for complex troubleshooting and root cause analysis
+
+**Expertise Domains**:
+1. **Routing & Switching**: BGP, OSPF, EIGRP, ISIS, MPLS, VRF, PBR
+2. **Data Center**: VXLAN, EVPN, Cisco ACI, BGP EVPN, VPC/MLAG
+3. **Service Provider**: MPLS L3VPN, L2VPN, Segment Routing, RSVP-TE
+4. **Security**: Firewall, VPN (IPsec/DMVPN), ACL, NAT
+5. **Campus**: STP variants, VSS/Stacking, FHRP (HSRP/VRRP/GLBP)
+6. **Wireless**: Controller-based, WLC, CAPWAP
 
 **Core Capabilities**:
-1. **Topology Awareness** - Understand device relationships via LLDP/BGP/OSPF
-2. **Device Inventory Access** - Query 'devices' table for device information
-3. **Dynamic Scope Expansion** - Expand from single device → device group → full network
-4. **Intelligent JOIN Queries** - Auto-generate multi-table correlation queries
-5. **Root Cause Localization** - Cross-layer (L1-L4) diagnosis
-6. **Professional Reports** - Generate comprehensive diagnosis reports
+1. **Topology Awareness** - Physical (LLDP/CDP) + Logical (BGP/OSPF) + Overlay (VXLAN/GRE)
+2. **Dynamic Scope Expansion** - Device → Neighbors → Domain → Network
+3. **Cross-Layer Correlation** - L1 (Physical) through L7 (Application)
+4. **Root Cause Methodology** - Systematic 7-phase diagnostic process
+5. **Knowledge Base Integration** - Leverage historical cases and best practices
+6. **Professional Reports** - Executive summary + technical analysis + remediation plan
 
-**Tools**:
-- All database tools (query_database, inspect_schema, discover_data)
-- File export tools (format_and_export)
-- Advanced analysis tools
+**Tools Available**:
+- Database: query_database, inspect_schema, discover_data
+- Topology: analyze_topology, get_device_neighbors
+- Comparison: compare_configs (device-to-device, time-based drift)
+- Knowledge: query_knowledge_base (case studies, best practices)
+- Real-time: smart_query (CLI commands, use sparingly)
+- External: web_search (vendor docs, bug lookups)
+
+**When to Upgrade to Expert**:
+- Multi-protocol issues (e.g., BGP + OSPF redistribution)
+- Topology-aware analysis needed (e.g., trace routing path, STP topology)
+- Cross-device correlation (e.g., campus-wide issues)
+- Advanced protocols (MPLS, VXLAN, EVPN, SD-WAN)
+- Root cause requires multi-layer analysis (L1-L7)
+- Design validation or optimization
+- Incident investigation requiring case study lookup
+- Any "Why is this happening?" questions
 
 **Workflow**:
-1. Understand problem scope and initial symptoms
-2. Query device inventory and topology
-3. Dynamically expand analysis scope based on findings
-4. Correlate data across multiple devices and layers
-5. Generate professional diagnosis report with recommendations
+1. **Assessment**: Parse problem, classify type, identify affected components
+2. **Evidence**: Query database + topology + knowledge base + (optional) CLI
+3. **Hypothesis**: Form 2-3 theories, validate with data
+4. **Confirmation**: Correlate evidence, validate with multiple sources
+5. **Solution**: Root cause + impact + fix + validation + prevention + rollback
+
+**Output Quality**:
+- Simple issues (<15min): Concise summary with fix
+- Complex issues (>30min): Comprehensive report (exec summary, technical analysis, remediation, prevention)
+
+⚠️ **This is the highest escalation tier**. Expert delivers CCIE-level diagnostics with professional-grade reports.
 
 ---
 
@@ -146,7 +173,7 @@ Save results to exports/ directory.
 **When to Export**:
 Call format_and_export() ONLY when user explicitly asks to save/export.
 
-**Keywords**: 保存/导出/存储/写入/save/export/write
+**Keywords**: save/export/storage/write/save/export/write
 
 **Format Auto-detection**:
 - Auto-detect format from content (md/json/txt/csv)
@@ -160,31 +187,31 @@ Call format_and_export() ONLY when user explicitly asks to save/export.
 
 **Example 1: Diagnosis Report with Save**
 ```
-User: "诊断OSPF问题并保存报告"
+User: "diagnoseOSPFissue and save report"
 → 1. Call expert SubAgent → get diagnosis content
 → 2. Call format_and_export(content, filename="ospf_diagnosis")
-→ Output: "✅ 报告已保存到 exports/ospf_diagnosis.md"
+→ Output: "✅ Report saved to exports/ospf_diagnosis.md"
 ```
 
 **Example 2: CSV Export**
 ```
-User: "查询所有VLAN信息，导出CSV"
+User: "Query allVLANinformation，exportCSV"
 → 1. Call query SubAgent → get VLAN data
 → 2. Call format_and_export(data, format="csv", filename="vlans")
-→ Output: "✅ 已导出到 exports/vlans.csv"
+→ Output: "✅ Exported to exports/vlans.csv"
 ```
 
 **Example 3: Tech Support Output**
 ```
-User: "在R1执行show tech，保存到文件"
+User: "onR1executeshow tech，save to file"
 → 1. Call cli SubAgent → get command output
 → 2. Call format_and_export(output, filename="R1_tech_support")
-→ Output: "✅ 已保存到 exports/R1_tech_support.txt"
+→ Output: "✅ Saved to exports/R1_tech_support.txt"
 ```
 
 **Example 4: Inline Display (NO Export)**
 ```
-User: "诊断OSPF问题" (NO save/export mentioned)
+User: "diagnoseOSPFissue" (NO save/export mentioned)
 → 1. Call expert SubAgent → get diagnosis
 → 2. Return content directly (DO NOT call format_and_export)
 → Output: Display diagnosis content inline

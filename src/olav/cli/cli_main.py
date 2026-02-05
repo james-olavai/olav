@@ -73,7 +73,6 @@ async def stream_agent_response(
     agent: Any,
     inputs: dict[str, Any] | list[dict[str, Any]],
     verbose: bool = False,
-    learn_callback: "Callable[[str], str | None] | None" = None,
     thread_id: str | None = None,  # LangGraph thread_id for session
     timeout: float | None = None,  # Query timeout in seconds (None = use settings)
 ) -> str:
@@ -83,7 +82,6 @@ async def stream_agent_response(
         agent: OLAV agent instance (CompiledGraph)
         inputs: Input dict
         verbose: Show reasoning process
-        learn_callback: Optional callback for interactive alias learning
         thread_id: Session thread_id for checkpointer
         timeout: Query timeout in seconds (None = use settings.query_timeout)
 
@@ -119,7 +117,7 @@ async def stream_agent_response(
     try:
         # Use ainvoke with timeout
         final_state = await asyncio.wait_for(
-            agent.ainvoke(base_inputs, config=config, learn_callback=learn_callback),
+            agent.ainvoke(base_inputs, config=config),
             timeout=timeout,
         )
 
@@ -216,57 +214,6 @@ def _get_snapshot_time() -> str | None:
     return None
 
 
-def _create_learning_callback(session: "OlavPromptSession") -> Callable[[str], str | None]:
-    """Create a callback function for interactive alias learning.
-
-    Args:
-        session: OlavPromptSession instance for user interaction
-
-    Returns:
-        Callback function that prompts user and returns canonical form
-    """
-
-    def learn_alias(entity: str) -> str | None:
-        """Prompt user to teach the meaning of an unknown entity.
-
-        Args:
-            entity: The unknown entity (e.g., "核心路由器")
-
-        Returns:
-            Canonical form (e.g., "R1,R2,R3") or None if user declines
-        """
-        try:
-            # Prompt user with context
-            prompt_msg = f"\n🎓 Learning: I don't know '{entity}'. Which devices do you mean?\n"
-            prompt_msg += "  Enter device names (comma-separated), or press Enter to skip: "
-
-            # Use input() fallback since callback context cannot be async
-            # TODO: Consider moving learning to main loop for proper async handling
-            user_response = input(prompt_msg)
-
-            if not user_response or not user_response.strip():
-                print(f"  ⏭️  Skipped learning '{entity}' (will not affect query)")
-                return None
-
-            # Validate response (basic check for device-like patterns)
-            response = user_response.strip()
-
-            # Confirm with user
-            confirm_msg = f"  ✅ Learned: '{entity}' = '{response}'. Got it!\n"
-            print(confirm_msg)
-
-            return response
-
-        except (EOFError, KeyboardInterrupt):
-            print(f"  ⏭️  Skipped learning '{entity}' (interrupted)")
-            return None
-        except Exception as e:
-            logger.warning(f"Learning callback error: {e}")
-            return None
-
-    return learn_alias
-
-
 async def run_interactive_loop_async(
     session: "OlavPromptSession",
     agent: Any,
@@ -287,7 +234,6 @@ async def run_interactive_loop_async(
     from olav.agents.query_agent import QueryAgent
     from olav.cli.commands import execute_command
     from olav.cli.input_parser import parse_input
-    from olav.core.query_router import QueryRouter
 
     # Check if running in TTY mode
     is_tty = sys.stdin.isatty()
@@ -320,23 +266,16 @@ async def run_interactive_loop_async(
     
     logger.debug(f"Starting interactive session with thread_id: {thread_id}")
 
-    # Initialize QueryRouter and Display
+    # Initialize Guard (Security Gatekeeper) and Display
     from olav.cli.display import StreamingDisplay
+    from olav.core.guard import Guard
 
     display = StreamingDisplay(
         console=console, verbose=False, show_spinner=is_tty, quiet=not is_tty
     )
 
-    try:
-        from config.paths import ROUTING_RULES_PATH
-
-        router = QueryRouter(ROUTING_RULES_PATH)
-        if is_tty:
-            print("✅ QueryRouter initialized")
-    except FileNotFoundError:
-        router = None
-        if is_tty:
-            print("⚠️  QueryRouter config not found, using default routing")
+    # Initialize Guard for security checks
+    guard = Guard()
 
     # Display cache metrics on startup (TTY only)
     if is_tty:
@@ -370,181 +309,26 @@ async def run_interactive_loop_async(
                 continue
 
             # =========================================================================
-            # QueryRouter: Route user input before processing
+            # Guard: Security check before processing
             # =========================================================================
-            if router:
-                routing_decision = router.route(user_input)
+            guard_result = guard.check(user_input)
 
-                # Handle Guard rejections
-                if routing_decision.action == "reject":
-                    print(f"🚫 {routing_decision.message}")
+            # Handle Guard rejections
+            if guard_result.action == "reject":
+                print(f"🚫 {guard_result.message}")
+                continue
+
+            # Handle approval requirements
+            if guard_result.action == "require_approval":
+                print(f"⚠️  {guard_result.message}")
+                confirm = await session.prompt_async("Continue? (yes/no): ")
+                if confirm.lower() not in ["yes", "y"]:
+                    print("❌ Cancelled")
                     continue
 
-                # Handle approval requirements
-                if routing_decision.action == "require_approval":
-                    print(f"⚠️  {routing_decision.message}")
-                    confirm = await session.prompt_async("Continue? (yes/no): ")
-                    if confirm.lower() not in ["yes", "y"]:
-                        print("❌ Cancelled")
-                        continue
-
-                # Log routing decision for debugging (if verbose)
-                if settings.display_thinking and is_tty:
-                    print(f"🎯 Route: {routing_decision.expert} -> {routing_decision.tool}")
-
-                # Fast-Path: Direct tool execution if tool and params are provided
-                if (
-                    routing_decision.expert == "database"
-                    and routing_decision.tool
-                    and routing_decision.params
-                ):
-                    # Look for the tool in the agent's scripts/skills
-                    # For simplicity, we can use the agent's existing tool runners if possible
-                    # or call the SkillAdapter directly.
-                    try:
-                        from olav.core.skill_adapter import SkillAdapter
-                        from olav.core.skill_loader import get_skill_loader
-
-                        loader = get_skill_loader()
-                        skill = loader.get_skill("network-query")
-
-                        # Find the tool in the skill
-                        tool_def = next(
-                            (
-                                t
-                                for t in skill.frontmatter.get("tools", [])
-                                if t["name"] == routing_decision.tool
-                            ),
-                            None,
-                        )
-
-                        if tool_def:
-                            display.show_processing_status(
-                                f"⚡ Fast-Path: Executing {routing_decision.tool}..."
-                            )
-                            # Get skill directory for relative path resolution
-                            from pathlib import Path
-
-                            skill_file = Path(skill.file_path)
-                            skill_dir = skill_file.parent if skill_file.is_file() else skill_file
-
-                            executor = SkillAdapter._create_executor(
-                                tool_def["script"], skill_dir=skill_dir
-                            )
-                            result = executor(**routing_decision.params)
-                            display.stop_processing_status()
-
-                            # Standardize result check (handle both 'data' and 'results' keys)
-                            tool_data = result.get("data") or result.get("results")
-                            has_data = (
-                                tool_data is not None and len(tool_data) > 0
-                                if isinstance(tool_data, (list, dict))
-                                else tool_data is not None
-                            )
-
-                            if not has_data:
-                                if is_tty:
-                                    print(
-                                        "📊 Database lookup yielded no results. Falling back to Agent analysis..."
-                                    )
-                                # Do NOT continue; fall through to normal agent query
-                            else:
-                                # ============ 命令历史记录 ============
-                                # 记录 Fast-Path 或白名单命令执行到命令历史
-                                # 支持后续 tab 补全和命令重现
-
-                                # 提取信息
-                                command_used = routing_decision.tool if routing_decision else ""
-                                device_queried = (
-                                    routing_decision.params.get("device")
-                                    if routing_decision and routing_decision.params
-                                    else ""
-                                )
-                                sql_used = (
-                                    tool_data.get("sql_query")
-                                    if routing_decision
-                                    and routing_decision.tool == "query_database"
-                                    and isinstance(tool_data, dict)
-                                    else ""
-                                )
-
-                                # 记录到历史
-                                session.record_query(
-                                    query=user_input,
-                                    command_used=command_used or "",
-                                    device=device_queried or "",
-                                    sql_query=sql_used or "",
-                                )
-
-                                # Note: Session history auto-persisted by FileHistory + checkpointer
-
-                                # Check if it's a semantic tier hit (Tier 0 or Tier 1)
-                                is_semantic = routing_decision.message and (
-                                    "Tier 0" in routing_decision.message
-                                    or "Tier 1" in routing_decision.message
-                                )
-
-                                if is_semantic:
-                                    # Add data source indicator before synthesis
-                                    if routing_decision.tool == "query_database":
-                                        snapshot_time = _get_snapshot_time()
-                                        display.show_data_source_indicator(
-                                            "sql", snapshot_time=snapshot_time
-                                        )
-                                    elif routing_decision.tool == "smart_query":
-                                        device = (
-                                            routing_decision.params.get("device")
-                                            if routing_decision.params
-                                            else None
-                                        )
-                                        display.show_data_source_indicator("cli", device=device)
-
-                                    display.show_processing_status("🤔 Synthesizing response...")
-                                    if hasattr(agent, "synthesis"):
-                                        synthesis_output = await agent.synthesis(
-                                            user_input, tool_data
-                                        )
-                                        display.stop_processing_status()
-                                        display.show_result(
-                                            synthesis_output, end="\n"
-                                        )  # Ensure newline
-                                        continue
-                                    else:
-                                        display.stop_processing_status()
-
-                                # Fallback to standard result display (for regex-matched fast-path)
-                                # Add data source indicator
-                                if routing_decision.tool == "query_database":
-                                    # SQL database source
-                                    snapshot_time = _get_snapshot_time()
-                                    display.show_data_source_indicator(
-                                        "sql", snapshot_time=snapshot_time
-                                    )
-                                elif routing_decision.tool == "smart_query":
-                                    # CLI live query source
-                                    device = (
-                                        routing_decision.params.get("device")
-                                        if routing_decision.params
-                                        else None
-                                    )
-                                    display.show_data_source_indicator("cli", device=device)
-                                else:
-                                    # Unknown source
-                                    display.show_data_source_indicator("unknown")
-
-                                display.show_result(
-                                    f"✅ Fast-Path Result for {routing_decision.tool}:"
-                                )
-                                if isinstance(tool_data, (list, dict)):
-                                    display.show_json_table(tool_data)
-                                else:
-                                    display.show_result(str(tool_data), end="\n")
-
-                                continue  # Skip the agent loop
-                    except Exception as e:
-                        display.stop_processing_status()
-                        display.show_error(f"Fast-path execution failed: {e}")
-                        # Fall through to normal agent query
+            # Handle warnings
+            if guard_result.action == "warn" and guard_result.message:
+                print(f"⚠️  {guard_result.message}")
 
             # Check for slash commands first
             if user_input.startswith("/"):
@@ -613,18 +397,10 @@ async def run_interactive_loop_async(
                 # Checkpointer will retrieve conversation history automatically
                 agent_messages = [{"role": "user", "content": processed_text}]
 
-                # Phase 17: Resolve Expert Skill (Federated Specialists)
+                # Initialize Query Agent with default skill
+                # Routing is now handled by LangGraph Orchestrator
                 skill_name = "network-query"
-                if router and routing_decision.expert:
-                    expert_cfg = router.get_expert_config(routing_decision.expert)
-                    skill_name = expert_cfg.get("skill", skill_name)
-
-                # Initialize Query Agent with specific skill
                 agent = QueryAgent(enable_summarization=False, skill_name=skill_name)
-
-                # === NEW: Create learning callback ===
-                # Only enable interactive learning in TTY mode
-                learn_callback = _create_learning_callback(session) if is_tty else None
 
                 # Use verbose mode only if DISPLAY_THINKING=true
                 use_verbose = settings.display_thinking
@@ -635,7 +411,6 @@ async def run_interactive_loop_async(
                     agent,
                     inputs,
                     verbose=use_verbose,
-                    learn_callback=learn_callback,
                     thread_id=thread_id,  # Session thread_id
                 )
 
@@ -687,16 +462,7 @@ def query(
 
         import asyncio
 
-        # Phase 17: Intent Routing for single query
-        from olav.core.query_router import QueryRouter
-
-        router = QueryRouter()
-        routing_decision = router.route(query_text)
-
-        skill_name = "network-query"
-        if routing_decision.expert:
-            expert_cfg = router.get_expert_config(routing_decision.expert)
-            skill_name = expert_cfg.get("skill", skill_name)
+        # Use Orchestrator directly (routing handled by LangGraph)
 
         # Initialize QueryAgent with routed skill
         agent = QueryAgent(enable_summarization=False, skill_name=skill_name)

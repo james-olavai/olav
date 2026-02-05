@@ -404,7 +404,7 @@ def generate_diagnosis_report(
 @tool
 async def search_similar_cases(
     symptom: str,
-    skill_name: str = "network-analysis",
+    skill_name: str = "network-expert",
     max_results: int = 5,
 ) -> str:
     """检索历史相似案例（Agentic Learning）

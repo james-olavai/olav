@@ -413,7 +413,7 @@ def _extract_recommendations(analysis: str) -> list[str]:
 
 
 def _search_similar_cases(
-    symptom: str, skill_name: str = "network-analysis"
+    symptom: str, skill_name: str = "network-expert"
 ) -> list[dict[str, Any]]:
     """Search for similar historical diagnosis cases.
 
@@ -483,7 +483,7 @@ def _save_diagnosis_case(
     solution: str,
     devices_checked: list[str] | None = None,
     commands_used: list[str] | None = None,
-    skill_name: str = "network-analysis",
+    skill_name: str = "network-expert",
 ) -> None:
     """Save diagnosis case to learning database.
 

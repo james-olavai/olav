@@ -102,7 +102,6 @@ LOGS_DIR = PROJECT_ROOT / "logs"
 # =============================================================================
 
 CONFIG_DIR = AGENT_DIR / "config"
-ROUTING_RULES_PATH = CONFIG_DIR / "routing_rules.yaml"
 SETTINGS_JSON_PATH = AGENT_DIR / "settings.json"
 
 # =============================================================================
@@ -111,6 +110,24 @@ SETTINGS_JSON_PATH = AGENT_DIR / "settings.json"
 
 SKILL_BASE_PATH = AGENT_DIR / "skills"
 SKILLS_DIR = SKILL_BASE_PATH  # Alias for backward compatibility
+
+# v0.10.1: Skill-Specific Config Paths (migrated from .olav/config/)
+SKILL_NETWORK_EXPERT_DIR = SKILLS_DIR / "network-expert"
+SKILL_NETWORK_EXPERT_CONFIG = SKILL_NETWORK_EXPERT_DIR / "config"
+
+SKILL_NETWORK_INSPECTION_DIR = SKILLS_DIR / "network-inspection"
+SKILL_NETWORK_INSPECTION_CONFIG = SKILL_NETWORK_INSPECTION_DIR / "config"
+THRESHOLDS_CONFIG_PATH = SKILL_NETWORK_INSPECTION_CONFIG / "thresholds.yaml"
+
+SKILL_TEXTFSM_GENERATOR_DIR = SKILLS_DIR / "textfsm-generator"
+SKILL_TEXTFSM_GENERATOR_CONFIG = SKILL_TEXTFSM_GENERATOR_DIR / "config"
+TEXTFSM_TEMPLATES_DIR = SKILL_TEXTFSM_GENERATOR_CONFIG / "textfsm"
+
+SKILL_GUARD_DIR = SKILLS_DIR / "guard"
+SKILL_GUARD_CONFIG = SKILL_GUARD_DIR / "config"
+COMMAND_MODE_CONFIG_PATH = SKILL_GUARD_CONFIG / "command_mode.yaml"
+
+# Legacy skill paths (deprecated, use config paths above)
 SKILL_INSPECT_ANALYZER = SKILLS_DIR / "inspect-analyzer" / "SKILL.md"
 SKILL_LOG_ANALYZER = SKILLS_DIR / "log-analyzer" / "SKILL.md"
 SKILL_DAILY_REPORT = SKILLS_DIR / "daily-report" / "SKILL.md"
@@ -122,8 +139,6 @@ SKILL_DAILY_REPORT = SKILLS_DIR / "daily-report" / "SKILL.md"
 GUARD_SKILL_DIR = SKILL_BASE_PATH / "guard"
 GUARD_RULES_PATH = GUARD_SKILL_DIR / "rules.yaml"
 GUARD_WHITELIST_PATH = GUARD_SKILL_DIR / "whitelist.yaml"
-SKILL_LOG_ANALYZER = SKILLS_DIR / "log-analyzer" / "SKILL.md"
-SKILL_DAILY_REPORT = SKILLS_DIR / "daily-report" / "SKILL.md"
 
 # =============================================================================
 # Skill-Level Cache/Checkpoint Paths (v0.10.0+)

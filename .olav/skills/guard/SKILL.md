@@ -72,7 +72,7 @@ Each rule contains:
   action: reject | require_approval | warn | pass
   message:
     en: "English message"
-    zh: "中文消息"
+    zh: "Chinese messages"
   severity: critical | high | medium | low
 ```
 

@@ -19,6 +19,11 @@ Migration: v0.9.8 -> v0.10.0
 - Replaced manual _get_specialist_agent() with SubAgent declarations
 - Unified QueryAgent mode parameter -> enable_summarization
 - Native DeepAgents SubAgent middleware integration
+
+Migration: v0.10.0 -> v0.10.1
+- Replaced hardcoded _create_subagents() with dynamic loading from OLAV.md
+- SubAgent configurations now centralized in .olav/OLAV.md
+- Zero-code SubAgent addition/modification
 """
 
 from __future__ import annotations
@@ -31,7 +36,7 @@ from deepagents.middleware.subagents import SubAgent, CompiledSubAgent
 from langchain_core.messages import AIMessage, HumanMessage
 
 from olav.agents.analyzer import analyze_network
-from olav.core.query_router import QueryRouter
+from olav.core.subagent_loader import load_subagents_from_olav
 from olav.tools.react_query import query_network
 
 logger = logging.getLogger(__name__)
@@ -71,9 +76,15 @@ def _create_subagents() -> list[SubAgent]:
     return [
         SubAgent(
             name="query",
-            description="Database query specialist with direct SQL access",
+            description="Database query specialist with direct SQL access and caching",
             system_prompt=(
                 "You are a database query specialist with direct SQL access to network database.\n\n"
+                "**Query Execution Strategy (IMPORTANT):**\n"
+                "1. **First check cache**: Use LangChain's automatic LLM cache (transparent)\n"
+                "   - Repeated queries with same context are cached automatically\n"
+                "   - No explicit cache tool needed - just execute query_database normally\n"
+                "2. **Generate SQL**: If cache miss, analyze query and generate SQL\n"
+                "3. **Execute & Cache**: Execute SQL - result is automatically cached for future\n\n"
                 "**Available Tools:**\n"
                 "1. query_database(sql, params) - Execute SQL on .olav/db/main.duckdb\n"
                 "2. inspect_schema(table_name) - Check available tables and columns\n"
@@ -101,7 +112,8 @@ def _create_subagents() -> list[SubAgent]:
                 "- For interface data: Return what exists in DB, or inform 'data not in database'\n"
                 "- DO NOT create agents or call complex workflows\n"
                 "- DO NOT attempt to export files - that's orchestrator's job\n"
-                "- If query returns empty, suggest checking with inspect_schema()\n\n"
+                "- If query returns empty, suggest checking with inspect_schema()\n"
+                "- Caching is automatic via LangChain - focus on correct SQL generation\n\n"
                 "⚠️ YOU are responsible for data retrieval ONLY. "
                 "Return results, don't try to process or export them."
             ),
@@ -223,7 +235,10 @@ def create_orchestrator(
     thread_id: str | None = None,
     enable_summarization: bool = False,
 ) -> Any:
-    """Create SubAgent-based orchestrator.
+    """Create SubAgent-based orchestrator (v0.10.1 - Dynamic Loading).
+
+    SubAgent configurations are dynamically loaded from .olav/OLAV.md,
+    eliminating hardcoded definitions and enabling zero-code extensibility.
 
     Args:
         user_id: User identifier for session management
@@ -258,8 +273,14 @@ def create_orchestrator(
         checkpointer = None
         store = None
 
-    # SubAgent configuration
-    subagents = _create_subagents()
+    # SubAgent configuration (v0.10.1 - Dynamic Loading from OLAV.md)
+    try:
+        subagents = load_subagents_from_olav()
+        logger.info(f"Loaded {len(subagents)} SubAgents from OLAV.md")
+    except Exception as e:
+        logger.error(f"Failed to load SubAgents from OLAV.md: {e}")
+        logger.info("Falling back to legacy hardcoded SubAgent configuration")
+        subagents = _create_subagents()  # Fallback to hardcoded config
 
     # Load system prompt from SKILL.md (v0.10.0+ Skill-Centric Architecture)
     from olav.core.skill_loader import get_skill_loader
@@ -322,154 +343,8 @@ def create_orchestrator(
         name="orchestrator",
     )
 
-    # Wrap with cache-aware execution
-    return CachedOrchestrator(agent)
-
-
-# =============================================================================
-# Cache-Aware Orchestrator Wrapper
-# =============================================================================
-
-
-class CachedOrchestrator:
-    """Wrapper that adds Fast Path caching to orchestrator.
-
-    This enables QueryAgent-style caching for the SubAgent orchestrator:
-    1. Check cache before delegating to SubAgents
-    2. Store successful results in cache
-    3. Fast Path for repeated queries (<0.5s vs 5-10s)
-    """
-
-    def __init__(self, agent: Any) -> None:
-        """Initialize cached orchestrator wrapper.
-
-        Args:
-            agent: Underlying DeepAgent orchestrator
-        """
-        self.agent = agent
-
-        # Import cache components
-        from olav.core.query_cache import get_query_cache
-
-        self.query_cache = get_query_cache()
-
-    async def ainvoke(
-        self, inputs: dict[str, Any], config: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
-        """Invoke orchestrator with caching.
-
-        Args:
-            inputs: Input dictionary with 'messages' key
-            config: Optional config for agent execution
-
-        Returns:
-            Result dictionary with messages and metadata
-        """
-        import time
-
-        start_time = time.time()
-
-        # Extract user query from messages
-        messages = inputs.get("messages", [])
-        user_query = ""
-        if messages:
-            last_msg = messages[-1]
-            if isinstance(last_msg, dict):
-                user_query = last_msg.get("content", "")
-            elif hasattr(last_msg, "content"):
-                user_query = str(last_msg.content)
-
-        # Check cache for this query
-        cache_context = {"skill": "orchestrator", "mode": "subagent"}
-        if user_query:
-            cached_result = self.query_cache.get(user_query, context=cache_context)
-            if cached_result:
-                elapsed = time.time() - start_time
-                logger.info(
-                    f"✅ Orchestrator Cache HIT: {user_query[:50]}... ({elapsed * 1000:.2f}ms)"
-                )
-                return {
-                    **cached_result,
-                    "performance": {
-                        "cache_hit": True,
-                        "total_seconds": round(elapsed, 3),
-                    },
-                }
-
-        # Cache miss - delegate to underlying agent
-        logger.debug(f"Cache MISS: {user_query[:50]}... - delegating to SubAgents")
-
-        try:
-            # Execute underlying orchestrator
-            result = await self.agent.ainvoke(inputs, config)
-
-            # Cache successful results
-            elapsed = time.time() - start_time
-            if user_query and result.get("messages"):
-                # Extract final answer
-                final_msg = result["messages"][-1]
-                final_content = (
-                    final_msg.content if hasattr(final_msg, "content") else str(final_msg)
-                )
-
-                # Cache if no error
-                if "Error" not in final_content or "not found" in final_content.lower():
-                    # Convert messages to serializable format
-                    serializable_messages = []
-                    for msg in result["messages"]:
-                        if hasattr(msg, "content"):
-                            serializable_messages.append(
-                                {
-                                    "type": msg.__class__.__name__,
-                                    "content": msg.content,
-                                }
-                            )
-                        else:
-                            serializable_messages.append(str(msg))
-
-                    cache_result = {
-                        "messages": serializable_messages,
-                        "performance": {
-                            "cache_hit": False,
-                            "total_seconds": round(elapsed, 3),
-                        },
-                    }
-                    try:
-                        self.query_cache.set(
-                            user_query,
-                            cache_result,
-                            context=cache_context,
-                            metadata={"mode": "subagent", "tool": "orchestrator"},
-                        )
-                        logger.info(f"✅ Stored in cache: {user_query[:50]}...")
-                    except Exception as cache_err:
-                        logger.warning(f"Cache storage failed: {cache_err}")
-
-            # Add performance metadata
-            result["performance"] = {
-                "cache_hit": False,
-                "total_seconds": round(elapsed, 3),
-            }
-
-            return result
-
-        except Exception as e:
-            elapsed = time.time() - start_time
-            logger.error(f"Orchestrator execution failed: {e}")
-            return {
-                "messages": inputs.get("messages", []),
-                "error": str(e),
-                "performance": {
-                    "cache_hit": False,
-                    "total_seconds": round(elapsed, 3),
-                },
-            }
-
-    # Expose agent's config for compatibility
-    @property
-    def config(self) -> dict[str, Any]:
-        """Get underlying agent config."""
-        return getattr(self.agent, "config", {})
+    # Return agent directly - caching is SubAgent's responsibility
+    return agent
 
 
 # =============================================================================
@@ -479,7 +354,6 @@ class CachedOrchestrator:
 
 async def orchestrate_query(
     user_query: str,
-    router: QueryRouter | None = None,
     user_id: str | None = None,
     thread_id: str | None = None,
 ) -> dict[str, Any]:
@@ -487,7 +361,6 @@ async def orchestrate_query(
 
     Args:
         user_query: User's natural language query
-        router: Optional QueryRouter (legacy, kept for compatibility)
         user_id: User identifier
         thread_id: Thread identifier
 
