@@ -48,16 +48,19 @@ def _create_subagents() -> list[SubAgent]:
     Returns:
         List of SubAgent configurations for orchestrator
     """
-    # Import QueryAgent to access its tools
+    # Import agents to access their tools
     from olav.agents.query_agent import QueryAgent
-    
+
     # Initialize QueryAgent to reuse its tool configuration
-    # Use minimal setup to just get the tools
     query_agent = QueryAgent(skill_name="network-query", enable_summarization=False)
-    
-    # Get tools from QueryAgent (stored in query_agent.tools)
-    query_tools = query_agent.tools if hasattr(query_agent, 'tools') else [query_network]
-    
+    query_tools = query_agent.tools if hasattr(query_agent, "tools") else [query_network]
+
+    # Get Analyzer tools (graph-based agent)
+    analyzer_tools = _get_analyzer_tools()
+
+    # Get Expert tools (advanced analysis)
+    expert_tools = _get_expert_tools()
+
     return [
         SubAgent(
             name="query",
@@ -69,43 +72,128 @@ def _create_subagents() -> list[SubAgent]:
                 "2. Query caching for repeated requests\n"
                 "3. Skill-based tool loading (network-query skill)\n"
                 "4. Database query tools: query_database, inspect_schema, smart_query\n\n"
+                "**Available Database Tables:**\n"
+                "1. **devices** - Device Inventory (PRIMARY)\n"
+                "   Columns: hostname, ip_address, vendor, model, ios_version, device_role, site\n"
+                "   Description: Network device catalog with basic information\n"
+                "   Examples:\n"
+                "   - SELECT hostname FROM devices WHERE vendor='Cisco'\n"
+                "   - SELECT hostname FROM devices WHERE device_role='core'\n"
+                "   - SELECT hostname, ios_version FROM devices WHERE ios_version < '16.12'\n\n"
+                "2. **v_lldp** - LLDP Neighbors (device, neighbor, local_interface, remote_interface)\n"
+                "3. **v_bgp_neighbors** - BGP State (device, neighbor, state, asn)\n"
+                "4. **v_ospf_neighbors** - OSPF State (device, neighbor, state, router_id)\n\n"
+                "**IMPORTANT:** Always check 'devices' table FIRST for device information!\n"
+                "DO NOT try to query a non-existent 'device_info' or 'device_catalog' table - use 'devices' instead.\n\n"
                 "For simple device queries, use Fast Path for sub-second responses. "
-                "For complex analysis, engage ReAct reasoning loop."
+                "For complex analysis, engage ReAct reasoning loop.\n\n"
+                "⚠️ If query returns empty/insufficient results, inform orchestrator to upgrade to Expert."
             ),
             tools=query_tools,
         ),
         SubAgent(
-            name="database",
-            description="Network database specialist for querying device data",
+            name="analysis",
+            description="Network analysis specialist with health diagnostics (from Analyzer)",
             system_prompt=(
-                "You are a network database specialist. "
-                "Use the query_network tool to answer questions about network devices, "
-                "interfaces, configurations, and performance metrics."
+                "You are a network analysis specialist powered by Analyzer capabilities. "
+                "You specialize in:\n"
+                "1. Network health diagnostics and anomaly detection\n"
+                "2. Performance analysis and optimization recommendations\n"
+                "3. Root cause analysis for network issues\n"
+                "4. Real-time CLI verification when needed\n\n"
+                "Analyze network data, identify patterns, and provide actionable recommendations.\n\n"
+                "⚠️ If analysis requires cross-device correlation or topology awareness, "
+                "inform orchestrator to upgrade to Expert."
             ),
-            tools=[query_network],
+            tools=analyzer_tools,
         ),
         SubAgent(
             name="cli",
             description="CLI command execution specialist for network operations",
             system_prompt=(
                 "You are a CLI execution specialist. "
-                "You have access to network-query skill with tools including: "
-                "query_database, inspect_schema, smart_query, and CLI commands. "
-                "Use these tools to execute network operations."
+                "Execute network commands and configuration changes. "
+                "Use appropriate tools for device interaction and command execution.\n\n"
+                "⚠️ If CLI execution fails or requires multi-device coordination, "
+                "inform orchestrator to upgrade to Expert."
             ),
-            tools=[query_network],  # Will be augmented by SkillsMiddleware if needed
+            tools=query_tools,  # Reuse query tools which include CLI capabilities
         ),
         SubAgent(
-            name="analysis",
-            description="Network data analysis specialist",
+            name="expert",
+            description="高级问题分析专家 - 拓扑感知、动态扩展、根因定位",
             system_prompt=(
-                "You are a network analysis specialist. "
-                "Use the analyze_network tool to perform advanced analytics, "
-                "identify patterns, and provide actionable insights."
+                "You are the Expert Agent - advanced network problem analysis specialist.\n\n"
+                "You are called when query/cli/analysis SubAgents cannot solve the problem.\n\n"
+                "Your core capabilities:\n"
+                "1. **Topology Awareness** - Understand device relationships via LLDP/BGP/OSPF\n"
+                "2. **Device Inventory Access** - Query 'devices' table for device information\n"
+                "3. **Dynamic Scope Expansion** - Expand from single device → device group → full network\n"
+                "4. **Intelligent JOIN Queries** - Auto-generate multi-table correlation queries\n"
+                "5. **Root Cause Localization** - Cross-layer (L1-L4) diagnosis\n"
+                "6. **Professional Reports** - Generate comprehensive diagnosis reports\n\n"
+                "**Available Database Tables:**\n"
+                "- **devices**: Device inventory (hostname, vendor, model, ios_version, device_role, site)\n"
+                "- v_lldp, v_bgp_neighbors, v_ospf_neighbors: Network topology\n\n"
+                "Workflow:\n"
+                "1. Analyze symptom and existing info from previous SubAgent\n"
+                "2. Query devices table to get device information (use devices table!)\n"
+                "3. Identify topology relationships (analyze_topology or query v_lldp/v_bgp_neighbors)\n"
+                "4. Dynamically expand scope (get_device_peers, expand_scope_by_role)\n"
+                "5. Execute correlation queries (execute_join_query or query_database with JOIN)\n"
+                "6. Root cause analysis (search_similar_cases for historical context)\n"
+                "7. Generate professional report (return content, not file)\n\n"
+                "Available tools:\n"
+                "- query_database/query_network: SQL access to devices, v_lldp, v_bgp_neighbors, etc.\n"
+                "- analyze_topology: Parse LLDP/BGP/OSPF topology\n"
+                "- get_device_peers: Find device neighbors\n"
+                "- expand_scope_by_role: Expand to same-role devices (requires devices table)\n"
+                "- execute_join_query: Auto-generate JOIN queries\n"
+                "- nornir_execute: CLI commands\n"
+                "- search_similar_cases: Historical case retrieval\n"
+                "- generate_diagnosis_report: Create professional reports\n\n"
+                "Remember: You handle complex problems that other SubAgents couldn't solve. "
+                "Always leverage the devices table as the primary source for device information."
             ),
-            tools=[analyze_network],
+            tools=expert_tools,
         ),
     ]
+
+
+def _get_analyzer_tools() -> list[Any]:
+    """Extract tools from Analyzer module (graph-based agent).
+
+    Returns:
+        List of tools for analysis SubAgent
+    """
+    from olav.lib.data_gateway import query_database
+    from olav.tools.network import list_devices, nornir_execute
+    from olav.tools.react_query import query_network
+
+    # Analyzer's main tool + supporting data access tools
+    return [
+        analyze_network,
+        query_network,
+        query_database,
+        nornir_execute,
+        list_devices,
+    ]
+
+
+def _get_expert_tools() -> list[Any]:
+    """Get Expert Agent specialized tool set.
+
+    Returns:
+        List of tools for expert SubAgent (advanced analysis)
+    """
+    from olav.tools.data_export import format_and_export
+    from olav.tools.expert_tools import get_expert_tools
+
+    # Expert tools + file export (only for Orchestrator via Expert)
+    expert_tools = get_expert_tools()
+    expert_tools.append(format_and_export)
+
+    return expert_tools
 
 
 # =============================================================================
@@ -142,27 +230,80 @@ def create_orchestrator(
     system_prompt = """You are the Orchestrator - a meta-agent coordinating specialist SubAgents.
 
 Your capabilities:
-1. Route queries to appropriate specialists: query, database, cli, analysis
+1. Route queries to appropriate specialists: query, analysis, cli, expert
 2. Execute multi-step reasoning for complex tasks
 3. Synthesize results from multiple specialists
+4. Evaluate result quality and upgrade to Expert when needed
+5. Export results to files when user requests
 
 Available SubAgents:
 - query: Enhanced query specialist (Fast Path + caching, from QueryAgent)
-- database: Query network device data
-- cli: Execute CLI commands
-- analysis: Perform advanced analytics
+  * Simple device queries, database operations, data retrieval
+  * Skill-based tools: query_database, inspect_schema, smart_query
+- analysis: Network analysis specialist (health diagnostics, from Analyzer)
+  * Health diagnostics, anomaly detection, performance analysis
+  * Root cause analysis, optimization recommendations
+- cli: CLI command execution specialist
+  * Network commands, configuration changes, device interaction
+- expert: Advanced problem analysis specialist (UPGRADE TARGET)
+  * Topology-aware analysis, dynamic scope expansion
+  * Cross-device correlation, root cause localization
+  * Professional diagnosis reports
+
+File Export Tool:
+- format_and_export(data, filename, format) - Save results to exports/
+
+**Export Guidelines:**
+1. Call format_and_export() ONLY when user explicitly asks to save/export
+   Keywords: 保存/导出/存储/写入/save/export/write
+2. Auto-detect format from content (md/json/txt/csv) or use user preference
+3. All files go to exports/ directory
+4. SubAgents return content, Orchestrator handles file writing
+
+**Export Examples:**
+User: "诊断OSPF问题并保存报告"
+→ 1. Call expert SubAgent → get diagnosis content
+→ 2. Call format_and_export(content, filename="ospf_diagnosis")
+→ Output: "✅ 报告已保存到 exports/ospf_diagnosis.md"
+
+User: "查询所有VLAN信息，导出CSV"
+→ 1. Call query SubAgent → get VLAN data
+→ 2. Call format_and_export(data, format="csv", filename="vlans")
+→ Output: "✅ 已导出到 exports/vlans.csv"
+
+User: "在R1执行show tech，保存到文件"
+→ 1. Call cli SubAgent → get command output
+→ 2. Call format_and_export(output, filename="R1_tech_support")
+→ Output: "✅ 已保存到 exports/R1_tech_support.txt"
+
+User: "诊断OSPF问题" (NO save/export mentioned)
+→ 1. Call expert SubAgent → get diagnosis
+→ 2. Return content directly (DO NOT call format_and_export)
+→ Output: Display diagnosis content inline
 
 Routing Strategy:
-- Simple device queries → query SubAgent (Fast Path, <1s)
-- Direct database operations → database SubAgent
-- CLI commands → cli SubAgent
-- Network analysis → analysis SubAgent
+- Simple queries (list/show/get) → query SubAgent (Fast Path, <1s)
+- Health/diagnostics/analysis → analysis SubAgent
+- Command execution/configuration → cli SubAgent
+- Complex investigation/troubleshooting → expert SubAgent
+- Quality issues → UPGRADE to expert SubAgent
+
+Quality Evaluation (when to upgrade to expert):
+1. SubAgent returns empty/error result
+2. User explicitly asks "why/原因/根因/investigate"
+3. Query requires cross-device correlation/comparison
+4. Query requires topology analysis
+5. Result is too brief (<100 chars) and not a simple list
+6. SubAgent execution timeout (>30s)
 
 Your workflow:
 1. Analyze user query to determine required specialist(s)
 2. Delegate subtasks to SubAgents
-3. Synthesize results into coherent answer
-4. Provide actionable recommendations
+3. EVALUATE result quality after SubAgent execution
+4. If quality insufficient, UPGRADE to expert SubAgent
+5. If user wants to save, call format_and_export
+6. Synthesize results into coherent answer
+7. Provide actionable recommendations
 
 Always be concise, accurate, and cite which specialist provided each insight."""
 
@@ -196,7 +337,7 @@ Always be concise, accurate, and cite which specialist provided each insight."""
         store=store,
         name="orchestrator",
     )
-    
+
     # Wrap with cache-aware execution
     return CachedOrchestrator(agent)
 
@@ -208,38 +349,42 @@ Always be concise, accurate, and cite which specialist provided each insight."""
 
 class CachedOrchestrator:
     """Wrapper that adds Fast Path caching to orchestrator.
-    
+
     This enables QueryAgent-style caching for the SubAgent orchestrator:
     1. Check cache before delegating to SubAgents
     2. Store successful results in cache
     3. Fast Path for repeated queries (<0.5s vs 5-10s)
     """
-    
+
     def __init__(self, agent: Any) -> None:
         """Initialize cached orchestrator wrapper.
-        
+
         Args:
             agent: Underlying DeepAgent orchestrator
         """
         self.agent = agent
-        
+
         # Import cache components
         from olav.core.query_cache import get_query_cache
+
         self.query_cache = get_query_cache()
-        
-    async def ainvoke(self, inputs: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+
+    async def ainvoke(
+        self, inputs: dict[str, Any], config: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Invoke orchestrator with caching.
-        
+
         Args:
             inputs: Input dictionary with 'messages' key
             config: Optional config for agent execution
-            
+
         Returns:
             Result dictionary with messages and metadata
         """
         import time
+
         start_time = time.time()
-        
+
         # Extract user query from messages
         messages = inputs.get("messages", [])
         user_query = ""
@@ -249,14 +394,16 @@ class CachedOrchestrator:
                 user_query = last_msg.get("content", "")
             elif hasattr(last_msg, "content"):
                 user_query = str(last_msg.content)
-        
+
         # Check cache for this query
         cache_context = {"skill": "orchestrator", "mode": "subagent"}
         if user_query:
             cached_result = self.query_cache.get(user_query, context=cache_context)
             if cached_result:
                 elapsed = time.time() - start_time
-                logger.info(f"✅ Orchestrator Cache HIT: {user_query[:50]}... ({elapsed * 1000:.2f}ms)")
+                logger.info(
+                    f"✅ Orchestrator Cache HIT: {user_query[:50]}... ({elapsed * 1000:.2f}ms)"
+                )
                 return {
                     **cached_result,
                     "performance": {
@@ -264,25 +411,40 @@ class CachedOrchestrator:
                         "total_seconds": round(elapsed, 3),
                     },
                 }
-        
+
         # Cache miss - delegate to underlying agent
         logger.debug(f"Cache MISS: {user_query[:50]}... - delegating to SubAgents")
-        
+
         try:
             # Execute underlying orchestrator
             result = await self.agent.ainvoke(inputs, config)
-            
+
             # Cache successful results
             elapsed = time.time() - start_time
             if user_query and result.get("messages"):
                 # Extract final answer
                 final_msg = result["messages"][-1]
-                final_content = final_msg.content if hasattr(final_msg, "content") else str(final_msg)
-                
+                final_content = (
+                    final_msg.content if hasattr(final_msg, "content") else str(final_msg)
+                )
+
                 # Cache if no error
                 if "Error" not in final_content or "not found" in final_content.lower():
+                    # Convert messages to serializable format
+                    serializable_messages = []
+                    for msg in result["messages"]:
+                        if hasattr(msg, "content"):
+                            serializable_messages.append(
+                                {
+                                    "type": msg.__class__.__name__,
+                                    "content": msg.content,
+                                }
+                            )
+                        else:
+                            serializable_messages.append(str(msg))
+
                     cache_result = {
-                        "messages": result["messages"],
+                        "messages": serializable_messages,
                         "performance": {
                             "cache_hit": False,
                             "total_seconds": round(elapsed, 3),
@@ -298,15 +460,15 @@ class CachedOrchestrator:
                         logger.info(f"✅ Stored in cache: {user_query[:50]}...")
                     except Exception as cache_err:
                         logger.warning(f"Cache storage failed: {cache_err}")
-            
+
             # Add performance metadata
             result["performance"] = {
                 "cache_hit": False,
                 "total_seconds": round(elapsed, 3),
             }
-            
+
             return result
-            
+
         except Exception as e:
             elapsed = time.time() - start_time
             logger.error(f"Orchestrator execution failed: {e}")
@@ -318,7 +480,7 @@ class CachedOrchestrator:
                     "total_seconds": round(elapsed, 3),
                 },
             }
-    
+
     # Expose agent's config for compatibility
     @property
     def config(self) -> dict[str, Any]:
@@ -384,6 +546,15 @@ async def orchestrate_query(
             last_msg = result["messages"][-1]
             if isinstance(last_msg, AIMessage):
                 final_answer = last_msg.content
+            elif isinstance(last_msg, dict) and "content" in last_msg:
+                # Handle serialized message format
+                final_answer = last_msg["content"]
+        if not final_answer and isinstance(result, dict):
+            # Try to extract from nested structures
+            if "output" in result:
+                final_answer = str(result["output"])
+            elif "content" in result:
+                final_answer = str(result["content"])
 
         return {
             "status": "complete",
