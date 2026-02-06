@@ -237,9 +237,10 @@ def _build_generation_prompt(
     platform: str,
     parse_results: list[dict[str, Any]] | None,
 ) -> str:
-    """Build prompt for TextFSM template generation.
+    """Build prompt for TextFSM template generation with NTC reference.
 
-    Phase 2: Load base prompt from SKILL.md instead of hardcoding.
+    Phase 2: Load base prompt from SKILL.md and enhance with NTC templates.
+    Phase 3: Add NTC library references for improved LLM generation quality.
 
     Args:
         raw_output: Raw command output
@@ -248,7 +249,7 @@ def _build_generation_prompt(
         parse_results: Previous parse results (for refinement)
 
     Returns:
-        Prompt string
+        Prompt string with NTC reference examples
     """
     # Phase 2: Load generation prompt from SKILL.md
     try:
@@ -257,10 +258,14 @@ def _build_generation_prompt(
         base_prompt = load_skill_prompt("textfsm-generator", "generation")
     except Exception as e:
         logger.warning(f"Failed to load generation prompt from SKILL.md: {e}")
-        # Fallback to simple prompt if SKILL.md not available
         base_prompt = "You are a TextFSM template expert for network command outputs."
 
+    # Phase 3: Enhance with NTC template references
+    ntc_reference = _get_ntc_reference(platform, command_name)
+
     prompt = f"""{base_prompt}
+
+{ntc_reference}
 
 Command: {command_name}
 Platform: {platform}
@@ -281,6 +286,64 @@ Improve the template based on what worked and what didn't.
 """
 
     return prompt
+
+
+def _get_ntc_reference(platform: str, command: str) -> str:
+    """Get reference templates from NTC library if available.
+
+    Args:
+        platform: Device platform (e.g., "cisco_ios", "juniper_junos")
+        command: Command name (e.g., "show_ip_bgp_summary")
+
+    Returns:
+        Reference section with NTC template examples, or empty string
+    """
+    try:
+        import ntc_templates
+        from pathlib import Path
+
+        # Get NTC templates directory
+        ntc_root = Path(ntc_templates.__file__).parent / "templates"
+
+        if not ntc_root.exists():
+            return ""
+
+        # Build search patterns (most specific to most general)
+        command_normalized = command.replace(" ", "_").lower()
+        search_patterns = [
+            f"{platform}_{command_normalized}.textfsm",
+            f"{platform}*{command_normalized.split('_')[0]}*.textfsm",
+        ]
+
+        templates_found = []
+        for pattern in search_patterns:
+            matches = list(ntc_root.glob(pattern))
+            templates_found.extend(matches)
+            if len(templates_found) >= 2:
+                break
+
+        if not templates_found:
+            return ""
+
+        # Build reference section
+        reference = "## Reference from NTC Template Library\n\n"
+        reference += f"Found similar templates in NTC library. Study these patterns:\n\n"
+
+        for template_file in templates_found[:2]:
+            reference += f"### {template_file.stem}\n\n"
+            reference += "```textfsm\n"
+            template_content = template_file.read_text()
+            # Limit to first 400 chars to avoid prompt bloating
+            reference += template_content[:400]
+            if len(template_content) > 400:
+                reference += "\n... (truncated)\n"
+            reference += "```\n\n"
+
+        return reference
+
+    except Exception as e:
+        logger.debug(f"Failed to get NTC reference: {e}")
+        return ""
 
 
 def _extract_template(content: str | list[Any]) -> str | None:
