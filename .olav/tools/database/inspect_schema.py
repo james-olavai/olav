@@ -5,30 +5,30 @@ from pathlib import Path
 # Add src to Python Path
 sys.path.insert(0, str(Path(__file__).parents[2] / "src"))
 
-from olav.core.unified_database import UnifiedDatabase
+from olav.lib.data_gateway import query_database as db_query
 
 
 def main(params: dict) -> dict:
-    """Introspection for SQL Agent"""
+    """Introspection for SQL Agent - uses data_gateway unified connection."""
     table_name = params.get("table_name")
-    udb = UnifiedDatabase()
 
     if table_name:
         # Get columns for a specific table
         try:
-            res = udb.conn.execute(f"DESCRIBE {table_name}").fetchall()
-            columns = [row[0] for row in res]
+            result = db_query(f"DESCRIBE {table_name}")
+            columns = [row.get("column_name", row.get("Field", "")) for row in result]
             return {"status": "success", "table": table_name, "columns": columns}
         except Exception as e:
             return {"status": "error", "message": str(e)}
     else:
-        # List all views
+        # List all tables (from unified connection's main schema)
         try:
-            res = udb.conn.execute(
-                "SELECT table_name FROM information_schema.views WHERE table_schema = 'main'"
-            ).fetchall()
-            views = [row[0] for row in res]
-            return {"status": "success", "views": views}
+            result = db_query(
+                "SELECT DISTINCT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'main' ORDER BY table_name"
+            )
+            tables = [row["table_name"] for row in result]
+            return {"status": "success", "tables": tables}
         except Exception as e:
             return {"status": "error", "message": str(e)}
 

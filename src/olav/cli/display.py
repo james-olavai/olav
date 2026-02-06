@@ -361,13 +361,13 @@ class StreamingDisplay:
 
         if source == "sql":
             # Database source with timestamp
-            time_str = f" [dim](数据时间: {snapshot_time})[/dim]" if snapshot_time else ""
-            self.console.print(f"[dim]📊 数据来源: SQL数据库快照{time_str}[/dim]")
+            time_str = f" [dim](Data time: {snapshot_time})[/dim]" if snapshot_time else ""
+            self.console.print(f"[dim]📊 Data source: SQL database snapshot{time_str}[/dim]")
         elif source == "cli":
             dev_str = f" [cyan]{device}[/cyan]" if device else ""
-            self.console.print(f"[dim]📡 数据来源: CLI实时查询{dev_str}[/dim]")
+            self.console.print(f"[dim]📡 Data source: CLI live query{dev_str}[/dim]")
         else:
-            self.console.print(f"[dim]📊 数据来源: {source}[/dim]")
+            self.console.print(f"[dim]📊 Data source: {source}[/dim]")
 
     def show_json_table(self, json_data: Any) -> None:
         """Render JSON data as a table (if list of dicts) or pretty JSON.

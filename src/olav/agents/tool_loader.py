@@ -15,7 +15,7 @@ from typing import Any, Literal
 from langchain_core.tools import BaseTool
 
 from olav.tools.network import nornir_execute
-from olav.tools.react_query import query_network
+# query_network removed (deprecated) - use query_database from react_query
 from olav.tools.sync_tools import sync_all
 
 logger = logging.getLogger(__name__)
@@ -45,8 +45,7 @@ def load_tools_for_agent(
     """
     tool_registry: dict[AgentType, list[Callable[..., Any] | BaseTool]] = {
         "detective": [
-            # SQL/Graph query tools
-            query_network,
+            # SQL/Graph query tools (query_network removed - use query_database)
         ],
         "textfsm_agent": [
             # Code execution and generation tools
@@ -56,12 +55,10 @@ def load_tools_for_agent(
             # Network analysis tools
             nornir_execute,
             sync_all,
-            # Database access for historical analysis
-            query_network,
+            # Database access via query_database (query_network removed)
         ],
         "general": [
-            # Full toolset for general-purpose agent
-            query_network,
+            # Full toolset for general-purpose agent (query_network removed)
             nornir_execute,
             sync_all,
         ],
@@ -97,7 +94,7 @@ def get_tool_whitelist(agent_type: AgentType) -> list[str]:
     """
     whitelists: dict[AgentType, list[str]] = {
         "detective": [
-            "query_network",
+            "query_database",  # query_network removed
             # Explicitly BLOCKED: execute_network_command (read-only access)
         ],
         "textfsm_agent": [
@@ -105,12 +102,12 @@ def get_tool_whitelist(agent_type: AgentType) -> list[str]:
             # Network execution is BLOCKED for textfsm_agent
         ],
         "analyzer": [
-            "query_network",
+            "query_database",  # query_network removed
             "nornir_execute",
             "sync_all",
         ],
         "general": [
-            "query_network",
+            "query_database",  # query_network removed
             "nornir_execute",
             "sync_all",
         ],

@@ -259,6 +259,178 @@ def _sync_device_workflow(task: Task, commands: list[str], output_dir: Path) -> 
         return Result(host=host, failed=True, result=f"Complete Failure: {e}")
 
 
+def _populate_devices_table(nr_filtered) -> None:
+    """Populate devices table from Nornir inventory (v0.10.1).
+    
+    Args:
+        nr_filtered: Filtered Nornir object with selected devices
+    """
+    try:
+        from olav.core.database import get_database
+
+        db = get_database()
+        
+        for hostname, host in nr_filtered.inventory.hosts.items():
+            try:
+                # Extract device metadata from host object
+                device_id = hostname
+                ip_address = host.hostname or ""
+                platform = host.platform or ""
+                device_type = host.get("device_type", "unknown")
+                vendor = host.get("vendor", "")
+                model = host.get("model", "")
+                ios_version = host.get("os_version", "")
+                serial_number = host.get("serial_number", "")
+                device_role = host.get("role", "")
+                site = host.get("site", "")
+                
+                # Insert device into database
+                db.conn.execute(
+                    """
+                    INSERT OR REPLACE INTO devices 
+                    (device_id, hostname, ip_address, device_type, vendor, model, 
+                     ios_version, serial_number, device_role, site, is_active, last_updated)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP)
+                    """,
+                    [
+                        device_id,
+                        hostname,
+                        ip_address,
+                        device_type,
+                        vendor,
+                        model,
+                        ios_version,
+                        serial_number,
+                        device_role,
+                        site,
+                    ],
+                )
+            except Exception as e:
+                logger.debug(f"Failed to populate device {hostname}: {e}")
+    except Exception as e:
+        logger.warning(f"Failed to populate devices table: {e}")
+
+
+def _populate_topology_links(sync_date: str) -> None:
+    """Populate topology_links table from CDP/LLDP neighbor data (v0.10.2).
+    
+    Supports historical tracking:
+    - Extracts link data from latest snapshot's parsed CDP neighbors
+    - Generates unique link_id using hash
+    - Tracks first_seen/last_seen timestamps for history
+    - Supports change detection via status_changes counter
+    
+    Args:
+        sync_date: Sync date string (YYYY-MM-DD format)
+    """
+    try:
+        from olav.core.database import get_database
+        from config.paths import SNAPSHOTS_DIR
+        import hashlib
+        import json
+        from pathlib import Path
+        
+        db = get_database()
+        
+        # Find CDP neighbor files in latest snapshot
+        latest_dir = SNAPSHOTS_DIR / "latest" / "parsed"
+        if not latest_dir.exists():
+            logger.debug(f"No parsed data found at {latest_dir}")
+            return
+        
+        # Parse CDP neighbor files
+        cdp_files = list(latest_dir.glob("*/show-cdp-neighbor*.json"))
+        
+        links_added = 0
+        links_updated = 0
+        
+        for cdp_file in cdp_files:
+            try:
+                # Extract device name from path: parsed/R1/show-cdp-neighbors.json
+                device_parts = cdp_file.parts
+                if "parsed" in device_parts:
+                    parsed_idx = device_parts.index("parsed")
+                    if parsed_idx + 1 < len(device_parts):
+                        source_device = device_parts[parsed_idx + 1]
+                    else:
+                        continue
+                else:
+                    continue
+                
+                # Read CDP neighbor data
+                with open(cdp_file, 'r') as f:
+                    data = json.load(f)
+                
+                if not isinstance(data, list):
+                    continue
+                
+                # Process each neighbor link
+                for neighbor in data:
+                    try:
+                        local_if = neighbor.get("local_interface", "")
+                        remote_device = neighbor.get("neighbor_name", "")
+                        remote_if = neighbor.get("neighbor_interface", "")
+                        platform = neighbor.get("platform", "")
+                        
+                        if not all([local_if, remote_device, remote_if]):
+                            continue
+                        
+                        # Generate unique link_id (hash of endpoints)
+                        link_components = f"{source_device}|{local_if}|{remote_device}|{remote_if}"
+                        link_id = hashlib.md5(link_components.encode()).hexdigest()[:16]
+                        
+                        # Check if link exists
+                        existing = db.conn.execute(
+                            "SELECT link_id, status_changes FROM topology_links WHERE link_id = ? ORDER BY sync_date DESC LIMIT 1",
+                            [link_id]
+                        ).fetchone()
+                        
+                        if existing:
+                            # Update existing link
+                            old_changes = existing[1] or 0
+                            db.conn.execute(
+                                """
+                                INSERT INTO topology_links 
+                                (link_id, source_device, source_interface, destination_device, destination_interface,
+                                 discovery_protocol, link_type, link_status, first_seen, last_seen, sync_date, 
+                                 platform, status_changes, last_verified)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 
+                                        (SELECT first_seen FROM topology_links WHERE link_id = ? ORDER BY sync_date DESC LIMIT 1),
+                                        CURRENT_TIMESTAMP, ?, ?, ?, CURRENT_TIMESTAMP)
+                                """,
+                                [link_id, source_device, local_if, remote_device, remote_if,
+                                 "CDP", "L2", "up", link_id, sync_date, platform, old_changes]
+                            )
+                            links_updated += 1
+                        else:
+                            # Insert new link
+                            db.conn.execute(
+                                """
+                                INSERT INTO topology_links 
+                                (link_id, source_device, source_interface, destination_device, destination_interface,
+                                 discovery_protocol, link_type, link_status, first_seen, last_seen, sync_date, platform, status_changes)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, ?, 0)
+                                """,
+                                [link_id, source_device, local_if, remote_device, remote_if,
+                                 "CDP", "L2", "up", sync_date, platform]
+                            )
+                            links_added += 1
+                    
+                    except Exception as e:
+                        logger.debug(f"Failed to process neighbor link: {e}")
+                        continue
+            
+            except Exception as e:
+                logger.debug(f"Failed to process CDP file {cdp_file}: {e}")
+                continue
+        
+        if links_added > 0 or links_updated > 0:
+            logger.info(f"Topology links: {links_added} added, {links_updated} updated for {sync_date}")
+    
+    except Exception as e:
+        logger.warning(f"Failed to populate topology links: {e}")
+
+
 def _update_capability_cache(hostname: str, driver: str) -> None:
     """Cache the successful driver for future runs."""
     try:
@@ -340,6 +512,12 @@ def sync_all(
     device_names = list(nr_filtered.inventory.hosts.keys())
     if not device_names:
         return "No devices available after filtering"
+
+    # Populate devices table from Nornir inventory (v0.10.1)
+    _populate_devices_table(nr_filtered)
+    
+    # Populate topology links from CDP/LLDP neighbors (v0.10.2)
+    _populate_topology_links(sync_date)
 
     # Get commands from CommandRegistry if not specified
     if commands is None:

@@ -1,0 +1,8 @@
+Device,Interface,IP Address,Status,Protocol,Description
+R1,GigabitEthernet1,10.1.12.1,up,up,Uplink to R2
+R1,GigabitEthernet2,10.1.13.1,up,up,Uplink to R3
+R1,Loopback0,1.1.1.1,up,up,Loopback
+R2,GigabitEthernet1,10.1.12.2,up,up,Uplink to R1
+R2,Loopback0,2.2.2.2,up,up,Loopback
+R3,GigabitEthernet1,10.1.23.3,up,up,Uplink to R2
+R3,Loopback0,3.3.3.3,up,up,Loopback

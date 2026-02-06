@@ -1,23 +1,55 @@
 ---
-name: Template Tools
-description: Automated TextFSM template generation and field mapping learning for cross-vendor data normalization. Use when system needs new parsers, field mappings, or user asks to "generate template", "learn field mapping", "create parser".
+name: generating-textfsm-parsers
+description: Automatically generate and optimize TextFSM templates for cross-vendor CLI command parsing. Use when creating new parsers, improving extraction accuracy, learning field mappings, or normalizing data formats.
 version: 2.0.0
-
-# OLAV Extended Fields
 intent: self-learning
-complexity: advanced
-
-# Trigger Conditions
-triggers:
-  automatic:
-    - TextFSM parsing fails with "No template found"
-    - Extraction rate < 50% (poor template quality)
-    - Placeholder template detected
-    - Field mapping missing in field_mappings.py
-  manual:
-    - "User query: generate template"
-    - "User query: create parser"
-    - "User query: textfsm template"
+tools:
+  - query_database
+  - discover_data
+prompts:
+  generation: |
+    You are a TextFSM template expert for network command outputs.
+    
+    Generate a TextFSM template to parse the following command output:
+    
+    TextFSM Template Requirements:
+    1. Use `Value` to extract fields
+    2. Use `List` for repeated items
+    3. Use `Filldown` for values that continue until changed
+    4. Include `Header` line matching the column headers
+    5. Handle optional fields with appropriate patterns
+    6. Validate all state names are valid (alphanumeric + underscore only)
+    7. Ensure proper state transitions with -> commands
+    
+    Output Format:
+    Return ONLY the TextFSM template (no markdown, no code blocks).
+    
+    TextFSM Template Syntax Rules:
+    - State names: Must match pattern ^[A-Za-z_][A-Za-z0-9_]*$
+    - No special characters or spaces in state names
+    - Each state must have a transition or Record/Error action
+    - Use proper indentation (prepend ^ for pattern start, $ for end)
+  analysis: |
+    Analyze why the TextFSM template failed and provide specific improvements.
+    
+    Analysis Process:
+    1. Identify what regex patterns are not matching
+    2. Check for state name validity (must be alphanumeric + underscore)
+    3. Verify state transitions are correct
+    4. Suggest specific pattern fixes
+    5. Recommend field mapping improvements
+    
+    Common Issues:
+    1. Regex patterns don't match the actual output format
+    2. Invalid state names (contain special characters)
+    3. Missing Filldown for continuing values
+    4. Incorrect header matching
+    5. Not handling optional fields properly
+    6. Pattern too strict/loose
+    
+    Provide brief analysis of what went wrong and how to fix it.
+    Focus on specific patterns that need adjustment.
+---
     - "User query: learn field mapping"
     - "User query: create mapping"
     - "User query: normalize vendor data"

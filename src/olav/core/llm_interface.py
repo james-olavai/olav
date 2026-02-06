@@ -39,7 +39,7 @@ class MapReduceLLM:
     def __init__(
         self,
         provider: str = "anthropic",
-        model: str = "claude-sonnet-4-20250514",
+        model: str | None = None,
         max_concurrent: int = 5,
         retry_count: int = 3,
         retry_delay: float = 1.0,
@@ -48,11 +48,16 @@ class MapReduceLLM:
 
         Args:
             provider: LLM provider ("anthropic" or "openai")
-            model: Model name
+            model: Model name (None = use settings.agent.llm_interface_model)
             max_concurrent: Maximum concurrent Map calls
             retry_count: Retry count on failure
             retry_delay: Delay between retries (seconds)
         """
+        from config.settings import settings
+
+        if model is None:
+            model = settings.agent.llm_interface_model
+
         self.provider = provider
         self.model = model
         self.max_concurrent = max_concurrent

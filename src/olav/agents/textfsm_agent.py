@@ -69,15 +69,19 @@ class TextfsmState:
 # =============================================================================
 
 
-def create_llm(model: str = "gpt-4o") -> BaseChatModel:
+def create_llm(model: str | None = None) -> BaseChatModel:
     """Create LLM for template generation.
 
     Args:
-        model: Model name
+        model: Model name (None = use settings.agent.textfsm_model)
 
     Returns:
         ChatModel instance from LLMFactory (supports base_url)
     """
+    from config.settings import settings
+
+    if model is None:
+        model = settings.agent.textfsm_model
 
     return LLMFactory.get_chat_model(temperature=0)
 
@@ -235,6 +239,8 @@ def _build_generation_prompt(
 ) -> str:
     """Build prompt for TextFSM template generation.
 
+    Phase 2: Load base prompt from SKILL.md instead of hardcoding.
+
     Args:
         raw_output: Raw command output
         command_name: Name of the command
@@ -244,9 +250,17 @@ def _build_generation_prompt(
     Returns:
         Prompt string
     """
-    prompt = f"""You are a TextFSM template expert for network command outputs.
+    # Phase 2: Load generation prompt from SKILL.md
+    try:
+        from olav.core.subagent_loader import load_skill_prompt
 
-Generate a TextFSM template to parse the following command output:
+        base_prompt = load_skill_prompt("textfsm-generator", "generation")
+    except Exception as e:
+        logger.warning(f"Failed to load generation prompt from SKILL.md: {e}")
+        # Fallback to simple prompt if SKILL.md not available
+        base_prompt = "You are a TextFSM template expert for network command outputs."
+
+    prompt = f"""{base_prompt}
 
 Command: {command_name}
 Platform: {platform}
@@ -254,26 +268,6 @@ Platform: {platform}
 Raw Output:
 ```
 {raw_output[:2000]}
-```
-
-TextFSM Template Requirements:
-1. Use `Value` to extract fields
-2. Use `List` for repeated items
-3. Use `Filldown` for values that continue until changed
-4. Include `Header` line matching the column headers
-5. Handle optional fields with appropriate patterns
-
-Output Format:
-Return ONLY the TextFSM template (no markdown, no code blocks).
-
-Example Template Structure:
-```
-Value Field1 (\\d+)
-Value Field2 (\\S+)
-...
-Start
-  ^${{Field1}}\\s+${{Field2}}\\s+...
-  -> Record
 ```
 """
 
@@ -356,6 +350,8 @@ def _test_template(template: str, output: str) -> list[dict[str, Any]] | None:
 def _build_analysis_prompt(template: str, test_results: dict[str, Any], raw_output: str) -> str:
     """Build prompt for failure analysis.
 
+    Phase 2: Load analysis prompt from SKILL.md instead of hardcoding.
+
     Args:
         template: Current template
         test_results: Test results
@@ -364,10 +360,20 @@ def _build_analysis_prompt(template: str, test_results: dict[str, Any], raw_outp
     Returns:
         Analysis prompt
     """
+    # Phase 2: Load analysis prompt from SKILL.md
+    try:
+        from olav.core.subagent_loader import load_skill_prompt
+
+        base_prompt = load_skill_prompt("textfsm-generator", "analysis")
+    except Exception as e:
+        logger.warning(f"Failed to load analysis prompt from SKILL.md: {e}")
+        # Fallback to simple prompt if SKILL.md not available
+        base_prompt = "Analyze why the TextFSM template failed and provide specific improvements."
+
     success_count = len(test_results.get("success", []))
     total_count = test_results.get("total", 1)
 
-    prompt = f"""Analyze why the TextFSM template failed and provide specific improvements.
+    prompt = f"""{base_prompt}
 
 Current Template:
 ```
@@ -375,16 +381,6 @@ Current Template:
 ```
 
 Test Results: {success_count}/{total_count} passed
-
-Common Issues:
-1. Regex patterns don't match the actual output format
-2. Missing Filldown for continuing values
-3. Incorrect header matching
-4. Not handling optional fields properly
-5. Pattern too strict/loose
-
-Provide a brief analysis of what went wrong and how to fix it.
-Focus on specific patterns that need adjustment.
 """
 
     return prompt
@@ -513,15 +509,19 @@ async def generate_template(
 # =============================================================================
 
 
-def create_textfsm_agent(model: str = "gpt-4o") -> Callable[[str, str, str], Awaitable[str]]:
+def create_textfsm_agent(model: str | None = None) -> Callable[[str, str, str], Awaitable[str]]:
     """Create a simple wrapper for backward compatibility.
 
     Args:
-        model: LLM model name
+        model: LLM model name (None = use settings.agent.textfsm_model)
 
     Returns:
         Callable agent
     """
+    from config.settings import settings
+
+    if model is None:
+        model = settings.agent.textfsm_model
 
     async def agent(raw_output: str, command: str, platform: str) -> str:
         """Generate template from command output."""

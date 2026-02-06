@@ -34,28 +34,30 @@ POLITE_REJECTION = """抱歉，我是 **OLAV 网络运维助手**，专门帮助
 如果您有网络相关的问题，请随时问我！"""
 
 
-async def check_network_relevance(query: str, timeout: float = 1.0) -> tuple[bool, str | None]:
+async def check_network_relevance(query: str) -> tuple[bool, str | None]:
     """
     检查查询是否与网络相关
 
     Args:
         query: 用户查询
-        timeout: LLM 调用超时时间（秒）
 
     Returns:
         (is_relevant, rejection_message)
         - (True, None): 相关，继续执行
         - (False, message): 不相关，返回拒绝消息
     """
+    import asyncio
+
+    timeout: float = 1.0  # LLM 调用超时时间（秒）
+
     try:
         llm = LLMFactory.get_chat_model()
 
         prompt = RELEVANCE_CHECK_PROMPT.format(query=query)
 
-        # 使用 timeout 控制
-        import asyncio
-
-        response = await asyncio.wait_for(llm.ainvoke(prompt), timeout=timeout)
+        # 使用 asyncio.timeout 控制
+        async with asyncio.timeout(timeout):
+            response = await llm.ainvoke(prompt)
 
         answer = response.content.strip().upper()
 

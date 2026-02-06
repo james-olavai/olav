@@ -8,6 +8,7 @@ Separated from network.py for better maintainability (per DESIGN_V0.81.md optimi
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from nornir import InitNornir
 from nornir.core import Nornir
@@ -101,14 +102,16 @@ class NetworkExecutor:
 
         Args:
             nornir_config: Path to Nornir configuration (defaults to agent_dir/config/nornir/config.yaml)
-            blacklist_file: Path to command blacklist file (defaults to agent_dir/imports/commands/blacklist.txt)
+            blacklist_file: Path to command blacklist file (defaults to .olav/skills/network-cli/config/blacklist.txt)
             username: Device username (from .env if not provided)
             password: Device password (from .env if not provided)
         """
         if nornir_config is None:
             nornir_config = Path(settings.agent_dir) / "config" / "nornir" / "config.yaml"
         if blacklist_file is None:
-            blacklist_file = Path(settings.agent_dir) / "imports" / "commands" / "blacklist.txt"
+            blacklist_file = (
+                Path(settings.agent_dir) / "skills" / "network-cli" / "config" / "blacklist.txt"
+            )
 
         self.nornir_config = Path(nornir_config)
         self.blacklist_file = Path(blacklist_file)
@@ -116,6 +119,129 @@ class NetworkExecutor:
         self.password = password or getattr(settings, "device_password", "")
         self.blacklist = self._load_blacklist()
         self.db = get_database()
+
+        # Phase 3: Load caching configuration from SKILL.md
+        self.cache_config = self._load_cache_config()
+        self.command_cache: dict[str, dict[str, Any]] = {}  # {cache_key: {output, timestamp}}
+
+    def _load_cache_config(self) -> dict[str, Any]:
+        """Load caching configuration from network-cli SKILL.md.
+
+        Returns:
+            Caching configuration dict with enabled, ttl, and command patterns
+        """
+        try:
+            from olav.core.subagent_loader import load_caching_config
+
+            config = load_caching_config("network-cli")
+            return config if isinstance(config, dict) else {}
+        except Exception as e:
+            # Gracefully handle missing cache config - disable caching
+            import logging
+
+            logging.debug(f"Failed to load cache config from SKILL.md: {e}")
+            return {"enabled": False}
+
+    def _is_command_cacheable(self, command: str) -> bool:
+        """Check if command output should be cached based on SKILL.md config.
+
+        Args:
+            command: Command to check
+
+        Returns:
+            True if command is in cached_command_patterns, False otherwise
+        """
+        if not self.cache_config.get("enabled"):
+            return False
+
+        cached_patterns = self.cache_config.get("cached_command_patterns", [])
+        if not cached_patterns:
+            return False
+
+        cmd_lower = command.lower().strip()
+
+        # Check if command matches any pattern (using prefix match for show commands)
+        for pattern in cached_patterns:
+            pattern_lower = pattern.lower()
+            # Exact match or prefix match (for commands with parameters)
+            if cmd_lower == pattern_lower or cmd_lower.startswith(pattern_lower + " "):
+                return True
+
+        return False
+
+    def _get_from_cache(self, cache_key: str) -> CommandExecutionResult | None:
+        """Get cached command result if not expired.
+
+        Args:
+            cache_key: Cache key (device:command)
+
+        Returns:
+            Cached CommandExecutionResult if valid, None if expired or not found
+        """
+        if cache_key not in self.command_cache:
+            return None
+
+        cached_entry = self.command_cache[cache_key]
+        cached_result = cached_entry.get("result")
+        timestamp = cached_entry.get("timestamp")
+
+        if not cached_result or not timestamp:
+            return None
+
+        # Check TTL
+        ttl = self._get_command_ttl(cached_result.command)
+        age_seconds = (datetime.now() - timestamp).total_seconds()
+
+        if age_seconds > ttl:
+            # Expired - remove from cache
+            del self.command_cache[cache_key]
+            return None
+
+        return cached_result
+
+    def _save_to_cache(self, cache_key: str, result: CommandExecutionResult) -> None:
+        """Save successful command result to cache.
+
+        Args:
+            cache_key: Cache key (device:command)
+            result: CommandExecutionResult to cache
+        """
+        # Check max cache size
+        max_entries = self.cache_config.get("max_cache_entries", 10000)
+        if len(self.command_cache) >= max_entries:
+            # Remove oldest entry (simple FIFO, could be improved with LRU)
+            oldest_key = next(iter(self.command_cache))
+            del self.command_cache[oldest_key]
+
+        # Cache the result
+        self.command_cache[cache_key] = {
+            "result": result,
+            "timestamp": datetime.now(),
+        }
+
+    def _get_command_ttl(self, command: str) -> int:
+        """Get TTL for a specific command from SKILL.md config.
+
+        Args:
+            command: Command string
+
+        Returns:
+            TTL in seconds (default: 3600 if command not specifically configured)
+        """
+        cmd_overrides = self.cache_config.get("command_ttl_overrides", {})
+
+        # Exact match first
+        cmd_lower = command.lower().strip()
+        if cmd_lower in cmd_overrides:
+            return int(cmd_overrides[cmd_lower])
+
+        # Check if command starts with a pattern
+        for pattern, ttl in cmd_overrides.items():
+            if cmd_lower.startswith(pattern.lower() + " "):
+                return int(ttl)
+
+        # Use default TTL
+        return int(self.cache_config.get("default_ttl_seconds", 3600))
 
     def _load_blacklist(self) -> set[str]:
         """Load command blacklist from file.
@@ -189,6 +315,8 @@ class NetworkExecutor:
     ) -> CommandExecutionResult:
         """Execute a command on a network device.
 
+        Phase 3: Implements command result caching with per-command TTL.
+
         Args:
             device: Device name or IP
             command: Command to execute
@@ -202,6 +330,16 @@ class NetworkExecutor:
             timeout = settings.execution.timeout
 
         start_time = datetime.now()
+
+        # Phase 3: Check cache before executing
+        cache_key = f"{device}:{command}"
+        if self.cache_config.get("enabled") and self._is_command_cacheable(command):
+            cached_result = self._get_from_cache(cache_key)
+            if cached_result:
+                duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+                # Update result with actual execution time
+                cached_result.duration_ms = duration_ms
+                return cached_result
 
         # Check blacklist
         blacklisted_pattern = self._is_blacklisted(command)
@@ -283,13 +421,19 @@ class NetworkExecutor:
                 duration_ms=duration_ms,
             )
 
-            return CommandExecutionResult(
+            # Phase 3: Cache successful results
+            result = CommandExecutionResult(
                 device=device,
                 command=command,
                 success=True,
                 output=str(host_result.result),
                 duration_ms=duration_ms,
             )
+
+            if self.cache_config.get("enabled") and self._is_command_cacheable(command):
+                self._save_to_cache(cache_key, result)
+
+            return result
 
         except NornirSubTaskError as e:
             duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)

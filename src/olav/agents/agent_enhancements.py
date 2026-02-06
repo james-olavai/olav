@@ -351,7 +351,7 @@ class SubAgentPool:
             agent["state"] = "idle"
             agent["tasks"] = []
 
-    def submit_task(self, task: Callable, *args) -> Future:
+    def submit_task(self, task: Callable, *args: Any) -> Future | None:
         """Submit task to pool.
 
         Args:
@@ -359,7 +359,7 @@ class SubAgentPool:
             *args: Task arguments
 
         Returns:
-            Future for task result
+            Future for task result or None on failure
         """
         try:
             future = self._executor.submit(task, *args)
@@ -368,7 +368,7 @@ class SubAgentPool:
             logger.error(f"Failed to submit task: {e}")
             return None
 
-    async def submit_async_task(self, task: Coroutine, *args) -> Any:
+    async def submit_async_task(self, task: Coroutine, *args: Any) -> Any:
         """Submit async task to pool.
 
         Args:

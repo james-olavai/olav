@@ -219,6 +219,42 @@ FROM (
 );
 """
 
+# Topology views (v0.10.2)
+CREATE_V_TOPOLOGY_LATEST = """
+CREATE OR REPLACE VIEW v_topology_latest AS
+SELECT
+    source_device,
+    source_interface,
+    destination_device,
+    destination_interface,
+    discovery_protocol,
+    link_status,
+    platform,
+    last_seen
+FROM topology_links
+WHERE sync_date = (SELECT MAX(sync_date) FROM topology_links)
+ORDER BY source_device, source_interface;
+"""
+
+CREATE_V_TOPOLOGY_HISTORY = """
+CREATE OR REPLACE VIEW v_topology_history AS
+SELECT
+    link_id,
+    source_device,
+    source_interface,
+    destination_device,
+    destination_interface,
+    discovery_protocol,
+    link_status,
+    first_seen,
+    last_seen,
+    status_changes,
+    sync_date,
+    DATEDIFF('day', first_seen, last_seen) AS link_age_days
+FROM topology_links
+ORDER BY sync_date DESC, source_device;
+"""
+
 # View creation list
 ALL_VIEWS = [
     ("v_device_capabilities", CREATE_V_DEVICE_CAPABILITIES),
@@ -232,6 +268,8 @@ ALL_VIEWS = [
     ("v_routes", CREATE_V_ROUTES),
     ("v_cpu_utilization", CREATE_V_CPU),
     ("v_memory_utilization", CREATE_V_MEMORY),
+    ("v_topology_latest", CREATE_V_TOPOLOGY_LATEST),
+    ("v_topology_history", CREATE_V_TOPOLOGY_HISTORY),
 ]
 
 

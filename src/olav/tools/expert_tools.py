@@ -50,7 +50,7 @@ async def analyze_topology(
             "critical_nodes": ["R1", "R2"]
         }
     """
-    from olav.tools.react_query import query_network
+    from olav.lib.data_gateway import query_database
 
     # 根据拓扑类型选择数据源
     if topology_type == "lldp":
@@ -85,28 +85,19 @@ async def analyze_topology(
     else:
         return json.dumps({"error": f"Unknown topology type: {topology_type}"})
 
-    # 添加设备过滤
-    if device:
-        sql += f" WHERE device = '{device}'"
-
-    # 执行查询
+    # Execute query without WHERE clause (filter in Python to avoid SQL injection)
+    # SQL injection fix: do not use f-string for device filter
     try:
-        result = await query_network.ainvoke({"sql": sql})
+        rows = query_database(sql)
 
-        # 解析结果构建拓扑
-        if isinstance(result, str):
-            try:
-                data = json.loads(result)
-            except json.JSONDecodeError:
-                data = {"rows": []}
-        else:
-            data = result
+        # query_database returns list[dict] directly, no unwrapping needed
+        # Filter by device in Python layer (security fix - no SQL injection)
+        if device:
+            rows = [r for r in rows if r.get("source") == device or r.get("device") == device]
 
-        # 提取节点和边
+        # Extract nodes and edges
         nodes = set()
         edges = []
-
-        rows = data if isinstance(data, list) else data.get("rows", data.get("data", []))
 
         for row in rows:
             source = row.get("source") or row.get("device")
@@ -253,9 +244,14 @@ async def expand_scope_by_role(device: str) -> str:
             "expansion_count": 4
         }
     """
-    from olav.tools.react_query import query_network
+    from olav.lib.data_gateway import query_database
+    import re
+    
+    # SQL injection防护：设备名和角色名必须是合法的标识符
+    if not re.match(r'^[a-zA-Z0-9_-]+$', device):
+        return json.dumps({"error": f"Invalid device name: {device}. Must be alphanumeric with dash/underscore."})
 
-    # 查询设备角色
+    # 查询设备角色（使用query_database直接访问v_system）
     sql = f"""
     SELECT DISTINCT
         device,
@@ -267,24 +263,18 @@ async def expand_scope_by_role(device: str) -> str:
     """
 
     try:
-        result = await query_network.ainvoke({"sql": sql})
+        rows = query_database(sql)
 
-        # 解析结果
-        if isinstance(result, str):
-            try:
-                data = json.loads(result)
-            except json.JSONDecodeError:
-                data = []
-        else:
-            data = result
-
-        rows = data if isinstance(data, list) else data.get("rows", data.get("data", []))
-
+        # query_database returns list[dict] directly
         if not rows:
             return json.dumps({"error": f"Device {device} not found in database"})
 
         device_info = rows[0]
         role = device_info.get("role", "unknown")
+        
+        # SQL injection防护：角色名校验
+        if not re.match(r'^[a-zA-Z0-9_-]+$', role):
+            return json.dumps({"error": f"Invalid role name in database: {role}"})
 
         # 查询所有同角色设备
         sql2 = f"""
@@ -294,19 +284,10 @@ async def expand_scope_by_role(device: str) -> str:
         ORDER BY device
         """
 
-        result2 = await query_network.ainvoke({"sql": sql2})
+        result2_rows = query_database(sql2)
 
-        if isinstance(result2, str):
-            try:
-                data2 = json.loads(result2)
-            except json.JSONDecodeError:
-                data2 = []
-        else:
-            data2 = result2
-
-        rows2 = data2 if isinstance(data2, list) else data2.get("rows", data2.get("data", []))
-
-        devices_in_role = [r.get("device") for r in rows2 if r.get("device")]
+        # query_database returns list[dict] directly
+        devices_in_role = [r.get("device") for r in result2_rows if r.get("device")]
 
         expansion = {
             "reference_device": device,
@@ -469,18 +450,18 @@ async def execute_join_query(
     table2: str,
     join_column: str,
     columns: list[str] | None = None,
-    where_clause: str | None = None,
 ) -> str:
     """执行联合查询（自动生成JOIN SQL）
 
-    简化的联合查询接口，自动生成JOIN语句:
+    简化的联合查询接口，自动生成JOIN语句。
+    
+    **安全限制**: 不支持 WHERE 条件以防止 SQL 注入。如需过滤，请在 Python 层处理结果。
 
     Args:
         table1: 主表名（如 v_bgp_neighbors）
         table2: 关联表名（如 v_interfaces）
         join_column: 关联列（如 device）
         columns: 要选择的列（可选）
-        where_clause: WHERE条件（可选）
 
     Returns:
         查询结果（JSON格式）
@@ -490,21 +471,42 @@ async def execute_join_query(
             table1="v_bgp_neighbors",
             table2="v_interfaces",
             join_column="device",
-            columns=["b.device", "b.neighbor", "b.state", "i.status"],
-            where_clause="b.state != 'Established'"
+            columns=["b.device", "b.neighbor", "b.state", "i.status"]
         )
     """
-    from olav.tools.react_query import query_network
+    from olav.lib.data_gateway import query_database
+    import re
+    
+    # SQL injection防护：表名、列名必须是合法的SQL标识符
+    def is_valid_sql_identifier(name: str) -> bool:
+        """检查是否为合法的SQL标识符（表名/列名）"""
+        return bool(re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name))
+    
+    if not is_valid_sql_identifier(table1):
+        return json.dumps({"error": f"Invalid table name: {table1}"})
+    if not is_valid_sql_identifier(table2):
+        return json.dumps({"error": f"Invalid table name: {table2}"})
+    if not is_valid_sql_identifier(join_column):
+        return json.dumps({"error": f"Invalid join column: {join_column}"})
+    
+    # 如果指定了列名，也需要校验
+    if columns:
+        for col in columns:
+            # 允许 table.column 格式，提取列名部分
+            col_name = col.split('.')[-1].strip()
+            if not is_valid_sql_identifier(col_name):
+                return json.dumps({"error": f"Invalid column name: {col}"})
 
     # 构建SELECT子句
     if columns:
         select_clause = ", ".join(columns)
     else:
-        select_clause = f"{table1[0]}.*, {table2[0]}.*"
+        # 使用数字后缀避免别名冲突
+        select_clause = "t1.*, t2.*"
 
-    # 构建SQL
-    t1_alias = table1[0]  # 第一个字母作为别名
-    t2_alias = table2[0]
+    # 构建SQL - 使用固定别名 t1/t2 避免首字母冲突
+    t1_alias = "t1"
+    t2_alias = "t2"
 
     sql = f"""
     SELECT {select_clause}
@@ -512,14 +514,11 @@ async def execute_join_query(
     JOIN {table2} {t2_alias} ON {t1_alias}.{join_column} = {t2_alias}.{join_column}
     """
 
-    if where_clause:
-        sql += f" WHERE {where_clause}"
-
     logger.info(f"Generated JOIN query: {sql}")
 
     try:
-        result = await query_network.ainvoke({"sql": sql})
-        return result
+        rows = query_database(sql)
+        return json.dumps({"result": rows, "row_count": len(rows)}, ensure_ascii=False)
     except Exception as e:
         logger.error(f"JOIN query failed: {e}")
         return json.dumps({"error": str(e)})
@@ -546,30 +545,46 @@ async def compare_device_configs(
 
     comparisons = []
 
-    # 两两对比
+    # 两两对比（使用 diff_configs 对比同一设备的历史配置）
+    # 注意：diff_configs 本身是对比单设备的不同时间点配置
+    # 对于多设备配置对比，这里简化为对比各自的最新配置状态
     for i in range(len(devices) - 1):
         device1 = devices[i]
         device2 = devices[i + 1]
 
         try:
-            # 获取最新配置（使用今天的日期）
+            # 获取两个设备各自的最新配置（作为对比基线）
             today = datetime.now().strftime("%Y-%m-%d")
+            yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
 
-            result = diff_configs.invoke(
+            # 对比 device1 的今天和昨天配置（检测变化）
+            result1 = diff_configs.invoke(
                 {
                     "device": device1,
-                    "date1": today,
+                    "date1": yesterday,
+                    "date2": today,
+                }
+            )
+            
+            # 对比 device2 的今天和昨天配置（检测变化）
+            result2 = diff_configs.invoke(
+                {
+                    "device": device2,
+                    "date1": yesterday,
                     "date2": today,
                 }
             )
 
-            comparisons.append(f"## {device1} vs {device2}\n\n{result}\n")
+            comparisons.append(
+                f"## {device1} Configuration Changes\n\n{result1}\n\n"
+                f"## {device2} Configuration Changes\n\n{result2}\n"
+            )
 
         except Exception as e:  # noqa: S110
             logger.debug(f"Config comparison failed for {device1} vs {device2}: {e}")
-            comparisons.append(f"## {device1} vs {device2}\n\n配置对比失败: {e}\n")
+            comparisons.append(f"## {device1} vs {device2}\n\nConfiguration comparison failed: {e}\n")
 
-    return "\n".join(comparisons) if comparisons else "无法对比配置（数据不可用）"
+    return "\n".join(comparisons) if comparisons else "Unable to compare configurations (data unavailable)"
 
 
 # =============================================================================
@@ -590,14 +605,12 @@ def get_expert_tools() -> list[Any]:
         discover_data,
         inspect_file,
         query_database,
-        query_network,
     )
     from olav.tools.sync_tools import diff_configs
 
     return [
         # 基础查询工具
         query_database,
-        query_network,
         list_devices,
         # CLI执行
         nornir_execute,

@@ -1,0 +1,59 @@
+# CLI Command Blacklist for network-cli Skill
+# Dangerous commands that should never be executed automatically
+# Format: One command pattern per line (case-insensitive matching)
+
+# Configuration deletion/reset commands
+erase
+reload
+shutdown
+no shutdown
+restart
+reset
+factory-reset
+
+# Dangerous config commands
+delete
+remove
+clear config
+erase config
+config replace
+
+# Write/save commands (use with caution)
+write
+copy running-config startup-config
+copy startup-config running-config
+
+# Password/key commands
+crypto key
+secret password
+enable password
+
+# Privilege escalation
+enable
+privilege
+
+# VLAN/Interface manipulation (destructive)
+no vlan
+no interface
+
+# Routing protocol cleardown
+clear bgp
+clear ospf
+clear isis
+clear rip
+
+# System commands
+shutdown
+reload
+reboot
+halt
+power off
+
+# Debug commands (resource intensive)
+debug all
+debug *
+undebug all
+
+# Monitor/syslog (potentially dangerous)
+terminal monitor
+terminal no monitor

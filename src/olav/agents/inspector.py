@@ -171,6 +171,15 @@ class InspectionOrchestrator:
         """
         logger.info("Starting inspection...")
 
+        # 0. Ensure inspection views exist (auto-create if missing)
+        try:
+            from olav.tools.inspection_views import create_inspection_views
+            create_inspection_views(self.udb.conn)
+            logger.info("✅ Inspection views verified/created")
+        except Exception as e:
+            logger.warning(f"Failed to create inspection views: {e}")
+            # Continue anyway - views might already exist
+
         # 1. Load skill
         loader = get_skill_loader()
         inspection_skill = loader.get_skill("network-inspection")
@@ -257,7 +266,8 @@ class InspectionOrchestrator:
         )
         normal_count = total_devices - critical_count - warning_count
 
-        # Health score = max_score - (critical_count * critical_weight + warning_count * warning_weight)
+        # Health score calculation:
+        # max_score - (critical_count * critical_weight + warning_count * warning_weight)
         max_score = scoring_config.get("max_score", 100) if scoring_config else 100
         health_score = max_score - (
             critical_count * critical_weight + warning_count * warning_weight
