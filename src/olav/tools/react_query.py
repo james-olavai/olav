@@ -21,33 +21,41 @@ def discover_data(pattern: str = "*") -> str:
     """发现可用的网络数据文件。
 
     Args:
-        pattern: 文件匹配模式，如 "*.json" 或 "bgp*"
+        pattern: 文件匹配模式，如 "*" (所有), "bgp*" (BGP数据), 等
 
     Returns:
         可用数据文件列表，包含路径和大小
     """
     files = []
-    # 支持递归搜索 snapshot 目录
-    for f in EXPORTS_DIR.glob(f"**/{pattern}.json"):
-        # 计算相对于 exports 的路径
-        rel_path = f.relative_to(EXPORTS_DIR)
-        # 提取设备名 (parsed/设备名/命令.json)
-        parts = rel_path.parts
-        device = "unknown"
-        if "parsed" in parts:
-            parsed_idx = parts.index("parsed")
-            if parsed_idx + 1 < len(parts):
-                device = parts[parsed_idx + 1]
+    # P1-6 Fix: 支持多种文件格式 (JSON, CSV, Parquet, YAML)
+    supported_extensions = ["json", "csv", "parquet", "yaml", "yml"]
+    
+    # 遍历所有支持的扩展名
+    for ext in supported_extensions:
+        for f in EXPORTS_DIR.glob(f"**/{pattern}.{ext}"):
+            # 计算相对于 exports 的路径
+            rel_path = f.relative_to(EXPORTS_DIR)
+            # 提取设备名 (parsed/设备名/命令.ext)
+            parts = rel_path.parts
+            device = "unknown"
+            if "parsed" in parts:
+                parsed_idx = parts.index("parsed")
+                if parsed_idx + 1 < len(parts):
+                    device = parts[parsed_idx + 1]
 
-        files.append(
-            {
-                "path": str(rel_path),
-                "size_kb": f.stat().st_size // 1024,
-                "device": device,
-            }
-        )
+            files.append(
+                {
+                    "path": str(rel_path),
+                    "size_kb": f.stat().st_size // 1024,
+                    "device": device,
+                    "format": ext.upper(),
+                }
+            )
 
-        # 限制返回数量
+            # 限制返回数量
+            if len(files) >= 50:
+                break
+        
         if len(files) >= 50:
             break
 
@@ -56,7 +64,7 @@ def discover_data(pattern: str = "*") -> str:
 
 @tool
 def query_database(sql: str, params: list | None = None) -> str:
-    """Execute SQL query on network database (.olav/db/main.duckdb).
+    """Execute SQL query on network database (.olav/db/olav.duckdb).
     
     Direct database access without agent recursion. Returns query results as JSON.
     
@@ -80,7 +88,22 @@ def query_database(sql: str, params: list | None = None) -> str:
         results = db_query(sql, params or [])
         return json.dumps(results, indent=2, default=str)
     except Exception as e:
-        return f"Database Error: {e}\n\nTip: Use inspect_schema() to check available tables and columns"
+        error_msg = str(e)
+        hint = ""
+        if "does not exist" in error_msg.lower() or "not found" in error_msg.lower():
+            # Help the LLM recover by showing available tables
+            try:
+                from olav.lib.data_gateway import query_database as db_query2
+                tables = db_query2(
+                    "SELECT DISTINCT table_name FROM information_schema.tables "
+                    "WHERE table_schema = 'main' ORDER BY table_name"
+                )
+                table_names = [t["table_name"] for t in tables] if tables else []
+                hint = f"\n\nAvailable tables: {', '.join(table_names)}"
+                hint += "\nUse: SELECT * FROM raw_outputs WHERE command = '...' AND device = '...'"
+            except Exception:
+                pass
+        return f"Database Error: {e}\n\nTip: Use inspect_schema() to check available tables and columns{hint}"
 
 
 @tool
@@ -128,8 +151,8 @@ def inspect_schema(table_name: str | None = None) -> str:
                     return f"Table: {table_name}\nNote: Table exists but schema inspection failed. Try querying it directly."
                 raise
         else:
-            # List all tables (DuckDB syntax)
-            sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+            # List all tables (DuckDB syntax, DISTINCT to avoid duplicates from attached DBs)
+            sql = "SELECT DISTINCT table_name FROM information_schema.tables WHERE table_schema = 'main' ORDER BY table_name"
             result = db_query(sql)
             if result:
                 tables = [row['table_name'] for row in result]
@@ -142,32 +165,25 @@ def inspect_schema(table_name: str | None = None) -> str:
 
 @tool
 async def query_network(question: str | None = None, sql: str | None = None) -> str:
-    """[DEPRECATED] Legacy tool - Use query_database() instead.
+    """[DEPRECATED - DO NOT USE] Legacy tool removed from all agent toolsets.
     
-    This tool creates a new QueryAgent which can cause context loss.
-    Prefer direct database access via query_database().
+    This tool creates a new QueryAgent which causes context loss and performance issues.
+    Use query_database() for direct SQL access instead.
+    
+    WARNING: This function still exists for backward compatibility but is NOT
+    included in any agent's tool registry. If you see this being called, it's a bug.
     """
     import warnings
     warnings.warn(
-        "query_network is deprecated. Use query_database() for direct SQL access.",
+        "query_network is fully deprecated and removed from all agents. Use query_database().",
         DeprecationWarning,
         stacklevel=2,
     )
     
-    query_text = question or sql
-    if not query_text:
-        return "Error: No question or SQL query provided."
-
-    try:
-        from olav.agents.query_agent import QueryAgent
-
-        agent = QueryAgent()
-        result = await agent.query(query_text)
-        if isinstance(result, dict):
-            return result.get("output") or result.get("error") or str(result)
-        return result
-    except Exception as e:
-        return f"Query Error: {e}"
+    return json.dumps({
+        "error": "query_network is deprecated. Use query_database() tool instead.",
+        "migration_guide": "Replace query_network(sql='SELECT ...') with query_database(sql='SELECT ...')"
+    })
 
 
 @tool

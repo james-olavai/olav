@@ -65,6 +65,134 @@ if not os.getenv("OLAV_MODE"):
 # =============================================================================
 
 
+class AgentSettings(BaseSettings):
+    """Agent and Middleware Configuration"""
+
+    # Orchestrator LLM Configuration
+    orchestrator_model: str = Field(
+        default="",
+        description="LLM model for orchestrator (empty = use global LLM_MODEL_NAME)",
+    )
+    orchestrator_base_url: str = Field(
+        default="",
+        description="Base URL for orchestrator LLM (empty = use global LLM_BASE_URL)",
+    )
+    orchestrator_api_key: str = Field(
+        default="",
+        description="API key for orchestrator LLM (empty = use global LLM_API_KEY)",
+    )
+
+    # Analyzer LLM Configuration
+    analyzer_model: str = Field(
+        default="",
+        description="LLM model for analyzer agent (empty = use global LLM_MODEL_NAME)",
+    )
+    analyzer_base_url: str = Field(
+        default="",
+        description="Base URL for analyzer LLM (empty = use global LLM_BASE_URL)",
+    )
+    analyzer_api_key: str = Field(
+        default="",
+        description="API key for analyzer LLM (empty = use global LLM_API_KEY)",
+    )
+
+    # Guard LLM Configuration
+    guard_model: str = Field(
+        default="",
+        description="LLM model for guard intent filtering (empty = use global LLM_MODEL_NAME)",
+    )
+    guard_base_url: str = Field(
+        default="",
+        description="Base URL for guard LLM (empty = use global LLM_BASE_URL)",
+    )
+    guard_api_key: str = Field(
+        default="",
+        description="API key for guard LLM (empty = use global LLM_API_KEY)",
+    )
+
+    # TextFSM Agent LLM Configuration
+    textfsm_model: str = Field(
+        default="",
+        description="LLM model for TextFSM template generation (empty = use global LLM_MODEL_NAME)",
+    )
+    textfsm_base_url: str = Field(
+        default="",
+        description="Base URL for TextFSM LLM (empty = use global LLM_BASE_URL)",
+    )
+    textfsm_api_key: str = Field(
+        default="",
+        description="API key for TextFSM LLM (empty = use global LLM_API_KEY)",
+    )
+
+    # LLM Interface (Map-Reduce) Configuration
+    llm_interface_model: str = Field(
+        default="",
+        description="LLM model for LLMInterface (empty = use global LLM_MODEL_NAME)",
+    )
+    llm_interface_base_url: str = Field(
+        default="",
+        description="Base URL for LLM Interface (empty = use global LLM_BASE_URL)",
+    )
+    llm_interface_api_key: str = Field(
+        default="",
+        description="API key for LLM Interface (empty = use global LLM_API_KEY)",
+    )
+
+    # Summarization Middleware Configuration
+    enable_summarization: bool = Field(
+        default=False,
+        description="Enable conversation summarization middleware",
+    )
+    summarization_model: str = Field(
+        default="",
+        description="LLM model for summarization (empty = use global LLM_MODEL_NAME)",
+    )
+    summarization_base_url: str = Field(
+        default="",
+        description="Base URL for summarization LLM (empty = use global LLM_BASE_URL)",
+    )
+    summarization_api_key: str = Field(
+        default="",
+        description="API key for summarization LLM (empty = use global LLM_API_KEY)",
+    )
+    summarization_trigger_tokens: int = Field(
+        default=50000,
+        ge=1000,
+        le=1000000,
+        description="Token count to trigger summarization",
+    )
+    summarization_keep_messages: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Number of recent messages to keep after summarization",
+    )
+
+    def get_agent_config(
+        self, agent_name: str, global_settings: "Settings"
+    ) -> dict[str, str]:
+        """Get agent-specific configuration with global fallback.
+
+        Args:
+            agent_name: Agent name (orchestrator, analyzer, guard, textfsm, llm_interface, summarization)
+            global_settings: Global settings object for fallback
+
+        Returns:
+            Dict with model, base_url, api_key (falls back to global if agent-specific is empty)
+        """
+        agent_prefix = agent_name.lower()
+
+        model = getattr(self, f"{agent_prefix}_model", "") or global_settings.llm_model_name
+        base_url = getattr(self, f"{agent_prefix}_base_url", "") or global_settings.llm_base_url
+        api_key = getattr(self, f"{agent_prefix}_api_key", "") or global_settings.llm_api_key
+
+        return {
+            "model": model,
+            "base_url": base_url,
+            "api_key": api_key,
+        }
+
+
 class GuardSettings(BaseSettings):
     """Guard Intent Filter Configuration"""
 
@@ -263,6 +391,39 @@ class ThresholdSettings(BaseSettings):
     # }
 
 
+class CacheSettings(BaseSettings):
+    """Cache Management Configuration (v0.10.1)"""
+
+    # LLM call cache TTL (olav_cache.db - SQLite)
+    # 0 = infinite (no expiration), > 0 = hours
+    llm_cache_ttl_hours: int = Field(
+        default=0,
+        ge=0,
+        le=8760,
+        description="LLM call cache lifetime in hours (0 = infinite, default: 0)",
+    )
+
+    # Query result cache TTL (DuckDB only - in-memory by default)
+    query_cache_ttl_hours: int = Field(
+        default=24,
+        ge=0,
+        le=8760,
+        description="Query result cache lifetime in hours (0 = infinite, default: 24)",
+    )
+
+    # Auto-cleanup expired cache entries
+    cache_cleanup_enabled: bool = Field(
+        default=True,
+        description="Enable automatic cache cleanup of expired entries",
+    )
+    cache_cleanup_interval_hours: int = Field(
+        default=24,
+        ge=1,
+        le=168,
+        description="Cache cleanup interval in hours (default: 24 = daily)",
+    )
+
+
 class SyncSettings(BaseSettings):
     """Snapshot Synchronization Configuration"""
 
@@ -337,6 +498,9 @@ class Settings(BaseSettings):
     # =========================================================================
     # Nested Configuration Objects (Phase C-1)
     # =========================================================================
+    agent: AgentSettings = Field(
+        default_factory=AgentSettings, description="Agent and middleware configuration"
+    )
     guard: GuardSettings = Field(
         default_factory=GuardSettings, description="Guard filter configuration"
     )
@@ -360,6 +524,9 @@ class Settings(BaseSettings):
     )
     sync: SyncSettings = Field(
         default_factory=SyncSettings, description="Synchronization configuration"
+    )
+    cache: CacheSettings = Field(
+        default_factory=CacheSettings, description="Cache management configuration"
     )
 
     # =========================================================================
@@ -426,7 +593,7 @@ class Settings(BaseSettings):
     display_thinking: bool = True
 
     # Logging
-    log_level: str = "INFO"
+    log_level: str = "CRITICAL"
 
     # Network relevance guard - filters out non-network queries
     guard_enabled: bool = True
@@ -477,7 +644,7 @@ class Settings(BaseSettings):
 
     # Health score configuration (previously hardcoded)
     # Used for device health assessment and reporting
-    health_score_config: dict = Field(
+    health_score_config: dict[str, Any] = Field(
         default_factory=lambda: {
             "max_score": 100,
             "critical_weight": 20,
@@ -568,6 +735,7 @@ class Settings(BaseSettings):
                 "execution": ("execution", ExecutionSettings),
                 "logging": ("logging_settings", LoggingSettings),
                 "sync": ("sync", SyncSettings),
+                "cache": ("cache", CacheSettings),
             }
 
             for json_key, (attr_name, cls) in nested_mapping.items():
@@ -624,6 +792,9 @@ class Settings(BaseSettings):
         diagnosis_dict = self.diagnosis.model_dump()
         diagnosis_dict_camel = {snake_to_camel(k): v for k, v in diagnosis_dict.items()}
 
+        cache_dict = self.cache.model_dump()
+        cache_dict_camel = {snake_to_camel(k): v for k, v in cache_dict.items()}
+
         data = {
             "model": self.llm_model_name,
             "temperature": self.llm_temperature,
@@ -635,6 +806,7 @@ class Settings(BaseSettings):
             "diagnosis": diagnosis_dict_camel,
             "logging": self.logging_settings.model_dump(),
             "sync": self.sync.model_dump(),
+            "cache": cache_dict_camel,
         }
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")

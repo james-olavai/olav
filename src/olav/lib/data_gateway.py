@@ -5,6 +5,7 @@ Compatible with: OLAV CLI, Web API, Claude Code, Gemini Agent
 
 import json
 from pathlib import Path
+from typing import Any
 
 import duckdb
 
@@ -17,10 +18,12 @@ class DataGateway:
     """统一数据访问接口 - 平台无关
 
     使用方式:
+        from config.paths import OLAV_BASE_DIR
+        
         # OLAV CLI
-        gw = DataGateway(Path(".olav"))
+        gw = DataGateway(OLAV_BASE_DIR)
 
-        # Claude Code
+        # Claude Code  
         gw = DataGateway(Path(".claude"))
 
         # Web API
@@ -33,7 +36,9 @@ class DataGateway:
         Args:
             base_dir: .olav/ 或 .claude/ 或 .gemini/ 根目录
         """
-        self.base_dir = base_dir or Path(".olav")
+        from config.paths import AGENT_DIR
+        
+        self.base_dir = base_dir or AGENT_DIR
         self.db_dir = self.base_dir / "db"
         self.skills_dir = self.base_dir / "skills"
 
@@ -44,7 +49,7 @@ class DataGateway:
     # ==================== 共享数据层 API ====================
 
     def query_main(self, sql: str, params: list | None = None) -> list[dict]:
-        """查询主数据库 olav.duckdb (包含 raw_outputs, command_cache 等)
+        """查询主数据库 olav.duckdb (包含所有核心数据 - v0.10.1统一架构)
 
         Args:
             sql: DuckDB SQL 查询
@@ -54,10 +59,14 @@ class DataGateway:
             查询结果列表
 
         Example:
-            >>> gw.query_main("SELECT DISTINCT device FROM raw_outputs")
+            >>> gw.query_main("SELECT DISTINCT device FROM devices")
             [{'device': 'R1'}, {'device': 'R2'}, ...]
+
+        NOTE (v0.10.1): All data is now in single UNIFIED_DB
         """
-        conn = duckdb.connect(str(self.db_dir / "olav.duckdb"), read_only=True)
+        from config.paths import UNIFIED_DB
+        
+        conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
         try:
             if params:
                 result = conn.execute(sql, params)
@@ -74,7 +83,7 @@ class DataGateway:
             conn.close()
 
     def query_snapshots(self, sql: str, params: list | None = None) -> list[dict]:
-        """查询网络快照数据 (只读)
+        """查询网络快照数据 (只读) - 现在指向UNIFIED_DB (v0.10.1)
 
         Args:
             sql: DuckDB SQL 查询
@@ -84,9 +93,13 @@ class DataGateway:
             查询结果列表
 
         Example:
-            >>> gw.query_snapshots("SELECT * FROM v_interfaces WHERE device = ?", ["R1"])
+            >>> gw.query_snapshots("SELECT * FROM topology_links WHERE local_device = ?", ["R1"])
+
+        NOTE (v0.10.1): All data consolidated into single UNIFIED_DB
         """
-        conn = duckdb.connect(str(self.db_dir / "snapshots.duckdb"), read_only=True)
+        from config.paths import UNIFIED_DB
+        
+        conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
         try:
             if params:
                 result = conn.execute(sql, params)
@@ -129,7 +142,7 @@ class DataGateway:
     def log_command(
         self, skill: str, device: str, command: str, status: str, error: str | None = None
     ) -> None:
-        """记录命令执行审计 (写入)
+        """记录命令执行审计 (写入) - 使用 UNIFIED_DB (v0.10.1)
 
         Args:
             skill: Skill 名称 (e.g., 'network-query')
@@ -137,8 +150,12 @@ class DataGateway:
             command: 执行的命令
             status: 'success', 'failed', 'blocked'
             error: 错误信息 (可选)
+
+        NOTE (v0.10.1): Audit logs now in UNIFIED_DB instead of separate audit_logs.duckdb
         """
-        conn = duckdb.connect(str(self.db_dir / "audit_logs.duckdb"))
+        from config.paths import UNIFIED_DB
+        
+        conn = duckdb.connect(str(UNIFIED_DB))
         try:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS command_audit (
@@ -464,14 +481,15 @@ def get_gateway(base_dir: str | None = None) -> DataGateway:
     """获取 DataGateway 实例 (单例模式可选)
 
     Args:
-        base_dir: 基础目录路径，默认 .olav
+        base_dir: 基础目录路径，默认使用 config.paths.AGENT_DIR
 
     Returns:
         DataGateway 实例
     """
     import os
+    from config.paths import AGENT_DIR
 
-    base = Path(base_dir or os.getenv("OLAV_BASE_DIR", ".olav"))
+    base = Path(base_dir or os.getenv("OLAV_BASE_DIR") or str(AGENT_DIR))
     return DataGateway(base)
 
 
@@ -494,7 +512,30 @@ def get_connection(db_path: str | None = None):
     return duckdb.connect(db_path)
 
 
-def query_database(sql: str, params: list | None = None, db_path: str | None = None) -> list[dict]:
+def _create_unified_connection() -> duckdb.DuckDBPyConnection:
+    """Create a read-only connection to the unified database (v0.10.1).
+
+    v0.10.1 Architecture: All data (devices, raw_outputs, audit, knowledge) 
+    is now consolidated into a single UNIFIED_DB (olav.duckdb).
+    
+    This function provides direct access without multi-database attachment,
+    since all tables now exist in one file.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    from config.paths import UNIFIED_DB
+
+    # Connect directly to unified database
+    # No attachment needed - all tables in one file
+    conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
+    logger.debug(f"Connected to unified database: {UNIFIED_DB}")
+    
+    return conn
+
+
+def query_database(sql: str, params: list[Any] | None = None, db_path: str | None = None) -> list[dict[str, Any]]:
     """执行通用数据库查询 (线程安全、参数化)
 
     Features:
@@ -502,11 +543,12 @@ def query_database(sql: str, params: list | None = None, db_path: str | None = N
     - 自动行转换为字典列表
     - 错误处理和日志记录
     - 支持自定义数据库路径
+    - 统一数据库访问（自动挂载 main.duckdb + olav.duckdb + snapshots.duckdb）
 
     Args:
         sql: DuckDB SQL 查询语句
         params: 查询参数列表（用于参数化查询）
-        db_path: 数据库文件路径（默认 .olav/db/main.duckdb）
+        db_path: 数据库文件路径（None = 统一路由，明确路径 = 强制使用）
 
     Returns:
         查询结果列表（每个元素为字典）
@@ -517,11 +559,11 @@ def query_database(sql: str, params: list | None = None, db_path: str | None = N
 
     Example:
         >>> result = query_database(
-        ...     "SELECT * FROM devices WHERE name = ?",
-        ...     ["router1"]
+        ...     "SELECT * FROM devices WHERE hostname = ?",
+        ...     ["R1"]
         ... )
         >>> print(result)
-        [{'id': 1, 'name': 'router1', 'type': 'cisco'}]
+        [{'device_id': 'R1', 'hostname': 'R1', 'ip_address': '192.168.100.101', ...}]
     """
     import logging
 
@@ -531,8 +573,11 @@ def query_database(sql: str, params: list | None = None, db_path: str | None = N
         raise ValueError("SQL query cannot be empty")
 
     try:
-        # 使用 get_connection 获取连接（支持 Mock）
-        conn = get_connection(db_path)
+        # Use explicit path if provided, otherwise unified connection
+        if db_path is not None:
+            conn = get_connection(db_path)
+        else:
+            conn = _create_unified_connection()
 
         try:
             # 参数化查询（防护 SQL 注入）
@@ -564,30 +609,27 @@ def query_database(sql: str, params: list | None = None, db_path: str | None = N
 
         # Provide helpful error messages for common issues
         error_msg = str(e)
-        if "Table with name" in error_msg and "does not exist" in error_msg:
-            # Extract table name from error
-            import re
-
-            match = re.search(r"Table with name (\w+) does not exist", error_msg)
-            table_name = match.group(1) if match else "unknown"
-
-            # Try to list available tables
+        if "does not exist" in error_msg:
+            # Try to list available tables from unified connection
             try:
-                conn = duckdb.connect(str(db_path), read_only=True)
-                available_tables = conn.execute(
-                    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+                diag_conn = _create_unified_connection()
+                available_tables = diag_conn.execute(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = 'main' ORDER BY table_name"
                 ).fetchall()
-                conn.close()
+                diag_conn.close()
 
                 table_list = ", ".join([t[0] for t in available_tables])
                 raise RuntimeError(
-                    f"Table '{table_name}' does not exist in database. "
+                    f"Query failed: {error_msg}. "
                     f"Available tables: {table_list}. "
-                    f"Please check your SQL query or database schema."
+                    f"Use inspect_schema() to check table columns."
                 ) from e
             except RuntimeError:
-                # Re-raise our custom error
                 raise
-            except Exception as list_err:
-                # Fallback if we can't list tables
-                logger.debug(f"Could not list available tables: {list_err}")
+            except Exception:
+                raise RuntimeError(
+                    f"Database query failed: {error_msg}."
+                ) from e
+        else:
+            raise RuntimeError(f"Database query failed: {error_msg}") from e

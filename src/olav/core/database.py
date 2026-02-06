@@ -48,6 +48,25 @@ class OlavDatabase:
 
     def _init_schema(self) -> None:
         """Create database tables if they don't exist."""
+        # Devices table (device metadata - v0.10.1 unified)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS devices (
+                device_id VARCHAR PRIMARY KEY,
+                hostname VARCHAR NOT NULL,
+                ip_address VARCHAR NOT NULL,
+                device_type VARCHAR,
+                vendor VARCHAR,
+                model VARCHAR,
+                ios_version VARCHAR,
+                serial_number VARCHAR,
+                device_role VARCHAR,
+                site VARCHAR,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_active BOOLEAN DEFAULT TRUE
+            )
+        """)
+        
         # Device capabilities cache (platinum/gold driver mapping)
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS device_capabilities (
@@ -58,64 +77,37 @@ class OlavDatabase:
             )
         """)
 
-        # Audit logs table
+        # Topology links table (v0.10.2 - network topology with history)
         self.conn.execute("""
-            CREATE SEQUENCE IF NOT EXISTS audit_logs_id_seq START 1
-        """)
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS audit_logs (
-                id INTEGER PRIMARY KEY DEFAULT nextval('audit_logs_id_seq'),
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                thread_id TEXT NOT NULL,
-                device TEXT NOT NULL,
-                command TEXT NOT NULL,
-                output TEXT,
-                success BOOLEAN NOT NULL,
-                duration_ms INTEGER,
-                user TEXT
+            CREATE TABLE IF NOT EXISTS topology_links (
+                link_id VARCHAR PRIMARY KEY,
+                source_device VARCHAR NOT NULL,
+                source_interface VARCHAR NOT NULL,
+                destination_device VARCHAR NOT NULL,
+                destination_interface VARCHAR NOT NULL,
+                discovery_protocol VARCHAR,
+                link_type VARCHAR,
+                link_status VARCHAR DEFAULT 'up',
+                link_speed VARCHAR,
+                first_seen TIMESTAMP NOT NULL,
+                last_seen TIMESTAMP NOT NULL,
+                last_verified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                status_changes INTEGER DEFAULT 0,
+                sync_date DATE NOT NULL,
+                platform VARCHAR,
+                UNIQUE(source_device, source_interface, destination_device, destination_interface, sync_date)
             )
         """)
-
-        # Create indexes for audit logs
+        
+        # Indexes for topology queries
         self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_audit_thread
-            ON audit_logs(thread_id)
+            CREATE INDEX IF NOT EXISTS idx_topology_src ON topology_links(source_device)
         """)
         self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_audit_device
-            ON audit_logs(device)
-        """)
-
-        # Command cache table (optional, not used in MVP)
-        self.conn.execute("""
-            CREATE SEQUENCE IF NOT EXISTS command_cache_id_seq START 1
+            CREATE INDEX IF NOT EXISTS idx_topology_dst ON topology_links(destination_device)
         """)
         self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS command_cache (
-                id INTEGER PRIMARY KEY DEFAULT nextval('command_cache_id_seq'),
-                device TEXT NOT NULL,
-                command TEXT NOT NULL,
-                output TEXT,
-                cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                ttl_seconds INTEGER DEFAULT 300,
-                UNIQUE(device, command)
-            )
-        """)
-
-        # Raw outputs table (v0.9.6 Unified)
-        self.conn.execute("""
-            CREATE SEQUENCE IF NOT EXISTS raw_outputs_seq START 1
-        """)
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS raw_outputs (
-                id INTEGER PRIMARY KEY DEFAULT nextval('raw_outputs_seq'),
-                device VARCHAR NOT NULL,
-                command VARCHAR NOT NULL,
-                output TEXT,
-                sync_date DATE DEFAULT CURRENT_DATE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(device, command, sync_date)
-            )
+            CREATE INDEX IF NOT EXISTS idx_topology_sync_date ON topology_links(sync_date)
         """)
 
         # Sync metadata table (v0.9.6 Unified)
@@ -134,91 +126,26 @@ class OlavDatabase:
             )
         """)
 
+        # Knowledge chunks table (v0.10.1 - Unified with knowledge base)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS knowledge_chunks (
+                chunk_id VARCHAR PRIMARY KEY DEFAULT uuid(),
+                file_path VARCHAR NOT NULL,
+                content TEXT NOT NULL,
+                embedding FLOAT[768],
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Create indexes for knowledge chunks
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_knowledge_file_path
+            ON knowledge_chunks(file_path)
+        """)
+
         # NOTE: View initialization moved to sync_tools.py (Snapshot-Time)
         # to prevent write-write conflicts during queries (EQP Phase).
-
-    def log_execution(
-        self,
-        thread_id: str,
-        device: str,
-        command: str,
-        output: str,
-        success: bool,
-        duration_ms: int,
-        user: str | None = None,
-    ) -> None:
-        """Log a command execution to the audit trail.
-
-        Args:
-            thread_id: Conversation/thread ID
-            device: Device name or IP
-            command: Command executed
-            output: Command output
-            success: Whether execution succeeded
-            duration_ms: Execution time in milliseconds
-            user: Optional user identifier
-        """
-        self.conn.execute(
-            """
-            INSERT INTO audit_logs
-            (thread_id, device, command, output, success, duration_ms, user)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-            [thread_id, device, command, output, success, duration_ms, user],
-        )
-
-    def get_command_cache(self, device: str, command: str) -> str | None:
-        """Get cached command output if available and not expired.
-
-        Args:
-            device: Device name
-            command: Command string
-
-        Returns:
-            Cached output or None if not found/expired
-        """
-        result = self.conn.execute(
-            """
-            SELECT output, cached_at, ttl_seconds
-            FROM command_cache
-            WHERE device = ? AND command = ?
-            ORDER BY cached_at DESC
-            LIMIT 1
-        """,
-            [device, command],
-        ).fetchone()
-
-        if not result:
-            return None
-
-        output, cached_at, ttl = result
-        # Check if cache is still valid
-        # Note: DuckDB returns timestamps as strings, need to parse
-        # For MVP, we'll skip TTL checking and just return the cached value
-        return output
-
-    def set_command_cache(
-        self, device: str, command: str, output: str, ttl_seconds: int = 300
-    ) -> None:
-        """Cache a command output.
-
-        Args:
-            device: Device name
-            command: Command string
-            output: Command output to cache
-            ttl_seconds: Time-to-live in seconds (default 5 minutes)
-        """
-        self.conn.execute(
-            """
-            INSERT INTO command_cache
-            (device, command, output, ttl_seconds)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT (device, command) DO UPDATE SET
-                output = excluded.output,
-                ttl_seconds = excluded.ttl_seconds
-        """,
-            [device, command, output, ttl_seconds],
-        )
 
     def close(self) -> None:
         """Close the database connection."""

@@ -51,7 +51,7 @@ enabled: true
 ```yaml
 ---
 name: cli
-agent_skill: network-query  # Reuses query skill for now (CLI tools TBD)
+agent_skill: network-cli
 description: CLI command execution specialist for network operations
 capabilities:
   - Network command execution
@@ -61,7 +61,36 @@ enabled: true
 ---
 ```
 
+### analysis
+```yaml
+---
+name: analysis
+agent_skill: network-analysis
+description: Network analysis specialist with health diagnostics and anomaly detection
+capabilities:
+  - Network health diagnostics and anomaly detection
+  - Performance analysis and optimization recommendations
+  - Root cause analysis for network issues
+  - Real-time CLI verification when needed
+enabled: true
+---
+```
 
+### inspection
+```yaml
+---
+name: inspection
+agent_skill: network-inspection
+description: Network inspection specialist for batch device health checks and audits
+capabilities:
+  - Multi-layer health checks (L1-L4)
+  - BGP peer status audits
+  - Interface error analysis
+  - Security baseline validation
+  - Automated inspection reports
+enabled: true
+---
+```
 
 ---
 

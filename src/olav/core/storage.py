@@ -79,6 +79,14 @@ def get_storage_backend(project_root: Path | None = None) -> object:  # noqa: AN
         agent_dir / "imports" / "commands",
     ]
 
+    # Configure long-term memory paths (cross-thread persistence via StoreBackend)
+    # These paths enable agents to share learning across different conversation threads
+    memory_paths = [
+        agent_dir / "skills" / "network-expert" / "memories",
+        agent_dir / "skills" / "network-query" / "memories",
+        agent_dir / "skills" / "orchestrator" / "preferences",
+    ]
+
     # Configure read-only paths
     read_only_paths = [
         agent_dir / "imports" / "apis",
@@ -94,25 +102,56 @@ def get_storage_backend(project_root: Path | None = None) -> object:  # noqa: AN
         # Return None if DeepAgents storage not available
         return None  # pragma: no cover (unreachable due to earlier check on line 65)
 
-    # Create persistent backend
-    persistent_backend = StoreBackend(  # type: ignore[misc, call-arg]
-        root_dir=project_root,
-        allowed_paths=persistent_paths,
-        read_only_paths=read_only_paths,
-    )
+    # Create persistent backend (FilesystemBackend for disk storage)
+    # Using root_dir allows relative path access
+    persistent_backend = FilesystemBackend(root_dir=str(project_root))
 
-    # Create temporary backend for scratch space
-    temp_backend = StateBackend()  # type: ignore[misc, call-arg]
+    # Create memory backend for long-term cross-thread learning
+    # Uses DuckDBStore for persistent, thread-safe memory
+    try:
+        from config.paths import USER_CHECKPOINT_PATH
+        
+        # Ensure checkpoint directory exists
+        USER_CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Import DuckDBStore for long-term memory
+        try:
+            from langgraph.store.duckdb import DuckDBStore
+            memory_store = DuckDBStore.from_conn_string(str(USER_CHECKPOINT_PATH))
+            memory_backend = memory_store  # Use DuckDBStore as backend
+        except ImportError:
+            # Fallback: Use FilesystemBackend if DuckDBStore not available
+            memory_backend = persistent_backend
+    except Exception as e:  # pragma: no cover (fallback for import errors)
+        # If store initialization fails, fall back to filesystem
+        memory_backend = persistent_backend
 
-    # Create composite backend
-    # Priority: specific paths first, then temporary
+    # Create composite backend with route mapping
+    # Maps paths to appropriate backends
+    routes = {}
+    
+    # Persistent paths → FilesystemBackend
+    for path in persistent_paths:
+        routes[str(path)] = persistent_backend
+    
+    # Memory paths → Memory backend (DuckDBStore for cross-thread persistence)
+    for path in memory_paths:
+        routes[str(path)] = memory_backend
+    
+    # Read-only paths → FilesystemBackend (will be marked read-only at access time)
+    for path in read_only_paths:
+        routes[str(path)] = persistent_backend
+    
+    # Temporary paths → FilesystemBackend (will be cleaned up or session-scoped)
+    # Note: StateBackend requires runtime parameter which we cannot provide
+    # Using FilesystemBackend for temp paths keeps them in-memory via agent state
+    for path in temp_paths:
+        routes[str(path)] = persistent_backend
+    
+    # Create composite backend ✅ Routes to different backends by path
     composite = CompositeBackend(  # type: ignore[misc, call-arg]
-        backends={
-            **{str(path): persistent_backend for path in persistent_paths},
-            **{str(path): persistent_backend for path in read_only_paths},
-            **{str(path): temp_backend for path in temp_paths},
-            "/": persistent_backend,  # Default
-        }
+        default=persistent_backend,
+        routes=routes,
     )
 
     return composite

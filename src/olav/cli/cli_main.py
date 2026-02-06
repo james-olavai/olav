@@ -112,7 +112,7 @@ async def stream_agent_response(
 
     # Show spinner if not verbose (in verbose, logs will show activity)
     if not verbose:
-        display.show_processing_status("Generating SQL and querying...")
+        display.show_processing_status("☃️ Olav is digging...")
 
     try:
         # Use ainvoke with timeout
@@ -147,15 +147,19 @@ async def stream_agent_response(
             return f"Error: {error}"
 
         if result:
-            # P10: Ensure result is displayed even if it's a string JSON
-            # Only use Rich display for TTY, use plain output for piped
+            result_str = str(result)
+
             if is_tty:
-                display.show_json_table(result)
+                # Default: render ALL output as Markdown.
+                # Orchestrator returns markdown-formatted text (tables, headers,
+                # lists). Rich's Markdown renderer handles all of these well.
+                # Structured JSON/list data is pre-formatted by the Orchestrator
+                # into markdown tables before reaching here.
+                display.show_result(result_str, markdown=True)
 
             # P10 Fix: Ensure output is flushed to stdout when piped (bypassing Rich/print stack)
             if not is_tty:
-                # If it's a complex object (Table), print it as JSON string for parsability
-                val_to_print = str(result)
+                val_to_print = result_str
                 if isinstance(result, (dict, list)):
                     import json
 
@@ -168,11 +172,16 @@ async def stream_agent_response(
 
             if is_tty:
                 print()  # Final newline for prompt-toolkit
-            return str(result)
+            return result_str
 
         # If no structured result, but we have text content (explanation), show that
         if last_message_content and not result:
-            display.show_result(last_message_content, markdown=True)
+            if is_tty:
+                display.show_result(last_message_content, markdown=True)
+            else:
+                # Piped mode: write raw text to stdout
+                import os
+                os.write(1, (last_message_content + "\n").encode())
             return last_message_content
         return "No result available"
 
@@ -231,7 +240,6 @@ async def run_interactive_loop_async(
     import uuid
 
     from config.settings import settings
-    from olav.agents.query_agent import QueryAgent
     from olav.cli.commands import execute_command
     from olav.cli.input_parser import parse_input
 
@@ -240,8 +248,9 @@ async def run_interactive_loop_async(
 
     # Generate or load session thread_id for checkpointer
     from pathlib import Path
+    from config.paths import OLAV_BASE_DIR
     
-    thread_id_file = Path(".olav/.last_thread_id")
+    thread_id_file = OLAV_BASE_DIR / ".last_thread_id"
     
     if resume and thread_id_file.exists():
         # Resume last session
@@ -336,22 +345,22 @@ async def run_interactive_loop_async(
                     # Run async command handler with await
                     result = await execute_command(
                         user_input,
-                        agent=agent,
+                        agent=None,  # Slash commands don't need agent
                     )
                     if result:
                         # Check if result should be sent to Agent
                         if result.startswith("AGENT_PROMPT::"):
-                            # Extract prompt and send to Agent
-                            agent_prompt = result[len("AGENT_PROMPT::") :]
-                            print("🤖 Sending to Agent for analysis...\n")
-                            # Checkpointer automatically manages history
+                            # Extract prompt and send to Orchestrator
+                            agent_prompt = result[len("AGENT_PROMPT::"):]
+                            print("🤖 Sending to Orchestrator for analysis...\n")
+                            from langchain_core.messages import HumanMessage
+
+                            from olav.agents.orchestrator import create_orchestrator
+                            _cmd_agent = create_orchestrator(thread_id=thread_id)
                             use_verbose = settings.display_thinking
-                            inputs = {
-                                "messages": [{"role": "user", "content": agent_prompt}],
-                                "retry_count": 0,
-                            }
+                            _cmd_inputs = {"messages": [HumanMessage(content=agent_prompt)]}
                             output = await stream_agent_response(
-                                agent, inputs, verbose=use_verbose, thread_id=thread_id
+                                _cmd_agent, _cmd_inputs, verbose=use_verbose, thread_id=thread_id
                             )
                         else:
                             print(result)
@@ -394,17 +403,25 @@ async def run_interactive_loop_async(
             if is_tty:
                 print("🔍 Processing...", flush=True)
             try:
-                # Checkpointer will retrieve conversation history automatically
-                agent_messages = [{"role": "user", "content": processed_text}]
+                # =========================================================
+                # Unified Routing: ALL queries → Orchestrator
+                # =========================================================
+                # Orchestrator's DeepAgents SubAgent routing handles:
+                #   query SubAgent → database queries
+                #   analysis SubAgent → diagnostics
+                #   cli SubAgent → device command execution
+                #   expert SubAgent → complex troubleshooting
+                # Orchestrator owns format_and_export for file output.
+                # CLI default output: markdown (rendered by Rich).
+                # =========================================================
+                from langchain_core.messages import HumanMessage
 
-                # Initialize Query Agent with default skill
-                # Routing is now handled by LangGraph Orchestrator
-                skill_name = "network-query"
-                agent = QueryAgent(enable_summarization=False, skill_name=skill_name)
+                from olav.agents.orchestrator import create_orchestrator
+                agent = create_orchestrator(thread_id=thread_id)
+                inputs = {"messages": [HumanMessage(content=processed_text)]}
 
                 # Use verbose mode only if DISPLAY_THINKING=true
                 use_verbose = settings.display_thinking
-                inputs = {"messages": agent_messages, "retry_count": 0}
 
                 # Use await instead of asyncio.run() to properly handle async context
                 output = await stream_agent_response(
@@ -415,8 +432,9 @@ async def run_interactive_loop_async(
                 )
 
                 if output:
-                    # Display todos if present in agent state
-                    _display_todos(agent.agent)
+                    # Display todos if present in agent state (QueryAgent only)
+                    if hasattr(agent, 'agent'):
+                        _display_todos(agent.agent)
                 else:
                     print("\n⚠️ No response from agent\n")
 
@@ -449,7 +467,6 @@ def query(
         olav query "R1 的 BGP 邻居" --debug
         olav query "Check R2 BGP" --verbose
     """
-    from olav.agents.query_agent import QueryAgent
     from olav.cli.display import StreamingDisplay
 
     display = StreamingDisplay(console=console, verbose=verbose, show_spinner=not verbose)
@@ -458,28 +475,29 @@ def query(
 
     try:
         if not verbose:
-            display.show_processing_status("Processing query...")
+            display.show_processing_status("☃️ Olav is digging...")
 
         import asyncio
 
-        # Use Orchestrator directly (routing handled by LangGraph)
+        from olav.agents.orchestrator import orchestrate_query
 
-        # Initialize QueryAgent with routed skill
-        agent = QueryAgent(enable_summarization=False, skill_name=skill_name)
-
-        # Execute query
-        result = asyncio.run(agent.query(query_text))
+        # ALL queries go through Orchestrator
+        result = asyncio.run(orchestrate_query(query_text))
 
         display.stop_processing_status()
 
-        # Handle result
-        if result["status"] == "success":
-            console.print(f"\n[bold green]✓[/bold green] {result['output']}\n")
-        elif result["status"] == "not_implemented":
-            console.print(f"\n[bold yellow]⚠[/bold yellow] {result['message']}\n")
+        # Handle Orchestrator result dict
+        if result["status"] == "complete":
+            answer = result.get("final_answer", "")
+            if answer:
+                from rich.markdown import Markdown
+                console.print(Markdown(answer))
+            else:
+                console.print("\n[bold yellow]⚠[/bold yellow] No result\n")
         else:
+            error_msg = result.get("error_message", "Unknown error")
             console.print(
-                f"\n[bold red]❌ Error:[/bold red] {result.get('error', 'Unknown error')}\n"
+                f"\n[bold red]❌ Error:[/bold red] {error_msg}\n"
             )
 
     except Exception as e:
@@ -584,7 +602,8 @@ def clean(
     # Clean cache
     if clean_cache:
         try:
-            cache_dir = Path(".olav/cache")
+            from config.paths import CACHE_DIR
+            cache_dir = CACHE_DIR
             if cache_dir.exists():
                 for db_file in cache_dir.glob("*.db"):
                     db_file.unlink()
@@ -598,12 +617,14 @@ def clean(
     # Clean checkpoints
     if clean_checkpoints:
         try:
-            checkpoint_file = Path(".olav/user_checkpoint.db")
+            from config.paths import OLAV_BASE_DIR
+            
+            checkpoint_file = OLAV_BASE_DIR / "user_checkpoint.db"
             if checkpoint_file.exists():
                 checkpoint_file.unlink()
                 console.print(f"  ✅ Deleted: {checkpoint_file}")
             
-            thread_id_file = Path(".olav/.last_thread_id")
+            thread_id_file = OLAV_BASE_DIR / ".last_thread_id"
             if thread_id_file.exists():
                 thread_id_file.unlink()
                 console.print(f"  ✅ Deleted: {thread_id_file}")
@@ -616,10 +637,10 @@ def clean(
     if clean_databases:
         try:
             import duckdb
-            main_db = Path(".olav/db/main.duckdb")
+            from config.paths import UNIFIED_DB
             
-            if main_db.exists():
-                conn = duckdb.connect(str(main_db))
+            if UNIFIED_DB.exists():
+                conn = duckdb.connect(str(UNIFIED_DB))
                 
                 # Drop raw_outputs
                 try:
@@ -659,6 +680,7 @@ def doctor() -> None:
     - Cache and checkpoint status
     """
     from pathlib import Path
+    from config.paths import UNIFIED_DB
     
     console.print("\n[bold cyan]🏥 OLAV System Health Check[/bold cyan]\n")
     
@@ -666,12 +688,11 @@ def doctor() -> None:
     console.print("[cyan]1. Database Status[/cyan]")
     try:
         import duckdb
-        main_db = Path(".olav/db/main.duckdb")
-        if not main_db.exists():
+        if not UNIFIED_DB.exists():
             console.print("  ❌ Database not found")
             console.print("     Run: olav snapshot")
         else:
-            conn = duckdb.connect(str(main_db), read_only=True)
+            conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
             
             # Check devices table
             device_count = conn.execute('SELECT COUNT(*) FROM devices').fetchone()[0]
@@ -770,7 +791,9 @@ def doctor() -> None:
     # Check 5: Cache Status
     console.print("[cyan]5. Cache & Checkpoints[/cyan]")
     try:
-        cache_dir = Path(".olav/cache")
+        from config.paths import CACHE_DIR, OLAV_BASE_DIR
+        
+        cache_dir = CACHE_DIR
         if cache_dir.exists():
             cache_files = list(cache_dir.glob("*.db"))
             total_size = sum(f.stat().st_size for f in cache_files) / 1024 / 1024
@@ -778,14 +801,14 @@ def doctor() -> None:
         else:
             console.print("  ℹ️  Cache: Not initialized")
         
-        checkpoint = Path(".olav/user_checkpoint.db")
+        checkpoint = OLAV_BASE_DIR / "user_checkpoint.db"
         if checkpoint.exists():
             size = checkpoint.stat().st_size / 1024 / 1024
             console.print(f"  ✅ Checkpoint: {size:.1f} MB")
         else:
             console.print("  ℹ️  Checkpoint: Not initialized")
         
-        thread_id = Path(".olav/.last_thread_id")
+        thread_id = OLAV_BASE_DIR / ".last_thread_id"
         if thread_id.exists():
             tid = thread_id.read_text().strip()[:16]
             console.print(f"  ✅ Last session: {tid}...")
@@ -847,10 +870,12 @@ def init(
     if diagnose:
         console.print("\n[cyan]🔍 Running pre-flight diagnostics...[/cyan]")
         
+        from config.paths import UNIFIED_DB
+        
         # Check 1: Database connectivity
         try:
             import duckdb
-            conn = duckdb.connect('.olav/db/main.duckdb')
+            conn = duckdb.connect(str(UNIFIED_DB))
             device_count = conn.execute('SELECT COUNT(*) FROM devices').fetchone()[0]
             conn.close()
             console.print(f"  ✅ Database: Connected ({device_count} devices registered)")
@@ -910,7 +935,9 @@ def init(
             console.print("\n[cyan]📊 Post-initialization status:[/cyan]")
             try:
                 import duckdb
-                conn = duckdb.connect('.olav/db/main.duckdb', read_only=True)
+                from config.paths import UNIFIED_DB
+                
+                conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
                 
                 # Check raw_outputs
                 raw_count = conn.execute('SELECT COUNT(*) FROM raw_outputs').fetchone()[0]
@@ -1101,13 +1128,10 @@ def interactive_mode(
             if banner_text:
                 display_banner(banner_text)
 
-        # Phase 17: Federated Specialists - Initial agent is a Router
-        from olav.agents.query_agent import QueryAgent
-
-        # Note: In interactive loop, we re-initialize the agent per query
-        # or use the Router to select. For now, we pass a dummy or None
-        # and let the loop handle it.
-        agent = QueryAgent(enable_summarization=False)
+        # All queries route through Orchestrator (created per-query in the loop).
+        # The `agent` parameter is kept for backward compatibility with
+        # execute_command() but is no longer the primary execution path.
+        agent = None
 
         # Run interactive loop (async mode for proper event loop handling)
         asyncio.run(run_interactive_loop_async(session, agent, resume=resume, thread_id=thread_id))
@@ -1135,14 +1159,13 @@ def main() -> None:
     # P5.2: Skip schema initialization for --help/--version (fast path)
     # Only initialize schemas when actually running commands
     if not any(arg in sys.argv for arg in ["--help", "-h", "--version", "-v"]):
-        from config.paths import DB_DIR
+        from config.paths import UNIFIED_DB
         from olav.core.schema_manager import ensure_schema
 
-        # Ensure critical DuckDB databases have schema versioning
+        # Ensure unified DuckDB database has schema versioning (v0.10.1)
         # NOTE: query_result_cache.db uses SQLite (not DuckDB), don't initialize it here
         critical_dbs = [
-            DB_DIR / "snapshots.duckdb",
-            DB_DIR / "audit_logs.duckdb",
+            UNIFIED_DB,  # Single unified database (v0.10.1)
         ]
 
         for db_path in critical_dbs:

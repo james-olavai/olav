@@ -1,9 +1,12 @@
 ---
-name: Network Snapshot
-description: Network data collection definitions (formerly daily-sync)
+name: collecting-network-snapshot
+description: Collect network device state through SSH CLI commands (show interfaces, routing tables, protocol status). Use for periodic data collection, baseline snapshots, and real-time command execution across device groups.
 version: 2.0.0
 intent: snapshot
-# schedule controlled by daily-run workflow，not defined here
+tools:
+  - nornir_execute
+  - inspect_schema
+  - discover_data
 ---
 
 ## Network Snapshot - Collection Definition

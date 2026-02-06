@@ -110,6 +110,10 @@ ignore = ["E402", "E501"]  # E402: dotenv loading, E501: line length in docstrin
 "src/olav/agents/intent_agent.py" = ["ANN401"]  # Dynamic typing in agent functions
 "src/olav/agents/orchestrator.py" = ["ANN401"]  # Agent wrapper dynamic types
 "src/olav/agents/query_agent_v2.py" = ["ANN401"]  # Dynamic result types
+"src/olav/agents/query_agent.py" = ["ANN401"]  # Dynamic data synthesis
+"src/olav/agents/subagent_pool.py" = ["ANN401"]  # Agent factory returns Any
+"src/olav/agents/agent_enhancements.py" = ["ANN401"]  # Dynamic tool execution types
+"src/olav/agents/analyzer.py" = ["ANN401"]  # Dynamic tool execution types
 "src/olav/cli/display.py" = ["ANN401"]  # Dynamic JSON data
 "src/olav/tools/react_agent.py" = ["ANN401"]  # **kwargs dynamic types
 "src/olav/cli/input_parser.py" = ["S602"]
@@ -162,7 +166,7 @@ reportPossiblyUnboundVariable = "warning"
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-testpaths = ["tests/unit"]
+testpaths = ["tests/unit", "tests/e2e"]  # Enable E2E tests by default
 # Note: E2E tests require real API/device access. Run explicitly:
 #   pytest tests/e2e/ --timeout=120  
 # Integration tests:

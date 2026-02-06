@@ -44,24 +44,31 @@ venv.bak/
 # Testing & QA (Strictly Excluded)
 .pytest_cache/
 .coverage
-htmlcov/
+htmlcov/                        # Coverage reports (never commit)
 .tox/
 *.cover
 .hypothesis/
 .mypy_cache/
 .dmypy.json
 dmypy.json
-.pyright_cache/
-.ruff_cache/
+.pyright_cache/                 # Pyright cache
+.ruff_cache/                    # Ruff cache
 tests/
 */tests/
 test_*.py
 
-# OLAV Runtime & Data (Internal)
-.olav/db/*.duckdb
-.olav/logs/
-.olav/scratch/
-*.sqlite
+# OLAV Runtime & Data (Internal - Never Commit)
+# Database files, caches, and runtime state that should never be version controlled
+.olav/db/*.duckdb              # DuckDB database files (user/project specific)
+.olav/db/*.duckdb-wal          # DuckDB WAL files
+.olav/cache/                   # Runtime cache directory
+.olav/logs/                    # Runtime logs
+.olav/scratch/                 # Temporary working files
+.olav/.last_thread_id          # Session state
+.olav/.agent_memory.json       # Agent runtime memory
+.olav/.cli_history             # CLI command history
+*.sqlite                       # Any SQLite database files
+*.db                           # Database files
 
 # Platform Logs
 logs/
@@ -80,18 +87,19 @@ exports/visualizations/*
 !exports/reports/.gitkeep
 !exports/visualizations/.gitkeep
 
-# Sensitive Configuration (User-Specific)
-# NEVER commit these files - they contain API keys, passwords, and secrets
-.env
-.env.local
-.env.*.local
-.olav/settings.json
-.olav/.agent_memory.json
-.olav/.cli_history
-.olav/knowledge/aliases.md
-config/inventory.csv
-.olav/config/nornir/hosts.yaml
-config/nornir/hosts.yaml
+# Sensitive Configuration (User-Specific - Never Commit)
+# CRITICAL: These files contain API keys, passwords, network credentials, and secrets
+# NEVER add these to version control - they are user-specific and sensitive
+.env                           # Environment variables (API keys, secrets)
+.env.local                     # Local environment overrides
+.env.*.local                   # Environment-specific local overrides
+.olav/settings.json            # User configuration with potential secrets
+.olav/.agent_memory.json       # Agent internal state
+.olav/.cli_history             # Command history with potentially sensitive commands
+.olav/knowledge/aliases.md     # Device aliases (may contain sensitive info)
+config/inventory.csv           # Device inventory (IP addresses, credentials)
+.olav/config/nornir/hosts.yaml # Nornir configuration (device credentials, SSH keys)
+config/nornir/hosts.yaml       # Device configuration with passwords
 
 # User-specific knowledge (agent-generated)
 .olav/knowledge/solutions/

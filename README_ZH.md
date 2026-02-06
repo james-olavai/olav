@@ -240,7 +240,7 @@ uv run python scripts/init.py --reload-commands
 ### 2b. **命令黑名单** - 禁止操作
 除了白名单外，OLAV 还维护一个明确的**黑名单**，其中的危险命令**始终**被禁止，无论白名单状态如何。
 
-**黑名单位置**: `.olav/imports/commands/blacklist.txt`
+**黑名单位置**（v0.10.1+）: `.olav/skills/network-cli/config/blacklist.txt`
 
 示例禁止命令：
 ```

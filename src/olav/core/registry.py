@@ -250,7 +250,7 @@ class CommandRegistry:
             import textfsm
 
             with open(template_path, encoding="utf-8") as f:
-                template = textfsm.TextFSM(f.read())
+                template = textfsm.TextFSM(f)
 
             # Parse output
             fsm_results = template.ParseText(output)
