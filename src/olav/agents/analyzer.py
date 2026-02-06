@@ -116,30 +116,18 @@ async def db_query_node(state: AnalyzerState) -> AnalyzerState:
     state.status = "db_query"
 
     try:
-        import json
+        from olav.lib.data_gateway import query_database
 
-        from olav.tools.react_query import query_network
+        # Execute SQL query directly using query_database (query_network deprecated)
+        # query_database returns list[dict] directly, no JSON parsing needed
+        rows = query_database(state.user_query)
 
-        # Phase 15: Use .invoke() and handle JSON response correctly
-        # Note: query_network expects 'sql' arg and returns JSON string
-        result_json = query_network.invoke({"sql": state.user_query})
-
-        try:
-            result_data = json.loads(result_json)
-        except json.JSONDecodeError:
-            result_data = {"error": f"Invalid JSON response: {result_json[:100]}", "data": []}
-
-        if isinstance(result_data, dict) and "error" in result_data:
-            logger.warning(f"DB query warning: {result_data['error']}")
-            state.db_data = {"error": result_data["error"], "data": []}
-        else:
-            # query_network returns a list of rows on success
-            rows = result_data if isinstance(result_data, list) else []
-            state.db_data = {
-                "data": rows,
-                "sql": state.user_query,  # Best effort sql tracking
-                "row_count": len(rows),
-            }
+        # query_database returns list[dict] directly on success
+        state.db_data = {
+            "data": rows,
+            "sql": state.user_query,
+            "row_count": len(rows),
+        }
 
         # Search for similar historical cases (Agentic Learning)
         state.similar_cases = _search_similar_cases(state.user_query)
@@ -178,7 +166,8 @@ async def cli_verify_node(state: AnalyzerState) -> AnalyzerState:
     # Skip CLI verification for queries that are clearly database queries
     # CLI verification should only happen for real-time diagnostics, not data exports
     query_lower = state.user_query.lower()
-    if any(keyword in query_lower for keyword in ["save", "export", "list", "show all", "get all", "version info"]):
+    db_keywords = ["save", "export", "list", "show all", "get all", "version info"]
+    if any(keyword in query_lower for keyword in db_keywords):
         logger.info("Skipping CLI verification for database-focused query")
         state.cli_data = {"skipped": "Database-only query"}
         state.status = "analyzing"
@@ -198,11 +187,20 @@ async def cli_verify_node(state: AnalyzerState) -> AnalyzerState:
         else:
             command = "show version"
 
-        # Execute command (note: this would need device targeting in real usage)
-        result = await nornir_execute(
-            command=command,
-            device_filter=None,  # All devices
-        )
+        # Execute command on a sample device (since nornir_execute is a tool, we invoke it)
+        # Note: In production, would need proper device selection logic
+        try:
+            # nornir_execute is a LangChain tool, invoke it synchronously
+            result = nornir_execute.invoke(
+                {
+                    "device": "router1",  # Default device, should be configurable
+                    "command": command,
+                    "timeout": 30,
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to execute CLI command: {e}")
+            result = f"CLI execution failed: {str(e)}"
 
         state.cli_data = {
             "command": command,
@@ -318,14 +316,26 @@ async def analyze_node(state: AnalyzerState) -> AnalyzerState:
 def _build_analysis_prompt(state: AnalyzerState) -> str:
     """Build prompt for analysis.
 
+    Phase 2: Load system prompt from SKILL.md instead of hardcoding.
+
     Args:
         state: Current agent state
 
     Returns:
         Analysis prompt
     """
+    # Phase 2: Load system prompt from SKILL.md
+    try:
+        from olav.core.subagent_loader import load_skill_prompt
+
+        system_prompt = load_skill_prompt("network-analysis", "system")
+    except Exception as e:
+        logger.warning(f"Failed to load system prompt from SKILL.md: {e}")
+        # Fallback to simple prompt if SKILL.md not available
+        system_prompt = "You are a Network Analysis Specialist providing expert insights."
+
     prompt_parts = [
-        "You are a Network Analysis Specialist providing expert insights.",
+        system_prompt,
         "",
         "Data Sources:",
     ]
@@ -412,9 +422,7 @@ def _extract_recommendations(analysis: str) -> list[str]:
     return recommendations
 
 
-def _search_similar_cases(
-    symptom: str, skill_name: str = "network-expert"
-) -> list[dict[str, Any]]:
+def _search_similar_cases(symptom: str, skill_name: str = "network-expert") -> list[dict[str, Any]]:
     """Search for similar historical diagnosis cases.
 
     Args:
@@ -599,16 +607,22 @@ async def analyze_network(
 # =============================================================================
 
 
-def create_analyzer_agent(model: str = "gpt-4o") -> Callable[[str], str]:
+def create_analyzer_agent(model: str | None = None) -> Callable[[str], str]:
     """Create a simple wrapper for backward compatibility.
 
     Args:
-        model: LLM model name
+        model: LLM model name (None = use settings.agent.analyzer_model)
 
     Returns:
         Callable agent
     """
     import asyncio
+
+    from config.settings import settings
+
+    # Use settings if model not specified
+    if model is None:
+        model = settings.agent.analyzer_model
 
     def agent(user_input: str) -> str:
         """Analyze network using Analyzer Agent."""

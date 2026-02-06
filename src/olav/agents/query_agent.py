@@ -8,16 +8,14 @@ Uses:
 """
 
 import logging
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from deepagents import create_deep_agent
-from deepagents.backends.filesystem import FilesystemBackend
 from langgraph.checkpoint.duckdb import DuckDBSaver
 from langgraph.store.duckdb import DuckDBStore
 
-from config.paths import USER_CHECKPOINT_PATH
+from config.paths import PROJECT_ROOT, USER_CHECKPOINT_PATH
 from config.settings import settings
 from olav.agents.intent_agent import IntentAgent
 from olav.core.query_cache import get_query_cache
@@ -114,9 +112,9 @@ class QueryAgent:
         # 1. Load tools dynamically from Skill metadata (Agent-Agnostic)
         self.tools = SkillAdapter.load_tools_from_skill(self.skill)
 
-        # 2. Setup backend for DeepAgents
-        project_root = Path.cwd()
-        self.backend = FilesystemBackend(root_dir=str(project_root))
+        # 2. Setup backend for DeepAgents with CompositeBackend routing ✅ PHASE 1 GREEN
+        from olav.core.storage import get_storage_backend
+        self.backend = get_storage_backend()
 
         # 3. Load external prompts
         prompts = self.skill.frontmatter.get("prompts", {})
@@ -132,11 +130,33 @@ class QueryAgent:
         # 6. Initialize query result cache
         self.query_cache = get_query_cache()
 
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - clean up DuckDB connections."""
+        self.close()
+        return False
+
+    def close(self):
+        """Close DuckDB connections to prevent resource leaks."""
+        try:
+            if hasattr(self, "_checkpointer_cm"):
+                self._checkpointer_cm.__exit__(None, None, None)
+            if hasattr(self, "_store_cm"):
+                self._store_cm.__exit__(None, None, None)
+            logger.debug("QueryAgent DuckDB connections closed")
+        except Exception as e:
+            logger.warning(f"Error closing QueryAgent connections: {e}")
+
     def _init_user_database(self) -> None:
         """Initialize user-specific persistent checkpointer and store using DuckDB."""
-        # from_conn_string returns a context manager - enter it manually
-        self.checkpointer = DuckDBSaver.from_conn_string(str(USER_CHECKPOINT_PATH)).__enter__()
-        self.store = DuckDBStore.from_conn_string(str(USER_CHECKPOINT_PATH)).__enter__()
+        # Store context managers and enter them
+        self._checkpointer_cm = DuckDBSaver.from_conn_string(str(USER_CHECKPOINT_PATH))
+        self._store_cm = DuckDBStore.from_conn_string(str(USER_CHECKPOINT_PATH))
+        self.checkpointer = self._checkpointer_cm.__enter__()
+        self.store = self._store_cm.__enter__()
         logger.debug(f"User checkpoint (DuckDB) initialized: {USER_CHECKPOINT_PATH}")
 
     def _load_known_devices(self) -> set[str]:
@@ -151,52 +171,27 @@ class QueryAgent:
             return set()
 
     def _create_agent(self) -> None:
-        """Create the DeepAgent with native components."""
-        # 5. Create the DeepAgent with native components
-        model_name = settings.llm_model_name  # Use string directly
+        """Create the DeepAgent with native LLM instance (fixes profile attribute error)."""
+        from olav.core.llm import LLMFactory
 
-        # Infer model provider from model name if not explicitly set
-        model_provider = settings.llm_model_provider or None
-        if not model_provider and "/" in model_name:
-            # Extract provider from format like "x-ai/grok-4.1-fast"
-            provider_prefix = model_name.split("/")[0]
-            # When using OpenRouter (base_url set), always use openai provider
-            if settings.llm_base_url and "openrouter" in settings.llm_base_url.lower():
-                model_provider = "openai"  # OpenRouter uses OpenAI-compatible API
-            elif provider_prefix == "x-ai":
-                model_provider = "xai"
-
-        # Check if API key is available and try fallback if needed
-        model_name, model_provider = self._check_model_availability(model_name, model_provider)
-
-        # For create_deep_agent, prepend provider if using OpenRouter
-        # This helps LangChain's init_chat_model infer the provider
-        if model_provider and "/" not in model_name:
-            model_for_agent = f"{model_provider}:{model_name}"
-        elif model_provider == "openai" and "/" in model_name:
-            # For OpenRouter with x-ai/ prefix, use openai: prefix
-            model_for_agent = f"openai:{model_name}"
-        else:
-            model_for_agent = model_name
+        # Create LLM instance using LLMFactory instead of passing string to create_deep_agent
+        # This ensures compatibility with DeepAgents middleware and third-party APIs
+        llm = LLMFactory.get_chat_model()
+        
+        logger.debug(
+            f"Created LLM for QueryAgent: {type(llm).__name__} with model {settings.llm_model_name}"
+        )
 
         # Create agent WITH tools for SQL + CLI fallback capability
-        # Tools are loaded from skill metadata (query_database, inspect_schema, smart_query, get_cached_sql)
-        if self.enable_summarization:
-            # Tier 2: Full ReAct Loop with summarization middleware
-            # Note: checkpoint support requires async-compatible saver
-            self.agent = create_deep_agent(
-                model=model_for_agent,
-                system_prompt=self.system_prompt,
-                tools=self.tools,  # CRITICAL: Pass tools so LLM can invoke smart_query for CLI fallback
-            )
-        else:
-            # Tier 1: Standard (Fast-Path, no summarization)
-            # LLM must invoke tools (query_database → smart_query) to get data
-            self.agent = create_deep_agent(
-                model=model_for_agent,
-                system_prompt=self.system_prompt,
-                tools=self.tools,  # CRITICAL: Pass tools so LLM can invoke smart_query for CLI fallback
-            )
+        # Tools are loaded from skill metadata
+        # (query_database, inspect_schema, smart_query, get_cached_sql)
+        self.agent = create_deep_agent(
+            model=llm,  # Pass LLM instance instead of string
+            system_prompt=self.system_prompt,
+            tools=self.tools,
+            backend=self.backend,  # ✅ PHASE 1 GREEN: Use CompositeBackend
+            # CRITICAL: Pass tools for LLM to invoke smart_query for CLI fallback
+        )
 
     def _check_model_availability(
         self, model_name: str, model_provider: str | None
@@ -270,21 +265,27 @@ class QueryAgent:
         try:
             # 1. Get snapshot info
             meta = self.gw.query_snapshots(
-                "SELECT snapshot_date, device_count FROM commands.snapshot_metadata ORDER BY snapshot_date DESC LIMIT 1"
+                "SELECT snapshot_date, device_count "
+                "FROM commands.snapshot_metadata "
+                "ORDER BY snapshot_date DESC LIMIT 1"
             )
             date_str = str(meta[0]["snapshot_date"]) if meta else "Unknown"
             devices = meta[0]["device_count"] if meta else 0
 
             # 2. Get available views
             views = self.gw.query_snapshots(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main' AND table_type = 'VIEW'"
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'main' AND table_type = 'VIEW'"
             )
             view_list = ", ".join([v["table_name"] for v in views])
 
             context = "\n\n### Current Environment Context\n"
             context += f"- **Latest Snapshot**: {date_str} ({devices} devices)\n"
             context += f"- **Available Views**: {view_list}\n"
-            context += "Use these views for SQL queries. If a view is missing, you may use 'inspect_schema' but prioritize these.\n"
+            context += (
+                "Use these views for SQL queries. If a view is missing, "
+                "you may use 'inspect_schema' but prioritize these.\n"
+            )
 
             return prompt + context
         except Exception:
@@ -299,7 +300,7 @@ class QueryAgent:
         # If it looks like a path, try reading it
         if prompt_value.strip().startswith(".") or "/" in prompt_value:
             try:
-                full_path = Path("/home/yhvh/Olav") / prompt_value
+                full_path = PROJECT_ROOT / prompt_value
                 if full_path.exists():
                     return full_path.read_text(encoding="utf-8")
             except Exception as e:
@@ -366,9 +367,8 @@ class QueryAgent:
 
         try:
             # Execute ReAct loop
-            logger.debug(
-                f"Starting agent execution in {'analysis' if self.enable_summarization else 'standard'} mode"
-            )
+            mode = "analysis" if self.enable_summarization else "standard"
+            logger.debug(f"Starting agent execution in {mode} mode")
 
             # Prepare agent invocation config with thread_id for checkpointer
             import uuid
@@ -465,10 +465,9 @@ class QueryAgent:
                 # Phase 4 Day 5: Cache any successful query result (not limited to SQL tools)
                 if cache_query and result_content:
                     # Only cache if not an execution error
-                    if (
-                        "Error" not in str(result_content)
-                        or "not found" in str(result_content).lower()
-                    ):
+                    # Fixed: proper operator precedence - cache only if no error OR (has "not found" AND no "Error")
+                    content_str = str(result_content).lower()
+                    if "error" not in content_str or ("not found" in content_str and "error" not in content_str):
                         # Store in query cache for future fast retrieval
                         # Convert AIMessage to serializable format
                         serializable_msg = {

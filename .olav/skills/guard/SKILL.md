@@ -1,23 +1,11 @@
 ---
-name: Security Guard
-id: guard
-description: "Security Gatekeeper - Pre-execution safety checks (dangerous commands, config changes, sensitive data)"
+name: validating-safety-constraints
+description: Pre-execution security validation for dangerous commands, configuration changes, and sensitive data access. Blocks unauthorized operations and unsafe modifications. Use automatically before executing any commands or config changes.
 version: 1.0.0
 intent: security
-complexity: simple
-enabled: true
-
-# Configuration
-config:
-  language: zh  # Message language: zh or en
-  llm_classification:
-    enabled: false  # LLM intent classification (for complex scenarios)
-    fallback_only: true  # Use LLM only when pattern matching fails
-  cache_enabled: true  # Cache guard decisions for repeated queries
-
-# Action types (defined here, not hardcoded)
-actions:
-  - name: pass
+tools:
+  - query_database
+---
     description: "Allow execution without restrictions"
   - name: reject
     description: "Block immediately, no execution"

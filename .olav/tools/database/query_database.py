@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Query Database Script - Standard Template
+Query Database Script - Uses data_gateway unified connection.
 
-This script queries the DuckDB database and returns results in JSON format.
-It follows the standard template for all .olav/scripts/*.py files.
+Queries DuckDB via data_gateway._create_unified_connection() which attaches
+ALL databases (main.duckdb + olav.duckdb + snapshots.duckdb) with
+compatibility views so LLM-generated SQL works without catalog prefixes.
 
 Usage:
-    echo '{"sql": "SELECT * FROM v_interfaces LIMIT 5"}' | uv run python3 .olav/scripts/query_database.py
+    echo '{"sql": "SELECT * FROM devices LIMIT 5"}' | uv run python3 .olav/tools/database/query_database.py
 """
 
 import json
@@ -16,22 +17,22 @@ from pathlib import Path
 # Add src to Python Path
 sys.path.insert(0, str(Path(__file__).parents[2] / "src"))
 
-from olav.core.unified_database import UnifiedDatabase
+from olav.lib.data_gateway import query_database as db_query
 
 
 def main(params: dict) -> dict:
-    """Query DuckDB database
+    """Query DuckDB database via data_gateway unified connection.
 
     Args:
         params: {
-            "sql": "SELECT * FROM v_interfaces WHERE device='R1'"
+            "sql": "SELECT * FROM devices WHERE hostname='R1'"
         }
 
     Returns:
         {
-            "results": [...],
+            "data": [...],
             "count": 10,
-            "timestamp": "2026-01-29 15:40:00"
+            "status": "success"
         }
     """
     sql = params.get("sql")
@@ -40,51 +41,18 @@ def main(params: dict) -> dict:
         return {"error": "Missing 'sql' parameter", "status": "failed"}
 
     try:
-        udb = UnifiedDatabase()
-        raw_results = udb.query(sql)
-
-        # Convert tuples to dicts (UnifiedDatabase returns tuples)
-        if raw_results:
-            # Get column names from the connection
-            conn = udb.conn
-            columns = [desc[0] for desc in conn.description]
-            results = [dict(zip(columns, row, strict=False)) for row in raw_results]
-        else:
-            results = []
-
-        # Get data timestamp (try multiple sources)
-        timestamp = None
-        try:
-            timestamp_query = """
-                SELECT MAX(created_at) as latest_timestamp
-                FROM raw_outputs
-                LIMIT 1
-            """
-            timestamp_result = udb.query(timestamp_query)
-            if timestamp_result and timestamp_result[0]:
-                timestamp = timestamp_result[0][0]
-        except Exception:
-            # raw_outputs table doesn't exist, try alternatives
-            try:
-                timestamp_result = udb.query(
-                    "SELECT MAX(snapshot_date) as latest_timestamp FROM v_system LIMIT 1"
-                )
-                if timestamp_result and timestamp_result[0]:
-                    timestamp = timestamp_result[0][0]
-            except Exception:
-                pass  # Use current time as fallback
+        # data_gateway.query_database returns list[dict] directly
+        results = db_query(sql)
 
         return {
             "data": results,
             "count": len(results),
-            "timestamp": str(timestamp) if timestamp else None,
             "status": "success",
         }
 
     except Exception as e:
         error_msg = str(e)
 
-        # Check if error is about missing views/tables
         if (
             "does not exist" in error_msg
             or "no such table" in error_msg.lower()
@@ -93,7 +61,7 @@ def main(params: dict) -> dict:
             return {
                 "error": error_msg,
                 "error_type": "missing_view",
-                "suggestion": "Database views not found. Use inspect_schema to check available views, or use smart_query for live CLI commands.",
+                "suggestion": "Use inspect_schema to check available tables and columns.",
                 "status": "failed",
             }
 

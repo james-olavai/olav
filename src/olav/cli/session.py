@@ -59,7 +59,9 @@ class OlavPromptSession:
 
     def _load_whitelist(self) -> dict[str, str]:
         """Load command whitelist for auto-completion."""
-        whitelist_file = Path(".olav/skills/guard/whitelist.yaml")
+        from config.paths import GUARD_WHITELIST_PATH
+        
+        whitelist_file = GUARD_WHITELIST_PATH
 
         if not whitelist_file.exists():
             return {}
@@ -692,11 +694,11 @@ class Session:
             "messages": len(self.messages),
         }
 
-    def count_tokens_tiktoken(self, model: str = "gpt-3.5-turbo") -> dict | None:
+    def count_tokens_tiktoken(self, model: str | None = None) -> dict | None:
         """Count tokens using tiktoken (OpenAI tokenizer).
 
         Args:
-            model: Model name for tokenizer (default: gpt-3.5-turbo)
+            model: Model name for tokenizer (None = use settings.llm_model_name)
 
         Returns:
             Dictionary with token counts or None if tiktoken not available:
@@ -710,11 +712,17 @@ class Session:
             Common models: gpt-3.5-turbo, gpt-4, gpt-4-turbo
 
         Example:
-            tokens = session.count_tokens_tiktoken(model="gpt-4")
+            tokens = session.count_tokens_tiktoken()  # Uses settings
             if tokens:
                 print(f"Total: {tokens['total_tokens']} tokens")
                 print(f"Average: {tokens['avg_tokens_per_message']} per message")
         """
+        from config.settings import settings
+
+        # Use settings if model not specified
+        if model is None:
+            model = settings.llm_model_name
+
         try:
             import tiktoken
         except ImportError:
@@ -799,23 +807,29 @@ class Session:
         }
 
     def check_token_limit_warning(
-        self, model: str = "gpt-3.5-turbo", threshold_percent: float = 80.0
+        self, model: str | None = None, threshold_percent: float = 80.0
     ) -> dict | None:
         """Check if token usage exceeds threshold and return warning.
 
         Args:
-            model: Model name
+            model: Model name (None = use settings.llm_model_name)
             threshold_percent: Percentage threshold for warning (default 80%)
 
         Returns:
             Warning dictionary if threshold exceeded, None otherwise
 
         Example:
-            warning = session.check_token_limit_warning(model="gpt-4", threshold_percent=80)
+            warning = session.check_token_limit_warning(threshold_percent=80)
             if warning:
                 print(f"Warning: {warning['usage_percent']:.1f}% of tokens used")
                 print(f"Available for response: {warning['available_tokens']} tokens")
         """
+        from config.settings import settings
+
+        # Use settings if model not specified
+        if model is None:
+            model = settings.llm_model_name
+
         info = self.get_token_limit(model)
 
         if info["usage_percent"] >= threshold_percent:

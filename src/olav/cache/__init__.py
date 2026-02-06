@@ -128,7 +128,7 @@ class OlavCache:
         for keyword, reason in result:
             if keyword in query_lower:
                 logger.warning(f"🚫 Blacklist blocked: {query[:50]} (reason: {reason})")
-                return (True, f"🚫 安全拦截: {reason}")
+                return (True, f"🚫 Security blocked: {reason}")
 
         return (False, None)
 

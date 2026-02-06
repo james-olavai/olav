@@ -27,51 +27,90 @@ def format_and_export(
     format: str | None = None,
 ) -> dict[str, Any]:
     """
-    导出数据到文件（统一输出到 exports/ 目录）
+    Export data to file (unified output to exports/ directory).
+
+    CRITICAL: For CSV/JSON export, pass the RAW structured data from
+    query_database tool results — the JSON array of objects, NOT a text
+    summary or markdown table. This ensures proper tabular output.
 
     Args:
-        data: 要导出的数据（字符串/字典/列表/任意对象）
-        filename: 文件名（不含扩展名），默认自动生成 export_YYYYmmdd_HHMMSS
-        format: 输出格式 (md/json/txt/csv/yaml)，默认自动检测
+        data: Data to export. For CSV: MUST be a JSON array of objects
+              (e.g. [{"hostname": "R1", "ip": "10.0.0.1"}, ...]).
+              For markdown/text: can be a formatted string.
+        filename: Filename (without extension), auto-generated if omitted
+        format: Output format (md/json/txt/csv/yaml), auto-detected if omitted
 
     Returns:
-        dict: {"path": "exports/xxx.md", "size": 1234}
+        dict: {"path": "exports/xxx.csv", "size": 1234}
 
     Examples:
-        >>> # 诊断报告（自动检测为Markdown）
-        >>> format_and_export("# 诊断报告\\n...", filename="ospf_diagnosis")
-        {"path": "exports/ospf_diagnosis.md", "size": 2048}
+        >>> # CSV export — pass raw JSON data from query_database
+        >>> format_and_export(
+        ...     '[{"hostname": "R1", "ip": "10.0.0.1"}, {"hostname": "R2", "ip": "10.0.0.2"}]',
+        ...     filename="devices", format="csv"
+        ... )
+        {"path": "exports/devices.csv", "size": 256}
 
-        >>> # JSON数据（自动检测）
-        >>> format_and_export({"devices": [...]}, filename="inventory")
-        {"path": "exports/inventory.json", "size": 512}
-
-        >>> # 明确指定格式
-        >>> format_and_export(data, filename="vlans", format="csv")
-        {"path": "exports/vlans.csv", "size": 256}
+        >>> # Diagnosis report (auto-detected as Markdown)
+        >>> format_and_export("# Diagnosis Report\n...", filename="ospf_diagnosis")
+        {"path": "exports/reports/ospf_diagnosis.md", "size": 2048}
     """
-    # 1. 统一输出目录 - 使用绝对路径确保在exports/下生成
+    # 1. Determine output directory based on format
     from config.paths import REPORTS_DIR
     
-    output_dir = REPORTS_DIR  # exports/reports/
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if format and format.lower() in ("csv", "json", "yaml", "yml"):
+        output_dir = REPORTS_DIR.parent  # exports/
+    elif format and format.lower() in ("md", "txt"):
+        output_dir = REPORTS_DIR  # exports/reports/
+    else:
+        output_dir = None  # resolved after format detection
 
-    # 2. 自动检测格式（如果未指定）
+    # 2. Parse JSON strings into native Python objects.
+    #    LLM tool calls often pass query_database results as JSON strings.
+    #    Converting early ensures _detect_format and _write_csv see list[dict].
+    if isinstance(data, str):
+        stripped = data.strip()
+        if stripped.startswith("[") or stripped.startswith("{"):
+            try:
+                parsed = json.loads(data)
+                if isinstance(parsed, (list, dict)):
+                    data = parsed
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+    # 3. Auto-detect format (if not specified)
     if not format:
         format = _detect_format(data)
 
-    # 3. 自动生成文件名（如果未指定）
+    # 4. Resolve output_dir if not yet determined
+    if output_dir is None:
+        from config.paths import REPORTS_DIR as _REPORTS_DIR
+        if format in ("csv", "json", "yaml", "yml"):
+            output_dir = _REPORTS_DIR.parent  # exports/
+        else:
+            output_dir = _REPORTS_DIR  # exports/reports/
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 5. Auto-generate filename (if not specified)
     if not filename:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"export_{timestamp}"
+    
+    # Sanitize filename to prevent path traversal (security fix)
+    # Remove path separators and parent directory references
+    from pathlib import PurePath
+    filename = PurePath(filename).name  # Extract only the filename component
+    if ".." in filename or filename.startswith("/"):
+        raise ValueError(f"Invalid filename: {filename}. Cannot contain '..' or start with '/'")
 
-    # 4. 构建完整路径
+    # 6. Build full path
     filepath = output_dir / f"{filename}.{format}"
 
-    # 5. 根据格式写入文件
+    # 7. Write file based on format
     _write_file(filepath, data, format)
 
-    # 6. 返回结果（使用相对路径给用户看）
+    # 8. Return result with relative path for display
     return {
         "path": str(filepath.relative_to(Path.cwd())),  # 相对路径：exports/reports/xxx.csv
         "absolute_path": str(filepath.absolute()),
@@ -100,6 +139,15 @@ def _detect_format(data: Any) -> str:  # noqa: ANN401
         # 检测 Markdown 特征
         if data.strip().startswith("#") or "\n##" in data or "\n###" in data:
             return "md"
+
+        # 检测 CSV 特征 (comma-separated with consistent column count)
+        lines = data.strip().splitlines()
+        if len(lines) >= 2:
+            first_commas = lines[0].count(",")
+            if first_commas >= 1 and all(
+                line.count(",") == first_commas for line in lines[:5] if line.strip()
+            ):
+                return "csv"
 
         # 检测 JSON 字符串
         stripped = data.strip()
@@ -163,47 +211,57 @@ def _write_file(filepath: Path, data: Any, format: str) -> None:  # noqa: ANN401
 
 def _write_csv(filepath: Path, data: Any) -> None:  # noqa: ANN401
     """
-    写入CSV文件（使用pandas）
+    Write CSV file.
+
+    Handles:
+    - list[dict] → proper multi-column CSV via pandas/csv
+    - JSON string → parse first, then treat as list[dict]
+    - dict → single-row CSV
+    - Other → fallback to single-column
 
     Args:
-        filepath: 文件路径
-        data: 列表或字典列表
+        filepath: File path
+        data: Data to write (ideally list[dict] or JSON string of same)
     """
+    # Parse JSON strings into native Python objects first
+    if isinstance(data, str):
+        try:
+            parsed = json.loads(data)
+            if isinstance(parsed, (list, dict)):
+                data = parsed
+        except (json.JSONDecodeError, ValueError):
+            pass
+
     try:
         import pandas as pd
 
-        # 转换为DataFrame
         if isinstance(data, list) and len(data) > 0:
             if isinstance(data[0], dict):
-                # 字典列表 → DataFrame
                 df = pd.DataFrame(data)
             else:
-                # 简单列表 → 单列DataFrame
                 df = pd.DataFrame(data, columns=["value"])
         elif isinstance(data, dict):
-            # 字典 → DataFrame（单行）
             df = pd.DataFrame([data])
         else:
-            # 其他类型
+            # Last resort: coerce to string in a single column
             df = pd.DataFrame([{"data": str(data)}])
 
-        # 写入CSV
         df.to_csv(filepath, index=False, encoding="utf-8")
 
     except ImportError:
-        # pandas未安装，降级为简单CSV
         import csv
 
-        content = str(data)
-        with open(filepath, "w", encoding="utf-8") as f:
+        with open(filepath, "w", encoding="utf-8", newline="") as f:
             if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
-                # 字典列表
                 writer = csv.DictWriter(f, fieldnames=data[0].keys())
                 writer.writeheader()
                 writer.writerows(data)
+            elif isinstance(data, dict):
+                writer = csv.DictWriter(f, fieldnames=data.keys())
+                writer.writeheader()
+                writer.writerow(data)
             else:
-                # 简单数据
-                f.write(content)
+                f.write(str(data))
 
 
 def _write_yaml(filepath: Path, data: Any) -> None:  # noqa: ANN401

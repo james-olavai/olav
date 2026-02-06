@@ -161,19 +161,19 @@ class SkillAdapter:
                     # Use a unique module name for the script
                     module_name = f"olav.tools.{full_script_path.stem}"
 
-                    # Check cache first
+                    # Always reload to pick up changes (no stale cache)
                     if module_name in sys.modules:
-                        module = sys.modules[module_name]
+                        del sys.modules[module_name]
+
+                    spec = importlib.util.spec_from_file_location(
+                        module_name, str(full_script_path)
+                    )
+                    if spec and spec.loader:
+                        module = importlib.util.module_from_spec(spec)
+                        sys.modules[module_name] = module
+                        spec.loader.exec_module(module)
                     else:
-                        spec = importlib.util.spec_from_file_location(
-                            module_name, str(full_script_path)
-                        )
-                        if spec and spec.loader:
-                            module = importlib.util.module_from_spec(spec)
-                            sys.modules[module_name] = module
-                            spec.loader.exec_module(module)
-                        else:
-                            module = None
+                        module = None
 
                     if module and hasattr(module, "main"):
                         # Call the main function directly

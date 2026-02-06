@@ -21,19 +21,27 @@ OLAV_BASE_DIR = AGENT_DIR  # Points to .olav/
 LIB_DIR = OLAV_BASE_DIR / "lib"  # Platform-agnostic utilities (data_gateway.py)
 
 # =============================================================================
-# Database Paths (Internal - .olav/db/)
+# Database Paths (Internal - .olav/db/) - v0.10.1: Unified Single Database
 # =============================================================================
 
 DB_DIR = AGENT_DIR / "db"
 
-# v0.10.0: Separated Shared Databases
-SNAPSHOTS_DB = DB_DIR / "snapshots.duckdb"  # Network snapshot data (read-only)
-TOPOLOGY_DB = DB_DIR / "topology.duckdb"  # Topology data (read-only)
-AUDIT_LOGS_DB = DB_DIR / "audit_logs.duckdb"  # Command audit logs (write-only)
-MAIN_DB_PATH = DB_DIR / "main.duckdb"  # Main database for devices table and structured data
+# v0.10.1: Unified Single Database Architecture
+# All data (devices, raw_outputs, audit, knowledge) in one DuckDB file
+UNIFIED_DB = DB_DIR / "olav.duckdb"  # Single source of truth
 
-# v0.9.9: Unified Database Core (deprecated - use SNAPSHOTS_DB instead)
-OLAV_DB_PATH = DB_DIR / "olav.duckdb"
+# Backward compatibility aliases (all point to unified database)
+MAIN_DB_PATH = UNIFIED_DB  # Device metadata
+SNAPSHOTS_DB = UNIFIED_DB  # Network snapshots & query cache
+AUDIT_LOGS_DB = UNIFIED_DB  # Command audit logs
+OLAV_DB_PATH = UNIFIED_DB  # Main database
+
+# Deprecated paths (kept for backwards compat, not used)
+NETWORK_DB_PATH = UNIFIED_DB
+NETWORK_COMMANDS_PATH = UNIFIED_DB
+KNOWLEDGE_PATH = UNIFIED_DB
+NETWORK_SNAPSHOT_PATH = UNIFIED_DB
+NETWORK_WAREHOUSE_PATH = UNIFIED_DB
 
 # User-Local Cache (Phase 8 Multi-User Architecture)
 # Resolves locking issues by giving each user their own writeable DB
@@ -47,8 +55,9 @@ except Exception:
 USER_CACHE_FILENAME = f"cache_{_username}.duckdb"
 USER_CACHE_PATH = Path.home() / ".olav" / USER_CACHE_FILENAME
 
-# Cache directory for unified cache system (v0.10.0+)
+# Cache directory for LLM call cache (v0.10.1: SQLite with TTL)
 CACHE_DIR = AGENT_DIR / "cache"
+LLM_CACHE_DB = CACHE_DIR / "olav_cache.db"  # SQLite - LLM call cache
 
 # User-Local Checkpoint & History (LangGraph Native - Phase 9)
 USER_CHECKPOINT_DIR = Path.home() / ".olav" / "checkpoints"
@@ -56,15 +65,6 @@ USER_CHECKPOINT_PATH = USER_CHECKPOINT_DIR / f"{_username}.duckdb"
 USER_HISTORY_DIR = Path.home() / ".olav" / "history"
 USER_HISTORY_PATH = USER_HISTORY_DIR / f"{_username}.txt"
 USER_SESSION_DIR = Path.home() / ".olav" / "sessions"
-
-# Map all legacy/specific paths to the unified core
-NETWORK_DB_PATH = OLAV_DB_PATH
-NETWORK_COMMANDS_PATH = OLAV_DB_PATH  # Default shared commands (read-only fallback)
-KNOWLEDGE_PATH = OLAV_DB_PATH
-
-# Backwards compatibility aliases (deprecated - use new names)
-NETWORK_SNAPSHOT_PATH = SNAPSHOTS_DB  # v0.10.0: Points to separated snapshots DB
-NETWORK_WAREHOUSE_PATH = NETWORK_DB_PATH  # Legacy alias
 
 # =============================================================================
 # Export Paths (User-Facing - exports/)
@@ -126,6 +126,8 @@ TEXTFSM_TEMPLATES_DIR = SKILL_TEXTFSM_GENERATOR_CONFIG / "textfsm"
 SKILL_GUARD_DIR = SKILLS_DIR / "guard"
 SKILL_GUARD_CONFIG = SKILL_GUARD_DIR / "config"
 COMMAND_MODE_CONFIG_PATH = SKILL_GUARD_CONFIG / "command_mode.yaml"
+GUARD_WHITELIST_PATH = SKILL_GUARD_DIR / "whitelist.yaml"  # For CLI whitelist loading
+GUARD_RULES_PATH = SKILL_GUARD_DIR / "rules.yaml"  # For Guard agent filtering
 
 # Legacy skill paths (deprecated, use config paths above)
 SKILL_INSPECT_ANALYZER = SKILLS_DIR / "inspect-analyzer" / "SKILL.md"
