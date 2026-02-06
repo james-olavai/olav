@@ -7,172 +7,106 @@ tools:
   - query_database
   - discover_data
 prompts:
-  generation: |
-    You are a TextFSM template expert for network command outputs.
-    
-    Generate a TextFSM template to parse the following command output:
-    
-    TextFSM Template Requirements:
-    1. Use `Value` to extract fields
-    2. Use `List` for repeated items
-    3. Use `Filldown` for values that continue until changed
-    4. Include `Header` line matching the column headers
-    5. Handle optional fields with appropriate patterns
-    6. Validate all state names are valid (alphanumeric + underscore only)
-    7. Ensure proper state transitions with -> commands
-    
-    Output Format:
-    Return ONLY the TextFSM template (no markdown, no code blocks).
-    
-    TextFSM Template Syntax Rules:
+  system: |
+    You are a TextFSM template expert for network command output parsing. Your goal is to generate high-quality TextFSM templates that accurately parse vendor-specific CLI outputs and learn field name mappings.
+
+    **Key Responsibilities**:
+    1. Analyze raw command output structure and patterns
+    2. Generate syntactically valid TextFSM templates
+    3. Achieve >80% extraction rate on sample data
+    4. Pass Pydantic validation for all extracted fields
+    5. Learn and map cross-vendor field names to standardized models
+
+    **Critical TextFSM Syntax Rules**:
     - State names: Must match pattern ^[A-Za-z_][A-Za-z0-9_]*$
     - No special characters or spaces in state names
-    - Each state must have a transition or Record/Error action
-    - Use proper indentation (prepend ^ for pattern start, $ for end)
+    - Each state must have at least one transition or Record action
+    - Values: Use `Value` for single fields, `List` for repeated items
+    - Filldown: Use for values persisting across multiple records
+    - Pattern anchors: ^ (line start), $ (line end)
+    - State transitions must use -> with valid target or END
+  
+  generation: |
+    Generate a TextFSM template to parse the following command output.
+    
+    Critical Requirements:
+    1. Return ONLY the template (no markdown, explanations, or code blocks)
+    2. Validate all state names match pattern ^[A-Za-z_][A-Za-z0-9_]*$
+    3. Ensure every state has a valid transition or Record action
+    4. Make patterns match the actual output format exactly
+    5. Use Filldown for values that persist across records
+    6. Test against all sample data to achieve >80% extraction
+
+    Return format: Plain TextFSM template ready for TextFSM parser.
+  
   analysis: |
-    Analyze why the TextFSM template failed and provide specific improvements.
+    Analyze the TextFSM template failure and provide specific fixes.
     
-    Analysis Process:
-    1. Identify what regex patterns are not matching
-    2. Check for state name validity (must be alphanumeric + underscore)
-    3. Verify state transitions are correct
-    4. Suggest specific pattern fixes
-    5. Recommend field mapping improvements
+    Diagnosis Process:
+    1. Identify exact syntax errors (invalid state names, missing transitions, etc.)
+    2. Check if patterns actually match the sample output
+    3. Verify state machine logic and transitions
+    4. Count records extracted vs. expected (extraction rate)
+    5. Identify Pydantic validation failures
     
-    Common Issues:
-    1. Regex patterns don't match the actual output format
-    2. Invalid state names (contain special characters)
-    3. Missing Filldown for continuing values
-    4. Incorrect header matching
-    5. Not handling optional fields properly
-    6. Pattern too strict/loose
-    
-    Provide brief analysis of what went wrong and how to fix it.
-    Focus on specific patterns that need adjustment.
----
-    - "User query: learn field mapping"
-    - "User query: create mapping"
-    - "User query: normalize vendor data"
-
-# Constraints
+    Provide concise analysis with specific fixes for each issue found.
+intent_matching:
+  - "Generate TextFSM template"
+  - "Create parser for"
+  - "Learn field mapping"
+  
 constraints:
-  max_iterations: 5              # Maximum ReAct loops for template generation
-  min_extraction_rate: 0.8       # Minimum 80% record extraction
-  min_confidence: 0.8            # Minimum LLM confidence for field mappings
-  require_human_review: true     # Requires user approval before use
-  pydantic_validation: true      # Must pass Pydantic constraint validation
-  cache_mappings: true           # Persist learned mappings
-  support_fuzzy_match: true      # Handle similar field names
+  max_iterations: 10              # ReAct loops with feedback
+  min_extraction_rate: 0.80       # 80% record extraction minimum
+  min_confidence: 0.80            # LLM confidence for field mappings
+  require_human_review: true      # User approval before saving
+  pydantic_validation: true       # Must pass Pydantic validation
+  cache_mappings: true            # Persist learned mappings
 
-# Output Configuration
 output:
   templates:
     format: textfsm
     location: .olav/config/textfsm/
-    metadata: true               # Generate .meta file with quality score
+    metadata: true                # Generate .meta file with quality metrics
   mappings:
     format: json
     location: .olav/config/mappings/
-    update_code: false            # Don't modify field_mappings.py directly
-
-# Phase 4.7 E2E Test Findings (2026-02-04)
-# ============================================
-# Status: ✅ Skill integration verified, quality improvements needed
-#
-# Test Results:
-# - test_textfsm_self_learning_e2e: Added comprehensive E2E test
-# - Template generation success rate: <40% (LLM quality issue)
-# - Common errors: "Invalid state name" (TextFSM syntax errors)
-# - Current iteration count: 5 max (insufficient for <40% success)
-#
-# Problems Identified:
-# 1. LLM TextFSM syntax generation quality is poor
-#    - Generates invalid state names like "^${INTERFACE}\s+"
-#    - Missing proper FSM state transitions
-#    - Incorrect template structure (line breaks in wrong places)
-#
-# 2. Prompt engineering needs improvement
-#    - Current prompt doesn't enforce TextFSM syntax strictly
-#    - No syntax validation in generation loop
-#    - No examples of working TextFSM templates
-#
-# 3. Iteration strategy needs enhancement
-#    - 5 iterations not sufficient for <40% success rate
-#    - No feedback mechanism from TextFSM parser
-#    - No validation of generated template structure
-#
-# Future Improvements (P1):
-# 1. Add TextFSM syntax validation step
-#    - Validate generated template with textfsm.TextFSM(StringIO(template))
-#    - Catch and report syntax errors to LLM
-#    - Iterate on syntax errors instead of extraction errors
-#
-# 2. Enhance LLM prompt with examples
-#    - Include 3-5 working TextFSM templates as examples
-#    - Show correct syntax for complex patterns
-#    - Emphasize state transition rules
-#
-# 3. Increase iteration limit conditionally
-#    - If syntax error: retry with feedback (max 10 iterations)
-#    - If extraction error: use current 5-iteration limit
-#    - Track failure reason for better error reporting
-#
-# 4. Implement template quality scoring
-#    - Check parsing accuracy on sample data
-#    - Generate quality metadata (.meta file)
-#    - Warn user if quality <50% before saving
-#
-# Test Coverage:
-# - test_coder_agent_textfsm_generation: ✅ PASSED
-# - test_textfsm_self_learning_e2e: ✅ IMPLEMENTED (skipped due to quality)
-# - Integration with skill system: ✅ VERIFIED
 ---
 
-# Template Tools (TextFSM Generation & Field Mapping Learning)
+# TextFSM Template Generator & Field Mapping Learner
 
 ## Overview
 
-
 This skill provides two complementary self-learning capabilities:
-1. **TextFSM Template Generator** - Automatically generate parsing templates
-2. **Field Mapping Learner** - Learn cross-vendor field name mappings
+1. **TextFSM Template Generator** - Automatically generate parsing templates for vendor CLI outputs
+2. **Field Mapping Learner** - Discovers and learns cross-vendor field name mappings
 
 ## Architecture
 
-```
-Data Normalization Pipeline:
+Unified data normalization pipeline for cross-vendor command parsing:
 
-  Raw Command Output (vendor-specific)
-       │
-       ├─ Cisco: "show bgp summary"
-       ├─ Juniper: "show bgp neighbor"
-       └─ Huawei: "display bgp peer"
-       │
-       ▼
-  [TextFSM Template Generator]
-       │
-       ├─ Template exists? → Use it ✓
-       ├─ Placeholder template? → Generate full template
-       └─ No template? → Generate new template
-       │
-       ▼
-  TextFSM Parsed Data (vendor-specific fields)
-       │
-       ├─ {"BGP_NEIGHBOR": "10.0.0.1", "NEIGHBOR_AS": 65001}      (Cisco)
-       ├─ {"PEER_ADDRESS": "10.0.0.1", "PEER_AS": 65001}         (Juniper)
-       └─ {"BGP_PEER_IP": "10.0.0.1", "REMOTE_AS_NUMBER": 65001} (Huawei)
-       │
-       ▼
-  [Field Mapping Learner]
-       │
-       ├─ Mapping exists? → Use it ✓
-       └─ Mapping missing? → Learn new mapping
-       │
-       ▼
-  Normalized Data (standardized Pydantic models)
-       │
-       └─ {"peer_ip": "10.0.0.1", "peer_as": 65001}  ✓
 ```
+Raw CLI Output (vendor-specific)
+    ↓
+[TextFSM Template Generator]
+    ├─ Template exists? → Use it
+    ├─ Missing? → Generate new
+    └─ Poor quality? → Regenerate
+    ↓
+Parsed Data (vendor fields)
+    ↓
+[Field Mapping Learner]
+    ├─ Mapping exists? → Use it  
+    └─ Missing? → Learn new mapping
+    ↓
+Normalized Data (standardized models)
+```
+
+**Data Flow Example**:
+- Cisco: `{"BGP_NEIGHBOR": "10.0.0.1", "NEIGHBOR_AS": 65001}`
+- Juniper: `{"PEER_ADDRESS": "10.0.0.1", "PEER_AS": 65001}`
+- Huawei: `{"BGP_PEER_IP": "10.0.0.1", "REMOTE_AS": 65001}`
+- **Normalized**: `{"peer_ip": "10.0.0.1", "peer_as": 65001}`
 
 ---
 
@@ -180,106 +114,59 @@ Data Normalization Pipeline:
 
 ## Purpose
 
-Automatically generate TextFSM parsing templates for network device commands that lack existing parsers. Uses ReAct (Reasoning + Acting) loops with Pydantic constraint validation to ensure high-quality template generation.
+Automatically generate high-quality TextFSM parsing templates using an iterative ReAct loop with Pydantic constraint validation. Triggered when templates are missing, poor quality (<80% extraction), or explicitly requested.
 
 ## Trigger Mechanism
 
-### Automatic Triggers
-- Parsing fails with "No template found"
-- Extraction rate < 50% (poor template quality)
-- Placeholder template detected (v0.9.0 feature)
-
-### Manual Triggers
-- User explicitly requests template generation
-- `/command` execution with placeholder template
-
-### Placeholder Template (v0.9.0)
-
-Users can create placeholder templates to trigger auto-generation:
-
-```textfsm
-# PLACEHOLDER: Auto-generate template for this command
-# Platform: cisco_ios
-# Command: show ip msdp peer
-# Created: 2026-01-15
-#
-# This file will be replaced by auto-generated template after
-# first successful /command execution with raw output.
-
-Value List (\.)
-```
+- **Automatic**: Template missing, extraction rate <80%, placeholder detected
+- **Manual**: User requests template generation for a specific command
+- **Automatic**: Format detection trigger when `[TextFSM Failed]` in logs
 
 ## Generation Process (ReAct Loop)
 
-### Iteration 1: Initial Template
-1. **Analyze** raw output structure
-2. **Identify** record patterns (header, values, repeat)
-3. **Generate** TextFSM template with:
-   - Header pattern (column names)
-   - Value pattern (data extraction)
-   - Repeat rules (multi-record)
-4. **Test** against sample output
-5. **Validate** with Pydantic constraints
+**Iteration 1 - Initial Generation**:
+1. Analyze raw output structure (headers, records, patterns)
+2. Identify field positions and value patterns
+3. Generate TextFSM template with header and value patterns
+4. Test on sample output
+5. Validate syntax and Pydantic constraints
 
-### Iteration 2-N: Refinement
-- **Fail** → Analyze errors
-- **Adjust** regex patterns
-- **Re-test** until success or max iterations
+**Iteration 2-N - Refinement**:
+- Analyze extraction results
+- Fix failing patterns or invalid state names
+- Re-test until success or max iterations
+- Report quality metrics
 
 ## Quality Metrics
 
-| Metric | Threshold | Action |
-|--------|-----------|--------|
-| Extraction Rate | >80% | Accept |
-| Extraction Rate | 50-80% | Refine (ReAct) |
-| Extraction Rate | <50% | Regenerate |
-| Pydantic Validation | Pass | Accept |
-| Pydantic Validation | Fail | Refine |
+| Extraction Rate | >80% | ✅ Accept |
+| Extraction Rate | 50-80% | ⚠️ Refine |
+| Extraction Rate | <50% | 🔄 Regenerate |
+| Pydantic Validation | Pass | ✅ Accept |
+| Syntax Validation | Pass | ✅ Accept |
 
 ## Template Structure
 
+Example auto-generated TextFSM template:
+
 ```textfsm
 # Auto-generated TextFSM Template
-# Platform: {{platform}}
-# Command: {{command}}
-# Generated: {{timestamp}}
-# Quality Score: {{score}} (extraction_rate * validation_pass)
+# Generated: 2026-01-20
+# Extraction Rate: 95% | Quality Score: 0.95
 
-Value List (\*)
+Value BGP_NEIGHBOR \S+
+Value NEIGHBOR_AS \d+
+Value STATE \S+
 
-{{header_pattern}}
+START
+  ^BGP neighbor is ${BGP_NEIGHBOR},.* remote AS ${NEIGHBOR_AS}, ${STATE}$ -> PARSE_INFO
 
-{{start}}
-
-{{value_pattern}}
-
-{{end_pattern}}
+PARSE_INFO
+  ^  state is ${STATE}$
+  ^  Last read -> Record
 ```
 
 ## Example Output
-
-```textfsm
-# Auto-generated for: cisco_ios_show_bgp_summary
-# Platform: cisco_ios
-# Command: show bgp summary
-# Quality Score: 0.95 (95% extraction, validation passed)
-
-Value BGP_NEIGHBOR NEIGHBOR_AS STATE UPTIME_COUNT (\d+)
-Value MSINPUT_COUNT (\d+)
-
-BGP neighbor is {{BGP_NEIGHBOR}}, remote AS {{NEIGHBOR_AS}}, {{STATE}}
-BGP version 4, remote router ID {{ID}}, state {{STATE}}
-  uptime is {{UPTIME}}
-  Last read {{MSINPUT_COUNT}}:00:00
-
-Start = 1
-End
-
-^BGP neighbor is ${BGP_NEIGHBOR},.* remote AS ${NEIGHBOR_AS}, ${STATE}$
-^.* state ${STATE}$
-^  uptime is ${UPTIME}$
-^  Last read ${MSINPUT_COUNT}:
-```
 
 ---
 
@@ -287,184 +174,120 @@ End
 
 ## Purpose
 
-Automatically discover and learn field name mappings between vendor-specific TextFSM outputs and OLAV's standardized Pydantic models. Eliminates the need for manual mapping table maintenance when adding support for new vendors or commands.
+Automatically discover and learn field name mappings between vendor-specific TextFSM outputs and OLAV's standardized Pydantic models.
 
 ## Trigger Mechanism
 
-### Automatic Triggers
-- Normalizer encounters unknown platform+command combination
-- Field mapping missing in field_mappings.py
-- Low confidence in existing mapping (<0.8)
-
-### Manual Triggers
-- User requests field mapping creation
-- User asks to normalize vendor data
+- **Automatic**: Unknown platform+command combination encountered
+- **Automatic**: Field mapping missing in cache
+- **Automatic**: Low confidence in existing mapping (<0.80)
+- **Manual**: User requests field mapping creation
 
 ## Learning Process
 
 ### Step 1: Semantic Analysis
-1. **Extract** field names from TextFSM output
-2. **Analyze** semantic meaning using LLM
-3. **Identify** target Pydantic model fields
-4. **Generate** candidate mappings
+- Extract field names from TextFSM output
+- Analyze semantic meaning (BGP_NEIGHBOR → peer_ip)
+- Identify target Pydantic model fields
+- Generate candidate mappings with confidence scores
 
 ### Step 2: Confidence Scoring
 
-Factors that increase confidence:
-- Semantic similarity (BGP_NEIGHBOR → peer_ip)
-- Pattern matching (contains common terms)
-- Data type validation (IP address format)
-- Context awareness (command type)
+**Factors increasing confidence**:
+- Semantic similarity (exact/fuzzy match)
+- Data type validation (IP format, number format)
+- Context awareness (command type, platform)
+- Pattern recognition (common field names)
 
-Confidence levels:
-- **High (>0.9)**: Auto-apply
-- **Medium (0.8-0.9)**: Apply with warning
-- **Low (<0.8)**: Require manual review
+**Confidence Levels**:
+- **High (>0.90)**: Auto-apply
+- **Medium (0.80-0.90)**: Apply with warning flag
+- **Low (<0.80)**: Require manual review
 
 ### Step 3: Validation
-
-```python
-# Pseudocode
-for source_field, target_field, confidence in mappings:
-    # Test mapping on sample data
-    try:
-        normalized = apply_mapping(raw_data, {source_field: target_field})
-        pydantic_model(**normalized)
-        # Success: mapping is valid
-        cache_mapping(source_field, target_field, confidence)
-    except ValidationError:
-        # Failure: mapping is invalid
-        log_error(source_field, target_field)
-```
+- Test mapping on sample data
+- Validate with Pydantic model
+- Cache successful mappings
+- Log failures for analysis
 
 ## Mapping Storage
 
-Learned mappings are cached in `.olav/config/mappings/`:
+Learned mappings cached in `.olav/config/mappings/`:
 
 ```json
 {
   "platform": "cisco_ios",
   "command": "show_bgp_summary",
+  "learned_at": "2026-01-20T10:30:00Z",
+  "confidence": 0.95,
   "mappings": {
-    "BGP_NEIGHBOR": {
-      "target": "peer_ip",
-      "confidence": 0.95,
-      "learned_at": "2026-01-16T10:30:00Z",
-      "validated": true
-    },
-    "NEIGHBOR_AS": {
-      "target": "peer_as",
-      "confidence": 0.98,
-      "learned_at": "2026-01-16T10:30:00Z",
-      "validated": true
-    }
-  },
-  "fuzzy_matches": {
-    "BGP_PEER_IP": "peer_ip",
-    "PEER_ADDRESS": "peer_ip",
-    "REMOTE_AS": "peer_as"
+    "BGP_NEIGHBOR": "peer_ip",
+    "NEIGHBOR_AS": "peer_as",
+    "STATE": "status"
   }
 }
 ```
 
-## Fuzzy Matching
-
-Supports fuzzy matching for similar field names:
-
-| Source Field | Fuzzy Match | Confidence |
-|--------------|-------------|------------|
-| BGP_NEIGHBOR | peer_ip | 0.95 |
-| BGP_PEER_IP | peer_ip | 0.92 |
-| PEER_ADDRESS | peer_ip | 0.89 |
-| REMOTE_AS_NUMBER | peer_as | 0.91 |
-| NEIGHBOR_AS | peer_as | 0.98 |
-
 ---
 
-# Part 3: Integration Workflow
+# Part 3: End-to-End Integration
 
-## End-to-End Example
+## Complete Workflow
 
 ```python
-# Step 1: Execute command on new platform
-raw_output = nornir_execute("huawei", "display bgp peer")
+# Step 1: Execute command on device
+raw_output = nornir_execute("cisco_ios", "show bgp summary")
 
-# Step 2: Check for template
-template = find_template("huawei", "display bgp peer")
-if template is None or is_placeholder(template):
-    # TRIGGER: TextFSM Template Generator
-    template = generate_template(raw_output, platform="huawei", command="display bgp peer")
+# Step 2: Check for template (generate if missing/poor quality)
+template = find_or_generate_template("cisco_ios", "show_bgp_summary", raw_output)
 
-# Step 3: Parse with template
+# Step 3: Parse with TextFSM
 parsed_data = parse_with_textfsm(raw_output, template)
-# Result: {"BGP_PEER_IP": "10.0.0.1", "REMOTE_AS_NUMBER": 65001, ...}
+# Result: {"BGP_NEIGHBOR": "10.0.0.1", "NEIGHBOR_AS": 65001}
 
-# Step 4: Check for field mapping
-mapping = find_mapping("huawei", "display bgp peer")
-if mapping is None:
-    # TRIGGER: Field Mapping Learner
-    mapping = learn_mapping(parsed_data, target_model=BGPNeighbor)
+# Step 4: Check for field mapping (learn if missing)
+mapping = find_or_learn_mapping("cisco_ios", "show_bgp_summary", parsed_data)
 
-# Step 5: Normalize data
+# Step 5: Normalize with mapping
 normalized = apply_mapping(parsed_data, mapping)
-# Result: {"peer_ip": "10.0.0.1", "peer_as": 65001, ...}
+# Result: {"peer_ip": "10.0.0.1", "peer_as": 65001}
 
 # Step 6: Validate with Pydantic
-bgp_peer = BGPNeighbor(**normalized)
+bgp_peer = BGPNeighbor(**normalized)  # ✅ Success
+```
+
+## Usage Examples
+
+```
+User: "Generate TextFSM parser for Huawei BGP command"
+→ Analyzes raw output → Generates template → Validates with Pydantic
+
+User: "Parse this output and normalize to standard model"
+→ Checks template → Parses → Learns mapping → Returns Pydantic model
+
+User: "Teach me the field mappings for Juniper"
+→ Analyzes Juniper fields → Matches to standard model → Caches mappings
 ```
 
 ---
 
-# Usage Examples
+# Configuration & Maintenance
 
-```
-User: "Generate a TextFSM template for Huawei's display bgp peer"
-→ Analyzes command output
-→ Generates template using ReAct
-→ Validates with Pydantic constraints
-→ Saves to .olav/config/textfsm/huawei_display_bgp_peer.textfsm
-
-User: "Learn field mappings for Juniper BGP output"
-→ Analyzes Juniper field names
-→ Matches to standardized model
-→ Generates confidence scores
-→ Caches mappings for future use
-
-User: "Parse this Cisco output and normalize it"
-→ Checks for existing template
-→ Generates if missing
-→ Parses with TextFSM
-→ Learns field mappings if needed
-→ Returns normalized Pydantic model
-```
-
----
-
-# Configuration Files
-
-## Template Storage
+## Template Directory
 
 ```
 .olav/config/textfsm/
-├── cisco_ios/
-│   ├── show_bgp_summary.textfsm
-│   ├── show_interface_status.textfsm
-│   └── ...
-├── huawei_vrp/
-│   ├── display_bgp_peer.textfsm
-│   └── ...
-└── juniper_junos/
-    ├── show_bgp_neighbor.textfsm
-    └── ...
+├── cisco_ios_show_bgp_summary.textfsm
+├── huawei_display_bgp_peer.textfsm
+└── ...
 ```
 
-## Mapping Storage
+## Mapping Directory
 
 ```
 .olav/config/mappings/
 ├── cisco_ios_show_bgp_summary.json
 ├── huawei_display_bgp_peer.json
-├── juniper_show_bgp_neighbor.json
 └── ...
 ```
 
@@ -472,28 +295,25 @@ User: "Parse this Cisco output and normalize it"
 
 # Quality Assurance
 
-## Template Quality Checks
-
+**Template Quality Checks**:
 - ✅ Extraction rate >80%
 - ✅ Pydantic validation passes
-- ✅ All required fields present
-- ✅ Data types match constraints
 - ✅ No regex syntax errors
+- ✅ All required fields extracted
 
-## Mapping Quality Checks
-
-- ✅ Confidence score >0.8
+**Mapping Quality Checks**:
+- ✅ Confidence score >0.80
 - ✅ Semantic similarity validated
-- ✅ No ambiguous mappings
 - ✅ Cross-vendor consistency
-- ✅ Manual review for low-confidence mappings
+- ✅ No ambiguous mappings
 
 ---
 
-# Migration Notes
+# Known Improvements (P1)
 
-This skill merges two previous skills:
-- **textfsm-generator** (v1.1) → TextFSM template generation
-- **field-mapping-learner** (v1.0) → Field name mapping learning
-
-Both capabilities are now available in a unified skill that provides end-to-end data normalization support.
+- **Multi-model parsing**: Support for complex hierarchical outputs
+- **Template versioning**: Track template history and quality metrics
+- **Cross-vendor validation**: Auto-validate mappings across vendors
+- **Interactive refinement**: User feedback loop for template improvement
+- **Performance optimization**: Cache compiled templates and reduce compilation time
+- **Template library**: Expand community-contributed parser templates
