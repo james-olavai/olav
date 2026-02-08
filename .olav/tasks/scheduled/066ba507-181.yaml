@@ -10,7 +10,7 @@ expires_at: null
 failure_count: 0
 last_execution_at: null
 last_execution_result: null
-modified_at: '2026-02-08T14:06:10.116711'
+modified_at: '2026-02-08T14:06:10.139308'
 name: cancellable_task
 notifications: {}
 permission_tier: green
@@ -18,6 +18,6 @@ query: SELECT * FROM devices
 rejected_by: null
 rejection_reason: null
 requires_approval: false
-status: created
+status: cancelled
 task_id: 066ba507-181
 timeout_seconds: 300
