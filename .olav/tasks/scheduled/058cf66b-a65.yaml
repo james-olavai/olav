@@ -8,9 +8,9 @@ duration_hours: null
 execution_count: 0
 expires_at: null
 failure_count: 0
-last_execution_at: null
+last_execution_at: '2026-02-08T14:24:20.984256'
 last_execution_result: null
-modified_at: '2026-02-08T14:24:20.708261'
+modified_at: '2026-02-08T14:24:20.990042'
 name: e2e_test_task
 notifications: {}
 permission_tier: green
@@ -18,6 +18,6 @@ query: SELECT COUNT(*) as device_count FROM devices
 rejected_by: null
 rejection_reason: null
 requires_approval: false
-status: scheduled
+status: succeeded
 task_id: 058cf66b-a65
 timeout_seconds: 300
