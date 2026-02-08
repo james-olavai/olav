@@ -1,6 +1,6 @@
-approval_status: pending
-approval_timestamp: null
-approved_by: null
+approval_status: approved
+approval_timestamp: '2026-02-08T14:05:20.932790'
+approved_by: john_admin
 created_at: '2026-02-08T14:05:20.910204'
 cron_expression: 0 4 * * *
 description: null
@@ -10,7 +10,7 @@ expires_at: null
 failure_count: 0
 last_execution_at: null
 last_execution_result: null
-modified_at: '2026-02-08T14:05:20.910204'
+modified_at: '2026-02-08T14:05:20.938660'
 name: null
 notifications: {}
 permission_tier: yellow
