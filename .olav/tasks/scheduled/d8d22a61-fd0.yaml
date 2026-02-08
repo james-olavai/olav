@@ -1,0 +1,23 @@
+approval_status: null
+approval_timestamp: null
+approved_by: null
+created_at: '2026-02-08T14:07:48.273724'
+cron_expression: '*/7 * * * *'
+description: null
+duration_hours: null
+execution_count: 0
+expires_at: null
+failure_count: 0
+last_execution_at: null
+last_execution_result: null
+modified_at: '2026-02-08T14:07:48.273724'
+name: concurrent_2
+notifications: {}
+permission_tier: green
+query: SELECT 2 as task_number
+rejected_by: null
+rejection_reason: null
+requires_approval: false
+status: created
+task_id: d8d22a61-fd0
+timeout_seconds: 300
