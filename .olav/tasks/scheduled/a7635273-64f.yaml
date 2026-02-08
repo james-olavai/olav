@@ -1,0 +1,23 @@
+approval_status: null
+approval_timestamp: null
+approved_by: null
+created_at: '2026-02-08T14:24:21.041031'
+cron_expression: '*/6 * * * *'
+description: null
+duration_hours: null
+execution_count: 0
+expires_at: null
+failure_count: 0
+last_execution_at: null
+last_execution_result: null
+modified_at: '2026-02-08T14:24:21.041031'
+name: concurrent_1
+notifications: {}
+permission_tier: green
+query: SELECT 1 as task_number
+rejected_by: null
+rejection_reason: null
+requires_approval: false
+status: created
+task_id: a7635273-64f
+timeout_seconds: 300
