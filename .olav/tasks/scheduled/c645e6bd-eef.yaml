@@ -1,8 +1,8 @@
 approval_status: null
 approval_timestamp: null
 approved_by: null
-created_at: '2026-02-08T14:23:55.294728'
-cron_expression: 0 * * * *
+created_at: '2026-02-08T14:23:55.956976'
+cron_expression: '*/5 * * * *'
 description: null
 duration_hours: null
 execution_count: 0
@@ -10,14 +10,14 @@ expires_at: null
 failure_count: 0
 last_execution_at: null
 last_execution_result: null
-modified_at: '2026-02-08T14:23:55.294728'
-name: null
+modified_at: '2026-02-08T14:23:55.956976'
+name: task_0
 notifications: {}
 permission_tier: green
-query: SELECT * FROM devices
+query: SELECT * FROM devices LIMIT 1
 rejected_by: null
 rejection_reason: null
 requires_approval: false
 status: created
-task_id: f830c6a7-a95
+task_id: c645e6bd-eef
 timeout_seconds: 300
