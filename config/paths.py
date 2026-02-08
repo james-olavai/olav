@@ -98,6 +98,17 @@ TOPOLOGY_VIZ_DIR = EXPORTS_DIR / "topology"  # Simplified path
 LOGS_DIR = PROJECT_ROOT / "logs"
 
 # =============================================================================
+# Task Scheduler Paths (.olav/tasks/)
+# =============================================================================
+
+TASKS_DIR = AGENT_DIR / "tasks"
+TASKS_SCHEDULED_DIR = TASKS_DIR / "scheduled"  # Active scheduled tasks
+TASKS_RESULTS_DIR = TASKS_DIR / "results"     # Task execution results
+TASKS_ARCHIVE_DIR = TASKS_DIR / "archived"    # Completed/expired tasks
+TASKS_DLQ_DIR = TASKS_DIR / "dead_letter_queue"  # Failed tasks for manual retry
+TASKS_AUDIT_DIR = TASKS_DIR / "audit"         # Approval and activity logs
+
+# =============================================================================
 # Agent Configuration Paths (.olav/config/)
 # =============================================================================
 
