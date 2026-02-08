@@ -2,6 +2,7 @@ approval_status: null
 approval_timestamp: null
 approved_by: null
 created_at: '2026-02-08T14:04:01.848879'
+cron: 0 */2 * * *
 cron_expression: 0 * * * *
 description: null
 duration_hours: null
@@ -10,7 +11,7 @@ expires_at: null
 failure_count: 0
 last_execution_at: null
 last_execution_result: null
-modified_at: '2026-02-08T14:04:01.848879'
+modified_at: '2026-02-08T14:04:01.871837'
 name: null
 notifications: {}
 permission_tier: green
