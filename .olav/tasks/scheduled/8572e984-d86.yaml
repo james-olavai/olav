@@ -1,0 +1,23 @@
+approval_status: null
+approval_timestamp: null
+approved_by: null
+created_at: '2026-02-08T14:04:01.643043'
+cron_expression: 0 * * * *
+description: null
+duration_hours: null
+execution_count: 0
+expires_at: null
+failure_count: 0
+last_execution_at: null
+last_execution_result: null
+modified_at: '2026-02-08T14:04:01.643043'
+name: null
+notifications: {}
+permission_tier: forbidden
+query: DELETE FROM devices WHERE true
+rejected_by: null
+rejection_reason: null
+requires_approval: false
+status: created
+task_id: 8572e984-d86
+timeout_seconds: 300

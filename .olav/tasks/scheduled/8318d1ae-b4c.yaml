@@ -1,23 +1,23 @@
 approval_status: null
 approval_timestamp: null
 approved_by: null
-created_at: '2026-02-08T14:06:09.674412'
-cron_expression: '*/1 * * * *'
+created_at: '2026-02-08T14:05:20.766941'
+cron_expression: 0 * * * *
 description: null
-duration_hours: 0.001
+duration_hours: null
 execution_count: 0
-expires_at: '2026-02-08T14:06:13.274412'
+expires_at: null
 failure_count: 0
 last_execution_at: null
 last_execution_result: null
-modified_at: '2026-02-08T14:06:09.674412'
+modified_at: '2026-02-08T14:05:20.766941'
 name: null
 notifications: {}
-permission_tier: green
-query: SELECT * FROM devices
+permission_tier: forbidden
+query: DELETE FROM devices WHERE true
 rejected_by: null
 rejection_reason: null
 requires_approval: false
 status: created
-task_id: 3e074a4f-f03
+task_id: 8318d1ae-b4c
 timeout_seconds: 300
