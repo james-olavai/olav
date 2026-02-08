@@ -1,8 +1,8 @@
-approval_status: null
+approval_status: pending
 approval_timestamp: null
 approved_by: null
-created_at: '2026-02-08T14:07:47.856513'
-cron_expression: 0 * * * *
+created_at: '2026-02-08T14:07:38.219432'
+cron_expression: 0 2 * * *
 description: null
 duration_hours: null
 execution_count: 0
@@ -10,14 +10,14 @@ expires_at: null
 failure_count: 0
 last_execution_at: null
 last_execution_result: null
-modified_at: '2026-02-08T14:07:47.856513'
+modified_at: '2026-02-08T14:07:38.219432'
 name: null
 notifications: {}
-permission_tier: green
-query: SELECT 1
+permission_tier: yellow
+query: UPDATE device_configs SET debug=true WHERE name='R1'
 rejected_by: null
 rejection_reason: null
-requires_approval: false
+requires_approval: true
 status: created
-task_id: 63144d33-1d8
+task_id: fb5fa184-c71
 timeout_seconds: 300

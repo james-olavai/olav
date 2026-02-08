@@ -1,8 +1,8 @@
-approval_status: null
+approval_status: pending
 approval_timestamp: null
 approved_by: null
-created_at: '2026-02-08T14:04:03.035967'
-cron_expression: 0 * * * *
+created_at: '2026-02-08T14:04:01.628461'
+cron_expression: 0 2 * * *
 description: null
 duration_hours: null
 execution_count: 0
@@ -10,14 +10,14 @@ expires_at: null
 failure_count: 0
 last_execution_at: null
 last_execution_result: null
-modified_at: '2026-02-08T14:04:03.035967'
+modified_at: '2026-02-08T14:04:01.628461'
 name: null
 notifications: {}
-permission_tier: green
-query: SELECT 1
+permission_tier: yellow
+query: UPDATE devices SET enabled=false WHERE vendor='cisco'
 rejected_by: null
 rejection_reason: null
-requires_approval: false
+requires_approval: true
 status: created
-task_id: e58f52c9-714
+task_id: 473eb935-571
 timeout_seconds: 300
