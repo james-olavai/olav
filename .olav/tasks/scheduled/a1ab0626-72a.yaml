@@ -10,7 +10,7 @@ expires_at: null
 failure_count: 0
 last_execution_at: null
 last_execution_result: null
-modified_at: '2026-02-08T14:05:20.387515'
+modified_at: '2026-02-08T14:05:20.414652'
 name: test_state_transitions
 notifications: {}
 permission_tier: green
@@ -18,6 +18,6 @@ query: SELECT * FROM devices
 rejected_by: null
 rejection_reason: null
 requires_approval: false
-status: created
+status: scheduled
 task_id: a1ab0626-72a
 timeout_seconds: 300
