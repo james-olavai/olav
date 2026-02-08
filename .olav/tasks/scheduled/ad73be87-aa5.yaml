@@ -1,0 +1,25 @@
+approval_status: pending
+approval_timestamp: null
+approved_by: null
+created_at: '2026-02-08T14:07:48.319982'
+cron_expression: 0 3 * * *
+description: null
+duration_hours: null
+execution_count: 0
+expires_at: null
+failure_count: 0
+last_execution_at: null
+last_execution_result: null
+modified_at: '2026-02-08T14:07:48.319982'
+name: null
+notifications:
+  email: ops@example.com
+  on_approval: true
+permission_tier: yellow
+query: UPDATE device_backup SET enabled=true
+rejected_by: null
+rejection_reason: null
+requires_approval: true
+status: created
+task_id: ad73be87-aa5
+timeout_seconds: 300
