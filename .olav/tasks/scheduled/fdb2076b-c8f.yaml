@@ -1,0 +1,23 @@
+approval_status: null
+approval_timestamp: null
+approved_by: null
+created_at: '2026-02-08T14:04:02.621562'
+cron_expression: '*/15 * * * *'
+description: null
+duration_hours: null
+execution_count: 0
+expires_at: null
+failure_count: 0
+last_execution_at: null
+last_execution_result: null
+modified_at: '2026-02-08T14:04:02.621562'
+name: task_2
+notifications: {}
+permission_tier: green
+query: SELECT * FROM devices LIMIT 3
+rejected_by: null
+rejection_reason: null
+requires_approval: false
+status: created
+task_id: fdb2076b-c8f
+timeout_seconds: 300
