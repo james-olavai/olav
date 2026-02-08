@@ -47,7 +47,17 @@ User Query → Orchestrator → SubAgents (Query/Expert/CLI/Analysis)
 
 ## Documentation
 
-See [README_ZH.md](README_ZH.md) for comprehensive documentation (Chinese).
+### For Users
+- **[中文文档 (Chinese)](README_ZH.md)** - Comprehensive user documentation
+- **Quick Start** - See above
+
+### For Developers
+- **[Developer Documentation Index](docs/DEVELOPER_INDEX.md)** - 📚 **Complete developer guide hub**
+- **[Sub-Agent Development](docs/SUB_AGENT_DEVELOPMENT_GUIDE.md)** - Build new agents
+- **[Skill Authoring](docs/02_skill_authoring_guide.md)** - Write SKILL.md files
+- **[Testing Guide](docs/TESTING_QUICK_REFERENCE.md)** - Write and run tests
+
+See [Developer Index](docs/DEVELOPER_INDEX.md) for complete documentation navigation.
 
 ## Testing
 
