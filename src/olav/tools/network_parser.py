@@ -111,10 +111,24 @@ def execute_with_textfsm(
     else:
         use_textfsm = True
 
-    # Set custom TextFSM template directory if exists (higher priority)
+    # Set TextFSM template directory (priority: config > .olav/templates)
+    # Priority 1: Custom config directory (if exists)
     custom_textfsm_dir = Path(settings.agent_dir) / "config" / "textfsm"
     if custom_textfsm_dir.exists() and (custom_textfsm_dir / "index").exists():
         os.environ["NET_TEXTFSM"] = str(custom_textfsm_dir.resolve())
+        print(f"📁 Using custom TextFSM templates: {custom_textfsm_dir}", file=sys.stderr)
+    else:
+        # Priority 2: Default .olav/templates directory
+        default_textfsm_dir = Path(settings.execution.textfsm_template_dir)
+        if not default_textfsm_dir.is_absolute():
+            default_textfsm_dir = Path(settings.agent_dir).parent / default_textfsm_dir
+        
+        if default_textfsm_dir.exists() and (default_textfsm_dir / "index").exists():
+            os.environ["NET_TEXTFSM"] = str(default_textfsm_dir.resolve())
+            print(f"📁 Using default TextFSM templates: {default_textfsm_dir}", file=sys.stderr)
+        else:
+            print(f"⚠️ TextFSM template directory not found: {default_textfsm_dir}", file=sys.stderr)
+            print(f"   TextFSM parsing will be disabled", file=sys.stderr)
 
     # Execute command with TextFSM
     try:

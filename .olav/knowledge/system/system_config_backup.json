@@ -1,0 +1,52 @@
+{
+  "backups": [
+    {
+      "timestamp": "2026-02-08T00:00:00Z",
+      "snapshot_id": "snap_20260208_base",
+      "description": "Initial system configuration baseline",
+      "config": {
+        "cache": {
+          "ttl_seconds": 3600,
+          "max_size_mb": 1024,
+          "cleanup_interval_hours": 24,
+          "eviction_policy": "lru"
+        },
+        "backups": {
+          "auto_enabled": true,
+          "auto_interval_seconds": 86400,
+          "retention_days": 30,
+          "compression": true
+        },
+        "system_health": {
+          "check_interval_seconds": 300,
+          "cpu_warning_threshold_percent": 75,
+          "cpu_critical_threshold_percent": 90,
+          "memory_warning_threshold_percent": 80,
+          "memory_critical_threshold_percent": 95,
+          "disk_warning_threshold_percent": 85,
+          "disk_critical_threshold_percent": 95
+        },
+        "permissions": {
+          "require_hitl_for_write": true,
+          "require_hitl_for_delete": true,
+          "audit_log_enabled": true
+        },
+        "tasks": {
+          "max_concurrent": 5,
+          "default_timeout_seconds": 3600,
+          "retry_attempts": 3,
+          "retry_delay_seconds": 60
+        }
+      },
+      "validation": {
+        "status": "verified",
+        "hash": "sha256:abc123...",
+        "verified_at": "2026-02-08T00:05:00Z"
+      }
+    }
+  ],
+  "current_version": "snap_20260208_base",
+  "rollback_available": true,
+  "last_restore": null,
+  "changes_since_backup": []
+}

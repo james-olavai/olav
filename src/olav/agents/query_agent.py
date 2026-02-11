@@ -1,13 +1,28 @@
 """
-Query Agent - ReAct Powered by DeepAgents with Native LangGraph Components
+Query Agent - DEPRECATED (v0.11.0)
 
-Uses:
-- DuckDBSaver: LangGraph native checkpointer for session state
-- DuckDBStore: LangGraph native KV store for aliases
-- SummarizationMiddleware: Native conversation summarization
+⚠️ DEPRECATED: Use orchestrator SubAgents instead.
+
+This module will be REMOVED in v0.12.0. 
+
+Migration path:
+    # OLD: Using standalone QueryAgent
+    agent = QueryAgent(enable_summarization=False)
+    result = agent.invoke("查询所有设备")
+    
+    # NEW: Using orchestrator with query SubAgent (Pattern 2)
+    orchestrator = create_orchestrator(user_id="user123")
+    result = await orchestrator.ainvoke(
+        {"messages": ["查询所有设备"]},
+        config={"configurable": {"thread_id": "session-123"}}
+    )
+
+See: SUB_AGENT_DEVELOPMENT_GUIDE.md Section 2.2 (Pattern 2 - ReAct with Persistence)
+See: docs/reference/ARCHITECTURE_COMPARISON.md
 """
 
 import logging
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -27,17 +42,16 @@ logger = logging.getLogger(__name__)
 
 
 class QueryAgent:
-    """Query Agent using DeepAgents ReAct architecture.
+    """Query Agent - DEPRECATED.
 
-    DEPRECATED: This standalone agent is being migrated to orchestrator's query SubAgent.
+    ⚠️ This class is deprecated as of v0.11.0 and will be removed in v0.12.0.
+    
     Use orchestrator.create_orchestrator() with the 'query' SubAgent instead.
 
-    Migration timeline:
-    - v0.10.0: query SubAgent available in orchestrator (current)
-    - v0.11.0: QueryAgent will show deprecation warnings
-    - v0.12.0: QueryAgent will be removed
-
-    See: docs/ARCHITECTURE_COMPARISON.md for migration guide
+    Historical note: QueryAgent was the standalone predecessor to the orchestrator's
+    query SubAgent. It implemented the same Pattern 2 persistence (DuckDBSaver +
+    DuckDBStore) but as a standalone class. The functionality has been moved
+    to create_query_subagent() in olav.agents.pattern2_factories.py.
     """
 
     def __init__(

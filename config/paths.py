@@ -26,9 +26,53 @@ LIB_DIR = OLAV_BASE_DIR / "lib"  # Platform-agnostic utilities (data_gateway.py)
 
 DB_DIR = AGENT_DIR / "db"
 
-# v0.10.1: Unified Single Database Architecture
+def get_database_path(force_test: bool = False) -> Path:
+    """获取当前环境的数据库路径 (v0.10.2+ 动态配置)
+    
+    优先级:
+    1. OLAV_DB_PATH 环境变量 (最高)
+    2. force_test=True → settings.database.test_db
+    3. settings.database.main_db (默认)
+    
+    Args:
+        force_test: 强制使用测试数据库 (用于测试脚本)
+        
+    Returns:
+        数据库文件路径
+        
+    Examples:
+        >>> get_database_path()  # 生产环境
+        PosixPath('.olav/db/olav.duckdb')
+        
+        >>> get_database_path(force_test=True)  # 测试环境
+        PosixPath('.olav/db/test_network.duckdb')
+        
+        >>> os.environ["OLAV_DB_PATH"] = "/tmp/custom.duckdb"
+        >>> get_database_path()  # 环境变量覆盖
+        PosixPath('/tmp/custom.duckdb')
+    """
+    # 1. 环境变量最高优先级
+    if env_path := os.getenv("OLAV_DB_PATH"):
+        return Path(env_path)
+    
+    # 2. 测试环境
+    if force_test:
+        from config.settings import settings
+        if settings.database.test_db:
+            return settings.database.test_db
+    
+    # 3. 默认生产数据库
+    from config.settings import settings
+    return settings.database.main_db
+
+# v0.10.2: Unified Single Database Architecture
 # All data (devices, raw_outputs, audit, knowledge) in one DuckDB file
-UNIFIED_DB = DB_DIR / "olav.duckdb"  # Single source of truth
+# Note: UNIFIED_DB is now computed at runtime - see get_database_path()
+try:
+    UNIFIED_DB = get_database_path()  # Dynamic path resolution
+except Exception:
+    # Fallback if get_database_path() fails (shouldn't happen)
+    UNIFIED_DB = DB_DIR / "olav.duckdb"
 
 # Backward compatibility aliases (all point to unified database)
 MAIN_DB_PATH = UNIFIED_DB  # Device metadata

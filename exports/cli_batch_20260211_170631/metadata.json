@@ -1,0 +1,47 @@
+{
+  "batch_id": "batch_20260211_170631_90196057",
+  "start_time": "2026-02-11T17:06:31.750441",
+  "end_time": "2026-02-11T17:06:31.751694",
+  "total_duration_ms": 1,
+  "devices": [
+    "R1"
+  ],
+  "commands": [
+    "show version",
+    "show ip ospf",
+    "show bgp on R1 and save separately"
+  ],
+  "total_executions": 3,
+  "successful_executions": 1,
+  "failed_executions": 2,
+  "success_rate": 33.33333333333333,
+  "results": [
+    {
+      "device": "R1",
+      "command": "show version",
+      "command_index": 1,
+      "success": true,
+      "structured": false,
+      "file_path": "R1/001_show_version.txt",
+      "duration_ms": 0
+    },
+    {
+      "device": "R1",
+      "command": "show ip ospf",
+      "command_index": 2,
+      "success": false,
+      "structured": false,
+      "file_path": "R1/002_show_ip_ospf.txt",
+      "duration_ms": 0
+    },
+    {
+      "device": "R1",
+      "command": "show bgp on R1 and save separately",
+      "command_index": 3,
+      "success": false,
+      "structured": false,
+      "file_path": "R1/003_show_bgp_on_R1_and_save_separately.txt",
+      "duration_ms": 0
+    }
+  ]
+}

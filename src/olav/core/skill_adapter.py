@@ -4,10 +4,14 @@ Skill Adapter - Dynamic Tool Registration
 This module provides the SkillAdapter class for loading tools from Skills
 and converting them into LangChain Tool objects.
 
+Convention: Each skill has a tools/ directory containing Python scripts.
+SKILL.md references tools by name (string), resolved to skill_dir/tools/{name}.py
+
 Supports platform-agnostic script-based tools.
 """
 
 import json
+import logging
 import subprocess
 import sys
 from collections.abc import Callable
@@ -19,13 +23,85 @@ from langchain_core.tools import StructuredTool, Tool
 if TYPE_CHECKING:
     from olav.core.skill_loader import Skill
 
+logger = logging.getLogger(__name__)
+
+# Default tool metadata for convention-based resolution
+# Used when SKILL.md references tools as simple strings (e.g., "- query_database")
+_TOOL_METADATA: dict[str, dict[str, Any]] = {
+    "query_database": {
+        "description": "Execute SQL queries against the network database",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "sql": {"type": "string", "description": "SQL query to execute"}
+            },
+            "required": ["sql"],
+        },
+    },
+    "inspect_schema": {
+        "description": "Inspect database schema - list tables or describe a specific table",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "table_name": {"type": "string", "description": "Table name to describe (optional)"}
+            },
+            "required": [],
+        },
+    },
+    "discover_data": {
+        "description": "Discover available data in the network database",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "pattern": {"type": "string", "description": "Search pattern to filter tables (optional)"}
+            },
+            "required": [],
+        },
+    },
+    "nornir_execute": {
+        "description": "Execute a CLI command on a network device via Nornir",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "device": {"type": "string", "description": "Device name from inventory"},
+                "command": {"type": "string", "description": "CLI command to execute"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default: 30)"},
+            },
+            "required": ["device", "command"],
+        },
+    },
+    "list_devices": {
+        "description": "List network devices from Nornir inventory",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "role": {"type": "string", "description": "Filter by role (e.g., core, access)"},
+                "site": {"type": "string", "description": "Filter by site"},
+                "platform": {"type": "string", "description": "Filter by platform (e.g., cisco_ios)"},
+            },
+            "required": [],
+        },
+    },
+}
+
 
 class SkillAdapter:
-    """OLAV platform's Skill adapter (unified script-based tools)"""
+    """OLAV platform's Skill adapter (unified script-based tools).
+
+    Convention: SKILL.md lists tools as strings → resolved to skill_dir/tools/{name}.py
+    """
 
     @staticmethod
     def load_tools_from_skill(skill: "Skill") -> list[Tool]:
-        """Load tools from a Skill using native AgentSkills schemas.
+        """Load tools from a Skill's tools/ directory.
+
+        Resolution order for tool name "query_database":
+        1. skill_dir/tools/query_database.py  (convention path)
+        2. Raise error if not found
+
+        Supports two formats in SKILL.md frontmatter:
+        1. String: "query_database" → convention-based resolution
+        2. Dict: {"name": "...", "script": "...", ...} → explicit path
 
         Args:
             skill: Skill object with frontmatter containing 'tools' field
@@ -34,21 +110,27 @@ class SkillAdapter:
             List of LangChain Tool objects
         """
         tools = []
+        skill_file = Path(skill.file_path)
+        skill_dir = skill_file.parent if skill_file.is_file() else Path(skill.file_path)
 
-        for tool_def in skill.frontmatter.get("tools", []):
-            script_path = tool_def["script"]
+        for tool_item in skill.frontmatter.get("tools", []):
+            if isinstance(tool_item, str):
+                # Convention: resolve "query_database" → skill_dir/tools/query_database.py
+                tool_def = SkillAdapter._resolve_string_tool(tool_item, skill_dir)
+            elif isinstance(tool_item, dict):
+                tool_def = tool_item
+            else:
+                logger.warning(f"Skipping invalid tool definition: {tool_item}")
+                continue
+
             name = tool_def["name"]
             description = tool_def["description"]
-
-            # Get skill directory for relative path resolution
-            skill_file = Path(skill.file_path)
-            skill_dir = skill_file.parent if skill_file.is_file() else Path(skill.file_path)
+            script_path = tool_def["script"]
 
             # Create the executor
             executor = SkillAdapter._create_executor(script_path, skill_dir)
 
-            # Use StructuredTool for proper Schema support
-            # This prevents parameter hallucination (e.g., passing 'hostname' instead of 'device')
+            # Use StructuredTool for proper Schema support if parameters defined
             parameters = tool_def.get("parameters")
             if parameters and parameters.get("properties"):
                 from pydantic import create_model
@@ -95,6 +177,47 @@ class SkillAdapter:
                 )
 
         return tools
+
+    @staticmethod
+    def _resolve_string_tool(tool_name: str, skill_dir: Path) -> dict[str, Any]:
+        """Resolve a string tool reference to a full tool definition.
+
+        Convention: "query_database" → skill_dir/tools/query_database.py
+
+        Args:
+            tool_name: Tool name string (e.g., "query_database")
+            skill_dir: Path to the skill directory
+
+        Returns:
+            Full tool definition dict with name, description, script, parameters
+
+        Raises:
+            FileNotFoundError: If tool script not found in skill_dir/tools/
+        """
+        script_path = skill_dir / "tools" / f"{tool_name}.py"
+
+        if not script_path.exists():
+            raise FileNotFoundError(
+                f"Tool script not found: {script_path}\n"
+                f"Expected: {skill_dir}/tools/{tool_name}.py\n"
+                f"Hint: Create the script or check SKILL.md tool references."
+            )
+
+        # Get metadata from registry, or use defaults
+        metadata = _TOOL_METADATA.get(tool_name, {})
+        description = metadata.get("description", f"Tool: {tool_name}")
+        parameters = metadata.get("parameters")
+
+        tool_def: dict[str, Any] = {
+            "name": tool_name,
+            "description": description,
+            "script": str(script_path),
+        }
+        if parameters:
+            tool_def["parameters"] = parameters
+
+        logger.debug(f"Resolved tool '{tool_name}' → {script_path}")
+        return tool_def
 
     @staticmethod
     def _create_executor(script_path: str, skill_dir: Path | None = None) -> Callable:
