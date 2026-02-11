@@ -48,21 +48,25 @@ class OlavDatabase:
 
     def _init_schema(self) -> None:
         """Create database tables if they don't exist."""
-        # Devices table (device metadata - v0.10.1 unified)
+        # Devices table (device metadata - v0.11.0 unified with Nornir import)
+        # Note: This is auto-populated by devices_import.py from hosts.yaml
+        # DO NOT modify schema manually - always use devices_import.py for updates
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS devices (
                 device_id VARCHAR PRIMARY KEY,
-                hostname VARCHAR NOT NULL,
-                ip_address VARCHAR NOT NULL,
+                name VARCHAR,
+                hostname VARCHAR,
+                platform VARCHAR,
+                mgmt_ip VARCHAR,
                 device_type VARCHAR,
-                vendor VARCHAR,
-                model VARCHAR,
-                ios_version VARCHAR,
-                serial_number VARCHAR,
                 device_role VARCHAR,
                 site VARCHAR,
+                location VARCHAR,
+                vendor VARCHAR,
+                model VARCHAR,
+                site_id VARCHAR,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_active BOOLEAN DEFAULT TRUE
             )
         """)
@@ -143,9 +147,68 @@ class OlavDatabase:
             CREATE INDEX IF NOT EXISTS idx_knowledge_file_path
             ON knowledge_chunks(file_path)
         """)
+        
+        # Audit logs table (Phase 3: Command execution audit trail)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                log_id VARCHAR PRIMARY KEY DEFAULT uuid(),
+                thread_id VARCHAR,
+                device VARCHAR NOT NULL,
+                command VARCHAR NOT NULL,
+                output TEXT,
+                success BOOLEAN DEFAULT TRUE,
+                duration_ms INTEGER,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Index for audit logs queries
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_audit_device ON audit_logs(device)
+        """)
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp)
+        """)
 
         # NOTE: View initialization moved to sync_tools.py (Snapshot-Time)
         # to prevent write-write conflicts during queries (EQP Phase).
+    
+    def log_execution(
+        self,
+        thread_id: str,
+        device: str,
+        command: str,
+        output: str,
+        success: bool,
+        duration_ms: int,
+    ) -> None:
+        """Log command execution to audit trail.
+        
+        Phase 3: Audit logging for network command execution.
+        
+        Args:
+            thread_id: Session/thread identifier
+            device: Device name or IP
+            command: Executed command
+            output: Command output (truncated if too large)
+            success: Whether execution succeeded
+            duration_ms: Execution duration in milliseconds
+        """
+        # Truncate output if too large (prevent database bloat)
+        max_output_size = 100_000
+        if len(output) > max_output_size:
+            output = output[:max_output_size] + "\n... (truncated)"
+        
+        try:
+            self.conn.execute("""
+                INSERT INTO audit_logs (thread_id, device, command, output, success, duration_ms)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (thread_id, device, command, output, success, duration_ms))
+        except Exception as e:
+            # Don't fail the entire execution if audit logging fails
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to log execution to audit trail: {e}")
 
     def close(self) -> None:
         """Close the database connection."""

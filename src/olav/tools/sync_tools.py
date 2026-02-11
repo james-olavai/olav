@@ -260,55 +260,42 @@ def _sync_device_workflow(task: Task, commands: list[str], output_dir: Path) -> 
 
 
 def _populate_devices_table(nr_filtered) -> None:
-    """Populate devices table from Nornir inventory (v0.10.1).
+    """Populate devices table from Nornir inventory (v0.11.0 - Unified Import).
+    
+    Uses the unified devices_import tool for centralized device management.
     
     Args:
-        nr_filtered: Filtered Nornir object with selected devices
+        nr_filtered: Filtered Nornir object (legacy support, no longer used)
+        
+    Note:
+        v0.11.0: Migrated to import_devices_from_nornir() which reads directly
+        from hosts.yaml. The nr_filtered parameter is kept for backward compatibility
+        but is now unused.
     """
     try:
-        from olav.core.database import get_database
-
-        db = get_database()
+        from config.paths import AGENT_DIR, UNIFIED_DB
+        from olav.lib.devices_import import import_devices_from_nornir
         
-        for hostname, host in nr_filtered.inventory.hosts.items():
-            try:
-                # Extract device metadata from host object
-                device_id = hostname
-                ip_address = host.hostname or ""
-                platform = host.platform or ""
-                device_type = host.get("device_type", "unknown")
-                vendor = host.get("vendor", "")
-                model = host.get("model", "")
-                ios_version = host.get("os_version", "")
-                serial_number = host.get("serial_number", "")
-                device_role = host.get("role", "")
-                site = host.get("site", "")
-                
-                # Insert device into database
-                db.conn.execute(
-                    """
-                    INSERT OR REPLACE INTO devices 
-                    (device_id, hostname, ip_address, device_type, vendor, model, 
-                     ios_version, serial_number, device_role, site, is_active, last_updated)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP)
-                    """,
-                    [
-                        device_id,
-                        hostname,
-                        ip_address,
-                        device_type,
-                        vendor,
-                        model,
-                        ios_version,
-                        serial_number,
-                        device_role,
-                        site,
-                    ],
-                )
-            except Exception as e:
-                logger.debug(f"Failed to populate device {hostname}: {e}")
+        hosts_yaml_path = AGENT_DIR / "config" / "nornir" / "hosts.yaml"
+        
+        if not hosts_yaml_path.exists():
+            logger.warning(f"hosts.yaml not found at {hosts_yaml_path}, skipping device import")
+            return
+        
+        # Use unified import tool
+        stats = import_devices_from_nornir(
+            hosts_yaml_path=hosts_yaml_path,
+            db_path=UNIFIED_DB,
+            table_name="devices",
+        )
+        
+        logger.info(
+            f"Devices imported: {stats['imported']} total, "
+            f"roles={stats['roles_found']}, sites={stats['sites_found']}"
+        )
+        
     except Exception as e:
-        logger.warning(f"Failed to populate devices table: {e}")
+        logger.warning(f"Failed to import devices from Nornir: {e}")
 
 
 def _populate_topology_links(sync_date: str) -> None:

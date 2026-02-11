@@ -1,8 +1,12 @@
 ---
-name: inspecting-network-health
-description: Multi-layer network health inspection (L1-L4) with health scoring and markdown report generation. Detects anomalies, calculates health scores, and generates compliance-ready reports. Use for health checks, SLA validation, compliance monitoring, and production reporting.
+name: network-inspection
 version: 2.2.0
+description: Multi-layer network health inspection (L1-L4) with health scoring and markdown report generation. Detects anomalies, calculates health scores, and generates compliance-ready reports. Use for health checks, SLA validation, compliance monitoring, and production reporting.
+author: Network AI Team
+type: agent
+category: network-analysis
 intent: inspection
+
 tools:
   - inspect_schema
   - query_database

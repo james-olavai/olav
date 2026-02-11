@@ -1,22 +1,30 @@
-"""Query Result Cache - Phase 4 Day 5-6.
+"""Query Result Cache - DEPRECATED (v0.11.0)
 
-Performance Optimization: Result-level caching for expensive queries
+⚠️ DEPRECATED: This custom cache will be replaced by Semantic Cache (Layer 0).
 
-Problem:
-- LLM inference: 20-30 seconds per query (4000x slower than DB)
-- Repeated queries waste compute and time
-- Current semantic cache in router has low hit rate
+Historical background:
+- Phase 3.1 implementation (2026-02-08): Custom 2-tier cache for query results
+- Performance verified: 326x speedup on cache hits
+- Purpose: Supplement DeepAgents native caching during Phase 3
 
-Solution:
-- 2-tier cache: L1 (memory LRU) + L2 (disk SQLite)
-- Cache complete query results (post-LLM)
-- Intelligent key generation (normalized query + context)
-- TTL-based invalidation
+Replacement:
+- v0.11.0: Implement Semantic Cache (DeepAgents Layer 0, similarity-based)
+- v0.12.0: Deprecate QueryResultCache after semantic cache >= performance
+- v0.13.0: Remove this file
 
-Expected Impact:
-- Cache hit rate: 60-80% for common queries
-- Latency for cached queries: <100ms (instead of 20s)
-- Overall average latency reduction: 60-70%
+Rationale:
+- Custom cache duplicates DeepAgents native functionality
+- Semantic cache better integrates with LLM frameworks
+- Reduces maintenance burden (fewer custom components)
+- Provides similarity-based matching (not just exact match)
+
+Current status:
+- ✅ Working (326x speedup verified)
+- ⚠️ Will be replaced in future releases
+- Keep using until Semantic Cache is implemented
+
+See: SUBAGENT_CACHING_MIGRATION_ANALYSIS.md (Section 4.2)
+See: SUB_AGENT_DEVELOPMENT_GUIDE.md (Layer 0 Semantic Cache)
 """
 
 import hashlib
@@ -287,7 +295,7 @@ class QueryResultCache:
             """,
             (
                 cache_key,
-                json.dumps(result),
+                json.dumps(result, default=str),  # Handle datetime and other non-serializable types
                 created_at,
                 ttl,
                 json.dumps(metadata) if metadata else None,

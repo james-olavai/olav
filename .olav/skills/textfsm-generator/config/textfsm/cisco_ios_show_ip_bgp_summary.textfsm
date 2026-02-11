@@ -1,9 +1,0 @@
-Value BGP_ROUTER_ID (\d+\.\d+\.\d+\.\d+)
-Value LOCAL_AS (\d+)
-Value NEIGHBOR (\d+\.\d+\.\d+\.\d+)
-Value REMOTE_AS (\d+)
-Value STATE_PFXRCD (\S+)
-
-Start
-  ^BGP router identifier ${BGP_ROUTER_ID}, local AS number ${LOCAL_AS}
-  ^${NEIGHBOR}\s+4\s+${REMOTE_AS}\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+${STATE_PFXRCD} -> Record

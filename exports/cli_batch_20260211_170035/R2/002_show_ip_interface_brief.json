@@ -1,0 +1,32 @@
+[
+  {
+    "interface": "GigabitEthernet1",
+    "ip_address": "10.1.12.2",
+    "status": "up",
+    "proto": "up"
+  },
+  {
+    "interface": "GigabitEthernet2",
+    "ip_address": "10.1.24.2",
+    "status": "up",
+    "proto": "up"
+  },
+  {
+    "interface": "GigabitEthernet3",
+    "ip_address": "unassigned",
+    "status": "administratively down",
+    "proto": "down"
+  },
+  {
+    "interface": "GigabitEthernet4",
+    "ip_address": "192.168.100.102",
+    "status": "up",
+    "proto": "up"
+  },
+  {
+    "interface": "Loopback0",
+    "ip_address": "2.2.2.2",
+    "status": "up",
+    "proto": "up"
+  }
+]

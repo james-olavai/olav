@@ -1,0 +1,6 @@
+Database Error: Parser Error: syntax error at or near "."
+
+LINE 6:   MAX(is.timestamp) AS last_update
+                ^
+
+Tip: Use inspect_schema() to check available tables and columns

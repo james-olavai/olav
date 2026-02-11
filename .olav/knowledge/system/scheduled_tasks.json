@@ -1,0 +1,83 @@
+{
+  "scheduled_tasks": [
+    {
+      "task_id": "task_cache_cleanup_daily",
+      "name": "Daily Cache Cleanup",
+      "description": "Clean up expired cache entries and free memory",
+      "command": "system:clean_cache()",
+      "schedule": "0 2 * * *",
+      "schedule_type": "cron",
+      "enabled": true,
+      "created_at": "2026-02-08T00:00:00Z",
+      "last_executed": null,
+      "next_execution": null,
+      "parameters": {
+        "include_expired_only": true,
+        "age_days": 1
+      },
+      "on_failure": "notify_user",
+      "timeout_seconds": 300
+    },
+    {
+      "task_id": "task_backup_daily",
+      "name": "Daily Configuration Backup",
+      "description": "Create automatic backup of system configuration",
+      "command": "system:create_backup()",
+      "schedule": "0 3 * * *",
+      "schedule_type": "cron",
+      "enabled": true,
+      "created_at": "2026-02-08T00:00:00Z",
+      "last_executed": null,
+      "next_execution": null,
+      "parameters": {
+        "backup_type": "configuration",
+        "compression": true
+      },
+      "on_failure": "notify_admin",
+      "timeout_seconds": 600
+    },
+    {
+      "task_id": "task_health_check_hourly",
+      "name": "Hourly System Health Check",
+      "description": "Monitor system health metrics (CPU, memory, disk, DB)",
+      "command": "system:health_check()",
+      "schedule": "0 * * * *",
+      "schedule_type": "cron",
+      "enabled": true,
+      "created_at": "2026-02-08T00:00:00Z",
+      "last_executed": null,
+      "next_execution": null,
+      "parameters": {
+        "check_database": true,
+        "check_cpu": true,
+        "check_memory": true,
+        "check_disk": true
+      },
+      "on_failure": "log_only",
+      "timeout_seconds": 120
+    },
+    {
+      "task_id": "task_db_maintenance_weekly",
+      "name": "Weekly Database Maintenance",
+      "description": "Optimize database: VACUUM, ANALYZE, PRAGMA settings",
+      "command": "system:database_maintenance()",
+      "schedule": "0 4 ? * SUN",
+      "schedule_type": "cron",
+      "enabled": true,
+      "created_at": "2026-02-08T00:00:00Z",
+      "last_executed": null,
+      "next_execution": null,
+      "parameters": {
+        "run_vacuum": true,
+        "run_analyze": true,
+        "optimization_level": "standard"
+      },
+      "on_failure": "notify_admin",
+      "timeout_seconds": 1800
+    }
+  ],
+  "task_history": [],
+  "total_scheduled": 4,
+  "total_active": 4,
+  "next_task_execution": "2026-02-09T02:00:00Z"
+}

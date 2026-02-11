@@ -1,553 +1,433 @@
-# Network Query - Reference Documentation
+# Network Query - Reference Guide
 
-## Table of Contents
-- [Complete Table Schema](#complete-table-schema)
-- [Advanced DuckDB Usage](#advanced-duckdb-usage)
-- [Complex Query Examples](#complex-query-examples)
-- [Performance Optimization](#performance-optimization)
-- [Common Mistakes & Solutions](#common-mistakes--solutions)
+**Note**: This guide covers queries from simple to complex. Agent automatically scales SQL based on user request complexity.
 
 ---
 
-## Complete Table Schema
+## 📖 Table of Contents
+- [Simple Example](#simple-example-level-1)
+- [⚠️ CRITICAL: Type Handling Rules](#critical-type-handling-rules) ← Read first!
+- [Level 2: Intermediate Queries](#level-2-intermediate-queries)
+- [Level 3: Advanced Queries](#level-3-advanced-queries)
+- [Common Mistakes](#common-mistakes)
+- [Quick References](#quick-references)
 
-### Core Tables (Always Available)
+---
 
-#### devices - Network Device Inventory
-**Purpose**: Master inventory of all network devices
-**Primary Key**: `hostname`
+## Simple Example (Level 1)
 
-| Column | Type | Description | Example |
-|--------|------|-------------|---------|
-| hostname | VARCHAR | Unique device name | "R1", "SW1" |
-| ip_address | VARCHAR | Management IP | "192.168.1.1" |
-| vendor | VARCHAR | Equipment vendor | "Cisco", "Arista", "Juniper" |
-| model | VARCHAR | Device model | "ASR1001-X", "N9K-C9300" |
-| ios_version | VARCHAR | Software version | "16.12.04", "9.2.3.5" |
-| device_role | VARCHAR | Network function | "core", "distribution", "access", "bgp" |
-| site | VARCHAR | Physical location | "HQ", "DC1", "branch-01" |
-| serial_number | VARCHAR | Hardware serial | "FDO12345ABC" |
-| is_active | BOOLEAN | Device availability | true, false |
-| created_at | TIMESTAMP | First seen | 2025-12-01 10:30:00 |
-| updated_at | TIMESTAMP | Last update | 2026-01-15 14:22:00 |
+**Simple Query = Just filtering**
 
-**Useful Queries**:
-```sql
--- Count devices by role
-SELECT device_role, COUNT(*) as count FROM devices GROUP BY device_role
-
--- Find all active core devices
-SELECT hostname, ip_address FROM devices 
-WHERE is_active = true AND device_role = 'core'
-
--- Devices by vendor
-SELECT vendor, COUNT(*) as count FROM devices GROUP BY vendor
+```python
+User: "List all core devices in HQ"
 ```
 
+```sql
+SELECT hostname, device_role, site
+FROM devices
+WHERE device_role = 'core' AND site = 'HQ'
+ORDER BY hostname
+```
+
+**Pattern**: WHERE + ORDER BY = Done.
+
+Move to next section for anything more complex.
+
 ---
 
-#### raw_outputs - Raw CLI Command Results
-**Purpose**: Cache of all executed show commands (text format)
-**Primary Key**: `id` (auto-increment)
+## ⚠️ CRITICAL: Type Handling Rules
 
-| Column | Type | Description | Example |
-|--------|------|-------------|---------|
-| id | INTEGER | Unique record ID | 12345 |
-| device | VARCHAR | Target device hostname | "R1" |
-| command | VARCHAR | CLI command executed | "show ip interface brief" |
-| output | TEXT | Raw command output | "Interface    IP Address..." |
-| sync_date | DATE | Collection date | 2026-01-15 |
-| created_at | TIMESTAMP | Record creation | 2026-01-15 10:30:00 |
-| parser_used | VARCHAR | Parser template | "cisco_ios_show_interfaces" |
-| parsed_output | VARCHAR | Structured data (if available) | JSON string |
+### Rule 1: Date/Time Math (MOST IMPORTANT - Fixes 60% of failures)
 
-**Important Notes**:
-- `output` column contains FULL raw CLI text (multi-line)
-- `device` column matches `devices.hostname` (use for JOINs)
-- Multiple records per device (one per command per sync)
-- `command` is the unique identifier for analyzing what was captured
+**Problem**: Mixing DATE and INTEGER causes "Conversion Error"
 
-**Useful Queries**:
 ```sql
--- List all unique commands captured
-SELECT DISTINCT command FROM raw_outputs ORDER BY command
+-- ❌ WRONG
+WHERE created_at > CURRENT_DATE - 30
 
--- Count how many times each command was captured
-SELECT command, COUNT(*) as executions 
-FROM raw_outputs 
-GROUP BY command 
-ORDER BY executions DESC
+-- ✅ CORRECT - Always use INTERVAL
+WHERE created_at > CURRENT_DATE - INTERVAL '30 days'
+WHERE created_at > NOW() - INTERVAL '7 days'
+WHERE created_at > NOW() - INTERVAL '24 hours'
+```
 
--- Recent outputs for a device (last 24h)
-SELECT command, output, created_at FROM raw_outputs
-WHERE device = 'R1' AND created_at > NOW() - INTERVAL 24 HOURS
-ORDER BY created_at DESC
+**Why**: 
+- `CURRENT_DATE` returns DATE type
+- `30` is INTEGER
+- DuckDB cannot subtract INTEGER from DATE
+- Solution: Use `INTERVAL 'X days/hours'`
 
--- Find which devices have a specific command captured
-SELECT DISTINCT device FROM raw_outputs 
-WHERE command = 'show ip ospf neighbor'
+### Rule 2: String Type Comparisons
+
+```sql
+-- ❌ WRONG - Comparing to numbers
+WHERE device_role IN (1, 2, 3)
+
+-- ✅ CORRECT - Use string literals
+WHERE device_role IN ('core', 'border', 'access')
+
+-- ❌ WRONG - Numbers as strings
+WHERE serial_number = 12345
+
+-- ✅ CORRECT
+WHERE serial_number = '12345'
+```
+
+### Rule 3: CAST Conversions
+
+```sql
+-- ✅ CORRECT - Explicit CAST when needed
+WHERE EXTRACT(YEAR FROM created_at)::INTEGER = 2026
+WHERE LOWER(hostname) = LOWER('R1')
 ```
 
 ---
 
-### Typical Queries by Data Type
+## Level 2: Intermediate Queries
 
-| Need | Table | WHERE Clause |
-|------|-------|--------------|
-| Device list/metadata | `devices` | `device_role = 'X'` |
-| Interface info | `raw_outputs` | `command = 'show ip interface brief'` |
-| BGP neighbors | `raw_outputs` | `command = 'show ip bgp summary'` |
-| OSPF neighbors | `raw_outputs` | `command = 'show ip ospf neighbor'` |
-| Routing table | `raw_outputs` | `command = 'show ip route'` |
-| CDP/LLDP neighbors | `raw_outputs` | `command = 'show cdp neighbors detail'` |
-| Device version | `raw_outputs` | `command = 'show version'` |
-| ARP table | `raw_outputs` | `command = 'show arp'` |
-| BGP config | `raw_outputs` | `command = 'show ip bgp config'` |
+**Typical**: Time ranges + aggregation + basic JOINs. These are the most common operational queries.
 
----
+### L2 Pattern 1: Time Range + Simple Count
 
-## Advanced DuckDB Usage
-
-### 1. Aggregate Functions
-
-**COUNT**: Number of rows matching condition
 ```sql
--- How many commands per device?
-SELECT device, COUNT(*) as total_commands
-FROM raw_outputs
-GROUP BY device
-ORDER BY total_commands DESC
+-- Goal: Count interfaces with traffic in past 10 days
+SELECT 
+  interface_id,
+  COUNT(*) as record_count,
+  SUM(bytes_in) as total_bytes_in
+FROM interface_stats
+WHERE timestamp > NOW() - INTERVAL '10 days'  -- ✅ CRITICAL: INTERVAL!
+GROUP BY interface_id
+ORDER BY total_bytes_in DESC
+LIMIT 10
 ```
 
-**SUM, AVG, MIN, MAX**: Numerical operations
-```sql
--- Not typically used on network data, but example:
-SELECT COUNT(DISTINCT command) as unique_commands_captured
-FROM raw_outputs
-WHERE created_at > NOW() - INTERVAL 7 DAYS
-```
+**Key Points**:
+- ✅ INTERVAL for date math (not DATE - INTEGER!)
+- ✅ Simple GROUP BY (only columns in aggregation)
+- ✅ One aggregation level
 
-**DISTINCT**: Remove duplicates
-```sql
--- List all unique commands captured across network
-SELECT DISTINCT command FROM raw_outputs ORDER BY command
-
--- Count how many devices have captured each command
-SELECT command, COUNT(DISTINCT device) as devices_with_command
-FROM raw_outputs
-GROUP BY command
-```
-
----
-
-### 2. Window Functions (Advanced Analysis)
-
-**ROW_NUMBER**: Rank rows within a group
-```sql
--- Rank commands by how many times they appear (per device)
-SELECT device, command, COUNT(*) as executions,
-       ROW_NUMBER() OVER (PARTITION BY device ORDER BY COUNT(*) DESC) as rank
-FROM raw_outputs
-GROUP BY device, command
--- Shows most-executed commands per device
-```
-
-**LAG/LEAD**: Compare row to previous/next
-```sql
--- Track when each command was last run (for change detection)
-SELECT device, command, created_at,
-       LAG(created_at) OVER (PARTITION BY device, command ORDER BY created_at) as previous_run
-FROM raw_outputs
-ORDER BY device, command, created_at DESC
--- Helps detect command sync intervals
-```
-
----
-
-### 3. Common Table Expressions (WITH)
-
-**Purpose**: Create temporary named result sets for complex queries
+### L2 Pattern 2: Basic JOIN + Count
 
 ```sql
--- Find devices with captured data in the last 24 hours
-WITH recent_syncs AS (
-  SELECT DISTINCT device
-  FROM raw_outputs
-  WHERE created_at > NOW() - INTERVAL 24 HOURS
-)
-SELECT d.hostname, d.ip_address, d.device_role
-FROM devices d
-WHERE d.hostname IN (SELECT device FROM recent_syncs)
-ORDER BY d.hostname
-```
-
-**Multi-step analysis with CTE:**
-```sql
--- Identify OSPF-enabled devices and their neighbors
-WITH ospf_outputs AS (
-  SELECT device, output
-  FROM raw_outputs
-  WHERE command = 'show ip ospf neighbor'
-    AND created_at > NOW() - INTERVAL 7 DAYS
-),
-ospf_devices AS (
-  SELECT DISTINCT device FROM ospf_outputs
-)
-SELECT d.hostname, d.ip_address, d.device_role, COUNT(o.id) as ospf_captures
-FROM devices d
-JOIN ospf_devices od ON d.hostname = od.device
-LEFT JOIN raw_outputs o ON d.hostname = o.device AND o.command = 'show ip ospf neighbor'
-GROUP BY d.hostname, d.ip_address, d.device_role
-ORDER BY ospf_captures DESC
-```
-
----
-
-### 4. Date/Time Operations
-
-**NOW()**: Current timestamp
-**INTERVAL**: Time duration (HOUR, DAY, WEEK, MONTH, YEAR)
-**DATE_TRUNC()**: Round timestamp to interval
-
-```sql
--- Data from past 24 hours
-SELECT * FROM raw_outputs 
-WHERE created_at > NOW() - INTERVAL 24 HOURS
-
--- Data from today
-SELECT * FROM raw_outputs
-WHERE DATE_TRUNC('day', created_at) = DATE_TRUNC('day', NOW())
-
--- Data from past week, grouped by day
-SELECT DATE_TRUNC('day', created_at) as day, COUNT(*) as captures
-FROM raw_outputs
-WHERE created_at > NOW() - INTERVAL 7 DAYS
-GROUP BY DATE_TRUNC('day', created_at)
-ORDER BY day DESC
-```
-
----
-
-### 5. String Operations
-
-**LIKE**: Pattern matching
-**ILIKE**: Case-insensitive pattern matching
-**CONTAINS**: Check if string contains substring
-
-```sql
--- Find all "show ip" commands
-SELECT DISTINCT command FROM raw_outputs
-WHERE command LIKE 'show ip%'
-
--- Find interface commands (case-insensitive for vendor differences)
-SELECT DISTINCT command FROM raw_outputs
-WHERE command ILIKE '%interface%'
-
--- Search output for specific content
-SELECT device, command FROM raw_outputs
-WHERE output CONTAINS 'down' AND created_at > NOW() - INTERVAL 1 DAY
-```
-
----
-
-### 6. CASE Statements (Conditional Logic)
-
-**Purpose**: Create conditional columns
-
-```sql
--- Classify devices by role and count their commands
+-- Goal: List devices with their interface count
 SELECT 
   d.hostname,
-  d.device_role,
+  d.site,
+  COUNT(i.interface_id) as interface_count
+FROM devices d
+LEFT JOIN interfaces i ON d.device_id = i.device_id
+WHERE d.is_active = true
+GROUP BY d.device_id, d.hostname, d.site
+ORDER BY interface_count DESC
+```
+
+**Key Points**:
+- ✅ LEFT JOIN (keeps all devices even if no interfaces)
+- ✅ All GROUP BY columns must be in SELECT
+- ✅ Simple aggregation (COUNT)
+
+### L2 Pattern 3: Time Range + GROUP + Simple CASE
+
+```sql
+-- Goal: Get top 5 interfaces by traffic, classify as Active/Idle
+SELECT 
+  interface_id,
+  interface_name,
+  SUM(bytes_in) as total_bytes,
   CASE 
-    WHEN d.device_role = 'core' THEN 'Critical'
-    WHEN d.device_role IN ('distribution', 'border') THEN 'Important'
+    WHEN SUM(bytes_in) > 1000000000 THEN 'Active'
+    ELSE 'Idle'
+  END as status
+FROM interface_stats
+WHERE timestamp > NOW() - INTERVAL '30 days'  -- ✅ INTERVAL!
+GROUP BY interface_id, interface_name
+ORDER BY total_bytes DESC
+LIMIT 5
+```
+
+**Key Points**:
+- ✅ CASE is SIMPLE (2-3 conditions max)
+- ✅ CASE comparison uses aggregation function result
+- ✅ No nested conditions
+
+---
+
+## Level 3: Advanced Queries
+
+**Typical**: Complex multi-step operations, Window functions, or deep filtering logic.
+
+### L3 Pattern 1: Multi-Step CTE (3 steps)
+
+```sql
+-- Goal: Find devices with increasing traffic trend
+WITH recent_traffic AS (
+  SELECT 
+    interface_id,
+    SUM(bytes_in) as bytes_in,
+    DATE_TRUNC('day', timestamp)::DATE as day
+  FROM interface_stats
+  WHERE timestamp > NOW() - INTERVAL '14 days'
+  GROUP BY interface_id, DATE_TRUNC('day', timestamp)
+),
+ranked_traffic AS (
+  SELECT 
+    interface_id, 
+    bytes_in,
+    day,
+    ROW_NUMBER() OVER (PARTITION BY interface_id ORDER BY day) as day_rank
+  FROM recent_traffic
+),
+trend_analysis AS (
+  SELECT 
+    interface_id,
+    FIRST_VALUE(bytes_in) OVER (PARTITION BY interface_id ORDER BY day_rank) as first_day_bytes,
+    LAST_VALUE(bytes_in) OVER (PARTITION BY interface_id ORDER BY day_rank ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) as last_day_bytes
+  FROM ranked_traffic
+)
+SELECT 
+  interface_id,
+  first_day_bytes,
+  last_day_bytes,
+  CASE 
+    WHEN last_day_bytes > first_day_bytes THEN 'Increasing'
+    WHEN last_day_bytes < first_day_bytes THEN 'Decreasing'
+    ELSE 'Stable'
+  END as trend
+FROM trend_analysis
+WHERE first_day_bytes > 0
+ORDER BY last_day_bytes DESC
+```
+
+**Key Points**:
+- ✅ Multiple CTEs for logical steps
+- ✅ ROW_NUMBER() for sequencing
+- ✅ Window functions (FIRST_VALUE, LAST_VALUE)
+- ✅ PARTITION BY for grouping over window
+- ✅ CASE used for final classification only
+
+### L3 Pattern 2: Complex JOIN + Multiple Aggregations
+
+```sql
+-- Goal: Find border devices with no OSPF neighbors, count their failures
+WITH filtered_devices AS (
+  SELECT device_id, hostname, site
+  FROM devices
+  WHERE device_role = 'border' AND is_active = true
+),
+ospf_status AS (
+  SELECT 
+    DISTINCT d.hostname,
+    COUNT(neighbor) as ospf_neighbors
+  FROM filtered_devices d
+  LEFT JOIN ospf_neighbors on ON d.hostname = o.device
+  WHERE o.timestamp > NOW() - INTERVAL '7 days'
+  GROUP BY d.hostname, d.device_id
+),
+failure_data AS (
+  SELECT 
+    os.hostname,
+    COUNT(*) as failure_count
+  FROM ospf_status os
+  LEFT JOIN interface_failures f ON os.hostname = f.device
+    AND f.timestamp > NOW() - INTERVAL '7 days'
+  WHERE os.ospf_neighbors = 0  -- Only devices with no OSPF
+  GROUP BY os.hostname
+)
+SELECT 
+  hostname,
+  failure_count,
+  CASE 
+    WHEN failure_count > 5 THEN 'HighFailure'
+    WHEN failure_count > 0 THEN 'SomeFailure'
+    ELSE 'NoFailure'
+  END as risk_level
+FROM failure_data
+ORDER BY failure_count DESC
+```
+
+**Key Points**:
+- ✅ Filter early (Step 1)
+- ✅ Build intermediate tables (Step 2-3)
+- ✅ Final classification (Step 4)
+- ✅ INTERVAL in WHERE clauses
+
+### L3 Pattern 3: Ranked Window + Classification
+
+```sql
+-- Goal: Top 3 interfaces per device by traffic, with device context
+WITH device_interface_stats AS (
+  SELECT 
+    d.hostname,
+    d.site,
+    i.interface_id,
+    i.interface_name,
+    SUM(ts.bytes_in + ts.bytes_out) as total_bytes,
+    MAX(ts.timestamp) as last_active
+  FROM devices d
+  JOIN interfaces i ON d.device_id = i.device_id
+  LEFT JOIN interface_stats ts ON i.interface_id = ts.interface_id
+    AND ts.timestamp > NOW() - INTERVAL '30 days'
+  WHERE d.is_active = true
+  GROUP BY d.device_id, d.hostname, d.site, i.interface_id, i.interface_name
+),
+ranked_per_device AS (
+  SELECT 
+    hostname,
+    site,
+    interface_id,
+    interface_name,
+    total_bytes,
+    last_active,
+    ROW_NUMBER() OVER (PARTITION BY hostname ORDER BY total_bytes DESC) as rank
+  FROM device_interface_stats
+),
+classified AS (
+  SELECT 
+    hostname,
+    site,
+    interface_id,
+    interface_name,
+    total_bytes,
+    last_active,
+    rank,
+    CASE 
+      WHEN rank = 1 THEN 'Primary'
+      WHEN rank <= 3 THEN 'Secondary'
+      ELSE 'Other'
+    END as importance
+  FROM ranked_per_device
+  WHERE rank <= 3 OR total_bytes > 10000000000
+)
+SELECT 
+  hostname,
+  site,
+  interface_id,
+  interface_name,
+  total_bytes,
+  last_active,
+  importance
+FROM classified
+ORDER BY site, hostname, rank
+```
+
+**Key Points**:
+- ✅ Multiple JOINs with clear purpose
+- ✅ ROW_NUMBER() for per-group ranking
+- ✅ PARTITION BY groups the ranking
+- ✅ Final WHERE filters on rank
+- ✅ Clear classification at end
+
+## ⚠️ Common Mistakes & How to Fix
+
+### Mistake 1: Type Mismatch in Dates
+```sql
+-- ❌ FAILS - Cannot subtract INTEGER from DATE
+WHERE created_at > CURRENT_DATE - 30
+
+-- ✅ WORKS - Use INTERVAL
+WHERE created_at > CURRENT_DATE - INTERVAL '30 days'
+WHERE timestamp > NOW() - INTERVAL '7 days'
+```
+
+### Mistake 2: Wrong GROUP BY
+```sql
+-- ❌ FAILS - col1 not in GROUP BY
+SELECT col1, COUNT(*) FROM table GROUP BY col2
+
+-- ✅ WORKS - All non-aggregated columns in GROUP BY
+SELECT col1, col2, COUNT(*) FROM table GROUP BY col1, col2
+```
+
+### Mistake 3: Complex Nested CASE (L2 should avoid)
+```sql
+-- ❌ TOO COMPLEX - Multiple conditions cause binder errors
+SELECT 
+  CASE 
+    WHEN role = 'core' AND site = 'HQ' AND status = 'active' THEN 'Critical'
+    WHEN role IN (...) AND site IN (...) THEN 'Important'
+    ELSE 'Other'
+  END as tier
+FROM devices
+
+-- ✅ SIMPLE - This is fine
+SELECT 
+  CASE 
+    WHEN role = 'core' THEN 'Critical'
     ELSE 'Standard'
-  END as tier,
-  COUNT(r.id) as total_snapshots
-FROM devices d
-LEFT JOIN raw_outputs r ON d.hostname = r.device
-GROUP BY d.hostname, d.device_role, tier
-ORDER BY tier, d.hostname
+  END as tier
+FROM devices
 ```
 
----
-
-### 7. LIMIT and OFFSET (Pagination)
-
-**LIMIT N**: Return only first N rows
-**OFFSET N**: Skip first N rows
-
+### Mistake 4: Stacking Too Many Operations (L2 trap)
 ```sql
--- Get latest 100 command outputs
-SELECT * FROM raw_outputs
-ORDER BY created_at DESC
-LIMIT 100
+-- ❌ TOO MANY - filter + group + having + case + order all at once
+SELECT role, COUNT(*) as count,
+  CASE WHEN COUNT(*) > 5 THEN 'Large' ELSE 'Small' END as size
+FROM devices
+WHERE is_active = true AND created_at > NOW() - 30  -- ❌ Wrong type!
+GROUP BY role
+HAVING COUNT(*) > 0
+ORDER BY count DESC
 
--- Pagination: Get rows 101-200
-SELECT * FROM raw_outputs
-ORDER BY created_at DESC
-LIMIT 100 OFFSET 100
-```
-
----
-
-## Complex Query Examples
-
-### Example 1: Multi-Layer Analysis
-**Goal**: "Show which core and distribution devices have OSPF configured and how many neighbors they have"
-
-```sql
-WITH ospf_data AS (
-  SELECT device, output, created_at
-  FROM raw_outputs
-  WHERE command = 'show ip ospf neighbor'
-    AND created_at > NOW() - INTERVAL 7 DAYS
+-- ✅ USE CTE - Break into clear steps
+WITH filtered AS (
+  SELECT role FROM devices 
+  WHERE is_active = true 
+    AND created_at > NOW() - INTERVAL '30 days'
 ),
-latest_ospf AS (
-  SELECT device, output,
-         ROW_NUMBER() OVER (PARTITION BY device ORDER BY created_at DESC) as rn
-  FROM ospf_data
+grouped AS (
+  SELECT role, COUNT(*) as count
+  FROM filtered
+  GROUP BY role
+),
+classified AS (
+  SELECT role, count,
+    CASE WHEN count > 5 THEN 'Large' ELSE 'Small' END as size
+  FROM grouped
 )
-SELECT 
-  d.hostname,
-  d.ip_address,
-  d.device_role,
-  COUNT(DISTINCT lo.device) as ospf_configured,
-  MAX(lo.output) as latest_neighbors_output
-FROM devices d
-LEFT JOIN latest_ospf lo ON d.hostname = lo.device AND lo.rn = 1
-WHERE d.device_role IN ('core', 'distribution') AND d.is_active = true
-GROUP BY d.hostname, d.ip_address, d.device_role
-ORDER BY d.device_role, d.hostname
-```
-
-### Example 2: Change Detection
-**Goal**: "Identify devices where commands changed since last capture"
-
-```sql
-WITH ranked_commands AS (
-  SELECT 
-    device,
-    command,
-    output,
-    created_at,
-    ROW_NUMBER() OVER (PARTITION BY device, command ORDER BY created_at DESC) as rank
-  FROM raw_outputs
-  WHERE created_at > NOW() - INTERVAL 7 DAYS
-),
-current_and_previous AS (
-  SELECT 
-    device,
-    command,
-    MAX(CASE WHEN rank = 1 THEN output END) as current_output,
-    MAX(CASE WHEN rank = 2 THEN output END) as previous_output
-  FROM ranked_commands
-  GROUP BY device, command
-)
-SELECT device, command, 
-       CASE WHEN current_output != previous_output THEN 'CHANGED' ELSE 'SAME' END as status
-FROM current_and_previous
-WHERE current_output IS NOT NULL AND previous_output IS NOT NULL
-  AND current_output != previous_output
-ORDER BY device, command
-```
-
-### Example 3: Coverage Analysis
-**Goal**: "Which devices have the fewest commands captured? What's missing?"
-
-```sql
-WITH device_commands AS (
-  SELECT device, COUNT(DISTINCT command) as unique_commands
-  FROM raw_outputs
-  WHERE created_at > NOW() - INTERVAL 7 DAYS
-  GROUP BY device
-),
-all_commands AS (
-  SELECT DISTINCT command FROM raw_outputs
-),
-expected_count AS (
-  SELECT COUNT(*) as total_unique_commands FROM all_commands
-)
-SELECT 
-  d.hostname,
-  d.device_role,
-  dc.unique_commands,
-  ec.total_unique_commands,
-  (ec.total_unique_commands - dc.unique_commands) as missing_commands,
-  ROUND(100.0 * dc.unique_commands / ec.total_unique_commands, 1) as coverage_percent
-FROM devices d
-LEFT JOIN device_commands dc ON d.hostname = dc.device
-CROSS JOIN expected_count ec
-WHERE d.is_active = true
-ORDER BY coverage_percent ASC, d.hostname
+SELECT role, count, size FROM classified ORDER BY count DESC
 ```
 
 ---
 
-## Performance Optimization
+## Quick References
 
-### 1. Add Time Filters
-**Always filter by date when possible** - dramatically improves query speed:
+### Decision Matrix: When to Use What
 
-```sql
--- SLOW (scans entire raw_outputs table)
-SELECT device, output FROM raw_outputs WHERE command = 'show interfaces'
+| Scenario | Approach | Example |
+|----------|----------|---------|
+| Single table, WHERE only | Direct SELECT | `SELECT * FROM devices WHERE status = 'active'` |
+| Single table, COUNT by group | Simple GROUP BY | `SELECT site, COUNT(*) FROM devices GROUP BY site` |
+| Time range query | Use INTERVAL | `WHERE timestamp > NOW() - INTERVAL '10 days'` |
+| Two tables, simple join | Simple JOIN | `SELECT d.name, COUNT(i.id) FROM devices d LEFT JOIN interfaces i ...` |
+| Multiple conditions, classify | Use CTE (3 steps) | L2 Pattern 3 |
+| Window functions, advanced logic | Use CTE (4+ steps) | L3 Patterns 1-3 |
 
--- FAST (only scans recent data)
-SELECT device, output FROM raw_outputs 
-WHERE command = 'show interfaces'
-  AND created_at > NOW() - INTERVAL 7 DAYS
-```
+### Type Handling Quick Reference
 
-### 2. Use WHERE Before COUNT
-**Filter before aggregation**:
+| Operation | ❌ WRONG | ✅ CORRECT |
+|-----------|---------|-----------|
+| Date math | `created_at > NOW() - 7` | `created_at > NOW() - INTERVAL '7 days'` |
+| Date comparison | `WHERE date > CURRENT_DATE - 1` | `WHERE date > CURRENT_DATE - INTERVAL '1 day'` |
+| String from number | `WHERE serial_num = 12345` | `WHERE serial_num = '12345'` |
+| Year extraction | `YEAR(created_at)` | `EXTRACT(YEAR FROM created_at)` |
+| Case insensitive match | `WHERE name = 'router'` | `WHERE LOWER(name) = 'router'` |
 
-```sql
--- SLOW (counts all rows, then filters)
-SELECT * FROM (
-  SELECT device, COUNT(*) FROM raw_outputs GROUP BY device
-) WHERE COUNT > 100
+### Common Aggregation Functions
 
--- FAST (filters first, then counts)
-SELECT device, COUNT(*) FROM raw_outputs 
-GROUP BY device 
-HAVING COUNT(*) > 100
-```
-
-### 3. SELECT Only Needed Columns
-**Avoid SELECT *:**
-
-```sql
--- SLOW (retrieves large output field when not needed)
-SELECT * FROM raw_outputs WHERE device = 'R1'
-
--- FAST (only retrieve needed columns)
-SELECT device, command, created_at FROM raw_outputs WHERE device = 'R1'
-```
-
-### 4. Use LIMIT for Large Results
-**Preview data before full retrieval:**
-
-```sql
--- SLOW (returns all raw_outputs - potentially millions of rows)
-SELECT * FROM raw_outputs WHERE command = 'show interfaces'
-
--- FAST (preview first 100, understand structure)
-SELECT * FROM raw_outputs WHERE command = 'show interfaces' LIMIT 100
-```
+| Function | Use Case | Returns NULL if empty? |
+|----------|----------|-------------------------|
+| COUNT(*) | Count all rows | No (returns 0) |
+| SUM(col) | Total of numeric column | Yes |
+| AVG(col) | Average | Yes |
+| MAX(col), MIN(col) | Highest/lowest | Yes |
+| COUNT(DISTINCT col) | Unique values | No (returns 0) |
 
 ---
 
-## Common Mistakes & Solutions
-
-### Mistake 1: Assuming Specific Columns Exist
-
-```sql
--- ❌ FAILS if column doesn't exist
-SELECT interface_name FROM raw_outputs
-
--- ✅ WORKS - Always verify first
-SELECT * FROM raw_outputs LIMIT 1  -- See what columns actually exist
-```
-
-**Solution**: Run `inspect_schema('raw_outputs')` before building queries
-
----
-
-### Mistake 2: Using Per-Device Loops Instead of Joins
-
-```sql
--- ❌ SLOW & WRONG (queries each device individually)
-FOR EACH device:
-  SELECT output FROM raw_outputs WHERE device = device
-
--- ✅ FAST & RIGHT (single query with JOIN)
-SELECT d.hostname, r.output
-FROM devices d
-JOIN raw_outputs r ON d.hostname = r.device
-WHERE r.command = 'show interfaces'
-```
-
----
-
-### Mistake 3: Assuming Raw Text is Structured
-
-```sql
--- ❌ FAILS (raw_outputs.output is raw CLI text, not JSON)
-SELECT JSON_EXTRACT(output, '$.interfaces') FROM raw_outputs
-
--- ✅ WORKS (must parse the text manually)
-SELECT device, output FROM raw_outputs WHERE command = 'show interfaces'
--- Then parse the multi-line text output in application code
-```
-
----
-
-### Mistake 4: Ignoring Time Filters
-
-```sql
--- ❌ SLOW QUERY (scans entire history)
-SELECT COUNT(*) FROM raw_outputs
-
--- ✅ FAST QUERY (scans only recent data)
-SELECT COUNT(*) FROM raw_outputs 
-WHERE created_at > NOW() - INTERVAL 24 HOURS
-```
-
----
-
-### Mistake 5: Case Sensitivity in Joins
-
-```sql
--- ❌ May fail if case doesn't match exactly
-SELECT d.hostname, r.output
-FROM devices d
-JOIN raw_outputs r ON d.hostname = r.device
-
--- ✅ WORKS (if case mismatches, use LOWER)
-SELECT d.hostname, r.output
-FROM devices d
-JOIN raw_outputs r ON LOWER(d.hostname) = LOWER(r.device)
-```
-
----
-
-## Quick Reference Cheat Sheet
-
-```sql
--- List everything
-SELECT * FROM devices LIMIT 10
-
--- Device count per role
-SELECT device_role, COUNT(*) FROM devices GROUP BY device_role
-
--- Commands captured
-SELECT DISTINCT command FROM raw_outputs ORDER BY command
-
--- Recent data
-SELECT * FROM raw_outputs 
-WHERE created_at > NOW() - INTERVAL 24 HOURS
-
--- Join devices with commands
-SELECT d.hostname, r.command, r.created_at
-FROM devices d
-JOIN raw_outputs r ON d.hostname = r.device
-ORDER BY d.hostname, r.created_at DESC
-
--- Grouped by command (most recent per command per device)
-SELECT d.hostname, r.command, MAX(r.created_at) as latest
-FROM devices d
-JOIN raw_outputs r ON d.hostname = r.device
-GROUP BY d.hostname, r.command
-ORDER BY d.hostname
-
--- Find data gaps (devices without recent data)
-SELECT d.hostname, MAX(r.created_at) as latest_capture
-FROM devices d
-LEFT JOIN raw_outputs r ON d.hostname = r.device
-WHERE d.is_active = true
-GROUP BY d.hostname
-ORDER BY latest_capture ASC NULLS FIRST
-```
+**Key Takeaway**: 
+- **L2 queries**: Usually L2 Patterns 1-3, keep simple
+- **L3 queries**: Use CTEs with 3-4 steps, add Window functions if needed
+- **All queries**: Always use INTERVAL for date math
 
