@@ -168,6 +168,38 @@ class AgentSettings(BaseSettings):
         description="Number of recent messages to keep after summarization",
     )
 
+    # Guard Layer Configuration (v0.12.0+)
+    enable_guard_routing: bool = Field(
+        default=True,
+        description="Enable Guard layer for query classification and fast routing (default: True for v0.12.0+)",
+    )
+    guard_cache_ttl: int = Field(
+        default=3600,
+        ge=60,
+        le=86400,
+        description="Cache TTL for Guard classifications in seconds (default: 1 hour)",
+    )
+    guard_confidence_threshold: float = Field(
+        default=0.85,
+        ge=0.5,
+        le=0.99,
+        description="Confidence threshold for direct routing (>=0.85 direct, <0.85 to Orchestrator)",
+    )
+    guard_enable_multi_agent_detection: bool = Field(
+        default=True,
+        description="Enable MULTI_AGENT route detection (for future NetBox, CMDB integration)",
+    )
+    guard_rules_overrides: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Override Guard classification patterns (e.g. {'simple_indicators': [...], 'cli_indicators': [...]}). "
+                    "Leave empty to use SKILL.md rules. Example in .olav/settings.json shows how to customize.",
+    )
+    guard_rules_file: str = Field(
+        default="",
+        description="Path to custom Guard rules YAML file (empty = use SKILL.md). "
+                    "Can also be set via OLAV_GUARD_RULES_FILE environment variable.",
+    )
+
     def get_agent_config(
         self, agent_name: str, global_settings: "Settings"
     ) -> dict[str, str]:
@@ -191,6 +223,39 @@ class AgentSettings(BaseSettings):
             "base_url": base_url,
             "api_key": api_key,
         }
+
+
+class DatabaseSettings(BaseSettings):
+    """数据库配置 (v0.10.2+ 支持配置分层)"""
+
+    main_db: Path = Field(
+        default=Path(".olav/db/olav.duckdb"),
+        description="主数据库路径 (设备、接口、拓扑等所有数据)",
+    )
+
+    test_db: Path | None = Field(
+        default=None,
+        description="测试数据库路径，未设置时使用 main_db",
+    )
+
+    read_only: bool = Field(
+        default=True,
+        description="数据库只读模式 (query 操作建议为 True)",
+    )
+
+    connection_timeout: int = Field(
+        default=30,
+        ge=1,
+        le=300,
+        description="数据库连接超时 (秒)",
+    )
+
+    query_timeout: int = Field(
+        default=60,
+        ge=1,
+        le=600,
+        description="SQL 查询超时 (秒)",
+    )
 
 
 class GuardSettings(BaseSettings):
@@ -270,6 +335,10 @@ class ExecutionSettings(BaseSettings):
     use_textfsm: bool = Field(default=True, description="Use TextFSM to parse command output")
     textfsm_fallback_to_raw: bool = Field(
         default=True, description="Fallback to raw text if TextFSM parsing fails"
+    )
+    textfsm_template_dir: Path = Field(
+        default=Path(".olav/templates"),
+        description="TextFSM template directory path (relative to project root)"
     )
     enable_token_statistics: bool = Field(default=True, description="Enable token statistics")
 
@@ -389,6 +458,49 @@ class ThresholdSettings(BaseSettings):
     #     }
     #   }
     # }
+
+
+class FeatureFlagSettings(BaseSettings):
+    """Feature Flag Configuration (v0.12.0+)
+    
+    Supports gradual rollout and A/B testing:
+    - enable/disable features at runtime
+    - percentage-based rollout (0-100%)
+    - user segment support (all, admin, internal, beta)
+    - metrics collection for comparison
+    
+    Example .olav/settings.json:
+    {
+      "feature_flags": {
+        "guard_routing": {
+          "enabled": true,
+          "rollout_percentage": 25,
+          "rollout_user_segment": "internal",
+          "metrics_enabled": true
+        }
+      }
+    }
+    """
+
+    guard_routing: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": True,
+            "rollout_percentage": 100,
+            "rollout_user_segment": "all",
+            "metrics_enabled": True,
+        },
+        description="Guard routing feature flag (enable/disable, rollout %, user segment)",
+    )
+    
+    metrics_collection: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": True,
+            "rollout_percentage": 100,
+            "rollout_user_segment": "all",
+            "metrics_enabled": True,
+        },
+        description="Metrics collection feature flag",
+    )
 
 
 class CacheSettings(BaseSettings):
@@ -527,6 +639,12 @@ class Settings(BaseSettings):
     )
     cache: CacheSettings = Field(
         default_factory=CacheSettings, description="Cache management configuration"
+    )
+    database: DatabaseSettings = Field(
+        default_factory=DatabaseSettings, description="Database configuration (v0.10.2+)"
+    )
+    feature_flags: FeatureFlagSettings = Field(
+        default_factory=FeatureFlagSettings, description="Feature flag configuration (v0.12.0+)"
     )
 
     # =========================================================================
@@ -736,6 +854,7 @@ class Settings(BaseSettings):
                 "logging": ("logging_settings", LoggingSettings),
                 "sync": ("sync", SyncSettings),
                 "cache": ("cache", CacheSettings),
+                "featureFlags": ("feature_flags", FeatureFlagSettings),
             }
 
             for json_key, (attr_name, cls) in nested_mapping.items():
@@ -795,6 +914,9 @@ class Settings(BaseSettings):
         cache_dict = self.cache.model_dump()
         cache_dict_camel = {snake_to_camel(k): v for k, v in cache_dict.items()}
 
+        feature_flags_dict = self.feature_flags.model_dump()
+        feature_flags_dict_camel = {snake_to_camel(k): v for k, v in feature_flags_dict.items()}
+
         data = {
             "model": self.llm_model_name,
             "temperature": self.llm_temperature,
@@ -807,6 +929,7 @@ class Settings(BaseSettings):
             "logging": self.logging_settings.model_dump(),
             "sync": self.sync.model_dump(),
             "cache": cache_dict_camel,
+            "featureFlags": feature_flags_dict_camel,
         }
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")

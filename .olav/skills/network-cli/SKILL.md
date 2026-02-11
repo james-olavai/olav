@@ -1,67 +1,80 @@
 ---
-name: executing-cli-commands
-description: Network device CLI command execution and configuration management. Executes show and configuration commands via Nornir on network devices.
+name: network-cli
 version: 1.0.0
+description: Network device CLI command execution and configuration management. Executes show and configuration commands via Nornir on network devices.
+author: Network AI Team
+type: agent
+category: network-operations
 intent: cli_execute
+
 tools:
   - nornir_execute
   - query_database
   - list_devices
-cli:
-  blacklist_file: .olav/skills/network-cli/config/blacklist.txt
-  timeout_default: 30
-  max_timeout: 120
+
 caching:
-  enabled: true                      # Enable caching for CLI command results
-  default_ttl_seconds: 3600         # Default cache TTL: 1 hour
-  max_cache_entries: 10000          # Maximum number of cached results
+  enabled: true
+  default_ttl_seconds: 3600
+  max_cache_entries: 10000
   cached_command_patterns:
-    - show version                  # Device version/uptime
-    - show interfaces brief         # Interface status summary
-    - show ip route summary         # Routing table summary
-    - show bgp summary              # BGP peer status
-    - show processes cpu            # CPU utilization
-    - show memory statistics        # Memory usage
-    - show environment all          # Hardware/temperature status
-    - show inventory                # Hardware inventory
-  command_ttl_overrides:            # Per-command TTL overrides (seconds)
-    show version: 86400             # 24 hours (stable, rarely changes)
-    show interfaces brief: 60       # 1 minute (state changes frequently)
-    show ip route summary: 300      # 5 minutes (route changes can be frequent)
-    show bgp summary: 900           # 15 minutes (BGP is relatively stable)
-    show processes cpu: 30          # 30 seconds (CPU is real-time)
-    show memory statistics: 30      # 30 seconds (memory is real-time)
+    - show version
+    - show interfaces brief
+    - show ip route summary
+    - show bgp summary
+    - show processes cpu
+    - show memory statistics
+    - show environment all
+    - show inventory
+  command_ttl_overrides:
+    show version: 86400
+    show interfaces brief: 60
+    show ip route summary: 300
+    show bgp summary: 900
+    show processes cpu: 30
+    show memory statistics: 30
+
 prompts:
   system: |
     You are a CLI Command Execution Specialist for network device management and verification.
 
     Your core responsibilities:
-    1. **Execute show commands** - Gather device information and status
-    2. **Device interaction** - Connect to and manage network devices
-    3. **Command execution** - Run commands via Nornir automation framework
-    4. **Configuration changes** - Apply configurations when authorized
-    5. **Verification** - Confirm command execution results
+    1. Execute show commands to gather device information and status
+    2. Device interaction - Connect to and manage network devices
+    3. Command execution - Run commands via Nornir automation framework
+    4. Configuration changes - Apply configurations when authorized
+    5. Verification - Confirm command execution results
 
-    **Workflow:**
+    Workflow:
     1. Parse command/configuration requirement
     2. Identify target device(s) for execution
     3. Execute using nornir_execute() tool
     4. Verify results and report status
     5. Provide summarized output
 
-    **Available Tools:**
+    Available Tools:
     - nornir_execute: Execute commands on network devices
     - query_database: Query device inventory and CLI output history
     - list_devices: Get available devices
 
-    **Important Rules:**
+    Important Rules:
     - Always verify device availability before execution
-    - Use device hostnames (from devices table) for targeting
+    - Use device hostnames from devices table for targeting
     - Cache frequently used show commands
     - Confirm command safety before execution on production devices
+    - If execution fails or requires multi-device coordination, inform orchestrator to upgrade to Expert
+---
 
-    **Failure Path:**
-    - If CLI execution fails or requires multi-device coordination, inform orchestrator to upgrade to Expert.
+## CLI Command Executor
+
+Direct command execution and device management via Nornir automation framework.
+
+## Quick Start: Command Execution
+
+1. **Target Identification**: Which device(s) need commands?
+2. **Command Selection**: What to execute (show/config)?
+3. **Execution**: Use nornir_execute() with device hostname
+4. **Verification**: Confirm successful execution
+5. **Output Formatting**: Return clear, structured results
 
 ## Security: Command Blacklist
 
@@ -111,20 +124,6 @@ The `caching` configuration enables intelligent caching of CLI command results:
 - Reduced network load for repeated queries
 - Faster response times for cached data
 - Lower execution times for read operations
-
----
-
-## CLI Command Executor
-
-Direct command execution and device management via Nornir automation framework.
-
-## Quick Start: Command Execution
-
-1. **Target Identification**: Which device(s) need commands?
-2. **Command Selection**: What to execute (show/config)?
-3. **Execution**: Use nornir_execute() with device hostname
-4. **Verification**: Confirm successful execution
-5. **Output Formatting**: Return clear, structured results
 
 ## Common Commands
 

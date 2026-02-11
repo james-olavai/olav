@@ -459,15 +459,19 @@ def query(
     query_text: str = typer.Argument(..., help="Network operation query"),
     debug: bool = typer.Option(False, "--debug", "-d", help="Enable debug logging"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show full LLM thinking process"),
+    guard: bool = typer.Option(None, "--guard/--no-guard", help="Use Guard routing (default: use settings)"),
 ) -> None:
-    """Execute a single network operations query.
+    """Execute a single network operations query with Guard routing.
 
     Examples:
         olav query "查看 R1 的接口状态"
         olav query "R1 的 BGP 邻居" --debug
         olav query "Check R2 BGP" --verbose
+        olav query "count devices" --guard       # Force Guard enabled
+        olav query "list routers" --no-guard     # Force Guard disabled
     """
     from olav.cli.display import StreamingDisplay
+    from config.settings import settings
 
     display = StreamingDisplay(console=console, verbose=verbose, show_spinner=not verbose)
 
@@ -475,27 +479,48 @@ def query(
 
     try:
         if not verbose:
-            display.show_processing_status("☃️ Olav is digging...")
+            display.show_processing_status("🛡️ Guard analyzing query...")
 
-        import asyncio
-
-        from olav.agents.orchestrator import orchestrate_query
-
-        # ALL queries go through Orchestrator
-        result = asyncio.run(orchestrate_query(query_text))
+        # Determine if Guard should be used (Phase 5: Guard as Entry Point)
+        use_guard = guard if guard is not None else settings.agent.enable_guard_routing
+        
+        if use_guard:
+            # Phase 5: Use Guard.route_and_execute() as entry point
+            # Guard will route based on query classification:
+            #   - High confidence (≥0.75): Direct execution (bypasses Orchestrator)
+            #   - Low confidence (<0.75): Falls back to Orchestrator
+            from olav.agents.guard import get_guard
+            guard_instance = get_guard()
+            result = guard_instance.route_and_execute(query_text)
+        else:
+            # Fallback to sync orchestrator (v0.11.x behavior, without Guard)
+            from olav.agents.orchestrator import orchestrate_query_sync
+            result = orchestrate_query_sync(query_text)
 
         display.stop_processing_status()
 
+        # Display Guard routing info if available
+        if result.get("route"):
+            route = result["route"]
+            confidence = result.get("confidence", 0.0)
+            console.print(f"[dim]Route: {route} (confidence: {confidence:.2f})[/dim]")
+        
+        if result.get("execution_time"):
+            latency = result["execution_time"]
+            console.print(f"[dim]Latency: {latency:.1f}ms[/dim]")
+
         # Handle Orchestrator result dict
-        if result["status"] == "complete":
-            answer = result.get("final_answer", "")
+        if result.get("status") == "complete":
+            answer = result.get("final_answer", result.get("result", ""))
             if answer:
                 from rich.markdown import Markdown
                 console.print(Markdown(answer))
             else:
                 console.print("\n[bold yellow]⚠[/bold yellow] No result\n")
+        elif result.get("status") == "rejected":
+            console.print(f"\n[bold red]❌ {result.get('message', 'Query rejected')}[/bold red]\n")
         else:
-            error_msg = result.get("error_message", "Unknown error")
+            error_msg = result.get("error_message", result.get("message", "Unknown error"))
             console.print(
                 f"\n[bold red]❌ Error:[/bold red] {error_msg}\n"
             )

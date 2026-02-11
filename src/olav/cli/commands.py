@@ -471,62 +471,14 @@ async def cmd_lib(args: str) -> str:
         return registry.format_command_list()
 
 
-@register_command("template")
-async def cmd_template(args: str) -> str:
-    """Generate TextFSM template using TextfsmAgent.
+@register_command("learn")
+async def cmd_learn(args: str) -> str:
+    """Learn a new command and generate TextFSM template interactively.
 
     Usage:
-        /template <platform> <command>
+        /learn <host:group> <platform> <command>
 
-    The command will prompt you to paste raw output.
-
-    Examples:
-        /template cisco_ios "show ip bgp summary"
-        /template huawei_vrp "display bgp peer"
-    """
-
-    # Parse arguments
-    parts = args.strip().split(maxsplit=1)
-    if len(parts) < 2:
-        return """Usage: /template <platform> <command>
-
-Example:
-    /template cisco_ios "show ip bgp summary"
-
-Then paste the raw command output when prompted."""
-
-    platform = parts[0]
-    command_name = parts[1].strip("\"'")
-
-    # For CLI, we'd need to prompt for output
-    # For now, return instructions
-    return f"""To generate TextFSM template for {platform} {command_name}:
-
-Please use the Python API directly:
-
-    from olav.agents.textfsm_agent import generate_template
-
-    result = await generate_template(
-        raw_output="<paste raw output here>",
-        command_name="{command_name}",
-        platform="{platform}",
-    )
-
-    if result['status'] == 'success':
-        print(result['template'])
-    else:
-        print(f"Failed: {{result['error']}}")
-"""
-
-
-@register_command("learn_cmd")
-async def cmd_learn_cmd(args: str) -> str:
-    """Learn a new custom command and generate TextFSM template interactively.
-
-    Usage:
-        /learn_cmd <host:group> <platform> <command>
-
-    This runs the TextFSM Interactive Agent workflow:
+    This runs the Command Learner interactive workflow:
     1. Execute command on target host
     2. Analyze output fields (LLM)
     3. User approval/modification
@@ -540,16 +492,16 @@ async def cmd_learn_cmd(args: str) -> str:
 
     Note: This command requires approval from user during workflow.
     """
-    from olav.agents.textfsm_interactive_agent import TextFSMWorkflowOrchestrator
+    from olav.agents.command_learner_agent import TextFSMWorkflowOrchestrator
     import asyncio
 
     # Parse arguments
     parts = args.strip().split(maxsplit=2)
     if len(parts) < 3:
-        return """Usage: /learn_cmd <host:group> <platform> <command>
+        return """Usage: /learn <host:group> <platform> <command>
 
 Example:
-    /learn_cmd R1:core cisco_ios "show running-config"
+    /learn R1:core cisco_ios "show running-config"
 
 This will start the interactive TextFSM template learning workflow."""
 
@@ -566,7 +518,7 @@ This will start the interactive TextFSM template learning workflow."""
 
     try:
         # Create orchestrator with auto-approval (dev mode)
-        orchestrator = TextFSMWorkflowOrchestrator(
+        orchestrator = CommandLearnerOrchestrator(
             success_threshold=0.8,
             max_iterations=3,
         )
@@ -604,7 +556,7 @@ Error: {result.get('error', 'Unknown error')}
 Workflow path: {' → '.join(result.get('workflow_path', []))}"""
 
     except Exception as e:
-        return f"""❌ Error running TextFSM Interactive workflow
+        return f"""❌ Error running Command Learner workflow
 
 Error: {str(e)}
 
@@ -613,7 +565,7 @@ Note: This command requires proper agent setup and connectivity."""
 
 @register_command("cache")
 async def cmd_cache(args: str) -> str:
-    """Manage TextFSM template cache (L1 memory + L2 DuckDB).
+    """Manage command template cache (L1 memory + L2 DuckDB).
 
     Usage:
         /cache stats                    - Show cache statistics
@@ -629,7 +581,7 @@ async def cmd_cache(args: str) -> str:
 
     Note: Cache provides 100-300x performance improvement (65-80% hit rate)
     """
-    from olav.agents.textfsm_interactive_agent import get_template_cache, get_config
+    from olav.agents.command_learner_agent import get_template_cache, get_config
 
     try:
         config = get_config()
@@ -766,7 +718,7 @@ Type /help cache for more info"""
     except ImportError:
         return """❌ TextFSM template cache not available
 
-Please ensure textfsm_interactive_agent is properly installed."""
+Please ensure command_learner_agent is properly installed."""
     except Exception as e:
         return f"""❌ Cache operation failed: {str(e)}
 

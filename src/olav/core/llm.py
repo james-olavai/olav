@@ -49,7 +49,7 @@ class LLMFactory:
             "model": model_name,
             "temperature": temp,
             "max_tokens": settings.llm_max_tokens,
-            "streaming": True,  # Enable token-level streaming
+            "streaming": False,  # FIXED: Disable streaming for DeepAgents async compatibility
             **kwargs,
         }
 

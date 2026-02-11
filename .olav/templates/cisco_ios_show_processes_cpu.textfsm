@@ -1,0 +1,13 @@
+Value CPU_5_SEC (\d+)
+Value CPU_1_MIN (\d+)
+Value CPU_5_MIN (\d+)
+Value List PID (\d+)
+Value List RUNTIME (\d+)
+Value List INVOKED (\d+)
+Value List USECS (\d+)
+Value List TTY (\d+)
+Value List PROCESS (.+?)
+
+Start
+  ^CPU\s+utilization.*five\s+seconds:\s+${CPU_5_SEC}%/\d+%;\s+one\s+minute:\s+${CPU_1_MIN}%;\s+five\s+minutes:\s+${CPU_5_MIN}%
+  ^\s*${PID}\s+${RUNTIME}\s+${INVOKED}\s+${USECS}\s+${TTY}\s+\d+\s+${PROCESS}\s*$$ -> Record

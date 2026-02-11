@@ -1,0 +1,56 @@
+{
+  "batch_id": "batch_20260211_170627_9da5a011",
+  "start_time": "2026-02-11T17:06:27.854004",
+  "end_time": "2026-02-11T17:06:29.809567",
+  "total_duration_ms": 1955,
+  "devices": [
+    "R1",
+    "R2"
+  ],
+  "commands": [
+    "show version",
+    "show ip interface brief"
+  ],
+  "total_executions": 4,
+  "successful_executions": 4,
+  "failed_executions": 0,
+  "success_rate": 100.0,
+  "results": [
+    {
+      "device": "R1",
+      "command": "show version",
+      "command_index": 1,
+      "success": true,
+      "structured": false,
+      "file_path": "R1/001_show_version.txt",
+      "duration_ms": 920
+    },
+    {
+      "device": "R1",
+      "command": "show ip interface brief",
+      "command_index": 2,
+      "success": true,
+      "structured": false,
+      "file_path": "R1/002_show_ip_interface_brief.txt",
+      "duration_ms": 112
+    },
+    {
+      "device": "R2",
+      "command": "show version",
+      "command_index": 1,
+      "success": true,
+      "structured": false,
+      "file_path": "R2/001_show_version.txt",
+      "duration_ms": 756
+    },
+    {
+      "device": "R2",
+      "command": "show ip interface brief",
+      "command_index": 2,
+      "success": true,
+      "structured": false,
+      "file_path": "R2/002_show_ip_interface_brief.txt",
+      "duration_ms": 112
+    }
+  ]
+}

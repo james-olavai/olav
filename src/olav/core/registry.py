@@ -192,8 +192,8 @@ class CommandRegistry:
         """Get TextFSM template for a platform/command pair.
 
         Priority:
-        1. Custom templates (.olav/skills/textfsm-generator/config/textfsm/)
-        2. ntc-templates (if available)
+        1. ntc-templates (if available)
+        2. User custom templates
 
         Args:
             platform: Device platform (e.g., "cisco_ios", "huawei_vrp")

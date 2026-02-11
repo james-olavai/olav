@@ -1,10 +1,13 @@
 ---
-name: analyzing-network-health
-description: Network health analysis, anomaly detection, performance baseline analysis, and trend detection. Identifies deviations from normal behavior and provides optimization recommendations.
+name: network-analysis
 version: 1.0.0
+description: Network health analysis, anomaly detection, performance baseline analysis, and trend detection. Identifies deviations from normal behavior and provides optimization recommendations.
+author: Network AI Team
+type: agent
+category: network-analysis
 intent: health_analysis
+
 tools:
-  - analyze_network
   - query_database
   - nornir_execute
   - list_devices
@@ -27,7 +30,6 @@ prompts:
     5. Provide analysis results and recommendations
 
     **Available Tools:**
-    - analyze_network: Graph-based health analysis and correlation
     - query_database: SQL access to historical metrics and baselines
     - nornir_execute: Live device verification commands
     - list_devices: Get device inventory for analysis scope

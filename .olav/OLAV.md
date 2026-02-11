@@ -92,6 +92,24 @@ enabled: true
 ---
 ```
 
+### system
+```yaml
+---
+name: system
+agent_skill: system-admin
+description: System administration and maintenance specialist for cache management, system health monitoring, backups, and task scheduling
+capabilities:
+  - Cache management (query cache, LLM response cache)
+  - System health monitoring (CPU, memory, database)
+  - Configuration backup and restoration
+  - Git-based version control for knowledge
+  - Natural language task scheduling (→ cron)
+  - Database maintenance and optimization
+  - Audit logging and compliance
+enabled: true
+---
+```
+
 ---
 
 ## User Preferences

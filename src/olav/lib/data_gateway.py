@@ -30,18 +30,24 @@ class DataGateway:
         gw = DataGateway(Path(os.getenv("BASE_DIR", ".olav")))
     """
 
-    def __init__(self, base_dir: Path | None = None) -> None:
+    def __init__(self, base_dir: Path | None = None, db_path: Path | None = None) -> None:
         """初始化 Data Gateway
 
         Args:
             base_dir: .olav/ 或 .claude/ 或 .gemini/ 根目录
+            db_path: 自定义数据库路径 (覆盖默认配置) - v0.10.2+ 新增
         """
-        from config.paths import AGENT_DIR
+        from config.paths import AGENT_DIR, get_database_path
         
         self.base_dir = base_dir or AGENT_DIR
         self.db_dir = self.base_dir / "db"
         self.skills_dir = self.base_dir / "skills"
 
+        # v0.10.2: 支持自定义数据库路径
+        self._db_path = db_path or get_database_path()
+        
+        logger.debug(f"DataGateway initialized with database: {self._db_path}")
+        
         # 确保目录存在
         self.db_dir.mkdir(parents=True, exist_ok=True)
         self.skills_dir.mkdir(parents=True, exist_ok=True)
@@ -49,7 +55,7 @@ class DataGateway:
     # ==================== 共享数据层 API ====================
 
     def query_main(self, sql: str, params: list | None = None) -> list[dict]:
-        """查询主数据库 olav.duckdb (包含所有核心数据 - v0.10.1统一架构)
+        """查询主数据库 olav.duckdb (包含所有核心数据 - v0.10.2 支持动态路径)
 
         Args:
             sql: DuckDB SQL 查询
@@ -62,11 +68,12 @@ class DataGateway:
             >>> gw.query_main("SELECT DISTINCT device FROM devices")
             [{'device': 'R1'}, {'device': 'R2'}, ...]
 
-        NOTE (v0.10.1): All data is now in single UNIFIED_DB
+        NOTE (v0.10.2): Database path is now configurable via:
+        - OLAV_DB_PATH environment variable (highest priority)
+        - settings.database.main_db (default)
         """
-        from config.paths import UNIFIED_DB
-        
-        conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
+        # v0.10.2: 使用实例配置的数据库路径
+        conn = duckdb.connect(str(self._db_path), read_only=True)
         try:
             if params:
                 result = conn.execute(sql, params)
@@ -83,7 +90,7 @@ class DataGateway:
             conn.close()
 
     def query_snapshots(self, sql: str, params: list | None = None) -> list[dict]:
-        """查询网络快照数据 (只读) - 现在指向UNIFIED_DB (v0.10.1)
+        """查询网络快照数据 (只读) - 现在指向UNIFIED_DB (v0.10.2 支持动态路径)
 
         Args:
             sql: DuckDB SQL 查询
@@ -95,11 +102,10 @@ class DataGateway:
         Example:
             >>> gw.query_snapshots("SELECT * FROM topology_links WHERE local_device = ?", ["R1"])
 
-        NOTE (v0.10.1): All data consolidated into single UNIFIED_DB
+        NOTE (v0.10.2): All data consolidated into single UNIFIED_DB with configurable path
         """
-        from config.paths import UNIFIED_DB
-        
-        conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
+        # v0.10.2: 使用实例配置的数据库路径
+        conn = duckdb.connect(str(self._db_path), read_only=True)
         try:
             if params:
                 result = conn.execute(sql, params)

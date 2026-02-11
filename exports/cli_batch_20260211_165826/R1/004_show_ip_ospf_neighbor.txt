@@ -1,0 +1,1 @@
+[{'neighbor_id': '3.3.3.3', 'priority': '1', 'state': 'FULL/BDR', 'dead_time': '00:00:37', 'ip_address': '10.1.13.3', 'interface': 'GigabitEthernet2'}, {'neighbor_id': '2.2.2.2', 'priority': '1', 'state': 'FULL/DR', 'dead_time': '00:00:32', 'ip_address': '10.1.12.2', 'interface': 'GigabitEthernet1'}]
