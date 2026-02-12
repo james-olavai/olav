@@ -353,40 +353,6 @@ async def cmd_search(args: str) -> str:
         return f"Search error: {str(e)}"
 
 
-@register_command("query")
-async def cmd_query(args: str) -> str:
-    """Query network data using natural language.
-
-    Uses ReAct agent with DuckDB to query JSON data files.
-
-    Usage:
-        /query <natural language question>
-
-    Examples:
-        /query 显示 router1 的接口状态
-        /query router1 有多少 BGP 邻居
-        /query 查看所有设备的路由表
-        /query 有哪些接口是 Down 的
-    """
-    from olav.agents.query_agent import QueryAgent
-
-    question = args.strip()
-    if not question:
-        return "Usage: /query <question>\nExample: /query 显示 router1 的接口状态"
-
-    try:
-        # Use QueryAgent (Skill-Centric ReAct)
-        agent = QueryAgent()
-        result = await agent.query(question)
-
-        # Extract output from result dict
-        if isinstance(result, dict):
-            return str(result.get("output", result.get("result", str(result))))
-        return str(result)
-    except Exception as e:
-        return f"Query failed: {e}"
-
-
 @register_command("quit")
 async def cmd_quit(args: str) -> str:
     """Exit OLAV.
