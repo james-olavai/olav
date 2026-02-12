@@ -1175,22 +1175,7 @@ def main() -> None:
     log_level = settings.log_level if hasattr(settings, "log_level") else "INFO"
     setup_logging(log_level=log_level)
 
-    # P5.2: Skip schema initialization for --help/--version (fast path)
-    # Only initialize schemas when actually running commands
-    if not any(arg in sys.argv for arg in ["--help", "-h", "--version", "-v"]):
-        from config.paths import UNIFIED_DB
-        from olav.core.schema_manager import ensure_schema
-
-        # Ensure unified DuckDB database has schema versioning (v0.10.1)
-        # NOTE: query_result_cache.db uses SQLite (not DuckDB), don't initialize it here
-        critical_dbs = [
-            UNIFIED_DB,  # Single unified database (v0.10.1)
-        ]
-
-        for db_path in critical_dbs:
-            migrated = ensure_schema(db_path)
-            if migrated:
-                logger.info(f"Schema initialized: {db_path.name}")
+    # P5.2: Schema initialization removed (manager was unused in v0.11.1+)
 
     # P1: Lazy-load SkillConfig to improve startup time (moved to first use)
     # SkillConfig will be initialized when first needed by agents
