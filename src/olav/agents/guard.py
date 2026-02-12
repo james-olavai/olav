@@ -137,30 +137,18 @@ class QueryGuard:
     def classify(self, query: str, user_id: str | None = None) -> RouteDecision:
         """Classify query through multi-stage pipeline.
         
-        Stage 0: Feature Flag Check (for gradual rollout & A/B testing)
-        Stage 1: Dangerous pattern detection (rule-based, <10ms)
-        Stage 2: Semantic cache lookup (DuckDB, 10-50ms, ~45% hit rate)
-        Stage 3: Fast heuristic classification (regex, <5ms, ~30% match)
-        Stage 4: LLM classification (1-2s fallback for <0.75 confidence)
+        Stage 0: Dangerous pattern detection (rule-based, <10ms)
+        Stage 1: Semantic cache lookup (DuckDB, 10-50ms, ~45% hit rate)
+        Stage 2: Fast heuristic classification (regex, <5ms, ~30% match)
+        Stage 3: LLM classification (1-2s fallback for <0.75 confidence)
         
         Args:
             query: User's natural language query
-            user_id: User ID for feature flag bucketing (optional)
+            user_id: User ID for logging (optional)
             
         Returns:
             RouteDecision with routing category, confidence, and reasoning
         """
-        # ═══════════════════════════════════════════════════════════════
-        # STAGE 0: Feature Flag Check (Gradual Rollout Support)
-        # ═══════════════════════════════════════════════════════════════
-        if not self.feature_flag_manager.is_enabled("guard_routing", user_id=user_id):
-            logger.debug(f"🚪 Guard routing disabled by feature flag (user: {user_id})")
-            return RouteDecision(
-                code=RouteCode.UNKNOWN,
-                confidence=0.0,
-                reasoning="Guard routing disabled by feature flag",
-                risk_level="safe"
-            )
         
         if not self.enabled:
             logger.debug("🔓 Guard is disabled, returning UNKNOWN")
