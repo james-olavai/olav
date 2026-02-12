@@ -37,7 +37,7 @@ from .models import (
     TemplateMetadata,
     FieldDefinition,
 )
-from .cleanup_checklist import TextFSMCleanupChecklist
+from .cleanup_checklist import CommandLearnerCleanupChecklist
 
 __all__ = [
     "TextFSMConfig",
@@ -60,7 +60,7 @@ __all__ = [
     "GenerationMetrics",
     "TemplateMetadata",
     "FieldDefinition",
-    "TextFSMCleanupChecklist",
+    "CommandLearnerCleanupChecklist",
 ]
 
 # Backward compatibility aliases for legacy code

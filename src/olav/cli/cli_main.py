@@ -538,7 +538,7 @@ def query(
 @app.command()
 def devices() -> None:
     """List all managed network devices."""
-    from olav.tools.network import list_devices as nornir_list_devices_tool
+    from olav.shared.tools.network import list_devices as nornir_list_devices_tool
 
     console.print("[bold cyan]Loading network devices...[/bold cyan]")
     try:
@@ -770,7 +770,7 @@ def doctor() -> None:
     # Check 3: Nornir Inventory
     console.print("[cyan]3. Nornir Inventory[/cyan]")
     try:
-        from olav.tools.network import get_nornir
+        from olav.shared.tools.network import get_nornir
         nr = get_nornir()
         console.print(f"  ✅ Hosts: {len(nr.inventory.hosts)}")
         console.print(f"  ✅ Groups: {len(nr.inventory.groups)}")
@@ -786,7 +786,7 @@ def doctor() -> None:
     # Check 4: Network Reachability
     console.print("[cyan]4. Network Connectivity[/cyan]")
     try:
-        from olav.tools.network import get_nornir
+        from olav.shared.tools.network import get_nornir
         import socket
         nr = get_nornir()
         
@@ -874,7 +874,7 @@ def init(
 
     # Load settings to get default group
     from config.settings import settings
-    from olav.tools.sync_tools import sync_all
+    from olav.shared.tools.sync_tools import sync_all
 
     # Use provided group or fall back to settings default
     if group is None:
@@ -917,7 +917,7 @@ def init(
         
         # Check 3: Nornir inventory
         try:
-            from olav.tools.network import get_nornir
+            from olav.shared.tools.network import get_nornir
             nr = get_nornir()
             console.print(f"  ✅ Nornir: {len(nr.inventory.hosts)} hosts configured")
         except Exception as e:
@@ -925,7 +925,7 @@ def init(
         
         # Check 4: Network connectivity preview
         try:
-            from olav.tools.network import get_nornir
+            from olav.shared.tools.network import get_nornir
             nr = get_nornir()
             reachable = 0
             for host in list(nr.inventory.hosts.values())[:3]:  # Test first 3
@@ -1026,7 +1026,7 @@ def inspect(
 
     try:
         if refresh:
-            from olav.tools.sync_tools import sync_all
+            from olav.shared.tools.sync_tools import sync_all
 
             console.print("🔄 Refreshing snapshot data...")
             sync_all.invoke({"devices": device or group})  # Pass filter to sync_all
@@ -1034,7 +1034,7 @@ def inspect(
         # Phase 15: Resolve Nornir filters to device list
         device_list = None
         if device or group or test:
-            from olav.tools.network import get_nornir
+            from olav.shared.tools.network import get_nornir
 
             nr = get_nornir()
             matched_devices = []

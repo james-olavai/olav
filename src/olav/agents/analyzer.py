@@ -65,11 +65,10 @@ class AnalyzerState:
 
 def create_llm() -> BaseChatModel:
     """Create LLM instance for analyzer agent."""
-    from olav.core.llm_interface import MapReduceLLM
+    from olav.core.llm import LLMFactory
 
-    # Use standard settings via MapReduceLLM
-    mr = MapReduceLLM(provider="openai")
-    return mr.llm
+    # Create LLM using LLMFactory (direct, no wrapper needed)
+    return LLMFactory.get_chat_model(temperature=0)
 
 
 def _should_verify_realtime(user_query: str, db_data: dict[str, Any]) -> bool:
@@ -174,7 +173,7 @@ async def cli_verify_node(state: AnalyzerState) -> AnalyzerState:
         return state
 
     try:
-        from olav.tools.network import nornir_execute
+        from olav.shared.tools.network import nornir_execute
 
         # Determine which commands to run based on the query
         # For now, use a simple heuristic

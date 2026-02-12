@@ -1,0 +1,12 @@
+# MULTI_AGENT Query Indicators
+
+## Comparison Keywords
+对比|compare|vs|contrast
+一致性|consistency|match|verify
+交叉检查|cross-check
+
+## Cross-System Keywords
+netbox.*db|database.*netbox
+dns.*ip|ip.*dns
+快照.*当前|snapshot.*live
+验证|verify|validate

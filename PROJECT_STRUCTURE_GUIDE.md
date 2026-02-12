@@ -347,7 +347,7 @@ result = orchestrate_query_sync("你的查询")
 ## 📞 常见问题
 
 ### Q: 如何修改Guard配置？
-**A**: 编辑 `.olav/skills/guard/SKILL.md`，YAML格式必须正确
+**A**: 编辑 `.olav/skills/olav-guard/SKILL.md`，YAML格式必须正确
 
 ### Q: 如何添加新技能工具？
 **A**: 在 `SKILL.md` 的 `tools` 部分添加，参考 `docs/reference/SKILL_AUTHORING_GUIDE.md`

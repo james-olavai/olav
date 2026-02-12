@@ -6,9 +6,9 @@ Provides pattern-based and LLM-based threat detection.
 Architecture:
     User Input → Guard.check() → [pass / reject / require_approval / warn]
                  ↑
-                 .olav/skills/guard/SKILL.md
-                 .olav/skills/guard/rules.yaml
-                 .olav/skills/guard/whitelist.yaml
+                 .olav/skills/olav-guard/SKILL.md
+                 .olav/skills/olav-guard/rules.yaml
+                 .olav/skills/olav-guard/whitelist.yaml
 """
 
 import logging
@@ -65,7 +65,7 @@ class Guard:
         """Initialize Guard.
 
         Args:
-            config_path: Path to rules.yaml (default: .olav/skills/guard/rules.yaml)
+            config_path: Path to rules.yaml (default: .olav/skills/olav-guard/rules.yaml)
             language: Message language ("zh" or "en")
         """
         if config_path is None:

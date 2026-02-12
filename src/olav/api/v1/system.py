@@ -15,8 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from config.paths import CACHE_DIR, UNIFIED_DB
-from olav.core.query_cache import QueryResultCache
+from config.paths import UNIFIED_DB
 from olav.core.unified_database import UnifiedDatabase
 
 logger = logging.getLogger(__name__)
@@ -70,16 +69,12 @@ def get_system_health() -> dict[str, Any]:
     # Check database
     db_health = _check_database_health()
 
-    # Check cache
-    cache_health = _check_cache_health()
-
     # Check storage
     storage_health = _check_storage_health()
 
     # Determine overall status
     components_ok = [
         db_health["status"] == "ok",
-        cache_health["status"] == "ok",
         storage_health["status"] == "ok",
     ]
 
@@ -94,7 +89,6 @@ def get_system_health() -> dict[str, Any]:
         "status": overall_status,
         "timestamp": timestamp,
         "database": db_health,
-        "cache": cache_health,
         "storage": storage_health,
         "components_ok": sum(components_ok),
         "components_total": len(components_ok),
@@ -124,26 +118,6 @@ def _check_database_health() -> dict[str, Any]:
         "status": "error",
         "error": "Connection failed",
     }
-
-
-def _check_cache_health() -> dict[str, Any]:
-    """Check cache status."""
-    try:
-        cache = QueryResultCache(db_path=CACHE_DIR / "query_result_cache.db")
-        stats = cache.stats()
-
-        return {
-            "status": "ok",
-            "l1_entries": stats.get("l1_size", 0),
-            "l2_entries": stats.get("l2_total_entries", 0),
-            "ttl_seconds": stats.get("ttl_seconds", 3600),
-        }
-    except Exception as e:
-        logger.warning(f"Cache health check failed: {e}")
-        return {
-            "status": "error",
-            "error": str(e),
-        }
 
 
 def _check_storage_health() -> dict[str, Any]:
@@ -254,86 +228,6 @@ def get_database_stats() -> dict[str, Any]:
         }
     except Exception as e:
         logger.error(f"Database stats retrieval failed: {e}")
-        return {
-            "status": "error",
-            "error": str(e),
-        }
-
-
-def get_cache_performance() -> dict[str, Any]:
-    """Get cache performance metrics.
-    
-    Returns:
-        Dict with hit rate, eviction stats, entry counts, etc.
-        
-    Example:
-        >>> perf = get_cache_performance()
-        >>> print(f"Hit rate: {perf['hit_rate']:.2%}")
-    """
-    try:
-        cache = QueryResultCache(db_path=CACHE_DIR / "query_result_cache.db")
-        stats = cache.stats()
-
-        # Calculate hit rate
-        total_hits = stats.get("l2_total_hits") or 0
-        total_entries = stats.get("l1_size", 0) + stats.get("l2_total_entries", 0)
-
-        if total_entries > 0:
-            hit_rate = total_hits / total_entries if total_entries > 0 else 0.0
-        else:
-            hit_rate = 0.0
-
-        return {
-            "status": "ok",
-            "hit_rate": hit_rate,
-            "l1_entries": stats.get("l1_size", 0),
-            "l1_max_entries": stats.get("l1_max_size", 100),
-            "l2_entries": stats.get("l2_total_entries", 0),
-            "total_hits": total_hits,
-            "ttl_seconds": stats.get("ttl_seconds", 3600),
-            "evictions": 0,  # Not tracked in QueryResultCache
-        }
-    except Exception as e:
-        logger.error(f"Cache performance retrieval failed: {e}")
-        return {
-            "status": "error",
-            "error": str(e),
-        }
-
-
-def restart_cache() -> dict[str, Any]:
-    """Restart the cache system.
-    
-    Clears all cache entries and reinitializes.
-    
-    Returns:
-        Dict with status and cleared entry count
-        
-    Example:
-        >>> result = restart_cache()
-        >>> print(f"Cleared {result['cleared_entries']} entries")
-    """
-    try:
-        cache = QueryResultCache(db_path=CACHE_DIR / "query_result_cache.db")
-
-        # Get count before clearing
-        stats_before = cache.stats()
-        before_count = (stats_before.get("l1_size", 0) +
-                       stats_before.get("l2_total_entries", 0))
-
-        # Clear cache
-        cache.clear()
-
-        logger.info(f"Cache restarted, cleared {before_count} entries")
-
-        return {
-            "status": "success",
-            "action": "cache_restarted",
-            "cleared_entries": before_count,
-            "timestamp": datetime.now().isoformat(),
-        }
-    except Exception as e:
-        logger.error(f"Cache restart failed: {e}")
         return {
             "status": "error",
             "error": str(e),

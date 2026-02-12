@@ -8,8 +8,11 @@ Real implementations will be completed in Phase 4.
 """
 
 import asyncio
+import json
 import logging
+from pathlib import Path
 from typing import Any
+from datetime import datetime
 from .config import get_config
 
 logger = logging.getLogger(__name__)
@@ -144,9 +147,13 @@ async def get_ntc_references_tool(
     """
     Retrieve NTC template references for the command and fields.
     
+    Uses local NTC-Templates search (no internet required).
+    
+    Delegates to: .olav/skills/command_learner/scripts/ntc_search.py
+    
     Args:
-        platform: Device platform
-        command: Command name
+        platform: Device platform (e.g., "cisco_ios", "juniper_junos")
+        command: Command name (e.g., "show bgp summary")
         approved_fields: User-approved fields to extract
         limit: Number of templates to return
         
@@ -155,39 +162,118 @@ async def get_ntc_references_tool(
             "references": [
                 {
                     "template_name": "cisco_ios_show_bgp_summary.textfsm",
-                    "content": "...",
+                    "path": "/path/to/template",
                     "relevance_score": 0.92,
-                    "field_coverage": ["Router ID", "Neighbors"]
+                    "field_coverage": ["Router ID", "Neighbors"],
+                    "source": "local_ntc_package"
                 },
                 ...
-            ]
+            ],
+            "source": "local_ntc_package" | "none"
         }
     """
-    # Phase 4 TODO: Implement NTC library search with field-aware scoring
-    # - Query NTC template database
-    # - Filter by platform and command
-    # - Score by field coverage
-    # - Return top matches
-    # Phase 1-3: Using mock for testing workflow
-    
-    logger.info(f"Searching NTC for '{command}' on {platform} (MOCK)")
-    
-    return {
-        "references": [
-            {
-                "template_name": f"{platform}_{command.replace(' ', '_')}_ref1.textfsm",
-                "content": "Mock NTC reference content",
-                "relevance_score": 0.90,
-                "field_coverage": approved_fields[:2]
-            },
-            {
-                "template_name": f"{platform}_{command.replace(' ', '_')}_ref2.textfsm",
-                "content": "Mock NTC reference content 2",
-                "relevance_score": 0.85,
-                "field_coverage": approved_fields[-1:]
+    try:
+        # Import from skill's local script
+        # This allows the script to be independent and testable
+        import sys
+        from pathlib import Path
+        
+        # Add skill scripts to path
+        skill_scripts_path = Path(__file__).parent.parent.parent.parent / "skills" / "command_learner" / "scripts"
+        if skill_scripts_path not in sys.path:
+            sys.path.insert(0, str(skill_scripts_path))
+        
+        # Import search function from local script
+        from ntc_search import search_ntc_templates
+        
+        logger.info(f"Searching local NTC templates for '{command}' on {platform}")
+        
+        # Call the local search function (no internet needed)
+        result = search_ntc_templates(
+            platform=platform,
+            command=command,
+            approved_fields=approved_fields,
+            limit=limit
+        )
+        
+        logger.info(f"NTC search completed: {result['total_found']} matches found")
+        
+        return result
+        
+    except ImportError as e:
+        logger.warning(f"Could not import ntc_search script: {e}")
+        logger.info("Attempting fallback: direct ntc-templates search")
+        
+        # Fallback: direct implementation if script not available
+        try:
+            from pathlib import Path
+            import ntc_templates
+            
+            ntc_path = Path(ntc_templates.__file__).parent / "templates"
+            
+            if not ntc_path.exists():
+                logger.warning(f"NTC templates path not found: {ntc_path}")
+                return {
+                    "references": [],
+                    "source": "none",
+                    "error": "NTC templates not installed"
+                }
+            
+            matches = []
+            cmd_keywords = command.lower().replace(" ", "_")
+            platform_dir = ntc_path / platform
+            
+            if platform_dir.exists():
+                for template_file in platform_dir.glob("*.textfsm"):
+                    keyword_matches = sum(1 for kw in cmd_keywords.split("_") if kw in template_file.stem)
+                    
+                    if keyword_matches > 0:
+                        try:
+                            with open(template_file, encoding="utf-8") as f:
+                                content = f.read()
+                            
+                            field_coverage = []
+                            for field in approved_fields:
+                                if f"Value {field}" in content or f"${{{field}}}" in content:
+                                    field_coverage.append(field)
+                            
+                            relevance = (keyword_matches + len(field_coverage)) / max(len(approved_fields), 1)
+                            relevance = min(0.99, max(0.5, relevance))
+                            
+                            matches.append({
+                                "template_name": template_file.name,
+                                "path": str(template_file),
+                                "relevance_score": relevance,
+                                "field_coverage": field_coverage,
+                                "source": "local_ntc_package"
+                            })
+                        except Exception as e:
+                            logger.debug(f"Error reading template {template_file}: {e}")
+                            continue
+            
+            matches.sort(key=lambda x: x["relevance_score"], reverse=True)
+            
+            return {
+                "references": matches[:limit],
+                "source": "local_ntc_package",
+                "total_found": len(matches)
             }
-        ]
-    }
+            
+        except ImportError:
+            logger.error("ntc-templates package not installed")
+            return {
+                "references": [],
+                "source": "none",
+                "error": "ntc-templates not installed. Install with: pip install ntc-templates"
+            }
+        
+    except Exception as e:
+        logger.error(f"Error searching NTC templates: {e}")
+        return {
+            "references": [],
+            "source": "none",
+            "error": f"Error searching templates: {str(e)}"
+        }
 
 
 # ============================================================================
@@ -297,33 +383,95 @@ async def save_template_tool(
     metadata: dict[str, Any]
 ) -> dict[str, Any]:
     """
-    Save template to custom templates directory.
+    Save template to TextFSM templates directory.
+    
+    Implements Phase 4: Real template saving with metadata indexing.
     
     Args:
         template: TextFSM content
-        command_name: Command name
-        platform: Platform
-        metadata: Template metadata
+        command_name: Command name (e.g., "show bgp summary")
+        platform: Platform (e.g., "cisco_ios")
+        metadata: Template metadata with fields, coverage info, etc.
         
     Returns:
         {
             "success": bool,
-            "file_path": str,
+            "file_path": str (absolute path),
+            "metadata_path": str,
             "error": str (if failed)
         }
     """
-    # Phase 4 TODO: Implement template saving
-    # - Write template to file
-    # - Save metadata JSON
-    # - Index for vectorization
-    # Phase 1-3: Using mock for testing workflow
-    
-    logger.info(f"Saving template for '{command_name}' on {platform} (MOCK)")
-    
-    filename = f"{platform}_{command_name.replace(' ', '_')}.textfsm"
-    
-    return {
-        "success": True,
-        "file_path": f"~/.olav/templates/custom/{filename}",
-        "error": None
-    }
+    try:
+        # Get template directory from settings
+        from config.settings import settings
+        
+        # Get template directory - resolve to absolute path
+        template_dir = Path(settings.execution.textfsm_template_dir).resolve()
+        
+        # Create directory if it doesn't exist
+        template_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate filename
+        template_filename = f"{platform}_{command_name.replace(' ', '_').replace('/', '_')}.textfsm"
+        template_path = template_dir / template_filename
+        
+        # Write template file
+        with open(template_path, 'w', encoding='utf-8') as f:
+            f.write(template)
+        logger.info(f"✓ Template saved: {template_path}")
+        
+        # Save metadata JSON alongside template
+        metadata_filename = f"{template_filename[:-8]}.metadata.json"  # Remove .textfsm, add .metadata.json
+        metadata_path = template_dir / metadata_filename
+        
+        # Add metadata headers
+        full_metadata = {
+            "template_file": template_filename,
+            "command": command_name,
+            "platform": platform,
+            "created_at": datetime.now().isoformat(),
+            "fields": metadata.get("fields", []),
+            "field_coverage": metadata.get("field_coverage", 0),
+            "success_rate": metadata.get("success_rate", 0.0),
+            "notes": metadata.get("notes", ""),
+            "source": "command_learner_auto_generated"
+        }
+        
+        with open(metadata_path, 'w', encoding='utf-8') as f:
+            json.dump(full_metadata, f, indent=2, ensure_ascii=False)
+        logger.info(f"✓ Metadata saved: {metadata_path}")
+        
+        # Update/create index file
+        index_path = template_dir / "index"
+        index_entry = f"{template_filename}, {platform}, {command_name.lower()}"
+        
+        # Read existing index or create new one
+        existing_entries = []
+        if index_path.exists():
+            with open(index_path, 'r', encoding='utf-8') as f:
+                existing_entries = [line.strip() for line in f if line.strip()]
+        
+        # Add new entry if not already present
+        if index_entry not in existing_entries:
+            existing_entries.append(index_entry)
+            with open(index_path, 'w', encoding='utf-8') as f:
+                for entry in sorted(existing_entries):
+                    f.write(entry + '\n')
+            logger.info(f"✓ Index updated: {index_path}")
+        
+        return {
+            "success": True,
+            "file_path": str(template_path),
+            "metadata_path": str(metadata_path),
+            "error": None
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to save template: {str(e)}"
+        logger.error(error_msg)
+        return {
+            "success": False,
+            "file_path": "",
+            "metadata_path": "",
+            "error": error_msg
+        }

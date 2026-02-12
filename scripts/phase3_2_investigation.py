@@ -165,7 +165,7 @@ def investigate_deepagents_caching():
     print("✅ VALIDATION: Cache is Working Across Tools")
     print("-"*80)
     
-    from olav.tools.react_query import get_query_cache
+    from olav.shared.tools.react_query import get_query_cache
     from olav.lib.data_gateway import DataGateway
     
     try:

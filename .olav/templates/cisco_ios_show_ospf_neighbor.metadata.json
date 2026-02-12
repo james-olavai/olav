@@ -1,0 +1,14 @@
+{
+  "template_file": "cisco_ios_show_ospf_neighbor.textfsm",
+  "command": "show ospf neighbor",
+  "platform": "cisco_ios",
+  "created_at": "2026-02-12T12:18:23.882647",
+  "fields": [
+    "Neighbor",
+    "State"
+  ],
+  "field_coverage": 100,
+  "success_rate": 0.92,
+  "notes": "Test OSPF neighbor template",
+  "source": "command_learner_auto_generated"
+}
