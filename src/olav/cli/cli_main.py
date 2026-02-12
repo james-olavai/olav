@@ -240,7 +240,7 @@ async def run_interactive_loop_async(
     import uuid
 
     from config.settings import settings
-    from olav.cli.commands import execute_command
+    from olav.cli.commands.builtin import execute_command
     from olav.cli.input_parser import parse_input
 
     # Check if running in TTY mode

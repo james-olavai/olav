@@ -10,7 +10,7 @@ This module provides an enhanced CLI experience using prompt-toolkit:
 """
 
 from olav.cli.cli_main import main
-from olav.cli.commands import (
+from olav.cli.commands.builtin import (
     SLASH_COMMANDS,
     execute_command,
     register_command,
