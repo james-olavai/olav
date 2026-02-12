@@ -341,6 +341,460 @@ def handle_query():
 
 ---
 
+### 1.5 Skill-Agent 彻底分离（Phase 3e - 完美重构）⏳ 第五步
+**目标**: 实现 Tool Registry 机制，完全符合 Skill-Centric 架构原则
+
+#### 🔴 问题分析
+
+**当前架构（违反 Skill-Centric 原则）**:
+```
+src/olav/agents/*.py
+  ↓ 直接 import
+src/olav/shared/tools/ (bridge 层, 82 行)
+  ↓ sys.path 桥接
+.olav/skills/shared/tools/ (实际工具实现, 4,118 行)
+```
+
+**发现的问题**:
+- ✗ 15 处代码直接 `import olav.shared`
+- ✗ `src/olav/shared/` 作为桥接层存在
+- ✗ Agent 与 Tool 紧耦合，违反单一职责原则
+- ✗ 新增工具需要修改 agent 代码
+- ✗ 工具配置散落在代码中，不在 SKILL.md
+
+**正确架构（Skill-Centric）**:
+```
+.olav/skills/*/SKILL.md (工具配置)
+  ↓ 工具注册
+Tool Registry (动态加载)
+  ↓ 工具调用
+src/olav/agents/*.py (纯 agent framework)
+```
+
+#### ✅ 完美重构方案
+
+##### 步骤 1: 设计 Tool Registry 核心（1 小时）
+
+**创建**: `src/olav/core/tool_registry.py` (~200 行)
+
+```python
+"""
+Tool Registry - Skill-Centric 工具注册中心
+
+职责:
+1. 从 .olav/skills/*/SKILL.md 读取工具配置
+2. 动态加载工具模块
+3. 提供统一的工具调用接口
+4. 缓存已加载的工具
+"""
+
+from pathlib import Path
+from typing import Any, Callable, Dict, Optional
+import sys
+import importlib
+import yaml
+from functools import lru_cache
+
+from config.paths import SKILLS_DIR
+
+
+class ToolRegistry:
+    """工具注册中心 - 管理所有 skill 工具的生命周期"""
+    
+    _instance: Optional['ToolRegistry'] = None
+    _tools: Dict[str, Callable] = {}
+    _modules: Dict[str, Any] = {}
+    
+    def __new__(cls):
+        """单例模式"""
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    def __init__(self):
+        """初始化注册表"""
+        if not self._tools:
+            self._load_all_tools()
+    
+    def _load_all_tools(self) -> None:
+        """扫描所有 skill 目录，加载工具配置"""
+        skills_path = Path(SKILLS_DIR)
+        
+        for skill_dir in skills_path.iterdir():
+            if not skill_dir.is_dir():
+                continue
+            
+            skill_md = skill_dir / "SKILL.md"
+            if skill_md.exists():
+                self._load_skill_tools(skill_dir, skill_md)
+    
+    def _load_skill_tools(self, skill_dir: Path, skill_md: Path) -> None:
+        """从 SKILL.md 加载单个 skill 的工具配置
+        
+        SKILL.md 格式:
+        ---
+        tools:
+          - name: nornir_execute
+            module: tools.network
+            function: nornir_execute
+          - name: format_and_export
+            module: tools.data_export
+            function: format_and_export
+        ---
+        """
+        content = skill_md.read_text(encoding='utf-8')
+        
+        # 提取 YAML frontmatter
+        if content.startswith('---'):
+            parts = content.split('---', 2)
+            if len(parts) >= 3:
+                frontmatter = yaml.safe_load(parts[1])
+                tools_config = frontmatter.get('tools', [])
+                
+                for tool_config in tools_config:
+                    self._register_tool(skill_dir, tool_config)
+    
+    def _register_tool(self, skill_dir: Path, tool_config: Dict[str, str]) -> None:
+        """注册单个工具
+        
+        Args:
+            skill_dir: skill 目录路径
+            tool_config: 工具配置 {name, module, function}
+        """
+        tool_name = tool_config['name']
+        module_path = tool_config['module']
+        function_name = tool_config['function']
+        
+        # 添加 skill 目录到 sys.path（如果尚未添加）
+        skill_path_str = str(skill_dir)
+        if skill_path_str not in sys.path:
+            sys.path.insert(0, skill_path_str)
+        
+        try:
+            # 动态导入模块
+            if module_path not in self._modules:
+                module = importlib.import_module(module_path)
+                self._modules[module_path] = module
+            else:
+                module = self._modules[module_path]
+            
+            # 获取函数引用
+            tool_func = getattr(module, function_name)
+            self._tools[tool_name] = tool_func
+            
+        except (ImportError, AttributeError) as e:
+            from config.logging import get_logger
+            logger = get_logger(__name__)
+            logger.warning(
+                f"Failed to register tool '{tool_name}' from {module_path}: {e}"
+            )
+    
+    def get_tool(self, tool_name: str) -> Optional[Callable]:
+        """获取已注册的工具函数
+        
+        Args:
+            tool_name: 工具名称
+            
+        Returns:
+            工具函数，如果不存在返回 None
+        """
+        return self._tools.get(tool_name)
+    
+    def list_tools(self) -> list[str]:
+        """列出所有已注册的工具"""
+        return list(self._tools.keys())
+    
+    def reload(self) -> None:
+        """重新加载所有工具（用于开发调试）"""
+        self._tools.clear()
+        self._modules.clear()
+        self._load_all_tools()
+
+
+# 全局单例
+_registry = ToolRegistry()
+
+
+def get_tool(tool_name: str) -> Optional[Callable]:
+    """便捷函数：获取工具"""
+    return _registry.get_tool(tool_name)
+
+
+def list_tools() -> list[str]:
+    """便捷函数：列出所有工具"""
+    return _registry.list_tools()
+
+
+def reload_tools() -> None:
+    """便捷函数：重新加载工具"""
+    _registry.reload()
+```
+
+**收益**:
+- 工具与 agent 完全解耦
+- 新增工具只需修改 SKILL.md
+- 统一的工具管理机制
+- 支持热重载（开发调试）
+
+---
+
+##### 步骤 2: 重构 Agent 调用方式（1 小时）
+
+**修改文件**: 
+- `src/olav/agents/router.py`
+- `src/olav/agents/execution_dispatcher.py`
+- `src/olav/agents/analyzer.py`
+- `src/olav/agents/inspector.py`
+- `src/olav/cli/cli_main.py`
+- `src/olav/cli/commands/builtin.py`
+
+**改动示例**:
+
+```python
+# ❌ 旧代码 (违反 Skill-Centric):
+from olav.shared.tools.network import nornir_execute
+from olav.shared.tools.data_export import format_and_export
+
+result = nornir_execute(...)
+exported = format_and_export(...)
+
+# ✅ 新代码 (符合 Skill-Centric):
+from olav.core.tool_registry import get_tool
+
+nornir_execute = get_tool('nornir_execute')
+format_and_export = get_tool('format_and_export')
+
+if nornir_execute:
+    result = nornir_execute(...)
+if format_and_export:
+    exported = format_and_export(...)
+```
+
+**更优雅的方式（for 大量工具调用）**:
+
+```python
+from olav.core.tool_registry import ToolRegistry
+
+class NetworkQueryAgent:
+    def __init__(self):
+        self.registry = ToolRegistry()
+        # 预加载常用工具
+        self.nornir_execute = self.registry.get_tool('nornir_execute')
+        self.format_export = self.registry.get_tool('format_and_export')
+    
+    def query_devices(self, query: str):
+        if self.nornir_execute:
+            return self.nornir_execute(query)
+```
+
+---
+
+##### 步骤 3: 更新 SKILL.md 配置（30 分钟）
+
+**示例**: `.olav/skills/shared/SKILL.md`
+
+```markdown
+---
+skill_name: shared_tools
+description: 共享的网络工具集
+version: 1.0.0
+
+tools:
+  - name: nornir_execute
+    module: tools.network
+    function: nornir_execute
+    description: 执行 Nornir 批量命令
+    
+  - name: list_devices
+    module: tools.network
+    function: list_devices
+    description: 列出所有设备
+    
+  - name: get_device_platform
+    module: tools.network
+    function: get_device_platform
+    description: 获取设备平台信息
+    
+  - name: format_and_export
+    module: tools.data_export
+    function: format_and_export
+    description: 格式化并导出数据
+    
+  - name: generate_professional_inspection_report
+    module: tools.report_formatter
+    function: generate_professional_inspection_report
+    description: 生成专业巡检报告
+    
+  - name: create_inspection_views
+    module: tools.inspection_views
+    function: create_inspection_views
+    description: 创建巡检视图
+    
+  - name: sync_all
+    module: tools.sync_tools
+    function: sync_all
+    description: 同步所有设备数据
+    
+  - name: get_executor
+    module: tools.network_executor
+    function: get_executor
+    description: 获取命令执行器
+    
+  - name: get_nornir
+    module: tools.network_executor
+    function: get_nornir
+    description: 获取 Nornir 实例
+    
+  - name: reset_nornir
+    module: tools.network_executor
+    function: reset_nornir
+    description: 重置 Nornir 实例
+---
+
+# Shared Tools Skill
+
+共享的网络运维工具集，提供设备管理、命令执行、数据导出等核心功能。
+
+## 工具列表
+
+### 网络执行
+- `nornir_execute`: 批量执行网络命令
+- `get_executor`: 获取命令执行器实例
+- `get_nornir`: 获取 Nornir 实例
+
+### 设备管理
+- `list_devices`: 列出所有管理设备
+- `get_device_platform`: 查询设备平台信息
+
+### 数据处理
+- `format_and_export`: 格式化数据并导出为 CSV/JSON/Markdown
+- `sync_all`: 同步所有设备配置和状态
+
+### 报告生成
+- `generate_professional_inspection_report`: 生成专业格式巡检报告
+- `create_inspection_views`: 创建数据库巡检视图
+```
+
+**其他 skill 目录**:
+- `.olav/skills/network-query/SKILL.md`
+- `.olav/skills/network-cli/SKILL.md`
+- `.olav/skills/network-expert/SKILL.md`
+- 等等...
+
+---
+
+##### 步骤 4: 删除 Bridge 层（5 分钟）
+
+**删除文件**:
+```bash
+rm -rf src/olav/shared/
+```
+
+**删除内容**:
+- `src/olav/shared/__init__.py` (17 行)
+- `src/olav/shared/tools/__init__.py` (65 行)
+- 整个 `src/olav/shared/` 目录
+
+**收益**: -82 行桥接代码
+
+---
+
+##### 步骤 5: 验证和测试（30 分钟）
+
+**编译检查**:
+```bash
+python -m py_compile src/olav/**/*.py
+```
+
+**功能测试**:
+```python
+from olav.core.tool_registry import list_tools, get_tool
+
+# 1. 检查工具加载
+tools = list_tools()
+print(f"Loaded {len(tools)} tools")
+assert 'nornir_execute' in tools
+
+# 2. 测试工具调用
+nornir_exec = get_tool('nornir_execute')
+assert nornir_exec is not None
+assert callable(nornir_exec)
+
+# 3. 实际查询测试
+from olav.orchestrator.orchestrator import orchestrate_query
+result = orchestrate_query("列出所有设备")
+assert result is not None
+```
+
+**集成测试**:
+```bash
+# 运行基础查询
+uv run olav query "有多少个设备?"
+
+# 运行 CLI 命令
+uv run olav devices list
+
+# 运行同步
+uv run olav admin sync
+```
+
+---
+
+#### 📊 收益总结
+
+**代码削减**:
+- 删除 bridge 层: -82 行
+- 简化 import 语句: ~-50 行（15 处改为简洁调用）
+- **总计**: -132 行
+
+**架构收益**:
+- ✅ **完全符合 Skill-Centric 原则**: 工具配置在 SKILL.md
+- ✅ **Agent-Tool 解耦**: Agent 不依赖具体工具实现
+- ✅ **扩展性**: 新增工具只需修改 SKILL.md，无需改代码
+- ✅ **可维护性**: 统一的工具管理机制
+- ✅ **开发体验**: 支持工具热重载（开发调试）
+
+**质量提升**:
+- 单一职责: Agent 专注于编排，Tool 专注于执行
+- 配置驱动: 工具配置从代码移到配置文件
+- 可测试性: 工具可独立测试，无需 agent 上下文
+- 灵活性: 同一工具可被多个 agent/skill 共享
+
+**时间估计**: 3 小时
+- 步骤 1 (Tool Registry): 1 小时
+- 步骤 2 (重构调用): 1 小时
+- 步骤 3 (SKILL.md): 30 分钟
+- 步骤 4 (删除 bridge): 5 分钟
+- 步骤 5 (测试验证): 30 分钟
+
+**风险**: 低
+- 所有工具实现保持不变
+- 仅改变加载和调用方式
+- 完整的测试覆盖
+
+---
+
+#### 🎯 执行检查清单
+
+- [ ] 创建 `src/olav/core/tool_registry.py`
+- [ ] 实现 `ToolRegistry` 类（单例模式）
+- [ ] 实现 `_load_skill_tools()` 方法（解析 SKILL.md）
+- [ ] 实现 `get_tool()` 便捷函数
+- [ ] 更新 `.olav/skills/shared/SKILL.md` 添加工具配置
+- [ ] 重构 `src/olav/agents/router.py` 使用 registry
+- [ ] 重构 `src/olav/agents/execution_dispatcher.py` 使用 registry
+- [ ] 重构 `src/olav/agents/analyzer.py` 使用 registry
+- [ ] 重构 `src/olav/agents/inspector.py` 使用 registry
+- [ ] 重构 `src/olav/cli/cli_main.py` 使用 registry
+- [ ] 重构 `src/olav/cli/commands/builtin.py` 使用 registry
+- [ ] 删除 `src/olav/shared/` 目录
+- [ ] 运行编译检查
+- [ ] 运行功能测试
+- [ ] 运行集成测试
+- [ ] Git commit with message: "refactor: 实现 Tool Registry 机制，完成 Skill-Agent 分离 (Phase 3e)"
+
+---
+
 ## 🟡 优先级 2：后续优化（中影响，需要设计）
 
 ### 2.1 拆分 Orchestrator（1680 行）
@@ -454,24 +908,27 @@ def load_subagets_from_olav_md():
 │ 1. CRON 删除             │ 900    │ 50      │ -850     │
 │ 2. Managers 合并         │ 1,500  │ 400     │ -1,100   │
 │ 3. 错误处理简化          │ 1,200+ │ 400     │ -800+    │
-│ 4. LLM 接口层 (库替换)   │ 891    │ 50      │ -841     │
-│ 5. 缓存系统 (库替换)     │ 450    │ 50      │ -400     │
-│ 6. 弃用代码清理          │ 500    │ 0       │ -500     │
-│ 7. CLI 模块合并          │ 3,840  │ 1,200   │ -2,640   │
-│ 8. Orchestrator          │ 1,680  │ 800     │ -880     │
-│ 9. Guard Agent           │ 1,267  │ 400     │ -867     │
-│ 10. SubAgentLoader       │ 770    │ 70      │ -700     │
+│ 4. Skill-Agent 分离 🆕   │ 82     │ 0       │ -132     │
+│ 5. LLM 接口层 (库替换)   │ 891    │ 50      │ -841     │
+│ 6. 缓存系统 (库替换)     │ 450    │ 50      │ -400     │
+│ 7. 弃用代码清理          │ 500    │ 0       │ -500     │
+│ 8. CLI 模块合并          │ 3,840  │ 1,200   │ -2,640   │
+│ 9. Orchestrator          │ 1,680  │ 800     │ -880     │
+│ 10. Guard Agent          │ 1,267  │ 400     │ -867     │
+│ 11. SubAgentLoader       │ 770    │ 70      │ -700     │
 └──────────────────────────┴────────┴─────────┴──────────┘
 
 分阶段节省:
 ├─ Phase 1a (已完成): db_schema.py -364 ✅
 ├─ Phase 1b (待执行): 删除弃用 -683 (query_router + config_mgr)
-├─ Phase 1c (待执行): 其他优先1 -3,700
-├─ Phase 2a (库替换): LLM/缓存/JSON -1,561
-└─ Phase 2b (大重构): CLI/Orch/Guard -4,387
+├─ Phase 1c (待执行): CRON/Managers/错误处理 -2,750
+├─ Phase 1d (待执行): Skill-Agent 分离 (Phase 3e) -132
+├─ Phase 2a (库替换): LLM/缓存/JSON -1,741
+└─ Phase 2b (大重构): CLI/Orch/Guard -4,287
 
-总计节省: ~11,000+ 行（远超原计划的 8,300+ 行）
+总计节省: ~11,132+ 行（远超原计划的 8,300+ 行）
      新发现: +2,700 行库重复造轮子的机会
+     架构收益: 完全符合 Skill-Centric 原则 ⭐
 
 ```
 
@@ -582,14 +1039,22 @@ Session 2末       26,469        -25.8%
    - 清理弃用API (-100行)
    - 预期削减: -900行
 
-3. **大型优化** (后续, 2,000+ 行)
-   - 库替换Phase2: LLM/Cache/JSON (-1,561行)
+3. **架构重构** (3小时, 架构优化为主) 🆕
+   - Skill-Agent 分离 (Phase 3e - 完美重构)
+   - 实现 Tool Registry 机制
+   - 删除 bridge 层 (-82行 直接删除)
+   - 简化 import (-50行)
+   - 架构收益: 完全符合 Skill-Centric 原则 ⭐
+   - 预期削减: -132行 + 架构完美
+
+4. **大型优化** (后续, 2,000+ 行)
+   - 库替换Phase2: LLM/Cache/JSON (-1,741行)
    - CLI模块合并 (-2,640行)
    - Guard Agent拆分 (-867行)
    - Orchestrator拆分 (-880行)
-   - 预期削减: -5,948行
+   - 预期削减: -6,128行
 
-**最终目标**: ~19,000-20,000行 (44-47% 削减)
+**最终目标**: ~19,000-20,000行 (44-47% 削减) + 完美架构
 
 ---
 
@@ -616,6 +1081,13 @@ Session 2末       26,469        -25.8%
 - LangGraph DuckDBSaver 已提供 checkpointer → 删除自定义实现
 - Pydantic v2 已提供 JSON validation → 删除 json_tool.py
 - LangGraph memory 已提供缓存 → 迁移 query_cache.py
+
+**Skill-Centric Architecture** 🆕
+- 配置在 .olav/skills/，代码在 src/
+- Agent (代码) 与 Tool (配置) 分离
+- 通过 Tool Registry 动态加载工具
+- 新增功能修改配置文件，不修改代码
+- 单一职责: Agent 编排，Tool 执行
 
 ---
 
