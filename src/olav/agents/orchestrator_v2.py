@@ -32,12 +32,10 @@ import logging
 import time
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage
 
 from config.settings import settings
 from olav.agents.guard import RouteCode, get_guard
 from olav.agents.orchestrator import orchestrate_query_sync
-from olav.core.llm import LLMFactory
 from olav.core.metrics_collector import get_metrics_collector
 
 logger = logging.getLogger(__name__)

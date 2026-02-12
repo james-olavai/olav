@@ -41,7 +41,6 @@ print(f"Improvement: {comparison['latency_improvement_percent']:.1f}%")
 """
 
 import logging
-import time
 from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from typing import Any

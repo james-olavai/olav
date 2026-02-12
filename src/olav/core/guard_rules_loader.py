@@ -18,11 +18,10 @@ Principle: SKILL.md is the single source of truth for rules
 import logging
 import re
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
-from config.paths import AGENT_DIR, SKILLS_DIR
+from config.paths import SKILLS_DIR
 
 logger = logging.getLogger(__name__)
 

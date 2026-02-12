@@ -7,7 +7,7 @@ with optional automatic Git commits and vectorization.
 import subprocess
 from pathlib import Path
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 from config.paths import AGENT_DIR
 

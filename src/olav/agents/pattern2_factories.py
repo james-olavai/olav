@@ -15,12 +15,9 @@ from pathlib import Path
 from typing import Any
 
 from deepagents import create_deep_agent
-from langgraph.checkpoint.duckdb import DuckDBSaver
-from langgraph.store.duckdb import DuckDBStore
 
 from config.paths import USER_CHECKPOINT_PATH, USER_CHECKPOINT_DIR
 from olav.core.llm import LLMFactory
-from olav.core.skill_adapter import SkillAdapter
 from olav.core.skill_loader import get_skill_loader
 from olav.core.storage import get_storage_backend
 

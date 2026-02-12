@@ -12,10 +12,8 @@ Features:
 
 import logging
 from typing import Dict, Any, Optional, List, Callable
-from functools import wraps
 from datetime import datetime, timedelta
 import hashlib
-import json
 import asyncio
 
 logger = logging.getLogger(__name__)
@@ -284,7 +282,6 @@ class MemoryOptimizer:
         Returns:
             Memory report dictionary
         """
-        import sys
         
         return {
             "max_threshold_mb": self.max_memory_mb,

@@ -7,13 +7,11 @@ NOTE: Phase 1-3 implementations are MOCK/PLACEHOLDER only.
 Real implementations will be completed in Phase 4.
 """
 
-import asyncio
 import json
 import logging
 from pathlib import Path
 from typing import Any
 from datetime import datetime
-from .config import get_config
 
 logger = logging.getLogger(__name__)
 

@@ -9,7 +9,7 @@ Version: 0.9.8
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List
 from enum import Enum
 
 

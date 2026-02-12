@@ -11,7 +11,6 @@ Provides:
 
 from typing import Dict, Any, List, Optional
 import logging
-from pathlib import Path
 
 from olav.core.unified_database import UnifiedDatabase
 
