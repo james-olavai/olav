@@ -92,7 +92,6 @@ def setup_logging(
 
     # Internal OLAV noise
     logging.getLogger("olav.core.registry").setLevel(logging.WARNING)
-    logging.getLogger("olav.core.query_router").setLevel(logging.WARNING)
     logging.getLogger("olav.tools.schema_catalog").setLevel(logging.WARNING)
     logging.getLogger("olav.tools.raw_importer").setLevel(logging.WARNING)
     logging.getLogger("olav.agents").setLevel(logging.WARNING)
