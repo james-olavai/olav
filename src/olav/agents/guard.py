@@ -32,7 +32,6 @@ from enum import Enum
 from typing import Any, Optional
 
 from config.settings import settings
-from olav.core.feature_flags import get_feature_flag_manager
 from olav.core.guard_rules_loader import get_rules_loader
 
 from .cache_manager import CacheManager
@@ -98,14 +97,6 @@ class QueryGuard:
     
     def __init__(self):
         """Initialize Guard with modular components."""
-        # Initialize feature flag manager (for gradual rollout & A/B testing)
-        self.feature_flag_manager = get_feature_flag_manager()
-        guard_flag_config = self.feature_flag_manager.get_feature_config("guard_routing")
-        if guard_flag_config:
-            logger.info(f"✅ Guard Feature Flag loaded: "
-                       f"enabled={guard_flag_config.enabled}, "
-                       f"rollout={guard_flag_config.rollout_percentage}%, "
-                       f"segment={guard_flag_config.rollout_user_segment}")
         
         # Initialize rules loader (SKILL.md loading)
         rules_loader = get_rules_loader()
