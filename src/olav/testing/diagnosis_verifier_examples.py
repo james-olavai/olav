@@ -8,11 +8,10 @@ Version: v1.0.0 (2026-02-11)
 """
 
 import asyncio
-from typing import List, Tuple
+from typing import List
 from diagnosis_verifier import (
     DiagnosisVerifier,
     GroundTruth,
-    VerificationReport,
     AccuracyLevel,
 )
 

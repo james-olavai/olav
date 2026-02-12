@@ -15,8 +15,6 @@ import logging
 from typing import Any
 
 from deepagents import create_deep_agent
-from deepagents.middleware.subagents import SubAgent
-from langchain_core.messages import HumanMessage
 
 from olav.core.subagent_loader import load_subagents_from_olav
 
@@ -145,7 +143,6 @@ def create_orchestrator(
     backend = get_storage_backend()
 
     if use_summarization:
-        from pathlib import Path
 
         from deepagents.middleware.summarization import SummarizationMiddleware
         from olav.core.llm import LLMFactory

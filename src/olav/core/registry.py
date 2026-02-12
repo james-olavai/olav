@@ -42,7 +42,6 @@ class CommandRegistry:
             custom_dir: Path to custom TextFSM template directory
         """
         from config.paths import TEXTFSM_TEMPLATES_DIR
-        from config.settings import settings
 
         if custom_dir is None:
             # v0.10.1: Use skill-level config path

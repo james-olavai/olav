@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Dict, Optional, Tuple, Set
 import re
-from abc import ABC, abstractmethod
+from abc import ABC
 import logging
 
 logger = logging.getLogger(__name__)

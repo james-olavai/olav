@@ -15,11 +15,10 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from langchain_core.messages import HumanMessage
 
-from config.settings import settings
 from olav.core.llm import LLMFactory
 
 logger = logging.getLogger(__name__)

@@ -30,7 +30,6 @@ Migration: v0.11.0 -> v0.11.1
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 # Re-export all public APIs for backward compatibility
 from olav.agents.dependency_executor import (
