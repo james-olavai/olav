@@ -53,13 +53,14 @@ def create_orchestrator(
         if not os.getenv("OPENAI_MODEL_NAME"):
             os.environ["OPENAI_MODEL_NAME"] = settings.llm_model_name
 
-    # Import orchestrator's own tools (separate from SubAgent tools)
-    from olav.shared.tools.data_export import format_and_export
+    # Import Tool Registry (Skill-Centric architecture)
+    from olav.core.tool_registry import get_tool
 
     # Orchestrator's own tools for file export
-    orchestrator_tools = [
-        format_and_export,  # File export capability
-    ]
+    format_and_export = get_tool("format_and_export")
+    orchestrator_tools = []
+    if format_and_export:
+        orchestrator_tools.append(format_and_export)  # File export capability
 
     # Persistence layer (skill-level checkpoint - v0.10.0+)
     # Each skill has its own isolated checkpoint database

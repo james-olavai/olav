@@ -139,7 +139,13 @@ class ReportRenderer:
         Returns:
             Professional markdown report string
         """
-        from olav.shared.tools.report_formatter import generate_professional_inspection_report
+        # Use Tool Registry for Skill-Centric architecture
+        from olav.core.tool_registry import get_tool
+        
+        generate_professional_inspection_report = get_tool("generate_professional_inspection_report")
+        
+        if not generate_professional_inspection_report:
+            return "Error: Report formatter tool not found"
 
         return generate_professional_inspection_report(
             metadata=result["metadata"],
@@ -173,9 +179,15 @@ class InspectionOrchestrator:
 
         # 0. Ensure inspection views exist (auto-create if missing)
         try:
-            from olav.shared.tools.inspection_views import create_inspection_views
-            create_inspection_views(self.udb.conn)
-            logger.info("✅ Inspection views verified/created")
+            # Use Tool Registry for Skill-Centric architecture
+            from olav.core.tool_registry import get_tool
+            
+            create_inspection_views = get_tool("create_inspection_views")
+            if create_inspection_views:
+                create_inspection_views(self.udb.conn)
+                logger.info("✅ Inspection views verified/created")
+            else:
+                logger.warning("create_inspection_views tool not found in registry")
         except Exception as e:
             logger.warning(f"Failed to create inspection views: {e}")
             # Continue anyway - views might already exist

@@ -1,1 +1,0 @@
-/home/yhvh/Olav/.olav/skills/shared/tools/inspection_views.py
