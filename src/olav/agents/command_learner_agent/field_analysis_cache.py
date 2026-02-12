@@ -400,7 +400,7 @@ class FieldAnalysisCache:
                 if result:
                     db_size = result[0][0]
             except Exception:
-                pass
+                pass  # Skip if cache DB unavailable
 
         return {
             "total_get": self._stats["total_get"],
@@ -422,7 +422,7 @@ class FieldAnalysisCache:
             try:
                 self._db.execute("DELETE FROM field_analysis_cache")
             except Exception:
-                pass
+                pass  # Skip if DB cleanup fails
 
 
 # Global instance

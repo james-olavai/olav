@@ -75,7 +75,7 @@ class UnifiedDatabase:
             try:
                 Path(USER_CACHE_PATH).parent.mkdir(parents=True, exist_ok=True)
             except Exception:
-                pass
+                pass  # Directory creation optional
 
             user_cache_path = str(USER_CACHE_PATH)
 
@@ -102,7 +102,7 @@ class UnifiedDatabase:
                         if attempt < 2:
                             time.sleep(0.2)
                             continue
-                        pass
+                        pass  # Fallback DB attachment optional
 
             # 3. Attach Snapshot (Skip if already attached as commands)
             if snapshot_path not in attached_paths:
@@ -110,7 +110,7 @@ class UnifiedDatabase:
                     self.conn.execute(f"ATTACH IF NOT EXISTS '{snapshot_path}' AS db_snapshot")
                     attached_paths.add(snapshot_path)
                 except Exception:
-                    pass
+                    pass  # Snapshot attach optional
 
             # 4. Attach Knowledge (Skip if already attached)
             if knowledge_path not in attached_paths:
@@ -118,7 +118,7 @@ class UnifiedDatabase:
                     self.conn.execute(f"ATTACH IF NOT EXISTS '{knowledge_path}' AS knowledge")
                     attached_paths.add(knowledge_path)
                 except Exception:
-                    pass
+                    pass  # Knowledge DB attach optional
 
             # Update search path dynamically based on attached catalogs
             catalogs = self.conn.execute(
