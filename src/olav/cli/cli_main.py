@@ -536,13 +536,21 @@ def query(
 @app.command()
 def devices() -> None:
     """List all managed network devices."""
-    from olav.shared.tools.network import list_devices as nornir_list_devices_tool
+    from olav.core.tool_registry import get_tool
 
     console.print("[bold cyan]Loading network devices...[/bold cyan]")
     try:
-        # The @tool decorator wraps the function, so we need to call it via the tool's func attribute
-        # or directly use the underlying function
-        result = nornir_list_devices_tool.func()  # type: ignore[call-arg]
+        # Get tool from registry
+        list_devices_tool = get_tool("list_devices")
+        if list_devices_tool:
+            # Try to call the tool (handle both tool wrapper and direct function)
+            if hasattr(list_devices_tool, 'func'):
+                result = list_devices_tool.func()
+            else:
+                result = list_devices_tool()
+        else:
+            result = "Error: list_devices tool not found"
+        
         console.print(
             Panel(result, title="[bold cyan]Network Devices[/bold cyan]", border_style="cyan")
         )

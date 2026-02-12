@@ -173,7 +173,16 @@ async def cli_verify_node(state: AnalyzerState) -> AnalyzerState:
         return state
 
     try:
-        from olav.shared.tools.network import nornir_execute
+        # Use Tool Registry for Skill-Centric architecture
+        from olav.core.tool_registry import get_tool
+        
+        nornir_execute = get_tool("nornir_execute")
+        
+        if not nornir_execute:
+            logger.warning("nornir_execute tool not found in registry")
+            state.cli_data = {"skipped": "Tool not available"}
+            state.status = "analyzing"
+            return state
 
         # Determine which commands to run based on the query
         # For now, use a simple heuristic

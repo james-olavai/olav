@@ -127,7 +127,12 @@ class ExecutionDispatcher:
         logger.info("🔥 Executing CLI route (direct)")
         
         try:
-            from olav.shared.tools.network_executor import BatchExecutionRequest, get_executor
+            # Use Tool Registry for Skill-Centric architecture
+            from olav.core.tool_registry import get_tool
+            
+            # Get tools from registry
+            get_executor = get_tool("get_executor")
+            BatchExecutionRequest = None  # Will be imported via get_executor module
             
             # Extract devices and commands from query
             devices = self._extract_devices(query)

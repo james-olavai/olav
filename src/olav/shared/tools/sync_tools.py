@@ -1,1 +1,0 @@
-/home/yhvh/Olav/.olav/skills/shared/tools/sync_tools.py
