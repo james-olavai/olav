@@ -14,7 +14,6 @@ from olav.agents.orchestrator import (
     create_planning_orchestrator,
     create_collaborative_orchestrator,
 )
-from olav.agents.query_agent import QueryAgent
 
 __all__ = [
     "analyze_network",
@@ -22,7 +21,6 @@ __all__ = [
     "orchestrate_query_sync",
     "create_planning_orchestrator",
     "create_collaborative_orchestrator",
-    "QueryAgent",
 ]
 
 # Script Engine imports for Skill-as-a-Tool capability
@@ -43,7 +41,6 @@ except ImportError:
 
 __all__ = [
     # Core Agents
-    "QueryAgent",
     "analyze_network",
     "orchestrate_query",
     "orchestrate_query_sync",
