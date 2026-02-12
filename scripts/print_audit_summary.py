@@ -74,7 +74,7 @@ Fixes Applied:
      ✅ After: "checkpoint_file = OLAV_BASE_DIR / 'user_checkpoint.db'"
 
   4. src/olav/cli/session.py:62
-     ❌ Before: "whitelist_file = Path('.olav/skills/guard/whitelist.yaml')"
+     ❌ Before: "whitelist_file = Path('.olav/skills/olav-guard/whitelist.yaml')"
      ✅ After: "whitelist_file = GUARD_WHITELIST_PATH"
 
   5. src/olav/lib/data_gateway.py:22 (docstring example)
@@ -108,7 +108,7 @@ Skills Found (8 total):
   ✅ inspect-report
 
 Database References Updated:
-  📝 .olav/skills/orchestrator/SKILL.md (Fixed 2 references)
+  📝 .olav/skills/olav-orchestrator/SKILL.md (Fixed 2 references)
      Line 47:  main.duckdb → olav.duckdb ✅
      Line 54:  main.duckdb → olav.duckdb ✅
 

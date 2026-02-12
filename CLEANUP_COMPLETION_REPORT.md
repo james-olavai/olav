@@ -221,7 +221,7 @@ cp archive/temp_files_2026-02-11/FILENAME ./
 
 ### 配置
 - ✅ `.olav/OLAV.md` - SubAgent注册表
-- ✅ `.olav/skills/guard/SKILL.md` - Guard技能（YAML修复版）
+- ✅ `.olav/skills/olav-guard/SKILL.md` - Guard技能（YAML修复版）
 - ✅ `config/paths.py` - 路径常量
 - ✅ `config/settings.py` - 设置Schema
 

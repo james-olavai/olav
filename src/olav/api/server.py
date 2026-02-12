@@ -27,7 +27,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 # Import Phase 1 API functions
-from olav.api.v1 import cache, data, devices, query, schema, system
+from olav.api.v1 import data, devices, query, schema, system
 
 logger = logging.getLogger(__name__)
 
@@ -164,28 +164,7 @@ async def check_database() -> dict[str, Any]:
         }
 
 
-async def check_cache() -> dict[str, Any]:
-    """Check query cache status."""
-    try:
-        from olav.core.query_cache import get_query_cache
 
-        cache = get_query_cache()
-        stats = cache.stats()
-
-        # Cache is healthy if it's accessible
-        return {
-            "status": "healthy",
-            "message": "Cache accessible",
-            "l1_size": stats.get("l1_size", 0),
-            "l2_entries": stats.get("l2_total_entries", 0),
-        }
-    except Exception as e:
-        logger.error(f"Cache health check failed: {e}")
-        return {
-            "status": "unhealthy",
-            "message": f"Cache error: {str(e)}",
-            "error": type(e).__name__,
-        }
 
 
 @app.get("/health", response_model=HealthStatus, status_code=status.HTTP_200_OK)
@@ -198,7 +177,6 @@ async def health_check() -> HealthStatus:
     # Perform all health checks
     checks = {
         "database": await check_database(),
-        "cache": await check_cache(),
     }
 
     # Determine overall status
@@ -496,22 +474,6 @@ async def database_stats():
         return db_stats
     except Exception as e:
         logger.error(f"Error getting database stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/v1/system/cache/performance")
-async def cache_performance():
-    """Get cache performance metrics.
-
-    Returns:
-        Cache hit rate, response times, etc.
-    """
-    try:
-        # Phase 1.4 function returns dict
-        perf = system.get_cache_performance()
-        return perf
-    except Exception as e:
-        logger.error(f"Error getting cache performance: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

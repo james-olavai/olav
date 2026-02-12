@@ -80,7 +80,7 @@ def create_orchestrator(
             os.environ["OPENAI_MODEL_NAME"] = settings.llm_model_name
 
     # Import orchestrator's own tools (separate from SubAgent tools)
-    from olav.tools.data_export import format_and_export
+    from olav.shared.tools.data_export import format_and_export
 
     # Orchestrator's own tools for file export
     orchestrator_tools = [
@@ -162,7 +162,7 @@ def create_orchestrator(
         logger.info(prompt_log)
     else:
         raise ValueError(
-            "Orchestrator SKILL.md not found or empty at .olav/skills/orchestrator/SKILL.md. "
+            "Orchestrator SKILL.md not found or empty at .olav/skills/olav-orchestrator/SKILL.md. "
             "This file is required for Skill-Centric Architecture."
         )
 
@@ -372,7 +372,7 @@ def create_planning_orchestrator(
         logger.warning("Todo tools not available - using basic todo support")
 
     # Import base tools
-    from olav.tools.data_export import format_and_export
+    from olav.shared.tools.data_export import format_and_export
 
     # Build planning tools list
     planning_tools = [format_and_export]  # Always include export
@@ -1170,7 +1170,7 @@ def orchestrate_query_sync(
     from config.settings import settings
     from olav.core.llm import LLMFactory
     from olav.core.query_confidence import QueryComplexityScorer, QueryEscalationMarker
-    from olav.tools.data_export import format_and_export
+    from olav.shared.tools.data_export import format_and_export
     from langchain_core.messages import HumanMessage
     import json
     import re
@@ -1440,7 +1440,7 @@ Keep responses concise and focused."""
             logger.info(f"  🔴 Query Agent marked as cli_needed: {cli_reason[:50]}...")
             try:
                 # Try to extract device name from query and execute show command
-                from olav.tools.network_executor import get_executor
+                from olav.shared.tools.network_executor import get_executor
                 
                 # Simple extraction of device names from query
                 device_names = []

@@ -33,7 +33,6 @@ from langgraph.store.duckdb import DuckDBStore
 from config.paths import PROJECT_ROOT, USER_CHECKPOINT_PATH
 from config.settings import settings
 from olav.agents.intent_agent import IntentAgent
-from olav.core.query_cache import get_query_cache
 from olav.core.skill_adapter import SkillAdapter
 from olav.core.skill_loader import get_skill_loader
 from olav.lib.data_gateway import get_gateway
@@ -140,9 +139,6 @@ class QueryAgent:
 
         # 5. Create the agent
         self._create_agent()
-
-        # 6. Initialize query result cache
-        self.query_cache = get_query_cache()
 
     def __enter__(self):
         """Context manager entry."""
@@ -358,24 +354,6 @@ class QueryAgent:
             "mode": "analysis" if self.enable_summarization else "standard",
         }
 
-        # Check query cache BEFORE expensive operations
-        if last_user_msg:
-            cached_result = self.query_cache.get(last_user_msg, context=cache_context)
-            if cached_result:
-                elapsed = time.time() - start_time
-                logger.info(f"✅ Cache HIT: {last_user_msg[:50]}... ({elapsed * 1000:.2f}ms)")
-                # Return cached result with updated performance metadata
-                return {
-                    **cached_result,
-                    "performance": {
-                        **cached_result.get("performance", {}),
-                        "cache_hit": True,
-                        "total_seconds": round(elapsed, 2),
-                    },
-                }
-
-            logger.info(f"❌ Cache MISS: {last_user_msg[:50]}... (will store after execution)")
-
         # Store original query for caching
         cache_query = last_user_msg
 
@@ -495,16 +473,7 @@ class QueryAgent:
                             "error": None,
                         }
                         mode_str = "analysis" if self.enable_summarization else "standard"
-                        try:
-                            self.query_cache.set(
-                                cache_query,  # Use original user query
-                                result_to_cache,
-                                context=cache_context,
-                                metadata={"mode": mode_str, "tool": tool_name or "unknown"},
-                            )
-                            logger.info(f"✅ Stored in cache: {cache_query[:50]}...")
-                        except Exception as cache_err:
-                            logger.warning(f"Cache store failed: {cache_err}")
+
 
                 elapsed = time.time() - start_time
                 mode_str = "analysis" if self.enable_summarization else "standard"
@@ -579,16 +548,6 @@ class QueryAgent:
                         "error": None,
                     }
                     mode_str = "analysis" if self.enable_summarization else "standard"
-                    try:
-                        self.query_cache.set(
-                            cache_query,  # Use original user query
-                            result_to_cache,
-                            context=cache_context,
-                            metadata={"mode": mode_str, "tool": tool_name or "unknown"},
-                        )
-                        logger.info(f"✅ Stored in cache: {cache_query[:50]}...")
-                    except Exception as cache_err:
-                        logger.warning(f"Cache store failed: {cache_err}")
 
             # DeepAgents typical result extraction
             elapsed = time.time() - start_time

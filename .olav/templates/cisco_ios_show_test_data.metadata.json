@@ -1,0 +1,11 @@
+{
+  "template_file": "cisco_ios_show_test_data.textfsm",
+  "command": "show_test_data",
+  "platform": "cisco_ios",
+  "created_at": "2026-02-12T12:13:20.261996",
+  "fields": [],
+  "field_coverage": 0,
+  "success_rate": 0.82,
+  "notes": "",
+  "source": "command_learner_auto_generated"
+}

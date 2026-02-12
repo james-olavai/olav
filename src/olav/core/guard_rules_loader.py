@@ -2,7 +2,7 @@
 Guard Rules Loader - Parse Guard classification rules from SKILL.md
 
 Purpose:
-  Load Guard classification rules from .olav/skills/guard/SKILL.md instead of hardcoding
+  Load Guard classification rules from .olav/skills/olav-guard/SKILL.md instead of hardcoding
   Supports dynamic rule updates without code changes
   Respects: SKILL.md → .olav/settings.json → .env override chain
 

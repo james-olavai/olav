@@ -28,7 +28,7 @@ def __getattr__(name: str) -> object:  # noqa: ANN401
         return locals()[name]
 
     if name in ("list_devices", "nornir_execute"):
-        from olav.tools.network import (  # noqa: F401
+        from olav.shared.tools.network import (  # noqa: F401
             list_devices,
             nornir_execute,
         )

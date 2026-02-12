@@ -7,23 +7,8 @@ type: agent
 category: command_learning
 
 prompts:
-  generation: |
-    You are a TextFSM template expert. Generate high-quality TextFSM templates that accurately parse network device CLI output.
-    Focus on:
-    1. Accurate regex patterns for field extraction
-    2. State machine transitions for multi-line output
-    3. Value definitions BEFORE the Start state
-    4. Correct state names (alphanumeric and underscore only)
-    5. Proper response filtering and cleanup
-    Return ONLY the valid TextFSM template code, ready to use.
-  analysis: |
-    You are a network command output analyzer. Analyze the given command output and identify:
-    1. Field names and their values
-    2. Data types (string, integer, float, IP address, MAC address, etc.)
-    3. Repeating data structures (lists, tables)
-    4. Field coverage percentage
-    5. Potential regex patterns for extraction
-    Return a structured analysis with recommended TextFSM field definitions.
+  generation: $ref:./reference/textfsm_generation.md
+  analysis: $ref:./reference/textfsm_analysis.md
 
 config:
   success_threshold: 0.8
@@ -35,85 +20,56 @@ config:
   use_ntc_references: true
   caching:
     enable_template_cache: true
-    enable_field_analysis_cache: false
     memory_cache_size: 100
     db_cache_enabled: true
     similarity_threshold: 0.85
     cache_ttl_days: 30
-    track_cache_stats: true
   llm_config:
     provider: "openrouter"
     temperature: 0.3
     max_tokens: 4096
     timeout: 120
-  timeouts:
-    command_execution: 30
-    field_analysis: 60
-    ntc_search: 30
-    template_generation: 120
-    template_testing: 30
-
-activation:
-  keywords:
-    - "learn this command"
-    - "generate template"
-    - "textfsm"
-    - "learn_cmd"
 
 workflow:
   steps:
-    - name: "Execute Command"
+    - name: "Execute Command" 
       step_number: 1
-      description: "Execute command on target host"
       timeout: 30
-      retry_count: 2
     - name: "Analyze Fields"
       step_number: 2
-      description: "LLM analysis of output fields"
       timeout: 60
-      llm_provider: "openrouter"
     - name: "User Approval"
       step_number: 3
-      description: "User review and modification of fields"
       timeout: 300
       interactive: true
     - name: "Fetch NTC References"
       step_number: 4
-      description: "Search NTC template library"
       timeout: 30
       optional: true
+      tool: "ntc_search" # $ref:./scripts/ntc_search.py
     - name: "Generate Template"
       step_number: 5
-      description: "ReAct template generation loop"
       timeout: 120
       max_iterations: 3
     - name: "Save Template"
       step_number: 6
-      description: "Save template and metadata"
       timeout: 10
 
 tools:
   - name: "execute_command_tool"
-    description: "Execute command on network device"
-    implementation: "tools.execute_command_tool"
+    implementation: "src/olav/agents/command_learner_agent/tools.py"
   - name: "analyze_output_tool"
-    description: "Analyze command output and extract fields"
-    implementation: "tools.analyze_output_tool"
+    implementation: "src/olav/agents/command_learner_agent/tools.py"
   - name: "generate_template_tool"
-    description: "Generate TextFSM template from analysis"
-    implementation: "tools.generate_template_tool"
+    implementation: "src/olav/agents/command_learner_agent/tools.py"
   - name: "test_template_tool"
-    description: "Test template against sample outputs"
-    implementation: "tools.test_template_tool"
+    implementation: "src/olav/agents/command_learner_agent/tools.py"
   - name: "save_template_tool"
-    description: "Save template to file with metadata"
-    implementation: "tools.save_template_tool"
-
-data_models:
-  - AnalysisResult
-  - ApprovalResult
-  - GenerationMetrics
-  - TemplateMetadata
+    implementation: "src/olav/agents/command_learner_agent/tools.py"
+  - name: "ntc_search"
+    description: "Local NTC-Templates search (no internet required)"
+    implementation: "./scripts/ntc_search.py"
+    method: "search_ntc_templates(platform, command, approved_fields, limit)"
 
 requires_skills:
   - "network-cli"
@@ -122,51 +78,21 @@ performance:
   typical_duration_seconds: 60
   typical_llm_calls: 2
   success_rate_threshold: 0.8
-  typical_iterations: 2
-
-rollback:
-  enabled: true
-  save_drafts: true
-  history_dir: ".olav/templates/drafts"
-
-integration:
-  - type: "cli_command"
-    command: "/learn"
-    handler: "cmd_learn"
-  - type: "skill_invocation"
-    entry_point: "CommandLearnerOrchestrator.run_workflow"
-  - type: "knowledge_base"
-    location: ".olav/knowledge/templates"
-    auto_index: true
 
 monitoring:
   log_level: "INFO"
   track_metrics: true
-  metrics_db: ".olav/reports/command_learner_metrics.db"
   metrics_tracked:
     - success_rate
     - generation_time
     - iterations_count
-    - field_coverage
-    - template_quality
 
 testing:
   e2e_tests: "tests/e2e/test_command_learner_e2e.py"
-  cleanup_checklist: "cleanup_checklist.py"
   acceptance_criteria:
     - All 8 E2E tests pass
-    - Cleanup checklist passes
-    - No redundant code warnings
     - Template success rate >= 0.8
 
-changelog:
-  v1.0.0:
-    - Initial complete redesign
-    - 6-step interactive workflow
-    - Auto-approval support
-    - Full E2E test coverage (8/8 passing)
-    - NTC reference integration
-    - ReAct-based template generation
 ---
 
 ## Overview
@@ -176,12 +102,19 @@ The Command Learner Agent provides a complete workflow for learning new custom n
 ## Key Features
 
 ✅ **6-Step Interactive Workflow**
-- Step 1: Execute command on target host
-- Step 2: Auto-analyze output fields (LLM)
-- Step 3: User approval/modification workflow
-- Step 4: Fetch NTC-template references
-- Step 5: ReAct-based template generation
-- Step 6: Save template with metadata
+- Execute command on target host
+- Auto-analyze output fields (LLM)
+- User approval/modification workflow
+- Fetch NTC-template references (local search, no internet)
+- ReAct-based template generation
+- Save template with metadata
+
+✅ **Local NTC-Templates Search**
+- Searches local `ntc-templates` pip package
+- No internet requirement
+- Platform and command keyword matching
+- Field coverage scoring
+- Available as standalone CLI tool or agent tool
 
 ✅ **Intelligent Field Analysis**
 - Automatic field detection from command output
@@ -191,29 +124,67 @@ The Command Learner Agent provides a complete workflow for learning new custom n
 ✅ **User Approval Workflow**
 - Interactive field review
 - Field modification capabilities
-- Rejection support with optional notes
 
-✅ **NTC Template Integration**
-- Reference search for similar commands
-- Pattern reuse from known templates
-- Fallback to pure LLM generation
+## Local NTC-Templates Search Tool
 
-✅ **Quality Metrics**
-- Parse success rate tracking
-- Value coverage calculation
-- Regex accuracy scoring
-- State machine completeness measurement
+### Standalone Usage (CLI)
+
+```bash
+# Search for cisco_ios templates for 'show bgp summary'
+./scripts/ntc_search.py \
+  --platform cisco_ios \
+  --command "show bgp summary" \
+  --fields "router_id,neighbors,state" \
+  --limit 3
+
+# Verbose output
+./scripts/ntc_search.py \
+  --platform cisco_ios \
+  --command "show bgp summary" \
+  --fields "router_id,neighbors" \
+  --limit 3 \
+  -v
+```
+
+### Python API Usage
+
+```python
+from olav.skills.command_learner.scripts.ntc_search import search_ntc_templates
+
+result = search_ntc_templates(
+    platform="cisco_ios",
+    command="show bgp summary",
+    approved_fields=["router_id", "neighbors", "state"],
+    limit=3
+)
+
+# Access results
+for ref in result["references"]:
+    print(f"Template: {ref['template_name']}")
+    print(f"Score: {ref['relevance_score']}")
+    print(f"Field Coverage: {ref['field_coverage']}")
+```
+
+### Agent Integration
+
+The search tool is automatically called during Step 4 of the workflow:
+
+```
+Step 4: Fetch NTC References
+  ↓
+  Calls: get_ntc_references_tool()
+  ↓
+  Uses: ./scripts/ntc_search.py
+  ↓
+  Returns: Top 2-3 matching templates
+```
 
 ## Usage
 
 ### CLI Integration
 
 ```bash
-# Learn a custom command
 /learn_cmd R1:core cisco_ios "show running-config | include bgp"
-
-# Get help
-/learn_cmd
 ```
 
 ### Python API
@@ -230,30 +201,10 @@ result = await orchestrator.run_workflow(
     host="R1.cisco_ios",
     command="show ip custom",
     platform="cisco_ios",
-    sample_outputs=["output1", "output2"],
 )
-
-if result["success"]:
-    print(result["template"])
-    print(f"Success rate: {result['generation_result']['metrics']['parse_success']:.1%}")
 ```
 
 ## Configuration
-
-### Environment Variables
-
-```bash
-# Auto-approve fields (dev mode)
-TEXTFSM_AUTO_APPROVE=true
-
-# Template directory
-TEXTFSM_TEMPLATE_DIR=.olav/templates/custom
-
-# Success threshold
-TEXTFSM_SUCCESS_THRESHOLD=0.8
-```
-
-### Settings Override
 
 Edit `.olav/settings.json`:
 
@@ -262,31 +213,47 @@ Edit `.olav/settings.json`:
   "textfsm_interactive": {
     "success_threshold": 0.8,
     "max_iterations": 3,
-    "auto_approve_fields": false
+    "auto_approve_fields": false,
+    "use_ntc_references": true
   }
 }
 ```
 
+### NTC-Templates Setup
+
+1. **Install ntc-templates package**:
+   ```bash
+   pip install ntc-templates
+   ```
+
+2. **Verify installation**:
+   ```bash
+   python -c "import ntc_templates; print(ntc_templates.__file__)"
+   ```
+
+3. **The skill's search tool will automatically find them**
+
 ## Architecture
 
 ```
-TextFSM Interactive Agent (v1.0.0)
-├── Orchestrator (6-step workflow coordinator)
-├── DeepAgent (ReAct template generator)
-├── Tools (execute, analyze, generate, test, save)
-├── Models (data validation and serialization)
-└── Cleanup Checklist (migration verification)
+command_learner/
+├── SKILL.md                 (Skill configuration)
+├── reference/               (Reference documentation)
+│   ├── textfsm_generation.md   (Generation prompt with NTC guidance)
+│   ├── textfsm_analysis.md     (Analysis prompt with NTC integration)
+│   └── ARCHITECTURE.md         (Design decisions)
+├── scripts/                 (Skill-specific tools)
+│   ├── __init__.py
+│   └── ntc_search.py        (Local NTC-Templates search)
+└── [implementation]
+    src/olav/agents/command_learner_agent/
+    ├── tools.py             (Calls scripts/ntc_search.py)
+    ├── orchestrator.py      (6-step workflow)
+    └── ...
 ```
-
-## Quality Gates
-
-✅ **Testing**: 8/8 E2E tests passing
-✅ **Coverage**: Workflow steps validated
-✅ **Performance**: ~60 seconds typical duration
-✅ **Rollback**: Draft history with rollback support
 
 ## Status
 
-**Phase**: Integration Phase (Phase 4)
-**Status**: ✅ Complete
-**Last Updated**: 2026-02-07
+**Phase:** Integration (Phase 4)
+**Status:** ✅ Complete
+**Quality:** 8/8 E2E tests passing

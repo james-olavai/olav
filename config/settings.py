@@ -548,7 +548,7 @@ class SyncSettings(BaseSettings):
         description="Path to command whitelist YAML",
     )
     command_mode_config: str = Field(
-        default=".olav/skills/guard/config/command_mode.yaml",
+        default=".olav/skills/olav-guard/config/command_mode.yaml",
         description="Path to command mode configuration YAML (v0.10.1: moved to guard skill)",
     )
 

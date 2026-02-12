@@ -12,7 +12,7 @@ Architecture:
   Stage 4: LLM classification (1-2s, fallback for <0.85 confidence)
 
 Design Principle:
-  ✅ Skill-Centric: All rules loaded from .olav/skills/guard/SKILL.md
+  ✅ Skill-Centric: All rules loaded from .olav/skills/olav-guard/SKILL.md
   ✅ No Hardcoded: Override chain: SKILL.md → config/settings.py → .env → .olav/settings.json
   ✅ User-Configurable: Users can customize rules in .olav/settings.json or via environment
 
@@ -31,7 +31,7 @@ from typing import Any, Optional
 import duckdb
 from langchain_core.messages import HumanMessage
 
-from config.paths import AGENT_DIR
+from config.paths import AGENT_DIR, SKILLS_DIR
 from config.settings import settings
 from olav.core.feature_flags import get_feature_flag_manager
 from olav.core.guard_rules_loader import get_rules_loader
@@ -130,8 +130,8 @@ class QueryGuard:
         logger.info(f"   - Realtime indicators: {len(self.realtime_indicators)}")
         logger.info(f"   - Prefer structured commands: {len(self.prefer_structured_commands)}")
         
-        # Initialize DuckDB cache
-        self.cache_db_path = AGENT_DIR / "db" / "guard_cache.duckdb"
+        # Initialize DuckDB cache (stored in skill-specific directory)
+        self.cache_db_path = SKILLS_DIR / "olav-guard" / "db" / "guard_cache.duckdb"
         self.cache_db_path.parent.mkdir(parents=True, exist_ok=True)
         
         try:
@@ -291,7 +291,7 @@ class QueryGuard:
         Time budget: <10ms
         Accuracy: 100% for matched patterns
         
-        Rules loaded from: .olav/skills/guard/SKILL.md (Skill-Centric Design)
+        Rules loaded from: .olav/skills/olav-guard/SKILL.md (Skill-Centric Design)
         Override via: config/settings.py or .olav/settings.json or .env
         """
         query_lower = query.lower()
@@ -482,7 +482,7 @@ class QueryGuard:
             )
         
         # Priority 1: SIMPLE queries (most common, ~65%)
-        # Rules loaded from: .olav/skills/guard/SKILL.md
+        # Rules loaded from: .olav/skills/olav-guard/SKILL.md
         for pattern in self.simple_indicators:
             try:
                 if re.search(pattern, query, re.IGNORECASE):
@@ -498,7 +498,7 @@ class QueryGuard:
         
         # Priority 2: CLI queries (real-time data, ~15%)
         # 🔥 ONLY matches if explicit real-time keywords present
-        # Rules loaded from: .olav/skills/guard/SKILL.md
+        # Rules loaded from: .olav/skills/olav-guard/SKILL.md
         for pattern in self.cli_indicators:
             try:
                 if re.search(pattern, query, re.IGNORECASE):
@@ -513,7 +513,7 @@ class QueryGuard:
                 logger.debug(f"⚠️  Invalid CLI pattern: {pattern}: {e}")
         
         # Priority 3: MULTI_AGENT queries (BEFORE EXPERT - cross-system priority)
-        # Rules loaded from: .olav/skills/guard/SKILL.md
+        # Rules loaded from: .olav/skills/olav-guard/SKILL.md
         if self.multi_agent_detection_enabled:
             for pattern in self.multi_agent_indicators:
                 try:
@@ -529,7 +529,7 @@ class QueryGuard:
                     logger.debug(f"⚠️  Invalid MULTI_AGENT pattern: {pattern}: {e}")
         
         # Priority 4: EXPERT queries (complex analysis, ~13%)
-        # Rules loaded from: .olav/skills/guard/SKILL.md
+        # Rules loaded from: .olav/skills/olav-guard/SKILL.md
         for pattern in self.expert_indicators:
             try:
                 if re.search(pattern, query, re.IGNORECASE):
@@ -858,7 +858,7 @@ Respond in JSON:
         logger.info("🔥 Executing CLI route (direct)")
         
         try:
-            from olav.tools.network_executor import BatchExecutionRequest, get_executor
+            from olav.shared.tools.network_executor import BatchExecutionRequest, get_executor
             
             # Extract devices and commands from query
             devices = self._extract_devices(query)
