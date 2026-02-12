@@ -116,13 +116,11 @@ def print_welcome(console: Console | None = None) -> None:
         display_banner(banner_text, console)
 
     # Print welcome message
-    if console:  # pragma: no cover (requires actual Rich console - tested manually)
-        console.print(
-            "\n[bold green]Welcome to OLAV v0.8[/] - [dim]Network Operations AI Assistant[/]"
-        )
+    if console:
+        console.print("\n[bold green]Welcome to OLAV[/] - [dim]Network Operations AI Assistant[/]")
         console.print("[dim]Type /help for available commands[/]\n")
     else:
-        print("\nWelcome to OLAV v0.8 - Network Operations AI Assistant")
+        print("\nWelcome to OLAV - Network Operations AI Assistant")
         print("Type /help for available commands\n")
 
 
