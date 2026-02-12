@@ -55,9 +55,7 @@ def orchestrate_query_sync(
             - 'error' (str) - Error message if failed
     """
     import time
-    from datetime import datetime
 
-    from config.settings import settings
     from olav.core.database import get_database_connection
     from olav.core.llm import LLMFactory
 

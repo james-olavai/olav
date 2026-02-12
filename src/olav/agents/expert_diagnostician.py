@@ -7,7 +7,6 @@ Expert Diagnostic Framework - Skill-Driven Architecture
 
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Any, Optional
-from enum import Enum
 from pathlib import Path
 import json
 import logging
@@ -31,10 +30,6 @@ class SkillConfigLoader:
         3. SKILL.md frontmatter (this file)
         4. config/settings.py (defaults)
         """
-        import yaml
-        from config.paths import CONFIG_DIR, OLAV_DIR
-        import os
-        from dotenv import load_dotenv
         
         # 1. 读取SKILL frontmatter
         skill_config = cls._extract_frontmatter_yaml()

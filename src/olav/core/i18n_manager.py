@@ -10,7 +10,7 @@ Features:
 """
 
 import logging
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
 from enum import Enum
 
 logger = logging.getLogger(__name__)

@@ -8,10 +8,8 @@ Author: OLAV Development Team
 Version: 0.9.8
 """
 
-import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Tuple
-from config.settings import settings
 
 
 @dataclass

@@ -10,7 +10,7 @@ Version: 0.9.8
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Set, Tuple, Optional
+from typing import Dict, List, Tuple, Optional
 from enum import Enum
 
 logger = logging.getLogger(__name__)

@@ -7,11 +7,9 @@ Provides operations for managing the OLAV knowledge base:
 - Markdown-based storage with metadata
 """
 
-import asyncio
 import json
 import re
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from config.logging import get_logger

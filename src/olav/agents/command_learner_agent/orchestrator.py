@@ -10,11 +10,10 @@ from datetime import datetime
 from typing import Any
 
 from .config import get_config
-from .field_analysis_cache import get_field_analysis_cache, FieldAnalysisResult
+from .field_analysis_cache import get_field_analysis_cache
 from .models import (
     AnalysisResult,
     ApprovalResult,
-    GenerationResult,
     GenerationMetrics,
     TemplateMetadata,
     FieldDefinition,
@@ -23,7 +22,6 @@ from .tools import (
     execute_command_tool,
     analyze_fields_tool,
     get_ntc_references_tool,
-    test_template_tool,
     save_template_tool,
 )
 from .deepagent import CommandLearnerAgent

@@ -315,7 +315,6 @@ def _populate_topology_links(sync_date: str) -> None:
         from config.paths import SNAPSHOTS_DIR
         import hashlib
         import json
-        from pathlib import Path
         
         db = get_database()
         

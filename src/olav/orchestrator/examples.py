@@ -17,7 +17,6 @@ Each example includes:
 """
 
 import asyncio
-from pathlib import Path
 
 from olav.testing.diagnosis_verifier import DiagnosisVerifier, GroundTruth
 from olav.testing.expert_constraints import (

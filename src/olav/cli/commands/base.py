@@ -9,7 +9,7 @@ All commands inherit from this to ensure consistent:
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 

@@ -15,10 +15,8 @@ Design Principles:
 ✅ Device/command extraction with Chinese support
 """
 
-import hashlib
 import logging
 import re
-from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)

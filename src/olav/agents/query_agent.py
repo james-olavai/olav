@@ -22,8 +22,6 @@ See: docs/reference/ARCHITECTURE_COMPARISON.md
 """
 
 import logging
-import warnings
-from pathlib import Path
 from typing import Any
 
 from deepagents import create_deep_agent

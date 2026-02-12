@@ -11,7 +11,6 @@ Supports:
 import asyncio
 import logging
 import sys
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import typer
@@ -247,7 +246,6 @@ async def run_interactive_loop_async(
     is_tty = sys.stdin.isatty()
 
     # Generate or load session thread_id for checkpointer
-    from pathlib import Path
     from config.paths import OLAV_BASE_DIR
     
     thread_id_file = OLAV_BASE_DIR / ".last_thread_id"
@@ -583,8 +581,6 @@ def clean(
         olav clean --all --force        # Clean everything (no confirmation)
         olav clean --databases          # Clear snapshot data (keeps devices table)
     """
-    from pathlib import Path
-    import shutil
     
     # If no specific flags, show help
     if not (all or cache or checkpoints or databases):
@@ -704,7 +700,6 @@ def doctor() -> None:
     - Network device reachability
     - Cache and checkpoint status
     """
-    from pathlib import Path
     from config.paths import UNIFIED_DB
     
     console.print("\n[bold cyan]🏥 OLAV System Health Check[/bold cyan]\n")
@@ -870,7 +865,6 @@ def init(
         olav init --no-diagnose      # Skip diagnostic output (automated)
     """
     import os
-    from pathlib import Path
 
     # Load settings to get default group
     from config.settings import settings

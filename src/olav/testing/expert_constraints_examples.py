@@ -8,11 +8,9 @@ Version: v1.0.0 (2026-02-11)
 """
 
 import asyncio
-from typing import List, Dict
 from expert_constraints import (
     ExpertConstraintsValidator,
     ExpertDiagnosisOutput,
-    ValidationReport,
     ConstraintStatus,
 )
 
