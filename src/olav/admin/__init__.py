@@ -16,7 +16,6 @@ Security:
 
 from .admin_agent import AdminAgent
 from .admin_file_manager import AdminFileManager
-# from .config_manager import ConfigManager  # DEPRECATED (v0.9.6) - use AdminFileManager instead
 from .knowledge_manager import KnowledgeManager
 from .exceptions import (
     AdminException,
