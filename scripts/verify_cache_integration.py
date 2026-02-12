@@ -13,7 +13,7 @@ import logging
 from pathlib import Path
 from config.paths import CACHE_DIR, get_database_path
 from config.logging import get_logger
-from olav.tools.react_query import get_query_cache, query_database
+from olav.shared.tools.react_query import get_query_cache, query_database
 from langchain_core.tools import StructuredTool
 
 logger = get_logger(__name__)

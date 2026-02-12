@@ -96,7 +96,7 @@ enabled: true
 ```yaml
 ---
 name: system
-agent_skill: system-admin
+agent_skill: olav-admin
 description: System administration and maintenance specialist for cache management, system health monitoring, backups, and task scheduling
 capabilities:
   - Cache management (query cache, LLM response cache)

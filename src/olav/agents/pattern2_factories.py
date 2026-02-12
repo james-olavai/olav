@@ -37,7 +37,6 @@ def create_query_subagent(
     - DuckDBSaver: Session checkpointing for conversation continuity
     - DuckDBStore: Key-value store for aliases and preferences
     - Semantic caching for repeated queries
-    - 326x speedup on cache hits (via QueryResultCache in tool)
     
     Args:
         user_id: User identifier for session isolation (default: "default")

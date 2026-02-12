@@ -124,26 +124,6 @@ class OlavPromptSession:
         else:
             return input(message)
 
-    def prompt_sync(self, message: str = "olav> ", **kwargs) -> str:
-        """Get user input synchronously (DEPRECATED - use prompt_async in async context).
-
-        Args:
-            message: Prompt message
-            **kwargs: Additional prompt-toolkit arguments
-
-        Returns:
-            User input string
-        """
-        # Use prompt-toolkit if available, otherwise fallback to input()
-        if self._session:
-            try:
-                return self._session.prompt(message, **kwargs)
-            except Exception as e:
-                logger.debug(f"Prompt-toolkit failed, using fallback: {e}")
-                return input(message)
-        else:
-            return input(message)
-
     def add_history(self, command: str) -> None:
         """Add command to history.
 

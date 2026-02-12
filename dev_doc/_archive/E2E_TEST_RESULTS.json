@@ -1,0 +1,150 @@
+{
+  "test_suite": "OLAV E2E Test Suite",
+  "timestamp": "2026-02-02T17:10:26.074140",
+  "duration": 49.68865251541138,
+  "summary": {
+    "total": 17,
+    "passed": 14,
+    "failed": 0,
+    "warned": 1,
+    "skipped": 2
+  },
+  "results": [
+    {
+      "stage": 1,
+      "name": "Snapshot: R1 - Data Capture",
+      "status": "PASS",
+      "details": "67 files captured",
+      "duration": 0.5378127098083496,
+      "timestamp": "2026-02-02T17:09:36.930466"
+    },
+    {
+      "stage": 1,
+      "name": "Snapshot: R2 - Data Capture",
+      "status": "PASS",
+      "details": "67 files captured",
+      "duration": 0.5389859676361084,
+      "timestamp": "2026-02-02T17:09:36.931640"
+    },
+    {
+      "stage": 1,
+      "name": "Snapshot: R3 - Data Capture",
+      "status": "PASS",
+      "details": "61 files captured",
+      "duration": 0.5397963523864746,
+      "timestamp": "2026-02-02T17:09:36.932449"
+    },
+    {
+      "stage": 1,
+      "name": "Snapshot: R4 - Data Capture",
+      "status": "PASS",
+      "details": "61 files captured",
+      "duration": 0.5406029224395752,
+      "timestamp": "2026-02-02T17:09:36.933255"
+    },
+    {
+      "stage": 1,
+      "name": "Snapshot: SW1 - Data Capture",
+      "status": "PASS",
+      "details": "58 files captured",
+      "duration": 0.5413708686828613,
+      "timestamp": "2026-02-02T17:09:36.934024"
+    },
+    {
+      "stage": 1,
+      "name": "Snapshot: SW2 - Data Capture",
+      "status": "PASS",
+      "details": "58 files captured",
+      "duration": 0.5421340465545654,
+      "timestamp": "2026-02-02T17:09:36.934786"
+    },
+    {
+      "stage": 2,
+      "name": "Inspect: Module Import",
+      "status": "SKIP",
+      "details": "Inspector not available",
+      "duration": 5.121630430221558,
+      "timestamp": "2026-02-02T17:09:42.056651"
+    },
+    {
+      "stage": 3,
+      "name": "Query: Basic query",
+      "status": "PASS",
+      "details": "Result length: 120 chars",
+      "duration": 9.238188028335571,
+      "timestamp": "2026-02-02T17:09:51.295467"
+    },
+    {
+      "stage": 3,
+      "name": "Query: Device-specific query",
+      "status": "PASS",
+      "details": "Result length: 508 chars",
+      "duration": 16.80439329147339,
+      "timestamp": "2026-02-02T17:09:58.861672"
+    },
+    {
+      "stage": 3,
+      "name": "Query: Multi-device Chinese query",
+      "status": "PASS",
+      "details": "Result length: 356 chars",
+      "duration": 25.581419944763184,
+      "timestamp": "2026-02-02T17:10:07.638700"
+    },
+    {
+      "stage": 4,
+      "name": "FastPath: Cache Efficiency",
+      "status": "PASS",
+      "details": "Cache hit detected: 5.40s → 5.22s (speedup: 1.0x)",
+      "duration": 11.402141332626343,
+      "timestamp": "2026-02-02T17:10:19.045177"
+    },
+    {
+      "stage": 5,
+      "name": "CLI Agent: Real-time show command",
+      "status": "PASS",
+      "details": "CLI keyword detected: True",
+      "duration": 1.6689300537109375e-05,
+      "timestamp": "2026-02-02T17:10:19.048989"
+    },
+    {
+      "stage": 5,
+      "name": "CLI Agent: Chinese real-time query",
+      "status": "PASS",
+      "details": "CLI keyword detected: True",
+      "duration": 0.0001239776611328125,
+      "timestamp": "2026-02-02T17:10:19.049095"
+    },
+    {
+      "stage": 5,
+      "name": "CLI Agent: Real-time network test",
+      "status": "PASS",
+      "details": "CLI keyword detected: True",
+      "duration": 0.0001983642578125,
+      "timestamp": "2026-02-02T17:10:19.049168"
+    },
+    {
+      "stage": 6,
+      "name": "Fallback: DB Miss Detection",
+      "status": "PASS",
+      "details": "Fallback mechanism ready",
+      "duration": 9.5367431640625e-07,
+      "timestamp": "2026-02-02T17:10:19.049340"
+    },
+    {
+      "stage": 7,
+      "name": "Expert: Module Import",
+      "status": "SKIP",
+      "details": "Analyzer not available",
+      "duration": 3.4809112548828125e-05,
+      "timestamp": "2026-02-02T17:10:19.049541"
+    },
+    {
+      "stage": 8,
+      "name": "Performance: Query Cold Start",
+      "status": "WARN",
+      "details": "Actual: 5.94s, Target: 3.0s",
+      "duration": 7.02132248878479,
+      "timestamp": "2026-02-02T17:10:26.071037"
+    }
+  ]
+}

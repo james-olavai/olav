@@ -350,7 +350,7 @@ def test_device_connectivity(olav_dir: Path, sample_count: int = 1) -> tuple[boo
     try:
         from nornir_netmiko.tasks import netmiko_send_command
 
-        from olav.tools.network_executor import get_nornir, reset_nornir
+        from olav.shared.tools.network_executor import get_nornir, reset_nornir
 
         # Reset to ensure fresh credentials are applied
         reset_nornir()

@@ -1,0 +1,15 @@
+{
+  "template_file": "cisco_ios_show_bgp_summary.textfsm",
+  "command": "show bgp summary",
+  "platform": "cisco_ios",
+  "created_at": "2026-02-12T12:18:23.806172",
+  "fields": [
+    "Router_ID",
+    "Neighbors",
+    "State"
+  ],
+  "field_coverage": 100,
+  "success_rate": 0.95,
+  "notes": "Test BGP summary template",
+  "source": "command_learner_auto_generated"
+}

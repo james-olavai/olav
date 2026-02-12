@@ -213,7 +213,7 @@ def get_skill_checkpoint_path(skill_name: str) -> Path:
     
     Examples:
         >>> get_skill_checkpoint_path('orchestrator')
-        Path('.olav/skills/orchestrator/skill.duckdb')
+        Path('.olav/skills/olav-orchestrator/skill.duckdb')
         >>> get_skill_checkpoint_path('network-query')
         Path('.olav/skills/network-query/skill.duckdb')
     """

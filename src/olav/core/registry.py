@@ -191,9 +191,10 @@ class CommandRegistry:
     ) -> Path | None:
         """Get TextFSM template for a platform/command pair.
 
-        Priority:
-        1. ntc-templates (if available)
-        2. User custom templates
+        Priority order (actual execution):
+        1. User custom templates (.olav/templates)
+        2. ntc-templates pip package (if available)
+        3. Not found → returns None
 
         Args:
             platform: Device platform (e.g., "cisco_ios", "huawei_vrp")
@@ -369,6 +370,18 @@ def get_command_registry() -> CommandRegistry:
         _registry = CommandRegistry()
 
     return _registry
+
+
+def reload_command_registry() -> None:
+    """Reload the command registry (useful after saving new templates).
+    
+    Forces re-initialization of template indices from disk.
+    Call this after adding new templates programmatically.
+    """
+    global _registry
+    logger.info("🔄 Reloading command registry...")
+    _registry = CommandRegistry()
+    logger.info("✓ Command registry reloaded")
 
 
 # =============================================================================

@@ -1,8 +1,6 @@
-Value Required INTERFACE (\S+)
-Value IP_ADDRESS (\d+\.\d+\.\d+\.\d+|unassigned)
-Value STATUS (up|down|administratively down)
-Value PROTOCOL (up|down)
-Value METHOD ([\w\s]+)
+Value Interface (\S+)
+Value IP (\d+\.\d+\.\d+\.\d+)
+Value Status (\S+)
 
 Start
-  ^${INTERFACE}\s+${IP_ADDRESS}\s+\w+\s+\w+\s+${STATUS}\s+${PROTOCOL} -> Record
+  ^${Interface}\s+${IP}\s+${Status} -> Record

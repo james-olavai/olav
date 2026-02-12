@@ -161,7 +161,7 @@ class IntentAgent:
         Returns:
             CLI output string
         """
-        from olav.tools.network_executor import get_executor
+        from olav.shared.tools.network_executor import get_executor
 
         device = step.get("device") or ""
         command = step.get("command") or ""

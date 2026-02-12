@@ -286,16 +286,6 @@ async def execute_query(query: str) -> dict[str, Any]:
         return {"success": False, "error": "Empty query", "rows": [], "execution_time": 0.0}
 
     try:
-        # Check cache first
-        cache_key = _cache_key_for_query(query)
-        cached_result = await _get_cached_result(cache_key)
-
-        if cached_result:
-            result = cached_result
-            result["cached"] = True
-            result["execution_time"] = time.time() - start_time
-            return result
-
         # Parse intent
         intent = await parse_intent(query)
 
@@ -320,10 +310,6 @@ async def execute_query(query: str) -> dict[str, Any]:
             result = await _execute_interfaces_query(query, intent)
         else:
             result = await _execute_generic_query(query, intent)
-
-        # Cache successful results
-        if result.get("success"):
-            await _cache_result(query, result)
 
         result["execution_time"] = time.time() - start_time
         return result
@@ -484,52 +470,6 @@ def _extract_device_id(query: str) -> str | None:
     return None
 
 
-def _cache_key_for_query(query: str) -> str:
-    """Generate cache key for query."""
-    import hashlib
-
-    normalized = query.lower().strip()
-    hash_val = hashlib.sha256(normalized.encode()).hexdigest()[:16]
-    return f"query:{hash_val}"
-
-
-async def _get_cached_result(cache_key: str) -> dict[str, Any] | None:
-    """Retrieve cached query result."""
-    from olav.core.query_cache import QueryResultCache
-
-    try:
-        cache = QueryResultCache()
-        # Try to get from cache
-        cached = cache.get(cache_key)
-        if cached:
-            return {
-                "success": True,
-                "rows": cached.get("rows", []),
-                "count": cached.get("count", 0),
-                "cached": True,
-            }
-    except Exception as e:
-        logger.warning(f"Could not retrieve cached result: {e}")
-
-    return None
-
-
-async def _cache_result(query: str, result: Dict[str, Any]) -> None:
-    """Cache query result."""
-    from olav.core.query_cache import QueryResultCache
-
-    try:
-        cache = QueryResultCache()
-        # Use query text as key, ttl_seconds parameter
-        await asyncio.to_thread(
-            cache.set,
-            query,
-            result,
-            None,  # context
-            3600,  # ttl_seconds
-        )
-    except Exception as e:
-        logger.warning(f"Could not cache result: {e}")
 
 
 def _generate_export_filename(intent: dict[str, Any]) -> str:

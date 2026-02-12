@@ -99,7 +99,7 @@ async def cmd_devices(args: str) -> str:
         /devices role:core    - List core devices
         /devices site:DC1     - List devices in DC1
     """
-    from olav.tools.network import list_devices
+    from olav.shared.tools.network import list_devices
 
     filter_expr = args.strip() if args else None
     try:
@@ -181,31 +181,6 @@ async def cmd_clear(args: str) -> str:
         return "Conversation memory cleared."
     except Exception as e:
         return f"Error clearing memory: {str(e)}"
-
-
-@register_command("teach")
-async def cmd_teach(args: str) -> str:
-    """Teach OLAV the correct response for the last query.
-
-    NOTE: DEPRECATED in v0.9.8 - vector-based teaching removed.
-    OLAV now uses exact match caching. To correct OLAV's behavior,
-    simply ask the same question again and OLAV will use the new response.
-    """
-    return """❌ /teach command is deprecated in OLAV v0.9.8
-
-In v0.9.8, OLAV uses exact match caching (no vector search).
-The /teach command relied on vector embeddings and semantic search,
-which have been removed to simplify the architecture.
-
-How to correct OLAV in v0.9.8:
-1. Ask the same question again
-2. OLAV will cache the new response
-3. Next time, the new response will be returned
-
-This follows the K.I.S.S. principle: exact matches are simpler
-and more predictable than semantic vector search.
-
-下次遇到类似问题时，OLAV 将使用您提供的正确答案。"""
 
 
 # cmd_quit, cmd_exit are defined later with more detailed implementations
@@ -471,12 +446,12 @@ async def cmd_lib(args: str) -> str:
         return registry.format_command_list()
 
 
-@register_command("learn")
+@register_command("learn_cmd")
 async def cmd_learn(args: str) -> str:
     """Learn a new command and generate TextFSM template interactively.
 
     Usage:
-        /learn <host:group> <platform> <command>
+        /learn_cmd <host:group> <platform> <command>
 
     This runs the Command Learner interactive workflow:
     1. Execute command on target host
@@ -498,10 +473,10 @@ async def cmd_learn(args: str) -> str:
     # Parse arguments
     parts = args.strip().split(maxsplit=2)
     if len(parts) < 3:
-        return """Usage: /learn <host:group> <platform> <command>
+        return """Usage: /learn_cmd <host:group> <platform> <command>
 
 Example:
-    /learn R1:core cisco_ios "show running-config"
+    /learn_cmd R1:core cisco_ios "show running-config"
 
 This will start the interactive TextFSM template learning workflow."""
 

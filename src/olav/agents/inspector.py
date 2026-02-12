@@ -139,7 +139,7 @@ class ReportRenderer:
         Returns:
             Professional markdown report string
         """
-        from olav.tools.report_formatter import generate_professional_inspection_report
+        from olav.shared.tools.report_formatter import generate_professional_inspection_report
 
         return generate_professional_inspection_report(
             metadata=result["metadata"],
@@ -173,7 +173,7 @@ class InspectionOrchestrator:
 
         # 0. Ensure inspection views exist (auto-create if missing)
         try:
-            from olav.tools.inspection_views import create_inspection_views
+            from olav.shared.tools.inspection_views import create_inspection_views
             create_inspection_views(self.udb.conn)
             logger.info("✅ Inspection views verified/created")
         except Exception as e:

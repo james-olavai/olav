@@ -1,0 +1,6 @@
+# CLI Query Indicators (Real-Time Requests Only)
+
+## Ultra-Conservative: Only Explicit Real-Time Requests
+实时|real-time|live|当前|立即|现在|最新|即刻|马上|正在|目前.*(?:show|执行|获取|查看)
+show.*(?:实时|real-time|live|当前|立即|现在|最新|即刻|马上).*
+(?:获取|fetch|get|retrieve).*(?:实时|live|current|now).*(?:show|status|info)
