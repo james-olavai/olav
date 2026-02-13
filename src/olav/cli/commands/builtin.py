@@ -462,30 +462,3 @@ async def cmd_cache(args: str) -> str:
         /cache cleanup 60               - Remove templates>60 days old
     """
     return "⚠️  Cache management not yet implemented"
-
-
-def get_all_commands() -> dict[str, str]:
-    """Get all registered commands with descriptions.
-
-    Returns:
-        Dictionary mapping command names to descriptions
-    """
-    commands = {}
-    for name, func in SLASH_COMMANDS.items():
-        # Extract first line of docstring
-        doc = func.__doc__ or ""
-        first_line = doc.split("\n")[0] if doc else "No description"
-        commands[name] = first_line.strip()
-    return commands
-
-
-def is_slash_command(text: str) -> bool:
-    """Check if text is a slash command.
-
-    Args:
-        text: Input text
-
-    Returns:
-        True if text starts with /
-    """
-    return text.strip().startswith("/")
