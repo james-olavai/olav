@@ -444,10 +444,12 @@ def query(
             from olav.agents.guard import get_guard
             guard_instance = get_guard()
             result = guard_instance.route_and_execute(query_text)
+            logger.debug(f"[CLI] Guard result keys: {list(result.keys())}")
         else:
             # Fallback to sync orchestrator (v0.11.x behavior, without Guard)
             from olav.agents.orchestrator import orchestrate_query_sync
             result = orchestrate_query_sync(query_text)
+            logger.debug(f"[CLI] Orchestrator result keys: {list(result.keys())}")
 
         display.stop_processing_status()
 
@@ -458,12 +460,13 @@ def query(
             console.print(f"[dim]Route: {route} (confidence: {confidence:.2f})[/dim]")
         
         if result.get("execution_time"):
-            latency = result["execution_time"]
+            latency = result["execution_time"] * 1000 if result.get("execution_time") < 100 else result.get("execution_time")
             console.print(f"[dim]Latency: {latency:.1f}ms[/dim]")
 
         # 🚀 Performance Enhancement: Direct table rendering (v0.11.2)
         # If result has structured data with "table" format hint,
         # render directly with Rich Table (skip LLM markdown generation)
+        # Priority: Check table format FIRST before checking status
         if result.get("format") == "table" and result.get("data"):
             from rich.table import Table
             

@@ -1,0 +1,18 @@
+{
+  "query": "count devices",
+  "cached_at": 1770983493.3407166,
+  "ttl_seconds": 3600,
+  "result": {
+    "success": true,
+    "result": [
+      {
+        "device_count": 6
+      }
+    ],
+    "query": "SELECT COUNT(*) AS device_count FROM devices LIMIT 1000;",
+    "execution_time": 2.1022751331329346,
+    "rows_returned": 1,
+    "format": "table",
+    "cached": false
+  }
+}
