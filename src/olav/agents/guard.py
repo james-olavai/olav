@@ -69,6 +69,10 @@ class RouteDecision:
     cache_bypass: bool = False     # Whether to bypass all caches (for realtime queries)
     textfsm_reasoning: str = ""    # Explanation for TextFSM decision
     
+    # ✅ Phase 3.1: CSV Export support (Restore original design)
+    export_requested: bool = False # Whether user requested data export
+    export_format: str = "csv"     # Export format (csv, json, markdown, etc.)
+    
     def should_direct_route(self) -> bool:
         """Check if confidence is high enough for direct routing."""
         return self.confidence >= settings.agent.guard_confidence_threshold
@@ -152,11 +156,14 @@ class QueryGuard:
         
         if not self.enabled:
             logger.debug("🔓 Guard is disabled, returning UNKNOWN")
+            export_requested, export_format = self.security_classifier.detect_export_request(query)
             return RouteDecision(
                 code=RouteCode.UNKNOWN,
                 confidence=0.0,
                 reasoning="Guard routing is disabled",
-                risk_level="safe"
+                risk_level="safe",
+                export_requested=export_requested,
+                export_format=export_format,
             )
         
         # ═══════════════════════════════════════════════════════════════
@@ -164,6 +171,7 @@ class QueryGuard:
         # ═══════════════════════════════════════════════════════════════
         if self.security_classifier.detect_realtime_keywords(query):
             logger.info(f"🔥 Realtime keyword detected: {query[:60]}...")
+            export_requested, export_format = self.security_classifier.detect_export_request(query)
             return RouteDecision(
                 code=RouteCode.CLI,
                 confidence=0.95,
@@ -172,7 +180,9 @@ class QueryGuard:
                 use_textfsm=self.security_classifier.should_use_textfsm(query),
                 textfsm_reasoning=self.security_classifier.explain_textfsm_choice(query),
                 detected_intent="realtime_request",
-                risk_level="safe"
+                risk_level="safe",
+                export_requested=export_requested,
+                export_format=export_format,
             )
         
         # ═══════════════════════════════════════════════════════════════
@@ -180,12 +190,15 @@ class QueryGuard:
         # ═══════════════════════════════════════════════════════════════
         if self.security_classifier.is_dangerous(query):
             logger.warning(f"🚫 Dangerous pattern detected: {query[:60]}...")
+            export_requested, export_format = self.security_classifier.detect_export_request(query)
             return RouteDecision(
                 code=RouteCode.REJECT,
                 confidence=0.95,
                 reasoning="Dangerous operation detected - query blocked",
                 risk_level="dangerous",
-                detected_intent="dangerous_operation"
+                detected_intent="dangerous_operation",
+                export_requested=export_requested,
+                export_format=export_format,
             )
         
         # ═══════════════════════════════════════════════════════════════
@@ -195,13 +208,16 @@ class QueryGuard:
         if cache_result:
             logger.info(f"⚡ Cache hit (Stage 2): {query[:60]}... → {cache_result['route_code']} "
                         f"({cache_result['confidence']:.2f})")
+            export_requested, export_format = self.security_classifier.detect_export_request(query)
             return RouteDecision(
                 code=RouteCode(cache_result['route_code']),
                 confidence=cache_result['confidence'],
                 reasoning=cache_result['reasoning'],
                 cache_hit=True,
                 risk_level=cache_result['risk_level'],
-                detected_intent=cache_result['detected_intent']
+                detected_intent=cache_result['detected_intent'],
+                export_requested=export_requested,
+                export_format=export_format,
             )
         
         # ═══════════════════════════════════════════════════════════════
@@ -221,12 +237,15 @@ class QueryGuard:
                     "detected_intent": intent
                 }
                 self.cache_manager.cache_decision(query, decision)
+                export_requested, export_format = self.security_classifier.detect_export_request(query)
                 return RouteDecision(
                     code=RouteCode(route_code),
                     confidence=confidence,
                     reasoning=reasoning,
                     risk_level="safe",
-                    detected_intent=intent
+                    detected_intent=intent,
+                    export_requested=export_requested,
+                    export_format=export_format,
                 )
         
         # ═══════════════════════════════════════════════════════════════
@@ -241,6 +260,10 @@ class QueryGuard:
             llm_result['textfsm_reasoning'] = self.security_classifier.explain_textfsm_choice(query)
         
         self.cache_manager.cache_decision(query, llm_result)
+        
+        # ✅ Phase 3.1: Detect export request
+        export_requested, export_format = self.security_classifier.detect_export_request(query)
+        
         return RouteDecision(
             code=RouteCode(llm_result['route_code']),
             confidence=llm_result['confidence'],
@@ -248,7 +271,9 @@ class QueryGuard:
             risk_level=llm_result.get('risk_level', 'safe'),
             detected_intent=llm_result.get('detected_intent', ''),
             use_textfsm=llm_result.get('use_textfsm', True),
-            textfsm_reasoning=llm_result.get('textfsm_reasoning', '')
+            textfsm_reasoning=llm_result.get('textfsm_reasoning', ''),
+            export_requested=export_requested,
+            export_format=export_format,
         )
     
     def route_and_execute(
@@ -278,6 +303,8 @@ class QueryGuard:
             "use_textfsm": decision.use_textfsm,
             "cache_bypass": decision.cache_bypass,
             "textfsm_reasoning": decision.textfsm_reasoning,
+            "export_requested": decision.export_requested,  # ✅ Phase 3.1
+            "export_format": decision.export_format,        # ✅ Phase 3.1
         }
         
         # Execute via dispatcher

@@ -66,6 +66,27 @@ def orchestrate_query_sync(
 
     execution_start = time.time()
     logger.info(f"[QueryOrchestrator] Processing query: {user_query[:100]}...")
+    
+    # ✅ Phase 3.1: Detect export request from user query
+    export_requested = False
+    export_format = "csv"
+    export_filename = None
+    
+    # Simple export detection (Guard will do deeper detection, this is backup)
+    query_lower = user_query.lower()
+    if any(kw in query_lower for kw in ["export", "save", "csv", "导出", "保存", "输出"]):
+        export_requested = True
+        if "json" in query_lower:
+            export_format = "json"
+        elif "markdown" in query_lower:
+            export_format = "markdown"
+        # Try to extract filename from query
+        import re
+        filename_match = re.search(r"(?:to|as|named?|called?|filename)\s+['\"]?(\w+)", query_lower)
+        if filename_match:
+            export_filename = filename_match.group(1)
+    
+    logger.debug(f"[QueryOrchestrator] Export detection: requested={export_requested}, format={export_format}")
 
     # Initialize cache (NEW in v0.11.2)
     cache = None
@@ -76,6 +97,10 @@ def orchestrate_query_sync(
             execution_time = time.time() - execution_start
             cached_result["execution_time"] = execution_time
             cached_result["cached"] = True
+            # ✅ Preserve export flags from original detection
+            cached_result["export_requested"] = export_requested
+            cached_result["export_format"] = export_format
+            cached_result["export_filename"] = export_filename
             return cached_result
 
     try:
@@ -204,6 +229,10 @@ Generate SQL:"""
             "rows_returned": len(result_dicts),
             "format": "table",  # Hint for CLI: render as table directly (skip LLM prettification)
             "cached": False,
+            # ✅ Phase 3.1: Export metadata
+            "export_requested": export_requested,
+            "export_format": export_format,
+            "export_filename": export_filename,
         }
         
         # Cache result for future queries (NEW in v0.11.2)

@@ -114,7 +114,14 @@ USER_SESSION_DIR = Path.home() / ".olav" / "sessions"
 # Export Paths (User-Facing - exports/)
 # =============================================================================
 
-EXPORTS_DIR = PROJECT_ROOT / "exports"
+import os
+
+# ✅ #Phase 3.1: Support OLAV_EXPORTS_DIR environment variable for testing
+_exports_dir_env = os.environ.get("OLAV_EXPORTS_DIR")
+if _exports_dir_env:
+    EXPORTS_DIR = Path(_exports_dir_env)
+else:
+    EXPORTS_DIR = PROJECT_ROOT / "exports"
 
 # Snapshots: exports/snapshots/<YYYY-MM-DD>/
 # Simplified structure (removed /sync/ layer)
