@@ -750,12 +750,12 @@ def doctor() -> None:
             device_count = conn.execute('SELECT COUNT(*) FROM devices').fetchone()[0]
             console.print(f"  ✅ Devices table: {device_count} devices")
             
-            # Check raw_outputs
+            # Check parsed outputs
             try:
-                output_count = conn.execute('SELECT COUNT(*) FROM raw_outputs').fetchone()[0]
-                console.print(f"  ✅ Raw outputs: {output_count} records")
+                output_count = conn.execute('SELECT COUNT(*) FROM parsed_outputs').fetchone()[0]
+                console.print(f"  ✅ Parsed outputs: {output_count} records")
             except:
-                console.print("  ⚠️  Raw outputs: Table not initialized")
+                console.print("  ℹ️  Parsed outputs: Not yet populated (run 'olav sync')")
             
             # Check views
             tables = conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main' AND table_type='VIEW'").fetchall()
@@ -990,9 +990,12 @@ def init(
                 
                 conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
                 
-                # Check raw_outputs
-                raw_count = conn.execute('SELECT COUNT(*) FROM raw_outputs').fetchone()[0]
-                console.print(f"  📝 Raw outputs: {raw_count} records")
+                # Check parsed outputs
+                try:
+                    parsed_count = conn.execute('SELECT COUNT(*) FROM parsed_outputs').fetchone()[0]
+                    console.print(f"  📝 Parsed outputs: {parsed_count} records")
+                except:
+                    console.print(f"  ℹ️  Parsed outputs: Not yet populated")
                 
                 # Check if views exist
                 tables = conn.execute("SELECT table_name, table_type FROM information_schema.tables WHERE table_schema='main'").fetchall()

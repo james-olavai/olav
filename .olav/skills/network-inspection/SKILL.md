@@ -21,7 +21,7 @@ inspection:
       description: Device health and basic status
       queries:
         - SELECT hostname, is_active, version FROM devices
-        - SELECT hostname, MAX(created_at) as last_sync FROM raw_outputs GROUP BY hostname
+        - SELECT device_name, MAX(created_at) as last_sync FROM parsed_outputs GROUP BY device_name
     - name: L2_Interfaces
       description: Interface status and error detection
       queries:

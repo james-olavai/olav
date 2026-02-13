@@ -28,10 +28,10 @@ class MapPhase:
         """
         all_data = {}
 
-        # First, get all available devices from raw_outputs
+        # Get all available devices from devices table
         try:
             cursor = self.udb.conn.execute(
-                "SELECT DISTINCT device FROM raw_outputs ORDER BY device"
+                "SELECT hostname FROM devices ORDER BY hostname"
             )
             available_devices = [row[0] for row in cursor.fetchall()]
 
@@ -43,7 +43,7 @@ class MapPhase:
             for device in available_devices:
                 all_data[device] = {"_layer_map": {}}
         except Exception as e:
-            logger.warning(f"Could not get device list from raw_outputs: {e}")
+            logger.warning(f"Could not get device list from database: {e}")
 
         for layer in layers:
             sql = layer.get("sql")

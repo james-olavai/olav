@@ -124,7 +124,7 @@ ORDER BY site, device_count DESC
 -- Goal: Find border devices with OSPF neighbors, classify by neighbor count
 WITH ospf_data AS (
   SELECT device, output, created_at
-  FROM raw_outputs
+  FROM parsed_outputs
   WHERE command = 'show ip ospf neighbor'
     AND created_at > NOW() - INTERVAL '7 days'  -- ✅ INTERVAL!
 ),
@@ -173,7 +173,7 @@ WITH base_data AS (
     r.command,
     r.created_at
   FROM devices d
-  LEFT JOIN raw_outputs r ON d.hostname = r.device
+  LEFT JOIN parsed_outputs p ON d.hostname = p.device_name
     AND r.created_at > NOW() - INTERVAL '30 days'  -- ✅ INTERVAL!
   WHERE d.is_active = true
     AND d.device_role != 'access'
