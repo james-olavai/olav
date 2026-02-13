@@ -464,3 +464,49 @@ class StreamingDisplay:
             import json
 
             self.show_result(json.dumps(json_data, indent=2, ensure_ascii=False), end="\n")
+
+
+def display_todos(agent_graph: Any, console: Console | None = None) -> None:
+    """Display todo list from agent state using Rich.
+    
+    Args:
+        agent_graph: Compiled LangGraph agent with state
+        console: Console instance (optional, creates new if not provided)
+    """
+    if console is None:
+        from rich.console import Console as RichConsole
+        console = RichConsole()
+    
+    try:
+        from rich.panel import Panel
+        from rich.table import Table
+        
+        # Get the latest state from the graph
+        state = agent_graph.get_state()
+        todos: list[dict[str, Any]] = state.values.get("todos", []) if state and hasattr(state, "values") else []
+
+        if not todos:
+            return
+
+        table = Table(show_header=True, header_style="bold magenta", border_style="blue")
+        table.add_column("ID", style="dim", width=4)
+        table.add_column("Status", width=15)
+        table.add_column("Task", min_width=30)
+
+        status_icons = {"not-started": "⬜", "in-progress": "🔄", "completed": "✅"}
+
+        for todo in todos:
+            icon = status_icons.get(todo.get("status", "not-started"), "⬜")
+            table.add_row(
+                str(todo.get("id", "")),
+                f"{icon} {todo.get('status', 'not-started')}",
+                str(todo.get("title", "")),
+            )
+
+        panel = Panel(table, title="📋 Task Progress", border_style="blue")
+        console.print(panel)
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.debug(f"Could not display todos: {e}")
+
