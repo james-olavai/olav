@@ -284,6 +284,15 @@ async def run_interactive_loop_async(
 
             # Check for slash commands first
             if user_input.startswith("/"):
+                # Handle /reload command specially (no need to route to execute_command)
+                if user_input.strip() == "/reload":
+                    try:
+                        from olav.core.schema_cache import SchemaCache
+                        SchemaCache.reload()
+                    except Exception as e:
+                        print(f"❌ Error reloading schema: {e}", file=sys.stderr)
+                    continue
+                
                 try:
                     # Run async command handler with await
                     result = await execute_command(
@@ -1147,6 +1156,13 @@ def interactive_mode(
     # If a subcommand was invoked, skip interactive mode
     if ctx.invoked_subcommand is not None:
         return
+
+    # Initialize schema cache (once at startup)
+    try:
+        from olav.core.schema_cache import SchemaCache
+        SchemaCache.initialize()
+    except Exception as e:
+        logger.warning(f"Failed to initialize schema cache: {e}")
 
     # Import heavy modules only when needed
     from olav.cli.display import display_banner, load_banner_from_config
