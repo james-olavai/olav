@@ -22,6 +22,8 @@ from typing import Any
 import duckdb
 import yaml
 
+from config.settings import settings
+
 logger = logging.getLogger(__name__)
 
 

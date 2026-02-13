@@ -36,6 +36,7 @@ import yaml
 from deepagents.middleware.subagents import SubAgent
 
 from config.paths import PROJECT_ROOT
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ def load_subagents_from_olav(
     _setup_llm_environment()
     
     if olav_path is None:
-        olav_path = Path(PROJECT_ROOT) / ".olav" / "OLAV.md"
+        olav_path = Path(settings.runtime.get_full_path(settings.runtime.olav_config_dir)) / "OLAV.md"
 
     if not olav_path.exists():
         raise FileNotFoundError(f"OLAV.md not found: {olav_path}")
@@ -269,12 +270,9 @@ def _parse_skill_frontmatter(skill_path: Path) -> dict[str, Any]:
     
     return frontmatter
 
-
 def _load_from_skill(skill_name: str, agent_name: str) -> tuple[str, list[Any]]:
     """Load system prompt and tools from agent's SKILL.md file."""
-    from config.paths import PROJECT_ROOT
-
-    skill_path = Path(PROJECT_ROOT) / ".olav" / "skills" / skill_name / "SKILL.md"
+    skill_path = Path(settings.runtime.get_skills_dir()) / skill_name / "SKILL.md"
 
     if not skill_path.exists():
         raise FileNotFoundError(
@@ -435,7 +433,7 @@ def load_caching_config(skill_name: str) -> dict[str, Any]:
     """Load caching configuration from SKILL.md."""
     from config.paths import PROJECT_ROOT
 
-    skill_path = Path(PROJECT_ROOT) / ".olav" / "skills" / skill_name / "SKILL.md"
+    skill_path = Path(settings.runtime.get_skills_dir()) / skill_name / "SKILL.md"
     if not skill_path.exists():
         raise FileNotFoundError(f"SKILL.md not found for skill '{skill_name}'")
 
@@ -455,7 +453,7 @@ def load_skill_prompt(skill_name: str, prompt_field: str = "system") -> str:
     """Load prompt from skill SKILL.md file."""
     from config.paths import PROJECT_ROOT
 
-    skill_path = Path(PROJECT_ROOT) / ".olav" / "skills" / skill_name / "SKILL.md"
+    skill_path = Path(settings.runtime.get_skills_dir()) / skill_name / "SKILL.md"
     if not skill_path.exists():
         raise FileNotFoundError(f"SKILL.md not found for skill '{skill_name}'")
 

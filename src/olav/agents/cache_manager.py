@@ -30,7 +30,7 @@ from config.settings import settings
 logger = logging.getLogger(__name__)
 
 # Use skill-specific directory for cache
-SKILLS_DIR = Path(".olav") / "skills"
+SKILLS_DIR = Path(settings.runtime.get_skills_dir())
 
 
 class CacheManager:

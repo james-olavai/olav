@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List
 
+from config.settings import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -480,8 +482,9 @@ def _generate_export_filename(intent: dict[str, Any]) -> str:
     entity = intent.get("entity", "data")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    filename = f"exports/{entity}_{timestamp}.csv"
-    Path("exports").mkdir(exist_ok=True)
+    exports_dir = Path(settings.runtime.get_exports_dir())
+    filename = str(exports_dir / f"{entity}_{timestamp}.csv")
+    exports_dir.mkdir(exist_ok=True, parents=True)
 
     return filename
 

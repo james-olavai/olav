@@ -18,6 +18,7 @@ from pathlib import Path
 import nest_asyncio
 
 from config.paths import USER_HISTORY_PATH, USER_SESSION_DIR
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -1156,7 +1157,7 @@ class Session:
             result = session.execute_query("SELECT COUNT(*) FROM devices", use_cache=True)
 
             # With timeout
-            result = session.execute_query("SELECT * FROM large_table", timeout=30.0)
+            result = session.execute_query("SELECT * FROM large_table", timeout=settings.runtime.session_timeout)
         """
         from src.olav.core.database_enhancer import get_database_enhancer
 

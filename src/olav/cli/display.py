@@ -23,6 +23,17 @@ else:
         Text = None  # type: ignore[misc,assignment]
 
 
+__all__ = [
+    "get_banner",
+    "load_banner_from_config",
+    "display_banner",
+    "display_todos",
+    "print_error",
+    "print_success",
+    "print_welcome",
+]
+
+
 def get_banner(banner_name: str = "default") -> str:
     """Get banner text by name.
 
@@ -461,3 +472,103 @@ def display_todos(agent_graph: Any, console: Console | None = None) -> None:
         logger = logging.getLogger(__name__)
         logger.debug(f"Could not display todos: {e}")
 
+
+# =============================================================================
+# Print Functions for Status Output
+# =============================================================================
+
+# Format configuration for print_* functions
+_PRINT_FORMATS = {
+    "error": {
+        "emoji": "❌",
+        "style": "bold red",
+        "fallback_prefix": "ERROR:",
+    },
+    "success": {
+        "emoji": "✅",
+        "style": "bold green",
+        "fallback_prefix": "SUCCESS:",
+    },
+    "welcome": {
+        "emoji": "👋",
+        "style": "bold cyan",
+        "fallback_prefix": "Welcome:",
+    },
+}
+
+
+def _format_and_print(
+    message: str,
+    format_key: str,
+    console: "Console | None" = None,
+) -> None:
+    """Internal helper function for print_* functions.
+    
+    Eliminates code duplication for Rich-based printing with fallback support.
+    
+    Args:
+        message: The message to print
+        format_key: Key in _PRINT_FORMATS dict (error, success, welcome)
+        console: Optional Rich console object
+    """
+    if format_key not in _PRINT_FORMATS:
+        raise ValueError(f"Unknown format key: {format_key}")
+    
+    config = _PRINT_FORMATS[format_key]
+    
+    if console is None:
+        if RICH_AVAILABLE:
+            console = Console()
+        else:
+            # Fallback for when Rich is not available
+            prefix = config["fallback_prefix"]
+            print(f"{prefix} {message}", flush=True)
+            return
+    
+    # Use Rich for formatted output
+    emoji = config["emoji"]
+    style = config["style"]
+    formatted_msg = f"[{style}]{emoji}[/{style}] {message}"
+    console.print(formatted_msg)
+
+
+def print_error(message: str, console: "Console | None" = None) -> None:
+    """Print an error message to console with color formatting.
+    
+    Args:
+        message: The error message to print
+        console: Optional Rich console object (creates one if not provided)
+    
+    Example:
+        >>> print_error("Configuration failed")
+        # Outputs: ❌ Configuration failed (in red)
+    """
+    _format_and_print(message, "error", console)
+
+
+def print_success(message: str, console: "Console | None" = None) -> None:
+    """Print a success message to console with color formatting.
+    
+    Args:
+        message: The success message to print
+        console: Optional Rich console object (creates one if not provided)
+    
+    Example:
+        >>> print_success("Operation completed")
+        # Outputs: ✅ Operation completed (in green)
+    """
+    _format_and_print(message, "success", console)
+
+
+def print_welcome(message: str, console: "Console | None" = None) -> None:
+    """Print a welcome message to console with color formatting.
+    
+    Args:
+        message: The welcome message to print
+        console: Optional Rich console object (creates one if not provided)
+    
+    Example:
+        >>> print_welcome("Welcome to OLAV")
+        # Outputs: 👋 Welcome to OLAV (in cyan)
+    """
+    _format_and_print(message, "welcome", console)

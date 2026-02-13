@@ -15,6 +15,8 @@ Based on DESIGN_V0.8.md Section 7.4:
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from config.settings import settings
+
 if TYPE_CHECKING:
     try:
         from deepagents.backends import CompositeBackend, FilesystemBackend, StateBackend
@@ -207,7 +209,7 @@ def check_write_permission(filepath: Path | str, project_root: Path | None = Non
         project_root = Path.cwd()
 
     filepath = Path(filepath)
-    olav_dir = project_root / ".olav"
+    olav_dir = Path(settings.runtime.get_full_path(settings.runtime.olav_config_dir))
 
     # Normalize path
     try:

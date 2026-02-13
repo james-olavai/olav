@@ -19,6 +19,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langgraph.graph import END, StateGraph
 
+from config.settings import settings
 from olav.lib.data_gateway import get_gateway
 
 logger = logging.getLogger(__name__)
@@ -203,7 +204,7 @@ async def cli_verify_node(state: AnalyzerState) -> AnalyzerState:
                 {
                     "device": "router1",  # Default device, should be configurable
                     "command": command,
-                    "timeout": 30,
+                    "timeout": settings.runtime.default_timeout,
                 }
             )
         except Exception as e:
