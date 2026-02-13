@@ -348,7 +348,7 @@ class ExecutionSettings(BaseSettings):
 
     # Query timeout for CLI interactive mode (in seconds)
     query_timeout: int = Field(
-        default=180, ge=30, le=600, description="CLI query timeout in seconds (for complex queries)"
+        default=30, ge=30, le=600, description="CLI query timeout in seconds"
     )
 
     # Nornir concurrency (num_workers for parallel execution)

@@ -22,6 +22,7 @@ def orchestrate_query_sync(
     user_query: str,
     user_id: str | None = None,
     thread_id: str | None = None,
+    use_cache: bool = True,
 ) -> dict[str, Any]:
     """Synchronous orchestrator for database queries (v0.11.1).
 
@@ -30,10 +31,11 @@ def orchestrate_query_sync(
     bypasses those issues and provides ~3-5s query execution.
 
     **Architecture**: Direct LLM + Database Query approach
-    1. Get database schema
-    2. Send query + schema to LLM
-    3. Parse LLM response for SQL
-    4. Execute SQL and return results
+    1. Check cache for previous results (NEW in v0.11.2)
+    2. Get database schema
+    3. Send query + schema to LLM
+    4. Parse LLM response for SQL
+    5. Execute SQL and cache results
 
     **Important**: This is NOT a limitation - it's often BETTER than async due to:
     - Simpler error handling
@@ -45,6 +47,7 @@ def orchestrate_query_sync(
         user_query: Natural language query from user
         user_id: User ID for audit/security (optional)
         thread_id: Thread ID for conversation context (optional)
+        use_cache: Whether to use cached results (default True)
 
     Returns:
         Query result dict with:
@@ -52,15 +55,28 @@ def orchestrate_query_sync(
             - 'result' (list of dicts) - Query results
             - 'query' (str) - Executed SQL query
             - 'execution_time' (float) - Query execution time in seconds
+            - 'cached' (bool) - Whether result was from cache
             - 'error' (str) - Error message if failed
     """
     import time
 
     from olav.core.database import get_database
     from olav.core.llm import LLMFactory
+    from olav.core.query_cache import QueryCache
 
     execution_start = time.time()
     logger.info(f"[QueryOrchestrator] Processing query: {user_query[:100]}...")
+
+    # Initialize cache (NEW in v0.11.2)
+    cache = None
+    if use_cache:
+        cache = QueryCache()
+        cached_result = cache.get(user_query)
+        if cached_result is not None:
+            execution_time = time.time() - execution_start
+            cached_result["execution_time"] = execution_time
+            cached_result["cached"] = True
+            return cached_result
 
     try:
         # 1. Get database connection and schema
@@ -168,14 +184,24 @@ Generate SQL:"""
             f"[QueryOrchestrator] ✅ Query successful ({len(result_dicts)} rows, {query_duration:.2f}s)"
         )
 
-        return {
+        result_dict = {
             "success": True,
             "result": result_dicts,
             "query": sql_query,
             "execution_time": execution_time,
             "rows_returned": len(result_dicts),
             "format": "table",  # Hint for CLI: render as table directly (skip LLM prettification)
+            "cached": False,
         }
+        
+        # Cache result for future queries (NEW in v0.11.2)
+        if use_cache:
+            try:
+                cache.set(user_query, result_dict)
+            except Exception as e:
+                logger.debug(f"[QueryOrchestrator] Cache write failed: {e}")
+        
+        return result_dict
 
     except Exception as e:
         execution_time = time.time() - execution_start
