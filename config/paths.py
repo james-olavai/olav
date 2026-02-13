@@ -183,7 +183,9 @@ THRESHOLDS_CONFIG_PATH = SKILL_NETWORK_INSPECTION_CONFIG / "thresholds.yaml"
 
 SKILL_TEXTFSM_GENERATOR_DIR = SKILLS_DIR / "textfsm-generator"
 SKILL_TEXTFSM_GENERATOR_CONFIG = SKILL_TEXTFSM_GENERATOR_DIR / "config"
-TEXTFSM_TEMPLATES_DIR = SKILL_TEXTFSM_GENERATOR_CONFIG / "textfsm"
+# Priority: Use central .olav/templates/ directory (contains custom overrides)
+# Fallback: Skill output directory if needed
+TEXTFSM_TEMPLATES_DIR = OLAV_BASE_DIR / "templates"
 
 SKILL_GUARD_DIR = SKILLS_DIR / "guard"
 SKILL_GUARD_CONFIG = SKILL_GUARD_DIR / "config"

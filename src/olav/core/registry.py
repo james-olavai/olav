@@ -86,8 +86,11 @@ class CommandRegistry:
     def _load_custom_index(self) -> None:
         """Load custom template index file.
 
-        The index file maps platform-command pairs to template files.
-        Format: platform,command,template_file
+        Supports both formats:
+        1. NTC format: template_file, [hostname], platform, command
+        2. Simple format: platform, command, template_file
+        
+        The file is automatically detected based on number of columns.
         """
         index_path = self.custom_index / "index"
 
@@ -98,12 +101,40 @@ class CommandRegistry:
                     if not line or line.startswith("#"):
                         continue
 
-                    parts = line.split(",")
+                    parts = [p.strip() for p in line.split(",")]
+                    
+                    # Detect format based on column count and content
                     if len(parts) >= 3:
-                        platform = parts[0].strip()
-                        command = parts[1].strip()
-                        template_file = parts[2].strip()
-
+                        # Check if first part looks like template filename (ends with .textfsm)
+                        if parts[0].endswith(".textfsm"):
+                            # NTC format: template_file, [hostname], platform, command
+                            template_file = parts[0]
+                            
+                            # Handle both 3-col (no hostname) and 4-col (with hostname) formats
+                            if len(parts) == 3:
+                                # template_file, platform, command
+                                platform = parts[1]
+                                command = parts[2]
+                            elif len(parts) >= 4:
+                                # template_file, hostname, platform, command (hostname column often irrelevant)
+                                # For custom templates, we typically ignore hostname (.*)
+                                platform = parts[2]
+                                command = parts[3]
+                            else:
+                                continue
+                        else:
+                            # Simple format: platform, command, template_file
+                            platform = parts[0]
+                            command = parts[1]
+                            template_file = parts[2]
+                        
+                        # Normalize command (replace [[optional]] and handle spaces)
+                        if "[[" in command:
+                            command = self._normalize_ntc_command(command)
+                        else:
+                            # Regular command: normalize to match get_template() lookup
+                            command = command.strip().lower().replace(" ", "_")
+                        
                         if platform not in self._custom_cache:
                             self._custom_cache[platform] = {}
 
@@ -112,7 +143,7 @@ class CommandRegistry:
             logger.info(f"Loaded {len(self._custom_cache)} platforms from custom index")
 
         except Exception as e:
-            logger.warning(f"Failed to load custom index: {e}")
+            logger.warning(f"Failed to load custom index from {index_path}: {e}")
 
     def _normalize_ntc_command(self, raw: str) -> str:
         r"""Generic normalization of NTC regex commands.
