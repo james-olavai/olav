@@ -1,0 +1,17 @@
+{
+  "query": "list all ip addresses on R3",
+  "cached_at": 1770986896.9388819,
+  "ttl_seconds": 3600,
+  "result": {
+    "success": true,
+    "result": [],
+    "query": "SELECT ip_address FROM interfaces WHERE device_name = 'R3' LIMIT 1000;",
+    "execution_time": 1.6027138233184814,
+    "rows_returned": 0,
+    "format": "table",
+    "cached": false,
+    "export_requested": false,
+    "export_format": "csv",
+    "export_filename": null
+  }
+}
