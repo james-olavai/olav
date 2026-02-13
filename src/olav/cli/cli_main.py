@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from olav.cli.display import display_todos
 
 if TYPE_CHECKING:
     from olav.cli.session import OlavPromptSession
@@ -32,41 +33,6 @@ app = typer.Typer(
     no_args_is_help=False,  # Default to interactive mode
     invoke_without_command=True,
 )
-
-
-def _display_todos(agent_graph: Any) -> None:
-    """Display todo list from agent state using Rich.
-
-    Args:
-        agent_graph: Compiled LangGraph agent with state
-    """
-    try:
-        # Get the latest state from the graph
-        state = agent_graph.get_state()
-        todos: list[dict[str, Any]] = state.values.get("todos", []) if state and hasattr(state, "values") else []
-
-        if not todos:
-            return
-
-        table = Table(show_header=True, header_style="bold magenta", border_style="blue")
-        table.add_column("ID", style="dim", width=4)
-        table.add_column("Status", width=15)
-        table.add_column("Task", min_width=30)
-
-        status_icons = {"not-started": "⬜", "in-progress": "🔄", "completed": "✅"}
-
-        for todo in todos:
-            icon = status_icons.get(todo.get("status", "not-started"), "⬜")
-            table.add_row(
-                str(todo.get("id", "")),
-                f"{icon} {todo.get('status', 'not-started')}",
-                str(todo.get("title", "")),
-            )
-
-        panel = Panel(table, title="📋 Task Progress", border_style="blue")
-        console.print(panel)
-    except Exception as e:
-        logger.debug(f"Could not display todos: {e}")
 
 
 async def stream_agent_response(
@@ -433,7 +399,7 @@ async def run_interactive_loop_async(
                 if output:
                     # Display todos if present in agent state (QueryAgent only)
                     if hasattr(agent, 'agent'):
-                        _display_todos(agent.agent)
+                        display_todos(agent.agent, console)
                 else:
                     print("\n⚠️ No response from agent\n")
 
