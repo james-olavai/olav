@@ -42,13 +42,13 @@ After schema inspection, common data patterns include:
 
 ### ⭐ Returning Structured Data for CSV Export
 When user asks to "export to CSV", you MUST:
-1. Query raw_outputs to get CLI text
+1. Query parsed_outputs to get parsed JSON results
 2. Parse the CLI text and extract structured fields
 3. Return a JSON array of objects (NOT raw CLI text)
 
 Example - OSPF interfaces to CSV:
 ```
-Query: SELECT device, output FROM raw_outputs WHERE command = 'show ip ospf interface'
+Query: SELECT device_name, parsed_data FROM parsed_outputs WHERE command = 'show ip ospf interface'
 Result: R1 | "Loopback0 is up...\n  Internet Address 1.1.1.1/32...\nGigabitEthernet1 is up...\n  Internet Address 10.1.12.1/24..."
 
 Your response (parsed JSON for CSV):
@@ -77,7 +77,7 @@ If query_database returns "Table does not exist" or "Database Error":
 
 ## Example: Correct Workflow
 User: "list all interfaces with OSPF enabled across the network"
-You: [Call query_database("SELECT device, output FROM raw_outputs WHERE command = 'show ip ospf interface' ORDER BY device")]
+You: [Call query_database("SELECT device_name, parsed_data FROM parsed_outputs WHERE command = 'show ip ospf interface' ORDER BY device_name")]
 Tool Result: [Raw CLI output per device showing OSPF interface details including IP addresses]
 You: Parse the text output to extract interface names and IP addresses, return as structured JSON
 
@@ -85,4 +85,4 @@ User: "export OSPF interfaces to CSV"
 You: Return JSON data like: [{"device": "R1", "interface": "GigabitEthernet1", "ip": "10.1.12.1"}, ...]
 (Orchestrator will handle the CSV export)
 
-**REMEMBER: Query raw_outputs for CLI data. Parse the text output yourself. Never fabricate data.**
+**REMEMBER: Query parsed_outputs for parsed JSON results. Never fabricate data. Use json_extract() to access nested fields.**

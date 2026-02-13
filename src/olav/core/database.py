@@ -534,51 +534,6 @@ def init_topology_db(db_path: str | None = None) -> duckdb.DuckDBPyConnection:
         ON log_analysis(status)
     """)
 
-    # =========================================================================
-    # NEW: Unified command outputs table (v0.8.4)
-    # Stores TextFSM parsed data as JSON for flexible querying
-    # =========================================================================
-    conn.execute("""
-        CREATE SEQUENCE IF NOT EXISTS command_outputs_id_seq START 1
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS command_outputs (
-            id INTEGER PRIMARY KEY DEFAULT nextval('command_outputs_id_seq'),
-            snapshot_date DATE NOT NULL,
-            device_name VARCHAR NOT NULL,
-            platform VARCHAR DEFAULT 'cisco_ios',
-            command VARCHAR NOT NULL,
-            raw_output TEXT,
-            parsed_data JSON,
-            row_count INTEGER DEFAULT 0,
-            parse_success BOOLEAN DEFAULT FALSE,
-            collected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(snapshot_date, device_name, command)
-        )
-    """)
-
-    # Indexes for command_outputs
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_cmd_outputs_command
-        ON command_outputs(command)
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_cmd_outputs_device
-        ON command_outputs(device_name)
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_cmd_outputs_date
-        ON command_outputs(snapshot_date)
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_cmd_outputs_platform
-        ON command_outputs(platform)
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_cmd_outputs_parse_success
-        ON command_outputs(parse_success)
-    """)
-
     return conn
 
 
@@ -837,35 +792,31 @@ def init_structured_tables(db_path: str | None = None) -> duckdb.DuckDBPyConnect
     """)
 
     # =============================================================================
-    # 原始命令输出表 (v0.9.3 新增)
+    # 解析命令输出表 (v0.13.0) - 简洁设计, 仅存储JSON解析结果
     # =============================================================================
     conn.execute("""
-        CREATE SEQUENCE IF NOT EXISTS raw_outputs_id_seq START 1
+        CREATE SEQUENCE IF NOT EXISTS parsed_outputs_id_seq START 1
     """)
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS raw_outputs (
-            id INTEGER PRIMARY KEY DEFAULT nextval('raw_outputs_id_seq'),
-            snapshot_date DATE NOT NULL,
+        CREATE TABLE IF NOT EXISTS parsed_outputs (
+            id INTEGER PRIMARY KEY DEFAULT nextval('parsed_outputs_id_seq'),
             device_name VARCHAR NOT NULL,
-            command VARCHAR NOT NULL,              -- 执行的命令
-            raw_output TEXT,                       -- 原始输出文本
-            output_file VARCHAR,                   -- 输出文件路径 (相对路径)
-            command_status VARCHAR,                -- success/failed/timeout
-            execution_time_ms INTEGER,             -- 执行耗时 (毫秒)
-    collected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(snapshot_date, device_name, command)
+            command VARCHAR NOT NULL,              -- 执行的命令 (e.g., "show version")
+            parsed_data JSON NOT NULL,             -- TextFSM 解析结果 (JSON格式)
+            snapshot_date DATE NOT NULL,           -- 采集日期
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(device_name, command, snapshot_date)
         )
     """)
 
     conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_raw_outputs_device ON raw_outputs(device_name)
+        CREATE INDEX IF NOT EXISTS idx_parsed_device ON parsed_outputs(device_name)
     """)
     conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_raw_outputs_command ON raw_outputs(command)
+        CREATE INDEX IF NOT EXISTS idx_parsed_command ON parsed_outputs(command)
     """)
     conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_raw_outputs_status ON raw_outputs(command_status)
-    """)
+        CREATE INDEX IF NOT EXISTS idx_parsed_date ON parsed_outputs(snapshot_date)
 
     # =============================================================================
     # 创建分层视图 (L1-L4 Normalized Views)
