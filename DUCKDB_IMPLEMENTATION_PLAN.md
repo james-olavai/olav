@@ -122,7 +122,7 @@
 ### 启动时
 
 ```
-$ uv run olav interactive
+$ uv run olav
 
 🚀 OLAV Initializing Orchestrator...
    (Creating global agent instance and schema cache)

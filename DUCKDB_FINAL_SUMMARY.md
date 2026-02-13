@@ -183,7 +183,7 @@ DUCKDB_IMPLEMENTATION_REPORT.md            已创建
 ### OLAV 用户
 
 ```bash
-$ uv run olav interactive
+$ uv run olav
 
 📦 Initializing schema cache...
 [等待 20-25 秒初始化]
