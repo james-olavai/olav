@@ -104,23 +104,14 @@ async def cmd_devices(args: str) -> str:
         /devices site:DC1     - List devices in DC1
     """
     from olav.api.v1.devices import list_devices
+    import json
 
-    filter_expr = args.strip() if args else None
     try:
-        # Parse filter like "role:core" into kwargs
-        if filter_expr:
-            if ":" in filter_expr:
-                key, value = filter_expr.split(":", 1)
-                # Use invoke() for langchain StructuredTool
-                result = list_devices.invoke(**{key.strip(): value.strip()})  # type: ignore[call-arg]
-            else:
-                # Treat as alias search
-                result = list_devices.invoke({"alias": filter_expr})  # type: ignore[call-arg]
-        else:
-            result = list_devices.invoke({})  # type: ignore[call-arg]
-        return result
+        # Call function directly (not a LangChain tool)
+        result = list_devices()
+        return json.dumps(result, ensure_ascii=False, indent=2)
     except Exception as e:
-        return f"Error listing devices: {str(e)}"
+        return f"❌ Error listing devices: {str(e)}"
 
 
 @register_command("skills")

@@ -109,21 +109,17 @@ def get_storage_backend(project_root: Path | None = None) -> object:  # noqa: AN
     persistent_backend = FilesystemBackend(root_dir=str(project_root))
 
     # Create memory backend for long-term cross-thread learning
-    # Uses DuckDBStore for persistent, thread-safe memory
+    # For now, use FilesystemBackend for memory (simpler and more reliable)
+    # DuckDBStore has issues with DeepAgents compatibility
     try:
         from config.paths import USER_CHECKPOINT_PATH
         
         # Ensure checkpoint directory exists
         USER_CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
         
-        # Import DuckDBStore for long-term memory
-        try:
-            from langgraph.store.duckdb import DuckDBStore
-            memory_store = DuckDBStore.from_conn_string(str(USER_CHECKPOINT_PATH))
-            memory_backend = memory_store  # Use DuckDBStore as backend
-        except ImportError:
-            # Fallback: Use FilesystemBackend if DuckDBStore not available
-            memory_backend = persistent_backend
+        # Use FilesystemBackend for memory paths (simpler, more reliable)
+        # NOTE: DuckDBStore causes "_GeneratorContextManager" issues in DeepAgents
+        memory_backend = FilesystemBackend(root_dir=str(project_root))
     except Exception as e:  # pragma: no cover (fallback for import errors)
         # If store initialization fails, fall back to filesystem
         memory_backend = persistent_backend

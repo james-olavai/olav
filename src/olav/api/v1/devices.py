@@ -92,7 +92,7 @@ def list_devices(
 
     except Exception as e:
         logger.error(f"Failed to list devices: {e}")
-        return []
+        raise  # Propagate error instead of returning empty list
 
 
 def get_device(device_id: str) -> Optional[Dict[str, Any]]:
@@ -145,7 +145,7 @@ def get_device(device_id: str) -> Optional[Dict[str, Any]]:
 
     except Exception as e:
         logger.error(f"Failed to get device {device_id}: {e}")
-        return None
+        raise  # Propagate error instead of returning None
 
 
 def get_device_interfaces(
@@ -206,7 +206,7 @@ def get_device_interfaces(
 
     except Exception as e:
         logger.error(f"Failed to get interfaces for {device_id}: {e}")
-        return []
+        raise  # Propagate error instead of returning empty list
 
 
 def get_device_capabilities(device_id: str) -> Dict[str, Any]:
@@ -250,7 +250,7 @@ def get_device_capabilities(device_id: str) -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Failed to get capabilities for {device_id}: {e}")
-        return {}
+        raise  # Propagate error instead of returning empty dict
 
 
 def query_subnet_devices(
@@ -315,7 +315,7 @@ def query_subnet_devices(
 
     except Exception as e:
         logger.error(f"Failed to query subnet {subnet}: {e}")
-        return []
+        raise  # Propagate error instead of returning empty list
 
 
 def filter_devices(
@@ -401,4 +401,4 @@ def get_device_status(device_id: str) -> Optional[Dict[str, Any]]:
 
     except Exception as e:
         logger.error(f"Failed to get status for {device_id}: {e}")
-        return None
+        raise  # Propagate error instead of returning None
