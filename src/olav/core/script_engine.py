@@ -16,6 +16,8 @@ from typing import Any
 
 from langchain_core.tools import StructuredTool
 
+from config.settings import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -207,7 +209,7 @@ class ScriptExecutor:
                 ["bash", "-c", script],  # noqa: S607
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=settings.runtime.script_engine_timeout,
             )
 
             output = result.stdout

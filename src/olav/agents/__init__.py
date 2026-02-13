@@ -11,6 +11,7 @@ from olav.agents.analyzer import analyze_network
 from olav.agents.orchestrator import (
     orchestrate_query,
     orchestrate_query_sync,
+    create_orchestrator,
     create_planning_orchestrator,
     create_collaborative_orchestrator,
 )
@@ -19,6 +20,7 @@ __all__ = [
     "analyze_network",
     "orchestrate_query",
     "orchestrate_query_sync",
+    "create_orchestrator",
     "create_planning_orchestrator",
     "create_collaborative_orchestrator",
 ]
@@ -44,6 +46,7 @@ __all__ = [
     "analyze_network",
     "orchestrate_query",
     "orchestrate_query_sync",
+    "create_orchestrator",
     "create_planning_orchestrator",
     "create_collaborative_orchestrator",
 ]
