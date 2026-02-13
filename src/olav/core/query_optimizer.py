@@ -50,65 +50,6 @@ class QueryOptimizer:
         except Exception as e:
             return {"query": name, "error": str(e)}
 
-    @staticmethod
-    def print_optimization_report(conn: duckdb.DuckDBPyConnection) -> None:
-        """Print comprehensive optimization status report."""
-        print("\n" + "=" * 80)
-        print("PHASE 4 DAY 3: Query Optimization Analysis")
-        print("=" * 80 + "\n")
-
-        print("✅ Base Table Indexes (Existing):")
-        for table, indexes in QueryOptimizer.BASE_TABLE_INDEXES.items():
-            for idx in indexes:
-                print(f"   {idx} on {table}")
-
-        print("\n\n🔍 Query Plan Analysis:")
-        print("-" * 80)
-
-        test_queries = {
-            "device_filter": "SELECT * FROM v_interfaces WHERE device = 'R1'",
-            "status_agg": "SELECT COUNT(*) FROM v_interfaces WHERE status = 'up'",
-            "bgp_filter": "SELECT * FROM v_bgp_neighbors WHERE state = 'Established'",
-            "routes_device": "SELECT * FROM v_routes WHERE device = 'R1' LIMIT 100",
-        }
-
-        for name, sql in test_queries.items():
-            analysis = QueryOptimizer.analyze_query(conn, sql, name)
-            if "error" in analysis:
-                print(f"  ❌ {name}: {analysis['error']}")
-            else:
-                status = "✅" if analysis.get("uses_filter_pushdown") else "⚠️ "
-                print(
-                    f"  {status} {name:20s} - Filter pushdown: {analysis.get('uses_filter_pushdown')}"
-                )
-
-        print("\n\n📊 Performance Analysis:")
-        print("-" * 80)
-        print("""
-Database Layer:
-  ✅ Indexes: Present and effective
-  ✅ Query latency: 3-5ms per query
-  ✅ Filter pushdown: Working (automatic in DuckDB)
-  → Conclusion: Database layer is OPTIMIZED
-
-Application Layer:
-  ❌ LLM inference: 20-30 seconds per query
-  → This is the ACTUAL bottleneck (4000x slower than DB queries)
-
-Optimization Priorities:
-  1. ✅ DONE: Index analysis (DB queries are fast)
-  2. → TODO: Connection pooling (reduce overhead)
-  3. → TODO: Query caching (bypass LLM for common queries)
-  4. → TODO: Concurrency support (parallel queries)
-
-Optimization Impact Estimates:
-  - Connection pool: 10-20% reduction in total latency
-  - Query cache (80% hit rate): 80% reduction for cached queries
-  - Concurrency: Enable parallel operations (multi-user)
-""")
-
-        print("=" * 80 + "\n")
-
 
 def init_query_optimization(conn: duckdb.DuckDBPyConnection) -> None:
     """Initialize query optimization (currently a no-op for indexes).
