@@ -301,6 +301,7 @@ class ExecutionDispatcher:
         """Execute SIMPLE route (direct database query).
         
         Phase 3.3: Direct database query using query_database tool.
+        Phase 3.1: CSV Export support (detects and calls format_and_export)
         
         Performance Optimization (v0.11.2):
         - Returns structured data directly (no LLM markdown generation)
@@ -320,6 +321,48 @@ class ExecutionDispatcher:
             # Use Orchestrator's query logic
             from olav.agents.orchestrator import orchestrate_query_sync
             result = orchestrate_query_sync(query)
+            
+            # ✅ Phase 3.1: Check if export was requested
+            export_requested = result.get("export_requested", False) or decision.get("export_requested", False)
+            export_format = result.get("export_format", "csv") or decision.get("export_format", "csv")
+            export_filename = result.get("export_filename")
+            
+            if export_requested and result.get("success") and result.get("result"):
+                logger.info(f"✅ Export requested: format={export_format}, rows={len(result['result'])}")
+                
+                # Call format_and_export tool to generate file
+                try:
+                    from olav.core.tool_registry import get_tool
+                    format_and_export_tool = get_tool("format_and_export")
+                    
+                    if format_and_export_tool:
+                        # Get the actual function from LangChain StructuredTool
+                        if hasattr(format_and_export_tool, 'func'):
+                            export_func = format_and_export_tool.func
+                        else:
+                            export_func = format_and_export_tool
+                        
+                        # Prepare data for export
+                        export_result = export_func(
+                            data=result["result"],
+                            format=export_format,
+                            filename=export_filename
+                        )
+                        
+                        logger.info(f"📁 Export completed: {export_result}")
+                        
+                        return {
+                            "status": "complete",
+                            "final_answer": f"✅ Data exported successfully",
+                            "export_file": export_result.get("path", export_result.get("filepath", "")),
+                            "format": export_format,
+                            "rows_exported": len(result["result"]),
+                        }
+                    else:
+                        logger.warning("format_and_export tool not available, falling back to table display")
+                except Exception as e:
+                    logger.error(f"❌ Export failed: {e}, falling back to table display", exc_info=True)
+                    # Fall through to normal table display
             
             # 🚀 Performance Enhancement: Return structured data directly
             # Let CLI render Rich Table instead of LLM generating markdown
