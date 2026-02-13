@@ -101,55 +101,6 @@ def display_banner(banner_text: str, console: Console | None = None) -> None:
     console.print(text)
 
 
-def print_welcome(console: Console | None = None) -> None:
-    """Print welcome message with banner.
-
-    Args:
-        console: Rich console instance
-    """
-    if console is None:
-        console = Console() if RICH_AVAILABLE else None  # type: ignore[name-defined]
-
-    # Load and display banner
-    banner_text = load_banner_from_config()
-    if banner_text:
-        display_banner(banner_text, console)
-
-    # Print welcome message
-    if console:
-        console.print("\n[bold green]Welcome to OLAV[/] - [dim]Network Operations AI Assistant[/]")
-        console.print("[dim]Type /help for available commands[/]\n")
-    else:
-        print("\nWelcome to OLAV - Network Operations AI Assistant")
-        print("Type /help for available commands\n")
-
-
-def print_error(message: str, console: Console | None = None) -> None:
-    """Print error message.
-
-    Args:
-        message: Error message to display
-        console: Rich console instance
-    """
-    if console:
-        console.print(f"[bold red]Error:[/] {message}")
-    else:
-        print(f"Error: {message}")
-
-
-def print_success(message: str, console: Console | None = None) -> None:
-    """Print success message.
-
-    Args:
-        message: Success message to display
-        console: Rich console instance
-    """
-    if console:
-        console.print(f"[bold green]✓[/] {message}")
-    else:
-        print(f"✓ {message}")
-
-
 class StreamingDisplay:
     """Hierarchical streaming output handler for agent execution.
 

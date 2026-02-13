@@ -166,29 +166,6 @@ async def stream_agent_response(
         return f"Error: {e}"
 
 
-def _get_snapshot_time() -> str | None:
-    """Get snapshot timestamp from database.
-
-    Returns:
-        Snapshot timestamp string or None if unavailable
-    """
-    try:
-        from olav.core.unified_database import UnifiedDatabase
-
-        with UnifiedDatabase() as db:
-            # Try to get snapshot time from views
-            result = db.query("""
-                SELECT DISTINCT snapshot_date
-                FROM main.v_system
-                LIMIT 1
-            """)
-            if result and result[0]:
-                return str(result[0][0])
-    except Exception as e:
-        logger.debug(f"Failed to get snapshot time: {e}")
-    return None
-
-
 async def run_interactive_loop_async(
     session: "OlavPromptSession",
     agent: Any,
