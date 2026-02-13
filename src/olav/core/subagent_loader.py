@@ -379,10 +379,54 @@ def _load_tool_from_module(module_name: str, function_name: str) -> Any | None:
 
 
 def _inject_schema_context(prompt: str) -> str:
-    """Inject current database schema into system prompt.
+    """Inject current database schema into system prompt using cached data.
 
     This ensures the LLM knows exactly which tables/views exist,
     avoiding guesswork and unnecessary inspect_schema calls.
+    
+    Performance: < 1ms for cached queries (vs 8-10s for real-time queries)
+    """
+    try:
+        from olav.core.schema_cache import SchemaCache
+
+        # Get cached schema (< 1ms)
+        schema_data = SchemaCache.get_schema()
+
+        if not schema_data:
+            logger.debug("Schema cache miss, falling back to real-time query")
+            # Fallback: query in real-time if cache is empty
+            return _inject_schema_context_realtime(prompt)
+
+        # Format schema context from cache
+        views_list = ", ".join(schema_data.get("views", []))
+        tables_list = ", ".join(schema_data.get("tables", []))
+        metadata = schema_data.get("metadata", {})
+
+        date_str = metadata.get("date", "Unknown")
+        devices = metadata.get("device_count", 0)
+
+        context = "\n\n### Current Database Context (Cached)\n"
+        context += f"- **Latest Snapshot**: {date_str} ({devices} devices)\n"
+        if views_list:
+            context += f"- **Available Views**: {views_list}\n"
+        if tables_list:
+            context += f"- **Available Tables (main.duckdb)**: {tables_list}\n"
+        context += (
+            "Use these views/tables directly in SQL queries. "
+            "Call inspect_schema('table_name') only if you need column details.\n"
+        )
+
+        return prompt + context
+
+    except Exception as e:
+        logger.debug(f"Schema injection from cache failed: {e}")
+        return _inject_schema_context_realtime(prompt)
+
+
+def _inject_schema_context_realtime(prompt: str) -> str:
+    """Fallback: Inject schema by querying database in real-time.
+    
+    This is slower (~8-10s) but provides fresh data if cache is unavailable.
     """
     try:
         from olav.lib.data_gateway import get_gateway
@@ -411,7 +455,7 @@ def _inject_schema_context(prompt: str) -> str:
         date_str = str(meta[0]["snapshot_date"]) if meta else "Unknown"
         devices = meta[0]["device_count"] if meta else 0
 
-        context = "\n\n### Current Database Context (Auto-injected)\n"
+        context = "\n\n### Current Database Context (Real-time)\n"
         context += f"- **Latest Snapshot**: {date_str} ({devices} devices)\n"
         if view_list:
             context += f"- **Available Views**: {view_list}\n"
@@ -425,7 +469,7 @@ def _inject_schema_context(prompt: str) -> str:
         return prompt + context
 
     except Exception as e:
-        logger.debug(f"Schema injection failed (database may not be initialized): {e}")
+        logger.debug(f"Real-time schema injection failed: {e}")
         return prompt
 
 
