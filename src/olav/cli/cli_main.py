@@ -467,7 +467,16 @@ def query(
         # If result has structured data with "table" format hint,
         # render directly with Rich Table (skip LLM markdown generation)
         # Priority: Check table format FIRST before checking status
-        if result.get("format") == "table" and result.get("data"):
+        if result.get("export_file"):
+            # ✅ Phase 3.1: Export file was created
+            export_file = result.get("export_file")
+            format_type = result.get("format", "unknown")
+            console.print(f"\n[bold green]✅ Export successful![/bold green]")
+            console.print(f"[cyan]File:[/cyan] {export_file}")
+            console.print(f"[cyan]Format:[/cyan] {format_type}")
+            if result.get("rows_exported"):
+                console.print(f"[cyan]Rows:[/cyan] {result['rows_exported']}")
+        elif result.get("format") == "table" and result.get("data"):
             from rich.table import Table
             
             data = result["data"]

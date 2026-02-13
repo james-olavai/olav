@@ -149,6 +149,64 @@ class SecurityClassifier:
         logger.debug(f"⚙️ Using default TextFSM setting: {default}")
         return default
     
+    def detect_export_request(self, query: str) -> tuple[bool, str]:
+        """✅ Phase 3.1: Detect if user is requesting data export.
+        
+        Returns:
+            Tuple of (is_export_requested, export_format)
+            export_format: 'csv', 'json', 'markdown', etc.
+        """
+        query_lower = query.lower()
+        
+        # Export format keywords (priority order)
+        csv_keywords = [
+            r"\bcsv\b", r"excel", r"spreadsheet",
+            r"to.*csv|csv.*format",
+            r"导出.*csv|csv.*导出",
+            r"保存为|save.*as",
+        ]
+        
+        json_keywords = [
+            r"\bjson\b", r"json.*format",
+            r"导出.*json|json.*导出",
+        ]
+        
+        markdown_keywords = [
+            r"\bmarkdown\b", r"md.*format|format.*md",
+            r"导出.*markdown|markdown.*导出",
+        ]
+        
+        # Generic export keywords
+        generic_export_keywords = [
+            r"\bexport\b", r"save.*to.*file|save.*file",
+            r"导出|save|保存",
+            r"to.*file|输出.*文件",
+        ]
+        
+        # Check for explicit export requests (high confidence indicators)
+        for pattern in csv_keywords:
+            if re.search(pattern, query_lower, re.IGNORECASE):
+                logger.debug(f"✅ CSV export detected: '{pattern}'")
+                return (True, "csv")
+        
+        for pattern in json_keywords:
+            if re.search(pattern, query_lower, re.IGNORECASE):
+                logger.debug(f"✅ JSON export detected: '{pattern}'")
+                return (True, "json")
+        
+        for pattern in markdown_keywords:
+            if re.search(pattern, query_lower, re.IGNORECASE):
+                logger.debug(f"✅ Markdown export detected: '{pattern}'")
+                return (True, "markdown")
+        
+        # Check for generic export keywords (lower confidence, default to CSV)
+        for pattern in generic_export_keywords:
+            if re.search(pattern, query_lower, re.IGNORECASE):
+                logger.debug(f"✅ Generic export detected: '{pattern}' - defaulting to CSV")
+                return (True, "csv")
+        
+        return (False, "")
+    
     def explain_textfsm_choice(self, query: str) -> str:
         """Generate explanation for TextFSM decision.
         
