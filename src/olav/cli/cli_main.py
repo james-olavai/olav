@@ -340,44 +340,115 @@ async def run_interactive_loop_async(
                 continue
 
             # Handle normal queries
-            # Checkpointer automatically manages conversation history
-
-            # P8: Stream agent response with layered output
+            # Use Guard routing (same as command mode) for consistency
+            
             if is_tty:
                 print("🔍 Processing...", flush=True)
             try:
                 # =========================================================
-                # Unified Routing: ALL queries → Orchestrator
+                # Phase 5.5: Use Guard routing in interactive mode
                 # =========================================================
-                # Orchestrator's DeepAgents SubAgent routing handles:
-                #   query SubAgent → database queries
-                #   analysis SubAgent → diagnostics
-                #   cli SubAgent → device command execution
-                #   expert SubAgent → complex troubleshooting
-                # Orchestrator owns format_and_export for file output.
-                # CLI default output: markdown (rendered by Rich).
+                # Fixes data inconsistency between:
+                #   - Command mode: olav query "..." → Guard routing ✅
+                #   - Interactive mode: olav → SubAgent routing ❌
+                # 
+                # SubAgent routing had issues:
+                #   - async/await deadlock with OpenRouter API
+                #   - LLM occasionally reads CSV files instead of database
+                #   - Returns 11 FW devices from exports/all_devices.csv
+                # 
+                # Guard routing solution:
+                #   - Uses same code path as command mode
+                #   - Consistent data source (database only)
+                #   - Faster execution (no SubAgent overhead)
+                #   - Simpler debugging
                 # =========================================================
-                from langchain_core.messages import HumanMessage
-
-                from olav.agents.orchestrator import create_orchestrator
-                agent = create_orchestrator(thread_id=thread_id)
-                inputs = {"messages": [HumanMessage(content=processed_text)]}
-
-                # Use verbose mode only if DISPLAY_THINKING=true
-                use_verbose = settings.display_thinking
-
-                # Use await instead of asyncio.run() to properly handle async context
-                output = await stream_agent_response(
-                    agent,
-                    inputs,
-                    verbose=use_verbose,
-                    thread_id=thread_id,  # Session thread_id
+                import asyncio
+                from olav.agents.guard import get_guard
+                
+                guard_instance = get_guard()
+                
+                # Run Guard in thread pool to avoid blocking event loop
+                result = await asyncio.to_thread(
+                    guard_instance.route_and_execute,
+                    processed_text
                 )
-
-                if output:
-                    # Display todos if present in agent state (QueryAgent only)
-                    if hasattr(agent, 'agent'):
-                        display_todos(agent.agent, console)
+                
+                # Handle result display
+                if result.get("status") == "complete":
+                    # Check if we have direct table data (Level 1/2 queries)
+                    if result.get("format") == "table" and result.get("data"):
+                        # Reuse the optimized Rich Table rendering from query()
+                        priority_columns = [
+                            "name", "hostname", "mgmt_ip", "site", 
+                            "model", "platform", "device_role", "is_active"
+                        ]
+                        
+                        try:
+                            from rich.table import Table
+                            rows = result["data"]
+                            
+                            if rows:
+                                # Get available columns
+                                all_cols = list(rows[0].keys())
+                                
+                                # Filter priority columns that exist in data
+                                display_cols = [c for c in priority_columns if c in all_cols]
+                                
+                                # If no priority columns found, show first 8 columns
+                                if not display_cols:
+                                    display_cols = all_cols[:8]
+                                
+                                # Create Rich Table
+                                table = Table(show_header=True, header_style="bold magenta")
+                                
+                                for col in display_cols:
+                                    table.add_column(col)
+                                
+                                for row in rows:
+                                    values = []
+                                    for col in display_cols:
+                                        val = row.get(col, "")
+                                        val_str = str(val) if val is not None else ""
+                                        
+                                        # Color code status/is_active
+                                        if col in ["is_active", "status"]:
+                                            if val in [True, "active", "up", "Active", "Up"]:
+                                                val_str = f"[green]{val_str}[/green]"
+                                            elif val in [False, "inactive", "down", "Inactive", "Down"]:
+                                                val_str = f"[red]{val_str}[/red]"
+                                        
+                                        values.append(val_str)
+                                    
+                                    table.add_row(*values)
+                                
+                                print()  # Blank line before table
+                                console.print(table)
+                                print()  # Blank line after table
+                            else:
+                                print("✅ Query succeeded (no results)")
+                        
+                        except Exception as e:
+                            logger.error(f"Table rendering failed: {e}")
+                            # Fallback: display markdown
+                            if result.get("markdown"):
+                                from rich.markdown import Markdown
+                                print()
+                                console.print(Markdown(result["markdown"]))
+                                print()
+                    
+                    # Otherwise, display markdown response
+                    elif result.get("markdown"):
+                        from rich.markdown import Markdown
+                        print()
+                        console.print(Markdown(result["markdown"]))
+                        print()
+                    else:
+                        print("✅ Query complete")
+                
+                elif result.get("status") == "error":
+                    print(f"\n❌ Error: {result.get('error', 'Unknown error')}\n")
+                
                 else:
                     print("\n⚠️ No response from agent\n")
 
