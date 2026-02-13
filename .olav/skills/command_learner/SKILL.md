@@ -55,21 +55,16 @@ workflow:
       step_number: 6
       timeout: 10
 
-tools:
-  - name: "execute_command_tool"
-    implementation: "src/olav/agents/command_learner_agent/tools.py"
-  - name: "analyze_output_tool"
-    implementation: "src/olav/agents/command_learner_agent/tools.py"
-  - name: "generate_template_tool"
-    implementation: "src/olav/agents/command_learner_agent/tools.py"
-  - name: "test_template_tool"
-    implementation: "src/olav/agents/command_learner_agent/tools.py"
-  - name: "save_template_tool"
-    implementation: "src/olav/agents/command_learner_agent/tools.py"
-  - name: "ntc_search"
-    description: "Local NTC-Templates search (no internet required)"
-    implementation: "./scripts/ntc_search.py"
-    method: "search_ntc_templates(platform, command, approved_fields, limit)"
+tools: []
+# NOTE: Tool configurations have been removed as they referenced non-existent implementations.
+# The command_learner_agent/tools.py file does not exist.
+# Future: Implement these tools when the agent implementation is ready:
+# - execute_command_tool
+# - analyze_output_tool
+# - generate_template_tool
+# - test_template_tool
+# - save_template_tool
+# - ntc_search (Local NTC-Templates search without internet)
 
 requires_skills:
   - "network-cli"

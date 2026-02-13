@@ -1,10 +1,16 @@
 """LLM Factory for creating chat models.
 
 Uses provider-specific chat model classes for maximum compatibility with
-third-party APIs (OpenRouter, etc.) and DeepAgents.
+third-party APIs (OpenRouter, Groq, etc.) and DeepAgents.
 
 NOTE: v0.10.2 - Fixed P0 bug: Using ChatOpenAI/ChatOllama directly instead of
 init_chat_model() to ensure compatibility with DeepAgents middleware.
+
+Third-party API Support:
+- OpenRouter: Automatic header injection for HTTP-Referer and X-Title
+- Groq API: Explicit langchain_groq.ChatGroq support
+- Mistral: Explicit langchain_mistralai.ChatMistral support
+- Generic OpenAI-compatible: Via 'openai' provider + llm_base_url
 """
 
 import logging
@@ -77,6 +83,15 @@ class LLMFactory:
             # Third-party OpenAI-compatible API (OpenRouter, etc.)
             if settings.llm_base_url:
                 config["base_url"] = settings.llm_base_url
+                
+                # OpenRouter requires specific headers for proper routing and usage tracking
+                if "openrouter" in settings.llm_base_url.lower():
+                    config["default_headers"] = {
+                        "HTTP-Referer": "https://olav-network.local",
+                        "X-Title": "OLAV Network Intelligence System",
+                    }
+                    logger.debug("OpenRouter detected - adding required headers (HTTP-Referer, X-Title)")
+                
                 logger.debug(
                     f"Creating OpenAI-compatible chat model: {model_name} "
                     f"via {settings.llm_base_url}"
@@ -122,9 +137,47 @@ class LLMFactory:
             logger.debug(f"Creating Anthropic chat model: {model_name}")
             return ChatAnthropic(**config)  # type: ignore[return-value]
 
+        elif provider == "groq":
+            # Groq API - extremely fast inference
+            # Models: mixtral-8x7b-32768, llama-3.1-70b-versatile, etc.
+            try:
+                from langchain_groq import ChatGroq
+            except ImportError:
+                logger.error(
+                    "langchain-groq not installed. Run: uv add langchain-groq\n"
+                    "Install guide: https://python.langchain.com/docs/integrations/chat/groq"
+                )
+                raise
+
+            config["api_key"] = settings.llm_api_key
+            if settings.llm_base_url:
+                config["base_url"] = settings.llm_base_url
+            
+            logger.debug(f"Creating Groq chat model: {model_name}")
+            return ChatGroq(**config)  # type: ignore[return-value]
+
+        elif provider == "mistral":
+            # Mistral AI - multi-language support
+            # Models: mistral-small, mistral-medium, mistral-large, etc.
+            try:
+                from langchain_mistralai import ChatMistral
+            except ImportError:
+                logger.error(
+                    "langchain-mistralai not installed. Run: uv add langchain-mistralai\n"
+                    "Install guide: https://python.langchain.com/docs/integrations/chat/mistralai"
+                )
+                raise
+
+            config["api_key"] = settings.llm_api_key
+            if settings.llm_base_url:
+                config["base_url"] = settings.llm_base_url
+            
+            logger.debug(f"Creating Mistral chat model: {model_name}")
+            return ChatMistral(**config)  # type: ignore[return-value]
+
         else:
             logger.error(f"Unsupported LLM provider: {provider}")
             raise ValueError(
                 f"Unsupported LLM provider: {provider}. "
-                f"Supported: openai, ollama, azure, xai, anthropic"
+                f"Supported: openai, ollama, azure, xai, anthropic, groq, mistral"
             )
