@@ -28,12 +28,19 @@ def __getattr__(name: str) -> object:  # noqa: ANN401
         return locals()[name]
 
     if name in ("list_devices", "nornir_execute"):
-        from olav.shared.tools.network import (  # noqa: F401
-            list_devices,
-            nornir_execute,
-        )
-
-        return locals()[name]
+        # Tools are loaded from .olav/skills/ via Tool Registry
+        # For backward compatibility, we provide lazy loading
+        from olav.api.v1.devices import list_devices  # noqa: F401
+        # nornir_execute is a dynamic tool loaded via Tool Registry
+        # Access it via: from olav.core.tool_registry import get_tool
+        if name == "list_devices":
+            return list_devices
+        else:
+            from olav.core.tool_registry import get_tool
+            tool = get_tool("nornir_execute")
+            if tool:
+                return tool
+            raise AttributeError(f"Tool 'nornir_execute' not loaded from registry")
 
     raise AttributeError(f"module 'olav' has no attribute {name!r}")
 

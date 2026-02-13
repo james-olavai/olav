@@ -103,7 +103,7 @@ async def cmd_devices(args: str) -> str:
         /devices role:core    - List core devices
         /devices site:DC1     - List devices in DC1
     """
-    from olav.shared.tools.network import list_devices
+    from olav.api.v1.devices import list_devices
 
     filter_expr = args.strip() if args else None
     try:
