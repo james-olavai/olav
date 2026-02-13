@@ -59,30 +59,3 @@ def parse_input(text: str) -> tuple[str, bool, str | None]:
     text = expand_file_references(text)
 
     return text, False, None
-
-
-def execute_shell_command(command: str) -> tuple[bool, str, str, int]:
-    """Execute a shell command.
-
-    Args:
-        command: Shell command to execute
-
-    Returns:
-        Tuple of (success, stdout, stderr, return_code)
-    """
-    try:
-        result = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-
-        success = result.returncode == 0
-        return success, result.stdout, result.stderr, result.returncode
-
-    except subprocess.TimeoutExpired:
-        return False, "", "Command timed out after 30 seconds", -1
-    except Exception as e:
-        return False, "", str(e), -1
