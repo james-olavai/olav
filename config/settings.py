@@ -357,6 +357,137 @@ class ExecutionSettings(BaseSettings):
     )
 
 
+class RuntimeSettings(BaseSettings):
+    """Runtime Configuration - Paths, Timeouts, Connection Settings
+    
+    Centralizes all hardcoded configuration values for paths, timeouts, and connection parameters.
+    Extracted from 23 hardcoded locations across the codebase.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="RUNTIME_")
+
+    # Directory and Path Configuration
+    olav_config_dir: str = Field(
+        default=".olav",
+        description="OLAV configuration directory (can be .olav, .claude, .cursor, etc.)"
+    )
+    exports_dir: str = Field(
+        default="exports",
+        description="Directory for exporting query results and reports"
+    )
+    skills_dir: str = Field(
+        default=".olav/skills",
+        description="Directory containing skills definitions"
+    )
+    knowledge_dir: str = Field(
+        default=".olav/knowledge",
+        description="Directory for knowledge base files"
+    )
+    templates_dir: str = Field(
+        default=".olav/templates",
+        description="Directory for TextFSM templates"
+    )
+    config_dir: str = Field(
+        default=".olav/config",
+        description="Directory for configuration files"
+    )
+
+    # Connection Configuration
+    default_host: str = Field(
+        default="127.0.0.1",
+        description="Default host for connections (localhost/API server)"
+    )
+    default_port: int = Field(
+        default=8000,
+        ge=1,
+        le=65535,
+        description="Default port for connections"
+    )
+    nornir_host: str = Field(
+        default="localhost",
+        description="Host for Nornir network executor"
+    )
+
+    # Timeout Configuration (in seconds)
+    analyzer_timeout: int = Field(
+        default=30,
+        ge=5,
+        le=300,
+        description="Analyzer agent timeout"
+    )
+    cli_timeout: int = Field(
+        default=300,
+        ge=30,
+        le=3600,
+        description="CLI command timeout"
+    )
+    script_engine_timeout: int = Field(
+        default=300,
+        ge=30,
+        le=3600,
+        description="Script engine execution timeout"
+    )
+    session_timeout: int = Field(
+        default=30,
+        ge=5,
+        le=300,
+        description="Session read timeout"
+    )
+    default_timeout: int = Field(
+        default=30,
+        ge=5,
+        le=300,
+        description="Default operation timeout"
+    )
+
+    # Business Parameters
+    max_retries: int = Field(
+        default=3,
+        ge=0,
+        le=10,
+        description="Maximum retry attempts for operations"
+    )
+    batch_size: int = Field(
+        default=10,
+        ge=1,
+        le=1000,
+        description="Batch size for bulk operations"
+    )
+    max_devices: int = Field(
+        default=1000,
+        ge=1,
+        le=10000,
+        description="Maximum number of devices to process"
+    )
+
+    def get_full_path(self, relative_path: str) -> Path:
+        """Get full path relative to project root
+        
+        Args:
+            relative_path: Path relative to project root
+            
+        Returns:
+            Absolute Path object
+        """
+        return PROJECT_ROOT / relative_path
+
+    def get_exports_dir(self) -> Path:
+        """Get exports directory path"""
+        return self.get_full_path(self.exports_dir)
+
+    def get_skills_dir(self) -> Path:
+        """Get skills directory path"""
+        return self.get_full_path(self.skills_dir)
+
+    def get_knowledge_dir(self) -> Path:
+        """Get knowledge directory path"""
+        return self.get_full_path(self.knowledge_dir)
+
+    def get_templates_dir(self) -> Path:
+        """Get templates directory path"""
+        return self.get_full_path(self.templates_dir)
+
+
 class DiagnosisSettings(BaseSettings):
     """Diagnosis Module Configuration"""
 
@@ -645,6 +776,9 @@ class Settings(BaseSettings):
     )
     feature_flags: FeatureFlagSettings = Field(
         default_factory=FeatureFlagSettings, description="Feature flag configuration (v0.12.0+)"
+    )
+    runtime: RuntimeSettings = Field(
+        default_factory=RuntimeSettings, description="Runtime paths and connection configuration"
     )
 
     # =========================================================================

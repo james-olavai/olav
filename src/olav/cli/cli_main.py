@@ -14,6 +14,7 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 import typer
+from config.settings import settings
 from olav.core.tool_registry import get_tool
 
 logger = logging.getLogger(__name__)
@@ -326,7 +327,7 @@ async def run_interactive_loop_async(
                         shell=True,
                         capture_output=True,
                         text=True,
-                        timeout=30,
+                        timeout=settings.runtime.cli_timeout,
                     )
                     if result.stdout:
                         print(result.stdout)
@@ -742,7 +743,7 @@ def doctor() -> None:
         
         for name, host in list(nr.inventory.hosts.items())[:5]:  # Test first 5
             try:
-                socket.create_connection((host.hostname, 22), timeout=2)
+                socket.create_connection((host.hostname, 22), timeout=settings.runtime.connection_timeout)
                 reachable.append(name)
             except:
                 unreachable.append(name)
@@ -877,7 +878,7 @@ def init(
             for host in list(nr.inventory.hosts.values())[:3]:  # Test first 3
                 try:
                     import socket
-                    socket.create_connection((host.hostname, 22), timeout=2)
+                    socket.create_connection((host.hostname, 22), timeout=settings.runtime.connection_timeout)
                     reachable += 1
                 except:
                     pass

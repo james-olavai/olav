@@ -10,6 +10,7 @@ from typing import Any
 import duckdb
 
 from config.logging import get_logger
+from config.settings import settings
 
 logger = get_logger(__name__)
 
@@ -27,7 +28,7 @@ class DataGateway:
         gw = DataGateway(Path(".claude"))
 
         # Web API
-        gw = DataGateway(Path(os.getenv("BASE_DIR", ".olav")))
+        gw = DataGateway(Path(settings.runtime.olav_config_dir))
     """
 
     def __init__(self, base_dir: Path | None = None, db_path: Path | None = None) -> None:

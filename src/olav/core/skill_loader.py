@@ -11,6 +11,8 @@ from typing import Any
 
 import yaml
 
+from config.settings import settings
+
 
 @dataclass
 class Skill:
@@ -243,7 +245,7 @@ def get_skill_loader(skills_dir: Path | None = None) -> SkillLoader:
     """获取全局 SkillLoader 实例 (单例)."""
     if not hasattr(get_skill_loader, "_instance"):
         if skills_dir is None:
-            skills_dir = Path(__file__).parent.parent.parent.parent / ".olav" / "skills"
+            skills_dir = Path(settings.runtime.get_skills_dir())
         # Use a module-level variable for singleton (type: ignore for function attribute)
         get_skill_loader._instance = SkillLoader(skills_dir)  # type: ignore[attr-defined]
     return get_skill_loader._instance  # type: ignore[attr-defined]

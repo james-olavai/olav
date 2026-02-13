@@ -19,6 +19,7 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage
 
+from config.settings import settings
 from olav.core.llm import LLMFactory
 
 logger = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ class LLMRouter:
         Returns:
             System prompt for LLM classification
         """
-        skill_path = Path(".olav") / "skills" / "guard" / "SKILL.md"
+        skill_path = Path(settings.runtime.get_skills_dir()) / "guard" / "SKILL.md"
         
         try:
             if skill_path.exists():
