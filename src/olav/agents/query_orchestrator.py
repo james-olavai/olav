@@ -152,8 +152,20 @@ Generate SQL:"""
 
         # 4. Execute query
         logger.debug("[QueryOrchestrator] Executing SQL query...")
-        query_start = time.time()
-        result = conn.execute(sql_query).fetchall()
+        logger.debug(f"[QueryOrchestrator] Full SQL: {sql_query}")
+        logger.debug(f"[QueryOrchestrator] Database conn: {conn is not None}")
+        
+        try:
+            query_start = time.time()
+            exec_result = conn.execute(sql_query)
+            if exec_result is None:
+                logger.error(f"[QueryOrchestrator] DuckDB execute() returned None for query: {sql_query}")
+                raise ValueError(f"DuckDB execute failed: returned None for query: {sql_query}")
+            result = exec_result.fetchall()
+        except Exception as e:
+            logger.error(f"[QueryOrchestrator] Execute error: {type(e).__name__}: {str(e)}")
+            logger.error(f"[QueryOrchestrator] Query was: {sql_query}")
+            raise
         query_duration = time.time() - query_start
 
         # Convert to list of dicts
