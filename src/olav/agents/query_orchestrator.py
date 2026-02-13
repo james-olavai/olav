@@ -59,6 +59,7 @@ def orchestrate_query_sync(
             - 'error' (str) - Error message if failed
     """
     import time
+    import re
 
     from olav.core.database import get_database
     from olav.core.llm import LLMFactory
@@ -81,7 +82,6 @@ def orchestrate_query_sync(
         elif "markdown" in query_lower:
             export_format = "markdown"
         # Try to extract filename from query
-        import re
         filename_match = re.search(r"(?:to|as|named?|called?|filename)\s+['\"]?(\w+)", query_lower)
         if filename_match:
             export_filename = filename_match.group(1)
@@ -105,11 +105,11 @@ def orchestrate_query_sync(
 
     try:
         # 1. Get database connection and schema
-        logger.debug("[QueryOrchestrator] Fetching database schema...")
+        logger.debug("[QueryOrchestrator] Fetching database connection...")
         db = get_database()
         conn = db.conn
         
-        # Get schema from DuckDB (info_schema.tables)
+        # Get schema from DuckDB (information_schema.columns)
         schema_query = """
             SELECT table_name, column_name, data_type 
             FROM information_schema.columns 
@@ -117,14 +117,33 @@ def orchestrate_query_sync(
         """
         schema_result = conn.execute(schema_query).fetchall()
         
-        # Format into readable schema
+        # Format into readable schema with column descriptions
         db_schema = "/* Database Tables and Columns */\n"
+        
+        # Column descriptions to help LLM understand data relationships
+        column_descriptions = {
+            # interfaces table
+            ("interfaces", "device_id"): "Device name/ID - directly use in WHERE conditions like WHERE device_id = 'R3'",
+            ("interfaces", "name"): "Interface name (e.g., 'GigabitEthernet0/0') - hardware interface",
+            ("interfaces", "ip_address"): "Interface IP address - the actual IP",
+            # devices table
+            ("devices", "id"): "Device unique identifier/name (e.g., 'R3') - use for matching",
+            ("devices", "name"): "Device name (e.g., 'R3', 'R1', 'SW1') - same as id field",
+            ("devices", "ip"): "Management IP address of the device",
+        }
+        
         current_table = None
         for table_name, column_name, data_type in schema_result:
             if table_name != current_table:
                 db_schema += f"\n{table_name}:\n"
                 current_table = table_name
-            db_schema += f"  - {column_name}: {data_type}\n"
+            
+            # Add description if available
+            desc = column_descriptions.get((table_name, column_name))
+            if desc:
+                db_schema += f"  - {column_name}: {data_type}  # {desc}\n"
+            else:
+                db_schema += f"  - {column_name}: {data_type}\n"
 
         if not db_schema or len(db_schema) < 50:
             logger.warning("[QueryOrchestrator] Database schema is empty")
@@ -146,6 +165,14 @@ Rules:
 4. If the query cannot be answered, return: SELECT 'Query not possible' AS error
 5. Always use proper SQL syntax
 6. Include LIMIT 1000 if no specific limit is given
+
+CRITICAL - Column Name Mapping:
+- For device matching, use ONLY these columns: device_id (in interfaces), id or name (in devices)
+- device_id in interfaces = device name string like 'R3', 'R1', etc.
+- DO NOT use: device_name, device_type, host_name, hostname, device, router, switch
+- Example queries:
+  * SELECT ip_address FROM interfaces WHERE device_id = 'R3'
+  * SELECT name FROM devices WHERE id = 'R3'
 
 Database Schema:
 {schema}
@@ -174,7 +201,7 @@ Generate SQL:"""
 
         sql_query = sql_query.strip()
         logger.info(f"[QueryOrchestrator] Generated SQL: {sql_query[:100]}...")
-
+        
         # 4. Execute query
         logger.debug("[QueryOrchestrator] Executing SQL query...")
         logger.debug(f"[QueryOrchestrator] Full SQL: {sql_query}")
