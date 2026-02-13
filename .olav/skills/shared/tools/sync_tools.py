@@ -522,32 +522,17 @@ def sync_all(
         # Determine command set based on mode
         if settings.sync.command_mode == "whitelist":
             commands = registry.get_whitelisted_commands(platform)
-            source_info = f"whitelist from {settings.sync.whitelist_file}"
+            source_info = f"whitelist ({len(commands)} commands)"
         else:
             commands_dict = registry.list_commands(platform=platform)
             commands = list(commands_dict.get(platform, []))
-            source_info = "all available NTC templates"
+            source_info = f"all NTC templates ({len(commands)} commands)"
 
         if not commands:
-            # Fallback to basic command set if no commands in registry/whitelist
-            commands = [
-                "show version",
-                "show running-config",
-                "show cdp neighbors detail",
-                "show ip interface brief",
-                "show ip route",
-                "show ip ospf neighbor",
-                "show ip bgp summary",
-                "show interfaces status",
-                "show vlan brief",
-                "show processes cpu",
-                "show memory statistics",
-                "show logging",
-                "show arp",
-                "show mac address-table",
-                "show ntp status",
-            ]
-            source_info = "standard L1-L4 set (fallback)"
+            raise ValueError(
+                f"❌ No commands available for platform '{platform}'\n"
+                f"   Please load commands via CommandRegistry or set whitelist file"
+            )
 
         print(f"Using {source_info} ({len(commands)} commands)")
 

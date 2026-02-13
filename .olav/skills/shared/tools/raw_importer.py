@@ -1,10 +1,10 @@
-"""Minimal raw data importer for sync workflow.
+"""Simple JSON importer for parsed command outputs.
 
-This module provides direct import of raw command outputs into the raw_outputs
-table using DuckDB's Schema-less JSONB approach. No ETL or normalization needed.
+This module imports TextFSM-parsed JSON files into parsed_outputs table.
+v0.13.0: Simplified design - only JSON parsing results, no raw text storage.
 
-Design (v0.9.3):
-    Raw CLI Output → raw_outputs table (JSONB) → L1-L4 SQL Views
+Design (v0.13.0):
+    TextFSM JSON → parsed_outputs table (JSON) → User queries
 
 Usage:
     from .raw_importer import import_sync_data
@@ -14,6 +14,7 @@ Usage:
 import json
 import logging
 from pathlib import Path
+from datetime import datetime
 
 import duckdb
 
@@ -21,22 +22,16 @@ logger = logging.getLogger(__name__)
 
 
 def import_sync_data(sync_dir: Path) -> dict[str, int]:
-    """Import raw and parsed data from sync directory to DuckDB.
+    """Import parsed JSON files to parsed_outputs table.
 
     Args:
         sync_dir: Path to snapshot directory (e.g., exports/snapshots/2026-01-16/)
 
     Returns:
-        Dictionary with import statistics:
-        - raw_imported: Number kept as files only (v0.10.1 - not imported to DB)
-        - parsed_imported: Number of parsed JSON files imported to command_outputs
-
-    NOTE (v0.10.1): Raw .txt files are kept in file system only.
-    They are NO LONGER imported to raw_outputs table to save database space.
-    Use grep/cat for raw data access instead of SQL queries.
+        Dictionary with import statistics (v0.13.0 - only parsed JSON)
     """
     sync_dir = Path(sync_dir)
-    snapshot_date = sync_dir.name
+    snapshot_date = sync_dir.name  # Directory name as date
 
     from olav.core.database import get_database
 
@@ -44,23 +39,23 @@ def import_sync_data(sync_dir: Path) -> dict[str, int]:
     conn = db.conn
 
     try:
-        # v0.10.1: Raw files kept in filesystem only, not imported to DB
-        # raw_count = _import_raw_outputs(conn, sync_dir, snapshot_date)
-        raw_count = 0  # Files are stored locally, not in database
-
         parsed_count = _import_parsed_outputs(conn, sync_dir, snapshot_date)
-        return {"raw_imported": raw_count, "parsed_imported": parsed_count}
+        return {"parsed_imported": parsed_count}
     except Exception as e:
         logger.error(f"Import failed: {e}")
-        return {"raw_imported": 0, "parsed_imported": 0}
+        return {"parsed_imported": 0}
 
 
 def _import_parsed_outputs(
     conn: duckdb.DuckDBPyConnection, sync_dir: Path, snapshot_date: str
 ) -> int:
-    """Import parsed JSON files to command_outputs table."""
+    """Import parsed JSON files to parsed_outputs table (v0.13.0).
+    
+    Simple and clean: Just insert JSON results, no raw text storage.
+    """
     parsed_dir = sync_dir / "parsed"
     if not parsed_dir.exists():
+        logger.debug(f"No parsed directory at {parsed_dir}")
         return 0
 
     imported = 0
@@ -69,34 +64,35 @@ def _import_parsed_outputs(
             continue
 
         device_name = device_dir.name
+
         for json_file in device_dir.glob("*.json"):
             try:
+                # Read JSON file
                 data = json.loads(json_file.read_text(encoding="utf-8"))
-                command = data.get("command", json_file.stem.replace("-", " "))
-                output_data = data.get("data", data)
+                command = data.get("command", json_file.stem)
 
+                # Insert into parsed_outputs
                 conn.execute(
                     """
-                    INSERT INTO command_outputs
-                    (snapshot_date, device_name, command, output, source_file, parser_used)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT (snapshot_date, device_name, command) DO UPDATE SET
-                        output = EXCLUDED.output,
-                        source_file = EXCLUDED.source_file,
-                        parser_used = EXCLUDED.parser_used
+                    INSERT INTO parsed_outputs
+                    (device_name, command, parsed_data, snapshot_date)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT DO NOTHING
                     """,
                     [
-                        snapshot_date,
                         device_name,
                         command,
-                        json.dumps(output_data),
-                        str(json_file.relative_to(sync_dir.parent.parent)),
-                        "textfsm",
+                        json.dumps(data),  # Store entire JSON
+                        snapshot_date,
                     ],
                 )
                 imported += 1
-            except Exception as e:
-                # command_outputs table may not exist in minimal schema
-                logger.debug(f"Failed to import parsed {device_name}/{json_file.name}: {e}")
+                logger.debug(f"✓ Imported {device_name}/{command}")
 
+            except json.JSONDecodeError as e:
+                logger.warning(f"Invalid JSON in {device_name}/{json_file.name}: {e}")
+            except Exception as e:
+                logger.debug(f"Failed to import {device_name}/{json_file.name}: {e}")
+
+    logger.info(f"Imported {imported} parsed commands for snapshot {snapshot_date}")
     return imported

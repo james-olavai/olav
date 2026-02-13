@@ -38,7 +38,7 @@ SELECT d.hostname, d.vendor, d.device_role, d.site,
        COUNT(DISTINCT r.command) as commands_seen,
        MAX(r.created_at) as last_update
 FROM devices d
-LEFT JOIN raw_outputs r ON d.hostname = r.device
+LEFT JOIN parsed_outputs p ON d.hostname = p.device_name
 WHERE d.device_role IN ('BGP-Route-Reflector', 'BGP-Border-Router')
   AND r.command LIKE '%show ip bgp%'
 GROUP BY d.hostname
@@ -112,7 +112,7 @@ SELECT d.hostname, r.command, COUNT(*) as update_count,
        LAST(r.created_at) as last_seen,
        DATEDIFF(SECOND, FIRST(r.created_at), LAST(r.created_at)) as duration_seconds
 FROM devices d
-JOIN raw_outputs r ON d.hostname = r.device
+JOIN parsed_outputs p ON d.hostname = p.device_name
 WHERE r.command = 'show ip bgp summary'
   AND DATE_DIFF('day', r.created_at, NOW()) <= 1
 GROUP BY d.hostname, r.command
@@ -124,7 +124,7 @@ ORDER BY update_count DESC;
 ```sql
 -- Query VXLAN MAC table changes
 SELECT r.device, COUNT(*) as mac_moves
-FROM raw_outputs r
+FROM parsed_outputs p
 WHERE r.command = 'show mac address-table vlan 100'
   AND DATE_DIFF('day', r.created_at, NOW()) <= 1
 GROUP BY r.device

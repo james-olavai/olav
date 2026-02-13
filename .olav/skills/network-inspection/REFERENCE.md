@@ -106,9 +106,9 @@ SELECT d.hostname, i.interface, i.state,
        COUNT(DISTINCT r.timestamp) as change_count
 FROM devices d
 JOIN interfaces i ON d.hostname = i.device
-LEFT JOIN raw_outputs r ON d.hostname = r.device 
-  AND r.command LIKE '%show interface%'
-WHERE r.timestamp > NOW() - INTERVAL '1 hour'
+LEFT JOIN parsed_outputs p ON d.hostname = p.device_name 
+  AND p.command LIKE '%show interface%'
+WHERE p.created_at > NOW() - INTERVAL '1 hour'
 GROUP BY d.hostname, i.interface
 HAVING crc_total > 100 OR change_count > 10;
 
@@ -176,9 +176,9 @@ SELECT d.hostname, r.peer_asn, count(*) as state_changes,
        DATEDIFF(minute, MAX(timestamp), NOW()) as last_update_minutes_ago
 FROM devices d
 JOIN bgp_neighbors bn ON d.hostname = bn.device
-LEFT JOIN raw_outputs r ON d.hostname = r.device 
-  AND r.command = 'show ip bgp summary'
-WHERE r.timestamp > NOW() - INTERVAL '24 hours'
+LEFT JOIN parsed_outputs p ON d.hostname = p.device_name 
+  AND p.command = 'show ip bgp summary'
+WHERE p.created_at > NOW() - INTERVAL '24 hours'
 GROUP BY d.hostname, r.peer_asn
 HAVING state_changes > 10;
 
