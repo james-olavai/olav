@@ -1,13 +1,23 @@
 {
   "query": "list all ip addresses on R3",
-  "cached_at": 1770986896.9388819,
+  "cached_at": 1770990747.4606369,
   "ttl_seconds": 3600,
   "result": {
     "success": true,
-    "result": [],
-    "query": "SELECT ip_address FROM interfaces WHERE device_name = 'R3' LIMIT 1000;",
-    "execution_time": 1.6027138233184814,
-    "rows_returned": 0,
+    "result": [
+      {
+        "ip_address": "192.168.3.1"
+      },
+      {
+        "ip_address": "10.0.0.5"
+      },
+      {
+        "ip_address": "10.1.1.1"
+      }
+    ],
+    "query": "SELECT ip_address FROM interfaces WHERE device_name = 'R3' LIMIT 1000",
+    "execution_time": 1.0224120616912842,
+    "rows_returned": 3,
     "format": "table",
     "cached": false,
     "export_requested": false,
