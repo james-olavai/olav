@@ -21,6 +21,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, Field, validator
+from langchain_core.tools import tool
+from tenacity import retry, stop_after_attempt, wait_exponential
+
 
 # Add src to Python Path
 def _find_project_root():
@@ -37,7 +41,44 @@ sys.path.insert(0, str(_find_project_root() / "src"))
 from olav.lib.data_gateway import query_database as db_query
 
 
+# ============================================================================
+# Pydantic Models for Type-Safe Parameter Validation
+# ============================================================================
+
+class SmartSQLInput(BaseModel):
+    """Smart SQL 查询输入参数 - 使用 Pydantic 自动验证"""
+    query: str = Field(default="", description="Natural language query")
+    sql: str = Field(default="", description="Direct SQL query (optional)")
+    explain_only: bool = Field(
+        default=False,
+        description="Return only schema context without executing query"
+    )
+    
+    @validator('query', 'sql', pre=True)
+    def validate_not_none(cls, v):
+        """Convert None to empty string"""
+        if v is None:
+            return ""
+        return v
+
+
+class SmartSQLOutput(BaseModel):
+    """Smart SQL 查询输出格式 - 统一返回格式"""
+    data: list[dict] | None = Field(default=None, description="Query results")
+    schema_context: str | None = Field(default=None, description="Database schema information")
+    sql: str | None = Field(default=None, description="SQL query executed")
+    count: int | None = Field(default=None, description="Number of results")
+    status: str = Field(..., description="success | error | needs_sql_generation")
+    error: str | None = Field(default=None, description="Error message if status=error")
+    error_type: str | None = Field(default=None, description="Type of error")
+    message: str | None = Field(default=None, description="Additional message")
+    user_query: str | None = Field(default=None, description="Original user query")
+    tables: list[str] | None = Field(default=None, description="Available tables")
+    attempted_sql: str | None = Field(default=None, description="SQL that failed")
+
+
 class SmartSQLContext:
+
     """Context manager for auto-schema exploration (inspired by LangChain SQLDatabase)."""
 
     def __init__(self):
@@ -140,9 +181,21 @@ def main(params: dict) -> dict:
             "status": "success"|"error"
         }
     """
-    user_query = params.get("query", "")
-    direct_sql = params.get("sql")
-    explain_only = params.get("explain_only", False)
+    # ========== STEP 1: Validate parameters with Pydantic ==========
+    try:
+        args = SmartSQLInput(**params)
+    except Exception as e:
+        # Validation error - return immediately
+        output = SmartSQLOutput(
+            status="error",
+            error=f"Invalid parameters: {str(e)}",
+            error_type="validation_error"
+        )
+        return output.model_dump(exclude_none=True)
+    
+    user_query = args.query
+    direct_sql = args.sql
+    explain_only = args.explain_only
 
     # Initialize schema context
     context = SmartSQLContext()
@@ -150,40 +203,87 @@ def main(params: dict) -> dict:
 
     # If explain_only, return just schema
     if explain_only:
-        return {
-            "schema_context": schema_context,
-            "tables": context._schema_cache.get("tables", []),
-            "status": "success",
-        }
+        output = SmartSQLOutput(
+            schema_context=schema_context,
+            tables=context._schema_cache.get("tables", []),
+            status="success"
+        )
+        return output.model_dump(exclude_none=True)
 
     # If direct SQL provided (agent already generated it), execute it
     if direct_sql:
         try:
             results = context.query(direct_sql)
-            return {
-                "data": results,
-                "sql": direct_sql,
-                "count": len(results),
-                "status": "success",
-            }
+            output = SmartSQLOutput(
+                data=results,
+                sql=direct_sql,
+                count=len(results),
+                status="success"
+            )
+            return output.model_dump(exclude_none=True)
         except Exception as e:
             # Return error with schema context for agent to retry
-            return {
-                "error": str(e),
-                "schema_context": schema_context,  # Help agent understand what went wrong
-                "attempted_sql": direct_sql,
-                "status": "error",
-                "error_type": "execution_error",
-            }
+            output = SmartSQLOutput(
+                error=str(e),
+                schema_context=schema_context,
+                attempted_sql=direct_sql,
+                status="error",
+                error_type="execution_error"
+            )
+            return output.model_dump(exclude_none=True)
 
     # If natural language query, return schema context for agent to generate SQL
     # (The agent's ReAct loop will use this to generate SQL)
-    return {
-        "message": "Schema context provided for SQL generation",
-        "user_query": user_query,
-        "schema_context": schema_context,
-        "status": "needs_sql_generation",
-    }
+    output = SmartSQLOutput(
+        message="Schema context provided for SQL generation",
+        user_query=user_query,
+        schema_context=schema_context,
+        status="needs_sql_generation"
+    )
+    return output.model_dump(exclude_none=True)
+
+
+# ============================================================================
+# LangChain Tool Registration (for DeepAgents integration)
+# ============================================================================
+
+@tool
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10)
+)
+def smart_sql_query(query: str = "", sql: str = "", explain_only: bool = False) -> dict:
+    """Smart SQL query with automatic schema discovery and error correction.
+    
+    This tool provides:
+    - Automatic schema context discovery (no manual inspect_schema calls)
+    - SQL generation guidance for the LLM
+    - Error self-correction support (via agent ReAct loop)
+    - DuckDB-specific optimizations
+    
+    Args:
+        query: Natural language question about the database
+        sql: Optional direct SQL query (used by agent for executing generated SQL)
+        explain_only: If True, return only schema context without executing anything
+    
+    Returns:
+        Status and results or error information with schema context
+    
+    Examples:
+        Example 1 - Natural language query (agent generates SQL):
+        >>> smart_sql_query("How many devices do we have?")
+        Returns schema context for agent to generate SQL
+        
+        Example 2 - Execute generated SQL:
+        >>> smart_sql_query(sql="SELECT COUNT(*) FROM devices")
+        Returns query results
+        
+        Example 3 - Get schema only:
+        >>> smart_sql_query(explain_only=True)
+        Returns database schema information
+    """
+    params = {"query": query, "sql": sql, "explain_only": explain_only}
+    return main(params)
 
 
 class DateTimeEncoder(json.JSONEncoder):

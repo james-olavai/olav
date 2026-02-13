@@ -58,7 +58,7 @@ class SecurityClassifier:
         self.force_live_scenarios = rules_data.get("force_live_scenarios", [])
         self.prefer_structured_commands = rules_data.get("prefer_structured_commands", [])
         self.force_raw_scenarios = rules_data.get("force_raw_scenarios", [])
-        self.multi_agent_detection_enabled = getattr(settings, "agent", {}).enable_multi_agent_detection
+        self.multi_agent_detection_enabled = settings.agent.guard_enable_multi_agent_detection
     
     def is_dangerous(self, query: str) -> bool:
         """Stage 1: Check if query matches dangerous patterns.

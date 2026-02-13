@@ -15,6 +15,10 @@ import json
 import sys
 from pathlib import Path
 
+from pydantic import BaseModel, Field
+from langchain_core.tools import tool
+from tenacity import retry, stop_after_attempt, wait_exponential
+
 # Add src to Python Path
 # Find project root dynamically (walk up until pyproject.toml found)
 def _find_project_root():
@@ -30,29 +34,118 @@ sys.path.insert(0, str(_find_project_root() / "src"))
 from olav.lib.data_gateway import query_database as db_query
 
 
-def main(params: dict) -> dict:
-    """Introspection for SQL Agent - uses data_gateway unified connection."""
-    table_name = params.get("table_name")
+# ============================================================================
+# Pydantic Models for Type-Safe Parameter Validation
+# ============================================================================
 
-    if table_name:
-        # Get columns for a specific table
+class InspectSchemaInput(BaseModel):
+    """Inspect schema 输入参数 - 表名是可选的"""
+    table_name: str | None = Field(
+        None,
+        description="Specific table to inspect (optional, lists all if not provided)",
+        max_length=100
+    )
+
+
+class InspectSchemaTableOutput(BaseModel):
+    """单表的详细检查结果"""
+    table: str = Field(..., description="Table name")
+    columns: list[str] = Field(..., description="Column names")
+    status: str = Field(..., description="Operation status")
+    error: str | None = Field(None, description="Error message if failed")
+
+
+class InspectSchemaAllTablesOutput(BaseModel):
+    """所有表的列表"""
+    tables: list[str] = Field(..., description="All table names")
+    status: str = Field(..., description="Operation status")
+    error: str | None = Field(None, description="Error message if failed")
+
+
+def main(params: dict) -> dict:
+    """Introspection for SQL Agent - list tables or inspect specific table schema."""
+    # ========== STEP 1: Validate parameters with Pydantic ==========
+    try:
+        args = InspectSchemaInput(**params)
+    except Exception as e:
+        return {
+            "status": "failed",
+            "error": f"Invalid parameters: {str(e)}"
+        }
+
+    # ========== STEP 2: Handle specific table inspection ==========
+    if args.table_name:
         try:
-            result = db_query(f"DESCRIBE {table_name}")
+            result = db_query(f"DESCRIBE {args.table_name}")
             columns = [row.get("column_name", row.get("Field", "")) for row in result]
-            return {"status": "success", "table": table_name, "columns": columns}
+            
+            output = InspectSchemaTableOutput(
+                table=args.table_name,
+                columns=columns,
+                status="success"
+            )
+            return output.model_dump(exclude_none=True)
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            output = InspectSchemaTableOutput(
+                table=args.table_name,
+                columns=[],
+                status="failed",
+                error=f"Failed to inspect table: {str(e)}"
+            )
+            return output.model_dump(exclude_none=True)
+    
+    # ========== STEP 3: Handle listing all tables ==========
     else:
-        # List all tables (from unified connection's main schema)
         try:
             result = db_query(
                 "SELECT DISTINCT table_name FROM information_schema.tables "
                 "WHERE table_schema = 'main' ORDER BY table_name"
             )
             tables = [row["table_name"] for row in result]
-            return {"status": "success", "tables": tables}
+            
+            output = InspectSchemaAllTablesOutput(
+                tables=tables,
+                status="success"
+            )
+            return output.model_dump(exclude_none=True)
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            output = InspectSchemaAllTablesOutput(
+                tables=[],
+                status="failed",
+                error=f"Failed to list tables: {str(e)}"
+            )
+            return output.model_dump(exclude_none=True)
+
+
+# ============================================================================
+# LangChain Tool Registration (for DeepAgents integration)
+# ============================================================================
+
+@tool
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10)
+)
+def inspect_schema(table_name: str | None = None) -> dict:
+    """Inspect database schema - list tables or columns of specific table.
+    
+    This tool provides schema introspection for SQL Agent integration.
+    If no table is specified, lists all available tables.
+    If table is specified, returns columns for that table.
+    
+    Args:
+        table_name: Optional specific table to inspect (e.g., "devices", "interfaces")
+    
+    Returns:
+        Either list of all tables, or detailed schema of specified table
+    
+    Examples:
+        inspect_schema()  # List all tables
+        inspect_schema(table_name="devices")  # Show columns of devices table
+    """
+    # Use Pydantic model for validation
+    params = {"table_name": table_name}
+    return main(params)
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -72,6 +165,17 @@ if __name__ == "__main__":
 
         result = main(input_data)
         print(json.dumps(result, ensure_ascii=False, cls=DateTimeEncoder))
+    except json.JSONDecodeError as e:
+        error_result = {
+            "status": "failed",
+            "error": f"Invalid JSON input: {str(e)}"
+        }
+        print(json.dumps(error_result, ensure_ascii=False, indent=2), file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        print(json.dumps({"status": "error", "message": str(e)}), file=sys.stderr)
+        error_result = {
+            "status": "failed",
+            "error": f"Unexpected error: {str(e)}"
+        }
+        print(json.dumps(error_result, ensure_ascii=False, indent=2), file=sys.stderr)
         sys.exit(1)

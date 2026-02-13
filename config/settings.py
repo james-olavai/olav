@@ -720,7 +720,7 @@ class Settings(BaseSettings):
     # =========================================================================
     # LLM Configuration
     # =========================================================================
-    llm_provider: Literal["openai", "ollama", "azure", "xai", "anthropic"] = "openai"
+    llm_provider: Literal["openai", "ollama", "azure", "xai", "anthropic", "groq", "mistral"] = "openai"
     llm_api_key: str = ""
     llm_model_name: str = "gpt-4-turbo"
     llm_model_provider: str = ""  # Optional: explicit provider for create_deep_agent
