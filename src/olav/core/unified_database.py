@@ -422,34 +422,6 @@ class UnifiedDatabase:
         # Removed: All cache operations moved to olav.cache module
         return None
 
-    def save_intent_cache_gateway(self, query: str, plan: dict[str, Any]) -> None:
-        """
-        Save intent cache using new unified cache module.
-
-        .. deprecated:: v0.10.0
-            Cache operations moved to olav.cache module. This method is a no-op.
-
-        Args:
-            query: Original user query
-            plan: Execution plan
-        """
-        # Removed: All cache operations moved to olav.cache module
-        pass
-
-    def save_cache_gateway(self, query_text: str, action: dict[str, Any]) -> None:
-        """
-        Save cache using new unified cache module.
-
-        .. deprecated:: v0.10.0
-            Cache operations moved to olav.cache module. This method is a no-op.
-
-        Args:
-            query_text: Query text
-            action: Action dict
-        """
-        # Removed: All cache operations moved to olav.cache module
-        pass
-
     def close(self) -> None:
         """Close database connection."""
         if self.conn:
