@@ -10,7 +10,7 @@ import logging
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 
 from .admin_file_manager import AdminFileManager
 from .knowledge_manager import KnowledgeManager
