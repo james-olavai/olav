@@ -452,8 +452,87 @@ def query(
             latency = result["execution_time"]
             console.print(f"[dim]Latency: {latency:.1f}ms[/dim]")
 
-        # Handle Orchestrator result dict
-        if result.get("status") == "complete":
+        # 🚀 Performance Enhancement: Direct table rendering (v0.11.2)
+        # If result has structured data with "table" format hint,
+        # render directly with Rich Table (skip LLM markdown generation)
+        if result.get("format") == "table" and result.get("data"):
+            from rich.table import Table
+            
+            data = result["data"]
+            
+            # Create table
+            table = Table(
+                show_header=True,
+                header_style="bold magenta",
+                border_style="cyan",
+                title_style="bold cyan",
+                padding=(0, 1),
+            )
+            
+            # Add columns
+            if data:
+                # 🎯 Smart column filtering: Show only relevant columns
+                # For device queries, show: name, hostname, site, model, platform, role, status
+                all_columns = list(data[0].keys())
+                
+                # Priority columns (ordered by importance)
+                priority_cols = [
+                    "name",          # Device name
+                    "hostname",      # Hostname or IP
+                    "mgmt_ip",       # Management IP
+                    "site",          # Site/Location
+                    "model",         # Model
+                    "platform",      # Platform (e.g., cisco_ios)
+                    "device_role",   # Role (border, core, access)
+                    "is_active",     # Status
+                ]
+                
+                # Filter to only columns that exist and are in priority list
+                display_cols = [col for col in priority_cols if col in all_columns]
+                
+                # Smart column mapping (make it readable)
+                column_names = {
+                    "device_id": "Device",
+                    "name": "Device",
+                    "hostname": "Hostname",
+                    "mgmt_ip": "Management IP",
+                    "site": "Site/Location",
+                    "location": "Location",
+                    "model": "Model",
+                    "vendor": "Vendor",
+                    "platform": "Platform",
+                    "device_type": "Type",
+                    "device_role": "Role",
+                    "is_active": "Status",
+                }
+                
+                for col in display_cols:
+                    display_name = column_names.get(col, col.replace("_", " ").title())
+                    table.add_column(display_name, overflow="fold")
+                
+                # Add rows
+                for row in data:
+                    row_values = []
+                    for col in display_cols:
+                        value = str(row[col]) if row[col] is not None else "N/A"
+                        
+                        # Status coloring
+                        if col == "is_active":
+                            value = "[green]Active[/green]" if row[col] else "[red]Inactive[/red]"
+                        
+                        row_values.append(value)
+                    
+                    table.add_row(*row_values)
+                
+                console.print(table)
+                
+                # Show row count
+                console.print(f"\n[dim]{len(data)} devices[/dim]")
+            else:
+                console.print("\n[bold yellow]⚠[/bold yellow] No results found\n")
+        
+        # Handle Orchestrator result dict (original markdown path)
+        elif result.get("status") == "complete":
             answer = result.get("final_answer", result.get("result", ""))
             if answer:
                 from rich.markdown import Markdown

@@ -56,7 +56,7 @@ def orchestrate_query_sync(
     """
     import time
 
-    from olav.core.database import get_database_connection
+    from olav.core.database import get_database
     from olav.core.llm import LLMFactory
 
     execution_start = time.time()
@@ -65,12 +65,27 @@ def orchestrate_query_sync(
     try:
         # 1. Get database connection and schema
         logger.debug("[QueryOrchestrator] Fetching database schema...")
-        conn = get_database_connection()
-        schema_query = "SELECT group_concat(sql) FROM sqlite_master WHERE type='table'"
+        db = get_database()
+        conn = db.conn
+        
+        # Get schema from DuckDB (info_schema.tables)
+        schema_query = """
+            SELECT table_name, column_name, data_type 
+            FROM information_schema.columns 
+            ORDER BY table_name, ordinal_position
+        """
         schema_result = conn.execute(schema_query).fetchall()
-        db_schema = schema_result[0][0] if schema_result and schema_result[0][0] else ""
+        
+        # Format into readable schema
+        db_schema = "/* Database Tables and Columns */\n"
+        current_table = None
+        for table_name, column_name, data_type in schema_result:
+            if table_name != current_table:
+                db_schema += f"\n{table_name}:\n"
+                current_table = table_name
+            db_schema += f"  - {column_name}: {data_type}\n"
 
-        if not db_schema:
+        if not db_schema or len(db_schema) < 50:
             logger.warning("[QueryOrchestrator] Database schema is empty")
             db_schema = "/* No tables found in database */"
 
@@ -98,17 +113,16 @@ User Query: {query}
 
 Generate SQL:"""
 
+        from langchain_core.messages import SystemMessage, HumanMessage
+
         messages = [
-            {
-                "role": "system",
-                "content": system_prompt.format(schema=db_schema, query=user_query),
-            },
+            SystemMessage(content=system_prompt.format(schema=db_schema, query=user_query)),
         ]
 
         logger.debug("[QueryOrchestrator] Sending query to LLM...")
 
         # 3. Get SQL from LLM (synchronous call)
-        response = llm.invoke({"messages": messages})
+        response = llm.invoke(messages)
 
         # Extract SQL from response
         sql_query = response.content.strip() if hasattr(response, "content") else str(response).strip()
@@ -130,6 +144,22 @@ Generate SQL:"""
         if result:
             columns = [description[0] for description in conn.execute(sql_query).description]
             result_dicts = [dict(zip(columns, row)) for row in result]
+            
+            # 🔧 FIX: Replace None with "N/A" to prevent LLM hallucinations
+            # When LLM sees None/null values (e.g., vendor=None, model=None),
+            # it may fill them with "reasonable" example data like "ISR4321" or "Catalyst 3750".
+            # This explicit "N/A" marker prevents such hallucinations.
+            cleaned_dicts = []
+            for row_dict in result_dicts:
+                cleaned_row = {}
+                for key, value in row_dict.items():
+                    if value is None:
+                        cleaned_row[key] = "N/A"  # Explicit missing data marker
+                    else:
+                        cleaned_row[key] = value
+                cleaned_dicts.append(cleaned_row)
+            
+            result_dicts = cleaned_dicts
         else:
             result_dicts = []
 
@@ -144,6 +174,7 @@ Generate SQL:"""
             "query": sql_query,
             "execution_time": execution_time,
             "rows_returned": len(result_dicts),
+            "format": "table",  # Hint for CLI: render as table directly (skip LLM prettification)
         }
 
     except Exception as e:
