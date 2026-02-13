@@ -124,7 +124,7 @@ OLAV_LOG_LEVEL=INFO uv run olav --help
 # 应该看到: 没有 "Initializing Orchestrator" 消息 (仅在交互模式执行)
 
 # 测试交互模式
-uv run olav interactive
+uv run olav
 # 应该看到:
 #   🚀 OLAV Initializing Orchestrator...
 #   (First-time setup, ~20 seconds)
@@ -137,7 +137,7 @@ uv run olav interactive
 
 ```bash
 # 启动交互模式
-uv run olav interactive
+uv run olav
 
 # 第一个查询 (计时)
 OLAV> list all devices
@@ -271,7 +271,7 @@ OLAV> export devices to csv
 ### 当前行为
 
 ```
-$ uv run olav interactive
+$ uv run olav
 
 OLAV> list all devices
 [转圈... 30 秒... 无输出]
@@ -287,7 +287,7 @@ OLAV> get ip addresses
 ### 改进后行为
 
 ```
-$ uv run olav interactive
+$ uv run olav
 
 🚀 OLAV Initializing Orchestrator...
    (First-time setup, ~20 seconds)
