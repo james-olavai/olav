@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Any
 
 import typer
 from config.settings import settings
-from olav.core.tool_registry import get_tool
 
 logger = logging.getLogger(__name__)
 from rich.console import Console
@@ -218,16 +217,16 @@ async def run_interactive_loop_async(
     
     logger.debug(f"Starting interactive session with thread_id: {thread_id}")
 
-    # Initialize Guard (Security Gatekeeper) and Display
+    # Initialize Agent and Display
     from olav.cli.display import StreamingDisplay
-    from olav.core.guard import Guard
+    from olav.agents.agent import create_olav_agent
 
     display = StreamingDisplay(
         console=console, verbose=False, show_spinner=is_tty, quiet=not is_tty
     )
 
-    # Initialize Guard for security checks
-    guard = Guard()
+    # Initialize Agent
+    agent = create_olav_agent()
 
     # Display cache metrics on startup (TTY only)
     if is_tty:
@@ -260,28 +259,6 @@ async def run_interactive_loop_async(
             if not user_input:
                 continue
 
-            # =========================================================================
-            # Guard: Security check before processing
-            # =========================================================================
-            guard_result = guard.check(user_input)
-
-            # Handle Guard rejections
-            if guard_result.action == "reject":
-                print(f"🚫 {guard_result.message}")
-                continue
-
-            # Handle approval requirements
-            if guard_result.action == "require_approval":
-                print(f"⚠️  {guard_result.message}")
-                confirm = await session.prompt_async("Continue? (yes/no): ")
-                if confirm.lower() not in ["yes", "y"]:
-                    print("❌ Cancelled")
-                    continue
-
-            # Handle warnings
-            if guard_result.action == "warn" and guard_result.message:
-                print(f"⚠️  {guard_result.message}")
-
             # Check for slash commands first
             if user_input.startswith("/"):
                 # Handle /reload command specially (no need to route to execute_command)
@@ -300,22 +277,7 @@ async def run_interactive_loop_async(
                         agent=None,  # Slash commands don't need agent
                     )
                     if result:
-                        # Check if result should be sent to Agent
-                        if result.startswith("AGENT_PROMPT::"):
-                            # Extract prompt and send to Orchestrator
-                            agent_prompt = result[len("AGENT_PROMPT::"):]
-                            print("🤖 Sending to Orchestrator for analysis...\n")
-                            from langchain_core.messages import HumanMessage
-
-                            from olav.agents.orchestrator import create_orchestrator
-                            _cmd_agent = create_orchestrator(thread_id=thread_id)
-                            use_verbose = settings.display_thinking
-                            _cmd_inputs = {"messages": [HumanMessage(content=agent_prompt)]}
-                            output = await stream_agent_response(
-                                _cmd_agent, _cmd_inputs, verbose=use_verbose, thread_id=thread_id
-                            )
-                        else:
-                            print(result)
+                        print(result)
                 except EOFError:
                     # /quit raises EOFError - re-raise to exit
                     raise
@@ -355,83 +317,18 @@ async def run_interactive_loop_async(
             if is_tty:
                 print("🔍 Processing...", flush=True)
             try:
-                # =========================================================
-                # Fast Guard Routing for Interactive Mode (v0.11.5+)
-                # =========================================================
-                # Interactive mode now uses Guard routing instead of full
-                # Orchestrator for 10-15x performance improvement:
-                #   - Guard: Route & execute in 2-5 seconds (proven fast path)
-                #   - Orchestrator: DeepAgents + SUBAgent routing = 30s timeout
-                #
-                # For simple/common queries (<80% of cases):
-                #   Guard directly executes via orchestrate_query_sync()
-                # For complex queries (multi-step reasoning):
-                #   Guard routes to appropriate SubAgent if needed
-                # =========================================================
-                from olav.agents.guard import get_guard
-                import asyncio
-                from rich.table import Table
-
-                # Get Guard singleton and route query synchronously
-                guard_router = get_guard()
+                # Direct Agent invocation (v2.0 - no Guard routing)
+                from langchain_core.messages import HumanMessage
+                use_verbose = settings.display_thinking
+                agent_config = {"configurable": {"thread_id": thread_id}} if thread_id else {}
                 
-                # Run Guard routing in executor to avoid blocking event loop
-                loop = asyncio.get_event_loop()
-                output = await loop.run_in_executor(
-                    None,
-                    guard_router.route_and_execute,
-                    processed_text,
-                    None  # user_id
+                result = await stream_agent_response(
+                    agent,
+                    {"messages": [HumanMessage(content=processed_text)]},
+                    verbose=use_verbose,
+                    thread_id=thread_id,
                 )
-
-                # Handle output from Guard
-                if output and output.get("status") in ["complete", "success"]:
-                    # Check for final_answer first (formatted response)
-                    final_answer = output.get("final_answer", "")
-                    if final_answer:
-                        print(final_answer)
-                    # Check for structured data (query results)
-                    elif output.get("data"):
-                        data = output.get("data")
-                        # Render as table for better readability
-                        if isinstance(data, list) and len(data) > 0:
-                            # Get headers from first row
-                            headers = list(data[0].keys()) if isinstance(data[0], dict) else []
-                            
-                            if headers:
-                                table = Table(title=f"Query Results ({len(data)} rows)")
-                                for header in headers:
-                                    table.add_column(header)
-                                
-                                # Add rows, limiting to first 100 rows for display
-                                for row in data[:100]:
-                                    values = [str(row.get(h, "-")) for h in headers]
-                                    table.add_row(*values)
-                                
-                                console.print(table)
-                                
-                                if len(data) > 100:
-                                    console.print(f"\n_Showing 100 of {len(data)} rows_")
-                            else:
-                                # Raw data output if no headers
-                                print(str(data))
-                        else:
-                            print(str(data))
-                    else:
-                        # No data returned but query succeeded
-                        print(f"✅ Query executed successfully")
-                        exec_time = output.get("execution_time", "unknown")
-                        rows = output.get("rows_returned", 0)
-                        if rows > 0 or exec_time != "unknown":
-                            print(f"  Rows: {rows}, Time: {exec_time}s")
-                elif output and output.get("status") == "error":
-                    error_msg = output.get("error_message", "Unknown error")
-                    print(f"❌ Error: {error_msg}")
-                elif output and output.get("status") == "rejected":
-                    rejection_msg = output.get("final_answer", output.get("error_message", "Query rejected"))
-                    print(f"🚫 {rejection_msg}")
-                else:
-                    print("\n⚠️ No response from Guard router\n")
+                print(result)
 
             except Exception as e:
                 print(f"❌ Error: {str(e)}")
@@ -477,47 +374,33 @@ def query(
             display.show_processing_status("🛡️ Guard analyzing query...")
 
         # Determine if Guard should be used (Phase 5: Guard as Entry Point)
-        use_guard = guard if guard is not None else settings.agent.enable_guard_routing
+        # v2.0: Direct Agent invocation (no Guard routing)
+        from langchain_core.messages import HumanMessage
+        from olav.agents.agent import create_olav_agent
         
-        if use_guard:
-            # Phase 5: Use Guard.route_and_execute() as entry point
-            # Guard will route based on query classification:
-            #   - High confidence (≥0.75): Direct execution (bypasses Orchestrator)
-            #   - Low confidence (<0.75): Falls back to Orchestrator
-            from olav.agents.guard import get_guard
-            guard_instance = get_guard()
-            result = guard_instance.route_and_execute(query_text)
-            logger.debug(f"[CLI] Guard result keys: {list(result.keys())}")
-        else:
-            # Fallback to sync orchestrator (v0.11.x behavior, without Guard)
-            from olav.agents.orchestrator import orchestrate_query_sync
-            result = orchestrate_query_sync(query_text)
-            logger.debug(f"[CLI] Orchestrator result keys: {list(result.keys())}")
+        agent_instance = create_olav_agent()
+        agent_config = {"configurable": {"thread_id": thread_id}} if thread_id else {}
+        result = await stream_agent_response(
+            agent_instance,
+            {"messages": [HumanMessage(content=query_text)]},
+            verbose=use_verbose,
+            thread_id=thread_id,
+        )
+        logger.debug(f"[CLI] Agent result type: {type(result)}")
 
         display.stop_processing_status()
 
-        # Display Guard routing info if available
-        if result.get("route"):
-            route = result["route"]
-            confidence = result.get("confidence", 0.0)
-            console.print(f"[dim]Route: {route} (confidence: {confidence:.2f})[/dim]")
-        
-        if result.get("execution_time"):
-            latency = result["execution_time"] * 1000 if result.get("execution_time") < 100 else result.get("execution_time")
-            console.print(f"[dim]Latency: {latency:.1f}ms[/dim]")
-
-        # 🚀 Performance Enhancement: Direct table rendering (v0.11.2)
-        # If result has structured data with "table" format hint,
-        # render directly with Rich Table (skip LLM markdown generation)
-        # Priority: Check table format FIRST before checking status
-        if result.get("export_file"):
-            # ✅ Phase 3.1: Export file was created
+        # Display results from agent
+        # Result is typically a string from the agent's final response
+        if isinstance(result, str):
+            print(result)
+        elif isinstance(result, dict) and result.get("export_file"):
             export_file = result.get("export_file")
             format_type = result.get("format", "unknown")
             console.print(f"\n[bold green]✅ Export successful![/bold green]")
             console.print(f"[cyan]File:[/cyan] {export_file}")
             console.print(f"[cyan]Format:[/cyan] {format_type}")
-            if result.get("rows_exported"):
+            if result.get("rows_exported")
                 console.print(f"[cyan]Rows:[/cyan] {result['rows_exported']}")
         elif result.get("format") == "table" and (result.get("data") or result.get("result")):
             # Support both "data" (from dispatcher) and "result" (from orchestrator)
