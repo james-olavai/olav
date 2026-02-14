@@ -58,6 +58,7 @@ dependencies = [
 
 [project.scripts]
 olav = "olav.cli:main"
+olav2 = "olav.cli.agent_v2:app"
 
 [project.optional-dependencies]
 dev = [
