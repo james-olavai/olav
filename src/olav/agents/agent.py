@@ -282,10 +282,14 @@ Respond in a clear, structured format."""
             # Prepare input
             input_data = {"messages": [{"role": "user", "content": query}]}
 
-            # Configure runtime
+            # Configure runtime - always provide config if checkpointer exists
             config = None
-            if thread_id and self.checkpointer:
-                config = {"configurable": {"thread_id": thread_id}}
+            if self.checkpointer:
+                config = {
+                    "configurable": {
+                        "thread_id": thread_id or f"default-{id(input_data)}"
+                    }
+                }
 
             # Execute graph
             result = self.graph.invoke(input_data, config=config)
@@ -297,7 +301,7 @@ Respond in a clear, structured format."""
                 return {
                     "status": "success",
                     "response": last_message.content if hasattr(last_message, "content") else str(last_message),
-                    "thread_id": thread_id
+                    "thread_id": thread_id or "default"
                 }
 
             return {"status": "error", "message": "No response generated"}
