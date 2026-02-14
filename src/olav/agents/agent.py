@@ -120,8 +120,8 @@ class OLAVAgent:
             if spec_insp and spec_insp.loader:
                 inspection = importlib.util.module_from_spec(spec_insp)
                 spec_insp.loader.exec_module(inspection)
-                if hasattr(inspection, "inspect_devices"):
-                    tools.append(inspection.inspect_devices)
+                if hasattr(inspection, "manage_inspection_schedule"):
+                    tools.append(inspection.manage_inspection_schedule)
 
             logger.info(f"Loaded {len(tools)} tools from {tools_path}")
         except Exception as e:
@@ -200,6 +200,7 @@ class OLAVAgent:
                 for i, tool_call in enumerate(last_message.tool_calls):
                     tool_name = tool_call["name"]
                     tool_args = tool_call["args"]
+                    tool_call_id = tool_call["id"]
                     logger.info(f"[tool_node] Tool {i+1}: {tool_name} with args: {tool_args}")
 
                     # Find and execute tool (handles both plain functions and Tool objects)
@@ -209,22 +210,29 @@ class OLAVAgent:
                         func_name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
                         if func_name == tool_name:
                             logger.info(f"[tool_node] Executing tool: {tool_name}")
-                            # Execute tool (handle both Tool.invoke() and direct function call)
-                            if hasattr(tool, "invoke"):
-                                result = tool.invoke(tool_args)
-                            else:
-                                result = tool(**tool_args)
-                            logger.info(f"[tool_node] Tool {tool_name} result: {str(result)[:200]}")
+                            try:
+                                # Execute tool (handle both Tool.invoke() and direct function call)
+                                if hasattr(tool, "invoke"):
+                                    result = tool.invoke(tool_args)
+                                else:
+                                    result = tool(**tool_args)
+                                logger.info(f"[tool_node] Tool {tool_name} result: {str(result)[:200]}")
+                            except Exception as e:
+                                logger.error(f"[tool_node] Tool {tool_name} failed: {e}")
+                                result = f"Error executing {tool_name}: {e}"
                             break
 
                     if result is None:
                         logger.warning(f"[tool_node] Tool {tool_name} not found!")
+                        result = f"Tool '{tool_name}' not found"
 
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": tool_call["id"],
-                        "content": json.dumps(result)
-                    })
+                    # Use ToolMessage for proper LangChain message format
+                    from langchain_core.messages import ToolMessage
+                    tool_results.append(ToolMessage(
+                        content=json.dumps(result) if not isinstance(result, str) else result,
+                        tool_call_id=tool_call_id,
+                        name=tool_name,
+                    ))
 
                 logger.info(f"[tool_node] Returning {len(tool_results)} tool results")
                 return {"messages": messages + tool_results}
