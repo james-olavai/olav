@@ -150,24 +150,18 @@ class AdminCommand:
             return {"status": "error", "message": str(e)}
 
     async def skill_reload(self, skill_name: str) -> dict:
-        """Reload a specific skill (placeholder for future implementation)."""
-        try:
-            skill_path = self.base_path / "skills" / skill_name / "SKILL.md"
-            if not skill_path.exists():
-                return {"status": "error", "message": f"Skill not found: {skill_name}"}
-
-            # TODO: Implement skill reloading logic
-            return {"status": "success", "message": f"Skill {skill_name} reloaded"}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
+        """Reload a specific skill (not yet implemented)."""
+        return {
+            "status": "error",
+            "message": "Not Implemented: skill_reload requires dynamic skill loading mechanism"
+        }
 
     async def schema_sync(self) -> dict:
-        """Sync schema to DuckDB (placeholder for future implementation)."""
-        try:
-            # TODO: Implement schema sync logic
-            return {"status": "success", "message": "Schema sync completed"}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
+        """Sync schema to DuckDB (not yet implemented)."""
+        return {
+            "status": "error",
+            "message": "Not Implemented: schema_sync requires schema introspection and DuckDB sync logic"
+        }
 
     async def cron_list(self) -> dict:
         """List scheduled cron tasks."""
@@ -186,12 +180,11 @@ class AdminCommand:
             return {"status": "error", "message": str(e)}
 
     async def cron_add(self, schedule: str, command: str) -> dict:
-        """Add a cron task (placeholder for future implementation)."""
-        try:
-            # TODO: Implement cron add logic with python-crontab
-            return {"status": "success", "message": f"Cron task added: {schedule}"}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
+        """Add a cron task (not yet implemented)."""
+        return {
+            "status": "error",
+            "message": "Not Implemented: cron_add requires python-crontab integration"
+        }
 
 
 async def admin_handler(command: str) -> dict:
