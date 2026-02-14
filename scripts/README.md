@@ -74,7 +74,7 @@ TIMEOUT=1800
 0 6 * * * $OLAV_HOME/scripts/daily_inspection.sh
 
 # 2. 每周备份（周日 02:00）
-0 2 * * 0 cd $OLAV_HOME && uv run olav admin backup
+0 2 * * 0 cd $OLAV_HOME && uv run olav backup
 
 # 3. 日志清理（01:00，保留 7 天）
 0 1 * * * find $OLAV_HOME/.olav/logs -name "inspection_*.log" -mtime +7 -delete
@@ -346,10 +346,10 @@ done
 
 ```bash
 # 每周自动备份（已包含在 cron 中）
-0 2 * * 0 cd $OLAV_HOME && uv run olav admin backup
+0 2 * * 0 cd $OLAV_HOME && uv run olav backup
 
 # 手动备份（重要操作前）
-uv run olav admin backup
+uv run olav backup
 
 # 验证备份
 ls -lh .olav/backups/
