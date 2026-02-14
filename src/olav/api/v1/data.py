@@ -12,7 +12,8 @@ Key Features:
 """
 
 from dataclasses import dataclass
-from typing import Dict, Any, Optional, List
+from typing import Any
+
 import duckdb
 
 from config.paths import UNIFIED_DB
@@ -48,9 +49,9 @@ class QueryResult:
         query_sql: Original query SQL (for debugging)
     """
     table: str
-    rows: List[Dict[str, Any]]
+    rows: list[dict[str, Any]]
     total_count: int
-    columns: List[str]
+    columns: list[str]
     query_sql: str
 
 
@@ -64,10 +65,10 @@ def _validate_table_exists(table_name: str) -> None:
         ValueError: If table does not exist
     """
     schema_result = list_tables()
-    
+
     all_tables = schema_result.tables + schema_result.views
     table_names = [t.name.lower() for t in all_tables]
-    
+
     if table_name.lower() not in table_names:
         raise ValueError(f"Table '{table_name}' does not exist")
 
@@ -84,15 +85,15 @@ def _validate_column_exists(table_name: str, column_name: str) -> None:
     """
     schema = get_table_schema(table_name)
     column_names = [col["name"].lower() for col in schema.columns]
-    
+
     if column_name.lower() not in column_names:
         raise ValueError(f"Invalid column: '{column_name}'")
 
 
 def build_query(
     table_name: str,
-    where: Optional[Dict[str, Any]] = None,
-    order_by: Optional[str] = None,
+    where: dict[str, Any] | None = None,
+    order_by: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> SafeQuery:
@@ -131,50 +132,50 @@ def build_query(
     """
     # 1. Validate table exists
     _validate_table_exists(table_name)
-    
+
     # Get schema for column validation
     schema = get_table_schema(table_name)
     column_names = [col["name"].lower() for col in schema.columns]
-    
+
     # 2. Build SELECT clause (no user input)
     sql = f"SELECT * FROM {table_name}"
     params = []
-    
+
     # 3. Build WHERE clause with parameterization
     if where:
         conditions = []
-        
+
         for column, value in where.items():
             # Validate column exists
             if column.lower() not in column_names:
                 raise ValueError(f"Invalid column: '{column}'")
-            
+
             # Build parameterized condition (? instead of value)
             conditions.append(f"{column} = ?")
             params.append(value)
-        
+
         # Combine conditions with AND
         sql += " WHERE " + " AND ".join(conditions)
-    
+
     # 4. Build ORDER BY clause (column name only, no user values)
     if order_by:
         # Validate column exists
         if order_by.lower() not in column_names:
             raise ValueError(f"Invalid order_by column: '{order_by}'")
-        
+
         sql += f" ORDER BY {order_by}"
-    
+
     # 5. Add pagination with parameterization
     sql += " LIMIT ? OFFSET ?"
     params.extend([limit, offset])
-    
+
     return SafeQuery(sql=sql, params=params, table=table_name)
 
 
 def query_table(
     table_name: str,
-    where: Optional[Dict[str, Any]] = None,
-    order_by: Optional[str] = None,
+    where: dict[str, Any] | None = None,
+    order_by: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> QueryResult:
@@ -209,36 +210,36 @@ def query_table(
     """
     # Build parameterized query
     safe_query = build_query(table_name, where, order_by, limit, offset)
-    
+
     # Execute query with DuckDB (parameters are bound safely)
     conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
-    
+
     try:
         # Execute main query using native DuckDB (no pandas dependency)
         result = conn.execute(safe_query.sql, safe_query.params)
-        
+
         # Get columns from description
         columns = [desc[0] for desc in result.description]
-        
+
         # Fetch all rows as tuples
         all_rows = result.fetchall()
-        
+
         # Convert tuples to dicts
         rows = [dict(zip(columns, row)) for row in all_rows]
-        
+
         # Get total count (without LIMIT/OFFSET)
         count_sql = f"SELECT COUNT(*) FROM {table_name}"
         count_params = []
-        
+
         if where:
             conditions = []
             for column, value in where.items():
                 conditions.append(f"{column} = ?")
                 count_params.append(value)
             count_sql += " WHERE " + " AND ".join(conditions)
-        
+
         total_count = conn.execute(count_sql, count_params).fetchone()[0]
-        
+
         return QueryResult(
             table=table_name,
             rows=rows,
@@ -246,6 +247,6 @@ def query_table(
             columns=columns,
             query_sql=safe_query.sql,
         )
-    
+
     finally:
         conn.close()

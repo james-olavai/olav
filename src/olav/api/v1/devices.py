@@ -9,8 +9,8 @@ Provides:
 - Device status and health
 """
 
-from typing import Dict, Any, List, Optional
 import logging
+from typing import Any
 
 from olav.core.unified_database import UnifiedDatabase
 
@@ -20,11 +20,11 @@ logger = logging.getLogger(__name__)
 def list_devices(
     limit: int = 100,
     offset: int = 0,
-    vendor: Optional[str] = None,
-    device_type: Optional[str] = None,
-    status: Optional[str] = None,
+    vendor: str | None = None,
+    device_type: str | None = None,
+    status: str | None = None,
     order_by: str = "hostname",
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """List devices with optional filtering.
 
     Args:
@@ -99,7 +99,7 @@ def list_devices(
         raise  # Propagate error instead of returning empty list
 
 
-def get_device(device_id: str) -> Optional[Dict[str, Any]]:
+def get_device(device_id: str) -> dict[str, Any] | None:
     """Get detailed information about a specific device.
 
     Args:
@@ -156,7 +156,7 @@ def get_device_interfaces(
     device_id: str,
     limit: int = 100,
     order_by: str = "interface_name",
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Get interfaces for a device.
 
     Args:
@@ -213,7 +213,7 @@ def get_device_interfaces(
         raise  # Propagate error instead of returning empty list
 
 
-def get_device_capabilities(device_id: str) -> Dict[str, Any]:
+def get_device_capabilities(device_id: str) -> dict[str, Any]:
     """Get capabilities of a device.
 
     Args:
@@ -260,8 +260,8 @@ def get_device_capabilities(device_id: str) -> Dict[str, Any]:
 def query_subnet_devices(
     subnet: str,
     limit: int = 100,
-    status: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+    status: str | None = None,
+) -> list[dict[str, Any]]:
     """Query devices in a subnet.
 
     Args:
@@ -323,10 +323,10 @@ def query_subnet_devices(
 
 
 def filter_devices(
-    criteria: Dict[str, Any],
+    criteria: dict[str, Any],
     limit: int = 100,
     offset: int = 0,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Filter devices by multiple criteria.
 
     Args:
@@ -358,7 +358,7 @@ def filter_devices(
     )
 
 
-def get_device_status(device_id: str) -> Optional[Dict[str, Any]]:
+def get_device_status(device_id: str) -> dict[str, Any] | None:
     """Get current status and health of a device.
 
     Args:

@@ -727,6 +727,7 @@ async def general_exception_handler(request, exc: Exception):
 
 if __name__ == "__main__":
     import uvicorn
+
     from config.settings import settings
 
     uvicorn.run(

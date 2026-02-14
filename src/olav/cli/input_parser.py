@@ -4,7 +4,6 @@ Handles file references and shell commands.
 """
 
 import re
-import subprocess
 from pathlib import Path
 
 

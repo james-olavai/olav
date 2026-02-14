@@ -20,12 +20,10 @@ Usage:
 
 import json
 import logging
-import hashlib
-import tarfile
 import shutil
+import tarfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +197,7 @@ class AdminCommand:
 async def admin_handler(command: str) -> dict:
     """Main handler for admin commands."""
     admin = AdminCommand()
-    
+
     # Parse command
     parts = command.split()
     if len(parts) < 2 or parts[0] != "/admin":
