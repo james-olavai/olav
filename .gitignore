@@ -110,3 +110,8 @@ uv.lock
 # Archives & Legacy (Excluded from Release)
 archive/
 docs
+
+# Skill-specific duckdb files
+.olav/skills/**/*.duckdb
+.olav/skills/**/*.duckdb-wal
+.olav/skills/**/*.duckdb-shm
