@@ -38,6 +38,14 @@ def _find_project_root():
 sys.path.insert(0, str(_find_project_root() / "src"))
 
 from olav.lib.data_gateway import query_database as db_query
+from olav.core.query_cache import QueryCache
+
+
+# ============================================================================
+# Global Cache Instance
+# ============================================================================
+
+_query_cache = QueryCache()
 
 
 # ============================================================================
@@ -230,8 +238,25 @@ def main(params: dict) -> dict:
     # If direct SQL provided (agent already generated it), execute it
     if direct_sql:
         try:
-            results = context.query(direct_sql)
-            results = _sanitize_rows(results)
+            # Check cache first
+            cached_result = _query_cache.get(direct_sql)
+            
+            if cached_result is not None:
+                # Cache hit - use cached data
+                results = cached_result.get("data", [])
+            else:
+                # Cache miss - execute query and cache
+                results = context.query(direct_sql)
+                results = _sanitize_rows(results)
+                
+                # Cache the results
+                cache_data = {
+                    "data": results,
+                    "sql": direct_sql,
+                    "count": len(results)
+                }
+                _query_cache.set(direct_sql, cache_data)
+            
             output = DatabaseQueryOutput(
                 data=results,
                 sql=direct_sql,
