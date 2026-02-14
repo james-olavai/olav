@@ -1,0 +1,24 @@
+{
+  "query": "show interfaces on R1",
+  "cached_at": 1771028383.0597262,
+  "ttl_seconds": 3600,
+  "result": {
+    "success": true,
+    "result": [
+      {
+        "parsed_data": "[{\"PORT\": \"Gi1\", \"STATUS\": \"up\", \"PROTOCOL\": \"up\", \"DESCRIPTION\": \"Link to R2\"}, {\"PORT\": \"Gi2\", \"STATUS\": \"up\", \"PROTOCOL\": \"up\", \"DESCRIPTION\": \"Link to R3\"}, {\"PORT\": \"Gi3\", \"STATUS\": \"admin down\", \"PROTOCOL\": \"down\", \"DESCRIPTION\": \"\"}, {\"PORT\": \"Gi4\", \"STATUS\": \"up\", \"PROTOCOL\": \"up\", \"DESCRIPTION\": \"\"}, {\"PORT\": \"Lo0\", \"STATUS\": \"up\", \"PROTOCOL\": \"up\", \"DESCRIPTION\": \"\"}, {\"PORT\": \"Lo100\", \"STATUS\": \"up\", \"PROTOCOL\": \"up\", \"DESCRIPTION\": \"\"}]"
+      },
+      {
+        "parsed_data": "[{\"Interface\": \"GigabitEthernet1\", \"Status\": \"up\"}, {\"Interface\": \"GigabitEthernet2\", \"Status\": \"up\"}, {\"Interface\": \"GigabitEthernet4\", \"Status\": \"up\"}, {\"Interface\": \"Loopback0\", \"Status\": \"up\"}, {\"Interface\": \"Loopback100\", \"Status\": \"up\"}]"
+      }
+    ],
+    "query": "SELECT parsed_data\nFROM parsed_outputs \nWHERE device_name = 'R1' AND command LIKE '%show interfaces%' \nLIMIT 1000;",
+    "execution_time": 1.846463918685913,
+    "rows_returned": 2,
+    "format": "table",
+    "cached": false,
+    "export_requested": false,
+    "export_format": "csv",
+    "export_filename": null
+  }
+}

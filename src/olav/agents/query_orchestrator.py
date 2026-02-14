@@ -64,6 +64,7 @@ def orchestrate_query_sync(
     from olav.core.database import get_database
     from olav.core.llm import LLMFactory
     from olav.core.query_cache import QueryCache
+    from olav.core.skill_loader import get_skill_loader
 
     execution_start = time.time()
     logger.info(f"[QueryOrchestrator] Processing query: {user_query[:100]}...")
@@ -118,24 +119,47 @@ def orchestrate_query_sync(
         schema_result = conn.execute(schema_query).fetchall()
         
         # Format into readable schema with column descriptions
-        db_schema = "/* Database Tables and Columns */\n"
+        db_schema = "/* Database Tables and Columns - Dynamically Generated */\n"
+        
+        # Get table row counts
+        table_counts = {}
+        try:
+            tables_result = conn.execute("""
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_schema = 'main' AND table_type = 'BASE TABLE'
+            """).fetchall()
+            for (table_name,) in tables_result:
+                try:
+                    count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+                    table_counts[table_name] = count
+                except:
+                    pass
+        except:
+            pass
         
         # Column descriptions to help LLM understand data relationships
         column_descriptions = {
-            # interfaces table
-            ("interfaces", "device_id"): "Device name/ID - directly use in WHERE conditions like WHERE device_id = 'R3'",
-            ("interfaces", "name"): "Interface name (e.g., 'GigabitEthernet0/0') - hardware interface",
-            ("interfaces", "ip_address"): "Interface IP address - the actual IP",
+            # parsed_outputs table
+            ("parsed_outputs", "device_name"): "Device name (e.g., 'R1', 'R3') - use for filtering by specific device",
+            ("parsed_outputs", "command"): "CLI command that was executed (e.g., 'show interfaces', 'show arp')",
+            ("parsed_outputs", "parsed_data"): "JSON array containing parsed command output - use json_extract() for access",
+            ("parsed_outputs", "snapshot_date"): "Date/time when command was executed",
             # devices table
-            ("devices", "id"): "Device unique identifier/name (e.g., 'R3') - use for matching",
-            ("devices", "name"): "Device name (e.g., 'R3', 'R1', 'SW1') - same as id field",
-            ("devices", "ip"): "Management IP address of the device",
+            ("devices", "id"): "Device unique identifier (e.g., 'R3') - use for matching with device_name",
+            ("devices", "name"): "Device name (e.g., 'R3', 'R1', 'SW1')",
+            ("devices", "ip"): "Management IP address",
+            # topology_links table
+            ("topology_links", "source_device"): "Local device name",
+            ("topology_links", "source_interface"): "Local interface name",
+            ("topology_links", "destination_device"): "Remote device name",
+            ("topology_links", "destination_interface"): "Remote interface name",
         }
         
         current_table = None
         for table_name, column_name, data_type in schema_result:
             if table_name != current_table:
-                db_schema += f"\n{table_name}:\n"
+                row_count = table_counts.get(table_name, "?")
+                db_schema += f"\n{table_name}: ({row_count} rows)\n"
                 current_table = table_name
             
             # Add description if available
@@ -151,40 +175,70 @@ def orchestrate_query_sync(
 
         logger.debug(f"[QueryOrchestrator] Got schema ({len(db_schema)} chars)")
 
-        # 2. Prepare LLM prompt
+        # 2. Load system prompt from SKILL (no hardcoding!) - v0.12.0+
         llm = LLMFactory.get_chat_model()
+        
+        # Detect which tables are "empty" (0 rows) for warning
+        empty_tables = []
+        for table_name, count in table_counts.items():
+            if count == 0:
+                empty_tables.append(table_name)
+        
+        empty_tables_warning = ""
+        if empty_tables:
+            empty_tables_warning = f"WARNING - These tables are EMPTY (DO NOT QUERY):\n"
+            for table_name in empty_tables:
+                empty_tables_warning += f"  ❌ {table_name} - 0 rows\n"
+            empty_tables_warning += "ALWAYS prefer tables with data:\n"
+            populated_tables = [t for t in table_counts if table_counts[t] > 0]
+            for table_name in populated_tables:
+                empty_tables_warning += f"  ✅ {table_name} - {table_counts[table_name]} rows\n"
 
-        system_prompt = """You are a SQL query generator for a network device inventory database.
+        # 🆕 v0.12.1: Dynamically extract JSON field mappings from actual data
+        # This ensures the system prompt always has current field names
+        json_reference = ""
+        try:
+            from olav.core.json_metadata import analyze_database_json_schema, generate_json_field_reference
+            command_fields = analyze_database_json_schema(conn)
+            if command_fields:
+                json_reference = generate_json_field_reference(command_fields)
+                logger.debug(f"[QueryOrchestrator] Generated JSON field reference ({len(json_reference)} chars)")
+        except Exception as e:
+            logger.warning(f"[QueryOrchestrator] Failed to generate JSON reference: {e}")
 
-Given a user query, generate ONLY a valid SQL query that will retrieve the requested data.
-
-Rules:
-1. Return ONLY the SQL query - no explanation
-2. Use SELECT for data retrieval (not CREATE, DROP, DELETE, etc.)
-3. The database contains device information (devices, interfaces, vlans, etc.)
-4. If the query cannot be answered, return: SELECT 'Query not possible' AS error
-5. Always use proper SQL syntax
-6. Include LIMIT 1000 if no specific limit is given
-
-CRITICAL - Column Name Mapping:
-- For device matching, use ONLY these columns: device_id (in interfaces), id or name (in devices)
-- device_id in interfaces = device name string like 'R3', 'R1', etc.
-- DO NOT use: device_name, device_type, host_name, hostname, device, router, switch
-- Example queries:
-  * SELECT ip_address FROM interfaces WHERE device_id = 'R3'
-  * SELECT name FROM devices WHERE id = 'R3'
-
-Database Schema:
-{schema}
-
-User Query: {query}
-
-Generate SQL:"""
+        # Load system prompt from .olav/skills/network-query/SKILL.md
+        # This respects the Olav principle: "All configuration flows from SKILL.md"
+        skill_loader = get_skill_loader()
+        skill_loader.load_all()  # Ensure skills are indexed
+        
+        system_prompt = skill_loader.load_system_prompt(
+            "network-query",
+            prompt_key="sql_generator",  # Use sql_generator for direct SQL generation (v0.12.0+)
+            template_vars={
+                "schema": db_schema,
+                "warnings": empty_tables_warning,
+                "query": user_query,
+            }
+        )
+        
+        # 🆕 v0.12.1: Inject dynamic JSON field reference into prompt
+        # This ensures the LLM knows the actual field names in the database
+        if json_reference:
+            insertion_point = "## SQL Best Practices"
+            if insertion_point in system_prompt:
+                system_prompt = system_prompt.replace(
+                    insertion_point,
+                    json_reference + "\n\n" + insertion_point
+                )
+        
+        if not system_prompt:
+            logger.warning("[QueryOrchestrator] Failed to load prompt from SKILL, using fallback")
+            system_prompt = f"You are a SQL query generator. Schema:\n{db_schema}\n{empty_tables_warning}\n\nUser Query: {user_query}\n\nGenerate SQL:"
 
         from langchain_core.messages import SystemMessage, HumanMessage
 
         messages = [
-            SystemMessage(content=system_prompt.format(schema=db_schema, query=user_query)),
+            SystemMessage(content=system_prompt),
         ]
 
         logger.debug("[QueryOrchestrator] Sending query to LLM...")
@@ -195,11 +249,34 @@ Generate SQL:"""
         # Extract SQL from response
         sql_query = response.content.strip() if hasattr(response, "content") else str(response).strip()
 
-        # Remove markdown code blocks if present
-        if sql_query.startswith("```"):
-            sql_query = "\n".join(sql_query.split("\n")[1:-1])
-
+        # Enhanced SQL extraction - handle various markdown formats
+        import re
+        
+        # Pattern 1: Extract from ```sql ... ``` code blocks
+        sql_block_match = re.search(r"```(?:sql)?\s*\n?(.*?)\n?```", sql_query, re.DOTALL | re.IGNORECASE)
+        if sql_block_match:
+            sql_query = sql_block_match.group(1).strip()
+        
+        # Pattern 2: Remove markdown headers (## SQL Query, etc.)
+        sql_query = re.sub(r"^##[^\n]*\n", "", sql_query, flags=re.MULTILINE)
+        
+        # Pattern 3: Extract only the SELECT/WITH/INSERT/UPDATE/DELETE statement
+        # Stop at common explanation markers
+        sql_match = re.search(
+            r"((?:SELECT|WITH|INSERT|UPDATE|DELETE|CREATE)\b.*?)(?:\n\n|##|\*\*|$)",
+            sql_query,
+            re.DOTALL | re.IGNORECASE
+        )
+        if sql_match:
+            sql_query = sql_match.group(1).strip()
+        
+        # Final cleanup
         sql_query = sql_query.strip()
+        
+        # Remove trailing explanation text (fallback)
+        if "\n\n" in sql_query:
+            sql_query = sql_query.split("\n\n")[0].strip()
+
         logger.info(f"[QueryOrchestrator] Generated SQL: {sql_query[:100]}...")
         
         # 4. Execute query
@@ -248,6 +325,12 @@ Generate SQL:"""
             f"[QueryOrchestrator] ✅ Query successful ({len(result_dicts)} rows, {query_duration:.2f}s)"
         )
 
+        # ✅ TODO #7: Data integrity protection
+        # Generate hash of raw data to detect tampering
+        import hashlib
+        data_json = json.dumps(result_dicts, sort_keys=True, default=str)
+        data_hash = hashlib.sha256(data_json.encode()).hexdigest()[:16]
+
         result_dict = {
             "success": True,
             "result": result_dicts,
@@ -256,11 +339,24 @@ Generate SQL:"""
             "rows_returned": len(result_dicts),
             "format": "table",  # Hint for CLI: render as table directly (skip LLM prettification)
             "cached": False,
+            # ✅ TODO #7: Data integrity metadata
+            "data_hash": data_hash,  # SHA256 hash for integrity verification
+            "data_protected": True,  # Flag indicating raw data should not be modified
             # ✅ Phase 3.1: Export metadata
             "export_requested": export_requested,
             "export_format": export_format,
             "export_filename": export_filename,
         }
+        
+        # 🆕 Generate markdown summary for analysis
+        # Provide both table (for CLI) and markdown (for integration)
+        try:
+            from olav.core.result_analyzer import analyze_results
+            markdown_summary = analyze_results(result_dicts, user_query, sql_query)
+            result_dict["final_answer"] = markdown_summary
+        except Exception as e:
+            logger.debug(f"[QueryOrchestrator] Failed to generate markdown: {e}")
+            result_dict["final_answer"] = ""
         
         # Cache result for future queries (NEW in v0.11.2)
         if use_cache:

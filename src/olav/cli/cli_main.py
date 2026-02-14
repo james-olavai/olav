@@ -519,10 +519,11 @@ def query(
             console.print(f"[cyan]Format:[/cyan] {format_type}")
             if result.get("rows_exported"):
                 console.print(f"[cyan]Rows:[/cyan] {result['rows_exported']}")
-        elif result.get("format") == "table" and result.get("data"):
+        elif result.get("format") == "table" and (result.get("data") or result.get("result")):
+            # Support both "data" (from dispatcher) and "result" (from orchestrator)
             from rich.table import Table
             
-            data = result["data"]
+            data = result.get("data") or result.get("result")
             
             # Create table
             table = Table(
@@ -537,22 +538,25 @@ def query(
             if data:
                 # 🎯 Smart column filtering: Show only relevant columns
                 # For device queries, show: name, hostname, site, model, platform, role, status
+                # Get all columns
                 all_columns = list(data[0].keys())
                 
                 # Priority columns (ordered by importance)
+                # Note: Different query types return different columns
                 priority_cols = [
-                    "name",          # Device name
-                    "hostname",      # Hostname or IP
-                    "mgmt_ip",       # Management IP
-                    "site",          # Site/Location
-                    "model",         # Model
-                    "platform",      # Platform (e.g., cisco_ios)
-                    "device_role",   # Role (border, core, access)
-                    "is_active",     # Status
+                    # Device inventory columns
+                    "name", "hostname", "mgmt_ip", "site", "model", "platform", "device_role", "is_active",
+                    # Query result columns
+                    "device_name", "interfaces", "ip_addresses", "ip_address", "protocol", "hardware_address", 
+                    "port", "status", "description", "neighbor", "device_id", "interface",
                 ]
                 
                 # Filter to only columns that exist and are in priority list
                 display_cols = [col for col in priority_cols if col in all_columns]
+                
+                # If no priority columns found, show all columns (fallback for custom queries)
+                if not display_cols:
+                    display_cols = all_columns
                 
                 # Smart column mapping (make it readable)
                 column_names = {
@@ -594,6 +598,12 @@ def query(
                 console.print(f"\n[dim]{len(data)} devices[/dim]")
             else:
                 console.print("\n[bold yellow]⚠[/bold yellow] No results found\n")
+            
+            # 🆕 After table display, show markdown analysis if available
+            if result.get("final_answer"):
+                console.print("\n")  # Spacing
+                from rich.markdown import Markdown
+                console.print(Markdown(result["final_answer"]))
         
         # Handle Orchestrator result dict (original markdown path)
         elif result.get("status") == "complete":
@@ -1035,6 +1045,16 @@ def init(
         console.print()
 
     try:
+        # ✅ FIX: Initialize structured tables before sync (CREATE TABLE IF NOT EXISTS)
+        # Bug: init command was missing this step, causing "table does not exist" errors
+        from olav.core.database import init_structured_tables
+        from config.paths import UNIFIED_DB
+        
+        console.print("[cyan]🗄️  Initializing database tables...[/cyan]")
+        conn = init_structured_tables(str(UNIFIED_DB))
+        conn.close()
+        console.print("  ✅ Database tables ready\n")
+        
         # Parse devices parameter: convert comma-separated string to list
         device_list = None if devices == "all" else [d.strip() for d in devices.split(",")]
 

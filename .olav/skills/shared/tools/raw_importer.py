@@ -1,10 +1,15 @@
-"""Simple JSON importer for parsed command outputs.
+"""Raw snapshot data importer with TextFSM parsing.
 
-This module imports TextFSM-parsed JSON files into parsed_outputs table.
-v0.13.0: Simplified design - only JSON parsing results, no raw text storage.
+This module imports raw CLI data from exports/snapshots/{date}/raw/ and:
+1. Parses with TextFSM to extract structured data
+2. Directly stores to DuckDB tables (interfaces, routes, etc.)
+3. Falls back to raw_outputs table if no template available
 
-Design (v0.13.0):
-    TextFSM JSON → parsed_outputs table (JSON) → User queries
+Design (v0.13.x):
+    Raw CLI output → TextFSM Parse → Vector to DB tables (direct!)
+    • show-interfaces.txt → TextFSM → interfaces table
+    • show-version.txt → TextFSM → devices table
+    Plus: parsed_outputs table for archived structured data
 
 Usage:
     from .raw_importer import import_sync_data
@@ -22,16 +27,25 @@ logger = logging.getLogger(__name__)
 
 
 def import_sync_data(sync_dir: Path) -> dict[str, int]:
-    """Import parsed JSON files to parsed_outputs table.
+    """Import snapshot data: raw files → TextFSM parse → DB tables.
+
+    Two-stage import:
+    Stage 1: Parse raw CLI data with TextFSM, insert directly to specific tables
+    Stage 2: Fallback - store raw text to raw_outputs for commands without templates
 
     Args:
-        sync_dir: Path to snapshot directory (e.g., exports/snapshots/2026-01-16/)
+        sync_dir: Path to snapshot directory (e.g., exports/snapshots/2026-02-13/)
 
     Returns:
-        Dictionary with import statistics (v0.13.0 - only parsed JSON)
+        Dictionary with import statistics
     """
     sync_dir = Path(sync_dir)
     snapshot_date = sync_dir.name  # Directory name as date
+    raw_dir = sync_dir / "raw"
+
+    if not raw_dir.exists():
+        logger.warning(f"No raw directory found at {raw_dir}")
+        return {"raw_imported": 0, "parsed_imported": 0}
 
     from olav.core.database import get_database
 
@@ -39,11 +53,523 @@ def import_sync_data(sync_dir: Path) -> dict[str, int]:
     conn = db.conn
 
     try:
-        parsed_count = _import_parsed_outputs(conn, sync_dir, snapshot_date)
-        return {"parsed_imported": parsed_count}
+        # Stage 1: Parse raw data directly into specific tables
+        parsed_count = _import_parsed_raw_data(conn, raw_dir, snapshot_date)
+        
+        # Stage 2: Legacy - import pre-parsed JSON if present  
+        parsed_dir = sync_dir / "parsed"
+        json_count = 0
+        if parsed_dir.exists():
+            json_count = _import_parsed_outputs(conn, sync_dir, snapshot_date)
+        
+        # 🔧 CRITICAL: Commit transaction to persist data to disk
+        conn.commit()
+        
+        return {
+            "raw_imported": parsed_count,
+            "parsed_imported": json_count
+        }
     except Exception as e:
         logger.error(f"Import failed: {e}")
-        return {"parsed_imported": 0}
+        return {"raw_imported": 0, "parsed_imported": 0}
+
+
+def _import_parsed_raw_data(
+    conn: duckdb.DuckDBPyConnection, 
+    raw_dir: Path, 
+    snapshot_date: str,
+) -> int:
+    """Parse raw CLI files with TextFSM and insert directly to DB tables.
+    
+    This is the NEW efficient path: Raw → TextFSM → Direct to specific tables
+    (interfaces, routes, etc.) without intermediate JSON storage.
+    
+    Returns:
+        Number of successfully parsed commands
+    """
+    from olav.core.registry import get_command_registry
+    
+    registry = get_command_registry()
+    parsed_count = 0
+    
+    # Iterate through device directories
+    for device_dir in sorted(raw_dir.iterdir()):
+        if not device_dir.is_dir():
+            continue
+        
+        device_name = device_dir.name
+        
+        # Parse each raw file
+        for raw_file in sorted(device_dir.glob("*.txt")):
+            try:
+                # Determine command from filename
+                # Example: "show-interfaces.txt" → "show interfaces"
+                command_base = raw_file.stem  # Remove .txt
+                command = command_base.replace("-", " ")  # "show-interfaces" → "show interfaces"
+                
+                # Read raw output
+                raw_output = raw_file.read_text(encoding="utf-8", errors="ignore")
+                
+                # Detect platform (basic: assume Cisco IOS based on output patterns)
+                # In production, use device inventory
+                platform = _detect_platform_from_output(raw_output)
+                
+                # Try to parse with TextFSM
+                parsed_data = registry.parse(platform, command, raw_output)
+                
+                # Check parsing success (both None and empty list are failures)
+                if parsed_data and len(parsed_data) > 0:
+                    # TextFSM parsing succeeded - insert directly to typed table
+                    _insert_parsed_data(
+                        conn, 
+                        device_name, 
+                        command, 
+                        parsed_data, 
+                        snapshot_date
+                    )
+                    parsed_count += 1
+                    logger.debug(f"✓ Parsed {device_name}/{command} ({len(parsed_data)} records)")
+                else:
+                    # No template or parsing failed - store as raw text
+                    _insert_raw_output(
+                        conn,
+                        device_name,
+                        command,
+                        raw_output,
+                        snapshot_date
+                    )
+                    logger.debug(f"⚠ No template for {device_name}/{command}, stored as raw")
+                    
+            except Exception as e:
+                logger.warning(f"Failed to parse {device_name}/{raw_file.name}: {e}")
+                continue
+    
+    logger.info(f"Imported {parsed_count} parsed commands for snapshot {snapshot_date}")
+    return parsed_count
+
+
+def _detect_platform_from_output(output: str) -> str:
+    """Detect platform from CLI output (basic heuristics).
+    
+    In production, should query device inventory instead.
+    """
+    output_lower = output.lower()
+    
+    if "cisco" in output_lower:
+        if "nxos" in output_lower or "nexus" in output_lower:
+            return "cisco_nxos"
+        else:
+            return "cisco_ios"
+    elif "arista" in output_lower:
+        return "arista_eos"
+    elif "juniper" in output_lower:
+        return "juniper_junos"
+    else:
+        return "cisco_ios"  # Default
+
+
+def _insert_parsed_data(
+    conn: duckdb.DuckDBPyConnection,
+    device_name: str,
+    command: str,
+    parsed_data: list[dict],
+    snapshot_date: str,
+) -> None:
+    """Insert TextFSM-parsed data with simplified routing.
+    
+    Simplified Architecture (3 tables only):
+    - devices table: From Nornir inventory (not from commands)
+    - topology_links table: CDP/LLDP neighbor discovery
+    - parsed_outputs table: Everything else (JSON)
+    
+    Design rationale:
+    - Avoids LLM table selection confusion
+    - Single source of truth for network data
+    - Multi-vendor support without code changes
+    - DuckDB JSON functions handle queries efficiently
+    """
+    print(f"[DEBUG] _insert_parsed_data called: {device_name}/{command}, {len(parsed_data)} records")
+    
+    if not parsed_data or len(parsed_data) == 0:
+        print(f"[DEBUG] No data to insert")
+        return
+    
+    command_lower = command.lower()
+    
+    # Simplified routing: Only topology gets special treatment
+    if "cdp" in command_lower or "lldp" in command_lower:
+        print(f"[DEBUG] Routing to topology_links: {device_name}/{command}")
+        _insert_topology(conn, device_name, parsed_data, snapshot_date, command)
+    else:
+        # Everything else goes to parsed_outputs as JSON
+        print(f"[DEBUG] Routing to parsed_outputs: {device_name}/{command}")
+        _insert_parsed_output_json(conn, device_name, command, parsed_data, snapshot_date)
+
+
+def _insert_interfaces(
+    conn: duckdb.DuckDBPyConnection,
+    device_name: str,
+    parsed_data: list[dict],
+    snapshot_date: str,
+) -> None:
+    """Insert parsed interface data into interfaces table."""
+    from datetime import date
+    import datetime
+    
+    #apping TextFSM field names to table columns
+    # TextFSM fields (uppercase): INTERFACE, LINK_STATUS, PROTOCOL_STATUS, IP_ADDRESS, etc.
+    # Table columns: snapshot_date, device_name, interface_name, ip_address, admin_status, oper_status, etc.
+    
+    inserted_count = 0
+    for record in parsed_data:
+        try:
+            # Extract key fields from TextFSM output (case-insensitive check)
+            # TextFSM uses uppercase field names
+            interface = None
+            for key in record.keys():
+                if key.upper() in ("INTERFACE", "NAME", "INT", "INTF"):
+                    interface = record[key]
+                    break
+            
+            if not interface:
+                continue  # Skip records without interface name
+            
+            # Get IP address
+            ip_addr = None
+            for key in record.keys():
+                if key.upper() in ("IP_ADDRESS", "IPADDR", "IP"):
+                    ip_addr = record[key]
+                    break
+            
+            # Get admin/operational status
+            admin_status = "unknown"
+            oper_status = "unknown"
+            for key in record.keys():
+                if key.upper() == "ADMIN_STATUS":
+                    admin_status = record[key]
+                elif key.upper() in ("OPER_STATUS", "LINK_STATUS"):
+                    oper_status = record[key]
+                elif key.upper() == "PROTOCOL_STATUS":
+                    oper_status = record[key]  # Some templates use PROTOCOL_STATUS
+            
+            # Use passed snapshot_date (format: "YYYY-MM-DD") or today's date
+            try:
+                from datetime import datetime as dt
+                snap_date = dt.strptime(snapshot_date, "%Y-%m-%d").date() if snapshot_date else date.today()
+            except:
+                snap_date = date.today()
+                
+            conn.execute("""
+                INSERT INTO interfaces 
+                (snapshot_date, device_name, interface_name, ip_address, admin_status, oper_status)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, [
+                snap_date,
+                device_name,
+                str(interface),
+                str(ip_addr) if ip_addr else None,
+                str(admin_status),
+                str(oper_status),
+            ])
+            inserted_count += 1
+            print(f"  ✅ Inserted interface: {device_name}/{interface}")
+        except Exception as e:
+            print(f"  ❌ Failed to insert interface {device_name}/{record.get('INTERFACE', '?')}: {e}")
+    
+    # 🔧 Commit after all inserts for this device
+    if inserted_count > 0:
+        conn.commit()
+    
+    print(f"✅ Inserted {inserted_count} interfaces for {device_name}")
+
+
+def _insert_routes(
+    conn: duckdb.DuckDBPyConnection,
+    device_name: str,
+    parsed_data: list[dict],
+    snapshot_date: str,
+) -> None:
+    """Insert parsed route/BGP/OSPF data into routes table."""
+    from datetime import date
+    
+    for record in parsed_data:
+        try:
+            network = record.get("protocol") or record.get("network") or record.get("prefix") or ""
+            if not network:
+                continue
+                
+            conn.execute("""
+                INSERT INTO routes
+                (snapshot_date, device_name, network, protocol)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT DO NOTHING
+            """, [
+                date.today(),
+                device_name,
+                str(network),
+                record.get("protocol", "unknown"),
+            ])
+        except Exception as e:
+            logger.warning(f"Failed to insert route {device_name}/{record}: {e}")
+
+
+def _insert_devices(
+    conn: duckdb.DuckDBPyConnection,
+    device_name: str,
+    parsed_data: list[dict],
+    snapshot_date: str,
+) -> None:
+    """Insert version/device data."""
+    # This would update device metadata
+    # Usually processed separately, store to parsed_outputs for now
+    pass
+
+
+def _insert_arp_table(
+    conn: duckdb.DuckDBPyConnection,
+    device_name: str,
+    parsed_data: list[dict],
+    snapshot_date: str,
+) -> None:
+    """Insert ARP table data."""
+    logger.debug(f"ARP data stored as JSON for {device_name}")
+
+
+def _insert_vlans(
+    conn: duckdb.DuckDBPyConnection,
+    device_name: str,
+    parsed_data: list[dict],
+    snapshot_date: str,
+) -> None:
+    """Insert VLAN data (future implementation)."""
+    pass  # TODO: implement if needed
+
+
+def _insert_topology(
+    conn: duckdb.DuckDBPyConnection,
+    device_name: str,
+    parsed_data: list[dict],
+    snapshot_date: str,
+    command: str,
+) -> None:
+    """Insert topology discovery data into topology_links table.
+    
+    Handles CDP and LLDP neighbor data.
+    
+    Expected TextFSM fields:
+    - NEIGHBOR_NAME: Destination device name
+    - LOCAL_INTERFACE: Source interface
+    - NEIGHBOR_INTERFACE: Destination interface
+    - PLATFORM: Device platform (optional)
+    - CAPABILITIES: Device capabilities (optional)
+    """
+    from datetime import datetime
+    import hashlib
+    
+    # Determine discovery protocol from command
+    protocol = "CDP" if "cdp" in command.lower() else "LLDP" if "lldp" in command.lower() else "UNKNOWN"
+    
+    inserted_count = 0
+    for record in parsed_data:
+        try:
+            # Extract neighbor information (case-insensitive)
+            neighbor_name = None
+            local_intf = None
+            remote_intf = None
+            platform = None
+            
+            for key, value in record.items():
+                key_upper = key.upper()
+                if key_upper in ("NEIGHBOR_NAME", "NEIGHBOR", "DEST_HOST", "DESTINATION_HOST"):
+                    neighbor_name = value
+                elif key_upper in ("LOCAL_INTERFACE", "LOCAL_PORT", "INTF", "INTERFACE"):
+                    local_intf = value
+                elif key_upper in ("NEIGHBOR_INTERFACE", "NEIGHBOR_PORT", "REMOTE_PORT", "PORT_ID"):
+                    remote_intf = value
+                elif key_upper == "PLATFORM":
+                    platform = value
+            
+            # Validate required fields
+            if not neighbor_name or not local_intf or not remote_intf:
+                continue
+            
+            # Clean device names (remove domain suffixes)
+            neighbor_clean = neighbor_name.split(".")[0] if "." in neighbor_name else neighbor_name
+            
+            # Normalize interface names (handle abbreviations)
+            local_intf_clean = _normalize_interface_name(local_intf)
+            remote_intf_clean = _normalize_interface_name(remote_intf)
+            
+            # Generate deterministic link_id
+            link_data = f"{device_name}|{local_intf_clean}|{neighbor_clean}|{remote_intf_clean}|{snapshot_date}"
+            link_id = hashlib.md5(link_data.encode()).hexdigest()[:16]
+            
+            # Get current timestamp
+            now = datetime.now().isoformat()
+            
+            # Insert into topology_links
+            conn.execute(
+                """
+                INSERT INTO topology_links (
+                    link_id, source_device, source_interface,
+                    destination_device, destination_interface,
+                    discovery_protocol, link_status, platform,
+                    first_seen, last_seen, last_verified,
+                    sync_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (source_device, source_interface, destination_device, destination_interface, sync_date)
+                DO UPDATE SET
+                    last_seen = EXCLUDED.last_seen,
+                    last_verified = EXCLUDED.last_verified
+                """,
+                [
+                    link_id,
+                    device_name,
+                    local_intf_clean,
+                    neighbor_clean,
+                    remote_intf_clean,
+                    protocol,
+                    "up",  # Assume up if discovered
+                    platform,
+                    now,  # first_seen
+                    now,  # last_seen
+                    now,  # last_verified
+                    snapshot_date,
+                ],
+            )
+            inserted_count += 1
+            print(f"  ✅ Inserted topology link: {device_name}.{local_intf_clean} <-> {neighbor_clean}.{remote_intf_clean}")
+            
+        except Exception as e:
+            print(f"  ❌ Failed to insert topology link {device_name}/{neighbor_name}: {e}")
+            continue
+    
+    if inserted_count > 0:
+        print(f"✅ Inserted {inserted_count} topology links for {device_name}")
+
+
+def _normalize_interface_name(intf: str) -> str:
+    """Normalize interface name abbreviations to full names.
+    
+    Examples:
+    - "Gig 2" → "GigabitEthernet2"
+    - "Eth 0/0" → "Ethernet0/0"
+    - "Uni Eth 0/1" → "Ethernet0/1"
+    """
+    if not intf:
+        return intf
+    
+    # Skip if already in full form (avoid double-expansion)
+    full_forms = ["GigabitEthernet", "FastEthernet", "TenGigabitEthernet", "Ethernet"]
+    for full in full_forms:
+        if intf.startswith(full):
+            return intf  # Already normalized
+    
+    # Remove common prefixes
+    intf = intf.replace("Uni ", "").replace("Unidirectional ", "")
+    
+    # Expand abbreviations (order matters - check longer patterns first)
+    replacements = [
+        ("Gig ", "GigabitEthernet"),
+        ("Gi", "GigabitEthernet"),
+        ("Eth ", "Ethernet"),
+        ("Et", "Ethernet"),
+        ("Fa ", "FastEthernet"),
+        ("Fa", "FastEthernet"),
+        ("Te ", "TenGigabitEthernet"),
+        ("Te", "TenGigabitEthernet"),
+    ]
+    
+    for abbr, full in replacements:
+        if intf.startswith(abbr):
+            return intf.replace(abbr, full, 1)
+    
+    return intf
+
+
+def _insert_vlans(
+    conn: duckdb.DuckDBPyConnection,
+    device_name: str,
+    parsed_data: list[dict],
+    snapshot_date: str,
+) -> None:
+    """Insert VLAN data."""
+    logger.debug(f"VLAN data stored as JSON for {device_name}")
+
+
+def _insert_parsed_output_json(
+    conn: duckdb.DuckDBPyConnection,
+    device_name: str,
+    command: str,
+    parsed_data: list[dict],
+    snapshot_date: str,
+) -> None:
+    """Store parsed data as JSON for commands without specific tables."""
+    try:
+        # Ensure parsed_outputs table exists
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS parsed_outputs (
+                device_name VARCHAR,
+                command VARCHAR,
+                parsed_data JSON,
+                snapshot_date DATE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (device_name, command, snapshot_date)
+            )
+        """)
+        
+        conn.execute("""
+            INSERT INTO parsed_outputs
+            (device_name, command, parsed_data, snapshot_date)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT DO NOTHING
+        """, [
+            device_name,
+            command,
+            json.dumps(parsed_data),
+            snapshot_date,
+        ])
+    except Exception as e:
+        logger.warning(f"Failed to insert JSON for {device_name}/{command}: {e}")
+
+
+def _insert_raw_output(
+    conn: duckdb.DuckDBPyConnection,
+    device_name: str,
+    command: str,
+    raw_output: str,
+    snapshot_date: str,
+) -> None:
+    """Store raw CLI output when no template is available."""
+    try:
+        # Ensure raw_outputs table exists
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS raw_outputs (
+                device_name VARCHAR,
+                command VARCHAR,
+                output TEXT,
+                snapshot_date DATE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (device_name, command, snapshot_date)
+            )
+        """)
+        
+        conn.execute("""
+            INSERT INTO raw_outputs
+            (device_name, command, output, snapshot_date)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT DO NOTHING
+        """, [
+            device_name,
+            command,
+            raw_output,
+            snapshot_date,
+        ])
+    except Exception as e:
+        logger.warning(f"Failed to insert raw output {device_name}/{command}: {e}")
+
+
+
 
 
 def _import_parsed_outputs(

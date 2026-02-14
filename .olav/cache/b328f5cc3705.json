@@ -1,0 +1,315 @@
+{
+  "query": "analyze all arp entries in the network",
+  "cached_at": 1771037182.2552118,
+  "ttl_seconds": 3600,
+  "result": {
+    "success": true,
+    "result": [
+      {
+        "device_name": "R1",
+        "command": "show ip arp",
+        "protocols": [
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\""
+        ],
+        "ip_addresses": [],
+        "ages": [],
+        "mac_addresses": [],
+        "types": [
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\""
+        ],
+        "interfaces": [
+          "\"GigabitEthernet1\"",
+          "\"GigabitEthernet1\"",
+          "\"GigabitEthernet2\"",
+          "\"GigabitEthernet2\"",
+          "\"GigabitEthernet4\"",
+          "\"GigabitEthernet4\"",
+          "\"GigabitEthernet4\"",
+          "\"GigabitEthernet4\"",
+          "\"GigabitEthernet4\"",
+          "\"GigabitEthernet4\"",
+          "\"GigabitEthernet4\""
+        ]
+      },
+      {
+        "device_name": "R2",
+        "command": "show ip arp",
+        "protocols": [
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\""
+        ],
+        "ip_addresses": [],
+        "ages": [],
+        "mac_addresses": [],
+        "types": [
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\""
+        ],
+        "interfaces": [
+          "\"GigabitEthernet1\"",
+          "\"GigabitEthernet1\"",
+          "\"GigabitEthernet2\"",
+          "\"GigabitEthernet2\"",
+          "\"GigabitEthernet4\"",
+          "\"GigabitEthernet4\"",
+          "\"GigabitEthernet4\"",
+          "\"GigabitEthernet4\"",
+          "\"GigabitEthernet4\"",
+          "\"GigabitEthernet4\"",
+          "\"GigabitEthernet4\""
+        ]
+      },
+      {
+        "device_name": "R3",
+        "command": "show arp",
+        "protocols": [
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\""
+        ],
+        "ip_addresses": [
+          "\"10.1.13.1\"",
+          "\"10.1.13.3\"",
+          "\"192.168.10.254\"",
+          "\"192.168.100.10\"",
+          "\"192.168.100.50\"",
+          "\"192.168.100.103\"",
+          "\"192.168.100.202\"",
+          "\"192.168.100.254\""
+        ],
+        "ages": [
+          "\"168\"",
+          "\"-\"",
+          "\"-\"",
+          "\"1\"",
+          "\"7\"",
+          "\"-\"",
+          "\"2\"",
+          "\"0\""
+        ],
+        "mac_addresses": [
+          "\"5000.000a.0001\"",
+          "\"aabb.cc00.3000\"",
+          "\"aabb.cc80.3000\"",
+          "\"107c.61b2.a8f9\"",
+          "\"c84d.4423.3ec9\"",
+          "\"aabb.cc00.3030\"",
+          "\"b6b8.29a4.a752\"",
+          "\"9483.c446.89ee\""
+        ],
+        "types": [
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\""
+        ],
+        "interfaces": [
+          "\"Ethernet0/0\"",
+          "\"Ethernet0/0\"",
+          "\"Vlan10\"",
+          "\"Ethernet0/3\"",
+          "\"Ethernet0/3\"",
+          "\"Ethernet0/3\"",
+          "\"Ethernet0/3\"",
+          "\"Ethernet0/3\""
+        ]
+      },
+      {
+        "device_name": "R3",
+        "command": "show ip arp",
+        "protocols": [
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\""
+        ],
+        "ip_addresses": [],
+        "ages": [],
+        "mac_addresses": [],
+        "types": [
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\""
+        ],
+        "interfaces": [
+          "\"Ethernet0/0\"",
+          "\"Ethernet0/0\"",
+          "\"Vlan10\"",
+          "\"Ethernet0/3\"",
+          "\"Ethernet0/3\"",
+          "\"Ethernet0/3\"",
+          "\"Ethernet0/3\"",
+          "\"Ethernet0/3\""
+        ]
+      },
+      {
+        "device_name": "R4",
+        "command": "show arp",
+        "protocols": [
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\""
+        ],
+        "ip_addresses": [
+          "\"10.1.24.2\"",
+          "\"10.1.24.4\"",
+          "\"192.168.20.254\"",
+          "\"192.168.100.10\"",
+          "\"192.168.100.50\"",
+          "\"192.168.100.104\"",
+          "\"192.168.100.202\"",
+          "\"192.168.100.254\""
+        ],
+        "ages": [
+          "\"145\"",
+          "\"-\"",
+          "\"-\"",
+          "\"1\"",
+          "\"7\"",
+          "\"-\"",
+          "\"2\"",
+          "\"0\""
+        ],
+        "mac_addresses": [
+          "\"5000.000b.0001\"",
+          "\"aabb.cc00.4000\"",
+          "\"aabb.cc80.4000\"",
+          "\"107c.61b2.a8f9\"",
+          "\"c84d.4423.3ec9\"",
+          "\"aabb.cc00.4030\"",
+          "\"b6b8.29a4.a752\"",
+          "\"9483.c446.89ee\""
+        ],
+        "types": [
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\""
+        ],
+        "interfaces": [
+          "\"Ethernet0/0\"",
+          "\"Ethernet0/0\"",
+          "\"Vlan20\"",
+          "\"Ethernet0/3\"",
+          "\"Ethernet0/3\"",
+          "\"Ethernet0/3\"",
+          "\"Ethernet0/3\"",
+          "\"Ethernet0/3\""
+        ]
+      },
+      {
+        "device_name": "R4",
+        "command": "show ip arp",
+        "protocols": [
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\"",
+          "\"Internet\""
+        ],
+        "ip_addresses": [],
+        "ages": [],
+        "mac_addresses": [],
+        "types": [
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\"",
+          "\"ARPA\""
+        ],
+        "interfaces": [
+          "\"Ethernet0/0\"",
+          "\"Ethernet0/0\"",
+          "\"Vlan20\"",
+          "\"Ethernet0/3\"",
+          "\"Ethernet0/3\"",
+          "\"Ethernet0/3\"",
+          "\"Ethernet0/3\"",
+          "\"Ethernet0/3\""
+        ]
+      }
+    ],
+    "query": "SELECT device_name, command, json_extract(parsed_data, '$[*].PROTOCOL') as protocols,\n       json_extract(parsed_data, '$[*].ADDRESS') as ip_addresses,\n       json_extract(parsed_data, '$[*].AGE_MIN') as ages,\n       json_extract(parsed_data, '$[*].HARDWARE_ADDRESS') as mac_addresses,\n       json_extract(parsed_data, '$[*].TYPE') as types,\n       json_extract(parsed_data, '$[*].INTERFACE') as interfaces\nFROM parsed_outputs\nWHERE command LIKE '%show arp%' OR command = 'show ip arp'\nLIMIT 1000;",
+    "execution_time": 2.448796033859253,
+    "rows_returned": 6,
+    "format": "table",
+    "cached": false,
+    "data_hash": "9cdb29499221d5cc",
+    "data_protected": true,
+    "export_requested": false,
+    "export_format": "csv",
+    "export_filename": null,
+    "final_answer": "## Query Results\n\n\ud83d\udcca **Found 6 record(s)**\n\n### Devices\n\n**Devices:** R1, R2, R3, R4\n\n**R1**\n  - Protocols: Internet, Internet, Internet (+8 more)\n  - Types: ARPA, ARPA, ARPA (+8 more)\n  - Interfaces: GigabitEthernet1, GigabitEthernet1, GigabitEthernet2 (+8 more)\n\n**R2**\n  - Protocols: Internet, Internet, Internet (+8 more)\n  - Types: ARPA, ARPA, ARPA (+8 more)\n  - Interfaces: GigabitEthernet1, GigabitEthernet1, GigabitEthernet2 (+8 more)\n\n**R3**\n  - Protocols: Internet, Internet, Internet (+5 more)\n  - Ip Addresses: 10.1.13.1, 10.1.13.3, 192.168.10.254 (+5 more)\n  - Ages: 168, -, - (+5 more)\n  - Mac Addresses: 5000.000a.0001, aabb.cc00.3000, aabb.cc80.3000 (+5 more)\n  - Types: ARPA, ARPA, ARPA (+5 more)\n  - Interfaces: Ethernet0/0, Ethernet0/0, Vlan10 (+5 more)\n\n**R3**\n  - Protocols: Internet, Internet, Internet (+5 more)\n  - Types: ARPA, ARPA, ARPA (+5 more)\n  - Interfaces: Ethernet0/0, Ethernet0/0, Vlan10 (+5 more)\n\n**R4**\n  - Protocols: Internet, Internet, Internet (+5 more)\n  - Ip Addresses: 10.1.24.2, 10.1.24.4, 192.168.20.254 (+5 more)\n  - Ages: 145, -, - (+5 more)\n  - Mac Addresses: 5000.000b.0001, aabb.cc00.4000, aabb.cc80.4000 (+5 more)\n  - Types: ARPA, ARPA, ARPA (+5 more)\n  - Interfaces: Ethernet0/0, Ethernet0/0, Vlan20 (+5 more)\n\n... and 1 more records\n\n\n---\n\n### SQL Query Used\n\n```sql\nSELECT device_name, command, json_extract(parsed_data, '$[*].PROTOCOL') as protocols,\n       json_extract(parsed_data, '$[*].ADDRESS') as ip_addresses,\n       json_extract(parsed_data, '$[*].AGE_MIN') as ages,\n       json_extract(parsed_data, '$[*].HARDWARE_ADDRESS') as mac_addresses,\n       json_extract(parsed_data, '$[*].TYPE') as types,\n       json_extract(parsed_data, '$[*].INTERFACE') as interfaces\nFROM parsed_outputs\nWHERE command LIKE '%show arp%' OR command = 'show ip arp'\nLIMIT 1000;\n```\n"
+  }
+}

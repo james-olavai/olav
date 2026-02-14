@@ -18,6 +18,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from config.paths import CACHE_DIR
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,7 +38,7 @@ class QueryCache:
             ttl_seconds: Cache Time-To-Live in seconds. Default 1 hour.
         """
         if cache_dir is None:
-            cache_dir = Path(".olav/cache/")
+            cache_dir = CACHE_DIR
         else:
             cache_dir = Path(cache_dir)
 

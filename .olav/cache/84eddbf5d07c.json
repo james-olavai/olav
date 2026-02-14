@@ -1,23 +1,44 @@
 {
   "query": "list all ip addresses on R3",
-  "cached_at": 1770990747.4606369,
+  "cached_at": 1770993606.7251408,
   "ttl_seconds": 3600,
   "result": {
     "success": true,
     "result": [
       {
-        "ip_address": "192.168.3.1"
+        "ip_address": "N/A"
       },
       {
-        "ip_address": "10.0.0.5"
+        "ip_address": "N/A"
       },
       {
-        "ip_address": "10.1.1.1"
+        "ip_address": "N/A"
+      },
+      {
+        "ip_address": "N/A"
+      },
+      {
+        "ip_address": "10.1.13.3"
+      },
+      {
+        "ip_address": "N/A"
+      },
+      {
+        "ip_address": "N/A"
+      },
+      {
+        "ip_address": "192.168.100.103"
+      },
+      {
+        "ip_address": "3.3.3.3"
+      },
+      {
+        "ip_address": "192.168.10.254"
       }
     ],
     "query": "SELECT ip_address FROM interfaces WHERE device_name = 'R3' LIMIT 1000",
-    "execution_time": 1.0224120616912842,
-    "rows_returned": 3,
+    "execution_time": 2.096295118331909,
+    "rows_returned": 10,
     "format": "table",
     "cached": false,
     "export_requested": false,
