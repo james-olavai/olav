@@ -4,6 +4,7 @@ Compatible with: OLAV CLI, Web API, Claude Code, Gemini Agent
 """
 
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,10 @@ import duckdb
 from config.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Thread-safe connection management for DuckDB
+_conn_lock = threading.RLock()
+_global_conn: Any = None
 
 
 class DataGateway:
@@ -520,26 +525,31 @@ def get_connection(db_path: str | None = None):
 
 
 def _create_unified_connection() -> duckdb.DuckDBPyConnection:
-    """Create a read-only connection to the unified database (v0.10.1).
+    """Create or reuse a read-only connection to the unified database (v0.10.1).
 
     v0.10.1 Architecture: All data (devices, raw_outputs, audit, knowledge) 
     is now consolidated into a single UNIFIED_DB (olav.duckdb).
     
-    This function provides direct access without multi-database attachment,
-    since all tables now exist in one file.
+    Uses a global thread-safe connection to avoid DuckDB's restriction on
+    multiple connections with different configurations to the same file.
     """
-    import logging
-
-    logger = logging.getLogger(__name__)
-
+    global _global_conn
+    
     from config.paths import UNIFIED_DB
 
-    # Connect directly to unified database
-    # No attachment needed - all tables in one file
-    conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
-    logger.debug(f"Connected to unified database: {UNIFIED_DB}")
-
-    return conn
+    with _conn_lock:
+        # Reuse global connection if available
+        if _global_conn is not None:
+            return _global_conn
+        
+        # Create new global connection
+        try:
+            _global_conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
+            logger.debug(f"Created global read-only connection to: {UNIFIED_DB}")
+            return _global_conn
+        except Exception as e:
+            logger.error(f"Failed to create unified connection: {e}")
+            raise
 
 
 def query_database(sql: str, params: list[Any] | None = None, db_path: str | None = None) -> list[dict[str, Any]]:
@@ -609,7 +619,9 @@ def query_database(sql: str, params: list[Any] | None = None, db_path: str | Non
             return results
 
         finally:
-            conn.close()
+            # Only close non-global connections (global connection is reused)
+            if db_path is not None:
+                conn.close()
 
     except Exception as e:
         logger.error(f"Database query failed: {e}", exc_info=True)
@@ -624,7 +636,7 @@ def query_database(sql: str, params: list[Any] | None = None, db_path: str | Non
                     "SELECT table_name FROM information_schema.tables "
                     "WHERE table_schema = 'main' ORDER BY table_name"
                 ).fetchall()
-                diag_conn.close()
+                # Note: don't close diag_conn - it's a global reused connection
 
                 table_list = ", ".join([t[0] for t in available_tables])
                 raise RuntimeError(
