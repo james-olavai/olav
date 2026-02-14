@@ -8,20 +8,102 @@
 
 ---
 
-## 📋 执行摘要
+## � 审计更新 - 2026-02-14 20:50
 
-### 总体评估: ⭐⭐⭐⭐☆ (4/5 星 - 基本合格，有小问题)
+### 用户发现的严重问题 ⚠️
 
-开发团队**基本完成**了 REFACTOR_TRACKING.md 中声称的任务，架构重构目标已达成，但存在一些**未完成功能和文档不一致**的问题。
+**问题**: 用户运行 `uv run olav` 命令时崩溃，暴露了审计中的**严重遗漏**：
+
+```
+ModuleNotFoundError: No module named 'olav.cli.session'
+```
+
+### 根本原因分析
+
+1. **审计范围不完整** - 只测试了：
+   - ✅ `olav2` 命令（新 CLI）
+   - ✅ E2E 单元测试
+   - ❌ **从未测试真实的 `olav` 命令**（用户实际使用的命令）
+
+2. **session.py 误删** - 在代码清理 (commit 36ec94c) 中被删除，但：
+   - 旧 CLI (`cli_main.py`) 仍在引用
+   - `olav` 命令仍指向旧 CLI
+   - 导致用户无法使用 `olav` 命令
+
+3. **命令配置混乱**:
+   ```toml
+   # pyproject.toml (修复前)
+   olav = "olav.cli:main"      # 指向旧的 cli_main.py (v0.11)
+   olav2 = "olav.cli.agent_v2:app"  # 指向新的 agent_v2.py (v2.0)
+   ```
+
+### 立即修复措施 ✅
+
+1. **恢复 session.py**:
+   ```bash
+   git show 403b6b6:src/olav/cli/session.py > src/olav/cli/session.py
+   ```
+   - 文件大小: 40KB (1,194 行)
+   - 用于旧 CLI 的交互式会话管理
+
+2. **更新命令配置** [pyproject.toml](../pyproject.toml):
+   ```toml
+   # pyproject.toml (修复后)
+   olav = "olav.cli.agent_v2:app"  # v2.0 - 新统一 Agent ✅
+   olav-legacy = "olav.cli:main"   # v0.11 - 旧 CLI（已废弃）
+   ```
+
+3. **验证修复**:
+   ```bash
+   $ uv run olav --help
+   OLAV v2.0 - Network Operations AI Assistant (Refactored) ✅
+   
+   $ uv run olav admin status
+   ✅ Success: 3 databases, 9 skills, 3 tools
+   
+   $ uv run olav devices
+   ✅ Success: 显示 6 个设备
+   ```
+
+### 审计教训 📝
+
+**❌ 審计中的錯誤假設**:
+- 假设: "olav2 工作 = CLI 可用"
+- 现实: 用户实际使用 `olav` 命令，不是 `olav2`
+
+**✅ 改进措施**:
+- 必须测试**所有**用户入口点（olav, olav2, API）
+- 必须测试**真实命令行场景**，不只是单元测试
+- 必须验证 pyproject.toml 中的所有 `[project.scripts]`
+
+### 影响评估
+
+| 影响项 | 修复前 | 修复后 |
+|--------|--------|--------|
+| `olav` 命令 | ❌ 崩溃 | ✅ 指向 v2.0 |
+| `olav2` 命令 | ✅ 正常 | ✅ 正常 |
+| `olav-legacy` 命令 | N/A | ✅ 可用（v0.11） |
+| 用户体验 | 🔴 无法使用 | ✅ 正常 |
+
+**总体评估降级**: ⭐⭐⭐⭐☆ → ⭐⭐⭐☆☆ (4/5 → 3/5 星)  
+**原因**: 审计遗漏主要用户入口点，问题严重程度较高
+
+---
+
+## 📋 执行摘要（已更新）
+
+### 总体评估: ⭐⭐⭐☆☆ (3/5 星 - 合格但有遗漏）
+
+开发团队**基本完成**了 REFACTOR_TRACKING.md 中声称的任务，架构重构目标已达成，但**审计过程存在严重遗漏**，未测试真实用户命令。
 
 **关键成果**:
 - ✅ 架构重构成功（5 SubAgents → 1 Agent + 3 Tools）
 - ✅ 旧路由代码全部删除（1,077 行）
-- ✅ CLI 命令可正常工作
+- ⚠️ CLI 命令可用性：审计不完整，用户发现崩溃
 - ✅ 数据库整合完成（3 个数据库文件）
 - ⚠️ 部分 admin 功能未实现（3 个 TODO）
-- ⚠️ 测试执行证据不足（缺少自动化测试日志）
-- ⚠️ 代码清理不彻底（.olav/shared/tools/ 残留）
+- ⚠️ 测试执行证据不足（缺少真实 CLI 测试）
+- ✅ 代码清理残留已修复（.olav/shared/tools/ 已删除）
 
 ---
 
