@@ -112,9 +112,113 @@
 
 ---
 
+### 第二点五阶段：v2.1 独立Agent架构（设计中）⭐ NEW
+
+#### 6. [INDEPENDENT_AGENTS_ARCHITECTURE.md](INDEPENDENT_AGENTS_ARCHITECTURE.md)
+**v2.1 独立Agent架构设计**
+
+- **架构演进**: v2.0 (1 Agent) → v2.1 (3 Independent Agents)
+- **三个独立Agent**:
+  - Main Agent: 通用网络自动化（保持v2.0）
+  - Command Learner: 自主学习TextFSM模板
+  - Admin: 系统维护和扩展
+- **关键设计**:
+  - CLI级路由（声明式，非LLM路由）
+  - 独立状态管理（3个.duckdb文件）
+  - 零耦合（完全便携）
+  - 部署灵活性（单体/微服务/独立CLI）
+- **对比分析**: v2.0 vs v2.1, Independent vs SubAgent
+- **实施路线**: 6周，4个阶段
+
+**受众**: 架构师、高级开发者  
+**阅读时间**: 15-20 分钟  
+**依赖**: 完成v2.0实施后阅读
+
+---
+
+#### 7. [COMMAND_LEARNER_AGENT_SPEC.md](COMMAND_LEARNER_AGENT_SPEC.md)
+**Command Learner Agent详细规范**
+
+- **目的**: 自主学习创建TextFSM模板
+- **6步工作流**:
+  1. Execute: 在设备上执行命令
+  2. Analyze: LLM识别字段
+  3. Approve: 用户确认字段（HITL）
+  4. Search NTC: 搜索NTC-templates参考（metadata only）⭐
+  5. Read Template: 读取特定模板完整内容（避免token浪费）⭐
+  6. Generate: LLM生成模板
+  7. Save & Reload: 保存并热重载
+- **7个工具**:
+  - execute_command, analyze_output
+  - search_ntc_templates (返回路径和元数据)
+  - read_template_file (读取完整内容) ⭐ NEW
+  - browse_ntc_directory
+  - generate_template, save_template
+- **NTC集成**: 856个官方模板作为高质量参考
+- **模板优先级**: 已验证custom > NTC ✅
+- **热重载机制**: reload_commands()函数设计
+- **工具位置**: .olav/skills/command_learner/tools/ ✅ 可迁移
+
+**受众**: 实施开发者  
+**阅读时间**: 30-40 分钟  
+**依赖**: 理解 INDEPENDENT_AGENTS_ARCHITECTURE 后阅读
+
+---
+
+#### 8. [ADMIN_AGENT_SPEC.md](ADMIN_AGENT_SPEC.md)
+**Admin Agent详细规范**
+
+- **设计哲学**: "给它说明书，让它自己学"
+- **极简设计**: 8个通用工具（非admin专用）
+  - read_file, write_file, list_files
+  - search_code, execute_olav, execute_python
+  - git_operations, backup_restore
+- **知识库**: Developer Reference（单一文档，~1,200行）⭐
+  - 不是加载所有dev_docs（176KB冗余）
+  - 精选的开发者参考手册（50KB有效信息）
+- **安全模型**: HITL Middleware
+  - 🟡 .py文件修改需批准
+  - 🟡 git commit/push需批准
+  - ✅ 文档修改自动批准
+- **能力**: 创建skills、修改tools、修复bugs、扩展功能
+- **工具位置**: .olav/skills/olav-admin/tools/ ✅ 可迁移
+
+**受众**: 实施开发者  
+**阅读时间**: 25-30 分钟  
+**依赖**: 理解 INDEPENDENT_AGENTS_ARCHITECTURE 后阅读
+
+---
+
+#### 9. [DEVELOPER_REFERENCE.md](DEVELOPER_REFERENCE.md) ⭐ NEW
+**OLAV开发者参考手册**
+
+- **目的**: Admin Agent的知识库（不是用户指南）
+- **内容**: ~1,200行精选开发者文档
+  - 🏗️ 架构：项目结构、核心概念
+  - 📝 Skill开发：创建、修改、示例
+  - 🔧 Tool开发：模板、常见模式、最佳实践
+  - ⚙️ 配置：settings.py, paths.py
+  - 🐛 调试指南：常见问题、Debug工具
+  - 📊 数据库Schema：表结构、查询示例
+  - 🧪 测试：运行、编写测试
+  - 📋 常见任务：创建monitoring skill、修复bug
+  - 🚀 高级主题：创建agents、热重载
+  - 📖 API参考：关键模块
+- **为什么是单一文档**:
+  - 避免176KB冗余（用户+开发混合）
+  - 精选50KB有效信息
+  - 清晰章节导航（§ 引用）
+  - 适合LLM上下文窗口
+
+**受众**: Admin Agent, 新开发者  
+**阅读时间**: 作为参考查阅，不需连续阅读  
+**依赖**: 与 ADMIN_AGENT_SPEC 配套使用
+
+---
+
 ### 第三阶段：实施追踪（进行中）
 
-#### 6. [REFACTOR_TRACKING.md](REFACTOR_TRACKING.md) 📊
+#### 10. [REFACTOR_TRACKING.md](REFACTOR_TRACKING.md) 📊
 **重构进度追踪**
 
 - **当前阶段**: Phase 0 准备中
@@ -135,6 +239,8 @@
 ## 🗂️ 文档关系图
 
 ```
+v2.0 架构（已完成设计）
+═══════════════════════════
 CODE_AUDIT_2026_02_14.md (诊断)
          ↓
 DEEPAGENTS_SIMPLIFICATION_PLAN.md (核心架构) ⭐
@@ -146,6 +252,16 @@ DEEPAGENTS_SIMPLIFICATION_PLAN.md (核心架构) ⭐
                     └─→ ADMIN_AND_CRON_DESIGN_v2.md (Admin & Cron)
                               ↓
                     REFACTOR_TRACKING.md (进度追踪) 📊
+
+v2.1 架构（设计中）⭐ NEW
+═══════════════════════════
+INDEPENDENT_AGENTS_ARCHITECTURE.md (3独立Agent架构)
+         ↓
+         ├─→ COMMAND_LEARNER_AGENT_SPEC.md (Command Learner规范)
+         ↓
+         └─→ ADMIN_AGENT_SPEC.md (Admin规范)
+                    ↓
+                    └─→ DEVELOPER_REFERENCE.md (开发者参考手册)
 ```
 
 ---
@@ -153,10 +269,17 @@ DEEPAGENTS_SIMPLIFICATION_PLAN.md (核心架构) ⭐
 ## 🎯 快速导航
 
 ### 我是新加入的开发者
-**阅读顺序**: CODE_AUDIT → DEEPAGENTS_SIMPLIFICATION_PLAN → REFACTOR_TRACKING
+**v2.0**: CODE_AUDIT → DEEPAGENTS_SIMPLIFICATION_PLAN → REFACTOR_TRACKING  
+**v2.1**: INDEPENDENT_AGENTS_ARCHITECTURE → COMMAND_LEARNER_AGENT_SPEC → ADMIN_AGENT_SPEC
 
-### 我要实施工具重构
+### 我要实施工具重构（v2.0）
 **阅读顺序**: DEEPAGENTS_SIMPLIFICATION_PLAN → TOOLS_LOCATION_RATIONALE → OLAV_DIRECTORY_REFACTOR_ANALYSIS
+
+### 我要实施Command Learner（v2.1）
+**阅读顺序**: INDEPENDENT_AGENTS_ARCHITECTURE → COMMAND_LEARNER_AGENT_SPEC → DEVELOPER_REFERENCE (参考)
+
+### 我要实施Admin Agent（v2.1）
+**阅读顺序**: INDEPENDENT_AGENTS_ARCHITECTURE → ADMIN_AGENT_SPEC → DEVELOPER_REFERENCE (必读)
 
 ### 我要实施 Admin 功能
 **阅读顺序**: DEEPAGENTS_SIMPLIFICATION_PLAN → ADMIN_AND_CRON_DESIGN_v2 → REFACTOR_TRACKING
@@ -219,7 +342,16 @@ A: 阅读 [CODE_AUDIT_2026_02_14.md](CODE_AUDIT_2026_02_14.md) 第 2 节"关键�
 A: 不会。所有 10 个功能场景保持兼容（见 DEEPAGENTS_SIMPLIFICATION_PLAN.md 第 14 节）
 
 ### Q: 重构需要多久？
-A: 预计 2 周（见 REFACTOR_TRACKING.md）
+A: v2.0 重构预计 2 周，v2.1 独立Agent架构预计 6 周（见 REFACTOR_TRACKING.md）
+
+### Q: v2.1 和 v2.0 有什么区别？
+A: v2.0 是 1 Agent + Skills架构，v2.1 引入 3 个完全独立的Agent（Main, Command Learner, Admin）
+
+### Q: 为什么要有独立的Agent？
+A: ✅ 便携性（可独立部署）、✅ 零耦合、✅ 专注单一职责、✅ 灵活部署（单体/微服务）
+
+### Q: 工具位置为什么重要？
+A: 工具必须在 .olav/skills/ 下才能保证跨平台迁移（复制 .olav/ 即可，无需重新安装）
 
 ### Q: 我可以参与吗？
 A: 可以！查看 REFACTOR_TRACKING.md 中的"待认领任务"
