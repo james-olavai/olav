@@ -166,40 +166,59 @@ class OLAVAgent:
         """Build agent execution graph using LangGraph."""
         workflow = StateGraph(MessagesState)
 
-        # Main agent node
-        def agent_node(state: MessagesState) -> MessagesState:
+        # Main agent node (async for graph.ainvoke compatibility)
+        async def agent_node(state: MessagesState) -> MessagesState:
             """Agent decision-making node."""
+            logger.info(f"[agent_node] Entered with {len(state['messages'])} messages")
             messages = state["messages"]
 
             # Prepare system prompt
             system_prompt = self._build_system_prompt()
+            logger.info(f"[agent_node] System prompt length: {len(system_prompt)} chars")
 
-            # Call LLM with tools bound
-            response = self.llm.bind_tools(self.tools).invoke(
+            # Call LLM with tools bound (use ainvoke for async)
+            logger.info(f"[agent_node] Calling LLM with {len(self.tools)} tools bound...")
+            response = await self.llm.bind_tools(self.tools).ainvoke(
                 [{"role": "system", "content": system_prompt}] + messages
             )
+            logger.info(f"[agent_node] LLM response received: {type(response)}")
 
             return {"messages": messages + [response]}
 
-        # Tool execution node
-        async def tool_node(state: MessagesState) -> MessagesState:
+        # Tool execution node (synchronous - must match graph.invoke usage)
+        def tool_node(state: MessagesState) -> MessagesState:
             """Execute tool calls from agent."""
+            logger.info(f"[tool_node] Entered with {len(state['messages'])} messages")
             messages = state["messages"]
             last_message = messages[-1]
+            logger.info(f"[tool_node] Last message type: {type(last_message)}")
 
             # Process tool calls if present
             if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+                logger.info(f"[tool_node] Processing {len(last_message.tool_calls)} tool calls")
                 tool_results = []
-                for tool_call in last_message.tool_calls:
+                for i, tool_call in enumerate(last_message.tool_calls):
                     tool_name = tool_call["name"]
                     tool_args = tool_call["args"]
+                    logger.info(f"[tool_node] Tool {i+1}: {tool_name} with args: {tool_args}")
 
-                    # Find and execute tool
+                    # Find and execute tool (handles both plain functions and Tool objects)
                     result = None
                     for tool in self.tools:
-                        if tool.name == tool_name:
-                            result = tool.invoke(tool_args)
+                        # Check if tool is a plain function or Tool object
+                        func_name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
+                        if func_name == tool_name:
+                            logger.info(f"[tool_node] Executing tool: {tool_name}")
+                            # Execute tool (handle both Tool.invoke() and direct function call)
+                            if hasattr(tool, "invoke"):
+                                result = tool.invoke(tool_args)
+                            else:
+                                result = tool(**tool_args)
+                            logger.info(f"[tool_node] Tool {tool_name} result: {str(result)[:200]}")
                             break
+
+                    if result is None:
+                        logger.warning(f"[tool_node] Tool {tool_name} not found!")
 
                     tool_results.append({
                         "type": "tool_result",
@@ -207,7 +226,10 @@ class OLAVAgent:
                         "content": json.dumps(result)
                     })
 
+                logger.info(f"[tool_node] Returning {len(tool_results)} tool results")
                 return {"messages": messages + tool_results}
+            else:
+                logger.info(f"[tool_node] No tool calls in last message")
 
             return {"messages": messages}
 
@@ -218,8 +240,11 @@ class OLAVAgent:
         # Conditional routing
         def should_continue(state: MessagesState) -> str:
             last_message = state["messages"][-1]
-            if hasattr(last_message, "tool_calls"):
+            # Check if tool_calls exist AND are non-empty
+            if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+                logger.info(f"[should_continue] Routing to tools ({len(last_message.tool_calls)} calls)")
                 return "tools"
+            logger.info(f"[should_continue] Ending (no tool calls)")
             return END
 
         workflow.add_edge("tools", "agent")
@@ -281,8 +306,10 @@ Respond in a clear, structured format."""
             Agent response
         """
         try:
+            logger.info(f"[invoke] Starting with query: {query[:100]}")
             # Prepare input
             input_data = {"messages": [{"role": "user", "content": query}]}
+            logger.info(f"[invoke] Input data prepared")
 
             # Configure runtime - always provide config if checkpointer exists
             config = None
@@ -292,12 +319,18 @@ Respond in a clear, structured format."""
                         "thread_id": thread_id or f"default-{id(input_data)}"
                     }
                 }
+                logger.info(f"[invoke] Using checkpointer with thread_id: {config['configurable']['thread_id']} ")
+            else:
+                logger.info(f"[invoke] Checkpointer disabled, using memory only")
 
             # Execute graph
-            result = self.graph.invoke(input_data, config=config)
+            logger.info(f"[invoke] Calling graph.ainvoke()...")
+            result = await self.graph.ainvoke(input_data, config=config)
+            logger.info(f"[invoke] Graph execution completed successfully")
 
             # Extract final response
             messages = result.get("messages", [])
+            logger.info(f"[invoke] Received {len(messages)} messages from graph")
             if messages:
                 last_message = messages[-1]
                 return {

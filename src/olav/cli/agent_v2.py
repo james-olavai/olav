@@ -108,7 +108,8 @@ def ask(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
 
-    agent = create_olav_agent()
+    # Temporarily disable checkpointer to fix schema issues
+    agent = create_olav_agent(enable_checkpointer=False)
     asyncio.run(_stream_response(agent, query, thread_id))
 
 
