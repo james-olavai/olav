@@ -1,8 +1,0 @@
-# EXPERT Query Indicators
-
-## Complex Analytics Patterns
-哪些.*最|which.*most|top
-趋势|trend|analysis
-交叉|cross|relationship
-平均|average|统计|statistics
-7天|7days|时间序列|time-series
