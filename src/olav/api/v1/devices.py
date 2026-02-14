@@ -46,21 +46,25 @@ def list_devices(
     try:
         db = UnifiedDatabase()
 
-        # Build SQL query
+        # Build SQL query with parameterized query to prevent SQL injection
         where_clauses = []
+        params = []
 
         if vendor:
-            where_clauses.append(f'vendor ILIKE \'%{vendor}%\'')
+            where_clauses.append('vendor ILIKE ?')
+            params.append(f'%{vendor}%')
 
         if device_type:
-            where_clauses.append(f'device_type ILIKE \'%{device_type}%\'')
+            where_clauses.append('device_type ILIKE ?')
+            params.append(f'%{device_type}%')
 
         if status:
-            where_clauses.append(f'is_active = {status.lower() == "up"}')
+            where_clauses.append('is_active = ?')
+            params.append(status.lower() == "up")
 
         where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
 
-        # Query devices
+        # Query devices with parameterized query
         sql = f"""
             SELECT 
                 device_id,
@@ -75,7 +79,7 @@ def list_devices(
             LIMIT {limit} OFFSET {offset}
         """
 
-        rows = db.query(sql)
+        rows = db.query(sql, params if params else None)
 
         devices = []
         for row in rows:
