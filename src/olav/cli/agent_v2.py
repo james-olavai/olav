@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
 """
-OLAV v2.0 Agent CLI - New unified agent entry point.
-
-This is the v2.0 refactored CLI using:
-- Single DeepAgents Agent (replaces 5 SubAgents)
-- 3 unified tools (database, network, inspection)
-- DuckDB state persistence
-- Fast admin commands (<100ms)
+OLAV v2.0 Agent CLI - Unified agent entry point.
 
 Usage:
-    uv run olav2 ask "How many devices?"          # Query mode
-    uv run olav2 ask "show version on R1"         # CLI mode
-    uv run olav2 /admin status                    # Admin command
-    uv run olav2                                  # Interactive mode
-    uv run olav2 --help                           # Help
+    uv run olav                                   # Interactive mode (default)
+    uv run olav -m "How many devices?"            # Single message mode
+    uv run olav --msg "show version on R1"        # Single message mode
+    uv run olav admin status                      # Admin command
+    uv run olav devices                           # List devices
+    uv run olav --help                            # Help
 """
 
 import asyncio
@@ -31,8 +26,11 @@ console = Console()
 
 app = typer.Typer(
     name="olav",
-    help="OLAV v2.0 - Network Operations AI Assistant (Refactored)",
-    no_args_is_help=True,  # Show help when no command provided
+    help="OLAV v2.0 - Network Operations AI Assistant\n\n"
+         "Run without arguments to enter interactive mode.\n"
+         "Use -m/--msg to send a single message.",
+    no_args_is_help=False,  # Bare `olav` enters interactive mode
+    invoke_without_command=True,
 )
 
 # Add src to path
@@ -45,19 +43,29 @@ from olav.cli.admin import admin_handler
 # Helpers
 # ============================================================================
 
+def _check_llm_key():
+    """Check if LLM API key is configured."""
+    from config.settings import settings
+    if not settings.llm_api_key:
+        console.print(
+            "[bold red]Error:[/] LLM_API_KEY environment variable not set",
+            style="red"
+        )
+        console.print("\nTo set up LLM API access:")
+        console.print("  1. Add to .env file:")
+        console.print("     LLM_API_KEY='your-api-key'")
+        console.print("     LLM_PROVIDER='openai'")
+        console.print("     LLM_MODEL_NAME='gpt-4'")
+        raise typer.Exit(1)
+
+
 async def _stream_response(agent, query: str, thread_id: str | None = None):
     """Stream agent response with real-time display."""
     try:
-        console.print(f"[dim]Processing:[/dim] {query}\n")
-
         result = await agent.invoke(query, thread_id=thread_id)
 
         if result["status"] == "success":
-            console.print(Panel(
-                result["response"],
-                title="[green]✓ Response[/green]",
-                border_style="green"
-            ))
+            console.print(result["response"])
         else:
             console.print(Panel(
                 result.get("message", result.get("error", "Unknown error")),
@@ -70,47 +78,86 @@ async def _stream_response(agent, query: str, thread_id: str | None = None):
         raise
 
 
+def _run_interactive():
+    """Enter interactive conversation mode."""
+    import uuid
+
+    _check_llm_key()
+    agent = create_olav_agent(enable_checkpointer=False)
+    thread_id = str(uuid.uuid4())[:8]
+
+    console.print(Panel(
+        f"OLAV v2.0 - Interactive Mode\n\n"
+        f"Thread: {thread_id}\n"
+        f"Type 'exit' or 'quit' to exit.\n"
+        f"Send any natural language query.",
+        border_style="blue",
+        title="[cyan]OLAV[/cyan]"
+    ))
+
+    while True:
+        try:
+            query = console.input("\n[bold cyan]You:[/bold cyan] ")
+
+            if query.lower().strip() in ["exit", "quit", "bye", "/quit", "/exit"]:
+                console.print("[cyan]Goodbye![/cyan]")
+                break
+
+            if not query.strip():
+                continue
+
+            asyncio.run(_stream_response(agent, query, thread_id))
+
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[cyan]Goodbye![/cyan]")
+            break
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+
+
 # ============================================================================
 # Commands
 # ============================================================================
 
-@app.command()
-def ask(
-    query: str = typer.Argument(..., help="Natural language query"),
-    thread_id: str | None = typer.Option(None, "--thread", help="Conversation thread ID"),
+@app.callback(invoke_without_command=True)
+def main_callback(
+    ctx: typer.Context,
+    msg: str | None = typer.Option(None, "--msg", "-m", help="Send a single message (non-interactive)"),
+    version: bool = typer.Option(False, "--version", "-V", help="Show version"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
-    """Ask OLAV a question using natural language.
+    """OLAV v2.0 - Network Operations AI Assistant.
+
+    Run without arguments to enter interactive mode.
+    Use -m/--msg to send a single message.
 
     Examples:
-        olav2 ask "How many devices do we have?"
-        olav2 ask "List core routers"
-        olav2 ask "Show version on R1"
+        olav                              # Enter interactive mode
+        olav -m "How many devices?"       # Single query
+        olav --msg "List core routers"    # Single query
+        olav admin status                 # Admin command
+        olav devices                      # List devices
     """
-    import os
-    from config.settings import settings
-
-    # Check if LLM API key is configured (supports multiple providers)
-    if not settings.llm_api_key:
-        console.print(
-            "[bold red]Error:[/] LLM_API_KEY environment variable not set",
-            style="red"
-        )
-        console.print("\nTo set up LLM API access:")
-        console.print("  1. Add to .env file:")
-        console.print("     LLM_API_KEY='your-api-key'")
-        console.print("     LLM_PROVIDER='openai'  # or 'openrouter', 'anthropic', etc.")
-        console.print("     LLM_MODEL_NAME='gpt-4'  # or your model name")
-        console.print("\nFor development without API key, use 'admin' commands instead:")
-        console.print("  $ olav admin status")
-        raise typer.Exit(1)
+    if version:
+        console.print("OLAV v2.0.0 (2026-02-14)")
+        raise typer.Exit()
 
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
 
-    # Temporarily disable checkpointer to fix schema issues
-    agent = create_olav_agent(enable_checkpointer=False)
-    asyncio.run(_stream_response(agent, query, thread_id))
+    # If a subcommand was invoked (admin, devices), let it handle
+    if ctx.invoked_subcommand is not None:
+        return
+
+    # Single message mode: -m "query"
+    if msg:
+        _check_llm_key()
+        agent = create_olav_agent(enable_checkpointer=False)
+        asyncio.run(_stream_response(agent, msg))
+        return
+
+    # Default: interactive mode
+    _run_interactive()
 
 
 @app.command()
@@ -218,57 +265,5 @@ def devices(
         console.print(f"[red]Error:[/red] {e}", style="red")
 
 
-@app.command()
-def interactive():
-    """Start interactive conversation mode.
-
-    Supports multi-turn conversation with thread ID persistence.
-    Type 'exit' or 'quit' to exit.
-    """
-    import uuid
-
-    agent = create_olav_agent()
-    thread_id = str(uuid.uuid4())[:8]
-
-    console.print(Panel(
-        f"OLAV v2.0 - Interactive Mode\n\nThread: {thread_id}\nType 'exit' to quit",
-        border_style="blue",
-        title="[cyan]OLAV[/cyan]"
-    ))
-
-    while True:
-        try:
-            query = console.input("\n[bold cyan]You:[/bold cyan] ")
-
-            if query.lower() in ["exit", "quit", "bye"]:
-                console.print("[cyan]Goodbye![/cyan]")
-                break
-
-            if not query.strip():
-                continue
-
-            asyncio.run(_stream_response(agent, query, thread_id))
-
-        except KeyboardInterrupt:
-            console.print("\n[cyan]Goodbye![/cyan]")
-            break
-        except Exception as e:
-            console.print(f"[red]Error:[/red] {e}")
-
-
-@app.callback()
-def main_callback(
-    version: bool = typer.Option(None, "--version", help="Show version"),
-):
-    """OLAV v2.0 - Network Operations AI Assistant."""
-    if version:
-        console.print("OLAV v2.0.0 (2026-02-14)")
-        raise typer.Exit()
-
-
 if __name__ == "__main__":
-    # Default to interactive mode if no command
-    if len(sys.argv) == 1:
-        interactive()
-    else:
-        app()
+    app()
