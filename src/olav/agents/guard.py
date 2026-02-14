@@ -32,12 +32,33 @@ from enum import Enum
 from typing import Any, Optional
 
 from config.settings import settings
-from olav.core.guard_rules_loader import get_rules_loader
 
-from .cache_manager import CacheManager
-from .execution_dispatcher import ExecutionDispatcher
-from .llm_router import LLMRouter
-from .security_classifier import SecurityClassifier
+# Phase 3: Temporarily disable module imports during refactor
+# These will be restored after v2.0 migration
+try:
+    from olav.core.guard_rules_loader import get_rules_loader
+    _rules_loader_available = True
+except (ImportError, ModuleNotFoundError):
+    _rules_loader_available = False
+    logger = logging.getLogger(__name__)
+
+try:
+    from .cache_manager import CacheManager
+    _cache_manager_available = True
+except (ImportError, ModuleNotFoundError):
+    _cache_manager_available = False
+
+try:
+    from .llm_router import LLMRouter
+    _llm_router_available = True
+except (ImportError, ModuleNotFoundError):
+    _llm_router_available = False
+
+try:
+    from .security_classifier import SecurityClassifier
+    _security_classifier_available = True
+except (ImportError, ModuleNotFoundError):
+    _security_classifier_available = False
 
 logger = logging.getLogger(__name__)
 
