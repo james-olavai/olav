@@ -30,9 +30,9 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 app = typer.Typer(
-    name="olav2",
+    name="olav",
     help="OLAV v2.0 - Network Operations AI Assistant (Refactored)",
-    no_args_is_help=False,
+    no_args_is_help=True,  # Show help when no command provided
 )
 
 # Add src to path
