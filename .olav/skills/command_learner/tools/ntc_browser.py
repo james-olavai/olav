@@ -7,7 +7,7 @@ Browse NTC-templates directory structure to explore available templates.
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from langchain_core.tools import tool
 
@@ -25,7 +25,7 @@ def find_ntc_templates_path() -> Path | None:
 
 
 @tool
-def browse_ntc_directory(platform: str = None, limit: int = 20) -> dict[str, Any]:
+def browse_ntc_directory(platform: Optional[str] = None, limit: int = 20) -> dict[str, Any]:
     """Browse NTC-templates directory structure.
     
     Args:
