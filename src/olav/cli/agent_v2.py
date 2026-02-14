@@ -11,6 +11,8 @@ Usage:
     uv run olav --help                            # Help
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import sys
@@ -162,23 +164,26 @@ def main_callback(
 
 @app.command()
 def admin(
-    command: str = typer.Argument(..., help="Admin command (status, backup, restore, etc)"),
+    command: str = typer.Argument(..., help="Natural language task or legacy command"),
     args: str | None = typer.Argument(None, help="Command arguments"),
 ):
-    """Execute admin commands (<100ms response time).
+    """Execute Admin Agent task (AI-powered, natural language).
 
-    Commands:
-        status      - System status check
-        backup      - Backup all databases
-        restore     - Restore from backup
-        db-info     - Database information
-        skill-list  - List skills
-        cron-list   - List cron tasks
+    🎯 Use this for AI-powered tasks that require planning and execution.
+    💡 For simple operations, use direct commands instead (see below).
 
-    Examples:
-        olav2 admin status
-        olav2 admin backup
-        olav2 admin restore /path/to/backup.tar.gz
+    AI-Powered Examples:
+        olav admin "fix bug in network-query skill"
+        olav admin "create a new monitoring skill"
+        olav admin "analyze database performance"
+        olav admin "cleanup old exports"
+
+    Legacy commands (still supported, but direct commands are preferred):
+        olav ls "*.py"                # instead of: olav admin list "*.py"
+        olav search "pattern"         # instead of: olav admin search "pattern"
+        olav backup                   # instead of: olav admin backup
+        olav skills                   # instead of: olav admin skills
+        olav db-status                # instead of: olav admin db-info
     """
     full_cmd = f"/admin {command}"
     if args:
@@ -263,6 +268,470 @@ def devices(
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}", style="red")
+
+
+# ============================================================================
+# Quick Commands (no 'admin' prefix) - v2.1 ⭐
+# ============================================================================
+
+@app.command()
+def ls(
+    pattern: str = typer.Argument("*", help="File pattern (e.g., '*.py', 'SKILL.md')"),
+    directory: str = typer.Option(".", "--dir", "-d", help="Directory to search"),
+):
+    """List files matching pattern (replaces 'admin list').
+
+    Examples:
+        olav ls "*.py"
+        olav ls ".olav/skills/*/SKILL.md"
+        olav ls "*.md" --dir .olav/skills
+    """
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["find", directory, "-name", pattern, "-type", "f"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0:
+            files = result.stdout.strip().split('\n')
+            files = [f for f in files if f]  # Remove empty strings
+            
+            if files:
+                console.print(f"[cyan]Found {len(files)} files:[/cyan]")
+                for f in files:
+                    console.print(f"  {f}")
+            else:
+                console.print(f"[yellow]No files found matching '{pattern}'[/yellow]")
+        else:
+            console.print(f"[red]Error:[/red] {result.stderr}")
+            
+    except subprocess.TimeoutExpired:
+        console.print("[red]Error:[/red] Command timed out")
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+
+
+@app.command()
+def search(
+    pattern: str = typer.Argument(..., help="Search pattern"),
+    file_type: str = typer.Option("py", "--type", "-t", help="File type (py, md, all)"),
+    directory: str = typer.Option(".", "--dir", "-d", help="Directory to search"),
+):
+    """Search for pattern in codebase (replaces 'admin search').
+
+    Examples:
+        olav search "execute_sql"
+        olav search "execute_sql" --type py
+        olav search "class Agent" --type py --dir src/
+    """
+    import subprocess
+    
+    # Build grep command
+    cmd = ["grep", "-r", "-n", pattern, directory]
+    
+    if file_type != "all":
+        cmd.append(f"--include=*.{file_type}")
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            lines = [l for l in lines if l]
+            
+            console.print(f"[cyan]Found {len(lines)} matches:[/cyan]")
+            for line in lines[:50]:  # Limit to 50 results
+                console.print(line)
+            
+            if len(lines) > 50:
+                console.print(f"\n[yellow]... and {len(lines) - 50} more matches[/yellow]")
+        else:
+            console.print(f"[yellow]No matches found for '{pattern}'[/yellow]")
+            
+    except subprocess.TimeoutExpired:
+        console.print("[red]Error:[/red] Command timed out")
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+
+
+@app.command()
+def tree(
+    directory: str = typer.Argument(".", help="Directory to show"),
+    depth: int = typer.Option(3, "--depth", "-L", help="Max depth"),
+):
+    """Show directory tree (replaces 'admin tree').
+
+    Examples:
+        olav tree
+        olav tree .olav/skills --depth 2
+        olav tree src/olav -L 3
+    """
+    import subprocess
+    import shutil
+    
+    if not shutil.which("tree"):
+        # Fallback to find if tree is not installed
+        console.print("[yellow]'tree' not found, using 'find' instead[/yellow]")
+        try:
+            result = subprocess.run(
+                ["find", directory, "-maxdepth", str(depth), "-type", "d"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            console.print(result.stdout)
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+        return
+    
+    try:
+        result = subprocess.run(
+            ["tree", "-L", str(depth), directory],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        console.print(result.stdout)
+    except subprocess.TimeoutExpired:
+        console.print("[red]Error:[/red] Command timed out")
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+
+
+@app.command()
+def backup(
+    target: str | None = typer.Option(None, "--target", "-t", help="Target path for backup"),
+):
+    """Backup OLAV data (replaces 'admin backup').
+
+    Examples:
+        olav backup                      # Auto-named backup
+        olav backup --target ~/backups/  # Custom target
+    """
+    import subprocess
+    from datetime import datetime
+    
+    if not target:
+        target = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tar.gz"
+    elif Path(target).is_dir():
+        target = str(Path(target) / f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tar.gz")
+    
+    console.print(f"[cyan]Creating backup:[/cyan] {target}")
+    
+    try:
+        result = subprocess.run(
+            ["tar", "-czf", target, ".olav/"],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        
+        if result.returncode == 0:
+            size = Path(target).stat().st_size / (1024 * 1024)
+            console.print(f"[green]✓ Backup created:[/green] {target} ({size:.1f} MB)")
+        else:
+            console.print(f"[red]✗ Backup failed:[/red] {result.stderr}")
+            
+    except subprocess.TimeoutExpired:
+        console.print("[red]Error:[/red] Backup timed out")
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+
+
+@app.command()
+def restore(
+    file: str = typer.Argument(..., help="Backup file path"),
+):
+    """Restore from backup (replaces 'admin restore').
+
+    Examples:
+        olav restore backup_20260215_153000.tar.gz
+        olav restore ~/backups/latest.tar.gz
+    """
+    import subprocess
+    
+    backup_path = Path(file)
+    if not backup_path.exists():
+        console.print(f"[red]Error:[/red] Backup file not found: {file}")
+        raise typer.Exit(1)
+    
+    console.print(f"[yellow]⚠️  This will overwrite existing data![/yellow]")
+    confirm = typer.confirm("Continue with restore?")
+    
+    if not confirm:
+        console.print("[cyan]Restore cancelled[/cyan]")
+        return
+    
+    console.print(f"[cyan]Restoring from:[/cyan] {file}")
+    
+    try:
+        result = subprocess.run(
+            ["tar", "-xzf", file, "-C", "."],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        
+        if result.returncode == 0:
+            console.print(f"[green]✓ Restored from:[/green] {file}")
+        else:
+            console.print(f"[red]✗ Restore failed:[/red] {result.stderr}")
+            
+    except subprocess.TimeoutExpired:
+        console.print("[red]Error:[/red] Restore timed out")
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+
+
+@app.command()
+def skills(
+    detail: bool = typer.Option(False, "--detail", "-d", help="Show detailed info"),
+):
+    """List available skills (replaces 'admin skills').
+
+    Examples:
+        olav skills
+        olav skills --detail
+    """
+    from pathlib import Path
+    
+    skills_path = Path(".olav/skills")
+    
+    if not skills_path.exists():
+        console.print("[yellow]No skills directory found[/yellow]")
+        return
+    
+    skill_list = []
+    for skill_dir in sorted(skills_path.iterdir()):
+        if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
+            if detail:
+                tools_dir = skill_dir / "tools"
+                tool_count = len(list(tools_dir.glob("*.py"))) if tools_dir.exists() else 0
+                skill_list.append((skill_dir.name, tool_count))
+            else:
+                skill_list.append(skill_dir.name)
+    
+    if not skill_list:
+        console.print("[yellow]No skills found[/yellow]")
+        return
+    
+    console.print(f"[cyan]Found {len(skill_list)} skills:[/cyan]")
+    
+    if detail:
+        table = Table(title="Skills")
+        table.add_column("Skill Name", style="cyan")
+        table.add_column("Tools", style="green")
+        
+        for name, tool_count in skill_list:
+            table.add_row(name, str(tool_count))
+        
+        console.print(table)
+    else:
+        for skill in skill_list:
+            console.print(f"  • {skill}")
+
+
+@app.command()
+def git(
+    args: list[str] = typer.Argument(..., help="Git command and arguments"),
+):
+    """Git command shortcut.
+
+    Examples:
+        olav git status
+        olav git log -10
+        olav git diff
+    """
+    import subprocess
+    
+    try:
+        result = subprocess.run(
+            ["git"] + args,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.stdout:
+            console.print(result.stdout)
+        if result.stderr:
+            console.print(result.stderr, style="yellow")
+            
+        if result.returncode != 0:
+            raise typer.Exit(result.returncode)
+            
+    except subprocess.TimeoutExpired:
+        console.print("[red]Error:[/red] Git command timed out")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command(name="db-status")
+def db_status():
+    """Show database status (replaces 'admin db-status').
+
+    Examples:
+        olav db-status
+    """
+    from pathlib import Path
+    import duckdb
+    
+    db_path = Path(".olav/databases/main.duckdb")
+    
+    if not db_path.exists():
+        console.print("[red]Database not found[/red]")
+        return
+    
+    try:
+        conn = duckdb.connect(str(db_path), read_only=True)
+        
+        # Get database size
+        size_mb = db_path.stat().st_size / (1024 * 1024)
+        
+        # Get table list
+        tables = conn.execute("SHOW TABLES").fetchall()
+        
+        console.print(f"[cyan]Database:[/cyan] {db_path}")
+        console.print(f"[cyan]Size:[/cyan] {size_mb:.2f} MB")
+        console.print(f"\n[cyan]Tables ({len(tables)}):[/cyan]")
+        
+        for table in tables:
+            table_name = table[0]
+            count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+            console.print(f"  • {table_name}: {count} rows")
+        
+        conn.close()
+        
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+
+
+@app.command(name="db-query")
+def db_query(
+    sql: str = typer.Argument(..., help="SQL query to execute"),
+    output: str | None = typer.Option(None, "--output", "-o", help="Output to CSV file"),
+):
+    """Execute SQL query on main database (replaces 'admin db-query').
+
+    Examples:
+        olav db-query "SELECT * FROM devices LIMIT 10"
+        olav db-query "SELECT COUNT(*) FROM devices" 
+        olav db-query "SELECT * FROM devices" --output devices.csv
+    """
+    from pathlib import Path
+    import duckdb
+    
+    db_path = Path(".olav/databases/main.duckdb")
+    
+    if not db_path.exists():
+        console.print("[red]Database not found[/red]")
+        raise typer.Exit(1)
+    
+    try:
+        conn = duckdb.connect(str(db_path), read_only=True)
+        
+        result = conn.execute(sql).fetchall()
+        columns = [desc[0] for desc in conn.description]
+        
+        if output:
+            # Write to CSV
+            import csv
+            output_path = Path(output)
+            with open(output_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(columns)
+                writer.writerows(result)
+            console.print(f"[green]✓ Output saved to:[/green] {output}")
+        else:
+            # Display in terminal
+            if not result:
+                console.print("[yellow]No results[/yellow]")
+                return
+            
+            table = Table(title=f"Query Results ({len(result)} rows)")
+            for col in columns:
+                table.add_column(col, style="cyan")
+            
+            for row in result[:50]:  # Limit display to 50 rows
+                table.add_row(*[str(v) for v in row])
+            
+            console.print(table)
+            
+            if len(result) > 50:
+                console.print(f"\n[yellow]... and {len(result) - 50} more rows[/yellow]")
+        
+        conn.close()
+        
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command(name="db-schema")
+def db_schema(
+    table: str | None = typer.Argument(None, help="Table name (optional)"),
+):
+    """Show database schema (replaces 'admin db-schema').
+
+    Examples:
+        olav db-schema           # Show all tables
+        olav db-schema devices   # Show schema for devices table
+    """
+    from pathlib import Path
+    import duckdb
+    
+    db_path = Path(".olav/databases/main.duckdb")
+    
+    if not db_path.exists():
+        console.print("[red]Database not found[/red]")
+        raise typer.Exit(1)
+    
+    try:
+        conn = duckdb.connect(str(db_path), read_only=True)
+        
+        if table:
+            # Show schema for specific table
+            schema = conn.execute(f"DESCRIBE {table}").fetchall()
+            
+            console.print(f"[cyan]Schema for table:[/cyan] {table}")
+            
+            tbl = Table()
+            tbl.add_column("Column", style="cyan")
+            tbl.add_column("Type", style="green")
+            tbl.add_column("Null", style="yellow")
+            
+            for row in schema:
+                tbl.add_row(row[0], row[1], "YES" if row[2] else "NO")
+            
+            console.print(tbl)
+        else:
+            # Show all tables with row counts
+            tables = conn.execute("SHOW TABLES").fetchall()
+            
+            console.print(f"[cyan]Database Schema ({len(tables)} tables):[/cyan]")
+            
+            tbl = Table()
+            tbl.add_column("Table", style="cyan")
+            tbl.add_column("Rows", style="green")
+            
+            for t in tables:
+                table_name = t[0]
+                count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+                tbl.add_row(table_name, str(count))
+            
+            console.print(tbl)
+            console.print("\n[dim]Tip: Use 'olav db-schema <table>' for detailed schema[/dim]")
+        
+        conn.close()
+        
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":
