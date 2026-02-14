@@ -347,7 +347,7 @@ async def run_interactive_loop_async(
 
 
 @app.command()
-def query(
+async def query(
     query_text: str = typer.Argument(..., help="Network operation query"),
     debug: bool = typer.Option(False, "--debug", "-d", help="Enable debug logging"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show full LLM thinking process"),
@@ -400,7 +400,7 @@ def query(
             console.print(f"\n[bold green]✅ Export successful![/bold green]")
             console.print(f"[cyan]File:[/cyan] {export_file}")
             console.print(f"[cyan]Format:[/cyan] {format_type}")
-            if result.get("rows_exported")
+            if result.get("rows_exported"):
                 console.print(f"[cyan]Rows:[/cyan] {result['rows_exported']}")
         elif result.get("format") == "table" and (result.get("data") or result.get("result")):
             # Support both "data" (from dispatcher) and "result" (from orchestrator)
