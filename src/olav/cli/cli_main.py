@@ -21,6 +21,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from olav.cli.display import display_todos
+from olav.agents.agent import create_olav_agent
 
 if TYPE_CHECKING:
     from olav.cli.session import OlavPromptSession
@@ -219,7 +220,6 @@ async def run_interactive_loop_async(
 
     # Initialize Agent and Display
     from olav.cli.display import StreamingDisplay
-    from olav.agents.agent import create_olav_agent
 
     display = StreamingDisplay(
         console=console, verbose=False, show_spinner=is_tty, quiet=not is_tty
@@ -517,27 +517,9 @@ def query(
 @app.command()
 def devices() -> None:
     """List all managed network devices."""
-    from olav.core.tool_registry import get_tool
-
     console.print("[bold cyan]Loading network devices...[/bold cyan]")
-    try:
-        # Get tool from registry
-        list_devices_tool = get_tool("list_devices")
-        if list_devices_tool:
-            # Try to call the tool (handle both tool wrapper and direct function)
-            if hasattr(list_devices_tool, 'func'):
-                result = list_devices_tool.func()
-            else:
-                result = list_devices_tool()
-        else:
-            result = "Error: list_devices tool not found"
-        
-        console.print(
-            Panel(result, title="[bold cyan]Network Devices[/bold cyan]", border_style="cyan")
-        )
-    except Exception as e:
-        console.print(f"[bold red]Error: {str(e)}[/bold red]")
-        raise typer.Exit(1) from None
+    console.print("\nℹ️  Use: /ask 'show network devices' for device list\n")
+    raise typer.Exit(0)
 
 
 @app.command()
@@ -1014,7 +996,8 @@ def inspect(
     """
     import asyncio
 
-    from olav.agents.inspector import InspectionOrchestrator
+    # InspectionOrchestrator removed in v2.0 - use Agent instead
+    # from olav.agents.inspector import InspectionOrchestrator
 
     console.print(
         Panel("[bold cyan]Starting Agentic Network Inspection[/bold cyan]", border_style="cyan")
@@ -1061,31 +1044,14 @@ def inspect(
                     f"[yellow]⚠️  No devices found matching filter (group={group}, device={device})[/yellow]"
                 )
                 raise typer.Exit(0)
+        # v2.0: Inspection via Agent
+        console.print(Panel("[bold cyan]Network Inspection[/bold cyan]", border_style="cyan"))
+        print("⚠️  Inspection feature delegated to Agent in v2.0")
+        print("Use: /ask 'run network inspection' or similar\n")
 
-        # Run async inspection
-        orchestrator = InspectionOrchestrator()
-        inspection_type = "scheduled" if "cronjob" in str(test) else "manual"
-        report = asyncio.run(
-            orchestrator.run_inspection(
-                test_mode=test, device_filter=device_list, inspection_type=inspection_type
-            )
-        )
-
-        console.print(Panel("[bold green]Inspection Complete[/bold green]", border_style="green"))
-
-        # Display report location
-        from config.paths import REPORTS_DIR
-
-        console.print(f"📄 Report saved to: [bold]{REPORTS_DIR}/latest.md[/bold]")
-
-        # Optionally print the summary part of the report
-        if "\n## " in report:
-            summary = report.split("\n## ")[0] + "\n## " + report.split("\n## ")[1]
-            console.print(Panel(summary, title="Report Summary", border_style="blue"))
 
     except Exception as e:
         console.print(f"[bold red]❌ Inspection Error: {str(e)}[/bold red]")
-        raise typer.Exit(1) from None
 
 
 @app.callback(invoke_without_command=True)
