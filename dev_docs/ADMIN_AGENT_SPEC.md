@@ -590,16 +590,129 @@ Agent references this when user asks: "Search for execute_sql usage"
 
 ## 💻 CLI Interface
 
-### Command Format
+### Dual-Purpose Design ⭐
+
+**核心理念**: OLAV admin 命令既可供用户直接使用，也可供 Admin Agent 调用
+
+```
+User CLI:           olav admin list "*.py"
+                         ↓
+Admin Agent:        execute_olav("admin list '*.py'")
+                         ↓
+Implementation:     execute_command("find . -name '*.py'")
+```
+
+**优势**:
+- ✅ 用户友好（CLI 直接可用）
+- ✅ Agent 友好（可编程调用）
+- ✅ 一套实现，两种用途
+
+---
+
+### Practical Admin Commands (12 commands)
+
+#### 📁 File & Code Management
 
 ```bash
-# Admin commands
-$ olav /admin <task>
+# 1. List files (replaces list_files tool)
+olav admin list "*.py"                    # All Python files
+olav admin list ".olav/skills/*/SKILL.md" # All skill definitions
+olav admin list ".olav/tools/*.py"        # All tools
+
+# 2. Search code (replaces search_code tool)
+olav admin search "execute_sql"           # Search all files
+olav admin search "execute_sql" --type py # Python files only
+olav admin search "class Agent" --type py # Search class definitions
+
+# 3. Directory tree
+olav admin tree                           # Full tree
+olav admin tree .olav/skills --depth 2    # Skills (2 levels)
+olav admin tree src/olav --depth 3        # Source code structure
+```
+
+#### 🗄️ Database Management
+
+```bash
+# 4. Database status
+olav admin db-status                      # All databases info
+
+# 5. Quick query
+olav admin db-query main "SELECT COUNT(*) FROM devices"
+olav admin db-query main "SELECT * FROM devices LIMIT 5"
+
+# 6. Schema inspection
+olav admin db-schema main                 # List all tables
+olav admin db-schema main devices         # Show devices table structure
+```
+
+#### 💾 Backup & Restore
+
+```bash
+# 7. Backup (improved with tar)
+olav admin backup                         # Auto-named: backup_20260215_153000.tar.gz
+olav admin backup --target ~/backups/     # Custom target directory
+
+# 8. Restore
+olav admin restore backup_20260215_153000.tar.gz
+olav admin restore ~/backups/latest.tar.gz
+```
+
+#### 🎯 Skill Management
+
+```bash
+# 9. List skills (improved with find)
+olav admin skills                         # List skill names
+olav admin skills --detail                # Detailed info (tool counts)
+
+# 10. Skill info
+olav admin skill-info network-query       # Show skill details
+```
+
+#### 🔧 Advanced (Admin Agent Priority)
+
+```bash
+# 11. Execute arbitrary command (Admin Agent primary use)
+olav admin exec "find .olav/skills -name '*.py' | wc -l"
+olav admin exec "grep -r 'DuckDB' src/"
+olav admin exec "git status"
+
+# 12. Git shortcuts
+olav admin git status
+olav admin git log -10
+olav admin git diff
+```
+
+---
+
+### Command Comparison Table
+
+| Function | v1 (Tool) | v2 (CLI + Tool) | Who Can Use? |
+|----------|-----------|-----------------|--------------|
+| List files | `list_files()` (100 lines) | `olav admin list` | User + Admin Agent |
+| Search code | `search_code()` (90 lines) | `olav admin search` | User + Admin Agent |
+| Backup | `backup_config()` (60 lines) | `olav admin backup` | User + Admin Agent |
+| Restore | `restore_config()` (60 lines) | `olav admin restore` | User + Admin Agent |
+| Tree | `list_workspace_structure()` (80 lines) | `olav admin tree` | User + Admin Agent |
+| Git ops | ❌ None | `olav admin git` | User + Admin Agent |
+| Exec | ❌ None | `olav admin exec` | **Admin Agent** |
+| DB query | ❌ None | `olav admin db-query` | User + Admin Agent |
+
+**Result**: 
+- ❌ Deleted: 390 lines of Python wrappers
+- ✅ Added: 12 practical CLI commands
+- ⭐ Benefit: Dual-purpose (User CLI + Agent tool)
+
+---
+
+### Agent Invocation Mode (Natural Language)
+
+```bash
+# Admin agent natural language interface
+$ olav /admin <natural-language-task>
 
 # Examples:
 $ olav /admin create-skill monitoring
 $ olav /admin reload-commands
-$ olav /admin backup
 $ olav /admin show documentation about skills
 $ olav /admin fix bug in network-query skill
 $ olav /admin search for "execute_sql"
