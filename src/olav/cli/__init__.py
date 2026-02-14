@@ -23,11 +23,10 @@ from olav.cli.display import (
     print_success,
     print_welcome,
 )
-from olav.cli.session import OlavPromptSession
 
 __all__ = [
     "main",
-    "OlavPromptSession",
+    "SLASH_COMMANDS",
     "SLASH_COMMANDS",
     "register_command",
     "execute_command",
