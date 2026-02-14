@@ -17,9 +17,11 @@ from typing import Any
 from pathlib import Path
 
 from langchain_core.messages import BaseMessage
-from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, MessagesState, END
 from langgraph.checkpoint.duckdb import DuckDBSaver
+
+from config.settings import settings
+from olav.core.llm import LLMFactory
 
 logger = logging.getLogger(__name__)
 
@@ -29,26 +31,34 @@ class OLAVAgent:
 
     def __init__(
         self,
-        model_name: str = "gpt-4-turbo-preview",
-        temperature: float = 0.1,
+        model_name: str | None = None,
+        temperature: float | None = None,
         olav_base_path: str = ".olav"
     ):
         """Initialize OLAV Agent.
 
         Args:
-            model_name: LLM model to use
-            temperature: LLM temperature (0.0-1.0)
+            model_name: LLM model to use (defaults to settings.llm_model_name)
+            temperature: LLM temperature 0.0-1.0 (defaults to settings.llm_temperature)
             olav_base_path: Path to .olav directory
         """
-        self.model_name = model_name
-        self.temperature = temperature
+        # Use settings if not provided
+        self.model_name = model_name or settings.llm_model_name
+        self.temperature = temperature if temperature is not None else settings.llm_temperature
         self.olav_base_path = Path(olav_base_path)
 
-        # Initialize LLM
-        self.llm = ChatOpenAI(
-            model=model_name,
-            temperature=temperature
+        # Initialize LLM using LLMFactory for third-party API support (OpenRouter, Groq, etc.)
+        # This respects .env configuration: LLM_PROVIDER, LLM_BASE_URL, LLM_API_KEY, etc.
+        self.llm = LLMFactory.get_chat_model(temperature=self.temperature)
+        
+        logger.info(
+            f"OLAV Agent initialized with: "
+            f"provider={settings.llm_provider}, "
+            f"model={self.model_name}, "
+            f"temperature={self.temperature}"
         )
+        if settings.llm_base_url:
+            logger.info(f"Using custom LLM endpoint: {settings.llm_base_url}")
 
         # Initialize checkpointer for state persistence
         db_path = self.olav_base_path / "databases" / "agent.duckdb"
