@@ -1,0 +1,36 @@
+{
+  "query": "list all ip addresses on R1",
+  "cached_at": 1770993582.9960527,
+  "ttl_seconds": 3600,
+  "result": {
+    "success": true,
+    "result": [
+      {
+        "ip_address": "10.1.12.1"
+      },
+      {
+        "ip_address": "10.1.13.1"
+      },
+      {
+        "ip_address": "N/A"
+      },
+      {
+        "ip_address": "192.168.100.101"
+      },
+      {
+        "ip_address": "1.1.1.1"
+      },
+      {
+        "ip_address": "N/A"
+      }
+    ],
+    "query": "SELECT ip_address FROM interfaces WHERE device_name = 'R1' LIMIT 1000",
+    "execution_time": 1.8118247985839844,
+    "rows_returned": 6,
+    "format": "table",
+    "cached": false,
+    "export_requested": false,
+    "export_format": "csv",
+    "export_filename": null
+  }
+}

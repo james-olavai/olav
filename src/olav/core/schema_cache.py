@@ -8,13 +8,15 @@ from typing import Any, Dict, Optional
 
 import duckdb
 
+from config.paths import UNIFIED_DB
+
 logger = logging.getLogger(__name__)
 
 
 class SchemaCache:
     """Persist schema information to DuckDB for fast repeated access."""
 
-    DB_PATH = ".olav/db/main.duckdb"
+    DB_PATH = UNIFIED_DB
     CACHE_TABLE = "schema_cache"
 
     @classmethod

@@ -158,6 +158,9 @@ def _sync_device_workflow(task: Task, commands: list[str], output_dir: Path) -> 
 
     settings = get_settings()
     timeout = settings.execution.timeout
+    global_delay_factor = settings.execution.global_delay_factor
+    max_loops = settings.execution.max_loops
+    scrapli_timeout_ops = settings.execution.scrapli_timeout_ops
 
     # 1. Check if device is unreachable (from pre-check)
     if not host.data.get("tcp_reachable", True):
@@ -188,7 +191,7 @@ def _sync_device_workflow(task: Task, commands: list[str], output_dir: Path) -> 
         # Try to use paramiko transport within scrapli if standard fails
         # but let's first try standard system/asyncssh with permissive keys
         opts.extras["transport"] = "paramiko"
-        opts.extras["timeout_ops"] = 300  # 5 mins for exhaustive snapshots
+        opts.extras["timeout_ops"] = scrapli_timeout_ops  # Use config value
         host.connection_options["scrapli"] = opts
 
         res = task.run(
@@ -236,6 +239,8 @@ def _sync_device_workflow(task: Task, commands: list[str], output_dir: Path) -> 
                     task=netmiko_send_command,
                     command_string=command,
                     read_timeout=timeout,
+                    global_delay_factor=global_delay_factor,  # Use config value for slow devices
+                    max_loops=max_loops,  # Use config value for long outputs
                 )
                 if res.result and not _is_error_output(str(res.result)):
                     cmd_filename = command.replace(" ", "-").replace("/", "-") + ".txt"

@@ -1,0 +1,33 @@
+{
+  "query": "list all ip addresses on R2",
+  "cached_at": 1770993587.4535801,
+  "ttl_seconds": 3600,
+  "result": {
+    "success": true,
+    "result": [
+      {
+        "ip_address": "10.1.12.2"
+      },
+      {
+        "ip_address": "10.1.24.2"
+      },
+      {
+        "ip_address": "N/A"
+      },
+      {
+        "ip_address": "192.168.100.102"
+      },
+      {
+        "ip_address": "2.2.2.2"
+      }
+    ],
+    "query": "SELECT ip_address FROM interfaces WHERE device_name = 'R2' LIMIT 1000",
+    "execution_time": 1.641218900680542,
+    "rows_returned": 5,
+    "format": "table",
+    "cached": false,
+    "export_requested": false,
+    "export_format": "csv",
+    "export_filename": null
+  }
+}
