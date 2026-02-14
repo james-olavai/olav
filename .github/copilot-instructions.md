@@ -1,923 +1,438 @@
 # OLAV Development Guide
 
-**Version**: v2.0.0 (2026-02-14) - 🚨 **架构重构中**  
-**Previous**: v1.0.0 (2026-02-08)
+**Version**: v2.0.0 (2026-02-14) - 架构重构中  
+**Status**: 设计完成，实施准备中
 
 ---
 
-## 🚨 重要通知：v2.0 架构重构进行中
+## 🚨 当前状态
 
-**状态**: 设计完成，实施准备中（2026-02-14）  
-**分支**: `refactor/v2.0-deepagents`  
+**重构分支**: `refactor/v2.0-deepagents`  
+**核心变更**: 5 SubAgents → 1 Agent + Skills  
 **预计完成**: 2026-02-28
 
-### ⚠️ 开发者必读
-
-#### 如果你在开发新功能
-
-1. **暂缓添加新 SubAgent** - v2.0 将从 5 个 SubAgent 精简到 1 个 Agent
-2. **工具放在 `.olav/tools/`** - 不是 `src/olav/tools/` 或 `.olav/shared/tools/`
-3. **创建 Skills 而非 SubAgent** - 参考 DEEPAGENTS_SIMPLIFICATION_PLAN.md
-4. **使用 DuckDB 统一数据层** - 新集成先导入 DuckDB，90% 无需新工具
-
-#### 如果你在修复 Bug
-
-1. **避免修改 orchestrator.py** - 该文件将被完全删除（1,077 行正则路由）
-2. **直接修改工具代码** - `.olav/shared/tools/` 中的工具逻辑
-3. **更新测试** - 确保 `tests/e2e/test_real_scenarios.py` 通过
-
-#### 关键变更速查
-
-| 组件 | v0.11 (当前) | v2.0 (目标) | 状态 |
-|------|-------------|------------|------|
-| **架构** | 5 SubAgents + 正则路由 | 1 Agent + Skills | 🟡 设计完成 |
-| **路由** | orchestrator.py (1,077行) | 零路由（Agent直接调用tools） | ⏳ 待实施 |
-| **工具位置** | `.olav/shared/tools/` | `.olav/tools/` | ⏳ 待迁移 |
-| **工具数量** | 6 个工具 (1,376行) | 3 个工具 (620行, -55%) | ⏳ 待合并 |
-| **Admin** | admin_agent.py | CLI命令 + olav-admin skill | ⏳ 待实施 |
-| **Cron** | 175 YAML定时任务 | python-crontab tool | ✅ 已设计 |
-| **数据库** | main.duckdb + network.duckdb | main.duckdb 统一 | ⏳ 待合并 |
+**关键文档**:
+- 📖 [dev_docs/INDEX.md](../dev_docs/INDEX.md) - 文档导航（必读）
+- ⭐ [dev_docs/DEEPAGENTS_SIMPLIFICATION_PLAN.md](../dev_docs/DEEPAGENTS_SIMPLIFICATION_PLAN.md) - 核心架构设计
+- 📊 [dev_docs/REFACTOR_TRACKING.md](../dev_docs/REFACTOR_TRACKING.md) - 进度追踪
 
 ---
 
-## 📚 Documentation Hub
+## 🎯 核心开发原则
 
-### 🆕 v2.0 重构文档（必读）
+### 1. Skill 与 Agent 解耦
 
-**开始这里** → [dev_docs/INDEX.md](../dev_docs/INDEX.md) - 文档导航和阅读顺序
+**规则**: 业务逻辑与框架代码严格分离
 
-**核心设计** → [dev_docs/DEEPAGENTS_SIMPLIFICATION_PLAN.md](../dev_docs/DEEPAGENTS_SIMPLIFICATION_PLAN.md) ⭐  
-- 1 Agent + Skills 架构
-- DuckDB 统一数据层
-- 零路由设计理念
-- 阅读时间：40-50 分钟
-
-**进度追踪** → [dev_docs/REFACTOR_TRACKING.md](../dev_docs/REFACTOR_TRACKING.md) 📊  
-- 当前阶段：Phase 0 准备中
-- 70+ 详细任务清单
-- 每日更新
-
-**其他设计文档**:
-- [OLAV_DIRECTORY_REFACTOR_ANALYSIS.md](../dev_docs/OLAV_DIRECTORY_REFACTOR_ANALYSIS.md) - 目录重构
-- [ADMIN_AND_CRON_DESIGN_v2.md](../dev_docs/ADMIN_AND_CRON_DESIGN_v2.md) - Admin & Cron 设计
-- [TOOLS_LOCATION_RATIONALE.md](../dev_docs/TOOLS_LOCATION_RATIONALE.md) - 工具位置理由
-
-### 📖 v1.0 用户文档（参考）
-
-**New Developer?** → Start with [QUICK_START_DEVELOPER.md](../docs/reference/QUICK_START_DEVELOPER.md) (5-minute onboarding)
-
-**Complete Documentation** → See [DEVELOPER_INDEX.md](../docs/DEVELOPER_INDEX.md)
-
-**Essential References**:
-- 🏗️ [ARCHITECTURE.md](../docs/reference/ARCHITECTURE.md) - System architecture (⚠️ 即将过时)
-- ⚙️ [CONFIGURATION_REFERENCE.md](../docs/reference/CONFIGURATION_REFERENCE.md) - All config files
-- 🔧 [SUB_AGENT_DEVELOPMENT_GUIDE.md](../docs/reference/SUB_AGENT_DEVELOPMENT_GUIDE.md) - Agent implementation (⚠️ v2.0 改为 Skill)
-- 📝 [SKILL_AUTHORING_GUIDE.md](../docs/reference/SKILL_AUTHORING_GUIDE.md) - Skill configuration
-- 🧪 [TESTING_QUICK_REFERENCE.md](../docs/reference/TESTING_QUICK_REFERENCE.md) - Testing standards
-
----
-
-## 🎯 Core Principles (v2.0 更新)
-
-### 0. v2.0 架构核心理念（新增）
-
-**零路由原则**:
-- ❌ 不要创建任何形式的路由逻辑（正则、LLM判断、条件分支）
-- ✅ Agent 直接访问 3 个 tools: database.py, network.py, inspection.py
-- ✅ LLM 通过 tool docstring 自然选择合适工具
-
-**Skills = 领域知识，不是路由**:
-```python
-# ❌ 错误：Skill 不应包含路由逻辑
-if query_type == "device_count":
-    use smart_sql_query
-elif query_type == "cli_command":
-    use nornir_execute
-
-# ✅ 正确：Skill 提供操作指南
-"""
-Instructions for network-query skill:
-1. Check database schema first (smart_sql_query)
-2. If data insufficient, use nornir_execute for live collection
-3. Combine results for comprehensive answer
-"""
-```
-
-**DuckDB 优先策略**:
-- 新数据源（NetBox、Zabbix）→ 先导入 DuckDB → 加 Skill
-- 90% 场景无需新工具（schema-aware SQL 足够）
-- 只有真正需要 live 交互才创建新工具
-
-**Tool 在 `.olav/tools/`**:
 ```bash
 # ✅ 正确位置
-.olav/tools/
-├── database.py      # SQL查询
-├── network.py       # 设备操作
-└── inspection.py    # 定时任务管理
+.olav/
+├── skills/           # Skill 配置和领域知识
+│   └── network-query/SKILL.md
+├── tools/            # 业务工具（可执行脚本）
+│   ├── database.py
+│   ├── network.py
+│   └── inspection.py
+└── workflows/        # 工作流定义
 
-# ❌ 错误位置（即将废弃）
-.olav/shared/tools/  # 旧位置，待迁移
-src/olav/tools/      # 框架代码，工具不在这
+src/olav/
+├── agents/           # Agent 框架代码
+│   └── agent.py      # 1 个统一 Agent
+├── core/             # 核心逻辑
+└── cli/              # CLI 接口
+
+# ❌ 错误做法
+src/olav/tools/       # 不要在框架代码中放工具
+.olav/agents/         # 不要在 .olav 中放 Agent 实现
 ```
 
-### 1. Skill-Centric Architecture
-**Rule**: All configuration flows from SKILL.md files
-- **Location**: `.olav/skills/*/SKILL.md`
-- **Authority**: SKILL.md frontmatter is the single source of truth
-- **Fallback Chain**: .env > .olav/settings.json > SKILL.md > settings.py
+**为什么？**
+- `.olav/` 是用户数据目录，可跨平台迁移（复制即可）
+- `src/` 是框架代码，需要 uv/pip 安装
+- MCP 标准兼容
 
-### 2. No Hardcoded Configuration
-**Rule**: Zero hardcoded paths, thresholds, or commands
-- Use `config.paths.*` for file paths
-- Use `config.settings.*` for parameters
-- Support environment overrides via `.env`
-- Support user overrides via `.olav/settings.json`
+---
 
-### 3. Test-Driven Development (TDD)
-**Rule**: Write tests first, then implement
-- **Write failing test** → Define expected behavior
-- **Implement feature** → Make test pass
-- **Refactor** → Clean up while tests stay green
-- **Benefits**: Clear requirements, regression prevention, better design
+### 2. KISS 原则 - Keep It Simple, Stupid
 
-**Example TDD Flow**:
+**规则**: 最简单能工作的方案就是最好的
+
 ```python
-# Step 1: Write failing test (Red)
-async def test_export_devices_to_csv(self):
-    """User Story: Export devices to CSV without CLI execution."""
-    result = await orchestrate_query("export devices to csv")
-    assert Path("exports/devices.csv").exists()  # ❌ Fails
+# ❌ 过度设计 - 5 个 SubAgent + 正则路由
+if "设备" in query:
+    return query_agent.invoke(query)
+elif "命令" in query:
+    return cli_agent.invoke(query)
+# ... 1,077 行路由代码
 
-# Step 2: Implement feature (Green)
-# ... implement export logic ...
-
-# Step 3: Test passes
-assert Path("exports/devices.csv").exists()  # ✅ Passes
-
-# Step 4: Refactor
-# ... clean up code while test stays green ...
-```
-
-### 4. Keep It Simple, Stupid (KISS)
-**Rule**: Simplest solution that works
-- **Avoid over-engineering** - Don't build features you don't need
-- **Prefer clarity over cleverness** - Code is read more than written
-- **Delete over abstract** - Remove unused code immediately
-- **One way to do things** - Consistency reduces cognitive load
-
-**Examples**:
-```python
-# ❌ COMPLEX - Over-engineered factory pattern
-class AgentFactoryBuilder:
-    def with_cache(self): ...
-    def with_persistence(self): ...
-    def build(self): ...
-
-# ✅ SIMPLE - Direct function call
-agent = create_query_agent()
+# ✅ 简单 - 1 个 Agent，LLM 自然选择工具
+agent = create_agent(tools=[database, network, inspection])
+result = agent.invoke(query)  # LLM 看工具 docstring 自己选
 ```
 
 ```python
-# ❌ COMPLEX - Unnecessary abstraction
+# ❌ 过度抽象
 class ConfigurationManager:
     def get_nested_value(self, path: list): ...
-    
-config_mgr.get_nested_value(["database", "main", "path"])
 
-# ✅ SIMPLE - Direct access
+# ✅ 直接访问
 from config.paths import DB_MAIN_PATH
 ```
 
-### 5. Use Native Tools & Existing Libraries
-**Rule**: Don't reinvent the wheel
-- **DeepAgents** - Use native SubAgent, TodoListMiddleware (not custom wrappers)
-- **LangGraph** - Use DuckDBSaver, DuckDBStore (not custom persistence)
-- **DuckDB** - Use native SQL, no ORMs
-- **Standard Library** - Use pathlib, logging, asyncio (not third-party equivalents)
+**经验**:
+- 单领域（网络）不需要多 SubAgent
+- 工具少于 10 个，不需要复杂路由
+- 90% 新集成只需导入 DuckDB + 加 Skill，无需新工具
 
-**Examples**:
+---
+
+### 3. 使用成熟库，不要造轮子
+
+**规则**: 优先使用 DeepAgents、LangChain、标准库
+
 ```python
-# ❌ CUSTOM - Reinventing persistence
+# ❌ 自己造轮子
 class CustomCheckpointer:
     def save_state(self): ...
 
-# ✅ NATIVE - Use LangGraph's DuckDBSaver
+# ✅ 使用 LangGraph 原生组件
 from langgraph.checkpoint.duckdb import DuckDBSaver
 checkpointer = DuckDBSaver(conn=duck_conn)
 ```
 
 ```python
-# ❌ CUSTOM - Building own caching
+# ❌ 自己实现缓存
 class CustomCache:
     def get_or_compute(self): ...
 
-# ✅ NATIVE - Use existing semantic cache
-from olav.core.query_cache import QueryCache
-cache = QueryCache()
+# ✅ 使用现有语义缓存
+from langchain_community.cache import SQLiteCache
 ```
 
-### 6. No Redundant Code
-**Rule**: Delete unused code immediately
-- Remove unused imports, commented code, dead branches
-- Archive to Git history, not codebase
-- Each code change must pass E2E tests
+```python
+# ❌ 自己管理定时任务
+class TaskScheduler: ...
+
+# ✅ 使用 python-crontab
+from crontab import CronTab
+cron = CronTab(user=True)
+```
+
+**必须使用的库**:
+- **DeepAgents**: create_deep_agent(), TodoListMiddleware, Skills
+- **LangGraph**: DuckDBSaver, Checkpointer
+- **LangChain**: ChatOpenAI, Tool decorators
+- **python-crontab**: Cron 管理
+- **标准库**: pathlib, logging, asyncio
 
 ---
 
-## 🚫 Anti-Patterns
+### 4. 使用 LLM 能力，不要写复杂逻辑
 
-### 0. DO NOT Create Routing Logic (v2.0 Critical)
+**规则**: 让 LLM 做判断，不要写正则/条件判断
+
 ```python
-# ❌ FORBIDDEN - Any form of routing
-if "设备" in query or "device" in query:
+# ❌ 复杂正则路由（orchestrator.py 的错误）
+if re.match(r'.*设备.*数量.*', query):
     return query_agent.invoke(query)
-elif "命令" in query or "cli" in query:
+elif re.match(r'.*执行.*命令.*', query):
     return cli_agent.invoke(query)
 
-# ❌ FORBIDDEN - LLM-based routing
-routing_prompt = "判断这个问题应该给哪个Agent..."
-agent_choice = llm.invoke(routing_prompt)
-
-# ❌ FORBIDDEN - Conditional tool selection in code
-if needs_database:
-    use smart_sql_query
-else:
-    use nornir_execute
-
-# ✅ CORRECT - Agent directly has all tools, LLM chooses
-agent = create_agent(tools=[database, network, inspection])
-result = agent.invoke(query)  # LLM自然选择合适工具
+# ✅ LLM 自然判断
+# Agent 看到 3 个 tools 的 docstring 自己选择
+# database.py: "Execute SQL query on DuckDB"
+# network.py: "Execute CLI on network devices"
+# inspection.py: "Manage inspection schedules"
 ```
 
-### 0.1 DO NOT Create New SubAgents (v2.0 Critical)
 ```python
-# ❌ FORBIDDEN - Creating new SubAgent
-class NetBoxAgent(SubAgent):
-    def invoke(self, query): ...
+# ❌ 硬编码时间窗口
+WHERE age_days <= 30  # 为什么是 30 天？
 
-# ✅ CORRECT - Import to DuckDB + Add Skill
-# 1. Import NetBox data to DuckDB
-import_netbox_to_duckdb()
-
-# 2. Create Skill (not SubAgent)
-# .olav/skills/netbox/SKILL.md
-"""
-name: netbox
-allowed-tools: smart_sql_query
-Instructions: Query netbox_* tables for DCIM/IPAM data
-"""
-```
-
-### 0.2 DO NOT Put Tools in src/ (v2.0 Critical)
-```python
-# ❌ FORBIDDEN - Framework directory for tools
-src/olav/tools/
-├── my_new_tool.py
-
-# ✅ CORRECT - Business logic directory
-.olav/tools/
-├── database.py      # Schema-aware SQL
-├── network.py       # Device operations
-├── inspection.py    # Cron management
-└── my_new_tool.py   # Your tool (if truly needed)
-```
-
-### 1. DO NOT Create Redundant Components
-```python
-# ❌ FORBIDDEN - Unnecessary abstractions
-class QualityChecker: pass
-class ResultMerger: pass
-class PlanAgent: pass
-
-# ✅ CORRECT - Unified in Orchestrator
-# (see ARCHITECTURE.md)
-```
-
-### 2. DO NOT Use Hard Time Windows
-```python
-# ❌ FORBIDDEN - Arbitrary time limits
-WHERE age_days <= 30
-
-# ✅ CORRECT - Let LLM judge relevance
+# ✅ 让 LLM 判断相关性
 ORDER BY created_at DESC LIMIT 10
+# LLM 会基于内容判断是否相关
 ```
 
-### 3. DO NOT Use Draft/Review Workflows
-```python
-# ❌ FORBIDDEN - Manual review process
-.olav/drafts/ → Human Review → .olav/knowledge/
-
-# ✅ CORRECT - Direct edit + Git rollback
-.olav/knowledge/ → Git commit → Auto-vectorize
-```
-
-### 4. DO NOT Create Documentation Unless Requested
-**Rule**: Focus on code quality, not docs
-- **Exception**: Only `docs/99_audit.md` is maintained
-- **Reason**: Reduces clutter, forces clear code
-
-### 5. DO NOT Write Mock-Heavy Tests
-```python
-# ❌ FORBIDDEN - Tests component existence
-def test_agent_exists():
-    agent = create_query_agent()
-    assert agent is not None  # Useless test
-
-# ✅ CORRECT - Tests real user scenarios
-async def test_export_devices_csv():
-    result = await orchestrate_query("export devices to csv")
-    assert Path("exports/devices.csv").exists()
-    # Verify no CLI execution, correct data, etc.
-```
+**原则**:
+- 路由 → LLM 基于 tool docstring 选择
+- 时间过滤 → LLM 基于语义相关性判断
+- 数据不足 → LLM 看 Skill Instructions 决定是否 fallback
 
 ---
 
-## ✅ Real E2E Testing (New Standard)
+### 5. 配置分离 - 无硬编码
 
-**Location**: `tests/e2e/test_real_scenarios.py`
+**规则**: 敏感数据 .env，配置 settings，Prompt 在 Skill
 
-**Principles**:
-1. **No mocks for business logic** - Test actual code paths
-2. **Monitor side effects** - Track CLI, database, file I/O
-3. **Test user scenarios** - Not component existence
-4. **Validate data flow** - Check output correctness
-
-**Example**:
-```python
-@pytest.mark.e2e
-class TestRealUserScenarios:
-    @pytest.mark.asyncio
-    async def test_export_devices_version_no_cli_execution(self):
-        """
-        User Story: Export devices' version to CSV
-        
-        Acceptance Criteria:
-        1. Query succeeds
-        2. CSV created
-        3. NO CLI executed (pure database query)
-        4. Uses main.duckdb, not olav.duckdb
-        """
-        cli_tracker = CLICommandTracker()
-        
-        with cli_tracker:
-            result = await orchestrate_query(
-                "save all devices' version info to a csv file"
-            )
-            assert result is not None
-        
-        cli_tracker.assert_no_commands()  # Critical validation
-        assert Path("exports/devices_version.csv").exists()
-```
-
-**Reference**: [TESTING_QUICK_REFERENCE.md](../docs/reference/TESTING_QUICK_REFERENCE.md)
-
----
-
-## 🔧 Essential Commands
-
-### v2.0 Development Workflow (New)
 ```bash
-# 1. Check refactor progress
+# .env - 敏感数据（不入 Git）
+LLM_API_KEY=sk-xxx
+NETWORK_USERNAME=admin
+NETWORK_PASSWORD=secret
+
+# .olav/settings.json - 用户配置
+{
+  "llm": {"model_name": "grok-beta", "temperature": 0.1},
+  "network": {"timeout": 60}
+}
+
+# .olav/skills/network-query/SKILL.md - Prompt
+Instructions: |
+  When querying device data:
+  1. First check schema with smart_sql_query
+  2. If data insufficient, use nornir_execute
+  3. Combine results
+```
+
+```python
+# ❌ 硬编码
+db_path = "/home/user/.olav/db/main.duckdb"  # 不同用户路径不同
+threshold = 80  # 为什么是 80？
+
+# ✅ 使用配置
+from config.paths import DB_MAIN_PATH
+from config.settings import get_settings
+settings = get_settings()
+threshold = settings.alerts.cpu_threshold
+```
+
+**配置优先级**（高到低）:
+1. 环境变量 `OLAV_*`
+2. `.olav/settings.json`
+3. `SKILL.md` frontmatter
+4. `config/settings.py` 默认值
+
+---
+
+### 6. 不留垃圾代码 - 彻底清理
+
+**规则**: 发现死代码立即删除，不要标记"废弃"
+
+```python
+# ❌ 标记废弃但不删除
+# @deprecated  # 将在 v2.0 删除
+class OldQueryOptimizer: pass
+
+# ❌ 注释掉的代码
+# def old_method():
+#     ...
+
+# ✅ 直接删除，Git 历史可找回
+rm src/olav/core/query_optimizer.py
+git commit -m "refactor: remove unused QueryOptimizer"
+```
+
+**审计发现的垃圾代码**:
+- `query_optimizer.py` (369 行) - Never used
+- `database_enhancer.py` (184 行) - Never used  
+- `quality_checker.py` (90 行) - Custom, redundant
+- `result_merger.py` (73 行) - Custom, redundant
+- `orchestrator.py` (1,077 行) - 正则路由，v2.0 删除
+- 175 个 YAML 定时任务 (920KB) - 改用 python-crontab
+
+**清理原则**:
+- 遇到死代码 → 立即删除，不要"留着以防万一"
+- Git 历史是备份，不要在代码里备份
+- 注释掉的代码 → 删除
+- TODO 注释 → 要么现在做，要么删掉
+
+---
+
+### 7. TDD 开发 - 测试驱动，不绕过
+
+**规则**: 先写测试，测试失败才说明发现问题
+
+```python
+# 标准 TDD 流程
+# 1. Red - 写失败的测试
+def test_export_devices_csv():
+    result = orchestrate_query("export devices to csv")
+    assert Path("exports/devices.csv").exists()  # ❌ 失败
+
+# 2. Green - 实现功能使测试通过
+def export_devices_csv(query):
+    # ... 实现 ...
+    pass
+
+# 3. Refactor - 重构代码保持测试通过
+```
+
+**❌ 禁止的作弊方式**:
+
+```python
+# ❌ 绕过系统架构
+if "export" in query:
+    # 直接写 CSV，不走 Agent
+    return export_csv_directly()
+
+# ❌ Fallback 掩盖问题
+try:
+    result = proper_way()
+except:
+    result = hacky_fallback()  # 问题还在，只是被掩盖了
+
+# ❌ Mock 掉业务逻辑
+@patch('olav.core.database')  # Mock 太多，测不到真实场景
+def test_query():
+    pass
+```
+
+**✅ 正确做法**:
+
+```python
+# ✅ E2E 测试真实场景
+@pytest.mark.e2e
+async def test_export_devices_csv_no_cli_execution():
+    """验收标准: 
+    1. CSV 生成成功
+    2. 无 CLI 执行（纯数据库查询）
+    3. 数据正确
+    """
+    cli_tracker = CLICommandTracker()
+    
+    with cli_tracker:
+        result = await orchestrate_query("export devices to csv")
+    
+    cli_tracker.assert_no_commands()  # 确保无作弊
+    assert Path("exports/devices.csv").exists()
+    # 验证数据正确性...
+```
+
+**测试原则**:
+- E2E 测试 > 单元测试（测真实场景）
+- 少用 Mock（测实际代码路径）
+- 测试失败 → 修代码，不要改测试
+- Fallback 要有明确理由（数据不足），不是掩盖 bug
+
+---
+
+## 🚫 代码审计发现的问题（必须避免）
+
+### 1. 架构问题
+
+❌ **绕过 DeepAgents** - orchestrator.py 用 1,077 行正则路由替代 Agent  
+✅ **正确**: 1 Agent + Skills，LLM 选工具
+
+❌ **过度设计** - 5 SubAgents 在单领域（网络）只用 3 个工具  
+✅ **正确**: 单 Agent 足够，工具 < 10 个无需多 Agent
+
+❌ **自定义组件** - QualityChecker, ResultMerger 等自己造轮子  
+✅ **正确**: 用 DeepAgents 原生 TodoListMiddleware
+
+### 2. 数据库问题
+
+❌ **SQL 注入** - `f"SELECT * FROM devices WHERE ip='{user_input}'"`  
+✅ **正确**: 参数化查询 `execute("SELECT * FROM devices WHERE ip=?", [user_input])`
+
+❌ **数据库分散** - main.duckdb + network.duckdb  
+✅ **正确**: 统一 main.duckdb，schema 区分业务
+
+### 3. 配置问题
+
+❌ **硬编码路径** - `"/home/user/.olav/db/main.duckdb"`  
+✅ **正确**: `config.paths.DB_MAIN_PATH`
+
+❌ **硬编码阈值** - `if cpu > 80:`  
+✅ **正确**: `if cpu > settings.alerts.cpu_threshold:`
+
+❌ **Prompt 散落** - prompts 在 Python 代码中  
+✅ **正确**: 所有 Prompt 在 `SKILL.md`
+
+### 4. 代码质量问题
+
+❌ **死代码** - 369 行从未被调用  
+✅ **正确**: 立即删除
+
+❌ **注释代码** - 大量 `# old_function()`  
+✅ **正确**: 删除，Git 可找回
+
+❌ **TODO 注释** - `# TODO: fix this later`  
+✅ **正确**: 要么现在修，要么删掉
+
+### 5. 测试问题
+
+❌ **Mock-Heavy** - Mock 整个数据库层  
+✅ **正确**: E2E 测试真实数据库
+
+❌ **测试组件存在** - `assert agent is not None`  
+✅ **正确**: 测试用户场景 `assert CSV 正确`
+
+---
+
+## 🔧 开发命令速查
+
+```bash
+# 查看进度
 cat dev_docs/REFACTOR_TRACKING.md
 
-# 2. Switch to refactor branch
+# 切换重构分支
 git checkout refactor/v2.0-deepagents
 
-# 3. Test new inspection tool
-echo '{"action":"list"}' | python3 .olav/tools/inspection.py
-
-# 4. Test admin CLI (after Phase 1)
-olav admin status
-olav admin inspect list
-
-# 5. Commit frequently (Git is backup)
-git add .
-git commit -m "feat: implement database.py tool"
-git push
-
-# 6. Run E2E tests before PR
-uv run pytest tests/e2e/test_real_scenarios.py -v
-```
-
-### Development
-```bash
-# Run real E2E tests (acceptance criteria)
-uv run pytest tests/e2e/test_real_scenarios.py -v
-
-# Run specific test
-uv run pytest tests/e2e/test_real_scenarios.py::TestRealUserScenarios::test_export_devices_version_no_cli_execution -v
-
-# Test query
-uv run olav ask "your query"
-
-# Debug mode
-OLAV_LOG_LEVEL=DEBUG uv run olav ask "your query"
-```
-
-### Code Quality (Optional - Not Required for Acceptance)
-```bash
-# Format & lint
-uv run ruff check src/ --fix
-uv run ruff format src/
-
-# Type checking
-uv run pyright src/
-```
-
-### Configuration
-```bash
-# Setup
-cp .env.example .env
-nano .env  # Add LLM_API_KEY
-
-# Check database
-uv run python -c "import duckdb; print(duckdb.connect('.olav/db/main.duckdb').execute('SELECT COUNT(*) FROM devices').fetchone())"
-```
-
----
-
-## 📋 Quick Reference
-
-### Critical Files (v2.0)
-- **v2.0 设计**:
-  - `dev_docs/INDEX.md` - 文档导航（必读）
-  - `dev_docs/DEEPAGENTS_SIMPLIFICATION_PLAN.md` - 核心架构设计 ⭐
-  - `dev_docs/REFACTOR_TRACKING.md` - 进度追踪 📊
-  - `.olav/tools/inspection.py` - 定时任务管理工具
-- **v1.0 参考**（即将过时）:
-  - `.olav/OLAV.md` - SubAgent registry (→ 将废弃)
-  - `src/olav/core/orchestrator.py` - 路由器 (→ 将删除)
-  - `.olav/shared/tools/` - 工具目录 (→ 迁移到 .olav/tools/)
-- **保持不变**:
-  - `.olav/skills/*/SKILL.md` - Skill configurations
-  - `config/paths.py` - Path constants (READ THIS)
-  - `config/settings.py` - Settings schema (READ THIS)
-  - `tests/e2e/test_real_scenarios.py` - Real E2E tests
-
-### Configuration Priority
-```
-.env (highest)
-  ↓
-.olav/settings.json
-  ↓
-SKILL.md frontmatter
-  ↓
-config/settings.py (lowest)
-```
-
-### LLM API Configuration (Critical)
-```bash
-# Required in .env
-LLM_API_KEY=sk-or-v1-xxx...
-LLM_BASE_URL=https://openrouter.ai/api/v1  # For OpenRouter, Groq, etc.
-LLM_MODEL_NAME=x-ai/grok-beta
-```
-
-**DeepAgents Compatibility**: Agents auto-set `OPENAI_API_KEY`, `OPENAI_BASE_URL` environment variables
-
----
-
-## 🚀 v2.0 开发流程指南
-
-### 准备工作（必须）
-
-1. **阅读核心文档**（总计 60 分钟）
-   ```bash
-   # 第一优先级
-   cat dev_docs/INDEX.md  # 5分钟 - 文档导航
-   
-   # 第二优先级
-   cat dev_docs/DEEPAGENTS_SIMPLIFICATION_PLAN.md  # 40分钟 - 核心设计
-   
-   # 第三优先级
-   cat dev_docs/REFACTOR_TRACKING.md  # 10分钟 - 进度追踪
-   ```
-
-2. **切换到重构分支**
-   ```bash
-   git fetch origin
-   git checkout refactor/v2.0-deepagents
-   git pull origin refactor/v2.0-deepagents
-   ```
-
-3. **安装依赖**
-   ```bash
-   uv sync  # 包含 python-crontab
-   ```
-
-### 开发原则（重要）
-
-#### 1. 零路由原则
-```python
-# ❌ 不要写这样的代码
-def route_query(query: str):
-    if "设备" in query:
-        return query_agent.invoke(query)
-    elif "命令" in query:
-        return cli_agent.invoke(query)
-
-# ✅ 应该这样写
-agent = create_agent(tools=[database, network, inspection])
-result = agent.invoke(query)  # LLM自然选择工具
-```
-
-#### 2. DuckDB 优先策略
-```python
-# ❌ 不要立即创建新工具
-class NetBoxTool:
-    def query_devices(self): ...
-
-# ✅ 先导入数据到 DuckDB
-import_netbox_to_duckdb()  # 创建 netbox_* 表
-
-# ✅ 然后创建 Skill（不是工具）
-# .olav/skills/netbox/SKILL.md
-"""
-Instructions:
-- Use smart_sql_query to query netbox_* tables
-- Tables: netbox_sites, netbox_racks, netbox_devices
-"""
-```
-
-#### 3. Skills 不是路由
-```python
-# ❌ Skill 不应包含条件逻辑
-"""
-If query about devices:
-    use query_agent
-elif query about CLI:
-    use cli_agent
-"""
-
-# ✅ Skill 应提供操作指南
-"""
-Instructions for network-query:
-1. First check database schema (tool: smart_sql_query)
-2. If data insufficient, collect live (tool: nornir_execute)
-3. Combine both sources for comprehensive answer
-"""
-```
-
-### 工作流程
-
-#### 开发新功能
-```bash
-# 1. 查看当前阶段
-cat dev_docs/REFACTOR_TRACKING.md | grep "当前阶段"
-
-# 2. 查看待认领任务
-cat dev_docs/REFACTOR_TRACKING.md | grep "待认领" -A 5
-
-# 3. 认领任务（在 REFACTOR_TRACKING.md 中更新）
-# - [ ] 任务 → - [x] 任务
-#   - **责任人**: 你的名字
-
-# 4. TDD 开发
-# 4.1 写测试
-cat > tests/unit/test_my_feature.py << 'EOF'
+# TDD 开发
+# 1. 写测试
+cat > tests/e2e/test_my_feature.py << 'EOF'
 def test_my_feature():
-    assert my_feature() == expected_result  # ❌ 先失败
+    assert my_feature() == expected  # 先失败
 EOF
 
-# 4.2 实现功能
-# ... 编写代码 ...
+# 2. 运行测试（失败）
+uv run pytest tests/e2e/test_my_feature.py -v  # ❌
 
-# 4.3 测试通过
-uv run pytest tests/unit/test_my_feature.py  # ✅ 通过
+# 3. 实现功能
+# ... 写代码 ...
+
+# 4. 运行测试（通过）
+uv run pytest tests/e2e/test_my_feature.py -v  # ✅
 
 # 5. Git commit（替代手动备份）
 git add .
 git commit -m "feat: implement my_feature"
 git push
 
-# 6. 更新进度
-# 在 REFACTOR_TRACKING.md 的"每日更新日志"中添加
-```
-
-#### 修复 Bug
-```bash
-# 1. 避免修改即将删除的文件
-# ❌ 不要修改: src/olav/core/orchestrator.py (1,077行，将删除)
-# ❌ 不要修改: src/olav/agents/*_agent.py (5个，将删除)
-
-# ✅ 应该修改: .olav/shared/tools/*.py (工具逻辑)
-# ✅ 应该修改: .olav/skills/*/SKILL.md (Skill 配置)
-
-# 2. 写 E2E 测试验证修复
+# 运行所有 E2E 测试
 uv run pytest tests/e2e/test_real_scenarios.py -v
 
-# 3. Git commit
-git add .
-git commit -m "fix: correct device count query"
-git push
-```
-
-#### 添加新数据源（例如 NetBox）
-```bash
-# 1. 先导入数据到 DuckDB（90% 场景）
-# .olav/scripts/import_netbox.py
-import duckdb
-conn = duckdb.connect('.olav/db/main.duckdb')
-conn.execute("CREATE TABLE netbox_devices AS SELECT * FROM read_json('netbox_export.json')")
-
-# 2. 创建 Skill（不是工具）
-mkdir -p .olav/skills/netbox
-cat > .olav/skills/netbox/SKILL.md << 'EOF'
-name: netbox
-allowed-tools: smart_sql_query
-Instructions: |
-  Query NetBox DCIM/IPAM data from netbox_* tables:
-  - netbox_sites: Site information
-  - netbox_racks: Rack allocation
-  - netbox_devices: Device inventory
-EOF
-
-# 3. 测试
-uv run olav ask "查询 NetBox 中的设备数量"
-
-# 4. 只有真正需要 live API 调用才创建新工具
-# 例如: 需要实时修改 NetBox 数据（10% 场景）
-```
-
-### 每日检查清单
-
-- [ ] 查看 REFACTOR_TRACKING.md 更新
-- [ ] Git commit 代码（不要手动备份）
-- [ ] E2E 测试通过
-- [ ] 更新任务状态（认领、完成）
-- [ ] 上报阻塞项（如有）
-
-### 代码审查标准
-
-**合并到重构分支前**:
-- ✅ 零路由逻辑（无 if/elif 判断 Agent）
-- ✅ 工具在 `.olav/tools/`（不在 src/）
-- ✅ E2E 测试通过
-- ✅ Git commit message 规范
-- ✅ 无死代码、无 TODO 注释
-
----
-
-## 🎓 Learning Path
-
-### v2.0 快速上手（推荐）
-
-#### Day 1: 理解重构动机（1 小时）
-1. Read [dev_docs/INDEX.md](../dev_docs/INDEX.md) - 文档导航
-2. Read [dev_docs/CODE_AUDIT_2026_02_14.md](../dev_docs/CODE_AUDIT_2026_02_14.md) - 问题诊断
-3. Review [dev_docs/REFACTOR_TRACKING.md](../dev_docs/REFACTOR_TRACKING.md) - 当前进度
-
-#### Day 2: 掌握核心设计（2 小时）
-1. **必读**: [dev_docs/DEEPAGENTS_SIMPLIFICATION_PLAN.md](../dev_docs/DEEPAGENTS_SIMPLIFICATION_PLAN.md)
-   - 零路由原则
-   - 1 Agent + Skills 架构
-   - DuckDB 统一数据层
-2. Explore `.olav/tools/inspection.py` - 理解 Tool 模式
-3. Review `.olav/skills/*/SKILL.md` - 理解 Skill 配置
-
-#### Day 3: 实践开发（2-3 小时）
-1. Switch to `refactor/v2.0-deepagents` branch
-2. 认领一个 Phase 1 小任务
-3. TDD 开发 → Git commit → Push
-4. Review PR 要求
-
-#### Day 4-5: 贡献代码
-1. 实施认领的任务
-2. E2E 测试通过
-3. 更新 REFACTOR_TRACKING.md
-4. Pull Request
-
----
-
-### v1.0 学习路径（仅供参考）
-
-#### Day 1: Setup & First Query
-1. Read [QUICK_START_DEVELOPER.md](../docs/reference/QUICK_START_DEVELOPER.md)
-2. Clone, setup `.env`, run first query
-3. Run E2E tests
-
-### Day 2: Understand Architecture
-1. Read [ARCHITECTURE.md](../docs/reference/ARCHITECTURE.md)
-2. Understand component hierarchy, data flow, caching
-3. Explore `.olav/` directory structure
-
-### Day 3: Configuration Mastery
-1. Read [CONFIGURATION_REFERENCE.md](../docs/reference/CONFIGURATION_REFERENCE.md)
-2. Understand SKILL.md, settings.py, paths.py
-3. Practice modifying configurations
-
-### Day 4: Build Your First Agent
-1. Read [SUB_AGENT_DEVELOPMENT_GUIDE.md](../docs/reference/SUB_AGENT_DEVELOPMENT_GUIDE.md)
-2. Create simple SubAgent with ReAct pattern
-3. Test with real E2E test
-
-### Day 5: Write Skills
-1. Read [SKILL_AUTHORING_GUIDE.md](../docs/reference/SKILL_AUTHORING_GUIDE.md)
-2. Create SKILL.md for your agent
-3. Register tools, configure prompts
-
----
-
-**Version**: v1.0.0 (2026-02-08)  
-**Documentation**: Complete reference library in `docs/reference/`  
-**Principles**: TDD, KISS, Native Tools, No Redundancy
----
-
-## 🔧 Known Issues & Troubleshooting (v0.11.1)
-
-### Issue: DeepAgents async/await timeout with OpenRouter API
-
-**Problem**: 
-- Agent.ainvoke() hangs indefinitely when using OpenRouter (or other OpenAI-compatible APIs)
-- Symptom: Query starts with spinner but never completes, times out after 30+ seconds
-- Root Cause: DeepAgents library has compatibility issues with non-standard OpenAI endpoints in async context
-
-**Configuration Context**:
-```bash
-# .env setup with OpenRouter
-LLM_PROVIDER=openai
-LLM_BASE_URL=https://openrouter.ai/api/v1
-LLM_MODEL_NAME=x-ai/grok-4.1-fast  # or any other OpenRouter model
-```
-
-**Why This Happens**:
-1. LangChain's ChatOpenAI class is initialized correctly with custom base_url
-2. Synchronous calls (model.invoke()) work fine  
-3. DeepAgents' async middleware doesn't properly handle async initialization for custom endpoints
-4. Result: ainvoke() call enters deadlock during async tool/middleware execution
-
-**Solutions** (in priority order):
-
-#### Solution 1: Use Synchronous Wrapper (⭐ IMPLEMENTED IN v0.11.1 - DEFAULT)
-```python
-# In src/olav/agents/orchestrator.py
-def orchestrate_query_sync(
-    user_query: str,
-    user_id: str | None = None,
-    thread_id: str | None = None,
-) -> dict[str, Any]:
-    """Synchronous fallback orchestrator - bypasses DeepAgents async deadlock.
-    
-    Features:
-    - Direct LLM + Database Query approach
-    - No DeepAgents middleware complexity
-    - ~3-5 second execution time
-    - Fully functional for Level 1/2 queries
-    """
-    # Execution flow:
-    # 1. Creates LLM via LLMFactory (supports all providers)
-    # 2. Queries database schema
-    # 3. Sends query + context to LLM
-    # 4. Parses LLM response for SQL
-    # 5. Executes query and returns results
-```
-
-**Status**: ✅ **ACTIVE - This is the current implementation**
-- CLI uses this directly
-- Async version delegates to this via executor
-- Works with ALL providers (OpenAI, OpenRouter, Grok, Ollama, etc.)
-
-#### Solution 2: Use Ollama Locally (RECOMMENDED FOR DEV)
-```bash
-# .env - use local Ollama instead of remote API
-LLM_PROVIDER=ollama
-LLM_BASE_URL=http://localhost:11434
-LLM_MODEL_NAME=mistral:latest
-```
-
-Advantages:
-- No API costs
-- No rate limits
-- Full autonomy
-- No internet required
-
-#### Solution 3: File DeepAgents Issue (LONG-TERM FIX)
-Report to: https://github.com/geekan/deepagents/issues
-- Title: "ainvoke() hangs with custom OpenAI base_url (OpenRouter, etc.)"
-- Key evidence: sync invoke() works, async ainvoke() deadlocks
-
-#### Solution 4: Replace with Raw LangGraph
-- Remove DeepAgents SubAgent middleware
-- Implement routing directly in LangGraph
-- Avoids async compatibility issues
-
-**Verification**:
-```bash
-uv run olav query "有多少个设备?"
-# Should complete in 3-10 seconds
-# Output: Query Result: [{ "count_star()": 6 }]
+# 测试 query
+uv run olav ask "有多少个设备？"
 ```
 
 ---
 
-## 🌐 Multi-Provider LLM Support
+## 📋 开发检查清单
 
-**Current Implementation** (v0.11.1):
-The fallback orchestrator (`orchestrate_query_sync`) uses `LLMFactory.get_chat_model()` which supports:
+**每次提交前**:
+- [ ] E2E 测试全部通过
+- [ ] 无死代码（删除，不要注释）
+- [ ] 无硬编码（配置在 .env/settings/SKILL.md）
+- [ ] 无自己造轮子（用成熟库）
+- [ ] 无绕过架构的 hack
+- [ ] Git commit message 清晰
 
-### Supported Providers
-
-| Provider | LLM_PROVIDER | LLM_BASE_URL | Status | Notes |
-|----------|-------------|-------------|--------|-------|
-| **OpenAI** | `openai` | Default | ✅ Tested | Standard OpenAI API |
-| **OpenRouter** | `openai` | `https://openrouter.ai/api/v1` | ✅ Tested | Grok, Claude, Llama, etc. |
-| **Together AI** | `openai` | `https://api.together.xyz/v1` | ✅ Compatible | Custom OpenAI endpoint |
-| **Groq** | `openai` | `https://api.groq.com/openai/v1` | ✅ Compatible | Ultra-fast inference |
-| **xAI Grok** | `xai` or `openai` | `https://openrouter.ai/api/v1` | ✅ Tested | Via OpenRouter |
-| **Azure OpenAI** | `azure` | Azure endpoint | ✅ Compatible | Enterprise Azure |
-| **Ollama (Local)** | `ollama` | `http://localhost:11434` | ✅ Tested | Zero-cost local |
-| **Anthropic Claude** | `anthropic` | Default | ✅ Compatible | Claude family models |
-
-### Configuration Examples
-
-**OpenRouter (Any Model)**:
-```bash
-LLM_PROVIDER=openai
-LLM_BASE_URL=https://openrouter.ai/api/v1
-LLM_API_KEY=sk-or-v1-xxx...
-LLM_MODEL_NAME=meta-llama/llama-3.1-405b-instruct  # Any OpenRouter model
-```
-
-**Together AI**:
-```bash
-LLM_PROVIDER=openai
-LLM_BASE_URL=https://api.together.xyz/v1
-LLM_API_KEY=xxx...
-LLM_MODEL_NAME=meta-llama/Llama-3.1-405B-Instruct-Turbo
-```
-
-**Groq (Very Fast)**:
-```bash
-LLM_PROVIDER=openai
-LLM_BASE_URL=https://api.groq.com/openai/v1
-LLM_API_KEY=gsk_xxx...
-LLM_MODEL_NAME=mixtral-8x7b-32768  # or llama-3.1-70b
-```
-
-**Local Ollama**:
-```bash
-LLM_PROVIDER=ollama
-LLM_BASE_URL=http://localhost:11434
-LLM_MODEL_NAME=mistral:latest  # Pull via: ollama pull mistral
-```
-
-**Anthropic Claude**:
-```bash
-LLM_PROVIDER=anthropic
-LLM_API_KEY=sk-ant-xxx...
-LLM_MODEL_NAME=claude-opus-4-1-20250805
-```
-
-### Provider Selection Strategy
-
-**For Production** (Recommended):
-1. OpenRouter (best cost/performance balance)
-2. Groq (fastest inference)
-3. Together AI (good models, low cost)
-
-**For Development** (Recommended):
-- Ollama + Mistral (local, free)
-- Or: Groq (free tier available)
-
-**Why Non-Standard API Support Works**:
-The fallback orchestrator doesn't depend on DeepAgents' SubAgentMiddleware (which hangs), so:
-- ✅ Works with ANY OpenAI-compatible endpoint
-- ✅ Works with provider-specific SDKs (Anthropic, Ollama)
-- ✅ No async/await complexity
-- ✅ Direct sync LLM.invoke() calls
-
-**Testing Different Providers**:
-```bash
-# Test 1: OpenRouter
-export LLM_PROVIDER=openai
-export LLM_BASE_URL=https://openrouter.ai/api/v1
-export LLM_MODEL_NAME=meta-llama/llama-3.1-405b-instruct
-uv run olav query "有多少个设备?"
-
-# Test 2: Groq (very fast)
-export LLM_PROVIDER=openai
-export LLM_BASE_URL=https://api.groq.com/openai/v1
-export LLM_MODEL_NAME=mixtral-8x7b-32768
-uv run olav query "有多少个设备?"
-
-# Test 3: Local Ollama (no cost)
-export LLM_PROVIDER=ollama
-export LLM_BASE_URL=http://localhost:11434
-export LLM_MODEL_NAME=mistral:latest
-uv run olav query "有多少个设备?"
-```
+**代码审查标准**:
+- [ ] 遵循 7 大原则
+- [ ] 修复审计发现的问题类型
+- [ ] TDD 开发（测试先行）
+- [ ] 避免重复审计中的错误
 
 ---
 
-**Version**: v2.0.0 (2026-02-14) - 架构重构中  
-**Previous**: v1.0.0 (2026-02-08)  
-**Documentation**: Complete reference library in `docs/reference/` + `dev_docs/`  
-**Principles**: TDD, KISS, Native Tools, No Redundancy, Zero Routing
+## 🎓 新人快速上手
+
+1. **理解重构动机**（30 分钟）
+   - 阅读 [CODE_AUDIT_2026_02_14.md](../dev_docs/CODE_AUDIT_2026_02_14.md)
+   - 了解现有问题
+
+2. **掌握目标架构**（1 小时）
+   - 阅读 [DEEPAGENTS_SIMPLIFICATION_PLAN.md](../dev_docs/DEEPAGENTS_SIMPLIFICATION_PLAN.md)
+   - 理解 1 Agent + Skills 设计
+
+3. **开始贡献**
+   - 查看 [REFACTOR_TRACKING.md](../dev_docs/REFACTOR_TRACKING.md) 认领任务
+   - TDD 开发 → Git commit → PR
 
 ---
 
-**Last Updated**: 2026-02-14  
-**Status**: ✅ Design complete, implementation in progress  
-**Next Milestone**: Phase 0 (Safety & Cleanup) - 2026-02-15
-
+**Version**: v2.0.0 (2026-02-14)  
+**Principles**: KISS, 用成熟库, LLM能力, 配置分离, 无垃圾代码, TDD, 架构不妥协  
+**Last Updated**: 2026-02-14
