@@ -715,7 +715,115 @@ async def test_my_tool():
 
 ---
 
-## 📋 Common Tasks Reference
+## � Shell Commands for Admin Agent
+
+Admin Agent uses `execute_command` to run shell commands directly. Here are common patterns:
+
+### List and Find Files
+
+```bash
+# List all skills
+find .olav/skills -type d -maxdepth 1
+
+# Find all SKILL.md files
+find .olav/skills -name "SKILL.md"
+
+# List all Python tools
+find .olav/skills -name "*.py" -path "*/tools/*"
+
+# List with details
+ls -la .olav/skills/*/SKILL.md
+```
+
+### Search Code
+
+```bash
+# Search for function definition
+grep -r "def execute_sql" .olav/
+
+# Search in Python files only
+grep -r "execute_sql" .olav/ --include="*.py"
+
+# Search with line numbers and context
+grep -n -C 3 "class Agent" src/olav/agents/
+
+# Search for pattern with word boundary
+grep -r "\bDuckDB\b" .olav/
+```
+
+### Git Operations
+
+```bash
+# Check status
+git status
+
+# View history
+git log --oneline -10
+
+# Add files
+git add .olav/skills/network-query/
+
+# Commit (HITL approval required)
+git commit -m "feat: add network-query skill"
+
+# Push (HITL approval required)
+git push origin refactor/v2.0-deepagents
+
+# View diff
+git diff dev_docs/ADMIN_AGENT_SPEC.md
+```
+
+### Python Execution
+
+```bash
+# Run OLAV command (or use execute_olav tool)
+uv run olav ask "What is 2+2?"
+
+# Run tests
+python3 -m pytest tests/e2e/test_admin.py -v
+
+# Run script
+python3 .olav/tools/database.py --query "SELECT * FROM devices"
+```
+
+### Backup and Restore
+
+```bash
+# Create timestamped backup
+tar -czf backup_$(date +%Y%m%d_%H%M%S).tar.gz .olav/
+
+# List backup contents
+tar -tzf backup_20260215_153000.tar.gz | head -20
+
+# Restore backup
+tar -xzf backup_20260215_153000.tar.gz
+
+# Backup to specific location
+tar -czf ~/backups/olav_$(date +%Y%m%d).tar.gz .olav/
+```
+
+### Utilities
+
+```bash
+# Count lines of code
+find .olav/skills -name "*.py" | xargs wc -l
+
+# Check file sizes
+du -sh .olav/skills/*
+
+# View file permissions
+ls -la .olav/skills/network-query/
+
+# Create directory structure
+mkdir -p .olav/skills/new-skill/tools
+
+# Copy files
+cp .olav/skills/network-query/SKILL.md .olav/skills/new-skill/SKILL.md
+```
+
+---
+
+## �📋 Common Tasks Reference
 
 ### Task: Create a Monitoring Skill
 
