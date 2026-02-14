@@ -1,0 +1,148 @@
+{
+  "query": "list all ip addresses and interfaces on this network",
+  "cached_at": 1771035197.0517123,
+  "ttl_seconds": 3600,
+  "result": {
+    "success": true,
+    "result": [
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      },
+      {
+        "ip_addresses": [],
+        "interfaces": []
+      }
+    ],
+    "query": "SELECT json_extract(parsed_data, '$[*].ip_address') AS ip_addresses,\n       json_extract(parsed_data, '$[*].interface') AS interfaces\nFROM parsed_outputs\nWHERE command LIKE '%show ip interface%' \n   OR command LIKE '%show interfaces%'\n   OR command LIKE '%show ip arp%'\nLIMIT 1000;",
+    "execution_time": 2.790097713470459,
+    "rows_returned": 32,
+    "format": "table",
+    "cached": false,
+    "data_hash": "ecbf2b10f3cd492f",
+    "data_protected": true,
+    "export_requested": false,
+    "export_format": "csv",
+    "export_filename": null
+  }
+}

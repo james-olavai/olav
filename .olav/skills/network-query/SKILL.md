@@ -12,6 +12,10 @@ tools:
 
 prompts:
   system: $ref:./prompts/system.md
+  # SQL Generator: For direct SQL generation (v0.12.0+)
+  sql_generator: $ref:./prompts/sql_generator.md
+  # Result Analyzer: For markdown analysis generation (v0.13.0+)
+  result_analyzer: $ref:./prompts/result_analyzer.md
 
 ---
 

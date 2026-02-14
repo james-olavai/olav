@@ -1,0 +1,21 @@
+{
+  "query": "count interfaces",
+  "cached_at": 1771028483.454426,
+  "ttl_seconds": 3600,
+  "result": {
+    "success": true,
+    "result": [
+      {
+        "interface_count": 0
+      }
+    ],
+    "query": "SELECT COUNT(*) AS interface_count FROM interfaces LIMIT 1000;",
+    "execution_time": 2.0091397762298584,
+    "rows_returned": 1,
+    "format": "table",
+    "cached": false,
+    "export_requested": false,
+    "export_format": "csv",
+    "export_filename": null
+  }
+}

@@ -184,6 +184,129 @@ class SkillLoader:
             },
         }
 
+    def load_system_prompt(self, skill_id: str, prompt_key: str = "system", template_vars: dict[str, str] | None = None) -> str:
+        """加载 skill 的系统提示词 (v0.12.0+).
+        
+        支持:
+        - 从 SKILL.md frontmatter 中的 prompts.{prompt_key} 字段加载
+        - 解析 $ref:./prompts/system.md 引用
+        - 模板变量注入 (e.g., {schema}, {warnings})
+        
+        Args:
+            skill_id: Skill ID (e.g., "network-query")
+            prompt_key: 提示词键名 (默认 "system")，可选值: "system", "sql_generator" 等
+            template_vars: 模板变量字典 (e.g., {"schema": "SELECT...", "warnings": "..."})
+        
+        Returns:
+            系统提示词字符串，找不到返回空字符串
+        
+        Examples:
+            # 基础加载
+            prompt = loader.load_system_prompt("network-query")
+            
+            # 加载不同的提示词
+            prompt = loader.load_system_prompt("network-query", prompt_key="sql_generator")
+            
+            # 带模板变量
+            prompt = loader.load_system_prompt(
+                "network-query",
+                prompt_key="sql_generator",
+                template_vars={"schema": "devices: 6 rows", "warnings": "..."}
+            )
+        """
+        if skill_id not in self._index:
+            return ""
+        
+        skill = self._index[skill_id]
+        
+        # 获取 frontmatter
+        if not skill.frontmatter:
+            return ""
+        
+        # 检查 prompts.{prompt_key} 配置
+        prompts_config = skill.frontmatter.get("prompts", {})
+        if not isinstance(prompts_config, dict):
+            return ""
+        
+        prompt_ref = prompts_config.get(prompt_key)
+        if not prompt_ref:
+            return ""
+        
+        # 解析 $ref 引用
+        if isinstance(prompt_ref, str) and prompt_ref.startswith("$ref:"):
+            prompt_text = self._resolve_prompt_ref(skill_id, prompt_ref)
+        else:
+            prompt_text = prompt_ref
+        
+        if not prompt_text:
+            return ""
+        
+        # 注入模板变量
+        template_vars = template_vars or {}
+        for key, value in template_vars.items():
+            placeholder = "{" + key + "}"
+            prompt_text = prompt_text.replace(placeholder, str(value))
+        
+        return prompt_text
+    
+    def _resolve_prompt_ref(self, skill_id: str, ref: str) -> str:
+        """解析 $ref:./path/to/file.md 引用.
+        
+        Args:
+            skill_id: Skill ID
+            ref: 引用字符串，格式为 "$ref:./prompts/system.md"
+        
+        Returns:
+            文件内容
+        """
+        import re
+        
+        # 提取相对路径
+        match = re.match(r"\$ref:(.+)", ref)
+        if not match:
+            return ""
+        
+        rel_path = match.group(1).strip()
+        
+        skill = self._index.get(skill_id)
+        if not skill:
+            return ""
+        
+        skill_dir = Path(skill.file_path).parent
+        file_path = skill_dir / rel_path
+        
+        if not file_path.exists():
+            print(f"Warning: Reference file not found: {file_path}")
+            return ""
+        
+        try:
+            content = file_path.read_text(encoding="utf-8")
+            # 如果是 markdown 文件，移除代码块标记
+            if file_path.suffix == ".md":
+                content = content.strip()
+                # 移除开头的 markdown 代码块标记
+                if content.startswith("```"):
+                    lines = content.split("\n")
+                    if lines[0].startswith("```"):
+                        lines = lines[1:]
+                    if lines and lines[-1] == "```":
+                        lines = lines[:-1]
+                    content = "\n".join(lines).strip()
+                # 移除 markdown 标题
+                if content.startswith("#"):
+                    lines = content.split("\n")
+                    # 找到第一个非标题行
+                    start_idx = 0
+                    for i, line in enumerate(lines):
+                        if not line.startswith("#"):
+                            start_idx = i
+                            break
+                    content = "\n".join(lines[start_idx:]).strip()
+            return content
+        except Exception as e:
+            print(f"Warning: Failed to load prompt file {file_path}: {e}")
+            return ""
+    
     def load_skill_config(self, skill_id: str, config_name: str | None = None) -> dict[str, Any]:
         """加载skill级别的配置文件 (v0.10.1+).
         

@@ -1,0 +1,11 @@
+{
+  "command_whitelist": {
+    "\u663e\u793a.*\u63a5\u53e3.*\u72b6\u6001": "SELECT * FROM v_interfaces WHERE device = ? LIMIT 50",
+    "\u67e5\u770b.*\u8def\u7531\u8868": "SELECT * FROM v_routes WHERE device = ? ORDER BY metric DESC LIMIT 50",
+    "R1.*BGP.*\u90bb\u5c45": "SELECT * FROM v_bgp WHERE device = ? ORDER BY state DESC LIMIT 50",
+    "R1.*\u8def\u7531": "SELECT * FROM v_routes WHERE device = ? AND protocol = \"ospf\" LIMIT 50",
+    "\u68c0\u67e5.*IP.*\u4f4d\u7f6e": "SELECT device, interface, ip_address FROM v_arp WHERE ip_address = ?",
+    "\u7f51\u7edc.*\u5065\u5eb7": "SELECT device, cpu_1min, memory_used_percent FROM v_health WHERE device = ?"
+  },
+  "mode": "simple_match"
+}

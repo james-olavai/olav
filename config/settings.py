@@ -229,7 +229,7 @@ class DatabaseSettings(BaseSettings):
     """数据库配置 (v0.10.2+ 支持配置分层)"""
 
     main_db: Path = Field(
-        default=Path(".olav/db/olav.duckdb"),
+        default=Path(".olav/db/network.duckdb"),
         description="主数据库路径 (设备、接口、拓扑等所有数据)",
     )
 
@@ -349,6 +349,19 @@ class ExecutionSettings(BaseSettings):
     # Query timeout for CLI interactive mode (in seconds)
     query_timeout: int = Field(
         default=30, ge=30, le=600, description="CLI query timeout in seconds"
+    )
+
+    # Advanced Netmiko Configuration (for slow devices or long outputs)
+    global_delay_factor: int = Field(
+        default=4, ge=1, le=10, description="Netmiko global delay multiplier (higher = more patient with slow devices)"
+    )
+    max_loops: int = Field(
+        default=1000, ge=100, le=10000, description="Maximum read loops for long command outputs"
+    )
+
+    # Scrapli timeout for exhaustive snapshots (in seconds)
+    scrapli_timeout_ops: int = Field(
+        default=300, ge=60, le=600, description="Scrapli operation timeout for exhaustive snapshots"
     )
 
     # Nornir concurrency (num_workers for parallel execution)

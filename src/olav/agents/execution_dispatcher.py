@@ -320,7 +320,9 @@ class ExecutionDispatcher:
         try:
             # Use Orchestrator's query logic
             from olav.agents.orchestrator import orchestrate_query_sync
-            result = orchestrate_query_sync(query)
+            # 🔄 Always bypass cache for Guard-routed SIMPLE queries
+            # This ensures we use the latest prompt with field references
+            result = orchestrate_query_sync(query, use_cache=False)
             
             # ✅ Phase 3.1: Check if export was requested
             export_requested = result.get("export_requested", False) or decision.get("export_requested", False)
@@ -367,14 +369,37 @@ class ExecutionDispatcher:
             # 🚀 Performance Enhancement: Return structured data directly
             # Let CLI render Rich Table instead of LLM generating markdown
             if result.get("success") and result.get("result"):
+                # ✅ TODO #7: Data integrity verification
+                # Verify data hash to ensure no tampering during processing
+                import hashlib
+                import json as json_module
+                
+                if result.get("data_protected") and result.get("data_hash"):
+                    # Recompute hash
+                    expected_hash = result["data_hash"]
+                    actual_data_json = json_module.dumps(result["result"], sort_keys=True, default=str)
+                    actual_hash = hashlib.sha256(actual_data_json.encode()).hexdigest()[:16]
+                    
+                    if actual_hash != expected_hash:
+                        logger.warning(
+                            f"⚠️  Data integrity check failed! "
+                            f"Expected: {expected_hash}, Actual: {actual_hash}"
+                        )
+                        # Still proceed but log the warning
+                    else:
+                        logger.debug(f"✅ Data integrity verified (hash: {actual_hash})")
+                
                 return {
                     "status": "complete",
-                    "final_answer": "", # Empty - CLI will render table directly
+                    "final_answer": result.get("final_answer", ""),  # Pass markdown analysis if available
                     "data": result["result"],  # Raw structured data
                     "format": "table",  # Hint: Use Rich Table rendering
                     "query": result.get("query", ""),
                     "execution_time": result.get("execution_time", 0) * 1000,  # Convert to ms
                     "rows_returned": result.get("rows_returned", 0),
+                    # ✅ TODO #7: Pass through integrity metadata
+                    "data_hash": result.get("data_hash"),
+                    "data_protected": result.get("data_protected", False),
                 }
             elif result.get("success") and not result.get("result"):
                 return {
