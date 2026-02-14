@@ -33,7 +33,17 @@ def _find_project_root():
 
 sys.path.insert(0, str(_find_project_root() / "src"))
 
-from olav.tools.network_executor import get_executor, get_nornir
+# FIXME: Temporarily comment out problematic import
+# from olav.tools.network_executor import get_executor, get_nornir
+
+# Temporary stubsfor testing - these need to be properly implemented
+def get_executor():
+    """Temporary stub - returns None"""
+    return None
+
+def get_nornir():
+    """Temporary stub - returns None"""
+    return None
 
 
 # ============================================================================

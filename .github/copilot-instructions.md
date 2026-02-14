@@ -307,6 +307,132 @@ async def test_export_devices_csv_no_cli_execution():
 
 ---
 
+### 8. E2E 测试方法论 - 真实环境测试 ⚠️ 必读
+
+**规则**: E2E 测试必须测试真实用户场景，不是测试组件存在
+
+#### ❌ 虚假的 E2E 测试（2026-02-14 审计发现）
+
+```python
+# ❌ 只测试 Python API - 不是真实用户场景
+def test_agent_query():
+    from olav.agents.agent import create_olav_agent
+    agent = create_olav_agent()
+    result = agent.invoke("Hello")  # 用户不会这样调用
+    assert result is not None
+
+# ❌ 只测试组件存在 - 不测试功能
+def test_cli_help():
+    result = subprocess.run(["python3", "-m", "olav", "--help"])
+    assert result.returncode == 0  # 只测试能运行，不测试功能
+```
+
+**问题**: 这些测试通过了，但用户运行 `uv run olav ask "..."` 时完全崩溃！
+
+#### ✅ 正确的 E2E 测试
+
+**必须测试所有用户入口点**:
+
+```python
+# ✅ 测试真实的 CLI 命令（subprocess）
+@pytest.mark.e2e
+def test_olav_ask_command_real():
+    """测试用户实际使用的命令：uv run olav ask"""
+    result = subprocess.run(
+        ["uv", "run", "olav", "ask", "What is 2+2?"],
+        capture_output=True,
+        text=True,
+        timeout=30
+    )
+    
+    # 测试命令成功执行
+    assert result.returncode == 0, f"Command failed: {result.stderr}"
+    
+    # 测试输出包含预期内容
+    assert "4" in result.stdout or "four" in result.stdout.lower()
+    
+    # 测试没有错误消息
+    assert "Error:" not in result.stderr
+    assert "Failed to load" not in result.stderr
+
+# ✅ 测试所有 CLI 命令
+@pytest.mark.e2e
+@pytest.mark.parametrize("command,expected", [
+    (["olav", "admin", "status"], "databases"),
+    (["olav", "devices"], "device"),
+    (["olav", "--help"], "OLAV"),
+    (["olav", "interactive", "--help"], "interactive"),
+])
+def test_all_cli_commands(command, expected):
+    """确保所有声称可用的命令都真实可用"""
+    result = subprocess.run(
+        ["uv", "run"] + command,
+        capture_output=True,
+        text=True,
+        timeout=10
+    )
+    assert result.returncode == 0
+    assert expected in result.stdout or expected in result.stderr
+```
+
+**E2E 测试检查清单**:
+
+1. **✅ 测试真实命令调用**
+   - 使用 `subprocess.run(["uv", "run", "olav", ...])`
+   - 不要直接 `import` Python 模块
+
+2. **✅ 测试所有入口点**
+   - 检查 `pyproject.toml [project.scripts]` 中的所有命令
+   - `olav`, `olav2`, `olav-legacy` 等所有脚本
+
+3. **✅ 测试完整用户场景**
+   - 不只测试 `--help`
+   - 测试实际业务功能（ask, admin, devices, interactive）
+
+4. **✅ 测试失败情况**
+   - 无 API key 时的错误提示
+   - 无效参数时的错误处理
+   - 超时处理
+
+5. **✅ 测试输出正确性**
+   - 不只检查 `returncode == 0`
+   - 验证 stdout/stderr 内容
+   - 检查生成的文件（CSV, JSON 等）
+
+#### 审计教训（2026-02-14）
+
+**错误假设链**:
+- "Python API 测试通过" → ❌ "CLI 命令可用"
+- "单元测试覆盖 80%" → ❌ "用户场景可用"
+- "测试 19/19 通过" → ❌ "项目可发布"
+
+**真实情况**:
+- Python API (`agent.invoke()`) ≠ CLI 命令 (`uv run olav ask`)
+- 单元测试 ≠ E2E 集成测试
+- 测试框架内工作 ≠ 生产环境工作
+
+**正确的测试金字塔**:
+```
+        / E2E测试 \          ← 少量，测真实用户场景
+       /  (subprocess) \       uv run olav ask "..."
+      /_________________\
+     /   集成测试          \   ← 中等数量，测组件集成
+    /   (agent.invoke)   \     agent.invoke(query)
+   /_____________________\
+  /      单元测试           \  ← 大量，测单个函数
+ / (test_database_query)  \    test_sql_query()
+/___________________________\
+```
+
+**开发流程**:
+1. TDD: 先写单元测试 → 实现功能
+2. 集成测试: 测试 Python API (`agent.invoke()`)
+3. **E2E 测试: 测试真实 CLI 命令（subprocess）**
+4. 手动测试: 实际运行 `uv run olav ask "..."`
+5. 只有 E2E 测试全部通过，才算完成
+
+---
+
 ## 🚫 代码审计发现的问题（必须避免）
 
 ### 1. 架构问题
