@@ -79,21 +79,39 @@ class OLAVAgent:
             return tools
 
         try:
-            # Dynamically import tool functions
+            import importlib.util
             import sys
-            sys.path.insert(0, str(tools_path.parent))
+            
+            # Add tools directory to path for imports
+            sys.path.insert(0, str(tools_path))
+            
+            # Load database tools
+            spec_db = importlib.util.spec_from_file_location("database", tools_path / "database.py")
+            if spec_db and spec_db.loader:
+                database = importlib.util.module_from_spec(spec_db)
+                spec_db.loader.exec_module(database)
+                if hasattr(database, "execute_sql"):
+                    tools.append(database.execute_sql)
+            
+            # Load network tools
+            spec_net = importlib.util.spec_from_file_location("network", tools_path / "network.py")
+            if spec_net and spec_net.loader:
+                network = importlib.util.module_from_spec(spec_net)
+                spec_net.loader.exec_module(network)
+                if hasattr(network, "execute_cli"):
+                    tools.append(network.execute_cli)
+                if hasattr(network, "list_devices_inventory"):
+                    tools.append(network.list_devices_inventory)
+            
+            # Load inspection tools (optional)
+            spec_insp = importlib.util.spec_from_file_location("inspection", tools_path / "inspection.py")
+            if spec_insp and spec_insp.loader:
+                inspection = importlib.util.module_from_spec(spec_insp)
+                spec_insp.loader.exec_module(inspection)
+                if hasattr(inspection, "inspect_devices"):
+                    tools.append(inspection.inspect_devices)
 
-            # Import tools
-            from .tools import database, network, inspection
-
-            tools.extend([
-                database.execute_sql,
-                network.execute_cli,
-                network.list_devices_inventory,
-                inspection.inspect_devices,  # if available
-            ])
-
-            logger.info(f"Loaded {len(tools)} tools")
+            logger.info(f"Loaded {len(tools)} tools from {tools_path}")
         except Exception as e:
             logger.warning(f"Failed to load tools: {e}")
 
