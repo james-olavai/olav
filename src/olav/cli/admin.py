@@ -47,6 +47,8 @@ async def admin_handler(command: str) -> dict:
         "restore": _fast_restore,
         "db-info": _fast_db_info,
         "skill-list": _fast_skill_list,
+        "reload-commands": _fast_reload,  # Hot-reload templates and commands
+        "reload": _fast_reload,  # Alias
     }
 
     if cmd_name in fast_commands:
@@ -243,6 +245,49 @@ async def _fast_skill_list(args: str) -> dict:
     
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+async def _fast_reload(args: str) -> dict:
+    """Hot-reload TextFSM templates and command definitions.
+    
+    Reloads:
+    1. TextFSM templates (.olav/templates/*)
+    2. Command whitelist (.olav/config/allowed_commands.json)
+    3. Command blacklist (.olav/config/blacklisted_commands.json)
+    
+    Returns:
+        Status with reload statistics
+    """
+    try:
+        from olav.core.command_registry import CommandRegistry
+        
+        result = CommandRegistry.reload()
+        
+        reloaded = result.get("reloaded", {})
+        new_templates = result.get("new_templates", [])
+        errors = result.get("errors", [])
+        
+        message = f"✅ Reloaded {reloaded.get('templates', 0)} templates, " \
+                  f"{reloaded.get('whitelisted_commands', 0)} commands, " \
+                  f"{reloaded.get('blacklisted_patterns', 0)} blacklist patterns"
+        
+        if new_templates:
+            message += f"\n\n🆕 New templates:\n   - " + "\n   - ".join(new_templates)
+        
+        if errors:
+            message += f"\n\n⚠️  Errors:\n   - " + "\n   - ".join(errors)
+        
+        return {
+            "status": "success",
+            "message": message,
+            "reloaded": reloaded,
+            "new_templates": new_templates,
+            "errors": errors
+        }
+    
+    except Exception as e:
+        logger.error(f"Reload failed: {e}", exc_info=True)
+        return {"status": "error", "message": f"Reload failed: {e}"}
 
 
 if __name__ == "__main__":

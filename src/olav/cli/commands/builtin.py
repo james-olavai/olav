@@ -410,33 +410,126 @@ async def cmd_learn(args: str) -> str:
     """Learn a new command and generate TextFSM template interactively.
 
     Usage:
-        /learn_cmd <host:group> <platform> <command>
+        /learn_cmd "<command>" --device <device> [--platform <platform>]
 
     This runs the Command Learner interactive workflow:
-    1. Execute command on target host
+    1. Execute command on target device
     2. Analyze output fields (LLM)
     3. User approval/modification
-    4. Fetch NTC references
-    5. Generate template via ReAct
-    6. Save to custom templates
+    4. Search NTC references
+    5. Generate template (LLM + NTC refs)
+    6. Save to custom templates + auto-reload
 
     Examples:
-        /learn_cmd R1:core cisco_ios "show ip custom"
-        /learn_cmd R2:access arista_eos "show interfaces detail"
+        /learn_cmd "show ip bgp summary" --device R1
+        /learn_cmd "show version" --device R1 --platform cisco_ios
+        /learn_cmd "show ip route" -d core1
+
+    Options:
+        --device, -d    Target device (required)
+        --platform, -p  Override platform (optional, auto-detected)
+        --timeout, -t   Command timeout (default: 60s)
 
     Note: This command requires approval from user during workflow.
     """
     # Parse arguments
-    parts = args.strip().split(maxsplit=2)
-    if len(parts) < 3:
-        return """Usage: /learn_cmd <host:group> <platform> <command>
+    import shlex
+    
+    try:
+        args_list = shlex.split(args)
+    except ValueError:
+        return "❌ Error parsing arguments. Use quotes for commands with spaces."
+    
+    if not args_list:
+        return """Usage: /learn_cmd "<command>" --device <device>
 
 Example:
-    /learn_cmd R1:core cisco_ios "show running-config"
+    /learn_cmd "show ip bgp summary" --device R1
 
-This will start the interactive TextFSM template learning workflow."""
+This will start the 6-step TextFSM template learning workflow."""
+    
+    # Simple argument parsing
+    command = None
+    device = None
+    platform = None
+    timeout = 60
+    
+    i = 0
+    while i < len(args_list):
+        arg = args_list[i]
+        
+        # Flags
+        if arg in ["--device", "-d"]:
+            if i + 1 < len(args_list):
+                device = args_list[i + 1]
+                i += 2
+            else:
+                return "❌ --device requires a value"
+        elif arg in ["--platform", "-p"]:
+            if i + 1 < len(args_list):
+                platform = args_list[i + 1]
+                i += 2
+            else:
+                return "❌ --platform requires a value"
+        elif arg in ["--timeout", "-t"]:
+            if i + 1 < len(args_list):
+                try:
+                    timeout = int(args_list[i + 1])
+                    i += 2
+                except ValueError:
+                    return "❌ --timeout must be an integer"
+            else:
+                return "❌ --timeout requires a value"
+        else:
+            # First positional argument is the command
+            if command is None:
+                command = arg
+            i += 1
+    
+    # Validate required arguments
+    if not command:
+        return "❌ Command is required. Example: /learn_cmd \"show version\" --device R1"
+    if not device:
+        return "❌ Device is required. Use --device <device>"
+    
+    # Create query for agent
+    query = f"Learn command: {command}\nDevice: {device}"
+    if platform:
+        query += f"\nPlatform: {platform}"
+    query += f"\nTimeout: {timeout}s"
+    
+    # Call Command Learner Agent
+    try:
+        from olav.agents.command_learner_agent import get_command_learner_agent
+        
+        agent = get_command_learner_agent()
+        
+        # Import UUID for thread_id
+        import uuid
+        thread_id = str(uuid.uuid4())
+        
+        # Show processing message
+        print(f"🎓 Starting Command Learner workflow...")
+        print(f"   Command: {command}")
+        print(f"   Device: {device}")
+        if platform:
+            print(f"   Platform: {platform}")
+        print()
+        
+        # Invoke agent
+        result = await agent.ainvoke(query, thread_id=thread_id)
+        
+        return result
+        
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        return f"❌ Command learner failed: {str(e)}\n\nDetails:\n{error_details}"
 
-    return "⚠️  Command learner workflow not yet implemented"
+
+# Aliases
+register_command("learn")(cmd_learn)
+register_command("lc")(cmd_learn)
 
 
 @register_command("cache")
