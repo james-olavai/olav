@@ -10,7 +10,6 @@ from typing import Any
 import duckdb
 
 from config.logging import get_logger
-from config.settings import settings
 
 logger = get_logger(__name__)
 
@@ -39,16 +38,16 @@ class DataGateway:
             db_path: 自定义数据库路径 (覆盖默认配置) - v0.10.2+ 新增
         """
         from config.paths import AGENT_DIR, get_database_path
-        
+
         self.base_dir = base_dir or AGENT_DIR
         self.db_dir = self.base_dir / "db"
         self.skills_dir = self.base_dir / "skills"
 
         # v0.10.2: 支持自定义数据库路径
         self._db_path = db_path or get_database_path()
-        
+
         logger.debug(f"DataGateway initialized with database: {self._db_path}")
-        
+
         # 确保目录存在
         self.db_dir.mkdir(parents=True, exist_ok=True)
         self.skills_dir.mkdir(parents=True, exist_ok=True)
@@ -161,7 +160,7 @@ class DataGateway:
         NOTE (v0.10.1): Audit logs now in UNIFIED_DB instead of separate audit_logs.duckdb
         """
         from config.paths import UNIFIED_DB
-        
+
         conn = duckdb.connect(str(UNIFIED_DB))
         try:
             conn.execute("""
@@ -494,6 +493,7 @@ def get_gateway(base_dir: str | None = None) -> DataGateway:
         DataGateway 实例
     """
     import os
+
     from config.paths import AGENT_DIR
 
     base = Path(base_dir or os.getenv("OLAV_BASE_DIR") or str(AGENT_DIR))
@@ -538,7 +538,7 @@ def _create_unified_connection() -> duckdb.DuckDBPyConnection:
     # No attachment needed - all tables in one file
     conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
     logger.debug(f"Connected to unified database: {UNIFIED_DB}")
-    
+
     return conn
 
 

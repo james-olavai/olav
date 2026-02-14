@@ -22,8 +22,6 @@ from typing import Any
 import duckdb
 import yaml
 
-from config.settings import settings
-
 logger = logging.getLogger(__name__)
 
 
@@ -67,48 +65,48 @@ def import_devices_from_nornir(
     """
     hosts_yaml_path = Path(hosts_yaml_path)
     db_path = Path(db_path)
-    
+
     # Validate input file
     if not hosts_yaml_path.exists():
         raise FileNotFoundError(f"hosts.yaml not found: {hosts_yaml_path}")
-    
+
     # Load YAML
     logger.info(f"Loading Nornir hosts from {hosts_yaml_path}")
     try:
-        with open(hosts_yaml_path, 'r', encoding='utf-8') as f:
+        with open(hosts_yaml_path, encoding='utf-8') as f:
             hosts_data = yaml.safe_load(f)
     except yaml.YAMLError as e:
         raise ValueError(f"Failed to parse hosts.yaml: {e}") from e
-    
+
     if not isinstance(hosts_data, dict):
         raise ValueError(f"hosts.yaml must be a YAML dictionary, got {type(hosts_data)}")
-    
+
     # Extract device records
     devices = _extract_devices_from_nornir(hosts_data)
     logger.info(f"Extracted {len(devices)} device(s) from hosts.yaml")
-    
+
     # Connect to database (create if doesn't exist)
     # Note: DuckDB will create the file if it doesn't exist
     conn = duckdb.connect(str(db_path))
-    
+
     try:
         # Ensure table exists with proper schema
         _ensure_devices_table_schema(conn, table_name)
-        
+
         # Import devices
         stats = _insert_devices_to_duckdb(
             conn=conn,
             devices=devices,
             table_name=table_name,
         )
-        
+
         logger.info(
             f"✅ Import complete: {stats['imported']} imported, "
             f"{stats['failed']} failed, roles={stats['roles_found']}"
         )
-        
+
         return stats
-    
+
     finally:
         conn.close()
 
@@ -135,12 +133,12 @@ def _extract_devices_from_nornir(hosts_data: dict[str, Any]) -> list[dict[str, A
         List of device dictionaries with normalized fields
     """
     devices = []
-    
+
     for device_name, host_config in hosts_data.items():
         if not isinstance(host_config, dict):
             logger.warning(f"Skipping {device_name}: not a dictionary")
             continue
-        
+
         try:
             # Extract core fields
             device = {
@@ -149,29 +147,29 @@ def _extract_devices_from_nornir(hosts_data: dict[str, Any]) -> list[dict[str, A
                 'hostname': host_config.get('hostname', ''),
                 'platform': host_config.get('platform', ''),
                 'mgmt_ip': host_config.get('hostname', ''),  # IP from hostname
-                
+
                 # Extract from data section (Nornir standard)
                 'device_type': host_config.get('data', {}).get('device_type', 'Unknown'),
                 'device_role': host_config.get('data', {}).get('role', ''),
                 'site': host_config.get('data', {}).get('site', ''),
                 'location': host_config.get('data', {}).get('location', ''),
-                
+
                 # Optional vendor/model (may be auto-discovered later)
                 'vendor': host_config.get('data', {}).get('vendor', ''),
                 'model': host_config.get('data', {}).get('model', ''),
                 'site_id': host_config.get('data', {}).get('site_id', ''),
             }
-            
+
             # Clean up empty strings
             device = {k: (v if v else None) for k, v in device.items()}
-            
+
             devices.append(device)
             logger.debug(f"Extracted device: {device_name} (role={device.get('device_role')})")
-        
+
         except Exception as e:
             logger.error(f"Failed to extract device {device_name}: {e}")
             continue
-    
+
     return devices
 
 
@@ -203,12 +201,12 @@ def _ensure_devices_table_schema(conn: duckdb.DuckDBPyConnection, table_name: st
         - is_active: Active status flag
     """
     logger.debug(f"Ensuring {table_name} table schema exists")
-    
+
     # Check if table exists
     existing_tables = conn.execute(
         f"SELECT table_name FROM duckdb_tables() WHERE table_name = '{table_name}'"
     ).fetchall()
-    
+
     if existing_tables:
         logger.debug(f"Table {table_name} already exists, validating schema")
         # Validate schema has required columns
@@ -216,11 +214,11 @@ def _ensure_devices_table_schema(conn: duckdb.DuckDBPyConnection, table_name: st
             'device_id', 'name', 'hostname', 'platform', 'mgmt_ip',
             'device_type', 'device_role', 'site', 'vendor', 'model'
         }
-        
+
         existing_columns = {
             row[0] for row in conn.execute(f"DESCRIBE {table_name}").fetchall()
         }
-        
+
         missing_columns = required_columns - existing_columns
         if missing_columns:
             logger.warning(f"Table {table_name} missing columns: {missing_columns}")
@@ -280,13 +278,13 @@ def _insert_devices_to_duckdb(
         'roles_found': set(),
         'sites_found': set(),
     }
-    
+
     # Get table columns
     table_columns = {
         row[0] for row in conn.execute(f"DESCRIBE {table_name}").fetchall()
     }
     logger.debug(f"Target table columns: {table_columns}")
-    
+
     for device in devices:
         try:
             # Track metadata
@@ -294,14 +292,14 @@ def _insert_devices_to_duckdb(
                 stats['roles_found'].add(device['device_role'])
             if device.get('site'):
                 stats['sites_found'].add(device['site'])
-            
+
             # Only include columns that exist in the table and have non-None values
             device_id = device.get('device_id')
             if not device_id:
                 logger.warning("Skipping device without device_id")
                 stats['failed'] += 1
                 continue
-            
+
             # Filter columns: only include those that exist in table and have values
             insert_columns = []
             insert_values = []
@@ -309,32 +307,32 @@ def _insert_devices_to_duckdb(
                 if col in table_columns and val is not None:
                     insert_columns.append(col)
                     insert_values.append(val)
-            
+
             if not insert_columns:
                 logger.warning(f"No columns to insert for device {device_id}")
                 stats['failed'] += 1
                 continue
-            
+
             # Use INSERT OR REPLACE for simplicity
             placeholders = ', '.join(['?' for _ in insert_columns])
             column_list = ', '.join(insert_columns)
             sql = f"INSERT OR REPLACE INTO {table_name} ({column_list}) VALUES ({placeholders})"
-            
+
             logger.debug(f"Executing INSERT for {device_id}: {sql[:80]}...")
             logger.debug(f"Values: {insert_values}")
-            
+
             conn.execute(sql, insert_values)
             stats['imported'] += 1
             logger.debug(f"✅ Inserted device {device_id}")
-            
+
         except Exception as e:
             logger.error(f"❌ Failed to insert device {device.get('device_id')}: {e}")
             stats['failed'] += 1
-    
+
     logger.info(f"Committing {stats['imported']} device insertions...")
     conn.commit()
-    logger.info(f"✅ Commit complete")
-    
+    logger.info("✅ Commit complete")
+
     return stats
 
 
@@ -350,28 +348,28 @@ def validate_devices_import(db_path: str | Path, table_name: str = "devices") ->
     """
     db_path = Path(db_path)
     conn = duckdb.connect(str(db_path), read_only=True)
-    
+
     try:
         # Get basic stats
         total = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
-        
+
         # Get role distribution
         roles = conn.execute(
             f"SELECT device_role, COUNT(*) FROM {table_name} "
             f"WHERE device_role IS NOT NULL GROUP BY device_role ORDER BY device_role"
         ).fetchall()
-        
+
         # Get site distribution
         sites = conn.execute(
             f"SELECT site, COUNT(*) FROM {table_name} "
             f"WHERE site IS NOT NULL GROUP BY site ORDER BY site"
         ).fetchall()
-        
+
         # Get sample records
         samples = conn.execute(
             f"SELECT device_id, name, device_role, site FROM {table_name} LIMIT 5"
         ).fetchall()
-        
+
         return {
             'total_devices': total,
             'roles': {role: count for role, count in roles},
@@ -386,6 +384,6 @@ def validate_devices_import(db_path: str | Path, table_name: str = "devices") ->
                 for s in samples
             ],
         }
-    
+
     finally:
         conn.close()

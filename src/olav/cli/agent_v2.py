@@ -20,7 +20,6 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -42,18 +41,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 from olav.agents.agent import create_olav_agent
 from olav.cli.admin import admin_handler
 
-
 # ============================================================================
 # Helpers
 # ============================================================================
 
-async def _stream_response(agent, query: str, thread_id: Optional[str] = None):
+async def _stream_response(agent, query: str, thread_id: str | None = None):
     """Stream agent response with real-time display."""
     try:
         console.print(f"[dim]Processing:[/dim] {query}\n")
-        
+
         result = await agent.invoke(query, thread_id=thread_id)
-        
+
         if result["status"] == "success":
             console.print(Panel(
                 result["response"],
@@ -66,7 +64,7 @@ async def _stream_response(agent, query: str, thread_id: Optional[str] = None):
                 title="[red]✗ Error[/red]",
                 border_style="red"
             ))
-            
+
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}", file=sys.stderr)
         raise
@@ -79,7 +77,7 @@ async def _stream_response(agent, query: str, thread_id: Optional[str] = None):
 @app.command()
 def ask(
     query: str = typer.Argument(..., help="Natural language query"),
-    thread_id: Optional[str] = typer.Option(None, "--thread", help="Conversation thread ID"),
+    thread_id: str | None = typer.Option(None, "--thread", help="Conversation thread ID"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Ask OLAV a question using natural language.
@@ -90,7 +88,7 @@ def ask(
         olav2 ask "Show version on R1"
     """
     import os
-    
+
     if not os.getenv("OPENAI_API_KEY"):
         console.print(
             "[bold red]Error:[/] OPENAI_API_KEY environment variable not set",
@@ -103,10 +101,10 @@ def ask(
         console.print("\nFor development without API key, use 'admin' commands instead:")
         console.print("  $ olav2 admin status")
         raise typer.Exit(1)
-    
+
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
-    
+
     agent = create_olav_agent()
     asyncio.run(_stream_response(agent, query, thread_id))
 
@@ -114,7 +112,7 @@ def ask(
 @app.command()
 def admin(
     command: str = typer.Argument(..., help="Admin command (status, backup, restore, etc)"),
-    args: Optional[str] = typer.Argument(None, help="Command arguments"),
+    args: str | None = typer.Argument(None, help="Command arguments"),
 ):
     """Execute admin commands (<100ms response time).
 
@@ -134,9 +132,9 @@ def admin(
     full_cmd = f"/admin {command}"
     if args:
         full_cmd += f" {args}"
-    
+
     result = asyncio.run(admin_handler(full_cmd))
-    
+
     if result["status"] == "success":
         console.print(Panel(
             str(result.get("data", result)),
@@ -153,8 +151,8 @@ def admin(
 
 @app.command()
 def devices(
-    role: Optional[str] = typer.Option(None, "--role", help="Filter by role (core, access, edge)"),
-    site: Optional[str] = typer.Option(None, "--site", help="Filter by site"),
+    role: str | None = typer.Option(None, "--role", help="Filter by role (core, access, edge)"),
+    site: str | None = typer.Option(None, "--site", help="Filter by site"),
 ):
     """List network devices with optional filtering.
 
@@ -164,53 +162,54 @@ def devices(
         olav2 devices --site prod
     """
     try:
-        import duckdb
         from pathlib import Path
-        
+
+        import duckdb
+
         # Connect to main database
         db_path = Path(".olav/databases/main.duckdb")
         if not db_path.exists():
             console.print("[red]Error:[/red] Database not found. Run 'admin status' to initialize.", style="red")
             raise typer.Exit(1)
-        
+
         conn = duckdb.connect(str(db_path), read_only=True)
-        
+
         # Build query
         query = "SELECT * FROM devices WHERE 1=1"
         params = []
-        
+
         if role:
             query += " AND role = ?"
             params.append(role)
-        
+
         if site:
             query += " AND site = ?"
             params.append(site)
-        
+
         query += " ORDER BY name"
-        
+
         # Execute query
         try:
             results = conn.execute(query, params).fetchall()
             columns = [desc[0] for desc in conn.description]
-            
+
             if not results:
                 console.print("[yellow]No devices found matching the criteria.[/yellow]")
                 return
-            
+
             # Display as table
             table = Table(title=" 🖥️  Network Devices")
             for col in columns:
                 table.add_column(col, style="cyan")
-            
+
             for row in results:
                 table.add_row(*[str(v) for v in row])
-            
+
             console.print(table)
-            
+
         finally:
             conn.close()
-            
+
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}", style="red")
 
@@ -223,29 +222,29 @@ def interactive():
     Type 'exit' or 'quit' to exit.
     """
     import uuid
-    
+
     agent = create_olav_agent()
     thread_id = str(uuid.uuid4())[:8]
-    
+
     console.print(Panel(
         f"OLAV v2.0 - Interactive Mode\n\nThread: {thread_id}\nType 'exit' to quit",
         border_style="blue",
         title="[cyan]OLAV[/cyan]"
     ))
-    
+
     while True:
         try:
             query = console.input("\n[bold cyan]You:[/bold cyan] ")
-            
+
             if query.lower() in ["exit", "quit", "bye"]:
                 console.print("[cyan]Goodbye![/cyan]")
                 break
-            
+
             if not query.strip():
                 continue
-            
+
             asyncio.run(_stream_response(agent, query, thread_id))
-            
+
         except KeyboardInterrupt:
             console.print("\n[cyan]Goodbye![/cyan]")
             break

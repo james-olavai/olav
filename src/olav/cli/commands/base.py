@@ -9,7 +9,7 @@ All commands inherit from this to ensure consistent:
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class BaseCommand(ABC):
         """
         pass
 
-    def parse_args(self, args: str) -> Dict[str, Any]:
+    def parse_args(self, args: str) -> dict[str, Any]:
         """Parse command arguments.
         
         Override this in subclasses for custom argument parsing.
@@ -61,7 +61,7 @@ class BaseCommand(ABC):
         # Simple default: space-separated arguments
         if not args.strip():
             return {}
-        
+
         parts = args.strip().split()
         return {"args": parts}
 

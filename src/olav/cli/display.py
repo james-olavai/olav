@@ -247,7 +247,7 @@ class StreamingDisplay:
                 # P10: Clean up Markdown that Rich doesn't handle well
                 # Replace <br> with space or newline (Rich Markdown doesn't support HTML tags in tables)
                 cleaned_text = text.replace("<br>", "  \n")  # Standard Markdown line break
-                
+
                 # 移除代码块中的markdown标记（如果存在）
                 if cleaned_text.startswith("```markdown"):
                     cleaned_text = cleaned_text.replace("```markdown\n", "").replace("\n```", "")
@@ -438,11 +438,11 @@ def display_todos(agent_graph: Any, console: Console | None = None) -> None:
     if console is None:
         from rich.console import Console as RichConsole
         console = RichConsole()
-    
+
     try:
         from rich.panel import Panel
         from rich.table import Table
-        
+
         # Get the latest state from the graph
         state = agent_graph.get_state()
         todos: list[dict[str, Any]] = state.values.get("todos", []) if state and hasattr(state, "values") else []
@@ -513,9 +513,9 @@ def _format_and_print(
     """
     if format_key not in _PRINT_FORMATS:
         raise ValueError(f"Unknown format key: {format_key}")
-    
+
     config = _PRINT_FORMATS[format_key]
-    
+
     if console is None:
         if RICH_AVAILABLE:
             console = Console()
@@ -524,7 +524,7 @@ def _format_and_print(
             prefix = config["fallback_prefix"]
             print(f"{prefix} {message}", flush=True)
             return
-    
+
     # Use Rich for formatted output
     emoji = config["emoji"]
     style = config["style"]

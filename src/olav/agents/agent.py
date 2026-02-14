@@ -11,14 +11,12 @@ Architecture:
 This replaces: 5 SubAgents + 1,077 lines of routing logic
 """
 
-import logging
 import json
-from typing import Any
+import logging
 from pathlib import Path
 
-from langchain_core.messages import BaseMessage
-from langgraph.graph import StateGraph, MessagesState, END
 from langgraph.checkpoint.duckdb import DuckDBSaver
+from langgraph.graph import END, MessagesState, StateGraph
 
 from config.settings import settings
 from olav.core.llm import LLMFactory
@@ -33,7 +31,8 @@ class OLAVAgent:
         self,
         model_name: str | None = None,
         temperature: float | None = None,
-        olav_base_path: str = ".olav"
+        olav_base_path: str = ".olav",
+        enable_checkpointer: bool = True
     ):
         """Initialize OLAV Agent.
 
@@ -41,6 +40,7 @@ class OLAVAgent:
             model_name: LLM model to use (defaults to settings.llm_model_name)
             temperature: LLM temperature 0.0-1.0 (defaults to settings.llm_temperature)
             olav_base_path: Path to .olav directory
+            enable_checkpointer: Enable state persistence with DuckDB (default: True)
         """
         # Use settings if not provided
         self.model_name = model_name or settings.llm_model_name
@@ -50,7 +50,7 @@ class OLAVAgent:
         # Initialize LLM using LLMFactory for third-party API support (OpenRouter, Groq, etc.)
         # This respects .env configuration: LLM_PROVIDER, LLM_BASE_URL, LLM_API_KEY, etc.
         self.llm = LLMFactory.get_chat_model(temperature=self.temperature)
-        
+
         logger.info(
             f"OLAV Agent initialized with: "
             f"provider={settings.llm_provider}, "
@@ -61,16 +61,18 @@ class OLAVAgent:
             logger.info(f"Using custom LLM endpoint: {settings.llm_base_url}")
 
         # Initialize checkpointer for state persistence
-        db_path = self.olav_base_path / "databases" / "agent.duckdb"
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        try:
-            import duckdb
-            conn = duckdb.connect(str(db_path))
-            self.checkpointer = DuckDBSaver(conn=conn)
-        except Exception as e:
-            logger.warning(f"Failed to initialize DuckDBSaver: {e}. Using memory persistence.")
-            self.checkpointer = None
+        self.checkpointer = None
+        if enable_checkpointer:
+            db_path = self.olav_base_path / "databases" / "agent.duckdb"
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+
+            try:
+                import duckdb
+                conn = duckdb.connect(str(db_path))
+                self.checkpointer = DuckDBSaver(conn=conn)
+            except Exception as e:
+                logger.warning(f"Failed to initialize DuckDBSaver: {e}. Using memory persistence.")
+                self.checkpointer = None
 
         # Load tools and skills
         self.tools = self._load_tools()
@@ -91,10 +93,10 @@ class OLAVAgent:
         try:
             import importlib.util
             import sys
-            
+
             # Add tools directory to path for imports
             sys.path.insert(0, str(tools_path))
-            
+
             # Load database tools
             spec_db = importlib.util.spec_from_file_location("database", tools_path / "database.py")
             if spec_db and spec_db.loader:
@@ -102,7 +104,7 @@ class OLAVAgent:
                 spec_db.loader.exec_module(database)
                 if hasattr(database, "execute_sql"):
                     tools.append(database.execute_sql)
-            
+
             # Load network tools
             spec_net = importlib.util.spec_from_file_location("network", tools_path / "network.py")
             if spec_net and spec_net.loader:
@@ -112,7 +114,7 @@ class OLAVAgent:
                     tools.append(network.execute_cli)
                 if hasattr(network, "list_devices_inventory"):
                     tools.append(network.list_devices_inventory)
-            
+
             # Load inspection tools (optional)
             spec_insp = importlib.util.spec_from_file_location("inspection", tools_path / "inspection.py")
             if spec_insp and spec_insp.loader:
@@ -144,7 +146,7 @@ class OLAVAgent:
                     skill_file = skill_dir / "SKILL.md"
                     if skill_file.exists():
                         try:
-                            with open(skill_file, "r", encoding="utf-8") as f:
+                            with open(skill_file, encoding="utf-8") as f:
                                 post = frontmatter.load(f)
                                 skills[skill_dir.name] = {
                                     "frontmatter": post.metadata,

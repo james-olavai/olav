@@ -44,7 +44,7 @@ class QueryCache:
 
         self.cache_dir = cache_dir
         self.ttl_seconds = ttl_seconds
-        
+
         # Create cache directory if it doesn't exist
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         logger.debug(f"[QueryCache] Initialized with dir: {self.cache_dir}, TTL: {ttl_seconds}s")
@@ -81,7 +81,7 @@ class QueryCache:
 
         try:
             # Load cache
-            with open(cache_file, "r") as f:
+            with open(cache_file) as f:
                 cached = json.load(f)
 
             # Check TTL

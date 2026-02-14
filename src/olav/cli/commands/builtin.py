@@ -103,8 +103,9 @@ async def cmd_devices(args: str) -> str:
         /devices role:core    - List core devices
         /devices site:DC1     - List devices in DC1
     """
-    from olav.api.v1.devices import list_devices
     import json
+
+    from olav.api.v1.devices import list_devices
 
     try:
         # Call function directly (not a LangChain tool)

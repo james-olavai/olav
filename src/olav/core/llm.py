@@ -70,7 +70,7 @@ class LLMFactory:
             config["base_url"] = settings.llm_base_url or "http://localhost:11434"
             if json_mode:
                 config["format"] = "json"
-            
+
             logger.debug(
                 f"Creating Ollama chat model: model={model_name}, base_url={config['base_url']}"
             )
@@ -79,11 +79,11 @@ class LLMFactory:
         elif provider == "openai":
             # OpenAI and OpenAI-compatible APIs (OpenRouter, Together, etc.)
             config["api_key"] = settings.llm_api_key
-            
+
             # Third-party OpenAI-compatible API (OpenRouter, etc.)
             if settings.llm_base_url:
                 config["base_url"] = settings.llm_base_url
-                
+
                 # OpenRouter requires specific headers for proper routing and usage tracking
                 if "openrouter" in settings.llm_base_url.lower():
                     config["default_headers"] = {
@@ -91,17 +91,17 @@ class LLMFactory:
                         "X-Title": "OLAV Network Intelligence System",
                     }
                     logger.debug("OpenRouter detected - adding required headers (HTTP-Referer, X-Title)")
-                
+
                 logger.debug(
                     f"Creating OpenAI-compatible chat model: {model_name} "
                     f"via {settings.llm_base_url}"
                 )
             else:
                 logger.debug(f"Creating OpenAI chat model: {model_name}")
-            
+
             if json_mode:
                 config["model_kwargs"] = {"response_format": {"type": "json_object"}}
-            
+
             return ChatOpenAI(**config)  # type: ignore[return-value]
 
         elif provider == "azure":
@@ -113,10 +113,10 @@ class LLMFactory:
             # xAI (Grok) via OpenRouter - use OpenAI-compatible endpoint
             config["api_key"] = settings.llm_api_key
             config["base_url"] = settings.llm_base_url or "https://openrouter.ai/api/v1"
-            
+
             if json_mode:
                 config["model_kwargs"] = {"response_format": {"type": "json_object"}}
-            
+
             logger.debug(
                 f"Creating xAI chat model: {model_name} via {config['base_url']}"
             )
@@ -133,7 +133,7 @@ class LLMFactory:
             config["api_key"] = settings.llm_api_key
             if settings.llm_base_url:
                 config["base_url"] = settings.llm_base_url
-            
+
             logger.debug(f"Creating Anthropic chat model: {model_name}")
             return ChatAnthropic(**config)  # type: ignore[return-value]
 
@@ -152,7 +152,7 @@ class LLMFactory:
             config["api_key"] = settings.llm_api_key
             if settings.llm_base_url:
                 config["base_url"] = settings.llm_base_url
-            
+
             logger.debug(f"Creating Groq chat model: {model_name}")
             return ChatGroq(**config)  # type: ignore[return-value]
 
@@ -171,7 +171,7 @@ class LLMFactory:
             config["api_key"] = settings.llm_api_key
             if settings.llm_base_url:
                 config["base_url"] = settings.llm_base_url
-            
+
             logger.debug(f"Creating Mistral chat model: {model_name}")
             return ChatMistral(**config)  # type: ignore[return-value]
 

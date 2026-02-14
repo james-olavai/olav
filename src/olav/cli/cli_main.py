@@ -14,13 +14,13 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 import typer
+
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
-from olav.cli.display import display_todos
+
 from olav.agents.agent import create_olav_agent
 
 if TYPE_CHECKING:
@@ -57,7 +57,6 @@ async def stream_agent_response(
     """
     import asyncio
 
-    from config.settings import settings
     from olav.cli.display import StreamingDisplay
 
     # Use settings if timeout not specified
@@ -183,7 +182,6 @@ async def run_interactive_loop_async(
     """
     import uuid
 
-    from config.settings import settings
     from olav.cli.commands.builtin import execute_command
     from olav.cli.input_parser import parse_input
 
@@ -192,9 +190,9 @@ async def run_interactive_loop_async(
 
     # Generate or load session thread_id for checkpointer
     from config.paths import OLAV_BASE_DIR
-    
+
     thread_id_file = OLAV_BASE_DIR / ".last_thread_id"
-    
+
     if resume and thread_id_file.exists():
         # Resume last session
         loaded_thread_id = thread_id_file.read_text().strip()
@@ -202,7 +200,7 @@ async def run_interactive_loop_async(
             thread_id = loaded_thread_id
             if is_tty:
                 console.print(f"[cyan]📂 Resuming session: {thread_id}[/cyan]")
-    
+
     if not thread_id:
         # Generate new thread_id
         thread_id = str(uuid.uuid4())
@@ -211,11 +209,11 @@ async def run_interactive_loop_async(
     else:
         if is_tty:
             console.print(f"[cyan]🔗 Using session: {thread_id}[/cyan]")
-    
+
     # Save thread_id for --resume
     thread_id_file.parent.mkdir(exist_ok=True)
     thread_id_file.write_text(thread_id)
-    
+
     logger.debug(f"Starting interactive session with thread_id: {thread_id}")
 
     # Initialize Agent and Display
@@ -269,7 +267,7 @@ async def run_interactive_loop_async(
                     except Exception as e:
                         print(f"❌ Error reloading schema: {e}", file=sys.stderr)
                     continue
-                
+
                 try:
                     # Run async command handler with await
                     result = await execute_command(
@@ -321,7 +319,7 @@ async def run_interactive_loop_async(
                 from langchain_core.messages import HumanMessage
                 use_verbose = settings.display_thinking
                 agent_config = {"configurable": {"thread_id": thread_id}} if thread_id else {}
-                
+
                 result = await stream_agent_response(
                     agent,
                     {"messages": [HumanMessage(content=processed_text)]},
@@ -363,7 +361,6 @@ async def query(
         olav query "list routers" --no-guard     # Force Guard disabled
     """
     from olav.cli.display import StreamingDisplay
-    from config.settings import settings
 
     display = StreamingDisplay(console=console, verbose=verbose, show_spinner=not verbose)
 
@@ -376,8 +373,9 @@ async def query(
         # Determine if Guard should be used (Phase 5: Guard as Entry Point)
         # v2.0: Direct Agent invocation (no Guard routing)
         from langchain_core.messages import HumanMessage
+
         from olav.agents.agent import create_olav_agent
-        
+
         agent_instance = create_olav_agent()
         agent_config = {"configurable": {"thread_id": thread_id}} if thread_id else {}
         result = await stream_agent_response(
@@ -397,7 +395,7 @@ async def query(
         elif isinstance(result, dict) and result.get("export_file"):
             export_file = result.get("export_file")
             format_type = result.get("format", "unknown")
-            console.print(f"\n[bold green]✅ Export successful![/bold green]")
+            console.print("\n[bold green]✅ Export successful![/bold green]")
             console.print(f"[cyan]File:[/cyan] {export_file}")
             console.print(f"[cyan]Format:[/cyan] {format_type}")
             if result.get("rows_exported"):
@@ -405,9 +403,9 @@ async def query(
         elif result.get("format") == "table" and (result.get("data") or result.get("result")):
             # Support both "data" (from dispatcher) and "result" (from orchestrator)
             from rich.table import Table
-            
+
             data = result.get("data") or result.get("result")
-            
+
             # Create table
             table = Table(
                 show_header=True,
@@ -416,31 +414,31 @@ async def query(
                 title_style="bold cyan",
                 padding=(0, 1),
             )
-            
+
             # Add columns
             if data:
                 # 🎯 Smart column filtering: Show only relevant columns
                 # For device queries, show: name, hostname, site, model, platform, role, status
                 # Get all columns
                 all_columns = list(data[0].keys())
-                
+
                 # Priority columns (ordered by importance)
                 # Note: Different query types return different columns
                 priority_cols = [
                     # Device inventory columns
                     "name", "hostname", "mgmt_ip", "site", "model", "platform", "device_role", "is_active",
                     # Query result columns
-                    "device_name", "interfaces", "ip_addresses", "ip_address", "protocol", "hardware_address", 
+                    "device_name", "interfaces", "ip_addresses", "ip_address", "protocol", "hardware_address",
                     "port", "status", "description", "neighbor", "device_id", "interface",
                 ]
-                
+
                 # Filter to only columns that exist and are in priority list
                 display_cols = [col for col in priority_cols if col in all_columns]
-                
+
                 # If no priority columns found, show all columns (fallback for custom queries)
                 if not display_cols:
                     display_cols = all_columns
-                
+
                 # Smart column mapping (make it readable)
                 column_names = {
                     "device_id": "Device",
@@ -456,38 +454,38 @@ async def query(
                     "device_role": "Role",
                     "is_active": "Status",
                 }
-                
+
                 for col in display_cols:
                     display_name = column_names.get(col, col.replace("_", " ").title())
                     table.add_column(display_name, overflow="fold")
-                
+
                 # Add rows
                 for row in data:
                     row_values = []
                     for col in display_cols:
                         value = str(row[col]) if row[col] is not None else "N/A"
-                        
+
                         # Status coloring
                         if col == "is_active":
                             value = "[green]Active[/green]" if row[col] else "[red]Inactive[/red]"
-                        
+
                         row_values.append(value)
-                    
+
                     table.add_row(*row_values)
-                
+
                 console.print(table)
-                
+
                 # Show row count
                 console.print(f"\n[dim]{len(data)} devices[/dim]")
             else:
                 console.print("\n[bold yellow]⚠[/bold yellow] No results found\n")
-            
+
             # 🆕 After table display, show markdown analysis if available
             if result.get("final_answer"):
                 console.print("\n")  # Spacing
                 from rich.markdown import Markdown
                 console.print(Markdown(result["final_answer"]))
-        
+
         # Handle Orchestrator result dict (original markdown path)
         elif result.get("status") == "complete":
             answer = result.get("final_answer", result.get("result", ""))
@@ -552,7 +550,7 @@ def clean(
         olav clean --all --force        # Clean everything (no confirmation)
         olav clean --databases          # Clear snapshot data (keeps devices table)
     """
-    
+
     # If no specific flags, show help
     if not (all or cache or checkpoints or databases):
         console.print("[yellow]Please specify what to clean:[/yellow]")
@@ -562,12 +560,12 @@ def clean(
         console.print("  --all          Everything")
         console.print("\nUse --help for more info")
         return
-    
+
     # Determine what to clean
     clean_cache = all or cache
     clean_checkpoints = all or checkpoints
     clean_databases = all or databases
-    
+
     # Show what will be cleaned
     items = []
     if clean_cache:
@@ -576,21 +574,21 @@ def clean(
         items.append("• Session checkpoints (.olav/user_checkpoint.db, .olav/.last_thread_id)")
     if clean_databases:
         items.append("• Snapshot databases (raw_outputs, views - keeps devices table)")
-    
+
     console.print("\n[bold yellow]⚠️  The following will be deleted:[/bold yellow]")
     for item in items:
         console.print(f"  {item}")
     console.print()
-    
+
     # Confirmation
     if not force:
         confirm = typer.confirm("Are you sure you want to continue?")
         if not confirm:
             console.print("[cyan]Aborted.[/cyan]")
             return
-    
+
     console.print("\n[cyan]🧹 Cleaning...[/cyan]\n")
-    
+
     # Clean cache
     if clean_cache:
         try:
@@ -605,42 +603,43 @@ def clean(
                 console.print("  ℹ️  No cache directory found")
         except Exception as e:
             console.print(f"  ❌ Cache cleanup failed: {e}")
-    
+
     # Clean checkpoints
     if clean_checkpoints:
         try:
             from config.paths import OLAV_BASE_DIR
-            
+
             checkpoint_file = OLAV_BASE_DIR / "user_checkpoint.db"
             if checkpoint_file.exists():
                 checkpoint_file.unlink()
                 console.print(f"  ✅ Deleted: {checkpoint_file}")
-            
+
             thread_id_file = OLAV_BASE_DIR / ".last_thread_id"
             if thread_id_file.exists():
                 thread_id_file.unlink()
                 console.print(f"  ✅ Deleted: {thread_id_file}")
-            
+
             console.print("  ✅ Checkpoints cleaned")
         except Exception as e:
             console.print(f"  ❌ Checkpoint cleanup failed: {e}")
-    
+
     # Clean databases (keep devices table)
     if clean_databases:
         try:
             import duckdb
+
             from config.paths import UNIFIED_DB
-            
+
             if UNIFIED_DB.exists():
                 conn = duckdb.connect(str(UNIFIED_DB))
-                
+
                 # Drop raw_outputs
                 try:
                     conn.execute("DROP TABLE IF EXISTS raw_outputs")
                     console.print("  ✅ Dropped: raw_outputs table")
                 except Exception as e:
                     console.print(f"  ⚠️  Could not drop raw_outputs: {e}")
-                
+
                 # Drop all views
                 tables = conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main' AND table_type='VIEW'").fetchall()
                 for (view_name,) in tables:
@@ -649,14 +648,14 @@ def clean(
                         console.print(f"  ✅ Dropped: view {view_name}")
                     except Exception as e:
                         console.print(f"  ⚠️  Could not drop {view_name}: {e}")
-                
+
                 conn.close()
                 console.print("  ✅ Snapshot data cleaned (devices table preserved)")
             else:
                 console.print("  ℹ️  No main database found")
         except Exception as e:
             console.print(f"  ❌ Database cleanup failed: {e}")
-    
+
     console.print("\n[bold green]✅ Cleanup complete![/bold green]\n")
 
 
@@ -672,9 +671,9 @@ def doctor() -> None:
     - Cache and checkpoint status
     """
     from config.paths import UNIFIED_DB
-    
+
     console.print("\n[bold cyan]🏥 OLAV System Health Check[/bold cyan]\n")
-    
+
     # Check 1: Database
     console.print("[cyan]1. Database Status[/cyan]")
     try:
@@ -684,18 +683,18 @@ def doctor() -> None:
             console.print("     Run: olav snapshot")
         else:
             conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
-            
+
             # Check devices table
             device_count = conn.execute('SELECT COUNT(*) FROM devices').fetchone()[0]
             console.print(f"  ✅ Devices table: {device_count} devices")
-            
+
             # Check parsed outputs
             try:
                 output_count = conn.execute('SELECT COUNT(*) FROM parsed_outputs').fetchone()[0]
                 console.print(f"  ✅ Parsed outputs: {output_count} records")
             except:
                 console.print("  ℹ️  Parsed outputs: Not yet populated (run 'olav sync')")
-            
+
             # Check views
             tables = conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main' AND table_type='VIEW'").fetchall()
             if tables:
@@ -703,13 +702,13 @@ def doctor() -> None:
             else:
                 console.print("  ⚠️  Views: None initialized")
                 console.print("     Run: olav snapshot (to create views)")
-            
+
             conn.close()
     except Exception as e:
         console.print(f"  ❌ Database error: {e}")
-    
+
     console.print()
-    
+
     # Check 2: LLM API
     console.print("[cyan]2. LLM API Configuration[/cyan]")
     try:
@@ -718,7 +717,7 @@ def doctor() -> None:
         console.print(f"  Model: {settings.llm_model_name}")
         console.print(f"  Base URL: {settings.llm_base_url or 'default'}")
         console.print(f"  API Key: {'✅ Set' if settings.llm_api_key else '❌ Missing'}")
-        
+
         if settings.llm_api_key:
             try:
                 from olav.core.llm import LLMFactory
@@ -730,9 +729,9 @@ def doctor() -> None:
             console.print("  ❌ Set LLM_API_KEY in .env")
     except Exception as e:
         console.print(f"  ❌ Configuration error: {e}")
-    
+
     console.print()
-    
+
     # Check 3: Nornir Inventory
     console.print("[cyan]3. Nornir Inventory[/cyan]")
     try:
@@ -740,50 +739,50 @@ def doctor() -> None:
         nr = get_nornir()
         console.print(f"  ✅ Hosts: {len(nr.inventory.hosts)}")
         console.print(f"  ✅ Groups: {len(nr.inventory.groups)}")
-        
+
         # Show first 3 hosts
         for i, (name, host) in enumerate(list(nr.inventory.hosts.items())[:3]):
             console.print(f"     • {name}: {host.hostname}")
     except Exception as e:
         console.print(f"  ❌ Nornir error: {e}")
-    
+
     console.print()
-    
+
     # Check 4: Network Reachability
     console.print("[cyan]4. Network Connectivity[/cyan]")
     try:
         get_nornir = get_tool('get_nornir')
         import socket
         nr = get_nornir()
-        
+
         reachable = []
         unreachable = []
-        
+
         for name, host in list(nr.inventory.hosts.items())[:5]:  # Test first 5
             try:
                 socket.create_connection((host.hostname, 22), timeout=settings.runtime.connection_timeout)
                 reachable.append(name)
             except:
                 unreachable.append(name)
-        
+
         if reachable:
             console.print(f"  ✅ Reachable: {', '.join(reachable)}")
         if unreachable:
             console.print(f"  ⚠️  Unreachable: {', '.join(unreachable)}")
             console.print("     Check: VPN, firewall, SSH service")
-        
+
         if not reachable and not unreachable:
             console.print("  ℹ️  No devices to test")
     except Exception as e:
         console.print(f"  ⚠️  Connectivity check failed: {e}")
-    
+
     console.print()
-    
+
     # Check 5: Cache Status
     console.print("[cyan]5. Cache & Checkpoints[/cyan]")
     try:
         from config.paths import CACHE_DIR, OLAV_BASE_DIR
-        
+
         cache_dir = CACHE_DIR
         if cache_dir.exists():
             cache_files = list(cache_dir.glob("*.db"))
@@ -791,21 +790,21 @@ def doctor() -> None:
             console.print(f"  ✅ Cache: {len(cache_files)} files ({total_size:.1f} MB)")
         else:
             console.print("  ℹ️  Cache: Not initialized")
-        
+
         checkpoint = OLAV_BASE_DIR / "user_checkpoint.db"
         if checkpoint.exists():
             size = checkpoint.stat().st_size / 1024 / 1024
             console.print(f"  ✅ Checkpoint: {size:.1f} MB")
         else:
             console.print("  ℹ️  Checkpoint: Not initialized")
-        
+
         thread_id = OLAV_BASE_DIR / ".last_thread_id"
         if thread_id.exists():
             tid = thread_id.read_text().strip()[:16]
             console.print(f"  ✅ Last session: {tid}...")
     except Exception as e:
         console.print(f"  ⚠️  Cache check failed: {e}")
-    
+
     console.print("\n[bold green]✅ Health check complete![/bold green]\n")
 
 
@@ -838,7 +837,6 @@ def init(
     import os
 
     # Load settings to get default group
-    from config.settings import settings
     sync_all = get_tool('sync_all')
 
     # Use provided group or fall back to settings default
@@ -859,9 +857,9 @@ def init(
     # Pre-flight diagnostics
     if diagnose:
         console.print("\n[cyan]🔍 Running pre-flight diagnostics...[/cyan]")
-        
+
         from config.paths import UNIFIED_DB
-        
+
         # Check 1: Database connectivity
         try:
             import duckdb
@@ -871,7 +869,7 @@ def init(
             console.print(f"  ✅ Database: Connected ({device_count} devices registered)")
         except Exception as e:
             console.print(f"  ⚠️  Database: {str(e)}")
-        
+
         # Check 2: LLM API availability
         try:
             from olav.core.llm import LLMFactory
@@ -879,7 +877,7 @@ def init(
             console.print(f"  ✅ LLM API: {settings.llm_provider}/{settings.llm_model_name}")
         except Exception as e:
             console.print(f"  ❌ LLM API: {str(e)}")
-        
+
         # Check 3: Nornir inventory
         try:
             get_nornir = get_tool('get_nornir')
@@ -887,7 +885,7 @@ def init(
             console.print(f"  ✅ Nornir: {len(nr.inventory.hosts)} hosts configured")
         except Exception as e:
             console.print(f"  ❌ Nornir: {str(e)}")
-        
+
         # Check 4: Network connectivity preview
         try:
             get_nornir = get_tool('get_nornir')
@@ -903,23 +901,23 @@ def init(
             if reachable > 0:
                 console.print(f"  ✅ Network: {reachable}/3 sample devices reachable")
             else:
-                console.print(f"  ⚠️  Network: No devices reachable (may need VPN)")
+                console.print("  ⚠️  Network: No devices reachable (may need VPN)")
         except Exception as e:
             console.print(f"  ⚠️  Network: {str(e)}")
-        
+
         console.print()
 
     try:
         # ✅ FIX: Initialize structured tables before sync (CREATE TABLE IF NOT EXISTS)
         # Bug: init command was missing this step, causing "table does not exist" errors
-        from olav.core.database import init_structured_tables
         from config.paths import UNIFIED_DB
-        
+        from olav.core.database import init_structured_tables
+
         console.print("[cyan]🗄️  Initializing database tables...[/cyan]")
         conn = init_structured_tables(str(UNIFIED_DB))
         conn.close()
         console.print("  ✅ Database tables ready\n")
-        
+
         # Parse devices parameter: convert comma-separated string to list
         device_list = None if devices == "all" else [d.strip() for d in devices.split(",")]
 
@@ -929,37 +927,38 @@ def init(
         console.print(
             Panel(result, title="[bold green]✅ Initialization Complete[/bold green]", border_style="green")
         )
-        
+
         # Post-snapshot diagnostics
         if diagnose:
             console.print("\n[cyan]📊 Post-initialization status:[/cyan]")
             try:
                 import duckdb
+
                 from config.paths import UNIFIED_DB
-                
+
                 conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
-                
+
                 # Check parsed outputs
                 try:
                     parsed_count = conn.execute('SELECT COUNT(*) FROM parsed_outputs').fetchone()[0]
                     console.print(f"  📝 Parsed outputs: {parsed_count} records")
                 except:
-                    console.print(f"  ℹ️  Parsed outputs: Not yet populated")
-                
+                    console.print("  ℹ️  Parsed outputs: Not yet populated")
+
                 # Check if views exist
                 tables = conn.execute("SELECT table_name, table_type FROM information_schema.tables WHERE table_schema='main'").fetchall()
                 view_count = sum(1 for _, type in tables if type == 'VIEW')
                 console.print(f"  📊 Database views: {view_count} initialized")
-                
+
                 if view_count == 0:
                     console.print("  💡 Tip: Run 'olav database init-views' to create query views")
-                
+
                 conn.close()
             except Exception as e:
                 console.print(f"  ⚠️  Status check failed: {str(e)}")
-            
+
             console.print()
-        
+
     except Exception as e:
         console.print(f"[bold red]❌ Initialization Error: {str(e)}[/bold red]")
         if "connection" in str(e).lower():
@@ -994,7 +993,6 @@ def inspect(
         olav inspect --refresh   # Snapshot then inspect
         olav inspect --group test # Filter by group
     """
-    import asyncio
 
     # InspectionOrchestrator removed in v2.0 - use Agent instead
     # from olav.agents.inspector import InspectionOrchestrator
@@ -1145,7 +1143,6 @@ def main() -> None:
     """Main entry point for OLAV CLI."""
     # Initialize logging
     from config.logging import setup_logging
-    from config.settings import settings
 
     log_level = settings.log_level if hasattr(settings, "log_level") else "INFO"
     setup_logging(log_level=log_level)
