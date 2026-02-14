@@ -57,8 +57,8 @@ dependencies = [
 ]
 
 [project.scripts]
-olav = "olav.cli:main"
-olav2 = "olav.cli.agent_v2:app"
+olav = "olav.cli.agent_v2:app"  # v2.0 - New unified agent
+olav-legacy = "olav.cli:main"  # v0.11 - Legacy CLI (deprecated)
 
 [project.optional-dependencies]
 dev = [
