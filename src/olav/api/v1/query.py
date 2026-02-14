@@ -14,7 +14,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 from config.settings import settings
 
@@ -489,7 +489,7 @@ def _generate_export_filename(intent: dict[str, Any]) -> str:
     return filename
 
 
-async def _save_as_csv(rows: List[Dict[str, Any]], filename: str) -> None:
+async def _save_as_csv(rows: list[dict[str, Any]], filename: str) -> None:
     """Save query results to CSV file."""
     import csv
 

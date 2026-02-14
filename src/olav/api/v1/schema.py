@@ -8,8 +8,10 @@ This module provides:
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import Any
+
 import duckdb
+
 from config.paths import UNIFIED_DB
 
 
@@ -18,16 +20,16 @@ class TableSchema:
     """Table schema metadata."""
     name: str
     type: str  # "VIEW" | "BASE TABLE" | "TEMPORARY" | "EXTERNAL"
-    columns: List[Dict[str, Any]]
+    columns: list[dict[str, Any]]
     row_count: int
-    description: Optional[str] = None
+    description: str | None = None
 
 
 @dataclass
 class SchemaDiscoveryResult:
     """Complete database schema discovery result."""
-    tables: List[TableSchema]
-    views: List[TableSchema]
+    tables: list[TableSchema]
+    views: list[TableSchema]
     total_tables: int
     total_views: int
 
@@ -46,7 +48,7 @@ def list_tables() -> SchemaDiscoveryResult:
         ['devices', 'interfaces', ...]
     """
     conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
-    
+
     # Query information_schema for all tables and views
     tables_query = """
         SELECT table_name, table_type
@@ -54,14 +56,14 @@ def list_tables() -> SchemaDiscoveryResult:
         WHERE table_schema = 'main'
         ORDER BY table_name
     """
-    
+
     tables = []
     views = []
-    
+
     try:
         for row in conn.execute(tables_query).fetchall():
             table_name, table_type = row
-            
+
             # Get columns for this table
             columns_query = f"""
                 SELECT column_name, data_type, is_nullable
@@ -77,14 +79,14 @@ def list_tables() -> SchemaDiscoveryResult:
                     "type": dtype,
                     "nullable": nullable == "YES"
                 })
-            
+
             # Get row count
             try:
                 count_query = f"SELECT COUNT(*) FROM {table_name}"
                 row_count = conn.execute(count_query).fetchone()[0]
             except Exception:
                 row_count = 0
-            
+
             schema = TableSchema(
                 name=table_name,
                 type=table_type,
@@ -92,7 +94,7 @@ def list_tables() -> SchemaDiscoveryResult:
                 row_count=row_count,
                 description=None
             )
-            
+
             # Categorize as table or view
             if table_type == "VIEW":
                 views.append(schema)
@@ -100,7 +102,7 @@ def list_tables() -> SchemaDiscoveryResult:
                 tables.append(schema)
     finally:
         conn.close()
-    
+
     return SchemaDiscoveryResult(
         tables=tables,
         views=views,
@@ -129,19 +131,19 @@ def get_table_schema(table_name: str) -> TableSchema:
         8
     """
     schema = list_tables()
-    
+
     # Search in both tables and views
     for table in schema.tables + schema.views:
         if table.name == table_name:
             return table
-    
+
     raise ValueError(f"Table not found: {table_name}")
 
 
 def get_sample_data(
     table_name: str,
     limit: int = 10
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Get sample rows from table.
     
     Args:
@@ -163,12 +165,12 @@ def get_sample_data(
     """
     # Validate table exists first
     get_table_schema(table_name)
-    
+
     conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
     try:
         query = f"SELECT * FROM {table_name} LIMIT {limit}"
         result = conn.execute(query).fetchall()
-        
+
         # Get column names
         columns_query = f"""
             SELECT column_name
@@ -177,7 +179,7 @@ def get_sample_data(
             ORDER BY ordinal_position
         """
         col_names = [row[0] for row in conn.execute(columns_query).fetchall()]
-        
+
         # Convert to list of dicts
         rows = [dict(zip(col_names, row)) for row in result]
         return rows
