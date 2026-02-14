@@ -88,18 +88,21 @@ def ask(
         olav2 ask "Show version on R1"
     """
     import os
+    from config.settings import settings
 
-    if not os.getenv("OPENAI_API_KEY"):
+    # Check if LLM API key is configured (supports multiple providers)
+    if not settings.llm_api_key:
         console.print(
-            "[bold red]Error:[/] OPENAI_API_KEY environment variable not set",
+            "[bold red]Error:[/] LLM_API_KEY environment variable not set",
             style="red"
         )
-        console.print("\nTo set up OpenAI API access:")
-        console.print("  1. Get your API key from https://platform.openai.com/account/api-keys")
-        console.print("  2. Set the environment variable:")
-        console.print("     $ export OPENAI_API_KEY='sk-your-key-here'")
+        console.print("\nTo set up LLM API access:")
+        console.print("  1. Add to .env file:")
+        console.print("     LLM_API_KEY='your-api-key'")
+        console.print("     LLM_PROVIDER='openai'  # or 'openrouter', 'anthropic', etc.")
+        console.print("     LLM_MODEL_NAME='gpt-4'  # or your model name")
         console.print("\nFor development without API key, use 'admin' commands instead:")
-        console.print("  $ olav2 admin status")
+        console.print("  $ olav admin status")
         raise typer.Exit(1)
 
     if verbose:
