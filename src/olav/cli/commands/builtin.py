@@ -268,21 +268,17 @@ async def cmd_analyze(args: str) -> str:
         - Phase 2: Real-time CLI verification (if anomaly or stale data)
         - Phase 3: Fusion analysis with recommendations
 
-    Task 9.1: Now delegated to Agent in v2.0.
-    \"\"\"
-    # analyzer module removed in v2.0 - use Agent instead
+    Task 9.1: Direct integration bypasses generic agent loop.
+    """
+    # Import here to avoid circular dependency
+    from olav.agents.analyzer import analyze_network
+
     if not args.strip():
-        args = \"network health check\"
+        args = "network health check"
 
-    # Return placeholder message since this needs rework for v2.0
-    return {
-        \"status\": \"success\",
-        \"analysis\": f\"Analysis: {args}\\n\\nℹ️  Network analysis is now provided by the Agent.\\nUse /ask for detailed network analysis.\",
-        \"recommendations\": [\"Use /ask 'analyze network' for detailed insights\"],
-    }
-
-    # Old code below (removed in v2.0):
-    # if False:
+    try:
+        # Call Analyzer Agent directly
+        result = await analyze_network(args)
 
         if result["status"] == "success":
             path_icon = "⚡" if result["routing_decision"] == "static_only" else "🔍"
