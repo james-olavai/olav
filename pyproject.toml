@@ -22,7 +22,6 @@ dependencies = [
     "langchain-openai>=0.0.1",
     "langchain-ollama>=0.1.0",
     "langchain-core>=0.1.0",
-    "langchain-text-splitters>=0.2.0", # Phase 4: Knowledge base text chunking
     # DeepAgents Framework
     # Note: Will be added from archive/deepagents/
     # Data Processing
@@ -38,27 +37,20 @@ dependencies = [
     # API & HTTP
     "httpx>=0.24.0",
     "requests>=2.31.0",
-    "fastapi>=0.109.0",  # Phase 5: Health check & metrics API
-    "uvicorn[standard]>=0.27.0",  # Phase 5: ASGI server
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
     # CLI
     "typer>=0.9.0",
     "rich>=13.0",
-    "prompt-toolkit>=3.0.0", # Phase 6: Enhanced CLI input
-    "nest-asyncio>=1.5.0", # Async context support for prompt-toolkit
+    "prompt-toolkit>=3.0.0",
+    "nest-asyncio>=1.5.0",
     # Utilities
     "python-dotenv>=1.0",
     "python-dateutil>=2.8.0",
-    "python-crontab>=3.0.0",  # Cron management for inspection scheduling
-    "tenacity>=8.0",  # Retry logic with exponential backoff
+    "python-crontab>=3.0.0",
+    "tenacity>=8.0",
     "deepagents",
     "langchain-community>=0.4.1",
-    "ddgs>=9.10.0",  # DuckDuckGo web search for Expert Agent
-    # Topology visualization
-    "networkx>=3.0",
-    "pyvis>=0.3.0",
-    "nornir-scrapli>=2025.1.30",
-    "scrapli>=2025.1.30",
-    "scrapli-community>=2025.1.30",
     "langgraph>=1.0.5",
     "duckdb-engine>=0.17.0",
     "langgraph-checkpoint-duckdb>=2.0.2",
