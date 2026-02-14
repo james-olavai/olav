@@ -15,6 +15,8 @@ Usage in DeepAgents:
 
 import json
 import sys
+from datetime import date, datetime, time
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -159,6 +161,26 @@ class SchemaContext:
         return db_query(sql)
 
 
+def _sanitize_value(val: Any) -> Any:
+    """Convert non-JSON-serializable types to strings."""
+    if isinstance(val, (datetime, date, time)):
+        return val.isoformat()
+    if isinstance(val, Decimal):
+        return float(val)
+    if isinstance(val, bytes):
+        return val.decode("utf-8", errors="replace")
+    if isinstance(val, dict):
+        return {k: _sanitize_value(v) for k, v in val.items()}
+    if isinstance(val, (list, tuple)):
+        return [_sanitize_value(v) for v in val]
+    return val
+
+
+def _sanitize_rows(rows: list[dict]) -> list[dict]:
+    """Ensure all values in query results are JSON-serializable."""
+    return [_sanitize_value(row) for row in rows]
+
+
 def main(params: dict) -> dict:
     """Execute database query with auto schema exploration.
 
@@ -209,6 +231,7 @@ def main(params: dict) -> dict:
     if direct_sql:
         try:
             results = context.query(direct_sql)
+            results = _sanitize_rows(results)
             output = DatabaseQueryOutput(
                 data=results,
                 sql=direct_sql,
