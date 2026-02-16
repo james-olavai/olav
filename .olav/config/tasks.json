@@ -1,0 +1,51 @@
+{
+  "enabled": true,
+  "log_dir": ".olav/logs",
+  "report_dir": "exports/reports/snapshots",
+  "max_concurrent_tasks": 1,
+  "task_log_retention_days": 30,
+  "tasks": {
+    "daily-inspection": {
+      "name": "daily-inspection",
+      "description": "Daily network inspection snapshot",
+      "workflow": "daily-run",
+      "command": "uv run olav inspect {workflow}",
+      "schedule": "0 6 * * *",
+      "enabled": false,
+      "timeout": 1800,
+      "max_retries": 2,
+      "retry_delay": 300,
+      "notify_on_failure": true,
+      "notify_on_success": false,
+      "params": {}
+    },
+    "weekly-audit": {
+      "name": "weekly-audit",
+      "description": "Weekly network deep audit with LLM analysis",
+      "workflow": "weekly-audit",
+      "command": "uv run olav inspect {workflow} --deep",
+      "schedule": "0 2 * * 0",
+      "enabled": false,
+      "timeout": 3600,
+      "max_retries": 1,
+      "retry_delay": 300,
+      "notify_on_failure": true,
+      "notify_on_success": true,
+      "params": {}
+    },
+    "monthly-report": {
+      "name": "monthly-report",
+      "description": "Generate monthly operations report",
+      "workflow": "monthly-report",
+      "command": "uv run olav report generate --month",
+      "schedule": "0 9 1 * *",
+      "enabled": false,
+      "timeout": 3600,
+      "max_retries": 1,
+      "retry_delay": 300,
+      "notify_on_failure": true,
+      "notify_on_success": false,
+      "params": {}
+    }
+  }
+}
