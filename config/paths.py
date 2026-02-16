@@ -21,6 +21,12 @@ OLAV_BASE_DIR = AGENT_DIR  # Points to .olav/
 LIB_DIR = OLAV_BASE_DIR / "lib"  # Platform-agnostic utilities (data_gateway.py)
 
 # =============================================================================
+# Knowledge Base Paths (Internal - .olav/knowledge/)
+# =============================================================================
+
+KNOWLEDGE_BASE_DIR = OLAV_BASE_DIR / "knowledge"  # Markdown documents for indexing
+
+# =============================================================================
 # Database Paths (Internal - .olav/db/) - v0.10.1: Unified Single Database
 # =============================================================================
 
@@ -65,8 +71,8 @@ def get_database_path(force_test: bool = False) -> Path:
     from config.settings import settings
     return settings.database.main_db
 
-# v0.10.2: Unified Single Database Architecture
-# All data (devices, raw_outputs, audit, knowledge) in one DuckDB file
+# v2.0: Unified Single Database Architecture
+# All data (devices, parsed_outputs, topology_links) in one DuckDB file
 # Note: UNIFIED_DB is now computed at runtime - see get_database_path()
 try:
     UNIFIED_DB = get_database_path()  # Dynamic path resolution
@@ -76,6 +82,7 @@ except Exception:
 
 # Backward compatibility aliases (all point to unified database)
 MAIN_DB_PATH = UNIFIED_DB  # Device metadata
+DB_MAIN_PATH = UNIFIED_DB  # Convenience alias (used by KB system)
 SNAPSHOTS_DB = UNIFIED_DB  # Network snapshots & query cache
 AUDIT_LOGS_DB = UNIFIED_DB  # Command audit logs
 OLAV_DB_PATH = UNIFIED_DB  # Main database
