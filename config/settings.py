@@ -35,6 +35,9 @@ from dotenv import load_dotenv
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Import Knowledge Base Configuration
+from config.knowledge import KnowledgeSettings
+
 _this_file = _os.path.abspath(__file__)
 _config_dir = _os.path.dirname(_this_file)
 _project_root = _os.path.dirname(_config_dir)
@@ -229,7 +232,7 @@ class DatabaseSettings(BaseSettings):
     """数据库配置 (v0.10.2+ 支持配置分层)"""
 
     main_db: Path = Field(
-        default=Path(".olav/db/network.duckdb"),
+        default=Path(".olav/databases/main.duckdb"),
         description="主数据库路径 (设备、接口、拓扑等所有数据)",
     )
 
@@ -742,6 +745,40 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 16000
 
     # =========================================================================
+    # Embedding Configuration (Independent from LLM)
+    # =========================================================================
+    # Mode options:
+    #   - "local": Use sentence-transformers (local, free, no API needed)
+    #   - "openai": Use OpenAI API or OpenAI-compatible (text-embedding-3-small, etc.)
+    # Default: "local" (recommended - no API costs)
+    embedding_mode: str = Field(
+        default="local",
+        description="Embedding mode: 'local' (sentence-transformers) or 'openai' (API)"
+    )
+    
+    # When embedding_mode="local": sentence-transformers model name
+    # Recommended models:
+    #   - all-MiniLM-L6-v2 (384 dim, fastest, ~22MB)
+    #   - all-mpnet-base-v2 (768 dim, higher quality, ~440MB)
+    #   - bge-small-zh-v1.5 (512 dim, Chinese-optimized, ~200MB) - 推荐用于中文
+    embedding_local_model: str = Field(
+        default="BAAI/bge-small-zh-v1.5",
+        description="Sentence-transformers model for local embedding"
+    )
+    
+    # When embedding_mode="openai": API configuration (backward compatible)
+    embedding_provider: str = ""  # Empty = use llm_provider (for openai mode)
+    embedding_model: str = ""  # Empty = use text-embedding-3-small
+    embedding_base_url: str = ""  # Empty = use llm_base_url
+    embedding_api_key: str = ""  # Empty = use llm_api_key
+    
+    # Fallback for embedding: If embedding_mode="openai" and API fails, fallback to local
+    embedding_enable_fallback: bool = Field(
+        default=True,
+        description="Enable automatic fallback from openai to local embeddings if API call fails (improves reliability)"
+    )
+
+    # =========================================================================
     # Skill Configuration (Phase C-1)
     # =========================================================================
     enabled_skills: list[str] = Field(
@@ -783,6 +820,9 @@ class Settings(BaseSettings):
     )
     cache: CacheSettings = Field(
         default_factory=CacheSettings, description="Cache management configuration"
+    )
+    knowledge: KnowledgeSettings = Field(
+        default_factory=KnowledgeSettings, description="Knowledge base configuration"
     )
     database: DatabaseSettings = Field(
         default_factory=DatabaseSettings, description="Database configuration (v0.10.2+)"
