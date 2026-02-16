@@ -81,40 +81,74 @@ async def _stream_response(agent, query: str, thread_id: str | None = None):
 
 
 def _run_interactive():
-    """Enter interactive conversation mode."""
+    """Enter interactive conversation mode with prompt-toolkit (history, slash commands)."""
     import uuid
+
+    from olav.cli.commands.builtin import execute_command, SLASH_COMMANDS
+    from olav.cli.display import display_banner, load_banner_from_config
+    from olav.cli.session import OlavPromptSession
 
     _check_llm_key()
     agent = create_olav_agent(enable_checkpointer=False)
     thread_id = str(uuid.uuid4())[:8]
 
+    # Display banner from config (uses config/banners.py styles)
+    banner_text = load_banner_from_config()
+    if banner_text:
+        display_banner(banner_text, console=console)
+
     console.print(Panel(
         f"OLAV v2.0 - Interactive Mode\n\n"
         f"Thread: {thread_id}\n"
-        f"Type 'exit' or 'quit' to exit.\n"
-        f"Send any natural language query.",
+        f"Type [bold]/help[/bold] for available commands.\n"
+        f"Use [bold]↑↓[/bold] arrow keys to navigate history.\n"
+        f"Type [bold]/quit[/bold] or [bold]exit[/bold] to exit.",
         border_style="blue",
         title="[cyan]OLAV[/cyan]"
     ))
 
-    while True:
-        try:
-            query = console.input("\n[bold cyan]You:[/bold cyan] ")
+    # Initialize prompt-toolkit session (FileHistory + AutoSuggestFromHistory)
+    session = OlavPromptSession(enable_completion=False, multiline=False)
 
-            if query.lower().strip() in ["exit", "quit", "bye", "/quit", "/exit"]:
-                console.print("[cyan]Goodbye![/cyan]")
+    async def _interactive_loop():
+        while True:
+            try:
+                # Use prompt-toolkit async prompt (supports arrow keys, history)
+                query = await session.prompt_async("OLAV> ")
+                query = query.strip()
+
+                if not query:
+                    continue
+
+                # Exit commands
+                if query.lower() in ("exit", "quit", "bye"):
+                    console.print("[cyan]Goodbye![/cyan]")
+                    break
+
+                # Slash command routing
+                if query.startswith("/"):
+                    try:
+                        result = await execute_command(query, agent=None)
+                        if result:
+                            console.print(result)
+                    except EOFError:
+                        # /quit or /exit raises EOFError
+                        console.print("[cyan]Goodbye![/cyan]")
+                        break
+                    except Exception as e:
+                        console.print(f"[red]Error:[/red] {e}")
+                    continue
+
+                # Normal query → agent
+                await _stream_response(agent, query, thread_id)
+
+            except (KeyboardInterrupt, EOFError):
+                console.print("\n[cyan]Goodbye![/cyan]")
                 break
+            except Exception as e:
+                console.print(f"[red]Error:[/red] {e}")
 
-            if not query.strip():
-                continue
-
-            asyncio.run(_stream_response(agent, query, thread_id))
-
-        except (KeyboardInterrupt, EOFError):
-            console.print("\n[cyan]Goodbye![/cyan]")
-            break
-        except Exception as e:
-            console.print(f"[red]Error:[/red] {e}")
+    asyncio.run(_interactive_loop())
 
 
 # ============================================================================
@@ -732,6 +766,17 @@ def db_schema(
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
+
+
+# ============================================================================
+# Task Management Subcommand
+# ============================================================================
+
+try:
+    from olav.cli.task_manager import get_task_app
+    app.add_typer(get_task_app(), name="task", help="Manage periodic inspection tasks")
+except Exception as e:
+    logger.debug(f"Task manager not available: {e}")
 
 
 if __name__ == "__main__":

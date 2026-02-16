@@ -38,6 +38,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Import Knowledge Base Configuration
 from config.knowledge import KnowledgeSettings
 
+# Import Task Scheduler Configuration
+from config.tasks import TaskSchedulerSettings
+
 _this_file = _os.path.abspath(__file__)
 _config_dir = _os.path.dirname(_this_file)
 _project_root = _os.path.dirname(_config_dir)
@@ -829,6 +832,9 @@ class Settings(BaseSettings):
     )
     feature_flags: FeatureFlagSettings = Field(
         default_factory=FeatureFlagSettings, description="Feature flag configuration (v0.12.0+)"
+    )
+    tasks: TaskSchedulerSettings = Field(
+        default_factory=TaskSchedulerSettings, description="Task scheduler configuration (v2.0+)"
     )
     runtime: RuntimeSettings = Field(
         default_factory=RuntimeSettings, description="Runtime paths and connection configuration"
