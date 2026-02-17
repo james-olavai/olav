@@ -2,7 +2,7 @@
 """
 Tool 1: Execute Command on Network Device
 
-Executes a command on a network device using existing nornir_execute infrastructure.
+Executes a command on a network device using existing execute_cli from network.py.
 """
 
 import logging
@@ -41,49 +41,40 @@ def execute_command(device: str, command: str, timeout: int = 60) -> dict[str, A
     from pathlib import Path
     import sys
     
-    # Add .olav/tools to path to import nornir_execute
+    # Add .olav/tools to path to import execute_cli
     tools_path = Path(".olav/tools")
     if str(tools_path) not in sys.path:
         sys.path.insert(0, str(tools_path))
     
     try:
-        from network import nornir_execute
+        from network import execute_cli
         
         start_time = time.time()
         
-        # Use existing nornir_execute
-        result = nornir_execute(
-            device_filter=device,
-            commands=[command],
-            timeout=timeout
-        )
+        # Execute command using execute_cli tool (it's a LangChain tool, use .invoke())
+        result = execute_cli.invoke({"device": device, "command": command, "timeout": timeout})
         
         execution_time = time.time() - start_time
         
-        # Parse result
-        if result and "success" in result and result["success"]:
-            # Extract output for the device
-            device_result = result.get("results", {}).get(device, {})
-            output = device_result.get("output", {}).get(command, "")
-            platform = device_result.get("platform", "unknown")
-            
+        # Parse result from execute_cli
+        # Result format: {"output": str, "device": str, "command": str, "status": str, "error": str}
+        if result.get("status") == "success":
             return {
                 "device": device,
                 "command": command,
-                "output": output,
+                "output": result.get("output", ""),
                 "success": True,
                 "error": None,
-                "platform": platform,
+                "platform": "cisco_ios",  # TODO: get from inventory
                 "execution_time": round(execution_time, 2)
             }
         else:
-            error = result.get("message", "Unknown error")
             return {
                 "device": device,
                 "command": command,
-                "output": "",
+                "output": result.get("output", ""),
                 "success": False,
-                "error": error,
+                "error": result.get("error", "Unknown error"),
                 "platform": "unknown",
                 "execution_time": round(execution_time, 2)
             }

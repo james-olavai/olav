@@ -15,28 +15,28 @@ capabilities:
   - System administration (backup, restore, status)
 
 philosophy:
-  - "代码即工具" (Code as tool) - Direct shell commands over abstractions
-  - Developer Reference as knowledge base - Learn from documentation
-  - HITL for safety - Human approval for destructive operations
-  - Portable - Can manage any Python project, not just OLAV
+  - "代码即工具 (Code as tool) - Direct shell commands over abstractions"
+  - "Developer Reference as knowledge base - Learn from documentation"
+  - "HITL for safety - Human approval for destructive operations"
+  - "Portable - Can manage any Python project, not just OLAV"
 
 tools:
   - read_file         # Read any file (no restrictions)
   - write_file        # Write file (HITL for .py files)
-  - execute_command   # Execute ANY shell command (replaces 5 tools) ⭐
+  - execute_shell     # Execute ANY shell command (replaces 5 tools) ⭐
   - execute_olav      # Test OLAV commands (convenience wrapper)
 
-tools_removed_v2_1:
-  - list_files → execute_command("find dir -name '*.py'")
-  - search_code → execute_command("grep -r 'pattern' dir")
-  - list_workspace_structure → execute_command("tree -L 2 dir")
-  - backup_config → execute_command("tar -czf backup.tar.gz .olav/")
-  - restore_config → execute_command("tar -xzf backup.tar.gz")
-
 permission_model:
-  green: [read_file, execute_command (read-only), execute_olav]
-  yellow: [write_file (for .py), execute_command (git commit/push, rm, mv)]
-  forbidden: [system account modifications, credential deletion]
+  green:
+    - read_file
+    - "execute_command (read-only)"
+    - execute_olav
+  yellow:
+    - "write_file (for .py)"
+    - "execute_command (git commit/push, rm, mv)"
+  forbidden:
+    - "system account modifications"
+    - "credential deletion"
 
 prompts:
   system: $ref:./prompts/system.md

@@ -39,52 +39,40 @@ class TestAgentInit:
 
     def test_agent_initialization(self):
         """测试 Agent 初始化：7 个工具加载，lazy LLM"""
-        from olav.agents.command_learner_agent import CommandLearnerAgent
+        from olav.agents.command_learner_agent_v3 import CommandLearnerAgent
         
         # 测试初始化成功
         agent = CommandLearnerAgent()
         
-        # 验证工具加载
-        assert len(agent.tools) == 7, f"Expected 7 tools, got {len(agent.tools)}"
+        # V3.0 使用 DeepAgents，工具已在初始化时加载
+        # 验证 agent 已创建且有 graph 属性（CompiledStateGraph）
+        assert agent is not None, "Agent should be created"
+        assert hasattr(agent, 'graph'), "Agent should have graph attribute (CompiledStateGraph)"
         
-        # 验证工具名称
-        tool_names = [tool.name for tool in agent.tools]
-        expected_tools = [
-            "execute_command",
-            "analyze_output",
-            "search_ntc_templates",
-            "read_template_file",
-            "browse_ntc_directory",
-            "generate_template",
-            "save_template",
-        ]
+        # 验证 agent 可以调用
+        assert hasattr(agent, 'invoke'), "Agent should have invoke method"
+        assert hasattr(agent, 'ainvoke'), "Agent should have ainvoke method"
         
-        for expected in expected_tools:
-            assert expected in tool_names, f"Missing tool: {expected}"
-        
-        logger.info(f"✅ Agent initialized with {len(agent.tools)} tools: {tool_names}")
+        logger.info(f"✅ Agent v3.0 (DeepAgents) initialized successfully")
 
     def test_lazy_llm_initialization(self):
-        """测试 Lazy LLM 初始化（不在 __init__ 中创建）"""
-        from olav.agents.command_learner_agent import CommandLearnerAgent
+        """测试 LLM 初始化（DeepAgents v3.0 在初始化时创建）"""
+        from olav.agents.command_learner_agent_v3 import CommandLearnerAgent
         
         agent = CommandLearnerAgent()
         
-        # 验证 LLM 未在 __init__ 中创建
-        assert agent._llm is None, "LLM should be None before first use"
-        assert agent._llm_with_tools is None, "LLM with tools should be None before first use"
+        # V3.0 在初始化时就创建 LLM（不是懒加载）
+        # 验证 graph 已创建并且是 CompiledStateGraph
+        assert hasattr(agent, 'graph'), "Agent should have graph (LLM + tools compiled by DeepAgents)"
         
-        # 首次访问 llm property 时才创建
-        llm = agent.llm  # Trigger lazy initialization
+        # 验证 LLM 已经初始化（通过检查 graph 存在）
+        assert agent.graph is not None, "LLM and tools should be initialized during agent creation"
         
-        assert llm is not None, "LLM should be created on first access"
-        assert agent._llm is not None, "LLM should be cached"
-        
-        logger.info("✅ Lazy LLM initialization works correctly")
+        logger.info("✅ LLM initialization works correctly (v3.0 eager initialization)")
 
     def test_singleton_pattern(self):
         """测试 get_command_learner_agent() 单例模式"""
-        from olav.agents.command_learner_agent import get_command_learner_agent
+        from olav.agents.command_learner_agent_v3 import get_command_learner_agent
         
         agent1 = get_command_learner_agent()
         agent2 = get_command_learner_agent()

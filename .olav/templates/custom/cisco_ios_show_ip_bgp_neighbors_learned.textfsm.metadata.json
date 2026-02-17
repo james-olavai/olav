@@ -1,0 +1,20 @@
+{
+  "command": "show ip bgp neighbors",
+  "platform": "cisco_ios",
+  "fields": [
+    "NEIGHBOR",
+    "VRF",
+    "REMOTE_AS",
+    "PEER_GROUP",
+    "REMOTE_ROUTER_ID",
+    "BGP_STATE",
+    "LOCALHOST_IP",
+    "LOCALHOST_PORT",
+    "REMOTE_IP",
+    "REMOTE_PORT",
+    "INBOUND_ROUTEMAP",
+    "OUTBOUND_ROUTEMAP"
+  ],
+  "source": "NTC templates",
+  "learned": true
+}

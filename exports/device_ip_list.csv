@@ -1,7 +1,0 @@
-hostname,ip,vendor,device_type,model,ios_version,device_role,site
-R1,192.168.100.101,,unknown,,,border,lab
-R2,192.168.100.102,,unknown,,,border,lab
-R3,192.168.100.103,,unknown,,,core,lab
-R4,192.168.100.104,,unknown,,,core,lab
-SW1,192.168.100.105,,unknown,,,access,lab
-SW2,192.168.100.106,,unknown,,,access,lab

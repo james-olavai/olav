@@ -2,14 +2,12 @@
 
 This module imports raw CLI data from exports/snapshots/{date}/raw/ and:
 1. Parses with TextFSM to extract structured data
-2. Directly stores to DuckDB tables (interfaces, routes, etc.)
-3. Falls back to raw_outputs table if no template available
+2. Directly stores to parsed_outputs table as JSON
 
-Design (v0.13.x):
-    Raw CLI output → TextFSM Parse → Vector to DB tables (direct!)
-    • show-interfaces.txt → TextFSM → interfaces table
-    • show-version.txt → TextFSM → devices table
-    Plus: parsed_outputs table for archived structured data
+Design (v2.0):
+    Raw CLI output → TextFSM Parse → parsed_outputs table (JSON)
+    • show-interfaces.txt → TextFSM → parsed_outputs (JSON)
+    • show-version.txt → TextFSM → parsed_outputs (JSON)
 
 Usage:
     from .raw_importer import import_sync_data
@@ -27,11 +25,10 @@ logger = logging.getLogger(__name__)
 
 
 def import_sync_data(sync_dir: Path) -> dict[str, int]:
-    """Import snapshot data: raw files → TextFSM parse → DB tables.
+    """Import snapshot data: raw files → TextFSM parse → parsed_outputs table.
 
-    Two-stage import:
-    Stage 1: Parse raw CLI data with TextFSM, insert directly to specific tables
-    Stage 2: Fallback - store raw text to raw_outputs for commands without templates
+    Stage 1: Parse raw CLI data with TextFSM, insert to parsed_outputs as JSON
+    Stage 2: Legacy - import pre-parsed JSON if present
 
     Args:
         sync_dir: Path to snapshot directory (e.g., exports/snapshots/2026-02-13/)
@@ -79,10 +76,9 @@ def _import_parsed_raw_data(
     raw_dir: Path, 
     snapshot_date: str,
 ) -> int:
-    """Parse raw CLI files with TextFSM and insert directly to DB tables.
+    """Parse raw CLI files with TextFSM and insert to parsed_outputs table.
     
-    This is the NEW efficient path: Raw → TextFSM → Direct to specific tables
-    (interfaces, routes, etc.) without intermediate JSON storage.
+    v2.0 simplified path: Raw → TextFSM → parsed_outputs (JSON) or topology_links
     
     Returns:
         Number of successfully parsed commands
@@ -119,7 +115,7 @@ def _import_parsed_raw_data(
                 
                 # Check parsing success (both None and empty list are failures)
                 if parsed_data and len(parsed_data) > 0:
-                    # TextFSM parsing succeeded - insert directly to typed table
+                    # TextFSM parsing succeeded - insert to parsed_outputs
                     _insert_parsed_data(
                         conn, 
                         device_name, 
@@ -130,15 +126,8 @@ def _import_parsed_raw_data(
                     parsed_count += 1
                     logger.debug(f"✓ Parsed {device_name}/{command} ({len(parsed_data)} records)")
                 else:
-                    # No template or parsing failed - store as raw text
-                    _insert_raw_output(
-                        conn,
-                        device_name,
-                        command,
-                        raw_output,
-                        snapshot_date
-                    )
-                    logger.debug(f"⚠ No template for {device_name}/{command}, stored as raw")
+                    # No template or parsing failed - skip (no raw_outputs table in v2.0)
+                    logger.debug(f"⚠ No template for {device_name}/{command}, skipped")
                     
             except Exception as e:
                 logger.warning(f"Failed to parse {device_name}/{raw_file.name}: {e}")
@@ -206,143 +195,11 @@ def _insert_parsed_data(
         _insert_parsed_output_json(conn, device_name, command, parsed_data, snapshot_date)
 
 
-def _insert_interfaces(
-    conn: duckdb.DuckDBPyConnection,
-    device_name: str,
-    parsed_data: list[dict],
-    snapshot_date: str,
-) -> None:
-    """Insert parsed interface data into interfaces table."""
-    from datetime import date
-    import datetime
-    
-    #apping TextFSM field names to table columns
-    # TextFSM fields (uppercase): INTERFACE, LINK_STATUS, PROTOCOL_STATUS, IP_ADDRESS, etc.
-    # Table columns: snapshot_date, device_name, interface_name, ip_address, admin_status, oper_status, etc.
-    
-    inserted_count = 0
-    for record in parsed_data:
-        try:
-            # Extract key fields from TextFSM output (case-insensitive check)
-            # TextFSM uses uppercase field names
-            interface = None
-            for key in record.keys():
-                if key.upper() in ("INTERFACE", "NAME", "INT", "INTF"):
-                    interface = record[key]
-                    break
-            
-            if not interface:
-                continue  # Skip records without interface name
-            
-            # Get IP address
-            ip_addr = None
-            for key in record.keys():
-                if key.upper() in ("IP_ADDRESS", "IPADDR", "IP"):
-                    ip_addr = record[key]
-                    break
-            
-            # Get admin/operational status
-            admin_status = "unknown"
-            oper_status = "unknown"
-            for key in record.keys():
-                if key.upper() == "ADMIN_STATUS":
-                    admin_status = record[key]
-                elif key.upper() in ("OPER_STATUS", "LINK_STATUS"):
-                    oper_status = record[key]
-                elif key.upper() == "PROTOCOL_STATUS":
-                    oper_status = record[key]  # Some templates use PROTOCOL_STATUS
-            
-            # Use passed snapshot_date (format: "YYYY-MM-DD") or today's date
-            try:
-                from datetime import datetime as dt
-                snap_date = dt.strptime(snapshot_date, "%Y-%m-%d").date() if snapshot_date else date.today()
-            except:
-                snap_date = date.today()
-                
-            conn.execute("""
-                INSERT INTO interfaces 
-                (snapshot_date, device_name, interface_name, ip_address, admin_status, oper_status)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, [
-                snap_date,
-                device_name,
-                str(interface),
-                str(ip_addr) if ip_addr else None,
-                str(admin_status),
-                str(oper_status),
-            ])
-            inserted_count += 1
-            print(f"  ✅ Inserted interface: {device_name}/{interface}")
-        except Exception as e:
-            print(f"  ❌ Failed to insert interface {device_name}/{record.get('INTERFACE', '?')}: {e}")
-    
-    # 🔧 Commit after all inserts for this device
-    if inserted_count > 0:
-        conn.commit()
-    
-    print(f"✅ Inserted {inserted_count} interfaces for {device_name}")
+# Note: _insert_interfaces() removed - interface data stored in parsed_outputs as JSON
+# Interface queries should use parsed_outputs table or live CLI execution
 
-
-def _insert_routes(
-    conn: duckdb.DuckDBPyConnection,
-    device_name: str,
-    parsed_data: list[dict],
-    snapshot_date: str,
-) -> None:
-    """Insert parsed route/BGP/OSPF data into routes table."""
-    from datetime import date
-    
-    for record in parsed_data:
-        try:
-            network = record.get("protocol") or record.get("network") or record.get("prefix") or ""
-            if not network:
-                continue
-                
-            conn.execute("""
-                INSERT INTO routes
-                (snapshot_date, device_name, network, protocol)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT DO NOTHING
-            """, [
-                date.today(),
-                device_name,
-                str(network),
-                record.get("protocol", "unknown"),
-            ])
-        except Exception as e:
-            logger.warning(f"Failed to insert route {device_name}/{record}: {e}")
-
-
-def _insert_devices(
-    conn: duckdb.DuckDBPyConnection,
-    device_name: str,
-    parsed_data: list[dict],
-    snapshot_date: str,
-) -> None:
-    """Insert version/device data."""
-    # This would update device metadata
-    # Usually processed separately, store to parsed_outputs for now
-    pass
-
-
-def _insert_arp_table(
-    conn: duckdb.DuckDBPyConnection,
-    device_name: str,
-    parsed_data: list[dict],
-    snapshot_date: str,
-) -> None:
-    """Insert ARP table data."""
-    logger.debug(f"ARP data stored as JSON for {device_name}")
-
-
-def _insert_vlans(
-    conn: duckdb.DuckDBPyConnection,
-    device_name: str,
-    parsed_data: list[dict],
-    snapshot_date: str,
-) -> None:
-    """Insert VLAN data (future implementation)."""
-    pass  # TODO: implement if needed
+# Note: _insert_routes(), _insert_devices(), _insert_arp_table(), _insert_vlans() removed
+# All structured data should go to parsed_outputs as JSON or specific tables like topology_links
 
 
 def _insert_topology(
@@ -533,43 +390,8 @@ def _insert_parsed_output_json(
         logger.warning(f"Failed to insert JSON for {device_name}/{command}: {e}")
 
 
-def _insert_raw_output(
-    conn: duckdb.DuckDBPyConnection,
-    device_name: str,
-    command: str,
-    raw_output: str,
-    snapshot_date: str,
-) -> None:
-    """Store raw CLI output when no template is available."""
-    try:
-        # Ensure raw_outputs table exists
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS raw_outputs (
-                device_name VARCHAR,
-                command VARCHAR,
-                output TEXT,
-                snapshot_date DATE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (device_name, command, snapshot_date)
-            )
-        """)
-        
-        conn.execute("""
-            INSERT INTO raw_outputs
-            (device_name, command, output, snapshot_date)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT DO NOTHING
-        """, [
-            device_name,
-            command,
-            raw_output,
-            snapshot_date,
-        ])
-    except Exception as e:
-        logger.warning(f"Failed to insert raw output {device_name}/{command}: {e}")
-
-
-
+# Note: _insert_raw_output() removed in v2.0 - no raw_outputs table
+# Commands without TextFSM templates are skipped
 
 
 def _import_parsed_outputs(

@@ -1,6 +1,0 @@
-Database Error: Conversion Error: Could not convert string 'R1' to INT32 when casting from source column device_id
-
-LINE 7: LEFT JOIN interfaces i ON d.device_id = i.device_id
-                                  ^
-
-Tip: Use inspect_schema() to check available tables and columns

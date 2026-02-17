@@ -181,3 +181,162 @@ class LLMFactory:
                 f"Unsupported LLM provider: {provider}. "
                 f"Supported: openai, ollama, azure, xai, anthropic, groq, mistral"
             )
+
+    @staticmethod
+    def get_embeddings(embedding_model: str | None = None, **kwargs: Any) -> Any:
+        """Create embeddings instance using configured embedding mode.
+        
+        Supports two modes with automatic fallback:
+        1. LOCAL (default, recommended):
+           - Uses sentence-transformers (free, no API key needed)
+           - Configure via EMBEDDING_LOCAL_MODEL in .env
+           - Models: all-MiniLM-L6-v2, bge-small-zh-v1.5, etc.
+        
+        2. OPENAI:
+           - Uses OpenAI API or OpenAI-compatible endpoints (cost: $$)
+           - Configure via EMBEDDING_PROVIDER, EMBEDDING_MODEL, etc.
+           - With embedding_enable_fallback=True (default): automatically fallback to local if API fails
+           - With embedding_enable_fallback=False: raise exception instead
+        
+        Fallback Behavior:
+        - If embedding_mode="openai" but API key is missing → fallback to local (if enabled)
+        - If embedding_mode="openai" and API call fails → fallback to local (if enabled)
+        - Fallback is silent (only logged as warning), ideal for resilience
+        
+        Args:
+            embedding_model: Override embedding model name (optional)
+            **kwargs: Additional embeddings parameters
+        
+        Returns:
+            Configured embeddings instance (HuggingFaceEmbeddings or OpenAIEmbeddings)
+        
+        Examples:
+            # Use local embedding (default)
+            embeddings = LLMFactory.get_embeddings()
+            
+            # Override local model
+            embeddings = LLMFactory.get_embeddings("all-MiniLM-L6-v2")
+            
+            # Use OpenAI with automatic fallback to local if API fails
+            embeddings = LLMFactory.get_embeddings()  # embedding_enable_fallback=True by default
+        """
+        mode = settings.embedding_mode.lower()
+        
+        if mode == "local":
+            # Use sentence-transformers for local embedding (no API needed)
+            try:
+                from langchain_huggingface import HuggingFaceEmbeddings
+            except ImportError:
+                logger.error(
+                    "langchain-huggingface not installed. "
+                    "Run: uv add langchain-huggingface sentence-transformers"
+                )
+                raise
+            
+            model_name = embedding_model or settings.embedding_local_model or "BAAI/bge-small-zh-v1.5"
+            
+            logger.debug(f"Creating local embeddings (sentence-transformers): model={model_name}")
+            logger.info(f"Loading embedding model: {model_name} (this may take a moment on first run)")
+            
+            config = {
+                "model_name": model_name,
+                "model_kwargs": {"device": "cpu"},  # Force CPU to avoid GPU compatibility issues
+                "encode_kwargs": {"normalize_embeddings": True},  # Normalize to unit vectors
+                **kwargs
+            }
+            
+            # Show model download progress
+            # The first time a model is loaded, it will be downloaded from HuggingFace
+            embeddings = HuggingFaceEmbeddings(**config)
+            
+            # Verify dimensions
+            test_embedding = embeddings.embed_query("test")
+            logger.info(f"Embedding dimension: {len(test_embedding)} (local mode)")
+            
+            return embeddings
+            
+        elif mode == "openai":
+            # Use OpenAI embeddings (with optional fallback to local)
+            try:
+                from langchain_openai import OpenAIEmbeddings
+            except ImportError:
+                logger.error(
+                    "langchain-openai not installed. "
+                    "Run: uv add langchain-openai"
+                )
+                raise
+            
+            provider = settings.embedding_provider or settings.llm_provider
+            api_key = settings.embedding_api_key or settings.llm_api_key
+            base_url = settings.embedding_base_url or settings.llm_base_url
+            
+            if not api_key:
+                if settings.embedding_enable_fallback:
+                    logger.warning(
+                        "No API key configured for OpenAI embeddings. "
+                        "Falling back to local embeddings (free, slower)."
+                    )
+                    # Recursive call to fall back to local mode
+                    # Temporarily override embedding_mode
+                    original_mode = settings.embedding_mode
+                    settings.embedding_mode = "local"
+                    try:
+                        return LLMFactory.get_embeddings(embedding_model=embedding_model, **kwargs)
+                    finally:
+                        settings.embedding_mode = original_mode
+                else:
+                    raise ValueError(
+                        "No API key configured for OpenAI embeddings. "
+                        "Set EMBEDDING_API_KEY (or LLM_API_KEY) in environment variable, "
+                        ".env file, or .olav/settings.json. "
+                        "Or enable fallback: embedding_enable_fallback=true"
+                    )
+            
+            model = embedding_model or settings.embedding_model or "text-embedding-3-small"
+            
+            config = {
+                "model": model,
+                "api_key": api_key,
+                **kwargs
+            }
+            
+            if base_url:
+                config["base_url"] = base_url
+                logger.debug(
+                    f"Creating OpenAI embeddings: model={model}, base_url={base_url}"
+                )
+            else:
+                logger.debug(f"Creating OpenAI embeddings: model={model}")
+            
+            try:
+                embeddings = OpenAIEmbeddings(**config)
+                # Test the API with a single embedding to detect failures early
+                test_embedding = embeddings.embed_query("test")
+                logger.info(f"Embedding dimension: {len(test_embedding)} (openai mode)")
+                return embeddings
+                
+            except Exception as e:
+                if settings.embedding_enable_fallback:
+                    logger.warning(
+                        f"OpenAI embeddings failed ({str(e)}). "
+                        f"Falling back to local embeddings (free, slower)."
+                    )
+                    # Recursive call to fall back to local mode
+                    original_mode = settings.embedding_mode
+                    settings.embedding_mode = "local"
+                    try:
+                        return LLMFactory.get_embeddings(embedding_model=embedding_model, **kwargs)
+                    finally:
+                        settings.embedding_mode = original_mode
+                else:
+                    logger.error(
+                        f"OpenAI embeddings failed and fallback disabled: {e}"
+                    )
+                    raise
+        
+        else:
+            logger.error(f"Unsupported embedding mode: {mode}")
+            raise ValueError(
+                f"Unsupported embedding mode: {mode}. "
+                f"Must be 'local' (free, recommended) or 'openai' (paid API)"
+            )

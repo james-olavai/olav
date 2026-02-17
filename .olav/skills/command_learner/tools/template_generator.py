@@ -83,7 +83,7 @@ def generate_template(
         >>> generate_template("show version", "cisco_ios", fields, output, [ntc_ref1, ntc_ref2])
         {"template": "Value VERSION (\\S+)\\n...", "filename": "cisco_ios_show_version.textfsm"}
     """
-    from config.settings import settings
+    from config.settings import settings  # 确保 .env 被加载
     from langchain_openai import ChatOpenAI
     from pathlib import Path
     
@@ -95,12 +95,18 @@ def generate_template(
     else:
         generation_prompt = prompt_path.read_text()
     
-    # Create LLM
-    llm = ChatOpenAI(
-        model=settings.llm_model_name,
-        temperature=0.2,  # Low temperature for code generation
-        timeout=120
-    )
+    # Create LLM with explicit API key from settings
+    llm_kwargs = {
+        "model": settings.llm_model_name,
+        "temperature": 0.2,  # Low temperature for code generation
+        "timeout": 120,
+    }
+    if settings.llm_api_key:
+        llm_kwargs["api_key"] = settings.llm_api_key
+    if settings.llm_base_url:
+        llm_kwargs["base_url"] = settings.llm_base_url
+    
+    llm = ChatOpenAI(**llm_kwargs)
     
     # Build user prompt
     fields_desc = "\n".join([

@@ -1,7 +1,0 @@
-device_id,name,hostname,site,classification
-R1,R1,192.168.100.101,lab,Test
-R2,R2,192.168.100.102,lab,Test
-R3,R3,192.168.100.103,lab,Test
-R4,R4,192.168.100.104,lab,Test
-SW1,SW1,192.168.100.105,lab,Test
-SW2,SW2,192.168.100.106,lab,Test

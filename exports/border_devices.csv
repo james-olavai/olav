@@ -1,3 +1,0 @@
-hostname,ip,vendor,role,site,model,ios_version,device_type,serial_number
-R1,192.168.100.101,,border,lab,,,unknown,
-R2,192.168.100.102,,border,lab,,,unknown,

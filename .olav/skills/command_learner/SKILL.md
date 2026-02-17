@@ -1,12 +1,13 @@
 ---
 name: command_learner
-version: 1.0.0
+version: 1.1.0
 author: Network AI Team
 description: Interactive command learning with automatic TextFSM template generation and user approval workflow
 type: agent
 category: command_learning
 
 prompts:
+  system: $ref:./prompts/system.md
   generation: $ref:./reference/textfsm_generation.md
   analysis: $ref:./reference/textfsm_analysis.md
 

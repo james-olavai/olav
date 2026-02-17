@@ -33,7 +33,7 @@ def analyze_output(command: str, output: str, platform: str) -> dict[str, Any]:
         >>> analyze_output("show ip bgp summary", output, "cisco_ios")
         {"fields": [{"name": "router_id", "type": "string", ...}], "coverage_estimate": 0.85}
     """
-    from config.settings import settings
+    from config.settings import settings  # 确保 .env 被加载
     from langchain_openai import ChatOpenAI
     from pathlib import Path
     
@@ -45,12 +45,18 @@ def analyze_output(command: str, output: str, platform: str) -> dict[str, Any]:
     else:
         analysis_prompt = prompt_path.read_text()
     
-    # Create LLM
-    llm = ChatOpenAI(
-        model=settings.llm_model_name,
-        temperature=0.1,  # Low temperature for analysis
-        timeout=60
-    )
+    # Create LLM with explicit API key from settings
+    llm_kwargs = {
+        "model": settings.llm_model_name,
+        "temperature": 0.1,  # Low temperature for analysis
+        "timeout": 60,
+    }
+    if settings.llm_api_key:
+        llm_kwargs["api_key"] = settings.llm_api_key
+    if settings.llm_base_url:
+        llm_kwargs["base_url"] = settings.llm_base_url
+    
+    llm = ChatOpenAI(**llm_kwargs)
     
     # Build analysis request
     user_prompt = f"""

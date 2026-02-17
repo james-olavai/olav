@@ -56,6 +56,9 @@ dependencies = [
     "langgraph-checkpoint-duckdb>=2.0.2",
     "python-frontmatter>=1.1.0",
     "pytest-timeout>=2.4.0",
+    # Knowledge Base & Document Processing
+    "PyPDF2>=3.0.0",
+    "duckduckgo-search>=3.0.0",
 ]
 
 [project.scripts]
@@ -214,3 +217,11 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "@abstractmethod",
 ]
+
+[tool.uv.workspace]
+members = [
+    "_legacy_archived/archive_v0_to_v0.11/deepagents/libs/deepagents",
+]
+
+[tool.uv.sources]
+deepagents = { workspace = true }
