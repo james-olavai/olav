@@ -130,10 +130,11 @@ if _exports_dir_env:
 else:
     EXPORTS_DIR = PROJECT_ROOT / "exports"
 
-# Snapshots: exports/snapshots/<YYYY-MM-DD>/
-# Simplified structure (removed /sync/ layer)
+# Snapshots: exports/snapshots/ (DEPRECATED - kept for backwards compatibility only)
+# NOTE: This is legacy code. Reports should go directly to exports/reports without
+# a snapshots subdirectory. Use config.paths.REPORTS_DIR instead.
 SNAPSHOTS_DIR = EXPORTS_DIR / "snapshots"
-EXPORTS_SNAPSHOTS_DIR = SNAPSHOTS_DIR  # v0.10.0: Explicit export alias for tests
+EXPORTS_SNAPSHOTS_DIR = SNAPSHOTS_DIR  # DEPRECATED: Use REPORTS_DIR instead
 # Note: SNAPSHOT_SYNC_DIR kept for backwards compatibility, maps to SNAPSHOTS_DIR
 SNAPSHOT_SYNC_DIR = SNAPSHOTS_DIR  # Alias - sync is implied
 

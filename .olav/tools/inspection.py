@@ -46,7 +46,9 @@ PROJECT_ROOT = _find_project_root()
 OLAV_DIR = PROJECT_ROOT / ".olav"
 LOGS_DIR = OLAV_DIR / "logs"
 WORKFLOWS_DIR = OLAV_DIR / "workflows"
-REPORTS_DIR = PROJECT_ROOT / "exports" / "reports" / "snapshots"
+# FIXED: Changed from "exports/reports/snapshots" to "exports/reports"
+# Snapshots subdirectory was redundant and unused (no snapshot versioning needed)
+REPORTS_DIR = PROJECT_ROOT / "exports" / "reports"
 
 # Ensure directories exist
 LOGS_DIR.mkdir(parents=True, exist_ok=True)

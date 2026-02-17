@@ -1,7 +1,0 @@
-device_id,name,hostname,platform,mgmt_ip,device_type,device_role,site,location,vendor,model,site_id,created_at,updated_at,is_active
-R1,R1,192.168.100.101,cisco_ios,192.168.100.101,Unknown,border,lab,,,,,2026-02-09 15:18:50.031685,2026-02-09 15:18:50.031685,True
-R2,R2,192.168.100.102,cisco_ios,192.168.100.102,Unknown,border,lab,,,,,2026-02-09 15:18:50.040660,2026-02-09 15:18:50.040660,True
-R3,R3,192.168.100.103,cisco_ios,192.168.100.103,Unknown,core,lab,,,,,2026-02-09 15:18:50.050019,2026-02-09 15:18:50.050019,True
-R4,R4,192.168.100.104,cisco_ios,192.168.100.104,Unknown,core,lab,,,,,2026-02-09 15:18:50.058536,2026-02-09 15:18:50.058536,True
-SW1,SW1,192.168.100.105,cisco_ios,192.168.100.105,Unknown,access,lab,,,,,2026-02-09 15:18:50.066252,2026-02-09 15:18:50.066252,True
-SW2,SW2,192.168.100.106,cisco_ios,192.168.100.106,Unknown,access,lab,,,,,2026-02-09 15:18:50.073679,2026-02-09 15:18:50.073679,True

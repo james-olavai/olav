@@ -108,7 +108,7 @@ class TaskSchedulerSettings(BaseSettings):
     )
     
     report_dir: str = Field(
-        default="exports/reports/snapshots",
+        default="exports/reports",  # FIXED: Changed from exports/reports/snapshots (removed redundant snapshots subdir)
         description="Report directory for task outputs"
     )
     

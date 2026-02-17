@@ -150,45 +150,6 @@ class DataGateway:
         finally:
             conn.close()
 
-    def log_command(
-        self, skill: str, device: str, command: str, status: str, error: str | None = None
-    ) -> None:
-        """记录命令执行审计 (写入) - 使用 UNIFIED_DB (v0.10.1)
-
-        Args:
-            skill: Skill 名称 (e.g., 'network-query')
-            device: 设备名称
-            command: 执行的命令
-            status: 'success', 'failed', 'blocked'
-            error: 错误信息 (可选)
-
-        NOTE (v0.10.1): Audit logs now in UNIFIED_DB instead of separate audit_logs.duckdb
-        """
-        from config.paths import UNIFIED_DB
-
-        conn = duckdb.connect(str(UNIFIED_DB))
-        try:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS command_audit (
-                    id UUID PRIMARY KEY DEFAULT uuid(),
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    skill TEXT,
-                    device TEXT,
-                    command TEXT,
-                    status TEXT,
-                    error TEXT
-                )
-            """)
-            conn.execute(
-                """
-                INSERT INTO command_audit (skill, device, command, status, error)
-                VALUES (?, ?, ?, ?, ?)
-            """,
-                [skill, device, command, status, error],
-            )
-        finally:
-            conn.close()
-
     # ==================== Skill 私有数据 API ====================
 
     def query_skill_memory(
@@ -525,31 +486,25 @@ def get_connection(db_path: str | None = None):
 
 
 def _create_unified_connection() -> duckdb.DuckDBPyConnection:
-    """Create or reuse a read-only connection to the unified database (v0.10.1).
+    """Create a fresh read-only connection to the unified database (v0.10.1).
 
     v0.10.1 Architecture: All data (devices, raw_outputs, audit, knowledge) 
     is now consolidated into a single UNIFIED_DB (olav.duckdb).
     
-    Uses a global thread-safe connection to avoid DuckDB's restriction on
-    multiple connections with different configurations to the same file.
+    ⚠️  CRITICAL: Do NOT persist global connection!
+    DuckDB allows only one connection per file configuration.
+    Each query creates fresh connection to avoid conflicts.
     """
-    global _global_conn
-    
     from config.paths import UNIFIED_DB
 
-    with _conn_lock:
-        # Reuse global connection if available
-        if _global_conn is not None:
-            return _global_conn
-        
-        # Create new global connection
-        try:
-            _global_conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
-            logger.debug(f"Created global read-only connection to: {UNIFIED_DB}")
-            return _global_conn
-        except Exception as e:
-            logger.error(f"Failed to create unified connection: {e}")
-            raise
+    try:
+        # Always create fresh connection to avoid configuration conflicts
+        conn = duckdb.connect(str(UNIFIED_DB), read_only=True)
+        logger.debug(f"Created fresh read-only connection to: {UNIFIED_DB}")
+        return conn
+    except Exception as e:
+        logger.error(f"Failed to create unified connection: {e}")
+        raise
 
 
 def query_database(sql: str, params: list[Any] | None = None, db_path: str | None = None) -> list[dict[str, Any]]:
@@ -619,9 +574,8 @@ def query_database(sql: str, params: list[Any] | None = None, db_path: str | Non
             return results
 
         finally:
-            # Only close non-global connections (global connection is reused)
-            if db_path is not None:
-                conn.close()
+            # Always close connection (no global reuse)
+            conn.close()
 
     except Exception as e:
         logger.error(f"Database query failed: {e}", exc_info=True)
@@ -632,18 +586,20 @@ def query_database(sql: str, params: list[Any] | None = None, db_path: str | Non
             # Try to list available tables from unified connection
             try:
                 diag_conn = _create_unified_connection()
-                available_tables = diag_conn.execute(
-                    "SELECT table_name FROM information_schema.tables "
-                    "WHERE table_schema = 'main' ORDER BY table_name"
-                ).fetchall()
-                # Note: don't close diag_conn - it's a global reused connection
+                try:
+                    available_tables = diag_conn.execute(
+                        "SELECT table_name FROM information_schema.tables "
+                        "WHERE table_schema = 'main' ORDER BY table_name"
+                    ).fetchall()
 
-                table_list = ", ".join([t[0] for t in available_tables])
-                raise RuntimeError(
-                    f"Query failed: {error_msg}. "
-                    f"Available tables: {table_list}. "
-                    f"Use inspect_schema() to check table columns."
-                ) from e
+                    table_list = ", ".join([t[0] for t in available_tables])
+                    raise RuntimeError(
+                        f"Query failed: {error_msg}. "
+                        f"Available tables: {table_list}. "
+                        f"Use inspect_schema() to check table columns."
+                    ) from e
+                finally:
+                    diag_conn.close()
             except RuntimeError:
                 raise
             except Exception:

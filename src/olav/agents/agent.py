@@ -82,7 +82,14 @@ class OLAVAgent:
         self.graph = self._build_graph()
 
     def _load_tools(self) -> list:
-        """Load tools from .olav/tools/."""
+        """Load tools from .olav/tools/ with improved clarity and error handling.
+        
+        Tools are loaded dynamically from individual modules (database, network, inspection).
+        Each tool must be decorated with @tool from langchain_core.tools.
+        
+        Returns:
+            List of available LangChain tools
+        """
         tools = []
         tools_path = self.olav_base_path / "tools"
 
@@ -90,44 +97,54 @@ class OLAVAgent:
             logger.warning(f"Tools directory not found: {tools_path}")
             return tools
 
-        try:
-            import importlib.util
-            import sys
+        import sys
+        sys.path.insert(0, str(tools_path))
 
-            # Add tools directory to path for imports
-            sys.path.insert(0, str(tools_path))
+        # Define tools with module and function names for clarity
+        # Format: (tool_name, module_name)
+        tool_specs = [
+            ("execute_sql", "database"),
+            ("execute_cli", "network"),
+            ("list_devices_inventory", "network"),
+            ("manage_inspection_schedule", "inspection"),
+        ]
 
-            # Load database tools
-            spec_db = importlib.util.spec_from_file_location("database", tools_path / "database.py")
-            if spec_db and spec_db.loader:
-                database = importlib.util.module_from_spec(spec_db)
-                spec_db.loader.exec_module(database)
-                if hasattr(database, "execute_sql"):
-                    tools.append(database.execute_sql)
+        for tool_name, module_name in tool_specs:
+            try:
+                # Direct import is simpler and clearer than dynamic spec loading
+                module = __import__(module_name)
+                if hasattr(module, tool_name):
+                    tool = getattr(module, tool_name)
+                    tools.append(tool)
+                    logger.debug(f"✓ Loaded tool: {tool_name} from {module_name}")
+                else:
+                    logger.warning(f"✗ Tool '{tool_name}' not found in module '{module_name}'")
+            except ImportError as e:
+                logger.warning(f"✗ Failed to import module '{module_name}': {e}")
+            except Exception as e:
+                logger.error(f"✗ Error loading tool '{tool_name}': {e}")
 
-            # Load network tools
-            spec_net = importlib.util.spec_from_file_location("network", tools_path / "network.py")
-            if spec_net and spec_net.loader:
-                network = importlib.util.module_from_spec(spec_net)
-                spec_net.loader.exec_module(network)
-                if hasattr(network, "execute_cli"):
-                    tools.append(network.execute_cli)
-                if hasattr(network, "list_devices_inventory"):
-                    tools.append(network.list_devices_inventory)
-
-            # Load inspection tools (optional)
-            spec_insp = importlib.util.spec_from_file_location("inspection", tools_path / "inspection.py")
-            if spec_insp and spec_insp.loader:
-                inspection = importlib.util.module_from_spec(spec_insp)
-                spec_insp.loader.exec_module(inspection)
-                if hasattr(inspection, "manage_inspection_schedule"):
-                    tools.append(inspection.manage_inspection_schedule)
-
-            logger.info(f"Loaded {len(tools)} tools from {tools_path}")
-        except Exception as e:
-            logger.warning(f"Failed to load tools: {e}")
-
+        logger.info(f"✓ Loaded {len(tools)} tools from {tools_path}")
         return tools
+
+    def _get_system_prompt(self) -> str:
+        """Load system prompt from shared skill configuration.
+        
+        Returns:
+            System prompt text from .olav/skills/shared/prompts/system.md,
+            or a minimal fallback if file doesn't exist.
+        """
+        shared_prompt_path = self.olav_base_path / "skills" / "shared" / "prompts" / "system.md"
+        
+        if shared_prompt_path.exists():
+            try:
+                return shared_prompt_path.read_text(encoding="utf-8")
+            except Exception as e:
+                logger.warning(f"Failed to read shared prompt: {e}")
+        
+        # Minimal fallback - only for edge cases
+        return """You are OLAV, an intelligent network operations assistant.
+Use available tools to help with network queries and operations."""
 
     def _load_skills(self) -> dict:
         """Load and parse skills from .olav/skills/."""
@@ -271,37 +288,33 @@ class OLAVAgent:
             return workflow.compile()
 
     def _build_system_prompt(self) -> str:
-        """Build system prompt with context about available tools and skills."""
+        """Build system prompt with context about available tools and skills.
+        
+        Loads base prompt from shared skill and injects dynamic tool/skill context.
+        """
+        # Get base prompt from shared skill
+        base_prompt = self._get_system_prompt()
+        
+        # Add dynamic tool context
         tool_descriptions = "\n".join([
-            f"- {tool.name}: {tool.description or 'Tool'}"
+            f"- **{tool.name}**: {tool.description or 'Tool'}"
             for tool in self.tools
         ])
+        
+        # Add skill context if available
+        skill_names = ", ".join(self.skills.keys()) if self.skills else "None"
+        
+        # Inject dynamic context
+        context_section = f"""
+## Runtime Context
 
-        skill_context = ""
-        if self.skills:
-            skill_names = ", ".join(self.skills.keys())
-            skill_context = f"\n\nAvailable Skills: {skill_names}\n"
-            skill_context += "Refer to applicable skills for domain-specific instructions."
-
-        prompt = f"""You are OLAV (Open network Learning and Analytics Vector), 
-an intelligent network operations assistant powered by advanced AI.
-
-Available Tools:
+**Available Tools**:
 {tool_descriptions}
 
-{skill_context}
-
-Guidelines:
-1. For SQL queries, use execute_sql tool with natural language query first
-2. For CLI commands, use execute_cli tool with device name and command
-3. For inventory queries, use list_devices_inventory tool
-4. Combine multiple tools when needed for comprehensive analysis
-5. Always explain your reasoning before executing tools
-6. If data is insufficient, ask clarifying questions
-
-Respond in a clear, structured format."""
-
-        return prompt
+**Loaded Skills**: {skill_names}
+"""
+        
+        return base_prompt + context_section
 
     async def invoke(self, query: str, thread_id: str | None = None) -> dict:
         """Invoke the agent with a query.

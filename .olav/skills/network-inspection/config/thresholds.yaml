@@ -1,101 +1,55 @@
-auto_learning: true
-version: '2.0'
-last_updated: '2026-01-29T12:00:00+11:00'
+# Network Inspection Thresholds
+# ================================
+# 此文件由Agent首次运行时自动生成
+# 用户可以手动修改阈值，Agent会自动应用
+#
+# 生成时间: 2026-02-17T14:51:11.872612
+# 版本: 3.0.0
 
-# 全局默认配置
+version: 3.0.0
+auto_generated: true
+last_updated: '2026-02-17T14:51:11.872475'
 defaults:
-  learning_window_days: 30
-  confidence_level: 0.95
-  min_samples: 50
-  strategy: statistical
-  
-  statistical:
-    warning_sigma: 2.0
-    critical_sigma: 3.0
-  
-  percentile:
-    warning_percentile: 95
-    critical_percentile: 99
-
-# 指标特定配置
-metrics:
-  # CPU 性能指标
+  performance:
+    warning: 70
+    critical: 90
+  errors:
+    warning: 1
+    critical: 10
+  count_tolerance:
+    warning: 10
+    critical: 30
+inspection_items:
   cpu_utilization:
+    warning: 70
+    critical: 90
     unit: percent
-    strategy: statistical
-    warning_sigma: 2.0
-    critical_sigma: 3.5
-  
-  cpu_1min:
-    unit: percent
-    strategy: statistical
-    warning_sigma: 2.0
-    critical_sigma: 3.0
-  
-  cpu_5min:
-    unit: percent
-    strategy: statistical
-    warning_sigma: 1.5
-    critical_sigma: 2.5
-  
-  # 内存性能指标
   memory_utilization:
+    warning: 70
+    critical: 90
     unit: percent
-    strategy: statistical
-    warning_sigma: 1.5
-    critical_sigma: 2.5
-  
-  # 接口错误 (固定阈值)
-  in_errors:
-    strategy: fixed
-    warning: 1
-    critical: 10
-  
-  out_errors:
-    strategy: fixed
-    warning: 1
-    critical: 10
-  
-  crc_errors:
-    strategy: fixed
-    warning: 1
-    critical: 5
-  
-  # 接口状态 (期望值)
-  status:
-    strategy: fixed
-    expected: up
-  
-  protocol_status:
-    strategy: fixed
-    expected: up
-  
-  # OSPF 状态 (包含匹配)
-  ospf_state:
-    strategy: fixed
-    expected: FULL
-    match_mode: contains  # FULL/DR, FULL/BDR 都是正常状态
-  
-  # 路由计数 (统计型)
-  route_count:
-    unit: count
-    strategy: statistical
-    warning_sigma: 2.0
-    critical_sigma: 3.0
-  
-  # 邻居计数
-  neighbor_count:
-    unit: count
-    strategy: fixed
-    tolerance: 0  # 任何变化都告警
-
-# 自动学习的阈值 (由 Threshold Agent 维护)
-learned_thresholds: {}
-
-# 设备特定配置 (手动覆盖)
+  interface_status:
+    expected:
+      status: up
+      protocol: up
+  interface_errors:
+    in_errors:
+      warning: 1
+      critical: 10
+    out_errors:
+      warning: 1
+      critical: 10
+    crc_errors:
+      warning: 0
+      critical: 5
+  neighbor_discovery:
+    expected:
+      state: Established
+  ospf_neighbors:
+    expected:
+      state: FULL
+  bgp_neighbors:
+    expected:
+      state: Established
 devices: {}
-
-# 误报抑制
-suppression:
-  maintenance_windows: []
-  known_anomalies: []
+maintenance_windows: []

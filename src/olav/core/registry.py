@@ -27,8 +27,13 @@ class CommandRegistry:
         """Get all registered commands."""
         return self._commands.copy()
     
-    def validate_command(self, command: str) -> bool:
-        """Validate if a command is registered (stub for v2.0)."""
+    def validate_command(self, *args) -> bool:
+        """Validate if a command is registered (stub for v2.0).
+        
+        Accepts both signatures for backward compatibility:
+        - validate_command(command)
+        - validate_command(platform, command)
+        """
         # In v2.0, validation is done by the LLM agent
         return True
 

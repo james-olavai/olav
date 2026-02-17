@@ -21,7 +21,7 @@ from langchain_core.tools import tool
 
 
 @tool
-def execute_command(command: str, timeout: int = 60, cwd: str | None = None) -> dict[str, Any]:
+def execute_shell(command: str, timeout: int = 60, cwd: str | None = None) -> dict[str, Any]:
     """Execute ANY shell command (replaces 5 tools: list_files, search_code, git, backup, python).
     
     This is the power tool that enables flexibility without specialized wrappers.
@@ -52,26 +52,26 @@ def execute_command(command: str, timeout: int = 60, cwd: str | None = None) -> 
     
     Examples:
         # List Python files
-        execute_command("find .olav/skills -name '*.py' -type f")
+        execute_shell("find .olav/skills -name '*.py' -type f")
         
         # Search code
-        execute_command("grep -r 'execute_sql' .olav/skills/")
+        execute_shell("grep -r 'execute_sql' .olav/skills/")
         
         # Git operations
-        execute_command("git add .olav/skills/monitoring/")
-        execute_command("git commit -m 'Add monitoring skill'")
+        execute_shell("git add .olav/skills/monitoring/")
+        execute_shell("git commit -m 'Add monitoring skill'")
         
         # Backup
-        execute_command("tar -czf backup_$(date +%Y%m%d).tar.gz .olav/")
+        execute_shell("tar -czf backup_$(date +%Y%m%d).tar.gz .olav/")
         
         # Execute Python script
-        execute_command("python3 .olav/tools/database.py")
+        execute_shell("python3 .olav/tools/database.py")
         
         # Directory tree
-        execute_command("tree -L 2 .olav/skills")
+        execute_shell("tree -L 2 .olav/skills")
         
         # Line count
-        execute_command("find .olav -name '*.py' | xargs wc -l")
+        execute_shell("find .olav -name '*.py' | xargs wc -l")
     """
     # Parse command (security: prevent shell injection)
     try:
