@@ -1152,6 +1152,13 @@ def main() -> None:
     # P1: Lazy-load SkillConfig to improve startup time (moved to first use)
     # SkillConfig will be initialized when first needed by agents
     # This reduces startup time from ~5s to ~1-2s
+    
+    # Add task management subcommand
+    try:
+        from olav.cli.task_manager import get_task_app
+        app.add_typer(get_task_app(), name="task", help="Manage periodic inspection tasks")
+    except Exception as e:
+        logger.debug(f"Task manager not available: {e}")
 
     try:
         app()

@@ -49,6 +49,11 @@ async def admin_handler(command: str) -> dict:
         "skill-list": _fast_skill_list,
         "reload-commands": _fast_reload,  # Hot-reload templates and commands
         "reload": _fast_reload,  # Alias
+        # Knowledge Base Management (NEW - Phase 3)
+        "kb-status": _kb_status,
+        "kb-index": _kb_index,
+        "kb-search": _kb_search,
+        "kb-reload": _kb_reload,
     }
 
     if cmd_name in fast_commands:
@@ -64,7 +69,7 @@ async def admin_handler(command: str) -> dict:
     #   /admin "search for execute_sql usage"
     #   /admin "backup and test new feature"
     try:
-        from olav.agents.admin_agent import AdminAgent
+        from olav.agents.admin_agent_v3 import AdminAgent
         
         agent = AdminAgent()
         
@@ -288,6 +293,178 @@ async def _fast_reload(args: str) -> dict:
     except Exception as e:
         logger.error(f"Reload failed: {e}", exc_info=True)
         return {"status": "error", "message": f"Reload failed: {e}"}
+
+
+# ============================================================================
+# Knowledge Base Management (Phase 3)
+# ============================================================================
+
+async def _kb_status(args: str) -> dict:
+    """Get knowledge base statistics and status."""
+    try:
+        from src.olav.lib.kb_manager import KnowledgeBaseManager
+        
+        manager = KnowledgeBaseManager()
+        status = manager.get_status()
+        
+        message = "📚 Knowledge Base Status\n"
+        message += f"  Directory: {status['knowledge_dir']}\n"
+        message += f"  Files: {status['file_count']}\n"
+        message += f"  Chunks: {status['total_chunks']}\n"
+        message += f"  Indexed: {status['indexed_chunks']} ({status['indexed_percentage']:.1f}%)\n"
+        
+        return {
+            "status": "success",
+            "message": message,
+            "statistics": status
+        }
+    except Exception as e:
+        logger.error(f"KB status failed: {e}")
+        return {"status": "error", "message": f"KB status failed: {e}"}
+
+
+async def _kb_index(args: str) -> dict:
+    """Index knowledge files. Usage: /admin kb-index or /admin kb-index rebuild"""
+    try:
+        from src.olav.lib.kb_manager import reload_knowledge_base
+        
+        rebuild = "rebuild" in args.lower() or "force" in args.lower()
+        
+        message = "🔍 Indexing knowledge base...\n"
+        
+        result = reload_knowledge_base(force=rebuild, incremental=not rebuild)
+        
+        if result['success']:
+            stats = result['stats']
+            message += f"✅ Indexed {stats['total_indexed']} chunks\n"
+            message += f"   Files: {stats['files_processed']}\n"
+            if rebuild:
+                message += f"   Rebuild: All files reindexed\n"
+            else:
+                message += f"   Skipped: {stats.get('files_skipped', 0)} (unchanged)\n"
+                message += f"   Modified: {stats.get('files_modified', 0)}\n"
+        else:
+            message += f"❌ Error: {result.get('error', 'Unknown')}\n"
+        
+        return {
+            "status": "success" if result['success'] else "error",
+            "message": message,
+            "result": result
+        }
+    except ValueError as e:
+        if "LLM_API_KEY" in str(e) or "api_key" in str(e):
+            return {
+                "status": "error",
+                "message": "❌ LLM API key not configured. Set LLM_API_KEY environment variable or in settings.json"
+            }
+        raise
+    except Exception as e:
+        logger.error(f"KB index failed: {e}")
+        return {"status": "error", "message": f"KB index failed: {e}"}
+
+
+async def _kb_search(args: str) -> dict:
+    """Search knowledge base. Usage: /admin kb-search 'your query'"""
+    try:
+        if not args or args.strip() in ['--help', '-h', '?']:
+            return {
+                "status": "error",
+                "message": "Usage: /admin kb-search 'search query'\nExample: /admin kb-search 'BGP troubleshooting'"
+            }
+        
+        query = args.strip().strip("'\"")
+        limit = 3
+        message = f"🔍 Search results for: '{query}'\n\n"
+        
+        try:
+            from langchain_community.vectorstores import DuckDB
+            from config.paths import MAIN_DB_PATH
+            from olav.core.llm import LLMFactory
+            from pathlib import Path
+            import duckdb
+            
+            # Check if database exists
+            db_path = Path(MAIN_DB_PATH)
+            if not db_path.exists():
+                return {
+                    "status": "error",
+                    "message": f"❌ Knowledge base database not found. Run: olav admin kb-index"
+                }
+            
+            # Use LLMFactory for unified provider support (local/openai/other)
+            embeddings = LLMFactory.get_embeddings()
+            
+            # Create persistent connection for vectorstore
+            db_conn = duckdb.connect(str(db_path), read_only=False)
+            vectorstore = DuckDB(
+                connection=db_conn,
+                embedding=embeddings,
+                table_name="knowledge_chunks"
+            )
+            
+            # Perform search
+            results = vectorstore.similarity_search(query, k=limit)
+            
+            if not results:
+                message += "⚠️  No relevant results found"
+            else:
+                for i, doc in enumerate(results, 1):
+                    source = doc.metadata.get('source_file', 'Unknown')
+                    content = doc.page_content[:150]
+                    
+                    message += f"[{i}] - {source}\n"
+                    message += f"    {content}...\n\n"
+            
+            db_conn.close()
+            
+            return {
+                "status": "success",
+                "message": message,
+                "results": len(results) if results else 0
+            }
+        
+        except ImportError as e:
+            return {
+                "status": "error",
+                "message": f"❌ Missing dependency: {str(e)}"
+            }
+    
+    except Exception as e:
+        logger.error(f"KB search failed: {e}", exc_info=True)
+        return {"status": "error", "message": f"KB search failed: {str(e)}"}
+
+
+async def _kb_reload(args: str) -> dict:
+    """Reload knowledge base (rebuild all indexes). Usage: /admin kb-reload"""
+    try:
+        from src.olav.lib.kb_manager import reload_knowledge_base
+        
+        message = "🔄 Reloading knowledge base...\n"
+        
+        result = reload_knowledge_base(force=True, incremental=False)
+        
+        if result['success']:
+            stats = result['stats']
+            message += f"✅ Reloaded {stats['total_indexed']} chunks\n"
+            message += f"   Files: {stats['files_processed']}\n"
+        else:
+            message += f"❌ Error: {result.get('error', 'Unknown')}\n"
+        
+        return {
+            "status": "success" if result['success'] else "error",
+            "message": message,
+            "result": result
+        }
+    except ValueError as e:
+        if "api_key" in str(e).lower():
+            return {
+                "status": "error",
+                "message": "❌ LLM API key not configured"
+            }
+        raise
+    except Exception as e:
+        logger.error(f"KB reload failed: {e}")
+        return {"status": "error", "message": f"KB reload failed: {e}"}
 
 
 if __name__ == "__main__":

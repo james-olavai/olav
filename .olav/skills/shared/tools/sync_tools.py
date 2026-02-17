@@ -685,12 +685,6 @@ def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> None:
         # 2. Generate summary reports
         # (Parsed data is no longer stored separately, only raw data)
 
-        # Import data to DuckDB (v0.9.3: raw_outputs + command_outputs)
-        from .raw_importer import import_sync_data
-
-        result = import_sync_data(sync_dir)
-        logger.debug(f"Stage 2 import results: {result}")
-
         # Generate summary reports (delegated to report_formatter)
         from .report_formatter import generate_network_operations_report
 

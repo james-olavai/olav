@@ -1,7 +1,0 @@
-hostname,ip,vendor,model,os_version,site,device_type,device_role
-R1,192.168.100.101,,,,lab,unknown,border
-R2,192.168.100.102,,,,lab,unknown,border
-R3,192.168.100.103,,,,lab,unknown,core
-R4,192.168.100.104,,,,lab,unknown,core
-SW1,192.168.100.105,,,,lab,unknown,access
-SW2,192.168.100.106,,,,lab,unknown,access

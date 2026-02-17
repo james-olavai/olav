@@ -1,0 +1,362 @@
+# Network Inspection Intents Configuration
+# =========================================
+# 用户定义"要检查什么"，系统自动找命令
+#
+# 架构原则：
+# 1. 用户声明意图（intent）："我想检查CPU"
+# 2. Agent根据设备平台（cisco_ios/juniper等）
+# 3. 从NTC templates数据库查找最佳命令
+# 4. 无需硬编码命令，支持多平台
+
+version: "3.0.0"
+last_updated: "2026-02-17"
+description: "Intent-based inspection configuration - no hardcoded commands"
+
+# ========================================================================
+# Inspection Intents (用户定义要检查什么)
+# ========================================================================
+
+intents:
+  # === L1 - Physical Layer ===
+  device_info:
+    description: "设备型号、版本、序列号"
+    layer: "L1"
+    category: "device-info"
+    keywords: ["version", "inventory", "hardware"]
+    required_fields:
+      - vendor
+      - model
+      - version
+      - serial
+    optional_fields:
+      - uptime
+      - image_file
+      - config_register
+    importance: "critical"
+    
+  cpu_utilization:
+    description: "CPU利用率和进程信息"
+    layer: "L1"
+    category: "performance"
+    keywords: ["cpu", "processes", "processor"]
+    required_fields:
+      - cpu_percent
+      - cpu_5sec
+      - cpu_1min
+      - cpu_5min
+    optional_fields:
+      - process_name
+      - process_cpu
+    thresholds:
+      warning: 70
+      critical: 90
+    importance: "high"
+    
+  memory_utilization:
+    description: "内存使用率"
+    layer: "L1"
+    category: "performance"
+    keywords: ["memory", "mem"]
+    required_fields:
+      - total_memory
+      - used_memory
+      - free_memory
+      - memory_percent
+    thresholds:
+      warning: 80
+      critical: 95
+    importance: "high"
+    
+  environment_status:
+    description: "环境状态（温度、风扇、电源）"
+    layer: "L1"
+    category: "environment"
+    keywords: ["environment", "temperature", "fan", "power"]
+    required_fields:
+      - component_name
+      - status
+    optional_fields:
+      - temperature
+      - fan_speed
+    importance: "medium"
+  
+  # === L2 - Data Link Layer ===
+  interface_status:
+    description: "接口状态和统计"
+    layer: "L2"
+    category: "connectivity"
+    keywords: ["interface", "port", "link"]
+    required_fields:
+      - interface
+      - status
+      - protocol
+    optional_fields:
+      - speed
+      - duplex
+      - mtu
+      - description
+      - vlan
+      - input_errors
+      - output_errors
+    importance: "critical"
+    
+  interface_errors:
+    description: "接口错误统计"
+    layer: "L2"
+    category: "errors"
+    keywords: ["errors", "crc", "drops"]
+    required_fields:
+      - interface
+      - input_errors
+      - output_errors
+      - crc_errors
+    importance: "high"
+    
+  neighbor_discovery:
+    description: "邻居发现（CDP/LLDP）"
+    layer: "L2"
+    category: "topology"
+    keywords: ["cdp", "lldp", "neighbor"]
+    required_fields:
+      - local_interface
+      - neighbor_device
+      - neighbor_interface
+    optional_fields:
+      - platform
+      - capabilities
+    importance: "medium"
+    
+  mac_address_table:
+    description: "MAC地址表"
+    layer: "L2"
+    category: "switching"
+    keywords: ["mac", "address-table", "cam"]
+    required_fields:
+      - vlan
+      - mac_address
+      - interface
+    importance: "low"
+    
+  # === L3 - Network Layer ===
+  routing_table:
+    description: "路由表"
+    layer: "L3"
+    category: "routing"
+    keywords: ["route", "routing-table"]
+    required_fields:
+      - network
+      - mask
+      - next_hop
+      - interface
+    optional_fields:
+      - protocol
+      - metric
+      - administrative_distance
+    importance: "high"
+    
+  ospf_neighbors:
+    description: "OSPF邻居状态"
+    layer: "L3"
+    category: "routing"
+    keywords: ["ospf", "neighbor"]
+    required_fields:
+      - neighbor_id
+      - state
+      - interface
+    optional_fields:
+      - priority
+      - dead_time
+    importance: "high"
+    
+  bgp_neighbors:
+    description: "BGP邻居状态"
+    layer: "L3"
+    category: "routing"
+    keywords: ["bgp", "neighbor", "peer"]
+    required_fields:
+      - neighbor
+      - as_number
+      - state
+      - prefixes_received
+    importance: "high"
+    
+  eigrp_neighbors:
+    description: "EIGRP邻居状态"
+    layer: "L3"
+    category: "routing"
+    keywords: ["eigrp", "neighbor"]
+    required_fields:
+      - neighbor
+      - interface
+      - uptime
+    importance: "medium"
+    
+  arp_table:
+    description: "ARP表"
+    layer: "L3"
+    category: "addressing"
+    keywords: ["arp"]
+    required_fields:
+      - ip_address
+      - mac_address
+      - interface
+    importance: "low"
+    
+  # === L4 - Transport Layer ===
+  tcp_connections:
+    description: "TCP连接状态"
+    layer: "L4"
+    category: "transport"
+    keywords: ["tcp"]
+    required_fields:
+      - local_address
+      - remote_address
+      - state
+    importance: "low"
+    
+  # === L7 - Application Layer ===
+  aaa_servers:
+    description: "AAA服务器状态"
+    layer: "L7"
+    category: "security"
+    keywords: ["aaa", "tacacs", "radius"]
+    required_fields:
+      - server
+      - status
+    importance: "medium"
+    
+  ntp_status:
+    description: "NTP时钟同步"
+    layer: "L7"
+    category: "services"
+    keywords: ["ntp"]
+    required_fields:
+      - server
+      - offset
+      - stratum
+    importance: "medium"
+    
+  logging_status:
+    description: "日志配置和状态"
+    layer: "L7"
+    category: "logging"
+    keywords: ["logging", "syslog"]
+    required_fields:
+      - buffer_size
+      - logging_enabled
+    importance: "low"
+
+# ========================================================================
+# Inspection Templates (组合多个intents)
+# ========================================================================
+
+templates:
+  quick:
+    description: "快速健康检查"  
+    estimated_time: "< 1 minute"
+    intents:
+      - device_info
+      - cpu_utilization
+      - interface_status
+      - ospf_neighbors
+      - bgp_neighbors
+      
+  basic:
+    description: "基础检查 (L1-L3)"
+    estimated_time: "2-3 minutes"
+    intents:
+      - device_info
+      - cpu_utilization
+      - memory_utilization
+      - interface_status
+      - routing_table
+      - ospf_neighbors
+      - bgp_neighbors
+      
+  standard:
+    description: "标准检查 (L1-L4 + 错误检测)"
+    estimated_time: "5-8 minutes"
+    intents:
+      - device_info
+      - cpu_utilization
+      - memory_utilization
+      - environment_status
+      - interface_status
+      - interface_errors
+      - neighbor_discovery
+      - routing_table
+      - ospf_neighbors
+      - bgp_neighbors
+      - arp_table
+      
+  full:
+    description: "完整诊断 (L1-L7全覆盖)"
+    estimated_time: "15-20 minutes"
+    intents:
+      - device_info
+      - cpu_utilization
+      - memory_utilization
+      - environment_status
+      - interface_status
+      - interface_errors
+      - neighbor_discovery
+      - mac_address_table
+      - routing_table
+      - ospf_neighbors
+      - bgp_neighbors
+      - eigrp_neighbors
+      - arp_table
+      - tcp_connections
+      - aaa_servers
+      - ntp_status
+      - logging_status
+      
+  security:
+    description: "安全合规检查"
+    estimated_time: "8-10 minutes"
+    intents:
+      - device_info
+      - aaa_servers
+      - logging_status
+      
+  performance:
+    description: "性能基准测试"
+    estimated_time: "3-5 minutes"
+    intents:
+      - cpu_utilization
+      - memory_utilization
+      - interface_status
+      - interface_errors
+
+# ========================================================================
+# Platform-Specific Command Hints (可选，用于fallback)
+# ========================================================================
+# 如果NTC数据库中没有找到，使用这些fallback命令
+
+platform_fallbacks:
+  cisco_ios:
+    device_info: ["show version", "show inventory"]
+    cpu_utilization: ["show processes cpu", "show cpu"]
+    memory_utilization: ["show processes memory", "show memory"]
+    interface_status: ["show interfaces", "show interfaces status"]
+    routing_table: ["show ip route"]
+    ospf_neighbors: ["show ip ospf neighbor"]
+    bgp_neighbors: ["show ip bgp summary"]
+    
+  cisco_nxos:
+    device_info: ["show version", "show inventory"]
+    cpu_utilization: ["show processes cpu"]
+    memory_utilization: ["show processes memory"]
+    interface_status: ["show interface"]
+    routing_table: ["show ip route"]
+    ospf_neighbors: ["show ip ospf neighbors"]
+    bgp_neighbors: ["show ip bgp summary"]
+    
+  juniper_junos:
+    device_info: ["show version", "show chassis hardware"]
+    cpu_utilization: ["show chassis routing-engine"]
+    memory_utilization: ["show system memory"]
+    interface_status: ["show interfaces terse"]
+    routing_table: ["show route"]
+    ospf_neighbors: ["show ospf neighbor"]
+    bgp_neighbors: ["show bgp summary"]

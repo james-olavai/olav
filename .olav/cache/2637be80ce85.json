@@ -1,11 +1,11 @@
 {
   "query": "SELECT COUNT(*) FROM devices",
-  "cached_at": 1771072081.9388113,
+  "cached_at": 1771286348.3115156,
   "ttl_seconds": 3600,
   "result": {
     "data": [
       {
-        "count_star()": 6
+        "count_star()": 80
       }
     ],
     "sql": "SELECT COUNT(*) FROM devices",
