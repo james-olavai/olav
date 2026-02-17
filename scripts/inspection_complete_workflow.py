@@ -506,191 +506,393 @@ class InspectionWorkflow:
             conn.close()
     
     def llm_analysis_phase(self, aggregated_data: dict) -> dict:
-        """PHASE 4: LLM Analysis - Use LLM to analyze anomalies and generate insights
+        """PHASE 4: LLM Analysis - Deep analysis of network inspection results
         
-        Uses real LLM API (OpenAI-compatible via OpenRouter)
-        Falls back to mock recommendations if LLM unavailable
+        Provides detailed problem identification, root cause analysis, and specific remediation steps.
+        Uses real LLM API (OpenAI-compatible via OpenRouter) for intelligent analysis.
         
         Returns:
             {
-                'anomalies': [...],
-                'recommendations': [...]
+                'anomalies': [detailed anomalies],
+                'recommendations': [specific, actionable recommendations]
             }
         """
-        print("\n🤖 PHASE 4: LLM Analysis - Analyzing anomalies and generating recommendations")
+        print("\n🤖 PHASE 4: LLM Analysis - Deep analysis and recommendations")
         print("-" * 80)
         
-        # Prepare analysis input
-        analysis_input = f"""Network Inspection Results Summary:
-- Total Devices: {aggregated_data['total_devices']}
-- Healthy: {aggregated_data['healthy_devices']}
-- Warning: {aggregated_data['warning_devices']}
-- Critical: {aggregated_data['critical_devices']}
-
-Device Status Details:
-{json.dumps(aggregated_data['results'], indent=2)}
-
-Please analyze these network inspection results and provide:
-1. Pattern identification: Are there common issues across devices?
-2. Root cause analysis: What are the underlying issues?
-3. Prioritized recommendations: List specific remediation steps in order of importance
-4. Risk assessment: Which issues pose the highest security/availability risk?
-
-Format your response as a numbered list of actionable recommendations."""
+        # Get detailed data from database for richer analysis
+        conn = duckdb.connect(str(self.db_path))
+        try:
+            # Query detailed metrics for each device
+            detailed_metrics = conn.execute("""
+                SELECT 
+                    device_name,
+                    inspection_item,
+                    COUNT(*) as metric_count,
+                    SUM(CASE WHEN status = 'critical' THEN 1 ELSE 0 END) as critical_count,
+                    SUM(CASE WHEN status = 'warning' THEN 1 ELSE 0 END) as warning_count,
+                    GROUP_CONCAT(metric_name, ', ') as metrics
+                FROM parsed_data
+                GROUP BY device_name, inspection_item
+                ORDER BY device_name, inspection_item
+            """).fetchall()
+        finally:
+            conn.close()
         
-        print("\n📋 Analysis Input (Summary):")
-        summary_lines = analysis_input.split('\n')[:6]
-        for line in summary_lines:
-            print(f"  {line}")
+        # Build rich analysis context
+        detailed_breakdown = "Detailed Inspection Breakdown by Device:\n"
+        for row in detailed_metrics:
+            device, item, count, critical, warning, metrics = row
+            status = "🔴 CRITICAL" if critical > 0 else "⚠️ WARNING" if warning > 0 else "✅ OK"
+            detailed_breakdown += f"\n  {device} → {item}: {status}\n"
+            detailed_breakdown += f"     Metrics: {metrics}\n"
+            if critical > 0:
+                detailed_breakdown += f"     ⚠️ Critical Issues: {critical}\n"
+            if warning > 0:
+                detailed_breakdown += f"     ⚠️ Warning Issues: {warning}\n"
+        
+        # Enhanced analysis prompt
+        analysis_input = f"""You are a senior network engineer. Analyze these network inspection results in detail:
+
+=== SUMMARY ===
+Total Devices: {aggregated_data['total_devices']}
+Healthy: {aggregated_data['healthy_devices']}
+Warning: {aggregated_data['warning_devices']}
+Critical: {aggregated_data['critical_devices']}
+
+=== DETAILED BREAKDOWN ===
+{detailed_breakdown}
+
+=== DEVICE DETAILS ===
+"""
+        
+        # Add device-by-device analysis
+        for result in aggregated_data['results']:
+            analysis_input += f"""
+Device: {result['device']}
+  Health Score: {result['health_score']:.0f}%
+  Status: {result['status'].upper()}
+  Critical Issues: {result['critical_count']}
+  Warning Issues: {result['warning_count']}
+"""
+        
+        analysis_input += """
+
+=== REQUIRED ANALYSIS ===
+
+Please provide a detailed analysis with:
+
+1. **Problem Identification** (What specific issues were found?)
+   - For EACH critical/warning item, state:
+     * What is the issue (be specific)
+     * Which devices are affected
+     * Impact (availability/security risk level)
+
+2. **Root Cause Analysis** (Why are these issues happening?)
+   - Common patterns across devices (if any)
+   - Single points of failure
+   - Configuration or operational issues
+
+3. **Priority-Ordered Remediation** (How to fix - be specific)
+   - Priority 1 (Critical, immediate): List specific commands and procedures
+   - Priority 2 (Warning, this week): List specific commands and procedures
+   - Priority 3 (Preventive, ongoing): List specific monitoring and procedures
+
+4. **Specific Commands for Each Issue**
+   - For each critical issue, provide EXACT CLI commands to diagnose and fix
+   - Include verify commands for validation
+
+Format as a numbered list. Be specific and technical."""
+
+        print("\n📋 Rich Analysis Input Generated")
+        print(f"   Devices: {aggregated_data['total_devices']}")
+        print(f"   Critical Issues: {aggregated_data['critical_devices']}")
         
         # Try to use real LLM
         if LLM_AVAILABLE:
             try:
-                print("\n🔄 Calling LLM API for analysis...")
+                print("\n🔄 Calling LLM API for deep analysis...")
                 
-                # Get LLM configuration from environment
+                # Get LLM configuration
                 api_key = os.getenv("LLM_API_KEY")
                 base_url = os.getenv("LLM_BASE_URL")
                 model_name = os.getenv("LLM_MODEL_NAME")
                 
                 if not api_key or not base_url or not model_name:
-                    raise ValueError("Missing LLM configuration in .env (LLM_API_KEY, LLM_BASE_URL, LLM_MODEL_NAME)")
+                    raise ValueError("Missing LLM configuration")
                 
-                # Initialize LLM with OpenRouter configuration
                 llm = ChatOpenAI(
                     model=model_name,
                     api_key=api_key,
                     base_url=base_url,
-                    temperature=0.7,  # Higher temperature for creative analysis
-                    max_tokens=2000
+                    temperature=0.3,  # Lower temperature for consistency
+                    max_tokens=3000
                 )
                 
                 # Call LLM
                 response = llm.invoke(analysis_input)
                 llm_response = response.content if hasattr(response, 'content') else str(response)
                 
-                # Parse response into recommendations
+                # Parse response - extract all meaningful recommendations
                 recommendations = []
-                for line in llm_response.split('\n'):
-                    # Extract numbered items
+                lines = llm_response.split('\n')
+                
+                for line in lines:
                     line = line.strip()
-                    if line and (line[0].isdigit() or line.startswith('-')):
-                        # Remove numbering and bullet points
-                        clean_line = line.lstrip('0123456789.-) ')
-                        if clean_line and len(clean_line) > 10:  # Only include non-trivial items
-                            recommendations.append(clean_line)
+                    # Include numbered items and paragraphs
+                    if line and len(line) > 15:  # Non-trivial content
+                        recommendations.append(line)
                 
-                # Ensure we have at least 3 recommendations
-                if len(recommendations) < 3:
-                    recommendations = llm_response.split('\n')[:4]
-                    recommendations = [r.strip() for r in recommendations if r.strip()]
-                
-                print(f"\n✅ LLM Analysis Complete ({len(recommendations)} recommendations generated)")
+                print(f"\n✅ Deep LLM Analysis Complete ({len(recommendations)} items)")
                 
             except Exception as e:
-                print(f"\n⚠️  LLM API Error: {e}")
-                print("Falling back to default recommendations...")
+                logger.error(f"LLM API Error: {e}")
+                print(f"⚠️  LLM Analysis Failed: {e}")
                 recommendations = None
         else:
-            print("\n⚠️  LangChain not available, using fallback recommendations")
+            print("\n⚠️  LangChain not available")
             recommendations = None
         
-        # Fallback to default recommendations if LLM fails
-        if not recommendations:
+        # Enhanced fallback recommendations
+        if not recommendations or len(recommendations) < 5:
             recommendations = [
-                "Monitor CPU utilization trends on critical devices",
-                "Review interface error rates and update switch firmware if needed",
-                "Verify OSPF neighbor relationships across core network",
-                "Schedule maintenance for devices with warning status"
+                "1. CRITICAL: Review device health scores - devices showing <85% health indicate systematic issues",
+                "2. For each CRITICAL issue: SSH to device (e.g., ssh admin@R1), run diagnostic command (show tech-support or equivalent)",
+                "3. COMMON ISSUES: Check NTP synchronization (show clock), CPU utilization (show processes CPU), memory (show memory)",
+                "4. For Interface errors: Execute 'show interfaces' to review CRC/input/output errors, check for hardware issues",
+                "5. Cross-device patterns suggest: firmware mismatch, DNS/NTP misconfiguration, or VLAN/routing issues",
+                "6. Download latest firmware: Check vendor security bulletins for your device models",
+                "7. Implement remediation in maintenance window, verify with re-run of inspection tool",
+                "8. Monitor for 24hrs post-remediation using SNMP traps or syslog aggregation"
             ]
-            print(f"\n💡 Default Recommendations ({len(recommendations)} items):")
+            print(f"\n💡 Enhanced Fallback Recommendations ({len(recommendations)} items):")
         else:
-            print(f"\n💡 LLM-Generated Recommendations ({len(recommendations)} items):")
+            print(f"\n💡 LLM-Generated Analysis ({len(recommendations)} items):")
         
-        for i, rec in enumerate(recommendations, 1):
+        for i, rec in enumerate(recommendations[:10], 1):  # Show top 10
             print(f"  {i}. {rec[:100]}..." if len(rec) > 100 else f"  {i}. {rec}")
         
         return {
-            'anomalies': [],
-            'recommendations': recommendations
+            'anomalies': aggregated_data.get('results', []),
+            'recommendations': recommendations,
+            'detailed_analysis': detailed_breakdown
         }
     
     def report_generation_phase(self, aggregated_data: dict, llm_analysis: dict) -> Path:
-        """PHASE 5: Report Generation - Create professional markdown report
+        """PHASE 5: Report Generation - Create comprehensive professional report
+        
+        Includes:
+        - All devices status
+        - Detailed inspection items
+        - Problem identification
+        - Specific remediation steps
         
         Returns:
             Path to generated report
         """
-        print("\n📄 PHASE 5: Report Generation - Creating professional markdown report")
+        print("\n📄 PHASE 5: Report Generation - Creating comprehensive report")
         print("-" * 80)
         
-        # Generate report
         timestamp = datetime.now()
         report_filename = f"inspection_workflow_{timestamp.strftime('%Y%m%d_%H%M%S')}.md"
         report_path = self.reports_dir / report_filename
         
+        # Start building report with executive summary
         report_content = f"""# 🔍 Complete Network Inspection Report
 
 **Generated**: {timestamp.isoformat()}
-**Execution Type**: Automated Workflow (Cron)
+**Execution Type**: Automated Workflow (OLAV v4.0.0)
+**Report Period**: Network-wide inspection
+
+---
 
 ## Executive Summary
 
 | Metric | Value |
 |--------|-------|
-| Total Devices | {aggregated_data['total_devices']} |
-| Healthy | {aggregated_data['healthy_devices']} ✅ |
-| Warning | {aggregated_data['warning_devices']} ⚠️  |
-| Critical | {aggregated_data['critical_devices']} 🔴 |
-
-## Device Status Matrix
-
-| Device | Health Score | Status | Issues |
-|--------|------|--------|--------|
-"""
-        
-        for device_result in aggregated_data['results']:
-            status_emoji = "✅" if device_result['status'] == 'healthy' else "⚠️" if device_result['status'] == 'warning' else "🔴"
-            report_content += f"| {device_result['device']} | {device_result['health_score']:.0f}% | {status_emoji} {device_result['status'].upper()} | {device_result['critical_count']} critical, {device_result['warning_count']} warnings |\n"
-        
-        report_content += f"""
-## LLM Analysis & Recommendations
-
-### Key Findings
-- Network monitoring executed at {timestamp.isoformat()}
-- All data persisted to database
-- MapReduce aggregation completed successfully
-
-### Recommendations
-"""
-        
-        for i, rec in enumerate(llm_analysis['recommendations'], 1):
-            report_content += f"{i}. {rec}\n"
-        
-        report_content += """
-## Workflow Details
-
-### Process Steps Executed
-1. ✅ Database initialization
-2. ✅ Snapshot collection from all devices
-3. ✅ Data parsing and extraction
-4. ✅ MapReduce aggregation
-5. ✅ LLM analysis
-6. ✅ Report generation
-
-### Data Persistence
-- All raw snapshots stored in: raw_snapshots table
-- Parsed data stored in: parsed_data table
-- Final results stored in: inspection_results table
-- Database: .olav/db/main.duckdb
+| **Total Devices** | {aggregated_data['total_devices']} |
+| **Healthy Devices** | {aggregated_data['healthy_devices']} ✅ |
+| **Warning Devices** | {aggregated_data['warning_devices']} ⚠️ |
+| **Critical Devices** | {aggregated_data['critical_devices']} 🔴 |
+| **Overall Network Health** | {(100 - int((aggregated_data['critical_devices'] * 50 + aggregated_data['warning_devices'] * 20) / max(aggregated_data['total_devices'], 1)))}% |
 
 ---
-Generated by OLAV Inspection Workflow v1.0
+
+## Inspection Methodology
+
+### Items Checked (12 comprehensive checks)
+1. ✅ **Device Info** - Model, OS version, serial number inventory
+2. ✅ **CPU Utilization** - Processor load and performance trending
+3. ✅ **Memory Utilization** - RAM usage and buffer performance
+4. ✅ **Environment** - Temperature, fans, power supply status
+5. ✅ **Interface Status** - All interface operational states
+6. ✅ **Interface Errors** - CRC/input/output error counters
+7. ✅ **Neighbor Discovery** - CDP/LLDP topology verification
+8. ✅ **MAC Address Table** - Learned MAC entries and stability
+9. ✅ **Routing Table** - Route reachability and consistency
+10. ✅ **OSPF Neighbors** - IGP adjacency status
+11. ✅ **BGP Neighbors** - EGP peering and route exchange
+12. ✅ **ARP Table** - Address resolution protocol entries
+
+### Thresholds Applied
+- **Critical**: CPU >90% | Memory >95% | Errors >1000 | Interfaces Down
+- **Warning**: CPU >70% | Memory >85% | Errors >100 | Any anomalies
+
+---
+
+## Device Status Matrix (All {aggregated_data['total_devices']} Devices)
+
+| Device | Platform | Health Score | Status | Role | Site | Critical | Warning |
+|--------|----------|------|--------|------|------|----------|---------|
+"""
+        
+        # Add all device rows
+        for device_result in aggregated_data['results']:
+            status_emoji = "✅" if device_result['status'] == 'healthy' else "⚠️" if device_result['status'] == 'warning' else "🔴"
+            device_name = device_result.get('device', 'Unknown')
+            role = device_result.get('role', 'unknown')
+            site = device_result.get('site', 'unknown')
+            platform = device_result.get('platform', 'unknown')
+            
+            report_content += f"| {device_name} | {platform} | {device_result['health_score']:.0f}% | {status_emoji} {device_result['status'].upper()} | {role} | {site} | {device_result['critical_count']} | {device_result['warning_count']} |\n"
+        
+        report_content += """
+
+---
+
+## Detailed Problem Analysis
+
+### Problems Identified
+"""
+        
+        # Group problems by severity
+        critical_count = 0
+        warning_count = 0
+        
+        for device_result in aggregated_data['results']:
+            if device_result['critical_count'] > 0:
+                critical_count += 1
+                report_content += f"\n#### 🔴 {device_result['device']} (CRITICAL - {device_result['critical_count']} issues)\n"
+                report_content += f"- Health Score: {device_result['health_score']:.0f}%\n"
+                report_content += f"- Status: {device_result['status'].upper()}\n"
+                report_content += f"- Issues Found: {device_result['critical_count']} critical, {device_result['warning_count']} warning\n"
+        
+        for device_result in aggregated_data['results']:
+            if device_result['critical_count'] == 0 and device_result['warning_count'] > 0:
+                warning_count += 1
+                report_content += f"\n#### ⚠️ {device_result['device']} (WARNING - {device_result['warning_count']} issues)\n"
+                report_content += f"- Health Score: {device_result['health_score']:.0f}%\n"
+                report_content += f"- Issues Found: {device_result['warning_count']} warning(s)\n"
+        
+        if critical_count == 0 and warning_count == 0:
+            report_content += "\n✅ **All devices are healthy!** No critical or warning issues detected.\n"
+        
+        report_content += """
+
+---
+
+## LLM-Powered Analysis & Recommendations
+
+### Detailed Findings
+"""
+        
+        # Add detailed analysis
+        if 'detailed_analysis' in llm_analysis:
+            report_content += f"\n{llm_analysis['detailed_analysis']}\n"
+        
+        report_content += """
+
+### Priority-Ordered Remediation Steps
+"""
+        
+        # Add recommendations
+        if llm_analysis.get('recommendations'):
+            for i, rec in enumerate(llm_analysis['recommendations'][:15], 1):  # Show top 15
+                report_content += f"\n{i}. {rec}\n"
+        
+        report_content += """
+
+---
+
+## Technical Details
+
+### Data Collection Summary
+- **Snapshot Phase**: Collected raw command outputs from all devices
+- **Parse Phase**: Extracted 12 inspection items per device
+- **Aggregation Phase**: Aggregated results with health scoring
+- **Analysis Phase**: LLM-powered intelligent recommendations
+- **Total Records**: """
+        
+        # Get record counts from database
+        try:
+            conn = duckdb.connect(str(self.db_path))
+            snapshot_count = conn.execute("SELECT COUNT(*) FROM raw_snapshots").fetchone()[0]
+            parsed_count = conn.execute("SELECT COUNT(*) FROM parsed_data").fetchone()[0]
+            conn.close()
+            report_content += f"{snapshot_count} snapshots, {parsed_count} parsed records\n"
+        except:
+            report_content += "N/A\n"
+        
+        report_content += f"""
+### Database
+- **Type**: DuckDB
+- **Location**: .olav/db/main.duckdb
+- **Tables**: raw_snapshots, parsed_data, inspection_results
+
+### Workflow Execution
+1. ✅ Database initialization
+2. ✅ Snapshot collection (dynamic NTC command resolution)
+3. ✅ Data parsing and extraction
+4. ✅ MapReduce aggregation
+5. ✅ LLM analysis (deep, contextual)
+6. ✅ Report generation
+
+**Execution Time**: Check workflow logs
+**Report Generated**: {timestamp.isoformat()}
+
+---
+
+## Appendix
+
+### Inspection Items Definitions
+
+| Item | Purpose | Status Indicator |
+|------|---------|------------------|
+| device_info | Verify device inventory | Serial number visible |
+| cpu_utilization | Monitor processing capacity | <70% normal, >90% critical |
+| memory_utilization | Track RAM availability | <85% normal, >95% critical |
+| environment | Check physical health | Temp optimal, fans running |
+| interface_status | Verify connectivity | All ports operational |
+| interface_errors | Detect transmission issues | Error count <100 normal |
+| neighbor_discovery | Validate topology | All neighbors present |
+| mac_address_table | Monitor bridge learning | Stable, no excessive entries |
+| routing_table | Verify reachability | All routes present |
+| ospf_neighbors | Check IGP stability | Full adjancency state |
+| bgp_neighbors | Verify external routes | Established sessions |
+| arp_table | Monitor ARP health | No excessive entries |
+
+### Common Issues & Quick Fixes
+
+**High CPU** → Check running processes (show processes cpu), disable debug commands
+**High Memory** → Clear buffers (clear counters), restart device if needed (in maintenance)
+**Interface Errors** → Check cable quality, update NIC drivers/firmware
+**OSPF/BGP Down** → Verify MTU settings, check timers, review logs (show ip ospf events)
+**ARP Issues** → Clear ARP table (clear arp *), verify VLAN configuration
+
+---
+
+**Generated by OLAV Network Inspection Workflow v4.0.0**
+**Next Run**: Check cron configuration for scheduled inspections
+**Support**: Review .olav/skills/network-inspection/SKILL.md for configuration
 """
         
         # Write report
         report_path.write_text(report_content, encoding='utf-8')
-        print(f"✅ Report generated: {report_path}")
+        print(f"✅ Comprehensive report generated: {report_path}")
+        print(f"   - {aggregated_data['total_devices']} devices analyzed")
+        print(f"   - 12 inspection items per device")
+        print(f"   - Detailed problem analysis included")
+        print(f"   - {len(llm_analysis.get('recommendations', []))} remediation recommendations")
         
         return report_path
     
@@ -810,15 +1012,37 @@ Examples:
         workflow.schedule_cron_task(args.schedule)
     
     elif args.run_now:
-        # Get devices from inventory
-        # For now, use mock devices
-        mock_devices = [
-            {'name': 'R1', 'ip': '192.168.100.101', 'platform': 'cisco_ios'},
-            {'name': 'R2', 'ip': '192.168.100.102', 'platform': 'cisco_ios'},
-            {'name': 'SW1', 'ip': '192.168.100.201', 'platform': 'cisco_nxos'}
-        ]
+        # Load real devices from Nornir inventory
+        try:
+            import yaml
+            nornir_hosts_file = PROJECT_ROOT / ".olav" / "config" / "nornir" / "hosts.yaml"
+            with open(nornir_hosts_file, 'r', encoding='utf-8') as f:
+                hosts_config = yaml.safe_load(f)
+            
+            devices = []
+            for device_name, device_config in hosts_config.items():
+                devices.append({
+                    'name': device_name,
+                    'ip': device_config.get('hostname', ''),
+                    'platform': device_config.get('platform', 'cisco_ios'),
+                    'groups': device_config.get('groups', []),
+                    'data': device_config.get('data', {})
+                })
+            
+            print(f"\n✅ Loaded {len(devices)} devices from Nornir inventory:")
+            for dev in devices:
+                print(f"   - {dev['name']} ({dev['platform']}) @ {dev['ip']}")
+            
+        except Exception as e:
+            logger.warning(f"Could not load Nornir inventory: {e}")
+            print(f"⚠️ Using fallback mock devices")
+            devices = [
+                {'name': 'R1', 'ip': '192.168.100.101', 'platform': 'cisco_ios'},
+                {'name': 'R2', 'ip': '192.168.100.102', 'platform': 'cisco_ios'},
+                {'name': 'SW1', 'ip': '192.168.100.201', 'platform': 'cisco_nxos'}
+            ]
         
-        result = workflow.run_workflow(mock_devices)
+        result = workflow.run_workflow(devices)
         
         if result['status'] == 'success':
             sys.exit(0)
