@@ -12,9 +12,10 @@ metadata:
     - search_commands          # search_commands.py — Query commands table by device/platform + keyword
     - execute_cli              # execute_cli.py    — Nornir CLI; validates blacklist + pipe_allowed
     - take_snapshot            # take_snapshot.py  — On-demand targeted snapshot for fault investigation
+    - diff_configs             # diff_configs.py   — Compare raw snapshots between dates to detect drift
     - format_and_export        # format_and_export.py — Export to CSV/JSON/Markdown
     - search_knowledge         # search_knowledge.py  — Semantic KB search (db_path, limit, threshold)
-    - diff_snapshot            # diff_snapshot.py  — Compare raw snapshots between dates to detect drift
+    - web_search              # web_search.py    — Web search via DuckDuckGo for external info
   prompts:
     system: $ref:./prompts/system.md
   database_schema:
