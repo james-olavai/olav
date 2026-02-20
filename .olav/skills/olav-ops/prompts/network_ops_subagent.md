@@ -89,6 +89,66 @@ JOIN devices d ON t.source_device = d.name;
 
 ---
 
+## TIME-SERIES ANALYSIS
+
+Use this for analyzing changes over time: configuration drift detection and historical data trends.
+
+### 1. Configuration Drift Analysis
+Use `diff_configs` tool to compare raw configuration snapshots:
+
+```python
+diff_configs(device="R1", command="show running-config")
+diff_configs(device="R1", command="show running-config", date_a="2026-02-14")
+diff_configs(device="R1", command="show running-config", sections=["aaa", "line vty"])
+```
+
+### 2. Historical Data Trends
+Use `execute_sql` with `snapshot_date` filtering to analyze trends:
+
+```sql
+-- CPU trend over last 7 days
+SELECT snapshot_date, 
+       json_extract_string(elem, '$.cpu_percent') AS cpu
+FROM parsed_outputs,
+     UNNEST(parsed_data::JSON[]) AS t(elem)
+WHERE device_name = 'R1' 
+  AND command = 'show processes cpu'
+  AND snapshot_date >= CURRENT_DATE - INTERVAL '7 days'
+ORDER BY snapshot_date;
+
+-- Compare BGP neighbor state between two dates
+SELECT a.snapshot_date AS date_a, b.snapshot_date AS date_b,
+       a.parsed_data AS before, b.parsed_data AS after
+FROM parsed_outputs a, parsed_outputs b
+WHERE a.device_name = b.device_name
+  AND a.command = b.command
+  AND a.device_name = 'R1'
+  AND a.command = 'show ip bgp summary'
+  AND a.snapshot_date = '2026-02-14'
+  AND b.snapshot_date = '2026-02-21';
+
+-- Interface error counts over time
+SELECT snapshot_date, device_name, interface,
+       json_extract_string(elem, '$.input_errors') AS input_errs
+FROM parsed_outputs,
+     UNNEST(parsed_data::JSON[]) AS t(elem)
+WHERE command = 'show interfaces'
+  AND snapshot_date >= CURRENT_DATE - INTERVAL '30 days'
+ORDER BY snapshot_date DESC;
+```
+
+### 3. Data Freshness Check
+Always verify data age before analysis:
+
+```sql
+SELECT device_name, command, MAX(snapshot_date) AS latest
+FROM parsed_outputs
+GROUP BY device_name, command
+ORDER BY device_name, command;
+```
+
+---
+
 ## FAULT ANALYSIS WORKFLOW
 
 1. **Scope** – query `devices` to identify affected devices and their roles.
