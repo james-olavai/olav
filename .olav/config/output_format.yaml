@@ -1,0 +1,24 @@
+# OLAV — Global Output Format Defaults
+# ======================================
+# 全局显示偏好，所有 skill 的 output_format.yaml 共享这些默认值
+# skill 级别的 output_format.yaml 可以覆盖任意字段
+#
+# 加载优先级（高 → 低）:
+#   1. .olav/skills/<skill>/config/output_format.yaml  ← skill 专属
+#   2. .olav/config/output_format.yaml                 ← 本文件（全局默认）
+#
+# 版本: 1.0.0 | 2026-02-19
+
+version: 1.0.0
+
+common:
+  generator_tag: "OLAV"
+  date_format: "%Y-%m-%d %H:%M:%S"
+  score_bar_width: 20
+  max_anomalies_in_table: 50
+  max_recommendations: 20
+  status_icons:
+    healthy:  "✅"
+    warning:  "⚠️"
+    critical: "❌"
+    unknown:  "❓"

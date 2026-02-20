@@ -1,4 +1,0 @@
-# First line is the header fields for columns and is mandatory.
-# 
-# Template, Hostname, Platform, Command
-cisco_ios_show_ip_bgp_neighbors_learned.textfsm, , cisco_ios, show ip bgp neighbors

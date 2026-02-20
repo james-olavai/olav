@@ -1,94 +1,84 @@
 ---
 name: command_learner
-version: 1.1.0
-author: Network AI Team
-description: Interactive command learning with automatic TextFSM template generation and user approval workflow
-type: agent
-category: command_learning
-
-prompts:
-  system: $ref:./prompts/system.md
-  generation: $ref:./reference/textfsm_generation.md
-  analysis: $ref:./reference/textfsm_analysis.md
-
-config:
-  success_threshold: 0.8
-  max_iterations: 3
-  auto_approve_fields: false
-  approval_timeout: 300
-  template_dir: .olav/templates/custom
-  cache_db: .olav/cache/semantic_cache.db
-  use_ntc_references: true
-  caching:
-    enable_template_cache: true
-    memory_cache_size: 100
-    db_cache_enabled: true
-    similarity_threshold: 0.85
-    cache_ttl_days: 30
-  llm_config:
-    provider: "openrouter"
-    temperature: 0.3
-    max_tokens: 4096
-    timeout: 120
-
-workflow:
-  steps:
-    - name: "Execute Command" 
-      step_number: 1
-      timeout: 30
-    - name: "Analyze Fields"
-      step_number: 2
-      timeout: 60
-    - name: "User Approval"
-      step_number: 3
-      timeout: 300
-      interactive: true
-    - name: "Fetch NTC References"
-      step_number: 4
-      timeout: 30
-      optional: true
-      tool: "ntc_search" # $ref:./scripts/ntc_search.py
-    - name: "Generate Template"
-      step_number: 5
+description: "Interactive command learning with automatic TextFSM template generation and user approval workflow"
+metadata:
+  version: 1.1.0
+  author: Network AI Team
+  type: agent
+  category: command_learning
+  prompts:
+    system: $ref:./prompts/system.md
+    generation: $ref:./reference/textfsm_generation.md
+    analysis: $ref:./reference/textfsm_analysis.md
+  config:
+    success_threshold: 0.8
+    max_iterations: 3
+    auto_approve_fields: false
+    approval_timeout: 300
+    template_dir: .olav/templates/custom
+    cache_db: .olav/cache/semantic_cache.db
+    use_ntc_references: true
+    caching:
+      enable_template_cache: true
+      memory_cache_size: 100
+      db_cache_enabled: true
+      similarity_threshold: 0.85
+      cache_ttl_days: 30
+    llm_config:
+      provider: "openrouter"
+      temperature: 0.3
+      max_tokens: 4096
       timeout: 120
-      max_iterations: 3
-    - name: "Save Template"
-      step_number: 6
-      timeout: 10
-
-tools: []
-# NOTE: Tool configurations have been removed as they referenced non-existent implementations.
-# The command_learner_agent/tools.py file does not exist.
-# Future: Implement these tools when the agent implementation is ready:
-# - execute_command_tool
-# - analyze_output_tool
-# - generate_template_tool
-# - test_template_tool
-# - save_template_tool
-# - ntc_search (Local NTC-Templates search without internet)
-
-requires_skills:
-  - "network-cli"
-
-performance:
-  typical_duration_seconds: 60
-  typical_llm_calls: 2
-  success_rate_threshold: 0.8
-
-monitoring:
-  log_level: "INFO"
-  track_metrics: true
-  metrics_tracked:
-    - success_rate
-    - generation_time
-    - iterations_count
-
-testing:
-  e2e_tests: "tests/e2e/test_command_learner_e2e.py"
-  acceptance_criteria:
-    - All 8 E2E tests pass
-    - Template success rate >= 0.8
-
+  workflow:
+    steps:
+      - name: "Execute Command"
+        step_number: 1
+        timeout: 30
+      - name: "Analyze Fields"
+        step_number: 2
+        timeout: 60
+      - name: "User Approval"
+        step_number: 3
+        timeout: 300
+        interactive: true
+      - name: "Fetch NTC References"
+        step_number: 4
+        timeout: 30
+        optional: true
+        tool: "ntc_search"
+      - name: "Generate Template"
+        step_number: 5
+        timeout: 120
+        max_iterations: 3
+      - name: "Save Template"
+        step_number: 6
+        timeout: 10
+  tools:
+    - execute_command
+    - analyze_output
+    - browse_ntc_directory
+    - search_ntc_templates
+    - generate_template
+    - read_template_file
+    - save_template
+  requires_skills:
+    - olav-ops
+  performance:
+    typical_duration_seconds: 60
+    typical_llm_calls: 2
+    success_rate_threshold: 0.8
+  monitoring:
+    log_level: "INFO"
+    track_metrics: true
+    metrics_tracked:
+      - success_rate
+      - generation_time
+      - iterations_count
+  testing:
+    e2e_tests: "tests/e2e/test_command_learner_e2e.py"
+    acceptance_criteria:
+      - All 8 E2E tests pass
+      - Template success rate >= 0.8
 ---
 
 ## Overview

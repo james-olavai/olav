@@ -1,5 +1,0 @@
-Value Device (\S+)
-Value CPU (\d+)
-
-Start
-  ^Device: ${Device} CPU: ${CPU}% -> Record
