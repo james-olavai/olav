@@ -55,8 +55,8 @@ class OlavDatabase:
         3. topology_links - CDP/LLDP neighbor relationships
         """
         # Devices table (device metadata - v0.11.0 unified with Nornir import)
-        # Note: This is auto-populated by devices_import.py from hosts.yaml
-        # DO NOT modify schema manually - always use devices_import.py for updates
+        # Note: This is auto-populated by sync_inventory() from hosts.yaml
+        # DO NOT modify schema manually - always use sync_inventory() for updates
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS devices (
                 device_id VARCHAR PRIMARY KEY,

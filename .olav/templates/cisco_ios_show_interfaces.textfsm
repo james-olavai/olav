@@ -1,5 +1,0 @@
-Value Interface (\S+)
-Value Status (up|down)
-
-Start
-  ^${Interface}\s+is\s+${Status} -> Record

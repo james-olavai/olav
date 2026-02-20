@@ -1,125 +1,100 @@
+---
+# ============================================================
+# OLAV Agent Configuration (v3.4)
+# OLAVAgent reads this at startup. Edit here to add/remove SubAgents.
+#
+# Fields per subagent entry:
+#   name         — identifier used by the orchestrator task tool (required)
+#   description  — shown to orchestrator LLM for routing (required)
+#   skills       — scan these skill dirs for @tool functions (required)
+#   prompt       — path relative to .olav/skills/ (REQUIRED, must exist)
+#   model        — optional LLM override; two forms:
+#                    literal:  claude-opus-4-5
+#                    env ref:  ${OLAV_INSPECTION_MODEL}   (resolved at startup)
+#                  Omit to share the orchestrator's model (LLM_MODEL_NAME).
+#   include_tools / exclude_tools — filter loaded tools by name (mutually exclusive)
+#   interrupt_on — map of tool_name: true to require human approval (HITL)
+# ============================================================
+
+orchestrator:
+  # Pure orchestrator — 0 direct tools, delegates everything via `task`
+  prompt: olav-ops/prompts/system.md
+
+subagents:
+  - name: olav-ops
+    description: >
+      Handles all read/query operations: SQL queries against DuckDB,
+      live CLI commands on network devices, knowledge base search,
+      and data export. Use for device lookups, show commands, reporting.
+    skills: [olav-ops]
+    prompt: olav-ops/prompts/network_ops_subagent.md
+
+  - name: network-inspection
+    description: >
+      Runs network health inspections: SSH snapshot collection, config sync,
+      health scoring and anomaly detection. Use for health checks,
+      config comparison, snapshot collection, and inspection reports.
+    skills: [network-inspection]
+    prompt: network-inspection/prompts/system.md
+
+  - name: olav-config
+    description: >
+      基础设施层（Infrastructure Layer）。负责 DB 初始化、设备清单同步、SSH 数据采集（take_snapshot）、
+      TextFSM 模板刷新、Cron 调度管理。嵌入 DuckDB 的唯一写入方（parsed_outputs/devices）。
+      直接调用 Python 函数，不通过 uv run olav 子进程。写操作和 SSH 采集需要人工确认。
+    skills: [olav-config]
+    prompt: olav-config/prompts/system.md
+    interrupt_on:
+      execute_shell: true
+      write_file: true
+      take_snapshot: true
+      manage_inspection_schedule: true
+
+  - name: olav-audit
+    description: >
+      治理层（Governance Layer）。读取 olav-config 采集的数据，执行配置驱动的合规、健康、一致性检查。
+      不写 parsed_outputs（只读 DB）。支持 raw_contains/raw_not_contains 规则读取原始文件。
+      分析结果写入 audit_results 表，生成 Markdown 报告。
+    skills: [olav-audit]
+    prompt: olav-audit/prompts/system.md
+---
+
 # OLAV Project Context
 
 ## Overview
-OLAV (Orchestrator Language Agent Virtuoso) is a network query assistant that translates natural language to SQL queries against network device snapshots stored in DuckDB.
+OLAV is a network operations assistant that answers natural language questions about network devices, topology, protocol state, and performs fault analysis. It combines a DuckDB database (ground truth), live CLI access, a knowledge base, and web search.
 
-## Architecture
-- **Framework**: DeepAgents (LangGraph-based multi-agent orchestration)
-- **Cache System**: SQLiteCache for LLM calls (transparent prompt-level caching)
-- **Persistence**: DuckDB for checkpointer/store (session state management)
-- **Skills**: Loaded from `.olav/skills/*/SKILL.md` frontmatter
-- **SubAgents**: Declarative specialist configurations (defined below)
+## Architecture (v3.4)
+- **Framework**: DeepAgents (`create_deep_agent` + SubAgents)
+- **Pattern**: OLAVAgent is a pure orchestrator — 0 direct tools, all work delegated to SubAgents
+- **Registration**: All SubAgents defined in this file's YAML frontmatter
+- **HITL**: `olav-config` SubAgent requires human approval for write/execute operations
+- **Cache**: Shared SQLiteCache at `.olav/databases/llm_cache.db`
 
----
+## SubAgents (1 per Skill)
 
-## SubAgent Registry
-<!-- Orchestrator dynamically loads SubAgent references from this section -->
-<!-- Actual tools and prompts are defined in each agent's .olav/skills/*/SKILL.md -->
+| SubAgent | Skill | HITL Tools |
+|----------|-------|------------|
+| `olav-ops` | `olav-ops` | — |
+| `olav-config` | `olav-config` | execute_shell, write_file, take_snapshot, manage_inspection_schedule |
+| `olav-audit` | `olav-audit` | — |
 
-### query
-```yaml
----
-name: query
-agent_skill: network-query
-description: Database query specialist - SQL queries, schema inspection, data discovery
-capabilities:
-  - Device inventory queries (devices table)
-  - SQL execution on network database
-  - Schema inspection and data discovery
-  - Automatic LLM caching for repeated queries
-enabled: true
----
-```
+## Skills
 
-### expert
-```yaml
----
-name: expert
-agent_skill: network-expert
-description: CCIE-level Network Expert for complex troubleshooting and root cause analysis
-capabilities:
-  - Multi-domain expertise (R&S, DC, SP, Security)
-  - Topology-aware analysis with dynamic scope expansion
-  - Cross-layer correlation (L1-L7)
-  - Knowledge base and case study integration
-  - Professional-grade diagnosis reports
-enabled: true
----
-```
+| Skill | Role | Tools |
+|-------|------|-------|
+| `olav-ops` | 查询/CLI | execute_sql, execute_cli, search_knowledge, format_and_export |
+| `olav-config` | 基础设施（写入层） | sync_schemas, sync_inventory, sync_commands, take_snapshot, manage_inspection_schedule, read_file, write_file, execute_shell, kb_manager, web_search |
+| `olav-audit` | 治理（只读层） | run_audit, list_audits, validate_audit_config, create_audit_config, schema_inspector |
 
-### cli
-```yaml
----
-name: cli
-agent_skill: network-cli
-description: CLI command execution specialist for network operations
-capabilities:
-  - Network command execution
-  - Configuration changes
-  - Device interaction
-enabled: true
----
-```
-
-### analysis
-```yaml
----
-name: analysis
-agent_skill: network-analysis
-description: Network analysis specialist with health diagnostics and anomaly detection
-capabilities:
-  - Network health diagnostics and anomaly detection
-  - Performance analysis and optimization recommendations
-  - Root cause analysis for network issues
-  - Real-time CLI verification when needed
-enabled: true
----
-```
-
-### inspection
-```yaml
----
-name: inspection
-agent_skill: network-inspection
-description: Network inspection specialist for batch device health checks and audits
-capabilities:
-  - Multi-layer health checks (L1-L4)
-  - BGP peer status audits
-  - Interface error analysis
-  - Security baseline validation
-  - Automated inspection reports
-enabled: true
----
-```
-
-### system
-```yaml
----
-name: system
-agent_skill: olav-admin
-description: System administration and maintenance specialist for cache management, system health monitoring, backups, and task scheduling
-capabilities:
-  - Cache management (query cache, LLM response cache)
-  - System health monitoring (CPU, memory, database)
-  - Configuration backup and restoration
-  - Git-based version control for knowledge
-  - Natural language task scheduling (→ cron)
-  - Database maintenance and optimization
-  - Audit logging and compliance
-enabled: true
----
-```
-
----
+## Database
+Path: `.olav/databases/main.duckdb`
+Tables: `devices`, `parsed_outputs`, `topology_links`, `indexed_files`, `knowledge_chunks`
+Devices: R1–R4 (border/core routers), SW1–SW2 (access switches), all cisco_ios, site=lab
 
 ## User Preferences
-<!-- Agent will learn and update this section -->
-- Preferred output format: Markdown tables (Rich for TTY, plain Markdown for pipe)
-- Language: Chinese (Simplified) for interaction, English for code
+- Output format: Markdown tables (Rich for TTY, plain Markdown for pipe)
+- Language: Chinese for interaction, English for code and file names
 
 ## Device Aliases
-<!-- Agent maintains device alias mappings in DuckDBStore -->
-<!-- Example: R1 = router-core-01, SW1 = switch-access-01 -->
-
-## Common Query Patterns
-<!-- Agent learns frequently asked queries -->
+<!-- OLAVAgent maintains device alias mappings in DuckDBStore -->

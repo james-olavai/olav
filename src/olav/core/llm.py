@@ -31,6 +31,7 @@ class LLMFactory:
     def get_chat_model(
         json_mode: bool = False,
         temperature: float | None = None,
+        model_name: str | None = None,
         **kwargs: Any,
     ) -> BaseChatModel:
         """Create a chat model instance using provider-specific classes.
@@ -41,6 +42,7 @@ class LLMFactory:
         Args:
             json_mode: Whether to enable JSON output mode
             temperature: Override default temperature
+            model_name: Override model name (defaults to settings.llm_model_name)
             **kwargs: Additional model parameters
 
         Returns:
@@ -48,7 +50,7 @@ class LLMFactory:
         """
         temp = temperature if temperature is not None else settings.llm_temperature
         provider = settings.llm_provider
-        model_name = settings.llm_model_name
+        model_name = model_name or settings.llm_model_name
 
         # Common config for all providers
         config: dict[str, Any] = {

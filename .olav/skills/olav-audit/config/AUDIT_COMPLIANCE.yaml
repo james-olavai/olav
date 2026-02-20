@@ -1,0 +1,155 @@
+# AUDIT_COMPLIANCE — IOS/XE Configuration Compliance Check
+# ==========================================================
+# 内置审计：检查设备 running-config 中的安全加固和最佳实践合规性
+#
+# 使用 raw_contains / raw_not_contains 规则:
+#   raw_contains     — FAIL if pattern NOT found  (must be present)
+#   raw_not_contains — FAIL if pattern IS found   (must be absent)
+#
+# 如何运行:
+#   run_audit("AUDIT_COMPLIANCE")
+#   run_audit("AUDIT_COMPLIANCE", devices=["R1"])
+#
+# 前提条件:
+#   需要先通过 take_snapshot(categories=["configs"]) 收集 show running-config
+#   或者等待 Cron A (每日 02:00) 自动收集
+
+name: "IOS/XE Configuration Compliance"
+version: "1.0.0"
+description: "Security hardening and best-practice compliance for IOS/XE running configurations"
+type: compliance
+created_at: "2026-02-20"
+created_by: builtin
+
+# ---------------------------------------------------------------------------
+# Map 阶段：收集哪些数据
+# ---------------------------------------------------------------------------
+collect:
+  intents:
+    - configs   # 触发 show running-config 收集（会绕过 blacklist）
+
+# ---------------------------------------------------------------------------
+# Reduce 阶段：合规规则列表
+# ---------------------------------------------------------------------------
+rules:
+
+  # ---------- AAA ----------
+  - name: no_aaa_new_model
+    target: running-config
+    condition: raw_not_contains          # FAIL if pattern IS found (bad directive present)
+    command: "show running-config"
+    pattern: "^no aaa new-model"
+    severity: critical
+    recommendation: "Remove 'no aaa new-model' and configure AAA authentication"
+    analysis_hint: |
+      'no aaa new-model' disables the RADIUS/TACACS+ AAA subsystem entirely,
+      meaning all authentication falls back to local line passwords or no
+      authentication at all. This is a critical compliance violation in any
+      environment that requires centralised authentication, accounting, and
+      authorisation (PCI-DSS, SOC2, NIST 800-53 IA-2). Remediation:
+      configure 'aaa new-model' and attach authentication/authorisation
+      method lists to all VTY, console, and HTTP access methods.
+
+  # ---------- NTP ----------
+  - name: ntp_server_configured
+    target: running-config
+    condition: raw_contains              # FAIL if pattern NOT found (must be present)
+    command: "show running-config"
+    pattern: "ntp server"
+    severity: warning
+    recommendation: "Configure NTP (ntp server <ip>) for consistent timestamps and log correlation"
+    analysis_hint: |
+      Without NTP, device clocks drift independently, making log correlation
+      across devices unreliable. This complicates incident investigation and
+      is required by PCI-DSS 10.4 and most network governance frameworks.
+
+  # ---------- Security banner ----------
+  - name: security_banner
+    target: running-config
+    condition: raw_contains              # FAIL if pattern NOT found (must be present)
+    command: "show running-config"
+    pattern: "^banner (motd|login|exec)"
+    severity: warning
+    recommendation: "Configure a security/legal warning banner (banner motd or login)"
+    analysis_hint: |
+      Security banners provide legal notice to unauthorised users and may be
+      required by corporate policy, SOC auditors, and legal counsel before
+      any prosecution of unauthorised access can proceed.
+
+  # ---------- Service timestamps ----------
+  - name: service_timestamps_enabled
+    target: running-config
+    condition: raw_contains              # FAIL if pattern NOT found (must be present)
+    command: "show running-config"
+    pattern: "^service timestamps"
+    severity: warning
+    recommendation: "Ensure 'service timestamps debug datetime msec' and 'service timestamps log datetime msec' are configured"
+    analysis_hint: |
+      Without 'service timestamps', syslog and debug messages lack timestamps,
+      making chronological root-cause analysis impossible. Enable both
+      'service timestamps debug datetime msec' and 'service timestamps log
+      datetime msec' for precise event ordering.
+
+  # ---------- Remote logging ----------
+  - name: remote_logging_configured
+    target: running-config
+    condition: raw_contains              # FAIL if pattern NOT found (must be present)
+    command: "show running-config"
+    pattern: "^logging (host|[0-9])"
+    severity: warning
+    recommendation: "Configure remote syslog (logging host <syslog-server-ip>)"
+    analysis_hint: |
+      Local logs are lost if a device crashes or its flash is corrupted.
+      Remote syslog provides persistent audit trails for compliance and
+      incident response. Without it, post-incident forensics rely on
+      whatever remains in the circular log buffer.
+
+# ---------------------------------------------------------------------------
+# Output 阶段：报告格式
+# ---------------------------------------------------------------------------
+output:
+  title: "Configuration Compliance Audit Report"
+  filename_pattern: "audit_compliance_{timestamp}.md"
+
+  sections:
+    - type: header
+      fields:
+        - date
+        - overall_health
+        - scope
+        - device_summary
+        - anomaly_count
+
+    - type: device_health_table
+      columns:
+        - device
+        - status
+        - health_score
+        - anomaly_count
+
+    - type: anomaly_table
+      severity_filter: []          # 显示全部
+      max_rows: 50
+
+    - type: recommendations
+      max_items: 20
+
+    - type: per_device_analysis
+
+    - type: footer
+
+# ---------------------------------------------------------------------------
+# Analysis 阶段：LLM 合规洞察
+# ---------------------------------------------------------------------------
+analysis:
+  per_device:
+    enabled: true
+    instructions: |
+      Analyse the configuration compliance findings for this device.
+      Identify which findings represent the highest security risk and should
+      be remediated first, and which are lower-priority best-practice gaps.
+      If 'no aaa new-model' is found, flag it as the most critical item:
+      centralised authentication is a foundation control.
+      Keep analysis to 3-5 sentences of plain prose.
+  global_analysis:
+    enabled: false

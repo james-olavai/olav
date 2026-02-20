@@ -1,5 +1,0 @@
-Value Neighbor (\S+)
-Value State (\S+)
-
-Start
-  ^Neighbor ${Neighbor} state ${State} -> Record

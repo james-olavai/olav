@@ -25,10 +25,6 @@ def __getattr__(name: str) -> object:  # noqa: ANN401
         )
         return locals()[name]
 
-    if name == "list_devices":
-        from olav.api.v1.devices import list_devices  # noqa: F401
-        return list_devices
-
     raise AttributeError(f"module 'olav' has no attribute {name!r}")
 
 
@@ -45,6 +41,5 @@ __all__ = [
     "nornir_execute",  # pyright: ignore [reportUnsupportedDunderAll]
     "list_devices",  # pyright: ignore [reportUnsupportedDunderAll]
     "search_device_commands",  # pyright: ignore [reportUnsupportedDunderAll]
-    "api_call",  # pyright: ignore [reportUnsupportedDunderAll]
 ]
 # All items above are provided via __getattr__ lazy loading

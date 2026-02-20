@@ -5,19 +5,8 @@ Also exports core infrastructure components.
 """
 
 # Re-export settings from config package
-from config.settings import DiagnosisSettings, ExecutionSettings, Settings, get_settings
+from config.settings import ExecutionSettings, Settings, get_settings
 
-# Command Registry (Task 1.1)
-try:
-    from olav.core.registry import (
-        CommandRegistry,  # noqa: F401
-        get_command_registry,  # noqa: F401
-        parse_command_output,  # noqa: F401
-    )
-
-    _registry_available = True
-except ImportError:
-    _registry_available = False
 
 # Script Engine (Task 12.1-12.3)
 try:
@@ -40,18 +29,7 @@ __all__ = [
     "Settings",
     "get_settings",
     "ExecutionSettings",
-    "DiagnosisSettings",
 ]
-
-# Command Registry exports
-if _registry_available:
-    __all__.extend(
-        [
-            "CommandRegistry",
-            "get_command_registry",
-            "parse_command_output",
-        ]
-    )
 
 # Script Engine exports
 if _script_engine_available:

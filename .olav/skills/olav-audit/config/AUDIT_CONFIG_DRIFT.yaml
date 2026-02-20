@@ -1,0 +1,92 @@
+---
+name: "Configuration Drift Detection"
+version: "1.0.0"
+description: "Detects running-config drift vs previous snapshot; full diff in LLM analysis"
+type: compliance
+created_at: "2026-02-20"
+created_by: builtin
+
+collect:
+  intents:
+    - configs
+
+rules:
+  # Light-weight rules as structured findings
+  # LLM Analyze phase calls diff_snapshot for comprehensive diff
+  - name: config_changed_timestamp
+    target: running-config
+    condition: raw_contains
+    command: "show running-config"
+    pattern: "Last configuration change"
+    severity: info
+    recommendation: "Config has been modified; review full diff in analysis section below"
+
+  - name: acl_section_present
+    target: running-config
+    condition: raw_contains
+    command: "show running-config"
+    pattern: "ip access-list"
+    severity: info
+    recommendation: "ACL section detected; verify recent changes are intended"
+
+  - name: aaa_section_present
+    target: running-config
+    condition: raw_contains
+    command: "show running-config"
+    pattern: "aaa"
+    severity: warning
+    recommendation: "AAA configuration present; check policy compliance"
+
+output:
+  title: "Configuration Drift Report"
+  filename_pattern: "audit_config_drift_{timestamp}.md"
+  sections:
+    - type: header
+      fields: [date, scope, device_summary]
+    - type: per_device_analysis
+    - type: footer
+
+analysis:
+  per_device:
+    enabled: true
+    instructions: |
+      Call diff_snapshot(device="{device}", command="show running-config")
+      to get the full running-config diff between today and the most recent
+      prior snapshot.
+
+      Report format:
+      1. Command: show running-config
+      2. Date range: {date_a} to {date_b}
+      3. Summary: X lines changed (+Y/-Z)
+      4. Diff block (markdown code): Full unified diff (truncate at 80 lines with note)
+      5. Assessment (3-5 sentences):
+         - Which IOS sections changed (aaa, acl, interfaces, routing, line vty, etc.)
+         - Categorize: routine (scheduled maintenance/planned), suspicious (off-hours,
+           unexpected keywords like "no aaa new-model", "no service password-encryption")
+         - Risk: if suspicious, flag severity
+      6. Recommendation: approve+document, request context, or escalate
+
+      Format using markdown:
+      - Use ## headers for sections
+      - Use code fences for diff output
+      - Be concise but complete
+      - If diff_snapshot fails or returns no prior snapshot, report this clearly
+      - If no changes, say "No configuration drift detected"
+
+      Example structure:
+      ## Device: {device}
+      **Date Range**: {date_a} to {date_b}
+      **Summary**: 6 lines changed (+5/-1). Sections: ip access-list, line vty.
+
+      **Diff**:
+      ```diff
+      [unified diff output here]
+      ```
+
+      **Assessment**:
+      Changes detected in ACL and VTY access rules. ACL addition appeared during 08:39 UTC
+      (business hours), consistent with network changes. VTY access-class addition is
+      security-relevant. Both changes appear intentional.
+
+      **Recommendation**:
+      Approve and document in change log. Verify execution with network team.

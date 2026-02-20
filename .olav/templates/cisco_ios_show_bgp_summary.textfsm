@@ -1,8 +1,0 @@
-Value Router_ID (.+)
-Value Neighbors (\d+)
-Value State (\S+)
-
-Start
-  ^Router ID is ${Router_ID} -> Record
-  ^Number of neighbors: ${Neighbors} -> Record
-  ^BGP state is ${State} -> Record

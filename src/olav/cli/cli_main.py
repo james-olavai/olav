@@ -1147,6 +1147,18 @@ def main() -> None:
     log_level = settings.log_level if hasattr(settings, "log_level") else "INFO"
     setup_logging(log_level=log_level)
 
+    # Initialize global LLM response cache once at startup (shared across all agents)
+    try:
+        from pathlib import Path
+        from langchain_community.cache import SQLiteCache
+        from langchain_core.globals import set_llm_cache
+        cache_path = Path(".olav/databases/llm_cache.db")
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        set_llm_cache(SQLiteCache(database_path=str(cache_path)))
+        logger.debug(f"LLM response cache initialized: {cache_path}")
+    except Exception as e:
+        logger.warning(f"LLM cache initialization failed: {e}")
+
     # P5.2: Schema initialization removed (manager was unused in v0.11.1+)
 
     # P1: Lazy-load SkillConfig to improve startup time (moved to first use)
