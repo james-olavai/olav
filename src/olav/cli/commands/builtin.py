@@ -252,12 +252,12 @@ Example:
     if not device:
         return "❌ Device is required (--device)"
 
-    # Call Command Learner Agent
+    # Route through OLAVAgent (command_learner skill tools are loaded automatically)
     try:
-        from olav.agents.command_learner_agent_v3 import get_command_learner_agent
+        from olav.agents.agent import create_olav_agent
         import uuid
 
-        agent = get_command_learner_agent()
+        agent = create_olav_agent()
         thread_id = str(uuid.uuid4())
 
         print(f"🎓 Starting Command Learner workflow...")
@@ -286,12 +286,12 @@ register_command("learn")(cmd_learn)
 register_command("lc")(cmd_learn)
 
 
-@register_command("admin")
-async def cmd_admin(args: str) -> str:
+@register_command("config")
+async def cmd_config(args: str) -> str:
     """Execute admin tasks in OLAV system.
 
     Usage:
-        /admin "<task>"
+        /config "<task>"
 
     Available Admin Tasks:
         - File operations (read, write)
@@ -299,31 +299,31 @@ async def cmd_admin(args: str) -> str:
         - OLAV system commands
 
     Examples:
-        /admin "show system status"
-        /admin "backup database"
-        /admin "list running services"
+        /config "show system status"
+        /config "backup database"
+        /config "list running services"
 
-    Note: Admin Agent will execute your task with system privileges context.
+    Note: Config Agent handles configuration writes and scheduling directives your task with system privileges context.
     """
     if not args:
-        return """Usage: /admin "<task>"
+        return """Usage: /config "<task>"
 
 Examples:
-    /admin "show system status"
-    /admin "backup database"
-    /admin "list running processes"
+    /config "show system status"
+    /config "backup database"
+    /config "list running processes"
 
-For detailed admin operations, use OLAV admin CLI: uv run olav admin"""
+For detailed admin operations, use OLAV admin CLI: uv run olav config"""
 
-    # Call Admin Agent
+    # Delegate to OLAVAgent (olav-config SubAgent handles writes/scheduling with HITL)
     try:
-        from olav.agents.admin_agent_v3 import get_admin_agent
+        from olav.agents.agent import create_olav_agent
         import uuid
 
-        agent = get_admin_agent()
+        agent = create_olav_agent()
         thread_id = str(uuid.uuid4())
 
-        print(f"🔧 Admin Agent processing task...")
+        print("⚙️  Config SubAgent processing task (HITL enabled for write operations)...")
         print(f"   Task: {args}")
         print()
 
@@ -333,4 +333,4 @@ For detailed admin operations, use OLAV admin CLI: uv run olav admin"""
     except Exception as e:
         import traceback
 
-        return f"❌ Admin Error: {str(e)}\n\n{traceback.format_exc()}"
+        return f"❌ Config Error: {str(e)}\n\n{traceback.format_exc()}"

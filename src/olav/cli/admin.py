@@ -63,27 +63,28 @@ async def admin_handler(command: str) -> dict:
             logger.error(f"Fast command failed: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}
 
-    # Complex tasks → Admin Agent (AI-powered, natural language)
+    # Complex tasks → OLAVAgent (AI-powered, natural language)
+    # Routes to olav-config SubAgent which handles writes/scheduling with HITL
     # Examples:
     #   /admin "create monitoring skill"
     #   /admin "search for execute_sql usage"
     #   /admin "backup and test new feature"
     try:
-        from olav.agents.admin_agent_v3 import AdminAgent
-        
-        agent = AdminAgent()
-        
+        from olav.agents.agent import create_olav_agent
+
+        agent = create_olav_agent()
+
         # Reconstruct user query (remove /admin prefix)
         user_query = cmd_name if not cmd_args else f"{cmd_name} {cmd_args}"
-        
-        logger.info(f"Invoking Admin Agent: {user_query}")
-        
-        response = await agent.ainvoke(user_query)
-        
+
+        logger.info(f"Invoking OLAVAgent for admin task: {user_query}")
+
+        result = await agent.invoke(user_query, thread_id="admin")
+
         return {
-            "status": "success",
-            "response": response,
-            "message": "Admin Agent completed task"
+            "status": result.get("status", "error"),
+            "response": result.get("response", result.get("message", "")),
+            "message": "OLAVAgent completed task"
         }
     
     except Exception as e:
@@ -110,7 +111,7 @@ async def _fast_status(args: str) -> dict:
         
         # Database info
         if db_path.exists():
-            for db in ["main.duckdb", "agent.duckdb", "admin_agent.duckdb", "llm_cache.db"]:
+            for db in ["main.duckdb", "agent.duckdb", "llm_cache.db"]:
                 db_file = db_path / db
                 if db_file.exists():
                     size_mb = db_file.stat().st_size / (1024 * 1024)
@@ -302,22 +303,26 @@ async def _fast_reload(args: str) -> dict:
 async def _kb_status(args: str) -> dict:
     """Get knowledge base statistics and status."""
     try:
-        from src.olav.lib.kb_manager import KnowledgeBaseManager
-        
-        manager = KnowledgeBaseManager()
-        status = manager.get_status()
-        
+        import importlib.util
+        from pathlib import Path as _Path
+        spec = importlib.util.spec_from_file_location(
+            "_olav_skill_kb_manager",
+            _Path(".olav/skills/olav-config/tools/kb_manager.py")
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        status = mod.get_kb_status()
+
         message = "📚 Knowledge Base Status\n"
-        message += f"  Directory: {status['knowledge_dir']}\n"
-        message += f"  Files: {status['file_count']}\n"
-        message += f"  Chunks: {status['total_chunks']}\n"
-        message += f"  Indexed: {status['indexed_chunks']} ({status['indexed_percentage']:.1f}%)\n"
-        
-        return {
-            "status": "success",
-            "message": message,
-            "statistics": status
-        }
+        message += f"  Status: {status.get('status', 'unknown')}\n"
+        message += f"  Chunks: {status.get('total_chunks', 0)}\n"
+        if status.get('last_updated'):
+            message += f"  Last updated: {status['last_updated']}\n"
+        if status.get('message'):
+            message += f"  {status['message']}\n"
+
+        return {"status": "success", "message": message, "statistics": status}
     except Exception as e:
         logger.error(f"KB status failed: {e}")
         return {"status": "error", "message": f"KB status failed: {e}"}
@@ -326,33 +331,29 @@ async def _kb_status(args: str) -> dict:
 async def _kb_index(args: str) -> dict:
     """Index knowledge files. Usage: /admin kb-index or /admin kb-index rebuild"""
     try:
-        from src.olav.lib.kb_manager import reload_knowledge_base
-        
+        import importlib.util
+        from pathlib import Path as _Path
+        spec = importlib.util.spec_from_file_location(
+            "_olav_skill_kb_manager",
+            _Path(".olav/skills/olav-config/tools/kb_manager.py")
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
         rebuild = "rebuild" in args.lower() or "force" in args.lower()
-        
         message = "🔍 Indexing knowledge base...\n"
-        
-        result = reload_knowledge_base(force=rebuild, incremental=not rebuild)
-        
-        if result['success']:
-            stats = result['stats']
-            message += f"✅ Indexed {stats['total_indexed']} chunks\n"
-            message += f"   Files: {stats['files_processed']}\n"
-            if rebuild:
-                message += f"   Rebuild: All files reindexed\n"
-            else:
-                message += f"   Skipped: {stats.get('files_skipped', 0)} (unchanged)\n"
-                message += f"   Modified: {stats.get('files_modified', 0)}\n"
-        else:
-            message += f"❌ Error: {result.get('error', 'Unknown')}\n"
-        
-        return {
-            "status": "success" if result['success'] else "error",
-            "message": message,
-            "result": result
-        }
+
+        result = mod.index_knowledge_base(rebuild=rebuild, incremental=not rebuild)
+
+        message += f"✅ Indexed {result.get('chunks_created', 0)} chunks\n"
+        message += f"   Files indexed: {result.get('files_indexed', 0)}\n"
+        message += f"   Files skipped: {result.get('files_skipped', 0)} (unchanged)\n"
+        if result.get('elapsed_time'):
+            message += f"   Time: {result['elapsed_time']:.1f}s\n"
+
+        return {"status": "success", "message": message, "result": result}
     except ValueError as e:
-        if "LLM_API_KEY" in str(e) or "api_key" in str(e):
+        if "LLM_API_KEY" in str(e) or "api_key" in str(e).lower():
             return {
                 "status": "error",
                 "message": "❌ LLM API key not configured. Set LLM_API_KEY environment variable or in settings.json"
@@ -388,7 +389,7 @@ async def _kb_search(args: str) -> dict:
             if not db_path.exists():
                 return {
                     "status": "error",
-                    "message": f"❌ Knowledge base database not found. Run: olav admin kb-index"
+                    "message": f"❌ Knowledge base database not found. Run: olav config kb-index"
                 }
             
             # Use LLMFactory for unified provider support (local/openai/other)
@@ -437,30 +438,25 @@ async def _kb_search(args: str) -> dict:
 async def _kb_reload(args: str) -> dict:
     """Reload knowledge base (rebuild all indexes). Usage: /admin kb-reload"""
     try:
-        from src.olav.lib.kb_manager import reload_knowledge_base
-        
+        import importlib.util
+        from pathlib import Path as _Path
+        spec = importlib.util.spec_from_file_location(
+            "_olav_skill_kb_manager",
+            _Path(".olav/skills/olav-config/tools/kb_manager.py")
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
         message = "🔄 Reloading knowledge base...\n"
-        
-        result = reload_knowledge_base(force=True, incremental=False)
-        
-        if result['success']:
-            stats = result['stats']
-            message += f"✅ Reloaded {stats['total_indexed']} chunks\n"
-            message += f"   Files: {stats['files_processed']}\n"
-        else:
-            message += f"❌ Error: {result.get('error', 'Unknown')}\n"
-        
-        return {
-            "status": "success" if result['success'] else "error",
-            "message": message,
-            "result": result
-        }
+        result = mod.index_knowledge_base(rebuild=True, incremental=False)
+
+        message += f"✅ Reloaded {result.get('chunks_created', 0)} chunks\n"
+        message += f"   Files: {result.get('files_indexed', 0)}\n"
+
+        return {"status": "success", "message": message, "result": result}
     except ValueError as e:
         if "api_key" in str(e).lower():
-            return {
-                "status": "error",
-                "message": "❌ LLM API key not configured"
-            }
+            return {"status": "error", "message": "❌ LLM API key not configured"}
         raise
     except Exception as e:
         logger.error(f"KB reload failed: {e}")

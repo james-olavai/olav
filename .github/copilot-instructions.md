@@ -5,6 +5,28 @@
 
 ---
 
+## 🌐 语言规范
+
+**规则**: 对话与文档使用中文，代码全部使用英文
+
+- **中文**: 所有对话回复、文档说明、注释解释、架构分析、设计决策
+- **English**: 所有代码（Python/Bash/YAML/JSON）、变量名、函数名、类名、文件名、git commit message
+- **禁止**: 在代码中混入中文字符串（日志、错误信息除外）
+
+```python
+# ✅ 正确
+def load_skills(path: str) -> dict:
+    """Load skills from path."""  # docstring 用英文
+    # 从指定路径加载 skill 配置  ← 注释可以中文
+    return {}
+
+# ❌ 错误
+def 加载技能(路径):  # 函数名不能用中文
+    pass
+```
+
+---
+
 ## 🚨 当前状态
 
 **重构分支**: `refactor/v2.0-deepagents`  
@@ -12,9 +34,9 @@
 **预计完成**: 2026-02-28
 
 **关键文档**:
-- 📖 [dev_docs/INDEX.md](../dev_docs/INDEX.md) - 文档导航（必读）
-- ⭐ [dev_docs/DEEPAGENTS_SIMPLIFICATION_PLAN.md](../dev_docs/DEEPAGENTS_SIMPLIFICATION_PLAN.md) - 核心架构设计
-- 📊 [dev_docs/REFACTOR_TRACKING.md](../dev_docs/REFACTOR_TRACKING.md) - 进度追踪
+- 📖 [dev_docs/INDEX.md](../dev_docs/archive/INDEX.md) - 文档导航（必读）
+- ⭐ [dev_docs/DEEPAGENTS_SIMPLIFICATION_PLAN.md](../dev_docs/archive/DEEPAGENTS_SIMPLIFICATION_PLAN.md) - 核心架构设计
+- 📊 [dev_docs/REFACTOR_TRACKING.md](../dev_docs/archive/REFACTOR_TRACKING.md) - 进度追踪
 
 ---
 
@@ -1212,15 +1234,15 @@ uv run olav ask "有多少个设备？"
 ## 🎓 新人快速上手
 
 1. **理解重构动机**（30 分钟）
-   - 阅读 [CODE_AUDIT_2026_02_14.md](../dev_docs/CODE_AUDIT_2026_02_14.md)
+   - 阅读 [CODE_AUDIT_2026_02_14.md](../dev_docs/archive/CODE_AUDIT_2026_02_14.md)
    - 了解现有问题
 
 2. **掌握目标架构**（1 小时）
-   - 阅读 [DEEPAGENTS_SIMPLIFICATION_PLAN.md](../dev_docs/DEEPAGENTS_SIMPLIFICATION_PLAN.md)
+   - 阅读 [DEEPAGENTS_SIMPLIFICATION_PLAN.md](../dev_docs/archive/DEEPAGENTS_SIMPLIFICATION_PLAN.md)
    - 理解 1 Agent + Skills 设计
 
 3. **开始贡献**
-   - 查看 [REFACTOR_TRACKING.md](../dev_docs/REFACTOR_TRACKING.md) 认领任务
+   - 查看 [REFACTOR_TRACKING.md](../dev_docs/archive/REFACTOR_TRACKING.md) 认领任务
    - TDD 开发 → Git commit → PR
 
 ---

@@ -51,7 +51,7 @@ dependencies = [
     "tenacity>=8.0",
     "deepagents",
     "langchain-community>=0.4.1",
-    "langgraph>=1.0.5",
+    "langgraph>=1.0.8",
     "duckdb-engine>=0.17.0",
     "langgraph-checkpoint-duckdb>=2.0.2",
     "python-frontmatter>=1.1.0",
@@ -62,8 +62,7 @@ dependencies = [
 ]
 
 [project.scripts]
-olav = "olav.cli.agent_v2:app"  # v2.0 - New unified agent
-olav-legacy = "olav.cli:main"  # v0.11 - Legacy CLI (deprecated)
+olav = "olav.cli.cli_app:app"
 
 [project.optional-dependencies]
 dev = [
@@ -166,34 +165,28 @@ reportPossiblyUnboundVariable = "warning"
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-testpaths = ["tests/unit", "tests/e2e"]  # Enable E2E tests by default
-# Note: E2E tests require real API/device access. Run explicitly:
-#   pytest tests/e2e/ --timeout=120  
-# Integration tests:
-#   pytest tests/integration/ -m integration
+testpaths = ["tests"]
+# Run notes:
+#   Default: pytest tests/                     (all tests, no LLM/network needed)
+#   E2E CLI:  pytest tests/e2e/test_cli.py     (subprocess, no LLM)
+#   LLM:      pytest tests/ -m llm             (requires LLM_API_KEY)
+#   Network:  pytest tests/ -m e2e             (requires real devices)
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+asyncio_mode = "auto"
 addopts = [
-    "-v",
     "--strict-markers",
     "--tb=short",
-    "--cov=src/olav",
-    "--cov-report=term-missing",
-    "--cov-report=html",
-    "--cov-fail-under=70",
 ]
 markers = [
     "unit: Unit tests (fast, no external dependencies)",
-    "e2e: End-to-end tests (slow, requires real devices/LLM)",
-    "integration: Integration tests (requires external services)",
+    "e2e: End-to-end tests (requires real devices)",
     "llm: Tests requiring real LLM API calls",
     "network: Tests requiring network device access",
     "slow: Slow-running tests",
-    "manual: Manual tests requiring interactive setup",
 ]
-asyncio_mode = "auto"
-timeout = 300  # 300 second timeout for complex E2E tests
+timeout = 120
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",

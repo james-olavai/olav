@@ -40,14 +40,15 @@ def execute_command(device: str, command: str, timeout: int = 60) -> dict[str, A
     import time
     from pathlib import Path
     import sys
+    from config.paths import SKILL_BASE_PATH
     
-    # Add .olav/tools to path to import execute_cli
-    tools_path = Path(".olav/tools")
+    # Add olav-ops/tools to path to import execute_cli (CWD-independent)
+    tools_path = SKILL_BASE_PATH / "olav-ops" / "tools"
     if str(tools_path) not in sys.path:
         sys.path.insert(0, str(tools_path))
     
     try:
-        from network import execute_cli
+        from execute_cli import execute_cli
         
         start_time = time.time()
         

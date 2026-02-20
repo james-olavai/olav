@@ -228,15 +228,17 @@ def get_skill_checkpoint_path(skill_name: str) -> Path:
     Returns:
         Path to skill's checkpoint database (.olav/skills/{skill_name}/skill.duckdb)
     
+    Note:
+        Does NOT create the directory — caller is responsible for mkdir when
+        the checkpoint file is actually opened (lazy creation).
+
     Examples:
         >>> get_skill_checkpoint_path('orchestrator')
-        Path('.olav/skills/olav-orchestrator/skill.duckdb')
+        Path('.olav/skills/orchestrator/skill.duckdb')
         >>> get_skill_checkpoint_path('network-query')
         Path('.olav/skills/network-query/skill.duckdb')
     """
-    skill_dir = SKILLS_DIR / skill_name
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    return skill_dir / "skill.duckdb"
+    return SKILLS_DIR / skill_name / "skill.duckdb"
 
 # Pre-defined skill checkpoint paths (most commonly used)
 ORCHESTRATOR_CHECKPOINT_PATH = get_skill_checkpoint_path("orchestrator")

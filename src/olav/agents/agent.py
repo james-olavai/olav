@@ -1,363 +1,414 @@
 #!/usr/bin/env python3
 """
-OLAV Deep Agent - Single unified agent with DeepAgents framework.
+OLAV Orchestrator Agent - v3.4 (DeepAgents + SubAgents)
 
 Architecture:
-- 1 Agent + 3 Tools (database, network, inspection)
-- Dynamic Skill loading based on user query
-- DuckDB-based state persistence
-- LLM decision-making for tool selection
+- OLAVAgent: pure orchestrator with format_and_export only
+- olav-ops SubAgent: execute_sql, execute_cli, search_knowledge, format_and_export
+- olav-config SubAgent: sync_schemas, sync_inventory, take_snapshot, sync_commands, manage_cron
+- LangChain SQLiteCache for fast repeated query routing
 
-This replaces: 5 SubAgents + 1,077 lines of routing logic
+Replaces: LangGraph StateGraph + flat tool list (agent.py v3.2)
 """
 
-import json
 import logging
 from pathlib import Path
 
+import langchain
+from langchain_community.cache import SQLiteCache
 from langgraph.checkpoint.duckdb import DuckDBSaver
-from langgraph.graph import END, MessagesState, StateGraph
+from langgraph.store.duckdb import DuckDBStore
+from deepagents import create_deep_agent
+from deepagents.middleware.subagents import SubAgent
 
 from config.settings import settings
 from olav.core.llm import LLMFactory
+from olav.core.tool_discovery import discover_tools
+
+try:
+    import frontmatter as _frontmatter
+    _HAS_FRONTMATTER = True
+except ImportError:
+    _HAS_FRONTMATTER = False
 
 logger = logging.getLogger(__name__)
 
 
+def _read_prompt_file(path: Path) -> str | None:
+    """Read a prompt file, returning None if missing or unreadable."""
+    if path.exists():
+        try:
+            return path.read_text(encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"Failed to read prompt {path}: {e}")
+    return None
+
+
+def _resolve_env_ref(value: str) -> str:
+    """Expand ``${ENV_VAR}`` references in a string against os.environ.
+
+    Example::
+
+        _resolve_env_ref("${OLAV_INSPECTION_MODEL}")  # → value of env var
+        _resolve_env_ref("claude-opus-4-5")           # → unchanged
+
+    Raises:
+        RuntimeError: If the referenced env var is not set.
+    """
+    import os, re
+    def _sub(m: re.Match) -> str:
+        var = m.group(1)
+        val = os.environ.get(var)
+        if val is None:
+            raise RuntimeError(
+                f"OLAV.md references env var ${{{var}}} but it is not set. "
+                f"Add '{var}=<model-name>' to your .env file."
+            )
+        return val
+    return re.sub(r"\$\{([^}]+)\}", _sub, value)
+
+
 class OLAVAgent:
-    """OLAV unified Agent powered by DeepAgents framework."""
+    """OLAV orchestrator powered by DeepAgents + SubAgents."""
 
     def __init__(
         self,
         model_name: str | None = None,
         temperature: float | None = None,
         olav_base_path: str = ".olav",
-        enable_checkpointer: bool = True
+        enable_checkpointer: bool = True,
     ):
-        """Initialize OLAV Agent.
+        """Initialize OLAV Orchestrator Agent.
 
         Args:
-            model_name: LLM model to use (defaults to settings.llm_model_name)
-            temperature: LLM temperature 0.0-1.0 (defaults to settings.llm_temperature)
+            model_name: LLM model (defaults to settings.llm_model_name)
+            temperature: LLM temperature (defaults to settings.llm_temperature)
             olav_base_path: Path to .olav directory
-            enable_checkpointer: Enable state persistence with DuckDB (default: True)
+            enable_checkpointer: Enable DuckDB conversation state persistence
         """
-        # Use settings if not provided
         self.model_name = model_name or settings.llm_model_name
-        self.temperature = temperature if temperature is not None else settings.llm_temperature
+        self.temperature = (
+            temperature if temperature is not None else settings.llm_temperature
+        )
         self.olav_base_path = Path(olav_base_path)
 
-        # Initialize LLM using LLMFactory for third-party API support (OpenRouter, Groq, etc.)
-        # This respects .env configuration: LLM_PROVIDER, LLM_BASE_URL, LLM_API_KEY, etc.
+        # LLM via LLMFactory (supports OpenRouter, Groq, custom endpoints)
         self.llm = LLMFactory.get_chat_model(temperature=self.temperature)
-
         logger.info(
-            f"OLAV Agent initialized with: "
-            f"provider={settings.llm_provider}, "
-            f"model={self.model_name}, "
-            f"temperature={self.temperature}"
+            f"OLAV Orchestrator v3.3 initialized: provider={settings.llm_provider}, "
+            f"model={self.model_name}, temperature={self.temperature}"
         )
-        if settings.llm_base_url:
-            logger.info(f"Using custom LLM endpoint: {settings.llm_base_url}")
 
-        # Initialize checkpointer for state persistence
+        # LangChain LLM cache — SQLite, speeds up identical repeated queries
+        cache_path = self.olav_base_path / "databases" / "llm_cache.db"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            langchain.llm_cache = SQLiteCache(database_path=str(cache_path))
+            logger.info(f"✓ LLM cache enabled: {cache_path}")
+        except Exception as e:
+            logger.warning(f"LLM cache init failed: {e}. Caching disabled.")
+
+        # DuckDB checkpointer — short-term conversation memory
         self.checkpointer = None
         if enable_checkpointer:
             db_path = self.olav_base_path / "databases" / "agent.duckdb"
             db_path.parent.mkdir(parents=True, exist_ok=True)
-
             try:
                 import duckdb
                 conn = duckdb.connect(str(db_path))
                 self.checkpointer = DuckDBSaver(conn=conn)
+                logger.info("✓ Checkpointer initialized (DuckDBSaver)")
             except Exception as e:
-                logger.warning(f"Failed to initialize DuckDBSaver: {e}. Using memory persistence.")
-                self.checkpointer = None
+                logger.warning(f"DuckDBSaver init failed: {e}. Memory only.")
 
-        # Load tools and skills
-        self.tools = self._load_tools()
-        self.skills = self._load_skills()
-
-        # Build graph
-        self.graph = self._build_graph()
-
-    def _load_tools(self) -> list:
-        """Load tools from .olav/tools/ with improved clarity and error handling.
-        
-        Tools are loaded dynamically from individual modules (database, network, inspection).
-        Each tool must be decorated with @tool from langchain_core.tools.
-        
-        Returns:
-            List of available LangChain tools
-        """
-        tools = []
-        tools_path = self.olav_base_path / "tools"
-
-        if not tools_path.exists():
-            logger.warning(f"Tools directory not found: {tools_path}")
-            return tools
-
-        import sys
-        sys.path.insert(0, str(tools_path))
-
-        # Define tools with module and function names for clarity
-        # Format: (tool_name, module_name)
-        tool_specs = [
-            ("execute_sql", "database"),
-            ("execute_cli", "network"),
-            ("list_devices_inventory", "network"),
-            ("manage_inspection_schedule", "inspection"),
-        ]
-
-        for tool_name, module_name in tool_specs:
-            try:
-                # Direct import is simpler and clearer than dynamic spec loading
-                module = __import__(module_name)
-                if hasattr(module, tool_name):
-                    tool = getattr(module, tool_name)
-                    tools.append(tool)
-                    logger.debug(f"✓ Loaded tool: {tool_name} from {module_name}")
-                else:
-                    logger.warning(f"✗ Tool '{tool_name}' not found in module '{module_name}'")
-            except ImportError as e:
-                logger.warning(f"✗ Failed to import module '{module_name}': {e}")
-            except Exception as e:
-                logger.error(f"✗ Error loading tool '{tool_name}': {e}")
-
-        logger.info(f"✓ Loaded {len(tools)} tools from {tools_path}")
-        return tools
-
-    def _get_system_prompt(self) -> str:
-        """Load system prompt from shared skill configuration.
-        
-        Returns:
-            System prompt text from .olav/skills/shared/prompts/system.md,
-            or a minimal fallback if file doesn't exist.
-        """
-        shared_prompt_path = self.olav_base_path / "skills" / "shared" / "prompts" / "system.md"
-        
-        if shared_prompt_path.exists():
-            try:
-                return shared_prompt_path.read_text(encoding="utf-8")
-            except Exception as e:
-                logger.warning(f"Failed to read shared prompt: {e}")
-        
-        # Minimal fallback - only for edge cases
-        return """You are OLAV, an intelligent network operations assistant.
-Use available tools to help with network queries and operations."""
-
-    def _load_skills(self) -> dict:
-        """Load and parse skills from .olav/skills/."""
-        skills = {}
-        skills_path = self.olav_base_path / "skills"
-
-        if not skills_path.exists():
-            logger.warning(f"Skills directory not found: {skills_path}")
-            return skills
-
+        # DuckDB long-term memory store — cross-thread persistent
+        self.store = None
         try:
-            import frontmatter
+            store_path = self.olav_base_path / "databases" / "memory_store.duckdb"
+            store_path.parent.mkdir(parents=True, exist_ok=True)
+            import duckdb as _ddb
+            _store_conn = _ddb.connect(str(store_path))
+            self.store = DuckDBStore(_store_conn)
 
-            for skill_dir in skills_path.iterdir():
-                if skill_dir.is_dir():
-                    skill_file = skill_dir / "SKILL.md"
-                    if skill_file.exists():
-                        try:
-                            with open(skill_file, encoding="utf-8") as f:
-                                post = frontmatter.load(f)
-                                skills[skill_dir.name] = {
-                                    "frontmatter": post.metadata,
-                                    "content": post.content,
-                                    "path": str(skill_dir)
-                                }
-                        except Exception as e:
-                            logger.warning(f"Failed to parse skill {skill_dir.name}: {e}")
+            # Workaround: DuckDBStore.setup() uses row["v"] but DuckDB returns tuples
+            import types
 
-            logger.info(f"Loaded {len(skills)} skills")
-        except ImportError:
-            logger.warning("python-frontmatter not installed. Skipping skill parsing.")
+            def _patched_setup(self_store: DuckDBStore) -> None:
+                import duckdb as _ddb2
+                with self_store.conn.cursor() as cur:
+                    try:
+                        cur.execute(
+                            "SELECT v FROM store_migrations ORDER BY v DESC LIMIT 1"
+                        )
+                        row = cur.fetchone()
+                        version = row[0] if row is not None else -1
+                    except _ddb2.CatalogException:
+                        version = -1
+                        cur.execute(
+                            "CREATE TABLE IF NOT EXISTS store_migrations "
+                            "(v INTEGER PRIMARY KEY)"
+                        )
+                    for v, migration in enumerate(
+                        self_store.MIGRATIONS[version + 1 :], start=version + 1
+                    ):
+                        cur.execute(migration)
+                        cur.execute(
+                            "INSERT INTO store_migrations (v) VALUES (?)", (v,)
+                        )
 
-        return skills
-
-    def _build_graph(self) -> StateGraph:
-        """Build agent execution graph using LangGraph."""
-        workflow = StateGraph(MessagesState)
-
-        # Main agent node (async for graph.ainvoke compatibility)
-        async def agent_node(state: MessagesState) -> MessagesState:
-            """Agent decision-making node."""
-            logger.info(f"[agent_node] Entered with {len(state['messages'])} messages")
-            messages = state["messages"]
-
-            # Prepare system prompt
-            system_prompt = self._build_system_prompt()
-            logger.info(f"[agent_node] System prompt length: {len(system_prompt)} chars")
-
-            # Call LLM with tools bound (use ainvoke for async)
-            logger.info(f"[agent_node] Calling LLM with {len(self.tools)} tools bound...")
-            response = await self.llm.bind_tools(self.tools).ainvoke(
-                [{"role": "system", "content": system_prompt}] + messages
+            self.store.setup = types.MethodType(_patched_setup, self.store)
+            self.store.setup()
+            logger.info("✓ Long-term memory store initialized (DuckDBStore)")
+        except Exception as e:
+            logger.warning(
+                f"DuckDBStore init failed: {e}. Long-term memory disabled."
             )
-            logger.info(f"[agent_node] LLM response received: {type(response)}")
+            self.store = None
 
-            return {"messages": messages + [response]}
-
-        # Tool execution node (synchronous - must match graph.invoke usage)
-        def tool_node(state: MessagesState) -> MessagesState:
-            """Execute tool calls from agent."""
-            logger.info(f"[tool_node] Entered with {len(state['messages'])} messages")
-            messages = state["messages"]
-            last_message = messages[-1]
-            logger.info(f"[tool_node] Last message type: {type(last_message)}")
-
-            # Process tool calls if present
-            if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-                logger.info(f"[tool_node] Processing {len(last_message.tool_calls)} tool calls")
-                tool_results = []
-                for i, tool_call in enumerate(last_message.tool_calls):
-                    tool_name = tool_call["name"]
-                    tool_args = tool_call["args"]
-                    tool_call_id = tool_call["id"]
-                    logger.info(f"[tool_node] Tool {i+1}: {tool_name} with args: {tool_args}")
-
-                    # Find and execute tool (handles both plain functions and Tool objects)
-                    result = None
-                    for tool in self.tools:
-                        # Check if tool is a plain function or Tool object
-                        func_name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
-                        if func_name == tool_name:
-                            logger.info(f"[tool_node] Executing tool: {tool_name}")
-                            try:
-                                # Execute tool (handle both Tool.invoke() and direct function call)
-                                if hasattr(tool, "invoke"):
-                                    result = tool.invoke(tool_args)
-                                else:
-                                    result = tool(**tool_args)
-                                logger.info(f"[tool_node] Tool {tool_name} result: {str(result)[:200]}")
-                            except Exception as e:
-                                logger.error(f"[tool_node] Tool {tool_name} failed: {e}")
-                                result = f"Error executing {tool_name}: {e}"
-                            break
-
-                    if result is None:
-                        logger.warning(f"[tool_node] Tool {tool_name} not found!")
-                        result = f"Tool '{tool_name}' not found"
-
-                    # Use ToolMessage for proper LangChain message format
-                    from langchain_core.messages import ToolMessage
-                    tool_results.append(ToolMessage(
-                        content=json.dumps(result) if not isinstance(result, str) else result,
-                        tool_call_id=tool_call_id,
-                        name=tool_name,
-                    ))
-
-                logger.info(f"[tool_node] Returning {len(tool_results)} tool results")
-                return {"messages": messages + tool_results}
-            else:
-                logger.info(f"[tool_node] No tool calls in last message")
-
-            return {"messages": messages}
-
-        # Add nodes to graph
-        workflow.add_node("agent", agent_node)
-        workflow.add_node("tools", tool_node)
-
-        # Conditional routing
-        def should_continue(state: MessagesState) -> str:
-            last_message = state["messages"][-1]
-            # Check if tool_calls exist AND are non-empty
-            if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-                logger.info(f"[should_continue] Routing to tools ({len(last_message.tool_calls)} calls)")
-                return "tools"
-            logger.info(f"[should_continue] Ending (no tool calls)")
-            return END
-
-        workflow.add_edge("tools", "agent")
-        workflow.add_conditional_edges(
-            "agent",
-            should_continue,
+        # Build SubAgents and orchestrator graph (config driven from OLAV.md)
+        olav_config = self._load_olav_config()
+        subagents = self._build_subagents(olav_config)
+        orchestrator_tools = self._load_orchestrator_tools(olav_config)
+        logger.info(
+            f"✓ Orchestrator tools ({len(orchestrator_tools)}): "
+            f"{[t.name for t in orchestrator_tools]}"
         )
 
-        # Set entry point
-        workflow.set_entry_point("agent")
+        self.graph = create_deep_agent(
+            model=self.llm,
+            tools=orchestrator_tools,
+            system_prompt=self._get_orchestrator_prompt(olav_config),
+            checkpointer=self.checkpointer,
+            store=self.store,
+            subagents=subagents,
+        )
 
-        # Compile with checkpointer if available
-        if self.checkpointer:
-            return workflow.compile(checkpointer=self.checkpointer)
-        else:
-            return workflow.compile()
+    # ------------------------------------------------------------------
+    # Tool loading helpers
+    # ------------------------------------------------------------------
 
-    def _build_system_prompt(self) -> str:
-        """Build system prompt with context about available tools and skills.
-        
-        Loads base prompt from shared skill and injects dynamic tool/skill context.
-        """
-        # Get base prompt from shared skill
-        base_prompt = self._get_system_prompt()
-        
-        # Add dynamic tool context
-        tool_descriptions = "\n".join([
-            f"- **{tool.name}**: {tool.description or 'Tool'}"
-            for tool in self.tools
-        ])
-        
-        # Add skill context if available
-        skill_names = ", ".join(self.skills.keys()) if self.skills else "None"
-        
-        # Inject dynamic context
-        context_section = f"""
-## Runtime Context
-
-**Available Tools**:
-{tool_descriptions}
-
-**Loaded Skills**: {skill_names}
-"""
-        
-        return base_prompt + context_section
-
-    async def invoke(self, query: str, thread_id: str | None = None) -> dict:
-        """Invoke the agent with a query.
+    def _load_tools_for_skills(
+        self,
+        skill_names: list[str],
+        include: set[str] | None = None,
+        exclude: set[str] | None = None,
+    ) -> list:
+        """Load @tool-decorated functions from specific skill directories.
 
         Args:
-            query: User natural language query
-            thread_id: Optional thread ID for conversation continuity
+            skill_names: Skill directory names under .olav/skills/
+            include: If provided, only these tool names are returned
+            exclude: If provided, these tool names are skipped
 
         Returns:
-            Agent response
+            Deduplicated list of LangChain tool objects (last write wins)
+        """
+        tools_by_name: dict = {}
+        for skill_name in skill_names:
+            tools_path = self.olav_base_path / "skills" / skill_name / "tools"
+            if not tools_path.is_dir():
+                logger.debug(f"  Skill tools path missing: {tools_path}")
+                continue
+            for tool in discover_tools(tools_path):
+                if include and tool.name not in include:
+                    continue
+                if exclude and tool.name in exclude:
+                    continue
+                tools_by_name[tool.name] = tool
+        return list(tools_by_name.values())
+
+    # ------------------------------------------------------------------
+    # OLAV.md config loading
+    # ------------------------------------------------------------------
+
+    def _load_olav_config(self) -> dict:
+        """Load OLAV.md YAML frontmatter for SubAgent/orchestrator config.
+
+        Raises:
+            RuntimeError: If OLAV.md is missing, unreadable, or has no frontmatter.
+        """
+        olav_md = self.olav_base_path / "OLAV.md"
+        if not olav_md.exists():
+            raise RuntimeError(
+                f"OLAV.md not found at {olav_md}. "
+                "SubAgent registration requires .olav/OLAV.md with a valid 'subagents:' section."
+            )
+        if not _HAS_FRONTMATTER:
+            raise RuntimeError(
+                "python-frontmatter is not installed. "
+                "Run: uv add python-frontmatter"
+            )
+        try:
+            with open(olav_md, encoding="utf-8") as f:
+                post = _frontmatter.load(f)
+        except Exception as e:
+            raise RuntimeError(f"Failed to parse OLAV.md: {e}") from e
+        if not post.metadata:
+            raise RuntimeError(
+                "OLAV.md has no YAML frontmatter. "
+                "Add '---\norchestrator: ...\nsubagents: [...]\n---' at the top."
+            )
+        logger.info(f"✓ OLAV.md config loaded: {list(post.metadata.keys())}")
+        return post.metadata
+
+    def _load_orchestrator_tools(self, olav_config: dict) -> list:
+        """Load orchestrator tools from OLAV.md orchestrator.skills / include_tools.
+
+        Raises:
+            RuntimeError: If 'orchestrator' section is missing from OLAV.md config.
+        """
+        orch = olav_config.get("orchestrator")
+        if not orch:
+            raise RuntimeError(
+                "OLAV.md is missing the 'orchestrator:' section. "
+                "Add 'orchestrator: {skills: [...], include_tools: [...], prompt: ...}' "
+                "to .olav/OLAV.md."
+            )
+        skills = orch.get("skills") or []
+        include_raw = orch.get("include_tools")
+        include = set(include_raw) if include_raw else None
+        return self._load_tools_for_skills(skills, include=include)
+
+    # ------------------------------------------------------------------
+    # SubAgent construction
+    # ------------------------------------------------------------------
+
+    def _build_subagents(self, olav_config: dict) -> list[SubAgent]:
+        """Build SubAgents from OLAV.md frontmatter config.
+
+        Each entry under ``subagents:`` may specify:
+        - name          (required)
+        - description   (required)
+        - skills        list of skill directory names to scan for tools
+        - include_tools only load these tool names (mutually exclusive with exclude_tools)
+        - exclude_tools skip these tool names
+        - prompt        relative path under .olav/skills/ to system prompt file
+        """
+        subagent_defs = olav_config.get("subagents") or []
+        if not subagent_defs:
+            raise RuntimeError(
+                "OLAV.md has no 'subagents:' entries. "
+                "Add at least one subagent definition to .olav/OLAV.md."
+            )
+
+        subagents: list[SubAgent] = []
+        for sa_def in subagent_defs:
+            name = sa_def["name"]
+            description = sa_def["description"].strip()
+            skills = sa_def.get("skills") or []
+
+            include_raw = sa_def.get("include_tools")
+            exclude_raw = sa_def.get("exclude_tools")
+            include = set(include_raw) if include_raw else None
+            exclude = set(exclude_raw) if exclude_raw else None
+
+            tools = self._load_tools_for_skills(skills, include=include, exclude=exclude)
+            logger.info(
+                f"✓ SubAgent '{name}' ({len(tools)} tools): {[t.name for t in tools]}"
+            )
+
+            # Load prompt — path required in OLAV.md, file must exist
+            prompt_rel = sa_def.get("prompt")
+            if not prompt_rel:
+                raise RuntimeError(
+                    f"SubAgent '{name}' is missing a 'prompt:' path in OLAV.md. "
+                    "Add 'prompt: <skill>/prompts/<file>.md' to the subagent definition."
+                )
+            prompt = _read_prompt_file(self.olav_base_path / "skills" / prompt_rel)
+            if not prompt:
+                raise RuntimeError(
+                    f"SubAgent '{name}': prompt file not found or empty: "
+                    f".olav/skills/{prompt_rel}. "
+                    "Create the file or fix the 'prompt:' path in OLAV.md."
+                )
+
+            interrupt_on: dict | None = sa_def.get("interrupt_on") or None
+
+            # Optional per-SubAgent model override.
+            # OLAV.md supports a literal name ("claude-opus-4-5") or an env
+            # var reference ("${OLAV_INSPECTION_MODEL}") resolved at startup.
+            # Omit the field to share the orchestrator's model (LLM_MODEL_NAME).
+            subagent_llm = None
+            raw_model = sa_def.get("model")
+            if raw_model:
+                resolved = _resolve_env_ref(str(raw_model))
+                subagent_llm = LLMFactory.get_chat_model(model_name=resolved)
+                logger.info(f"  SubAgent '{name}' uses model override: {resolved}")
+
+            subagents.append(
+                SubAgent(
+                    name=name,
+                    description=description,
+                    system_prompt=prompt,
+                    tools=tools,
+                    **({"model": subagent_llm} if subagent_llm else {}),
+                    **({"interrupt_on": interrupt_on} if interrupt_on else {}),
+                )
+            )
+
+        return subagents
+
+    # ------------------------------------------------------------------
+    # Prompt loading
+    # ------------------------------------------------------------------
+
+    def _get_orchestrator_prompt(self, olav_config: dict) -> str:
+        """Load orchestrator system prompt from OLAV.md orchestrator.prompt.
+
+        Raises:
+            RuntimeError: If the prompt path is missing or the file cannot be read.
+        """
+        prompt_rel = (olav_config.get("orchestrator") or {}).get("prompt")
+        if not prompt_rel:
+            raise RuntimeError(
+                "OLAV.md orchestrator section is missing a 'prompt:' path. "
+                "Add 'prompt: <skill>/prompts/<file>.md' under 'orchestrator:'."
+            )
+        prompt = _read_prompt_file(self.olav_base_path / "skills" / prompt_rel)
+        if not prompt:
+            raise RuntimeError(
+                f"Orchestrator prompt file not found: .olav/skills/{prompt_rel}. "
+                "Create the file or fix the 'prompt:' path in OLAV.md."
+            )
+        return prompt
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    async def invoke(self, query: str, thread_id: str | None = None) -> dict:
+        """Invoke the orchestrator with a natural language query.
+
+        Args:
+            query: User query
+            thread_id: Optional conversation thread ID
+
+        Returns:
+            dict with keys: status, response, thread_id
         """
         try:
-            logger.info(f"[invoke] Starting with query: {query[:100]}")
-            # Prepare input
             input_data = {"messages": [{"role": "user", "content": query}]}
-            logger.info(f"[invoke] Input data prepared")
-
-            # Configure runtime - always provide config if checkpointer exists
             config = None
             if self.checkpointer:
                 config = {
                     "configurable": {
-                        "thread_id": thread_id or f"default-{id(input_data)}"
+                        "thread_id": thread_id or f"thread-{id(input_data)}"
                     }
                 }
-                logger.info(f"[invoke] Using checkpointer with thread_id: {config['configurable']['thread_id']} ")
-            else:
-                logger.info(f"[invoke] Checkpointer disabled, using memory only")
 
-            # Execute graph
-            logger.info(f"[invoke] Calling graph.ainvoke()...")
+            logger.info(f"[invoke] query={query[:100]!r}")
             result = await self.graph.ainvoke(input_data, config=config)
-            logger.info(f"[invoke] Graph execution completed successfully")
 
-            # Extract final response
             messages = result.get("messages", [])
-            logger.info(f"[invoke] Received {len(messages)} messages from graph")
             if messages:
-                last_message = messages[-1]
+                last = messages[-1]
+                content = (
+                    last.content if hasattr(last, "content") else str(last)
+                )
                 return {
                     "status": "success",
-                    "response": last_message.content if hasattr(last_message, "content") else str(last_message),
-                    "thread_id": thread_id or "default"
+                    "response": content,
+                    "thread_id": thread_id or "default",
                 }
 
             return {"status": "error", "message": "No response generated"}
@@ -367,14 +418,14 @@ Use available tools to help with network queries and operations."""
             return {"status": "error", "message": str(e)}
 
     async def stream(self, query: str, thread_id: str | None = None):
-        """Stream agent response for real-time feedback.
+        """Stream agent events for real-time feedback.
 
         Args:
-            query: User natural language query
-            thread_id: Optional thread ID for conversation continuity
+            query: User query
+            thread_id: Optional conversation thread ID
 
         Yields:
-            Streaming events
+            LangGraph streaming events
         """
         try:
             input_data = {"messages": [{"role": "user", "content": query}]}
@@ -382,7 +433,7 @@ Use available tools to help with network queries and operations."""
             if thread_id and self.checkpointer:
                 config = {"configurable": {"thread_id": thread_id}}
 
-            for event in self.graph.stream(input_data, config=config):
+            async for event in self.graph.astream(input_data, config=config):
                 yield event
 
         except Exception as e:
@@ -390,21 +441,14 @@ Use available tools to help with network queries and operations."""
             yield {"error": str(e)}
 
 
-# Factory function for creating agent instances
 def create_olav_agent(**kwargs) -> OLAVAgent:
-    """Create an OLAV Agent instance.
-
-    Args:
-        **kwargs: Configuration parameters (model_name, temperature, olav_base_path)
-
-    Returns:
-        OLAVAgent instance
-    """
+    """Create an OLAV Orchestrator Agent instance."""
     return OLAVAgent(**kwargs)
 
 
 if __name__ == "__main__":
     import asyncio
+    import json
 
     async def main():
         agent = create_olav_agent()

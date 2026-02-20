@@ -16,7 +16,7 @@ Design Principles:
 
 from typing import Literal
 from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict, JsonConfigSettingsSource
 
 
 class TaskDefinition(BaseModel):
@@ -180,6 +180,22 @@ class TaskSchedulerSettings(BaseSettings):
         json_file=".olav/config/tasks.json",  # Load from JSON file if present
     )
     
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings,
+        env_settings,
+        dotenv_settings,
+        file_secret_settings,
+    ):
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            JsonConfigSettingsSource(settings_cls),
+        )
+
     def get_enabled_tasks(self) -> dict[str, TaskDefinition]:
         """Get all enabled tasks"""
         if not self.enabled:

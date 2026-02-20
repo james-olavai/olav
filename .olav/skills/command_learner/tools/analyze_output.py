@@ -35,10 +35,10 @@ def analyze_output(command: str, output: str, platform: str) -> dict[str, Any]:
     """
     from config.settings import settings  # 确保 .env 被加载
     from langchain_openai import ChatOpenAI
-    from pathlib import Path
+    from config.paths import SKILL_BASE_PATH
     
-    # Load analysis prompt
-    prompt_path = Path(".olav/skills/command_learner/reference/textfsm_analysis.md")
+    # Load analysis prompt (absolute path via config.paths — CWD-independent)
+    prompt_path = SKILL_BASE_PATH / "command_learner" / "reference" / "textfsm_analysis.md"
     if not prompt_path.exists():
         logger.warning(f"Analysis prompt not found: {prompt_path}")
         analysis_prompt = "Analyze this network command output and identify all extractable fields."

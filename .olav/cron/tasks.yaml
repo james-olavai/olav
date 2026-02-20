@@ -1,0 +1,28 @@
+---
+# Cron Tasks Configuration
+# Format for each task:
+#   - name: unique-task-name
+#     description: human-readable description
+#     schedule: cron expression (minute hour day-of-month month day-of-week)
+#     command: shell command to execute
+#     enabled: true/false
+#     timeout_seconds: max execution time
+#     tags: [list, of, tags]
+
+tasks:
+  - name: daily-config-drift-audit
+    description: "Detect running-config drift vs previous snapshot"
+    schedule: "30 2 * * *"    # 02:30 daily (after full snapshot at 02:00)
+    command: "uv run olav-audit run_audit AUDIT_CONFIG_DRIFT"
+    enabled: true
+    timeout_seconds: 300
+    tags: [audit, config, drift, daily]
+    notes: |
+      Runs after the daily snapshot collection is complete.
+      Generates a configuration drift report comparing today's config
+      to the previous snapshot. Report includes per-device diff analysis.
+
+# Additional planned cron tasks (for future use):
+# - daily-healthcheck-audit at 03:00
+# - weekly-compliance-audit on Sunday 04:00
+# - hourly-capacity-monitor (during business hours)
