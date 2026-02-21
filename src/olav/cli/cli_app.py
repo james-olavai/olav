@@ -91,35 +91,54 @@ def _check_llm_key():
         raise typer.Exit(1)
 
 
-async def _stream_response(agent, query: str, thread_id: str | None = None) -> dict:
+async def _stream_response(
+    agent: object | None, query: str, thread_id: str | None = None
+) -> dict:
     """Invoke agent and render the final response once (no duplicate output).
 
-    Uses ainvoke (not stream) to get the final response, then renders it
-    exactly once as Markdown. A spinner provides visual feedback while waiting.
+    Tries the daemon socket first (fast path: <200ms). Falls back to
+    in-process agent.invoke() when daemon is not running.
 
     Args:
-        agent: OLAVAgent instance
-        query: User natural language query
-        thread_id: Optional session thread_id for checkpointer
+        agent: OLAVAgent instance (used only if daemon is unavailable).
+        query: User natural language query.
+        thread_id: Optional session thread_id for checkpointer.
 
     Returns:
-        dict with keys: status, response (or message on error)
+        dict with keys: status, response (or message on error).
     """
     from rich.markdown import Markdown
 
+    from olav.cli.daemon import query_daemon
     from olav.cli.display import StreamingDisplay
 
     display = StreamingDisplay(console=console, verbose=False)
     display.show_processing_status("Thinking...")
 
     try:
-        result = await agent.invoke(query, thread_id=thread_id)
+        # Fast path: delegate to daemon if running
+        daemon_result = await query_daemon(query, thread_id=thread_id)
+        if daemon_result is not None:
+            display.stop_processing_status()
+            response = daemon_result.get("response", "")
+            if response:
+                console.print(Markdown(response))
+                console.print()
+            return daemon_result
+
+        # Fallback: in-process agent (no daemon running)
+        if agent is None:
+            from olav.agents.agent import create_olav_agent
+
+            agent = create_olav_agent(enable_checkpointer=False)
+
+        result = await agent.invoke(query, thread_id=thread_id)  # type: ignore[union-attr]
         display.stop_processing_status()
 
         response = result.get("response", "")
         if response:
             console.print(Markdown(response))
-            console.print()  # blank line after output
+            console.print()
 
         return result
 
@@ -242,16 +261,11 @@ def main_callback(
     # Single message mode: -m "query"
     if msg:
         _check_llm_key()
-        _prewarm_agent()
         agent = _get_cached_agent()
         asyncio.run(_stream_response(agent, msg))
         return
 
-    # Interactive mode - prewarm agent for faster first query
-    console.print("[cyan]Prewarming agent...[/cyan]")
-    _prewarm_agent()
-    console.print("[green]Agent ready![/green]")
-
+    # Interactive mode
     _run_interactive()
 
 
@@ -907,6 +921,75 @@ def db_schema(
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
+
+
+# ============================================================================
+# Daemon Subcommand Group
+# ============================================================================
+
+daemon_app = typer.Typer(name="daemon", help="Manage the OLAV background daemon for fast queries.")
+app.add_typer(daemon_app, name="daemon")
+
+
+@daemon_app.command(name="start")
+def daemon_start() -> None:
+    """Start the OLAV daemon in the background."""
+    from olav.cli.daemon import get_daemon_status, spawn_daemon
+
+    status = get_daemon_status()
+    if status.get("running"):
+        console.print(f"[yellow]Daemon already running[/yellow] (PID {status['pid']})")
+        return
+
+    pid = spawn_daemon()
+    console.print(f"[green]Daemon starting...[/green] PID={pid}")
+    console.print("[dim]Wait ~5s for agent to initialise, then queries will be instant.[/dim]")
+
+
+@daemon_app.command(name="stop")
+def daemon_stop() -> None:
+    """Stop the OLAV daemon."""
+    from olav.cli.daemon import stop_daemon
+
+    stopped = stop_daemon()
+    if stopped:
+        console.print("[green]Daemon stopped.[/green]")
+    else:
+        console.print("[yellow]Daemon was not running.[/yellow]")
+
+
+@daemon_app.command(name="status")
+def daemon_status() -> None:
+    """Show daemon status (running/stopped, uptime, query count)."""
+    from olav.cli.daemon import get_daemon_status
+
+    status = get_daemon_status()
+    if not status.get("running"):
+        console.print("[yellow]Daemon:[/yellow] not running")
+        console.print("[dim]Start with: olav daemon start[/dim]")
+        return
+
+    uptime = int(status.get("uptime_seconds", 0))
+    hours, remainder = divmod(uptime, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    uptime_str = f"{hours}h {minutes}m {seconds}s" if hours else f"{minutes}m {seconds}s"
+
+    console.print(f"[green]Daemon:[/green] running | PID={status['pid']} | uptime={uptime_str} | queries={status.get('query_count', 0)}")
+
+
+@daemon_app.command(name="restart")
+def daemon_restart() -> None:
+    """Restart the OLAV daemon."""
+    import time
+
+    from olav.cli.daemon import get_daemon_status, spawn_daemon, stop_daemon
+
+    if get_daemon_status().get("running"):
+        stop_daemon()
+        time.sleep(1)
+
+    pid = spawn_daemon()
+    console.print(f"[green]Daemon restarted.[/green] PID={pid}")
 
 
 # ============================================================================
