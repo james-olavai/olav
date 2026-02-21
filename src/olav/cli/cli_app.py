@@ -38,12 +38,12 @@ app = typer.Typer(
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from olav.agents.agent import create_olav_agent, OLAVAgent
+# Lazy import for performance - don't import heavy agent module at startup
 from olav.cli.admin import admin_handler
 
 # Agent instance cache for performance - reuses across CLI invocations
-_cached_agent: OLAVAgent | None = None
-_agent_prewarmed: bool = False
+_cached_agent = None
+_agent_prewarmed = False
 
 
 def _prewarm_agent():
@@ -52,16 +52,20 @@ def _prewarm_agent():
     if _agent_prewarmed:
         return
     try:
+        from olav.agents.agent import create_olav_agent
+
         _cached_agent = create_olav_agent(enable_checkpointer=False)
         _agent_prewarmed = True
     except Exception:
         pass
 
 
-def _get_cached_agent() -> OLAVAgent:
+def _get_cached_agent():
     """Get or create cached agent instance for performance."""
     global _cached_agent
     if _cached_agent is None:
+        from olav.agents.agent import create_olav_agent
+
         _cached_agent = create_olav_agent(enable_checkpointer=False)
     return _cached_agent
 
