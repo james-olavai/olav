@@ -75,80 +75,6 @@ def _get_cached_agent():
 # ============================================================================
 
 
-def _init_response_cache():
-    """Initialize response cache table in DuckDB if not exists."""
-    import duckdb
-
-    db_path = Path(".olav/databases/main.duckdb")
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = duckdb.connect(str(db_path))
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS response_cache (
-            query_hash VARCHAR PRIMARY KEY,
-            query_text VARCHAR,
-            response TEXT,
-            cached_at TIMESTAMP,
-            ttl_seconds INTEGER DEFAULT 3600
-        )
-    """)
-    conn.close()
-
-
-def _get_cached_response(query: str) -> str | None:
-    """Get cached response for query if not expired."""
-    import duckdb
-    import hashlib
-    from datetime import datetime, timedelta
-
-    query_hash = hashlib.sha256(query.strip().lower().encode()).hexdigest()[:32]
-    db_path = Path(".olav/databases/main.duckdb")
-
-    if not db_path.exists():
-        return None
-
-    try:
-        conn = duckdb.connect(str(db_path), read_only=True)
-        result = conn.execute(
-            """
-            SELECT response, cached_at, ttl_seconds FROM response_cache
-            WHERE query_hash = ?
-        """,
-            [query_hash],
-        ).fetchone()
-
-        if result:
-            response, cached_at, ttl = result
-            if datetime.now() - cached_at < timedelta(seconds=ttl):
-                conn.close()
-                return response
-            conn.execute("DELETE FROM response_cache WHERE query_hash = ?", [query_hash])
-        conn.close()
-    except Exception:
-        pass
-    return None
-
-
-def _set_cached_response(query: str, response: str, ttl_seconds: int = 3600):
-    """Cache response in DuckDB."""
-    import duckdb
-    import hashlib
-    from datetime import datetime
-
-    query_hash = hashlib.sha256(query.strip().lower().encode()).hexdigest()[:32]
-    db_path = Path(".olav/databases/main.duckdb")
-
-    try:
-        conn = duckdb.connect(str(db_path))
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO response_cache (query_hash, query_text, response, cached_at, ttl_seconds)
-            VALUES (?, ?, ?, ?, ?)
-        """,
-            [query_hash, query, response, datetime.now(), ttl_seconds],
-        )
-        conn.close()
-    except Exception:
-        pass
 
 
 def _check_llm_key():
@@ -207,7 +133,7 @@ def _run_interactive():
     """Enter interactive conversation mode with prompt-toolkit (history, slash commands)."""
     import uuid
 
-    from olav.cli.commands.builtin import execute_command, SLASH_COMMANDS
+    from olav.cli.commands.builtin import execute_command
     from olav.cli.display import display_banner, load_banner_from_config
     from olav.cli.session import OlavPromptSession
 
@@ -316,22 +242,9 @@ def main_callback(
     # Single message mode: -m "query"
     if msg:
         _check_llm_key()
-        _init_response_cache()
-
-        cached = _get_cached_response(msg)
-        if cached:
-            console.print(cached)
-            return
-
-        console.print("[cyan]Prewarming agent...[/cyan]")
         _prewarm_agent()
-        console.print("[green]Agent ready![/green]")
-
         agent = _get_cached_agent()
-        result = asyncio.run(_stream_response(agent, msg))
-
-        if result.get("status") == "success":
-            _set_cached_response(msg, result.get("response", ""))
+        asyncio.run(_stream_response(agent, msg))
         return
 
     # Interactive mode - prewarm agent for faster first query
@@ -558,8 +471,8 @@ def tree(
         olav tree .olav/skills --depth 2
         olav tree src/olav -L 3
     """
-    import subprocess
     import shutil
+    import subprocess
 
     if not shutil.which("tree"):
         # Fallback to find if tree is not installed
@@ -641,7 +554,7 @@ def restore(
         console.print(f"[red]Error:[/red] Backup file not found: {file}")
         raise typer.Exit(1)
 
-    console.print(f"[yellow]⚠️  This will overwrite existing data![/yellow]")
+    console.print("[yellow]⚠️  This will overwrite existing data![/yellow]")
     confirm = typer.confirm("Continue with restore?")
 
     if not confirm:
@@ -837,6 +750,7 @@ def db_status():
         olav db-status
     """
     from pathlib import Path
+
     import duckdb
 
     db_path = Path(".olav/databases/main.duckdb")
@@ -882,6 +796,7 @@ def db_query(
         olav db-query "SELECT * FROM devices" --output devices.csv
     """
     from pathlib import Path
+
     import duckdb
 
     db_path = Path(".olav/databases/main.duckdb")
@@ -942,6 +857,7 @@ def db_schema(
         olav db-schema devices   # Show schema for devices table
     """
     from pathlib import Path
+
     import duckdb
 
     db_path = Path(".olav/databases/main.duckdb")
