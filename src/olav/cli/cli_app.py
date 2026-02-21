@@ -29,8 +29,8 @@ console = Console()
 app = typer.Typer(
     name="olav",
     help="OLAV v2.0 - Network Operations AI Assistant\n\n"
-         "Run without arguments to enter interactive mode.\n"
-         "Use -m/--msg to send a single message.",
+    "Run without arguments to enter interactive mode.\n"
+    "Use -m/--msg to send a single message.",
     no_args_is_help=False,  # Bare `olav` enters interactive mode
     invoke_without_command=True,
 )
@@ -38,21 +38,108 @@ app = typer.Typer(
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from olav.agents.agent import create_olav_agent
+from olav.agents.agent import create_olav_agent, OLAVAgent
 from olav.cli.admin import admin_handler
+
+# Agent instance cache for performance - reuses across CLI invocations
+_cached_agent: OLAVAgent | None = None
+
+
+def _get_cached_agent() -> OLAVAgent:
+    """Get or create cached agent instance for performance."""
+    global _cached_agent
+    if _cached_agent is None:
+        _cached_agent = create_olav_agent(enable_checkpointer=False)
+    return _cached_agent
+
 
 # ============================================================================
 # Helpers
 # ============================================================================
 
+
+def _init_response_cache():
+    """Initialize response cache table in DuckDB if not exists."""
+    import duckdb
+
+    db_path = Path(".olav/databases/main.duckdb")
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = duckdb.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS response_cache (
+            query_hash VARCHAR PRIMARY KEY,
+            query_text VARCHAR,
+            response TEXT,
+            cached_at TIMESTAMP,
+            ttl_seconds INTEGER DEFAULT 3600
+        )
+    """)
+    conn.close()
+
+
+def _get_cached_response(query: str) -> str | None:
+    """Get cached response for query if not expired."""
+    import duckdb
+    import hashlib
+    from datetime import datetime, timedelta
+
+    query_hash = hashlib.sha256(query.strip().lower().encode()).hexdigest()[:32]
+    db_path = Path(".olav/databases/main.duckdb")
+
+    if not db_path.exists():
+        return None
+
+    try:
+        conn = duckdb.connect(str(db_path), read_only=True)
+        result = conn.execute(
+            """
+            SELECT response, cached_at, ttl_seconds FROM response_cache
+            WHERE query_hash = ?
+        """,
+            [query_hash],
+        ).fetchone()
+
+        if result:
+            response, cached_at, ttl = result
+            if datetime.now() - cached_at < timedelta(seconds=ttl):
+                conn.close()
+                return response
+            conn.execute("DELETE FROM response_cache WHERE query_hash = ?", [query_hash])
+        conn.close()
+    except Exception:
+        pass
+    return None
+
+
+def _set_cached_response(query: str, response: str, ttl_seconds: int = 3600):
+    """Cache response in DuckDB."""
+    import duckdb
+    import hashlib
+    from datetime import datetime
+
+    query_hash = hashlib.sha256(query.strip().lower().encode()).hexdigest()[:32]
+    db_path = Path(".olav/databases/main.duckdb")
+
+    try:
+        conn = duckdb.connect(str(db_path))
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO response_cache (query_hash, query_text, response, cached_at, ttl_seconds)
+            VALUES (?, ?, ?, ?, ?)
+        """,
+            [query_hash, query, response, datetime.now(), ttl_seconds],
+        )
+        conn.close()
+    except Exception:
+        pass
+
+
 def _check_llm_key():
     """Check if LLM API key is configured."""
     from config.settings import settings
+
     if not settings.llm_api_key:
-        console.print(
-            "[bold red]Error:[/] LLM_API_KEY environment variable not set",
-            style="red"
-        )
+        console.print("[bold red]Error:[/] LLM_API_KEY environment variable not set", style="red")
         console.print("\nTo set up LLM API access:")
         console.print("  1. Add to .env file:")
         console.print("     LLM_API_KEY='your-api-key'")
@@ -69,11 +156,15 @@ async def _stream_response(agent, query: str, thread_id: str | None = None):
         if result["status"] == "success":
             console.print(result["response"])
         else:
-            console.print(Panel(
-                result.get("message", result.get("error", "Unknown error")),
-                title="[red]✗ Error[/red]",
-                border_style="red"
-            ))
+            console.print(
+                Panel(
+                    result.get("message", result.get("error", "Unknown error")),
+                    title="[red]✗ Error[/red]",
+                    border_style="red",
+                )
+            )
+
+        return result
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}", file=sys.stderr)
@@ -89,7 +180,7 @@ def _run_interactive():
     from olav.cli.session import OlavPromptSession
 
     _check_llm_key()
-    agent = create_olav_agent(enable_checkpointer=False)
+    agent = _get_cached_agent()
     thread_id = str(uuid.uuid4())[:8]
 
     # Display banner from config (uses config/banners.py styles)
@@ -97,15 +188,17 @@ def _run_interactive():
     if banner_text:
         display_banner(banner_text, console=console)
 
-    console.print(Panel(
-        f"OLAV v2.0 - Interactive Mode\n\n"
-        f"Thread: {thread_id}\n"
-        f"Type [bold]/help[/bold] for available commands.\n"
-        f"Use [bold]↑↓[/bold] arrow keys to navigate history.\n"
-        f"Type [bold]/quit[/bold] or [bold]exit[/bold] to exit.",
-        border_style="blue",
-        title="[cyan]OLAV[/cyan]"
-    ))
+    console.print(
+        Panel(
+            f"OLAV v2.0 - Interactive Mode\n\n"
+            f"Thread: {thread_id}\n"
+            f"Type [bold]/help[/bold] for available commands.\n"
+            f"Use [bold]↑↓[/bold] arrow keys to navigate history.\n"
+            f"Type [bold]/quit[/bold] or [bold]exit[/bold] to exit.",
+            border_style="blue",
+            title="[cyan]OLAV[/cyan]",
+        )
+    )
 
     # Initialize prompt-toolkit session (FileHistory + AutoSuggestFromHistory)
     session = OlavPromptSession(enable_completion=False, multiline=False)
@@ -155,10 +248,13 @@ def _run_interactive():
 # Commands
 # ============================================================================
 
+
 @app.callback(invoke_without_command=True)
 def main_callback(
     ctx: typer.Context,
-    msg: str | None = typer.Option(None, "--msg", "-m", help="Send a single message (non-interactive)"),
+    msg: str | None = typer.Option(
+        None, "--msg", "-m", help="Send a single message (non-interactive)"
+    ),
     version: bool = typer.Option(False, "--version", "-V", help="Show version"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
@@ -188,8 +284,18 @@ def main_callback(
     # Single message mode: -m "query"
     if msg:
         _check_llm_key()
-        agent = create_olav_agent(enable_checkpointer=False)
-        asyncio.run(_stream_response(agent, msg))
+        _init_response_cache()
+
+        cached = _get_cached_response(msg)
+        if cached:
+            console.print(cached)
+            return
+
+        agent = _get_cached_agent()
+        result = asyncio.run(_stream_response(agent, msg))
+
+        if result.get("status") == "success":
+            _set_cached_response(msg, result.get("response", ""))
         return
 
     # Default: interactive mode
@@ -226,17 +332,21 @@ def admin(
     result = asyncio.run(admin_handler(full_cmd))
 
     if result["status"] == "success":
-        console.print(Panel(
-            str(result.get("data", result)),
-            title="[green]✓ Success[/green]",
-            border_style="green"
-        ))
+        console.print(
+            Panel(
+                str(result.get("data", result)),
+                title="[green]✓ Success[/green]",
+                border_style="green",
+            )
+        )
     else:
-        console.print(Panel(
-            result.get("message", "Unknown error"),
-            title="[red]✗ Error[/red]",
-            border_style="red"
-        ))
+        console.print(
+            Panel(
+                result.get("message", "Unknown error"),
+                title="[red]✗ Error[/red]",
+                border_style="red",
+            )
+        )
 
 
 @app.command()
@@ -259,7 +369,10 @@ def devices(
         # Connect to main database
         db_path = Path(".olav/databases/main.duckdb")
         if not db_path.exists():
-            console.print("[red]Error:[/red] Database not found. Run 'admin status' to initialize.", style="red")
+            console.print(
+                "[red]Error:[/red] Database not found. Run 'admin status' to initialize.",
+                style="red",
+            )
             raise typer.Exit(1)
 
         conn = duckdb.connect(str(db_path), read_only=True)
@@ -308,6 +421,7 @@ def devices(
 # Quick Commands (no 'admin' prefix) - v2.1 ⭐
 # ============================================================================
 
+
 @app.command()
 def ls(
     pattern: str = typer.Argument("*", help="File pattern (e.g., '*.py', 'SKILL.md')"),
@@ -321,18 +435,19 @@ def ls(
         olav ls "*.md" --dir .olav/skills
     """
     import subprocess
+
     try:
         result = subprocess.run(
             ["find", directory, "-name", pattern, "-type", "f"],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
-        
+
         if result.returncode == 0:
-            files = result.stdout.strip().split('\n')
+            files = result.stdout.strip().split("\n")
             files = [f for f in files if f]  # Remove empty strings
-            
+
             if files:
                 console.print(f"[cyan]Found {len(files)} files:[/cyan]")
                 for f in files:
@@ -341,7 +456,7 @@ def ls(
                 console.print(f"[yellow]No files found matching '{pattern}'[/yellow]")
         else:
             console.print(f"[red]Error:[/red] {result.stderr}")
-            
+
     except subprocess.TimeoutExpired:
         console.print("[red]Error:[/red] Command timed out")
     except Exception as e:
@@ -362,29 +477,29 @@ def search(
         olav search "class Agent" --type py --dir src/
     """
     import subprocess
-    
+
     # Build grep command
     cmd = ["grep", "-r", "-n", pattern, directory]
-    
+
     if file_type != "all":
         cmd.append(f"--include=*.{file_type}")
-    
+
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        
+
         if result.returncode == 0:
-            lines = result.stdout.strip().split('\n')
+            lines = result.stdout.strip().split("\n")
             lines = [l for l in lines if l]
-            
+
             console.print(f"[cyan]Found {len(lines)} matches:[/cyan]")
             for line in lines[:50]:  # Limit to 50 results
                 console.print(line)
-            
+
             if len(lines) > 50:
                 console.print(f"\n[yellow]... and {len(lines) - 50} more matches[/yellow]")
         else:
             console.print(f"[yellow]No matches found for '{pattern}'[/yellow]")
-            
+
     except subprocess.TimeoutExpired:
         console.print("[red]Error:[/red] Command timed out")
     except Exception as e:
@@ -405,7 +520,7 @@ def tree(
     """
     import subprocess
     import shutil
-    
+
     if not shutil.which("tree"):
         # Fallback to find if tree is not installed
         console.print("[yellow]'tree' not found, using 'find' instead[/yellow]")
@@ -414,19 +529,16 @@ def tree(
                 ["find", directory, "-maxdepth", str(depth), "-type", "d"],
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
             )
             console.print(result.stdout)
         except Exception as e:
             console.print(f"[red]Error:[/red] {e}")
         return
-    
+
     try:
         result = subprocess.run(
-            ["tree", "-L", str(depth), directory],
-            capture_output=True,
-            text=True,
-            timeout=10
+            ["tree", "-L", str(depth), directory], capture_output=True, text=True, timeout=10
         )
         console.print(result.stdout)
     except subprocess.TimeoutExpired:
@@ -447,28 +559,25 @@ def backup(
     """
     import subprocess
     from datetime import datetime
-    
+
     if not target:
         target = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tar.gz"
     elif Path(target).is_dir():
         target = str(Path(target) / f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tar.gz")
-    
+
     console.print(f"[cyan]Creating backup:[/cyan] {target}")
-    
+
     try:
         result = subprocess.run(
-            ["tar", "-czf", target, ".olav/"],
-            capture_output=True,
-            text=True,
-            timeout=60
+            ["tar", "-czf", target, ".olav/"], capture_output=True, text=True, timeout=60
         )
-        
+
         if result.returncode == 0:
             size = Path(target).stat().st_size / (1024 * 1024)
             console.print(f"[green]✓ Backup created:[/green] {target} ({size:.1f} MB)")
         else:
             console.print(f"[red]✗ Backup failed:[/red] {result.stderr}")
-            
+
     except subprocess.TimeoutExpired:
         console.print("[red]Error:[/red] Backup timed out")
     except Exception as e:
@@ -486,34 +595,31 @@ def restore(
         olav restore ~/backups/latest.tar.gz
     """
     import subprocess
-    
+
     backup_path = Path(file)
     if not backup_path.exists():
         console.print(f"[red]Error:[/red] Backup file not found: {file}")
         raise typer.Exit(1)
-    
+
     console.print(f"[yellow]⚠️  This will overwrite existing data![/yellow]")
     confirm = typer.confirm("Continue with restore?")
-    
+
     if not confirm:
         console.print("[cyan]Restore cancelled[/cyan]")
         return
-    
+
     console.print(f"[cyan]Restoring from:[/cyan] {file}")
-    
+
     try:
         result = subprocess.run(
-            ["tar", "-xzf", file, "-C", "."],
-            capture_output=True,
-            text=True,
-            timeout=60
+            ["tar", "-xzf", file, "-C", "."], capture_output=True, text=True, timeout=60
         )
-        
+
         if result.returncode == 0:
             console.print(f"[green]✓ Restored from:[/green] {file}")
         else:
             console.print(f"[red]✗ Restore failed:[/red] {result.stderr}")
-            
+
     except subprocess.TimeoutExpired:
         console.print("[red]Error:[/red] Restore timed out")
     except Exception as e:
@@ -531,13 +637,13 @@ def skills(
         olav skills --detail
     """
     from pathlib import Path
-    
+
     skills_path = Path(".olav/skills")
-    
+
     if not skills_path.exists():
         console.print("[yellow]No skills directory found[/yellow]")
         return
-    
+
     skill_list = []
     for skill_dir in sorted(skills_path.iterdir()):
         if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
@@ -547,21 +653,21 @@ def skills(
                 skill_list.append((skill_dir.name, tool_count))
             else:
                 skill_list.append(skill_dir.name)
-    
+
     if not skill_list:
         console.print("[yellow]No skills found[/yellow]")
         return
-    
+
     console.print(f"[cyan]Found {len(skill_list)} skills:[/cyan]")
-    
+
     if detail:
         table = Table(title="Skills")
         table.add_column("Skill Name", style="cyan")
         table.add_column("Tools", style="green")
-        
+
         for name, tool_count in skill_list:
             table.add_row(name, str(tool_count))
-        
+
         console.print(table)
     else:
         for skill in skill_list:
@@ -580,23 +686,18 @@ def git(
         olav git diff
     """
     import subprocess
-    
+
     try:
-        result = subprocess.run(
-            ["git"] + args,
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        
+        result = subprocess.run(["git"] + args, capture_output=True, text=True, timeout=30)
+
         if result.stdout:
             console.print(result.stdout)
         if result.stderr:
             console.print(result.stderr, style="yellow")
-            
+
         if result.returncode != 0:
             raise typer.Exit(result.returncode)
-            
+
     except subprocess.TimeoutExpired:
         console.print("[red]Error:[/red] Git command timed out")
         raise typer.Exit(1)
@@ -608,19 +709,27 @@ def git(
 @app.command()
 def inspect(
     devices: str | None = typer.Option(
-        None, "--devices", "-d",
+        None,
+        "--devices",
+        "-d",
         help="Comma-separated device names, e.g. 'R1,R2' (default: all)",
     ),
     groups: str | None = typer.Option(
-        None, "--groups", "-g",
+        None,
+        "--groups",
+        "-g",
         help="Comma-separated Nornir group names, e.g. 'core,access' (default: all)",
     ),
     categories: str | None = typer.Option(
-        None, "--categories", "-c",
+        None,
+        "--categories",
+        "-c",
         help="Comma-separated collection categories, e.g. 'routing,system' (default: all)",
     ),
     output_dir: str | None = typer.Option(
-        None, "--output-dir", "-o",
+        None,
+        "--output-dir",
+        "-o",
         help="Directory to write the report (default: exports/reports)",
     ),
 ):
@@ -647,19 +756,26 @@ def inspect(
     category_list = [c.strip() for c in categories.split(",")] if categories else None
 
     # Show scope to user before executing
-    scope = " | ".join(filter(None, [
-        f"devices: {devices}" if devices else None,
-        "all devices" if not devices else None,
-    ]))
+    scope = " | ".join(
+        filter(
+            None,
+            [
+                f"devices: {devices}" if devices else None,
+                "all devices" if not devices else None,
+            ],
+        )
+    )
     console.print(f"\n[cyan]🎯 Snapshot scope:[/cyan] {scope}")
     if categories:
         console.print(f"[cyan]Categories:[/cyan] {categories}")
     console.print()
 
-    result = take_snapshot.invoke({
-        "devices": device_list,
-        "categories": category_list,
-    })
+    result = take_snapshot.invoke(
+        {
+            "devices": device_list,
+            "categories": category_list,
+        }
+    )
 
     if result.get("status") == "success":
         collected = result.get("devices_collected", [])
@@ -682,33 +798,33 @@ def db_status():
     """
     from pathlib import Path
     import duckdb
-    
+
     db_path = Path(".olav/databases/main.duckdb")
-    
+
     if not db_path.exists():
         console.print("[red]Database not found[/red]")
         return
-    
+
     try:
         conn = duckdb.connect(str(db_path), read_only=True)
-        
+
         # Get database size
         size_mb = db_path.stat().st_size / (1024 * 1024)
-        
+
         # Get table list
         tables = conn.execute("SHOW TABLES").fetchall()
-        
+
         console.print(f"[cyan]Database:[/cyan] {db_path}")
         console.print(f"[cyan]Size:[/cyan] {size_mb:.2f} MB")
         console.print(f"\n[cyan]Tables ({len(tables)}):[/cyan]")
-        
+
         for table in tables:
             table_name = table[0]
             count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
             console.print(f"  • {table_name}: {count} rows")
-        
+
         conn.close()
-        
+
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
 
@@ -722,29 +838,30 @@ def db_query(
 
     Examples:
         olav db-query "SELECT * FROM devices LIMIT 10"
-        olav db-query "SELECT COUNT(*) FROM devices" 
+        olav db-query "SELECT COUNT(*) FROM devices"
         olav db-query "SELECT * FROM devices" --output devices.csv
     """
     from pathlib import Path
     import duckdb
-    
+
     db_path = Path(".olav/databases/main.duckdb")
-    
+
     if not db_path.exists():
         console.print("[red]Database not found[/red]")
         raise typer.Exit(1)
-    
+
     try:
         conn = duckdb.connect(str(db_path), read_only=True)
-        
+
         result = conn.execute(sql).fetchall()
         columns = [desc[0] for desc in conn.description]
-        
+
         if output:
             # Write to CSV
             import csv
+
             output_path = Path(output)
-            with open(output_path, 'w', newline='') as f:
+            with open(output_path, "w", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(columns)
                 writer.writerows(result)
@@ -754,21 +871,21 @@ def db_query(
             if not result:
                 console.print("[yellow]No results[/yellow]")
                 return
-            
+
             table = Table(title=f"Query Results ({len(result)} rows)")
             for col in columns:
                 table.add_column(col, style="cyan")
-            
+
             for row in result[:50]:  # Limit display to 50 rows
                 table.add_row(*[str(v) for v in row])
-            
+
             console.print(table)
-            
+
             if len(result) > 50:
                 console.print(f"\n[yellow]... and {len(result) - 50} more rows[/yellow]")
-        
+
         conn.close()
-        
+
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
@@ -786,51 +903,51 @@ def db_schema(
     """
     from pathlib import Path
     import duckdb
-    
+
     db_path = Path(".olav/databases/main.duckdb")
-    
+
     if not db_path.exists():
         console.print("[red]Database not found[/red]")
         raise typer.Exit(1)
-    
+
     try:
         conn = duckdb.connect(str(db_path), read_only=True)
-        
+
         if table:
             # Show schema for specific table
             schema = conn.execute(f"DESCRIBE {table}").fetchall()
-            
+
             console.print(f"[cyan]Schema for table:[/cyan] {table}")
-            
+
             tbl = Table()
             tbl.add_column("Column", style="cyan")
             tbl.add_column("Type", style="green")
             tbl.add_column("Null", style="yellow")
-            
+
             for row in schema:
                 tbl.add_row(row[0], row[1], "YES" if row[2] else "NO")
-            
+
             console.print(tbl)
         else:
             # Show all tables with row counts
             tables = conn.execute("SHOW TABLES").fetchall()
-            
+
             console.print(f"[cyan]Database Schema ({len(tables)} tables):[/cyan]")
-            
+
             tbl = Table()
             tbl.add_column("Table", style="cyan")
             tbl.add_column("Rows", style="green")
-            
+
             for t in tables:
                 table_name = t[0]
                 count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
                 tbl.add_row(table_name, str(count))
-            
+
             console.print(tbl)
             console.print("\n[dim]Tip: Use 'olav db-schema <table>' for detailed schema[/dim]")
-        
+
         conn.close()
-        
+
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
@@ -842,6 +959,7 @@ def db_schema(
 
 try:
     from olav.cli.task_manager import get_task_app
+
     app.add_typer(get_task_app(), name="task", help="Manage periodic inspection tasks")
 except Exception as e:
     logger.debug(f"Task manager not available: {e}")
