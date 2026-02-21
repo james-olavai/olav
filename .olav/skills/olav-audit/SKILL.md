@@ -14,22 +14,8 @@ metadata:
     - run_audit                 # audit_runner.py — reduce → analyze → report (reads parsed_outputs from DB)
     - get_current_datetime      # get_current_datetime.py — accurate timestamps
     - diff_snapshot             # diff_snapshot.py — compare raw snapshots between dates during LLM analyze phase
-    # NOTE: take_snapshot 已移除，audit为只读；采集逻辑归属 olav-config（Cron A）。
-    # Internal tools (not exposed): audit_engine.py, schema_inspector.py
   prompts:
     system: $ref:./prompts/system.md
-  collection_categories:
-    configs:     [running]
-    neighbors:   [cdp, lldp]
-    routing:     [route, ospf, bgp, eigrp, isis]
-    interfaces:  [interface]
-    switching:   [vlan, spanning, mac]
-    system:      [version, cpu, memory, inventory]
-    environment: [environment, power]
-    logging:     [log]
-    bgp:         [bgp]
-    ospf:        [ospf]
-    arp:         [arp]
   audit_types:
     - name: health_check
       description: CPU, memory, interface health monitoring

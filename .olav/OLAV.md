@@ -29,14 +29,6 @@ subagents:
     skills: [olav-ops]
     prompt: olav-ops/prompts/network_ops_subagent.md
 
-  - name: network-inspection
-    description: >
-      Runs network health inspections: SSH snapshot collection, config sync,
-      health scoring and anomaly detection. Use for health checks,
-      config comparison, snapshot collection, and inspection reports.
-    skills: [network-inspection]
-    prompt: network-inspection/prompts/system.md
-
   - name: olav-config
     description: >
       基础设施层（Infrastructure Layer）。负责 DB 初始化、设备清单同步、SSH 数据采集（take_snapshot）、
