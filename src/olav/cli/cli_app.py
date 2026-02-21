@@ -165,25 +165,9 @@ def _check_llm_key():
         raise typer.Exit(1)
 
 
-async def _stream_response(agent, query: str, thread_id: str | None = None, stream: bool = True):
+async def _stream_response(agent, query: str, thread_id: str | None = None):
     """Stream agent response with real-time display."""
     try:
-        if stream and hasattr(agent, "stream"):
-            response_buffer = ""
-            async for event in agent.stream(query, thread_id=thread_id):
-                if event:
-                    for node_name, node_data in event.items():
-                        if isinstance(node_data, dict) and "messages" in node_data:
-                            messages = node_data["messages"]
-                            if messages:
-                                latest = messages[-1]
-                                content = getattr(latest, "content", str(latest))
-                                if content and content != response_buffer:
-                                    print(content[len(response_buffer) :], end="", flush=True)
-                                    response_buffer = content
-            console.print()
-            return {"status": "success", "response": response_buffer}
-
         result = await agent.invoke(query, thread_id=thread_id)
 
         if result["status"] == "success":
@@ -200,7 +184,7 @@ async def _stream_response(agent, query: str, thread_id: str | None = None, stre
         return result
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}", file=sys.stderr)
+        print(f"[red]Error:[/red] {e}", file=sys.stderr)
         raise
 
 
@@ -290,9 +274,6 @@ def main_callback(
     ),
     version: bool = typer.Option(False, "--version", "-V", help="Show version"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
-    prewarm: bool = typer.Option(
-        False, "--prewarm", "-p", help="Prewarm agent on startup (faster first query)"
-    ),
 ):
     """OLAV v2.0 - Network Operations AI Assistant.
 
@@ -313,16 +294,6 @@ def main_callback(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
 
-    # Optional prewarm for faster first query
-    if prewarm:
-        console.print("[cyan]Prewarming agent...[/cyan]")
-        _prewarm_agent()
-        console.print("[green]Agent ready![/green]")
-
-    # If a subcommand was invoked (admin, devices), let it handle
-    if ctx.invoked_subcommand is not None:
-        return
-
     # Single message mode: -m "query"
     if msg:
         _check_llm_key()
@@ -332,6 +303,10 @@ def main_callback(
         if cached:
             console.print(cached)
             return
+
+        console.print("[cyan]Prewarming agent...[/cyan]")
+        _prewarm_agent()
+        console.print("[green]Agent ready![/green]")
 
         agent = _get_cached_agent()
         result = asyncio.run(_stream_response(agent, msg))
