@@ -18,17 +18,14 @@ from langchain_core.tools import BaseTool
 logger = logging.getLogger(__name__)
 
 
-def discover_tools(
-    tools_path: Path,
-    modules: list[str] | None = None
-) -> list[BaseTool]:
+def discover_tools(tools_path: Path, modules: list[str] | None = None) -> list[BaseTool]:
     """Auto-discover all @tool decorated functions.
 
     This is the SIMPLE, LangChain-native way:
     - Import modules from tools directory
     - Find all @tool decorated functions
     - Return them as a list
-    
+
     No hardcoding, no tool_specs, just pure LangChain.
 
     Args:
@@ -55,6 +52,7 @@ def discover_tools(
 
     # Add tools_path to sys.path for imports
     import sys
+
     if str(tools_path) not in sys.path:
         sys.path.insert(0, str(tools_path))
 
@@ -82,19 +80,27 @@ def discover_tools(
                 raise
 
             # Find all @tool decorated functions; skip aliases (same name already seen)
-            for name, obj in inspect.getmembers(module):
-                if isinstance(obj, BaseTool):
-                    if obj.name not in seen_names:
-                        seen_names.add(obj.name)
-                        discovered_tools.append(obj)
-                        logger.debug(f"✓ tool: {obj.name} from {module_name}")
-                    else:
-                        logger.debug(f"  skip alias: {obj.name} (already loaded)")
+            try:
+                for name, obj in inspect.getmembers(module):
+                    # Skip None objects which cause errors
+                    if obj is None:
+                        continue
+                    if isinstance(obj, BaseTool):
+                        if obj.name not in seen_names:
+                            seen_names.add(obj.name)
+                            discovered_tools.append(obj)
+                            logger.debug(f"✓ tool: {obj.name} from {module_name}")
+                        else:
+                            logger.debug(f"  skip alias: {obj.name} (already loaded)")
+            except Exception as e:
+                # Skip modules that fail inspection (e.g., modules without @tool decorators)
+                logger.debug(f"Skipping tool inspection for '{module_name}': {e}")
 
         except ImportError as e:
             logger.debug(f"Could not import '{module_name}': {e}")
         except Exception as e:
-            logger.error(f"Error discovering tools in '{module_name}': {e}")
+            # Gracefully skip modules that fail to load (e.g., missing dependencies, no @tool decorators)
+            logger.debug(f"Skipping module '{module_name}': {type(e).__name__}: {e}")
 
     logger.info(f"✓ Discovered {len(discovered_tools)} tools")
     return discovered_tools
@@ -125,8 +131,7 @@ def _discover_modules_from_dir(tools_path: Path) -> list[str]:
 
 
 def validate_tools_against_skill(
-    tools: list[BaseTool],
-    skill_config: dict[str, Any]
+    tools: list[BaseTool], skill_config: dict[str, Any]
 ) -> dict[str, Any]:
     """Validate discovered tools against SKILL.md tool list.
 
