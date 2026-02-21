@@ -1,15 +1,9 @@
-"""OLAV v0.9 CLI Module - Native LangGraph Components.
+"""OLAV CLI Module.
 
-This module provides an enhanced CLI experience using prompt-toolkit:
-- Persistent command history (FileHistory)
-- Slash commands for quick actions
-- File references (@file.txt)
-- Shell command execution (!command)
-- Session state via DuckDBSaver
-- Customizable banners
+Provides CLI components: display, session, slash commands.
+Entry point: olav.cli.cli_app:app (see pyproject.toml).
 """
 
-from olav.cli.cli_main import main
 from olav.cli.commands.builtin import (
     SLASH_COMMANDS,
     execute_command,
@@ -25,8 +19,6 @@ from olav.cli.display import (
 )
 
 __all__ = [
-    "main",
-    "SLASH_COMMANDS",
     "SLASH_COMMANDS",
     "register_command",
     "execute_command",
