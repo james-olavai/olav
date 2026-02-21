@@ -65,16 +65,17 @@ _query_cache = QueryCache()
 # Pydantic Models for Type-Safe Parameter Validation
 # ============================================================================
 
+
 class DatabaseQueryInput(BaseModel):
     """Database query input parameters - type-safe validation"""
+
     query: str = Field(default="", description="Natural language query")
     sql: str = Field(default="", description="Direct SQL query (optional)")
     explain_only: bool = Field(
-        default=False,
-        description="Return only schema context without executing query"
+        default=False, description="Return only schema context without executing query"
     )
-    
-    @validator('query', 'sql', pre=True)
+
+    @validator("query", "sql", pre=True)
     def validate_not_none(cls, v):
         """Convert None to empty string"""
         if v is None:
@@ -84,6 +85,7 @@ class DatabaseQueryInput(BaseModel):
 
 class DatabaseQueryOutput(BaseModel):
     """Database query output format - unified response"""
+
     data: list[dict] | None = Field(default=None, description="Query results")
     schema_context: str | None = Field(default=None, description="Database schema information")
     sql: str | None = Field(default=None, description="SQL query executed")
@@ -117,7 +119,7 @@ class SchemaContext:
                 ORDER BY table_name
                 """
             )
-            
+
             self._schema_cache["tables"] = [row["table_name"] for row in tables_result]
             self._schema_cache["table_details"] = {}
 
@@ -157,6 +159,7 @@ class SchemaContext:
                 )
                 if catalog_rows:
                     import json as _json
+
                     schema_catalog_info: list[str] = []
                     for row in catalog_rows:
                         fields = row.get("fields", [])
@@ -191,9 +194,7 @@ class SchemaContext:
         # Detail each table
         for table_name, details in self._schema_cache["table_details"].items():
             context_parts.append(f"\n**{table_name}:**")
-            columns = [
-                f"  - {col['name']}: {col['type']}" for col in details["columns"]
-            ]
+            columns = [f"  - {col['name']}: {col['type']}" for col in details["columns"]]
             context_parts.append("\n".join(columns))
 
             # Add sample if available
@@ -205,9 +206,7 @@ class SchemaContext:
         # Add schema_catalog block (JSON fields for parsed_outputs)
         schema_catalog = self._schema_cache.get("schema_catalog", [])
         if schema_catalog:
-            context_parts.append(
-                "\n**parsed_outputs JSON fields (via schema_catalog):**"
-            )
+            context_parts.append("\n**parsed_outputs JSON fields (via schema_catalog):**")
             context_parts.append(
                 "  Query pattern: SELECT parsed_data->>'field_name' "
                 "FROM parsed_outputs WHERE command='...' AND snapshot_date=CURRENT_DATE"
@@ -264,12 +263,10 @@ def main(params: dict) -> dict:
         args = DatabaseQueryInput(**params)
     except Exception as e:
         output = DatabaseQueryOutput(
-            status="error",
-            error=f"Invalid parameters: {str(e)}",
-            error_type="validation_error"
+            status="error", error=f"Invalid parameters: {str(e)}", error_type="validation_error"
         )
         return output.model_dump(exclude_none=True)
-    
+
     user_query = args.query
     direct_sql = args.sql
     explain_only = args.explain_only
@@ -283,7 +280,7 @@ def main(params: dict) -> dict:
         output = DatabaseQueryOutput(
             schema_context=schema_context,
             tables=context._schema_cache.get("tables", []),
-            status="success"
+            status="success",
         )
         return output.model_dump(exclude_none=True)
 
@@ -292,7 +289,7 @@ def main(params: dict) -> dict:
         try:
             # Check cache first
             cached_result = _query_cache.get(direct_sql)
-            
+
             if cached_result is not None:
                 # Cache hit - use cached data
                 results = cached_result.get("data", [])
@@ -300,20 +297,36 @@ def main(params: dict) -> dict:
                 # Cache miss - execute query and cache
                 results = context.query(direct_sql)
                 results = _sanitize_rows(results)
-                
+
                 # Cache the results
-                cache_data = {
-                    "data": results,
-                    "sql": direct_sql,
-                    "count": len(results)
-                }
+                cache_data = {"data": results, "sql": direct_sql, "count": len(results)}
                 _query_cache.set(direct_sql, cache_data)
-            
+
+            # Auto-export large results to CSV
+            csv_path = None
+            if len(results) > 50:
+                import csv
+                from datetime import datetime
+                from pathlib import Path
+
+                export_dir = Path("exports")
+                export_dir.mkdir(exist_ok=True)
+
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                csv_path = export_dir / f"query_{timestamp}.csv"
+
+                if results:
+                    with open(csv_path, "w", newline="") as f:
+                        writer = csv.DictWriter(f, fieldnames=results[0].keys())
+                        writer.writeheader()
+                        writer.writerows(results)
+
             output = DatabaseQueryOutput(
                 data=results,
                 sql=direct_sql,
                 count=len(results),
-                status="success"
+                status="success",
+                message=f"Results exported to {csv_path}" if csv_path else None,
             )
             return output.model_dump(exclude_none=True)
         except Exception as e:
@@ -323,7 +336,7 @@ def main(params: dict) -> dict:
                 schema_context=schema_context,
                 attempted_sql=direct_sql,
                 status="error",
-                error_type="execution_error"
+                error_type="execution_error",
             )
             return output.model_dump(exclude_none=True)
 
@@ -332,7 +345,7 @@ def main(params: dict) -> dict:
         message="Schema context provided for SQL generation",
         user_query=user_query,
         schema_context=schema_context,
-        status="needs_sql_generation"
+        status="needs_sql_generation",
     )
     return output.model_dump(exclude_none=True)
 
@@ -341,35 +354,33 @@ def main(params: dict) -> dict:
 # LangChain Tool Registration
 # ============================================================================
 
+
 @tool
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10)
-)
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 def execute_sql(query: str = "", sql: str = "", explain_only: bool = False) -> dict:
     """Execute SQL query with automatic schema discovery and error correction.
-    
+
     Features:
     - Automatic schema context discovery
     - SQL generation guidance for the LLM
     - Error self-correction support
     - DuckDB-specific optimizations
-    
+
     Args:
         query: Natural language question about the database
         sql: Optional direct SQL query (used for executing generated SQL)
         explain_only: If True, return only schema context
-    
+
     Returns:
         Status, results, or error information with schema context
-    
+
     Examples:
         Example 1 - Natural language query (agent generates SQL):
         >>> execute_sql("How many devices do we have?")
-        
+
         Example 2 - Execute generated SQL:
         >>> execute_sql(sql="SELECT COUNT(*) FROM devices")
-        
+
         Example 3 - Get schema only:
         >>> execute_sql(explain_only=True)
     """
