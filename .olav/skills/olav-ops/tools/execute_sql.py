@@ -87,6 +87,9 @@ class DatabaseQueryOutput(BaseModel):
     """Database query output format - unified response"""
 
     data: list[dict] | None = Field(default=None, description="Query results")
+    table: str | None = Field(
+        default=None, description="Markdown table representation (for small results)"
+    )
     schema_context: str | None = Field(default=None, description="Database schema information")
     sql: str | None = Field(default=None, description="SQL query executed")
     count: int | None = Field(default=None, description="Number of results")
@@ -97,6 +100,7 @@ class DatabaseQueryOutput(BaseModel):
     user_query: str | None = Field(default=None, description="Original user query")
     tables: list[str] | None = Field(default=None, description="Available tables")
     attempted_sql: str | None = Field(default=None, description="SQL that failed")
+
 
 
 class SchemaContext:
@@ -321,8 +325,19 @@ def main(params: dict) -> dict:
                         writer.writeheader()
                         writer.writerows(results)
 
+            # Generate markdown table for small results (< 30 rows)
+            table_md = None
+            if 0 < len(results) < 30:
+                headers = list(results[0].keys())
+                table_md = "| " + " | ".join(headers) + " |\n"
+                table_md += "| " + " | ".join(["---"] * len(headers)) + " |\n"
+                for row in results:
+                    vals = [str(row.get(h, "")) for h in headers]
+                    table_md += "| " + " | ".join(vals) + " |\n"
+
             output = DatabaseQueryOutput(
                 data=results,
+                table=table_md,
                 sql=direct_sql,
                 count=len(results),
                 status="success",
