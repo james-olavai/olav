@@ -165,27 +165,42 @@ def _check_llm_key():
         raise typer.Exit(1)
 
 
-async def _stream_response(agent, query: str, thread_id: str | None = None):
-    """Stream agent response with real-time display."""
+async def _stream_response(agent, query: str, thread_id: str | None = None) -> dict:
+    """Invoke agent and render the final response once (no duplicate output).
+
+    Uses ainvoke (not stream) to get the final response, then renders it
+    exactly once as Markdown. A spinner provides visual feedback while waiting.
+
+    Args:
+        agent: OLAVAgent instance
+        query: User natural language query
+        thread_id: Optional session thread_id for checkpointer
+
+    Returns:
+        dict with keys: status, response (or message on error)
+    """
+    from rich.markdown import Markdown
+
+    from olav.cli.display import StreamingDisplay
+
+    display = StreamingDisplay(console=console, verbose=False)
+    display.show_processing_status("Thinking...")
+
     try:
         result = await agent.invoke(query, thread_id=thread_id)
+        display.stop_processing_status()
 
-        if result["status"] == "success":
-            console.print(result["response"])
-        else:
-            console.print(
-                Panel(
-                    result.get("message", result.get("error", "Unknown error")),
-                    title="[red]✗ Error[/red]",
-                    border_style="red",
-                )
-            )
+        response = result.get("response", "")
+        if response:
+            console.print(Markdown(response))
+            console.print()  # blank line after output
 
         return result
 
     except Exception as e:
-        print(f"[red]Error:[/red] {e}", file=sys.stderr)
-        raise
+        display.stop_processing_status()
+        console.print(f"[red]Error:[/red] {e}", style="red")
+        return {"status": "error", "message": str(e)}
 
 
 def _run_interactive():
@@ -293,6 +308,10 @@ def main_callback(
 
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
+
+    # If a subcommand is invoked, return immediately (don't run interactive mode)
+    if ctx.invoked_subcommand:
+        return
 
     # Single message mode: -m "query"
     if msg:
