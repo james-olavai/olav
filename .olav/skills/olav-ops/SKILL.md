@@ -8,6 +8,7 @@ metadata:
   category: network-operations
   intent: query_and_operations
   tools:
+    - search_cache             # search_cache.py   — Semantic cache lookup (call FIRST for repeated queries)
     - execute_sql              # execute_sql.py    — DuckDB query + explain_only schema discovery
     - search_commands          # search_commands.py — Query commands table by device/platform + keyword
     - execute_cli              # execute_cli.py    — Nornir CLI; validates blacklist + pipe_allowed
