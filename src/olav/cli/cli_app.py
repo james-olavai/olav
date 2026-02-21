@@ -165,9 +165,25 @@ def _check_llm_key():
         raise typer.Exit(1)
 
 
-async def _stream_response(agent, query: str, thread_id: str | None = None):
+async def _stream_response(agent, query: str, thread_id: str | None = None, stream: bool = True):
     """Stream agent response with real-time display."""
     try:
+        if stream and hasattr(agent, "stream"):
+            response_buffer = ""
+            async for event in agent.stream(query, thread_id=thread_id):
+                if event:
+                    for node_name, node_data in event.items():
+                        if isinstance(node_data, dict) and "messages" in node_data:
+                            messages = node_data["messages"]
+                            if messages:
+                                latest = messages[-1]
+                                content = getattr(latest, "content", str(latest))
+                                if content and content != response_buffer:
+                                    print(content[len(response_buffer) :], end="", flush=True)
+                                    response_buffer = content
+            console.print()
+            return {"status": "success", "response": response_buffer}
+
         result = await agent.invoke(query, thread_id=thread_id)
 
         if result["status"] == "success":
