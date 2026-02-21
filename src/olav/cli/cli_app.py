@@ -96,16 +96,17 @@ async def _stream_response(
 ) -> dict:
     """Invoke agent and render the final response once (no duplicate output).
 
-    Tries the daemon socket first (fast path: <200ms). Falls back to
-    in-process agent.invoke() when daemon is not running.
+    Three-tier fast path:
+      Tier 0: Exact hash cache (DuckDB) — instant, 0 LLM calls.
+      Tier 1: Daemon socket — <200ms overhead, agent already warm.
+      Tier 2: In-process agent.invoke() — full latency, daemon not running.
+
+    Successful responses are auto-stored in cache for future Tier-0 hits.
 
     Args:
         agent: OLAVAgent instance (used only if daemon is unavailable).
         query: User natural language query.
         thread_id: Optional session thread_id for checkpointer.
-
-    Returns:
-        dict with keys: status, response (or message on error).
     """
     from rich.markdown import Markdown
 
@@ -113,10 +114,27 @@ async def _stream_response(
     from olav.cli.display import StreamingDisplay
 
     display = StreamingDisplay(console=console, verbose=False)
+
+    # ── Tier 0: Exact cache hit ──────────────────────────────────────────────
+    try:
+        from olav.core.response_cache import get_response_cache
+
+        cache = get_response_cache()
+        hit = cache.get_exact(query)
+        if hit:
+            response = hit["response"]
+            if response:
+                console.print(Markdown(response))
+                console.print()
+            return {"status": "success", "response": response}
+    except Exception as cache_err:
+        logger.debug("ResponseCache lookup failed: %s", cache_err)
+
+    # ── Tier 1 & 2: Need to call the agent ──────────────────────────────────
     display.show_processing_status("Thinking...")
 
     try:
-        # Fast path: delegate to daemon if running
+        # Tier 1: delegate to daemon if running
         daemon_result = await query_daemon(query, thread_id=thread_id)
         if daemon_result is not None:
             display.stop_processing_status()
@@ -124,9 +142,11 @@ async def _stream_response(
             if response:
                 console.print(Markdown(response))
                 console.print()
+            # Auto-store successful responses
+            _try_cache_store(query, daemon_result)
             return daemon_result
 
-        # Fallback: in-process agent (no daemon running)
+        # Tier 2: in-process agent (no daemon running)
         if agent is None:
             from olav.agents.agent import create_olav_agent
 
@@ -140,12 +160,35 @@ async def _stream_response(
             console.print(Markdown(response))
             console.print()
 
+        # Auto-store successful responses
+        _try_cache_store(query, result)
         return result
 
     except Exception as e:
         display.stop_processing_status()
         console.print(f"[red]Error:[/red] {e}", style="red")
         return {"status": "error", "message": str(e)}
+
+
+def _try_cache_store(query: str, result: dict) -> None:
+    """Silently store a successful agent result in the response cache.
+
+    Skips errors and empty responses without raising.
+
+    Args:
+        query: Original query text.
+        result: Agent result dict with 'response' and optional 'source_agent'.
+    """
+    response = result.get("response", "")
+    if not response or result.get("status") == "error":
+        return
+    try:
+        from olav.core.response_cache import get_response_cache
+
+        source_agent = result.get("source_agent", "unknown")
+        get_response_cache().store(query, response, source_agent=source_agent)
+    except Exception as exc:
+        logger.debug("ResponseCache store failed: %s", exc)
 
 
 def _run_interactive():
