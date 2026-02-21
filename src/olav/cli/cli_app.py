@@ -43,6 +43,19 @@ from olav.cli.admin import admin_handler
 
 # Agent instance cache for performance - reuses across CLI invocations
 _cached_agent: OLAVAgent | None = None
+_agent_prewarmed: bool = False
+
+
+def _prewarm_agent():
+    """Prewarm agent in background - call on CLI startup."""
+    global _cached_agent, _agent_prewarmed
+    if _agent_prewarmed:
+        return
+    try:
+        _cached_agent = create_olav_agent(enable_checkpointer=False)
+        _agent_prewarmed = True
+    except Exception:
+        pass
 
 
 def _get_cached_agent() -> OLAVAgent:
@@ -257,6 +270,9 @@ def main_callback(
     ),
     version: bool = typer.Option(False, "--version", "-V", help="Show version"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    prewarm: bool = typer.Option(
+        False, "--prewarm", "-p", help="Prewarm agent on startup (faster first query)"
+    ),
 ):
     """OLAV v2.0 - Network Operations AI Assistant.
 
@@ -276,6 +292,12 @@ def main_callback(
 
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
+
+    # Optional prewarm for faster first query
+    if prewarm:
+        console.print("[cyan]Prewarming agent...[/cyan]")
+        _prewarm_agent()
+        console.print("[green]Agent ready![/green]")
 
     # If a subcommand was invoked (admin, devices), let it handle
     if ctx.invoked_subcommand is not None:
