@@ -315,7 +315,11 @@ def main_callback(
             _set_cached_response(msg, result.get("response", ""))
         return
 
-    # Default: interactive mode
+    # Interactive mode - prewarm agent for faster first query
+    console.print("[cyan]Prewarming agent...[/cyan]")
+    _prewarm_agent()
+    console.print("[green]Agent ready![/green]")
+
     _run_interactive()
 
 
