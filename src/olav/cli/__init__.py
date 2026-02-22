@@ -1,9 +1,10 @@
 """OLAV CLI Module.
 
 Provides CLI components: display, session, slash commands.
-Entry point: olav.cli.cli_app:app (see pyproject.toml).
+Entry point: olav.cli.main:cli_main (see pyproject.toml).
 """
 
+from olav.cli.main import cli_main
 from olav.cli.commands.builtin import (
     SLASH_COMMANDS,
     execute_command,
@@ -19,6 +20,7 @@ from olav.cli.display import (
 )
 
 __all__ = [
+    "cli_main",
     "SLASH_COMMANDS",
     "register_command",
     "execute_command",
