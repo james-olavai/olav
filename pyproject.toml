@@ -50,6 +50,7 @@ dependencies = [
     "python-crontab>=3.0.0",
     "tenacity>=8.0",
     "deepagents",
+    "deepagents-cli",
     "langchain-community>=0.4.1",
     "langgraph>=1.0.8",
     "duckdb-engine>=0.17.0",
@@ -214,7 +215,9 @@ exclude_lines = [
 [tool.uv.workspace]
 members = [
     "_legacy_archived/archive_v0_to_v0.11/deepagents/libs/deepagents",
+    "_legacy_archived/archive_v0_to_v0.11/deepagents/libs/deepagents-cli",
 ]
 
 [tool.uv.sources]
 deepagents = { workspace = true }
+deepagents-cli = { workspace = true }
