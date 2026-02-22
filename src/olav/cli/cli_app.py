@@ -43,30 +43,19 @@ from olav.cli.admin import admin_handler
 
 # Agent instance cache for performance - reuses across CLI invocations
 _cached_agent = None
-_agent_prewarmed = False
-
-
-def _prewarm_agent():
-    """Prewarm agent in background - call on CLI startup."""
-    global _cached_agent, _agent_prewarmed
-    if _agent_prewarmed:
-        return
-    try:
-        from olav.agents.agent import create_olav_agent
-
-        _cached_agent = create_olav_agent(enable_checkpointer=False)
-        _agent_prewarmed = True
-    except Exception:
-        pass
 
 
 def _get_cached_agent():
-    """Get or create cached agent instance for performance."""
+    """Get or create cached agent instance for performance.
+
+    Disables persistence (checkpointer/store) to avoid DuckDB lock conflicts
+    with the background daemon. This agent is only used as an in-process fallback.
+    """
     global _cached_agent
     if _cached_agent is None:
         from olav.agents.agent import create_olav_agent
 
-        _cached_agent = create_olav_agent(enable_checkpointer=False)
+        _cached_agent = create_olav_agent(enable_checkpointer=False, enable_store=False)
     return _cached_agent
 
 
@@ -148,9 +137,7 @@ async def _stream_response(
 
         # Tier 2: in-process agent (no daemon running)
         if agent is None:
-            from olav.agents.agent import create_olav_agent
-
-            agent = create_olav_agent(enable_checkpointer=False)
+            agent = _get_cached_agent()
 
         result = await agent.invoke(query, thread_id=thread_id)  # type: ignore[union-attr]
         display.stop_processing_status()
@@ -191,68 +178,91 @@ def _try_cache_store(query: str, result: dict) -> None:
         logger.debug("ResponseCache store failed: %s", exc)
 
 
-def _run_interactive():
-    """Enter interactive conversation mode with prompt-toolkit (history, slash commands)."""
+def _run_interactive() -> None:
+    """Enter interactive mode with a smooth startup experience.
+
+    1. Shows banner immediately.
+    2. Displays initialization spinner.
+    3. Ensures background daemon is running.
+    4. Pre-warms the in-process agent for fallback.
+    """
     import uuid
 
     from olav.cli.commands.builtin import execute_command
-    from olav.cli.display import display_banner, load_banner_from_config
+    from olav.cli.daemon import get_daemon_status, spawn_daemon
+    from olav.cli.display import (
+        StreamingDisplay,
+        display_banner,
+        load_banner_from_config,
+    )
     from olav.cli.session import OlavPromptSession
 
     _check_llm_key()
-    agent = _get_cached_agent()
     thread_id = str(uuid.uuid4())[:8]
 
-    # Display banner from config (uses config/banners.py styles)
+    # 1. Display banner immediately (UX)
     banner_text = load_banner_from_config()
     if banner_text:
         display_banner(banner_text, console=console)
 
-    console.print(
-        Panel(
-            f"OLAV v2.0 - Interactive Mode\n\n"
-            f"Thread: {thread_id}\n"
-            f"Type [bold]/help[/bold] for available commands.\n"
-            f"Use [bold]↑↓[/bold] arrow keys to navigate history.\n"
-            f"Type [bold]/quit[/bold] or [bold]exit[/bold] to exit.",
-            border_style="blue",
-            title="[cyan]OLAV[/cyan]",
+    async def _interactive_loop() -> None:
+        display = StreamingDisplay(console=console)
+
+        # 2. Show initialization indicator
+        display.show_processing_status("Initializing OLAV Fast-Path Agent...")
+
+        # 3. Ensure background daemon is running for subsequent fast queries
+        status = get_daemon_status()
+        if not status.get("running"):
+            spawn_daemon()
+            # 4. Pre-warm fallback agent ONLY if daemon is not running to avoid DB locks
+            agent = await asyncio.to_thread(_get_cached_agent)
+        else:
+            # Daemon is active. Tier 1 handles queries. Fallback agent starts lazily if needed.
+            agent = None
+
+        display.stop_processing_status()
+
+        # Welcome detail
+        console.print(
+            Panel(
+                f"OLAV v2.1 - Interactive Mode (Thread: [bold cyan]{thread_id}[/bold cyan])\n\n"
+                f"• Fast-Path enabled via background daemon.\n"
+                f"• Type [bold]/help[/bold] for commands, [bold]/quit[/bold] to exit.\n"
+                f"• Natural language queries are supported directly.",
+                border_style="blue",
+                title="[cyan]READY[/cyan]",
+            )
         )
-    )
 
-    # Initialize prompt-toolkit session (FileHistory + AutoSuggestFromHistory)
-    session = OlavPromptSession(enable_completion=False, multiline=False)
+        # Initialize prompt-toolkit session
+        session = OlavPromptSession(enable_completion=False, multiline=False)
 
-    async def _interactive_loop():
         while True:
             try:
-                # Use prompt-toolkit async prompt (supports arrow keys, history)
                 query = await session.prompt_async("OLAV> ")
                 query = query.strip()
 
                 if not query:
                     continue
 
-                # Exit commands
                 if query.lower() in ("exit", "quit", "bye"):
                     console.print("[cyan]Goodbye![/cyan]")
                     break
 
-                # Slash command routing
                 if query.startswith("/"):
                     try:
                         result = await execute_command(query, agent=None)
                         if result:
                             console.print(result)
                     except EOFError:
-                        # /quit or /exit raises EOFError
                         console.print("[cyan]Goodbye![/cyan]")
                         break
                     except Exception as e:
                         console.print(f"[red]Error:[/red] {e}")
                     continue
 
-                # Normal query → agent
+                # Normal query
                 await _stream_response(agent, query, thread_id)
 
             except (KeyboardInterrupt, EOFError):
@@ -967,72 +977,6 @@ def db_schema(
 
 
 # ============================================================================
-# Daemon Subcommand Group
-# ============================================================================
-
-daemon_app = typer.Typer(name="daemon", help="Manage the OLAV background daemon for fast queries.")
-app.add_typer(daemon_app, name="daemon")
-
-
-@daemon_app.command(name="start")
-def daemon_start() -> None:
-    """Start the OLAV daemon in the background."""
-    from olav.cli.daemon import get_daemon_status, spawn_daemon
-
-    status = get_daemon_status()
-    if status.get("running"):
-        console.print(f"[yellow]Daemon already running[/yellow] (PID {status['pid']})")
-        return
-
-    pid = spawn_daemon()
-    console.print(f"[green]Daemon starting...[/green] PID={pid}")
-    console.print("[dim]Wait ~5s for agent to initialise, then queries will be instant.[/dim]")
-
-
-@daemon_app.command(name="stop")
-def daemon_stop() -> None:
-    """Stop the OLAV daemon."""
-    from olav.cli.daemon import stop_daemon
-
-    stopped = stop_daemon()
-    if stopped:
-        console.print("[green]Daemon stopped.[/green]")
-    else:
-        console.print("[yellow]Daemon was not running.[/yellow]")
-
-
-@daemon_app.command(name="status")
-def daemon_status() -> None:
-    """Show daemon status (running/stopped, uptime, query count)."""
-    from olav.cli.daemon import get_daemon_status
-
-    status = get_daemon_status()
-    if not status.get("running"):
-        console.print("[yellow]Daemon:[/yellow] not running")
-        console.print("[dim]Start with: olav daemon start[/dim]")
-        return
-
-    uptime = int(status.get("uptime_seconds", 0))
-    hours, remainder = divmod(uptime, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    uptime_str = f"{hours}h {minutes}m {seconds}s" if hours else f"{minutes}m {seconds}s"
-
-    console.print(f"[green]Daemon:[/green] running | PID={status['pid']} | uptime={uptime_str} | queries={status.get('query_count', 0)}")
-
-
-@daemon_app.command(name="restart")
-def daemon_restart() -> None:
-    """Restart the OLAV daemon."""
-    import time
-
-    from olav.cli.daemon import get_daemon_status, spawn_daemon, stop_daemon
-
-    if get_daemon_status().get("running"):
-        stop_daemon()
-        time.sleep(1)
-
-    pid = spawn_daemon()
-    console.print(f"[green]Daemon restarted.[/green] PID={pid}")
 
 
 # ============================================================================
@@ -1045,6 +989,99 @@ try:
     app.add_typer(get_task_app(), name="task", help="Manage periodic inspection tasks")
 except Exception as e:
     logger.debug(f"Task manager not available: {e}")
+
+# ============================================================================
+# NEW v0.9.9: db subcommand group (deepagents-cli style)
+# ============================================================================
+
+db_app = typer.Typer(help="Database operations")
+app.add_typer(db_app, name="db")
+
+
+@db_app.command("status")
+def db_status_new():
+    """Show database status.\n\n    Examples:
+        olav db status
+    """
+    # Delegate to existing db_status function
+    db_status()
+
+
+@db_app.command("query")
+def db_query_new(
+    sql: str = typer.Argument(..., help="SQL query to execute"),
+    output: str | None = typer.Option(None, "--output", "-o", help="Output to CSV file"),
+):
+    """Execute SQL query on main database.\n\n    Examples:
+        olav db query "SELECT * FROM devices LIMIT 10"
+        olav db query "SELECT * FROM devices" --output devices.csv
+    """
+    # Delegate to existing db_query function
+    db_query(sql, output)
+
+
+@db_app.command("schema")
+def db_schema_new(
+    table: str | None = typer.Argument(None, help="Table name (optional)"),
+):
+    """Show database schema.\n\n    Examples:
+        olav db schema           # Show all tables
+        olav db schema devices   # Show schema for devices table
+    """
+    # Delegate to existing db_schema function
+    db_schema(table)
+
+
+# ============================================================================
+# NEW v0.9.9: status command (replaces admin status)
+# ============================================================================
+
+
+@app.command()
+def status():
+    """Show OLAV system status.\n\n    Examples:
+        olav status
+    """
+    import asyncio
+    from olav.cli.admin import admin_handler
+
+    result = asyncio.run(admin_handler("/admin status"))
+
+    if result["status"] == "success":
+        console.print(
+            Panel(
+                str(result.get("data", result)),
+                title="[green]✓ OLAV Status[/green]",
+                border_style="green",
+            )
+        )
+    else:
+        console.print(
+            Panel(
+                result.get("message", "Unknown error"),
+                title="[red]✗ Error[/red]",
+                border_style="red",
+            )
+        )
+
+
+# ============================================================================
+# NEW v0.9.9: ask command (replaces -m/--msg flag)
+# ============================================================================
+
+
+@app.command()
+def ask(
+    query: str = typer.Argument(..., help="Natural language query to ask OLAV"),
+):
+    """Ask OLAV a single question (non-interactive mode).\n\n    Examples:
+        olav ask "How many devices are in the database?"
+        olav ask "What is the status of R1?"
+    """
+    _check_llm_key()
+    agent = _get_cached_agent()
+    asyncio.run(_stream_response(agent, query))
+
 
 
 if __name__ == "__main__":
