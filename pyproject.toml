@@ -7,7 +7,7 @@ packages = ["src/olav", "config"]
 
 [project]
 name = "olav"
-version = "0.9.8"
+version = "0.9.9"
 description = "OLAV - Network Operations AI Assistant with DeepAgents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -62,7 +62,7 @@ dependencies = [
 ]
 
 [project.scripts]
-olav = "olav.cli.cli_app:app"
+olav = "olav.cli.main:cli_main"
 
 [project.optional-dependencies]
 dev = [
