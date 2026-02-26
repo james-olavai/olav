@@ -2,15 +2,17 @@
 """
 Config Diff Tool - Compare raw CLI outputs between snapshots to detect drift.
 
+This tool uses snapshot_id instead of date for precise snapshot targeting.
+
 Usage:
     from langchain_core.tools import tool
-    diff_configs(device="R1", command="show running-config")
-    diff_configs(device="R1", command="show running-config", date_a="2026-02-19")
-    diff_configs(device="R1", command="show running-config", sections=["aaa", "line vty"])
+    diff_configs(device="R1", command="show running-config", snapshot_id_1="20260226_100000", snapshot_id_2="20260226_120000")
+    diff_configs(device="R1", command="show running-config", snapshot_id_1="20260226_100000", snapshot_id_2="latest")
+    diff_configs(device="R1", command="show running-config", snapshot_id_1="latest", snapshot_id_2="latest", sections=["aaa", "line vty"])
 """
 
 import difflib
-import sys
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -46,17 +48,39 @@ def _to_slug(command: str) -> str:
     return command.strip().lower().replace(" ", "-")
 
 
-def _find_file(device: str, cmd_slug: str, date: str) -> Path:
-    """
-    Find snapshot file for device/command/date.
+def _resolve_snapshot_id(snapshot_id: str) -> str:
+    """Resolve 'latest' to actual snapshot_id, or validate existing snapshot_id."""
+    if snapshot_id.lower() != "latest":
+        return snapshot_id
 
-    Tries exact match first, then word-based fuzzy match.
-    Example: "show-running-config" matches "show running-config"
-    """
-    base = _SNAPSHOTS / date / "raw" / device
+    # Find most recent snapshot directory
+    if not _SNAPSHOTS.exists():
+        raise FileNotFoundError(f"Snapshots directory not found: {_SNAPSHOTS}")
+
+    # Look for directories with snapshot_id pattern
+    candidates = []
+    for d in _SNAPSHOTS.iterdir():
+        if d.is_dir() and d.name != "latest":
+            # Extract timestamp from directory name (format: YYYYMMDD_HHMMSS or date_id)
+            candidates.append(d.name)
+
+    if not candidates:
+        raise FileNotFoundError("No snapshots found")
+
+    # Sort by name (which should include date)
+    candidates.sort(reverse=True)
+    return candidates[0]
+
+
+def _find_file_by_snapshot_id(device: str, cmd_slug: str, snapshot_id: str) -> Path:
+    """Find snapshot file for device/command/snapshot_id."""
+    resolved_id = _resolve_snapshot_id(snapshot_id)
+    base = _SNAPSHOTS / resolved_id / "raw" / device
 
     if not base.exists():
-        raise FileNotFoundError(f"No snapshot directory for {device} on {date}")
+        raise FileNotFoundError(
+            f"No snapshot directory for {device} with snapshot_id {resolved_id}"
+        )
 
     # Try exact match
     exact = base / f"{cmd_slug}.txt"
@@ -74,64 +98,25 @@ def _find_file(device: str, cmd_slug: str, date: str) -> Path:
         return candidates[0]
 
     raise FileNotFoundError(
-        f"No file matching '{cmd_slug}' in {device}/{date}. "
+        f"No file matching '{cmd_slug}' in {device}/{resolved_id}. "
         f"Available: {[f.stem for f in base.glob('*.txt')]}"
     )
 
 
-def _resolve_date_a(device: str, cmd_slug: str, date_b: str) -> str:
-    """
-    Auto-detect most recent snapshot before date_b with the target file.
-
-    Returns date string "YYYY-MM-DD".
-    """
-    # List all snapshot dates (skip "latest" symlink)
-    try:
-        all_dates = sorted(
-            [
-                d.name
-                for d in _SNAPSHOTS.iterdir()
-                if d.is_dir() and d.name not in ("latest",) and d.name < date_b
-            ]
-        )
-    except Exception as e:
-        raise FileNotFoundError(f"Failed to list snapshots: {e}")
-
-    # Find most recent date that has the target file
-    for date in reversed(all_dates):
-        try:
-            _find_file(device, cmd_slug, date)
-            return date
-        except FileNotFoundError:
-            continue
-
-    raise FileNotFoundError(
-        f"No prior snapshot for {device}/{cmd_slug} before {date_b}. Available dates: {all_dates}"
-    )
-
-
 def _extract_sections(text: str, sections: list[str]) -> str:
-    """
-    Extract only lines belonging to named IOS config sections.
-
-    Example: sections=["aaa", "line vty"]
-    Returns lines starting with "aaa" or "line vty" (and their content).
-    """
+    """Extract only lines belonging to named IOS config sections."""
     lines = text.splitlines()
     result = []
     in_section = False
 
     for line in lines:
-        # Check if this is a top-level config line (no leading space)
         is_top_level = line.strip() and not line.startswith((" ", "\t"))
 
         if is_top_level:
-            # Check if line starts with any target section
             in_section = any(line.lower().startswith(s.lower()) for s in sections)
 
         if in_section:
             result.append(line)
-            # Section ends at "!" line (common in IOS)
             if line.strip() == "!":
                 in_section = False
 
@@ -139,22 +124,15 @@ def _extract_sections(text: str, sections: list[str]) -> str:
 
 
 def _count_significant_changes(diff_lines: list[str]) -> tuple[int, int]:
-    """
-    Count added/removed lines, excluding IOS metadata churn.
-
-    Returns (added_count, removed_count).
-    """
+    """Count added/removed lines, excluding IOS metadata churn."""
     added = removed = 0
 
     for line in diff_lines:
-        # Skip if line contains metadata pattern (case-insensitive)
         if any(pattern in line.lower() for pattern in _METADATA_PATTERNS):
             continue
 
-        # Count added lines (starting with "+", not "+++")
         if line.startswith("+") and not line.startswith("+++"):
             added += 1
-        # Count removed lines (starting with "-", not "---")
         elif line.startswith("-") and not line.startswith("---"):
             removed += 1
 
@@ -190,24 +168,23 @@ def _summarize_diff(
 def diff_configs(
     device: str,
     command: str,
-    date_a: str | None = None,
-    date_b: str | None = None,
+    snapshot_id_1: str | None = None,
+    snapshot_id_2: str | None = None,
     sections: list[str] | None = None,
     context_lines: int = 3,
 ) -> dict[str, Any]:
-    """Compare raw CLI output snapshots between two dates to detect configuration drift.
+    """Compare raw CLI output snapshots between two snapshot_ids to detect configuration drift.
 
-    Reads files from exports/snapshots/{date}/raw/{device}/{cmd-slug}.txt
-    and returns a unified diff. Any command with a raw snapshot can be compared.
+    Reads files from exports/snapshots/{snapshot_id}/raw/{device}/{cmd-slug}.txt
+    and returns a unified diff. Uses snapshot_id for precise targeting.
 
     Args:
         device: Device hostname, e.g. "R1"
-        command: CLI command name, e.g. "show running-config" (spaces allowed, converted to slug)
-        date_a: Baseline date as "YYYY-MM-DD", or None to auto-detect most recent before date_b
-        date_b: Target date as "YYYY-MM-DD", or None for today
+        command: CLI command name, e.g. "show running-config" (spaces allowed)
+        snapshot_id_1: Baseline snapshot ID (e.g., "20260226_100000") or "latest"
+        snapshot_id_2: Target snapshot ID (e.g., "20260226_120000") or "latest"
         sections: Optional list of IOS config section keywords to filter diff
-                  (e.g. ["aaa", "line vty", "ip access-list"]).
-                  None means diff the entire file.
+                  (e.g. ["aaa", "line vty", "ip access-list"])
         context_lines: Lines of unchanged context around each change (default 3)
 
     Returns:
@@ -215,65 +192,81 @@ def diff_configs(
         - status: "success" or "error"
         - device: Device name
         - command: Original command name
-        - date_a: Auto-resolved baseline date
-        - date_b: Auto-resolved target date
+        - snapshot_id_1: Resolved baseline snapshot ID
+        - snapshot_id_2: Resolved target snapshot ID
         - added_lines: Number of added lines (excludes metadata)
         - removed_lines: Number of removed lines (excludes metadata)
         - changed_lines: Total changes
-        - diff: Unified diff output (may be truncated for readability)
+        - diff: Unified diff output
         - summary: Human-readable summary string
         - message: Error description (if status="error")
 
     Examples:
         >>> diff_configs("R1", "show running-config")
-        >>> diff_configs("R1", "show running-config", date_a="2026-02-14")
+        >>> diff_configs("R1", "show running-config", snapshot_id_1="20260226_100000")
         >>> diff_configs("R1", "show running-config", sections=["aaa", "line vty"])
-        >>> diff_configs("R2", "show ip ospf neighbor", date_a="2026-02-19")
+        >>> diff_configs("R2", "show ip ospf neighbor", snapshot_id_1="latest", snapshot_id_2="latest")
     """
     try:
-        # Resolve dates
-        if date_b is None:
-            date_b = datetime.now().strftime("%Y-%m-%d")
+        # Resolve snapshot IDs
+        if snapshot_id_2 is None:
+            snapshot_id_2 = "latest"
+
+        if snapshot_id_1 is None:
+            # Auto-detect: find second-to-latest
+            try:
+                resolved_2 = _resolve_snapshot_id(snapshot_id_2)
+                # List all snapshots, exclude the target
+                all_snapshots = []
+                if _SNAPSHOTS.exists():
+                    for d in _SNAPSHOTS.iterdir():
+                        if d.is_dir() and d.name not in ("latest", resolved_2):
+                            all_snapshots.append(d.name)
+                all_snapshots.sort(reverse=True)
+                snapshot_id_1 = all_snapshots[0] if all_snapshots else "latest"
+            except:
+                snapshot_id_1 = "latest"
 
         cmd_slug = _to_slug(command)
 
-        if date_a is None:
-            date_a = _resolve_date_a(device, cmd_slug, date_b)
+        # Resolve to actual IDs
+        id_1 = _resolve_snapshot_id(snapshot_id_1)
+        id_2 = _resolve_snapshot_id(snapshot_id_2)
 
         # Read files
         try:
-            file_a = _find_file(device, cmd_slug, date_a)
-            text_a = file_a.read_text(encoding="utf-8", errors="replace")
+            file_1 = _find_file_by_snapshot_id(device, cmd_slug, id_1)
+            text_1 = file_1.read_text(encoding="utf-8", errors="replace")
         except FileNotFoundError as e:
             return {
                 "status": "error",
                 "device": device,
                 "command": command,
-                "date_a": date_a,
-                "date_b": date_b,
+                "snapshot_id_1": id_1,
+                "snapshot_id_2": id_2,
                 "message": f"Baseline file not found: {e}",
             }
 
         try:
-            file_b = _find_file(device, cmd_slug, date_b)
-            text_b = file_b.read_text(encoding="utf-8", errors="replace")
+            file_2 = _find_file_by_snapshot_id(device, cmd_slug, id_2)
+            text_2 = file_2.read_text(encoding="utf-8", errors="replace")
         except FileNotFoundError as e:
             return {
                 "status": "error",
                 "device": device,
                 "command": command,
-                "date_a": date_a,
-                "date_b": date_b,
+                "snapshot_id_1": id_1,
+                "snapshot_id_2": id_2,
                 "message": f"Target file not found: {e}",
             }
 
         # Filter sections if requested
         if sections:
-            text_a = _extract_sections(text_a, sections)
-            text_b = _extract_sections(text_b, sections)
+            text_1 = _extract_sections(text_1, sections)
+            text_2 = _extract_sections(text_2, sections)
 
         # Generate diff
-        diff_output = _generate_diff(text_a, text_b, context_lines)
+        diff_output = _generate_diff(text_1, text_2, context_lines)
         diff_lines = diff_output.splitlines()
 
         # Count changes
@@ -282,9 +275,9 @@ def diff_configs(
 
         # Truncate diff if very large
         if len(diff_lines) > 100:
-            truncated = diff_lines[:100]
-            truncated.append(f"\n[...{len(diff_lines) - 100} more lines...]")
-            diff_output = "\n".join(truncated)
+            diff_lines = diff_lines[:100]
+            diff_lines.append(f"\n[...{len(diff_lines) - 100} more lines...]")
+            diff_output = "\n".join(diff_lines)
 
         summary = _summarize_diff(changed, added, removed, sections)
 
@@ -292,8 +285,8 @@ def diff_configs(
             "status": "success",
             "device": device,
             "command": command,
-            "date_a": date_a,
-            "date_b": date_b,
+            "snapshot_id_1": id_1,
+            "snapshot_id_2": id_2,
             "added_lines": added,
             "removed_lines": removed,
             "changed_lines": changed,
