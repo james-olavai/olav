@@ -32,7 +32,6 @@ import logging
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, date
 from pathlib import Path
 
 from langchain_core.tools import tool
@@ -55,11 +54,28 @@ def _find_project_root() -> Path:
 _PROJECT_ROOT = _find_project_root()
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
-from config.settings import settings
-from config.paths import MAIN_DB_PATH
 import duckdb as _ddb
 from nornir import InitNornir
 from nornir_netmiko.tasks import netmiko_send_command
+
+from olav.core.config import MAIN_DB_PATH, settings
+
+# Try to import Scrapli for fast path
+try:
+    from nornir_scrapli.tasks import send_commands as scrapli_send_commands
+    _HAS_SCRAPLI = True
+except ImportError:
+    scrapli_send_commands = None
+    _HAS_SCRAPLI = False
+
+# Scrapli platform mapping (Nornir -> Scrapli)
+SCRAPLI_PLATFORM_MAP = {
+    "cisco_ios": "cisco_iosxe",
+    "cisco_xe": "cisco_iosxe",
+    "cisco_xr": "cisco_iosxr",
+    "arista_eos": "arista_eos",
+    "juniper_junos": "juniper_junos",
+}
 
 # ---------------------------------------------------------------------------
 # Nornir singleton
@@ -75,14 +91,6 @@ def _get_nornir():
             Path(settings.agent_dir) / "config" / "nornir" / "config.yaml"
         )
         _nornir_instance = InitNornir(config_file=str(config_file.resolve()))
-        username = getattr(settings, "device_username", None)
-        password = getattr(settings, "device_password", None)
-        if username or password:
-            for host in _nornir_instance.inventory.hosts.values():
-                if username:
-                    host.username = username
-                if password:
-                    host.password = password
     return _nornir_instance
 
 
@@ -110,7 +118,7 @@ def _try_parse_textfsm(output: str, command: str, platform: str) -> list[dict] |
                 fsm = textfsm.TextFSM(f)
             rows = fsm.ParseText(output)
             headers = [h.lower() for h in fsm.header]
-            return [dict(zip(headers, r)) for r in rows] if rows else None
+            return [dict(zip(headers, r, strict=False)) for r in rows] if rows else None
     except Exception:
         pass
     return None
@@ -121,6 +129,94 @@ def _try_parse_textfsm(output: str, command: str, platform: str) -> list[dict] |
 # ---------------------------------------------------------------------------
 
 def _run_one(device: str, command: str, timeout: int, platform: str | None) -> dict:
+    """Execute one command on one device with Scrapli→Netmiko fallback."""
+    nr = _get_nornir()
+    target = nr.filter(name=device)
+    if not target.inventory.hosts:
+        return {
+            "device": device,
+            "command": command,
+            "status": "failed",
+            "error": f"Device '{device}' not found in Nornir inventory",
+        }
+
+    host = target.inventory.hosts[device]
+
+    # Try Scrapli first (fast path)
+    if _HAS_SCRAPLI and platform:
+        scrapli_platform = SCRAPLI_PLATFORM_MAP.get(platform)
+        if scrapli_platform:
+            try:
+                from nornir.core.inventory import ConnectionOptions
+
+                opts = host.connection_options.get("scrapli", ConnectionOptions())
+                opts.platform = scrapli_platform
+                if opts.extras is None:
+                    opts.extras = {}
+                opts.extras["ssh_config_file"] = True
+                opts.extras["auth_strict_key"] = False
+                opts.extras["transport"] = "paramiko"
+                opts.extras["timeout_ops"] = timeout
+                host.connection_options["scrapli"] = opts
+
+                result = target.run(
+                    task=scrapli_send_commands,
+                    commands=[command],
+                    strip_prompt=True,
+                )
+                host_result = result[device]
+                if not host_result.failed:
+                    raw = host_result.result[0].result if host_result.result else ""
+                    parsed = None
+                    if platform:
+                        parsed = _try_parse_textfsm(raw, command, platform)
+                    return {
+                        "device": device,
+                        "command": command,
+                        "status": "success",
+                        "raw": raw,
+                        "parsed": parsed,
+                        "platform": platform,
+                        "driver": "scrapli",
+                    }
+            except Exception as e:
+                logger.debug(f"Scrapli failed for {device}: {e}")
+
+    # Fallback to Netmiko (stable path)
+    try:
+        result = target.run(
+            task=netmiko_send_command,
+            command_string=command,
+            read_timeout=timeout,
+        )
+        host_result = result[device]
+        if host_result.failed:
+            return {
+                "device": device,
+                "command": command,
+                "status": "failed",
+                "error": str(host_result.exception or "Command failed"),
+            }
+        raw = host_result.result or ""
+        parsed = None
+        if platform:
+            parsed = _try_parse_textfsm(raw, command, platform)
+        return {
+            "device": device,
+            "command": command,
+            "status": "success",
+            "raw": raw,
+            "parsed": parsed,
+            "platform": platform,
+            "driver": "netmiko",
+        }
+    except Exception as exc:
+        return {
+            "device": device,
+            "command": command,
+            "status": "failed",
+            "error": str(exc),
+        }
     """Execute one command on one device; return result dict."""
     nr = _get_nornir()
     target = nr.filter(name=device)
@@ -184,28 +280,23 @@ def _write_raw_file(device: str, command: str, raw: str, snapshot_date: str) -> 
     (out_dir / f"{safe_cmd}.txt").write_text(raw, encoding="utf-8")
 
 
-def _upsert_parsed_output(
+def _insert_parsed_output(
     conn,
     device: str,
     command: str,
     parsed: list[dict] | None,
     raw: str,
-    snapshot_date: str,
+    snapshot_id: str,
 ) -> None:
-    """Insert or replace row in parsed_outputs for today's snapshot."""
+    """Insert row in parsed_outputs for today's snapshot."""
     parsed_json = json.dumps(parsed, ensure_ascii=False) if parsed else "[]"
     conn.execute(
         """
         INSERT INTO parsed_outputs
-            (device_name, command, parsed_data, raw_output, snapshot_date)
+            (device_name, command, parsed_data, raw_output, snapshot_id)
         VALUES (?, ?, ?::JSON, ?, ?)
-        ON CONFLICT (device_name, command, snapshot_date)
-        DO UPDATE SET
-            parsed_data  = excluded.parsed_data,
-            raw_output   = excluded.raw_output,
-            created_at   = CURRENT_TIMESTAMP
         """,
-        [device, command, parsed_json, raw[:20000], snapshot_date],
+        [device, command, parsed_json, raw[:20000], snapshot_id],
     )
 
 
@@ -230,7 +321,7 @@ def take_snapshot(
       1. search_commands(device="R1", keyword="ospf") — find the right command
       2. take_snapshot(devices=["R1","R2"], commands=["show ip ospf neighbor"])
       3. execute_sql("SELECT device_name, parsed_data->>'state' FROM parsed_outputs
-                      WHERE command='show ip ospf neighbor' AND snapshot_date=today")
+                      WHERE command='show ip ospf neighbor' AND snapshot_id=(SELECT MAX(snapshot_id) FROM parsed_outputs)")
 
     Args:
         devices:     List of device names to collect from (e.g. ["R1", "R2"]).
@@ -258,7 +349,11 @@ def take_snapshot(
 
     timeout = min(max(timeout, 5), 120)
     max_workers = min(max(max_workers, 1), 20)
-    snapshot_date = date.today().isoformat()
+    import uuid
+    from datetime import datetime
+    now = datetime.now()
+    snapshot_id = f"snap_{now.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    snapshot_date = now.strftime("%Y-%m-%d")
 
     # Resolve platforms from inventory for TextFSM parsing
     nr = _get_nornir()
@@ -292,13 +387,13 @@ def take_snapshot(
                     raw = r.get("raw", "")
                     parsed = r.get("parsed")
                     try:
-                        _upsert_parsed_output(
+                        _insert_parsed_output(
                             conn,
                             r["device"],
                             r["command"],
                             parsed,
                             raw,
-                            snapshot_date,
+                            snapshot_id,
                         )
                         _write_raw_file(r["device"], r["command"], raw, snapshot_date)
                         successful += 1
@@ -349,7 +444,7 @@ def take_snapshot(
 
     return {
         "status": "success" if failed == 0 else ("partial" if successful > 0 else "failed"),
-        "snapshot_date": snapshot_date,
+        "snapshot_id": snapshot_id,
         "devices": len(devices),
         "commands": len(commands),
         "total_tasks": len(tasks),
@@ -359,7 +454,7 @@ def take_snapshot(
         "next_step": (
             f"Query results with execute_sql: "
             f"SELECT device_name, parsed_data FROM parsed_outputs "
-            f"WHERE command='{commands[0]}' AND snapshot_date='{snapshot_date}'"
+            f"WHERE command='{commands[0]}' AND snapshot_id='{snapshot_id}'"
         ) if commands else "",
     }
 

@@ -1,5 +1,5 @@
 ---
-name: olav-ops
+name: quick-Query
 description: "Unified network operations skill — SQL queries, CLI execution, KB search, data export, topology analysis, and fault investigation."
 metadata:
   version: 1.1.0
@@ -8,7 +8,6 @@ metadata:
   category: network-operations
   intent: query_and_operations
   tools:
-    - search_cache             # search_cache.py   — Semantic cache lookup (call FIRST for repeated queries)
     - execute_sql              # execute_sql.py    — DuckDB query + explain_only schema discovery
     - search_commands          # search_commands.py — Query commands table by device/platform + keyword
     - execute_cli              # execute_cli.py    — Nornir CLI; validates blacklist + pipe_allowed
@@ -16,9 +15,7 @@ metadata:
     - diff_configs             # diff_configs.py   — Compare raw snapshots between dates to detect drift
     - format_and_export        # format_and_export.py — Export to CSV/JSON/Markdown
     - search_knowledge         # search_knowledge.py  — Semantic KB search (db_path, limit, threshold)
-    - web_search              # web_search.py    — Web search via DuckDuckGo for external info
-  prompts:
-    system: $ref:./prompts/system.md
+    - web_search               # web_search.py    — Web search via DuckDuckGo for external info
   database_schema:
     devices:
       description: Device inventory from Nornir hosts.yaml
@@ -29,17 +26,35 @@ metadata:
       note: Use search_commands tool (not raw SQL) to query this table
     parsed_outputs:
       description: TextFSM-parsed CLI outputs as JSON array
-      key_columns: [id, device_name, command, parsed_data, snapshot_date, created_at]
+      key_columns: [id, device_name, command, parsed_data, snapshot_id, created_at]
       note: "column is parsed_data (NOT parsed_json)"
     topology_links:
-      description: CDP/LLDP discovered links
-      key_columns: [link_id, source_device, source_interface, destination_device, destination_interface, discovery_protocol]
+      description: "Unified relationship map (L2 physical links from CDP/LLDP + L3 logical links from BGP/OSPF)"
+      key_columns: [link_id, source_device, source_interface, destination_device, destination_interface, discovery_protocol, link_type, link_status]
+    v_routes_enriched:
+      description: "Enriched routing table with resolved next-hop device names"
+    v_bgp_neighbors_enriched:
+      description: "Enriched BGP neighbors with resolved peer device names"
+    interfaces:
+      description: "IPAM mapping table (IP to device/interface)"
+    bgp_routes:
+      description: "BGP RIB table with AS-PATH, Communities, Local-Pref, etc."
+    routes:
+      description: IP routing table entries from show ip route
+      key_columns: [device_name, network, mask, next_hop, interface, protocol, metric, snapshot_id]
+    bgp_neighbors:
+      description: BGP neighbor status from show ip bgp summary
+      key_columns: [device_name, neighbor_ip, neighbor_as, state, prefixes_received, snapshot_id]
+    ospf_neighbors:
+      description: OSPF neighbor status from show ip ospf neighbor
+      key_columns: [device_name, neighbor_id, neighbor_ip, interface, state, priority, snapshot_id]
     knowledge_chunks:
       description: KB document chunks with embeddings (use search_knowledge tool, not raw SQL)
       key_columns: [id, content, source_file]
     indexed_files:
       description: Indexed KB file registry
       key_columns: [file_path, file_name, chunk_count, indexed_at, status]
+    system: $ref:./prompts/system.md
   escalation:
     to_expert:
       trigger: "User asks 'why', 'diagnose', 'root cause', 'recommend fix'"
@@ -65,8 +80,8 @@ Unified network operations agent handling three modes:
 
 ## Strategy
 
-### Database-First Rule
-Always query DuckDB before using CLI. CLI is for real-time data not available in DB.
+### Topology-Aware Troubleshooting
+Always query `v_routes_enriched` and `v_bgp_neighbors_enriched` instead of raw tables when analyzing paths or adjacencies. These views resolve IPs to device names, preventing the need for manual translation. Use `topology_links` for the overall relationship map.
 
 ### Device Inventory Queries
 Use `execute_sql` on the `devices` table:

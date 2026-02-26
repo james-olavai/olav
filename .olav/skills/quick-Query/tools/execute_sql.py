@@ -7,6 +7,7 @@ Core Features:
 2. SQL generation with context
 3. Error self-correction (via Agent ReAct loop)
 4. DuckDB-specific optimizations
+5. SchemaContext singleton caching (5 min TTL)
 
 Usage in DeepAgents:
     from .tools import execute_sql
@@ -15,13 +16,15 @@ Usage in DeepAgents:
 
 import json
 import sys
-from datetime import date, datetime, time
+import time
+from datetime import date, datetime
+from datetime import time as time_type
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, validator
 from langchain_core.tools import tool
+from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 
@@ -37,28 +40,23 @@ def _find_project_root():
 
 sys.path.insert(0, str(_find_project_root() / "src"))
 
-from olav.core.query_cache import QueryCache
-from config.paths import MAIN_DB_PATH
 import duckdb as _duckdb
+
+from olav.core.config import MAIN_DB_PATH
 
 
 def db_query(sql: str, params: list | None = None) -> list[dict]:
     """Execute a SQL query against the main DuckDB database."""
-    with _duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
-        result = conn.execute(sql, params or []).fetchall()
-        cols = [d[0] for d in conn.execute(sql, params or []).description] if result else []
-    # Re-execute to get description alongside data
-    with _duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
-        cur = conn.execute(sql, params or [])
-        cols = [d[0] for d in cur.description]
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
+    with _duckdb.connect(str(MAIN_DB_PATH)) as conn:
+        cur = conn.cursor()
+        cur.execute(sql, params or [])
+        if cur.description:
+            cols = [d[0] for d in cur.description]
+            result = [dict(zip(cols, row, strict=False)) for row in cur.fetchall()]
+            return result
+        return []
 
 
-# ============================================================================
-# Global Cache Instance
-# ============================================================================
-
-_query_cache = QueryCache()
 
 
 # ============================================================================
@@ -100,16 +98,34 @@ class DatabaseQueryOutput(BaseModel):
     user_query: str | None = Field(default=None, description="Original user query")
     tables: list[str] | None = Field(default=None, description="Available tables")
     attempted_sql: str | None = Field(default=None, description="SQL that failed")
-
+    suggestions: list[str] | None = Field(default=None, description="Suggestions for retry when count=0")
 
 
 class SchemaContext:
-    """Context manager for auto-schema exploration."""
+    """Context manager for auto-schema exploration with singleton caching.
+
+    Uses singleton pattern to cache schema across multiple execute_sql calls.
+    Cache TTL is 5 minutes by default.
+    """
+
+    _instance: "SchemaContext | None" = None
+    _last_refresh: float = 0
+    _cache_ttl: float = 300.0  # 5 minutes TTL
+
+    def __new__(cls) -> "SchemaContext":
+        """Singleton pattern - reuse instance if cache is valid."""
+        now = time.time()
+        if cls._instance is None or (now - cls._last_refresh) > cls._cache_ttl:
+            cls._instance = super().__new__(cls)
+            cls._instance._schema_cache: dict[str, Any] = {}
+            cls._instance._refresh_schema()
+            cls._last_refresh = now
+        return cls._instance
 
     def __init__(self):
         """Initialize with automatic schema caching."""
-        self._schema_cache: dict[str, Any] = {}
-        self._refresh_schema()
+        # Schema already initialized in __new__
+        pass
 
     def _refresh_schema(self) -> None:
         """Refresh schema cache by querying INFORMATION_SCHEMA."""
@@ -140,7 +156,7 @@ class SchemaContext:
                             for row in columns_result
                         ]
                     }
-                except Exception as e:
+                except Exception:
                     # Skip tables with errors
                     pass
 
@@ -162,14 +178,12 @@ class SchemaContext:
                     "WHERE source_type = 'textfsm' ORDER BY source_name, platform"
                 )
                 if catalog_rows:
-                    import json as _json
-
                     schema_catalog_info: list[str] = []
                     for row in catalog_rows:
                         fields = row.get("fields", [])
                         if isinstance(fields, str):
                             try:
-                                fields = _json.loads(fields)
+                                fields = json.loads(fields)
                             except Exception:
                                 fields = []
                         field_names = [f["name"] for f in (fields or []) if isinstance(f, dict)]
@@ -226,7 +240,7 @@ class SchemaContext:
 
 def _sanitize_value(val: Any) -> Any:
     """Convert non-JSON-serializable types to strings."""
-    if isinstance(val, (datetime, date, time)):
+    if isinstance(val, (datetime, date, time_type)):
         return val.isoformat()
     if isinstance(val, Decimal):
         return float(val)
@@ -275,7 +289,7 @@ def main(params: dict) -> dict:
     direct_sql = args.sql
     explain_only = args.explain_only
 
-    # Initialize schema context
+    # Get schema context (singleton, cached for 5 min)
     context = SchemaContext()
     schema_context = context.get_schema_context()
 
@@ -291,26 +305,14 @@ def main(params: dict) -> dict:
     # If direct SQL provided (agent already generated it), execute it
     if direct_sql:
         try:
-            # Check cache first
-            cached_result = _query_cache.get(direct_sql)
-
-            if cached_result is not None:
-                # Cache hit - use cached data
-                results = cached_result.get("data", [])
-            else:
-                # Cache miss - execute query and cache
-                results = context.query(direct_sql)
-                results = _sanitize_rows(results)
-
-                # Cache the results
-                cache_data = {"data": results, "sql": direct_sql, "count": len(results)}
-                _query_cache.set(direct_sql, cache_data)
+            # Execute query (LangGraph cache handles caching at framework level)
+            results = context.query(direct_sql)
+            results = _sanitize_rows(results)
 
             # Auto-export large results to CSV
             csv_path = None
             if len(results) > 50:
                 import csv
-                from datetime import datetime
                 from pathlib import Path
 
                 export_dir = Path("exports")
@@ -325,19 +327,29 @@ def main(params: dict) -> dict:
                         writer.writeheader()
                         writer.writerows(results)
 
-            # Generate markdown table for small results (< 30 rows)
-            table_md = None
-            if 0 < len(results) < 30:
-                headers = list(results[0].keys())
-                table_md = "| " + " | ".join(headers) + " |\n"
-                table_md += "| " + " | ".join(["---"] * len(headers)) + " |\n"
-                for row in results:
-                    vals = [str(row.get(h, "")) for h in headers]
-                    table_md += "| " + " | ".join(vals) + " |\n"
+            # Check if results are empty - provide schema hints for agentic retry
+            if len(results) == 0:
+                # Empty results - provide schema context and suggestions for retry
+                suggestions = []
+                if 'IP_ADDRESS' in direct_sql.upper() or 'ip_address' in direct_sql.lower():
+                    suggestions.append("JSON field names are LOWERCASE: use $.ip_address not $.IP_ADDRESS")
+                    suggestions.append("Try: json_extract_string(elem, '$.ip_address') in WHERE clause")
+                if 'INTERFACE' in direct_sql.upper():
+                    suggestions.append("JSON field names are LOWERCASE: use $.interface not $.INTERFACE")
+
+                output = DatabaseQueryOutput(
+                    data=results,
+                    sql=direct_sql,
+                    count=0,
+                    status="empty",
+                    message="Query returned 0 results. Schema context provided for retry.",
+                    schema_context=schema_context,
+                    suggestions=suggestions if suggestions else None,
+                )
+                return output.model_dump(exclude_none=True)
 
             output = DatabaseQueryOutput(
                 data=results,
-                table=table_md,
                 sql=direct_sql,
                 count=len(results),
                 status="success",
@@ -374,9 +386,16 @@ def main(params: dict) -> dict:
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 def execute_sql(query: str = "", sql: str = "", explain_only: bool = False) -> dict:
     """Execute SQL query with automatic schema discovery and error correction.
+    ⭐ DEFAULT TOOL for device queries. Use this FIRST before execute_cli.
+
+    WHEN TO USE:
+    - Device inventory, counts, lists → SELECT * FROM devices
+    - Interface status, IPs → SELECT * FROM parsed_outputs WHERE command='show ip interface brief'
+    - Topology links → SELECT * FROM topology_links
+    - Any data that exists in the database
 
     Features:
-    - Automatic schema context discovery
+    - Automatic schema context discovery (cached for 5 min)
     - SQL generation guidance for the LLM
     - Error self-correction support
     - DuckDB-specific optimizations
@@ -390,13 +409,13 @@ def execute_sql(query: str = "", sql: str = "", explain_only: bool = False) -> d
         Status, results, or error information with schema context
 
     Examples:
-        Example 1 - Natural language query (agent generates SQL):
-        >>> execute_sql("How many devices do we have?")
-
-        Example 2 - Execute generated SQL:
+        Example 1 - Get device count:
         >>> execute_sql(sql="SELECT COUNT(*) FROM devices")
 
-        Example 3 - Get schema only:
+        Example 2 - List all devices:
+        >>> execute_sql(sql="SELECT name, hostname, platform FROM devices")
+
+        Example 3 - Get schema for SQL generation:
         >>> execute_sql(explain_only=True)
     """
     params = {"query": query, "sql": sql, "explain_only": explain_only}
