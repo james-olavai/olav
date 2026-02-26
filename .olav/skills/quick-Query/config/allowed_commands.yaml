@@ -1,0 +1,56 @@
+# allowed_commands.yaml
+# Commands permitted for snapshot collection and quick-Query CLI execution.
+#
+# Fields:
+#   command      : exact CLI command string (case-insensitive)
+#   platforms    : list of Nornir platforms, or ['*'] for all platforms
+#   pipe_allowed : true = olav-ops LLM may append "| include ..." filters
+#
+# Three-state semantics:
+#   allowed=true  + blacklisted=false + pipe_allowed=false → precise execution
+#   allowed=true  + blacklisted=false + pipe_allowed=true  → LLM may add pipe
+#   blacklisted=true (any)                                  → always blocked
+
+- command: show version
+  platforms: [cisco_ios, cisco_xe, cisco_nxos]
+  pipe_allowed: false
+
+- command: show ip ospf neighbor
+  platforms: [cisco_ios, cisco_xe]
+  pipe_allowed: false
+
+- command: show ip ospf neighbor detail
+  platforms: [cisco_ios, cisco_xe]
+  pipe_allowed: false
+
+- command: show ip bgp summary
+  platforms: [cisco_ios, cisco_xe]
+  pipe_allowed: false
+
+- command: show ip route
+  platforms: [cisco_ios, cisco_xe]
+  pipe_allowed: true
+
+- command: show interfaces
+  platforms: ['*']
+  pipe_allowed: false
+
+- command: show ip interface brief
+  platforms: [cisco_ios, cisco_xe, cisco_nxos]
+  pipe_allowed: false
+
+- command: show cdp neighbors detail
+  platforms: [cisco_ios, cisco_xe]
+  pipe_allowed: false
+
+- command: show lldp neighbors detail
+  platforms: [cisco_ios, cisco_xe, arista_eos]
+  pipe_allowed: false
+
+- command: show processes cpu
+  platforms: [cisco_ios, cisco_xe]
+  pipe_allowed: false
+
+- command: show platform resources
+  platforms: [cisco_nxos]
+  pipe_allowed: false

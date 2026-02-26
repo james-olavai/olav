@@ -36,14 +36,14 @@ def _find_project_root() -> Path:
 
 sys.path.insert(0, str(_find_project_root() / "src"))
 
-from config.paths import MAIN_DB_PATH
-import duckdb as _ddb
+
+from olav.core.config import MAIN_DB_PATH
 
 
 def _get_device_platform(device_name: str) -> str | None:
     """Look up device platform from DuckDB devices table."""
     try:
-        with _ddb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
+        with duckdb.connect(str(MAIN_DB_PATH)) as conn:
             rows = conn.execute(
                 "SELECT platform FROM devices WHERE LOWER(name) = LOWER(?) LIMIT 1",
                 [device_name],
@@ -61,7 +61,7 @@ def _search_commands_in_db(
 ) -> list[dict]:
     """Query commands table for a platform, filtered by keyword substring."""
     try:
-        with _ddb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
+        with duckdb.connect(str(MAIN_DB_PATH)) as conn:
             # Check table exists
             tables = [
                 r[0]
@@ -108,7 +108,7 @@ def _search_commands_in_db(
             rows = conn.execute(sql, params).fetchall()
             cols = ["command_name", "platform", "category", "has_template",
                     "allowed", "pipe_allowed", "blacklisted"]
-            return [dict(zip(cols, r)) for r in rows]
+            return [dict(zip(cols, r, strict=False)) for r in rows]
 
     except Exception as exc:
         return [{"error": str(exc)}]

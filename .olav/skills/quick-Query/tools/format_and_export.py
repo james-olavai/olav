@@ -37,8 +37,9 @@ def format_and_export(
         data: Data to export. For CSV: MUST be a JSON array of objects
               (e.g. [{"hostname": "R1", "ip": "10.0.0.1"}, ...]).
               For markdown/text: can be a formatted string.
+
         filename: Filename (without extension), auto-generated if omitted
-        format: Output format (md/json/txt/csv/yaml), auto-detected if omitted
+        format: Output format (md/json/txt/csv/yaml/mmd), auto-detected if omitted
 
     Returns:
         dict: {"path": "exports/xxx.csv", "size": 1234}
@@ -56,11 +57,12 @@ def format_and_export(
         {"path": "exports/reports/ospf_diagnosis.md", "size": 2048}
     """
     # 1. Determine output directory based on format
-    from config.paths import REPORTS_DIR
-    
+    from olav.core.config import REPORTS_DIR
+
+
     if format and format.lower() in ("csv", "json", "yaml", "yml"):
         output_dir = REPORTS_DIR.parent  # exports/
-    elif format and format.lower() in ("md", "txt"):
+    elif format and format.lower() in ("md", "txt", "mmd"):
         output_dir = REPORTS_DIR  # exports/reports/
     else:
         output_dir = None  # resolved after format detection
@@ -84,7 +86,7 @@ def format_and_export(
 
     # 4. Resolve output_dir if not yet determined
     if output_dir is None:
-        from config.paths import REPORTS_DIR as _REPORTS_DIR
+        from olav.core.config import REPORTS_DIR as _REPORTS_DIR
         if format in ("csv", "json", "yaml", "yml"):
             output_dir = _REPORTS_DIR.parent  # exports/
         else:
@@ -96,15 +98,27 @@ def format_and_export(
     if not filename:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"export_{timestamp}"
-    
-    # Sanitize filename to prevent path traversal (security fix)
-    # Remove path separators and parent directory references
+
+    # 6. Sanitize filename and handle existing extension
+    #    If filename has extension, we use it as the format if format was auto-detected
     from pathlib import PurePath
-    filename = PurePath(filename).name  # Extract only the filename component
+    p = PurePath(filename)
+    if p.suffix and p.suffix[1:].lower() in ("md", "json", "txt", "csv", "yaml", "yml", "mmd"):
+        # If user provided extension, and it's a known one, split it
+        actual_format = p.suffix[1:].lower()
+        filename = p.stem
+        # If format was auto-detected, override with filename's extension
+        # If format was explicitly passed, verify they match or override?
+        # Here we let explicit 'format' arg win if provided, otherwise filename's ext wins.
+        if not format or format == "md": # md is a common fallback
+             format = actual_format
+    else:
+        filename = p.name
+
     if ".." in filename or filename.startswith("/"):
         raise ValueError(f"Invalid filename: {filename}. Cannot contain '..' or start with '/'")
 
-    # 6. Build full path
+    # 7. Build full path
     filepath = output_dir / f"{filename}.{format}"
 
     # 7. Write file based on format
@@ -157,6 +171,14 @@ def _detect_format(data: Any) -> str:  # noqa: ANN401
                 return "json"
             except (json.JSONDecodeError, ValueError):
                 pass
+
+
+        # 检测 Mermaid 特征 (如果包含 graph/flowchart 或 mermaid 代码块)
+        if "graph " in data.lower() or "flowchart " in data.lower() or "```mermaid" in data.lower():
+            # 如果内容以 # 开头（有标题的 Markdown 包含图表），通常还是用 .md
+            # 但如果只有图表，或者用户明确要求，我们应该能识别出这是 mmd 相关内容
+            if not (data.strip().startswith("#") or "\n##" in data):
+                return "mmd"
 
         # 默认文本
         return "txt"
@@ -253,7 +275,15 @@ def _write_csv(filepath: Path, data: Any) -> None:  # noqa: ANN401
 
         with open(filepath, "w", encoding="utf-8", newline="") as f:
             if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
-                writer = csv.DictWriter(f, fieldnames=data[0].keys())
+                # Collect ALL unique keys from ALL dicts, not just the first one
+                # This handles cases where dicts have different field sets
+                all_keys: set[str] = set()
+                for row in data:
+                    if isinstance(row, dict):
+                        all_keys.update(row.keys())
+                fieldnames = sorted(all_keys)
+
+                writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
                 writer.writeheader()
                 writer.writerows(data)
             elif isinstance(data, dict):
