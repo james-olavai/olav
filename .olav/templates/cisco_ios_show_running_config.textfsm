@@ -1,0 +1,4 @@
+Value config ([\s\S]+)
+
+Start
+  ^${config} -> Record

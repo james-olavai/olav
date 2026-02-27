@@ -1,0 +1,40 @@
+# 📋 Unified Topology Generation Strategy
+# Defines how to merge and deduplicate links from various source tables.
+
+# ⚠️ IMPORTANT: DEPENDENCY WARNING
+# This configuration depends on the output of schema normalization.
+# If you modify the mappings in normalization_strategy.yaml or the target fields 
+# in the database, you MUST update the 'mappings' keys below to match.
+
+topology_strategy:
+  target_table: topology_links
+  sources:
+    physical:
+      - table: cdp_neighbors
+        mappings:
+          source_device: device_name
+          source_interface: local_interface
+          dest_device: neighbor_name
+          dest_interface: neighbor_interface
+          protocol: discovery_protocol
+      - table: lldp_neighbors
+        mappings:
+          source_device: device_name
+          source_interface: local_interface
+          dest_device: neighbor_name
+          dest_interface: neighbor_interface
+          protocol: discovery_protocol
+    logical:
+      - table: bgp_neighbors
+        filter: "state = 'Established'"
+        mappings:
+          source_device: device_name
+          dest_device: neighbor_ip
+          protocol: CONSTANT:BGP
+      - table: ospf_neighbors
+        filter: "state = 'FULL'"
+        mappings:
+          source_device: device_name
+          dest_device: neighbor_ip
+          source_interface: interface
+          protocol: CONSTANT:OSPF

@@ -1,0 +1,4 @@
+active,table,top_commands,top_devices,total,total_rows,unique_commands,unique_devices
+6,devices,,,6,,,
+,parsed_outputs,['show version'],,,202,5,
+,commands,,"['R1', 'R2']",,,,6

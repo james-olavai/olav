@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from config.paths import CACHE_DIR
+from olav.core.config import CACHE_DIR
 
 logger = logging.getLogger(__name__)
 

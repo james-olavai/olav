@@ -105,7 +105,7 @@ async def _fast_status(args: str) -> dict:
         status_info = {
             "timestamp": datetime.now().isoformat(),
             "databases": {},
-            "skills_count": 0,
+            "agents_count": 0,
             "tools_count": 0,
         }
         
@@ -117,12 +117,12 @@ async def _fast_status(args: str) -> dict:
                     size_mb = db_file.stat().st_size / (1024 * 1024)
                     status_info["databases"][db] = f"{size_mb:.2f} MB"
         
-        # Skills count
-        skills_path = base_path / "skills"
-        if skills_path.exists():
-            status_info["skills_count"] = len(list(skills_path.glob("*/SKILL.md")))
+        # Agents count (workspace)
+        workspace_path = base_path / "workspace"
+        if workspace_path.exists():
+            status_info["agents_count"] = len(list(workspace_path.glob("*/AGENT.md")))
         
-        # Tools count
+        # Tools count (shared/tools if exists, or scan workspace)
         tools_path = base_path / "tools"
         if tools_path.exists():
             status_info["tools_count"] = len(list(tools_path.glob("*.py")))
@@ -224,30 +224,32 @@ async def _fast_db_info(args: str) -> dict:
                     }
         
         return {"status": "success", "databases": db_info}
-    
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 
 async def _fast_skill_list(args: str) -> dict:
-    """List all available skills."""
+    """List all available agents/skills in workspace.
+
+    Your agents and their skills are defined in: `.olav/workspace/`
+    """
     try:
         base_path = Path(".olav")
-        skills_path = base_path / "skills"
+        workspace_path = base_path / "workspace"
         
-        skills = []
-        if skills_path.exists():
-            for skill_dir in skills_path.iterdir():
-                if skill_dir.is_dir():
-                    skill_md = skill_dir / "SKILL.md"
-                    if skill_md.exists():
-                        skills.append({
-                            "name": skill_dir.name,
-                            "path": str(skill_dir),
-                            "file_size": skill_md.stat().st_size
+        agents = []
+        if workspace_path.exists():
+            for agent_dir in workspace_path.iterdir():
+                if agent_dir.is_dir():
+                    agent_md = agent_dir / "AGENT.md"
+                    if agent_md.exists():
+                        agents.append({
+                            "name": agent_dir.name,
+                            "path": str(agent_dir),
+                            "file_size": agent_md.stat().st_size
                         })
         
-        return {"status": "success", "skills": skills, "count": len(skills)}
+        return {"status": "success", "agents": agents, "count": len(agents)}
     
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -305,14 +307,20 @@ async def _kb_status(args: str) -> dict:
     try:
         import importlib.util
         from pathlib import Path as _Path
-        spec = importlib.util.spec_from_file_location(
-            "_olav_skill_kb_manager",
-            _Path(".olav/skills/olav-config/tools/kb_manager.py")
-        )
+        # Use workspace-centric knowledge management tools
+        path = _Path(".olav/workspace/config/knowledge/tools/get_knowledge_status.py")
+        spec = importlib.util.spec_from_file_location("_olav_skill_kb_status", path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
-        status = mod.get_kb_status()
+        # The new tool follows @tool pattern, so we call .invoke() or just the function
+        # For direct Python call, we use the function itself
+        status_func = getattr(mod, "get_kb_status", None)
+        if not status_func:
+             # Fallback to search standard function names if tool wrapper is used
+             status_func = mod.get_knowledge_status
+             
+        status = status_func()
 
         message = "📚 Knowledge Base Status\n"
         message += f"  Status: {status.get('status', 'unknown')}\n"
@@ -333,25 +341,20 @@ async def _kb_index(args: str) -> dict:
     try:
         import importlib.util
         from pathlib import Path as _Path
-        spec = importlib.util.spec_from_file_location(
-            "_olav_skill_kb_manager",
-            _Path(".olav/skills/olav-config/tools/kb_manager.py")
-        )
+        path = _Path(".olav/workspace/config/knowledge/tools/index_knowledge_files.py")
+        spec = importlib.util.spec_from_file_location("_olav_skill_kb_index", path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
         rebuild = "rebuild" in args.lower() or "force" in args.lower()
         message = "🔍 Indexing knowledge base...\n"
 
-        result = mod.index_knowledge_base(rebuild=rebuild, incremental=not rebuild)
-
-        message += f"✅ Indexed {result.get('chunks_created', 0)} chunks\n"
-        message += f"   Files indexed: {result.get('files_indexed', 0)}\n"
-        message += f"   Files skipped: {result.get('files_skipped', 0)} (unchanged)\n"
-        if result.get('elapsed_time'):
-            message += f"   Time: {result['elapsed_time']:.1f}s\n"
-
-        return {"status": "success", "message": message, "result": result}
+        # The new tool uses index_knowledge_files
+        index_func = mod.index_knowledge_files
+        
+        # Invoke with parameters
+        result_str = index_func(force_reindex=rebuild, incremental=not rebuild)
+        return {"status": "success", "message": result_str}
     except ValueError as e:
         if "LLM_API_KEY" in str(e) or "api_key" in str(e).lower():
             return {
@@ -379,8 +382,12 @@ async def _kb_search(args: str) -> dict:
         
         try:
             from langchain_community.vectorstores import DuckDB
-            from config.paths import MAIN_DB_PATH
+            from olav.core.config import MAIN_DB_PATH
             from olav.core.llm import LLMFactory
+            from pathlib import Path
+            import duckdb
+            
+            # Check if database exists
             from pathlib import Path
             import duckdb
             
@@ -440,20 +447,16 @@ async def _kb_reload(args: str) -> dict:
     try:
         import importlib.util
         from pathlib import Path as _Path
-        spec = importlib.util.spec_from_file_location(
-            "_olav_skill_kb_manager",
-            _Path(".olav/skills/olav-config/tools/kb_manager.py")
-        )
+        path = _Path(".olav/workspace/config/knowledge/tools/index_knowledge_files.py")
+        spec = importlib.util.spec_from_file_location("_olav_skill_kb_reload", path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
         message = "🔄 Reloading knowledge base...\n"
-        result = mod.index_knowledge_base(rebuild=True, incremental=False)
+        index_func = mod.index_knowledge_files
+        result_str = index_func(force_reindex=True, incremental=False)
 
-        message += f"✅ Reloaded {result.get('chunks_created', 0)} chunks\n"
-        message += f"   Files: {result.get('files_indexed', 0)}\n"
-
-        return {"status": "success", "message": message, "result": result}
+        return {"status": "success", "message": result_str}
     except ValueError as e:
         if "api_key" in str(e).lower():
             return {"status": "error", "message": "❌ LLM API key not configured"}

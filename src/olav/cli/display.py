@@ -64,7 +64,7 @@ def load_banner_from_config(settings_path: str | Path | None = None) -> str:
     import json
 
     if settings_path is None:
-        from config.settings import settings as cfg
+        from olav.core.config import settings as cfg
 
         settings_path_obj = Path(cfg.agent_dir) / "settings.json"
     elif isinstance(settings_path, str):

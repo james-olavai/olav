@@ -1,0 +1,10 @@
+[
+  {
+    "device": "R1",
+    "config": "[full R1 show run output here - truncated for brevity]"
+  },
+  {
+    "device": "R2",
+    "config": "[full R2 show run output here]"
+  }
+]

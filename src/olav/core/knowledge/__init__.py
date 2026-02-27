@@ -6,7 +6,7 @@ This layer provides generic, reusable interfaces and algorithms for:
 - Vector storage operations
 
 It does NOT contain any business logic for specific knowledge domains.
-Business implementations go in .olav/skills/shared/tools/kb_ops.py
+Business implementations go in .olav/workspace/shared/tools/ (or agent-specific tools)
 """
 
 from .text_processor import TextProcessor

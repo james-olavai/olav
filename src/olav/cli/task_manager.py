@@ -21,8 +21,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
-from config.settings import settings
-from src.olav.lib.cron_manager import TaskManager
+from olav.core.config import settings
+from olav.lib.cron_manager import TaskManager
 
 logger = logging.getLogger(__name__)
 console = Console()

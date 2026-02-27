@@ -60,6 +60,7 @@ dependencies = [
     # Knowledge Base & Document Processing
     "PyPDF2>=3.0.0",
     "duckduckgo-search>=3.0.0",
+    "lancedb>=0.29.2",
 ]
 
 [project.scripts]
