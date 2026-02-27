@@ -1,0 +1,7 @@
+Interface                      Status         Protocol Description
+Et0/0                          up             up       to_R2_Gi2
+Et0/1                          up             up       to_SW2_e0/0
+Et0/2                          up             up       
+Et0/3                          up             up       to_Mgmt_e1
+Lo0                            up             up       
+Vl20                           up             up       

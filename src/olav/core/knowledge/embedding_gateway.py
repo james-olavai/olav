@@ -6,7 +6,7 @@ Provides generic embedding interface using OLAV unified LLM system.
 import logging
 from typing import Any
 
-from src.olav.core.llm import LLMFactory
+from olav.core.llm import LLMFactory
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ class EmbeddingGateway:
         Returns:
             Dict with embedding_mode, embedding_model, embedding_dim
         """
-        from config.settings import settings
+        from olav.core.config import settings
         
         embedding_mode = settings.embedding_mode
         embedding_model = (

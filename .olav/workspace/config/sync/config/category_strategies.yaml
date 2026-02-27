@@ -1,0 +1,13 @@
+# 📋 Command Categorization Strategy
+# Defines keywords to automatically group discovered CLI commands into logical categories.
+
+categories:
+  routing: ["ospf", "bgp", "eigrp", "rip", "route", "routing", "isis", "static-route"]
+  interfaces: ["interface", "port", "counters", "transceiver", "bundle"]
+  topology: ["cdp", "lldp", "neighbor", "lldp-neighbor"]
+  system: ["version", "inventory", "license", "platform", "hostname", "clock"]
+  configs: ["running", "startup", "config", "current-configuration"]
+  switching: ["vlan", "spanning", "stp", "mac", "bridge", "trunk"]
+  performance: ["process", "cpu", "memory", "load", "utilization"]
+  security: ["acl", "access-list", "firewall", "policy", "ssh", "user"]
+  general: []

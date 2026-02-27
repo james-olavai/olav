@@ -19,7 +19,7 @@ from typing import Any
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 
-from config.settings import settings
+from olav.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -177,11 +177,24 @@ class LLMFactory:
             logger.debug(f"Creating Mistral chat model: {model_name}")
             return ChatMistral(**config)  # type: ignore[return-value]
 
+        elif provider == "custom":
+            # Custom OpenAI-compatible API (e.g., OpenRouter with custom model)
+            config["api_key"] = settings.llm_api_key
+            if settings.llm_base_url:
+                config["base_url"] = settings.llm_base_url
+                if "openrouter" in settings.llm_base_url.lower():
+                    config["default_headers"] = {
+                        "HTTP-Referer": "https://olav-network.local",
+                        "X-Title": "OLAV Network Intelligence System",
+                    }
+            logger.debug(f"Creating custom chat model: {model_name} via {settings.llm_base_url}")
+            return ChatOpenAI(**config)
+
         else:
             logger.error(f"Unsupported LLM provider: {provider}")
             raise ValueError(
                 f"Unsupported LLM provider: {provider}. "
-                f"Supported: openai, ollama, azure, xai, anthropic, groq, mistral"
+                f"Supported: openai, ollama, azure, xai, anthropic, groq, mistral, custom"
             )
 
     @staticmethod

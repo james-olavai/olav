@@ -17,8 +17,9 @@ from pathlib import Path
 
 import nest_asyncio
 
-from config.paths import USER_HISTORY_PATH, USER_SESSION_DIR
-from config.settings import settings
+from olav.core.config import settings, USER_HISTORY_PATH, USER_SESSION_DIR
+
+logger = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +61,11 @@ class OlavPromptSession:
 
     def _load_whitelist(self) -> dict[str, str]:
         """Load command whitelist for auto-completion."""
-        from config.paths import GUARD_WHITELIST_PATH
+        from olav.core.config import GUARD_WHITELIST_PATH
         
         whitelist_file = GUARD_WHITELIST_PATH
+
+        if not whitelist_file.exists():
 
         if not whitelist_file.exists():
             return {}
@@ -698,7 +701,7 @@ class Session:
                 print(f"Total: {tokens['total_tokens']} tokens")
                 print(f"Average: {tokens['avg_tokens_per_message']} per message")
         """
-        from config.settings import settings
+        from olav.core.config import settings
 
         # Use settings if model not specified
         if model is None:
@@ -763,7 +766,7 @@ class Session:
         
         Note: Uses settings.llm_max_tokens as context window (no hardcoded limits).
         """
-        from config.settings import settings
+        from olav.core.config import settings
         
         # Use configured model if not specified
         if not model:
@@ -805,7 +808,7 @@ class Session:
                 print(f"Warning: {warning['usage_percent']:.1f}% of tokens used")
                 print(f"Available for response: {warning['available_tokens']} tokens")
         """
-        from config.settings import settings
+        from olav.core.config import settings
 
         # Use settings if model not specified
         if model is None:
@@ -1126,14 +1129,14 @@ class Session:
         Returns:
             Cached result or None if not found
         """
-        from src.olav.core.database_enhancer import get_database_enhancer
+        from olav.core.database_enhancer import get_database_enhancer
 
         enhancer = get_database_enhancer()
         return enhancer.get_cache(query)
 
     def clear_cache(self) -> None:
         """Clear all cached database queries."""
-        from src.olav.core.database_enhancer import get_database_enhancer
+        from olav.core.database_enhancer import get_database_enhancer
 
         enhancer = get_database_enhancer()
         enhancer.clear_cache()
@@ -1159,7 +1162,7 @@ class Session:
             # With timeout
             result = session.execute_query("SELECT * FROM large_table", timeout=settings.runtime.session_timeout)
         """
-        from src.olav.core.database_enhancer import get_database_enhancer
+        from olav.core.database_enhancer import get_database_enhancer
 
         enhancer = get_database_enhancer()
 
@@ -1188,7 +1191,7 @@ class Session:
             count = session.batch_insert("users", rows)
             print(f"Inserted {count} rows")
         """
-        from src.olav.core.database_enhancer import get_database_enhancer
+        from olav.core.database_enhancer import get_database_enhancer
 
         enhancer = get_database_enhancer()
         return enhancer.execute_batch_insert(table, rows)

@@ -2,7 +2,7 @@
 """OLAV v0.9.9 CLI - Full deepagents-cli integration.
 
 This is a thin wrapper around deepagents-cli for network operations.
-All domain functionality is exposed through tools/skills, not CLI commands.
+All domain functionality is exposed through workspace agents and tools, not CLI commands.
 
 Usage:
     olav                                    # Interactive mode
@@ -205,9 +205,9 @@ The filesystem backend is currently operating in: `{cwd}`
 
     return (
         working_dir_section
-        + f"""### Skills Directory
+        + f"""### Agents & Skills Directory
 
-Your skills are stored at: `{agent_dir}/skills/`
+Your agents and their skills are defined in: `{agent_dir}/workspace/`
 
 ### Network Operations Domain
 

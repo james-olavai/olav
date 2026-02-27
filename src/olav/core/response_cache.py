@@ -94,9 +94,10 @@ class ResponseCache:
             db_path: Path to DuckDB file. Defaults to project main.duckdb.
         """
         if db_path is None:
-            from config.paths import NETWORK_DB_PATH
+            from olav.core.config import NETWORK_DB_PATH
 
             db_path = NETWORK_DB_PATH
+
         self._db_path = Path(db_path)
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_table()
