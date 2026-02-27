@@ -1,7 +1,7 @@
-# OLAV - Project Knowledge Base (v0.10.0+)
+# OLAV - Project Knowledge Base (v0.10.0)
 
 **Updated:** 2026-02-28
-**Strategy:** Federated Specialists | Skill-Centric | Three-DB Isolation
+**Version:** v0.10.0
 
 ## 1. CORE ARCHITECTURE
 

@@ -31,6 +31,14 @@ KB implementation is fragmented across three layers, making it impossible to mai
 - [ ] **Checkpointer Inconsistency**: `MemorySaver` is current default. Need persistent `DuckDBSaver` or `LanceDBSaver`.
 - [ ] **Unified Database Missing**: Roadmap references `unified_database.py` but code only contains `database.py`.
 
+## 🔵 Versioning & Branching Policy (v0.10.0+)
+
+- **Primary Development Branch**: All core development now happens on the `0.10.0` branch.
+- **Git-Centric Management**: Version control is handled exclusively via Gitea.
+- **Archive Deprecation**: Abandon the practice of creating `.tar.gz` archives in the project root. All historical state is managed via Git tags and branches.
+- **Version SSOT**: The version number in `src/olav/__init__.py` must match the branch major/minor version.
+- [ ] **Unified Database Missing**: Roadmap references `unified_database.py` but code only contains `database.py`.
+
 ## 🟡 Critical `src` Technical Debt (New Internal Audit)
 
 Following a deep dive into `src/olav`, the following architectural issues require immediate attention:
