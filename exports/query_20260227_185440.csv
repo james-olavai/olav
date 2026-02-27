@@ -1,0 +1,137 @@
+command_name,platform,category,template_path,has_template,allowed,blacklisted,pipe_allowed,updated_at
+show running-config,cisco_ios,configs,/home/yhvh/Olav/.olav/templates/cisco_ios_show_running-config.textfsm,True,True,False,False,2026-02-27T17:04:25.181849
+show running config,cisco_ios,configs,/home/yhvh/Olav/.olav/templates/cisco_ios_show_running_config.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show running-config partition access-list,cisco_ios,configs,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_running-config_partition_access-list.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+dir,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_dir.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip dhcp binding,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_dhcp_binding.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show vrf,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_vrf.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show access-session,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_access-session.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show adjacency,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_adjacency.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show logging,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_logging.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show aliases,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_aliases.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show vrf detail,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_vrf_detail.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ap summary,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ap_summary.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show archive,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_archive.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show arp,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_arp.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show authentication sessions,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_authentication_sessions.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show authentication sessions method details,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_authentication_sessions_method_details.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show vrrp all,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_vrrp_all.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show boot,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_boot.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show vrrp brief,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_vrrp_brief.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show vtp status,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_vtp_status.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+ping,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_ping.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show controller t1,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_controller_t1.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show crypto ipsec sa detail,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_crypto_ipsec_sa_detail.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show crypto pki certificates,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_crypto_pki_certificates.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show crypto session detail,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_crypto_session_detail.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show cts credentials,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_cts_credentials.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show cts pacs,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_cts_pacs.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show dhcp lease,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_dhcp_lease.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show dmvpn,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_dmvpn.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show dot1x all,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_dot1x_all.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show environment power all,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_environment_power_all.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show environment temperature,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_environment_temperature.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show etherchannel summary,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_etherchannel_summary.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show file systems,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_file_systems.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show hosts summary,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_hosts_summary.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show module online diag,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_module_online_diag.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip prefix-list,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_prefix-list.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show module status,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_module_status.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show module submodule,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_module_submodule.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip source binding,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_source_binding.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show snmp community,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_snmp_community.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show snmp group,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_snmp_group.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show stack-power,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_stack-power.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip arp,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_arp.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show standby,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_standby.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show nve peers,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_nve_peers.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show nve vni,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_nve_vni.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show object-group,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_object-group.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show standby brief,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_standby_brief.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip cef,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_cef.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip cef detail,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_cef_detail.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip device tracking all,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_device_tracking_all.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show rep topology,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_rep_topology.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip dhcp snooping binding,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_dhcp_snooping_binding.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show switch detail,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_switch_detail.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show isdn status,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_isdn_status.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show power available,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_power_available.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show power inline,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_power_inline.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip flow toptalkers,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_flow_toptalkers.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip http server status,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_http_server_status.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show power status,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_power_status.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show switch virtual,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_switch_virtual.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show power supplies,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_power_supplies.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip nat translations,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_nat_translations.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show power used,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_power_used.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show tacacs,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_tacacs.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show redundancy,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_redundancy.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show module,cisco_ios,general,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_module.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show alert counters,cisco_ios,interfaces,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_alert_counters.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show interface link,cisco_ios,interfaces,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_interface_link.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show interface transceiver,cisco_ios,interfaces,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_interface_transceiver.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show interfaces,cisco_ios,interfaces,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_interfaces.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show interfaces status,cisco_ios,interfaces,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_interfaces_status.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show mpls interfaces,cisco_ios,interfaces,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_mpls_interfaces.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show interfaces switchport,cisco_ios,interfaces,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_interfaces_switchport.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip vrf interfaces,cisco_ios,interfaces,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_vrf_interfaces.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show mpls l2transport vc,cisco_ios,interfaces,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_mpls_l2transport_vc.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ipv6 interface brief,cisco_ios,interfaces,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ipv6_interface_brief.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show switch detail stack ports,cisco_ios,interfaces,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_switch_detail_stack_ports.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show port-security interface interface,cisco_ios,interfaces,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_port-security_interface_interface.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip interface,cisco_ios,interfaces,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_interface.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip interface brief,cisco_ios,interfaces,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_interface_brief.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show processes cpu,cisco_ios,performance,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_processes_cpu.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show processes memory sorted,cisco_ios,performance,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_processes_memory_sorted.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show route-map,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_route-map.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip mroute,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_mroute.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show capability feature routing,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_capability_feature_routing.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show running-config partition route-map,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_running-config_partition_route-map.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip ospf neighbor detail,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_ospf_neighbor_detail.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip route,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_route.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show interfaces description,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_interfaces_description.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip ospf neighbor,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_ospf_neighbor.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip bgp,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_bgp.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip bgp neighbors,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_bgp_neighbors.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip bgp neighbors advertised-routes,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_bgp_neighbors_advertised-routes.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip bgp summary,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_bgp_summary.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip bgp vpnv4 all neighbors,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_bgp_vpnv4_all_neighbors.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip eigrp interfaces detail,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_eigrp_interfaces_detail.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip eigrp neighbors,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_eigrp_neighbors.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ipv6 route,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ipv6_route.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip eigrp neighbors detail,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_eigrp_neighbors_detail.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip eigrp topology,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_eigrp_topology.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show isis neighbors,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_isis_neighbors.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip ospf interface brief,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_ospf_interface_brief.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip ospf database,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_ospf_database.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip ospf database network,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_ospf_database_network.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip ospf database router,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_ospf_database_router.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+traceroute,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_traceroute.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip route summary,cisco_ios,routing,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_route_summary.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show access-list,cisco_ios,security,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_access-list.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ipv6 access-lists,cisco_ios,security,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ipv6_access-lists.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ip access-lists,cisco_ios,security,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ip_access-lists.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show snmp user,cisco_ios,security,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_snmp_user.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show wireless tag policy summary,cisco_ios,security,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_wireless_tag_policy_summary.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show policy-map,cisco_ios,security,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_policy-map.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show users,cisco_ios,security,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_users.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show mac-address-table,cisco_ios,switching,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_mac-address-table.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show spanning-tree,cisco_ios,switching,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_spanning-tree.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show spanning-tree root,cisco_ios,switching,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_spanning-tree_root.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show vlan,cisco_ios,switching,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_vlan.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show vlan group,cisco_ios,switching,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_vlan_group.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show vlans,cisco_ios,switching,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_vlans.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show clock,cisco_ios,system,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_clock.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show inventory,cisco_ios,system,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_inventory.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show platform,cisco_ios,system,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_platform.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show platform diag,cisco_ios,system,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_platform_diag.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show license,cisco_ios,system,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_license.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show license status,cisco_ios,system,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_license_status.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show version,cisco_ios,system,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_version.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show lldp neighbors detail,cisco_ios,topology,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_lldp_neighbors_detail.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ap cdp neighbors,cisco_ios,topology,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ap_cdp_neighbors.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show bfd neighbors details,cisco_ios,topology,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_bfd_neighbors_details.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show cdp neighbors,cisco_ios,topology,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_cdp_neighbors.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show cdp neighbors detail,cisco_ios,topology,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_cdp_neighbors_detail.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show ipv6 neighbors,cisco_ios,topology,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_ipv6_neighbors.textfsm,True,True,False,False,2026-02-27T18:49:53.344052
+show lldp neighbors,cisco_ios,topology,/home/yhvh/Olav/.venv/lib/python3.12/site-packages/ntc_templates/templates/cisco_ios_show_lldp_neighbors.textfsm,True,True,False,False,2026-02-27T18:49:53.344052

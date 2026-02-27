@@ -1,0 +1,7 @@
+Interface              IP-Address      OK? Method Status                Protocol
+Ethernet0/0            10.1.13.3       YES NVRAM  up                    up      
+Ethernet0/1            unassigned      YES unset  up                    up      
+Ethernet0/2            unassigned      YES unset  up                    up      
+Ethernet0/3            192.168.100.103 YES NVRAM  up                    up      
+Loopback0              3.3.3.3         YES NVRAM  up                    up      
+Vlan10                 192.168.10.254  YES NVRAM  up                    up      

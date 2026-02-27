@@ -1,0 +1,4 @@
+$a83fd86d-8c10-42e5-ac88-316fd8be873a²Óid ÿÿÿÿÿÿÿÿÿ*string08text ÿÿÿÿÿÿÿÿÿ*string084vector ÿÿÿÿÿÿÿÿÿ*fixed_size_list:float:38408#category ÿÿÿÿÿÿÿÿÿ*string08 scope ÿÿÿÿÿÿÿÿÿ*string08#metadata ÿÿÿÿÿÿÿÿÿ*string08,	timestamp ÿÿÿÿÿÿÿÿÿ*timestamp:us:-08-
+created_at ÿÿÿÿÿÿÿÿÿ*timestamp:us:-08&access_count ÿÿÿÿÿÿÿÿÿ*int3208 weight	 ÿÿÿÿÿÿÿÿÿ*float08"!
+lance.auto_cleanup.interval20"'
+lance.auto_cleanup.older_than14days

@@ -1,0 +1,344 @@
+"""init_db — Initialize or migrate OLAV DuckDB schema.
+
+olav-config is the infrastructure layer.  Any table creation or schema
+migration lives here, not in src/olav/core/database.py.
+
+Call init_db() on first setup or after a schema change.
+It is idempotent — safe to call multiple times.
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+from langchain_core.tools import tool
+
+logger = logging.getLogger(__name__)
+
+
+def _find_project_root() -> Path:
+    p = Path(__file__).resolve().parent
+    while p != p.parent:
+        if (p / "pyproject.toml").exists():
+            return p
+        p = p.parent
+    return Path.cwd()
+
+
+PROJECT_ROOT = _find_project_root()
+
+
+
+@tool
+def sync_schemas(force_recreate: bool = False) -> dict:
+    """Create or migrate all OLAV DuckDB table schemas.
+
+    Ensures the following tables exist in .olav/databases/main.duckdb:
+      - devices           : device inventory (populated by sync_inventory)
+      - commands          : command registry — which commands to collect per platform
+      - schema_catalog    : JSON field index for parsed_outputs (used by olav-ops LLM)
+      - parsed_outputs    : TextFSM-parsed output blobs (written by take_snapshot)
+      - topology_links    : CDP/LLDP neighbour relationships
+      - sync_metadata     : snapshot run metadata (timing, device count, errors)
+
+    NOTE: audit_results table is intentionally NOT created here.
+    olav-audit is a read-only governance layer; findings are written to KB instead.
+
+    Idempotent — uses CREATE TABLE IF NOT EXISTS.
+    Call this on first setup or after adding a new table definition.
+
+    Args:
+        force_recreate: DROP and recreate all tables. DESTRUCTIVE.
+                        Use only in dev/test to reset state.
+
+    Returns:
+        {"status": "success", "tables": [...], "action": "created" | "verified"}
+    """
+    from olav.core.database import get_database
+
+    db = get_database()
+
+    if force_recreate:
+        logger.warning("force_recreate=True — dropping all OLAV tables")
+        for tbl in ("sync_metadata", "schema_catalog", "commands",
+                    "parsed_outputs", "topology_links", "devices",
+                    "routes", "bgp_neighbors", "ospf_neighbors"):
+            try:
+                db.conn.execute(f"DROP TABLE IF EXISTS {tbl}")
+            except Exception as e:
+                logger.debug(f"Drop {tbl}: {e}")
+
+    # ── devices ──────────────────────────────────────────────────────────────
+    db.conn.execute("""
+        CREATE TABLE IF NOT EXISTS devices (
+            device_id    VARCHAR PRIMARY KEY,
+            name         VARCHAR,
+            hostname     VARCHAR,
+            platform     VARCHAR,
+            mgmt_ip      VARCHAR,
+            device_type  VARCHAR,
+            device_role  VARCHAR,
+            site         VARCHAR,
+            location     VARCHAR,
+            vendor       VARCHAR,
+            model        VARCHAR,
+            site_id      VARCHAR,
+            created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_active    BOOLEAN DEFAULT TRUE
+        )
+    """)
+
+    # ── commands ─────────────────────────────────────────────────────────────
+    # Command registry — which CLI commands to collect per platform.
+    # Written by sync_commands(); read by take_snapshot() and olav-ops.
+    db.conn.execute("""
+        CREATE TABLE IF NOT EXISTS commands (
+            command_name   VARCHAR NOT NULL,
+            platform       VARCHAR NOT NULL,
+            category       VARCHAR,
+            template_path  VARCHAR,
+            has_template   BOOLEAN DEFAULT FALSE,
+            allowed        BOOLEAN DEFAULT TRUE,
+            blacklisted    BOOLEAN DEFAULT FALSE,
+            pipe_allowed   BOOLEAN DEFAULT FALSE,
+            updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (command_name, platform)
+        )
+    """)
+    for idx, col in [("idx_cmd_platform", "platform"),
+                     ("idx_cmd_category", "category"),
+                     ("idx_cmd_allowed", "allowed")]:
+        db.conn.execute(
+            f"CREATE INDEX IF NOT EXISTS {idx} ON commands({col})"
+        )
+
+    # ── schema_catalog ────────────────────────────────────────────────────────
+    # JSON field structure index for parsed_outputs.
+    # Written by sync_commands(); read by olav-ops SchemaContext at startup.
+    # Enables LLM to generate: SELECT parsed_data->>'field' FROM parsed_outputs
+    db.conn.execute("""
+        CREATE TABLE IF NOT EXISTS schema_catalog (
+            source_type    VARCHAR NOT NULL,
+            source_name    VARCHAR NOT NULL,
+            platform       VARCHAR NOT NULL,
+            fields         JSON    NOT NULL,
+            description    VARCHAR,
+            updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (source_name, platform, source_type)
+        )
+    """)
+    for idx, col in [("idx_sc_platform", "platform"),
+                     ("idx_sc_source_type", "source_type")]:
+        db.conn.execute(
+            f"CREATE INDEX IF NOT EXISTS {idx} ON schema_catalog({col})"
+        )
+
+    # ── parsed_outputs ────────────────────────────────────────────────────────
+    db.conn.execute("""
+        CREATE SEQUENCE IF NOT EXISTS parsed_outputs_id_seq START 1
+    """)
+    db.conn.execute("""
+        CREATE TABLE IF NOT EXISTS parsed_outputs (
+            id            INTEGER PRIMARY KEY DEFAULT nextval('parsed_outputs_id_seq'),
+            device_name   VARCHAR NOT NULL,
+            command       VARCHAR NOT NULL,
+            parsed_data   JSON    NOT NULL,
+            snapshot_id   VARCHAR NOT NULL,
+            created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(device_name, command, snapshot_id)
+        )
+    """)
+    for idx, col in [("idx_po_device", "device_name"),
+                     ("idx_po_command", "command"),
+                     ("idx_po_snapshot", "snapshot_id")]:
+        db.conn.execute(
+            f"CREATE INDEX IF NOT EXISTS {idx} ON parsed_outputs({col})"
+        )
+
+    # ── topology_links ────────────────────────────────────────────────────────
+    db.conn.execute("""
+        CREATE TABLE IF NOT EXISTS topology_links (
+            link_id              VARCHAR PRIMARY KEY,
+            source_device        VARCHAR NOT NULL,
+            source_interface     VARCHAR NOT NULL,
+            destination_device   VARCHAR NOT NULL,
+            destination_interface VARCHAR NOT NULL,
+            discovery_protocol   VARCHAR,
+            link_type            VARCHAR,
+            link_status          VARCHAR DEFAULT 'up',
+            link_speed           VARCHAR,
+            first_seen           TIMESTAMP NOT NULL,
+            last_seen            TIMESTAMP NOT NULL,
+            last_verified        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            status_changes       INTEGER DEFAULT 0,
+            snapshot_id          VARCHAR NOT NULL,
+            platform             VARCHAR,
+            UNIQUE(source_device, source_interface,
+                   destination_device, destination_interface, snapshot_id)
+        )
+    """)
+    for idx, col in [("idx_tl_src", "source_device"),
+                     ("idx_tl_dst", "destination_device"),
+                     ("idx_tl_snapshot", "snapshot_id")]:
+        db.conn.execute(
+            f"CREATE INDEX IF NOT EXISTS {idx} ON topology_links({col})"
+        )
+
+
+    # ── routes ───────────────────────────────────────────────────────────────
+    db.conn.execute("""
+        CREATE TABLE IF NOT EXISTS routes (
+            device_name  VARCHAR NOT NULL,
+            network      VARCHAR NOT NULL,
+            mask         VARCHAR,
+            next_hop     VARCHAR,
+            interface    VARCHAR,
+            protocol     VARCHAR,
+            metric       INTEGER,
+            snapshot_id  VARCHAR NOT NULL,
+            created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (device_name, network, mask, snapshot_id)
+        )
+    """)
+
+    # ── bgp_neighbors ────────────────────────────────────────────────────────
+    db.conn.execute("""
+        CREATE TABLE IF NOT EXISTS bgp_neighbors (
+            device_name       VARCHAR NOT NULL,
+            neighbor_ip       VARCHAR NOT NULL,
+            neighbor_as       VARCHAR,
+            state             VARCHAR,
+            prefixes_received INTEGER,
+            snapshot_id       VARCHAR NOT NULL,
+            created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (device_name, neighbor_ip, snapshot_id)
+        )
+    """)
+
+    # ── ospf_neighbors ───────────────────────────────────────────────────────
+    db.conn.execute("""
+        CREATE TABLE IF NOT EXISTS ospf_neighbors (
+            device_name    VARCHAR NOT NULL,
+            neighbor_id    VARCHAR NOT NULL,
+            neighbor_ip    VARCHAR,
+            interface      VARCHAR,
+            state          VARCHAR,
+            priority       INTEGER,
+            snapshot_id    VARCHAR NOT NULL,
+            created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (device_name, neighbor_id, snapshot_id)
+        )
+    """)
+
+    # ── interfaces (IPAM) ───────────────────────────────────────────────────
+    db.conn.execute("""
+        CREATE TABLE IF NOT EXISTS interfaces (
+            device_name  VARCHAR NOT NULL,
+            interface    VARCHAR NOT NULL,
+            ip_address   VARCHAR,
+            status       VARCHAR,
+            description  VARCHAR,
+            snapshot_id  VARCHAR NOT NULL,
+            created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (device_name, interface, snapshot_id)
+        )
+    """)
+    db.conn.execute("CREATE INDEX IF NOT EXISTS idx_intf_ip ON interfaces(ip_address)")
+
+    # ── bgp_routes (RIB) ────────────────────────────────────────────────────
+    db.conn.execute("""
+        CREATE TABLE IF NOT EXISTS bgp_routes (
+            device_name   VARCHAR NOT NULL,
+            network       VARCHAR NOT NULL,
+            mask          VARCHAR,
+            next_hop      VARCHAR,
+            as_path       VARCHAR,
+            local_pref    INTEGER,
+            metric        INTEGER,
+            weight        INTEGER,
+            communities   VARCHAR,
+            path_type     VARCHAR,
+            best_path     BOOLEAN,
+            snapshot_id   VARCHAR NOT NULL,
+            created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (device_name, network, mask, next_hop, snapshot_id)
+        )
+    """)
+
+    # ── ENRICHED VIEWS ──────────────────────────────────────────────────────
+
+    # 1. Enriched Interfaces (IP -> Device mapping)
+    db.conn.execute("""
+        CREATE OR REPLACE VIEW v_interfaces_enriched AS
+        SELECT 
+            i.*,
+            d.hostname AS device_hostname,
+            d.device_role,
+            d.site
+        FROM interfaces i
+        LEFT JOIN devices d ON i.device_name = d.name
+    """)
+
+    # 2. Enriched BGP Neighbors (IPs resolved to Device names)
+    db.conn.execute("""
+        CREATE OR REPLACE VIEW v_bgp_neighbors_enriched AS
+        SELECT 
+            b.*,
+            b.device_name AS local_device,
+            i_dst.device_name AS peer_device_name
+        FROM bgp_neighbors b
+        LEFT JOIN interfaces i_dst ON b.neighbor_ip = i_dst.ip_address
+    """)
+
+    # 3. Enriched Routes (Next-hop resolved to Device names)
+    db.conn.execute("""
+        CREATE OR REPLACE VIEW v_routes_enriched AS
+        SELECT 
+            r.*,
+            i.device_name AS next_hop_device
+        FROM routes r
+        LEFT JOIN interfaces i ON r.next_hop = i.ip_address
+    """)
+
+    # ── sync_metadata ─────────────────────────────────────────────────────────
+    # Snapshot run metadata: timing, device counts, errors.
+    # Previously created at runtime in sync_tools.py; now pre-defined here.
+    db.conn.execute("""
+        CREATE SEQUENCE IF NOT EXISTS sync_metadata_id_seq START 1
+    """)
+    db.conn.execute("""
+        CREATE TABLE IF NOT EXISTS sync_metadata (
+            id            INTEGER PRIMARY KEY DEFAULT nextval('sync_metadata_id_seq'),
+            sync_type     VARCHAR NOT NULL,
+            start_time    TIMESTAMP NOT NULL,
+            end_time      TIMESTAMP,
+            status        VARCHAR NOT NULL,
+            device_count  INTEGER DEFAULT 0,
+            success_count INTEGER DEFAULT 0,
+            error_count   INTEGER DEFAULT 0,
+            error_details JSON,
+            created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    db.conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sm_type ON sync_metadata(sync_type)"
+    )
+    db.conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sm_time ON sync_metadata(start_time)"
+    )
+
+    db.conn.commit()
+
+    tables = ["devices", "commands", "schema_catalog",
+              "parsed_outputs", "topology_links", "routes",
+              "bgp_neighbors", "ospf_neighbors", "sync_metadata"]
+    action = "recreated" if force_recreate else "verified"
+    logger.info(f"sync_schemas: {action} tables: {tables}")
+
+    return {
+        "status": "success",
+        "action": action,
+        "tables": tables,
+    }
