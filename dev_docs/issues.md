@@ -16,6 +16,10 @@ The codebase maintains two parallel configuration systems (`config/` root packag
 2. **Redirect**: Update `src/olav/core/__init__.py` to re-export the *new* unified settings and constants.
 3. **Deprecate**: Mark the root `config/` package as legacy and prepare for deletion in v2.1.
 
+### ✅ Verification Method:
+- **Test**: `uv run python -c "from olav.core.config import settings; print(settings.llm_model_name)"` should return the value from `.olav/config/api.json`.
+- **Audit**: `grep -r "from config import" src/olav` should return 0 results.
+
 ---
 
 ## 2. Knowledge Base (KB) Redundancy & Fragmentation
@@ -25,9 +29,11 @@ The codebase maintains two parallel configuration systems (`config/` root packag
 KB implementation is fragmented across three layers, making it impossible to maintain a single source of truth for semantic metadata.
 
 ### Conflict Details:
-- **Logic Split**: Framework code in `src`, but primary indexing logic is still buried in `.olav/skills/config-Infrastructure/tools/kb_manager.py`.
-- **Backend Mismatch**: `kb_manager.py` still uses **DuckDB** for vector storage, while the development goal is **LanceDB**.
 - **Redundant Delegates**: `.olav/workspace/config/knowledge/` creates an extra indirection layer that refers to conflicting implementations.
+
+### ✅ Verification Method:
+- **Test**: `uv run olav admin kb-status` and `uv run olav admin kb-index` must execute successfully without referring to `.olav/skills`.
+- **DB Check**: Inspect `knowledge.lancedb` to ensure new chunks are being added there instead of DuckDB.
 - [ ] **Checkpointer Inconsistency**: `MemorySaver` is current default. Need persistent `DuckDBSaver` or `LanceDBSaver`.
 - [ ] **Unified Database Missing**: Roadmap references `unified_database.py` but code only contains `database.py`.
 
@@ -48,15 +54,27 @@ Following a deep dive into `src/olav`, the following architectural issues requir
 - **Shadow Entry Point**: `src/olav/main.py` is an obsolete wrapper for `olav.cli.main`. Should be removed in favor of `pyproject.toml` entries.
 - **Lazy Load Failures**: `src/olav/__init__.py`'s `__all__` includes tools like `nornir_execute` that are missing from its `__getattr__` implementation.
 
+### ✅ Verification Method:
+- **CLI Check**: `olav --version` (if implemented) or `python -c "import olav; print(olav.__version__)"` must return `0.10.0`.
+- **Import Test**: `python -c "from olav import create_olav_agent; print(create_olav_agent)"` should not raise AttributeError.
+
 ### 2. Database & State Mishandling
 - **Concurrency Risks**: `src/olav/core/database.py` uses a global DuckDB connection without thread/process safety. Critical for the `olav daemon`.
 - **Filename Mismatches**: Conflict between `memory.lance` (config) and `memory.lancedb` (usage).
 - **Paths Confusion**: Slash commands (`builtin.py`) refer to `~/.olav/checkpoints/` while core uses local `.olav/databases/`.
 
+### ✅ Verification Method:
+- **Daemon Stress**: Run `olav daemon start` and send 3-5 simultaneous queries via `/admin query`. Monitor for "Database is locked" errors.
+- **Path Audit**: Verify `ls .olav/databases/checkpoints.duckdb` exists and is used by the checkpointer.
+
 ### 3. Agent & CLI Performance Bottlenecks
 - **Heavy Re-initialization**: Slash commands `/learn` and `/config` in `builtin.py` create a *new* `OLAVAgent` instance instead of using the existing one. This adds 3-5s latency per command.
 - **Cosmetic Commands**: `/clear` returns success but doesn't actually clear the LangGraph checkpoint or LanceDB memory.
 - **Import Collisions**: `tool_discovery.py` manipulates `sys.path` globally for each skill, risking module shadowing.
+
+### ✅ Verification Method:
+- **Latency Test**: Measure time difference between a standard query and a `/learn` command. The overhead should be < 500ms if instance is reused.
+- **Memory Wipe Test**: Run `/clear`, then ask "What was my last query?". Agent should not know.
 
 ## 🟠 Proposed Quick Wins
 

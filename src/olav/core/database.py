@@ -8,7 +8,14 @@ file-based CommandRegistry (see olav.core.registry). Command discovery and
 validation is now handled through TextFSM templates rather than database entries.
 """
 
-from pathlib import Path
+VB|from pathlib import Path
+
+TX|import duckdb
+
+# Thread lock for concurrent database access
+from threading import Lock
+
+_db_lock = Lock()
 
 import duckdb
 
@@ -160,7 +167,23 @@ class OlavDatabase:
 _db_instance: OlavDatabase | None = None
 
 
-def get_database(db_path: str | Path | None = None, read_only: bool = False) -> OlavDatabase:
+KT|def get_database(db_path: str | Path | None = None, read_only: bool = False) -> OlavDatabase:
+XT|    """Get the global database instance with thread-safe access.
+
+    Args:
+        db_path: Optional database path (uses default if not provided)
+        read_only: Whether to open in read-only mode
+
+    Returns:
+        OlavDatabase instance
+    RV|    """
+    global _db_instance
+
+    with _db_lock:
+        if _db_instance is None:
+            _db_instance = OlavDatabase(db_path, read_only=read_only)
+
+    return _db_instance
     """Get the global database instance.
 
     Args:

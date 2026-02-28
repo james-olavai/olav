@@ -14,6 +14,37 @@ from collections.abc import Callable
 # Registry for slash commands
 SLASH_COMMANDS: dict[str, Callable] = {}
 
+# Module-level agent cache to avoid heavy re-initialization
+_cached_agent = None
+_cached_agent_params = {}
+
+
+def _get_or_create_agent(**kwargs):
+    """Get cached agent or create new one with given params.
+    
+    This avoids heavy re-initialization (3-5s) per slash command.
+    """
+    global _cached_agent, _cached_agent_params
+    
+    # Check if we can reuse existing agent
+    if _cached_agent is not None:
+        # Verify params match - if different, recreate
+        if _cached_agent_params == kwargs:
+            return _cached_agent
+    
+    # Create new agent and cache it
+    from olav.agents.agent import create_olav_agent
+    _cached_agent = create_olav_agent(**kwargs)
+    _cached_agent_params = kwargs
+    return _cached_agent
+
+
+def clear_cached_agent():
+    """Clear the cached agent (call on session reset)."""
+    global _cached_agent, _cached_agent_params
+    _cached_agent = None
+    _cached_agent_params = {}
+
 
 def register_command(name: str) -> Callable:
     """Decorator to register a slash command."""
@@ -134,6 +165,8 @@ async def cmd_clear(args: str) -> str:
     Usage:
         /clear
     """
+    # Clear the cached agent to release memory and checkpoints
+    clear_cached_agent()
     return "✓ Conversation memory cleared."
 
 
@@ -253,11 +286,11 @@ Example:
         return "❌ Device is required (--device)"
 
     # Route through OLAVAgent (command_learner skill tools are loaded automatically)
+    # Use cached agent to avoid heavy re-initialization
     try:
-        from olav.agents.agent import create_olav_agent
         import uuid
 
-        agent = create_olav_agent()
+        agent = _get_or_create_agent()
         thread_id = str(uuid.uuid4())
 
         print(f"🎓 Starting Command Learner workflow...")
@@ -316,11 +349,11 @@ Examples:
 For detailed admin operations, use OLAV admin CLI: uv run olav config"""
 
     # Delegate to OLAVAgent (olav-config SubAgent handles writes/scheduling with HITL)
+    # Use cached agent to avoid heavy re-initialization
     try:
-        from olav.agents.agent import create_olav_agent
         import uuid
 
-        agent = create_olav_agent()
+        agent = _get_or_create_agent()
         thread_id = str(uuid.uuid4())
 
         print("⚙️  Config SubAgent processing task (HITL enabled for write operations)...")

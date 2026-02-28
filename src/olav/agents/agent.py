@@ -117,7 +117,26 @@ class OLAVAgent:
         except Exception as e:
             logger.warning(f"LLM cache init failed: {e}. Caching disabled.")
 
-        # Checkpointer — using MemorySaver (DuckDBSaver has async issues in LangGraph 1.0)
+        # Checkpointer — try DuckDBSaver first for persistence, fall back to MemorySaver
+        self.checkpointer = None
+        if enable_checkpointer:
+            try:
+                # Try DuckDBSaver for persistent checkpoints
+                import duckdb
+                checkpoint_db = self.olav_base_path / "databases" / "checkpoints.duckdb"
+                checkpoint_db.parent.mkdir(parents=True, exist_ok=True)
+                duck_conn = duckdb.connect(str(checkpoint_db))
+                from langgraph.checkpoint.duckdb import DuckDBSaver
+                self.checkpointer = DuckDBSaver(conn=duck_conn)
+                logger.info(f"✓ Checkpointer initialized (DuckDBSaver): {checkpoint_db}")
+            except Exception as e:
+                logger.warning(f"DuckDBSaver failed ({e}), falling back to MemorySaver")
+                try:
+                    from langgraph.checkpoint.memory import MemorySaver
+                    self.checkpointer = MemorySaver()
+                    logger.info("✓ Checkpointer initialized (MemorySaver - RAM only)")
+                except Exception as e2:
+                    logger.warning(f"MemorySaver init failed: {e2}. No checkpoint.")
         self.checkpointer = None
         if enable_checkpointer:
             try:

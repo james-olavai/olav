@@ -1,11 +1,12 @@
 """Core module
 
-Re-exports from config package for backward compatibility.
+Re-exports from unified config.
 Also exports core infrastructure components.
 """
 
-# Re-export settings from config package
-from config.settings import ExecutionSettings, Settings, get_settings
+# Re-export settings from unified config
+from olav.core.config import Settings, get_settings, settings
+from olav.core.config import settings, Settings, get_settings
 
 
 # Script Engine (Task 12.1-12.3)
@@ -24,11 +25,12 @@ try:
 except ImportError:
     _script_engine_available = False
 
+
 __all__ = [
     # Settings
     "Settings",
     "get_settings",
-    "ExecutionSettings",
+    "settings",
 ]
 
 # Script Engine exports
