@@ -8,14 +8,11 @@ __version__ = "0.10.0"
 
 def __getattr__(name: str) -> object:  # noqa: ANN401
     """Lazy import for core utilities."""
-    if name in (
-        "create_olav_agent",
-        "initialize_olav",
-    ):
+    if name in ("create_olav_agent",):
         from olav.agents.agent import (  # noqa: F401
             create_olav_agent,
-            initialize_olav,
         )
+
         return locals()[name]
 
     if name in ("OlavDatabase", "get_database"):
@@ -23,6 +20,7 @@ def __getattr__(name: str) -> object:  # noqa: ANN401
             OlavDatabase,
             get_database,
         )
+
         return locals()[name]
 
     raise AttributeError(f"module 'olav' has no attribute {name!r}")
@@ -33,13 +31,8 @@ __all__ = [
     "__version__",
     # Agent
     "create_olav_agent",  # pyright: ignore [reportUnsupportedDunderAll]
-    "initialize_olav",  # pyright: ignore [reportUnsupportedDunderAll]
     # Database
     "OlavDatabase",  # pyright: ignore [reportUnsupportedDunderAll]
     "get_database",  # pyright: ignore [reportUnsupportedDunderAll]
-    # Tools
-    "nornir_execute",  # pyright: ignore [reportUnsupportedDunderAll]
-    "list_devices",  # pyright: ignore [reportUnsupportedDunderAll]
-    "search_device_commands",  # pyright: ignore [reportUnsupportedDunderAll]
 ]
 # All items above are provided via __getattr__ lazy loading

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OLAV v0.9.9 CLI - Full deepagents-cli integration.
+"""OLAV v0.10.0 CLI - Full deepagents-cli integration.
 
 This is a thin wrapper around deepagents-cli for network operations.
 All domain functionality is exposed through workspace agents and tools, not CLI commands.
@@ -25,7 +25,7 @@ from rich.console import Console
 console = Console()
 logger = logging.getLogger(__name__)
 
-VERSION = "0.9.9"
+VERSION = "0.10.0"
 OLAV_ASCII = """
   ██████╗  ██████╗  ██╗  ██╗  █████╗ 
  ██╔════╝ ██╔═══██╗ ██║  ██║ ██╔══██╗
@@ -53,6 +53,14 @@ def parse_args():
 
     # Help command
     subparsers.add_parser("help", help="Show help information")
+
+    # Admin command
+    admin_parser = subparsers.add_parser("admin", help="Admin commands (status, backup, etc.)")
+    admin_parser.add_argument("args", nargs="*", help="Admin command arguments")
+
+    # Config command
+    config_parser = subparsers.add_parser("config", help="Configuration commands")
+    config_parser.add_argument("args", nargs="*", help="Config command arguments")
 
     # Default interactive mode flags
     parser.add_argument(
@@ -389,6 +397,28 @@ def cli_main() -> None:
             console.print("  --auto-approve      Skip tool approval prompts")
             console.print("  --no-splash         Disable startup banner")
             console.print("  --verbose           Enable debug logging")
+            console.print()
+            return
+
+        # Handle admin command
+        if args.command == "admin":
+            import asyncio
+            from olav.cli.admin import admin_handler
+            cmd_args = args.args[0] if args.args else "status"
+            result = asyncio.run(admin_handler(f"/admin {cmd_args}"))
+            if result.get("status") == "error":
+                console.print(f"[red]Error:[/red] {result.get('message')}")
+            else:
+                console.print(result.get("message", result))
+            return
+
+        # Handle config command
+        if args.command == "config":
+            from olav.core.config import settings
+            console.print("\n[bold]OLAV Configuration:[/bold]\n")
+            console.print(f"  LLM Provider: {settings.llm_provider}")
+            console.print(f"  LLM Model: {settings.llm_model_name}")
+            console.print(f"  Temperature: {settings.llm_temperature}")
             console.print()
             return
 

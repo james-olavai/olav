@@ -7,7 +7,7 @@ packages = ["src/olav", "config"]
 
 [project]
 name = "olav"
-version = "0.9.9"
+version = "0.10.0"
 description = "OLAV - Network Operations AI Assistant with DeepAgents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -103,7 +103,6 @@ ignore = ["E402", "E501"]  # E402: dotenv loading, E501: line length in docstrin
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "ANN", "S608"]  # S608: SQL injection false positive in tests
 "src/olav/__main__.py" = ["E402"]
-"src/olav/main.py" = ["E402"]
 "src/olav/cli/cli_main.py" = ["E402", "ANN401", "S602", "S112"]
 "src/olav/core/settings.py" = ["ANN401"]
 "config/settings.py" = ["ANN401"]
