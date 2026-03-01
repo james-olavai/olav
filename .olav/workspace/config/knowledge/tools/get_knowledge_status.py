@@ -1,10 +1,10 @@
 """Knowledge Base Status Tool - Health check and statistics for the KB index.
 
 Reports:
-  - DuckDB knowledge_chunks table: total chunks, indexed source files.
+  - LanceDB kb_chunks table: total chunks, indexed source files.
   - Knowledge directory: file counts (.md / .pdf) and total size.
-  - Embedding configuration: model, dimension, mode.
-  - Database file size.
+  - Embedding configuration: model, dimension.
+  - LanceDB file size.
 
 Path defaults are resolved from config.paths so nothing is hardcoded.
 Defaults are also documented in SKILL.md under config.knowledge.
@@ -19,6 +19,8 @@ except ImportError:
         return f
 
 from olav.core.config import get_paths_config
+from olav.core.knowledge import get_knowledge_base, KB_TABLE
+from olav.core.memory import get_store
 
 logger = logging.getLogger(__name__)
 
@@ -36,21 +38,18 @@ def _human_size(num_bytes: int) -> str:
 @tool
 def get_knowledge_status(
     knowledge_dir: str = "",
-    db_path: str = "",
 ) -> str:
     """Report knowledge base statistics and health.
 
     Checks three things:
       1. Knowledge directory — how many files exist and their total size.
-      2. DuckDB chunks table — how many chunks are indexed and which files
+      2. LanceDB kb_chunks table — how many chunks are indexed and which files
          they came from.
-      3. Embedding configuration — model name, vector dimension, and mode.
+      3. Embedding configuration — model name, vector dimension.
 
     Args:
         knowledge_dir: Directory containing source .md/.pdf knowledge files.
                        Default: .olav/knowledge/ (from paths.json).
-        db_path:       DuckDB file that stores knowledge_chunks.
-                       Default: .olav/databases/main.duckdb (from paths.json).
 
     Returns:
         str: Formatted status report.
@@ -61,11 +60,8 @@ def get_knowledge_status(
     """
     paths_config = get_paths_config()
     kdir = Path(knowledge_dir) if knowledge_dir else (paths_config.project_root / paths_config.knowledge_dir)
-    db = Path(db_path) if db_path else (paths_config.project_root / paths_config.main_db)
 
-    lines = ["📊 Knowledge Base Status", "=" * 40]
-
-    lines = ["📊 Knowledge Base Status", "=" * 40]
+    lines = ["📊 Knowledge Base Status", "=" * 50]
 
     # --- 1. Knowledge directory ---
     lines.append("\n📁 Knowledge Directory:")
@@ -82,85 +78,75 @@ def get_knowledge_status(
         lines.append(f"   PDF files:      {len(pdf_files)}")
         lines.append(f"   Total size:     {_human_size(total_size)}")
 
-    # --- 2. DuckDB chunks table ---
-    lines.append("\n🗄️  DuckDB Index:")
-    lines.append(f"   Path: {db}")
-
-    if not db.exists():
-        lines.append("   ⚠️  Database file not found — run index_knowledge_files() first.")
-    else:
-        db_size = db.stat().st_size
-        lines.append(f"   DB size: {_human_size(db_size)}")
-
-        try:
-            import duckdb  # type: ignore
-
-            with duckdb.connect(str(db)) as conn:
-                # Check table exists
-                tbl_check = conn.execute(
-                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_name='knowledge_chunks'"
-                ).fetchone()
-                                if isinstance(meta_raw, str)
-                                else (meta_raw or {})
-                            )
-                            src = meta.get("source_file", "<unknown>")
-                            source_counts[src] = source_counts.get(src, 0) + 1
-                        except Exception as exc:
-                            logger.debug("Failed to parse metadata: %s", exc)
-
-                    if source_counts:
-                        lines.append(f"   Indexed files: {len(source_counts)}")
-                        lines.append("   Chunks per file:")
-                        for fname, count in sorted(source_counts.items(), key=lambda x: -x[1]):
-                            lines.append(f"     • {fname}: {count} chunks")
-                    else:
-                        lines.append("   (No source_file metadata found in chunks)")
-
-                except Exception as meta_err:
-                    logger.debug("Could not parse chunk metadata: %s", meta_err)
-                    lines.append("   (Could not parse per-file breakdown)")
-
-            conn.close()
-
-        except ImportError:
-            lines.append("   ❌ duckdb not installed. Install: pip install duckdb")
-        except Exception as e:
-            logger.error("DB status query failed: %s", e)
-            lines.append(f"   ❌ DB query error: {e}")
+    # --- 2. LanceDB KB index ---
+    lines.append("\n🗄️  LanceDB Index:")
+    
+    try:
+        store = get_store()
+        kb = get_knowledge_base(store)
+        
+        if not store.table_exists(KB_TABLE):
+            lines.append(f"   Status: ❌ KB table '{KB_TABLE}' not found")
+            lines.append("   Indexed files: 0")
+            lines.append("   Total chunks: 0")
+        else:
+            # Get database info
+            db_path = store.db_path  # LanceDB full path
+            if isinstance(db_path, str):
+                db_path_obj = Path(db_path)
+                if db_path_obj.exists():
+                    db_size = db_path_obj.stat().st_size
+                    lines.append(f"   Path: {db_path}")
+                    lines.append(f"   Size: {_human_size(db_size)}")
+            
+            # Get indexed sources
+            try:
+                sources = kb.get_indexed_sources()
+                lines.append(f"   Indexed files: {len(sources)}")
+                
+                # Count total chunks in KB
+                try:
+                    tbl = store.get_table(KB_TABLE)
+                    total_chunks = tbl.count_rows()
+                    lines.append(f"   Total chunks: {total_chunks}")
+                except Exception as e:
+                    logger.debug(f"Could not count chunks: {e}")
+                    lines.append("   Total chunks: unknown")
+                
+                if sources:
+                    lines.append("   Files indexed:")
+                    for src in sorted(sources):
+                        lines.append(f"     • {src}")
+            except Exception as e:
+                logger.debug(f"Could not get indexed sources: {e}")
+                lines.append(f"   ⚠️  Could not read KB metadata: {e}")
+                
+    except Exception as e:
+        logger.error(f"KB status query failed: {e}")
+        lines.append(f"   ❌ Error: {e}")
 
     # --- 3. Embedding configuration ---
     lines.append("\n🤖 Embedding Configuration:")
     try:
-        from olav.core.config import settings
         from olav.core.llm import LLMFactory
 
-        mode = settings.embedding_mode
-        model = (
-            settings.embedding_local_model
-            if mode == "local"
-            else settings.embedding_model
-        )
-        
-        # Determine dimension
+        # Try to get embedding info
         try:
             embeddings = LLMFactory.get_embeddings()
             test_vector = embeddings.embed_query("test")
             dim = len(test_vector)
-        except Exception:
-            dim = "unknown"
-
-        lines.append(f"   Mode:      {mode}")
-        lines.append(f"   Model:     {model}")
-        lines.append(f"   Dimension: {dim}")
+            
+            # Model name (heuristic based on embeddings obj)
+            model_name = getattr(embeddings, 'model', 'BAAI/bge-small')
+            
+            lines.append(f"   Model:     {model_name}")
+            lines.append(f"   Dimension: {dim}")
+        except Exception as e:
+            logger.debug(f"Could not load embedding config: {e}")
+            lines.append(f"   ⚠️  Could not initialize: {e}")
+            
     except Exception as e:
-        logger.debug("Could not load embedding config: %s", e)
-        lines.append(f"   ⚠️  Could not load config: {e}")
+        logger.debug(f"Could not load embedding support: {e}")
+        lines.append(f"   ⚠️  Embedding not configured: {e}")
 
     return "\n".join(lines)
-
-
-if __name__ == "__main__":
-    import logging
-
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    print(get_knowledge_status.invoke({}))

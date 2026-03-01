@@ -24,7 +24,7 @@ You help users:
 ## Knowledge Base Location
 
 - Files: `.olav/knowledge/`
-- Vector DB: `.olav/db/olav.duckdb` (table: `knowledge_chunks`)
+- Vector DB: `.olav/databases/memory.lance` (table: `kb_chunks`)
 
 ## Best Practices
 
