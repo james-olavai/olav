@@ -316,3 +316,134 @@ class TestApplyTimeDecay:
             result = schedule_time_decay(store)
         # None or raises ImportError — either is acceptable
         assert result is None or True  # just confirm no crash
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RRF Recency Boost
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestRRFRecencyBoost:
+    """Tests for rrf_fusion() with apply_weight_boost."""
+
+    def test_weight_boost_applied(self):
+        """High-weight memory ranks above equal-position low-weight memory."""
+        from olav.core.memory import rrf_fusion
+
+        # Both docs appear at rank 1 in separate lists — without boost they'd tie
+        high_weight_doc = {"id": "hw", "text": "recent fact", "weight": 1.0}
+        low_weight_doc  = {"id": "lw", "text": "old fact",    "weight": 0.2}
+
+        # Both at rank 1 in their respective lists → same base RRF score
+        results = rrf_fusion([[high_weight_doc], [low_weight_doc]], apply_weight_boost=True)
+        ids = [r["id"] for r in results]
+
+        # hw should rank first due to higher weight
+        assert ids[0] == "hw"
+
+    def test_weight_boost_disabled_equal_scores(self):
+        """With boost disabled, equal-rank docs get identical scores."""
+        from olav.core.memory import rrf_fusion
+
+        doc_a = {"id": "a", "text": "fact a", "weight": 1.0}
+        doc_b = {"id": "b", "text": "fact b", "weight": 0.1}
+
+        results = rrf_fusion([[doc_a], [doc_b]], apply_weight_boost=False)
+        scores = [r["rrf_score"] for r in results]
+
+        # Both at rank 1 in separate single-item lists → same base RRF score
+        assert abs(scores[0] - scores[1]) < 1e-9
+
+    def test_missing_weight_defaults_to_1(self):
+        """Docs without weight field don't crash and default to weight=1."""
+        from olav.core.memory import rrf_fusion
+
+        doc = {"id": "x", "text": "no weight"}  # no weight key
+        results = rrf_fusion([[doc]], apply_weight_boost=True)
+        assert results[0]["id"] == "x"
+        assert results[0]["rrf_score"] > 0
+
+    def test_combined_ranking_multiple_lists(self):
+        """Doc appearing in both lists ranks higher than doc in only one."""
+        from olav.core.memory import rrf_fusion
+
+        shared = {"id": "shared", "text": "both", "weight": 0.8}
+        unique = {"id": "unique", "text": "one",  "weight": 1.0}
+
+        # shared appears in both lists; unique appears only once
+        # With weight=0.8, shared's boosted score should be compared to unique's
+        results = rrf_fusion([[shared, unique], [shared]], apply_weight_boost=True)
+        ids = [r["id"] for r in results]
+        # shared appears in 2 lists → higher base RRF, even after 0.8 weight
+        assert ids[0] == "shared"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# store_network_event()
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestStoreNetworkEvent:
+    """Tests for store_network_event()."""
+
+    def test_store_network_event_success(self):
+        """Stores event with audit category and correct metadata."""
+        from olav.core.memory import store_network_event, MemoryCategory
+
+        store = _make_store()
+        result = store_network_event(
+            store=store,
+            summary="BGP session flapped 3 times between R1 and R2",
+            device="R1",
+            event_type="bgp-flap",
+            scope="ops",
+        )
+
+        assert result["status"] == "success"
+        store.add_memory.assert_called_once()
+        kwargs = store.add_memory.call_args.kwargs
+        assert kwargs["category"] == MemoryCategory.AUDIT
+        assert kwargs["scope"] == "ops"
+        assert "BGP session flapped" in kwargs["text"]
+        import json
+        meta = kwargs["metadata"]
+        if isinstance(meta, str):
+            meta = json.loads(meta)
+        assert meta.get("device") == "R1"
+        assert meta.get("event_type") == "bgp-flap"
+        assert meta.get("source") == "network_event"
+
+    def test_store_network_event_creates_table_if_absent(self):
+        """Creates table when it does not yet exist."""
+        from olav.core.memory import store_network_event
+
+        store = _make_store(table_exists=False)
+        store_network_event(store=store, summary="Link down on Gi0/1", scope="ops")
+
+        store.create_table.assert_called_once()
+
+    def test_store_network_event_with_embedder(self):
+        """Uses embedder to produce a real vector when provided."""
+        from olav.core.memory import store_network_event
+
+        mock_embedder = MagicMock()
+        mock_embedder.encode.return_value = MagicMock(tolist=lambda: [0.5] * 384)
+
+        store = _make_store()
+        store_network_event(
+            store=store,
+            summary="OSPF adjacency dropped on R4",
+            embedder=mock_embedder,
+        )
+
+        mock_embedder.encode.assert_called_once()
+        vector_used = store.add_memory.call_args.kwargs["vector"]
+        assert vector_used == [0.5] * 384
+
+    def test_store_network_event_id_starts_with_evt(self):
+        """Generated memory ID starts with 'evt-' prefix."""
+        from olav.core.memory import store_network_event
+
+        store = _make_store()
+        store_network_event(store=store, summary="Interface bounce on Core-SW")
+
+        mem_id = store.add_memory.call_args.kwargs["id"]
+        assert mem_id.startswith("evt-")
