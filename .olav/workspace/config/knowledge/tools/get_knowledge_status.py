@@ -131,15 +131,27 @@ def get_knowledge_status(
     # --- 3. Embedding configuration ---
     lines.append("\n🤖 Embedding Configuration:")
     try:
-        from src.olav.core.knowledge.embedding_gateway import EmbeddingGateway
+        from olav.core.config import settings
+        from olav.core.llm import LLMFactory
 
-        gw = EmbeddingGateway()
-        cfg = gw.get_embedding_config()
-        lines.append(f"   Mode:      {cfg.get('embedding_mode', 'unknown')}")
-        lines.append(f"   Model:     {cfg.get('embedding_model', 'unknown')}")
-        lines.append(f"   Dimension: {cfg.get('embedding_dim', 'unknown')}")
-    except ValueError as e:
-        lines.append(f"   ⚠️  API key not configured: {e}")
+        mode = settings.embedding_mode
+        model = (
+            settings.embedding_local_model
+            if mode == "local"
+            else settings.embedding_model
+        )
+        
+        # Determine dimension
+        try:
+            embeddings = LLMFactory.get_embeddings()
+            test_vector = embeddings.embed_query("test")
+            dim = len(test_vector)
+        except Exception:
+            dim = "unknown"
+
+        lines.append(f"   Mode:      {mode}")
+        lines.append(f"   Model:     {model}")
+        lines.append(f"   Dimension: {dim}")
     except Exception as e:
         logger.debug("Could not load embedding config: %s", e)
         lines.append(f"   ⚠️  Could not load config: {e}")

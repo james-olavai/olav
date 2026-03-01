@@ -18,6 +18,7 @@ import re
 import sys
 from pathlib import Path
 
+import duckdb
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential

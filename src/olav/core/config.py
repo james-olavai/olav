@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from olav.core import defaults
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 _CONFIG_DIR = _PROJECT_ROOT / ".olav" / "config"
 _AGENT_DIR = os.getenv("AGENT_DIR", ".olav")
@@ -286,6 +288,30 @@ class RuntimeConfig:
         )
 
     @property
+    def timeout(self) -> int:
+        exec_data = self._data.get("execution", {})
+        return self._loader._env_override("runtime", "timeout", exec_data.get("timeout", 60))
+
+    @property
+    def global_delay_factor(self) -> float:
+        exec_data = self._data.get("execution", {})
+        return self._loader._env_override(
+            "runtime", "global_delay_factor", exec_data.get("global_delay_factor", 1.0)
+        )
+
+    @property
+    def max_loops(self) -> int:
+        exec_data = self._data.get("execution", {})
+        return self._loader._env_override("runtime", "max_loops", exec_data.get("max_loops", 3))
+
+    @property
+    def scrapli_timeout_ops(self) -> int:
+        exec_data = self._data.get("execution", {})
+        return self._loader._env_override(
+            "runtime", "scrapli_timeout_ops", exec_data.get("scrapli_timeout_ops", 30)
+        )
+
+    @property
     def log_level(self) -> str:
         log_data = self._data.get("logging", {})
         return self._loader._env_override("runtime", "log_level", log_data.get("level", "INFO"))
@@ -328,6 +354,7 @@ def get_runtime_config() -> RuntimeConfig:
 # Backward compatibility
 class SettingsCompat:
     """Backward compatibility properties."""
+
     @property
     def llm_provider(self) -> str:
         return get_llm_config().provider
@@ -343,6 +370,18 @@ class SettingsCompat:
     @property
     def llm_api_key(self) -> str:
         return get_llm_config().api_key
+
+    @property
+    def agent_dir(self) -> str:
+        return get_paths_config().agent_dir
+
+    @property
+    def workspace_dir(self) -> str:
+        return get_paths_config().workspace_dir
+
+    @property
+    def execution(self):
+        return get_runtime_config()
 
     @property
     def llm_base_url(self) -> str:
@@ -369,15 +408,17 @@ class SettingsCompat:
         return get_embedding_config().openai_model
 
 
-
 # Simple settings class for backward compatibility
 class Settings(SettingsCompat):
     pass
 
+
 _settings_instance = Settings()
+
 
 def get_settings():
     return _settings_instance
+
 
 settings = _settings_instance
 
@@ -388,24 +429,25 @@ settings = _settings_instance
 
 class _PathResolver:
     """Resolve paths from config with caching."""
+
     _cache: dict = {}
 
     def resolve(self, key: str) -> Path:
         if key not in self._cache:
             config = get_paths_config()
-            # Map config property names to constant names
+            # Map internal resolution keys to config property names
             prop_map = {
-                "main_db": "MAIN_DB_PATH",
-                "databases_dir": "DATABASES_DIR",
-                "exports_dir": "EXPORTS_DIR",
-                "reports_dir": "REPORTS_DIR",
-                "logs_dir": "LOGS_DIR",
-                "knowledge_dir": "KNOWLEDGE_BASE_DIR",
-                "workspace_dir": "WORKSPACE_DIR",
-                "templates_dir": "TEXTFSM_TEMPLATES_DIR",
-                "config_dir": "CONFIG_DIR",
-                "skills_dir": "SKILLS_DIR",
-                "agent_dir": "AGENT_DIR",
+                "MAIN_DB_PATH": "main_db",
+                "DATABASES_DIR": "databases_dir",
+                "EXPORTS_DIR": "exports_dir",
+                "REPORTS_DIR": "reports_dir",
+                "LOGS_DIR": "logs_dir",
+                "KNOWLEDGE_BASE_DIR": "knowledge_dir",
+                "WORKSPACE_DIR": "workspace_dir",
+                "TEXTFSM_TEMPLATES_DIR": "templates_dir",
+                "CONFIG_DIR": "config_dir",
+                "SKILLS_DIR": "skills_dir",
+                "AGENT_DIR": "agent_dir",
             }
             prop = prop_map.get(key, key)
             if hasattr(config, prop.lower()):
@@ -419,44 +461,67 @@ class _PathResolver:
 _path_resolver = _PathResolver()
 
 # Module-level path constants for backward compatibility
-MAIN_DB_PATH = _path_resolver.resolve("main_db")
-DATABASES_DIR = _path_resolver.resolve("databases_dir")
-EXPORTS_DIR = _path_resolver.resolve("exports_dir")
-REPORTS_DIR = _path_resolver.resolve("reports_dir")
-LOGS_DIR = _path_resolver.resolve("logs_dir")
-KNOWLEDGE_BASE_DIR = _path_resolver.resolve("knowledge_dir")
-WORKSPACE_DIR = _path_resolver.resolve("workspace_dir")
-TEXTFSM_TEMPLATES_DIR = _path_resolver.resolve("templates_dir")
-CONFIG_DIR = _path_resolver.resolve("config_dir")
+MAIN_DB_PATH = _path_resolver.resolve("MAIN_DB_PATH")
+DATABASES_DIR = _path_resolver.resolve("DATABASES_DIR")
+EXPORTS_DIR = _path_resolver.resolve("EXPORTS_DIR")
+REPORTS_DIR = _path_resolver.resolve("REPORTS_DIR")
+LOGS_DIR = _path_resolver.resolve("LOGS_DIR")
+KNOWLEDGE_BASE_DIR = _path_resolver.resolve("KNOWLEDGE_BASE_DIR")
+WORKSPACE_DIR = _path_resolver.resolve("WORKSPACE_DIR")
+TEXTFSM_TEMPLATES_DIR = _path_resolver.resolve("TEXTFSM_TEMPLATES_DIR")
+CONFIG_DIR = _path_resolver.resolve("CONFIG_DIR")
 SKILLS_DIR = WORKSPACE_DIR
-AGENT_DIR = _path_resolver.resolve("agent_dir")
+AGENT_DIR = _path_resolver.resolve("AGENT_DIR")
 SKILL_BASE_PATH = WORKSPACE_DIR
 NETWORK_DB_PATH = MAIN_DB_PATH  # Legacy alias
 UNIFIED_DB = MAIN_DB_PATH  # Legacy alias
 SNAPSHOTS_DIR = EXPORTS_DIR / "snapshots"
-SYNC_DIR = EXPORTS_DIR / "sync"
+SNAPSHOTS_STAGING_JSON = SNAPSHOTS_DIR / "json"  # Staging for parsed JSON files before DB import
+SNAPSHOTS_RAW_DIR = SNAPSHOTS_DIR / "raw"  # Raw CLI output files
+SYNC_DIR = SNAPSHOTS_DIR  # Legacy alias - unified with snapshots
 
 # User-local paths (from old config.paths)
-import os
 try:
     _username = os.environ.get("USER") or os.getlogin()
 except Exception:
     _username = os.environ.get("USERNAME", "default_user")
 
 USER_HISTORY_DIR = Path.home() / ".olav" / "history"
-USER_HISTORY_PATH = USER_HISTORY_DIR / f"{_username}.txt"
+USER_HISTORY_PATH = USER_HISTORY_DIR / f"{_username}.log"
 USER_SESSION_DIR = Path.home() / ".olav" / "sessions"
 GUARD_WHITELIST_PATH = SKILLS_DIR / "guard" / "whitelist.yaml"
 CACHE_DIR = AGENT_DIR / "cache"
 
 
 __all__ = [
-    "settings", "Settings", "get_settings",
-    "MAIN_DB_PATH", "DATABASES_DIR", "EXPORTS_DIR", "REPORTS_DIR",
-    "LOGS_DIR", "KNOWLEDGE_BASE_DIR", "WORKSPACE_DIR", "TEXTFSM_TEMPLATES_DIR",
-    "CONFIG_DIR", "SKILLS_DIR", "AGENT_DIR", "SKILL_BASE_PATH",
-    "NETWORK_DB_PATH", "UNIFIED_DB", "SNAPSHOTS_DIR", "SYNC_DIR",
-    "USER_HISTORY_PATH", "USER_HISTORY_DIR", "USER_SESSION_DIR", "GUARD_WHITELIST_PATH",
-    "get_config", "get_llm_config", "get_embedding_config", "get_paths_config", "get_runtime_config",
+    "settings",
+    "Settings",
+    "get_settings",
+    "MAIN_DB_PATH",
+    "DATABASES_DIR",
+    "EXPORTS_DIR",
+    "REPORTS_DIR",
+    "LOGS_DIR",
+    "KNOWLEDGE_BASE_DIR",
+    "WORKSPACE_DIR",
+    "TEXTFSM_TEMPLATES_DIR",
+    "CONFIG_DIR",
+    "SKILLS_DIR",
+    "AGENT_DIR",
+    "SKILL_BASE_PATH",
+    "NETWORK_DB_PATH",
+    "UNIFIED_DB",
+    "SNAPSHOTS_DIR",
+    "SNAPSHOTS_STAGING_JSON",
+    "SNAPSHOTS_RAW_DIR",
+    "SYNC_DIR",
+    "USER_HISTORY_PATH",
+    "USER_HISTORY_DIR",
+    "USER_SESSION_DIR",
+    "GUARD_WHITELIST_PATH",
+    "get_config",
+    "get_llm_config",
+    "get_embedding_config",
+    "get_paths_config",
+    "get_runtime_config",
 ]
-

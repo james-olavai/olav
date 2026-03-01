@@ -94,7 +94,7 @@ class LanceDBStore:
         if self._db is None:
             self._db = lancedb.connect(str(self._db_path))
             logger.info(f"Connected to LanceDB at {self._db_path}")
-        return self._db
+        return self._db  # type: ignore[returnValue]
 
     def close(self):
         """Close database connection."""
@@ -445,7 +445,7 @@ class LanceDBStore:
             List of table names
         """
         db = self.connect()
-        return db.table_names()
+        return db.table_names()  # type: ignore[returnValue]
 
     def table_exists(self, table_name: str) -> bool:
         """Check if a table exists.
@@ -457,6 +457,8 @@ class LanceDBStore:
             True if table exists
         """
         return table_name in self.get_table_names()
+
+
 # Singleton instance for convenience
 _store_instance: LanceDBStore | None = None
 _store_db_path: str | Path | None = None
@@ -485,30 +487,6 @@ def get_store(
 
     return _store_instance
 
-# Singleton instance for convenience
-_store_instance: LanceDBStore | None = None
-
-
-def get_store(
-    db_path: str | Path | None = None,
-    embedding_dim: int = 384,
-) -> LanceDBStore:
-    """Get or create LanceDB store singleton.
-
-    Args:
-        db_path: Optional database path override
-        embedding_dim: Embedding dimension
-
-    Returns:
-        LanceDBStore instance
-    """
-    global _store_instance
-
-    if _store_instance is None:
-        _store_instance = LanceDBStore(db_path=db_path, embedding_dim=embedding_dim)
-
-    return _store_instance
-
 
 def reset_store():
     """Reset the singleton store instance."""
@@ -517,7 +495,6 @@ def reset_store():
     if _store_instance:
         _store_instance.close()
         _store_instance = None
-
 
 
 def rrf_fusion(

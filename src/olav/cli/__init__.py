@@ -4,7 +4,6 @@ Provides CLI components: display, session, slash commands.
 Entry point: olav.cli.main:cli_main (see pyproject.toml).
 """
 
-from olav.cli.main import cli_main
 from olav.cli.commands.builtin import (
     SLASH_COMMANDS,
     execute_command,
@@ -18,6 +17,7 @@ from olav.cli.display import (
     print_success,
     print_welcome,
 )
+from olav.cli.main import cli_main
 
 __all__ = [
     "cli_main",

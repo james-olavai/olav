@@ -89,17 +89,16 @@ def search_knowledge(
             store.create_table()
 
         # Get embeddings for the query
-        from src.olav.core.knowledge.embedding_gateway import EmbeddingGateway
-
         try:
-            gateway = EmbeddingGateway()
-            query_vector = gateway.embed_text(query)
+            from olav.core.llm import LLMFactory
+            embeddings = LLMFactory.get_embeddings()
+            query_vector = embeddings.embed_query(query)
 
             # Ensure vector matches expected dimension
             if len(query_vector) < DEFAULT_EMBEDDING_DIM:
-                query_vector = query_vector + [0.0] * (DEFAULT_EMBEDDING_DIM - len(query_vector))
+                query_vector = list(query_vector) + [0.0] * (DEFAULT_EMBEDDING_DIM - len(query_vector))
             elif len(query_vector) > DEFAULT_EMBEDDING_DIM:
-                query_vector = query_vector[:DEFAULT_EMBEDDING_DIM]
+                query_vector = list(query_vector)[:DEFAULT_EMBEDDING_DIM]
 
         except Exception as e:
             logger.warning(f"Failed to get embeddings: {e}. Using random vector for testing.")

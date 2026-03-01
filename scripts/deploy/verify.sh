@@ -91,20 +91,11 @@ PYTHON_EOF
 check_configuration() {
     echo -e "\n${YELLOW}=== Configuration ===${NC}"
     
-    if [ ! -f .env ]; then
-        check_fail ".env file not found"
-        return 1
-    fi
-    
-    check_pass ".env file exists"
-    
-    # Check required variables
-    source .env
-    
+    # Check required variables from environment
     required_vars=("LLM_API_KEY" "NETWORK_USERNAME" "NETWORK_PASSWORD")
     for var in "${required_vars[@]}"; do
         if [ -z "${!var:-}" ] || [ "${!var:-}" = "your-key" ] || [ "${!var:-}" = "your-production-key-here" ]; then
-            check_fail "$var not configured (current: ${!var:-empty})"
+            check_fail "$var not configured in environment"
         else
             check_pass "$var configured"
         fi

@@ -37,11 +37,12 @@ def analyze_output(command: str, output: str, platform: str) -> dict[str, Any]:
 
     from olav.core.config import (
         SKILL_BASE_PATH,
-        settings,  # 确保 .env 被加载
+        settings,  # Load settings
     )
 
     # Load analysis prompt (absolute path via config.paths — CWD-independent)
-    prompt_path = SKILL_BASE_PATH / "command_learner" / "reference" / "textfsm_analysis.md"
+    # Path should be: .olav/workspace/config/learner/reference/textfsm_analysis.md
+    prompt_path = SKILL_BASE_PATH / "config" / "learner" / "reference" / "textfsm_analysis.md"
     if not prompt_path.exists():
         logger.warning(f"Analysis prompt not found: {prompt_path}")
         analysis_prompt = "Analyze this network command output and identify all extractable fields."

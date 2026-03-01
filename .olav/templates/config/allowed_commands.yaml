@@ -1,5 +1,5 @@
 # allowed_commands.yaml
-# Commands permitted for snapshot collection and olav-ops CLI execution.
+# Commands permitted for snapshot collection and quick-Query CLI execution.
 #
 # Fields:
 #   command      : exact CLI command string (case-insensitive)

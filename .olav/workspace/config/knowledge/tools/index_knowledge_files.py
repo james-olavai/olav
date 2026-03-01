@@ -26,7 +26,7 @@ except ImportError:
         return f
 
 from olav.core.config import get_paths_config
-from olav.core.knowledge.text_processor import TextProcessor
+from olav.core.utils import TextProcessor
 from olav.core.llm import LLMFactory
 
 logger = logging.getLogger(__name__)

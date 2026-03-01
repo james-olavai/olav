@@ -194,7 +194,23 @@ class SchemaContext:
                             )
                     self._schema_cache["schema_catalog"] = schema_catalog_info
             except Exception:
-                pass  # schema_catalog not yet populated, skip silently
+                pass  # schema_catalog not yet populated
+
+            # Query mapping_table for unified field mapping (v0.11.0)
+            try:
+                mapping_rows = db_query(
+                    "SELECT platform, platform_key, unified_key FROM mapping_table "
+                    "ORDER BY platform, unified_key"
+                )
+                if mapping_rows:
+                    mapping_info: list[str] = []
+                    for row in mapping_rows:
+                        mapping_info.append(
+                            f"  {row['platform']}: {row['platform_key']} -> {row['unified_key']}"
+                        )
+                    self._schema_cache["mapping_table"] = mapping_info
+            except Exception:
+                pass  # mapping_table not yet populated
 
         except Exception as e:
             self._schema_cache = {"error": str(e)}
@@ -220,6 +236,16 @@ class SchemaContext:
                 sample = self._schema_cache["samples"][table_name]
                 if sample:
                     context_parts.append(f"  Sample: {sample[0]}")
+
+        # Add mapping_table block (Unified Schema Mapping v0.11.0)
+        mapping_info = self._schema_cache.get("mapping_table", [])
+        if mapping_info:
+            context_parts.append("\n**Unified Schema Mappings (platform -> unified):**")
+            context_parts.append(
+                "  Use these to map platform-specific keys to unified keys in your queries."
+            )
+            # Cap at 50 most common mappings to avoid context bloat
+            context_parts.extend(mapping_info[:50])
 
         # Add schema_catalog block (JSON fields for parsed_outputs)
         schema_catalog = self._schema_cache.get("schema_catalog", [])

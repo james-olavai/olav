@@ -136,12 +136,7 @@ backup_current_state() {
         log_success "Databases backed up"
     fi
     
-    # Backup configuration
-    if [ -f ".env" ]; then
-        log "  - Backing up configuration..."
-        cp ".env" "$BACKUP_DIR/.env"
-        log_success "Configuration backed up"
-    fi
+    # Backup configuration (legacy .env skipped)
     
     # Backup custom skills
     if [ -d ".olav/skills" ]; then
@@ -370,7 +365,7 @@ ${GREEN}╚═══════════════════════
 
 ✅ Upgrade Steps Completed:
   ✓ Current version verified
-  ✓ Configuration and database backed up
+  ✓ Database backed up
   ✓ Compatibility verified
   ✓ New version installed
   ✓ Data migrated

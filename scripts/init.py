@@ -24,10 +24,8 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "src"))
 
-from dotenv import load_dotenv
+# Load environment first (optional, system environment used directly)
 from rich.console import Console
-
-load_dotenv()
 
 console = Console()
 
@@ -50,14 +48,18 @@ def init_settings(olav_dir: Path, force: bool = False) -> bool:
         print("  ⏭️  settings.json already exists (use --force to overwrite)")
         return False
 
-    # Read values from .env (already loaded by load_dotenv() in main)
-    llm_provider = os.getenv("LLM_PROVIDER", "openai")
+    # Read values from environment variables (OLAV_LLM_PROVIDER, etc.)
+    llm_provider = os.getenv("OLAV_LLM_PROVIDER", "openai")
+    llm_model = os.getenv("OLAV_LLM_MODEL", "gpt-4o")
+    llm_temperature = float(os.getenv("OLAV_LLM_TEMPERATURE", "0.1"))
+    llm_max_tokens = int(os.getenv("OLAV_LLM_MAX_TOKENS", "4096"))
+
     llm_model = os.getenv("LLM_MODEL_NAME", "gpt-4o")
     llm_temperature = float(os.getenv("LLM_TEMPERATURE", "0.1"))
     llm_max_tokens = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 
-    # Settings structure with values from .env
-    settings: dict[str, object] = {
+
+    # Settings structure with values from environment variables
         "agent": {
             "name": "OLAV",
             "description": "Network Operations AI Assistant",
@@ -84,7 +86,7 @@ def init_settings(olav_dir: Path, force: bool = False) -> bool:
 
     # Write settings.json
     settings_file.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"  ✅ Created settings.json (from .env: {llm_provider}/{llm_model})")
+    print(f"  ✅ Created settings.json (from environment: {llm_provider}/{llm_model})")
 
     return True
 
@@ -627,7 +629,7 @@ Examples:
         console.print(f"  ✅ {conn_msg}")
     else:
         console.print(f"  [yellow]⚠️  {conn_msg}[/yellow]")
-        console.print("     (Connectivity issues - check credentials in .env)")
+        console.print("     (Connectivity issues - check credentials in environment)")
 
     console.print("\n" + "=" * 50)
     console.print("[bold green]✅ OLAV initialization complete![/bold green]")

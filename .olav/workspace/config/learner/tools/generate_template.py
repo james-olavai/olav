@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-Tool 6: Generate Template (LLM-powered)
+Tool 6: Generate Template (LLM-powered, ReAct + Reflection)
 
 Generates TextFSM template using LLM with NTC references.
+Template quality is validated via an LLM reflection step that compares
+the raw output against the parsed result — no hardcoded heuristics.
 """
 
 import logging
@@ -14,37 +16,111 @@ logger = logging.getLogger(__name__)
 
 
 def test_template(template_content: str, output_sample: str) -> dict[str, Any]:
-    """Test TextFSM template against actual output."""
+    """Run TextFSM template and return parsed records as a readable table.
+
+    Only responsible for syntax validity and execution — coverage judgement
+    is delegated to the LLM reflection step (_reflect_on_coverage).
+    """
     try:
         import io
 
         import textfsm
 
-        # Parse template
-        template_file = io.StringIO(template_content)
-        fsm = textfsm.TextFSM(template_file)
-
-        # Parse output
+        fsm = textfsm.TextFSM(io.StringIO(template_content))
         parsed = fsm.ParseText(output_sample)
+        headers = fsm.header
 
-        # Calculate coverage
-        output_lines = [line for line in output_sample.splitlines() if line.strip()]
-        coverage = len(parsed) / max(len(output_lines), 1) if output_lines else 0.0
+        # Format as readable text table for LLM reflection
+        if parsed:
+            col_widths = [max(len(h), max(len(str(row[i])) for row in parsed))
+                          for i, h in enumerate(headers)]
+            header_row = "  ".join(h.ljust(w) for h, w in zip(headers, col_widths))
+            sep = "  ".join("-" * w for w in col_widths)
+            data_rows = [
+                "  ".join(str(v).ljust(w) for v, w in zip(row, col_widths))
+                for row in parsed
+            ]
+            parsed_table = "\n".join([header_row, sep] + data_rows)
+        else:
+            parsed_table = "(no records parsed)"
 
         return {
             "success": True,
             "parsed_records": len(parsed),
-            "coverage": round(coverage, 2),
-            "error": None
+            "headers": headers,
+            "parsed_table": parsed_table,
+            "error": None,
         }
 
     except Exception as e:
         return {
             "success": False,
             "parsed_records": 0,
-            "coverage": 0.0,
-            "error": str(e)
+            "headers": [],
+            "parsed_table": "",
+            "error": str(e),
         }
+
+
+def _reflect_on_coverage(
+    llm: Any, template_content: str, raw_output: str, parsed_table: str
+) -> dict[str, Any]:
+    """LLM reflection step: compare raw output vs parsed result.
+
+    The LLM acts as a domain expert, reading both the raw CLI output and
+    the parsed table to determine whether any data rows were silently dropped.
+
+    Returns:
+        {
+            "verdict": "PASS" | "FAIL",
+            "missed_rows": [...],   # raw lines the LLM identified as missing
+            "reason": "...",        # brief explanation
+        }
+    """
+    import json
+    import re
+
+    prompt = f"""You are a TextFSM expert validating a template.
+
+TASK: Compare the RAW CLI OUTPUT with the PARSED RESULT below.
+Identify any data rows present in the raw output that were NOT captured in the parsed result.
+
+=== RAW CLI OUTPUT ===
+{raw_output}
+
+=== PARSED RESULT ({len(parsed_table.splitlines()) - 2 if parsed_table != '(no records parsed)' else 0} records) ===
+{parsed_table}
+
+=== CURRENT TEMPLATE ===
+```
+{template_content}
+```
+
+INSTRUCTIONS:
+- A "data row" is any non-blank line in the raw output that represents a device/interface/route/peer entry.
+- Header lines (column titles, separator lines with dashes/equals) are NOT data rows.
+- Continuation/indented lines are part of the previous data row (already covered if the parent was captured).
+- If every data row in the raw output appears in the parsed result → verdict PASS.
+- If any data row is missing → verdict FAIL, list the exact missing raw lines.
+
+Respond with ONLY valid JSON (no markdown):
+{{"verdict": "PASS" or "FAIL", "missed_rows": ["exact raw line 1", ...], "reason": "one sentence"}}"""
+
+    try:
+        response = llm.invoke([{"role": "user", "content": prompt}])
+        text = response.content.strip()
+        # Strip markdown fences if present
+        text = re.sub(r"^```[a-z]*\n?|```$", "", text, flags=re.MULTILINE).strip()
+        result = json.loads(text)
+        return {
+            "verdict": result.get("verdict", "FAIL"),
+            "missed_rows": result.get("missed_rows", []),
+            "reason": result.get("reason", ""),
+        }
+    except Exception as e:
+        logger.warning(f"Reflection LLM call failed: {e}")
+        # Fail-safe: treat as unknown, don't block generation
+        return {"verdict": "PASS", "missed_rows": [], "reason": f"reflection unavailable: {e}"}
 
 
 @tool
@@ -88,11 +164,12 @@ def generate_template(
 
     from olav.core.config import (
         SKILL_BASE_PATH,
-        settings,  # 确保 .env 被加载
+        settings,  # Load settings
     )
 
     # Load generation prompt (absolute path via config.paths — CWD-independent)
-    prompt_path = SKILL_BASE_PATH / "command_learner" / "reference" / "textfsm_generation.md"
+    # Path should be: .olav/workspace/config/learner/reference/textfsm_generation.md
+    prompt_path = SKILL_BASE_PATH / "config" / "learner" / "reference" / "textfsm_generation.md"
     if not prompt_path.exists():
         logger.warning(f"Generation prompt not found: {prompt_path}")
         generation_prompt = "Generate a TextFSM template for this network command output."
@@ -135,36 +212,36 @@ Generate a TextFSM template for:
 **NTC Reference Templates** (for pattern examples):
 {ntc_examples}
 
-**Sample Output to Parse**:
+**Full Sample Output to Parse**:
 ```
-{output_sample[:1500]}  # Truncate to save tokens
+{output_sample}
 ```
 
 Requirements:
 1. Extract ALL approved fields
 2. Use regex patterns similar to NTC examples
-3. Template must pass test against sample output
-4. Follow TextFSM best practices
-5. Return ONLY the template code (no explanations)
+3. Template must capture ALL data rows — **zero missed data lines**
+4. Handle vendor-specific notation (e.g. Juniper `-->` next-hop markers)
+5. Follow TextFSM best practices
+6. Return ONLY the template code (no explanations)
 
 Return the template code directly.
 """
 
-    # Iterative generation with testing
+    # ReAct loop: Act (generate) → Observe (parse) → Reflect (LLM compare) → repeat
     for iteration in range(1, max_iterations + 1):
         try:
-            logger.info(f"Generating template (iteration {iteration}/{max_iterations})...")
+            logger.info(f"[ACT] Generating template (iteration {iteration}/{max_iterations})...")
 
-            # Call LLM
+            # --- ACT: Generate template ------------------------------------------
             messages = [
                 {"role": "system", "content": generation_prompt},
                 {"role": "user", "content": user_prompt}
             ]
-
             response = llm.invoke(messages)
             template_content = response.content.strip()
 
-            # Remove markdown code blocks if present
+            # Strip markdown fences if present
             if "```" in template_content:
                 lines = template_content.split("\n")
                 template_lines = []
@@ -177,27 +254,59 @@ Return the template code directly.
                         template_lines.append(line)
                 template_content = "\n".join(template_lines)
 
-            # Test template
-            test_result = test_template(template_content, output_sample)
-
             # Generate filename
-            # Example: cisco_ios_show_version.textfsm
             command_slug = command.lower().replace(" ", "_")
             filename = f"{platform}_{command_slug}.textfsm"
 
-            # Check if successful
-            if test_result["success"] and test_result["coverage"] >= 0.5:
-                logger.info(f"✅ Template generated successfully (coverage: {test_result['coverage']})")
+            # --- OBSERVE: Run TextFSM, get parsed table --------------------------
+            test_result = test_template(template_content, output_sample)
+
+            if not test_result["success"]:
+                logger.warning(f"[OBSERVE] Syntax error on iteration {iteration}: {test_result['error']}")
+                user_prompt += (
+                    f"\n\n**Iteration {iteration} — Syntax Error**: {test_result['error']}\n"
+                    "Fix the TextFSM syntax and regenerate."
+                )
+                continue
+
+            logger.info(f"[OBSERVE] Parsed {test_result['parsed_records']} records.")
+
+            # --- REFLECT: LLM compares raw output vs parsed table ----------------
+            reflection = _reflect_on_coverage(
+                llm, template_content, output_sample, test_result["parsed_table"]
+            )
+            logger.info(
+                f"[REFLECT] verdict={reflection['verdict']}  "
+                f"missed={len(reflection['missed_rows'])}  reason={reflection['reason']}"
+            )
+
+            if reflection["verdict"] == "PASS":
+                logger.info(
+                    f"✅ Template accepted (iteration {iteration}, "
+                    f"records={test_result['parsed_records']}, reflection=PASS)"
+                )
                 return {
                     "template": template_content,
                     "filename": filename,
-                    "test_result": test_result,
-                    "iteration": iteration
+                    "test_result": {**test_result, "reflection": reflection},
+                    "iteration": iteration,
                 }
-            else:
-                logger.warning(f"❌ Template test failed (iteration {iteration}): {test_result.get('error', 'Low coverage')}")
-                # Add error feedback for next iteration
-                user_prompt += f"\n\n**Previous Attempt Failed**: {test_result.get('error', 'Low coverage')}. Please fix and try again."
+
+            # FAIL: feed reflection back as next-iteration context
+            missed_report = (
+                "\n\n**MISSED DATA ROWS** (identified by reflection):\n"
+                + "\n".join(f"  {ln}" for ln in reflection["missed_rows"][:20])
+                + f"\n\nReason: {reflection['reason']}"
+                + "\n\nYou MUST add TextFSM rules that capture every missed row above."
+            )
+            logger.warning(
+                f"❌ Iteration {iteration} rejected: {reflection['reason']} "
+                f"({len(reflection['missed_rows'])} missed rows)"
+            )
+            user_prompt += (
+                f"\n\n**Iteration {iteration} — Reflection FAILED**:{missed_report}\n"
+                "Regenerate the template fixing all missed rows."
+            )
 
         except Exception as e:
             logger.error(f"Template generation failed (iteration {iteration}): {e}")

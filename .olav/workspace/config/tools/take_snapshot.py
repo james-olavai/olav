@@ -17,8 +17,10 @@ Workflow integration:
   3. execute_sql("SELECT ... FROM parsed_outputs WHERE command='...' AND snapshot_date=today")
 
 Results are written to:
-  - DuckDB parsed_outputs table (TextFSM-parsed JSON when template exists)
-  - exports/snapshots/YYYY-MM-DD/raw/{device}/{safe_cmd}.txt (raw output)
+  - exports/snapshots/YYYY-MM-DD/{device}_{cmd}.txt (raw output)
+  - exports/snapshots/json/{device}_{cmd}.json (staging JSON for bulk ingest)
+  
+  Use bulk_ingest tool after this to persist results to DuckDB.
 
 Usage in DeepAgents:
     from .tools import take_snapshot
@@ -54,11 +56,10 @@ def _find_project_root() -> Path:
 _PROJECT_ROOT = _find_project_root()
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
-import duckdb as _ddb
 from nornir import InitNornir
 from nornir_netmiko.tasks import netmiko_send_command
 
-from olav.core.config import MAIN_DB_PATH, settings
+from olav.core.config import SNAPSHOTS_STAGING_JSON, settings
 
 # Try to import Scrapli for fast path
 try:
@@ -267,37 +268,17 @@ def _run_one(device: str, command: str, timeout: int, platform: str | None) -> d
 # ---------------------------------------------------------------------------
 
 def _write_raw_file(device: str, command: str, raw: str, snapshot_date: str) -> None:
+    """Write raw CLI output to exports/snapshots/{date}/{device}_{cmd}.txt"""
     safe_cmd = re.sub(r"[^\w]", "_", command.lower()).strip("_")
     out_dir = (
         _PROJECT_ROOT
         / "exports"
         / "snapshots"
         / snapshot_date
-        / "raw"
-        / device
     )
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / f"{safe_cmd}.txt").write_text(raw, encoding="utf-8")
+    (out_dir / f"{device}_{safe_cmd}.txt").write_text(raw, encoding="utf-8")
 
-
-def _insert_parsed_output(
-    conn,
-    device: str,
-    command: str,
-    parsed: list[dict] | None,
-    raw: str,
-    snapshot_id: str,
-) -> None:
-    """Insert row in parsed_outputs for today's snapshot."""
-    parsed_json = json.dumps(parsed, ensure_ascii=False) if parsed else "[]"
-    conn.execute(
-        """
-        INSERT INTO parsed_outputs
-            (device_name, command, parsed_data, raw_output, snapshot_id)
-        VALUES (?, ?, ?::JSON, ?, ?)
-        """,
-        [device, command, parsed_json, raw[:20000], snapshot_id],
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -375,72 +356,47 @@ def take_snapshot(
         for future in as_completed(futures):
             all_results.append(future.result())
 
-    # Write to DB + raw files
+    # Write to staging JSON + raw files
     successful = 0
     failed = 0
     summary_rows = []
 
-    try:
-        with _ddb.connect(str(MAIN_DB_PATH)) as conn:
-            for r in all_results:
-                if r["status"] == "success":
-                    raw = r.get("raw", "")
-                    parsed = r.get("parsed")
-                    try:
-                        _insert_parsed_output(
-                            conn,
-                            r["device"],
-                            r["command"],
-                            parsed,
-                            raw,
-                            snapshot_id,
-                        )
-                        _write_raw_file(r["device"], r["command"], raw, snapshot_date)
-                        successful += 1
-                        summary_rows.append(
-                            {
-                                "device": r["device"],
-                                "command": r["command"],
-                                "status": "success",
-                                "parsed_rows": len(parsed) if parsed else 0,
-                            }
-                        )
-                    except Exception as exc:
-                        failed += 1
-                        summary_rows.append(
-                            {
-                                "device": r["device"],
-                                "command": r["command"],
-                                "status": "db_write_failed",
-                                "error": str(exc),
-                            }
-                        )
-                else:
-                    failed += 1
-                    summary_rows.append(
-                        {
-                            "device": r["device"],
-                            "command": r["command"],
-                            "status": "failed",
-                            "error": r.get("error", "unknown"),
-                        }
-                    )
-    except Exception as exc:
-        # DB unavailable — still return raw results
-        logger.error("DB write failed: %s", exc)
-        for r in all_results:
-            if r["status"] == "success":
+    for r in all_results:
+        if r["status"] == "success":
+            raw = r.get("raw", "")
+            parsed = r.get("parsed")
+            try:
+                _write_staging_json(r["device"], r["command"], parsed, raw, snapshot_id)
+                _write_raw_file(r["device"], r["command"], raw, snapshot_date)
                 successful += 1
                 summary_rows.append(
-                    {"device": r["device"], "command": r["command"],
-                     "status": "success_no_db", "warning": str(exc)}
+                    {
+                        "device": r["device"],
+                        "command": r["command"],
+                        "status": "success",
+                        "parsed_rows": len(parsed) if parsed else 0,
+                    }
                 )
-            else:
+            except Exception as exc:
                 failed += 1
                 summary_rows.append(
-                    {"device": r["device"], "command": r["command"],
-                     "status": "failed", "error": r.get("error")}
+                    {
+                        "device": r["device"],
+                        "command": r["command"],
+                        "status": "write_failed",
+                        "error": str(exc),
+                    }
                 )
+        else:
+            failed += 1
+            summary_rows.append(
+                {
+                    "device": r["device"],
+                    "command": r["command"],
+                    "status": "failed",
+                    "error": r.get("error", "unknown"),
+                }
+            )
 
     return {
         "status": "success" if failed == 0 else ("partial" if successful > 0 else "failed"),
@@ -452,9 +408,7 @@ def take_snapshot(
         "failed": failed,
         "results": summary_rows,
         "next_step": (
-            f"Query results with execute_sql: "
-            f"SELECT device_name, parsed_data FROM parsed_outputs "
-            f"WHERE command='{commands[0]}' AND snapshot_id='{snapshot_id}'"
+            "Run bulk_ingest to persist results to DuckDB, or query staging files directly."
         ) if commands else "",
     }
 
