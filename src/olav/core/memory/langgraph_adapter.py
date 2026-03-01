@@ -180,19 +180,43 @@ class LangGraphLanceDBStore(BaseStore):
     def list_namespaces(
         self, prefix: str | Iterable[str] | None = None
     ) -> Iterable[tuple[str, ...]]:
-        """List all namespaces.
+        """List all namespaces by querying distinct scopes from LanceDB.
 
         Args:
             prefix: Optional prefix to filter namespaces
 
         Returns:
-            List of namespace tuples
+            List of namespace tuples, one per distinct scope in the DB.
         """
-        # OLAV LanceDB doesn't have namespace enumeration
-        # Return default namespace
+        scopes = ["global"]  # always include global as fallback
+        try:
+            if self._store.table_exists(self._table_name):
+                tbl = self._store.get_table(self._table_name)
+                # Query distinct scopes using LanceDB's to_pandas()
+                try:
+                    import pandas as pd  # noqa: F401
+                    df = tbl.to_lance().to_table(columns=["scope"]).to_pandas()
+                    distinct = df["scope"].dropna().unique().tolist()
+                    scopes = list(dict.fromkeys(["global"] + distinct))  # dedup, global first
+                except Exception:
+                    # Fallback: scan via to_list()
+                    rows = tbl.search().limit(1000).to_list()
+                    seen = {"global"}
+                    for row in rows:
+                        s = row.get("scope")
+                        if s and s not in seen:
+                            seen.add(s)
+                            scopes.append(s)
+        except Exception as e:
+            logger.debug(f"list_namespaces: DB query failed ({e}), returning ['global']")
+
+        # Filter by prefix if supplied
+        ns_tuples = [(s,) for s in scopes]
         if prefix:
-            return [("global",)]
-        return [("global",)]
+            prefix_str = prefix if isinstance(prefix, str) else "/".join(prefix)
+            ns_tuples = [ns for ns in ns_tuples if ns[0].startswith(prefix_str)]
+
+        return ns_tuples
 
     # pyright: ignore[reportIncompatibleMethodOverride]
     def abatch(self, operations: Sequence[tuple[str, tuple[str, ...], str, Any]]) -> Sequence[Any]:

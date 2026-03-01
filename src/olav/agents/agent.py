@@ -170,6 +170,22 @@ class OLAVAgent:
             subagents=subagents,
         )
 
+        # ── Memory middleware (Phase 2 + 4) ──────────────────────────────────
+        self._auto_recall = None
+        self._auto_capture = None
+        self._guardrail_injector = None
+        if self.store is not None:
+            try:
+                from olav.core.memory.middleware import AutoRecallMiddleware, AutoCaptureMiddleware
+                from olav.core.memory.guardrails import GuardrailInjector
+                _raw = self.store._store  # underlying OCLanceDBStore
+                self._auto_recall = AutoRecallMiddleware(_raw)
+                self._auto_capture = AutoCaptureMiddleware(_raw, self.llm)
+                self._guardrail_injector = GuardrailInjector(_raw)
+                logger.info("✓ Memory middleware: Auto-Recall + Auto-Capture + Guardrails active")
+            except Exception as _mw_err:
+                logger.warning(f"Memory middleware init failed (non-fatal): {_mw_err}")
+
     # ------------------------------------------------------------------
     # Tool loading helpers
     # ------------------------------------------------------------------
@@ -310,20 +326,77 @@ class OLAVAgent:
     # ------------------------------------------------------------------
 
     async def ainvoke(self, input_: str | dict, thread_id: str | None = None, **kwargs) -> dict:
-        """Async invoke the agent graph."""
+        """Async invoke the agent graph with memory middleware."""
         if isinstance(input_, str):
             input_ = {"messages": [{"role": "user", "content": input_}]}
-        
+
+        # Keep original for auto-capture (before recall enrichment)
+        _original_input = input_
+        scope = self.agent_id or "global"
+
+        # Phase 2: Auto-Recall — inject relevant memories
+        if self._auto_recall is not None:
+            try:
+                input_ = await self._auto_recall.enrich(input_, scope=scope)
+            except Exception as _re:
+                logger.debug(f"Auto-Recall skipped: {_re}")
+
+        # Phase 4: Guardrail injection — append learned constraints to user message
+        if self._guardrail_injector is not None:
+            try:
+                query_text = self._extract_query_text(input_)
+                guardrail_block = self._guardrail_injector.get_block(query_text, scope=scope)
+                if guardrail_block:
+                    input_ = self._append_to_last_user_msg(input_, guardrail_block)
+            except Exception as _ge:
+                logger.debug(f"Guardrail injection skipped: {_ge}")
+
         config = {}
         if thread_id:
             config["configurable"] = {"thread_id": thread_id}
-        
+
         try:
             result = await self.graph.ainvoke(input_, config=config if config else None, **kwargs)
-            return result
         except Exception as e:
             logger.error(f"ainvoke failed: {e}")
             return {"status": "error", "response": str(e)}
+
+        # Phase 2: Auto-Capture — extract and store key facts/decisions
+        if self._auto_capture is not None:
+            try:
+                import asyncio
+                asyncio.ensure_future(
+                    self._auto_capture.process(_original_input, result, scope=scope)
+                )
+            except Exception as _ce:
+                logger.debug(f"Auto-Capture scheduling skipped: {_ce}")
+
+        return result
+
+    @staticmethod
+    def _extract_query_text(input_: dict) -> str:
+        """Extract the last user message text from an input dict."""
+        for m in reversed(input_.get("messages", [])):
+            content = m.get("content", "") if isinstance(m, dict) else getattr(m, "content", "")
+            role = m.get("role", "") if isinstance(m, dict) else getattr(m, "type", "")
+            if role in ("human", "user") and content:
+                return content
+        return ""
+
+    @staticmethod
+    def _append_to_last_user_msg(input_: dict, extra: str) -> dict:
+        """Append extra text to the last user message in the messages list."""
+        messages = list(input_.get("messages", []))
+        for i in range(len(messages) - 1, -1, -1):
+            m = messages[i]
+            role = m.get("role", "") if isinstance(m, dict) else getattr(m, "type", "")
+            if role in ("human", "user"):
+                if isinstance(m, dict):
+                    messages[i] = {**m, "content": m.get("content", "") + extra}
+                else:
+                    m.content = (m.content or "") + extra
+                break
+        return {**input_, "messages": messages}
 
     async def invoke(self, input_: str | dict, thread_id: str | None = None, **kwargs) -> dict:
         """Sync invoke (calls async version via asyncio)."""
