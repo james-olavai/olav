@@ -14,9 +14,10 @@ import logging
 
 from langchain_core.tools import tool
 
-from src.olav.core.memory import (
+from olav.core.memory import (
     get_store,
     hybrid_search,
+    MEMORY_TABLE,
 )
 
 logger = logging.getLogger(__name__)
@@ -85,8 +86,8 @@ def search_knowledge(
         store = get_store(embedding_dim=DEFAULT_EMBEDDING_DIM)
 
         # Ensure table exists
-        if not store.table_exists():
-            store.create_table()
+        if not store.table_exists(MEMORY_TABLE):
+            store.create_table(MEMORY_TABLE)
 
         # Get embeddings for the query
         try:

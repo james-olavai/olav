@@ -514,6 +514,7 @@ def reset_store():
 def rrf_fusion(
     result_lists: list[list[dict]],
     k: int = 60,
+    apply_weight_boost: bool = True,
 ) -> list[dict]:
     """Reciprocal Rank Fusion (RRF) to combine multiple result lists.
 
@@ -523,9 +524,16 @@ def rrf_fusion(
     The RRF score for a document is calculated as:
         score = sum(1 / (k + rank)) for each list where the document appears
 
+    If ``apply_weight_boost`` is True (default), the RRF score is multiplied by
+    the document's stored ``weight`` field (set by time-decay).  This ensures
+    that recently-accessed memories with high weight rank above stale ones even
+    when the raw semantic similarity is similar — implementing the **recency
+    boost** described in the LANCEDB_MEMORY_SYSTEM_INTEGRATION design.
+
     Args:
         result_lists: List of result lists, each containing dicts with 'id' and optional 'score'
         k: RRF parameter (default 60). Higher values reduce the impact of high ranks.
+        apply_weight_boost: Multiply final RRF score by the document weight (default True).
 
     Returns:
         Combined and reranked list of results
@@ -559,7 +567,14 @@ def rrf_fusion(
             if doc_id not in doc_data:
                 doc_data[doc_id] = doc
 
-    # Sort by RRF score descending
+    # Apply recency boost: multiply by stored weight (time-decay sets weight=1.0
+    # for new memories, decaying toward 0.1 for old ones).
+    if apply_weight_boost:
+        for doc_id in doc_scores:
+            weight = float(doc_data[doc_id].get("weight") or 1.0)
+            doc_scores[doc_id] *= weight
+
+    # Sort by final score descending
     sorted_ids = sorted(doc_scores.items(), key=lambda x: x[1], reverse=True)
 
     # Build final result list
@@ -621,3 +636,69 @@ def hybrid_search(
     fused_results = rrf_fusion([vector_results, text_results], k=rrf_k)
 
     return fused_results[:limit]
+
+
+def store_network_event(
+    store: LanceDBStore,
+    summary: str,
+    device: str | None = None,
+    event_type: str | None = None,
+    scope: str = "global",
+    embedder=None,
+    table_name: str = MEMORY_TABLE,
+) -> dict:
+    """Store a high-level network episode summary in LanceDB memory.
+
+    Implements the **Network Event Memory** component from the OCM design:
+    only summarized, high-level anomalies/episodes are stored here, NOT
+    raw system logs or raw CLI output.
+
+    Examples of appropriate summaries:
+        - "Datacenter-A experienced BGP flaps from 10:00 to 10:15"
+        - "OSPF adjacency dropped between R1 and R2 due to MTU mismatch"
+        - "Interface Gi0/1 on Core-SW bounced 3 times in 2026-03-01"
+
+    Args:
+        store:       LanceDBStore instance.
+        summary:     Human-readable episode summary (required).
+        device:      Primary device involved (optional, stored in metadata).
+        event_type:  Short label, e.g. "bgp-flap", "ospf-drop", "interface-bounce".
+        scope:       Memory scope — usually the agent or global.
+        embedder:    Optional SentenceTransformer model. If None, a zero-vector
+                     is used (memory will be text-searched only).
+        table_name:  Override the default table name.
+
+    Returns:
+        Result dict: {"status": "success", "id": "...", "message": "..."}.
+    """
+    import uuid
+
+    if not store.table_exists(table_name):
+        store.create_table(table_name)
+
+    # Embed the summary
+    vector: list[float]
+    if embedder is not None:
+        try:
+            vector = embedder.encode(summary, normalize_embeddings=True).tolist()
+        except Exception:
+            vector = [0.0] * store.embedding_dim
+    else:
+        vector = [0.0] * store.embedding_dim
+
+    memory_id = f"evt-{uuid.uuid4().hex[:8]}"
+    metadata: dict = {"source": "network_event"}
+    if device:
+        metadata["device"] = device
+    if event_type:
+        metadata["event_type"] = event_type
+
+    return store.add_memory(
+        id=memory_id,
+        text=summary,
+        vector=vector,
+        category=MemoryCategory.AUDIT,
+        scope=scope,
+        metadata=metadata,
+        table_name=table_name,
+    )
