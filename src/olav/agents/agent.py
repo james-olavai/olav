@@ -120,10 +120,10 @@ class OLAVAgent:
             f"model={self.model_name}, temperature={self.temperature}, agent={self.agent_id}"
         )
 
-        # LangChain LLM cache — SQLite (Moved to home for multi-user isolation)
-        from olav.core.config import CACHE_DIR
+        # LangChain LLM cache — SQLite (user-isolated in ~/.olav/cache/{user}/)
+        from olav.core.config import USER_CACHE_DIR
 
-        cache_path = CACHE_DIR / "llm_cache.db"
+        cache_path = USER_CACHE_DIR / "llm_cache.db"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             langchain.llm_cache = SQLiteCache(database_path=str(cache_path))
@@ -131,19 +131,16 @@ class OLAVAgent:
         except Exception as e:
             logger.warning(f"LLM cache init failed: {e}. Caching disabled.")
 
-        # Checkpointer — use MemorySaver for async compatibility (DuckDB doesn't support aget_tuple)
-        # TODO: Switch back to DuckDBSaver once LangGraph fixes async support or we upgrade to newer version
+        # Checkpointer — AsyncDuckDBSaver: user-isolated, persistent, async-safe
         self.checkpointer = None
         if enable_checkpointer:
             try:
-                # Use MemorySaver for CLI async compatibility
-                # DuckDBSaver raises NotImplementedError in async contexts
-                from langgraph.checkpoint.memory import MemorySaver
-                
-                self.checkpointer = MemorySaver()
-                logger.info("✓ Checkpointer initialized (MemorySaver - for async CLI support)")
+                from olav.core.checkpointer import create_checkpointer
+                import os
+                _user = os.environ.get("USER") or os.environ.get("USERNAME", "default_user")
+                self.checkpointer = create_checkpointer(agent_id=self.agent_id, username=_user)
             except Exception as e:
-                logger.warning(f"MemorySaver failed ({e}), no checkpoint support available")
+                logger.warning(f"AsyncDuckDBSaver init failed ({e}), no checkpoint support available")
 
         # LanceDB long-term semantic memory store
         self.store = None
@@ -341,6 +338,16 @@ class OLAVAgent:
         
         # Sync context: create new loop
         return asyncio.run(self.ainvoke(input_, thread_id, **kwargs))
+
+    async def close(self) -> None:
+        """Release resources (DuckDB connection, etc.)."""
+        try:
+            from olav.core.checkpointer import AsyncDuckDBSaver
+            if isinstance(self.checkpointer, AsyncDuckDBSaver):
+                self.checkpointer.conn.close()
+                logger.debug("Checkpointer DuckDB connection closed.")
+        except Exception as e:
+            logger.debug(f"close(): {e}")
 
 
 def create_olav_agent(
