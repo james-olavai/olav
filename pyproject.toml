@@ -62,6 +62,7 @@ dependencies = [
     "lancedb>=0.29.2",
     "netutils>=1.17.1",
     "networkx>=3.6.1",
+    "pdfplumber>=0.11.9",
 ]
 
 [project.scripts]

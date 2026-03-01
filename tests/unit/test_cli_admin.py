@@ -127,20 +127,26 @@ async def test_kb_search_no_args():
 
 
 @pytest.mark.asyncio
+@pytest.mark.asyncio
 async def test_kb_search_success():
     """Test /admin kb-search success."""
     with (
-        patch("pathlib.Path.exists", return_value=True),
-        patch("duckdb.connect"),
-        patch("langchain_community.vectorstores.DuckDB") as mock_vectorstore_class,
-        patch("olav.core.llm.LLMFactory.get_embeddings"),
+        patch("olav.core.knowledge.get_knowledge_base") as mock_get_kb,
+        patch("olav.core.memory.get_store") as mock_get_store,
     ):
-        mock_vectorstore = MagicMock()
-        mock_doc = MagicMock()
-        mock_doc.metadata = {"source_file": "test.md"}
-        mock_doc.page_content = "test content"
-        mock_vectorstore.similarity_search.return_value = [mock_doc]
-        mock_vectorstore_class.return_value = mock_vectorstore
+        mock_store = MagicMock()
+        mock_store.table_exists.return_value = True
+        mock_get_store.return_value = mock_store
+
+        mock_kb = MagicMock()
+        mock_kb.search.return_value = [
+            {
+                "text": "test content",
+                "metadata": '{"source_file": "test.md"}',
+                "rrf_score": 0.95,
+            }
+        ]
+        mock_get_kb.return_value = mock_kb
 
         result = await admin_handler("/admin kb-search 'test query'")
         assert result["status"] == "success"
@@ -200,11 +206,17 @@ async def test_fast_restore_errors():
 
 @pytest.mark.asyncio
 async def test_kb_search_db_not_found():
-    """Test /admin kb-search when DB not found."""
-    with patch("pathlib.Path.exists", return_value=False):
+    """Test /admin kb-search when KB not indexed."""
+    with (
+        patch("olav.core.memory.get_store") as mock_get_store,
+    ):
+        mock_store = MagicMock()
+        mock_store.table_exists.return_value = False
+        mock_get_store.return_value = mock_store
+
         result = await admin_handler("/admin kb-search 'query'")
         assert result["status"] == "error"
-        assert "Knowledge base database not found" in result["message"]
+        assert "Knowledge base not indexed" in result["message"]
 
 @pytest.mark.asyncio
 async def test_kb_index_value_error():
