@@ -1,33 +1,33 @@
 #!/usr/bin/env python3
-"""Index markdown files into the knowledge database.
+"""DEPRECATED: Use 'olav config kb-index' instead.
 
-This script is used to manually index knowledge files (vendor docs, team wiki,
-learned solutions) into the knowledge database for semantic search.
+This script is OBSOLETE. Knowledge indexing has been migrated to the config agent.
 
-Usage:
-    # Initialize database and index team wiki
-    python scripts/index_knowledge.py --init --source team_wiki --path ./docs/wiki/
+To index knowledge files:
+    olav config kb-index --knowledge-dir /path/to/docs
+    olav config kb-index --incremental  # Add only new files
+    olav config kb-index --force       # Full rebuild
 
-    # Index Cisco documentation
-    python scripts/index_knowledge.py --source cisco_ios_xe --path ./docs/cisco/ --platform cisco_ios
-
-    # Index learned solutions
-    python scripts/index_knowledge.py --source learned --path .olav/knowledge/solutions/
-
-Phase 4: Knowledge Base Integration
+The new implementation uses LanceDB KB engine for better performance and semantics.
 """
 
-import argparse
 import sys
-from pathlib import Path
+import warnings
 
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+warnings.warn(
+    "scripts/index_knowledge.py is DEPRECATED. "
+    "Use 'olav config kb-index' (config agent) instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
-from olav.shared.tools.knowledge_embedder import KnowledgeEmbedder
+print("ERROR: scripts/index_knowledge.py is deprecated.")
+print("\nUse instead:")
+print("  olav config kb-index                    # Index all knowledge files")
+print("  olav config kb-index --incremental     # Add only new files")
+print("  olav config kb-index --force           # Full rebuild from scratch")
+sys.exit(1)
 
-from config.settings import settings
-from olav.core.database import init_knowledge_db
 
 
 def register_source(conn: object, source_name: str, source_path: Path, platform: str = None) -> int:

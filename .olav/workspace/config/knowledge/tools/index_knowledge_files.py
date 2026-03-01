@@ -1,33 +1,29 @@
-"""Index Knowledge Files Tool - Build/update the KB vector index.
+"""Index Knowledge Files Tool - Build/update the KB vector index in LanceDB.
 
 Scans a knowledge directory for Markdown and PDF files, splits them into
 semantic chunks, embeds with the configured embedding model, and stores
-the vectors in DuckDB for later similarity search.
+the vectors in LanceDB KB table for later similarity search.
 
 Three indexing modes:
   - Full (default): Index all files (may add duplicates if already indexed).
-  - Incremental:    Skip files whose source_file is already in knowledge_chunks.
-  - Force rebuild:  Drop the entire table and rebuild from scratch.
+  - Incremental:    Skip files whose source_file is already in KB.
+  - Force rebuild:  Delete all KB chunks and rebuild from scratch.
 
 Path arguments default to config.paths values so nothing is hardcoded.
 Defaults are also documented in SKILL.md under config.knowledge.
+"""
 from pathlib import Path
 import logging
 
 try:
-    from langchain_community.vectorstores import DuckDB
-    from langchain_core.documents import Document
     from langchain_core.tools import tool
 except ImportError:
-    DuckDB = None
-    Document = None
-
     def tool(f):
         return f
 
 from olav.core.config import get_paths_config
-from olav.core.utils import TextProcessor
-from olav.core.llm import LLMFactory
+from olav.core.knowledge import get_knowledge_base, KB_TABLE
+from olav.core.memory import get_store
 
 logger = logging.getLogger(__name__)
 
@@ -48,71 +44,33 @@ def _read_pdf(file_path: Path) -> str:
                 text = page.extract_text() or ""
                 pages.append(f"=== PAGE {i} ===\n{text}")
         return "\n\n".join(pages)
-    except ImportError:
-        logger.warning("pdfplumber not installed — skipping PDF: %s", file_path.name)
-        return ""
     except Exception as e:
-        logger.warning("Failed to read PDF %s: %s", file_path.name, e)
+        logger.warning(f"Could not extract PDF {file_path}: {e}. Skipping.")
         return ""
-
-
-def _file_hash(file_path: Path) -> str:
-    """Compute MD5 hex digest of file contents (fast small-file check)."""
-    md5 = hashlib.md5()
-    md5.update(file_path.read_bytes())
-    return md5.hexdigest()
-
-
-def _get_indexed_source_files(conn) -> set[str]:
-    """Return set of source_file values already in knowledge_chunks."""
-    try:
-        conn.execute("SELECT 1 FROM information_schema.tables WHERE table_name='knowledge_chunks'")
-        if not conn.fetchone():
-            return set()
-        rows = conn.execute("SELECT DISTINCT metadata FROM knowledge_chunks").fetchall()
-        sources = set()
-        for (meta_raw,) in rows:
-            try:
-                meta = json.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw
-                src = meta.get("source_file", "")
-                if src:
-                    sources.add(src)
-            except Exception as exc:
-                logger.debug("Failed to parse metadata: %s", exc)
-        return sources
-    except Exception as exc:
-        logger.debug("Failed to get indexed sources: %s", exc)
-        return set()
 
 
 @tool
 def index_knowledge_files(
     knowledge_dir: str = "",
-    db_path: str = "",
     force_reindex: bool = False,
     incremental: bool = False,
     chunk_size: int = 1024,
     chunk_overlap: int = 128,
 ) -> str:
-    """Index knowledge files (Markdown/PDF) into the vector search database.
+    """Index knowledge files (Markdown/PDF) into the LanceDB vector KB.
 
     Scans `knowledge_dir` recursively, chunks each file, embeds the chunks,
-    and stores them in the `knowledge_chunks` table in DuckDB.
+    and stores them in the LanceDB `kb_chunks` table.
 
     Three modes (mutually exclusive, force_reindex takes priority):
-      - force_reindex=True  ->  Drop whole table and rebuild from scratch.
-      - incremental=True    ->  Add only files not yet present in the index.
+      - force_reindex=True  ->  Delete all KB chunks and rebuild from scratch.
+      - incremental=True    ->  Add only files not yet present in the KB.
       - default             ->  Index all files (may duplicate if already run).
-
-    Path defaults are resolved from config.paths so no value needs to be
-    hardcoded; override only when targeting a non-standard directory or DB.
 
     Args:
         knowledge_dir: Directory to scan for .md / .pdf files.
                        Default: .olav/knowledge/ (from paths.json).
-        db_path:       DuckDB file to write vectors into.
-                       Default: .olav/databases/main.duckdb (from paths.json).
-        force_reindex: Drop existing knowledge_chunks table and rebuild.
+        force_reindex: Delete all KB chunks and rebuild from scratch.
         incremental:   Only process files not yet indexed (by source_file name).
         chunk_size:    Characters per chunk (default: 1024).
         chunk_overlap: Overlap between adjacent chunks (default: 128).
@@ -126,15 +84,9 @@ def index_knowledge_files(
         >>> index_knowledge_files(force_reindex=True)        # full rebuild
         >>> index_knowledge_files(knowledge_dir="/tmp/docs") # custom directory
     """
-    if DuckDB is None or Document is None:
-        return (
-            "❌ Missing dependency: langchain-community. Install: pip install langchain-community"
-        )
-
     # --- Resolve paths ---
     paths_config = get_paths_config()
     kdir = Path(knowledge_dir) if knowledge_dir else (paths_config.project_root / paths_config.knowledge_dir)
-    db = Path(db_path) if db_path else (paths_config.project_root / paths_config.main_db)
 
     if not kdir.exists():
         return f"❌ Knowledge directory not found: {kdir}"
@@ -147,127 +99,98 @@ def index_knowledge_files(
     if not all_files:
         return f"⚠️  No .md or .pdf files found in {kdir}"
 
-    # --- Init tools ---
+    # --- Init KB engine ---
     try:
-        embeddings = LLMFactory.get_embeddings()
-    except ValueError as e:
-        return f"❌ Embedding init failed — check LLM_API_KEY: {e}"
+        store = get_store()
+        kb = get_knowledge_base(store)
+    except Exception as e:
+        return f"❌ Failed to initialize KB engine: {e}"
 
-    processor = TextProcessor(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-
-    # --- Open DB ---
-    try:
-        import duckdb  # type: ignore
-    except ImportError:
-        return "❌ duckdb not installed. Install: pip install duckdb"
-
-        with duckdb.connect(str(db)) as conn:
-            # --- Handle force_reindex ---
+    # --- Get already-indexed sources (for incremental mode) ---
+    indexed_sources = set()
+    if incremental or force_reindex:
+        try:
+            indexed_sources = set(kb.get_indexed_sources())
             if force_reindex:
-                try:
-                    conn.execute("DROP TABLE IF EXISTS knowledge_chunks")
-                    logger.info("knowledge_chunks table dropped for full rebuild.")
-                except Exception as e:
-                    logger.warning(f"Could not drop knowledge_chunks: {e}")
+                logger.info(f"Force reindex: deleting {len(indexed_sources)} existing sources...")
+                for src in indexed_sources:
+                    try:
+                        kb.delete_source(src)
+                    except Exception as e:
+                        logger.warning(f"Could not delete source {src}: {e}")
+                indexed_sources.clear()
+        except Exception as e:
+            logger.warning(f"Could not get indexed sources: {e}")
 
-            # --- Incremental: resolve already-indexed files ---
-            already_indexed: set[str] = set()
-            if incremental and not force_reindex:
-                already_indexed = _get_indexed_source_files(conn)
-                logger.info(f"Incremental mode: {len(already_indexed)} files already indexed.")
-
-    # --- Build documents ---
-    docs: list = []
-    stats = {
-        "files_processed": 0,
-        "files_skipped": 0,
-        "files_failed": 0,
-        "total_chunks": 0,
-    }
+    # --- Index files ---
+    total_indexed = 0
+    skipped = 0
+    failed = 0
+    results = []
 
     for file_path in all_files:
-        fname = file_path.name
+        rel_path = str(file_path.relative_to(kdir))
 
-        if incremental and fname in already_indexed:
-            stats["files_skipped"] += 1
+        # Skip if already indexed (incremental mode)
+        if incremental and rel_path in indexed_sources:
+            skipped += 1
             continue
 
+        # Read file
         try:
-            if file_path.suffix.lower() == ".pdf":
-                raw_text = _read_pdf(file_path)
+            if file_path.suffix.lower() == ".md":
+                content = _read_markdown(file_path)
+            elif file_path.suffix.lower() == ".pdf":
+                content = _read_pdf(file_path)
+                if not content:
+                    failed += 1
+                    continue
             else:
-                raw_text = _read_markdown(file_path)
-
-            if not raw_text.strip():
-                logger.warning("Empty content in %s — skipping.", fname)
-                stats["files_failed"] += 1
                 continue
 
-            chunks = processor.split_into_chunks(raw_text)
-            total = len(chunks)
+            if not content.strip():
+                failed += 1
+                results.append(f"  ⚠️  {rel_path}: empty content")
+                continue
 
-            for idx, chunk in enumerate(chunks, 1):
-                meta = processor.build_chunk_metadata(
-                    chunk_content=chunk,
-                    chunk_index=idx,
-                    total_chunks=total,
-                    source_file=fname,
-                    extra_metadata={"file_hash": _file_hash(file_path)},
+            # Index into KB
+            try:
+                kb.index_document(
+                    file_path=rel_path,
+                    text_content=content,
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
                 )
-                docs.append(Document(page_content=chunk, metadata=meta))
-
-            stats["files_processed"] += 1
-            stats["total_chunks"] += total
-            logger.debug("Indexed %s: %d chunks", fname, total)
+                total_indexed += 1
+                results.append(f"  ✓ {rel_path}")
+            except Exception as e:
+                failed += 1
+                results.append(f"  ❌ {rel_path}: {e}")
 
         except Exception as e:
-            logger.error("Failed to process %s: %s", fname, e)
-            stats["files_failed"] += 1
-
-    if not docs:
-        return (
-            "⚠️  No new documents to index.\n"
-            f"  Skipped (already indexed): {stats['files_skipped']}\n"
-            f"  Failed: {stats['files_failed']}"
-        )
-
-    # --- Write to DuckDB via LangChain ---
-    try:
-        DuckDB.from_documents(
-            documents=docs,
-            embedding=embeddings,
-            connection=conn,
-            table_name="knowledge_chunks",
-        )
-    except Exception as e:
-        logger.error("Vector write failed: %s", e)
-        return f"❌ Failed to write vectors to DB: {e}"
+            failed += 1
+            logger.warning(f"Error processing {rel_path}: {e}")
+            results.append(f"  ❌ {rel_path}: {e}")
 
     # --- Summary ---
     mode = "REBUILD" if force_reindex else ("INCREMENTAL" if incremental else "FULL")
-    lines = [
-        f"✅ Knowledge Base Indexing Complete ({mode} mode)",
-        f"  Files indexed:  {stats['files_processed']}",
-        f"  Chunks written: {stats['total_chunks']}",
-        f"  Files skipped:  {stats['files_skipped']}",
-        f"  Files failed:   {stats['files_failed']}",
-        f"  Directory:      {kdir}",
-        f"  Database:       {db}",
-    ]
-    return "\n".join(lines)
+    summary = f"""
+✅ Knowledge Base Indexing Complete ({mode} mode)
 
+📊 Statistics:
+  • Files indexed:  {total_indexed}
+  • Files skipped:  {skipped}
+  • Files failed:   {failed}
+  • Total files:    {len(all_files)}
 
-if __name__ == "__main__":
-    import sys
+📁 Source directory: {kdir}
+🗂️  Target: LanceDB kb_chunks table
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    force = "--force" in sys.argv
-    incr = "--incremental" in sys.argv
-    print(
-        index_knowledge_files.invoke(
-            {
-                "force_reindex": force,
-                "incremental": incr,
-            }
-        )
-    )
+📝 Details:
+"""
+    if results:
+        summary += "\n".join(results)
+    else:
+        summary += "  (No changes)"
+
+    return summary
