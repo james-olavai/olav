@@ -35,8 +35,17 @@ except ImportError:
 # Falls back to framework imports when available; works standalone otherwise.
 # ---------------------------------------------------------------------------
 
-_OLAV_DIR    = Path(__file__).resolve().parents[3]          # .olav/
-_PROJECT_ROOT = Path(__file__).resolve().parents[4]          # project root
+def _find_project_root() -> Path:
+    """Walk up from this file until we find pyproject.toml (the project anchor)."""
+    p = Path(__file__).resolve().parent
+    while p != p.parent:
+        if (p / "pyproject.toml").exists():
+            return p
+        p = p.parent
+    return Path(__file__).resolve().parents[5]  # fallback: tools/sync/config/workspace/.olav/project
+
+_PROJECT_ROOT = _find_project_root()                         # /home/yhvh/Olav
+_OLAV_DIR    = _PROJECT_ROOT / ".olav"                       # .olav/
 _SYNC_DIR    = _PROJECT_ROOT / "exports" / "snapshots"      # exports/snapshots/
 
 # Try framework imports; use simple fallbacks if running standalone.
@@ -106,9 +115,14 @@ def get_sync_base_dir() -> Path:
 
 
 def get_sync_dir(date: str | None = None) -> Path:
-    """Get sync directory for a given date."""
+    """Get sync directory for a given date.
+    
+    Args:
+        date: Date string. If None, uses minute-level timestamp (YYYY-MM-DD_HHMM)
+              to support multiple snapshots per day.
+    """
     if date is None:
-        date = datetime.now().strftime("%Y-%m-%d")
+        date = datetime.now().strftime("%Y-%m-%d_%H%M")
     return get_sync_base_dir() / date
 
 
@@ -165,6 +179,117 @@ ERROR_PATTERNS = [
     "Error: Wrong parameter",
     "Syntax error:",
 ]
+
+# =============================================================================
+# Intent-Driven Parse Quality Detection (Issue #3 Fix)
+# =============================================================================
+
+# Signature keywords for each category.
+# If raw output contains ANY of these words but JSON is empty → HIGH severity gap.
+CATEGORY_SIGNATURES: dict[str, list[str]] = {
+    "routing": ["neighbor", "peer", "via", "gateway", "prefix", "network", "metric", "route"],
+    "bgp": ["neighbor", "peer", "established", "active", "idle", "prefix", "as-path", "bgp"],
+    "ospf": ["neighbor", "state", "full", "loading", "dr", "bdr", "area", "ospf"],
+    "interfaces": ["up", "down", "protocol", "bandwidth", "mtu", "encapsulation", "line protocol"],
+    "neighbors": ["device id", "capability", "platform", "port id", "interface"],
+    "switching": ["vlan", "trunk", "access", "spanning", "mac", "stp"],
+    "system": ["version", "uptime", "cpu", "memory", "flash", "nvram"],
+    "environment": ["temperature", "fan", "power", "status"],
+    "arp": ["internet", "arpa", "incomplete"],
+    "mac": ["vlan", "dynamic", "static", "secure"],
+}
+
+# Maps command keywords → category (for determining expected signatures)
+_CMD_CATEGORY_MAP: list[tuple[str, str]] = [
+    ("show ip bgp", "bgp"),
+    ("show bgp", "bgp"),
+    ("show ip ospf neighbor", "ospf"),
+    ("show ospf neighbor", "ospf"),
+    ("show ip route", "routing"),
+    ("show route", "routing"),
+    ("show interfaces", "interfaces"),
+    ("show ip interface", "interfaces"),
+    ("show cdp neighbor", "neighbors"),
+    ("show lldp neighbor", "neighbors"),
+    ("show mac", "switching"),
+    ("show spanning", "switching"),
+    ("show vlan", "switching"),
+    ("show arp", "arp"),
+    ("show version", "system"),
+    ("show processes", "system"),
+    ("show environment", "environment"),
+]
+
+
+def _infer_category_from_command(command: str) -> str:
+    """Infer the data category from a CLI command string.
+
+    Returns a key matching CATEGORY_SIGNATURES, or 'general' if unknown.
+    """
+    cmd_lower = command.lower()
+    for cmd_prefix, category in _CMD_CATEGORY_MAP:
+        if cmd_prefix in cmd_lower:
+            return category
+    return "general"
+
+
+def _detect_parse_quality_gap(
+    raw_text: str,
+    command: str,
+    parsed_data: str,
+) -> dict | None:
+    """Detect whether parsed_data represents a quality gap.
+
+    Returns a dict with severity/reason if a gap is detected, else None.
+
+    Detection algorithm (Intent-driven Signature Matching):
+    1. If JSON has ≥1 real rows → no gap.
+    2. Infer category from command.
+    3. Check if raw_text contains any category signature keywords:
+       - YES → HIGH severity (100% gap: keywords present but nothing parsed)
+       - NO, but raw_text is large (>300B) → MEDIUM severity (possible gap)
+    """
+    import json as _json
+
+    # Check if parsed_data is genuinely populated
+    try:
+        parsed = _json.loads(parsed_data) if isinstance(parsed_data, str) else parsed_data
+        if isinstance(parsed, list) and len(parsed) > 0:
+            return None  # Good data — no gap
+        if isinstance(parsed, dict) and parsed and "raw" not in parsed:
+            return None  # Dict form with real fields
+    except Exception:
+        pass
+
+    # JSON is empty ([] or {}) — check signatures
+    txt_lower = raw_text.lower()
+    size = len(raw_text.encode("utf-8", errors="replace"))
+
+    category = _infer_category_from_command(command)
+    signatures = CATEGORY_SIGNATURES.get(category, [])
+
+    has_signature = any(sig in txt_lower for sig in signatures) if signatures else False
+
+    if has_signature:
+        matched = [sig for sig in signatures if sig in txt_lower][:3]
+        return {
+            "severity": "high",
+            "category": category,
+            "matched_keywords": matched,
+            "reason": f"Keywords found ({matched}) but JSON empty — 100% parse gap",
+            "size": size,
+        }
+    elif size > 300:
+        return {
+            "severity": "medium",
+            "category": category,
+            "matched_keywords": [],
+            "reason": f"Large output ({size}B) but JSON empty — possible parse gap",
+            "size": size,
+        }
+
+    return None
+
 
 def _load_command_strategy(platform: str) -> dict:
     """Load command intents and platform metadata for a specific platform."""
@@ -450,11 +575,13 @@ def _populate_topology_links(sync_date: str) -> None:
                     continue
 
                 # Process each neighbor link
+                from olav.core.value_normalizer import get_normalizer as _get_norm
+                _norm = _get_norm()
                 for neighbor in data:
                     try:
-                        local_if = neighbor.get("local_interface", "")
+                        local_if = _norm.interface_name(neighbor.get("local_interface", ""))
                         remote_device = neighbor.get("neighbor_name", "")
-                        remote_if = neighbor.get("neighbor_interface", "")
+                        remote_if = _norm.interface_name(neighbor.get("neighbor_interface", ""))
                         platform = neighbor.get("platform", "")
 
                         if not all([local_if, remote_device, remote_if]):
@@ -467,7 +594,7 @@ def _populate_topology_links(sync_date: str) -> None:
                         # Check if link exists
                         existing = db.conn.execute(
                             "SELECT link_id, status_changes FROM topology_links "
-                            "WHERE link_id = ? ORDER BY sync_date DESC LIMIT 1",
+                            "WHERE link_id = ? ORDER BY last_seen DESC LIMIT 1",
                             [link_id]
                         ).fetchone()
 
@@ -480,12 +607,12 @@ def _populate_topology_links(sync_date: str) -> None:
                                 (link_id, source_device, source_interface,
                                  destination_device, destination_interface,
                                  discovery_protocol, link_type, link_status,
-                                 first_seen, last_seen, sync_date,
+                                 first_seen, last_seen, snapshot_id,
                                  platform, status_changes, last_verified)
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?,
                                         (SELECT first_seen FROM topology_links
                                          WHERE link_id = ?
-                                         ORDER BY sync_date DESC LIMIT 1),
+                                         ORDER BY last_seen DESC LIMIT 1),
                                         CURRENT_TIMESTAMP, ?, ?, ?, CURRENT_TIMESTAMP)
                                 """,
                                 [link_id, source_device, local_if, remote_device,
@@ -501,7 +628,7 @@ def _populate_topology_links(sync_date: str) -> None:
                                 (link_id, source_device, source_interface,
                                  destination_device, destination_interface,
                                  discovery_protocol, link_type, link_status,
-                                 first_seen, last_seen, sync_date, platform,
+                                 first_seen, last_seen, snapshot_id, platform,
                                  status_changes)
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?,
                                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, ?, 0)
@@ -531,140 +658,117 @@ def _populate_topology_links(sync_date: str) -> None:
 
 
 def _discover_topology_from_db(sync_date: str) -> dict:
-    """Auto-discover topology from parsed_outputs using smart field mapping.
-    
-    Workflow:
-    1. Query all neighbor-related commands from parsed_outputs
-    2. Auto-map raw JSON keys to topology_links schema
-    3. Insert/Update links into topology_links table with history tracking
-    
-    This fulfills the "no-hardcoding" requirement by using dynamic schema mapping.
-    """
-    stats = {"added": 0, "updated": 0, "commands_processed": 0}
-    try:
-        from olav.core.database import get_database
-        db = get_database()
-        import hashlib
-        import json
+    """Populate topology_links from Schema-on-Read VIEWs (v0.11.0).
 
-        # Step 1: Promote protocol neighbors (BGP/OSPF) to topology_links as logical L3 links
-        # We do this first so it's not blocked by lack of CDP/LLDP discovery commands
-        protocol_links = db.conn.execute("""
-            SELECT 'BGP' as proto, device_name, neighbor_ip, neighbor_as, state 
-            FROM bgp_neighbors
-            UNION ALL
-            SELECT 'OSPF' as proto, device_name, neighbor_ip, neighbor_id, state 
-            FROM ospf_neighbors
+    Reads deduped, CIDR-stripped data from:
+      - v_topology_from_parsed  → L2 physical links (CDP/LLDP)
+      - v_ospf_neighbors        → L3 OSPF adjacencies (with IP→device resolution)
+      - v_bgp_neighbors         → L3 BGP sessions (with IP→device resolution)
+
+    Inserts/upserts into topology_links with history tracking.
+    """
+    stats = {"added": 0, "updated": 0, "commands_processed": 3}
+    try:
+        import hashlib
+
+        from olav.core.database import get_database
+
+        db = get_database()
+        now = datetime.now()
+
+        # ── L2: CDP / LLDP physical links ─────────────────────────────────────
+        l2_links = db.conn.execute("""
+            SELECT source_device, source_interface, destination_device,
+                   destination_interface, discovery_protocol, chassis_id
+            FROM v_topology_from_parsed
         """).fetchall()
 
-        now = datetime.now()
-        for proto, src_dev, dst_val, neighbor_id, state in protocol_links:
-            # Resolve neighbor IP/ID to hostname if possible
-            peer = db.conn.execute(
-                "SELECT name FROM devices WHERE mgmt_ip = ? OR name = ? LIMIT 1",
-                [dst_val, neighbor_id]
-            ).fetchone()
-            
-            dst_dev = peer[0] if peer else f"Unknown ({dst_val})"
-            src_if = proto
-            dst_if = proto
-            link_id = hashlib.md5(f"L3|{src_dev}|{proto}|{dst_dev}".encode()).hexdigest()[:16]
-            status = 'up' if state.lower() in ('established', 'full') else 'down'
-            
+        for src_dev, src_if, dst_dev, dst_if, proto, chassis in l2_links:
+            if not src_dev or not dst_dev:
+                continue
+            link_id = hashlib.md5(
+                f"{src_dev}|{src_if or ''}|{dst_dev}|{dst_if or ''}".encode()
+            ).hexdigest()[:16]
             db.conn.execute("""
-                INSERT INTO topology_links 
-                (link_id, source_device, source_interface, destination_device, 
+                INSERT INTO topology_links
+                (link_id, source_device, source_interface, destination_device,
                  destination_interface, discovery_protocol, link_type, link_status,
-                 first_seen, last_seen, sync_date, platform, status_changes)
-                VALUES (?, ?, ?, ?, ?, ?, 'L3', ?, ?, ?, ?, 'logical', 0)
-                ON CONFLICT (link_id) DO UPDATE SET 
+                 first_seen, last_seen, snapshot_id, platform, status_changes)
+                VALUES (?, ?, ?, ?, ?, ?, 'L2', 'up', ?, ?, ?, '', 0)
+                ON CONFLICT (link_id) DO UPDATE SET
+                    link_status  = EXCLUDED.link_status,
+                    last_seen    = EXCLUDED.last_seen,
+                    snapshot_id  = EXCLUDED.snapshot_id
+            """, [link_id, src_dev, src_if, dst_dev, dst_if, proto, now, now, sync_date])
+            stats["added"] += 1
+
+        # ── L3 OSPF: Adjacencies with IP → device resolution ──────────────────
+        ospf_rows = db.conn.execute("""
+            SELECT o.device_name, o.interface, o.neighbor_ip, o.state,
+                   COALESCE(i.device_name, o.neighbor_ip) AS dst_dev,
+                   i.interface AS dst_if
+            FROM v_ospf_neighbors o
+            LEFT JOIN v_interfaces i ON i.ip_address = o.neighbor_ip
+        """).fetchall()
+
+        for src_dev, src_if, nbr_ip, state, dst_dev, dst_if in ospf_rows:
+            link_id = hashlib.md5(
+                f"OSPF|{src_dev}|{dst_dev}".encode()
+            ).hexdigest()[:16]
+            status = 'up' if 'full' in (state or '').lower() else 'down'
+            db.conn.execute("""
+                INSERT INTO topology_links
+                (link_id, source_device, source_interface, destination_device,
+                 destination_interface, discovery_protocol, link_type, link_status,
+                 first_seen, last_seen, snapshot_id, platform, status_changes)
+                VALUES (?, ?, ?, ?, ?, 'OSPF', 'L3', ?, ?, ?, ?, 'logical', 0)
+                ON CONFLICT (link_id) DO UPDATE SET
                     link_status = EXCLUDED.link_status,
-                    last_seen = EXCLUDED.last_seen,
-                    status_changes = CASE WHEN topology_links.link_status != EXCLUDED.link_status 
-                                          THEN topology_links.status_changes + 1 
-                                          ELSE topology_links.status_changes END
-            """, [link_id, src_dev, src_if, dst_dev, dst_if, proto, status, now, now, sync_date])
+                    last_seen   = EXCLUDED.last_seen,
+                    snapshot_id = EXCLUDED.snapshot_id
+            """, [link_id, src_dev, src_if or 'OSPF', dst_dev, dst_if or nbr_ip,
+                  status, now, now, sync_date])
             stats["updated"] += 1
 
-        # Step 2: Discover physical topology (CDP/LLDP) from parsed_outputs
-        neighbor_cmds = db.conn.execute("""
-            SELECT DISTINCT command 
-            FROM parsed_outputs 
-            WHERE command LIKE '%cdp%' 
-               OR command LIKE '%lldp%' 
-               OR command LIKE '%neighbor%'
-            ORDER BY command
+        # ── L3 BGP: Sessions with IP → device resolution ──────────────────────
+        bgp_rows = db.conn.execute("""
+            SELECT b.device_name, b.neighbor_ip, b.neighbor_as, b.state,
+                   COALESCE(i.device_name, b.neighbor_ip) AS dst_dev,
+                   i.interface AS dst_if
+            FROM v_bgp_neighbors b
+            LEFT JOIN v_interfaces i ON i.ip_address = b.neighbor_ip
         """).fetchall()
-        
-        if neighbor_cmds:
-            for (cmd,) in neighbor_cmds:
-                stats["commands_processed"] += 1
-                sample = db.conn.execute(
-                    "SELECT parsed_data FROM parsed_outputs WHERE command = ? LIMIT 1", [cmd]
-                ).fetchone()
-                
-                if not sample or not sample[0]: continue
-                
-                try:
-                    data = json.loads(sample[0]) if isinstance(sample[0], str) else sample[0]
-                    json_keys = list(data[0].keys()) if isinstance(data, list) and data and isinstance(data[0], dict) else (list(data.keys()) if isinstance(data, dict) else [])
-                    if not json_keys: continue
-                    
-                    field_map = _auto_map_topology_fields(json_keys)
-                    if not field_map.get("destination_device"): continue
-                    
-                    protocol = "CDP" if "cdp" in cmd.lower() else ("LLDP" if "lldp" in cmd.lower() else "Discovery")
-                    records = db.conn.execute("""
-                        SELECT p.device_name, p.parsed_data, d.platform 
-                        FROM parsed_outputs p 
-                        LEFT JOIN devices d ON p.device_name = d.device_id
-                        WHERE p.command = ?
-                    """, [cmd]).fetchall()
-                    
-                    for dev_name, parsed, platform in records:
-                        data = json.loads(parsed) if isinstance(parsed, str) else parsed
-                        items = data if isinstance(data, list) else [data]
-                        
-                        for row in items:
-                            if not isinstance(row, dict): continue
-                            src_dev, dst_dev = dev_name, row.get(field_map["destination_device"], "")
-                            src_if, dst_if = row.get(field_map.get("source_interface", ""), ""), row.get(field_map.get("destination_interface", ""), "")
-                            
-                            if not src_dev or not dst_dev: continue
-                            
-                            link_id = hashlib.md5(f"{src_dev}|{src_if}|{dst_dev}|{dst_if}".encode()).hexdigest()[:16]
-                            existing = db.conn.execute("SELECT first_seen, status_changes FROM topology_links WHERE link_id = ? ORDER BY sync_date DESC LIMIT 1", [link_id]).fetchone()
-                            
-                            if existing:
-                                first_seen, status_changes = existing
-                                db.conn.execute("""
-                                    INSERT INTO topology_links 
-                                    (link_id, source_device, source_interface, destination_device, 
-                                     destination_interface, discovery_protocol, link_type, link_status,
-                                     first_seen, last_seen, sync_date, platform, status_changes)
-                                    VALUES (?, ?, ?, ?, ?, ?, 'L2', 'up', ?, CURRENT_TIMESTAMP, ?, ?, ?)
-                                    ON CONFLICT DO NOTHING
-                                """, [link_id, src_dev, src_if, dst_dev, dst_if, protocol, 
-                                       first_seen, sync_date, platform, status_changes])
-                                stats["updated"] += 1
-                            else:
-                                db.conn.execute("""
-                                    INSERT INTO topology_links 
-                                    (link_id, source_device, source_interface, destination_device, 
-                                     destination_interface, discovery_protocol, link_type, link_status,
-                                     first_seen, last_seen, sync_date, platform, status_changes)
-                                    VALUES (?, ?, ?, ?, ?, ?, 'L2', 'up', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, ?, 0)
-                                    ON CONFLICT DO NOTHING
-                                """, [link_id, src_dev, src_if, dst_dev, dst_if, protocol, sync_date, platform])
-                except: continue
 
-        # Step 3: Populate Enriched Data (Interfaces & BGP RIB)
+        for src_dev, nbr_ip, nbr_as, state, dst_dev, dst_if in bgp_rows:
+            proto_label = f"BGP-AS{nbr_as}"
+            link_id = hashlib.md5(
+                f"BGP|{src_dev}|{dst_dev}|{nbr_as}".encode()
+            ).hexdigest()[:16]
+            status = 'up' if 'establ' in (state or '').lower() else 'down'
+            db.conn.execute("""
+                INSERT INTO topology_links
+                (link_id, source_device, source_interface, destination_device,
+                 destination_interface, discovery_protocol, link_type, link_status,
+                 first_seen, last_seen, snapshot_id, platform, status_changes)
+                VALUES (?, ?, ?, ?, ?, ?, 'L3', ?, ?, ?, ?, 'logical', 0)
+                ON CONFLICT (link_id) DO UPDATE SET
+                    link_status      = EXCLUDED.link_status,
+                    last_seen        = EXCLUDED.last_seen,
+                    snapshot_id      = EXCLUDED.snapshot_id,
+                    destination_device = EXCLUDED.destination_device
+            """, [link_id, src_dev, proto_label, dst_dev, dst_if or nbr_ip,
+                  proto_label, status, now, now, sync_date])
+            stats["updated"] += 1
+
+        # ── Enriched data (routes etc.) ────────────────────────────────────────
         _populate_extra_networking_data(db, sync_date)
 
         db.conn.commit()
-        if stats["added"] > 0 or stats["updated"] > 0:
-            logger.info(f"Topology sync complete: {stats['added']} new, {stats['updated']} updated links.")
-            
+        logger.info(
+            f"Topology ETL: L2={stats['added']} CDP/LLDP, "
+            f"OSPF={len(ospf_rows)}, BGP={len(bgp_rows)} links written"
+        )
+
     except Exception as e:
         logger.warning(f"Failed to auto-discover topology: {e}")
     return stats
@@ -847,12 +951,14 @@ def _populate_routes(sync_date: str) -> None:
                 else:
                     continue
                 
+                from olav.core.value_normalizer import get_normalizer as _get_norm_r
+                _norm_r = _get_norm_r()
                 for route in routes:
                     try:
                         network = route.get("network") or route.get("prefix") or ""
                         mask = route.get("mask") or route.get("prefix_length") or ""
                         next_hop = route.get("next_hop") or route.get("gateway") or route.get("nexthop") or ""
-                        interface = route.get("interface") or route.get("out_interface") or ""
+                        interface = _norm_r.interface_name(route.get("interface") or route.get("out_interface") or "")
                         protocol = (route.get("protocol") or route.get("type") or "static").lower()
                         metric = route.get("metric") or route.get("cost") or 0
                         
@@ -947,11 +1053,13 @@ def _populate_ospf_neighbors(sync_date: str) -> None:
                 else:
                     continue
                 
+                from olav.core.value_normalizer import get_normalizer as _get_norm_o
+                _norm_o = _get_norm_o()
                 for neighbor in neighbors:
                     try:
                         neighbor_id = neighbor.get("neighbor_id") or neighbor.get("neighbor") or ""
                         neighbor_ip = neighbor.get("neighbor_ip") or neighbor.get("address") or ""
-                        interface = neighbor.get("interface") or neighbor.get("local_interface") or ""
+                        interface = _norm_o.interface_name(neighbor.get("interface") or neighbor.get("local_interface") or "")
                         state = neighbor.get("state") or neighbor.get("adjacency_state") or ""
                         priority = neighbor.get("priority") or neighbor.get("dr") or 1
                         
@@ -1127,7 +1235,7 @@ def _find_textfsm_template(platform: str, command: str) -> tuple["Path | None", 
     return None, ""
 
 
-def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> None:
+def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> list[dict]:
     """Stage 2: Import raw outputs to DuckDB parsed_outputs table.
 
     For each raw .txt file:
@@ -1136,25 +1244,40 @@ def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> None:
       - Empty template → command was collected, store raw only (no parse).
       - No template found    → store raw only.
       - Parse succeeds       → store JSON array of dicts (structured data).
-      - Parse fails / empty rows → fall back to {"raw": output}.
+      - Parse fails / empty rows → fall back to {}.
+
+    Quality Detection (Intent-driven Signature Matching):
+      After parsing each file, calls _detect_parse_quality_gap() which uses
+      category-aware keyword checking instead of the naive 300B threshold.
+      Returns a list of gap dicts with 'severity', 'device', 'command' keys.
 
     Args:
         sync_dir: Sync directory path (e.g. exports/snapshots/2026-02-19)
         device_names: List of device names that were synced
 
+    Returns:
+        List of quality gap dicts. Each dict has keys:
+          device, command, severity ('high'|'medium'), reason, size,
+          category, matched_keywords
     """
+    gaps: list[dict] = []
+
     try:
         import io as _io
         import json as _json
 
+        from olav.core.config import SNAPSHOTS_STAGING_JSON
         from olav.core.database import get_database
+        from olav.core.ingest_manager import IngestManager
 
         raw_dir = sync_dir / "raw"
         sync_date_str = sync_dir.name  # e.g. "2026-02-19"
 
+        # Staging directory — JSON files are written here and overwritten each run.
+        staging_dir = Path(SNAPSHOTS_STAGING_JSON)
+        staging_dir.mkdir(parents=True, exist_ok=True)
+
         db = get_database()
-        inserted = 0
-        skipped = 0
 
         # Fetch device → platform mapping from devices table (best-effort).
         device_platforms: dict[str, str] = {}
@@ -1173,9 +1296,15 @@ def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> None:
                 continue
 
             platform = device_platforms.get(device_name, "")
+            txt_files = sorted(device_dir.glob("*.txt"))
+            parsed_count = 0
+            skipped_count = 0
+            error_count = 0
+            staging_records: list[dict] = []  # Accumulated records for this device
+            print(f"\n  [{device_name}] platform={platform or '?'} — {len(txt_files)} raw files")
 
-            for txt_file in sorted(device_dir.glob("*.txt")):
-                # Convert filename back to command: show-ip-bgp.txt -> show ip bgp
+            for txt_file in txt_files:
+                # Convert filename back to command: show_ip_bgp.txt -> show ip bgp
                 command = txt_file.stem.replace("_", " ")
                 try:
                     raw_output = txt_file.read_text(encoding="utf-8", errors="replace")
@@ -1190,10 +1319,12 @@ def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> None:
                 # Raw output stays in exports/snapshots/ only.
                 # DB (parsed_outputs) receives structured data only — no raw blobs.
                 parsed_data: str | None = None
+                has_template = False  # Track if a template was found for gap detection
 
                 if platform:
                     tmpl_path, tmpl_content = _find_textfsm_template(platform, command)
                     if tmpl_path is not None:
+                        has_template = True
                         if not tmpl_content.strip():
                             # Empty template = intentional raw-only collection.
                             # Raw file already on disk. Nothing to insert into DB.
@@ -1212,47 +1343,73 @@ def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> None:
                                         dict(zip(headers, row, strict=False)) for row in fsm_rows
                                     ]
                                     parsed_data = _json.dumps(records)
-                                    logger.debug(
-                                        f"Stage 2: parsed {len(records)} rows "
-                                        f"({tmpl_path.name}) for "
-                                        f"{device_name}/{command}"
-                                    )
+                                    print(f"    ✅ {command:<40} {len(records):>4} rows  ({tmpl_path.name})")
+                                    parsed_count += 1
                                 else:
-                                    logger.debug(
-                                        f"Stage 2: TextFSM yielded 0 rows for "
-                                        f"{device_name}/{command} — skipping DB"
-                                    )
+                                    print(f"    ⚠️  {command:<40}  0 rows  ({tmpl_path.name}) — no match")
+                                    skipped_count += 1
                             except Exception as parse_err:
-                                logger.debug(
-                                    f"Stage 2: TextFSM parse failed for "
-                                    f"{device_name}/{command}: {parse_err} — skipping DB"
-                                )
+                                print(f"    ❌ {command:<40} parse error: {type(parse_err).__name__}: {str(parse_err)[:60]}")
+                                error_count += 1
                     # else: no template found → raw lives on disk, nothing in DB
                 # else: platform unknown → cannot parse, skip DB
 
-                # Save to database (Zero-ETL: always store raw + parsed if possible)
+                # Only insert into DB if we have actual structured data
+                # Skip commands with no template, parse errors, or 0 rows
                 if parsed_data is None:
-                    parsed_data = "[]"
+                    continue  # No template or parse failed — raw file is on disk
 
-                try:
-                    db.conn.execute(
-                        """
-                        INSERT OR REPLACE INTO parsed_outputs 
-                        (device_name, command, parsed_data, raw_output, snapshot_id) 
-                        VALUES (?, ?, ?::JSON, ?, ?)
-                        """,
-                        [device_name, command, parsed_data, raw_output, sync_date_str],
-                    )
-                    inserted += 1
-                except Exception as ins_err:
-                    logger.debug(f"Stage 2: insert failed for {device_name}/{command}: {ins_err}")
-                    skipped += 1
+                # ── Intent-driven Quality Gap Detection ────────────────────
+                # Only flag gaps for commands where a template exists (and should
+                # have produced data). Skip raw-only / no-template commands.
+                if has_template:
+                    gap = _detect_parse_quality_gap(raw_output, command, parsed_data)
+                    if gap:
+                        gaps.append({
+                            "device": device_name,
+                            "command": command,
+                            **gap,
+                        })
+                        logger.info(
+                            "Quality gap [%s] %s/%s: %s",
+                            gap["severity"].upper(), device_name, command, gap["reason"]
+                        )
+                # ────────────────────────────────────────────────────────────
 
-        db.conn.commit()
+                # Accumulate into staging list — written to JSON at end of device loop
+                staging_records.append({
+                    "device_name": device_name,
+                    "command": command,
+                    "parsed_data": _json.loads(parsed_data),  # native list, not string
+                    "snapshot_id": sync_date_str,
+                })
+
+            # Write staging JSON for this device (minute-level timestamp for traceability)
+            # Format: {device}_{YYYYMMDD_HHMM}.staging.json
+            timestamp = sync_date_str.replace("-", "").replace("_", "_")  # 20260301_0945 format
+            staging_file = staging_dir / f"{device_name}_{timestamp}.staging.json"
+            staging_file.write_text(
+                _json.dumps(staging_records, ensure_ascii=False, indent=None),
+                encoding="utf-8",
+            )
+            print(f"    → {device_name} summary: {parsed_count} parsed, {skipped_count} 0-rows, {error_count} errors  → {staging_file.name} ({len(staging_records)} records)")
+
+        # Bulk-load all staging files into DuckDB in one atomic read_json_auto pass
+        ingest_result = IngestManager(db_path=db.db_path).bulk_load()
         logger.info(
-            f"Stage 2: inserted {inserted} rows, skipped {skipped} into parsed_outputs "
-            f"for {sync_date_str} ({len(device_names)} devices)"
+            "Stage 2 ingest: %s — %d files, %d records inserted for %s",
+            ingest_result["status"],
+            ingest_result.get("files_processed", 0),
+            ingest_result.get("records_inserted", 0),
+            sync_date_str,
         )
+        if gaps:
+            high = sum(1 for g in gaps if g.get("severity") == "high")
+            med  = sum(1 for g in gaps if g.get("severity") == "medium")
+            logger.warning(
+                "Stage 2 quality gaps: %d HIGH, %d MEDIUM (total %d)",
+                high, med, len(gaps)
+            )
 
         # Materialize inspection views now that data is loaded
         logger.info("Materializing inspection views...")
@@ -1265,6 +1422,8 @@ def _process_sync_stage2(sync_dir: Path, device_names: list[str]) -> None:
     except Exception as e:
         logger.warning(f"Stage 2 processing failed: {type(e).__name__}: {e}")
         logger.debug("Stage 2 traceback:", exc_info=True)
+
+    return gaps  # Always return gaps list (may be partial on exception)
 
 
 # ---------------------------------------------------------------------------

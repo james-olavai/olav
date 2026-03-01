@@ -1,4 +1,7 @@
-Value config ([\s\S]+)
+Value HOSTNAME (\S+)
+Value VERSION (\S+)
 
 Start
-  ^${config} -> Record
+  ^hostname\s+${HOSTNAME}$$ -> Record
+  ^version\s+${VERSION}$$
+  ^\s*$$

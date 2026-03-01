@@ -1,0 +1,1 @@
+/home/yhvh/Olav/.olav/workspace/log-analytics/tools/log_semantic.py

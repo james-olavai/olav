@@ -398,7 +398,7 @@ class StreamingDisplay:
 
                     if val is None:
                         val_str = "-"
-                    elif isinstance(val, (dict, list)):
+                    elif isinstance(val, dict | list):
                         import json
 
                         val_str = json.dumps(val, ensure_ascii=False)
@@ -430,13 +430,14 @@ class StreamingDisplay:
 
 def display_todos(agent_graph: Any, console: Console | None = None) -> None:
     """Display todo list from agent state using Rich.
-    
+
     Args:
         agent_graph: Compiled LangGraph agent with state
         console: Console instance (optional, creates new if not provided)
     """
     if console is None:
         from rich.console import Console as RichConsole
+
         console = RichConsole()
 
     try:
@@ -445,7 +446,9 @@ def display_todos(agent_graph: Any, console: Console | None = None) -> None:
 
         # Get the latest state from the graph
         state = agent_graph.get_state()
-        todos: list[dict[str, Any]] = state.values.get("todos", []) if state and hasattr(state, "values") else []
+        todos: list[dict[str, Any]] = (
+            state.values.get("todos", []) if state and hasattr(state, "values") else []
+        )
 
         if not todos:
             return
@@ -469,6 +472,7 @@ def display_todos(agent_graph: Any, console: Console | None = None) -> None:
         console.print(panel)
     except Exception as e:
         import logging
+
         logger = logging.getLogger(__name__)
         logger.debug(f"Could not display todos: {e}")
 
@@ -503,9 +507,9 @@ def _format_and_print(
     console: "Console | None" = None,
 ) -> None:
     """Internal helper function for print_* functions.
-    
+
     Eliminates code duplication for Rich-based printing with fallback support.
-    
+
     Args:
         message: The message to print
         format_key: Key in _PRINT_FORMATS dict (error, success, welcome)
@@ -534,11 +538,11 @@ def _format_and_print(
 
 def print_error(message: str, console: "Console | None" = None) -> None:
     """Print an error message to console with color formatting.
-    
+
     Args:
         message: The error message to print
         console: Optional Rich console object (creates one if not provided)
-    
+
     Example:
         >>> print_error("Configuration failed")
         # Outputs: ❌ Configuration failed (in red)
@@ -548,11 +552,11 @@ def print_error(message: str, console: "Console | None" = None) -> None:
 
 def print_success(message: str, console: "Console | None" = None) -> None:
     """Print a success message to console with color formatting.
-    
+
     Args:
         message: The success message to print
         console: Optional Rich console object (creates one if not provided)
-    
+
     Example:
         >>> print_success("Operation completed")
         # Outputs: ✅ Operation completed (in green)
@@ -562,11 +566,11 @@ def print_success(message: str, console: "Console | None" = None) -> None:
 
 def print_welcome(message: str, console: "Console | None" = None) -> None:
     """Print a welcome message to console with color formatting.
-    
+
     Args:
         message: The welcome message to print
         console: Optional Rich console object (creates one if not provided)
-    
+
     Example:
         >>> print_welcome("Welcome to OLAV")
         # Outputs: 👋 Welcome to OLAV (in cyan)

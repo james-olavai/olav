@@ -144,7 +144,7 @@ Use the `api_call` tool to interact with the API. Always specify:
 
 ## Authentication
 
-Configure API credentials in your environment or .env file.
+Configure API credentials in your environment.
 """
         (prompts_dir / "system.md").write_text(system_prompt)
         result["files_created"].append(str(prompts_dir / "system.md"))

@@ -126,9 +126,7 @@ confirm_rollback() {
     
     echo -e "\n${YELLOW}⚠️  ROLLBACK WARNING${NC}"
     echo -e "This will:"
-    echo -e "  • Stop all OLAV services"
     echo -e "  • Restore database from: $BACKUP_DIR/databases"
-    echo -e "  • Restore configuration from: $BACKUP_DIR/.env"
     echo -e "  • Restore previous version"
     echo -e "\n${RED}All changes made after upgrade will be lost.${NC}"
     
@@ -171,11 +169,7 @@ backup_current_state() {
         log_success "Failed version database backed up"
     fi
     
-    # Backup current configuration
-    if [ -f ".env" ]; then
-        cp ".env" "$current_backup_dir/.env"
-        log_success "Failed version configuration backed up to: $current_backup_dir"
-    fi
+    # Backup current configuration (legacy .env skipped)
 }
 
 # Restore database
@@ -198,16 +192,9 @@ restore_database() {
     log_success "Database restored"
 }
 
-# Restore configuration
+# Restore configuration (legacy .env skipped)
 restore_configuration() {
-    log "🔧 Restoring configuration..."
-    
-    if [ -f "$BACKUP_DIR/.env" ]; then
-        cp "$BACKUP_DIR/.env" ".env"
-        log_success "Configuration restored"
-    else
-        log_warning ".env not found in backup"
-    fi
+    log "🔧 Skipping configuration rollback (legacy .env deprecated)..."
 }
 
 # Restore skills
@@ -274,12 +261,8 @@ else:
     print("  ! Database directory missing")
     checks_passed = False
 
-# Check configuration
-if Path(".env").exists():
-    print("  ✓ Configuration restored")
-else:
-    print("  ! Configuration file missing")
-    checks_passed = False
+# Check configuration (legacy .env check skipped)
+print("  ✓ Configuration check skipped (legacy .env deprecated)")
 
 # Try to import OLAV modules
 try:
@@ -320,7 +303,6 @@ ${GREEN}╚═══════════════════════
   ✓ Services stopped
   ✓ Current state backed up
   ✓ Database restored
-  ✓ Configuration restored
   ✓ Rollback verified
 
 🚀 Next Steps:

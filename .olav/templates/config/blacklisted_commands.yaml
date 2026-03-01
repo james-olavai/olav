@@ -2,14 +2,14 @@
 # Commands that are PERMANENTLY BLOCKED from execution.
 # blacklisted=true overrides allowed=true in the commands table.
 #
-# These commands are never executed by take_snapshot() or olav-ops
+# These commands are never executed by take_snapshot() or quick-Query
 # regardless of what appears in allowed_commands.yaml.
 #
 # Format: list of command strings or {command: ...} objects.
 
-# Sensitive configuration — contains passwords, secrets, access keys
-- command: show running-config
-- command: show startup-config
+# Sensitive configuration — contains passwords, secrets, access keys (allowed for now)
+# - command: show running-config
+# - command: show startup-config
 
 # Potentially destructive / write operations
 - command: write memory

@@ -81,7 +81,7 @@ def discover_tools(tools_path: Path, modules: list[str] | None = None) -> list[B
 
             # Find all @tool decorated functions; skip aliases (same name already seen)
             try:
-                for name, obj in inspect.getmembers(module):
+                for _name, obj in inspect.getmembers(module):
                     # Skip None objects which cause errors
                     if obj is None:
                         continue

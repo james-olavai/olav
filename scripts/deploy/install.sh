@@ -178,15 +178,8 @@ docker_install() {
 
 # Initialize configuration
 initialize_config() {
-    log "⚙️  Initializing configuration..."
-    
-    # Copy environment template if not exists
-    if [ ! -f "$INSTALL_DIR/.env" ]; then
-        cp "$INSTALL_DIR/.env.production" "$INSTALL_DIR/.env"
-        log_warning ".env created from template. Please edit with your credentials."
-    fi
-    
-    log_success "Configuration initialized"
+    log "⚙️  Initializing configuration (skipping legacy .env)..."
+    log_success "Configuration handled via olav onboard"
 }
 
 # Initialize database
@@ -283,20 +276,20 @@ ${GREEN}╚═══════════════════════
 🚀 Next Steps:
 
 1. Configure credentials:
-   Edit .env file with your API keys and network credentials
-   ${YELLOW}nano .env${NC}
+   Use environment variables or update .olav/config/api.json
+   ${YELLOW}olav config --help${NC}
 
 2. Verify installation:
    ${YELLOW}bash scripts/deploy/verify.sh${NC}
 
 3. Start using OLAV:
-   ${YELLOW}python -m olav ask "your query here"${NC}
+   ${YELLOW}uv run olav ask "your query here"${NC}
 
 4. Interactive mode:
-   ${YELLOW}python -m olav interactive${NC}
+   ${YELLOW}uv run olav${NC}
 
-5. REST API server:
-   ${YELLOW}python -m uvicorn src.olav.api.server:app --reload${NC}
+5. Guided setup (Onboarding):
+   ${YELLOW}uv run olav onboard${NC}
 
 📚 Documentation:
    - README.md

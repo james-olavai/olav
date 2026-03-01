@@ -19,27 +19,32 @@ _cached_agent = None
 _cached_agent_params = {}
 
 
-def _get_or_create_agent(**kwargs):
-    """Get cached agent or create new one with given params.
-    
-    This avoids heavy re-initialization (3-5s) per slash command.
-    """
+def _get_or_create_agent(agent_id: str = "quick", **kwargs: object) -> object:
+    """Get cached agent or create new one with given params."""
     global _cached_agent, _cached_agent_params
-    
+
+    # Inject model override if present
+    if "model_name" not in kwargs:
+        kwargs["model_name"] = _model_override
+
+    # Ensure agent_id is passed
+    kwargs["agent_id"] = agent_id
+
     # Check if we can reuse existing agent
     if _cached_agent is not None:
         # Verify params match - if different, recreate
         if _cached_agent_params == kwargs:
             return _cached_agent
-    
+
     # Create new agent and cache it
     from olav.agents.agent import create_olav_agent
+
     _cached_agent = create_olav_agent(**kwargs)
     _cached_agent_params = kwargs
     return _cached_agent
 
 
-def clear_cached_agent():
+def clear_cached_agent() -> None:
     """Clear the cached agent (call on session reset)."""
     global _cached_agent, _cached_agent_params
     _cached_agent = None
@@ -94,6 +99,11 @@ async def execute_command(
         # Check if function is async
         import inspect
 
+        # Log the slash command for auditing
+        from olav.core.audit_logger import log_command
+
+        log_command(full_command, agent_id=cmd_name)
+
         if inspect.iscoroutinefunction(func):
             result: str | None = await func(args)
         else:
@@ -145,7 +155,7 @@ Natural Language Queries (type without / prefix):
   "10.1.12.1在哪个设备?"    - IP location lookup
   "R1的健康状态"          - Device health check
   "网络概览"                - Network summary
-  
+
 Input Features:
   @file.txt               - Include file content
   !shell_command          - Execute shell command
@@ -172,15 +182,47 @@ async def cmd_clear(args: str) -> str:
 
 @register_command("history")
 async def cmd_history(args: str) -> str:
-    """Show session statistics.
+    """Show session statistics and command history.
 
     Usage:
         /history
+        /history --audit
     """
-    return """Session History Info:
+    from olav.core.config import USER_HISTORY_PATH, USER_SESSION_DIR
+
+    # Try to show audit log if available
+    try:
+        from olav.core.audit_logger import get_command_history
+
+        limit = 20
+        if args.strip() == "--audit":
+            limit = 50
+
+        history = get_command_history(limit=limit)
+
+        if history:
+            lines = ["Recent Command History:"]
+            # Show last 10 entries
+            for entry in history[-10:]:
+                ts = entry.get("timestamp", "")
+                cmd = entry.get("command", entry.get("raw", ""))
+                lines.append(f"  [{ts[:19]}] {cmd}")
+
+            if args.strip() == "--audit":
+                lines.append(f"\nFull audit log: {USER_HISTORY_PATH}")
+
+            return "\n".join(lines)
+    except Exception:
+        # Fallback if audit log fails
+        pass
+
+    return f"""Session History Info:
   History managed by LangGraph checkpointer.
-  Checkpoint database: ~/.olav/checkpoints/<username>.duckdb
-  
+  Checkpoint directory: {USER_SESSION_DIR}
+
+Centralized audit log: {USER_HISTORY_PATH}
+
+To view full history: /history --audit
 To review context: ask "what did we discuss earlier?"
 """
 
@@ -290,10 +332,10 @@ Example:
     try:
         import uuid
 
-        agent = _get_or_create_agent()
+        agent = _get_or_create_agent(agent_id="ops")
         thread_id = str(uuid.uuid4())
 
-        print(f"🎓 Starting Command Learner workflow...")
+        print("🎓 Starting Command Learner workflow...")
         print(f"   Command: {command}")
         print(f"   Device: {device}")
         if platform:
@@ -353,7 +395,7 @@ For detailed admin operations, use OLAV admin CLI: uv run olav config"""
     try:
         import uuid
 
-        agent = _get_or_create_agent()
+        agent = _get_or_create_agent(agent_id="config")
         thread_id = str(uuid.uuid4())
 
         print("⚙️  Config SubAgent processing task (HITL enabled for write operations)...")
@@ -367,3 +409,51 @@ For detailed admin operations, use OLAV admin CLI: uv run olav config"""
         import traceback
 
         return f"❌ Config Error: {str(e)}\n\n{traceback.format_exc()}"
+
+
+# Model switching command
+_model_override: str | None = None
+
+
+@register_command("model")
+async def cmd_model(args: str) -> str:
+    """Switch LLM model at runtime.
+
+    Usage:
+        /model <model_name>
+        /model list
+        /model reset
+
+    Examples:
+        /model gpt-4o
+        /model groq/llama-3.1-70b-versatile
+        /model reset
+
+    Note: Changes the model for the current session only.
+    """
+    global _model_override
+
+    args = args.strip()
+
+    if not args or args == "list":
+        return """Available models:
+  - gpt-4o (OpenAI)
+  - groq/llama-3.1-70b-versatile (Groq)
+  - x-ai/grok-4.1-fast (OpenRouter)
+
+Usage: /model <model_name>
+To use a different provider, configure in .olav/config/api.json"""
+
+    if args == "reset":
+        _model_override = None
+        clear_cached_agent()
+        return "✅ Model reset to default."
+
+    _model_override = args
+    clear_cached_agent()
+    return f"✅ Model set to: {args}. Agent will use this model for next request."
+
+
+def get_model_override() -> str | None:
+    """Get the current model override."""
+    return _model_override

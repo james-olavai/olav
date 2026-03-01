@@ -46,6 +46,8 @@ from olav.core.config import MAIN_DB_PATH
 
 
 def db_query(sql: str, params: list | None = None) -> list[dict]:
+    """Execute a SQL query against the main DuckDB database (read-only)."""
+    with _duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
     """Execute a SQL query against the main DuckDB database."""
     with _duckdb.connect(str(MAIN_DB_PATH)) as conn:
         cur = conn.cursor()

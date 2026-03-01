@@ -102,7 +102,10 @@ async def stream_run(thread_id: str, body: RunStreamRequest):
                 except (TypeError, ValueError):
                     sse_event = {
                         "event": event_type,
-                        "data": {"_serialization_error": str(type(event_data)), "message": str(event_data)[:200]}
+                        "data": {
+                            "_serialization_error": str(type(event_data)),
+                            "message": str(event_data)[:200],
+                        },
                     }
 
                 yield f"data: {json.dumps(sse_event)}\n\n"

@@ -1,4 +1,0 @@
-hostname,ip,status
-R1,10.0.0.1,up
-R2,10.0.0.2,up
-R3,10.0.0.3,down

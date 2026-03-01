@@ -1,9 +1,0 @@
-# cisco_ios_show_running-config.textfsm
-#
-# Intentionally empty — no Value fields.
-# Convention: empty template = collect raw output, skip JSON parsing.
-# The raw text is saved to exports/snapshots/{date}/raw/{device}/show_running-config.txt
-# but is NOT written to parsed_outputs table (no parsed_data JSON).
-#
-# show running-config is also blacklisted in blacklisted_commands.yaml
-# to prevent automatic collection during scheduled snapshots.

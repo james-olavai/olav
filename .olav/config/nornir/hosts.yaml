@@ -7,7 +7,7 @@
 
 R1:
   hostname: 192.168.100.101
-  platform: cisco_ios
+  platform: juniper_junos
   groups:
     - test
   data:
@@ -19,7 +19,7 @@ R1:
 
 R2:
   hostname: 192.168.100.102
-  platform: cisco_ios
+  platform: juniper_junos
   groups:
     - test
   data:

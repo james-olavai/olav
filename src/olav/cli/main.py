@@ -62,6 +62,9 @@ def parse_args():
     config_parser = subparsers.add_parser("config", help="Configuration commands")
     config_parser.add_argument("args", nargs="*", help="Config command arguments")
 
+    # Onboard command
+    subparsers.add_parser("onboard", help="Guided interactive setup and ingestion")
+
     # Default interactive mode flags
     parser.add_argument(
         "--agent",
@@ -86,6 +89,10 @@ def parse_args():
     parser.add_argument(
         "--sandbox-setup",
         help="Path to setup script to run in sandbox after creation",
+    )
+    parser.add_argument(
+        "--session",
+        help="Session ID for session recovery (stored in ~/.olav/sessions/)",
     )
     parser.add_argument(
         "--no-splash",
@@ -120,11 +127,6 @@ def check_dependencies() -> None:
     except ImportError:
         missing.append("prompt-toolkit")
 
-    try:
-        import dotenv
-    except ImportError:
-        missing.append("python-dotenv")
-
     if missing:
         console.print("\n[bold red]Missing required dependencies![/bold red]")
         console.print("\nThe following packages are required:")
@@ -135,7 +137,10 @@ def check_dependencies() -> None:
 
 
 def create_olav_agent_with_backend(
-    assistant_id: str, sandbox=None, sandbox_type: str | None = None
+    assistant_id: str,
+    session_id: str | None = None,
+    sandbox=None,
+    sandbox_type: str | None = None,
 ):
     """Create OLAV agent with CompositeBackend.
 
@@ -143,23 +148,23 @@ def create_olav_agent_with_backend(
 
     Args:
         assistant_id: Agent identifier for memory storage
+        session_id: Optional session ID for recovery
         sandbox: Optional sandbox backend for remote execution
         sandbox_type: Type of sandbox ("modal", "runloop", "daytona")
 
     Returns:
         Tuple of (agent graph, composite backend)
     """
-    from deepagents import create_deep_agent
     from deepagents.backends import CompositeBackend
     from deepagents.backends.filesystem import FilesystemBackend
 
-    from config.settings import settings
     from olav.agents.agent import OLAVAgent
 
     # Create OLAV agent (which uses create_deep_agent internally)
     olav_agent = OLAVAgent(
+        agent_id=assistant_id,
+        session_id=session_id,
         enable_checkpointer=True,
-        enable_store=True,
     )
 
     # Create backend
@@ -263,7 +268,7 @@ async def simple_cli(
         console.print()
 
     # Show working directory
-    console.print("[dim]OLAV v{} - Network Operations AI Assistant[/dim]".format(VERSION))
+    console.print(f"[dim]OLAV v{VERSION} - Network Operations AI Assistant[/dim]")
     console.print(f"[dim]Working directory: {Path.cwd()}[/dim]")
     console.print()
 
@@ -313,6 +318,11 @@ async def simple_cli(
             console.print("\nGoodbye!", style=COLORS["primary"])
             break
 
+        # Log the query for auditing
+        from olav.core.audit_logger import log_command
+
+        log_command(user_input, assistant_id=assistant_id)
+
         # Execute task
         await execute_task(
             user_input,
@@ -324,9 +334,11 @@ async def simple_cli(
         )
 
 
-async def run_interactive(assistant_id: str, session_state, sandbox_type: str = "none") -> None:
+async def run_interactive(
+    assistant_id: str, session_state, sandbox_type: str = "none", session_id: str | None = None
+) -> None:
     """Run interactive mode."""
-    agent, backend = create_olav_agent_with_backend(assistant_id)
+    agent, backend = create_olav_agent_with_backend(assistant_id, session_id=session_id)
 
     await simple_cli(
         agent,
@@ -338,14 +350,14 @@ async def run_interactive(assistant_id: str, session_state, sandbox_type: str = 
     )
 
 
-async def run_single_query(query: str, assistant_id: str) -> None:
+async def run_single_query(query: str, assistant_id: str, session_id: str | None = None) -> None:
     """Run a single query and exit."""
     from deepagents_cli.config import COLORS
     from deepagents_cli.execution import execute_task
     from deepagents_cli.input import SessionState
     from deepagents_cli.ui import TokenTracker
 
-    agent, backend = create_olav_agent_with_backend(assistant_id)
+    agent, backend = create_olav_agent_with_backend(assistant_id, session_id=session_id)
 
     session_state = SessionState(auto_approve=True)
     token_tracker = TokenTracker()
@@ -360,14 +372,18 @@ async def run_single_query(query: str, assistant_id: str) -> None:
     )
 
 
-def cli_main() -> None:
-    """Main entry point for console script."""
+def cli_main_async() -> None:
+    """Main entry point for console script (async wrapper)."""
     # Fix for gRPC fork issue on macOS
     if sys.platform == "darwin":
         os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "0"
 
     check_dependencies()
+    asyncio.run(cli_main_impl())
 
+
+async def cli_main_impl() -> None:
+    """Async implementation of cli_main."""
     try:
         args = parse_args()
 
@@ -377,8 +393,8 @@ def cli_main() -> None:
         # Handle list command
         if args.command == "list":
             console.print("\n[bold]Available Agents:[/bold]\n")
-            console.print(f"  • [bold]olav[/bold] (default)")
-            console.print(f"    Location: ~/.deepagents/olav/")
+            console.print("  • [bold]olav[/bold] (default)")
+            console.print("    Location: ~/.deepagents/olav/")
             console.print()
             return
 
@@ -402,10 +418,10 @@ def cli_main() -> None:
 
         # Handle admin command
         if args.command == "admin":
-            import asyncio
             from olav.cli.admin import admin_handler
+
             cmd_args = args.args[0] if args.args else "status"
-            result = asyncio.run(admin_handler(f"/admin {cmd_args}"))
+            result = await admin_handler(f"/admin {cmd_args}")
             if result.get("status") == "error":
                 console.print(f"[red]Error:[/red] {result.get('message')}")
             else:
@@ -414,12 +430,27 @@ def cli_main() -> None:
 
         # Handle config command
         if args.command == "config":
-            from olav.core.config import settings
-            console.print("\n[bold]OLAV Configuration:[/bold]\n")
-            console.print(f"  LLM Provider: {settings.llm_provider}")
-            console.print(f"  LLM Model: {settings.llm_model_name}")
-            console.print(f"  Temperature: {settings.llm_temperature}")
-            console.print()
+            # If args provided, treat as natural language query for config agent
+            if args.args:
+                query = " ".join(args.args)
+                await run_single_query(query, args.agent, session_id=args.session)
+            else:
+                # Otherwise show configuration
+                from olav.core.config import settings
+
+                console.print("\n[bold]OLAV Configuration:[/bold]\n")
+                console.print(f"  LLM Provider: {settings.llm_provider}")
+                console.print(f"  LLM Model: {settings.llm_model_name}")
+                console.print(f"  Temperature: {settings.llm_temperature}")
+                console.print()
+            return
+
+        # Handle onboard command
+        if args.command == "onboard":
+            from olav.cli.commands.onboard import OnboardCommand
+
+            cmd = OnboardCommand()
+            await cmd.execute()
             return
 
         # Create session state
@@ -432,15 +463,14 @@ def cli_main() -> None:
 
         if args.query:
             # Single query mode
-            asyncio.run(run_single_query(args.query, args.agent))
+            await run_single_query(args.query, args.agent, session_id=args.session)
         else:
             # Interactive mode
-            asyncio.run(
-                run_interactive(
-                    assistant_id=args.agent,
-                    session_state=session_state,
-                    sandbox_type=args.sandbox,
-                )
+            await run_interactive(
+                assistant_id=args.agent,
+                session_state=session_state,
+                sandbox_type=args.sandbox,
+                session_id=args.session,
             )
 
     except KeyboardInterrupt:
@@ -448,9 +478,17 @@ def cli_main() -> None:
         sys.exit(0)
     except Exception as e:
         console.print(f"\n[bold red]Error:[/bold red] {e}")
+        import traceback
+        # Always print traceback for debugging
+        traceback.print_exc()
         if logging.getLogger().level == logging.DEBUG:
             console.print_exception()
         sys.exit(1)
+
+
+def cli_main() -> None:
+    """Main entry point for console script."""
+    cli_main_async()
 
 
 if __name__ == "__main__":
