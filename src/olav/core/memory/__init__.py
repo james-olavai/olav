@@ -12,7 +12,7 @@ Following the integration plan in dev_docs/LANCEDB_MEMORY_SYSTEM_INTEGRATION.md
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +26,9 @@ DEFAULT_MEMORY_DB = ".olav/databases/memory.lance"
 
 # Memory table name
 MEMORY_TABLE = "memory"
+
+# Semantic cache table name (Tier-0 cache)
+CACHE_TABLE = "query_cache"
 
 
 # Memory categories
@@ -61,7 +64,19 @@ class LanceDBStore:
         self._db_path = Path(db_path) if db_path else self._get_default_db_path()
         self._embedding_dim = embedding_dim
         self._db: lancedb.LanceDBConnection | None = None
+        # FTS dirty tracking: rebuild index after N writes to keep BM25 fresh
+        self._fts_dirty: dict[str, int] = {}
+        self._fts_rebuild_threshold: int = self._load_fts_threshold()
         self._ensure_database()
+
+    @staticmethod
+    def _load_fts_threshold() -> int:
+        """Read fts_rebuild_every from config (default 20)."""
+        try:
+            from olav.core.config import get_memory_config
+            return get_memory_config().fts_rebuild_every
+        except Exception:
+            return 20
 
     def _get_default_db_path(self) -> Path:
         """Get default database path from project root."""
@@ -218,6 +233,23 @@ class LanceDBStore:
             )
 
             tbl.add(record)
+
+            # ── FTS index maintenance ───────────────────────────────────────
+            # LanceDB FTS is a static index: newly added rows are invisible to
+            # BM25 search until the index is rebuilt.  We rebuild lazily every
+            # `_fts_rebuild_threshold` writes so BM25 stays fresh without
+            # paying the rebuild cost on every single insert.
+            self._fts_dirty[table_name] = self._fts_dirty.get(table_name, 0) + 1
+            if self._fts_dirty[table_name] >= self._fts_rebuild_threshold:
+                try:
+                    tbl.create_fts_index("text", replace=True)
+                    logger.debug(
+                        f"FTS index rebuilt for '{table_name}' after "
+                        f"{self._fts_dirty[table_name]} writes."
+                    )
+                except Exception as _fts_err:
+                    logger.debug(f"FTS rebuild skipped: {_fts_err}")
+                self._fts_dirty[table_name] = 0
 
             logger.info(f"Added memory: {id} (category: {category}, scope: {scope})")
             return {"status": "success", "id": id, "message": "Memory added successfully"}
@@ -511,10 +543,144 @@ def reset_store():
         _store_instance = None
 
 
+def _get_cache_schema(embedding_dim: int) -> pa.Schema:
+    """PyArrow schema for the semantic cache table."""
+    return pa.schema(
+        [
+            ("id", pa.string()),
+            ("query_vector", pa.list_(pa.float32(), embedding_dim)),
+            ("result_json", pa.string()),
+            ("created_at", pa.timestamp("us")),
+        ]
+    )
+
+
+class SemanticCache:
+    """Tier-0 Semantic Cache for hybrid_search() results.
+
+    When a query vector is within `threshold` cosine distance of a previously
+    cached query, the stored results are returned immediately — bypassing the
+    full vector + BM25 pipeline.  Cache entries are evicted after `ttl_hours`
+    hours or when the table exceeds `max_entries` rows.
+
+    Implements §4 of LANCEDB_MEMORY_SYSTEM_INTEGRATION.md:
+        "If a query is 98% similar to a frequent cached request, return the
+        cached answer immediately."
+    """
+
+    def __init__(
+        self,
+        store: "LanceDBStore",
+        threshold: float = 0.02,
+        ttl_hours: int = 24,
+        max_entries: int = 500,
+    ) -> None:
+        self._store = store
+        self._threshold = threshold
+        self._ttl_hours = ttl_hours
+        self._max_entries = max_entries
+
+    def _ensure_table(self) -> "lancedb.table.LanceTable":
+        db = self._store.connect()
+        if CACHE_TABLE not in db.table_names():
+            schema = _get_cache_schema(self._store.embedding_dim)
+            tbl = db.create_table(CACHE_TABLE, schema=schema)
+            logger.debug(f"Created semantic cache table: {CACHE_TABLE}")
+            return tbl
+        return db.open_table(CACHE_TABLE)
+
+    def get(self, query_vector: list[float]) -> list[dict] | None:
+        """Return cached results if a very similar query was seen recently.
+
+        Returns None on cache miss or any error (non-fatal).
+        """
+        try:
+            tbl = self._ensure_table()
+            if tbl.count_rows() == 0:
+                return None
+
+            hits = (
+                tbl.search(query_vector, vector_column_name="query_vector")
+                .limit(1)
+                .to_list()
+            )
+            if not hits:
+                return None
+
+            hit = hits[0]
+            if hit.get("_distance", 1.0) > self._threshold:
+                return None  # not similar enough
+
+            # TTL check
+            created_at = hit.get("created_at")
+            if created_at is not None:
+                if isinstance(created_at, datetime):
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
+                    age_hours = (datetime.now(timezone.utc) - created_at).total_seconds() / 3600
+                    if age_hours > self._ttl_hours:
+                        return None  # expired
+
+            logger.debug("SemanticCache: hit (distance=%.4f)", hit["_distance"])
+            return json.loads(hit["result_json"])
+
+        except Exception as e:
+            logger.debug(f"SemanticCache.get error (non-fatal): {e}")
+            return None
+
+    def put(self, query_vector: list[float], results: list[dict]) -> None:
+        """Store search results keyed by query vector."""
+        try:
+            import uuid
+
+            tbl = self._ensure_table()
+            entry_id = f"cache-{uuid.uuid4().hex[:8]}"
+            record = pa.table(
+                [
+                    pa.array([entry_id]),
+                    pa.array([query_vector]),
+                    pa.array([json.dumps(results, default=str)]),
+                    pa.array([datetime.now()]),
+                ],
+                schema=_get_cache_schema(self._store.embedding_dim),
+            )
+            tbl.add(record)
+
+            # Evict oldest entries when over capacity
+            try:
+                count = tbl.count_rows()
+                if count > self._max_entries:
+                    overflow = count - self._max_entries
+                    oldest = (
+                        tbl.search()
+                        .limit(overflow)
+                        .to_list()
+                    )
+                    for row in oldest:
+                        if row.get("id"):
+                            tbl.delete(f"id = '{row['id']}'")
+            except Exception:
+                pass  # eviction failure is non-fatal
+
+        except Exception as e:
+            logger.debug(f"SemanticCache.put error (non-fatal): {e}")
+
+    def invalidate_all(self) -> None:
+        """Drop the entire cache table."""
+        try:
+            db = self._store.connect()
+            if CACHE_TABLE in db.table_names():
+                db.drop_table(CACHE_TABLE)
+                logger.debug("SemanticCache: invalidated all entries.")
+        except Exception as e:
+            logger.debug(f"SemanticCache.invalidate_all error: {e}")
+
+
 def rrf_fusion(
     result_lists: list[list[dict]],
     k: int = 60,
     apply_weight_boost: bool = True,
+    list_weights: list[float] | None = None,
 ) -> list[dict]:
     """Reciprocal Rank Fusion (RRF) to combine multiple result lists.
 
@@ -534,6 +700,8 @@ def rrf_fusion(
         result_lists: List of result lists, each containing dicts with 'id' and optional 'score'
         k: RRF parameter (default 60). Higher values reduce the impact of high ranks.
         apply_weight_boost: Multiply final RRF score by the document weight (default True).
+        list_weights: Per-list scaling factors (e.g. [0.7, 0.3] for 70% vector / 30% text).
+                      When None every list contributes equally (weight 1.0).
 
     Returns:
         Combined and reranked list of results
@@ -550,17 +718,24 @@ def rrf_fusion(
     doc_scores: dict[str, float] = {}
     doc_data: dict[str, dict] = {}
 
-    for result_list in result_lists:
+    for list_idx, result_list in enumerate(result_lists):
         if not result_list:
             continue
+
+        # Per-list weight scaling (implements vector_weight / text_weight)
+        list_w = (
+            list_weights[list_idx]
+            if list_weights and list_idx < len(list_weights)
+            else 1.0
+        )
 
         for rank, doc in enumerate(result_list, start=1):
             doc_id = doc.get("id") or doc.get("_id")
             if not doc_id:
                 continue
 
-            # Add RRF score
-            rrf_score = 1.0 / (k + rank)
+            # Weighted RRF score: list_w / (k + rank)
+            rrf_score = list_w / (k + rank)
             doc_scores[doc_id] = doc_scores.get(doc_id, 0.0) + rrf_score
 
             # Store document data (use first occurrence)
@@ -597,30 +772,54 @@ def hybrid_search(
     rrf_k: int = 60,
     vector_weight: float = 0.5,
     text_weight: float = 0.5,
+    use_cache: bool = True,
 ) -> list[dict]:
     """Perform hybrid search combining vector and text search.
 
     This function combines vector similarity search with full-text search
-    using RRF fusion to get the best of both approaches.
+    using weighted RRF fusion.  Before running the full search pipeline it
+    checks the Tier-0 Semantic Cache — if a ≥98% similar query was executed
+    recently the cached results are returned immediately.
 
     Args:
-        store: LanceDBStore instance
-        query: Text query for full-text search
-        query_vector: Embedding vector for similarity search
-        limit: Maximum number of results
-        category: Optional category filter
-        scope: Optional scope filter
-        rrf_k: RRF parameter for fusion
-        vector_weight: Weight for vector search results (for future weighted fusion)
-        text_weight: Weight for text search results
+        store: LanceDBStore instance.
+        query: Text query for full-text search (BM25).
+        query_vector: Embedding vector for similarity search.
+        limit: Maximum number of results.
+        category: Optional category filter.
+        scope: Optional scope filter.
+        rrf_k: RRF parameter for fusion.
+        vector_weight: Relative weight for the vector search list (default 0.5).
+        text_weight: Relative weight for the BM25 search list (default 0.5).
+        use_cache: Enable Tier-0 semantic cache (default True).
 
     Returns:
-        Combined and reranked list of results
+        Combined and reranked list of results.
     """
-    # Execute both searches in parallel
+    # ── Tier-0 Semantic Cache ─────────────────────────────────────────────────
+    cache: SemanticCache | None = None
+    if use_cache and query_vector:
+        try:
+            from olav.core.config import get_memory_config
+            cfg = get_memory_config()
+            cache = SemanticCache(
+                store,
+                threshold=cfg.cache_similarity_threshold,
+                ttl_hours=cfg.cache_ttl_hours,
+                max_entries=cfg.cache_max_entries,
+            )
+        except Exception:
+            cache = SemanticCache(store)
+
+        cached = cache.get(query_vector)
+        if cached is not None:
+            logger.debug("hybrid_search: Tier-0 cache hit — skipping vector+BM25 pipeline")
+            return cached[:limit]
+
+    # ── Full hybrid search ────────────────────────────────────────────────────
     vector_results = store.search_by_vector(
         query_vector,
-        limit=limit * 2,  # Get more to account for filtering
+        limit=limit * 2,  # over-fetch to account for post-filter losses
         category=category,
         scope=scope,
     )
@@ -632,10 +831,19 @@ def hybrid_search(
         scope=scope,
     )
 
-    # Apply RRF fusion
-    fused_results = rrf_fusion([vector_results, text_results], k=rrf_k)
+    # Weighted RRF fusion — vector_weight and text_weight now actually used
+    fused_results = rrf_fusion(
+        [vector_results, text_results],
+        k=rrf_k,
+        list_weights=[vector_weight, text_weight],
+    )
+    results = fused_results[:limit]
 
-    return fused_results[:limit]
+    # Store results in Tier-0 cache for future identical queries
+    if cache is not None:
+        cache.put(query_vector, results)
+
+    return results
 
 
 def store_network_event(

@@ -232,12 +232,22 @@ class AutoCaptureMiddleware:
         store: "LanceDBStore",
         llm,  # LangChain BaseChatModel
         max_items: int = CAPTURE_MAX_ITEMS,
-        similarity_dedup_threshold: float = 0.92,
+        similarity_dedup_threshold: float | None = None,
     ) -> None:
         self._store = store
         self._llm = llm
         self._max_items = max_items
-        self._dedup_threshold = similarity_dedup_threshold
+        # Read threshold from config if not explicitly provided, so it can be
+        # overridden via api.json["memory"]["dedup_threshold"] or the
+        # OLAV_MEMORY_DEDUP_THRESHOLD env var without touching code.
+        if similarity_dedup_threshold is not None:
+            self._dedup_threshold = similarity_dedup_threshold
+        else:
+            try:
+                from olav.core.config import get_memory_config
+                self._dedup_threshold = get_memory_config().dedup_threshold
+            except Exception:
+                self._dedup_threshold = 0.92
         self._embedder = None  # lazy-loaded
 
     def _embed(self, text: str) -> list[float] | None:
