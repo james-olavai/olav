@@ -490,7 +490,9 @@ USER_HISTORY_DIR = Path.home() / ".olav" / "history"
 USER_HISTORY_PATH = USER_HISTORY_DIR / f"{_username}.log"
 USER_SESSION_DIR = Path.home() / ".olav" / "sessions"
 GUARD_WHITELIST_PATH = SKILLS_DIR / "guard" / "whitelist.yaml"
-CACHE_DIR = AGENT_DIR / "cache"
+CACHE_DIR = AGENT_DIR / "cache"  # Legacy: project-level cache (kept for backwards compat)
+USER_CACHE_DIR = Path.home() / ".olav" / "cache" / _username  # User-isolated LLM cache
+USER_CHECKPOINT_DIR = Path.home() / ".olav" / "checkpoints" / _username  # User-isolated checkpoints
 
 
 __all__ = [
@@ -519,6 +521,9 @@ __all__ = [
     "USER_HISTORY_DIR",
     "USER_SESSION_DIR",
     "GUARD_WHITELIST_PATH",
+    "CACHE_DIR",
+    "USER_CACHE_DIR",
+    "USER_CHECKPOINT_DIR",
     "get_config",
     "get_llm_config",
     "get_embedding_config",
