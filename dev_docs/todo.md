@@ -169,7 +169,34 @@ The newly implemented log tools require validation of the "Zero-Locking" Parquet
   - ✅ Thread-safe concurrent handling
 - **Test File**: `tests/e2e/test_context_compression_e2e.py`
 
-### 1.8 LLM Experiment Sandbox (`.olav/core/simulation/llm_sandbox.py`)
+### 1.8 Memory System Integration Audit
+- **Objective**: Verify cache isolation, checkpointer persistence, and LanceDB multi-user security.
+- **Status**: ⏳ **AUDIT COMPLETE** (2026-03-02) — **Issues Found, Remediation Planned**
+- **Findings**:
+  - ✅ LLM Cache implemented (SQLiteCache)
+  - ✅ Checkpointer implemented (InMemorySaver, async-compatible)
+  - ✅ LanceDB long-term memory initialized
+  - ❌ **CRITICAL**: CACHE_DIR is project-level (all users share) — should be `~/.olav/cache/{user}/`
+  - ⚠️ Checkpointer is memory-only (non-persistent) — should use DuckDBSaver
+  - ⚠️ LanceDB has no user scope isolation — should use username in queries
+  - ⚠️ Thread_ID chain in deepagents_cli unclear — needs verification E2E
+- **Reports Generated**:
+  - `dev_docs/MEMORY_INTEGRATION_AUDIT.md` — Detailed analysis with root causes
+  - `dev_docs/MEMORY_INTEGRATION_REMEDIATION.md` — Step-by-step fix guide
+  - `dev_docs/DUCKDBSAVER_IMPLEMENTATION.md` — Concrete DuckDBSaver async wrapper solution
+- **Priority Fixes**:
+  - P1: Fix CACHE_DIR → USER_CACHE_DIR (1h, CRITICAL)
+  - P2: Use DuckDBSaver + asyncio.to_thread() (2h, HIGH)
+  - P3: Add LanceDB user scope (1.5h, MEDIUM)
+  - P4: Verify deepagents thread_id (1.5h, MEDIUM)
+- **Architecture Issue**: Multi-user isolation broken at cache level
+  - Multiple users on same project share: `llm_cache.db`, `memory.lancedb`
+  - Checkpointer losing state on restart (MemorySaver is in-memory)
+  - Conflict with AGENTS.md multi-user security requirements
+- **Verified Status**: ❌ **NOT YET VERIFIED** — Audit complete, implementation pending
+- **Evidence**: Live testing shows CACHE_DIR at `.olav/cache/llm_cache.db` (32KB, shared file)
+
+### 1.9 LLM Experiment Sandbox (`.olav/core/simulation/llm_sandbox.py`)
 - **Objective**: Enable LLMs to design and execute arbitrary network experiments in isolated sandbox.
 - **Status**: ✅ **VERIFIED** (2026-02-28)
 - **Test Results**: 7/7 E2E tests passed in 2.75s
@@ -204,3 +231,4 @@ The newly implemented log tools require validation of the "Zero-Locking" Parquet
 | SQL Reflection | LangGraph Loop | ✅ **VERIFIED** |
 | LLM Experiment Sandbox | Subprocess Isolation | ✅ **VERIFIED** |
 | Context Compressor | Summary Node | ✅ **VERIFIED** |
+| **Memory System** | **Cache + Checkpointer + LanceDB** | **❌ AUDIT ISSUED (P1-P4 fixes needed)** |
