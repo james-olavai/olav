@@ -110,52 +110,75 @@ def search_knowledge(
 
 ### Problem
 ```python
-# Current: MemorySaver
+# Current: MemorySaver (from langgraph.checkpoint.memory)
 self.checkpointer = MemorySaver()
 # ❌ All state lost on restart
 # ❌ No session recovery possible
 ```
 
 ### Root Cause
-- Original plan was DuckDBSaver (persistent)
-- Blocked by: LangGraph DuckDBSaver doesn't support async (aget_tuple)
-- Fallback: MemorySaver (but non-persistent)
+- Original plan: DuckDBSaver (imported at line 44, persistent)
+- Blocked by: LangGraph DuckDBSaver raises NotImplementedError in async contexts (aget_tuple not implemented)
+- Current CLI is async (run_single_query uses asyncio.run with agent.ainvoke)
+- Fallback: MemorySaver (non-persistent, in-memory only)
+
+**Note on SQLite:** SQLiteSaver also has async issues + concurrency problems with SQLiteCache. Better to stick with DuckDB.
 
 ### Solution Options
 
-**Option A:** Switch to FilesystemCheckpointer (persistent, file-based)
+**Option A (RECOMMENDED):** Fix DuckDBSaver async issue in CLI layer
+```python
+# src/olav/cli/main.py (run_single_query function)
+# Instead of:
+await execute_task(..., sync_invoke=False)  # Uses ainvoke
+
+# Use sync wrapper for checkpointer access:
+result = agent.invoke(query, thread_id=session_id)  # Sync invoke, avoids async DB issues
+```
+
+Architecture:
+- Keep DuckDBSaver for persistence (as originally planned)
+- Use sync invoke() wrapper in CLI that handles asyncio internally
+- DuckDBSaver.get_tuple() is sync-safe, only aget_tuple() fails in async
+
 ```python
 # src/olav/agents/agent.py
-from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.duckdb import DuckDBSaver
 
 checkpoint_dir = Path.home() / ".olav" / "checkpoints" / _username / self.agent_id
 checkpoint_dir.mkdir(parents=True, exist_ok=True)
-conn = sqlite3.connect(str(checkpoint_dir / "checkpoints.db"))
-self.checkpointer = SqliteSaver(conn)
+conn = duckdb.connect(str(checkpoint_dir / "checkpoints.duckdb"), read_only=False)
+self.checkpointer = DuckDBSaver(conn)
 ```
 
-**Option B:** Wait for LangGraph async fix, then switch back to DuckDBSaver
+**Option B (DEFERRED):** Wait for LangGraph async DuckDBSaver fix
 ```python
-# Deferred until LangGraph releases async DuckDBSaver support
-# Current: https://github.com/langchain-ai/langgraph/issues/XXX
+# Monitor LangGraph GitHub for:
+# - async aget_tuple() implementation in DuckDBSaver
+# - Or alternative: use DuckDB with async wrapper
+# Current issue: https://github.com/langchain-ai/langgraph/issues
 ```
 
-**Option C:** Implement custom async-compatible checkpointer
-```python
-# More complex but gives full control
-# Would need to wrap DuckDBSaver with async read/write methods
-```
+**Option C (NOT RECOMMENDED):** Use SqliteSaver
+- ❌ SQLite has concurrency issues (multiple users)
+- ❌ SQLite also doesn't properly implement async in LangGraph
+- ❌ Could have same NotImplementedError as DuckDBSaver
 
 ### Recommendation
-- **Short-term:** Implement **Option A** (SqliteSaver with user isolation)
-- **Long-term:** Monitor LangGraph for async DuckDBSaver support
+- **Immediate:** Implement **Option A** (Fix async in CLI layer, keep DuckDB)
+- **Rationale:** 
+  - Avoids SQLite concurrency problems
+  - Stays with original architecture (DuckDB)
+  - Only requires CLI change, not agent-level change
+  - Simpler than custom async wrapper
 
 ### Verification
 ```bash
 # After fix:
-ls ~/.olav/checkpoints/yhvh/ops/checkpoints.db
-# Each user has isolated checkpoints
+ls ~/.olav/checkpoints/$USER/ops/checkpoints.duckdb
+# Each user has isolated DuckDB checkpoints
 # Restarts preserve session state
+# Async compatibility works via sync CLI wrapper
 ```
 
 ---
@@ -219,16 +242,16 @@ duckdb ~/.olav/checkpoints/yhvh/ops/checkpoints.db \
 - [ ] Run `uv run pytest tests/unit/test_llm_cache.py -v`
 - [ ] Test manually: `olav --agent ops "test query"` and verify cache in `~/.olav/cache/{user}/`
 
-### Phase 2: Add LanceDB Scope
+### Phase 2: Use DuckDBSaver (NOT SQLite!)
+- [ ] Update `src/olav/agents/agent.py` (import DuckDBSaver, create persistent checkpointer)
+- [ ] Add user isolation: `~/.olav/checkpoints/{user}/{agent_id}/checkpoints.duckdb`
+- [ ] Update `src/olav/cli/main.py` (use sync invoke() to avoid async aget_tuple issue)
+- [ ] Test: Run two queries in same session, verify both in checkpoints after restart
+
+### Phase 3: Add LanceDB User Scope  
 - [ ] Update `.olav/workspace/*/tools/search_knowledge_lancedb.py` (add user scoping)
 - [ ] Update LanceDB query in each agent to use user-scoped queries
 - [ ] Create test: verify User A's search doesn't return User B's knowledge
-
-### Phase 3: Make Checkpointer Persistent  
-- [ ] Choose between SqliteSaver or wait for async DuckDBSaver
-- [ ] If SqliteSaver: Update `src/olav/agents/agent.py` (switch from MemorySaver)
-- [ ] Add user isolation: `~/.olav/checkpoints/{user}/{agent_id}/`
-- [ ] Test: Run two queries in same session, verify both in checkpoints after restart
 
 ### Phase 4: Verify Thread_ID Chain
 - [ ] Add debug logging to graph.ainvoke()
@@ -288,10 +311,10 @@ Home Directory (~)
 │   ├── checkpoints/
 │   │   ├── alice/
 │   │   │   └── ops/
-│   │   │       └── checkpoints.db    ✅ User + agent isolated
+│   │   │       └── checkpoints.duckdb  ✅ User + agent isolated (DuckDB)
 │   │   └── bob/
 │   │       └── ops/
-│   │           └── checkpoints.db    ✅ User + agent isolated
+│   │           └── checkpoints.duckdb  ✅ User + agent isolated (DuckDB)
 │   ├── history/
 │   │   └── alice.log                 ✅ Already per-user
 │   ├── sessions/
@@ -361,13 +384,13 @@ When all fixes are implemented:
 
 ## Timeline Estimate
 
-| Phase | Task | Effort | Time |
-|-------|------|--------|------|
-| P1 | Fix CACHE_DIR + test | 1h | 1h |
-| P2 | Add LanceDB scope | 1.5h | 1.5h |
-| P3 | Switch to SqliteSaver | 2h | 2h |
-| P4 | Verify thread_id chain | 1.5h | 1.5h |
-| **Total** | | **6h** | **6h** |
+| Phase | Task | Effort | Time | Note |
+|-------|------|--------|------|------|
+| P1 | Fix CACHE_DIR + test | 1h | 1h | Move to ~/.olav/cache/{user}/ |
+| P2 | Use DuckDBSaver + fix CLI async | 2h | 2h | Sync invoke() wrapper, keep DuckDB design |
+| P3 | Add LanceDB scope | 1.5h | 1.5h | Add user scope to search queries |
+| P4 | Verify thread_id chain | 1.5h | 1.5h | E2E test for session persistence |
+| **Total** | | **6h** | **6h** | Keep DuckDB, avoid SQLite concurrency issues |
 
 ---
 
