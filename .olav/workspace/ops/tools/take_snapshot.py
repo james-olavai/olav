@@ -32,6 +32,7 @@ import logging
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path
 
 from langchain_core.tools import tool
@@ -58,7 +59,7 @@ import duckdb as _ddb
 from nornir import InitNornir
 from nornir_netmiko.tasks import netmiko_send_command
 
-from olav.core.config import MAIN_DB_PATH, settings
+from olav.core.config import SNAPSHOTS_RAW_DIR, SNAPSHOTS_STAGING_JSON, settings, SNAPSHOTS_DIR
 
 # Try to import Scrapli for fast path
 try:
@@ -99,7 +100,42 @@ def _get_nornir():
 # ---------------------------------------------------------------------------
 
 def _try_parse_textfsm(output: str, command: str, platform: str) -> list[dict] | None:
-    """Attempt TextFSM parse; return list of dicts or None if unavailable."""
+    """Attempt TextFSM parse; return list of dicts or None if unavailable.
+    
+    Template discovery order (first found wins):
+      1. .olav/templates/{platform}/{safe_cmd}.textfsm  (nested, recommended)
+      2. .olav/templates/{platform}_{safe_cmd}.textfsm   (flat combined)
+      3. .olav/templates/{safe_cmd}.textfsm             (flat simple)
+      4. ntc_templates built-in library
+    """
+    # Fallback: check .olav/templates/ (local custom templates)
+    try:
+        template_root = Path(settings.agent_dir) / "templates"
+        safe_cmd = re.sub(r"[^\w]", "_", command.lower()).strip("_")
+        
+        # Try multiple path patterns (in order of preference)
+        candidates = [
+            template_root / platform / f"{safe_cmd}.textfsm",      # Nested: juniper_junos/show_interfaces_terse.textfsm
+            template_root / f"{platform}_{safe_cmd}.textfsm",      # Flat combined: juniper_junos_show_interfaces_terse.textfsm
+            template_root / f"{safe_cmd}.textfsm",                 # Flat simple: show_interfaces_terse.textfsm
+        ]
+        
+        for tpl_path in candidates:
+            if tpl_path.exists() and tpl_path.stat().st_size > 0:
+                try:
+                    import textfsm  # type: ignore
+                    with tpl_path.open() as f:
+                        fsm = textfsm.TextFSM(f)
+                    rows = fsm.ParseText(output)
+                    headers = [h.lower() for h in fsm.header]
+                    return [dict(zip(headers, r, strict=False)) for r in rows] if rows else None
+                except Exception as e:
+                    logger.debug(f"TextFSM parse failed for {tpl_path}: {e}")
+                    continue
+    except Exception:
+        pass
+    
+    # Finally try ntc_templates library
     try:
         from ntc_templates.parse import parse_output  # type: ignore
         parsed = parse_output(platform=platform, command=command, data=output)
@@ -107,20 +143,7 @@ def _try_parse_textfsm(output: str, command: str, platform: str) -> list[dict] |
             return parsed
     except Exception:
         pass
-    # Fallback: check .olav/templates/
-    try:
-        template_root = Path(settings.agent_dir) / "templates"
-        safe_cmd = re.sub(r"[^\w]", "_", command.lower()).strip("_")
-        tpl = template_root / platform / f"{safe_cmd}.textfsm"
-        if tpl.exists() and tpl.stat().st_size > 0:
-            import textfsm  # type: ignore
-            with tpl.open() as f:
-                fsm = textfsm.TextFSM(f)
-            rows = fsm.ParseText(output)
-            headers = [h.lower() for h in fsm.header]
-            return [dict(zip(headers, r, strict=False)) for r in rows] if rows else None
-    except Exception:
-        pass
+    
     return None
 
 
@@ -267,36 +290,41 @@ def _run_one(device: str, command: str, timeout: int, platform: str | None) -> d
 # ---------------------------------------------------------------------------
 
 def _write_raw_file(device: str, command: str, raw: str, snapshot_date: str) -> None:
+    """Write raw output to exports/snapshots/YYYY-MM-DD/raw/{device}/{cmd}.txt"""
     safe_cmd = re.sub(r"[^\w]", "_", command.lower()).strip("_")
-    out_dir = (
-        _PROJECT_ROOT
-        / "exports"
-        / "snapshots"
-        / snapshot_date
-        / "raw"
-        / device
-    )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / f"{safe_cmd}.txt").write_text(raw, encoding="utf-8")
+    # Path: exports/snapshots/YYYY-MM-DD/raw/R1/show_interfaces_terse.txt
+    out_path = SNAPSHOTS_DIR / snapshot_date / "raw" / device / f"{safe_cmd}.txt"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(raw, encoding="utf-8")
 
 
-def _insert_parsed_output(
-    conn,
-    device: str,
-    command: str,
-    parsed: list[dict] | None,
-    snapshot_id: str,
+def _write_staging_json(
+    device: str, command: str, parsed: list[dict] | None, snapshot_id: str
 ) -> None:
-    """Insert row in parsed_outputs for today's snapshot."""
-    parsed_json = json.dumps(parsed, ensure_ascii=False) if parsed else "[]"
-    conn.execute(
-        """
-        INSERT OR REPLACE INTO parsed_outputs
-            (device_name, command, parsed_data, snapshot_id)
-        VALUES (?, ?, ?::JSON, ?)
-        """,
-        [device, command, parsed_json, snapshot_id],
-    )
+    """Write parsed JSON to staging directory for later bulk ingestion.
+    
+    ⚠️  SKIP empty results: Only write if parsed has rows.
+    This prevents schema pollution when LLM sees empty arrays.
+    """
+    # Skip if parsed is empty (avoids polluting the schema)
+    if not parsed:
+        return
+    
+    staging_dir = Path(SNAPSHOTS_STAGING_JSON)
+    staging_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_cmd = re.sub(r"[^\w]", "_", command.lower()).strip("_")
+    file_path = staging_dir / f"{device}_{safe_cmd}.json"
+
+    content = {
+        "device": device,
+        "command": command,
+        "parsed": parsed,
+        "snapshot_id": snapshot_id,
+        "timestamp": datetime.now().isoformat(),
+    }
+
+    file_path.write_text(json.dumps(content, ensure_ascii=False), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -379,66 +407,51 @@ def take_snapshot(
     failed = 0
     summary_rows = []
 
-    try:
-        with _ddb.connect(str(MAIN_DB_PATH)) as conn:
-            for r in all_results:
-                if r["status"] == "success":
-                    raw = r.get("raw", "")
-                    parsed = r.get("parsed")
-                    try:
-                        _insert_parsed_output(
-                            conn,
-                            r["device"],
-                            r["command"],
-                            parsed,
-                            snapshot_date,
-                        )
-                        _write_raw_file(r["device"], r["command"], raw, snapshot_date)
-                        successful += 1
-                        summary_rows.append(
-                            {
-                                "device": r["device"],
-                                "command": r["command"],
-                                "status": "success",
-                                "parsed_rows": len(parsed) if parsed else 0,
-                            }
-                        )
-                    except Exception as exc:
-                        failed += 1
-                        summary_rows.append(
-                            {
-                                "device": r["device"],
-                                "command": r["command"],
-                                "status": "db_write_failed",
-                                "error": str(exc),
-                            }
-                        )
-                else:
-                    failed += 1
-                    summary_rows.append(
-                        {
-                            "device": r["device"],
-                            "command": r["command"],
-                            "status": "failed",
-                            "error": r.get("error", "unknown"),
-                        }
-                    )
-    except Exception as exc:
-        # DB unavailable — still return raw results
-        logger.error("DB write failed: %s", exc)
-        for r in all_results:
-            if r["status"] == "success":
+    # Write to staging raw files
+    successful = 0
+    failed = 0
+    summary_rows = []
+
+    for r in all_results:
+        if r["status"] == "success":
+            raw = r.get("raw", "")
+            parsed = r.get("parsed")
+            try:
+                # Write staging JSON
+                _write_staging_json(r["device"], r["command"], parsed, snapshot_id)
+                # Write raw file
+                _write_raw_file(r["device"], r["command"], raw, snapshot_date)
+
                 successful += 1
                 summary_rows.append(
-                    {"device": r["device"], "command": r["command"],
-                     "status": "success_no_db", "warning": str(exc)}
+                    {
+                        "device": r["device"],
+                        "command": r["command"],
+                        "status": "success",
+                        "parsed_rows": len(parsed) if parsed else 0,
+                    }
                 )
-            else:
+            except Exception as exc:
                 failed += 1
+                logger.error(f"Failed to write staging data for {r['device']}: {exc}")
                 summary_rows.append(
-                    {"device": r["device"], "command": r["command"],
-                     "status": "failed", "error": r.get("error")}
+                    {
+                        "device": r["device"],
+                        "command": r["command"],
+                        "status": "write_failed",
+                        "error": str(exc),
+                    }
                 )
+        else:
+            failed += 1
+            summary_rows.append(
+                {
+                    "device": r["device"],
+                    "command": r["command"],
+                    "status": "failed",
+                    "error": r.get("error", "unknown"),
+                }
+            )
 
     return {
         "status": "success" if failed == 0 else ("partial" if successful > 0 else "failed"),

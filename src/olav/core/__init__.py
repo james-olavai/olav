@@ -6,8 +6,6 @@ Also exports core infrastructure components.
 
 # Re-export settings from unified config
 from olav.core.config import Settings, get_settings, settings
-from olav.core.config import settings, Settings, get_settings
-
 
 # Script Engine (Task 12.1-12.3)
 try:

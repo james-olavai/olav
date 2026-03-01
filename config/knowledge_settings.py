@@ -95,6 +95,10 @@ class KnowledgeSettings(BaseSettings):
         """Pydantic config for automatic environment variable loading"""
         env_prefix = "KNOWLEDGE_"
         case_sensitive = False
+        # Removed: env_file and json_file_encoding - use OLAV config system instead
+        """Pydantic config for automatic environment variable loading"""
+        env_prefix = "KNOWLEDGE_"
+        case_sensitive = False
         # Allow .olav/settings.json to override via load_dotenv
         env_file = ".olav/settings.json"
         json_file_encoding = "utf-8"

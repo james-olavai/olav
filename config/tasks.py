@@ -173,8 +173,6 @@ class TaskSchedulerSettings(BaseSettings):
     
     model_config = SettingsConfigDict(
         env_prefix="TASK_",
-        env_file=".env",
-        env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
         json_file=".olav/config/tasks.json",  # Load from JSON file if present
@@ -192,7 +190,6 @@ class TaskSchedulerSettings(BaseSettings):
         return (
             init_settings,
             env_settings,
-            dotenv_settings,
             JsonConfigSettingsSource(settings_cls),
         )
 

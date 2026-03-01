@@ -8,15 +8,7 @@ project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))  # pragma: no cover (modifies global state)
 
-# Load environment first
-from dotenv import load_dotenv
-
-load_dotenv()
-
 from olav.cli.main import cli_main as main
-
-if __name__ == "__main__":
-    main()
 
 if __name__ == "__main__":
     main()

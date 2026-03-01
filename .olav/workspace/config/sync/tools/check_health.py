@@ -29,13 +29,7 @@ def _check_env() -> dict:
     """Check environment configuration."""
     results = {"status": "ok", "checks": []}
 
-    env_file = _PROJECT_ROOT / ".env"
-    if env_file.exists():
-        results["checks"].append({"name": ".env exists", "status": "ok"})
-    else:
-        results["checks"].append(
-            {"name": ".env exists", "status": "warning", "message": "No .env file"}
-        )
+    # Skip .env existence check (deprecated)
 
     api_key = os.getenv("LLM_API_KEY")
     if api_key:
@@ -359,7 +353,7 @@ def _generate_recommendations(health_data: dict) -> list[str]:
     for check in health_data.get("env", {}).get("checks", []):
         if check["status"] == "error":
             if "LLM_API_KEY" in check["name"]:
-                recommendations.append("Set LLM_API_KEY in .env file")
+                recommendations.append("Set LLM_API_KEY in environment")
 
     for check in health_data.get("olav_md", {}).get("checks", []):
         if check["status"] == "error":

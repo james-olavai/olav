@@ -30,7 +30,9 @@ Help users create high-quality TextFSM templates for network device command outp
 
 **5. Generate Template**
    - Use `generate_template` with NTC references
-   - Must parse > 80% of output
+   - Template quality is validated via an **LLM reflection step** (ReAct loop):
+     the system compares the raw CLI output against the parsed table and retries
+     until the reflection returns `verdict = PASS` (no missed data rows)
    - All approved fields must be extracted
    - Follow TextFSM best practices
 
@@ -48,7 +50,7 @@ Help users create high-quality TextFSM templates for network device command outp
 ## Quality Standards
 
 ✅ **Required**:
-- Parse coverage > 80%
+- LLM reflection verdict = `PASS` (every data row in raw output captured)
 - All user-approved fields extracted
 - Template testable against actual output
 - Follow TextFSM best practices from NTC references

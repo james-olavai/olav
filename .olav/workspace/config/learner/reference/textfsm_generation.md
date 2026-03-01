@@ -40,9 +40,31 @@ Done
 ✓ Proper exit conditions defined
 ✓ Variable names are descriptive and lowercase_with_underscores
 
-## Field References
+## ⚠️ CRITICAL: Every Data Row Must Be Captured
 
-NTC-Templates references are automatically provided in Step 4. Use them to:
-- Verify field naming conventions
-- Check pattern examples for similar commands
-- Understand vendor-specific output formats
+After writing the template, mentally walk through **every non-blank line** in the
+sample output and verify it either:
+  - Triggers a `-> Record` (produces a row), OR
+  - Is intentionally skipped (header, separator, continuation indent)
+
+The template generator uses a **ReAct + Reflection** loop:
+1. **Act** — generate the template
+2. **Observe** — TextFSM parses the sample and returns a table
+3. **Reflect** — an LLM compares the raw output to the parsed table and reports any missed rows
+4. **Act** — regenerate with explicit missed-row feedback until `verdict = PASS`
+
+**Common patterns that cause missed rows:**
+
+1. **Juniper `-->` next-hop notation**:
+   ```
+   lo0.0    up   up   inet   1.1.1.1   --> 0/0
+   ```
+   Fix: `^${INTERFACE}\s+${ADMIN}\s+${LINK}\s+${PROTO}\s+${IP}\s+-->\s*\S*$$ -> Record`
+
+2. **Cisco continuation lines** (OSPF, BGP summary rows with wrapped columns):
+   Extra state + `Continue` transitions needed.
+
+3. **Multi-value lines** (one interface, multiple IPs):
+   Use a separate `List` Value or additional state.
+
+**The reflection step will explicitly call out every raw line that is absent from the parsed table. The template is only accepted when the LLM reflection returns `verdict = PASS`.**

@@ -1,0 +1,21 @@
+Value INTERFACE (\S+)
+Value ADMIN_STATE (\w+)
+Value LINK_STATE (\w+)
+Value PROTO (\S*)
+Value LOCAL_IP (\S*)
+Value REMOTE_IP (\S*)
+
+Start
+  # Skip header line
+  ^Interface\s+Admin\s+Link\s+Proto
+  # Format 1a: Juniper loopback/martian notation: IFACE ADMIN LINK PROTO LOCAL --> next-hop
+  ^${INTERFACE}\s+${ADMIN_STATE}\s+${LINK_STATE}\s+${PROTO}\s+${LOCAL_IP}\s+-->\s*\S*$$ -> Record
+  # Format 1b: Full line: INTERFACE ADMIN LINK PROTO LOCAL REMOTE
+  ^${INTERFACE}\s+${ADMIN_STATE}\s+${LINK_STATE}\s+${PROTO}\s+${LOCAL_IP}\s+${REMOTE_IP}$$ -> Record
+  # Format 2: INTERFACE ADMIN LINK (no proto/IP columns)
+  ^${INTERFACE}\s+${ADMIN_STATE}\s+${LINK_STATE}\s*$$ -> Record
+  # Format 3: Continuation lines (sub-protocol rows, e.g. inet6 lines below main interface)
+  ^\s+${PROTO}\s+${LOCAL_IP}\s+-->\s*\S*$$
+  ^\s+${PROTO}\s+${LOCAL_IP}\s+${REMOTE_IP}$$
+  ^\s+${PROTO}\s+${LOCAL_IP}$$
+  ^\s*$$

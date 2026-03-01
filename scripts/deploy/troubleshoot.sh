@@ -205,48 +205,10 @@ if missing:
 EOF
 }
 
-# Configuration check
+# Configuration check (legacy .env check skipped)
 check_configuration() {
     echo -e "\n${YELLOW}=== Configuration ===${NC}"
-    
-    if [ ! -f .env ]; then
-        log_error ".env file not found"
-        return 1
-    fi
-    
-    log_success ".env file exists"
-    
-    # Check for sensitive values
-    python3 << 'PYTHON_EOF'
-from pathlib import Path
-import re
-
-env_file = Path(".env")
-if not env_file.exists():
-    exit(1)
-
-content = env_file.read_text()
-lines = content.split("\n")
-
-placeholder_pattern = r"(your-key|your-.*|example|placeholder|\$\{.*\})"
-
-issues = []
-for i, line in enumerate(lines, 1):
-    if not line or line.startswith("#"):
-        continue
-    
-    if "=" in line:
-        key, value = line.split("=", 1)
-        if re.search(placeholder_pattern, value, re.IGNORECASE):
-            issues.append(f"  Line {i}: {key.strip()} not configured")
-
-if issues:
-    print("  Configuration issues:")
-    for issue in issues:
-        print(issue)
-else:
-    print("  ✓ All configuration variables set")
-EOF
+    log "ℹ️ Skipping .env check (deprecated). Please use environment variables or JSON config."
 }
 
 # Database check
@@ -456,19 +418,11 @@ recommendations = []
 
 # Check environment
 if not os.getenv("LLM_API_KEY") or os.getenv('LLM_API_KEY') in ["", "your-key", "${LLM_API_KEY}"]:
-    recommendations.append("  • Set LLM_API_KEY environment variable or in .env")
+    recommendations.append("  • Set LLM_API_KEY environment variable")
 
 # Check database
 if not Path(".olav/databases").exists():
     recommendations.append("  • Create .olav/databases directory")
-
-# Check if tests pass
-if not Path("tests").exists():
-    recommendations.append("  • Add test suite for validation")
-
-# Check logs
-if not Path("logs").exists():
-    recommendations.append("  • Create logs directory for debugging")
 
 if recommendations:
     for rec in recommendations:
@@ -515,8 +469,8 @@ ${GREEN}╚═══════════════════════
    - Test device connectivity: ping <device_ip>
 
 4. Configuration Issues
-   - Verify all required variables in .env
-   - Run: bash scripts/deploy/configure.sh
+   - Verify all required variables in environment
+   - Check .olav/config/api.json
    - Check for placeholder values
 
 5. Service Issues

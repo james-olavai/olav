@@ -5,11 +5,13 @@ interface, allowing it to be used directly with DeepAgents.
 """
 
 import logging
-from typing import Any, Iterable, Sequence
+from collections.abc import Iterable, Sequence
+from typing import Any
 
 from langgraph.store.base import BaseStore
 
-from olav.core.memory import LanceDBStore as OCLanceDBStore, MEMORY_TABLE
+from olav.core.memory import MEMORY_TABLE
+from olav.core.memory import LanceDBStore as OCLanceDBStore
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +22,7 @@ class LangGraphLanceDBStore(BaseStore):
     This implements the BaseStore interface required by DeepAgents' store parameter.
     """
 
-    def __init__(self, db_path: str | None = None, embedding_dim: int = 384):
+    def __init__(self, db_path: str | None = None, embedding_dim: int = 384) -> None:
         """Initialize the adapter.
 
         Args:
@@ -34,6 +36,7 @@ class LangGraphLanceDBStore(BaseStore):
         if not self._store.table_exists(self._table_name):
             self._store.create_table(self._table_name)
 
+    # pyright: ignore[reportIncompatibleMethodOverride]
     def get(self, namespace: tuple[str, ...], key: str) -> Any | None:
         """Get a value by namespace and key.
 
@@ -53,6 +56,7 @@ class LangGraphLanceDBStore(BaseStore):
                 return mem
         return None
 
+    # pyright: ignore[reportIncompatibleMethodOverride]
     def put(self, namespace: tuple[str, ...], key: str, value: Any) -> None:
         """Store a value with namespace and key.
 
@@ -96,6 +100,7 @@ class LangGraphLanceDBStore(BaseStore):
                 self._store.delete_memory(key, table_name=self._table_name)
                 break
 
+    # pyright: ignore[reportIncompatibleMethodOverride]
     def search(
         self,
         namespace: tuple[str, ...],
@@ -126,6 +131,7 @@ class LangGraphLanceDBStore(BaseStore):
         else:
             return self._store.get_memories(scope=scope, limit=limit, table_name=self._table_name)
 
+    # pyright: ignore[reportIncompatibleMethodOverride]
     def list_namespaces(
         self, prefix: str | Iterable[str] | None = None
     ) -> Iterable[tuple[str, ...]]:
@@ -143,6 +149,7 @@ class LangGraphLanceDBStore(BaseStore):
             return [("global",)]
         return [("global",)]
 
+    # pyright: ignore[reportIncompatibleMethodOverride]
     def abatch(self, operations: Sequence[tuple[str, tuple[str, ...], str, Any]]) -> Sequence[Any]:
         """Async batch operations.
 
@@ -167,6 +174,7 @@ class LangGraphLanceDBStore(BaseStore):
                 results.append(None)
         return results
 
+    # pyright: ignore[reportIncompatibleMethodOverride]
     def batch(self, operations: Sequence[tuple[str, tuple[str, ...], str, Any]]) -> Sequence[Any]:
         """Batch operations (sync version).
 

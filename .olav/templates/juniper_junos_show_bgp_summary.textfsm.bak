@@ -1,0 +1,17 @@
+Value PEER (\S+)
+Value PEER_AS (\d+)
+Value IN_PKT (\d+)
+Value OUT_PKT (\d+)
+Value OUT_Q (\d+)
+Value FLAPS (\d+)
+Value LAST_UP_DOWN (\S+)
+Value STATE (\S+)
+
+Start
+  ^Peer\s+AS\s+InPkt -> PeerTable
+  ^\s*$$
+
+PeerTable
+  ^${PEER}\s+${PEER_AS}\s+${IN_PKT}\s+${OUT_PKT}\s+${OUT_Q}\s+${FLAPS}\s+${LAST_UP_DOWN}\s+${STATE} -> Record
+  ^\s*inet\.\d+:
+  ^\s*$$

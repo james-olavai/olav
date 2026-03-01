@@ -19,6 +19,7 @@ from pathlib import Path
 import langchain
 from langchain_community.cache import SQLiteCache
 from langgraph.checkpoint.memory import MemorySaver
+
 """
 OLAV Orchestrator Agent - v3.4 (DeepAgents + SubAgents)
 
@@ -33,19 +34,15 @@ Architecture:
 Replaces: LangGraph StateGraph + flat tool list (agent.py v3.2)
 """
 
-import logging
-from pathlib import Path
 
-import langchain
-from langchain_community.cache import SQLiteCache
-from langgraph.checkpoint.duckdb import DuckDBSaver
 from deepagents import create_deep_agent
 from deepagents.middleware.subagents import SubAgent
+from langgraph.checkpoint.duckdb import DuckDBSaver
 
 from olav.core.config import settings
 from olav.core.llm import LLMFactory
-from olav.core.tool_discovery import discover_tools
 from olav.core.memory.langgraph_adapter import LangGraphLanceDBStore
+from olav.core.tool_discovery import discover_tools
 
 try:
     import frontmatter as _frontmatter
@@ -69,9 +66,18 @@ def _read_prompt_file(path: Path) -> str | None:
 
 def _resolve_env_ref(value: str) -> str:
     """Expand ``${ENV_VAR}`` references in a string against os.environ."""
-    import os, re
+    import os
+    import re
 
     def _sub(m: re.Match) -> str:
+        var = m.group(1)
+        val = os.environ.get(var)
+        if val is None:
+            raise RuntimeError(
+                f"OLAV.md references env var ${{{var}}} but it is not set. "
+                f"Set '{var}=<model-name>' via environment variable or .olav/config/api.json."
+            )
+        return val
         var = m.group(1)
         val = os.environ.get(var)
         if val is None:
@@ -94,22 +100,30 @@ class OLAVAgent:
         olav_base_path: str = ".olav",
         enable_checkpointer: bool = True,
         agent_id: str | None = None,
+        session_id: str | None = None,
     ):
         """Initialize OLAV Orchestrator Agent."""
         self.model_name = model_name or settings.llm_model_name
         self.temperature = temperature if temperature is not None else settings.llm_temperature
         self.olav_base_path = Path(olav_base_path)
         self.agent_id = agent_id or "quick"
+        self.session_id = session_id
 
         # LLM via LLMFactory
-        self.llm = LLMFactory.get_chat_model(temperature=self.temperature)
+        self.llm = LLMFactory.get_chat_model(
+            model_name=self.model_name,
+            temperature=self.temperature,
+            agent_id=self.agent_id,
+        )
         logger.info(
-            f"OLAV Orchestrator v3.4 initialized: provider={settings.llm_provider}, "
-            f"model={self.model_name}, temperature={self.temperature}"
+            f"OLAV Orchestrator v3.4 initialized: "
+            f"model={self.model_name}, temperature={self.temperature}, agent={self.agent_id}"
         )
 
-        # LangChain LLM cache — SQLite
-        cache_path = self.olav_base_path / "databases" / "llm_cache.db"
+        # LangChain LLM cache — SQLite (Moved to home for multi-user isolation)
+        from olav.core.config import CACHE_DIR
+
+        cache_path = CACHE_DIR / "llm_cache.db"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             langchain.llm_cache = SQLiteCache(database_path=str(cache_path))
@@ -117,34 +131,19 @@ class OLAVAgent:
         except Exception as e:
             logger.warning(f"LLM cache init failed: {e}. Caching disabled.")
 
-        # Checkpointer — try DuckDBSaver first for persistence, fall back to MemorySaver
+        # Checkpointer — use MemorySaver for async compatibility (DuckDB doesn't support aget_tuple)
+        # TODO: Switch back to DuckDBSaver once LangGraph fixes async support or we upgrade to newer version
         self.checkpointer = None
         if enable_checkpointer:
             try:
-                # Try DuckDBSaver for persistent checkpoints
-                import duckdb
-                checkpoint_db = self.olav_base_path / "databases" / "checkpoints.duckdb"
-                checkpoint_db.parent.mkdir(parents=True, exist_ok=True)
-                duck_conn = duckdb.connect(str(checkpoint_db))
-                from langgraph.checkpoint.duckdb import DuckDBSaver
-                self.checkpointer = DuckDBSaver(conn=duck_conn)
-                logger.info(f"✓ Checkpointer initialized (DuckDBSaver): {checkpoint_db}")
-            except Exception as e:
-                logger.warning(f"DuckDBSaver failed ({e}), falling back to MemorySaver")
-                try:
-                    from langgraph.checkpoint.memory import MemorySaver
-                    self.checkpointer = MemorySaver()
-                    logger.info("✓ Checkpointer initialized (MemorySaver - RAM only)")
-                except Exception as e2:
-                    logger.warning(f"MemorySaver init failed: {e2}. No checkpoint.")
-        self.checkpointer = None
-        if enable_checkpointer:
-            try:
+                # Use MemorySaver for CLI async compatibility
+                # DuckDBSaver raises NotImplementedError in async contexts
                 from langgraph.checkpoint.memory import MemorySaver
+                
                 self.checkpointer = MemorySaver()
-                logger.info("✓ Checkpointer initialized (MemorySaver)")
+                logger.info("✓ Checkpointer initialized (MemorySaver - for async CLI support)")
             except Exception as e:
-                logger.warning(f"MemorySaver init failed: {e}. No checkpoint.")
+                logger.warning(f"MemorySaver failed ({e}), no checkpoint support available")
 
         # LanceDB long-term semantic memory store
         self.store = None
@@ -177,7 +176,6 @@ class OLAVAgent:
     # ------------------------------------------------------------------
     # Tool loading helpers
     # ------------------------------------------------------------------
-
 
     # ------------------------------------------------------------------
     # Workspace AGENT.md config loading
@@ -225,7 +223,7 @@ class OLAVAgent:
         """Load tools from a SKILL.md file."""
         try:
             with open(skill_path, encoding="utf-8") as f:
-                post = _frontmatter.load(f)
+                _frontmatter.load(f)
         except Exception as e:
             logger.warning(f"Failed to parse SKILL.md {skill_path}: {e}")
             return []
@@ -309,6 +307,40 @@ class OLAVAgent:
             return prompt
 
         return olav_config.get("description", "You are OLAV, a network operations AI assistant.")
+
+    # ------------------------------------------------------------------
+    # Invoke methods (interface for backwards compatibility)
+    # ------------------------------------------------------------------
+
+    async def ainvoke(self, input_: str | dict, thread_id: str | None = None, **kwargs) -> dict:
+        """Async invoke the agent graph."""
+        if isinstance(input_, str):
+            input_ = {"messages": [{"role": "user", "content": input_}]}
+        
+        config = {}
+        if thread_id:
+            config["configurable"] = {"thread_id": thread_id}
+        
+        try:
+            result = await self.graph.ainvoke(input_, config=config if config else None, **kwargs)
+            return result
+        except Exception as e:
+            logger.error(f"ainvoke failed: {e}")
+            return {"status": "error", "response": str(e)}
+
+    async def invoke(self, input_: str | dict, thread_id: str | None = None, **kwargs) -> dict:
+        """Sync invoke (calls async version via asyncio)."""
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Already in async context, use ainvoke directly
+                return await self.ainvoke(input_, thread_id, **kwargs)
+        except RuntimeError:
+            pass
+        
+        # Sync context: create new loop
+        return asyncio.run(self.ainvoke(input_, thread_id, **kwargs))
 
 
 def create_olav_agent(

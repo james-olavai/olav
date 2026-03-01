@@ -32,6 +32,7 @@ tools:
   - take_snapshot            # Dedicated: SSH collect → parsed_outputs + raw files
   - sync_commands            # Dedicated: Scan templates → commands + schema_catalog
   - sync_all                 # Dedicated: Full pipeline: inventory+snapshot+commands
+  - reparse_outputs          # Dedicated: Re-parse local raw files with new templates (no SSH)
   - diff_configs             # Dedicated: Show config diff between two dates
   - manage_cron              # Dedicated: Schedule/unschedule Cron jobs
   - get_current_datetime     # Dedicated: Get current datetime
@@ -54,6 +55,7 @@ The Sync Subagent handles device synchronization, SSH data collection, and templ
 
 ### Data Collection
 - `take_snapshot`: SSH collect → parsed_outputs + raw files
+- `reparse_outputs`: Re-parse local raw files with new templates (no SSH required)
 - `diff_configs`: Show config diff between two dates
 
 ### System Operations

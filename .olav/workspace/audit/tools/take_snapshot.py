@@ -99,7 +99,42 @@ def _get_nornir():
 # ---------------------------------------------------------------------------
 
 def _try_parse_textfsm(output: str, command: str, platform: str) -> list[dict] | None:
-    """Attempt TextFSM parse; return list of dicts or None if unavailable."""
+    """Attempt TextFSM parse; return list of dicts or None if unavailable.
+    
+    Template discovery order (first found wins):
+      1. .olav/templates/{platform}/{safe_cmd}.textfsm  (nested, recommended)
+      2. .olav/templates/{platform}_{safe_cmd}.textfsm   (flat combined)
+      3. .olav/templates/{safe_cmd}.textfsm             (flat simple)
+      4. ntc_templates built-in library
+    """
+    # Local custom templates first
+    try:
+        template_root = Path(settings.agent_dir) / "templates"
+        safe_cmd = re.sub(r"[^\w]", "_", command.lower()).strip("_")
+        
+        # Try multiple path patterns (in order of preference)
+        candidates = [
+            template_root / platform / f"{safe_cmd}.textfsm",      # Nested: juniper_junos/show_interfaces_terse.textfsm
+            template_root / f"{platform}_{safe_cmd}.textfsm",      # Flat combined: juniper_junos_show_interfaces_terse.textfsm
+            template_root / f"{safe_cmd}.textfsm",                 # Flat simple: show_interfaces_terse.textfsm
+        ]
+        
+        for tpl_path in candidates:
+            if tpl_path.exists() and tpl_path.stat().st_size > 0:
+                try:
+                    import textfsm  # type: ignore
+                    with tpl_path.open() as f:
+                        fsm = textfsm.TextFSM(f)
+                    rows = fsm.ParseText(output)
+                    headers = [h.lower() for h in fsm.header]
+                    return [dict(zip(headers, r, strict=False)) for r in rows] if rows else None
+                except Exception as e:
+                    logger.debug(f"TextFSM parse failed for {tpl_path}: {e}")
+                    continue
+    except Exception:
+        pass
+    
+    # Finally try ntc_templates library
     try:
         from ntc_templates.parse import parse_output  # type: ignore
         parsed = parse_output(platform=platform, command=command, data=output)
@@ -107,20 +142,7 @@ def _try_parse_textfsm(output: str, command: str, platform: str) -> list[dict] |
             return parsed
     except Exception:
         pass
-    # Fallback: check .olav/templates/
-    try:
-        template_root = Path(settings.agent_dir) / "templates"
-        safe_cmd = re.sub(r"[^\w]", "_", command.lower()).strip("_")
-        tpl = template_root / platform / f"{safe_cmd}.textfsm"
-        if tpl.exists() and tpl.stat().st_size > 0:
-            import textfsm  # type: ignore
-            with tpl.open() as f:
-                fsm = textfsm.TextFSM(f)
-            rows = fsm.ParseText(output)
-            headers = [h.lower() for h in fsm.header]
-            return [dict(zip(headers, r, strict=False)) for r in rows] if rows else None
-    except Exception:
-        pass
+    
     return None
 
 
@@ -301,6 +323,67 @@ def _insert_parsed_output(
 
 
 # ---------------------------------------------------------------------------
+# Intent-driven parse quality detection (Issue #3)
+# ---------------------------------------------------------------------------
+
+_AUDIT_CATEGORY_SIGNATURES: dict[str, list[str]] = {
+    "routing": ["neighbor", "peer", "via", "gateway", "prefix", "network", "metric", "route"],
+    "bgp": ["neighbor", "peer", "established", "active", "idle", "prefix", "as-path", "bgp"],
+    "ospf": ["neighbor", "state", "full", "loading", "dr", "bdr", "area", "ospf"],
+    "interfaces": ["up", "down", "protocol", "bandwidth", "mtu", "encapsulation"],
+    "neighbors": ["device id", "capability", "platform", "port id"],
+    "system": ["version", "uptime", "cpu", "memory", "flash"],
+}
+
+_AUDIT_CMD_CATEGORY_MAP: list[tuple[str, str]] = [
+    ("show ip bgp", "bgp"), ("show bgp", "bgp"),
+    ("show ip ospf", "ospf"), ("show ospf", "ospf"),
+    ("show ip route", "routing"), ("show route", "routing"),
+    ("show interfaces", "interfaces"), ("show ip interface", "interfaces"),
+    ("show cdp neighbor", "neighbors"), ("show lldp neighbor", "neighbors"),
+    ("show version", "system"), ("show processes", "system"),
+]
+
+
+def _audit_detect_gap(raw: str, command: str, parsed: list[dict] | None) -> dict | None:
+    """Return quality gap dict if parsed is empty but raw suggests real data exists."""
+    if parsed:  # Has rows → no gap
+        return None
+    if not raw or not raw.strip():
+        return None
+
+    cmd_lower = command.lower()
+    category = "general"
+    for prefix, cat in _AUDIT_CMD_CATEGORY_MAP:
+        if prefix in cmd_lower:
+            category = cat
+            break
+
+    txt_lower = raw.lower()
+    sigs = _AUDIT_CATEGORY_SIGNATURES.get(category, [])
+    matched = [s for s in sigs if s in txt_lower][:3]
+    size = len(raw.encode("utf-8", errors="replace"))
+
+    if matched:
+        return {
+            "severity": "high",
+            "category": category,
+            "matched_keywords": matched,
+            "reason": f"Keywords {matched} in raw but JSON empty — 100% parse gap",
+            "size": size,
+        }
+    if size > 300:
+        return {
+            "severity": "medium",
+            "category": category,
+            "matched_keywords": [],
+            "reason": f"Large raw output ({size}B) but no parsed rows",
+            "size": size,
+        }
+    return None
+
+
+# ---------------------------------------------------------------------------
 # @tool
 # ---------------------------------------------------------------------------
 
@@ -397,14 +480,23 @@ def take_snapshot(
                         )
                         _write_raw_file(r["device"], r["command"], raw, snapshot_date)
                         successful += 1
-                        summary_rows.append(
-                            {
-                                "device": r["device"],
-                                "command": r["command"],
-                                "status": "success",
-                                "parsed_rows": len(parsed) if parsed else 0,
-                            }
-                        )
+                        gap = _audit_detect_gap(raw, r["command"], parsed)
+                        row_entry: dict = {
+                            "device": r["device"],
+                            "command": r["command"],
+                            "status": "success",
+                            "parsed_rows": len(parsed) if parsed else 0,
+                        }
+                        if gap:
+                            row_entry["quality_gap"] = gap["severity"]
+                            row_entry["gap_reason"] = gap["reason"]
+                            row_entry["gap_keywords"] = gap.get("matched_keywords", [])
+                            logger.warning(
+                                "Quality gap [%s] %s/%s: %s",
+                                gap["severity"].upper(),
+                                r["device"], r["command"], gap["reason"],
+                            )
+                        summary_rows.append(row_entry)
                     except Exception as exc:
                         failed += 1
                         summary_rows.append(
@@ -442,6 +534,28 @@ def take_snapshot(
                      "status": "failed", "error": r.get("error")}
                 )
 
+    # Build quality gap summary
+    high_gaps = [r for r in summary_rows if r.get("quality_gap") == "high"]
+    medium_gaps = [r for r in summary_rows if r.get("quality_gap") == "medium"]
+    quality_warning = ""
+    if high_gaps or medium_gaps:
+        lines = ["\n⚠️  PARSING QUALITY WARNING (Potential Gaps):"]
+        if high_gaps:
+            lines.append("\n🚨 HIGH SEVERITY (Keywords found but JSON empty):")
+            lines.append("| Device | Command | Keywords |")
+            lines.append("| :--- | :--- | :--- |")
+            for g in high_gaps[:10]:
+                kw = ", ".join(g.get("gap_keywords", []))
+                lines.append(f"| {g['device']} | {g['command']} | {kw} |")
+        if medium_gaps:
+            lines.append("\n⚡ MEDIUM SEVERITY (Large output but no parsed rows):")
+            lines.append("| Device | Command | Reason |")
+            lines.append("| :--- | :--- | :--- |")
+            for g in medium_gaps[:10]:
+                lines.append(f"| {g['device']} | {g['command']} | {g.get('gap_reason','')} |")
+        lines.append("\n💡 Suggestion: Use 'olav learner' to fix or add TextFSM templates.")
+        quality_warning = "\n".join(lines)
+
     return {
         "status": "success" if failed == 0 else ("partial" if successful > 0 else "failed"),
         "snapshot_id": snapshot_id,
@@ -451,6 +565,12 @@ def take_snapshot(
         "successful": successful,
         "failed": failed,
         "results": summary_rows,
+        "quality_warning": quality_warning or None,
+        "quality_gaps": {
+            "high": len(high_gaps),
+            "medium": len(medium_gaps),
+            "total": len(high_gaps) + len(medium_gaps),
+        },
         "next_step": (
             f"Query results with execute_sql: "
             f"SELECT device_name, parsed_data FROM parsed_outputs "

@@ -16,6 +16,8 @@ metadata:
     - format_and_export        # format_and_export.py — Export to CSV/JSON/Markdown
     - search_knowledge         # search_knowledge.py  — Semantic KB search (db_path, limit, threshold)
     - web_search               # web_search.py    — Web search via DuckDuckGo for external info
+    - log_metrics_query        # log_metrics.py — DuckDB Parquet query for log metrics
+    - semantic_log_search      # log_semantic.py — LanceDB vector search for fault diagnosis
   database_schema:
     devices:
       description: Device inventory from Nornir hosts.yaml
@@ -77,6 +79,7 @@ Unified network operations agent handling three modes:
 1. **Query Mode** — SQL queries on DuckDB (device inventory, parsed outputs, topology)
 2. **CLI Mode** — Execute show/config commands on devices via Nornir
 3. **Analysis Mode** — Health diagnostics, anomaly detection, performance analysis
+4. **Log Mode** — Fast metrics/semantic search on network logs (v0.10.x+)
 
 ## Strategy
 
@@ -106,7 +109,12 @@ Never call execute_cli directly without first discovering the right command:
 - **execute_cli** — single device, single command, output inline in response
 - **take_snapshot** — multiple devices × multiple commands in parallel; writes to `parsed_outputs` DB so results can be queried with `execute_sql`; use for fault investigation requiring fresh data from several devices simultaneously
 
+### When to Use Log Tools in Quick Mode
+- **log_metrics_query** — "How many ERRORs on R1 since 3AM?" (DuckDB SQL)
+- **semantic_log_search** — "Find similar authentication failures from last week" (LanceDB Vector)
+
 ### When to Escalate to Expert
 - Root cause analysis required
 - Cross-device correlation or topology reasoning
 - "Why" / "diagnose" / "recommend" requests
+- Deep log investigation over multiple incidents
