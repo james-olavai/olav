@@ -1,0 +1,10 @@
+{
+  "devices": [
+    {
+      "hostname": "R1"
+    },
+    {
+      "hostname": "R2"
+    }
+  ]
+}

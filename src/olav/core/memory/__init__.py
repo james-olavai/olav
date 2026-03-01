@@ -282,10 +282,11 @@ class LanceDBStore:
             tbl = self.get_table(table_name)
 
             # Build filter conditions using where()
+            # Only apply scope filter for memory table
             where_clauses = []
-            if category:
+            if category and table_name == MEMORY_TABLE:
                 where_clauses.append(f"category = '{category}'")
-            if scope:
+            if scope and table_name == MEMORY_TABLE:
                 where_clauses.append(f"(scope = 'global' OR scope = '{scope}')")
 
             where_sql = " AND ".join(where_clauses) if where_clauses else None
@@ -355,11 +356,11 @@ class LanceDBStore:
                 safe_query = query.replace("'", "")
                 search_q = tbl.search().where(f"text LIKE '%{safe_query}%'")
 
-            # Post-filter by category / scope
+            # Post-filter by category / scope (only for memory table)
             where_clauses = []
-            if category:
+            if category and table_name == MEMORY_TABLE:
                 where_clauses.append(f"category = '{category}'")
-            if scope:
+            if scope and table_name == MEMORY_TABLE:
                 where_clauses.append(f"(scope = 'global' OR scope = '{scope}')")
             if where_clauses:
                 search_q = search_q.where(" AND ".join(where_clauses))
@@ -403,11 +404,11 @@ class LanceDBStore:
         try:
             tbl = self.get_table(table_name)
 
-            # Build filter using where()
+            # Build filter using where() (only for memory table)
             where_clauses = []
-            if category:
+            if category and table_name == MEMORY_TABLE:
                 where_clauses.append(f"category = '{category}'")
-            if scope:
+            if scope and table_name == MEMORY_TABLE:
                 where_clauses.append(f"(scope = 'global' OR scope = '{scope}')")
 
             where_sql = " AND ".join(where_clauses) if where_clauses else None

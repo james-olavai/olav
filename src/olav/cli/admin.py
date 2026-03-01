@@ -371,7 +371,7 @@ async def _kb_index(args: str) -> dict:
 
 
 async def _kb_search(args: str) -> dict:
-    """Search knowledge base. Usage: /admin kb-search 'your query'"""
+    """Search knowledge base (LanceDB). Usage: /admin kb-search 'your query'"""
     try:
         if not args or args.strip() in ["--help", "-h", "?"]:
             return {
@@ -381,50 +381,43 @@ async def _kb_search(args: str) -> dict:
 
         query = args.strip().strip("'\"")
         limit = 3
-        message = f"🔍 Search results for: '{query}'\n\n"
+        message = f"🔍 KB Search results for: '{query}'\n\n"
 
         try:
-            from pathlib import Path
+            from olav.core.knowledge import get_knowledge_base, KB_TABLE
+            from olav.core.memory import get_store
 
-            import duckdb
-            from langchain_community.vectorstores import DuckDB
+            # Get KB engine
+            store = get_store()
+            kb = get_knowledge_base(store)
 
-            from olav.core.config import MAIN_DB_PATH
-            from olav.core.llm import LLMFactory
-
-            # Check if database exists
-
-            # Check if database exists
-            db_path = Path(MAIN_DB_PATH)
-            if not db_path.exists():
+            # Check if KB has any indexed data
+            if not store.table_exists(KB_TABLE):
                 return {
                     "status": "error",
-                    "message": "❌ Knowledge base database not found. Run: olav config kb-index",
+                    "message": "❌ Knowledge base not indexed. Run: olav config kb-index",
                 }
 
-            # Use LLMFactory for unified provider support (local/openai/other)
-            embeddings = LLMFactory.get_embeddings()
-
-            # Create persistent connection for vectorstore
-            db_conn = duckdb.connect(str(db_path), read_only=False)
-            vectorstore = DuckDB(
-                connection=db_conn, embedding=embeddings, table_name="knowledge_chunks"
-            )
-
-            # Perform search
-            results = vectorstore.similarity_search(query, k=limit)
+            # Perform hybrid search
+            results = kb.search(query, limit=limit)
 
             if not results:
                 message += "⚠️  No relevant results found"
             else:
-                for i, doc in enumerate(results, 1):
-                    source = doc.metadata.get("source_file", "Unknown")
-                    content = doc.page_content[:150]
+                for i, result in enumerate(results, 1):
+                    source = result.get("metadata", "{}")
+                    try:
+                        import json
+                        meta = json.loads(source) if isinstance(source, str) else source
+                        source_file = meta.get("source_file", "Unknown")
+                    except Exception:
+                        source_file = "Unknown"
 
-                    message += f"[{i}] - {source}\n"
+                    content = result.get("text", "")[:150]
+                    score = result.get("rrf_score", 0.0)
+
+                    message += f"[{i}] {source_file} (relevance: {score:.2f})\n"
                     message += f"    {content}...\n\n"
-
-            db_conn.close()
 
             return {
                 "status": "success",
