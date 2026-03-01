@@ -773,6 +773,7 @@ def hybrid_search(
     vector_weight: float = 0.5,
     text_weight: float = 0.5,
     use_cache: bool = True,
+    table_name: str = MEMORY_TABLE,
 ) -> list[dict]:
     """Perform hybrid search combining vector and text search.
 
@@ -792,6 +793,7 @@ def hybrid_search(
         vector_weight: Relative weight for the vector search list (default 0.5).
         text_weight: Relative weight for the BM25 search list (default 0.5).
         use_cache: Enable Tier-0 semantic cache (default True).
+        table_name: Table to search (default MEMORY_TABLE, can be KB_TABLE etc).
 
     Returns:
         Combined and reranked list of results.
@@ -822,6 +824,7 @@ def hybrid_search(
         limit=limit * 2,  # over-fetch to account for post-filter losses
         category=category,
         scope=scope,
+        table_name=table_name,
     )
 
     text_results = store.search_by_text(
@@ -829,6 +832,7 @@ def hybrid_search(
         limit=limit * 2,
         category=category,
         scope=scope,
+        table_name=table_name,
     )
 
     # Weighted RRF fusion — vector_weight and text_weight now actually used
