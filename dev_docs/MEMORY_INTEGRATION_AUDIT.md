@@ -56,34 +56,48 @@ USER_CACHE_DIR = Path.home() / ".olav" / "cache" / _username
 ### 2. Checkpointer —— PARTIAL IMPLEMENTATION 🟡
 
 **实现状态**:
-- ✅ OLAVAgent中创建MemorySaver
+- ✅ OLAVAgent中创建InMemorySaver（async兼容版本）
 - ✅ ainvoke()支持thread_id参数
 - ✅ thread_id传入config["configurable"]
+- ❌ DuckDBSaver (原计划) 被改为MemorySaver
 
 **问题**:
 - 🟡 MemorySaver是**内存级别**，重启后失效
 - 🟡 多用户不隔离 — 所有用户的checkpoints都在同一个内存中
-- ⚠️ 原plan是使用DuckDBSaver进行持久化，但因asyncio问题被弃用
-  
-**代码证据** (`src/olav/agents/agent.py#L139-L146`):
+- ⚠️ 原plan是使用DuckDBSaver（已在第44行导入），但因asyncio兼容问题被弃用
+
+**代码证据** (`src/olav/agents/agent.py#1-50行`):
 
 ```python
+# 第44行：DuckDBSaver已导入（表明原设计）
+from langgraph.checkpoint.duckdb import DuckDBSaver
+
+# 第21-27行：文档注释说应该用DuckDBSaver
+"""
+Architecture:
+- LangGraph DuckDBSaver for checkpoint/persistence (persistent across restarts)
+"""
+```
+
+**为什么被弃用** (`src/olav/agents/agent.py#L134-L146`):
+
+```python
+# Checkpointer — use MemorySaver for async compatibility 
+# (DuckDB doesn't support aget_tuple)
+# TODO: Switch back to DuckDBSaver once LangGraph fixes async support
+
 try:
     from langgraph.checkpoint.memory import MemorySaver
-    
     self.checkpointer = MemorySaver()
     logger.info("✓ Checkpointer initialized (MemorySaver - for async CLI support)")
 except Exception as e:
     logger.warning(f"MemorySaver failed ({e}), no checkpoint support available")
 ```
 
-**注释说明问题** (`src/olav/agents/agent.py#L134-135`):
-
-```python
-# Checkpointer — use MemorySaver for async compatibility 
-# (DuckDB doesn't support aget_tuple)
-# TODO: Switch back to DuckDBSaver once LangGraph fixes async support
-```
+**关键点：应该坚持DuckDB，不用SQLite**:
+- ❌ SQLiteSaver在LangGraph中也不实现async
+- ❌ SQLite并发问题（多用户同时写）  
+- ✅ DuckDB是原始设计，应该改进CLI层以支持DuckDBSaver
 
 ---
 
@@ -282,7 +296,36 @@ $ ls -la ~/.olav/cache/alice/llm_cache.db  # 只有alice的缓存
 $ ls -la ~/.olav/cache/bob/llm_cache.db    # 只有bob的缓存
 ```
 
-### 🟡 P2: 验证deepagents中的thread_id传入
+### � P2: 修复DuckDBSaver异步兼容问题（推荐）
+
+不用SQLite，应该坚持DuckDB设计。只需要在CLI层修改：
+
+```python
+# src/olav/agents/agent.py (第134-146行)
+# 改为：
+from langgraph.checkpoint.duckdb import DuckDBSaver
+import duckdb
+
+checkpoint_dir = Path.home() / ".olav" / "checkpoints" / _username / self.agent_id
+checkpoint_dir.mkdir(parents=True, exist_ok=True)
+conn = duckdb.connect(str(checkpoint_dir / "checkpoints.duckdb"), read_only=False)
+self.checkpointer = DuckDBSaver(conn)
+
+# src/olav/cli/main.py (修改run_single_query)
+# 使用sync invoke()而不是async ainvoke()来避免aget_tuple问题
+result = await agent.invoke(query, thread_id=session_id)  # Sync invoke in async context
+```
+
+**验证**:
+```bash
+# DuckDB checkpoints现在是持久化的
+ls ~/.olav/checkpoints/$USER/ops/checkpoints.duckdb
+
+# 重启后查询仍然可以恢复
+duckdb ~/.olav/checkpoints/$USER/ops/checkpoints.duckdb "SELECT * FROM checkpoints"
+```
+
+### 🟡 P3: 验证deepagents中的thread_id传入
 
 需要在deepagents_cli的execute_task中添加logging或调试：
 
@@ -291,7 +334,7 @@ $ ls -la ~/.olav/cache/bob/llm_cache.db    # 只有bob的缓存
 await execute_task(..., thread_id=session_id)  # 是否真的用了？
 ```
 
-### 🟡 P3: 验证LanceDB在各agent中的实际使用
+### 🟡 P4: 验证LanceDB在各agent中的实际使用
 
 创建E2E测试：
 ```python
@@ -301,7 +344,7 @@ agent.invoke("Retrieve fact about BGP")
 # 检查LanceDB中是否有记录
 ```
 
-### 🟢 P4: 添加User Scope到LanceDB
+### 🟢 P5: 添加User Scope到LanceDB
 
 ```python
 # search_knowledge_lancedb.py
@@ -326,9 +369,11 @@ scope = os.environ.get("USER") or "default"  # 使用用户名而不是"global"
 - [ ] SQLiteCache并发场景下是否有锁问题
 
 ### ❌ 需要修复
-- [ ] CACHE_DIR改为用户隔离的USER_CACHE_DIR
-- [ ] LanceDB scope改为使用username而不是"global"
-- [ ] DuckDBSaver异步兼容问题（切换回持久化）
+- [ ] CACHE_DIR改为用户隔离的USER_CACHE_DIR (P1)
+- [ ] 使用DuckDBSaver替代MemorySaver，修正CLI async问题 (P2)
+- [ ] 验证deepagents_cli中thread_id的实际使用 (P3)
+- [ ] 验证LanceDB在agent中的实际被调用 (P4)
+- [ ] LanceDB scope改为使用username而不是"global" (P5)
 
 ---
 
