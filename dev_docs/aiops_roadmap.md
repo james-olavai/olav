@@ -8,11 +8,14 @@
 ## 2. 核心演进支柱 (Evolutionary Pillars)
 
 ### 2.1 变更分析与预测 (What-if Analysis & Prediction)
-**对标：Arista CloudVision**
-*   **数字孪生验证 (Digital Twin Validation)**: 
-    *   在下发配置前，Ops Subagent 在沙箱内建立基于 DuckDB 的**逻辑路由拓扑模型**。
-    *   **模拟执行**: Agent 运行变更指令，通过 LLM 推导拓扑变化。
-*   **故障预测**: 计算变更是否会导致路由环路、次优路径或安全策略冲突，并在执行前输出“风险评估报告”。
+**对标：Arista CloudVision & Batfish**
+*   **逻辑数字孪生 (Logic Digital Twin)**: 
+    *   **Netutils 标准化**: 利用 `netutils` 实现跨厂商接口与 IP 数据的格式对齐，确保 DuckDB JOIN 100% 成功。
+    *   **Code-as-a-Service 沙箱**: 丢弃预定义模板，让 Agent 在沙箱内利用 `networkx` 动态构建 L1-L3 拓扑图。
+    *   **确定性推演**: 利用 `netutils` 的数学严谨性（掩码计算/ACL 碰撞）取代 LLM 的文字猜测。
+*   **高保真物理验证 (High-Fidelity Validation)**:
+    *   **Tier 3 实验室**: 集成 `Containerlab`，自动根据变更拓扑拉取轻量化容器 NOS (cEOS/SR-Linux)，实现真实控制平面协议 (BGP/OSPF) 的闭环预演。
+*   **故障预测**: 计算变更是否会导致路由环路、次优路径或安全策略冲突，并在执行前输出基于“物理推演”的风险评估报告。
 
 ### 2.2 服务质量感知 (SLE - Service Level Expectations)
 **对标：Juniper Mist Marvis**
@@ -51,19 +54,20 @@
 
 ---
 
-## 4. 阶段性路线图 (Roadmap)
+### 第一阶段：零幻觉仿真基石 (v0.12.0)
+*   **数据脱敏与标准化**: 实现 `ValueNormalizer` (Netutils 集成)，解决归一化数据 JOIN 瓶颈。
+*   **增强型实验沙箱**: 迁移至 `SimulationProxy` + `networkx` 架构，实现 LLM-Native 的 L1-L3 逻辑模拟。
 
-### 第一阶段：质量感知器 (v0.15.0)
-*   集成 Prometheus/Telegraf 或直接从 DuckDB 读取 Metrics。
-*   建立“体验劣化”触发器。
+### 第二阶段：质量感知与全路径映射 (v0.15.0)
+*   集成 Prometheus/Telegraf 指标。
+*   实现 `draw_fault_path` 工具，将 `networkx` 计算结果可视化。
 
-### 第二阶段：全路径拓扑图 (v0.16.0)
-*   实现 `draw_fault_path` 绘图工具。
-*   优化通知网关的富媒体报告推送能力。
+### 第三阶段：物理孪生验证层 (v0.16.0)
+*   **Containerlab 集成**: 实现声明式 YAML 拓扑生成，支持高风险变更的 Tier 3 容器化仿真验证。
 
-### 第三阶段：数据科学大脑 (v0.18.0)
+### 第四阶段：数据科学大脑 (v0.18.0)
 *   在沙箱内预装科学计算全家桶 (`pandas`, `sklearn`)。
-*   实现 `analyze_trend` 工具：由 LLM 驱动进行动态统计建模与异常预测。
+*   实现 `analyze_trend` 工具：进行动态时序预测与预测性扩容。
 
 ---
 
