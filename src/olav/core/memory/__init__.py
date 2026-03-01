@@ -123,7 +123,7 @@ class LanceDBStore:
         )
 
     def create_table(self, table_name: str = MEMORY_TABLE) -> lancedb.table.LanceTable:
-        """Create memory table if not exists.
+        """Create memory table if not exists, and register an FTS index on the text column.
 
         Args:
             table_name: Name of the table to create
@@ -137,6 +137,12 @@ class LanceDBStore:
             schema = self._get_schema()
             tbl = db.create_table(table_name, schema=schema)
             logger.info(f"Created memory table: {table_name}")
+            # Create FTS index so search_by_text uses real BM25, not LIKE
+            try:
+                tbl.create_fts_index("text", replace=True)
+                logger.info(f"Created FTS index on '{table_name}'.text")
+            except Exception as e:
+                logger.debug(f"FTS index creation skipped: {e}")
             return tbl
 
         return db.open_table(table_name)
@@ -308,17 +314,25 @@ class LanceDBStore:
         try:
             tbl = self.get_table(table_name)
 
-            # Build filter using where()
-            where_clauses = [f"text LIKE '%{query}%'"]
+            # Use LanceDB native FTS (BM25) when an FTS index exists.
+            # Falls back to a safe filter search if FTS is unavailable.
+            try:
+                search_q = tbl.search(query, query_type="fts")
+            except Exception:
+                # FTS index not built yet — sanitise query to prevent SQL injection
+                safe_query = query.replace("'", "")
+                search_q = tbl.search().where(f"text LIKE '%{safe_query}%'")
+
+            # Post-filter by category / scope
+            where_clauses = []
             if category:
                 where_clauses.append(f"category = '{category}'")
             if scope:
                 where_clauses.append(f"(scope = 'global' OR scope = '{scope}')")
+            if where_clauses:
+                search_q = search_q.where(" AND ".join(where_clauses))
 
-            where_sql = " AND ".join(where_clauses)
-
-            # Execute search - use search without vector for text-only
-            results = tbl.search().where(where_sql).limit(limit).to_list()
+            results = search_q.limit(limit).to_list()
 
             return [
                 {

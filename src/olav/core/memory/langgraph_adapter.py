@@ -10,7 +10,7 @@ from typing import Any
 
 from langgraph.store.base import BaseStore
 
-from olav.core.memory import MEMORY_TABLE
+from olav.core.memory import MEMORY_TABLE, hybrid_search
 from olav.core.memory import LanceDBStore as OCLanceDBStore
 
 logger = logging.getLogger(__name__)
@@ -20,6 +20,11 @@ class LangGraphLanceDBStore(BaseStore):
     """Adapter to wrap OLAV's LanceDBStore for LangGraph compatibility.
 
     This implements the BaseStore interface required by DeepAgents' store parameter.
+
+    Fixes vs original:
+    - Lazy loads sentence-transformers embedder; generates vectors on put()
+    - search() calls module-level hybrid_search() (not a method on LanceDBStore)
+    - Falls back to text-only search when no embedder is available
     """
 
     def __init__(self, db_path: str | None = None, embedding_dim: int = 384) -> None:
@@ -31,10 +36,33 @@ class LangGraphLanceDBStore(BaseStore):
         """
         self._store = OCLanceDBStore(db_path=db_path, embedding_dim=embedding_dim)
         self._table_name = MEMORY_TABLE
+        self._embedder = None  # lazy-loaded on first use
 
         # Ensure table exists
         if not self._store.table_exists(self._table_name):
             self._store.create_table(self._table_name)
+
+    def _embed(self, text: str) -> list[float] | None:
+        """Lazily load sentence-transformers and embed text.
+
+        Returns:
+            Float list of length embedding_dim, or None if unavailable.
+        """
+        if self._embedder is None:
+            try:
+                from sentence_transformers import SentenceTransformer
+                self._embedder = SentenceTransformer("BAAI/bge-small-en-v1.5")
+                logger.info("✓ Embedder loaded: BAAI/bge-small-en-v1.5")
+            except Exception as e:
+                logger.warning(f"sentence-transformers unavailable ({e}); vector search disabled.")
+                self._embedder = False  # sentinel: don't retry
+        if not self._embedder:
+            return None
+        try:
+            return self._embedder.encode(text, normalize_embeddings=True).tolist()
+        except Exception as e:
+            logger.error(f"Embedding failed: {e}")
+            return None
 
     # pyright: ignore[reportIncompatibleMethodOverride]
     def get(self, namespace: tuple[str, ...], key: str) -> Any | None:
@@ -71,7 +99,13 @@ class LangGraphLanceDBStore(BaseStore):
 
         # Extract text and vector from value
         text = value.get("text", str(value))
-        vector = value.get("vector")
+        # Generate embedding when caller doesn't provide a pre-computed vector
+        vector = value.get("vector") or self._embed(text)
+
+        if vector is None:
+            # Can't write without a vector (schema requires fixed-size float32 list)
+            logger.warning(f"put(): no vector for key={key}, skipping LanceDB write.")
+            return
 
         memory_id = f"{scope}-{key}-{uuid.uuid4().hex[:8]}"
 
@@ -120,13 +154,24 @@ class LangGraphLanceDBStore(BaseStore):
         scope = namespace[0] if namespace else "global"
 
         if query:
-            results = self._store.hybrid_search(
-                store=self._store,
-                query=query,
-                limit=limit,
-                scope=scope,
-                table_name=self._table_name,
-            )
+            query_vector = self._embed(query)
+            if query_vector is not None:
+                # Full hybrid search: vector + BM25 fused via RRF
+                results = hybrid_search(
+                    store=self._store,
+                    query=query,
+                    query_vector=query_vector,
+                    limit=limit,
+                    scope=scope,
+                )
+            else:
+                # Fallback: text-only search when no embedder
+                results = self._store.search_by_text(
+                    query=query,
+                    limit=limit,
+                    scope=scope,
+                    table_name=self._table_name,
+                )
             return results
         else:
             return self._store.get_memories(scope=scope, limit=limit, table_name=self._table_name)
