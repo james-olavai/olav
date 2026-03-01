@@ -447,3 +447,264 @@ class TestStoreNetworkEvent:
 
         mem_id = store.add_memory.call_args.kwargs["id"]
         assert mem_id.startswith("evt-")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Weighted RRF — list_weights parameter
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestWeightedRRF:
+    """Tests that list_weights in rrf_fusion() actually scale list contributions."""
+
+    def test_equal_weights_same_as_no_weights(self):
+        """list_weights=[1.0, 1.0] is equivalent to no weights."""
+        from olav.core.memory import rrf_fusion
+
+        docs_a = [{"id": "a", "weight": 1.0}, {"id": "b", "weight": 1.0}]
+        docs_b = [{"id": "c", "weight": 1.0}, {"id": "a", "weight": 1.0}]
+
+        no_w   = rrf_fusion([docs_a, docs_b], apply_weight_boost=False)
+        with_w = rrf_fusion([docs_a, docs_b], apply_weight_boost=False, list_weights=[1.0, 1.0])
+
+        assert [r["id"] for r in no_w] == [r["id"] for r in with_w]
+
+    def test_high_vector_weight_promotes_vector_only_doc(self):
+        """Doc appearing only in vector list ranks above BM25-only doc when vector_weight >> text_weight."""
+        from olav.core.memory import rrf_fusion
+
+        vector_only = {"id": "vec", "text": "vector result", "weight": 1.0}
+        text_only   = {"id": "txt", "text": "text result",   "weight": 1.0}
+
+        results = rrf_fusion(
+            [[vector_only], [text_only]],
+            apply_weight_boost=False,
+            list_weights=[10.0, 0.1],  # very high vector weight
+        )
+        ids = [r["id"] for r in results]
+        assert ids[0] == "vec"
+
+    def test_zero_weight_excludes_list_contribution(self):
+        """list_weight=0.0 means that list contributes zero RRF score."""
+        from olav.core.memory import rrf_fusion
+
+        doc_a = {"id": "a", "weight": 1.0}
+        doc_b = {"id": "b", "weight": 1.0}
+
+        results = rrf_fusion([[doc_a], [doc_b]], apply_weight_boost=False, list_weights=[1.0, 0.0])
+        # Only doc_a gets a non-zero score; doc_b gets 0 * 1/(k+1) = 0
+        assert results[0]["id"] == "a"
+        assert results[1]["rrf_score"] == 0.0
+
+    def test_list_weights_applied_per_list(self):
+        """Each list's RRF contribution is scaled by its respective weight."""
+        from olav.core.memory import rrf_fusion
+
+        doc = {"id": "x", "weight": 1.0}
+        # Single doc in first list with weight 2.0 → score = 2.0/(60+1) ≈ 0.0328
+        results = rrf_fusion([[doc]], apply_weight_boost=False, list_weights=[2.0])
+        expected = 2.0 / (60 + 1)
+        assert abs(results[0]["rrf_score"] - expected) < 1e-9
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SemanticCache
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _make_cache_store(tmp_path):
+    """Create a real LanceDBStore backed by a temp directory."""
+    from olav.core.memory import LanceDBStore
+    return LanceDBStore(db_path=str(tmp_path / "cache_test.lance"), embedding_dim=4)
+
+
+class TestSemanticCache:
+    """Tests for the Tier-0 SemanticCache class."""
+
+    def test_miss_on_empty_cache(self, tmp_path):
+        """Returns None when cache is empty."""
+        from olav.core.memory import SemanticCache
+
+        store = _make_cache_store(tmp_path)
+        cache = SemanticCache(store, threshold=0.02, ttl_hours=24)
+        assert cache.get([0.1, 0.2, 0.3, 0.4]) is None
+
+    def test_hit_returns_stored_results(self, tmp_path):
+        """After put(), get() with the same vector returns the stored results."""
+        from olav.core.memory import SemanticCache
+
+        store = _make_cache_store(tmp_path)
+        cache = SemanticCache(store, threshold=0.5, ttl_hours=24)  # lenient threshold
+
+        vec = [1.0, 0.0, 0.0, 0.0]
+        results = [{"id": "m1", "text": "OSPF up", "rrf_score": 0.1}]
+
+        cache.put(vec, results)
+        hit = cache.get(vec)
+
+        assert hit is not None
+        assert hit[0]["id"] == "m1"
+
+    def test_miss_when_distance_exceeds_threshold(self, tmp_path):
+        """Returns None when stored vector is far from query vector."""
+        from olav.core.memory import SemanticCache
+
+        store = _make_cache_store(tmp_path)
+        cache = SemanticCache(store, threshold=0.001, ttl_hours=24)  # very strict
+
+        cache.put([1.0, 0.0, 0.0, 0.0], [{"id": "x"}])
+        # Orthogonal vector → large distance
+        result = cache.get([0.0, 1.0, 0.0, 0.0])
+        assert result is None
+
+    def test_invalidate_all_clears_entries(self, tmp_path):
+        """invalidate_all() drops the cache table entirely."""
+        from olav.core.memory import SemanticCache, CACHE_TABLE
+
+        store = _make_cache_store(tmp_path)
+        cache = SemanticCache(store, threshold=0.5, ttl_hours=24)
+
+        cache.put([1.0, 0.0, 0.0, 0.0], [{"id": "y"}])
+        cache.invalidate_all()
+
+        db = store.connect()
+        assert CACHE_TABLE not in db.table_names()
+
+    def test_hybrid_search_uses_cache(self, tmp_path):
+        """hybrid_search() with use_cache=True stores results on first call and hits on second."""
+        from olav.core.memory import LanceDBStore, hybrid_search, MEMORY_TABLE
+
+        store = _make_cache_store(tmp_path)
+        # Create empty memory table so searches don't raise
+        store.create_table(MEMORY_TABLE)
+
+        vec = [1.0, 0.0, 0.0, 0.0]
+
+        # First call — cache miss, runs full search (returns empty)
+        r1 = hybrid_search(store, query="test", query_vector=vec, limit=5, use_cache=True)
+
+        # Second call with same vector — should be a cache hit
+        with patch("olav.core.memory.SemanticCache.get", return_value=[{"id": "cached"}]) as mock_get:
+            r2 = hybrid_search(store, query="test", query_vector=vec, limit=5, use_cache=True)
+            mock_get.assert_called_once()
+            assert r2 == [{"id": "cached"}]
+
+    def test_hybrid_search_bypasses_cache_when_disabled(self, tmp_path):
+        """hybrid_search(use_cache=False) never touches SemanticCache."""
+        from olav.core.memory import LanceDBStore, hybrid_search, MEMORY_TABLE
+
+        store = _make_cache_store(tmp_path)
+        store.create_table(MEMORY_TABLE)
+
+        vec = [1.0, 0.0, 0.0, 0.0]
+        with patch("olav.core.memory.SemanticCache.get") as mock_get:
+            hybrid_search(store, query="test", query_vector=vec, limit=5, use_cache=False)
+            mock_get.assert_not_called()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MemoryConfig — config.py integration
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestMemoryConfig:
+    """Tests for MemoryConfig defaults and config integration."""
+
+    def test_get_memory_config_returns_defaults(self):
+        """get_memory_config() returns sensible default values."""
+        from olav.core.config import get_memory_config
+
+        cfg = get_memory_config()
+        assert 0.0 < cfg.dedup_threshold <= 1.0
+        assert cfg.cache_similarity_threshold >= 0.0
+        assert cfg.fts_rebuild_every >= 1
+        assert cfg.cache_ttl_hours >= 1
+        assert cfg.cache_max_entries >= 1
+
+    def test_dedup_threshold_default_is_point92(self):
+        """Default dedup threshold is 0.92 as per design spec."""
+        from olav.core.config import get_memory_config
+        assert get_memory_config().dedup_threshold == 0.92
+
+    def test_capture_middleware_reads_threshold_from_config(self):
+        """AutoCaptureMiddleware without explicit threshold uses MemoryConfig."""
+        from olav.core.memory.middleware import AutoCaptureMiddleware
+
+        store = _make_store()
+        llm = MagicMock()
+
+        capture = AutoCaptureMiddleware(store, llm)  # no explicit threshold
+
+        from olav.core.config import get_memory_config
+        assert capture._dedup_threshold == get_memory_config().dedup_threshold
+
+    def test_capture_middleware_explicit_threshold_overrides_config(self):
+        """Explicit similarity_dedup_threshold parameter takes precedence over config."""
+        from olav.core.memory.middleware import AutoCaptureMiddleware
+
+        store = _make_store()
+        llm = MagicMock()
+        capture = AutoCaptureMiddleware(store, llm, similarity_dedup_threshold=0.75)
+        assert capture._dedup_threshold == 0.75
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FTS Dirty-write Tracking
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestFTSDirtyTracking:
+    """Tests for lazy FTS index rebuild after N writes."""
+
+    def _make_real_store(self, tmp_path, threshold: int = 3):
+        """Create a LanceDBStore with a small rebuild threshold for testing."""
+        from olav.core.memory import LanceDBStore
+        store = LanceDBStore(db_path=str(tmp_path / "fts_test.lance"), embedding_dim=4)
+        store._fts_rebuild_threshold = threshold
+        return store
+
+    def test_no_rebuild_below_threshold(self, tmp_path):
+        """FTS index is NOT rebuilt on writes below the threshold."""
+        from olav.core.memory import MEMORY_TABLE
+
+        store = self._make_real_store(tmp_path, threshold=5)
+        store.create_table(MEMORY_TABLE)
+
+        tbl = store.get_table(MEMORY_TABLE)
+        with patch.object(tbl, "create_fts_index") as mock_fts:
+            # Patch get_table to return the mocked table
+            with patch.object(store, "get_table", return_value=tbl):
+                for i in range(4):  # 4 < threshold=5
+                    store.add_memory(
+                        id=f"m{i}", text=f"text {i}",
+                        vector=[0.1, 0.2, 0.3, 0.4],
+                    )
+            mock_fts.assert_not_called()
+
+    def test_rebuild_at_threshold(self, tmp_path):
+        """FTS index IS rebuilt once the threshold is reached."""
+        from olav.core.memory import MEMORY_TABLE
+
+        store = self._make_real_store(tmp_path, threshold=3)
+        store.create_table(MEMORY_TABLE)
+
+        tbl = store.get_table(MEMORY_TABLE)
+        with patch.object(tbl, "create_fts_index") as mock_fts:
+            with patch.object(store, "get_table", return_value=tbl):
+                for i in range(3):  # exactly threshold=3
+                    store.add_memory(
+                        id=f"m{i}", text=f"text {i}",
+                        vector=[0.1, 0.2, 0.3, 0.4],
+                    )
+            mock_fts.assert_called_once_with("text", replace=True)
+
+    def test_dirty_counter_resets_after_rebuild(self, tmp_path):
+        """Dirty counter resets to 0 after a rebuild, enabling next cycle."""
+        from olav.core.memory import MEMORY_TABLE
+
+        store = self._make_real_store(tmp_path, threshold=2)
+        store.create_table(MEMORY_TABLE)
+        tbl = store.get_table(MEMORY_TABLE)
+
+        with patch.object(store, "get_table", return_value=tbl):
+            with patch.object(tbl, "create_fts_index"):
+                store.add_memory(id="m0", text="t0", vector=[0.1, 0.2, 0.3, 0.4])
+                store.add_memory(id="m1", text="t1", vector=[0.1, 0.2, 0.3, 0.4])
+                # At this point counter should have reset to 0
+                assert store._fts_dirty.get(MEMORY_TABLE, 0) == 0

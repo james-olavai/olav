@@ -93,6 +93,10 @@ class ConfigLoader:
         return RuntimeConfig(self._runtime, self)
 
     @property
+    def memory(self):
+        return MemoryConfig(self._api.get("memory", {}), self)
+
+    @property
     def tasks(self):
         return self._tasks
 
@@ -275,6 +279,70 @@ class PathsConfig:
         return _AGENT_DIR_PATH
 
 
+class MemoryConfig:
+    """Configuration for the LanceDB OCM (Olav Central Memory) system.
+
+    All values can be overridden via environment variables:
+        OLAV_MEMORY_DEDUP_THRESHOLD, OLAV_MEMORY_CACHE_SIMILARITY_THRESHOLD, etc.
+    Or via an ``api.json`` top-level ``"memory"`` section.
+    """
+
+    def __init__(self, data: dict, loader: "ConfigLoader"):
+        self._data = data
+        self._loader = loader
+
+    @property
+    def dedup_threshold(self) -> float:
+        """Vector similarity threshold for dedup (0–1, higher = stricter, default 0.92)."""
+        return float(
+            self._loader._env_override(
+                "memory", "dedup_threshold", self._data.get("dedup_threshold", 0.92)
+            )
+        )
+
+    @property
+    def cache_similarity_threshold(self) -> float:
+        """Cosine *distance* below which a query is a cache hit (default 0.02 = 98% similar)."""
+        return float(
+            self._loader._env_override(
+                "memory",
+                "cache_similarity_threshold",
+                self._data.get("cache_similarity_threshold", 0.02),
+            )
+        )
+
+    @property
+    def fts_rebuild_every(self) -> int:
+        """Rebuild the FTS index after this many writes to prevent stale BM25 results (default 20)."""
+        return int(
+            self._loader._env_override(
+                "memory",
+                "fts_rebuild_every",
+                self._data.get("fts_rebuild_every", 20),
+            )
+        )
+
+    @property
+    def cache_ttl_hours(self) -> int:
+        """Semantic cache TTL in hours before entries expire (default 24)."""
+        return int(
+            self._loader._env_override(
+                "memory", "cache_ttl_hours", self._data.get("cache_ttl_hours", 24)
+            )
+        )
+
+    @property
+    def cache_max_entries(self) -> int:
+        """Max entries in the semantic cache before oldest are evicted (default 500)."""
+        return int(
+            self._loader._env_override(
+                "memory",
+                "cache_max_entries",
+                self._data.get("cache_max_entries", 500),
+            )
+        )
+
+
 class RuntimeConfig:
     def __init__(self, data: dict, loader: ConfigLoader):
         self._data = data
@@ -349,6 +417,10 @@ def get_paths_config() -> PathsConfig:
 
 def get_runtime_config() -> RuntimeConfig:
     return get_config().runtime
+
+
+def get_memory_config() -> MemoryConfig:
+    return get_config().memory
 
 
 # Backward compatibility
@@ -529,4 +601,6 @@ __all__ = [
     "get_embedding_config",
     "get_paths_config",
     "get_runtime_config",
+    "get_memory_config",
+    "MemoryConfig",
 ]
