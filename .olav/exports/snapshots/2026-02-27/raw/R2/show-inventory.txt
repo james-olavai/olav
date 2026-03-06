@@ -1,9 +1,0 @@
-NAME: "Chassis", DESCR: "Cisco ISRV Chassis"
-PID: ISRV              , VID: V00  , SN: 90EBRWRA3KS
-
-NAME: "module R0", DESCR: "Cisco ISRV Route Processor"
-PID: ISRV              , VID: V00  , SN: JAB1303001C
-
-NAME: "module F0", DESCR: "Cisco ISRV Embedded Services Processor"
-PID: ISRV              , VID:      , SN:            
-
