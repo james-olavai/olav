@@ -1,5 +1,0 @@
-Interface                      Status         Protocol Description
-Et0/0                          up             up       to_R3_e0/1
-Et0/1                          up             up       
-Et0/2                          up             up       
-Et0/3                          up             up       to_Mgmt

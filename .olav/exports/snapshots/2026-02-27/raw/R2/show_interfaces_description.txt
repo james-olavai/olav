@@ -1,7 +1,0 @@
-Interface                      Status         Protocol Description
-Gi1                            up             up       to_R1_Gi1
-Gi2                            up             up       to_R4_e0/0
-Gi3                            admin down     down     
-Gi4                            up             up       to_Mgmt_e1
-Lo0                            up             up       
-Lo22                           up             up       
