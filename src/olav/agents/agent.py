@@ -36,7 +36,9 @@ Replaces: LangGraph StateGraph + flat tool list (agent.py v3.2)
 
 
 from deepagents import create_deep_agent
-from deepagents.middleware.subagents import SubAgent
+from deepagents.middleware.subagents import CompiledSubAgent, SubAgent
+from langchain.agents import create_agent
+from langchain.agents.middleware import TodoListMiddleware
 from langgraph.checkpoint.duckdb import DuckDBSaver
 
 from olav.core.config import settings
@@ -62,6 +64,51 @@ def _read_prompt_file(path: Path) -> str | None:
         except Exception as e:
             logger.warning(f"Failed to read prompt {path}: {e}")
     return None
+
+
+def _inject_static_context(prompt: str, skill_dir: Path, metadata: dict) -> str:
+    """Append static_context files to the system prompt.
+
+    Reads the ``static_context:`` list from SKILL.md frontmatter and appends
+    each referenced file to the prompt as a fenced context block.
+
+    SKILL.md format::
+
+        static_context:
+          - path: ./references/ROUTING_EXPERT_GUIDE.md
+          - path: ./references/BASELINE_SCHEMA.md
+
+    Args:
+        prompt: Base system prompt string.
+        skill_dir: Directory containing the SKILL.md (used to resolve relative paths).
+        metadata: Parsed SKILL.md frontmatter dict.
+
+    Returns:
+        Prompt with static context appended, or original prompt if no context.
+    """
+    static_ctx = metadata.get("static_context")
+    if not static_ctx:
+        return prompt
+
+    appended: list[str] = []
+    for entry in static_ctx:
+        # Support both {path: ...} dict and bare string
+        rel_path = entry.get("path", entry) if isinstance(entry, dict) else entry
+        # Strip leading $ref: prefix if present
+        rel_path = rel_path.removeprefix("$ref:")
+        full_path = (skill_dir / rel_path).resolve()
+        content = _read_prompt_file(full_path)
+        if content:
+            label = full_path.name
+            appended.append(f"\n\n---\n## Reference: {label}\n\n{content.strip()}")
+            logger.debug(f"  injected static_context: {label}")
+        else:
+            logger.warning(f"static_context file not found: {full_path}")
+
+    if appended:
+        logger.info(f"Injected {len(appended)} static_context file(s) from {skill_dir.name}")
+        return prompt + "".join(appended)
+    return prompt
 
 
 def _resolve_env_ref(value: str) -> str:
@@ -135,12 +182,16 @@ class OLAVAgent:
         self.checkpointer = None
         if enable_checkpointer:
             try:
-                from olav.core.checkpointer import create_checkpointer
                 import os
+
+                from olav.core.checkpointer import create_checkpointer
+
                 _user = os.environ.get("USER") or os.environ.get("USERNAME", "default_user")
                 self.checkpointer = create_checkpointer(agent_id=self.agent_id, username=_user)
             except Exception as e:
-                logger.warning(f"AsyncDuckDBSaver init failed ({e}), no checkpoint support available")
+                logger.warning(
+                    f"AsyncDuckDBSaver init failed ({e}), no checkpoint support available"
+                )
 
         # LanceDB long-term semantic memory store
         self.store = None
@@ -176,8 +227,9 @@ class OLAVAgent:
         self._guardrail_injector = None
         if self.store is not None:
             try:
-                from olav.core.memory.middleware import AutoRecallMiddleware, AutoCaptureMiddleware
                 from olav.core.memory.guardrails import GuardrailInjector
+                from olav.core.memory.middleware import AutoCaptureMiddleware, AutoRecallMiddleware
+
                 _raw = self.store._store  # underlying OCLanceDBStore
                 self._auto_recall = AutoRecallMiddleware(_raw)
                 self._auto_capture = AutoCaptureMiddleware(_raw, self.llm)
@@ -250,14 +302,20 @@ class OLAVAgent:
     # SubAgent construction
     # ------------------------------------------------------------------
 
-    def _build_subagents(self, olav_config: dict) -> list[SubAgent]:
-        """Build SubAgents from workspace/AGENT.md config."""
+    def _build_subagents(self, olav_config: dict) -> list[SubAgent | CompiledSubAgent]:
+        """Build SubAgents from workspace/AGENT.md config.
+
+        Workspace subagents that declare custom tools are pre-compiled as
+        ``CompiledSubAgent`` so that ``create_deep_agent`` uses the runnable
+        as-is and does NOT inject ``FilesystemMiddleware`` into them.  Plain
+        ``SubAgent`` dicts (no tools) still go through the normal stack.
+        """
         subagent_paths = olav_config.get("subagents") or []
         if not subagent_paths:
             logger.info("No subagents defined in AGENT.md")
             return []
 
-        subagents: list[SubAgent] = []
+        subagents: list[SubAgent | CompiledSubAgent] = []
         for sa_path in subagent_paths:
             if isinstance(sa_path, dict):
                 sa_path = sa_path.get("path", "")
@@ -293,16 +351,39 @@ class OLAVAgent:
             if not prompt:
                 prompt = f"You are the {name} agent."
 
+            # Inject static_context references declared in SKILL.md
+            prompt = _inject_static_context(prompt, sa_dir, metadata)
+
             logger.info(f"✓ SubAgent '{name}' ({len(tools)} tools): {[t.name for t in tools]}")
 
-            subagents.append(
-                {
-                    "name": name,
-                    "description": description,
-                    "system_prompt": prompt,
-                    "tools": tools,
-                }
-            )
+            if tools:
+                # Pre-compile with a minimal middleware stack (TodoList only) so
+                # that create_deep_agent cannot inject FilesystemMiddleware.  This
+                # prevents the subagent from using ls/glob/grep instead of its
+                # declared domain tools.
+                runnable = create_agent(
+                    self.llm,
+                    system_prompt=prompt,
+                    tools=tools,
+                    middleware=[TodoListMiddleware()],
+                    name=name,
+                )
+                subagents.append(
+                    {
+                        "name": name,
+                        "description": description,
+                        "runnable": runnable,
+                    }
+                )
+            else:
+                subagents.append(
+                    {
+                        "name": name,
+                        "description": description,
+                        "system_prompt": prompt,
+                        "tools": [],
+                    }
+                )
 
         return subagents
 
@@ -365,6 +446,7 @@ class OLAVAgent:
         if self._auto_capture is not None:
             try:
                 import asyncio
+
                 asyncio.ensure_future(
                     self._auto_capture.process(_original_input, result, scope=scope)
                 )
@@ -401,6 +483,7 @@ class OLAVAgent:
     async def invoke(self, input_: str | dict, thread_id: str | None = None, **kwargs) -> dict:
         """Sync invoke (calls async version via asyncio)."""
         import asyncio
+
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
@@ -408,7 +491,7 @@ class OLAVAgent:
                 return await self.ainvoke(input_, thread_id, **kwargs)
         except RuntimeError:
             pass
-        
+
         # Sync context: create new loop
         return asyncio.run(self.ainvoke(input_, thread_id, **kwargs))
 
@@ -416,6 +499,7 @@ class OLAVAgent:
         """Release resources (DuckDB connection, etc.)."""
         try:
             from olav.core.checkpointer import AsyncDuckDBSaver
+
             if isinstance(self.checkpointer, AsyncDuckDBSaver):
                 self.checkpointer.conn.close()
                 logger.debug("Checkpointer DuckDB connection closed.")

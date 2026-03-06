@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from olav.core.config import USER_HISTORY_DIR, USER_HISTORY_PATH
+from olav.core.watermark import get_audit_log_watermark
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,22 @@ class AuditLogger:
         self.log_path = log_path or USER_HISTORY_PATH
         # Ensure directory exists
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        self._watermark_logged = False
+        self._log_watermark_on_first_call()
+
+    def _log_watermark_on_first_call(self) -> None:
+        """Log watermark info on first initialization."""
+        # Check if we need to log watermark (only once per session)
+        if self._watermark_logged:
+            return
+
+        try:
+            watermark_entry = get_audit_log_watermark()
+            with open(self.log_path, "a") as f:
+                f.write(watermark_entry + "\n")
+            self._watermark_logged = True
+        except Exception as e:
+            logger.warning(f"Failed to write watermark to audit log: {e}")
 
     def log(
         self, command: str, session_id: str | None = None, metadata: dict | None = None

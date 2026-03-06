@@ -9,18 +9,19 @@ tests are replaced with a minimal smoke test that verifies the existing init
 script path is importable.
 """
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 class TestWorkspaceInitScript:
     """Verify the init script exists and basic structure is present."""
 
     def test_init_script_exists(self):
-        """scripts/init.py must exist in the project."""
+        """Workspace init is handled by 'olav onboard' (src/olav/cli/commands/onboard.py)."""
         project_root = Path(__file__).resolve().parents[2]
-        init_script = project_root / "scripts" / "init.py"
-        assert init_script.exists(), "scripts/init.py should exist"
+        onboard_cmd = project_root / "src" / "olav" / "cli" / "commands" / "onboard.py"
+        assert onboard_cmd.exists(), "src/olav/cli/commands/onboard.py must exist"
 
     def test_olav_workspace_structure(self):
         """The .olav/ workspace must have the key directories."""

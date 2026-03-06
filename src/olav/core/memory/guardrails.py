@@ -28,17 +28,18 @@ logger = logging.getLogger(__name__)
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-GUARDRAIL_TOP_K = 5          # Max constraints to inject per invocation
+GUARDRAIL_TOP_K = 5  # Max constraints to inject per invocation
 GUARDRAIL_SECTION_HEADER = "=== LEARNED CONSTRAINTS (from past experience) ==="
 GUARDRAIL_SECTION_FOOTER = "=== END CONSTRAINTS ==="
 
-_FAILURE_AUDIT_CATEGORY = "audit"   # Category used for failure records
-_FAILURE_FLAG_KEY = "failure"       # Metadata key indicating a failure entry
+_FAILURE_AUDIT_CATEGORY = "audit"  # Category used for failure records
+_FAILURE_FLAG_KEY = "failure"  # Metadata key indicating a failure entry
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Failure Memory Store (helper for Auto-Capture to record failures)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def store_failure_memory(
     store: "LanceDBStore",
@@ -63,8 +64,9 @@ def store_failure_memory(
     Returns:
         Result dict from LanceDBStore.add_memory().
     """
-    from olav.core.memory import MEMORY_TABLE
     import uuid
+
+    from olav.core.memory import MEMORY_TABLE
 
     tname = table_name or MEMORY_TABLE
     if not store.table_exists(tname):
@@ -101,6 +103,7 @@ def store_failure_memory(
 # GuardrailInjector
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class GuardrailInjector:
     """Injects historical failure/success patterns as constraints into agent prompts.
 
@@ -130,6 +133,7 @@ class GuardrailInjector:
         if self._embedder is None:
             try:
                 from sentence_transformers import SentenceTransformer
+
                 self._embedder = SentenceTransformer("BAAI/bge-small-en-v1.5")
             except Exception as e:
                 logger.debug(f"GuardrailInjector: embedder unavailable ({e})")
@@ -141,11 +145,10 @@ class GuardrailInjector:
         except Exception:
             return None
 
-    def _get_relevant_audit_memories(
-        self, query: str, scope: str
-    ) -> list[dict]:
+    def _get_relevant_audit_memories(self, query: str, scope: str) -> list[dict]:
         """Retrieve relevant audit memories, query-aware when embedder available."""
         from olav.core.memory import MEMORY_TABLE
+
         tname = self._table_name or MEMORY_TABLE
 
         if not self._store.table_exists(tname):
@@ -205,9 +208,7 @@ class GuardrailInjector:
             return ""
 
         return (
-            f"\n\n{GUARDRAIL_SECTION_HEADER}\n"
-            + "\n".join(lines)
-            + f"\n{GUARDRAIL_SECTION_FOOTER}"
+            f"\n\n{GUARDRAIL_SECTION_HEADER}\n" + "\n".join(lines) + f"\n{GUARDRAIL_SECTION_FOOTER}"
         )
 
     def inject(

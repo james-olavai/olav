@@ -14,15 +14,17 @@
 ### 2.1 采集层与双线分流 (Vector Fork)
 使用高性能的 **Vector** 替代 Fluent Bit，通过其原生的 VRL (Vector Remap Language) 脚本进行极其高效的初步标准化（提取 `timestamp`, `host`, `severity`）。
 
+> **⚠️ 当前实现状态**: Vector 未安装，已用 `.olav/workspace/log-analytics/syslog_receiver.py`（asyncio UDP，RFC 3164/5424）替代。功能等价，但缺少 VRL 的高性能预处理能力。
+
 在 Vector 内部，日志流水线被分叉 (Fork)：
-*   **【Route 1：全量审计流】**
+*   **【Route 1：全量审计流】✅ 已实现**
     *   **策略**：所有级别（包含 INFO/DEBUG 等噪音）的日志直接打包输出为 **Parquet** 格式。
     *   **位置**：持久化到 **`.olav/databases/logs/YYYY-MM-DD/`**（作为核心数据库资产）。
     *   **作用**：用于法务合规审计、精确时间线对齐，以及无锁的大范围聚合统计查询。
-*   **【Route 2：高价值故障流】**
+*   **【Route 2：高价值故障流】⏳ 待实现**
     *   **策略**：VRL 仅过滤出 `Warning/Error/Critical` 级别的日志，通过 Webhook/HTTP 发送给可被 OLAV 调用的本地 Python/API 接口，进入“增强队列”。
 
-### 2.2 增强层 (OLAV Logic - LLM 降噪提纯)
+### 2.2 增强层 (OLAV Logic - LLM 降噪提纯) ⏳ 待实现
 网络设备的原始日志充满了随时变化的变量（如动态 IP、MAC地址、随机时间），这会导致 Embedding 计算出来的向量空间极度混乱。
 
 OLAV 的 Python 中间件将对 Route 2 收到的错误日志集执行以下处理：
@@ -48,11 +50,11 @@ OLAV 的 Python 中间件将对 Route 2 收到的错误日志集执行以下处�
 本日志系统的所有工具通过 `deepagents` 的 **SkillsMiddleware** 实现自动注册，无需在任何 Agent 代码中手动声明列表。
 
 ### 3.1 核心技能挂载规范
-| 工具名称 (in SKILL.md) | 对应脚本 (in `.olav/scripts/`) | 关联子代理 (By Skill Discovery) |
-| :--- | :--- | :--- |
-| `log_metrics_query` | `log_metrics.py` | **Query Agent** |
-| `semantic_log_search`| `log_semantic.py` | **Ops Subagent** |
-| `log_enhancer` | `log_processor.py` | **Log Processor (Background)** |
+| 工具名称 (in SKILL.md) | 对应脚本 (in `.olav/scripts/`) | 关联子代理 (By Skill Discovery) | 状态 |
+| :--- | :--- | :--- | :--- |
+| `log_metrics_query` | `log_metrics.py` | **Query Agent** | ✅ 已实现 |
+| `semantic_log_search`| `log_semantic.py` | **Ops Subagent** | ✅ 已实现 |
+| `log_enhancer` | `log_processor.py` | **Log Processor (Background)** | ⏳ 待实现 |
 
 ### 3.2 动态绑定逻辑
 1.  **扫描层**: `deepagents` 启动时遍历 `.olav/workspace/log-analytics/SKILL.md`。

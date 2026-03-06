@@ -12,7 +12,7 @@ Following the integration plan in dev_docs/LANCEDB_MEMORY_SYSTEM_INTEGRATION.md
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -74,6 +74,7 @@ class LanceDBStore:
         """Read fts_rebuild_every from config (default 20)."""
         try:
             from olav.core.config import get_memory_config
+
             return get_memory_config().fts_rebuild_every
         except Exception:
             return 20
@@ -600,11 +601,7 @@ class SemanticCache:
             if tbl.count_rows() == 0:
                 return None
 
-            hits = (
-                tbl.search(query_vector, vector_column_name="query_vector")
-                .limit(1)
-                .to_list()
-            )
+            hits = tbl.search(query_vector, vector_column_name="query_vector").limit(1).to_list()
             if not hits:
                 return None
 
@@ -617,8 +614,8 @@ class SemanticCache:
             if created_at is not None:
                 if isinstance(created_at, datetime):
                     if created_at.tzinfo is None:
-                        created_at = created_at.replace(tzinfo=timezone.utc)
-                    age_hours = (datetime.now(timezone.utc) - created_at).total_seconds() / 3600
+                        created_at = created_at.replace(tzinfo=UTC)
+                    age_hours = (datetime.now(UTC) - created_at).total_seconds() / 3600
                     if age_hours > self._ttl_hours:
                         return None  # expired
 
@@ -652,11 +649,7 @@ class SemanticCache:
                 count = tbl.count_rows()
                 if count > self._max_entries:
                     overflow = count - self._max_entries
-                    oldest = (
-                        tbl.search()
-                        .limit(overflow)
-                        .to_list()
-                    )
+                    oldest = tbl.search().limit(overflow).to_list()
                     for row in oldest:
                         if row.get("id"):
                             tbl.delete(f"id = '{row['id']}'")
@@ -724,11 +717,7 @@ def rrf_fusion(
             continue
 
         # Per-list weight scaling (implements vector_weight / text_weight)
-        list_w = (
-            list_weights[list_idx]
-            if list_weights and list_idx < len(list_weights)
-            else 1.0
-        )
+        list_w = list_weights[list_idx] if list_weights and list_idx < len(list_weights) else 1.0
 
         for rank, doc in enumerate(result_list, start=1):
             doc_id = doc.get("id") or doc.get("_id")
@@ -804,6 +793,7 @@ def hybrid_search(
     if use_cache and query_vector:
         try:
             from olav.core.config import get_memory_config
+
             cfg = get_memory_config()
             cache = SemanticCache(
                 store,

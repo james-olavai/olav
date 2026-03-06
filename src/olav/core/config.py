@@ -1,5 +1,5 @@
 """
-OLAV Configuration System v2.0
+OLAV Configuration System
 
 Unified API config for LLM and Embedding.
 """
@@ -137,6 +137,12 @@ class LLMConfig:
         return self._loader._env_override("llm", "base_url", self._data.get("base_url", ""))
 
     @property
+    def model_provider(self) -> str:
+        return self._loader._env_override(
+            "llm", "model_provider", self._data.get("model_provider", "")
+        )
+
+    @property
     def custom_headers(self) -> dict:
         return self._data.get("custom_headers", {})
 
@@ -228,12 +234,37 @@ class PathsConfig:
         return self._data.get("exports_dir", "exports")
 
     @property
+    def agent_outputs_dir(self) -> str:
+        """Directory for general agent output files (formerly exports/reports)."""
+        return self._data.get("agent_outputs_dir", "agent_outputs")
+
+    @property
     def reports_dir(self) -> str:
-        return self._data.get("reports_dir", "exports/reports")
+        """Backward-compat alias for agent_outputs_dir."""
+        return self.agent_outputs_dir
+
+    @property
+    def audit_reports_dir(self) -> str:
+        """Directory for audit inspection reports."""
+        audit = self._data.get("audit", {})
+        return audit.get("reports_dir", "exports/audit_reports")
+
+    @property
+    def run_dir(self) -> str:
+        return self._data.get("run_dir", "run")
 
     @property
     def logs_dir(self) -> str:
         return self._data.get("logs_dir", ".olav/logs")
+
+    @property
+    def audit_profiles_dir(self) -> str:
+        audit = self._data.get("audit", {})
+        return self._loader._env_override(
+            "paths",
+            "audit_profiles_dir",
+            audit.get("profiles_dir", ".olav/workspace/audit/profiles"),
+        )
 
     @property
     def skills_dir(self) -> str:
@@ -257,6 +288,17 @@ class PathsConfig:
         return self._data.get("templates_dir", ".olav/templates")
 
     @property
+    def textfsm_templates_dir(self) -> str:
+        """Alias for templates_dir — used by CommandRegistry for TextFSM template discovery."""
+        return self.templates_dir
+
+    @property
+    def blacklist_commands_file(self) -> str:
+        """Relative path (from project root) to the blacklisted_commands.yaml file."""
+        files = self._data.get("files", {})
+        return files.get("blacklist_commands", ".olav/config/blacklisted_commands.yaml")
+
+    @property
     def config_dir(self) -> str:
         return self._data.get("config_dir", ".olav/config")
 
@@ -269,6 +311,11 @@ class PathsConfig:
     def llm_cache(self) -> str:
         files = self._data.get("files", {})
         return files.get("llm_cache", ".olav/databases/llm_cache.sqlite")
+
+    @property
+    def backup_only_commands_file(self) -> str:
+        files = self._data.get("files", {})
+        return files.get("backup_only_commands", ".olav/config/backup_only_commands.yaml")
 
     @property
     def project_root(self) -> Path:
@@ -512,7 +559,9 @@ class _PathResolver:
                 "MAIN_DB_PATH": "main_db",
                 "DATABASES_DIR": "databases_dir",
                 "EXPORTS_DIR": "exports_dir",
-                "REPORTS_DIR": "reports_dir",
+                "AGENT_OUTPUTS_DIR": "agent_outputs_dir",
+                "REPORTS_DIR": "agent_outputs_dir",
+                "AUDIT_REPORTS_DIR": "audit_reports_dir",
                 "LOGS_DIR": "logs_dir",
                 "KNOWLEDGE_BASE_DIR": "knowledge_dir",
                 "WORKSPACE_DIR": "workspace_dir",
@@ -536,7 +585,9 @@ _path_resolver = _PathResolver()
 MAIN_DB_PATH = _path_resolver.resolve("MAIN_DB_PATH")
 DATABASES_DIR = _path_resolver.resolve("DATABASES_DIR")
 EXPORTS_DIR = _path_resolver.resolve("EXPORTS_DIR")
-REPORTS_DIR = _path_resolver.resolve("REPORTS_DIR")
+AGENT_OUTPUTS_DIR = _path_resolver.resolve("AGENT_OUTPUTS_DIR")  # General agent output files
+REPORTS_DIR = AGENT_OUTPUTS_DIR  # Backward-compat alias
+AUDIT_REPORTS_DIR = _path_resolver.resolve("AUDIT_REPORTS_DIR")  # Audit inspection reports
 LOGS_DIR = _path_resolver.resolve("LOGS_DIR")
 KNOWLEDGE_BASE_DIR = _path_resolver.resolve("KNOWLEDGE_BASE_DIR")
 WORKSPACE_DIR = _path_resolver.resolve("WORKSPACE_DIR")
@@ -562,6 +613,19 @@ USER_HISTORY_DIR = Path.home() / ".olav" / "history"
 USER_HISTORY_PATH = USER_HISTORY_DIR / f"{_username}.log"
 USER_SESSION_DIR = Path.home() / ".olav" / "sessions"
 GUARD_WHITELIST_PATH = SKILLS_DIR / "guard" / "whitelist.yaml"
+REPAIR_QUEUE_PATH = (
+    CONFIG_DIR / "repair_queue.json"
+)  # Parse gap repair queue written by collect_commands
+BLACKLIST_CONFIG_PATH = (
+    CONFIG_DIR  # Directory containing blacklisted_commands.yaml and backup_only_commands.yaml
+)
+CATEGORY_STRATEGY_PATH = CONFIG_DIR / "category_strategy.yaml"  # Command category keyword mapping
+COMMAND_STRATEGY_PATH = (
+    CONFIG_DIR / "command_strategy.yaml"
+)  # Per-platform command priority/strategy mapping
+NORNIR_CONFIG_PATH = CONFIG_DIR / "nornir" / "config.yaml"  # Nornir runner configuration
+SECURITY_POLICIES_PATH = CONFIG_DIR / "security_policies.yaml"  # ACL/firewall policy baseline
+LOG_STORAGE_DIR = DATABASES_DIR / "logs"  # Syslog receiver storage directory
 CACHE_DIR = AGENT_DIR / "cache"  # Legacy: project-level cache (kept for backwards compat)
 USER_CACHE_DIR = Path.home() / ".olav" / "cache" / _username  # User-isolated LLM cache
 USER_CHECKPOINT_DIR = Path.home() / ".olav" / "checkpoints" / _username  # User-isolated checkpoints
@@ -593,6 +657,13 @@ __all__ = [
     "USER_HISTORY_DIR",
     "USER_SESSION_DIR",
     "GUARD_WHITELIST_PATH",
+    "REPAIR_QUEUE_PATH",
+    "BLACKLIST_CONFIG_PATH",
+    "CATEGORY_STRATEGY_PATH",
+    "COMMAND_STRATEGY_PATH",
+    "NORNIR_CONFIG_PATH",
+    "SECURITY_POLICIES_PATH",
+    "LOG_STORAGE_DIR",
     "CACHE_DIR",
     "USER_CACHE_DIR",
     "USER_CHECKPOINT_DIR",

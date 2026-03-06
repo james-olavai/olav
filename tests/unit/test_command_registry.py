@@ -6,15 +6,23 @@ Run: pytest tests/unit/test_command_registry_comprehensive.py -v
 import json
 import os
 from pathlib import Path
-import pytest
 from unittest.mock import patch
 
+import olav.core.config as _olav_config
+import pytest
+import yaml
 from src.olav.core.command_registry import CommandRegistry
 
 
 @pytest.fixture
-def mock_olav_dir(tmp_path):
+def mock_olav_dir(tmp_path, monkeypatch):
     """Create a mock .olav directory structure."""
+    # Redirect _PROJECT_ROOT so PathsConfig serves paths inside tmp_path
+    monkeypatch.setattr(_olav_config, "_PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(_olav_config, "_CONFIG_DIR", tmp_path / ".olav" / "config")
+    # Whitelist is loaded via CWD-relative path, so chdir as well
+    monkeypatch.chdir(tmp_path)
+
     olav_dir = tmp_path / ".olav"
     olav_dir.mkdir()
 
@@ -30,30 +38,24 @@ def mock_olav_dir(tmp_path):
     textfsm_config_dir = config_dir / "textfsm"
     textfsm_config_dir.mkdir()
 
-    # Create some dummy files
+    # Create some dummy TextFSM template files
     (templates_dir / "default.textfsm").write_text("Value Default (.*)")
     (custom_templates_dir / "custom.textfsm").write_text("Value Custom (.*)")
     (textfsm_config_dir / "priority.textfsm").write_text("Value Priority (.*)")
 
-    # Create whitelist and blacklist
+    # Whitelist — JSON format as read by _load_whitelist()
     whitelist_path = config_dir / "allowed_commands.json"
     whitelist_path.write_text(json.dumps({"commands": ["show version", "show ip int brief"]}))
 
-    blacklist_path = config_dir / "blacklisted_commands.json"
-    blacklist_path.write_text(json.dumps({"patterns": ["rm -rf", "format"]}))
+    # Blacklist — YAML format as read by _load_blacklist()
+    blacklist_path = config_dir / "blacklisted_commands.yaml"
+    blacklist_path.write_text(yaml.dump(["rm -rf", "format"]))
 
-    # Change working directory to tmp_path
-    old_cwd = os.getcwd()
-    os.chdir(tmp_path)
-
-    # Reset singleton
+    # Reset singleton before and after so tests use their own isolated instance
     CommandRegistry._instance = None
 
     yield tmp_path
 
-    # Restore working directory
-    os.chdir(old_cwd)
-    # Reset singleton again
     CommandRegistry._instance = None
 
 
@@ -98,7 +100,7 @@ class TestCommandRegistryComprehensive:
 
     def test_reload_detects_changes(self, mock_olav_dir):
         """Test that reload detects new templates."""
-        registry = CommandRegistry()
+        CommandRegistry()  # ensure singleton initialised
 
         # Add a new template
         (mock_olav_dir / ".olav" / "templates" / "new.textfsm").write_text("Value New (.*)")

@@ -22,23 +22,94 @@ from pathlib import Path
 
 from rich.console import Console
 
+from .banner import print_olav_banner
+
 console = Console()
 logger = logging.getLogger(__name__)
 
 VERSION = "0.10.0"
-OLAV_ASCII = """
-  ██████╗  ██████╗  ██╗  ██╗  █████╗ 
- ██╔════╝ ██╔═══██╗ ██║  ██║ ██╔══██╗
- ██║      ██║   ██║ ███████║ ███████║
- ██║      ██║   ██║ ██╔══██║ ██╔══██║
- ╚██████╗ ╚██████╔╝ ██║  ██║ ██║  ██║
-  ╚═════╝  ╚═════╝  ╚═╝  ╚═╝ ╚═╝  ╚═╝
-         Network Operations AI
-"""
 
 
 def parse_args():
     """Parse command line arguments - deepagents-cli compatible."""
+    import types as _types
+
+    # Known subcommands – if the first non-flag positional arg is NOT one of
+    # these, treat all remaining positionals as a natural-language query so
+    # that both `olav "show log statistics"` and `olav show log counts` work.
+    known_commands = {"list", "help", "admin", "config", "onboard", "service"}
+
+    # Flags that consume the immediately following token as their value.
+    # We must skip those tokens when searching for the first true positional.
+    flags_with_value = {
+        "--agent",
+        "-a",
+        "--sandbox",
+        "--sandbox-id",
+        "--sandbox-setup",
+        "--session",
+    }
+
+    raw_argv = sys.argv[1:]
+
+    def _first_positional(argv: list[str]) -> str | None:
+        skip_next = False
+        for tok in argv:
+            if skip_next:
+                skip_next = False
+                continue
+            if tok in flags_with_value:
+                skip_next = True
+                continue
+            if tok.startswith("-"):
+                continue
+            return tok
+        return None
+
+    first_positional = _first_positional(raw_argv)
+
+    if first_positional and first_positional not in known_commands:
+        # ── Fast path: natural-language single-query mode ──────────────────
+        # Use a lightweight pre-parser to extract flags while leaving the
+        # query tokens untouched.
+        pre = argparse.ArgumentParser(add_help=False)
+        pre.add_argument("--agent", "-a", default="quick")
+        pre.add_argument("--auto-approve", dest="auto_approve", action="store_true")
+        pre.add_argument(
+            "--sandbox", default="none", choices=["none", "modal", "daytona", "runloop"]
+        )
+        pre.add_argument("--sandbox-id", dest="sandbox_id", default=None)
+        pre.add_argument("--sandbox-setup", dest="sandbox_setup", default=None)
+        pre.add_argument("--session", default=None)
+        pre.add_argument("--no-splash", dest="no_splash", action="store_true")
+        pre.add_argument("--verbose", "-v", action="store_true")
+        pre.add_argument("--profile", default=None)  # ISSUE-004: audit profile shorthand
+
+        pre_args, query_tokens = pre.parse_known_args()
+        query = " ".join(query_tokens).strip()
+        # ISSUE-004: --profile builds a deterministic run-audit query
+        if pre_args.profile and not query:
+            profile_name = pre_args.profile
+            if not profile_name.endswith(".md") and "/" not in profile_name:
+                profile_path = f".olav/workspace/audit/profiles/{profile_name}.md"
+            else:
+                profile_path = profile_name
+            query = f"Run audit using profile {profile_path}"
+        # Build a Namespace that matches what the rest of main() expects
+        return _types.SimpleNamespace(
+            command=None,
+            query=query,
+            agent=pre_args.agent,
+            auto_approve=pre_args.auto_approve,
+            sandbox=pre_args.sandbox,
+            sandbox_id=pre_args.sandbox_id,
+            sandbox_setup=pre_args.sandbox_setup,
+            session=pre_args.session,
+            no_splash=pre_args.no_splash,
+            verbose=pre_args.verbose,
+        )
+
+    # ── Normal subcommand / interactive path ──────────────────────────────
     parser = argparse.ArgumentParser(
         prog="olav",
         description=f"OLAV v{VERSION} - Network Operations AI Assistant",
@@ -65,11 +136,18 @@ def parse_args():
     # Onboard command
     subparsers.add_parser("onboard", help="Guided interactive setup and ingestion")
 
+    # Service command (logs, web, daemon, etc.)
+    service_parser = subparsers.add_parser("service", help="Manage background services")
+    service_parser.add_argument(
+        "args", nargs=argparse.REMAINDER, help="Service management arguments"
+    )
+
     # Default interactive mode flags
     parser.add_argument(
         "--agent",
-        default="olav",
-        help="Agent identifier for separate memory stores (default: olav)",
+        "-a",
+        default="quick",
+        help="Agent identifier for separate memory stores (default: quick)",
     )
     parser.add_argument(
         "--auto-approve",
@@ -264,13 +342,8 @@ async def simple_cli(
 
     # Show splash
     if not no_splash:
-        console.print(OLAV_ASCII, style=f"bold {COLORS['primary']}")
-        console.print()
-
-    # Show working directory
-    console.print(f"[dim]OLAV v{VERSION} - Network Operations AI Assistant[/dim]")
-    console.print(f"[dim]Working directory: {Path.cwd()}[/dim]")
-    console.print()
+        # Print OLAV banner with gradient
+        print_olav_banner()
 
     if session_state.auto_approve:
         console.print(
@@ -392,10 +465,36 @@ async def cli_main_impl() -> None:
 
         # Handle list command
         if args.command == "list":
+            import yaml
+
+            workspace_root = Path(".olav/workspace")
             console.print("\n[bold]Available Agents:[/bold]\n")
-            console.print("  • [bold]olav[/bold] (default)")
-            console.print("    Location: ~/.deepagents/olav/")
-            console.print()
+            found = []
+            if workspace_root.exists():
+                for agent_md in sorted(workspace_root.glob("*/AGENT.md")):
+                    agent_dir = agent_md.parent
+                    try:
+                        raw = agent_md.read_text()
+                        if raw.startswith("---"):
+                            parts = raw.split("---", 2)
+                            meta = yaml.safe_load(parts[1]) if len(parts) >= 2 else {}
+                        else:
+                            meta = {}
+                        name = meta.get("name") or agent_dir.name
+                        desc = " ".join(str(meta.get("description", "")).split())
+                        found.append((agent_dir.name, name, desc))
+                    except Exception:
+                        found.append((agent_dir.name, agent_dir.name, ""))
+            if found:
+                for flag, _name, desc in found:
+                    default_tag = " [dim](default)[/dim]" if flag == "olav" else ""
+                    console.print(f"  • [bold]{flag}[/bold]{default_tag}")
+                    if desc:
+                        console.print(f"    [dim]{desc}[/dim]")
+                    console.print(f"    Location: .olav/workspace/{flag}/")
+                    console.print()
+            else:
+                console.print("  [yellow]No agents found in .olav/workspace/[/yellow]\n")
             return
 
         # Handle help command
@@ -453,6 +552,17 @@ async def cli_main_impl() -> None:
             await cmd.execute()
             return
 
+        # Handle service command
+        if args.command == "service":
+            from olav.cli.commands.service import ServiceCommand
+
+            cmd = ServiceCommand()
+            service_args = " ".join(args.args) if args.args else ""
+            result = await cmd.execute(service_args)
+            if result and result != "success":
+                console.print(result)
+            return
+
         # Create session state
         from deepagents_cli.config import SessionState
 
@@ -479,6 +589,7 @@ async def cli_main_impl() -> None:
     except Exception as e:
         console.print(f"\n[bold red]Error:[/bold red] {e}")
         import traceback
+
         # Always print traceback for debugging
         traceback.print_exc()
         if logging.getLogger().level == logging.DEBUG:

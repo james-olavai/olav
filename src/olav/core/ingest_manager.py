@@ -12,7 +12,8 @@ Staging-First flow:
 
 Staging file schema (JSON array):
   [{"device_name": "R1", "command": "show version",
-    "parsed_data": [{...}], "snapshot_id": "2026-03-01"}, ...]
+    "parsed_data": [{...}], "snapshot_id": "2026-03-01",
+    "raw_output": "<raw CLI text>"}, ...]
 """
 
 import logging
@@ -56,25 +57,30 @@ class IngestManager:
                 # parsed_data is cast to JSON to match the column type.
                 # ON CONFLICT upserts — safe to re-run after a partial failure.
                 conn.execute(f"""
-                    INSERT INTO parsed_outputs (device_name, command, parsed_data, snapshot_id)
+                    INSERT INTO parsed_outputs (device_name, command, parsed_data, snapshot_id, raw_output)
                     SELECT
                         device_name,
                         command,
                         parsed_data::JSON,
-                        snapshot_id
-                    FROM read_json_auto('{staging_pattern}', format='array')
+                        snapshot_id,
+                        TRY_CAST(raw_output AS VARCHAR)
+                    FROM read_json_auto('{staging_pattern}', format='array', ignore_errors=true)
+                    WHERE parsed_data IS NOT NULL
                     ON CONFLICT (device_name, command, snapshot_id)
-                    DO UPDATE SET parsed_data = EXCLUDED.parsed_data
+                    DO UPDATE SET
+                        parsed_data = EXCLUDED.parsed_data,
+                        raw_output  = EXCLUDED.raw_output
                 """)
                 # DuckDB does not support changes(); count staging records directly
                 rows_inserted = conn.execute(
-                    f"SELECT COUNT(*) FROM read_json_auto('{staging_pattern}', format='array')"
+                    f"SELECT COUNT(*) FROM read_json_auto('{staging_pattern}', format='array', ignore_errors=true)"
                 ).fetchone()
 
             inserted = rows_inserted[0] if rows_inserted else len(staging_files)
             logger.info(
                 "IngestManager: loaded %d staging files, ~%d records",
-                len(staging_files), inserted,
+                len(staging_files),
+                inserted,
             )
             return {
                 "status": "success",
@@ -84,7 +90,12 @@ class IngestManager:
 
         except Exception as e:
             logger.error("Bulk ingestion failed: %s", e)
-            return {"status": "error", "message": str(e), "files_processed": 0, "records_inserted": 0}
+            return {
+                "status": "error",
+                "message": str(e),
+                "files_processed": 0,
+                "records_inserted": 0,
+            }
 
 
 def bulk_ingest() -> dict:

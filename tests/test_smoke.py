@@ -44,10 +44,10 @@ class TestWorkspaceStructure:
         assert "interrupt_on" in post.metadata, "config/sync must have interrupt_on (HITL)"
 
     def test_ops_subagents_exist(self, olav_dir):
-        """Ops agent must have subagents: routing-simulator, topology, probe, diff."""
+        """Ops agent must have subagents: simulator, topology, probe, diff."""
         workspace = olav_dir / "workspace" / "ops"
 
-        expected_subagents = ["routing-simulator", "topology", "probe", "diff"]
+        expected_subagents = ["simulator", "topology", "probe", "diff"]
         for sa in expected_subagents:
             sa_dir = workspace / sa
             assert sa_dir.exists(), f"Subagent directory missing: ops/{sa}"
@@ -57,16 +57,16 @@ class TestWorkspaceStructure:
 class TestToolDiscovery:
     """Skill tools load without import errors."""
 
-    def test_ops_routing_tools_load(self, olav_dir):
-        """Ops/routing-simulator subagent must have tools."""
+    def test_ops_simulator_tools_load(self, olav_dir):
+        """Ops/simulator subagent must have tools."""
         from olav.core.tool_discovery import discover_tools
 
-        tools_dir = olav_dir / "workspace" / "ops" / "routing-simulator" / "tools"
+        tools_dir = olav_dir / "workspace" / "ops" / "simulator" / "tools"
         if not tools_dir.exists():
             pytest.skip("tools directory does not exist")
 
         tools = discover_tools(tools_dir)
-        assert len(tools) >= 1, "ops/routing must have at least one tool"
+        assert len(tools) >= 1, "ops/simulator must have at least one tool"
 
     def test_ops_probe_tools_load(self, olav_dir):
         """Ops/probe subagent must have tools."""

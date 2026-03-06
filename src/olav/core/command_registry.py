@@ -10,6 +10,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from olav.core.config import get_paths_config
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,22 +47,25 @@ class CommandRegistry:
         self._load_platform_commands()
 
     def _load_templates(self) -> None:
-        """Load TextFSM templates from .olav/templates/."""
+        """Load TextFSM templates from configured directories."""
         self._templates.clear()
         self._template_index.clear()
 
+        paths_config = get_paths_config()
+        project_root = paths_config.project_root
+
         # Priority 1: Custom config directory
-        custom_config_dir = Path(".olav/config/textfsm")
+        custom_config_dir = project_root / ".olav/config/textfsm"
         if custom_config_dir.exists():
             self._scan_templates(custom_config_dir, priority=1)
 
-        # Priority 2: Command learner custom directory
-        custom_dir = Path(".olav/templates/custom")
+        # Priority 2: Command learner custom directory (within txtfsm_templates)
+        custom_dir = project_root / paths_config.textfsm_templates_dir / "custom"
         if custom_dir.exists():
             self._scan_templates(custom_dir, priority=2)
 
-        # Priority 3: Default templates directory
-        templates_dir = Path(".olav/templates")
+        # Priority 3: Default templates directory (from paths.json)
+        templates_dir = project_root / paths_config.textfsm_templates_dir
         if templates_dir.exists():
             self._scan_templates(templates_dir, priority=3)
 
@@ -113,20 +118,32 @@ class CommandRegistry:
                 logger.error(f"Failed to load whitelist: {e}")
 
     def _load_blacklist(self) -> None:
-        """Load blacklisted commands from config."""
+        """Load blacklisted commands from config (via PathsConfig → .olav/config/blacklisted_commands.yaml)."""
         self._blacklist.clear()
 
-        blacklist_path = Path(".olav/config/blacklisted_commands.json")
-        if blacklist_path.exists():
-            try:
-                import json
+        try:
+            import yaml
 
-                data = json.loads(blacklist_path.read_text())
-                patterns = data.get("patterns", [])
-                self._blacklist.extend(patterns)
-                logger.info(f"Loaded {len(self._blacklist)} blacklisted patterns")
-            except Exception as e:
-                logger.error(f"Failed to load blacklist: {e}")
+            from olav.core.config import get_paths_config
+
+            pc = get_paths_config()
+            blacklist_path = Path(pc.project_root) / pc.blacklist_commands_file
+            if not blacklist_path.exists():
+                logger.debug(f"Blacklist file not found: {blacklist_path}")
+                return
+            data = yaml.safe_load(blacklist_path.read_text(encoding="utf-8")) or []
+            for entry in data:
+                if isinstance(entry, dict):
+                    cmd = entry.get("command", "").strip().lower()
+                elif isinstance(entry, str):
+                    cmd = entry.strip().lower()
+                else:
+                    continue
+                if cmd:
+                    self._blacklist.append(cmd)
+            logger.info(f"Loaded {len(self._blacklist)} blacklisted commands")
+        except Exception as e:
+            logger.error(f"Failed to load blacklist: {e}")
 
     def _load_platform_commands(self) -> None:
         """Load commands grouped by platform from templates."""
