@@ -22,7 +22,7 @@ import json
 import logging
 import math
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -71,17 +71,47 @@ class KnowledgeBase:
     def __init__(
         self,
         store: LanceDBStore,
-        embedding_dim: int = 384,
+        embedding_dim: int | None = None,
     ) -> None:
         """Initialize Knowledge Base.
 
         Args:
             store:          LanceDBStore instance (shared with memory).
-            embedding_dim:  Embedding vector dimension.
+            embedding_dim:  Embedding vector dimension. If None, auto-detects
+                            from configured model (768 for bge-base, 384 otherwise).
         """
         self._store = store
-        self._embedding_dim = embedding_dim
         self._embedder = None  # lazy-loaded
+        self._config_model_dim: int | None = None  # resolved on first embed
+
+        if embedding_dim is None:
+            from olav.core.config import get_embedding_config
+
+            _cfg = get_embedding_config()
+            _model = (_cfg.local_model if _cfg.mode == "local" else _cfg.openai_model).lower()
+            embedding_dim = 768 if "bge-base" in _model or "bge-large" in _model else 384
+
+        # If the table exists, respect its existing vector dimension to avoid mismatch
+        table_dim: int | None = None
+        try:
+            if store.table_exists(KB_TABLE):
+                tbl = store.get_table(KB_TABLE)
+                for field in tbl.schema:
+                    if field.name == "vector" and hasattr(field.type, "list_size"):
+                        table_dim = field.type.list_size
+                        break
+        except Exception:
+            pass
+
+        if table_dim is not None and table_dim != embedding_dim:
+            logger.warning(
+                f"KB: existing table has {table_dim}-dim vectors but config model produces "
+                f"{embedding_dim}-dim. Using {table_dim} to match existing data. "
+                f"Run index with force_reindex=True after changing models."
+            )
+            embedding_dim = table_dim
+
+        self._embedding_dim = embedding_dim
 
     def _ensure_table(self) -> "LanceDBStore.table.LanceTable":
         """Ensure KB table exists with FTS index."""
@@ -116,13 +146,47 @@ class KnowledgeBase:
                 logger.debug(f"FTS index skipped: {e}")
 
     def _embed(self, text: str) -> list[float] | None:
-        """Lazy-load embedder and embed text."""
+        """Lazy-load embedder and embed text using the configured model.
+
+        Falls back to a dimension-compatible model if the stored table was
+        created with a different model than currently configured.
+        """
         if self._embedder is None:
             try:
+                import os
+
                 from sentence_transformers import SentenceTransformer
 
-                self._embedder = SentenceTransformer("BAAI/bge-small-en-v1.5")
-                logger.debug("KB: embedder loaded (BAAI/bge-small-en-v1.5)")
+                from olav.core.config import get_embedding_config
+
+                cfg = get_embedding_config()
+                model_name = cfg.local_model if cfg.mode == "local" else cfg.openai_model
+
+                # Resolve expected dim for the configured model
+                m = model_name.lower()
+                config_dim = 768 if ("bge-base" in m or "bge-large" in m) else 384
+
+                # If dim mismatch with existing table, fall back to a compatible model
+                if config_dim != self._embedding_dim:
+                    fallback = (
+                        "BAAI/bge-small-en-v1.5"
+                        if self._embedding_dim == 384
+                        else "BAAI/bge-base-en-v1.5"
+                    )
+                    logger.info(
+                        f"KB: config model '{model_name}' produces {config_dim}-dim but table has "
+                        f"{self._embedding_dim}-dim. Using '{fallback}' for compatibility. "
+                        f"Run force_reindex=True to rebuild with new model."
+                    )
+                    model_name = fallback
+
+                # Force CPU only (avoid CUDA compatibility issues)
+                os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+                self._embedder = SentenceTransformer(
+                    model_name, trust_remote_code=True, device=cfg.device
+                )
+                logger.debug(f"KB: embedder loaded ({model_name}) on {cfg.device}")
             except Exception as e:
                 logger.debug(f"KB: embedder unavailable ({e}), falling back to zero vectors")
                 self._embedder = False
@@ -193,22 +257,47 @@ class KnowledgeBase:
             except Exception:
                 pass
 
-            # Store chunk
+            # Store chunk (directly to KB table, not via add_memory)
             chunk_id = f"kb-{uuid.uuid4().hex[:8]}"
             try:
-                self._store.add_memory(
-                    id=chunk_id,
-                    text=chunk_text,
-                    vector=vector,
-                    category="kb",
-                    scope="global",
-                    metadata={
+                tbl = self._store.get_table(KB_TABLE)
+                metadata_json = json.dumps(
+                    {
                         "source_file": source_file,
                         "chunk_index": chunk_index,
                         "file_size": len(text_content),
-                    },
-                    table_name=KB_TABLE,
+                    }
                 )
+                now = datetime.now(UTC)
+
+                # Create record matching KB table schema
+                record = pa.table(
+                    [
+                        pa.array([chunk_id]),
+                        pa.array([chunk_text]),
+                        pa.array([vector]),
+                        pa.array([source_file]),
+                        pa.array([chunk_index]),
+                        pa.array(["kb"]),  # category
+                        pa.array([metadata_json]),
+                        pa.array([now]),
+                        pa.array([1.0]),  # weight
+                    ],
+                    schema=pa.schema(
+                        [
+                            ("id", pa.string()),
+                            ("text", pa.string()),
+                            ("vector", pa.list_(pa.float32(), self._embedding_dim)),
+                            ("source_file", pa.string()),
+                            ("chunk_index", pa.int32()),
+                            ("category", pa.string()),
+                            ("metadata", pa.string()),
+                            ("timestamp", pa.timestamp("us")),
+                            ("weight", pa.float32()),
+                        ]
+                    ),
+                )
+                tbl.add(record)
                 stored += 1
             except Exception as e:
                 logger.error(f"KB: failed to store chunk {chunk_index}: {e}")

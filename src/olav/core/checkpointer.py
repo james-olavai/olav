@@ -17,11 +17,17 @@ Usage:
 import asyncio
 import logging
 import os
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
-from typing import Any, AsyncIterator, Iterator, Optional
+from typing import Any, Optional
 
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.base import BaseCheckpointSaver, Checkpoint, CheckpointMetadata, CheckpointTuple
+from langgraph.checkpoint.base import (
+    BaseCheckpointSaver,
+    Checkpoint,
+    CheckpointMetadata,
+    CheckpointTuple,
+)
 from langgraph.checkpoint.duckdb import DuckDBSaver
 
 logger = logging.getLogger(__name__)
@@ -44,18 +50,18 @@ class AsyncDuckDBSaver(DuckDBSaver):
         super().__init__(*args, **kwargs)
         self._lock = asyncio.Lock()
 
-    async def aget_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
+    async def aget_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
         """Async wrapper for get_tuple using asyncio.to_thread."""
         async with self._lock:
             return await asyncio.to_thread(self.get_tuple, config)
 
     async def alist(
         self,
-        config: Optional[RunnableConfig],
+        config: RunnableConfig | None,
         *,
-        filter: Optional[dict[str, Any]] = None,
-        before: Optional[RunnableConfig] = None,
-        limit: Optional[int] = None,
+        filter: dict[str, Any] | None = None,
+        before: RunnableConfig | None = None,
+        limit: int | None = None,
     ) -> AsyncIterator[CheckpointTuple]:
         """Async wrapper for list — collects all items in thread, yields async."""
         async with self._lock:

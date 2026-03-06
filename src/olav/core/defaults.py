@@ -58,7 +58,8 @@ DEFAULT_PATHS_CONFIG: dict[str, Any] = {
     "agent_dir": ".olav",
     "databases_dir": ".olav/databases",
     "exports_dir": "exports",
-    "reports_dir": "exports/reports",
+    "agent_outputs_dir": "agent_outputs",
+    "run_dir": "run",
     "logs_dir": ".olav/logs",
     "log_storage_dir": ".olav/databases/logs",
     "knowledge_dir": ".olav/knowledge",
@@ -195,8 +196,11 @@ def get_default_value(section: str, key: str, default: Any = None) -> Any:
 # Constants
 # ============================================================================
 
-# Default port for OLAV API server
-DEFAULT_API_PORT: int = 5514
+# Default port for OLAV Web (FastAPI) server
+DEFAULT_WEB_PORT: int = 2280
+
+# Default port for OLAV Syslog collector (UDP/TCP)
+DEFAULT_LOG_PORT: int = 5514
 
 # Default threshold for semantic routing
 DEFAULT_ROUTING_THRESHOLD: float = 0.85

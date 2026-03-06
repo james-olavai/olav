@@ -13,11 +13,14 @@ Endpoints:
 import json
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
+
+_STATIC_DIR = Path(__file__).parent / "static"
 
 
 class ThreadCreate(BaseModel):
@@ -62,6 +65,15 @@ app = FastAPI(
 )
 
 
+@app.get("/", include_in_schema=False)
+async def root():
+    """Serve the built-in chat UI (all assets are inlined)."""
+    index = _STATIC_DIR / "index.html"
+    if index.exists():
+        return FileResponse(str(index), media_type="text/html")
+    return RedirectResponse(url="/docs")
+
+
 @app.get("/health")
 async def health():
     return {"status": "healthy", "service": "olav-api"}
@@ -95,18 +107,36 @@ async def stream_run(thread_id: str, body: RunStreamRequest):
                 event_type = event.get("event", "unknown")
                 event_data = event.get("data", {})
 
-                # Sanitize event data for JSON serialization
+                # Custom JSON encoder for LangChain objects
+                def encode_obj(obj):
+                    if hasattr(obj, "model_dump"):
+                        return obj.model_dump()
+                    if hasattr(obj, "dict"):
+                        return obj.dict()
+                    if hasattr(obj, "__dict__"):
+                        return vars(obj)
+                    return str(obj)
+
+                # Serialize event data
                 try:
+                    # Quick test to see if standard works
                     json.dumps(event_data)
                     sse_event = {"event": event_type, "data": event_data}
                 except (TypeError, ValueError):
-                    sse_event = {
-                        "event": event_type,
-                        "data": {
-                            "_serialization_error": str(type(event_data)),
-                            "message": str(event_data)[:200],
-                        },
-                    }
+                    # Fallback to custom encoder
+                    try:
+                        sse_event = {
+                            "event": event_type,
+                            "data": json.loads(json.dumps(event_data, default=encode_obj)),
+                        }
+                    except Exception:
+                        sse_event = {
+                            "event": event_type,
+                            "data": {
+                                "_serialization_error": str(type(event_data)),
+                                "message": str(event_data)[:200],
+                            },
+                        }
 
                 yield f"data: {json.dumps(sse_event)}\n\n"
 
@@ -134,4 +164,6 @@ async def threadless_stream(body: RunStreamRequest):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=2024)
+    from olav.core.defaults import DEFAULT_WEB_PORT
+
+    uvicorn.run(app, host="0.0.0.0", port=DEFAULT_WEB_PORT)

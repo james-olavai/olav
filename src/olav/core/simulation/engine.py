@@ -26,6 +26,7 @@ class NetworkSimulator:
                 close_after = False
             elif self.db_path:
                 import duckdb
+
                 conn = duckdb.connect(str(self.db_path), read_only=True)
                 close_after = True
             else:
@@ -33,12 +34,12 @@ class NetworkSimulator:
                 return self._topology
 
             nodes = conn.execute("SELECT name, mgmt_ip, platform FROM devices").fetchall()
-            self._topology["nodes"] = [
-                {"name": n[0], "ip": n[1], "platform": n[2]} for n in nodes
-            ]
+            self._topology["nodes"] = [{"name": n[0], "ip": n[1], "platform": n[2]} for n in nodes]
 
             links = (
-                conn.execute("SELECT source_device, destination_device FROM topology_links").fetchall()
+                conn.execute(
+                    "SELECT source_device, destination_device FROM topology_links"
+                ).fetchall()
                 if self._has_table(conn, "topology_links")
                 else []
             )

@@ -78,6 +78,7 @@ class SemanticRouter:
                 self._embeddings = OpenAIEmbeddings(
                     model=emb_config.api_model,
                     api_key=emb_config.api_key,
+                    base_url=emb_config.base_url or None,
                 )
 
         return self._embeddings
@@ -277,8 +278,8 @@ Available agents:
 - olav: General operations, querying device data, running commands
 - config: Configuration management, syncing, snapshots
 - audit: Audit logs, compliance, security analysis
-- ops: Network operations, routing, topology, probing
-- log-analytics: Log analysis, searching, patterns
+- ops: Network operations, routing, topology, probing, log analysis
+- quick: Fast single-turn queries and summaries
 
 Query: {query}
 
@@ -289,7 +290,7 @@ Respond with only the agent name (e.g., "olav")."""
             agent = response.content.strip().lower()
 
             # Validate agent name
-            valid_agents = ["olav", "config", "audit", "ops", "log-analytics", "quick"]
+            valid_agents = ["olav", "config", "audit", "ops", "quick"]
             if agent not in valid_agents:
                 agent = "olav"  # Default
 

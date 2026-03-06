@@ -105,7 +105,8 @@ def create_olav_directories(base_path: Any) -> dict:
         "exports/snapshots",
         "exports/snapshots/latest",
         "exports/snapshots/latest/raw",
-        "exports/reports",
+        "exports/agent_outputs",
+        "exports/audit_reports",
         "knowledge",
     ]
 
