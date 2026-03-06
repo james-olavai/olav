@@ -57,34 +57,18 @@ tests/
 */tests/
 test_*.py
 
-# OLAV Runtime & Data (Internal - Never Commit)
-# Database files, caches, and runtime state that should never be version controlled
-.olav/db/*.duckdb              # DuckDB database files (user/project specific)
-.olav/db/*.duckdb-wal          # DuckDB WAL files
-.olav/cache/                   # Runtime cache directory
-.olav/logs/                    # Runtime logs
-.olav/scratch/                 # Temporary working files
-.olav/.last_thread_id          # Session state
-.olav/.agent_memory.json       # Agent runtime memory
-.olav/.cli_history             # CLI command history
-*.sqlite                       # Any SQLite database files
-*.db                           # Database files
-
 # Platform Logs
 logs/
 *.log
 
 # Exported Data (User-Facing, Version Controlled Optional)
-# Uncomment to ignore exported data:
 exports/snapshots/*
 exports/reports/*
 exports/visualizations/*
-# Keep directory structure:
 !exports/.gitkeep
 !exports/snapshots/.gitkeep
 !exports/reports/.gitkeep
 !exports/reports/analysis/.gitkeep
-!exports/reports/.gitkeep
 !exports/visualizations/.gitkeep
 
 # Sensitive Configuration (User-Specific - Never Commit)
@@ -109,9 +93,95 @@ uv.lock
 
 # Archives & Legacy (Excluded from Release)
 archive/
-docs
+docs/
+dev_docs/
+_legacy_archived/
+README_ZH.md
 
-# Skill-specific duckdb files
-.olav/skills/**/*.duckdb
-.olav/skills/**/*.duckdb-wal
-.olav/skills/**/*.duckdb-shm
+# Testing & QA (Strictly Excluded)
+tests/
+test_*.py
+*_test.py
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+*.cover
+.hypothesis/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyright_cache/
+.ruff_cache/
+
+# Runtime Generated Files (Excluded from Release)
+agent_outputs/
+exports/
+logs/
+tmp/
+run/
+.olav/
+*.log
+
+# Demo and Test Scripts (Excluded from Release)
+demo_*.py
+test_*.py
+*_test.py
+*test*.py
+WATERMARK_IMPLEMENTATION_REPORT.md
+tmp/
+run/
+.olav/
+*.log
+
+# Build/Packaging
+uv.lock
+dist/
+build/
+*.egg-info/
+
+# IDEs & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+/lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+.installed.cfg
+*.egg
+.claude/
+.github/
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# OLAV - ignore everything by default, except workspace/templates/schemas
+.olav/*
+!.olav/workspace/
+!.olav/templates/
+!.olav/config/schemas/
