@@ -1,14 +1,17 @@
 """Unit tests for src/olav/cli/main.py."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
-from olav.cli.main import parse_args, check_dependencies, cli_main
+
+from olav.cli.main import check_dependencies, cli_main, parse_args
+
 
 def test_parse_args_default():
     """Test parse_args with default arguments."""
     with patch("sys.argv", ["olav"]):
         args = parse_args()
-        assert args.agent == "olav"
+        assert args.agent == "quick"
         assert args.query is None
         assert args.command is None
 

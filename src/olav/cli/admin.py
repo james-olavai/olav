@@ -2,9 +2,8 @@
 """
 Admin CLI - System administration commands for OLAV.
 
-v2.1.0 (Ultra-Minimalist):
-- Fast-path commands for common operations (status, backup, etc.)
-- Admin Agent for complex tasks (AI-powered, natural language)
+Fast-path commands for common operations (status, backup, etc.)
+Admin Agent for complex tasks (AI-powered, natural language)
 
 Usage:
     from olav.cli.admin import admin_handler
@@ -384,7 +383,7 @@ async def _kb_search(args: str) -> dict:
         message = f"🔍 KB Search results for: '{query}'\n\n"
 
         try:
-            from olav.core.knowledge import get_knowledge_base, KB_TABLE
+            from olav.core.knowledge import KB_TABLE, get_knowledge_base
             from olav.core.memory import get_store
 
             # Get KB engine
@@ -408,6 +407,7 @@ async def _kb_search(args: str) -> dict:
                     source = result.get("metadata", "{}")
                     try:
                         import json
+
                         meta = json.loads(source) if isinstance(source, str) else source
                         source_file = meta.get("source_file", "Unknown")
                     except Exception:

@@ -61,21 +61,22 @@ class TestLLMFactory:
                 LLMFactory.get_chat_model(model_name="bad")
 
     def test_get_embeddings_local_mode(self):
-        """get_embeddings in local mode uses HuggingFaceEmbeddings."""
-        pytest.importorskip("langchain_huggingface")
+        """get_embeddings in local mode uses sentence_transformers.SentenceTransformer."""
         from olav.core.llm import LLMFactory
 
-        mock_emb = MagicMock()
+        mock_st_instance = MagicMock()
         with patch("olav.core.config.get_embedding_config") as mock_cfg:
             mock_cfg.return_value.mode = "local"
-            mock_cfg.return_value.model = "bge-small-en-v1.5"
-            mock_cfg.return_value.local_device = "cpu"
+            mock_cfg.return_value.local_model = "BAAI/bge-small-en-v1.5"
+            mock_cfg.return_value.device = "cpu"
             mock_cfg.return_value.normalize_embeddings = True
 
-            with patch("langchain_huggingface.HuggingFaceEmbeddings", return_value=mock_emb) as mock_hf:
+            with patch("sentence_transformers.SentenceTransformer", return_value=mock_st_instance) as mock_st_cls:
                 result = LLMFactory.get_embeddings()
-                mock_hf.assert_called_once()
-                assert result is mock_emb
+                mock_st_cls.assert_called_once()
+                assert result is not None
+                assert hasattr(result, "embed_documents")
+                assert hasattr(result, "embed_query")
 
     def test_get_embeddings_api_mode(self):
         """get_embeddings in api mode uses OpenAIEmbeddings."""

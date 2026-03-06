@@ -5,10 +5,15 @@ conversations, compression triggering, and context preservation.
 """
 
 import asyncio
-import pytest
 from typing import Any
 
-from olav.core.context_compression import ContextCompressor, create_context_compressor
+import pytest
+
+pytest.importorskip(
+    "olav.core.context_compression",
+    reason="olav.core.context_compression module has been removed; skipping these tests",
+)
+from olav.core.context_compression import ContextCompressor, create_context_compressor  # noqa: E402
 from olav.core.llm import LLMFactory
 
 

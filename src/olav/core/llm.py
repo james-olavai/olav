@@ -63,18 +63,11 @@ class LLMFactory:
         if llm_config.base_url:
             params["base_url"] = llm_config.base_url
 
-        # Add model_provider - needed for models like x-ai/grok
-        # Read from config JSON directly if not available in LLMConfig
-        from pathlib import Path
-
-        api_config_path = Path(".olav/config/api.json")
-        if api_config_path.exists():
-            import json
-
-            api_config = json.loads(api_config_path.read_text())
-            model_provider = api_config.get("llm", {}).get("model_provider")
-            if model_provider:
-                params["model_provider"] = model_provider
+        # Add model_provider if configured.
+        # Always pass it explicitly – init_chat_model cannot infer the provider
+        # from custom model names like "x-ai/grok-4.1-fast" or "openrouter/*".
+        if llm_config.model_provider:
+            params["model_provider"] = llm_config.model_provider
 
         # Disable streaming for DeepAgents async compatibility
         params["streaming"] = False
@@ -126,7 +119,12 @@ class LLMFactory:
 
         config = get_embedding_config()
         mode = config.mode
-        model = embedding_model or config.model
+
+        # Select model based on mode
+        if mode == "api":
+            model = embedding_model or config.openai_model
+        else:
+            model = embedding_model or config.local_model
 
         try:
             if mode == "api":
@@ -136,22 +134,60 @@ class LLMFactory:
                     model=model, api_key=config.api_key, base_url=config.base_url or None, **kwargs
                 )
             else:
-                # Default to local sentence-transformers
-                from langchain_huggingface import HuggingFaceEmbeddings
+                # Use sentence-transformers directly
+                import os
 
-                return HuggingFaceEmbeddings(
-                    model_name=model,
-                    model_kwargs={"device": config.local_device},
-                    encode_kwargs={"normalize_embeddings": config.normalize_embeddings},
-                    **kwargs,
-                )
+                from sentence_transformers import SentenceTransformer
+
+                # Force CPU only to avoid CUDA issues
+                os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+                st_model = SentenceTransformer(model, trust_remote_code=True, device=config.device)
+
+                # Wrap in a simple embedding class for compatibility
+                class SentenceTransformerEmbeddings:
+                    def __init__(self, model):
+                        self.model = model
+
+                    def embed_documents(self, texts):
+                        return self.model.encode(
+                            texts, normalize_embeddings=config.normalize_embeddings
+                        ).tolist()
+
+                    def embed_query(self, text):
+                        return self.model.encode(
+                            text, normalize_embeddings=config.normalize_embeddings
+                        ).tolist()
+
+                return SentenceTransformerEmbeddings(st_model)
         except Exception as e:
             logger.warning(f"Embedding initialization failed ({mode}/{model}): {e}")
             if mode == "api" and config.fallback_enabled:
                 logger.info("Falling back to local embeddings...")
-                from langchain_huggingface import HuggingFaceEmbeddings
+                import os
 
-                return HuggingFaceEmbeddings(model_name=config.local_model)
+                from sentence_transformers import SentenceTransformer
+
+                os.environ["CUDA_VISIBLE_DEVICES"] = ""
+                st_model = SentenceTransformer(
+                    config.local_model, trust_remote_code=True, device=config.device
+                )
+
+                class SentenceTransformerEmbeddings:
+                    def __init__(self, model):
+                        self.model = model
+
+                    def embed_documents(self, texts):
+                        return self.model.encode(
+                            texts, normalize_embeddings=config.normalize_embeddings
+                        ).tolist()
+
+                    def embed_query(self, text):
+                        return self.model.encode(
+                            text, normalize_embeddings=config.normalize_embeddings
+                        ).tolist()
+
+                return SentenceTransformerEmbeddings(st_model)
             raise
 
 

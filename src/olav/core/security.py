@@ -19,6 +19,8 @@ from typing import Any
 
 import yaml
 
+from olav.core.config import SECURITY_POLICIES_PATH
+
 # Default security policies
 DEFAULT_POLICIES = {
     "version": "1.0",
@@ -87,8 +89,8 @@ def load_security_policies(config_path: str | Path | None = None) -> dict[str, A
         Security policies dictionary
     """
     if config_path is None:
-        # Default to .olav/config/sync/security_policies.yaml
-        config_path = Path(".olav") / "config" / "sync" / "security_policies.yaml"
+        # Default to configured path (e.g., .olav/config/security_policies.yaml)
+        config_path = SECURITY_POLICIES_PATH
 
     config_path = Path(config_path)
 
@@ -281,3 +283,22 @@ def create_default_policy_file(config_path: str | Path) -> None:
         yaml.dump(DEFAULT_POLICIES, f, default_flow_style=False)
 
     print(f"Created default security policies at {config_path}")
+
+
+def main():
+    """Simple CLI for testing security policies."""
+    import argparse
+    import json
+
+    parser = argparse.ArgumentParser(description="Test security policies against a query")
+    parser.add_argument("query", help="User query string to test")
+    parser.add_argument("--config", help="Path to security_policies.yaml")
+
+    args = parser.parse_args()
+    result = check_query_policy(args.query, load_security_policies(args.config))
+
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

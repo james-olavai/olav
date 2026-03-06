@@ -51,6 +51,7 @@ class LangGraphLanceDBStore(BaseStore):
         if self._embedder is None:
             try:
                 from sentence_transformers import SentenceTransformer
+
                 self._embedder = SentenceTransformer("BAAI/bge-small-en-v1.5")
                 logger.info("✓ Embedder loaded: BAAI/bge-small-en-v1.5")
             except Exception as e:
@@ -195,6 +196,7 @@ class LangGraphLanceDBStore(BaseStore):
                 # Query distinct scopes using LanceDB's to_pandas()
                 try:
                     import pandas as pd  # noqa: F401
+
                     df = tbl.to_lance().to_table(columns=["scope"]).to_pandas()
                     distinct = df["scope"].dropna().unique().tolist()
                     scopes = list(dict.fromkeys(["global"] + distinct))  # dedup, global first

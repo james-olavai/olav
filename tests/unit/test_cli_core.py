@@ -312,27 +312,6 @@ class TestDisplay:
         assert display is not None
 
 
-class TestTaskManager:
-    """Tests for src/olav/cli/task_manager.py"""
-
-    def test_task_manager_import(self):
-        """Test task_manager module can be imported."""
-        try:
-            from olav.cli import task_manager
-
-            assert task_manager is not None
-        except (ImportError, ModuleNotFoundError):
-            pytest.skip("task_manager has missing dependency or does not exist")
-
-
-class TestDaemon:
-    """Tests for src/olav/cli/daemon.py"""
-
-    def test_daemon_import(self):
-        """Test daemon module can be imported."""
-        pytest.skip("daemon module does not exist in current architecture")
-
-
 class TestCommands:
     """Tests for src/olav/cli/commands/"""
 

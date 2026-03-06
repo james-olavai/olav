@@ -21,8 +21,8 @@ OLAV v0.11.0 implements a **Secure-Isolated & Central-Audited** Federated Specia
 
 ### 4. Federated Specialist Agents (Dynamic Binding)
 OLAV uses `deepagents.SkillsMiddleware` to dynamically bind scripts to agents based on `SKILL.md` metadata.
-*   **Query Agent**: Translated Natural Language to SQL/Zero-Shot Queries.
-*   **Log Agent**: Semantic Log Search & Root-Cause Extraction from LanceDB.
+*   **Query Agent**: Translates Natural Language to SQL/Zero-Shot Queries.
+*   **Ops Agent**: Deep troubleshooting — routing, topology, probing, log analysis, diff.
 *   **Sync Agent**: Inventory, Snapshot collection, and Security Policy Sync.
 *   **Ops Subagent (Sandbox)**: Computational analysis & high-concurrency calculation in a secure sandbox.
 
@@ -32,11 +32,13 @@ OLAV uses `deepagents.SkillsMiddleware` to dynamically bind scripts to agents ba
 ./
 ├── src/olav/           # Core Framework (Logic, Models, Middlewares)
 │   ├── agents/         # Generic Agent orchestrators
+│   ├── api/            # FastAPI HTTP server (server.py)
 │   ├── core/           # Universal truth: config, llm, database, ingest
+│   ├── services/       # Long-running background daemons (syslog_receiver.py)
 │   └── knowledge/      # KB Engine (Embeddings, Chunking)
 ├── .olav/              # Runtime Global Environment
 │   ├── workspace/      # Agent & Skill definitions (AGENT.md, SKILL.md)
-│   ├── scripts/        # Implementation scripts (Atomic, stdin/stdout)
+│   │   └── <agent>/tools/  # LangChain tool modules for that agent
 │   ├── logs/           # Centralized Audit Logs (.olav/logs/users/*.log)
 │   └── databases/      # DuckDB + LanceDB (Shared data ONLY)
 └── dev_docs/          # Architectural decisions and issues log
@@ -45,10 +47,11 @@ OLAV uses `deepagents.SkillsMiddleware` to dynamically bind scripts to agents ba
 ## 3. ANTI-PATTERNS (CRITICAL)
 
 - **❌ NO Local Checkpoints**: Never store `checkpoints.duckdb` in the project root. Use `USER_SESSION_DIR`.
-- **❌ NO Direct DB Writes**: Scripts must **NEVER** call `duckdb.connect().execute("INSERT...")`. Use Staging files.
+- **❌ NO Direct DB Writes**: Agent tools must **NEVER** call `duckdb.connect().execute("INSERT...")`. Use Staging files.
 - **❌ NO Anonymous Agents**: Always pass `agent_id` to `LLMFactory` to enable model overrides in `api.json`.
 - **❌ NO Hardcoded Paths**: Always use `PathsConfig` or constants from `olav.core.config`.
 - **❌ NO Implicit Commits**: Ensure code quality (ruff + pyright) is passing **BEFORE** claiming completion.
+- **❌ NO Daemons in Workspace**: Long-running services (HTTP, UDP) belong in `src/olav/services/`, not `.olav/workspace/`.
 
 ## 4. MULTI-USER SECURITY (V0.11.0+)
 
@@ -73,8 +76,8 @@ Model selection is strictly configuration-driven:
 ## 7. DEVELOPMENT WORKFLOW (FOR BAUs)
 
 1.  **Add Setting**: Update `src/olav/core/config.py` (Centralized).
-2.  **Implement Logic**: Move complex handling to `src/olav/core/`.
-3.  **Thin Wrapper**: Create script in `.olav/scripts/` (stdout JSON only).
+2.  **Implement Logic**: Move complex handling to `src/olav/core/` or `src/olav/services/`.
+3.  **Agent Tool**: Create a LangChain tool in `.olav/workspace/<agent>/tools/` (invoked by the agent).
 4.  **TDD**: Run `uv run pytest tests/00_e2e_acceptance_test.py` often. **Green = Done.**
 
 **Action**: Always check `dev_docs/issues.md` for active architectural pivots before starting a task.

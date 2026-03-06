@@ -1,50 +1,44 @@
-"""Test Network Topology Analysis using DuckPGQ."""
+"""Test Network Topology Analysis using NetworkX."""
+
+import sys
+from pathlib import Path
 
 import pytest
 
-
-class TestDuckPGQ:
-    def test_duckpgq_loads(self):
-        import duckdb
-
-        conn = duckdb.connect()
-        conn.execute("LOAD duckpgq")
-        conn.close()
+# Resolve tool location without requiring package install
+_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_ROOT / ".olav/workspace/ops/topology/tools"))
+from topology import _build_graph, _find_path, _detect_loops, _get_connected
 
 
 class TestTopologyAnalysis:
     @pytest.fixture
-    def topology(self):
-        return [
+    def graph(self):
+        topology = [
             {"device": "R1", "neighbor": "R2"},
-            {"device": "R2", "neighbor": "R1"},
             {"device": "R2", "neighbor": "R3"},
-            {"device": "R3", "neighbor": "R2"},
         ]
+        return _build_graph(topology)
 
-    def test_find_path(self, topology):
-        from src.olav.core.memory.topology import analyze_network_topology
-
-        result = analyze_network_topology(topology, intent="path", source="R1", destination="R3")
+    def test_find_path(self, graph):
+        result = _find_path(graph, source="R1", destination="R3")
         assert result["status"] == "success"
-        assert result["path"] is not None
+        assert result["path"] == ["R1", "R2", "R3"]
 
-    def test_no_path(self, topology):
-        from src.olav.core.memory.topology import analyze_network_topology
+    def test_no_path(self, graph):
+        # Node does not exist at all → error, not a silent "no path"
+        result = _find_path(graph, source="R1", destination="R4")
+        assert result["status"] == "error"
+        assert "R4" in result["message"]
 
-        result = analyze_network_topology(topology, intent="path", source="R1", destination="R4")
+    def test_loop_detection(self):
+        topo = [{"src": "R1", "dst": "R2"}, {"src": "R2", "dst": "R3"}, {"src": "R3", "dst": "R1"}]
+        G = _build_graph(topo)
+        result = _detect_loops(G)
         assert result["status"] == "success"
-        assert result["path"] is None
+        assert result["loops_found"] == 1
 
-    def test_loop_detection(self, topology):
-        from src.olav.core.memory.topology import analyze_network_topology
-
-        result = analyze_network_topology(topology, intent="loop_detection")
-        assert result["status"] == "success"
-
-    def test_connectivity(self, topology):
-        from src.olav.core.memory.topology import analyze_network_topology
-
-        result = analyze_network_topology(topology, intent="connectivity", source="R2")
+    def test_connectivity(self, graph):
+        result = _get_connected(graph, device="R2")
         assert result["status"] == "success"
         assert result["connection_count"] == 2

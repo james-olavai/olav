@@ -14,7 +14,7 @@ Implements Phase 2 of the LANCEDB_MEMORY_SYSTEM_INTEGRATION plan:
 import json
 import logging
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from typing import TYPE_CHECKING
 
 from olav.core.memory import MEMORY_TABLE, hybrid_search
@@ -28,10 +28,10 @@ logger = logging.getLogger(__name__)
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-RECALL_TOP_K = 3            # Max memories to inject per query
-CAPTURE_MAX_ITEMS = 3       # Max fact/decision items to extract per conversation
+RECALL_TOP_K = 3  # Max memories to inject per query
+CAPTURE_MAX_ITEMS = 3  # Max fact/decision items to extract per conversation
 DECAY_HALF_LIFE_DAYS = 60  # Time-decay half-life (days)
-DECAY_WEIGHT_FLOOR = 0.1   # Minimum weight after full decay
+DECAY_WEIGHT_FLOOR = 0.1  # Minimum weight after full decay
 
 _EXTRACT_PROMPT = """\
 You are a precise fact extractor. Given the following conversation between a user and an AI assistant,
@@ -56,6 +56,7 @@ JSON array only, no extra text:"""
 # ─────────────────────────────────────────────────────────────────────────────
 # Auto-Recall
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class AutoRecallMiddleware:
     """Pre-processor that injects relevant memories into the user prompt.
@@ -86,6 +87,7 @@ class AutoRecallMiddleware:
         if self._embedder is None:
             try:
                 from sentence_transformers import SentenceTransformer
+
                 self._embedder = SentenceTransformer("BAAI/bge-small-en-v1.5")
                 logger.debug("AutoRecall: embedder loaded (BAAI/bge-small-en-v1.5)")
             except Exception as e:
@@ -144,7 +146,9 @@ class AutoRecallMiddleware:
                 # Get the last user message content
                 query_text = ""
                 for m in reversed(messages):
-                    content = m.get("content", "") if isinstance(m, dict) else getattr(m, "content", "")
+                    content = (
+                        m.get("content", "") if isinstance(m, dict) else getattr(m, "content", "")
+                    )
                     role = m.get("role", "") if isinstance(m, dict) else getattr(m, "type", "")
                     if role in ("human", "user") and content:
                         query_text = content
@@ -186,7 +190,9 @@ class AutoRecallMiddleware:
 
             # Prepend to user message
             enriched_text = f"{context_block}\n\n{query_text}"
-            logger.info(f"AutoRecall: injected {len(memories)} memories into prompt (scope={scope})")
+            logger.info(
+                f"AutoRecall: injected {len(memories)} memories into prompt (scope={scope})"
+            )
 
             if isinstance(input_, str):
                 return enriched_text
@@ -212,6 +218,7 @@ class AutoRecallMiddleware:
 # ─────────────────────────────────────────────────────────────────────────────
 # Auto-Capture
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class AutoCaptureMiddleware:
     """Post-processor that extracts facts/decisions and stores them in LanceDB.
@@ -245,6 +252,7 @@ class AutoCaptureMiddleware:
         else:
             try:
                 from olav.core.config import get_memory_config
+
                 self._dedup_threshold = get_memory_config().dedup_threshold
             except Exception:
                 self._dedup_threshold = 0.92
@@ -255,6 +263,7 @@ class AutoCaptureMiddleware:
         if self._embedder is None:
             try:
                 from sentence_transformers import SentenceTransformer
+
                 self._embedder = SentenceTransformer("BAAI/bge-small-en-v1.5")
             except Exception as e:
                 logger.debug(f"AutoCapture: embedder unavailable ({e})")
@@ -275,15 +284,23 @@ class AutoCaptureMiddleware:
             parts.append(f"User: {original_input}")
         elif isinstance(original_input, dict):
             for m in original_input.get("messages", []):
-                role = m.get("role", "unknown") if isinstance(m, dict) else getattr(m, "type", "unknown")
+                role = (
+                    m.get("role", "unknown")
+                    if isinstance(m, dict)
+                    else getattr(m, "type", "unknown")
+                )
                 content = m.get("content", "") if isinstance(m, dict) else getattr(m, "content", "")
                 parts.append(f"{role.capitalize()}: {content}")
 
         # Agent result messages
         result_messages = result.get("messages", [])
         for m in result_messages[-6:]:  # Last 6 messages
-            role = getattr(m, "type", None) or (m.get("role", "unknown") if isinstance(m, dict) else "unknown")
-            content = getattr(m, "content", None) or (m.get("content", "") if isinstance(m, dict) else "")
+            role = getattr(m, "type", None) or (
+                m.get("role", "unknown") if isinstance(m, dict) else "unknown"
+            )
+            content = getattr(m, "content", None) or (
+                m.get("content", "") if isinstance(m, dict) else ""
+            )
             if content and role in ("ai", "assistant", "human", "user"):
                 parts.append(f"{role.capitalize()}: {str(content)[:500]}")
 
@@ -339,6 +356,7 @@ class AutoCaptureMiddleware:
 
             try:
                 from langchain_core.messages import HumanMessage
+
                 response = await self._llm.ainvoke([HumanMessage(content=prompt)])
                 raw = response.content.strip()
             except Exception as e:
@@ -361,7 +379,7 @@ class AutoCaptureMiddleware:
 
             # Store each extracted item
             stored_count = 0
-            for item in items[:self._max_items]:
+            for item in items[: self._max_items]:
                 text = item.get("text", "").strip()
                 category = item.get("category", "fact")
                 importance = float(item.get("importance", 0.5))
@@ -382,11 +400,13 @@ class AutoCaptureMiddleware:
                 if vector is None:
                     import hashlib
                     import struct
+
                     # Fallback: zero vector (will be text-searched only)
                     vector = [0.0] * self._store.embedding_dim
 
                 # Store
                 import uuid
+
                 memory_id = f"cap-{uuid.uuid4().hex[:8]}"
                 self._store.add_memory(
                     id=memory_id,
@@ -397,7 +417,7 @@ class AutoCaptureMiddleware:
                     metadata={
                         "source": "auto_capture",
                         "importance": importance,
-                        "captured_at": datetime.now(timezone.utc).isoformat(),
+                        "captured_at": datetime.now(UTC).isoformat(),
                     },
                 )
                 stored_count += 1
@@ -413,6 +433,7 @@ class AutoCaptureMiddleware:
 # ─────────────────────────────────────────────────────────────────────────────
 # Time-Decay
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def apply_time_decay(
     store: "LanceDBStore",
@@ -450,7 +471,7 @@ def apply_time_decay(
         logger.error(f"apply_time_decay: failed to fetch memories: {e}")
         return {"updated": 0, "skipped": 0, "errors": 1}
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     updated = skipped = errors = 0
 
     for mem in memories:
@@ -468,9 +489,9 @@ def apply_time_decay(
         try:
             if isinstance(ts, datetime):
                 if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
+                    ts = ts.replace(tzinfo=UTC)
             else:
-                ts = datetime.fromisoformat(str(ts)).replace(tzinfo=timezone.utc)
+                ts = datetime.fromisoformat(str(ts)).replace(tzinfo=UTC)
             age_days = (now - ts).total_seconds() / 86400.0
         except Exception:
             skipped += 1
@@ -529,7 +550,6 @@ def schedule_time_decay(
     )
     scheduler.start()
     logger.info(
-        f"✓ Time-decay scheduler started: every {interval_hours}h, "
-        f"half_life={half_life_days}d"
+        f"✓ Time-decay scheduler started: every {interval_hours}h, half_life={half_life_days}d"
     )
     return scheduler

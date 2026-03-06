@@ -3,10 +3,13 @@
 Provides:
 - Banner configuration system
 - Rich-based UI rendering
+- Watermark and License notices
 """
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from olav.core.watermark import get_watermark_notice
 
 if TYPE_CHECKING:
     from rich.console import Console
@@ -27,6 +30,7 @@ __all__ = [
     "get_banner",
     "load_banner_from_config",
     "display_banner",
+    "display_watermark_notice",
     "display_todos",
     "print_error",
     "print_success",
@@ -109,6 +113,27 @@ def display_banner(banner_text: str, console: Console | None = None) -> None:
 
     # Parse and display rich markup
     text = Text.from_markup(banner_text)
+    console.print(text)
+
+
+def display_watermark_notice(console: Console | None = None) -> None:
+    """Display watermark and license notice to the console.
+
+    Args:
+        console: Rich console instance (creates new if None)
+    """
+    notice = get_watermark_notice()
+
+    if not RICH_AVAILABLE:  # type: ignore[name-defined]
+        # Fallback without rich
+        print(f"\n{notice}\n")
+        return
+
+    if console is None:
+        console = Console()
+
+    # Display with dim style
+    text = Text(f"\n{notice}\n", style="dim white")
     console.print(text)
 
 
@@ -248,11 +273,11 @@ class StreamingDisplay:
                 # Replace <br> with space or newline (Rich Markdown doesn't support HTML tags in tables)
                 cleaned_text = text.replace("<br>", "  \n")  # Standard Markdown line break
 
-                # 移除代码块中的markdown标记（如果存在）
+                # Remove markdown markers from code blocks (if present)
                 if cleaned_text.startswith("```markdown"):
                     cleaned_text = cleaned_text.replace("```markdown\n", "").replace("\n```", "")
                 elif cleaned_text.startswith("```"):
-                    # 移除其他代码块包装
+                    # Remove other code block wrappers
                     lines = cleaned_text.split("\n")
                     if lines[0].startswith("```") and lines[-1].strip() == "```":
                         cleaned_text = "\n".join(lines[1:-1])
@@ -260,7 +285,7 @@ class StreamingDisplay:
                 md = Markdown(cleaned_text)
                 self.console.print(md)
             except Exception as e:
-                # Fallback: 如果markdown渲染失败，使用纯文本
+                # Fallback: If markdown rendering fails, use plain text
                 self.console.print(f"[dim]Warning: Markdown rendering failed: {e}[/dim]")
                 self.console.print(text, end=end, highlight=False)
         else:
