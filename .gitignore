@@ -93,8 +93,6 @@ uv.lock
 
 # Archives & Legacy (Excluded from Release)
 archive/
-docs/
-dev_docs/
 _legacy_archived/
 README_ZH.md
 
