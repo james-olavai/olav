@@ -93,6 +93,20 @@ class WebService:
         PID_FILE.parent.mkdir(parents=True, exist_ok=True)
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
+        # P3: generate server token if auth.mode == 'server'
+        _server_token_line = ""
+        try:
+            from olav.core.config import ConfigLoader
+            if ConfigLoader().auth.mode == "server":
+                from olav.core.auth.server_token import ServerTokenProvider
+                srv_token = ServerTokenProvider.create_and_persist()
+                _server_token_line = (
+                    f"\n[bold yellow]  WebUI token URL:[/bold yellow] "
+                    f"http://{self._host}:{self._port}/?token={srv_token}"
+                )
+        except Exception:
+            pass
+
         log_fh = open(LOG_FILE, "a")  # noqa: SIM115 – subprocess needs a real fd
         try:
             process = subprocess.Popen(
@@ -126,6 +140,7 @@ class WebService:
             return (
                 f"[green]✓[/green] Web API started "
                 f"(PID: {process.pid}, http://{self._host}:{self._port})"
+                + _server_token_line
             )
         else:
             # Probably crashed – grab tail of log

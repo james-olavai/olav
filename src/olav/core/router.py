@@ -172,11 +172,14 @@ class SemanticRouter:
         logger.info(f"Initialized agent intent index with {len(records)} entries")
         return {"status": "created", "count": len(records)}
 
-    def route(self, query: str) -> dict[str, Any]:
+    def route(self, query: str, *, recorder=None, run_id: str | None = None) -> dict[str, Any]:
         """Route a user query to the appropriate agent.
 
         Args:
             query: User query string
+            recorder: Optional ``AuditEventRecorder`` — when provided together
+                with *run_id*, a ``routing_decision`` event is written.
+            run_id: Current run identifier (required for audit recording).
 
         Returns:
             Dict with routing result:
@@ -194,15 +197,32 @@ class SemanticRouter:
             }
 
         # Try semantic routing first
+        result = None
         try:
             result = self._semantic_route(query)
-            if result:
-                return result
         except Exception as e:
             logger.warning(f"Semantic routing failed: {e}")
 
-        # Fallback to LLM-based routing
-        return self._fallback_route(query)
+        if result is None:
+            result = self._fallback_route(query)
+
+        # Emit audit event when caller supplies both recorder and run_id
+        if recorder is not None and run_id is not None:
+            method_map = {"semantic": "semantic", "fallback": "llm_router", "default": "llm_router"}
+            routing_method = method_map.get(
+                result.get("method", ""), result.get("method", "unknown")
+            )
+            recorder.record(
+                event_type="routing_decision",
+                run_id=run_id,
+                payload={
+                    "routing_method": routing_method,
+                    "matched_agent": result.get("agent"),
+                    "score": result.get("confidence", 0.0),
+                },
+            )
+
+        return result
 
     def _semantic_route(self, query: str) -> dict[str, Any] | None:
         """Perform semantic routing using LanceDB.
@@ -275,10 +295,10 @@ class SemanticRouter:
         prompt = f"""Given the user query below, determine which OLAV agent should handle it.
 
 Available agents:
-- olav: General operations, querying device data, running commands
+- olav: General operations, querying data, running commands
 - config: Configuration management, syncing, snapshots
 - audit: Audit logs, compliance, security analysis
-- ops: Network operations, routing, topology, probing, log analysis
+- ops: Operations, monitoring, probing, log analysis
 - quick: Fast single-turn queries and summaries
 
 Query: {query}
@@ -387,16 +407,18 @@ def _load_agents_from_workspace() -> list[dict[str, Any]]:
     return agents
 
 
-def route_query(query: str) -> dict[str, Any]:
+def route_query(query: str, *, recorder=None, run_id: str | None = None) -> dict[str, Any]:
     """Route a user query to the appropriate agent.
 
     This is the main entry point for semantic routing.
 
     Args:
         query: User query string
+        recorder: Optional ``AuditEventRecorder`` for routing_decision events.
+        run_id: Current run identifier (required for audit recording).
 
     Returns:
         Routing result dict
     """
     router = get_router()
-    return router.route(query)
+    return router.route(query, recorder=recorder, run_id=run_id)

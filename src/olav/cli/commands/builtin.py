@@ -1,15 +1,21 @@
-"""Built-in slash commands for OLAV CLI - Simplified to 6 core commands.
+"""Built-in slash commands for OLAV CLI.
 
-Commands registered:
+Platform builtins (always available):
   - /help, /?           - Show help information
   - /clear              - Clear conversation memory
   - /history            - Show session statistics
   - /quit, /exit        - Exit OLAV
-  - /learn_cmd          - Learn network commands (TextFSM templates)
-  - /learn, /lc         - Aliases for /learn_cmd
+  - /config             - Admin configuration tasks
+  - /model              - Switch LLM model at runtime
+
+Additional commands are discovered dynamically from workspace MANIFEST.yaml
+declarations and ``olav.slash_commands`` entry points at runtime.
 """
 
 from collections.abc import Callable
+from pathlib import Path
+
+from olav.cli.commands.registry import SlashCommandSpec, build_slash_command_registry
 
 # Registry for slash commands
 SLASH_COMMANDS: dict[str, Callable] = {}
@@ -64,12 +70,24 @@ def register_command(name: str) -> Callable:
 async def execute_command(
     full_command: str,
     agent: object | None = None,  # noqa: ANN401
+    *,
+    workspace_root: Path | None = None,
+    project_root: Path | None = None,
+    auto_approve: bool = False,
 ) -> str | None:
     """Execute a slash command.
+
+    Resolves the command through the three-layer merged registry:
+      1. platform builtins (highest priority, never overridden)
+      2. workspace MANIFEST.yaml slash_commands sections
+      3. olav.slash_commands entry points (lowest priority)
 
     Args:
         full_command: Full command string (e.g., "/help")
         agent: OLAV agent instance (optional)
+        workspace_root: Path to .olav/workspace (defaults to CWD/.olav/workspace)
+        project_root: Project root for shell command CWD (defaults to CWD)
+        auto_approve: Skip HITL approval prompts for shell commands
 
     Returns:
         Command output string
@@ -88,26 +106,40 @@ async def execute_command(
     cmd_name = parts[0]
     args = parts[1] if len(parts) > 1 else ""
 
+    # Build merged registry (builtins + workspace manifest + entry points)
+    _ws_root = workspace_root or (Path.cwd() / ".olav" / "workspace")
+    merged = build_slash_command_registry(_ws_root, SLASH_COMMANDS)
+
     # Look up command
-    if cmd_name not in SLASH_COMMANDS:
+    if cmd_name not in merged:
         return f"Unknown command: /{cmd_name}. Type /help for available commands."
 
     # Execute command
     try:
-        func = SLASH_COMMANDS[cmd_name]
+        handler = merged[cmd_name]
 
-        # Check if function is async
+        # ── SlashCommandSpec dispatch ─────────────────────────────────────────
+        if isinstance(handler, SlashCommandSpec):
+            if handler.kind == "shell":
+                from olav.cli.commands.shell_runner import run_shell_command
+
+                _proj_root = project_root or Path.cwd()
+                return await run_shell_command(handler, args, _proj_root, auto_approve=auto_approve)
+            else:  # python
+                import inspect
+
+                fn = handler.resolve_callable()
+                if inspect.iscoroutinefunction(fn):
+                    return await fn(args)
+                return fn(args)
+
+        # ── Legacy callable dispatch (platform builtins) ─────────────────────
         import inspect
 
-        # Log the slash command for auditing
-        from olav.core.audit_logger import log_command
-
-        log_command(full_command, agent_id=cmd_name)
-
-        if inspect.iscoroutinefunction(func):
-            result: str | None = await func(args)
+        if inspect.iscoroutinefunction(handler):
+            result: str | None = await handler(args)
         else:
-            result: str | None = func(args)
+            result: str | None = handler(args)
         return result
     except EOFError:
         raise
@@ -128,44 +160,61 @@ async def cmd_help(args: str) -> str:
         /help              - Show all commands
         /help <command>    - Show specific command help
     """
+    merged = build_slash_command_registry(Path.cwd() / ".olav" / "workspace", SLASH_COMMANDS)
+
     if args:
-        # Show specific command help
         cmd_name = args.strip().lstrip("/")
-        if cmd_name in SLASH_COMMANDS:
-            func = SLASH_COMMANDS[cmd_name]
-            doc = func.__doc__ or "No documentation available"
-            return f"Help for /{cmd_name}:\n\n{doc}"
-        else:
+        handler = merged.get(cmd_name)
+        if handler is None:
             return f"Unknown command: /{cmd_name}"
-    else:
-        # Show all available commands
-        return """OLAV CLI - Available Commands:
+        if isinstance(handler, SlashCommandSpec):
+            return f"Help for /{cmd_name}:\n\n{handler.help or 'No documentation available.'}"
+        doc = getattr(handler, "__doc__", None) or "No documentation available"
+        return f"Help for /{cmd_name}:\n\n{doc}"
 
-Session Commands:
-  /help [cmd]      - Show this help or command details
-  /clear           - Clear conversation memory
-  /history         - Show session statistics
-  /quit, /exit     - Exit OLAV
+    # ── Build dynamic command listing ─────────────────────────────────
+    seen_specs: set[str] = set()
+    builtin_lines: list[str] = []
+    discovered_lines: list[str] = []
 
-Learning Commands:
-  /learn_cmd "<cmd>" --device <dev>  - Learn command template (TextFSM)
-  /learn, /lc      - Aliases for /learn_cmd
+    for name, handler in sorted(merged.items()):
+        if isinstance(handler, SlashCommandSpec):
+            if name != handler.name:
+                continue
+            if handler.name in seen_specs:
+                continue
+            seen_specs.add(handler.name)
+            alias_str = ", ".join(f"/{a}" for a in handler.aliases) if handler.aliases else ""
+            desc = handler.help or "(no description)"
+            if alias_str:
+                discovered_lines.append(f"  /{handler.name:<16s} - {desc}  (aliases: {alias_str})")
+            else:
+                discovered_lines.append(f"  /{handler.name:<16s} - {desc}")
+        else:
+            doc_line = ""
+            if handler.__doc__:
+                doc_line = handler.__doc__.strip().split("\n")[0]
+            builtin_lines.append(f"  /{name:<16s} - {doc_line}")
 
-Natural Language Queries (type without / prefix):
-  "10.1.12.1在哪个设备?"    - IP location lookup
-  "R1的健康状态"          - Device health check
-  "网络概览"                - Network summary
+    sections: list[str] = ["OLAV CLI - Available Commands:", ""]
 
-Input Features:
-  @file.txt               - Include file content
-  !shell_command          - Execute shell command
-  Press Enter twice       - Submit multi-line input
+    if builtin_lines:
+        sections.append("Platform Commands:")
+        sections.extend(builtin_lines)
+        sections.append("")
 
-Examples:
-  olav> How are BGP neighbors on R1?
-  olav> /learn_cmd "show ip bgp summary" --device R1
-  olav> @config.txt analyze this
-"""
+    if discovered_lines:
+        sections.append("Discovered Commands:")
+        sections.extend(discovered_lines)
+        sections.append("")
+
+    sections.append("Input Features:")
+    sections.append("  @file.txt               - Include file content")
+    sections.append("  !shell_command          - Execute shell command")
+    sections.append("  Press Enter twice       - Submit multi-line input")
+    sections.append("")
+
+    return "\n".join(sections)
 
 
 @register_command("clear")
@@ -188,39 +237,40 @@ async def cmd_history(args: str) -> str:
         /history
         /history --audit
     """
-    from olav.core.config import USER_HISTORY_PATH, USER_SESSION_DIR
+    from olav.core.config import AUDIT_DB_PATH, USER_SESSION_DIR
 
-    # Try to show audit log if available
-    try:
-        from olav.core.audit_logger import get_command_history
+    limit = 50 if args.strip() == "--audit" else 20
 
-        limit = 20
-        if args.strip() == "--audit":
-            limit = 50
+    if AUDIT_DB_PATH.exists():
+        try:
+            import duckdb
 
-        history = get_command_history(limit=limit)
-
-        if history:
-            lines = ["Recent Command History:"]
-            # Show last 10 entries
-            for entry in history[-10:]:
-                ts = entry.get("timestamp", "")
-                cmd = entry.get("command", entry.get("raw", ""))
-                lines.append(f"  [{ts[:19]}] {cmd}")
-
-            if args.strip() == "--audit":
-                lines.append(f"\nFull audit log: {USER_HISTORY_PATH}")
-
-            return "\n".join(lines)
-    except Exception:
-        # Fallback if audit log fails
-        pass
+            con = duckdb.connect(str(AUDIT_DB_PATH), read_only=True)
+            rows = con.execute(
+                """
+                SELECT timestamp, json_extract_string(payload, '$.content') AS cmd
+                FROM audit_events
+                WHERE event_type = 'user_input_received'
+                ORDER BY timestamp DESC
+                LIMIT ?
+                """,
+                [limit],
+            ).fetchall()
+            con.close()
+            if rows:
+                lines = ["Recent Command History:"]
+                for ts, cmd in reversed(rows):
+                    lines.append(f"  [{str(ts)[:19]}] {cmd}")
+                lines.append(f"\nFull audit log: {AUDIT_DB_PATH} (use 'olav log' to query)")
+                return "\n".join(lines)
+        except Exception:
+            pass
 
     return f"""Session History Info:
   History managed by LangGraph checkpointer.
   Checkpoint directory: {USER_SESSION_DIR}
 
-Centralized audit log: {USER_HISTORY_PATH}
+Centralized audit log: {AUDIT_DB_PATH} (use 'olav log' to query)
 
 To view full history: /history --audit
 To review context: ask "what did we discuss earlier?"
@@ -245,120 +295,6 @@ async def cmd_exit(args: str) -> str:
         /exit
     """
     raise EOFError
-
-
-@register_command("learn_cmd")
-async def cmd_learn(args: str) -> str:
-    """Learn a new command and generate TextFSM template.
-
-    Usage:
-        /learn_cmd "<command>" --device <device> [--platform <platform>]
-
-    Workflow:
-        1. Execute command on target device
-        2. Analyze output fields
-        3. Generate TextFSM template
-        4. Save to custom templates
-
-    Examples:
-        /learn_cmd "show ip bgp summary" --device R1
-        /learn_cmd "show version" --device R1 --platform cisco_ios
-        /learn_cmd "show ip route" -d core1
-
-    Options:
-        --device, -d    Target device (REQUIRED)
-        --platform, -p  Override platform (optional)
-        --timeout, -t   Command timeout in seconds (default: 60)
-
-    Note: Command Learner Agent will guide you through the workflow.
-    """
-    import shlex
-
-    try:
-        args_list = shlex.split(args)
-    except ValueError:
-        return "❌ Error parsing arguments. Use quotes for commands with spaces."
-
-    if not args_list:
-        return """Usage: /learn_cmd "<command>" --device <device>
-
-Example:
-    /learn_cmd "show ip bgp summary" --device R1"""
-
-    # Parse arguments
-    command = None
-    device = None
-    platform = None
-    timeout = 60
-
-    i = 0
-    while i < len(args_list):
-        arg = args_list[i]
-
-        if arg in ["--device", "-d"]:
-            if i + 1 < len(args_list):
-                device = args_list[i + 1]
-                i += 2
-            else:
-                return "❌ --device requires a value"
-        elif arg in ["--platform", "-p"]:
-            if i + 1 < len(args_list):
-                platform = args_list[i + 1]
-                i += 2
-            else:
-                return "❌ --platform requires a value"
-        elif arg in ["--timeout", "-t"]:
-            if i + 1 < len(args_list):
-                try:
-                    timeout = int(args_list[i + 1])
-                    i += 2
-                except ValueError:
-                    return "❌ --timeout must be an integer"
-            else:
-                return "❌ --timeout requires a value"
-        else:
-            if command is None:
-                command = arg
-            i += 1
-
-    # Validate
-    if not command:
-        return "❌ Command is required"
-    if not device:
-        return "❌ Device is required (--device)"
-
-    # Route through OLAVAgent (command_learner skill tools are loaded automatically)
-    # Use cached agent to avoid heavy re-initialization
-    try:
-        import uuid
-
-        agent = _get_or_create_agent(agent_id="ops")
-        thread_id = str(uuid.uuid4())
-
-        print("🎓 Starting Command Learner workflow...")
-        print(f"   Command: {command}")
-        print(f"   Device: {device}")
-        if platform:
-            print(f"   Platform: {platform}")
-        print()
-
-        query = f"Learn command: {command}\nDevice: {device}"
-        if platform:
-            query += f"\nPlatform: {platform}"
-        query += f"\nTimeout: {timeout}s"
-
-        result = await agent.ainvoke(query, thread_id=thread_id)
-        return result
-
-    except Exception as e:
-        import traceback
-
-        return f"❌ Error: {str(e)}\n\n{traceback.format_exc()}"
-
-
-# Aliases for /learn_cmd
-register_command("learn")(cmd_learn)
-register_command("lc")(cmd_learn)
 
 
 @register_command("config")

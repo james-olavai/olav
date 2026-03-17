@@ -1,7 +1,11 @@
-"""Audit Logger for OLAV CLI.
+"""Audit Logger — Legacy Compatibility Shim (NOOP).
 
-Provides centralized audit logging for all CLI commands.
-Logs are stored in .olav/logs/users/{user}.log
+This module is retained solely for backward compatibility.
+- ``log()`` is a no-op; all new audit events are written to ``audit.duckdb``
+  via ``AuditEventRecorder``.
+- ``get_history()`` reads the old ``.olav/history/{user}.log`` format for
+  human-readable inspection of pre-v0.11 sessions.
+- Do NOT add new callers. Route new audit events through ``AuditEventRecorder``.
 """
 
 import logging
@@ -10,10 +14,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from olav.core.config import USER_HISTORY_DIR, USER_HISTORY_PATH
-from olav.core.watermark import get_audit_log_watermark
-
 logger = logging.getLogger(__name__)
+
+# Legacy history path — kept for backward-compat read (get_history).
+# No new entries are written here; all audit events go to audit.duckdb.
+_username = os.environ.get("USER") or os.environ.get("USERNAME") or "unknown"
+USER_HISTORY_PATH = Path.home() / ".olav" / "history" / f"{_username}.log"
 
 
 class AuditLogger:
@@ -27,18 +33,8 @@ class AuditLogger:
         self._log_watermark_on_first_call()
 
     def _log_watermark_on_first_call(self) -> None:
-        """Log watermark info on first initialization."""
-        # Check if we need to log watermark (only once per session)
-        if self._watermark_logged:
-            return
-
-        try:
-            watermark_entry = get_audit_log_watermark()
-            with open(self.log_path, "a") as f:
-                f.write(watermark_entry + "\n")
-            self._watermark_logged = True
-        except Exception as e:
-            logger.warning(f"Failed to write watermark to audit log: {e}")
+        """No-op: watermark is now written to audit.duckdb by AuditEventRecorder."""
+        self._watermark_logged = True
 
     def log(
         self, command: str, session_id: str | None = None, metadata: dict | None = None
@@ -64,11 +60,8 @@ class AuditLogger:
 
         log_entry += "\n"
 
-        try:
-            with open(self.log_path, "a") as f:
-                f.write(log_entry)
-        except Exception as e:
-            logger.warning(f"Failed to write audit log: {e}")
+        # File writing is superseded by AuditEventRecorder → audit.duckdb.
+        logger.debug("audit_logger (legacy no-op): %s", log_entry.rstrip())
 
     def get_history(self, limit: int = 100) -> list[dict]:
         """Get recent command history.

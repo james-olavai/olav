@@ -37,9 +37,9 @@ class OlavDatabase:
             read_only: Whether to open in read-only mode (default: False)
         """
         if db_path is None:
-            from olav.core.config import NETWORK_DB_PATH
+            from olav.core.config import MAIN_DB_PATH
 
-            db_path = NETWORK_DB_PATH
+            db_path = MAIN_DB_PATH
 
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

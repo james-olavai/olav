@@ -1,5 +1,12 @@
 """Memory Middleware for OLAV Agentic Memory System.
 
+.. deprecated::
+    This module is superseded by the plugin framework.
+    Use ``olav.plugins.middleware.memory_recall.MemoryRecallPlugin`` and
+    ``olav.plugins.middleware.memory_capture.MemoryCapturePlugin`` instead.
+    This file will be removed in the next major release.
+
+
 Implements Phase 2 of the LANCEDB_MEMORY_SYSTEM_INTEGRATION plan:
   - AutoRecallMiddleware:  Pre-processor — injects relevant historical context
                            into the user prompt *before* agent thinking.
@@ -83,20 +90,15 @@ class AutoRecallMiddleware:
         self._embedder = None  # lazy-loaded
 
     def _embed(self, text: str) -> list[float] | None:
-        """Lazily load sentence-transformers and embed a query."""
-        if self._embedder is None:
-            try:
-                from sentence_transformers import SentenceTransformer
+        """Embed text via the process-wide shared embedder."""
+        from olav.core.embedder import get_embedder
 
-                self._embedder = SentenceTransformer("BAAI/bge-small-en-v1.5")
-                logger.debug("AutoRecall: embedder loaded (BAAI/bge-small-en-v1.5)")
-            except Exception as e:
-                logger.debug(f"AutoRecall: embedder unavailable ({e}), text-only fallback")
-                self._embedder = False
-        if not self._embedder:
+        embedder = get_embedder()
+        if embedder is None:
+            logger.debug("AutoRecall: embedder unavailable, text-only fallback")
             return None
         try:
-            return self._embedder.encode(text, normalize_embeddings=True).tolist()
+            return embedder.encode(text, normalize_embeddings=True).tolist()
         except Exception as e:
             logger.warning(f"AutoRecall: embedding failed: {e}")
             return None
@@ -259,19 +261,14 @@ class AutoCaptureMiddleware:
         self._embedder = None  # lazy-loaded
 
     def _embed(self, text: str) -> list[float] | None:
-        """Lazily load sentence-transformers and embed text."""
-        if self._embedder is None:
-            try:
-                from sentence_transformers import SentenceTransformer
+        """Embed text via the process-wide shared embedder."""
+        from olav.core.embedder import get_embedder
 
-                self._embedder = SentenceTransformer("BAAI/bge-small-en-v1.5")
-            except Exception as e:
-                logger.debug(f"AutoCapture: embedder unavailable ({e})")
-                self._embedder = False
-        if not self._embedder:
+        embedder = get_embedder()
+        if embedder is None:
             return None
         try:
-            return self._embedder.encode(text, normalize_embeddings=True).tolist()
+            return embedder.encode(text, normalize_embeddings=True).tolist()
         except Exception:
             return None
 

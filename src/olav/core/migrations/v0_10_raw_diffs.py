@@ -47,9 +47,6 @@ _DDL_ADD_IS_PRIMARY_CONFIG = """
 ALTER TABLE commands ADD COLUMN IF NOT EXISTS is_primary_config BOOLEAN DEFAULT FALSE
 """
 
-# Patterns whose command name indicates it is the primary running configuration.
-# NOTE: This fallback list is used only when backup_only_commands.yaml cannot be read.
-# The authoritative source is backup_only_commands.yaml (type=configuration entries).
 _PRIMARY_CONFIG_PATTERNS_FALLBACK = [
     "running-config",
     "running_config",
@@ -59,32 +56,23 @@ _PRIMARY_CONFIG_PATTERNS_FALLBACK = [
 
 
 def _get_config_command_names() -> list[str]:
-    """Return exact command names classified type=configuration in backup_only_commands.yaml.
+    """Discover exact command names via ``olav.config_commands`` entry points.
 
-    Reads YAML directly via PathsConfig. Falls back to empty list to trigger
-    pattern-matching fallback in mark_primary_config_commands().
+    Falls back to empty list to trigger pattern-matching fallback in
+    ``mark_primary_config_commands()``.
     """
     try:
-        from pathlib import Path as _Path
+        from importlib.metadata import entry_points
 
-        import yaml  # type: ignore[import]
-
-        from olav.core.config import get_paths_config
-
-        pc = get_paths_config()
-        yaml_path = _Path(pc.project_root) / pc.backup_only_commands_file
-        if yaml_path.exists():
-            data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or []
-            return [
-                item["command"].strip()
-                for item in data
-                if isinstance(item, dict)
-                and item.get("type") == "configuration"
-                and item.get("command")
-            ]
+        eps = entry_points(group="olav.config_commands")
+        for ep in eps:
+            provider = ep.load()
+            names = provider() if callable(provider) else []
+            if names:
+                return list(names)
     except Exception:  # noqa: BLE001
         pass
-    return []  # signal: fall back to pattern matching
+    return []
 
 
 def apply_migration(conn: _duckdb_type.DuckDBPyConnection) -> None:
@@ -111,18 +99,11 @@ def apply_migration(conn: _duckdb_type.DuckDBPyConnection) -> None:
 def mark_primary_config_commands(conn: _duckdb_type.DuckDBPyConnection) -> int:
     """Set is_primary_config=TRUE for known running-config commands.
 
-    Prefers exact command names from backup_only_commands.yaml (type=configuration).
-    Falls back to substring pattern matching if the YAML is unavailable.
-
-    Args:
-        conn: An open DuckDB connection.
-
-    Returns:
-        Number of rows updated.
+    Prefers exact command names from ``olav.config_commands`` entry-point providers.
+    Falls back to substring pattern matching if no provider is available.
     """
     exact_names = _get_config_command_names()
     if exact_names:
-        # Exact match — YAML is authoritative
         quoted = ", ".join(f"'{c}'" for c in exact_names)
         conn.execute(f"""
             UPDATE commands
@@ -130,10 +111,9 @@ def mark_primary_config_commands(conn: _duckdb_type.DuckDBPyConnection) -> int:
             WHERE  command IN ({quoted})
         """)
         logger.info(
-            "v0.10 migration: is_primary_config set from YAML (%d commands)", len(exact_names)
+            "v0.10 migration: is_primary_config set from provider (%d commands)", len(exact_names)
         )
     else:
-        # Fallback: substring patterns
         conditions = " OR ".join(
             f"lower(command) LIKE '%{pat}%'" for pat in _PRIMARY_CONFIG_PATTERNS_FALLBACK
         )
@@ -143,7 +123,7 @@ def mark_primary_config_commands(conn: _duckdb_type.DuckDBPyConnection) -> int:
             WHERE  ({conditions})
         """)
         logger.warning(
-            "v0.10 migration: is_primary_config set via fallback patterns (YAML unavailable)"
+            "v0.10 migration: is_primary_config set via fallback patterns (no provider available)"
         )
 
     updated = conn.execute(

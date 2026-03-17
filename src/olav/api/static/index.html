@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OLAV — Network Operations AI</title>
+<title>OLAV — AI Operations Assistant</title>
 <style>
   :root {
     --bg: #0d1117;
@@ -152,7 +152,7 @@
   <div id="sidebar">
     <div class="sidebar-header">
       <h1>⚡ OLAV</h1>
-      <div class="version">Network Operations AI · v0.10.0</div>
+      <div class="version">AI Operations Assistant · v0.11.0</div>
     </div>
     <button class="new-chat-btn" onclick="newThread()">
       <span>＋</span> New Chat
@@ -181,14 +181,14 @@
     <div id="content-area">
       <!-- Welcome overlay: sibling of messages, NOT a child — won't be destroyed by renderMessages() -->
       <div id="welcome">
-        <h2>OLAV Network AI</h2>
-        <p>Ask anything about your network. Query devices, analyze topologies, check diffs, audit configurations.</p>
+        <h2>OLAV AI</h2>
+        <p>Ask anything. Query data, analyze records, check diffs, audit configurations.</p>
         <div class="chip-grid">
-          <div class="chip" onclick="sendChip(this)">Show all devices</div>
-          <div class="chip" onclick="sendChip(this)">Topology overview</div>
+          <div class="chip" onclick="sendChip(this)">Show all records</div>
+          <div class="chip" onclick="sendChip(this)">Data overview</div>
           <div class="chip" onclick="sendChip(this)">Recent config changes</div>
-          <div class="chip" onclick="sendChip(this)">BGP neighbor status</div>
-          <div class="chip" onclick="sendChip(this)">OSPF neighbors</div>
+          <div class="chip" onclick="sendChip(this)">System health status</div>
+          <div class="chip" onclick="sendChip(this)">Recent activity</div>
           <div class="chip" onclick="sendChip(this)">Run health audit</div>
         </div>
       </div>
@@ -197,7 +197,7 @@
 
     <div id="input-area">
       <div id="input-row">
-        <textarea id="query-input" rows="1" placeholder="Ask OLAV about your network…" onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+        <textarea id="query-input" rows="1" placeholder="Ask OLAV anything…" onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
         <button id="send-btn" onclick="send()">Send</button>
       </div>
       <div class="hint">Enter to send · Shift+Enter for newline</div>

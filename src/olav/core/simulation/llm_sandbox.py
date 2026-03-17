@@ -4,7 +4,7 @@ LLM Experiment Sandbox - 完全隔离的LLM自由实验环境
 允许LLM在严格隔离的沙箱中：
 - 自由编写Python代码
 - 查询生产数据库（只读）
-- 执行网络仿真
+- 执行仿真
 - 执行CLI命令并解析
 - 创建和迭代实验
 
@@ -218,7 +218,7 @@ class SandboxEnvironment:
             "db": self.db,
             # CLI执行器
             "cli": self.cli,
-            # 网络仿真器
+            # 仿真器
             "simulator": self.simulator,
             # 内置函数和模块
             "json": json,
@@ -563,7 +563,7 @@ class CLIExecutor:
         logger.info(f"Executing CLI on {device}: {command}")
 
         # 这是一个存根实现
-        # 实际实现应该使用Nornir或类似的工具
+        # 实际实现应该使用适当的远程执行工具
         return {
             "device": device,
             "command": command,
@@ -573,14 +573,14 @@ class CLIExecutor:
 
 
 class SimulatorEngine:
-    """网络仿真引擎"""
+    """仿真引擎"""
 
     def __init__(self, db_path: str):
         self.db_path = db_path
 
     async def simulate(self, scenario: dict[str, Any]) -> dict[str, Any]:
         """
-        运行网络仿真
+        运行仿真
 
         Args:
             scenario: 仿真场景定义
