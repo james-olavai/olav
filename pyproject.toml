@@ -7,7 +7,7 @@ packages = ["src/olav", "config"]
 
 [project]
 name = "olav"
-version = "0.10.0"
+version = "0.11.0"
 description = "OLAV - Network Operations AI Assistant with DeepAgents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -30,10 +30,8 @@ dependencies = [
     "pyyaml>=6.0",
     # Database
     "duckdb>=0.8.0",
+    "pytz>=2024.1",
     "sqlalchemy>=2.0",
-    # Network Tools
-    "nornir>=3.3.0",
-    "nornir-netmiko>=0.1.1",
     # API & HTTP
     "httpx>=0.24.0",
     "requests>=2.31.0",
@@ -69,6 +67,11 @@ dependencies = [
     "ruptures>=1.1.10",
     "numpy>=2.4.1",
     "pandas>=3.0.1",
+    "ddgs>=9.11.4",
+    # Enterprise - Dataset Encryption
+    "tink>=1.14.1",
+    # Enterprise - One-Time Token Control
+    "PyJWT>=2.8.0",
 ]
 
 [project.scripts]
@@ -83,6 +86,10 @@ dev = [
     "mypy>=1.5.0",
     "black>=23.0",
 ]
+# netops optional is intentionally empty — nornir/netmiko moved to olav-netops package.
+# Install olav-netops to get full network operations support:
+#   pip install olav-netops  (includes nornir, nornir-netmiko, netutils, networkx)
+netops = []
 
 [dependency-groups]
 dev = [

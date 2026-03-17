@@ -28,6 +28,7 @@ from typing import Any
 
 import pyarrow as pa
 
+from olav.core.embedder import get_embedder
 from olav.core.memory import (
     DEFAULT_MEMORY_DB,
     LanceDBStore,
@@ -113,6 +114,12 @@ class KnowledgeBase:
 
         self._embedding_dim = embedding_dim
 
+        # Tier-0 semantic cache (separate table from the main memory cache)
+        self._cache = SemanticCache(
+            store=self._store,
+            table_name=KB_CACHE_TABLE,
+        )
+
     def _ensure_table(self) -> "LanceDBStore.table.LanceTable":
         """Ensure KB table exists with FTS index."""
         if not self._store.table_exists(KB_TABLE):
@@ -148,15 +155,13 @@ class KnowledgeBase:
     def _embed(self, text: str) -> list[float] | None:
         """Lazy-load embedder and embed text using the configured model.
 
-        Falls back to a dimension-compatible model if the stored table was
-        created with a different model than currently configured.
+        Prefers the process-wide singleton from ``get_embedder()`` to avoid
+        loading the ~90 MB model multiple times.  Falls back to a local
+        ``SentenceTransformer`` instance only when the singleton's output
+        dimension does not match the existing table dimension.
         """
         if self._embedder is None:
             try:
-                import os
-
-                from sentence_transformers import SentenceTransformer
-
                 from olav.core.config import get_embedding_config
 
                 cfg = get_embedding_config()
@@ -180,13 +185,51 @@ class KnowledgeBase:
                     )
                     model_name = fallback
 
-                # Force CPU only (avoid CUDA compatibility issues)
-                os.environ["CUDA_VISIBLE_DEVICES"] = ""
+                # Try the process-wide singleton first
+                shared = get_embedder(model_name)
+                if shared is not None:
+                    # Verify dimension compatibility
+                    singleton_dim = (
+                        shared.get_sentence_embedding_dimension()
+                        if hasattr(shared, "get_sentence_embedding_dimension")
+                        else None
+                    )
+                    if singleton_dim == self._embedding_dim:
+                        self._embedder = shared
+                        logger.debug(
+                            "KB: reusing shared embedder singleton (%s, %d-dim)",
+                            model_name,
+                            singleton_dim,
+                        )
+                    else:
+                        # Dimension mismatch — create a dedicated instance
+                        import os
 
-                self._embedder = SentenceTransformer(
-                    model_name, trust_remote_code=True, device=cfg.device
-                )
-                logger.debug(f"KB: embedder loaded ({model_name}) on {cfg.device}")
+                        from sentence_transformers import SentenceTransformer
+
+                        os.environ["CUDA_VISIBLE_DEVICES"] = ""
+                        self._embedder = SentenceTransformer(
+                            model_name, trust_remote_code=True, device=cfg.device
+                        )
+                        logger.debug(
+                            "KB: singleton dim %s ≠ table dim %d — loaded dedicated "
+                            "embedder (%s) on %s",
+                            singleton_dim,
+                            self._embedding_dim,
+                            model_name,
+                            cfg.device,
+                        )
+                else:
+                    # Singleton unavailable — try local load
+                    import os
+
+                    from sentence_transformers import SentenceTransformer
+
+                    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+                    self._embedder = SentenceTransformer(
+                        model_name, trust_remote_code=True, device=cfg.device
+                    )
+                    logger.debug(f"KB: embedder loaded ({model_name}) on {cfg.device}")
             except Exception as e:
                 logger.debug(f"KB: embedder unavailable ({e}), falling back to zero vectors")
                 self._embedder = False
@@ -352,6 +395,12 @@ class KnowledgeBase:
         if query_vector is None:
             query_vector = [0.0] * self._embedding_dim
 
+        # Tier-0: check semantic cache before running full hybrid search
+        cached = self._cache.get(query_vector)
+        if cached is not None:
+            logger.debug("KB: semantic cache hit for query %.40s", query)
+            return cached[:limit]
+
         # Hybrid search via store (vector + BM25)
         try:
             vector_results = self._store.search_by_vector(
@@ -374,7 +423,9 @@ class KnowledgeBase:
                 k=60,
                 list_weights=[0.5, 0.5],
             )
-            return fused[:limit]
+            results = fused[:limit]
+            self._cache.put(query_vector, results)
+            return results
         except Exception as e:
             logger.error(f"KB search failed: {e}")
             return []

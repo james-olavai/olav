@@ -48,19 +48,13 @@ class LangGraphLanceDBStore(BaseStore):
         Returns:
             Float list of length embedding_dim, or None if unavailable.
         """
-        if self._embedder is None:
-            try:
-                from sentence_transformers import SentenceTransformer
+        from olav.core.embedder import get_embedder
 
-                self._embedder = SentenceTransformer("BAAI/bge-small-en-v1.5")
-                logger.info("✓ Embedder loaded: BAAI/bge-small-en-v1.5")
-            except Exception as e:
-                logger.warning(f"sentence-transformers unavailable ({e}); vector search disabled.")
-                self._embedder = False  # sentinel: don't retry
-        if not self._embedder:
+        embedder = get_embedder()
+        if embedder is None:
             return None
         try:
-            return self._embedder.encode(text, normalize_embeddings=True).tolist()
+            return embedder.encode(text, normalize_embeddings=True).tolist()
         except Exception as e:
             logger.error(f"Embedding failed: {e}")
             return None

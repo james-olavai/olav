@@ -4,7 +4,7 @@ Compares two snapshots on disk and persists unified diffs to raw_diffs.
 
 Design:
   - Reads raw .txt from disk only: <snapshots_dir>/<snap_id>/raw/<device>/<cmd>.txt
-  - Config commands defined in backup_only_commands.yaml (type=configuration)
+  - Config commands discovered via ``olav.config_commands`` entry-point group
   - Noise filtering via .olav/workspace/ops/diff/config/diff_strategies.yaml
   - Direct INSERT OR REPLACE INTO raw_diffs — no staging file, no fallback path
   - ≤100 lines of logic, no hidden complexity
@@ -55,25 +55,16 @@ _IFACE_RE = re.compile(
 
 
 def _config_commands() -> frozenset[str]:
-    """Read type=configuration commands from backup_only_commands.yaml."""
+    """Discover type=configuration commands via ``olav.config_commands`` entry points."""
     try:
-        import yaml
+        from importlib.metadata import entry_points
 
-        from olav.core.config import get_paths_config
-
-        pc = get_paths_config()
-        yaml_path = Path(pc.project_root) / pc.backup_only_commands_file
-        if yaml_path.exists():
-            data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or []
-            cmds = {
-                item["command"].strip()
-                for item in data
-                if isinstance(item, dict)
-                and item.get("type") == "configuration"
-                and item.get("command")
-            }
-            if cmds:
-                return frozenset(cmds)
+        eps = entry_points(group="olav.config_commands")
+        for ep in eps:
+            provider = ep.load()
+            names = provider() if callable(provider) else []
+            if names:
+                return frozenset(names)
     except Exception as exc:
         logger.warning("calculate_diffs: cannot load config commands (%s), using fallback", exc)
     return frozenset(

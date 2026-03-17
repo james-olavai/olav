@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""OLAV v0.10.0 CLI - Full deepagents-cli integration.
+"""OLAV v0.11.0 CLI - Full deepagents-cli integration.
 
-This is a thin wrapper around deepagents-cli for network operations.
+This is a thin wrapper around deepagents-cli for domain operations.
 All domain functionality is exposed through workspace agents and tools, not CLI commands.
 
 Usage:
@@ -15,19 +15,38 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import os
 import sys
+import uuid as _uuid_mod
+from importlib.metadata import entry_points
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 
+from olav.core.audit_recorder import AuditEventRecorder
+from olav.core.version import (
+    AUTHOR,
+    BUILD_DATE,
+    CHECKSUM_ALGORITHM,
+    COPYRIGHT_NOTICE,
+    HOMEPAGE,
+    LICENSE,
+    SIGNATURE,
+    SYSTEM_CHECKSUM,
+    VERSION,
+    format_version_banner,
+)
+
 from .banner import print_olav_banner
+
+if TYPE_CHECKING:
+    from olav.core.auth import UserIdentity
 
 console = Console()
 logger = logging.getLogger(__name__)
-
-VERSION = "0.10.0"
 
 
 def parse_args():
@@ -37,7 +56,20 @@ def parse_args():
     # Known subcommands – if the first non-flag positional arg is NOT one of
     # these, treat all remaining positionals as a natural-language query so
     # that both `olav "show log statistics"` and `olav show log counts` work.
-    known_commands = {"list", "help", "admin", "config", "onboard", "service"}
+    known_commands = {
+        "list",
+        "help",
+        "version",
+        "admin",
+        "config",
+        "service",
+        "reset",
+        "skills",
+        "log",
+        "init",
+        "workspace",
+        "export",
+    }
 
     # Flags that consume the immediately following token as their value.
     # We must skip those tokens when searching for the first true positional.
@@ -112,12 +144,15 @@ def parse_args():
     # ── Normal subcommand / interactive path ──────────────────────────────
     parser = argparse.ArgumentParser(
         prog="olav",
-        description=f"OLAV v{VERSION} - Network Operations AI Assistant",
+        description=f"OLAV v{VERSION} - AI Operations Assistant",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         add_help=False,
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
+
+    # Version command
+    subparsers.add_parser("version", help="Show version and system information")
 
     # List agents command
     subparsers.add_parser("list", help="List all available agents")
@@ -130,16 +165,121 @@ def parse_args():
     admin_parser.add_argument("args", nargs="*", help="Admin command arguments")
 
     # Config command
-    config_parser = subparsers.add_parser("config", help="Configuration commands")
-    config_parser.add_argument("args", nargs="*", help="Config command arguments")
+    config_parser = subparsers.add_parser(
+        "config",
+        help="Configuration commands (evolve, or natural language query)",
+    )
+    config_parser.add_argument(
+        "args",
+        nargs="*",
+        help="'evolve --list', 'evolve --approve <id>', or natural language config query",
+    )
 
-    # Onboard command
-    subparsers.add_parser("onboard", help="Guided interactive setup and ingestion")
+    # Init command
+    subparsers.add_parser("init", help="Initialize platform scaffolding")
+
+    # Workspace command
+    workspace_parser = subparsers.add_parser("workspace", help="Manage workspace lifecycle")
+    workspace_parser.add_argument(
+        "args", nargs=argparse.REMAINDER, help="Workspace lifecycle arguments"
+    )
+
+    # Export command
+    export_parser = subparsers.add_parser("export", help="Export Claude-compatible artifacts")
+    export_parser.add_argument("args", nargs=argparse.REMAINDER, help="Export command arguments")
 
     # Service command (logs, web, daemon, etc.)
     service_parser = subparsers.add_parser("service", help="Manage background services")
     service_parser.add_argument(
         "args", nargs=argparse.REMAINDER, help="Service management arguments"
+    )
+
+    # Reset command - clear agent conversation/checkpoint history
+    reset_parser = subparsers.add_parser("reset", help="Reset agent conversation history")
+    reset_parser.add_argument("--agent", "-a", required=True, help="Agent identifier to reset")
+    reset_parser.add_argument(
+        "--target", default=None, help="Copy initial prompt from this agent (optional)"
+    )
+
+    # Skills command - manage agent skills/tools in .olav/workspace/
+    skills_parser = subparsers.add_parser("skills", help="Manage agent skills")
+    skills_sub = skills_parser.add_subparsers(dest="skills_command", help="Skills action")
+
+    # skills list
+    skills_list = skills_sub.add_parser("list", help="List skills for an agent")
+    skills_list.add_argument("--agent", "-a", default=None, help="Filter by agent")
+
+    # skills create <name>
+    skills_create = skills_sub.add_parser("create", help="Create a new skill template")
+    skills_create.add_argument("name", help="Skill name")
+    skills_create.add_argument("--agent", "-a", required=True, help="Agent to add skill to")
+
+    # skills info <name>
+    skills_info = skills_sub.add_parser("info", help="Show skill details")
+    skills_info.add_argument("name", help="Skill name")
+    skills_info.add_argument("--agent", "-a", default=None, help="Agent to search in")
+
+    # Log command — query audit.duckdb
+    log_parser = subparsers.add_parser("log", help="Query audit log (audit.duckdb)")
+    log_sub = log_parser.add_subparsers(dest="log_command", help="Log action")
+    log_sub.add_parser("list", help="List recent runs (default, last 24 h)")
+    log_show_p = log_sub.add_parser("show", help="Show all events for a run")
+    log_show_p.add_argument("run_id", help="Run ID to show")
+    log_errors_p = log_sub.add_parser("errors", help="Show error events")
+    log_errors_p.add_argument("--hours", type=int, default=24, help="Look-back window in hours")
+
+    # log export sft — export audit data as SFT chat JSONL
+    log_export_p = log_sub.add_parser("export", help="Export audit data for training")
+    log_export_sub = log_export_p.add_subparsers(dest="export_format", help="Export format")
+    log_export_sft = log_export_sub.add_parser("sft", help="Export SFT chat JSONL")
+    log_export_sft.add_argument("--hours", type=int, default=24, help="Look-back window in hours")
+    log_export_sft.add_argument("--output", default=None, help="Output directory")
+    log_export_sft.add_argument(
+        "--min-score", type=float, default=0.0, help="Minimum rule score threshold (0.0-1.0)"
+    )
+    log_export_sft.add_argument(
+        "--encrypt", action="store_true", default=None, help="Force encryption"
+    )
+    log_export_sft.add_argument(
+        "--no-encrypt", dest="encrypt", action="store_false", help="Force plaintext"
+    )
+    log_export_sft.add_argument("--key-ref", default=None, help="Keyset reference name")
+    log_export_traj = log_export_sub.add_parser(
+        "trajectory", help="Export tool-use trajectory JSONL"
+    )
+    log_export_traj.add_argument("--hours", type=int, default=24, help="Look-back window in hours")
+    log_export_traj.add_argument("--output", default=None, help="Output directory")
+    log_export_traj.add_argument(
+        "--min-score", type=float, default=0.0, help="Minimum rule score threshold (0.0-1.0)"
+    )
+    log_export_traj.add_argument(
+        "--encrypt", action="store_true", default=None, help="Force encryption"
+    )
+    log_export_traj.add_argument(
+        "--no-encrypt", dest="encrypt", action="store_false", help="Force plaintext"
+    )
+    log_export_traj.add_argument("--key-ref", default=None, help="Keyset reference name")
+    log_export_atif = log_export_sub.add_parser("atif", help="Export ATIF trace JSONL")
+    log_export_atif.add_argument("--hours", type=int, default=24, help="Look-back window in hours")
+    log_export_atif.add_argument("--output", default=None, help="Output directory")
+    log_export_atif.add_argument(
+        "--min-score", type=float, default=0.0, help="Minimum rule score threshold (0.0-1.0)"
+    )
+    log_export_atif.add_argument(
+        "--encrypt", action="store_true", default=None, help="Force encryption"
+    )
+    log_export_atif.add_argument(
+        "--no-encrypt", dest="encrypt", action="store_false", help="Force plaintext"
+    )
+    log_export_atif.add_argument("--key-ref", default=None, help="Keyset reference name")
+    log_export_grant = log_export_sub.add_parser(
+        "grant-local-train", help="Issue one-time token for local training access"
+    )
+    log_export_grant.add_argument(
+        "--export-id", required=True, help="Export ID to bind the token to"
+    )
+    log_export_grant.add_argument(
+        "--ttl-minutes", type=int, default=10, help="Token TTL in minutes (default: 10)"
     )
 
     # Default interactive mode flags
@@ -263,10 +403,36 @@ def create_olav_agent_with_backend(
     return olav_agent.graph, composite_backend
 
 
+def get_domain_prompt() -> str:
+    """Extension point for domain packages to inject a custom system prompt prefix.
+
+    Domain packages (e.g. ``olav-netops``) register a ``DOMAIN_PROMPT`` string
+    constant via the ``olav.domain_prompts`` entry-point group.  The first
+    discovered entry point is loaded and its value returned.
+
+    Returns
+    -------
+    str
+        Domain-specific prompt string, or a generic fallback when no domain
+        package is installed.
+    """
+    eps = entry_points(group="olav.domain_prompts")
+    for ep in eps:
+        try:
+            prompt = ep.load()
+            return prompt
+        except Exception:
+            logger.warning(
+                "Failed to load domain prompt entry point '%s' — using fallback",
+                ep.name,
+            )
+    return "You are an AI Operations Assistant."
+
+
 def get_system_prompt(assistant_id: str, sandbox_type: str | None = None) -> str:
     """Get the system prompt for OLAV agent."""
     cwd = Path.cwd()
-    agent_dir = f"~/.deepagents/{assistant_id}"
+    agent_dir = ".olav"
 
     if sandbox_type:
         from deepagents_cli.integrations.sandbox_factory import get_default_working_dir
@@ -300,14 +466,9 @@ The filesystem backend is currently operating in: `{cwd}`
 
 Your agents and their skills are defined in: `{agent_dir}/workspace/`
 
-### Network Operations Domain
+### Domain Context
 
-You are OLAV, a Network Operations AI Assistant. You help with:
-- Querying network device data from DuckDB
-- Executing CLI commands on network devices via Nornir
-- Managing network snapshots and configurations
-- Scheduling inspection tasks
-
+{get_domain_prompt()}
 ### Human-in-the-Loop Tool Approval
 
 Some tool calls require user approval before execution. When a tool call is rejected:
@@ -324,6 +485,53 @@ When using write_todos:
 4. Update status promptly as you complete each item
 """
     )
+
+
+@contextlib.contextmanager
+def _hitl_audit_scope(recorder: AuditEventRecorder, run_id: str, agent_id: str):
+    """Context manager that patches *prompt_for_tool_approval* to emit HITL
+    audit events (``hitl_requested`` / ``hitl_decision``) for every interrupt.
+
+    The patch is thread-local to this invocation: the original function is
+    restored in the ``finally`` block even if an exception occurs.
+    """
+    try:
+        import deepagents_cli.execution as _dce  # type: ignore[import]
+
+        _original = _dce.prompt_for_tool_approval
+    except Exception:
+        yield
+        return
+
+    def _audited(action_request, assistant_id_arg):
+        interrupt_id = str(_uuid_mod.uuid4())
+        recorder.record_hitl_requested(
+            run_id=run_id,
+            interrupt_id=interrupt_id,
+            action_requests=[action_request]
+            if not isinstance(action_request, list)
+            else action_request,
+            agent_id=agent_id,
+        )
+        decision = _original(action_request, assistant_id_arg)
+        decision_type = (
+            decision.get("type")
+            if isinstance(decision, dict)
+            else getattr(decision, "type", str(decision))
+        )
+        recorder.record_hitl_decision(
+            run_id=run_id,
+            interrupt_id=interrupt_id,
+            decision=str(decision_type),
+            agent_id=agent_id,
+        )
+        return decision
+
+    _dce.prompt_for_tool_approval = _audited
+    try:
+        yield
+    finally:
+        _dce.prompt_for_tool_approval = _original
 
 
 async def simple_cli(
@@ -386,25 +594,213 @@ async def simple_cli(
         if not user_input:
             continue
 
-        # Check for quit keywords
+        # Handle slash commands (/quit, /exit, /q, /clear, /help, /tokens)
+        if user_input.startswith("/"):
+            # Custom OLAV slash commands — handled before deepagents_cli
+            _cmd = user_input.strip().lower().split()[0]
+            if _cmd == "/trace-review":
+                _parts = user_input.strip().split()
+                _hours = 168
+                _limit = 50
+                for _p in _parts[1:]:
+                    if _p.startswith("hours="):
+                        try:
+                            _hours = int(_p.split("=", 1)[1])
+                        except ValueError:
+                            pass
+                    elif _p.startswith("limit="):
+                        try:
+                            _limit = int(_p.split("=", 1)[1])
+                        except ValueError:
+                            pass
+                from olav.cli.commands.trace_review import (
+                    _handle_trace_review,
+                    print_trace_review,
+                )
+
+                console.print("\n[bold cyan]Running trace review...[/bold cyan]")
+                _tr_result = _handle_trace_review(hours=_hours, limit=_limit)
+                print_trace_review(_tr_result, console)
+                continue
+
+            from deepagents_cli.commands import handle_command
+
+            result = handle_command(user_input, agent, token_tracker)
+            if result == "exit":
+                console.print("\nGoodbye!", style=COLORS["primary"])
+                break
+            continue
+
+        # Handle !bash prefix for local shell execution
+        if user_input.startswith("!"):
+            from deepagents_cli.commands import execute_bash_command
+
+            execute_bash_command(user_input)
+            continue
+
+        # Check for bare quit keywords
         if user_input.lower() in ["quit", "exit", "q"]:
             console.print("\nGoodbye!", style=COLORS["primary"])
             break
 
-        # Log the query for auditing
-        from olav.core.audit_logger import log_command
+        import os as _os
+        import uuid as _uuid
 
-        log_command(user_input, assistant_id=assistant_id)
-
-        # Execute task
-        await execute_task(
-            user_input,
-            agent,
-            assistant_id,
-            session_state,
-            token_tracker,
-            backend=backend,
+        _run_id = str(_uuid.uuid4())
+        _audit = AuditEventRecorder()
+        _audit.record_run_start(
+            run_id=_run_id,
+            agent_id=assistant_id,
+            user_id=_os.environ.get("USER", "anonymous"),
+            source_channel="cli_interactive",
         )
+        _audit.record(
+            event_type="user_input_received",
+            run_id=_run_id,
+            agent_id=assistant_id,
+            payload={"content": user_input},
+        )
+
+        # Record routing decision
+        try:
+            from olav.core.router import route_query as _route_query
+
+            _route_query(user_input, recorder=_audit, run_id=_run_id)
+        except Exception:
+            pass
+
+        # Execute task (with HITL audit wrapping)
+        try:
+            with _hitl_audit_scope(_audit, _run_id, assistant_id):
+                await execute_task(
+                    user_input,
+                    agent,
+                    assistant_id,
+                    session_state,
+                    token_tracker,
+                    backend=backend,
+                )
+            _audit.record(
+                event_type="assistant_output_final",
+                run_id=_run_id,
+                agent_id=assistant_id,
+                payload={},
+            )
+            _audit.record_run_end(run_id=_run_id, status="completed")
+        except KeyboardInterrupt:
+            _audit.record(
+                event_type="run_cancelled",
+                run_id=_run_id,
+                agent_id=assistant_id,
+                payload={"reason": "KeyboardInterrupt"},
+            )
+            _audit.record_run_end(run_id=_run_id, status="cancelled")
+            raise
+        except Exception:
+            _audit.record(
+                event_type="run_error",
+                run_id=_run_id,
+                agent_id=assistant_id,
+                payload={},
+            )
+            _audit.record_run_end(run_id=_run_id, status="error")
+            raise
+        finally:
+            _audit.close()
+
+
+# ---------------------------------------------------------------------------
+# Auth helpers (P1: inline login gate + single-query silent auth)
+# ---------------------------------------------------------------------------
+
+
+def _get_auth_mode() -> str:
+    """Read auth.mode from ConfigLoader (api.json). Default: 'none'."""
+    try:
+        from olav.core.config import ConfigLoader
+
+        return ConfigLoader().auth.mode
+    except Exception:
+        return "none"
+
+
+async def _inline_login_gate() -> UserIdentity | None:
+    """Inline login prompt for interactive mode when auth.mode != 'none'.
+
+    Uses prompt_toolkit masked password input (D5). Returns UserIdentity on
+    success, None if user aborts (Ctrl-C).
+    Returns None immediately if mode == 'none' (OS identity).
+    """
+    from olav.core.auth import UserIdentity, get_auth_provider
+
+    mode = _get_auth_mode()
+    if mode == "none":
+        return get_auth_provider("none").authenticate()
+
+    try:
+        from prompt_toolkit import prompt as pt_prompt
+        from prompt_toolkit.formatted_text import ANSI
+    except ImportError:
+        # Fallback without prompt_toolkit masking
+        import getpass
+
+        token = getpass.getpass("Token: ")
+        return get_auth_provider(mode).authenticate(token=token, source_channel="cli_interactive")
+
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            token = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: pt_prompt("Token: ", is_password=True),
+            )
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[yellow]Login cancelled.[/yellow]")
+            return None
+        token = token.strip()
+        if not token:
+            continue
+        identity = get_auth_provider(mode).authenticate(
+            token=token, source_channel="cli_interactive"
+        )
+        if identity.source == "token":
+            console.print(
+                f"  [green]✓ Authenticated as [bold]{identity.username}[/bold] [{identity.role}][/green]"
+            )
+            return identity
+        console.print(f"  [red]✗ Authentication failed (attempt {attempt}/{max_attempts})[/red]")
+    console.print("[red]Too many failed attempts. Exiting.[/red]")
+    return None
+
+
+def _silent_auth() -> UserIdentity | None:
+    """Silent token auth for single-query mode (D6).
+
+    Reads ~/.olav/token or OLAV_TOKEN env var. Returns None if not
+    authenticated in token mode, so caller can show error and exit.
+    """
+    mode = _get_auth_mode()
+    if mode == "none":
+        from olav.core.auth import get_auth_provider
+
+        return get_auth_provider("none").authenticate()
+
+    # Check OLAV_TOKEN env override first (D6, CI scenario)
+    token = os.environ.get("OLAV_TOKEN")
+    if not token:
+        token_file = Path.home() / ".olav" / "token"
+        if token_file.exists():
+            token = token_file.read_text(encoding="utf-8").strip()
+
+    if not token:
+        return None  # caller prints error
+
+    from olav.core.auth import get_auth_provider
+
+    identity = get_auth_provider(mode).authenticate(token=token, source_channel="cli_token")
+    if identity.source == "token":
+        return identity
+    return None  # invalid token
 
 
 async def run_interactive(
@@ -412,6 +808,12 @@ async def run_interactive(
 ) -> None:
     """Run interactive mode."""
     agent, backend = create_olav_agent_with_backend(assistant_id, session_id=session_id)
+
+    # P1: inline login gate (skipped in mode=none)
+    if _get_auth_mode() != "none":
+        identity = await _inline_login_gate()
+        if identity is None:
+            return  # aborted or too many failures
 
     await simple_cli(
         agent,
@@ -425,24 +827,93 @@ async def run_interactive(
 
 async def run_single_query(query: str, assistant_id: str, session_id: str | None = None) -> None:
     """Run a single query and exit."""
+    import uuid
+
     from deepagents_cli.config import COLORS
     from deepagents_cli.execution import execute_task
     from deepagents_cli.input import SessionState
     from deepagents_cli.ui import TokenTracker
 
+    # P1: silent auth check (D6) — no interactive prompt in single-query mode
+    if _get_auth_mode() != "none":
+        identity = _silent_auth()
+        if identity is None:
+            import sys
+
+            print(
+                "Not authenticated. Run `olav` to log in or set OLAV_TOKEN env var.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        user_id = identity.username
+    else:
+        user_id = os.environ.get("USER", "anonymous")
+
     agent, backend = create_olav_agent_with_backend(assistant_id, session_id=session_id)
+
+    run_id = str(uuid.uuid4())
+    recorder = AuditEventRecorder()
+    recorder.record_run_start(
+        run_id=run_id,
+        agent_id=assistant_id,
+        user_id=user_id,
+        source_channel="cli",
+    )
+    recorder.record(
+        event_type="user_input_received",
+        run_id=run_id,
+        agent_id=assistant_id,
+        payload={"content": query},
+    )
+
+    # Record routing decision
+    try:
+        from olav.core.router import route_query as _route_query
+
+        _route_query(query, recorder=recorder, run_id=run_id)
+    except Exception:
+        pass
 
     session_state = SessionState(auto_approve=True)
     token_tracker = TokenTracker()
 
-    await execute_task(
-        query,
-        agent,
-        assistant_id,
-        session_state,
-        token_tracker,
-        backend=backend,
-    )
+    try:
+        with _hitl_audit_scope(recorder, run_id, assistant_id):
+            result = await execute_task(
+                query,
+                agent,
+                assistant_id,
+                session_state,
+                token_tracker,
+                backend=backend,
+            )
+        recorder.record(
+            event_type="assistant_output_final",
+            run_id=run_id,
+            agent_id=assistant_id,
+            payload={"content": str(result) if result is not None else ""},
+        )
+        recorder.record_run_end(run_id=run_id, status="completed")
+    except KeyboardInterrupt:
+        recorder.record(
+            event_type="run_cancelled",
+            run_id=run_id,
+            agent_id=assistant_id,
+            payload={"reason": "KeyboardInterrupt"},
+        )
+        recorder.record_run_end(run_id=run_id, status="cancelled")
+        raise
+    except Exception:
+        recorder.record(
+            event_type="run_error",
+            run_id=run_id,
+            agent_id=assistant_id,
+            payload={},
+        )
+        recorder.record_run_end(run_id=run_id, status="error")
+        raise
+    finally:
+        recorder.close()
 
 
 def cli_main_async() -> None:
@@ -462,6 +933,32 @@ async def cli_main_impl() -> None:
 
         if args.verbose:
             logging.basicConfig(level=logging.DEBUG)
+
+        # Handle version command
+        if args.command == "version":
+            import platform
+
+            # Use the formatted banner from version module
+            console.print(format_version_banner())
+
+            # System information
+            try:
+                console.print("[bold dim]System Information:[/bold dim]")
+                console.print(f"  Python: {platform.python_version()}")
+                console.print(f"  Platform: {platform.system()} {platform.release()}")
+                console.print(f"  Machine: {platform.machine()}")
+            except Exception:
+                pass
+
+            # Installation path
+            try:
+                olav_module = Path(__file__).parent.parent
+                console.print(f"  Installation: {olav_module}")
+            except Exception:
+                pass
+
+            console.print()
+            return
 
         # Handle list command
         if args.command == "list":
@@ -499,27 +996,128 @@ async def cli_main_impl() -> None:
 
         # Handle help command
         if args.command == "help":
-            console.print(f"\n[bold]OLAV v{VERSION} - Network Operations AI Assistant[/bold]\n")
-            console.print("Usage:")
-            console.print("  olav                                    Interactive mode")
-            console.print('  olav "query"                           Single query')
-            console.print('  olav --agent ops "Check network"      Multi-agent')
-            console.print('  olav --sandbox modal "Deploy config"  Remote execution')
             console.print()
-            console.print("Options:")
-            console.print("  --agent AGENT       Agent identifier (default: olav)")
-            console.print("  --sandbox TYPE      Remote sandbox (none, modal, daytona, runloop)")
-            console.print("  --auto-approve      Skip tool approval prompts")
-            console.print("  --no-splash         Disable startup banner")
-            console.print("  --verbose           Enable debug logging")
+            console.print(f"[bold cyan]OLAV v{VERSION} - AI Operations Assistant[/bold cyan]\n")
+            console.print("[bold]Usage:[/bold]")
+            console.print("  [cyan]olav[/cyan]                                    Interactive mode")
+            console.print(
+                '  [cyan]olav[/cyan] [green]"query"[/green]                           Single query'
+            )
+            console.print(
+                '  [cyan]olav[/cyan] [yellow]--agent ops[/yellow] [green]"Check network"[/green]      Multi-agent'
+            )
+            console.print(
+                '  [cyan]olav[/cyan] [yellow]--sandbox modal[/yellow] [green]"Deploy config"[/green]  Remote execution'
+            )
+            console.print()
+            console.print("[bold]Commands:[/bold]")
+            console.print("  [cyan]version[/cyan]              Show version and system information")
+            console.print("  [cyan]list[/cyan]                 List all available agents")
+            console.print("  [cyan]help[/cyan]                 Show this help message")
+            console.print(
+                "  [cyan]reset[/cyan] --agent ID     Reset agent conversation/session history"
+            )
+            console.print(
+                "  [cyan]skills[/cyan] list          List all skills          (alias: [dim]skills[/dim])"
+            )
+            console.print(
+                "  [cyan]skills[/cyan] create NAME   Create new skill template  --agent required"
+            )
+            console.print("  [cyan]skills[/cyan] info NAME     Show skill details")
+            console.print(
+                "  [cyan]admin[/cyan]               Admin commands (status, backup, etc.)"
+            )
+            console.print("  [cyan]config[/cyan]              Configuration management")
+            console.print("  [cyan]init[/cyan]                Initialize platform scaffolding")
+            console.print(
+                "  [cyan]workspace[/cyan]           Manage workspace lifecycle (status/diff/upgrade/disable/remove/prune/rollback)"
+            )
+            console.print(
+                "  [cyan]workspace[/cyan]           Manage workspace lifecycle (status/diff/upgrade/disable/remove/prune/rollback)"
+            )
+            console.print(
+                "  [cyan]export[/cyan]              Export Claude skills or plugin layout"
+            )
+            console.print(
+                "  [cyan]service[/cyan]             Manage background services (daemon, logs, web)"
+            )
+            console.print()
+            console.print("[bold]Interactive Slash Commands:[/bold]")
+            console.print("  [cyan]/help[/cyan]                Show interactive commands")
+            console.print("  [cyan]/clear[/cyan]               Reset conversation and clear screen")
+            console.print("  [cyan]/tokens[/cyan]              Show token usage statistics")
+            console.print(
+                "  [cyan]/trace-review[/cyan]        Analyze agent failures → learn constraints"
+            )
+            console.print(
+                "  [cyan]/quit[/cyan]  [cyan]/exit[/cyan]  [cyan]/q[/cyan]   Exit the CLI"
+            )
+            console.print()
+            console.print("[bold]Special Input Prefixes:[/bold]")
+            console.print(
+                "  [cyan]!<cmd>[/cyan]               Run a bash command (e.g., [dim]!ls -la[/dim], [dim]!git status[/dim])"
+            )
+            console.print(
+                "  [cyan]@<file>[/cyan]              Inject file contents into the prompt"
+            )
+            console.print()
+            console.print("[bold]Global Options:[/bold]")
+            console.print(
+                "  [yellow]-a, --agent[/yellow] AGENT       Set active agent (quick, ops, audit, config)"
+            )
+            console.print(
+                "  [yellow]--sandbox[/yellow] TYPE          Remote sandbox (none, modal, daytona, runloop)"
+            )
+            console.print("  [yellow]--sandbox-id[/yellow] ID         Reuse existing sandbox ID")
+            console.print(
+                "  [yellow]--auto-approve[/yellow]          Auto-approve tool usage without prompting"
+            )
+            console.print(
+                "  [yellow]--session[/yellow] ID            Session ID for recovery (in ~/.olav/sessions/)"
+            )
+            console.print("  [yellow]--no-splash[/yellow]            Disable startup banner")
+            console.print("  [yellow]-v, --verbose[/yellow]         Enable verbose/debug output")
+            console.print("  [yellow]-V, --version[/yellow]         Show version information")
+            console.print("  [yellow]-h, --help[/yellow]            Show this help message")
+            console.print()
+            console.print("[bold]Examples:[/bold]")
+            console.print("  [dim]# Start interactive mode[/dim]")
+            console.print("  [cyan]$ olav[/cyan]")
+            console.print()
+            console.print("  [dim]# Ask a quick question[/dim]")
+            console.print('  [cyan]$ olav "How many records are in the database?"[/cyan]')
+            console.print()
+            console.print("  [dim]# Use a specific agent for deep analysis[/dim]")
+            console.print('  [cyan]$ olav --agent ops "Analyze recent audit logs"[/cyan]')
+            console.print()
+            console.print("  [dim]# Run in a remote sandbox[/dim]")
+            console.print('  [cyan]$ olav --sandbox modal "Deploy configuration"[/cyan]')
+            console.print()
+            console.print("[bold]Documentation:[/bold]")
+            console.print("  README:           ./README.md")
+            console.print("  User Guide:       ./docs/")
+            console.print("  Configuration:    ~/.olav/config/")
             console.print()
             return
 
         # Handle admin command
         if args.command == "admin":
+            cmd_args = args.args[0] if args.args else "status"
+
+            # User management sub-commands → AdminUsersCommand
+            _user_mgmt_cmds = {"add-user", "list-users", "revoke-token", "rotate-token"}
+            _first_token = cmd_args.split()[0] if cmd_args.strip() else ""
+            if _first_token in _user_mgmt_cmds:
+                from olav.cli.commands.admin_users import AdminUsersCommand
+
+                _admin_users = AdminUsersCommand()
+                _result_str = await _admin_users.execute(cmd_args)
+                console.print(_result_str)
+                return
+
+            # System admin commands → legacy admin_handler
             from olav.cli.admin import admin_handler
 
-            cmd_args = args.args[0] if args.args else "status"
             result = await admin_handler(f"/admin {cmd_args}")
             if result.get("status") == "error":
                 console.print(f"[red]Error:[/red] {result.get('message')}")
@@ -529,8 +1127,17 @@ async def cli_main_impl() -> None:
 
         # Handle config command
         if args.command == "config":
-            # If args provided, treat as natural language query for config agent
-            if args.args:
+            # If args provided, check for 'evolve' subcommand first
+            if args.args and args.args[0] == "evolve":
+                from olav.cli.commands.config_evolve import run_evolve_command
+                from olav.core.config import DOMAIN_DB_PATH
+
+                output = run_evolve_command(
+                    args=args.args[1:],
+                    domain_db_path=DOMAIN_DB_PATH,
+                )
+                console.print(output)
+            elif args.args:
                 query = " ".join(args.args)
                 await run_single_query(query, args.agent, session_id=args.session)
             else:
@@ -544,12 +1151,13 @@ async def cli_main_impl() -> None:
                 console.print()
             return
 
-        # Handle onboard command
-        if args.command == "onboard":
-            from olav.cli.commands.onboard import OnboardCommand
+        # Handle init command
+        if args.command == "init":
+            from olav.cli.commands.init import InitCommand
 
-            cmd = OnboardCommand()
-            await cmd.execute()
+            cmd = InitCommand()
+            result = await cmd.execute()
+            console.print(result)
             return
 
         # Handle service command
@@ -561,6 +1169,262 @@ async def cli_main_impl() -> None:
             result = await cmd.execute(service_args)
             if result and result != "success":
                 console.print(result)
+            return
+
+        # Handle workspace command
+        if args.command == "workspace":
+            from olav.cli.commands.workspace import WorkspaceCommand
+
+            cmd = WorkspaceCommand()
+            workspace_args = " ".join(args.args) if args.args else ""
+            result = await cmd.execute(workspace_args)
+            if result:
+                console.print(result)
+            return
+
+        # Handle export command
+        if args.command == "export":
+            from olav.cli.commands.export import ExportCommand
+
+            cmd = ExportCommand()
+            export_args = " ".join(args.args) if args.args else ""
+            result = await cmd.execute(export_args)
+            if result:
+                console.print(result)
+            return
+
+        # Handle reset command - clear checkpoint/session data for an agent
+        if args.command == "reset":
+            import shutil
+
+            agent_id = args.agent
+            source = getattr(args, "target", None)
+            sessions_dir = Path.home() / ".olav" / "sessions"
+            removed = 0
+            if sessions_dir.exists():
+                for f in sessions_dir.iterdir():
+                    if agent_id in f.name:
+                        f.unlink()
+                        removed += 1
+            if source:
+                console.print(
+                    "[yellow]--target copy not supported in OLAV (agents live in "
+                    ".olav/workspace/). Cleared session data only.[/yellow]"
+                )
+            console.print(
+                f"[bold green]✓[/bold green] Agent [bold]{agent_id}[/bold] reset "
+                f"({removed} session file(s) removed)."
+            )
+            console.print(f"  [dim]Sessions dir: {sessions_dir}[/dim]")
+            return
+
+        # Handle log command — query audit.duckdb
+        if args.command == "log":
+            from olav.cli.log_cmd import log_errors, log_list, log_show
+
+            log_sub_cmd = getattr(args, "log_command", None)
+            if log_sub_cmd == "show":
+                events = log_show(args.run_id)
+                if not events:
+                    console.print(f"[yellow]No events found for run_id: {args.run_id}[/yellow]")
+                else:
+                    for ev in events:
+                        ts = str(ev.get("timestamp", ""))[:19]
+                        console.print(f"  [{ts}] {ev['event_type']:30s} {ev.get('agent_id') or ''}")
+            elif log_sub_cmd == "errors":
+                hours = getattr(args, "hours", 24)
+                events = log_errors(since_hours=hours)
+                if not events:
+                    console.print(f"[green]No errors in the last {hours}h[/green]")
+                else:
+                    for ev in events:
+                        ts = str(ev.get("timestamp", ""))[:19]
+                        console.print(
+                            f"  [{ts}] [red]{ev['event_type']}[/red]  run={ev.get('run_id', '')[:8]}"
+                        )
+            elif log_sub_cmd == "export":
+                export_fmt = getattr(args, "export_format", None)
+                if export_fmt == "sft":
+                    from olav.enterprise.audit_dataset_export import audit_to_sft_jsonl
+
+                    hours = getattr(args, "hours", 24)
+                    output_dir = getattr(args, "output", None)
+                    min_score = getattr(args, "min_score", 0.0)
+                    encrypt_flag = getattr(args, "encrypt", None)
+                    key_ref = getattr(args, "key_ref", None)
+                    result = audit_to_sft_jsonl(
+                        conn_or_path=None,
+                        output_dir=output_dir,
+                        hours=hours,
+                        min_rule_score=min_score,
+                        encrypt=encrypt_flag,
+                        key_ref=key_ref,
+                    )
+                    console.print(
+                        f"[bold green]✓[/bold green] SFT export complete → {result['output_dir']}"
+                    )
+                    console.print(f"  Runs scanned: {result.get('runs_scanned', 0)}")
+                    console.print(
+                        f"  Conversations exported: {result.get('conversations_exported', 0)}"
+                    )
+                    console.print(f"  Runs rejected: {result.get('runs_rejected', 0)}")
+                elif export_fmt == "trajectory":
+                    from olav.enterprise.audit_dataset_export import audit_to_tool_trajectory
+
+                    hours = getattr(args, "hours", 24)
+                    output_dir = getattr(args, "output", None)
+                    min_score = getattr(args, "min_score", 0.0)
+                    encrypt_flag = getattr(args, "encrypt", None)
+                    key_ref = getattr(args, "key_ref", None)
+                    result = audit_to_tool_trajectory(
+                        conn_or_path=None,
+                        output_dir=output_dir or "exports/audit_datasets/default",
+                        hours=hours,
+                        min_rule_score=min_score,
+                        encrypt=encrypt_flag,
+                        key_ref=key_ref,
+                    )
+                    console.print("[bold green]✓[/bold green] Trajectory export complete")
+                    console.print(f"  Runs scanned: {result.get('runs_scanned', 0)}")
+                    console.print(f"  Samples exported: {result.get('runs_exported', 0)}")
+                    console.print(f"  Runs rejected: {result.get('runs_rejected', 0)}")
+                    console.print(f"  Runs deduped: {result.get('runs_deduped', 0)}")
+                elif export_fmt == "atif":
+                    from olav.enterprise.audit_dataset_export import audit_to_atif
+
+                    hours = getattr(args, "hours", 24)
+                    output_dir = getattr(args, "output", None)
+                    encrypt_flag = getattr(args, "encrypt", None)
+                    key_ref = getattr(args, "key_ref", None)
+                    result = audit_to_atif(
+                        conn_or_path=None,
+                        output_dir=output_dir or "exports/audit_datasets/default",
+                        hours=hours,
+                        encrypt=encrypt_flag,
+                        key_ref=key_ref,
+                    )
+                    console.print("[bold green]✓[/bold green] ATIF export complete")
+                    console.print(f"  Runs scanned: {result.get('runs_scanned', 0)}")
+                    console.print(f"  Samples exported: {result.get('runs_exported', 0)}")
+                    console.print(f"  Runs rejected: {result.get('runs_rejected', 0)}")
+                elif export_fmt == "grant-local-train":
+                    import json as _json
+                    import os as _os
+
+                    from olav.enterprise.dataset_encryption import OneTimeTokenManager
+
+                    export_id = getattr(args, "export_id", None)
+                    ttl = getattr(args, "ttl_minutes", 10)
+                    user_id = _os.environ.get("OLAV_USER", "unknown")
+                    secret = _os.environ.get("OLAV_TOKEN_SECRET", "olav-dev-secret-change-in-prod")
+                    mgr = OneTimeTokenManager(secret=secret)
+                    token_result = mgr.issue(export_id=export_id, user_id=user_id, ttl_minutes=ttl)
+                    console.print(_json.dumps(token_result, indent=2))
+                else:
+                    console.print(
+                        "[yellow]Usage: olav log export <sft|trajectory|atif|grant-local-train> [--hours N] [--output DIR][/yellow]"
+                    )
+            else:
+                runs = log_list()
+                if not runs:
+                    console.print("[yellow]No audit runs in the last 24h[/yellow]")
+                else:
+                    console.print("\n[bold]Recent Audit Runs (last 24h):[/bold]\n")
+                    for r in runs:
+                        ts = str(r.get("start_time", ""))[:19]
+                        rid = str(r.get("run_id", ""))[:8]
+                        status = r.get("status", "")
+                        agent = r.get("agent_id", "")
+                        console.print(f"  [{ts}] {rid}  {status:12s}  agent={agent}")
+            return
+
+        # Handle skills command - manage SKILL.md files in .olav/workspace/
+        if args.command == "skills":
+            workspace = Path(".olav/workspace")
+            skills_cmd = getattr(args, "skills_command", None)
+
+            if skills_cmd is None or skills_cmd == "list":
+                agent_filter = getattr(args, "agent", None)
+                console.print("\n[bold]Agent Skills:[/bold]\n")
+                found_any = False
+                search_dirs = (
+                    ([workspace / agent_filter] if agent_filter else sorted(workspace.iterdir()))
+                    if workspace.exists()
+                    else []
+                )
+                for agent_dir in search_dirs:
+                    if not agent_dir.is_dir():
+                        continue
+                    tools_dir = agent_dir / "tools"
+                    if not tools_dir.exists():
+                        continue
+                    for skill_dir in sorted(tools_dir.iterdir()):
+                        skill_md = skill_dir / "SKILL.md"
+                        if skill_md.exists():
+                            found_any = True
+                            console.print(
+                                f"  [cyan]{agent_dir.name}[/cyan] / [bold]{skill_dir.name}[/bold]"
+                            )
+                            console.print(f"    [dim]{skill_md}[/dim]")
+                if not found_any:
+                    console.print("  [yellow]No skills found in .olav/workspace/[/yellow]")
+                console.print()
+
+            elif skills_cmd == "create":
+                skill_name = args.name
+                agent_id = args.agent
+                skill_dir = workspace / agent_id / "tools" / skill_name
+                skill_dir.mkdir(parents=True, exist_ok=True)
+                skill_md = skill_dir / "SKILL.md"
+                if skill_md.exists():
+                    console.print(
+                        f"[yellow]Skill '{skill_name}' already exists at {skill_md}[/yellow]"
+                    )
+                else:
+                    template = f"""---
+name: {skill_name}
+description: |
+  TODO: Describe what this skill does.
+version: "1.0"
+---
+
+# {skill_name}
+
+## Instructions
+
+TODO: Add detailed instructions for how to use this skill.
+
+## Examples
+
+TODO: Add usage examples.
+"""
+                    skill_md.write_text(template)
+                    console.print(
+                        f"[bold green]✓[/bold green] Skill '[bold]{skill_name}[/bold]' created at {skill_md}"
+                    )
+                    console.print(f"  [dim]Edit with: nano {skill_md}[/dim]")
+
+            elif skills_cmd == "info":
+                skill_name = args.name
+                agent_filter = getattr(args, "agent", None)
+                found = False
+                search_dirs = (
+                    ([workspace / agent_filter] if agent_filter else sorted(workspace.iterdir()))
+                    if workspace.exists()
+                    else []
+                )
+                for agent_dir in search_dirs:
+                    skill_md = agent_dir / "tools" / skill_name / "SKILL.md"
+                    if skill_md.exists():
+                        found = True
+                        console.print(
+                            f"\n[bold]Skill:[/bold] {skill_name}  [dim](agent: {agent_dir.name})[/dim]\n"
+                        )
+                        console.print(skill_md.read_text())
+                        break
+                if not found:
+                    console.print(f"[red]Skill '{skill_name}' not found.[/red]")
+                    console.print("[dim]Use 'olav skills list' to see available skills.[/dim]")
             return
 
         # Create session state

@@ -21,7 +21,8 @@ from pathlib import Path
 
 import duckdb
 
-from olav.core.config import MAIN_DB_PATH, SNAPSHOTS_STAGING_JSON
+from olav.core.config import MAIN_DB_PATH
+from olav.platform.ingest_base import TableRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +30,14 @@ logger = logging.getLogger(__name__)
 class IngestManager:
     """Manager for bulk ingesting staging JSON files into DuckDB."""
 
-    def __init__(self, db_path: str | Path | None = None):
+    def __init__(self, db_path: str | Path | None = None, staging_dir: str | Path | None = None):
         self.db_path = Path(db_path or MAIN_DB_PATH)
-        self.staging_dir = Path(SNAPSHOTS_STAGING_JSON)
+        if staging_dir is None:
+            raise ValueError(
+                "staging_dir is required. Domain packages must pass their own staging path. "
+                "(olav-netops convention: EXPORTS_DIR / 'snapshots' / 'json')"
+            )
+        self.staging_dir = Path(staging_dir)
 
     def bulk_load(self) -> dict:
         """Load all *.staging.json files into DuckDB via read_json_auto.
@@ -51,13 +57,23 @@ class IngestManager:
         # Glob pattern for DuckDB — must be a POSIX string
         staging_pattern = (self.staging_dir / "*.staging.json").as_posix()
 
+        # Resolve target table name via TableRegistry (domain-package aware).
+        # If olav-netops (or another domain package) has registered
+        # 'parsed_outputs', use its qualified_name (e.g. 'netops.parsed_outputs').
+        # Fall back to the legacy flat-table name for backward compatibility.
+        _tbl = TableRegistry.get("parsed_outputs")
+        target_table = _tbl.qualified_name if _tbl else "parsed_outputs"
+
         try:
             with duckdb.connect(str(self.db_path), read_only=False) as conn:
+                # Ensure schema + table exist if domain package registered the table.
+                if _tbl is not None:
+                    _tbl.ensure_schema(conn)
                 # read_json_auto reads all files in one pass.
                 # parsed_data is cast to JSON to match the column type.
                 # ON CONFLICT upserts — safe to re-run after a partial failure.
                 conn.execute(f"""
-                    INSERT INTO parsed_outputs (device_name, command, parsed_data, snapshot_id, raw_output)
+                    INSERT INTO {target_table} (device_name, command, parsed_data, snapshot_id, raw_output)
                     SELECT
                         device_name,
                         command,
@@ -98,10 +114,3 @@ class IngestManager:
             }
 
 
-def bulk_ingest() -> dict:
-    """Convenience wrapper: run bulk ingestion from default staging directory.
-
-    Returns:
-        Dict with status, files_processed, records_inserted.
-    """
-    return IngestManager().bulk_load()

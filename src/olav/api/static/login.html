@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OLAV Login</title>
+  <style>
+    body { font-family: monospace; background: #1a1a2e; color: #e0e0e0;
+           display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    .box { background: #16213e; border: 1px solid #0f3460; border-radius: 8px;
+           padding: 2rem; width: 320px; }
+    h2 { color: #e94560; margin-bottom: 1.5rem; text-align: center; }
+    label { display: block; margin-bottom: 0.25rem; color: #a0a0b0; font-size: 0.85rem; }
+    input { width: 100%; box-sizing: border-box; padding: 0.5rem; border: 1px solid #0f3460;
+            background: #0f3460; color: #e0e0e0; border-radius: 4px; margin-bottom: 1rem; }
+    button { width: 100%; padding: 0.6rem; background: #e94560; color: white;
+             border: none; border-radius: 4px; cursor: pointer; font-family: monospace; }
+    button:hover { background: #c73652; }
+    .error { color: #e94560; font-size: 0.85rem; margin-top: 0.5rem; display: none; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>&#9632; OLAV</h2>
+    <form id="loginForm">
+      <label for="token">Token</label>
+      <input type="password" id="token" name="token" autocomplete="current-password" required autofocus>
+      <button type="submit">Login</button>
+      <div class="error" id="errorMsg">Invalid token. Please try again.</div>
+    </form>
+  </div>
+  <script>
+    // Pre-fill token from URL ?token= param (JupyterLab-style deep link)
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get('token');
+    if (urlToken) {
+      document.getElementById('token').value = urlToken;
+      document.getElementById('loginForm').dispatchEvent(new Event('submit'));
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const token = document.getElementById('token').value.trim();
+      const errEl = document.getElementById('errorMsg');
+      errEl.style.display = 'none';
+
+      try {
+        const resp = await fetch('/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+          redirect: 'follow',
+        });
+        if (resp.ok || resp.redirected) {
+          window.location.href = '/';
+        } else {
+          errEl.style.display = 'block';
+        }
+      } catch {
+        errEl.style.display = 'block';
+      }
+    });
+  </script>
+</body>
+</html>

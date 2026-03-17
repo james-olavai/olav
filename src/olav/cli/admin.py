@@ -254,48 +254,73 @@ async def _fast_skill_list(args: str) -> dict:
 
 
 async def _fast_reload(args: str) -> dict:
-    """Hot-reload TextFSM templates and command definitions.
+    """Hot-reload domain-registered resources via extension hooks.
 
-    Reloads:
-    1. TextFSM templates (.olav/templates/*)
-    2. Command whitelist (.olav/config/allowed_commands.json)
-    3. Command blacklist (.olav/config/blacklisted_commands.json)
+    Discovers reload hooks from the ``olav.reload_hooks`` entry-point group.
+    Each installed domain package can register a callable that performs its
+    own hot-reload logic (e.g. templates, command definitions).
+
+    When no reload hooks are registered, returns an ``unavailable`` status.
 
     Returns:
-        Status with reload statistics
+        Aggregated reload results from all registered hooks.
     """
-    try:
-        from olav.core.command_registry import CommandRegistry
+    from importlib.metadata import entry_points
 
-        result = CommandRegistry.reload()
-
-        reloaded = result.get("reloaded", {})
-        new_templates = result.get("new_templates", [])
-        errors = result.get("errors", [])
-
-        message = (
-            f"✅ Reloaded {reloaded.get('templates', 0)} templates, "
-            f"{reloaded.get('whitelisted_commands', 0)} commands, "
-            f"{reloaded.get('blacklisted_patterns', 0)} blacklist patterns"
-        )
-
-        if new_templates:
-            message += "\n\n🆕 New templates:\n   - " + "\n   - ".join(new_templates)
-
-        if errors:
-            message += "\n\n⚠️  Errors:\n   - " + "\n   - ".join(errors)
-
+    hooks = entry_points(group="olav.reload_hooks")
+    if not hooks:
         return {
-            "status": "success",
-            "message": message,
-            "reloaded": reloaded,
-            "new_templates": new_templates,
-            "errors": errors,
+            "status": "unavailable",
+            "message": (
+                "No reload hooks registered — install a domain package "
+                "(e.g. olav-netops) to enable hot-reload."
+            ),
         }
 
-    except Exception as e:
-        logger.error(f"Reload failed: {e}", exc_info=True)
-        return {"status": "error", "message": f"Reload failed: {e}"}
+    all_results: list[dict] = []
+    errors: list[str] = []
+
+    for ep in hooks:
+        try:
+            hook_fn = ep.load()
+            result = hook_fn()
+            if isinstance(result, dict):
+                all_results.append(result)
+        except Exception as e:
+            logger.error(f"Reload hook {ep.name!r} failed: {e}", exc_info=True)
+            errors.append(f"{ep.name}: {e}")
+
+    if not all_results and errors:
+        return {"status": "error", "message": "All reload hooks failed", "errors": errors}
+
+    merged_reloaded: dict = {}
+    merged_new: list[str] = []
+    merged_errors: list[str] = list(errors)
+
+    for r in all_results:
+        for key, val in r.get("reloaded", {}).items():
+            merged_reloaded[key] = merged_reloaded.get(key, 0) + (
+                val if isinstance(val, int) else 0
+            )
+        merged_new.extend(r.get("new_templates", []))
+        merged_errors.extend(r.get("errors", []))
+
+    parts = [f"{v} {k}" for k, v in merged_reloaded.items()]
+    message = "✅ Reloaded " + ", ".join(parts) if parts else "✅ Reload completed"
+
+    if merged_new:
+        message += "\n\n🆕 New templates:\n   - " + "\n   - ".join(merged_new)
+
+    if merged_errors:
+        message += "\n\n⚠️  Errors:\n   - " + "\n   - ".join(merged_errors)
+
+    return {
+        "status": "success",
+        "message": message,
+        "reloaded": merged_reloaded,
+        "new_templates": merged_new,
+        "errors": merged_errors,
+    }
 
 
 # ============================================================================
@@ -375,7 +400,7 @@ async def _kb_search(args: str) -> dict:
         if not args or args.strip() in ["--help", "-h", "?"]:
             return {
                 "status": "error",
-                "message": "Usage: /admin kb-search 'search query'\nExample: /admin kb-search 'BGP troubleshooting'",
+                "message": "Usage: /admin kb-search 'search query'\nExample: /admin kb-search 'troubleshooting'",
             }
 
         query = args.strip().strip("'\"")

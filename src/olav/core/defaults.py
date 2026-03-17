@@ -58,13 +58,11 @@ DEFAULT_PATHS_CONFIG: dict[str, Any] = {
     "agent_dir": ".olav",
     "databases_dir": ".olav/databases",
     "exports_dir": "exports",
-    "agent_outputs_dir": "agent_outputs",
     "run_dir": "run",
     "logs_dir": ".olav/logs",
     "log_storage_dir": ".olav/databases/logs",
     "knowledge_dir": ".olav/knowledge",
     "workspace_dir": ".olav/workspace",
-    "templates_dir": ".olav/templates",
     "config_dir": ".olav/config",
     "files": {
         "main_db": ".olav/databases/main.duckdb",
@@ -79,7 +77,6 @@ DEFAULT_PATHS_CONFIG: dict[str, Any] = {
 
 DEFAULT_RUNTIME_CONFIG: dict[str, Any] = {
     "execution": {
-        "use_textfsm": True,
         "timeout": 30,
         "retry_attempts": 3,
     },
@@ -137,21 +134,6 @@ DEFAULT_DATABASE_CONFIG: dict[str, Any] = {
 }
 
 
-# ============================================================================
-# Network Operations Configuration Defaults
-# ============================================================================
-
-DEFAULT_NETWORK_CONFIG: dict[str, Any] = {
-    "nornir": {
-        "connection_timeout": 30,
-        "execution_timeout": 60,
-    },
-    "commands": {
-        "allowed_file": ".olav/templates/config/allowed_commands.yaml",
-        "denied_file": ".olav/templates/config/blacklisted_commands.yaml",
-    },
-}
-
 
 # ============================================================================
 # Helper Functions
@@ -172,7 +154,6 @@ def get_default_config() -> dict[str, Any]:
         "security": DEFAULT_SECURITY_CONFIG,
         "router": DEFAULT_ROUTER_CONFIG,
         "database": DEFAULT_DATABASE_CONFIG,
-        "network": DEFAULT_NETWORK_CONFIG,
     }
 
 
