@@ -10,9 +10,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from olav.core.config import get_paths_config
+from olav.core.config import get_domain_config_dir
 
 logger = logging.getLogger(__name__)
+
+NETOPS_CONFIG_DIR = get_domain_config_dir("netops")
 
 
 class CommandRegistry:
@@ -51,23 +53,20 @@ class CommandRegistry:
         self._templates.clear()
         self._template_index.clear()
 
-        paths_config = get_paths_config()
-        project_root = paths_config.project_root
+        # Priority 1: Domain textfsm directory
+        textfsm_dir = NETOPS_CONFIG_DIR / "textfsm"
+        if textfsm_dir.exists():
+            self._scan_templates(textfsm_dir, priority=1)
 
-        # Priority 1: Custom config directory
-        custom_config_dir = project_root / ".olav/config/textfsm"
-        if custom_config_dir.exists():
-            self._scan_templates(custom_config_dir, priority=1)
-
-        # Priority 2: Command learner custom directory (within txtfsm_templates)
-        custom_dir = project_root / paths_config.textfsm_templates_dir / "custom"
+        # Priority 2: Custom templates (learner output)
+        custom_dir = NETOPS_CONFIG_DIR / "templates" / "custom"
         if custom_dir.exists():
             self._scan_templates(custom_dir, priority=2)
 
-        # Priority 3: Default templates directory (from paths.json)
-        templates_dir = project_root / paths_config.textfsm_templates_dir
-        if templates_dir.exists():
-            self._scan_templates(templates_dir, priority=3)
+        # Priority 3: Default templates directory
+        default_dir = NETOPS_CONFIG_DIR / "templates"
+        if default_dir.exists():
+            self._scan_templates(default_dir, priority=3)
 
         # Priority 4: NTC templates (if installed)
         self._load_ntc_templates()
@@ -105,7 +104,7 @@ class CommandRegistry:
         """Load whitelisted commands from config."""
         self._whitelist.clear()
 
-        whitelist_path = Path(".olav/config/allowed_commands.json")
+        whitelist_path = NETOPS_CONFIG_DIR / "allowed_commands.json"
         if whitelist_path.exists():
             try:
                 import json
@@ -118,16 +117,13 @@ class CommandRegistry:
                 logger.error(f"Failed to load whitelist: {e}")
 
     def _load_blacklist(self) -> None:
-        """Load blacklisted commands from config (via PathsConfig → .olav/config/blacklisted_commands.yaml)."""
+        """Load blacklisted commands from config (via domains/netops/ namespace)."""
         self._blacklist.clear()
 
         try:
             import yaml
 
-            from olav.core.config import get_paths_config
-
-            pc = get_paths_config()
-            blacklist_path = Path(pc.project_root) / pc.blacklist_commands_file
+            blacklist_path = NETOPS_CONFIG_DIR / "blacklisted_commands.yaml"
             if not blacklist_path.exists():
                 logger.debug(f"Blacklist file not found: {blacklist_path}")
                 return
@@ -314,3 +310,35 @@ class CommandRegistry:
 
 # Create singleton instance on module import
 _registry = CommandRegistry()
+
+
+def reload_hook() -> dict:
+    """Entry-point callable for ``olav.reload_hooks`` group."""
+    return CommandRegistry.reload()
+
+
+def get_config_commands() -> list[str]:
+    """Entry-point callable for ``olav.config_commands`` group.
+
+    Returns command names classified as ``type=configuration`` in
+    ``backup_only_commands.yaml``.
+    """
+    try:
+        import yaml
+
+        from olav.core.config import get_paths_config
+
+        pc = get_paths_config()
+        yaml_path = Path(pc.project_root) / ".olav/config/domains/netops/backup_only_commands.yaml"
+        if yaml_path.exists():
+            data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or []
+            return [
+                item["command"].strip()
+                for item in data
+                if isinstance(item, dict)
+                and item.get("type") == "configuration"
+                and item.get("command")
+            ]
+    except Exception:
+        pass
+    return []

@@ -4,7 +4,7 @@ import sys
 
 from olav.core.watermark import get_watermark_banner, get_watermark_notice
 
-# Configuration parameters: NetAIOps industrial-grade color scheme (deep blue -> tech teal)
+# Configuration parameters: industrial-grade color scheme (deep blue -> tech teal)
 COLOR_START = (60, 80, 255)  # Protocol Blue (physical layer stability)
 COLOR_END = (0, 255, 180)  # Logic Teal (intelligent logic layer)
 
@@ -20,7 +20,7 @@ def print_olav_banner() -> None:
 
 
 def apply_professional_theme() -> None:
-    """Apply professional NetAIOps theme to OLAV ASCII art."""
+    """Apply professional theme to OLAV ASCII art."""
     # OLAV ASCII structure
     olav_ascii = [
         "  ██████╗  ██╗       █████╗  ██╗   ██╗",
@@ -31,7 +31,7 @@ def apply_professional_theme() -> None:
         "  ╚═════╝  ╚══════╝ ╚═╝  ╚═╝   ╚═══╝  ",
     ]
 
-    tagline = "Online Analytical Vertex for Agentic Networking ☃️"
+    tagline = "Online Analytical Vertex for Agentic Operations ☃️"
     reset = "\x1b[0m"
     bold = "\x1b[1m"
 

@@ -14,6 +14,7 @@ from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 
 from olav.core.config import settings
+from olav.core.embedder import get_embedder
 
 logger = logging.getLogger(__name__)
 
@@ -134,17 +135,12 @@ class LLMFactory:
                     model=model, api_key=config.api_key, base_url=config.base_url or None, **kwargs
                 )
             else:
-                # Use sentence-transformers directly
-                import os
+                st_model = get_embedder(model)
+                if st_model is None:
+                    raise RuntimeError(
+                        "sentence-transformers unavailable; cannot create local embeddings"
+                    )
 
-                from sentence_transformers import SentenceTransformer
-
-                # Force CPU only to avoid CUDA issues
-                os.environ["CUDA_VISIBLE_DEVICES"] = ""
-
-                st_model = SentenceTransformer(model, trust_remote_code=True, device=config.device)
-
-                # Wrap in a simple embedding class for compatibility
                 class SentenceTransformerEmbeddings:
                     def __init__(self, model):
                         self.model = model
@@ -164,14 +160,11 @@ class LLMFactory:
             logger.warning(f"Embedding initialization failed ({mode}/{model}): {e}")
             if mode == "api" and config.fallback_enabled:
                 logger.info("Falling back to local embeddings...")
-                import os
-
-                from sentence_transformers import SentenceTransformer
-
-                os.environ["CUDA_VISIBLE_DEVICES"] = ""
-                st_model = SentenceTransformer(
-                    config.local_model, trust_remote_code=True, device=config.device
-                )
+                st_model = get_embedder(config.local_model)
+                if st_model is None:
+                    raise RuntimeError(
+                        "sentence-transformers unavailable; cannot create fallback embeddings"
+                    ) from e
 
                 class SentenceTransformerEmbeddings:
                     def __init__(self, model):

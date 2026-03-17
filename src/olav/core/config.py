@@ -97,6 +97,14 @@ class ConfigLoader:
         return MemoryConfig(self._api.get("memory", {}), self)
 
     @property
+    def auth(self):
+        return AuthConfig(self._api.get("auth", {}), self)
+
+    @property
+    def dataset_export(self):
+        return DatasetExportConfig(self._api.get("dataset_export", {}), self)
+
+    @property
     def tasks(self):
         return self._tasks
 
@@ -234,20 +242,21 @@ class PathsConfig:
         return self._data.get("exports_dir", "exports")
 
     @property
-    def agent_outputs_dir(self) -> str:
-        """Directory for general agent output files (formerly exports/reports)."""
-        return self._data.get("agent_outputs_dir", "agent_outputs")
-
-    @property
-    def reports_dir(self) -> str:
-        """Backward-compat alias for agent_outputs_dir."""
-        return self.agent_outputs_dir
-
-    @property
     def audit_reports_dir(self) -> str:
         """Directory for audit inspection reports."""
         audit = self._data.get("audit", {})
         return audit.get("reports_dir", "exports/audit_reports")
+
+    @property
+    def audit_retention_days(self) -> int:
+        """Number of days to retain audit records before archiving (GAP-5)."""
+        audit = self._data.get("audit", {})
+        return int(audit.get("retention_days", 90))
+
+    @property
+    def agent_outputs_dir(self) -> str:
+        """Directory for agent output files (Mermaid diagrams, reports, etc.)."""
+        return self._data.get("agent_outputs_dir", "exports/agent_outputs")
 
     @property
     def run_dir(self) -> str:
@@ -284,38 +293,23 @@ class PathsConfig:
         )
 
     @property
-    def templates_dir(self) -> str:
-        return self._data.get("templates_dir", ".olav/templates")
-
-    @property
-    def textfsm_templates_dir(self) -> str:
-        """Alias for templates_dir — used by CommandRegistry for TextFSM template discovery."""
-        return self.templates_dir
-
-    @property
-    def blacklist_commands_file(self) -> str:
-        """Relative path (from project root) to the blacklisted_commands.yaml file."""
-        files = self._data.get("files", {})
-        return files.get("blacklist_commands", ".olav/config/blacklisted_commands.yaml")
-
-    @property
     def config_dir(self) -> str:
         return self._data.get("config_dir", ".olav/config")
 
     @property
     def main_db(self) -> str:
         files = self._data.get("files", {})
-        return files.get("main_db", ".olav/databases/main.duckdb")
+        return files.get("main_db", ".olav/databases/domain.duckdb")
+
+    @property
+    def domain_db(self) -> str:
+        """统一域数据存储（所有域数据；内部用 DuckDB Schema 隔离）。"""
+        return self.main_db
 
     @property
     def llm_cache(self) -> str:
         files = self._data.get("files", {})
         return files.get("llm_cache", ".olav/databases/llm_cache.sqlite")
-
-    @property
-    def backup_only_commands_file(self) -> str:
-        files = self._data.get("files", {})
-        return files.get("backup_only_commands", ".olav/config/backup_only_commands.yaml")
 
     @property
     def project_root(self) -> Path:
@@ -390,17 +384,109 @@ class MemoryConfig:
         )
 
 
-class RuntimeConfig:
-    def __init__(self, data: dict, loader: ConfigLoader):
+class AuthConfig:
+    """Authentication configuration from api.json auth section.
+
+    All values can be overridden via OLAV_AUTH_* environment variables.
+    """
+
+    def __init__(self, data: dict, loader: "ConfigLoader"):
         self._data = data
         self._loader = loader
 
     @property
-    def use_textfsm(self) -> bool:
-        exec_data = self._data.get("execution", {})
+    def mode(self) -> str:
+        """Auth mode: none | token | server | ldap | ad | oidc (default: none).
+
+        none   → Tier 0 OSIdentityProvider (OS $USER)
+        token  → Tier 1 TokenAuthProvider (~/.olav/token vs users.duckdb)
+        server → Tier 1 ServerTokenProvider (WebUI JupyterLab-style)
+        """
+        return self._loader._env_override("auth", "mode", self._data.get("mode", "none"))
+
+    @property
+    def token_file(self) -> str:
+        """Per-user token file path (default: ~/.olav/token)."""
+        return self._data.get("token_file", "~/.olav/token")
+
+    @property
+    def server_token_file(self) -> str:
+        """Server token file path for WebUI mode (default: .olav/run/server.token)."""
+        return self._data.get("server_token_file", ".olav/run/server.token")
+
+    @property
+    def users_db(self) -> str:
+        """Path to users.duckdb (default: .olav/databases/users.duckdb)."""
+        return self._data.get("users_db", ".olav/databases/users.duckdb")
+
+    @property
+    def session_ttl_hours(self) -> int:
+        """Session cookie TTL in hours (default: 24)."""
+        return int(self._data.get("session_ttl_hours", 24))
+
+
+class DatasetExportConfig:
+    def __init__(self, data: dict, loader: "ConfigLoader"):
+        self._data = data
+        self._loader = loader
+
+    @property
+    def encryption_mode(self) -> str:
         return self._loader._env_override(
-            "runtime", "use_textfsm", exec_data.get("use_textfsm", True)
+            "dataset_export", "encryption_mode", self._data.get("encryption_mode", "disabled")
         )
+
+    @property
+    def local_train_access_mode(self) -> str:
+        return self._loader._env_override(
+            "dataset_export",
+            "local_train_access_mode",
+            self._data.get("local_train_access_mode", "none"),
+        )
+
+    @property
+    def key_ref(self) -> str:
+        return self._loader._env_override(
+            "dataset_export", "key_ref", self._data.get("key_ref", "dataset-export-key-v1")
+        )
+
+    @property
+    def temp_file_policy(self) -> str:
+        return self._loader._env_override(
+            "dataset_export",
+            "temp_file_policy",
+            self._data.get("temp_file_policy", "delete_on_success"),
+        )
+
+    @property
+    def allow_plaintext_stats(self) -> bool:
+        return self._loader._env_override(
+            "dataset_export",
+            "allow_plaintext_stats",
+            self._data.get("allow_plaintext_stats", True),
+        )
+
+    @property
+    def allow_plaintext_rejected_runs(self) -> bool:
+        return self._loader._env_override(
+            "dataset_export",
+            "allow_plaintext_rejected_runs",
+            self._data.get("allow_plaintext_rejected_runs", True),
+        )
+
+    @property
+    def associated_data_version(self) -> str:
+        return self._loader._env_override(
+            "dataset_export",
+            "associated_data_version",
+            self._data.get("associated_data_version", "v1"),
+        )
+
+
+class RuntimeConfig:
+    def __init__(self, data: dict, loader: ConfigLoader):
+        self._data = data
+        self._loader = loader
 
     @property
     def timeout(self) -> int:
@@ -418,13 +504,6 @@ class RuntimeConfig:
     def max_loops(self) -> int:
         exec_data = self._data.get("execution", {})
         return self._loader._env_override("runtime", "max_loops", exec_data.get("max_loops", 3))
-
-    @property
-    def scrapli_timeout_ops(self) -> int:
-        exec_data = self._data.get("execution", {})
-        return self._loader._env_override(
-            "runtime", "scrapli_timeout_ops", exec_data.get("scrapli_timeout_ops", 30)
-        )
 
     @property
     def log_level(self) -> str:
@@ -468,6 +547,10 @@ def get_runtime_config() -> RuntimeConfig:
 
 def get_memory_config() -> MemoryConfig:
     return get_config().memory
+
+
+def get_dataset_export_config() -> "DatasetExportConfig":
+    return get_config().dataset_export
 
 
 # Backward compatibility
@@ -559,13 +642,11 @@ class _PathResolver:
                 "MAIN_DB_PATH": "main_db",
                 "DATABASES_DIR": "databases_dir",
                 "EXPORTS_DIR": "exports_dir",
-                "AGENT_OUTPUTS_DIR": "agent_outputs_dir",
-                "REPORTS_DIR": "agent_outputs_dir",
                 "AUDIT_REPORTS_DIR": "audit_reports_dir",
+                "AGENT_OUTPUTS_DIR": "agent_outputs_dir",
                 "LOGS_DIR": "logs_dir",
                 "KNOWLEDGE_BASE_DIR": "knowledge_dir",
                 "WORKSPACE_DIR": "workspace_dir",
-                "TEXTFSM_TEMPLATES_DIR": "templates_dir",
                 "CONFIG_DIR": "config_dir",
                 "SKILLS_DIR": "skills_dir",
                 "AGENT_DIR": "agent_dir",
@@ -585,23 +666,21 @@ _path_resolver = _PathResolver()
 MAIN_DB_PATH = _path_resolver.resolve("MAIN_DB_PATH")
 DATABASES_DIR = _path_resolver.resolve("DATABASES_DIR")
 EXPORTS_DIR = _path_resolver.resolve("EXPORTS_DIR")
-AGENT_OUTPUTS_DIR = _path_resolver.resolve("AGENT_OUTPUTS_DIR")  # General agent output files
-REPORTS_DIR = AGENT_OUTPUTS_DIR  # Backward-compat alias
 AUDIT_REPORTS_DIR = _path_resolver.resolve("AUDIT_REPORTS_DIR")  # Audit inspection reports
+AGENT_OUTPUTS_DIR = _path_resolver.resolve(
+    "AGENT_OUTPUTS_DIR"
+)  # Agent output files (reports, diagrams)
 LOGS_DIR = _path_resolver.resolve("LOGS_DIR")
 KNOWLEDGE_BASE_DIR = _path_resolver.resolve("KNOWLEDGE_BASE_DIR")
 WORKSPACE_DIR = _path_resolver.resolve("WORKSPACE_DIR")
-TEXTFSM_TEMPLATES_DIR = _path_resolver.resolve("TEXTFSM_TEMPLATES_DIR")
 CONFIG_DIR = _path_resolver.resolve("CONFIG_DIR")
 SKILLS_DIR = WORKSPACE_DIR
 AGENT_DIR = _path_resolver.resolve("AGENT_DIR")
 SKILL_BASE_PATH = WORKSPACE_DIR
-NETWORK_DB_PATH = MAIN_DB_PATH  # Legacy alias
 UNIFIED_DB = MAIN_DB_PATH  # Legacy alias
-SNAPSHOTS_DIR = EXPORTS_DIR / "snapshots"
-SNAPSHOTS_STAGING_JSON = SNAPSHOTS_DIR / "json"  # Staging for parsed JSON files before DB import
-SNAPSHOTS_RAW_DIR = SNAPSHOTS_DIR / "raw"  # Raw CLI output files
-SYNC_DIR = SNAPSHOTS_DIR  # Legacy alias - unified with snapshots
+UNIFIED_DB = MAIN_DB_PATH  # Legacy alias
+DOMAIN_DB_PATH = MAIN_DB_PATH  # Preferred name: domain-scoped unified DB
+SNAPSHOTS_DIR = EXPORTS_DIR / "snapshots"  # Default snapshot staging root (used by calculate_diffs)
 
 # User-local paths (from old config.paths)
 try:
@@ -609,23 +688,36 @@ try:
 except Exception:
     _username = os.environ.get("USERNAME", "default_user")
 
-USER_HISTORY_DIR = Path.home() / ".olav" / "history"
-USER_HISTORY_PATH = USER_HISTORY_DIR / f"{_username}.log"
 USER_SESSION_DIR = Path.home() / ".olav" / "sessions"
 GUARD_WHITELIST_PATH = SKILLS_DIR / "guard" / "whitelist.yaml"
-REPAIR_QUEUE_PATH = (
-    CONFIG_DIR / "repair_queue.json"
-)  # Parse gap repair queue written by collect_commands
-BLACKLIST_CONFIG_PATH = (
-    CONFIG_DIR  # Directory containing blacklisted_commands.yaml and backup_only_commands.yaml
-)
-CATEGORY_STRATEGY_PATH = CONFIG_DIR / "category_strategy.yaml"  # Command category keyword mapping
-COMMAND_STRATEGY_PATH = (
-    CONFIG_DIR / "command_strategy.yaml"
-)  # Per-platform command priority/strategy mapping
-NORNIR_CONFIG_PATH = CONFIG_DIR / "nornir" / "config.yaml"  # Nornir runner configuration
-SECURITY_POLICIES_PATH = CONFIG_DIR / "security_policies.yaml"  # ACL/firewall policy baseline
+# ── Domain config directory convention ───────────────────────────────────────
+# Per-domain configuration lives under .olav/config/domains/<domain>/
+# This is the standard established in olav_platform.md §3.5.
+
+
+def get_domain_config_dir(domain: str) -> "Path":
+    """Return the config directory for *domain*.
+
+    Convention: ``.olav/config/domains/<domain>/``.
+
+    The directory is not created by this function; callers are responsible
+    for ensuring it exists when needed.
+
+    Parameters
+    ----------
+    domain:
+        Domain package name, e.g. ``"netops"``.
+
+    Returns
+    -------
+    Path
+        Absolute path to ``.olav/config/domains/<domain>/``.
+    """
+    return CONFIG_DIR / "domains" / domain
+
+
 LOG_STORAGE_DIR = DATABASES_DIR / "logs"  # Syslog receiver storage directory
+AUDIT_DB_PATH = DATABASES_DIR / "audit.duckdb"  # Audit event store (append-only)
 CACHE_DIR = AGENT_DIR / "cache"  # Legacy: project-level cache (kept for backwards compat)
 USER_CACHE_DIR = Path.home() / ".olav" / "cache" / _username  # User-isolated LLM cache
 USER_CHECKPOINT_DIR = Path.home() / ".olav" / "checkpoints" / _username  # User-isolated checkpoints
@@ -638,40 +730,31 @@ __all__ = [
     "MAIN_DB_PATH",
     "DATABASES_DIR",
     "EXPORTS_DIR",
-    "REPORTS_DIR",
     "LOGS_DIR",
     "KNOWLEDGE_BASE_DIR",
     "WORKSPACE_DIR",
-    "TEXTFSM_TEMPLATES_DIR",
     "CONFIG_DIR",
     "SKILLS_DIR",
     "AGENT_DIR",
     "SKILL_BASE_PATH",
-    "NETWORK_DB_PATH",
     "UNIFIED_DB",
     "SNAPSHOTS_DIR",
-    "SNAPSHOTS_STAGING_JSON",
-    "SNAPSHOTS_RAW_DIR",
-    "SYNC_DIR",
-    "USER_HISTORY_PATH",
-    "USER_HISTORY_DIR",
     "USER_SESSION_DIR",
     "GUARD_WHITELIST_PATH",
-    "REPAIR_QUEUE_PATH",
-    "BLACKLIST_CONFIG_PATH",
-    "CATEGORY_STRATEGY_PATH",
-    "COMMAND_STRATEGY_PATH",
-    "NORNIR_CONFIG_PATH",
-    "SECURITY_POLICIES_PATH",
     "LOG_STORAGE_DIR",
+    "AUDIT_DB_PATH",
     "CACHE_DIR",
     "USER_CACHE_DIR",
     "USER_CHECKPOINT_DIR",
     "get_config",
+    "get_domain_config_dir",
     "get_llm_config",
     "get_embedding_config",
     "get_paths_config",
     "get_runtime_config",
     "get_memory_config",
+    "get_dataset_export_config",
     "MemoryConfig",
+    "AuthConfig",
+    "DatasetExportConfig",
 ]

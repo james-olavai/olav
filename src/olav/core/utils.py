@@ -89,23 +89,17 @@ def create_olav_directories(base_path: Any) -> dict:
         logger.error(f"Failed to create .olav/: {e}")
         return results
 
-    # Standardized Subdirectories (v1.0)
     subdirs = [
         "config",
-        "config/nornir",
         "databases",
         "logs",
         "logs/users",
         "cache",
         "workspace",
-        "templates",
-        "templates/custom",
-        "templates/config",
         "exports",
         "exports/snapshots",
         "exports/snapshots/latest",
         "exports/snapshots/latest/raw",
-        "exports/agent_outputs",
         "exports/audit_reports",
         "knowledge",
     ]

@@ -39,7 +39,7 @@ OLAV uses `deepagents.SkillsMiddleware` to dynamically bind scripts to agents ba
 ├── .olav/              # Runtime Global Environment
 │   ├── workspace/      # Agent & Skill definitions (AGENT.md, SKILL.md)
 │   │   └── <agent>/tools/  # LangChain tool modules for that agent
-│   ├── logs/           # Centralized Audit Logs (.olav/logs/users/*.log)
+│   ├── logs/           # Legacy text logs (.olav/logs/users/*.log) — see audit.duckdb
 │   └── databases/      # DuckDB + LanceDB (Shared data ONLY)
 └── dev_docs/          # Architectural decisions and issues log
 ```
@@ -57,7 +57,7 @@ OLAV uses `deepagents.SkillsMiddleware` to dynamically bind scripts to agents ba
 
 1.  **Concurrency**: Multiple users **WILL** operate on the same project.
 2.  **Isolation**: Users must have their own private checkpoint and cache files in `~/.olav/`.
-3.  **Auditing**: Every CLI command (Slash or Natural) **MUST** be logged to `.olav/logs/users/{user}.log`.
+3.  **Auditing**: Every CLI command (Slash or Natural) **MUST** be recorded in `.olav/databases/audit.duckdb` via `AuditEventRecorder`. Legacy `.olav/logs/users/{user}.log` files remain for human-readable inspection.
 4.  **Ownership**: Global state (Shared DuckDB) is read-only for agents; only `IngestManager` can perform batched, atomic writes.
 
 ## 5. TOOLING & DATA FLOW (STAGING-FIRST)

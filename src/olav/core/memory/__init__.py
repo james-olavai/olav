@@ -576,23 +576,37 @@ class SemanticCache:
         threshold: float = 0.02,
         ttl_hours: int = 24,
         max_entries: int = 500,
+        table_name: str = CACHE_TABLE,
     ) -> None:
         self._store = store
         self._threshold = threshold
         self._ttl_hours = ttl_hours
         self._max_entries = max_entries
+        self._table_name = table_name
 
     def _ensure_table(self) -> "lancedb.table.LanceTable":
         db = self._store.connect()
-        if CACHE_TABLE not in db.table_names():
+        if self._table_name not in db.table_names():
             schema = _get_cache_schema(self._store.embedding_dim)
-            tbl = db.create_table(CACHE_TABLE, schema=schema)
-            logger.debug(f"Created semantic cache table: {CACHE_TABLE}")
+            tbl = db.create_table(self._table_name, schema=schema)
+            logger.debug(f"Created semantic cache table: {self._table_name}")
             return tbl
-        return db.open_table(CACHE_TABLE)
+        return db.open_table(self._table_name)
 
-    def get(self, query_vector: list[float]) -> list[dict] | None:
+    def get(
+        self,
+        query_vector: list[float],
+        *,
+        recorder=None,
+        run_id: str | None = None,
+    ) -> list[dict] | None:
         """Return cached results if a very similar query was seen recently.
+
+        Args:
+            query_vector: Embedding of the current query.
+            recorder: Optional ``AuditEventRecorder`` — when provided together
+                with *run_id*, a ``semantic_cache_hit`` event is written on hit.
+            run_id: Current run identifier (required for audit recording).
 
         Returns None on cache miss or any error (non-fatal).
         """
@@ -606,7 +620,8 @@ class SemanticCache:
                 return None
 
             hit = hits[0]
-            if hit.get("_distance", 1.0) > self._threshold:
+            distance = hit.get("_distance", 1.0)
+            if distance > self._threshold:
                 return None  # not similar enough
 
             # TTL check
@@ -619,7 +634,15 @@ class SemanticCache:
                     if age_hours > self._ttl_hours:
                         return None  # expired
 
-            logger.debug("SemanticCache: hit (distance=%.4f)", hit["_distance"])
+            logger.debug("SemanticCache: hit (distance=%.4f)", distance)
+
+            if recorder is not None and run_id is not None:
+                recorder.record(
+                    event_type="semantic_cache_hit",
+                    run_id=run_id,
+                    payload={"distance": distance},
+                )
+
             return json.loads(hit["result_json"])
 
         except Exception as e:
@@ -663,8 +686,8 @@ class SemanticCache:
         """Drop the entire cache table."""
         try:
             db = self._store.connect()
-            if CACHE_TABLE in db.table_names():
-                db.drop_table(CACHE_TABLE)
+            if self._table_name in db.table_names():
+                db.drop_table(self._table_name)
                 logger.debug("SemanticCache: invalidated all entries.")
         except Exception as e:
             logger.debug(f"SemanticCache.invalidate_all error: {e}")
@@ -841,7 +864,7 @@ def hybrid_search(
     return results
 
 
-def store_network_event(
+def store_event(
     store: LanceDBStore,
     summary: str,
     device: str | None = None,
@@ -850,22 +873,22 @@ def store_network_event(
     embedder=None,
     table_name: str = MEMORY_TABLE,
 ) -> dict:
-    """Store a high-level network episode summary in LanceDB memory.
+    """Store a high-level episode summary in LanceDB memory.
 
-    Implements the **Network Event Memory** component from the OCM design:
+    Implements the **Event Memory** component from the OCM design:
     only summarized, high-level anomalies/episodes are stored here, NOT
     raw system logs or raw CLI output.
 
     Examples of appropriate summaries:
-        - "Datacenter-A experienced BGP flaps from 10:00 to 10:15"
-        - "OSPF adjacency dropped between R1 and R2 due to MTU mismatch"
-        - "Interface Gi0/1 on Core-SW bounced 3 times in 2026-03-01"
+        - "Datacenter-A experienced service degradation from 10:00 to 10:15"
+        - "Scheduled maintenance on host-2 completed with 3 warnings"
+        - "Disk usage on storage-01 exceeded 90% threshold on 2026-03-01"
 
     Args:
         store:       LanceDBStore instance.
         summary:     Human-readable episode summary (required).
         device:      Primary device involved (optional, stored in metadata).
-        event_type:  Short label, e.g. "bgp-flap", "ospf-drop", "interface-bounce".
+        event_type:  Short label, e.g. "degradation", "maintenance", "threshold-breach".
         scope:       Memory scope — usually the agent or global.
         embedder:    Optional SentenceTransformer model. If None, a zero-vector
                      is used (memory will be text-searched only).

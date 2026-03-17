@@ -7,8 +7,8 @@ Implements Phase 4 of the LANCEDB_MEMORY_SYSTEM_INTEGRATION plan:
 Example injected block::
 
     === LEARNED CONSTRAINTS (from experience) ===
-    ⚠ Last time you ran `show bgp summary` on R3, it timed out — use `--limit` flag.
-    ✓ Always verify interface state with `show interfaces brief` before enabling OSPF.
+    ⚠ Last time you ran `collect inventory` on host-3, it timed out — use `--timeout 60` flag.
+    ✓ Always verify service state with `status --brief` before enabling maintenance mode.
     === END CONSTRAINTS ===
 
 This avoids modifying static YAML/Python files; constraints live in LanceDB
@@ -129,19 +129,14 @@ class GuardrailInjector:
         self._embedder = None  # lazy-loaded
 
     def _embed(self, text: str) -> list[float] | None:
-        """Lazily load embedder."""
-        if self._embedder is None:
-            try:
-                from sentence_transformers import SentenceTransformer
+        """Embed text via the process-wide shared embedder."""
+        from olav.core.embedder import get_embedder
 
-                self._embedder = SentenceTransformer("BAAI/bge-small-en-v1.5")
-            except Exception as e:
-                logger.debug(f"GuardrailInjector: embedder unavailable ({e})")
-                self._embedder = False
-        if not self._embedder:
+        embedder = get_embedder()
+        if embedder is None:
             return None
         try:
-            return self._embedder.encode(text, normalize_embeddings=True).tolist()
+            return embedder.encode(text, normalize_embeddings=True).tolist()
         except Exception:
             return None
 
@@ -280,7 +275,7 @@ class GuardrailInjector:
         """Convenience method to store a failure memory directly.
 
         Args:
-            description: What failed (e.g. "show bgp on R3 timed out").
+            description: What failed (e.g. "collect inventory on host-3 timed out").
             scope:       Memory scope.
 
         Returns:
