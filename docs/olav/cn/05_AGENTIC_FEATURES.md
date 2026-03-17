@@ -1,0 +1,273 @@
+# Agentic 特性与自我进化闭环
+
+OLAV 不是一个静态的查询工具——它是一个**自我进化的 Agentic 系统**。每一次交互都会产生结构化的 Trace 数据，这些数据会反馈给 Agent，影响其未来的行为，形成"采集 → 分析 → 学习 → 注入"的完整闭环。
+
+---
+
+## 🧠 OLAV 的 Agentic 特性是什么？
+
+一个真正的 Agentic 系统，不仅仅是回答问题，还需要：
+
+1. **观察（Observe）** — 记录每次运行中发生的事情
+2. **推理（Reason）** — 跨多次运行分析规律
+3. **学习（Learn）** — 从失败中提取可复用的约束
+4. **适应（Adapt）** — 将学到的约束注入未来的推理过程
+
+OLAV 完整实现了以上四个环节。下图展示了它们的连接方式：
+
+```
+用户输入
+    │
+    ▼
+CLI 入口
+    ├── AuditEventRecorder  ────────────────────────────────▶ audit.duckdb
+    ├── SemanticRouter.route(recorder) → routing_decision 事件 ──▶
+    │
+    ▼
+Agent 执行（deepagents 框架）
+    └── AuditCallbackPlugin（LangChain 钩子）
+            ├── on_llm_end        → llm_usage（tokens_in/out）
+            ├── on_tool_start/end → tool_call_started/completed
+            └── on_tool_error     → tool_call_failed
+                                            │
+                                            ▼
+                                      audit.duckdb
+                                            │
+                          ┌─────────────────┼──────────────────┐
+                          │（触发方式）       │                  │
+                    take_snapshot      每日定时任务        /trace-review
+                          │                 │                  │
+                          └─────────────────┼──────────────────┘
+                                            ▼
+                                  trace_learner（后台 Agent）
+                                    ├── Step 1：读取失败 run 记录
+                                    ├── Step 2：读取错误事件详情
+                                    ├── Step 3：LLM 提取约束规则
+                                    └── Step 4：写入 LanceDB memory[audit]
+                                                          │
+                                                          ▼
+                                                 GuardrailInjector
+                                                          │
+                                                          ▼
+                                           注入下次运行的 system prompt ◀────┐
+                                                          │                  │
+                                                          └──────────────────┘
+                                                        闭环完成
+```
+
+---
+
+## 🔁 四层 Agentic 架构
+
+### 第一层 — 观察：Audit Trace 采集
+
+每次 Agent 运行都会通过 `AuditCallbackPlugin` 和 `AuditEventRecorder` 在 `audit.duckdb` 中产生结构化 Trace 记录。所有写入逻辑均通过 LangChain 生命周期钩子实现，**不在 Agent 内部硬编码写入逻辑**。
+
+| 事件类型 | 触发时机 | 采集内容 |
+|---|---|---|
+| `run_start` / `run_end` | CLI 入口/出口 | `run_id`、`agent_id`、`status`、`start_time`、`end_time` |
+| `user_input_received` | 用户输入查询 | 原始查询文本 |
+| `routing_decision` | `SemanticRouter.route()` 调用 | `routing_method`、`matched_agent`、`confidence_score` |
+| `llm_request_started` | LLM 调用开始 | `model_name`、消息数量 |
+| `llm_usage` | LLM 调用结束 | `tokens_in`、`tokens_out` |
+| `semantic_cache_hit` | 缓存命中 | `distance`、命中的 agent 名称 |
+| `tool_call_started` / `tool_call_completed` | 工具执行 | 工具名、输入、输出 |
+| `tool_call_failed` | 工具出错 | 工具名、错误信息 |
+| `run_error` / `run_cancelled` | 未处理异常 / Ctrl-C | 错误 payload |
+
+所有事件均为**同步写入**（非 fire-and-forget），避免数据丢失风险。
+
+---
+
+### 第二层 — 路由：语义意图匹配
+
+在任何 Agent 运行之前，OLAV 通过 `SemanticRouter` 对用户意图进行分类：
+
+```
+用户查询 ──▶ Embedding 向量 ──▶ LanceDB 相似度检索
+                                        │
+                    ┌───────────────────┴────────────────────┐
+             分数 ≥ 阈值                                分数 < 阈值
+                    │                                         │
+            语义路由（毫秒级）                       LLM 兜底路由（~1秒）
+                    │                                         │
+                    └───────────────────┬────────────────────┘
+                                        │
+                            routing_decision 事件 → audit.duckdb
+```
+
+**三种路由方式**均被记录，供后续分析路由质量：
+
+| `routing_method` | 说明 |
+|---|---|
+| `semantic` | LanceDB 向量相似度超过阈值，直接匹配 |
+| `semantic_cache` | `SemanticCache` 命中缓存，无需 LLM 调用 |
+| `llm_router` | 语义置信度不足，由廉价 LLM 兜底判断 |
+
+---
+
+### 第三层 — 学习：`trace_learner` 后台 Agent
+
+`trace_learner` 是一个**独立运行的后台 Agentic 工具**，与用户交互完全解耦。它消费第一层产生的 Trace 数据，并提取可复用的知识。
+
+**三种触发方式：**
+
+| 触发来源 | 时机 | 方式 |
+|---|---|---|
+| `take_snapshot` 钩子 | 每次库存同步后 | `take_snapshot.py` Stage 2 自动调用 |
+| 每日定时任务 | 每天凌晨 3:00 | `python olav-netops/scripts/netops_init.py` 写入 `~/.olav/cron.tab` |
+| 用户主动触发 | 随时 | 交互式 CLI 的 `/trace-review` slash 命令 |
+
+**四步学习闭环（`_run_learn_cycle`）：**
+
+```python
+# Step 1 — 读取失败 run 记录
+failed_runs = SELECT * FROM audit_runs
+              WHERE status IN ('error', 'cancelled')
+              AND start_time >= NOW() - INTERVAL hours DAY
+
+# Step 2 — 读取错误事件详情
+events = SELECT * FROM audit_events
+         WHERE run_id IN (...) AND event_type IN ('tool_call_failed', 'run_error')
+
+# Step 3 — LLM 分析：提取失败模式，生成约束规则
+constraints = LLM.invoke(
+    "根据以下失败记录，提取 1-5 条可复用的约束规则，以 JSON 数组形式返回..."
+)
+
+# Step 4 — 将约束写入 LanceDB 长期记忆
+for constraint in constraints:
+    store_failure_memory(store, description=constraint, scope="global")
+```
+
+全流程**完全可注入**（db_path、llm、store 均支持测试替身），TDD 友好，环境可移植。
+
+---
+
+### 第四层 — 适应：GuardrailInjector
+
+`trace_learner` 写入 `LanceDB memory[category=audit]` 的约束规则，会被 `GuardrailInjector` 在**每次 Agent 调用时**自动检索并注入。
+
+```python
+# GuardrailInjector 在每次 Agent 调用前运行
+guardrails = store.similarity_search(query, category="audit", k=5)
+
+# 约束规则被追加到 system prompt 的末尾：
+system_prompt = base_prompt + "\n\n## Learned Constraints\n" + guardrails
+```
+
+这意味着 **Agent 在每次失败后都会变得更聪明** — 无需微调模型、无需手动编辑 Prompt、无需重新部署。
+
+---
+
+## 🛠️ 交互式 Agentic 命令
+
+### `/trace-review` — 按需触发学习
+
+在交互式 CLI 中立即运行完整的 `trace_learner` 学习周期：
+
+```
+olav> /trace-review
+olav> /trace-review hours=24
+olav> /trace-review hours=168 limit=100
+```
+
+输出内容包括：
+- 汇总表格：已完成 run 数 / 失败 run 数 / 学到的约束数量
+- 提取出的约束规则文本列表
+
+### 参数说明
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `hours` | `168`（7 天） | 向过去回溯的时间窗口 |
+| `limit` | `50` | 最多分析的失败 run 数量 |
+
+---
+
+## ⚙️ 自动化部署：NetOps 引导脚本
+
+运行 netops 引导脚本时，会执行 Cron 注册步骤，并自动将 `trace_learner` 配置为每日定时运行：
+
+```bash
+python olav-netops/scripts/netops_init.py
+```
+
+```
+# OLAV trace_learner — daily at 03:00
+0 3 * * *  cd /path/to/project && uv run olav --agent config "run trace_learner()"
+```
+
+Cron 注册的特性：
+- **幂等**：写入前检查是否已存在，引导脚本可重复执行
+- **无需 root 权限**：写入 `~/.olav/cron.tab`（用户目录）
+- **非阻塞**：注册失败仅打印警告，不中断引导流程
+
+---
+
+## 📊 可观测性：查询 Trace 数据
+
+所有 Trace 数据均可通过 `olav log` 命令或 `execute_sql` 工具查询，无需专用仪表盘。
+
+```sql
+-- Agent 成功率（最近 7 天）
+SELECT agent_id,
+       COUNT(*) AS total,
+       ROUND(100.0 * SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) / COUNT(*), 1) AS success_pct
+FROM audit_runs
+WHERE start_time >= NOW() - INTERVAL 7 DAY
+GROUP BY agent_id;
+
+-- 各 Agent 平均耗时
+SELECT agent_id,
+       ROUND(AVG(DATEDIFF('ms', start_time, end_time)), 0) AS avg_latency_ms
+FROM audit_runs WHERE status = 'completed'
+GROUP BY agent_id;
+
+-- 按天统计 Token 用量
+SELECT date_trunc('day', timestamp) AS day,
+       SUM(CAST(json_extract_string(payload, '$.tokens_in')  AS INTEGER)) AS tokens_in,
+       SUM(CAST(json_extract_string(payload, '$.tokens_out') AS INTEGER)) AS tokens_out
+FROM audit_events WHERE event_type = 'llm_usage'
+GROUP BY 1 ORDER BY 1;
+
+-- 最近工具调用失败记录
+SELECT timestamp, agent_id,
+       json_extract_string(payload, '$.tool') AS tool,
+       json_extract_string(payload, '$.error') AS error
+FROM audit_events
+WHERE event_type = 'tool_call_failed'
+ORDER BY timestamp DESC LIMIT 20;
+```
+
+---
+
+## 🗺️ 功能状态
+
+| 功能 | 位置 | 状态 |
+|---|---|---|
+| `AuditCallbackPlugin` LangChain 钩子 | `plugins/callbacks/audit.py` | ✅ 已完成 |
+| `on_llm_end` Token 用量采集 | `plugins/callbacks/audit.py` | ✅ 已完成 |
+| `SemanticRouter` 路由决策审计 | `core/router.py` | ✅ 已完成 |
+| `SemanticCache` 缓存命中审计 | `core/memory/__init__.py` | ✅ 已完成 |
+| CLI 调用点接入 `route_query()` | `cli/main.py` | ✅ 已完成 |
+| `trace_learner` Step 1-4 完整闭环 | `config/sync/tools/trace_learner.py` | ✅ 已完成 |
+| NetOps 引导脚本 Cron 注册 | `olav-netops/scripts/netops_init.py` | ✅ 已完成 |
+| `/trace-review` slash 命令 | `cli/main.py` + `cli/commands/trace_review.py` | ✅ 已完成 |
+| `analyze_logs` 查询 `audit.duckdb` | `config/system/tools/analyze_logs.py` | ✅ 已完成 |
+| 用户反馈评分 `feedback`（1-5） | CLI / API 端点 | ⬜ 计划中 |
+
+---
+
+## 📁 关键源文件
+
+| 文件 | 作用 |
+|---|---|
+| `src/olav/plugins/callbacks/audit.py` | LangChain 钩子采集器 |
+| `src/olav/core/audit_recorder.py` | `AuditEventRecorder` 写入接口 |
+| `src/olav/core/router.py` | `SemanticRouter` + `route_query()` |
+| `src/olav/core/memory/guardrails.py` | `GuardrailInjector` + `store_failure_memory()` |
+| `.olav/workspace/config/sync/tools/trace_learner.py` | 后台学习闭环 |
+| `src/olav/cli/commands/trace_review.py` | `/trace-review` 命令业务逻辑 |
+| `olav-netops/scripts/netops_init.py` | `trace_learner` 的 Cron 注册 |
+| `.olav/databases/audit.duckdb` | Append-only Trace 存储（SSOT） |
