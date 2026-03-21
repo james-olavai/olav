@@ -32,7 +32,7 @@ class OLAVPlugin:
     tags: list[str] = []
 
 
-class OLAVMiddlewarePlugin(OLAVPlugin, AgentMiddleware):
+class OLAVMiddlewarePlugin(OLAVPlugin, AgentMiddleware):  # pyright: ignore[reportIncompatibleVariableOverride]
     """AgentMiddleware 插件 — 可修改 agent 执行链。
 
     传入 create_deep_agent(middleware=[...]) 时生效。

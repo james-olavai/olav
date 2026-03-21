@@ -1,0 +1,63 @@
+!
+! Juniper cRPD 配置模板
+!
+set system host-name {{ hostname }}
+set system domain-name {{ domain }}
+
+!
+! 管理网卡配置
+!
+set interfaces em0 unit 0 family inet address {{ mgmt_ip }}/24
+
+!
+! 默认路由
+!
+set routing-options static route 0.0.0.0/0 next-hop 192.168.100.254
+
+!
+! NTP 配置
+!
+set system ntp server {{ ntp_server }}
+
+!
+! Syslog 配置
+!
+set system syslog host {{ syslog_server }} facility local0 priority info
+
+!
+! SNMP 配置
+!
+set snmp community {{ snmp_community }} authorization read-only
+set snmp system-description "{{ hostname }} - OLAV Lab"
+set snmp location "{{ site }}"
+set snmp contact "OLAV Admin"
+
+!
+! DNS 配置
+!
+set system name-server 8.8.8.8
+set system name-server 8.8.4.4
+
+!
+! 用户配置
+!
+set system root-authentication encrypted-password "$6${{ password }}"
+
+!
+! SSH 配置
+!
+set system services ssh
+
+!
+! 日志级别
+!
+set system syslog user * any emergency
+set system syslog file messages any notice
+set system syslog file messages authorization debug
+
+!
+! 管理接口安全
+!
+set system services netconf ssh
+
+commit

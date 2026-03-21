@@ -487,6 +487,38 @@ olav --agent config "Test connectivity to all devices"
 
 ---
 
+## Schema Auto-Sync
+
+Every time `IngestManager.bulk_load()` completes successfully, OLAV automatically invokes `sync_schema_reference` via `post_ingest_hooks`. This regenerates the *Core Table & View Schema* section of `.olav/workspace/quick/references/SCHEMA_REFERENCE.md` from live `information_schema.columns`.
+
+**Why this matters**: The schema reference is injected directly into every query agent system prompt. Stale column names cause `Binder Error` failures and degrade SFT training data quality (runs are rejected by the `high_failure_rate` quality gate).
+
+### Trigger Points
+
+| Trigger | When |
+|---------|------|
+| Automatic | After every `IngestManager.bulk_load()` (snapshot ingest) |
+| Manual via Config Agent | `olav --agent config "sync schema reference"` |
+| Manual CLI | `python .olav/workspace/config/discovery/tools/sync_schema_reference.py` |
+
+### Extending to Custom Schema References
+
+```python
+from olav.core.ingest_manager import IngestManager
+from .discovery.tools.sync_schema_reference import main as _sync_ref
+
+mgr = IngestManager(
+    db_path=DB_PATH,
+    staging_dir=STAGING_DIR,
+    post_ingest_hooks=[
+        lambda _: _sync_ref({}),                             # default quick agent
+        lambda _: _sync_ref({"schema_ref_path": "/path/to/custom/SCHEMA.md"}),  # custom
+    ],
+)
+```
+
+---
+
 ## Tips
 
 - **Test before applying** — For sensitive configs, always test in test environment first
@@ -497,4 +529,4 @@ olav --agent config "Test connectivity to all devices"
 
 ---
 
-**Last Updated: March 6, 2026**
+**Last Updated: March 18, 2026**

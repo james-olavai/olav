@@ -138,7 +138,8 @@ CREATE TABLE IF NOT EXISTS audit_messages (
     sequence_no  INTEGER,
     role         VARCHAR NOT NULL,   -- user / assistant / system / tool
     content      VARCHAR,
-    tool_call_id VARCHAR   -- links to audit_tool_calls.call_id when role=tool
+    tool_call_id VARCHAR,   -- links to audit_tool_calls.call_id when role=tool
+    tool_calls   VARCHAR    -- JSON array of tool call objects when role=assistant
 );
 """
 
@@ -173,6 +174,10 @@ class AuditEventRecorder:
         try:
             self._conn = duckdb.connect(str(self._db_path))
             self._conn.execute(_DDL)
+            # Migration: add tool_calls column if it doesn't exist yet
+            self._conn.execute(
+                "ALTER TABLE audit_messages ADD COLUMN IF NOT EXISTS tool_calls VARCHAR"
+            )
         except Exception as _exc:
             import logging as _logging
 
@@ -311,6 +316,7 @@ class AuditEventRecorder:
         role: str,
         content: str,
         tool_call_id: str | None = None,
+        tool_calls: str | None = None,
     ) -> str:
         """Insert a row into *audit_messages* and return the new message_id."""
         self._sequence += 1
@@ -321,8 +327,8 @@ class AuditEventRecorder:
         self._conn.execute(
             """
             INSERT INTO audit_messages
-                (message_id, run_id, timestamp, sequence_no, role, content, tool_call_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (message_id, run_id, timestamp, sequence_no, role, content, tool_call_id, tool_calls)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 message_id,
@@ -332,6 +338,7 @@ class AuditEventRecorder:
                 role,
                 safe_content,
                 tool_call_id,
+                tool_calls,
             ],
         )
         return message_id

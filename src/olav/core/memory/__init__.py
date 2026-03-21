@@ -161,7 +161,22 @@ class LanceDBStore:
                 logger.debug(f"FTS index creation skipped: {e}")
             return tbl
 
-        return db.open_table(table_name)
+        tbl = db.open_table(table_name)
+        # Schema migration: recreate if vector dim doesn't match active embedder
+        for field in tbl.schema:
+            if field.name == "vector" and hasattr(field.type, "list_size"):
+                if field.type.list_size != self._embedding_dim:
+                    logger.warning(
+                        "Memory table '%s' has vector dim %d but embedder is %d — "
+                        "dropping and recreating (existing entries will be lost).",
+                        table_name,
+                        field.type.list_size,
+                        self._embedding_dim,
+                    )
+                    db.drop_table(table_name)
+                    return self.create_table(table_name)
+                break
+        return tbl
 
     def get_table(self, table_name: str = MEMORY_TABLE) -> lancedb.table.LanceTable:
         """Get existing memory table.
@@ -319,7 +334,7 @@ class LanceDBStore:
             return memories
 
         except Exception as e:
-            logger.error(f"Vector search failed: {e}")
+            logger.debug(f"Vector search failed: {e}")
             return []
 
     def search_by_text(
@@ -510,27 +525,53 @@ class LanceDBStore:
 # Singleton instance for convenience
 _store_instance: LanceDBStore | None = None
 _store_db_path: str | Path | None = None
+_store_embedding_dim: int | None = None
+
+
+def _detect_embedding_dim() -> int:
+    """Return the active embedder's output dimension, or 384 as fallback."""
+    try:
+        from olav.core.embedder import get_embedder
+
+        emb = get_embedder()
+        if emb is not None:
+            return int(emb.get_sentence_embedding_dimension())
+    except Exception:
+        pass
+    return 384
 
 
 def get_store(
     db_path: str | Path | None = None,
-    embedding_dim: int = 384,
+    embedding_dim: int | None = None,
 ) -> LanceDBStore:
     """Get or create LanceDB store singleton.
 
+    ``embedding_dim`` defaults to the active embedder's output dimension so
+    the LanceDB table schema always matches the vectors being written.  Pass
+    an explicit value only in tests or when you know the dimension up-front.
+
     Args:
         db_path: Optional database path override
-        embedding_dim: Embedding dimension
+        embedding_dim: Embedding dimension (auto-detected from embedder if None)
 
     Returns:
         LanceDBStore instance
     """
-    global _store_instance, _store_db_path
+    global _store_instance, _store_db_path, _store_embedding_dim
+
+    if embedding_dim is None:
+        embedding_dim = _detect_embedding_dim()
 
     # Create new instance if path or embedding_dim differs
-    if _store_instance is None or db_path != _store_db_path:
+    if (
+        _store_instance is None
+        or db_path != _store_db_path
+        or embedding_dim != _store_embedding_dim
+    ):
         if db_path is not None:
             _store_db_path = db_path
+        _store_embedding_dim = embedding_dim
         _store_instance = LanceDBStore(db_path=db_path, embedding_dim=embedding_dim)
 
     return _store_instance
@@ -591,7 +632,23 @@ class SemanticCache:
             tbl = db.create_table(self._table_name, schema=schema)
             logger.debug(f"Created semantic cache table: {self._table_name}")
             return tbl
-        return db.open_table(self._table_name)
+        tbl = db.open_table(self._table_name)
+        # Schema migration: recreate if query_vector dim doesn't match
+        for field in tbl.schema:
+            if field.name == "query_vector" and hasattr(field.type, "list_size"):
+                if field.type.list_size != self._store.embedding_dim:
+                    logger.warning(
+                        "Cache table '%s' has vector dim %d but embedder is %d — recreating.",
+                        self._table_name,
+                        field.type.list_size,
+                        self._store.embedding_dim,
+                    )
+                    db.drop_table(self._table_name)
+                    schema = _get_cache_schema(self._store.embedding_dim)
+                    tbl = db.create_table(self._table_name, schema=schema)
+                    logger.debug(f"Recreated semantic cache table: {self._table_name}")
+                break
+        return tbl
 
     def get(
         self,

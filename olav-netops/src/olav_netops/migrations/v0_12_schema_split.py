@@ -55,17 +55,21 @@ def migrate(conn) -> None:
 
     # Import table definitions so UNIQUE constraints are applied correctly.
     try:
-        from olav_netops.core.tables import ParsedOutputsTable, DevicesTable, TopologyLinksTable  # noqa: PLC0415
-        _TABLE_DEFS = {
+        from olav_netops.core.tables import (  # noqa: PLC0415
+            DevicesTable,
+            ParsedOutputsTable,
+            TopologyLinksTable,
+        )
+        table_defs = {
             "parsed_outputs": ParsedOutputsTable(),
             "devices":         DevicesTable(),
             "topology_links":  TopologyLinksTable(),
         }
     except ImportError:
-        _TABLE_DEFS = {}  # graceful fallback
+        table_defs = {}  # graceful fallback
 
     for table in _NETOPS_TABLES:
-        _migrate_table(conn, table, _TABLE_DEFS.get(table))
+        _migrate_table(conn, table, table_defs.get(table))
 
     logger.info("v0_12_schema_split: migration complete")
 

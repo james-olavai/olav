@@ -74,7 +74,7 @@ def _resolve_cwd(spec: SlashCommandSpec, project_root: Path) -> Path:
 
 def _filtered_env(spec: SlashCommandSpec) -> dict[str, str]:
     """Return a minimal environment dict for the child process."""
-    allowed: set[str] = _ALWAYS_FORWARD | set(spec.env_allowlist)
+    allowed = set(_ALWAYS_FORWARD) | set(spec.env_allowlist)
     return {k: v for k, v in os.environ.items() if k in allowed}
 
 

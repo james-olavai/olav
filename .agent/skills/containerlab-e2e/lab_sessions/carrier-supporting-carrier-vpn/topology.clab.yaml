@@ -1,0 +1,80 @@
+name: carrier-supporting-carrier-vpn
+prefix: ""
+mgmt:
+  network: clab
+  ipv4-subnet: 172.20.20.0/24
+topology:
+  defaults:
+    startup-config: configs/__clabNodeName__.cfg
+  groups:
+    arista:
+      kind: arista_ceos
+      image: ceos:4.35.2
+      env:
+        CLAB_MGMT_VRF: MGMT
+    juniper:
+      kind: juniper_vjunosevolved
+      image: vr-vjunosevolved:25.4R1.13-EVO
+    iol_ce:
+      kind: cisco_iol
+      image: cisco-iol:17.12
+  nodes:
+    # AS 65001 — Arista (SP1)
+    pe01:
+      group: arista
+      mgmt-ipv4: 172.20.20.110
+    pe02:
+      group: arista
+      mgmt-ipv4: 172.20.20.111
+    p01:
+      group: arista
+      mgmt-ipv4: 172.20.20.112
+    p02:
+      group: arista
+      mgmt-ipv4: 172.20.20.113
+    rr01:
+      group: arista
+      mgmt-ipv4: 172.20.20.115
+    rr02:
+      group: arista
+      mgmt-ipv4: 172.20.20.116
+    asbr01:
+      group: arista
+      mgmt-ipv4: 172.20.20.117
+    asbr02:
+      group: arista
+      mgmt-ipv4: 172.20.20.118
+    # AS 65002 — Juniper vJunosEvolved (SP2)
+    p03:
+      group: juniper
+      mgmt-ipv4: 172.20.20.114
+    asbr03:
+      group: juniper
+      mgmt-ipv4: 172.20.20.119
+    asbr04:
+      group: juniper
+      mgmt-ipv4: 172.20.20.120
+    # Customer Edge — Cisco IOL
+    ce01:
+      group: iol_ce
+      mgmt-ipv4: 172.20.20.121
+    ce02:
+      group: iol_ce
+      mgmt-ipv4: 172.20.20.122
+  links:
+    # AS65001 core
+    - endpoints: [ p01:eth1, pe01:eth1 ]
+    - endpoints: [ p01:eth2, asbr01:eth1 ]
+    - endpoints: [ p01:eth3, rr01:eth1 ]
+    - endpoints: [ p02:eth1, pe02:eth1 ]
+    - endpoints: [ p02:eth2, asbr02:eth1 ]
+    - endpoints: [ p02:eth3, rr02:eth1 ]
+    # AS65002 core — eth1=et-0/0/0, eth2=et-0/0/1 inside vJunosEvolved
+    - endpoints: [ p03:eth1, asbr03:eth1 ]
+    - endpoints: [ p03:eth2, asbr04:eth1 ]
+    # Inter-AS links (ASBR peering)
+    - endpoints: [ asbr01:eth2, asbr03:eth2 ]
+    - endpoints: [ asbr02:eth2, asbr04:eth2 ]
+    # Customer Edge connections (PE VRF BLUE facing)
+    - endpoints: [ pe01:eth2, ce01:e0/1 ]
+    - endpoints: [ pe02:eth2, ce02:e0/1 ]

@@ -14,7 +14,7 @@ Usage:
     result = calculate_diffs(
         snapshot_id_1="2026-03-03_1940",
         snapshot_id_2="2026-03-04_0800",
-        snapshots_dir="/path/to/exports/snapshots",
+        snapshots_dir="/path/to/exports/backup",
     )
 """
 
@@ -167,11 +167,11 @@ def calculate_diffs(
     # Resolve base dir
     if snapshots_dir is None:
         try:
-            from olav.core.config import SNAPSHOTS_DIR
+            from olav.core.config import BACKUP_DIR
 
-            snapshots_dir = SNAPSHOTS_DIR
+            snapshots_dir = BACKUP_DIR
         except Exception:
-            snapshots_dir = Path("exports/snapshots")
+            snapshots_dir = Path("exports/backup")
     snap_base = Path(snapshots_dir)
 
     raw1 = snap_base / snapshot_id_1 / "raw"

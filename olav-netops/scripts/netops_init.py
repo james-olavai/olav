@@ -96,7 +96,7 @@ def _step_infra(console) -> bool:
 
     workspace_dir = olav_dir / "workspace"
     if not workspace_dir.exists():
-        issues.append(f".olav/workspace/ not found — run `olav init` first")
+        issues.append(".olav/workspace/ not found — run `olav init` first")
 
     if issues:
         console.print(
@@ -138,6 +138,34 @@ def _step_nornir(console) -> bool:
             f"[red]❌ Step 2: nornir not installed — {exc}[/red]\n"
             "[dim]Install: uv pip install -e olav-netops[/dim]"
         )
+        return False
+
+
+def _step_yang_reference(console) -> bool:
+    """Ensure the packaged OpenConfig reference has seeded yang_leaves."""
+    try:
+        import duckdb
+
+        from olav.core.bootstrap_yang import ensure_bundled_openconfig_reference
+        from olav.core.config import MAIN_DB_PATH
+
+        MAIN_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with duckdb.connect(str(MAIN_DB_PATH)) as con:
+            result = ensure_bundled_openconfig_reference(con)
+
+        if result.get("status") == "already_populated":
+            console.print(
+                "[green]✅ Step 3: OpenConfig reference OK[/green] "
+                f"([dim]{result['existing_rows']} yang_leaves rows already present[/dim])"
+            )
+        else:
+            console.print(
+                "[green]✅ Step 3: Bundled OpenConfig reference loaded[/green] "
+                f"([dim]{result['leaves_inserted']} leaves inserted[/dim])"
+            )
+        return True
+    except Exception as exc:
+        console.print(f"[red]❌ Step 3: OpenConfig reference bootstrap failed — {exc}[/red]")
         return False
 
 
@@ -188,16 +216,20 @@ def run_init(dry_run: bool = False) -> int:
     if not _step_nornir(console):
         return 1
 
+    # ── Step 3: Bundled OpenConfig reference ───────────────────────────────
+    if not _step_yang_reference(console):
+        return 1
+
     if dry_run:
         console.print("\n[green]✅ Dry run complete — environment looks good.[/green]")
         console.print("[dim]Re-run without --dry-run to execute the full pipeline.[/dim]")
         return 0
 
-    # ── Step 3a: Sync inventory + command library ───────────────────────────
+    # ── Step 4a: Sync inventory + command library ───────────────────────────
     console.print(
         Panel.fit(
             "[bold green]✅ Environment verified[/bold green]\n\n"
-            "Step 3a: Syncing inventory and command library...",
+            "Step 4a: Syncing inventory and command library...",
             border_style="green",
         )
     )

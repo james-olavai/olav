@@ -12,8 +12,9 @@ OLAV 不是一个静态的查询工具——它是一个**自我进化的 Agenti
 2. **推理（Reason）** — 跨多次运行分析规律
 3. **学习（Learn）** — 从失败中提取可复用的约束
 4. **适应（Adapt）** — 将学到的约束注入未来的推理过程
+5. **自愈（Heal）** — 自动修复实际数据库 Schema 与 Agent 知识之间的结构性漂移
 
-OLAV 完整实现了以上四个环节。下图展示了它们的连接方式：
+OLAV 完整实现了以上五个环节。下图展示了它们的连接方式：
 
 ```
 用户输入
@@ -57,7 +58,7 @@ Agent 执行（deepagents 框架）
 
 ---
 
-## 🔁 四层 Agentic 架构
+## 🔁 五层 Agentic 架构
 
 ### 第一层 — 观察：Audit Trace 采集
 
@@ -160,6 +161,49 @@ system_prompt = base_prompt + "\n\n## Learned Constraints\n" + guardrails
 
 ---
 
+### 第五层 — 自愈：Schema 完整性自动同步
+
+第 1–4 层通过从失败中学习来提升**行为**准确性。第五层针对的是另一类漂移：**数据库实际内容**与 Agent **认知内容**之间的结构性失配。
+
+**问题根源**：`SCHEMA_REFERENCE.md` 作为权威列名参考被注入每个查询 Agent 的系统提示词。若该文件包含过时的列名（例如将实际的 `mgmt_ip` 写成 `management_ip`），Agent 就会生成无效的 SQL，导致 `Binder Error: Referenced column not found` 失败，进而降低查询成功率，并污染 SFT 训练数据集。
+
+**解决方案**：两套互补的自愈机制会自动运行：
+
+#### 5a — 入库后 Schema 自动同步
+
+```
+IngestManager.bulk_load()    ← 每次快照采集
+    │
+    └─ post_ingest_hooks ──▶ sync_schema_reference()
+                                    │
+                                    ▼
+      .olav/workspace/quick/references/SCHEMA_REFERENCE.md
+      （Core Table & View Schema 章节由 information_schema.columns
+        重新生成——幂等，原子写入）
+                                    │
+                                    ▼
+          下次 Agent 调用时注入系统提示词
+          → 列名正确 → SQL 查询一次成功
+```
+
+`sync_schema_reference` 会保留所有人工撰写的章节（SQL 示例、Common Mistakes 表、Fallback 规则），只替换自动生成的 Schema 表格。
+
+#### 5b — Workspace 结构完整性检查
+
+`audit_workspace`（可由 Config Agent 调用）对每个 Agent Workspace 进行五项结构性检查：
+
+| 检查项 | 能发现的问题 |
+|---|---|
+| Python 语法错误 | 无法导入的工具文件 |
+| `@tool` 名称冲突 | 两个工具注册了相同的名称 |
+| 声明与发现漂移 | SKILL.md 列出了某工具但找不到对应的 `@tool` 函数 |
+| 缺少 `prompts/system.md` | Agent 没有系统提示词文件 |
+| `static_context:` 路径断开 | AGENT.md 引用了不存在的文件 |
+
+两套机制均为**被动触发**（自动执行）、**可观测**（结果以结构化 JSON 返回，Agent 可据此采取后续行动）。
+
+---
+
 ## 🛠️ 交互式 Agentic 命令
 
 ### `/trace-review` — 按需触发学习
@@ -255,6 +299,9 @@ ORDER BY timestamp DESC LIMIT 20;
 | NetOps 引导脚本 Cron 注册 | `olav-netops/scripts/netops_init.py` | ✅ 已完成 |
 | `/trace-review` slash 命令 | `cli/main.py` + `cli/commands/trace_review.py` | ✅ 已完成 |
 | `analyze_logs` 查询 `audit.duckdb` | `config/system/tools/analyze_logs.py` | ✅ 已完成 |
+| `sync_schema_reference` 入库后 Schema 同步 | `config/discovery/tools/sync_schema_reference.py` | ✅ 已完成 |
+| `IngestManager.post_ingest_hooks` 触发机制 | `src/olav/core/ingest_manager.py` | ✅ 已完成 |
+| `audit_workspace` 结构完整性检查 | `config/system/tools/audit_workspace.py` | ✅ 已完成 |
 | 用户反馈评分 `feedback`（1-5） | CLI / API 端点 | ⬜ 计划中 |
 
 ---
@@ -271,3 +318,6 @@ ORDER BY timestamp DESC LIMIT 20;
 | `src/olav/cli/commands/trace_review.py` | `/trace-review` 命令业务逻辑 |
 | `olav-netops/scripts/netops_init.py` | `trace_learner` 的 Cron 注册 |
 | `.olav/databases/audit.duckdb` | Append-only Trace 存储（SSOT） |
+| `src/olav/core/ingest_manager.py` | `post_ingest_hooks` 触发点（第五层） |
+| `.olav/workspace/config/discovery/tools/sync_schema_reference.py` | Schema 文档自愈（第五层） |
+| `.olav/workspace/config/system/tools/audit_workspace.py` | Workspace 结构完整性检查（第五层） |

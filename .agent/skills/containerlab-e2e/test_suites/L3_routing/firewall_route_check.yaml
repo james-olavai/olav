@@ -1,0 +1,40 @@
+name: firewall_route_check
+description: >
+  Verify firewall routing tables on both fw-a (PaloAlto) and fw-b (Fortinet).
+  These platforms have INCOMPLETE NTC template coverage — intentional gaps that
+  exercise OLAV's raw output + LLM-based parsing fallback:
+    PaloAlto: missing BGP template, missing session table template
+    FortiOS:  missing route table template, missing policy template
+  OLAV should still return meaningful answers via raw output analysis.
+
+queries:
+  - agent: olav
+    prompt: "从 fw-a,fw-b 采集接口状态和路由表信息"
+    description: "Firewall interface and routing state (raw CLI, no NTC template)"
+
+assertions:
+  - type: sql_count
+    description: "Raw CLI output collected for both firewalls"
+    query: >
+      SELECT COUNT(DISTINCT hostname) FROM netops.parsed_outputs
+      WHERE snapshot_id = '{run_id}'
+      AND hostname IN ('fw-a', 'fw-b')
+    operator: gte
+    expected: 2
+
+query_assertions:
+  - agent: olav
+    description: "fw-a (PaloAlto) route table — raw LLM fallback test"
+    prompt: >
+      fw-a 的路由表显示什么？默认路由指向哪里？
+      （注意：此设备可能没有 TextFSM 模板，请分析原始输出）
+    expect_contains: ["fw-a", "route", "default"]
+    expect_not_contains: ["exception", "traceback"]
+
+  - agent: olav
+    description: "fw-b (FortiOS) route table — raw LLM fallback test"
+    prompt: >
+      fw-b 的路由表显示什么？静态路由和 BGP 路由有哪些？
+      （注意：此设备可能没有 TextFSM 模板，请分析原始输出）
+    expect_contains: ["fw-b", "route"]
+    expect_not_contains: ["exception", "traceback"]

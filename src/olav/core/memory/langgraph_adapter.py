@@ -149,6 +149,21 @@ class LangGraphLanceDBStore(BaseStore):
         scope = namespace[0] if namespace else "global"
 
         if query:
+            # Skip embedding entirely when the table has no rows — avoids
+            # triggering the SentenceTransformer model load on every query
+            # when there are no memories stored yet.
+            try:
+                row_count = (
+                    self._store.get_table(self._table_name).count_rows()
+                    if self._store.table_exists(self._table_name)
+                    else 0
+                )
+            except Exception:
+                row_count = 0
+
+            if row_count == 0:
+                return []
+
             query_vector = self._embed(query)
             if query_vector is not None:
                 # Full hybrid search: vector + BM25 fused via RRF

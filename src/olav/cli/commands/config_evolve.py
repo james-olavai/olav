@@ -15,7 +15,7 @@ Design constraints (api_discovery.md §3.5, §4):
   - ``--approve`` marks the DB row as approved and writes the new standard
     field name into the ``{domain}_field_mappings`` LanceDB collection so
     future ``classify_field`` calls can match against it.
-  - No direct writes to ``schema_mappings`` here — that stays with
+  - No direct writes to ``mapping_rules`` here — that stays with
     ``SchemaMutationService.apply_approved()``.
 """
 
@@ -25,6 +25,8 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
+
+from olav.core.auth.authz import AuthorizationError, require_permission
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +132,8 @@ def cmd_evolve_approve(
     evolution_id: str,
     domain_db_path: str | Path,
     lancedb_path: str | Path | None = None,
+    *,
+    role: str = "admin",
 ) -> dict[str, Any]:
     """Approve a pending schema evolution proposal.
 
@@ -143,10 +147,18 @@ def cmd_evolve_approve(
         domain_db_path: Path to ``domain.duckdb``.
         lancedb_path: Path to the LanceDB directory.  Defaults to
             ``~/.olav/databases/memory.lancedb`` (resolved from config).
+        role: Caller's role — must be ``"admin"`` to approve.
+
+    Raises:
+        AuthorizationError: If the caller's role is not permitted to approve
+            schema evolutions.
 
     Returns:
         ``{"status": "approved", "evolution_id": ..., "lancedb_written": bool}``
     """
+    # RBAC gate: only admin may approve control-plane schema changes (TD-28)
+    require_permission(role, "config", "evolve", "admin")
+
     conn = _get_db_conn(domain_db_path)
     try:
         _ensure_evolutions_table(conn)
@@ -239,7 +251,7 @@ def _write_to_lancedb(
         vector = embedder.encode(summary, normalize_embeddings=True).tolist()
 
         record = {
-            "standard_name": proposed_name,
+            "openconfig_path": proposed_name,
             "description": f"Evolved standard field (cluster_id={cluster_id})",
             "data_type": "VARCHAR",
             "category": "evolved",
@@ -250,7 +262,7 @@ def _write_to_lancedb(
         # Schema for the field_mappings collection
         schema = pa.schema(
             [
-                ("standard_name", pa.string()),
+                ("openconfig_path", pa.string()),
                 ("description", pa.string()),
                 ("data_type", pa.string()),
                 ("category", pa.string()),
@@ -334,6 +346,6 @@ def run_evolve_command(
     return (
         f"Approved: {result['evolution_id']}\n"
         f"  Domain:        {result.get('domain', '')}\n"
-        f"  Standard name: {result.get('proposed_name', '')}\n"
+        f"  OpenConfig path: {result.get('proposed_name', '')}\n"
         f"  {lancedb_msg.strip()}"
     )

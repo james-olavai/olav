@@ -3,11 +3,12 @@
 Provides high-speed atomic merging of staging JSON files into main.duckdb.
 
 Staging-First flow:
-  1. Stage2 writes per-device  exports/snapshots/json/{device}.staging.json
+  1. Stage2 writes per-device  tmp/staging/{device}.staging.json
      (overwritten on each snapshot run — no accumulation).
   2. IngestManager.bulk_load() uses DuckDB read_json_auto for a single
      high-speed atomic write, avoiding per-row INSERT overhead.
-  3. Raw CLI output remains in exports/snapshots/{date}/raw/ only;
+  3. Config backups persist in exports/backup/{date}/{device}/;
+     operational raw output goes to tmp/snapshots/{date}/raw/;
      the DB holds only structured (parsed_data JSON) records.
 
 Staging file schema (JSON array):
@@ -17,7 +18,9 @@ Staging file schema (JSON array):
 """
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import duckdb
 
@@ -30,7 +33,12 @@ logger = logging.getLogger(__name__)
 class IngestManager:
     """Manager for bulk ingesting staging JSON files into DuckDB."""
 
-    def __init__(self, db_path: str | Path | None = None, staging_dir: str | Path | None = None):
+    def __init__(
+        self,
+        db_path: str | Path | None = None,
+        staging_dir: str | Path | None = None,
+        post_ingest_hooks: list[Callable[[dict[str, Any]], None]] | None = None,
+    ) -> None:
         self.db_path = Path(db_path or MAIN_DB_PATH)
         if staging_dir is None:
             raise ValueError(
@@ -38,6 +46,11 @@ class IngestManager:
                 "(olav-netops convention: EXPORTS_DIR / 'snapshots' / 'json')"
             )
         self.staging_dir = Path(staging_dir)
+        # Optional callbacks invoked after a successful bulk_load().
+        # Each hook receives the result dict; exceptions are logged, not raised.
+        self._post_ingest_hooks: list[Callable[[dict[str, Any]], None]] = list(
+            post_ingest_hooks or []
+        )
 
     def bulk_load(self) -> dict:
         """Load all *.staging.json files into DuckDB via read_json_auto.
@@ -98,7 +111,7 @@ class IngestManager:
                 len(staging_files),
                 inserted,
             )
-            return {
+            result: dict[str, Any] = {
                 "status": "success",
                 "files_processed": len(staging_files),
                 "records_inserted": inserted,
@@ -113,4 +126,10 @@ class IngestManager:
                 "records_inserted": 0,
             }
 
+        for hook in self._post_ingest_hooks:
+            try:
+                hook(result)
+            except Exception as hook_exc:  # noqa: BLE001
+                logger.warning("post_ingest_hook %r failed: %s", hook, hook_exc)
 
+        return result

@@ -100,7 +100,7 @@ class AutoRecallMiddleware:
         try:
             return embedder.encode(text, normalize_embeddings=True).tolist()
         except Exception as e:
-            logger.warning(f"AutoRecall: embedding failed: {e}")
+            logger.debug(f"AutoRecall: embedding failed: {e}")
             return None
 
     def _format_memory_block(self, memories: list[dict]) -> str:
@@ -161,8 +161,13 @@ class AutoRecallMiddleware:
             if not query_text:
                 return input_
 
-            # Check if memory table exists
+            # Check if memory table exists and has rows
             if not self._store.table_exists(MEMORY_TABLE):
+                return input_
+            try:
+                if self._store.get_table(MEMORY_TABLE).count_rows() == 0:
+                    return input_
+            except Exception:
                 return input_
 
             # Hybrid search: vector + text

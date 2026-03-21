@@ -91,7 +91,7 @@ class ApiActionService:
         API-RW-4: user and admin can submit write requests.
         readonly cannot.
         """
-        if not check_permission(role, "api", request.domain, "mutate"):
+        if not check_permission(role, "api", request.domain, "submit-write"):
             return {
                 "status": "denied",
                 "reason": f"Role '{role}' cannot submit write operations",
@@ -121,7 +121,7 @@ class ApiActionService:
 
         API-RW-4: Only admin can approve write operations.
         """
-        if not check_permission(role, "api", "*", "admin"):
+        if not check_permission(role, "api", "*", "approve-write"):
             return {
                 "status": "denied",
                 "reason": f"Role '{role}' cannot approve write operations",
@@ -147,8 +147,8 @@ class ApiActionService:
         role: str = "admin",
         reason: str = "",
     ) -> dict[str, Any]:
-        """Reject a pending action request. Requires 'admin' permission."""
-        if not check_permission(role, "api", "*", "admin"):
+        """Reject a pending action request. Requires 'approve-write' permission."""
+        if not check_permission(role, "api", "*", "approve-write"):
             return {
                 "status": "denied",
                 "reason": f"Role '{role}' cannot reject write operations",

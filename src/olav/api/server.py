@@ -330,6 +330,31 @@ async def stream_run(
         agent_id=body.assistant_id,
         payload=body.input,
     )
+    # Record user turn in audit_messages for dataset export
+    _user_content = ""
+    if isinstance(body.input, dict):
+        _msgs = body.input.get("messages", [])
+        if _msgs:
+            _last = _msgs[-1]
+            _user_content = (
+                _last.get("content", "") if isinstance(_last, dict)
+                else str(getattr(_last, "content", ""))
+            )
+    if _user_content:
+        recorder.record_message(run_id=run_id, role="user", content=_user_content)
+
+    # Bind the top-level run context to AuditCallbackPlugin so tool events
+    # and LLM responses are linked to this run_id.
+    from olav.plugins.callbacks.audit import AuditCallbackPlugin as _AuditCBPlugin
+    _audit_cbs = [
+        _cb for _cb in (
+            agent.plugin_registry.get_callback_plugins()
+            if hasattr(agent, "plugin_registry") else []
+        )
+        if isinstance(_cb, _AuditCBPlugin)
+    ]
+    for _cb in _audit_cbs:
+        _cb.bind_run(run_id, recorder)
 
     callbacks = (
         agent.plugin_registry.get_callback_plugins() if hasattr(agent, "plugin_registry") else []
@@ -392,6 +417,10 @@ async def stream_run(
         except Exception as e:
             recorder.record_run_end(run_id=run_id, status="error")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            for _cb in _audit_cbs:
+                _cb.unbind_run()
+            recorder.close()
 
     return StreamingResponse(
         event_generator(),
