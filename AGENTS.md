@@ -57,7 +57,7 @@ OLAV uses `deepagents.SkillsMiddleware` to dynamically bind scripts to agents ba
 
 1.  **Concurrency**: Multiple users **WILL** operate on the same project.
 2.  **Isolation**: Users must have their own private checkpoint and cache files in `~/.olav/`.
-3.  **Auditing**: Every CLI command (Slash or Natural) **MUST** be recorded in `.olav/databases/audit.duckdb` via `AuditEventRecorder`. Legacy `.olav/logs/users/{user}.log` files remain for human-readable inspection.
+3.  **Auditing (UNIFIED TO DuckDB)**: Every CLI command (Slash or Natural) **MUST** be recorded in `.olav/databases/audit.duckdb` via `AuditEventRecorder`. This is the **single source of truth** for all audit data. Legacy paths (`~/.olav/history/`, `.olav/logs/users/*.log`) are **deprecated** and no longer maintained. `.olav/logs/` is reserved for application runtime logs only (e.g. `olav.log`, `web.log`).
 4.  **Ownership**: Global state (Shared DuckDB) is read-only for agents; only `IngestManager` can perform batched, atomic writes.
 
 ## 5. TOOLING & DATA FLOW (STAGING-FIRST)
@@ -79,6 +79,7 @@ Model selection is strictly configuration-driven:
 2.  **Implement Logic**: Move complex handling to `src/olav/core/` or `src/olav/services/`.
 3.  **Agent Tool**: Create a LangChain tool in `.olav/workspace/<agent>/tools/` (invoked by the agent).
 4.  **TDD**: Run `uv run pytest tests/00_e2e_acceptance_test.py` often. **Green = Done.**
+5.  **NetOps tests**: `olav-netops` must be installed for full test coverage: `uv pip install -e olav-netops`. This is a separate optional package — not in the uv workspace due to heavy deps (nornir, netmiko). Run once after clone.
 
 **Action**: Always check `dev_docs/issues.md` for active architectural pivots before starting a task.
 

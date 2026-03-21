@@ -1,8 +1,12 @@
 # OLAV 审计日志到训练集导出设计
 
-更新日期: 2026-03-16  
-状态: 方案设计，未实施  
+更新日期: 2026-03-18  
+状态: ⚠️ 部分实施（导出器已完成，运行态审计源仍不完整）  
+实现: `src/olav/enterprise/audit_dataset_export.py`  
+测试: `tests/unit/test_audit_dataset_export.py`  
 范围: `audit.duckdb` → 脱敏 → `sft.jsonl` / `trajectory.jsonl` / `atif.jsonl` 导出
+
+> 2026-03-18 实库复核：导出器本身已可工作，但真实 `.olav/databases/audit.duckdb` 当前仅有 `12 runs / 35 events / 1 tool_call / 2 messages / 0 reasoning_block`。因此本文档描述的是“目标导出模型 + 已实现导出器”，而不是“主链路日志采集已完全达标”。
 
 ---
 
@@ -113,10 +117,14 @@
 提供按 `sequence_no` 排序的用户 / assistant / tool 消息。  
 它是 SFT Chat JSONL 的主数据源。
 
+**当前风险（2026-03-18）**: 主代码路径尚未系统性调用 `record_message()`，`audit_messages` 在真实库中仍极稀疏。导出器依赖本表，因此真实运行样本仍会被大量拒绝。
+
 #### `audit_tool_calls`
 
 提供工具调用、参数、结果、失败信息。  
 它是 tool-use trajectory 的主数据源。
+
+**当前风险（2026-03-18）**: callback 已补写 `record_tool_call()`，但真实库覆盖率仍低，需进一步确认 callback 子 run 与顶层 run 的归并逻辑。
 
 #### `audit_events`
 
@@ -154,6 +162,8 @@
   "messages": [
     {"role": "system", "content": "..."},
     {"role": "user", "content": "..."},
+    {"role": "assistant", "content": null, "tool_calls": [{"id": "call_abc123", "type": "function", "function": {"name": "query_db", "arguments": "{\"sql\": \"SELECT ...\"}"}}]},
+    {"role": "tool", "tool_call_id": "call_abc123", "content": "..."},
     {"role": "assistant", "content": "..."}
   ],
   "metadata": {
@@ -176,8 +186,8 @@
 
 1. 按 `run_id` 聚合
 2. 从 `audit_messages` 按 `sequence_no` 排序
-3. 仅保留 `system/user/assistant` 三类消息
-4. 默认排除 `tool` role，除非显式开启 `include_tool_messages`
+3. 保留 `system/user/assistant/tool` 四类消息
+4. `assistant` 消息保留 `tool_calls` 字段（如有）；`tool` 消息保留 `tool_call_id` 字段
 5. 默认只导出 `status = completed`
 
 ### 4.2 Tool-use Trajectory JSONL

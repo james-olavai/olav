@@ -1,0 +1,72 @@
+!
+! Cisco IOS 配置模板 (for IOL)
+!
+version 15.0
+
+hostname {{ hostname }}
+
+!
+! IP 寻址
+!
+interface FastEthernet1/0
+ description Management Interface
+ ip address {{ mgmt_ip }} 255.255.255.0
+ no shut
+!
+
+!
+! 路由
+!
+ip route 0.0.0.0 0.0.0.0 192.168.100.254
+
+!
+! NTP
+!
+ntp server {{ ntp_server }}
+
+!
+! Syslog
+!
+logging host {{ syslog_server }}
+logging buffer 4096 informational
+
+!
+! SNMP
+!
+snmp-server community {{ snmp_community }} RO
+snmp-server location {{ site }}
+snmp-server contact OLAV Admin
+
+!
+! DNS
+!
+ip domain-name {{ domain }}
+ip name-server 8.8.8.8
+ip name-server 8.8.4.4
+
+!
+! AAA & 用户认证
+!
+username admin privilege 15 secret {{ password }}
+
+!
+! VTY 访问控制
+!
+line vty 0 4
+ password {{ password }}
+ login local
+ exec-timeout 0 0
+ transport input ssh telnet
+
+line con 0
+ password {{ password }}
+ login local
+ exec-timeout 0 0
+
+!
+! SSH 配置 (可选)
+!
+ip ssh version 2
+ip ssh authentication retries 5
+
+end

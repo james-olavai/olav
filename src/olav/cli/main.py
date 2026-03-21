@@ -399,8 +399,16 @@ def create_olav_agent_with_backend(
             routes={},
         )
 
-    # Return the graph and backend
-    return olav_agent.graph, composite_backend
+    # Bake plugin callbacks into the graph so they fire even when callers
+    # (e.g. deepagents_cli.execute_task) build their own config without callbacks.
+    graph = olav_agent.graph
+    cbs = olav_agent.plugin_registry.get_callback_plugins()
+    if cbs:
+        graph = graph.with_config({"callbacks": cbs})  # type: ignore[assignment]
+    # Attach plugin_registry to the graph so CLI/API code can access it for
+    # binding the top-level run context to callback plugins (e.g. audit).
+    graph.plugin_registry = olav_agent.plugin_registry  # type: ignore[attr-defined]
+    return graph, composite_backend
 
 
 def get_domain_prompt() -> str:
@@ -660,6 +668,21 @@ async def simple_cli(
             agent_id=assistant_id,
             payload={"content": user_input},
         )
+        # Record the user turn in audit_messages for dataset export
+        _audit.record_message(run_id=_run_id, role="user", content=user_input)
+
+        # Bind the top-level run context to AuditCallbackPlugin so tool events
+        # and LLM responses are recorded under the same run_id.
+        from olav.plugins.callbacks.audit import AuditCallbackPlugin as _AuditCBPlugin
+        _audit_cbs = [
+            _cb for _cb in (
+                agent.plugin_registry.get_callback_plugins()
+                if hasattr(agent, "plugin_registry") else []
+            )
+            if isinstance(_cb, _AuditCBPlugin)
+        ]
+        for _cb in _audit_cbs:
+            _cb.bind_run(_run_id, _audit)
 
         # Record routing decision
         try:
@@ -706,6 +729,8 @@ async def simple_cli(
             _audit.record_run_end(run_id=_run_id, status="error")
             raise
         finally:
+            for _cb in _audit_cbs:
+                _cb.unbind_run()
             _audit.close()
 
 
@@ -865,6 +890,20 @@ async def run_single_query(query: str, assistant_id: str, session_id: str | None
         agent_id=assistant_id,
         payload={"content": query},
     )
+    # Record the user turn in audit_messages for dataset export
+    recorder.record_message(run_id=run_id, role="user", content=query)
+
+    # Bind the top-level run context to AuditCallbackPlugin
+    from olav.plugins.callbacks.audit import AuditCallbackPlugin as _AuditCBPlugin
+    _audit_cbs = [
+        _cb for _cb in (
+            agent.plugin_registry.get_callback_plugins()
+            if hasattr(agent, "plugin_registry") else []
+        )
+        if isinstance(_cb, _AuditCBPlugin)
+    ]
+    for _cb in _audit_cbs:
+        _cb.bind_run(run_id, recorder)
 
     # Record routing decision
     try:
@@ -887,12 +926,16 @@ async def run_single_query(query: str, assistant_id: str, session_id: str | None
                 token_tracker,
                 backend=backend,
             )
+        final_content = str(result) if result is not None else ""
         recorder.record(
             event_type="assistant_output_final",
             run_id=run_id,
             agent_id=assistant_id,
-            payload={"content": str(result) if result is not None else ""},
+            payload={"content": final_content},
         )
+        # Record assistant response in audit_messages for dataset export
+        if final_content:
+            recorder.record_message(run_id=run_id, role="assistant", content=final_content)
         recorder.record_run_end(run_id=run_id, status="completed")
     except KeyboardInterrupt:
         recorder.record(
@@ -913,6 +956,8 @@ async def run_single_query(query: str, assistant_id: str, session_id: str | None
         recorder.record_run_end(run_id=run_id, status="error")
         raise
     finally:
+        for _cb in _audit_cbs:
+            _cb.unbind_run()
         recorder.close()
 
 
@@ -1244,86 +1289,15 @@ async def cli_main_impl() -> None:
                         )
             elif log_sub_cmd == "export":
                 export_fmt = getattr(args, "export_format", None)
-                if export_fmt == "sft":
-                    from olav.enterprise.audit_dataset_export import audit_to_sft_jsonl
-
-                    hours = getattr(args, "hours", 24)
-                    output_dir = getattr(args, "output", None)
-                    min_score = getattr(args, "min_score", 0.0)
-                    encrypt_flag = getattr(args, "encrypt", None)
-                    key_ref = getattr(args, "key_ref", None)
-                    result = audit_to_sft_jsonl(
-                        conn_or_path=None,
-                        output_dir=output_dir,
-                        hours=hours,
-                        min_rule_score=min_score,
-                        encrypt=encrypt_flag,
-                        key_ref=key_ref,
-                    )
+                try:
+                    from olav.enterprise.cli_bridge import dispatch_log_export
+                except ImportError:
                     console.print(
-                        f"[bold green]✓[/bold green] SFT export complete → {result['output_dir']}"
+                        "[red]Error: olav-ent package not installed. "
+                        "Install with: pip install olav-ent[/red]"
                     )
-                    console.print(f"  Runs scanned: {result.get('runs_scanned', 0)}")
-                    console.print(
-                        f"  Conversations exported: {result.get('conversations_exported', 0)}"
-                    )
-                    console.print(f"  Runs rejected: {result.get('runs_rejected', 0)}")
-                elif export_fmt == "trajectory":
-                    from olav.enterprise.audit_dataset_export import audit_to_tool_trajectory
-
-                    hours = getattr(args, "hours", 24)
-                    output_dir = getattr(args, "output", None)
-                    min_score = getattr(args, "min_score", 0.0)
-                    encrypt_flag = getattr(args, "encrypt", None)
-                    key_ref = getattr(args, "key_ref", None)
-                    result = audit_to_tool_trajectory(
-                        conn_or_path=None,
-                        output_dir=output_dir or "exports/audit_datasets/default",
-                        hours=hours,
-                        min_rule_score=min_score,
-                        encrypt=encrypt_flag,
-                        key_ref=key_ref,
-                    )
-                    console.print("[bold green]✓[/bold green] Trajectory export complete")
-                    console.print(f"  Runs scanned: {result.get('runs_scanned', 0)}")
-                    console.print(f"  Samples exported: {result.get('runs_exported', 0)}")
-                    console.print(f"  Runs rejected: {result.get('runs_rejected', 0)}")
-                    console.print(f"  Runs deduped: {result.get('runs_deduped', 0)}")
-                elif export_fmt == "atif":
-                    from olav.enterprise.audit_dataset_export import audit_to_atif
-
-                    hours = getattr(args, "hours", 24)
-                    output_dir = getattr(args, "output", None)
-                    encrypt_flag = getattr(args, "encrypt", None)
-                    key_ref = getattr(args, "key_ref", None)
-                    result = audit_to_atif(
-                        conn_or_path=None,
-                        output_dir=output_dir or "exports/audit_datasets/default",
-                        hours=hours,
-                        encrypt=encrypt_flag,
-                        key_ref=key_ref,
-                    )
-                    console.print("[bold green]✓[/bold green] ATIF export complete")
-                    console.print(f"  Runs scanned: {result.get('runs_scanned', 0)}")
-                    console.print(f"  Samples exported: {result.get('runs_exported', 0)}")
-                    console.print(f"  Runs rejected: {result.get('runs_rejected', 0)}")
-                elif export_fmt == "grant-local-train":
-                    import json as _json
-                    import os as _os
-
-                    from olav.enterprise.dataset_encryption import OneTimeTokenManager
-
-                    export_id = getattr(args, "export_id", None)
-                    ttl = getattr(args, "ttl_minutes", 10)
-                    user_id = _os.environ.get("OLAV_USER", "unknown")
-                    secret = _os.environ.get("OLAV_TOKEN_SECRET", "olav-dev-secret-change-in-prod")
-                    mgr = OneTimeTokenManager(secret=secret)
-                    token_result = mgr.issue(export_id=export_id, user_id=user_id, ttl_minutes=ttl)
-                    console.print(_json.dumps(token_result, indent=2))
-                else:
-                    console.print(
-                        "[yellow]Usage: olav log export <sft|trajectory|atif|grant-local-train> [--hours N] [--output DIR][/yellow]"
-                    )
+                    return
+                dispatch_log_export(export_fmt, args, console)
             else:
                 runs = log_list()
                 if not runs:

@@ -53,6 +53,10 @@ htmlcov/                        # Coverage reports (never commit)
 dmypy.json
 .pyright_cache/                 # Pyright cache
 .ruff_cache/                    # Ruff cache
+
+# ContainerLab E2E — runtime artifacts (not source, not committed)
+.agent/skills/containerlab-e2e/references/*.duckdb   # Test run history DB
+.agent/skills/containerlab-e2e/evidence/             # Test evidence artifacts
 tests/
 */tests/
 test_*.py

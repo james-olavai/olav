@@ -98,7 +98,9 @@ Example:
 
         if _get_or_create_agent is None:
             # Fallback: import from platform builtin helpers
-            from olav.cli.commands.builtin import _get_or_create_agent as _factory  # type: ignore[import]
+            from olav.cli.commands.builtin import (
+                _get_or_create_agent as _factory,  # type: ignore[import]
+            )
 
             _get_or_create_agent = _factory
 

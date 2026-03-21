@@ -22,7 +22,7 @@ Usage
 
 Notes
 -----
-- Idempotent: existing entries with the same ``standard_name`` are skipped.
+- Idempotent: existing entries with the same ``openconfig_path`` are skipped.
 - The embedder (``get_embedder()``) must be available; run
   ``olav init`` first to ensure the model is downloaded.
 - This script is intentionally kept dependency-free beyond the main
@@ -44,168 +44,168 @@ from typing import Any
 NETOPS_STANDARD_FIELDS: list[dict[str, str]] = [
     # ── Interface ──────────────────────────────────────────────────────────
     {
-        "standard_name": "management_ip",
+        "openconfig_path": "management_ip",
         "description": "IPv4 management address of the device or interface",
         "data_type": "VARCHAR",
         "category": "interface",
     },
     {
-        "standard_name": "interface_name",
+        "openconfig_path": "interface_name",
         "description": "Interface name or identifier, e.g. GigabitEthernet0/0",
         "data_type": "VARCHAR",
         "category": "interface",
     },
     {
-        "standard_name": "interface_status",
+        "openconfig_path": "interface_status",
         "description": "Operational status of the interface: up, down, admindown",
         "data_type": "VARCHAR",
         "category": "interface",
     },
     {
-        "standard_name": "interface_speed",
+        "openconfig_path": "interface_speed",
         "description": "Interface speed in Mbps or Gbps",
         "data_type": "VARCHAR",
         "category": "interface",
     },
     {
-        "standard_name": "interface_mtu",
+        "openconfig_path": "interface_mtu",
         "description": "Maximum Transmission Unit in bytes",
         "data_type": "INTEGER",
         "category": "interface",
     },
     {
-        "standard_name": "interface_mac",
+        "openconfig_path": "interface_mac",
         "description": "MAC address of the interface",
         "data_type": "VARCHAR",
         "category": "interface",
     },
     # ── BGP ────────────────────────────────────────────────────────────────
     {
-        "standard_name": "bgp_peer_ip",
+        "openconfig_path": "bgp_peer_ip",
         "description": "BGP neighbor or peer IP address",
         "data_type": "VARCHAR",
         "category": "bgp",
     },
     {
-        "standard_name": "bgp_as_number",
+        "openconfig_path": "bgp_as_number",
         "description": "BGP autonomous system number (local or remote)",
         "data_type": "BIGINT",
         "category": "bgp",
     },
     {
-        "standard_name": "bgp_peer_state",
+        "openconfig_path": "bgp_peer_state",
         "description": "BGP session state: Established, Active, Idle, Connect, OpenSent",
         "data_type": "VARCHAR",
         "category": "bgp",
     },
     {
-        "standard_name": "bgp_prefixes_received",
+        "openconfig_path": "bgp_prefixes_received",
         "description": "Number of prefixes received from BGP peer",
         "data_type": "BIGINT",
         "category": "bgp",
     },
     {
-        "standard_name": "bgp_prefixes_sent",
+        "openconfig_path": "bgp_prefixes_sent",
         "description": "Number of prefixes advertised to BGP peer",
         "data_type": "BIGINT",
         "category": "bgp",
     },
     # ── OSPF ───────────────────────────────────────────────────────────────
     {
-        "standard_name": "ospf_router_id",
+        "openconfig_path": "ospf_router_id",
         "description": "OSPF router ID in dotted-quad notation",
         "data_type": "VARCHAR",
         "category": "ospf",
     },
     {
-        "standard_name": "ospf_area",
+        "openconfig_path": "ospf_area",
         "description": "OSPF area ID, e.g. 0.0.0.0 or area 0",
         "data_type": "VARCHAR",
         "category": "ospf",
     },
     {
-        "standard_name": "ospf_neighbor_ip",
+        "openconfig_path": "ospf_neighbor_ip",
         "description": "OSPF neighbor router IP address",
         "data_type": "VARCHAR",
         "category": "ospf",
     },
     {
-        "standard_name": "ospf_neighbor_state",
+        "openconfig_path": "ospf_neighbor_state",
         "description": "OSPF adjacency state: Full, 2-Way, Init, Down, Exstart, Exchange, Loading",
         "data_type": "VARCHAR",
         "category": "ospf",
     },
     # ── Routing ────────────────────────────────────────────────────────────
     {
-        "standard_name": "route_prefix",
+        "openconfig_path": "route_prefix",
         "description": "IP route prefix in CIDR notation",
         "data_type": "VARCHAR",
         "category": "routing",
     },
     {
-        "standard_name": "route_next_hop",
+        "openconfig_path": "route_next_hop",
         "description": "Next-hop IP address for a route",
         "data_type": "VARCHAR",
         "category": "routing",
     },
     {
-        "standard_name": "route_protocol",
+        "openconfig_path": "route_protocol",
         "description": "Routing protocol that installed the route: bgp, ospf, static, connected",
         "data_type": "VARCHAR",
         "category": "routing",
     },
     {
-        "standard_name": "route_metric",
+        "openconfig_path": "route_metric",
         "description": "Route metric or administrative distance",
         "data_type": "INTEGER",
         "category": "routing",
     },
     # ── Device ─────────────────────────────────────────────────────────────
     {
-        "standard_name": "hostname",
+        "openconfig_path": "hostname",
         "description": "Device hostname or FQDN",
         "data_type": "VARCHAR",
         "category": "device",
     },
     {
-        "standard_name": "platform",
+        "openconfig_path": "platform",
         "description": "Device platform or hardware model",
         "data_type": "VARCHAR",
         "category": "device",
     },
     {
-        "standard_name": "os_version",
+        "openconfig_path": "os_version",
         "description": "Operating system version string",
         "data_type": "VARCHAR",
         "category": "device",
     },
     {
-        "standard_name": "serial_number",
+        "openconfig_path": "serial_number",
         "description": "Device or module serial number",
         "data_type": "VARCHAR",
         "category": "device",
     },
     {
-        "standard_name": "uptime",
+        "openconfig_path": "uptime",
         "description": "Device uptime as a human-readable string",
         "data_type": "VARCHAR",
         "category": "device",
     },
     # ── CDP / LLDP ─────────────────────────────────────────────────────────
     {
-        "standard_name": "neighbor_device_id",
+        "openconfig_path": "neighbor_device_id",
         "description": "Neighbor device identifier discovered via CDP or LLDP",
         "data_type": "VARCHAR",
         "category": "topology",
     },
     {
-        "standard_name": "neighbor_port_id",
+        "openconfig_path": "neighbor_port_id",
         "description": "Port on the neighbor device (CDP/LLDP port ID)",
         "data_type": "VARCHAR",
         "category": "topology",
     },
     {
-        "standard_name": "local_port_id",
+        "openconfig_path": "local_port_id",
         "description": "Local interface through which the neighbor was discovered",
         "data_type": "VARCHAR",
         "category": "topology",
@@ -229,11 +229,13 @@ def _build_records(fields: list[dict[str, str]], embedder: Any) -> list[dict[str
 
     records = []
     for f in fields:
-        summary = f"{f['standard_name']} | {f['description']} | {f['data_type']} | {f['category']}"
+        summary = (
+            f"{f['openconfig_path']} | {f['description']} | {f['data_type']} | {f['category']}"
+        )
         vector = embedder.encode(summary, normalize_embeddings=True).tolist()
         records.append(
             {
-                "standard_name": f["standard_name"],
+                "openconfig_path": f["openconfig_path"],
                 "description": f["description"],
                 "data_type": f["data_type"],
                 "category": f["category"],
@@ -299,7 +301,7 @@ def bootstrap(
     if dry_run:
         print(f"[dry-run] Would seed {len(fields)} fields into '{collection_name}'.")
         for f in fields:
-            print(f"  - {f['standard_name']} ({f['category']}): {f['description']}")
+            print(f"  - {f['openconfig_path']} ({f['category']}): {f['description']}")
         return {"inserted": 0, "skipped": 0, "total": len(fields)}
 
     # Load embedder
@@ -332,8 +334,8 @@ def bootstrap(
     try:
         table = db.open_table(collection_name)
         existing_df = table.to_pandas()
-        if "standard_name" in existing_df.columns:
-            existing_names = set(existing_df["standard_name"].tolist())
+        if "openconfig_path" in existing_df.columns:
+            existing_names = set(existing_df["openconfig_path"].tolist())
         if verbose:
             print(
                 f"[bootstrap] Opened existing table '{collection_name}' with {len(existing_names)} entries."
@@ -342,7 +344,7 @@ def bootstrap(
         table = None  # Will be created on first insert
 
     # Filter fields not yet in the collection
-    new_fields = [f for f in fields if f["standard_name"] not in existing_names]
+    new_fields = [f for f in fields if f["openconfig_path"] not in existing_names]
     skipped = len(fields) - len(new_fields)
 
     if not new_fields:
@@ -363,7 +365,7 @@ def bootstrap(
         vector_dim = len(records[0]["vector"])
         schema = pa.schema(
             [
-                pa.field("standard_name", pa.string()),
+                pa.field("openconfig_path", pa.string()),
                 pa.field("description", pa.string()),
                 pa.field("data_type", pa.string()),
                 pa.field("category", pa.string()),

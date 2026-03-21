@@ -1,0 +1,112 @@
+name: access_loop
+description: >
+  FAULT INJECTION: Connect sw-acc-a1:e0/3 ↔ sw-acc-a2:e0/3 to create an L2 loop.
+  ContainerLab supports adding a link at runtime via `containerlab tools vxlan create`
+  or by adding the link to the topology (requires redeploy) — for ContainerLab
+  we simulate the loop by configuring a SPAN port or using a veth pair between containers.
+
+  Test sequence:
+    1. Baseline — verify no loop present (STP stable)
+    2. INJECT  — add looping link / enable port connecting to port that has a loop
+    3. DETECT  — verify STP detects and blocks a port (or BPDU guard fires)
+    4. RECOVER — remove loop
+    5. VERIFY  — verify STP converges back to pre-fault baseline
+
+  OLAV is tested on its ability to:
+    - Detect topology instability (TC events, port going errdisable)
+    - Identify which port is causing the loop
+    - Recommend remediation
+
+# ── Step 1: Baseline ──────────────────────────────────────────────────────────
+pre_fault_queries:
+  - agent: olav
+    prompt: >
+      从 sw-acc-a1,sw-acc-a2 采集当前 STP 状态和端口状态，
+      作为故障注入前的基线快照
+    description: "Pre-fault baseline snapshot"
+
+pre_fault_assertions:
+  - agent: quick
+    description: "No ports in err-disabled state before fault"
+    prompt: "sw-acc-a1 和 sw-acc-a2 有没有端口处于 err-disabled 状态？"
+    expect_contains: ["no errdisable", "正常"]
+    expect_not_contains: ["err-disabled", "errdisable"]
+
+# ── Step 2: Fault injection ───────────────────────────────────────────────────
+# run_session.py drives this via inject_fault() using ContainerLab link APIs
+fault:
+  type: l2_loop
+  method: containerlab_link
+  # Add a veth link between these two containers to create a loop
+  endpoints:
+    - container: sw-acc-a1
+      interface: e0/3
+    - container: sw-acc-a2
+      interface: e0/3
+  # Wait for STP to detect the loop (TCN floods typically within 1-2s)
+  wait_after_inject_seconds: 5
+
+# ── Step 3: Detect ────────────────────────────────────────────────────────────
+queries:
+  - agent: olav
+    prompt: >
+      从 sw-dist-a,sw-acc-a1,sw-acc-a2 采集 show spanning-tree detail 和
+      show interfaces status，检查是否有端口异常
+    description: "Post-fault STP and interface state"
+  - agent: olav
+    prompt: >
+      从 sw-acc-a1,sw-acc-a2 采集 show log 中最近的 STP/BPDU 相关日志
+    description: "Syslog evidence of loop detection"
+
+assertions:
+  - type: sql_count
+    description: "Post-fault data collected from affected switches"
+    query: >
+      SELECT COUNT(DISTINCT hostname) FROM netops.parsed_outputs
+      WHERE snapshot_id = '{run_id}'
+      AND hostname IN ('sw-acc-a1', 'sw-acc-a2')
+    operator: gte
+    expected: 2
+
+query_assertions:
+  - agent: olav
+    description: "OLAV identifies loop and blocked port"
+    prompt: >
+      当前 sw-acc-a1 和 sw-acc-a2 之间出现了 L2 环路，
+      请分析哪个端口被 STP block 了？还是触发了 BPDU guard？
+      请给出根因分析和修复建议
+    expect_contains: ["loop", "STP", "block"]
+    expect_not_contains: ["正常", "no issue", "exception"]
+
+  - agent: quick
+    description: "Detect the blocked or errdisable port"
+    prompt: "sw-acc-a1 和 sw-acc-a2 上有哪些端口当前处于 blocking 或 err-disabled 状态？"
+    expect_contains: ["e0/3"]
+    expect_not_contains: ["no blocked ports"]
+
+# ── Step 4: Recovery ──────────────────────────────────────────────────────────
+recover:
+  type: containerlab_link_remove
+  endpoints:
+    - container: sw-acc-a1
+      interface: e0/3
+    - container: sw-acc-a2
+      interface: e0/3
+  wait_after_recover_seconds: 10
+
+# ── Step 5: Verify recovery ───────────────────────────────────────────────────
+post_fault_queries:
+  - agent: olav
+    prompt: >
+      故障已解除，请重新采集 sw-acc-a1,sw-acc-a2 的 STP 状态，
+      确认已恢复到故障前的正常状态
+    description: "Post-recovery STP validation"
+
+post_fault_assertions:
+  - agent: olav
+    description: "STP converged back to normal after loop removal"
+    prompt: >
+      移除环路连接后，sw-acc-a1 和 sw-acc-a2 的 STP 状态是否已恢复正常？
+      是否还有端口处于 blocking 或 err-disabled 状态？
+    expect_contains: ["recovered", "forwarding", "normal", "恢复"]
+    expect_not_contains: ["blocking", "err-disabled", "topology change"]

@@ -4,6 +4,10 @@
 **日期**: 2026-03-17  
 **归属**: config agent → discovery 子 Agent
 
+> Phase 1 alignment note (2026-03-20): 本文档中的当前主链路术语以 `schema_catalog + semantic views` 为准。
+> 文中出现的 `schema_mappings`、`standard_name`、`v_unified_*` 仅表示历史兼容层或示例变量名，
+> 不再代表 authoritative runtime contract。
+
 ---
 
 ## 1. 背景与定位
@@ -43,7 +47,7 @@ TextFSM 模板的 header 在模板编写时就已确定，字段名由模板作�
 `_process_sync_stage2` 中实时跑向量分类会引入：
 
 - 延迟（单次采集需额外 N×embed 调用）
-- 不确定性（相同字段名每次可能得不同 `standard_name`）
+- 不确定性（相同字段名每次可能得不同 canonical 字段标签）
 - 错误放大（分类错误直接污染 `parsed_data` 写入）
 
 #### 真正需要解决的问题：NTC legacy 模板命名不一致
@@ -56,15 +60,15 @@ juniper    show bgp neighbor      → PEER_ADDRESS
 arista     show ip bgp neighbors  → PEER
 ```
 
-**解法**：一次性离线扫描，将结果固化为 `schema_mappings`，查询时通过 `v_unified_*` VIEW 做映射，
+**解法**：一次性离线扫描，将结果固化为 `schema_catalog` 兼容映射元数据，查询时通过 semantic views 做映射，
 完全绕开热路径。
 
 #### 两条路径对比
 
 | 路径 | 触发时机 | 写入目标 | 错误影响 |
 |:--|:--|:--|:--|
-| **在线分类**（本文档主路径）| 接入新 OpenAPI 系统时 | `schema_mappings` | 仅映射层，可回滚 |
-| **离线批量扫描**（TextFSM 专用）| `olav-netops init` / `olav workspace upgrade` | `schema_mappings` | 预生产验证，可回滚 |
+| **在线分类**（本文档主路径）| 接入新 OpenAPI 系统时 | `schema_catalog`（含 compatibility 标记） | 仅映射层，可回滚 |
+| **离线批量扫描**（TextFSM 专用）| `olav-netops init` / `olav workspace upgrade` | `schema_catalog`（含 compatibility 标记） | 预生产验证，可回滚 |
 
 #### TextFSM 字段与 LanceDB 的反向关系
 
@@ -76,9 +80,9 @@ olav-netops init
   ├─ 扫描所有 *.textfsm 模板 header（离线）
   ├─ 对每个 header 字段构建语义摘要
   ├─ 调用 schema_engine.classify_field()（批量、静默）
-  │    confidence > 0.85 → 写 schema_mappings（vendor/command/raw_key → standard_name）
+    │    confidence > 0.85 → 写 schema_catalog 兼容映射（vendor/command/raw_key → canonical_name）
   │    confidence < 0.85 → 写 pending（人工确认）
-  └─ 生成初始 v_unified_* VIEW（供跨厂商查询）
+    └─ 生成初始 semantic views（供跨厂商查询）
 ```
 
 新模板编写时，`classify_field()` 还可作为 **DX 辅助工具**（非强制）：在 `olav learn_cmd` 流程
@@ -122,10 +126,10 @@ olav-netops init
 │                                                                  │
 │  parsed_outputs (现有宽表)                                       │
 │  ├── parsed_data::JSON   ← 所有字段，含特殊字段                  │
-│  └── schema_mappings     ← 字段映射缓存 (vendor/command/raw_key) │
+│  └── schema_catalog      ← 字段语义目录 (含 compatibility 标记)   │
 │                                                                  │
-│  v_unified_{command} (动态 VIEW，由 create_unified_view 生成)    │
-│  └── CAST(parsed_data->>'raw_field' AS TYPE) AS standard_name   │
+│  semantic views (动态 VIEW，由 create_unified_view 生成)         │
+│  └── CAST(parsed_data->>'raw_field' AS TYPE) AS canonical_name  │
 └──────────────────────────────────────────────────────────────────┘
                                    │ 定时触发
                                    ▼
@@ -264,7 +268,7 @@ WHERE command = '{command}'
 
 ### 3.5 演进层流程
 
-> **D3**：`evolution_pool`、`schema_mappings`、`pending_schema_evolutions` 均写入
+> **D3**：`evolution_pool`、`schema_catalog`（兼容映射列）、`pending_schema_evolutions` 均写入
 > `.olav/databases/domain.duckdb` 的平台/域 schema，**不得混入** `audit.duckdb`（审计专用）。
 
 > **D2**：演进层用 `sklearn.cluster.OPTICS` 替代 `hdbscan` 包，避免额外依赖；

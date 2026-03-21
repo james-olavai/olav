@@ -125,7 +125,7 @@ def rebuild_run_timeline(
     # --- Messages (ordered by sequence_no) ---
     msg_rows = conn.execute(
         """
-        SELECT message_id, run_id, timestamp, sequence_no, role, content, tool_call_id
+        SELECT message_id, run_id, timestamp, sequence_no, role, content, tool_call_id, tool_calls
         FROM audit_messages
         WHERE run_id = ?
         ORDER BY COALESCE(sequence_no, 0) ASC, timestamp ASC
@@ -140,6 +140,7 @@ def rebuild_run_timeline(
         "role",
         "content",
         "tool_call_id",
+        "tool_calls",
     ]
     messages = [dict(zip(msg_cols, r, strict=True)) for r in msg_rows]
 
@@ -645,17 +646,84 @@ def audit_to_sft_jsonl(
                 rejected_runs.append({"run_id": run_id, "reasons": reasons})
                 continue
 
-            # Build SFT sample: only system/user/assistant messages
+            # --- Quality gates on raw message content before building SFT ---
+
+            # Gate: reject runs where agent only used filesystem tools (ls/glob)
+            # for what looks like a network/device query — wrong agent captured.
+            _fs_only_tools = {"ls", "glob", "cat", "find", "read_file"}
+            all_tool_names: set[str] = set()
+            for msg in redacted["messages"]:
+                if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                    raw_tc = msg["tool_calls"]
+                    if isinstance(raw_tc, str):
+                        try:
+                            raw_tc = json.loads(raw_tc)
+                        except Exception:
+                            raw_tc = []
+                    for tc in raw_tc if isinstance(raw_tc, list) else []:
+                        fn = tc.get("function", {}).get("name", "") if isinstance(tc, dict) else ""
+                        if fn:
+                            all_tool_names.add(fn)
+            if all_tool_names and all_tool_names.issubset(_fs_only_tools):
+                rejected_runs.append({"run_id": run_id, "reasons": ["filesystem_only_tools"]})
+                continue
+
+            # Gate: reject runs where >50% of tool results are failures — noisy
+            # retry loops teach the model bad patterns.
+            tool_msgs = [m for m in redacted["messages"] if m.get("role") == "tool"]
+            if tool_msgs:
+                fail_count = 0
+                for m in tool_msgs:
+                    try:
+                        parsed = json.loads(m.get("content", "{}"))
+                        if isinstance(parsed, dict) and parsed.get("status") in (
+                            "failed", "error", "no_results"
+                        ):
+                            fail_count += 1
+                    except Exception:
+                        pass
+                if len(tool_msgs) > 0 and fail_count / len(tool_msgs) > 0.5:
+                    rejected_runs.append({
+                        "run_id": run_id,
+                        "reasons": [f"high_failure_rate:{fail_count}/{len(tool_msgs)}"],
+                    })
+                    continue
+
+            # Gate: reject conversations that ended without a final assistant response
+            # (e.g. runs interrupted mid-flight leave a dangling tool message at the end)
+            has_final_asst = any(
+                m.get("role") == "assistant" and not m.get("tool_calls")
+                for m in redacted["messages"]
+            )
+            if not has_final_asst:
+                rejected_runs.append({"run_id": run_id, "reasons": ["no_final_assistant_response"]})
+                continue
+
+            # Build SFT sample: system/user/assistant/tool messages (OpenAI format)
             sft_messages = []
             for msg in redacted["messages"]:
                 role = msg.get("role", "")
-                if role in ("system", "user", "assistant"):
-                    sft_messages.append(
-                        {
-                            "role": role,
-                            "content": msg.get("content", ""),
-                        }
-                    )
+                if role in ("system", "user", "assistant", "tool"):
+                    # Strip schema_context from tool results — it's a 15KB boilerplate
+                    # repeated every call; the model already has it in the system prompt.
+                    content = msg.get("content", "")
+                    if role == "tool" and content:
+                        try:
+                            parsed_content = json.loads(content)
+                            if isinstance(parsed_content, dict) and "schema_context" in parsed_content:
+                                parsed_content.pop("schema_context")
+                                content = json.dumps(parsed_content, ensure_ascii=False)
+                        except Exception:
+                            pass  # not JSON, leave as-is
+                    entry: dict[str, Any] = {
+                        "role": role,
+                        "content": content,
+                    }
+                    if role == "assistant" and msg.get("tool_calls"):
+                        entry["tool_calls"] = msg["tool_calls"]
+                    if role == "tool" and msg.get("tool_call_id"):
+                        entry["tool_call_id"] = msg["tool_call_id"]
+                    sft_messages.append(entry)
 
             if not sft_messages:
                 rejected_runs.append({"run_id": run_id, "reasons": ["no_exportable_messages"]})
@@ -796,6 +864,7 @@ def _build_atif_spans(
 ) -> list[dict[str, Any]]:
     messages = timeline.get("messages", [])
     tool_calls = timeline.get("tool_calls", [])
+    events = timeline.get("events", [])
 
     spans: list[dict[str, Any]] = []
     tc_queue = list(tool_calls)
@@ -835,6 +904,12 @@ def _build_atif_spans(
                 "input": tc.get("input_args") or {},
             }
         )
+
+    reasoning_blocks = _extract_reasoning_blocks(events)
+    thinking_spans = [
+        {"name": "thinking", "type": "thinking", "content": block} for block in reasoning_blocks
+    ]
+    spans = thinking_spans + spans
 
     return spans
 
@@ -1014,6 +1089,36 @@ def _compute_dedup_fingerprint(
 
 
 # =========================================================================
+# 6b. Reasoning Block Extraction
+# =========================================================================
+
+
+def _extract_reasoning_blocks(events: list[dict[str, Any]]) -> list[str]:
+    """Concatenate adjacent reasoning_block event tokens into thinking blocks."""
+    blocks: list[str] = []
+    current: list[str] = []
+    for ev in events:
+        if ev.get("event_type") != "reasoning_block":
+            if current:
+                blocks.append("".join(current))
+                current = []
+            continue
+        payload = ev.get("payload")
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
+        if isinstance(payload, dict):
+            token = payload.get("token", "")
+            if token:
+                current.append(token)
+    if current:
+        blocks.append("".join(current))
+    return blocks
+
+
+# =========================================================================
 # 7. Tool Trajectory Export
 # =========================================================================
 
@@ -1028,6 +1133,7 @@ def _build_trajectory_steps(
     """
     messages = timeline.get("messages", [])
     tool_calls = timeline.get("tool_calls", [])
+    events = timeline.get("events", [])
 
     steps: list[dict[str, Any]] = []
     is_valid = True
@@ -1088,6 +1194,10 @@ def _build_trajectory_steps(
         if steps[i]["type"] == "assistant_reasoning":
             steps[i] = {"type": "assistant_final", "content": steps[i]["content"]}
             break
+
+    reasoning_blocks = _extract_reasoning_blocks(events)
+    thinking_steps = [{"type": "thinking", "content": block} for block in reasoning_blocks]
+    steps = thinking_steps + steps
 
     return steps, is_valid
 
@@ -1449,6 +1559,54 @@ def _extract_tool_results(sample: dict[str, Any]) -> list[str]:
     return results
 
 
+def _extract_tool_calls_rich(sample: dict[str, Any]) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    if "trajectory" in sample:
+        pending: dict[str, dict[str, Any]] = {}
+        for step in sample["trajectory"]:
+            if step.get("type") == "tool_call":
+                tool_name = step.get("tool", "unknown")
+                args = step.get("args", {})
+                input_str = json.dumps(args) if isinstance(args, dict) else str(args)
+                entry = {"tool": tool_name, "input": input_str, "output": ""}
+                pending[tool_name] = entry
+                results.append(entry)
+            elif step.get("type") == "tool_result":
+                content = step.get("content", "")
+                if pending:
+                    last_key = next(reversed(pending))
+                    pending[last_key]["output"] = content
+                    del pending[last_key]
+    else:
+        # Build a lookup of tool results by tool_call_id from role="tool" messages.
+        tool_results_by_id: dict[str, str] = {}
+        for msg in sample.get("messages", []):
+            if msg.get("role") == "tool" and msg.get("tool_call_id"):
+                tool_results_by_id[msg["tool_call_id"]] = msg.get("content", "")
+
+        for msg in sample.get("messages", []):
+            role = msg.get("role", "")
+            if role == "assistant" and msg.get("tool_calls"):
+                # Parse tool_calls: may be a JSON string or already a list.
+                raw_tc = msg["tool_calls"]
+                if isinstance(raw_tc, str):
+                    try:
+                        raw_tc = json.loads(raw_tc)
+                    except Exception:
+                        raw_tc = []
+                for tc in raw_tc if isinstance(raw_tc, list) else []:
+                    func = tc.get("function", {}) if isinstance(tc, dict) else {}
+                    tool_name = func.get("name", "unknown")
+                    args_str = func.get("arguments", "")
+                    call_id = tc.get("id", "") if isinstance(tc, dict) else ""
+                    output = tool_results_by_id.get(call_id, "")
+                    results.append({"tool": tool_name, "input": args_str, "output": output})
+            elif role == "tool" and not msg.get("tool_call_id"):
+                # Fallback: bare tool message with no linking id
+                results.append({"tool": "unknown", "input": "", "output": msg.get("content", "")})
+    return results
+
+
 def _score_completeness(user_text: str, assistant_text: str, sample: dict[str, Any]) -> float:
     if not user_text.strip():
         return 0.0
@@ -1567,11 +1725,157 @@ def _score_tool_consistency(assistant_text: str, tool_results: list[str]) -> flo
     return min(max(ratio, 0.0), 1.0)
 
 
+def _score_tool_selection_relevance(user_text: str, tool_results: list[dict[str, Any]]) -> float:
+    if not tool_results:
+        return 0.0
+
+    user_lower = user_text.lower()
+    _token_re = re.compile(r"[a-z0-9]+")
+    user_tokens = set(_token_re.findall(user_lower))
+    stopwords = {
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "and",
+        "or",
+        "not",
+        "it",
+        "this",
+        "that",
+        "with",
+        "show",
+        "me",
+        "get",
+        "find",
+        "list",
+        "all",
+        "from",
+    }
+    user_tokens -= stopwords
+
+    num_tools = len(tool_results)
+    if num_tools > 10:
+        excess_penalty = 0.5
+    elif num_tools > 5:
+        excess_penalty = 0.8
+    else:
+        excess_penalty = 1.0
+
+    if not user_tokens:
+        return min(0.3 * excess_penalty, 1.0)
+
+    relevance_scores: list[float] = []
+    for tr in tool_results:
+        tool_name = tr.get("tool", "").lower()
+        tool_input = tr.get("input", "").lower()
+        tool_tokens = set(_token_re.findall(tool_name + " " + tool_input))
+        tool_tokens -= stopwords
+        if not tool_tokens:
+            relevance_scores.append(0.1)
+            continue
+        overlap = user_tokens & tool_tokens
+        relevance_scores.append(len(overlap) / max(len(user_tokens), 1))
+
+    avg_relevance = sum(relevance_scores) / max(len(relevance_scores), 1)
+    return min(max(avg_relevance * excess_penalty, 0.0), 1.0)
+
+
+def _score_parameter_quality(tool_results: list[dict[str, Any]]) -> float:
+    if not tool_results:
+        return 1.0
+
+    scores: list[float] = []
+    for tr in tool_results:
+        inp = str(tr.get("input", "")).strip()
+        if not inp:
+            scores.append(0.1)
+            continue
+        score = 0.4
+        if len(inp) >= 5:
+            score += 0.3
+        if len(inp) >= 2:
+            score += 0.1
+        if inp.startswith("{") or inp.startswith("[") or "=" in inp or "SELECT" in inp.upper():
+            score += 0.2
+        scores.append(min(score, 1.0))
+
+    return sum(scores) / max(len(scores), 1)
+
+
+def _score_output_usage(assistant_text: str, tool_results: list[dict[str, Any]]) -> float:
+    if not tool_results:
+        return 1.0
+    if not assistant_text.strip():
+        return 0.0
+
+    _token_re = re.compile(r"[a-z0-9]+")
+    assistant_lower = assistant_text.lower()
+    assistant_tokens = set(_token_re.findall(assistant_lower))
+    stopwords = {
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "and",
+        "or",
+        "not",
+        "it",
+        "this",
+        "that",
+        "with",
+        "i",
+        "can",
+        "cannot",
+        "help",
+        "request",
+    }
+    assistant_tokens -= stopwords
+
+    combined_output = " ".join(str(tr.get("output", "")) for tr in tool_results).lower()
+    output_tokens = set(_token_re.findall(combined_output))
+    output_tokens -= stopwords
+
+    if not output_tokens:
+        return 0.5
+
+    overlap = output_tokens & assistant_tokens
+    ratio = len(overlap) / len(output_tokens)
+
+    numbers_in_output = set(re.findall(r"\d+", combined_output))
+    numbers_in_assistant = set(re.findall(r"\d+", assistant_lower))
+    if numbers_in_output and not (numbers_in_output & numbers_in_assistant):
+        ratio *= 0.5
+
+    return min(max(ratio, 0.0), 1.0)
+
+
 _RULE_WEIGHTS = {
-    "completeness": 0.25,
-    "tool_consistency": 0.25,
-    "query_specificity": 0.25,
-    "analysis_value": 0.25,
+    "completeness": 0.20,
+    "tool_consistency": 0.15,
+    "query_specificity": 0.15,
+    "analysis_value": 0.15,
+    "tool_selection_relevance": 0.15,
+    "parameter_quality": 0.10,
+    "output_usage": 0.10,
 }
 
 
@@ -1579,12 +1883,18 @@ def compute_rule_score(sample: dict[str, Any]) -> dict[str, Any]:
     user_text = _extract_user_text(sample)
     assistant_text = _extract_assistant_text(sample)
     tool_results = _extract_tool_results(sample)
+    tool_calls_rich = _extract_tool_calls_rich(sample)
 
     components = {
         "completeness": float(_score_completeness(user_text, assistant_text, sample)),
         "tool_consistency": float(_score_tool_consistency(assistant_text, tool_results)),
         "query_specificity": float(_score_query_specificity(user_text)),
         "analysis_value": float(_score_analysis_value(assistant_text)),
+        "tool_selection_relevance": float(
+            _score_tool_selection_relevance(user_text, tool_calls_rich)
+        ),
+        "parameter_quality": float(_score_parameter_quality(tool_calls_rich)),
+        "output_usage": float(_score_output_usage(assistant_text, tool_calls_rich)),
     }
 
     rule_score = sum(components[k] * _RULE_WEIGHTS[k] for k in components)

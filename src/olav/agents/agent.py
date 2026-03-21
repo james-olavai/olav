@@ -410,6 +410,8 @@ class OLAVAgent:
                 prompt = _resolve_env_ref(prompt)
             except RuntimeError as e:
                 logger.warning(f"Failed to resolve env vars in prompt: {e}")
+            # Inject static_context references declared in AGENT.md frontmatter
+            prompt = _inject_static_context(prompt, self._agent_dir, olav_config)
             logger.info(f"Loaded system prompt from {prompt_file}")
             return prompt
 

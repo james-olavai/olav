@@ -267,6 +267,10 @@ class PathsConfig:
         return self._data.get("logs_dir", ".olav/logs")
 
     @property
+    def templates_dir(self) -> str:
+        return self._data.get("templates_dir", ".olav/templates")
+
+    @property
     def audit_profiles_dir(self) -> str:
         audit = self._data.get("audit", {})
         return self._loader._env_override(
@@ -295,6 +299,23 @@ class PathsConfig:
     @property
     def config_dir(self) -> str:
         return self._data.get("config_dir", ".olav/config")
+
+    @property
+    def backup_dir(self) -> str:
+        return self._data.get("backup_dir", "exports/backup")
+
+    @property
+    def tmp_snapshots_dir(self) -> str:
+        return self._data.get("tmp_snapshots_dir", "tmp/snapshots")
+
+    @property
+    def tmp_staging_dir(self) -> str:
+        return self._data.get("tmp_staging_dir", "tmp/staging")
+
+    @property
+    def snapshots_staging_json(self) -> str:
+        snapshots = self._data.get("snapshots", {})
+        return snapshots.get("staging_json", "exports/snapshots/json")
 
     @property
     def main_db(self) -> str:
@@ -671,6 +692,7 @@ AGENT_OUTPUTS_DIR = _path_resolver.resolve(
     "AGENT_OUTPUTS_DIR"
 )  # Agent output files (reports, diagrams)
 LOGS_DIR = _path_resolver.resolve("LOGS_DIR")
+TEXTFSM_TEMPLATES_DIR = _PROJECT_ROOT / get_paths_config().templates_dir
 KNOWLEDGE_BASE_DIR = _path_resolver.resolve("KNOWLEDGE_BASE_DIR")
 WORKSPACE_DIR = _path_resolver.resolve("WORKSPACE_DIR")
 CONFIG_DIR = _path_resolver.resolve("CONFIG_DIR")
@@ -680,7 +702,13 @@ SKILL_BASE_PATH = WORKSPACE_DIR
 UNIFIED_DB = MAIN_DB_PATH  # Legacy alias
 UNIFIED_DB = MAIN_DB_PATH  # Legacy alias
 DOMAIN_DB_PATH = MAIN_DB_PATH  # Preferred name: domain-scoped unified DB
-SNAPSHOTS_DIR = EXPORTS_DIR / "snapshots"  # Default snapshot staging root (used by calculate_diffs)
+SNAPSHOTS_DIR = EXPORTS_DIR / "snapshots"  # Legacy: kept for backward compat
+BACKUP_DIR = EXPORTS_DIR / "backup"
+TMP_SNAPSHOTS_DIR = _PROJECT_ROOT / get_paths_config().tmp_snapshots_dir
+TMP_STAGING_DIR = _PROJECT_ROOT / get_paths_config().tmp_staging_dir
+SNAPSHOTS_STAGING_JSON = _PROJECT_ROOT / get_paths_config().snapshots_staging_json
+NORNIR_CONFIG_PATH = CONFIG_DIR / "nornir" / "config.yaml"
+NETWORK_DB_PATH = MAIN_DB_PATH
 
 # User-local paths (from old config.paths)
 try:
@@ -731,6 +759,7 @@ __all__ = [
     "DATABASES_DIR",
     "EXPORTS_DIR",
     "LOGS_DIR",
+    "TEXTFSM_TEMPLATES_DIR",
     "KNOWLEDGE_BASE_DIR",
     "WORKSPACE_DIR",
     "CONFIG_DIR",
@@ -739,6 +768,12 @@ __all__ = [
     "SKILL_BASE_PATH",
     "UNIFIED_DB",
     "SNAPSHOTS_DIR",
+    "BACKUP_DIR",
+    "TMP_SNAPSHOTS_DIR",
+    "TMP_STAGING_DIR",
+    "SNAPSHOTS_STAGING_JSON",
+    "NORNIR_CONFIG_PATH",
+    "NETWORK_DB_PATH",
     "USER_SESSION_DIR",
     "GUARD_WHITELIST_PATH",
     "LOG_STORAGE_DIR",

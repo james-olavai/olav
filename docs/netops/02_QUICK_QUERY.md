@@ -412,12 +412,45 @@ cd /path/to/nornir/tasks && nornir_cli ...
 
 ---
 
+## � Schema Auto-Sync
+
+`SCHEMA_REFERENCE.md` is the authoritative column-name reference injected into every query agent system prompt. After each snapshot collection (`IngestManager.bulk_load()`), OLAV **automatically regenerates** the schema table from live `information_schema.columns` — so the reference always reflects the actual database, preventing `Binder Error: Referenced column not found` failures.
+
+### How It Works
+
+```
+Device snapshot collected
+    │
+    ▼
+IngestManager.bulk_load()
+    │
+    └─ post_ingest_hooks ──► sync_schema_reference()
+                                    │
+                                    ▼
+                 .olav/workspace/quick/references/SCHEMA_REFERENCE.md
+                 (Core Table & View Schema section regenerated)
+```
+
+### Manual Trigger
+
+```bash
+# Force a schema reference sync at any time
+olav --agent config "sync schema reference"
+
+# Or run directly
+python .olav/workspace/config/discovery/tools/sync_schema_reference.py
+```
+
+The tool is **idempotent** — if column names haven't changed it returns `status=up_to_date` without modifying the file.
+
+---
+
 ## 📞 Getting Help
 
 ### Online Resources
 - 📖 Complete Documentation: `README.md`
 - 🔧 Configuration Reference: `01_CONFIGURATION.md`
-- 📊 Database Schema: `.olav/workspace/quick/references/SCHEMA_REFERENCE.md`
+- 📊 Database Schema: `.olav/workspace/quick/references/SCHEMA_REFERENCE.md` *(auto-synced after each snapshot)*
 
 ### Troubleshooting
 1. View logs: `.olav/logs/users/<username>.log`
