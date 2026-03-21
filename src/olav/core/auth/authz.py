@@ -5,6 +5,18 @@ Design reference: dev_docs/olav_aaa.md §D4, §D6, §7.1
 Three fixed roles: ``admin``, ``user``, ``readonly``.
 Four actions:     ``use``, ``mutate``, ``install``, ``admin``.
 
+Runtime SSOT
+------------
+:data:`DEFAULT_PERMISSIONS` is the **authoritative runtime source-of-truth** for RBAC
+decisions.  The ``role_skill_permissions`` table in the project DuckDB database is only
+a migration/seed artefact — it records the same baseline policy but is **not** consulted
+at runtime by :func:`check_permission` or :func:`require_permission`.
+
+This distinction matters for the planned ``olav-core`` / ``olav-ent`` repo split:
+``DEFAULT_PERMISSIONS`` lives in pure Python and has no DB dependency, making it safe
+to vendor into an independent package.  Any future dynamic/per-tenant overrides should
+be loaded into a custom ``rules`` list and passed explicitly to the auth functions.
+
 Matching priority (most-specific first):
     1. Exact agent_id + exact skill_name + exact action
     2. Exact agent_id + wildcard skill  + exact action
@@ -69,9 +81,13 @@ class AuthorizationError(Exception):
 
 # ── Default Permission Matrix ─────────────────────────────────────────────────
 #
+# Runtime SSOT: this list is the authoritative source for all check_permission()
+# and require_permission() calls at runtime.  The DB table role_skill_permissions
+# is a migration/seed snapshot only — it is NOT consulted at runtime.
+#
 # Baseline policy per olav_aaa.md §7.1:
-#   admin   — full access (wildcard)
-#   user    — use all, mutate all, but NO install/admin on workspace
+#   admin    — full access (wildcard)
+#   user     — use all, mutate all, but NO install/admin on workspace
 #   readonly — use only, everything else denied
 #
 # Rule ordering is irrelevant for matching — specificity wins.
@@ -79,17 +95,25 @@ class AuthorizationError(Exception):
 DEFAULT_PERMISSIONS: list[PermissionRule] = [
     # ── admin: everything allowed ─────────────────────────────────────────
     PermissionRule(role="admin", agent_id="*", skill_name="*", action="*", is_allowed=True),
-    # ── user: use + mutate allowed, install/admin denied on workspace ─────
+    # ── user: use + mutate + read + submit-write allowed; install/admin/approve-write denied on workspace ─────
     PermissionRule(role="user", agent_id="*", skill_name="*", action="use", is_allowed=True),
     PermissionRule(role="user", agent_id="*", skill_name="*", action="mutate", is_allowed=True),
+    PermissionRule(role="user", agent_id="*", skill_name="*", action="read", is_allowed=True),
+    PermissionRule(
+        role="user", agent_id="*", skill_name="*", action="submit-write", is_allowed=True
+    ),
+    PermissionRule(
+        role="user", agent_id="*", skill_name="*", action="approve-write", is_allowed=False
+    ),
     PermissionRule(
         role="user", agent_id="workspace", skill_name="*", action="install", is_allowed=False
     ),
     PermissionRule(
         role="user", agent_id="workspace", skill_name="*", action="admin", is_allowed=False
     ),
-    # ── readonly: use allowed, everything else denied ─────────────────────
+    # ── readonly: use + read allowed; everything else denied ─────────────────────
     PermissionRule(role="readonly", agent_id="*", skill_name="*", action="use", is_allowed=True),
+    PermissionRule(role="readonly", agent_id="*", skill_name="*", action="read", is_allowed=True),
     PermissionRule(
         role="readonly", agent_id="*", skill_name="*", action="mutate", is_allowed=False
     ),
@@ -97,6 +121,12 @@ DEFAULT_PERMISSIONS: list[PermissionRule] = [
         role="readonly", agent_id="*", skill_name="*", action="install", is_allowed=False
     ),
     PermissionRule(role="readonly", agent_id="*", skill_name="*", action="admin", is_allowed=False),
+    PermissionRule(
+        role="readonly", agent_id="*", skill_name="*", action="submit-write", is_allowed=False
+    ),
+    PermissionRule(
+        role="readonly", agent_id="*", skill_name="*", action="approve-write", is_allowed=False
+    ),
 ]
 
 

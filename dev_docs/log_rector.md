@@ -1,8 +1,16 @@
 # OLAV 全流程审计日志改造方案
 
-更新日期: 2026-03-15
-状态: 方案设计，未实施
+更新日期: 2026-03-18
+状态: ⚠️ 部分实施（事件模型与导出器已完成，真实运行采集闭环仍未完成）
+实现: `src/olav/core/audit_recorder.py`, `src/olav/plugins/callbacks/audit.py`
 范围: CLI, Web API, LangGraph/DeepAgents 执行链, 审计存储, `olav log` 查询面, 企业版脱敏与数据集导出
+
+> 2026-03-18 复核摘要：
+>
+> - `audit_events` 已成为主事实层
+> - callback 已能写 `tool_call_completed` / `tool_call_failed` 和 `reasoning_block`
+> - 但真实 `.olav/databases/audit.duckdb` 当前仅有 `1 tool_call / 2 messages / 0 reasoning_block`
+> - 因此审计系统目前适合“事件审计”，尚不满足“稳定训练集采集闭环”宣称
 
 ## 1. 背景
 
@@ -77,9 +85,13 @@ deepagents-cli 的执行循环已经可以拿到：
 
 但当前这些信息只用于交互执行，不落审计日志。
 
-### 2.5 reasoning 当前被识别但未沉淀
+### 2.5 reasoning 当前被识别但仅部分沉淀
 
-执行层可识别 `reasoning` block，但目前基本只影响终端显示，不写入结构化日志。
+执行层现在已经可以把 provider 暴露出的 `thinking` / `redacted_thinking` chunk 记录为结构化事件 `reasoning_block`，但这仍然只是**部分沉淀**：
+
+- 只记录 provider 对外暴露的 reasoning artifact
+- 不等于可获取完整隐藏 CoT
+- 当前真实库复核仍为 0 条 `reasoning_block`，说明该能力尚未在真实链路中稳定验证
 
 注意：
 
@@ -142,6 +154,13 @@ deepagents-cli 的执行循环已经可以拿到：
 4. 不把“底层文件不容易找到”当作真正的安全边界。
 
 ## 4. 总体设计
+
+> **审计路径统一状态**：`AuditEventRecorder` + `.olav/databases/audit.duckdb` 已作为 SSOT 实施。以下旧路径待清理：
+>
+> - [ ] 移除 `audit_logger.py` 中向 `~/.olav/history/` 写入的逻辑
+> - [ ] 移除 `.olav/logs/users/*.log` 生成代码
+> - [ ] 清理 `config.py` 中 `USER_HISTORY_DIR` 相关引用（如已无消费方）
+> - [ ] 确认 `AGENTS.md` §4 已更新（✅ 已完成）
 
 建议把当前的 `audit_logger` 升级为统一的 `audit trace recorder`。
 

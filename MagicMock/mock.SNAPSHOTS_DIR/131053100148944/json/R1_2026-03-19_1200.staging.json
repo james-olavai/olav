@@ -1,0 +1,1 @@
+[{"device_name": "R1", "command": "gnmi_bgp", "parsed_data": {"openconfig-bgp": {"bgp": {"notification": []}}}, "snapshot_id": "2026-03-19_1200", "raw_output": "{\"openconfig-bgp\": {\"bgp\": {\"notification\": []}}}"}]

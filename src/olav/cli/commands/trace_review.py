@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 def _get_default_audit_db() -> Path:
     try:
         from olav.core.config import DATABASES_DIR
+
         return DATABASES_DIR / "audit.duckdb"
     except Exception:
         return Path.cwd() / ".olav" / "databases" / "audit.duckdb"
@@ -53,16 +54,21 @@ def _handle_trace_review(
     """
     db_path = db_path or _get_default_audit_db()
 
-    # Resolve trace_learner._run_learn_cycle — handles its own sys.path
-    # src/olav/cli/commands/ → src/olav/cli/ → src/olav/ → src/ → project_root
     _project_root = Path(__file__).resolve().parent.parent.parent.parent.parent
-    _sync_tools = _project_root / ".olav" / "workspace" / "config" / "sync" / "tools"
-    if _sync_tools.exists() and str(_sync_tools) not in sys.path:
+    _candidates = [
+        _project_root / "olav-netops" / ".olav" / "workspace" / "config" / "sync" / "tools",
+        _project_root / ".olav" / "workspace" / "config" / "sync" / "tools",
+    ]
+    _sync_tools = next((c for c in _candidates if c.exists()), None)
+    if _sync_tools is not None and str(_sync_tools) not in sys.path:
         sys.path.insert(0, str(_sync_tools))
 
     try:
         import importlib.util as _ilu
-        _tl_path = _sync_tools / "trace_learner.py"
+
+        _tl_path = (
+            _sync_tools / "trace_learner.py" if _sync_tools else _candidates[0] / "trace_learner.py"
+        )
         if not _tl_path.exists():
             return {
                 "status": "error",

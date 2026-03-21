@@ -1,0 +1,18 @@
+suite: L2_access
+description: >
+  Access layer L2 validation: STP convergence, BPDU guard, VLAN isolation.
+  Must run BEFORE L3_routing (routing depends on L2 being stable).
+depends_on_session: enterprise_dual_site
+layer: L2
+
+# Pre-condition check — OLAV verifies these before running any test
+precondition_queries:
+  - agent: quick
+    prompt: "sw-dist-a 和 sw-dist-b 的 STP 状态是否已同步？"
+    expect_contains: ["root"]
+    description: "Distribution switches must be elected root before L2 tests"
+
+test_cases:
+  - stp_convergence.yaml
+  - bpdu_guard.yaml
+  - loop_detection.yaml

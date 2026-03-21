@@ -43,7 +43,6 @@ def run_migrate(db_path: str = ".olav/databases/main.duckdb") -> int:
         Exit code (0 = success).
     """
     import duckdb
-
     from olav_netops.migrations.v0_12_schema_split import migrate
 
     resolved = Path(db_path).resolve()

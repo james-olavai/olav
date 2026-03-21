@@ -487,6 +487,38 @@ olav --agent config "Test connectivity to all devices"
 
 ---
 
+## Schema 自动同步
+
+每次 `IngestManager.bulk_load()` 成功完成后，OLAV 通过 `post_ingest_hooks` 自动调用 `sync_schema_reference`，从 `information_schema.columns` 重新生成 `.olav/workspace/quick/references/SCHEMA_REFERENCE.md` 的 *Core Table & View Schema* 章节。
+
+**为什么重要**：Schema 参考文档会直接注入每个查询 Agent 的系统提示词。列名过时会导致 `Binder Error` 失败，并降低 SFT 训练数据质量（相关 run 会被 `high_failure_rate` 质量门拒绝）。
+
+### 触发方式
+
+| 触发方式 | 时机 |
+|---------|------|
+| 自动触发 | 每次 `IngestManager.bulk_load()`（快照入库）完成后 |
+| Config Agent 手动触发 | `olav --agent config "sync schema reference"` |
+| 命令行手动触发 | `python .olav/workspace/config/discovery/tools/sync_schema_reference.py` |
+
+### 扩展到自定义 Schema 参考
+
+```python
+from olav.core.ingest_manager import IngestManager
+from .discovery.tools.sync_schema_reference import main as _sync_ref
+
+mgr = IngestManager(
+    db_path=DB_PATH,
+    staging_dir=STAGING_DIR,
+    post_ingest_hooks=[
+        lambda _: _sync_ref({}),                              # 默认 quick agent
+        lambda _: _sync_ref({"schema_ref_path": "/path/to/custom/SCHEMA.md"}),  # 自定义
+    ],
+)
+```
+
+---
+
 ## 技巧
 
 - **先测试再应用** — 对敏感配置，总是先在测试环境尝试
@@ -497,4 +529,4 @@ olav --agent config "Test connectivity to all devices"
 
 ---
 
-**最后更新：2026年3月6日**
+**最后更新：2026年3月18日**

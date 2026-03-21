@@ -12,8 +12,9 @@ A truly agentic system must do more than answer questions. It must:
 2. **Reason** — analyze patterns across multiple runs
 3. **Learn** — extract reusable constraints from failures
 4. **Adapt** — inject learned constraints into future reasoning
+5. **Heal** — automatically repair structural drift between the live DB schema and agent knowledge
 
-OLAV implements all four. The architecture below shows how they connect:
+OLAV implements all five. The architecture below shows how they connect:
 
 ```
 User Query
@@ -58,7 +59,7 @@ Agent Execution (deepagents framework)
 
 ---
 
-## 🔁 The Four Agentic Layers
+## 🔁 The Five Agentic Layers
 
 ### Layer 1 — Observation: Audit Trace Collection
 
@@ -162,6 +163,49 @@ This means **the agent becomes measurably smarter after each failure** — witho
 
 ---
 
+### Layer 5 — Self-Repair: Schema Integrity Sync
+
+Layers 1–4 improve *behavioral* accuracy by learning from failures. Layer 5 addresses a different class of drift: **structural mismatch** between what the database actually contains and what the agent *believes* it contains.
+
+**The problem**: `SCHEMA_REFERENCE.md` is injected into every query agent system prompt as the authoritative column-name reference. If this file contains stale column names (e.g., `management_ip` instead of the actual `mgmt_ip`), the agent will generate invalid SQL — causing `Binder Error: Referenced column not found` failures that degrade query success rate and pollute the SFT training dataset.
+
+**The solution**: Two complementary self-repair mechanisms run automatically:
+
+#### 5a — Post-Ingest Schema Sync
+
+```
+IngestManager.bulk_load()    ← every snapshot collection
+    │
+    └─ post_ingest_hooks ──▶ sync_schema_reference()
+                                    │
+                                    ▼
+        .olav/workspace/quick/references/SCHEMA_REFERENCE.md
+        (Core Table & View Schema section regenerated from
+         information_schema.columns — idempotent, atomic write)
+                                    │
+                                    ▼
+              injected into agent system prompt on next invocation
+              → correct column names → SQL queries succeed first-time
+```
+
+`sync_schema_reference` preserves all human-authored sections (SQL examples, Common Mistakes table, Fallback Rule) — only the auto-generated schema table is replaced.
+
+#### 5b — Workspace Structural Health Check
+
+`audit_workspace` (callable by the Config Agent) performs five structural checks across every agent workspace:
+
+| Check | What It Catches |
+|---|---|
+| Python syntax errors | Tool files that won't import |
+| `@tool` name collisions | Two tools with the same registered name |
+| Declared vs. discovered drift | SKILL.md lists a tool that has no `@tool` function |
+| Missing `prompts/system.md` | Agent has no system prompt file |
+| Broken `static_context:` paths | AGENT.md references a file that doesn't exist |
+
+Both mechanisms are **passive** (triggered automatically) and **observable** (results logged and returned as structured JSON for the agent to act on).
+
+---
+
 ## 🛠️ Interactive Agentic Commands
 
 ### `/trace-review` — On-Demand Learning
@@ -257,6 +301,9 @@ ORDER BY timestamp DESC LIMIT 20;
 | NetOps bootstrap cron registration | `olav-netops/scripts/netops_init.py` | ✅ Complete |
 | `/trace-review` slash command | `cli/main.py` + `cli/commands/trace_review.py` | ✅ Complete |
 | `analyze_logs` querying `audit.duckdb` | `config/system/tools/analyze_logs.py` | ✅ Complete |
+| `sync_schema_reference` post-ingest schema sync | `config/discovery/tools/sync_schema_reference.py` | ✅ Complete |
+| `IngestManager.post_ingest_hooks` trigger mechanism | `src/olav/core/ingest_manager.py` | ✅ Complete |
+| `audit_workspace` structural health checks | `config/system/tools/audit_workspace.py` | ✅ Complete |
 | User feedback rating `feedback` (1-5) | CLI / API endpoint | ⬜ Planned |
 
 ---
@@ -273,3 +320,6 @@ ORDER BY timestamp DESC LIMIT 20;
 | `src/olav/cli/commands/trace_review.py` | `/trace-review` command logic |
 | `olav-netops/scripts/netops_init.py` | Cron registration for `trace_learner` |
 | `.olav/databases/audit.duckdb` | Append-only trace store (SSOT) |
+| `src/olav/core/ingest_manager.py` | `post_ingest_hooks` trigger point (Layer 5) |
+| `.olav/workspace/config/discovery/tools/sync_schema_reference.py` | Schema doc self-repair (Layer 5) |
+| `.olav/workspace/config/system/tools/audit_workspace.py` | Workspace structural health (Layer 5) |

@@ -1,0 +1,21 @@
+suite: fault_injection
+description: >
+  Fault injection scenarios. Each test injects a fault, verifies OLAV detects it,
+  then removes the fault and verifies recovery. Unlike L2/L3 suites, these tests
+  are NOT ordered by dependency — they run independently and clean up after themselves.
+
+  Access layer focus: the biggest real-world NOC problem is the access layer.
+    - Loops: user accidentally connects two ports on the same switch/different switches
+    - BGP peer flap: WAN link instability causes routing convergence events
+
+depends_on_session: enterprise_dual_site
+layer: fault
+
+# Fault suite requires clean baseline from previous suites
+depends_on_suites:
+  - L2_access
+  - L3_routing
+
+test_cases:
+  - access_loop.yaml
+  - bgp_peer_flap.yaml

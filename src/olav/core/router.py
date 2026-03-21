@@ -234,7 +234,7 @@ class SemanticRouter:
             try:
                 self._table = db.open_table("agent_intent_index")
             except Exception:
-                logger.warning("Agent intent index not found, using fallback routing")
+                logger.debug("Agent intent index not found, using fallback routing")
                 return None
 
         # Check if table has data

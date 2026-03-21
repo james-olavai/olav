@@ -1,0 +1,182 @@
+name: enterprise-dual-site
+
+# ── Management network ──────────────────────────────────────────────────────
+mgmt:
+  network: mgmt-net
+  ipv4-subnet: 192.168.100.0/24
+
+topology:
+  defaults:
+    kind: linux
+
+  nodes:
+    # ═══════════════════════════════════════════════════════════════
+    #  SITE A
+    # ═══════════════════════════════════════════════════════════════
+
+    # Interconnect switch — Arista cEOS
+    # Native container (~1GB), no license required.
+    # Trunk port to sw-inter-b (inter-site), L3 uplink to rtr-a.
+    sw-inter-a:
+      kind: ceos
+      image: ceos:4.35.2F
+      mgmt-ipv4: 192.168.100.120
+
+    # Core router — Juniper vSRX (AS 65001, JunOS 18.4R3-S3, via vrnetlab)
+    # eBGP peer: rtr-b. Advertises 10.1.0.0/16.
+    # Build image: python3 scripts/build_images.py --only vsrx
+    rtr-a:
+      kind: juniper_vsrx
+      image: vr-vsrx:18.4R3-S3
+      mgmt-ipv4: 192.168.100.122
+
+    # Perimeter firewall — PaloAlto PAN-OS (via vrnetlab/vr-pan)
+    # Build image: see scripts/build_images.py
+    fw-a:
+      kind: paloalto_panos
+      image: vr-pan:11.2.5
+      mgmt-ipv4: 192.168.100.124
+
+    # Distribution switch — Cisco IOL L2
+    # STP root bridge for Site A (priority 4096 in startup config).
+    # Trunk to fw-a (uplink), trunk to access switches.
+    sw-dist-a:
+      kind: cisco_iol
+      image: cisco-iol:17.12
+      mgmt-ipv4: 192.168.100.126
+      type: L2
+
+    # Access switch 1 — Cisco IOL L2
+    # portfast + BPDU guard on host ports (e0/2, e0/3).
+    # Key fault injection target: connect rogue switch to trigger BPDU guard.
+    sw-acc-a1:
+      kind: cisco_iol
+      image: cisco-iol:17.12
+      mgmt-ipv4: 192.168.100.128
+      type: L2
+
+    # Access switch 2 — Cisco IOL L2
+    sw-acc-a2:
+      kind: cisco_iol
+      image: cisco-iol:17.12
+      mgmt-ipv4: 192.168.100.129
+      type: L2
+
+    # ═══════════════════════════════════════════════════════════════
+    #  SITE B
+    # ═══════════════════════════════════════════════════════════════
+
+    # Interconnect switch — Arista cEOS
+    sw-inter-b:
+      kind: ceos
+      image: ceos:4.35.2F
+      mgmt-ipv4: 192.168.100.121
+
+    # Core router — Juniper vSRX (AS 65002, JunOS 18.4R3-S3, via vrnetlab)
+    rtr-b:
+      kind: juniper_vsrx
+      image: vr-vsrx:18.4R3-S3
+      mgmt-ipv4: 192.168.100.123
+
+    # Perimeter firewall — Fortinet FortiGate (via vrnetlab/vr-ftosv)
+    # Build image: see scripts/build_images.py
+    fw-b:
+      kind: fortinet_fortigate
+      image: vr-fortios:6.4
+      mgmt-ipv4: 192.168.100.125
+
+    # Distribution switch — Cisco IOL L2 (STP root Site B)
+    sw-dist-b:
+      kind: cisco_iol
+      image: cisco-iol:17.12
+      mgmt-ipv4: 192.168.100.127
+      type: L2
+
+    # Access switches — Cisco IOL L2
+    sw-acc-b1:
+      kind: cisco_iol
+      image: cisco-iol:17.12
+      mgmt-ipv4: 192.168.100.130
+      type: L2
+
+    sw-acc-b2:
+      kind: cisco_iol
+      image: cisco-iol:17.12
+      mgmt-ipv4: 192.168.100.131
+      type: L2
+
+    # ═══════════════════════════════════════════════════════════════
+    #  LINUX HOSTS  (ghcr.io/hellt/network-multitool: ping, curl, iperf3)
+    # ═══════════════════════════════════════════════════════════════
+    host-a1:
+      image: ghcr.io/hellt/network-multitool
+      mgmt-ipv4: 192.168.100.132
+    host-a2:
+      image: ghcr.io/hellt/network-multitool
+      mgmt-ipv4: 192.168.100.133
+    host-a3:
+      image: ghcr.io/hellt/network-multitool
+      mgmt-ipv4: 192.168.100.134
+    host-a4:
+      image: ghcr.io/hellt/network-multitool
+      mgmt-ipv4: 192.168.100.135
+
+    host-b1:
+      image: ghcr.io/hellt/network-multitool
+      mgmt-ipv4: 192.168.100.136
+    host-b2:
+      image: ghcr.io/hellt/network-multitool
+      mgmt-ipv4: 192.168.100.137
+    host-b3:
+      image: ghcr.io/hellt/network-multitool
+      mgmt-ipv4: 192.168.100.138
+    host-b4:
+      image: ghcr.io/hellt/network-multitool
+      mgmt-ipv4: 192.168.100.139
+
+  links:
+    # ── Inter-site trunk (Arista ↔ Arista) ─────────────────────────────────
+    # VLAN 100: management trunk / inter-site routing hand-off
+    - endpoints: [sw-inter-a:eth1, sw-inter-b:eth1]
+
+    # ── Site A: core chain ──────────────────────────────────────────────────
+    # Arista ↔ Juniper: L3 routed link, 10.0.12.0/30
+    - endpoints: [sw-inter-a:eth2, rtr-a:eth1]
+    # Juniper → fw-a → dist
+    - endpoints: [rtr-a:eth2,  fw-a:eth1]
+    - endpoints: [fw-a:eth2,   sw-dist-a:eth1]
+
+    # ── Site B: core chain ──────────────────────────────────────────────────
+    # Arista ↔ Juniper: L3 routed link, 10.0.12.0/30 (same P2P via Arista trunk)
+    - endpoints: [sw-inter-b:eth2, rtr-b:eth1]
+    # Juniper → fw-b → dist
+    - endpoints: [rtr-b:eth2, fw-b:eth1]
+    - endpoints: [fw-b:eth2,  sw-dist-b:eth1]
+
+    # ── Site A: distribution → access ──────────────────────────────────────
+    - endpoints: [sw-dist-a:eth2, sw-acc-a1:eth1]    # trunk
+    - endpoints: [sw-dist-a:eth3, sw-acc-a2:eth1]    # trunk
+
+    # ── Site A: access → hosts ──────────────────────────────────────────────
+    - endpoints: [sw-acc-a1:eth2, host-a1:eth1]
+    - endpoints: [sw-acc-a1:eth3, host-a2:eth1]
+    - endpoints: [sw-acc-a2:eth2, host-a3:eth1]
+    - endpoints: [sw-acc-a2:eth3, host-a4:eth1]
+
+    # ── Site B: distribution → access ──────────────────────────────────────
+    - endpoints: [sw-dist-b:eth2, sw-acc-b1:eth1]
+    - endpoints: [sw-dist-b:eth3, sw-acc-b2:eth1]
+
+    # ── Site B: access → hosts ──────────────────────────────────────────────
+    - endpoints: [sw-acc-b1:eth2, host-b1:eth1]
+    - endpoints: [sw-acc-b1:eth3, host-b2:eth1]
+    - endpoints: [sw-acc-b2:eth2, host-b3:eth1]
+    - endpoints: [sw-acc-b2:eth3, host-b4:eth1]
+
+    # ── FAULT INJECTION STUBS (commented out — activated by inject_fault.py) ──
+    # L2 loop: uncommenting this creates a loop between dist and acc, bypassing STP
+    #   if BPDU guard is not configured. Used by test_suites/fault_injection/access_loop.yaml
+    # - endpoints: [sw-acc-a1:eth3, sw-acc-a2:eth3]   # LOOP: acc-a1 port3 ↔ acc-a2 port3
+    #
+    # BGP peer flap: simulated by shutting eth1 on sw-inter-a (kills inter-site link)
+    # No topology change needed; handled via SSH config push in fault suite.

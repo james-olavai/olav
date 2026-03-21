@@ -7,6 +7,15 @@ The documentation tree is split into two authoritative domains:
 
 This root page is the only top-level documentation entry kept under `docs/`.
 
+## Repository Ownership
+
+| Directory | Owner Repository | Notes |
+|---|---|---|
+| `docs/olav/` | `olav-core` | Core platform documentation — ships with the `olav` package |
+| `docs/netops/` | `olav-netops` | NetOps extension documentation — ships with `olav-netops` |
+| `docs/cn/` | `olav-core` | Chinese translations of core platform docs |
+| `docs/01_README.md` | `olav-core` | Root index — maintained in core, references both repos |
+
 ## English
 
 ### Platform

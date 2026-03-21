@@ -1,0 +1,59 @@
+name: stp_convergence
+description: >
+  Verify STP topology is fully converged across the enterprise access layer.
+  sw-dist-a/b must be elected root bridges; all access switches show
+  designated/blocking ports as expected. No topology change (TC) events.
+
+queries:
+  - agent: olav
+    prompt: >
+      从 sw-dist-a,sw-dist-b,sw-acc-a1,sw-acc-a2,sw-acc-b1,sw-acc-b2
+      采集 show spanning-tree 和 show spanning-tree detail 的输出
+    description: "STP state snapshot for all L2 switches"
+  - agent: olav
+    prompt: >
+      从 sw-acc-a1,sw-acc-a2,sw-acc-b1,sw-acc-b2
+      采集 show spanning-tree interface 的输出
+    description: "Per-port STP state on access switches"
+
+assertions:
+  - type: sql_count
+    description: "STP data collected for all 6 switches"
+    query: >
+      SELECT COUNT(DISTINCT hostname) FROM netops.parsed_outputs
+      WHERE snapshot_id = '{run_id}'
+      AND command LIKE '%spanning%'
+    operator: gte
+    expected: 6
+
+  - type: sql_count
+    description: "No topology change (TC) events on distribution switches"
+    query: >
+      SELECT COUNT(*) FROM netops.parsed_outputs
+      WHERE snapshot_id = '{run_id}'
+      AND hostname IN ('sw-dist-a', 'sw-dist-b')
+      AND command LIKE '%spanning%'
+      AND raw_output LIKE '%topology change%'
+    operator: eq
+    expected: 0
+
+query_assertions:
+  - agent: quick
+    description: "sw-dist-a is STP root for VLAN 10"
+    prompt: "sw-dist-a 是否是 VLAN 10 的 STP root bridge？所有接口状态如何？"
+    expect_contains: ["root", "sw-dist-a", "VLAN10"]
+    expect_not_contains: ["no data", "error"]
+
+  - agent: quick
+    description: "sw-dist-b is STP root for VLAN 10 Site B"
+    prompt: "sw-dist-b 是否是 VLAN 10 的 STP root bridge？"
+    expect_contains: ["root", "sw-dist-b"]
+    expect_not_contains: ["no data", "error"]
+
+  - agent: olav
+    description: "STP convergence summary across sites"
+    prompt: >
+      请分析所有站点的 STP 收敛状态，有没有端口处于 listening/learning 状态？
+      有没有 topology change 告警？
+    expect_contains: ["converged", "forwarding"]
+    expect_not_contains: ["topology change", "listening", "learning"]

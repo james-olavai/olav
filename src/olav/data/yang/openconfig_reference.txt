@@ -1,0 +1,74 @@
+# OpenConfig YANG Path Reference (abridged)
+#
+# Bundled with the OLAV wheel so `yang_leaves` can be bootstrapped
+# deterministically without network access.
+
+## openconfig-interfaces
+openconfig-interfaces:interfaces/interface/config/name
+openconfig-interfaces:interfaces/interface/config/type
+openconfig-interfaces:interfaces/interface/config/mtu
+openconfig-interfaces:interfaces/interface/config/description
+openconfig-interfaces:interfaces/interface/config/enabled
+openconfig-interfaces:interfaces/interface/state/name
+openconfig-interfaces:interfaces/interface/state/type
+openconfig-interfaces:interfaces/interface/state/mtu
+openconfig-interfaces:interfaces/interface/state/admin-status
+openconfig-interfaces:interfaces/interface/state/oper-status
+openconfig-interfaces:interfaces/interface/state/ifindex
+openconfig-interfaces:interfaces/interface/state/last-change
+openconfig-interfaces:interfaces/interface/state/counters/in-octets
+openconfig-interfaces:interfaces/interface/state/counters/out-octets
+openconfig-interfaces:interfaces/interface/state/counters/in-errors
+openconfig-interfaces:interfaces/interface/state/counters/out-errors
+openconfig-interfaces:interfaces/interface/state/counters/in-discards
+openconfig-interfaces:interfaces/interface/state/counters/out-discards
+openconfig-interfaces:interfaces/interface/subinterfaces/subinterface/state/index
+openconfig-interfaces:interfaces/interface/subinterfaces/subinterface/ipv4/addresses/address/state/ip
+openconfig-interfaces:interfaces/interface/subinterfaces/subinterface/ipv4/addresses/address/state/prefix-length
+
+## openconfig-bgp
+openconfig-bgp:bgp/global/config/as
+openconfig-bgp:bgp/global/config/router-id
+openconfig-bgp:bgp/neighbors/neighbor/config/neighbor-address
+openconfig-bgp:bgp/neighbors/neighbor/config/peer-as
+openconfig-bgp:bgp/neighbors/neighbor/state/neighbor-address
+openconfig-bgp:bgp/neighbors/neighbor/state/peer-as
+openconfig-bgp:bgp/neighbors/neighbor/state/session-state
+openconfig-bgp:bgp/neighbors/neighbor/state/supported-capabilities
+openconfig-bgp:bgp/neighbors/neighbor/state/messages/received/UPDATE
+openconfig-bgp:bgp/neighbors/neighbor/state/messages/sent/UPDATE
+openconfig-bgp:bgp/neighbors/neighbor/afi-safis/afi-safi/state/prefixes/received
+openconfig-bgp:bgp/neighbors/neighbor/afi-safis/afi-safi/state/prefixes/sent
+
+## openconfig-lldp
+openconfig-lldp:lldp/interfaces/interface/config/name
+openconfig-lldp:lldp/interfaces/interface/neighbors/neighbor/state/system-name
+openconfig-lldp:lldp/interfaces/interface/neighbors/neighbor/state/system-description
+openconfig-lldp:lldp/interfaces/interface/neighbors/neighbor/state/port-id
+openconfig-lldp:lldp/interfaces/interface/neighbors/neighbor/state/port-description
+openconfig-lldp:lldp/interfaces/interface/neighbors/neighbor/state/chassis-id
+openconfig-lldp:lldp/interfaces/interface/neighbors/neighbor/state/management-address
+
+## openconfig-ospfv2 (via network-instance)
+openconfig-network-instance:network-instances/network-instance/protocols/protocol/ospfv2/areas/area/state/identifier
+openconfig-network-instance:network-instances/network-instance/protocols/protocol/ospfv2/areas/area/interfaces/interface/state/id
+openconfig-network-instance:network-instances/network-instance/protocols/protocol/ospfv2/areas/area/interfaces/interface/state/network-type
+openconfig-network-instance:network-instances/network-instance/protocols/protocol/ospfv2/areas/area/interfaces/interface/state/cost
+openconfig-network-instance:network-instances/network-instance/protocols/protocol/ospfv2/areas/area/interfaces/interface/neighbors/neighbor/state/neighbor-id
+openconfig-network-instance:network-instances/network-instance/protocols/protocol/ospfv2/areas/area/interfaces/interface/neighbors/neighbor/state/state
+openconfig-network-instance:network-instances/network-instance/protocols/protocol/ospfv2/areas/area/interfaces/interface/neighbors/neighbor/state/priority
+
+## openconfig-platform
+openconfig-platform:components/component/config/name
+openconfig-platform:components/component/state/name
+openconfig-platform:components/component/state/type
+openconfig-platform:components/component/state/id
+openconfig-platform:components/component/state/description
+openconfig-platform:components/component/state/hardware-version
+openconfig-platform:components/component/state/firmware-version
+openconfig-platform:components/component/state/software-version
+openconfig-platform:components/component/state/serial-no
+openconfig-platform:components/component/state/part-no
+openconfig-platform:components/component/state/mfg-name
+openconfig-platform:components/component/state/temperature/instant
+openconfig-platform:components/component/state/memory/utilized

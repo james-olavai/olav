@@ -412,12 +412,45 @@ cd /path/to/nornir/tasks && nornir_cli ...
 
 ---
 
+## � Schema 自动同步
+
+`SCHEMA_REFERENCE.md` 是注入每个查询 Agent 系统提示词的权威列名参考。每次快照采集（`IngestManager.bulk_load()`）完成后，OLAV 会**自动从 `information_schema.columns` 重新生成**该参考文档的 Schema 表格，确保其始终与真实数据库一致，从根本上防止 `Binder Error: Referenced column not found` 失败。
+
+### 工作原理
+
+```
+设备快照采集完成
+    │
+    ▼
+IngestManager.bulk_load()
+    │
+    └─ post_ingest_hooks ──► sync_schema_reference()
+                                    │
+                                    ▼
+              .olav/workspace/quick/references/SCHEMA_REFERENCE.md
+              （Core Table & View Schema 章节自动重新生成）
+```
+
+### 手动触发
+
+```bash
+# 随时强制同步 schema 参考
+olav --agent config "sync schema reference"
+
+# 或直接运行
+python .olav/workspace/config/discovery/tools/sync_schema_reference.py
+```
+
+该工具具有**幂等性** — 若列名未发生变化则返回 `status=up_to_date`，不修改文件。
+
+---
+
 ## 📞 获取帮助
 
 ### 在线资源
 - 📖 完整文档：`docs/README.MD`
 - 🔧 配置参考：`docs/01_CONFIGURATION.MD`
-- 📊 数据库架构：`.olav/workspace/quick/references/SCHEMA_REFERENCE.md`
+- 📊 数据库架构：`.olav/workspace/quick/references/SCHEMA_REFERENCE.md` *（每次快照后自动同步）*
 
 ### 问题排查
 1. 查看日志：`.olav/logs/users/<username>.log`

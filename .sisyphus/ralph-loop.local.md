@@ -1,15 +1,12 @@
 ---
 active: true
-iteration: 9
-completion_promise: "VERIFIED"
+iteration: 20
+completion_promise: "DONE"
 initial_completion_promise: "DONE"
-verification_attempt_id: "76a798ef-9ebb-4cd7-945c-d5a06b4abc16"
-verification_session_id: "ses_3068616f9ffeop1261lSEvTt9N"
-started_at: "2026-03-16T22:09:40.290Z"
-session_id: "ses_3074d66f2ffejz463h5DdtexMy"
+started_at: "2026-03-20T13:55:53.944Z"
+session_id: "ses_2f47806d7ffeaesKoFEgKV6yEL"
 ultrawork: true
-verification_pending: true
 strategy: "continue"
 message_count_at_start: 1
 ---
-阅读dev_docs/tracking.md and 相关设计文档，按照文档规划进行实施，使用tdd
+阅读dev_docs/01. tracking.md和相关开发文档，按照文档目标进行开发

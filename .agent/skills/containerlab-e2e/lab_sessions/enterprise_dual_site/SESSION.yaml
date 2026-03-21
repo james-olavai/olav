@@ -1,0 +1,211 @@
+# Enterprise Dual-Site Lab Session
+# =================================
+# Long-lived topology — deploy ONCE, run all test suites against it.
+# Never destroy between suites (use --keep-lab flag in run_session.py).
+#
+# Architecture:
+#
+#   Site A                              Site B
+#   ──────────────────────────────────────────────────────
+#   sw-inter-a (Arista cEOS)  ── trunk ── sw-inter-b (Arista cEOS)
+#        │e2                                   │e2
+#   rtr-a (Juniper cRPD, AS 65001) ─eBGP─ rtr-b (Juniper cRPD, AS 65002)
+#        │eth2                                 │eth2
+#   fw-a  (PaloAlto PAN-OS)            fw-b  (Fortinet FortiOS)
+#        │eth2                                 │eth2
+#   sw-dist-a (Cisco IOL L2)          sw-dist-b (Cisco IOL L2)
+#    ├── sw-acc-a1 (Cisco IOL L2)      ├── sw-acc-b1 (Cisco IOL L2)
+#    │    ├── host-a1 (Linux)          │    ├── host-b1 (Linux)
+#    │    └── host-a2 (Linux)          │    └── host-b2 (Linux)
+#    └── sw-acc-a2 (Cisco IOL L2)      └── sw-acc-b2 (Cisco IOL L2)
+#         ├── host-a3 (Linux)               ├── host-b3 (Linux)
+#         └── host-a4 (Linux)               └── host-b4 (Linux)
+#
+# NTC Template coverage:
+#   cisco_ios   → 387 templates  ✓✓✓ (distribution + access switches)
+#   arista_eos  → ~50 templates  ✓✓  (interconnect switches)
+#   juniper_junos → ~40 templates ✓✓ (core routers)
+#   paloalto_panos → 18 templates ⚠  (fw-a: route/interface/arp OK, BGP/session ✗ → raw fallback)
+#   fortinet    → 20 templates    ⚠  (fw-b: interface/BGP OK, route/policy ✗ → raw fallback)
+#
+# The firewall NTC gaps are intentional — they test OLAV's raw_output LLM fallback.
+
+session: enterprise_dual_site
+description: "Enterprise dual-site: Arista interconnect, Juniper eBGP, PAN-OS + FortiOS firewalls, Cisco IOL access layer"
+version: "1.0"
+topology_file: topology.clab.yaml
+
+# ── Node registry ─────────────────────────────────────────────────────────────
+# platform → nornir connection_options driver
+# mgmt_ip  → allocated statically in topology.clab.yaml
+nodes:
+  # Site A — Interconnect
+  sw-inter-a:
+    platform: arista_eos
+    site: A
+    role: interconnect_switch
+    mgmt_ip: 192.168.100.120
+    username: admin
+    password: admin
+
+  # Site B — Interconnect
+  sw-inter-b:
+    platform: arista_eos
+    site: B
+    role: interconnect_switch
+    mgmt_ip: 192.168.100.121
+    username: admin
+    password: admin
+
+  # Site A — Core router (Juniper, AS 65001)
+  rtr-a:
+    platform: juniper_junos
+    site: A
+    role: core_router
+    mgmt_ip: 192.168.100.122
+    username: admin
+    password: admin@123
+
+  # Site B — Core router (Juniper, AS 65002)
+  rtr-b:
+    platform: juniper_junos
+    site: B
+    role: core_router
+    mgmt_ip: 192.168.100.123
+    username: admin
+    password: admin@123
+
+  # Site A — Firewall (PaloAlto PAN-OS)
+  fw-a:
+    platform: paloalto_panos
+    site: A
+    role: firewall
+    mgmt_ip: 192.168.100.124
+    username: admin
+    password: Admin1234!
+
+  # Site B — Firewall (Fortinet FortiGate)
+  fw-b:
+    platform: fortinet
+    site: B
+    role: firewall
+    mgmt_ip: 192.168.100.125
+    username: admin
+    password: ""                  # FortiOS default: no password
+
+  # Site A — Distribution switch (Cisco IOL L2, STP root priority 4096)
+  sw-dist-a:
+    platform: cisco_ios
+    site: A
+    role: distribution_switch
+    mgmt_ip: 192.168.100.126
+    username: cisco
+    password: cisco123
+
+  # Site B — Distribution switch (Cisco IOL L2, STP root priority 4096)
+  sw-dist-b:
+    platform: cisco_ios
+    site: B
+    role: distribution_switch
+    mgmt_ip: 192.168.100.127
+    username: cisco
+    password: cisco123
+
+  # Site A — Access switches (Cisco IOL L2, portfast + BPDU guard on host ports)
+  sw-acc-a1:
+    platform: cisco_ios
+    site: A
+    role: access_switch
+    mgmt_ip: 192.168.100.128
+    username: cisco
+    password: cisco123
+
+  sw-acc-a2:
+    platform: cisco_ios
+    site: A
+    role: access_switch
+    mgmt_ip: 192.168.100.129
+    username: cisco
+    password: cisco123
+
+  # Site B — Access switches (Cisco IOL L2)
+  sw-acc-b1:
+    platform: cisco_ios
+    site: B
+    role: access_switch
+    mgmt_ip: 192.168.100.130
+    username: cisco
+    password: cisco123
+
+  sw-acc-b2:
+    platform: cisco_ios
+    site: B
+    role: access_switch
+    mgmt_ip: 192.168.100.131
+    username: cisco
+    password: cisco123
+
+# ── Address plan ──────────────────────────────────────────────────────────────
+addressing:
+  # BGP AS numbers
+  site_a_asn: 65001
+  site_b_asn: 65002
+
+  # Loopbacks
+  rtr_a_loopback: 10.1.0.1/32
+  rtr_b_loopback: 10.2.0.1/32
+
+  # Inter-site P2P (Juniper ↔ Juniper via Arista trunk)
+  intersite_p2p: 10.0.12.0/30    # rtr-a: .1, rtr-b: .2
+
+  # Site A data plane
+  site_a_rtr_fw:    10.1.1.0/30   # rtr-a: .1, fw-a: .2
+  site_a_fw_dist:   10.1.2.0/30   # fw-a: .1, sw-dist-a L3 SVI
+  site_a_vlan10:    10.1.10.0/24  # users (VLAN 10)
+  site_a_vlan20:    10.1.20.0/24  # servers (VLAN 20)
+
+  # Site B data plane
+  site_b_rtr_fw:    10.2.1.0/30   # rtr-b: .1, fw-b: .2
+  site_b_fw_dist:   10.2.2.0/30
+  site_b_vlan10:    10.2.10.0/24  # users (VLAN 10)
+  site_b_vlan20:    10.2.20.0/24  # servers (VLAN 20)
+
+# ── Collection queries (run once after lab is deployed) ────────────────────────
+# Ordered by layer: inventory → L2 → L3 → firewall
+collect_queries:
+  - agent: olav
+    description: "Sync device inventory for all nodes"
+    prompt: "同步 sw-inter-a,sw-inter-b,rtr-a,rtr-b,fw-a,fw-b,sw-dist-a,sw-dist-b,sw-acc-a1,sw-acc-a2,sw-acc-b1,sw-acc-b2 的设备库存信息"
+
+  - agent: olav
+    description: "Collect LLDP topology from all network nodes"
+    prompt: "从 sw-inter-a,sw-inter-b,rtr-a,rtr-b,sw-dist-a,sw-dist-b,sw-acc-a1,sw-acc-a2,sw-acc-b1,sw-acc-b2 采集 LLDP 邻居拓扑"
+
+  - agent: olav
+    description: "Collect STP state from all Cisco IOL switches"
+    prompt: "从 sw-dist-a,sw-dist-b,sw-acc-a1,sw-acc-a2,sw-acc-b1,sw-acc-b2 采集 STP 生成树状态、root bridge 和端口状态"
+
+  - agent: olav
+    description: "Collect interface status from all nodes"
+    prompt: "从 sw-inter-a,sw-inter-b,sw-dist-a,sw-dist-b,sw-acc-a1,sw-acc-a2,sw-acc-b1,sw-acc-b2 采集接口运行状态"
+
+  - agent: olav
+    description: "Collect BGP sessions and routing from routers"
+    prompt: "从 rtr-a,rtr-b 采集 BGP 邻居状态、路由表和路由策略"
+
+  - agent: olav
+    description: "Collect firewall interface and routing state"
+    prompt: "从 fw-a,fw-b 采集接口状态、路由信息和会话表（原始输出）"
+
+# ── Test suite execution order (dependency chain) ──────────────────────────────
+# Each layer builds on the previous — L3 requires L2, L4 requires L3.
+test_suites:
+  - ../test_suites/L2_access/SUITE.yaml       # STP, BPDU guard, VLAN isolation
+  - ../test_suites/L3_routing/SUITE.yaml      # BGP inter-site, route tables
+  - ../test_suites/fault_injection/SUITE.yaml # Loop injection, BGP peer flap
+
+# ── Readiness config ──────────────────────────────────────────────────────────
+readiness:
+  ssh_timeout: 300          # PAN-OS and FortiOS boot slowly
+  protocol_timeout: 360     # BGP convergence + STP across 6 switches
+  poll_interval: 15
