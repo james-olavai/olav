@@ -96,16 +96,20 @@ class AsyncDuckDBSaver(DuckDBSaver):
 def create_checkpointer(
     agent_id: str,
     username: str | None = None,
+    workspace: str = "core",
 ) -> AsyncDuckDBSaver | None:
     """
     Create a user-isolated AsyncDuckDBSaver for the given agent.
 
-    Stores checkpoints in ~/.olav/checkpoints/{username}/{agent_id}/checkpoints.duckdb
-    so each user gets their own isolated persistent checkpoint store.
+    Stores checkpoints in
+    ~/.olav/checkpoints/{username}/{workspace}/{agent_id}/checkpoints.duckdb
+    so each user + workspace combination gets its own isolated checkpoint store.
+    Two workspaces with the same agent name (e.g. "quick") will never collide.
 
     Args:
         agent_id: Agent identifier (e.g., "ops", "quick").
         username: OS username. Defaults to $USER env var.
+        workspace: Active workspace name. Defaults to "core".
 
     Returns:
         AsyncDuckDBSaver instance, or None if creation fails.
@@ -119,7 +123,7 @@ def create_checkpointer(
             except Exception:
                 username = os.environ.get("USERNAME", "default_user")
 
-        checkpoint_dir = Path.home() / ".olav" / "checkpoints" / username / agent_id
+        checkpoint_dir = Path.home() / ".olav" / "checkpoints" / username / workspace / agent_id
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         db_path = checkpoint_dir / "checkpoints.duckdb"
 
