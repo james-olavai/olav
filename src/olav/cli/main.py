@@ -69,6 +69,8 @@ def parse_args():
         "init",
         "workspace",
         "export",
+        "skill",
+        "registry",
     }
 
     # Flags that consume the immediately following token as their value.
@@ -192,6 +194,20 @@ def parse_args():
     service_parser = subparsers.add_parser("service", help="Manage background services")
     service_parser.add_argument(
         "args", nargs=argparse.REMAINDER, help="Service management arguments"
+    )
+
+    registry_parser = subparsers.add_parser(
+        "registry", help="Register and manage external service integrations"
+    )
+    registry_parser.add_argument(
+        "args", nargs=argparse.REMAINDER, help="Registry subcommand arguments"
+    )
+
+    skill_parser = subparsers.add_parser(
+        "skill", help="Install and manage workspace skills from git repos"
+    )
+    skill_parser.add_argument(
+        "args", nargs=argparse.REMAINDER, help="Skill subcommand and arguments"
     )
 
     # Reset command - clear agent conversation/checkpoint history
@@ -1214,6 +1230,26 @@ async def cli_main_impl() -> None:
             result = await cmd.execute(service_args)
             if result and result != "success":
                 console.print(result)
+            return
+
+        # Handle registry command (external service registration)
+        if args.command == "registry":
+            from olav.cli.commands.service_registry import ServiceRegistryCommand
+
+            cmd = ServiceRegistryCommand()
+            registry_args = " ".join(args.args) if args.args else ""
+            result = await cmd.execute(registry_args)
+            if result and result not in ("success", ""):
+                console.print(result)
+            return
+
+        if args.command == "skill":
+            from olav.cli.commands.skill import SkillCommand
+
+            cmd = SkillCommand()
+            skill_args = " ".join(args.args) if args.args else ""
+            result = await cmd.execute(skill_args)
+            console.print(result)
             return
 
         # Handle workspace command
