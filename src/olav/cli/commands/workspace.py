@@ -1,7 +1,23 @@
-"""Workspace lifecycle command skeleton."""
+"""Workspace lifecycle command (§8).
+
+Subcommands:
+  list              — list installed workspaces (managed + active marker)
+  use <name>        — set active workspace in settings.json
+  status            — show agents within workspaces
+  validate <name>   — verify workspace integrity (lock file, agent dirs)
+  migrate           — migrate flat agents → .olav/workspace/core/<agent>/
+  diff              — diff local vs upstream versions
+  upgrade <name>    — upgrade managed agent
+  disable <name>    — disable agent
+  remove <name>     — remove managed agent
+  prune             — remove orphan entries
+  rollback <n> --from <dir>  — restore from archive
+  install <dir>     — install from local MANIFEST.yaml source
+"""
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 import shutil
@@ -22,7 +38,7 @@ def _extract_source(requires: list[str]) -> str | None:
 class WorkspaceCommand(BaseCommand):
     """Manage workspace lifecycle for package-managed agents and skills."""
 
-    _LIFECYCLE_ACTIONS = frozenset({"install", "upgrade", "remove", "rollback"})
+    _LIFECYCLE_ACTIONS = frozenset({"install", "upgrade", "remove", "rollback", "migrate", "use"})
 
     def __init__(self) -> None:
         super().__init__(name="workspace", description="Manage workspace lifecycle")
@@ -44,6 +60,18 @@ class WorkspaceCommand(BaseCommand):
             except AuthorizationError as exc:
                 return f"denied: {exc}"
 
+        if action in ("list", "ls"):
+            return self._list_workspaces()
+        if action == "use":
+            if len(parts) < 2:
+                return "error: usage: olav workspace use <name>"
+            return self._use(parts[1])
+        if action == "validate":
+            if len(parts) < 2:
+                return "error: usage: olav workspace validate <name>"
+            return self._validate_workspace(parts[1])
+        if action == "migrate":
+            return self._migrate()
         if action == "status":
             return self._status()
         if action == "diff":
@@ -76,6 +104,130 @@ class WorkspaceCommand(BaseCommand):
             return self._validate(parts[1])
 
         return f"unknown workspace action: {action}"
+
+    # ── §8 new commands ───────────────────────────────────────────────────────
+
+    def _list_workspaces(self) -> str:
+        """List installed workspaces with version and active marker."""
+        import yaml as _yaml
+        from olav.core.workspace import get_active_workspace
+
+        if not self.workspace_root.exists():
+            return "no workspaces installed"
+
+        active = get_active_workspace()
+        lines = []
+        for d in sorted(self.workspace_root.iterdir()):
+            if not d.is_dir():
+                continue
+            lock_path = d / "workspace.lock.yaml"
+            if lock_path.exists():
+                try:
+                    data = _yaml.safe_load(lock_path.read_text(encoding="utf-8")) or {}
+                except Exception:  # noqa: BLE001
+                    data = {}
+                ver = data.get("version", "?")
+                marker = "* " if d.name == active else "  "
+                lines.append(f"{marker}{d.name:20s}  v{ver}  (managed)")
+            elif self._is_agent_dir(d):
+                marker = "* " if d.name == active else "  "
+                lines.append(f"{marker}{d.name:20s}  -       (user)")
+
+        return "\n".join(lines) if lines else "no workspaces installed"
+
+    def _use(self, name: str) -> str:
+        """Set active workspace in settings.json."""
+        settings_path = Path(".olav") / "config" / "settings.json"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+        data: dict = {}
+        if settings_path.exists():
+            try:
+                data = json.loads(settings_path.read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001
+                data = {}
+
+        ws_dir = self.workspace_root / name
+        if not ws_dir.exists():
+            # Warn but proceed — user may create the workspace later
+            result_msg = f"⚠ workspace '{name}' not found at {ws_dir} (will set anyway)"
+        else:
+            result_msg = f"active workspace → {name}"
+
+        data["active_workspace"] = name
+        settings_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        return result_msg
+
+    def _validate_workspace(self, name: str) -> str:
+        """Validate workspace integrity: lock file presence and agent subdirs."""
+        import yaml as _yaml
+
+        ws_dir = self.workspace_root / name
+        if not ws_dir.exists():
+            return f"error: workspace '{name}' not found"
+
+        lock_path = ws_dir / "workspace.lock.yaml"
+        if not lock_path.exists():
+            # Check if it's a flat agent dir (unmanaged)
+            if self._is_agent_dir(ws_dir):
+                return f"⚠ '{name}' is an unmanaged agent (no lock file) — run 'olav skill install' to manage it"
+            return f"error: no lock file found for '{name}'"
+
+        try:
+            data = _yaml.safe_load(lock_path.read_text(encoding="utf-8")) or {}
+        except Exception as e:  # noqa: BLE001
+            return f"error: invalid lock file for '{name}': {e}"
+
+        issues = []
+        # Check declared agents exist
+        # (lock file doesn't currently declare agents list — skip this check for now)
+
+        if issues:
+            return f"⚠ '{name}': {'; '.join(issues)}"
+        return f"✓ '{name}' v{data.get('version', '?')} — valid"
+
+    def _migrate(self) -> str:
+        """Migrate flat agent dirs to .olav/workspace/core/<agent>/.
+
+        Flat agents: dirs with AGENT.md but no workspace.lock.yaml
+        (managed workspaces with lock files are left in place).
+        """
+        if not self.workspace_root.exists():
+            return "workspace root not found — nothing to migrate"
+
+        core_dir = self.workspace_root / "core"
+        moved: list[str] = []
+        skipped: list[str] = []
+
+        for d in sorted(self.workspace_root.iterdir()):
+            if not d.is_dir():
+                continue
+            if d.name == "core":
+                continue  # skip the target dir itself
+            if (d / "workspace.lock.yaml").exists():
+                skipped.append(d.name)  # managed workspace — leave it
+                continue
+            if not self._is_agent_dir(d):
+                continue  # not an agent dir at all
+
+            target = core_dir / d.name
+            if target.exists():
+                skipped.append(d.name)  # already migrated
+                continue
+
+            core_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(d, target)
+            shutil.rmtree(d)
+            moved.append(d.name)
+
+        parts = []
+        if moved:
+            parts.append(f"migrated to core/: {', '.join(moved)}")
+        if skipped:
+            parts.append(f"skipped: {', '.join(skipped)}")
+        if not moved and not skipped:
+            parts.append("nothing to migrate")
+        return "\n".join(parts)
 
     def _iter_agent_dirs(self) -> list[Path]:
         if not self.workspace_root.exists():

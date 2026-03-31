@@ -276,43 +276,61 @@ class SemanticRouter:
         """
         from olav.core.llm import LLMFactory
 
-        # Get cheap LLM for routing
-        try:
-            llm = LLMFactory.get_chat_model(
-                model_name="gpt-4o-mini",  # Cheap model
-                temperature=0.0,
-                agent_id="router",
-            )
-        except Exception as e:
-            logger.error(f"Failed to get routing LLM: {e}")
-            return {
-                "agent": "olav",  # Default agent
-                "confidence": 0.0,
-                "method": "default",
-            }
+        # Use injected LLM (for testing) or create one
+        llm = getattr(self, "_llm", None)
+        if llm is None:
+            try:
+                llm = LLMFactory.get_chat_model(
+                    model_name="gpt-4o-mini",  # Cheap model
+                    temperature=0.0,
+                    agent_id="router",
+                )
+            except Exception as e:
+                logger.error(f"Failed to get routing LLM: {e}")
+                return {
+                    "agent": "olav",  # Default agent
+                    "confidence": 0.0,
+                    "method": "default",
+                }
 
-        # Simple prompt for routing
+        # Discover agents from workspace
+        valid_agents = discover_valid_agents()
+        default_agent = valid_agents[0] if valid_agents else "quick"
+
+        # Build dynamic prompt from discovered agents
+        from olav.core.agent_registry import discover_agents
+        from olav.core.workspace import resolve_workspace_root
+
+        ws_root = resolve_workspace_root()
+        manifests = discover_agents(ws_root) if ws_root.exists() else {}
+
+        agent_lines = []
+        for name in valid_agents:
+            m = manifests.get(name)
+            if m and m.route_keywords:
+                desc = ", ".join(m.route_keywords[:5])
+            else:
+                desc = name
+            agent_lines.append(f"- {name}: {desc}")
+
+        agents_text = "\n".join(agent_lines) if agent_lines else f"- {default_agent}: general agent"
+
         prompt = f"""Given the user query below, determine which OLAV agent should handle it.
 
 Available agents:
-- olav: General operations, querying data, running commands
-- config: Configuration management, syncing, snapshots
-- audit: Audit logs, compliance, security analysis
-- ops: Operations, monitoring, probing, log analysis
-- quick: Fast single-turn queries and summaries
+{agents_text}
 
 Query: {query}
 
-Respond with only the agent name (e.g., "olav")."""
+Respond with only the agent name."""
 
         try:
             response = llm.invoke(prompt)
             agent = response.content.strip().lower()
 
             # Validate agent name
-            valid_agents = ["olav", "config", "audit", "ops", "quick"]
             if agent not in valid_agents:
-                agent = "olav"  # Default
+                agent = default_agent
 
             return {
                 "agent": agent,
@@ -354,6 +372,32 @@ def initialize_router(agents: list[dict[str, Any]] | None = None) -> dict:
 
     router = get_router()
     return router.initialize_index(agents)
+
+
+def discover_valid_agents(workspace_root: "Path | None" = None) -> list[str]:
+    """Return list of agent names discovered from workspace MANIFEST.yaml files.
+
+    Scans both flat (.olav/workspace/<agent>/MANIFEST.yaml) and nested
+    (.olav/workspace/<workspace>/<agent>/MANIFEST.yaml) structures.
+
+    Falls back to ["quick"] if no agents are found.
+    """
+    from pathlib import Path
+
+    from olav.core.agent_registry import discover_agents
+    from olav.core.workspace import resolve_workspace_root
+
+    if workspace_root is None:
+        workspace_root = resolve_workspace_root()
+    else:
+        workspace_root = Path(workspace_root)
+
+    if not workspace_root.exists():
+        return ["quick"]
+
+    manifests = discover_agents(workspace_root)
+    names = list(manifests.keys())
+    return names if names else ["quick"]
 
 
 def _load_agents_from_workspace() -> list[dict[str, Any]]:
