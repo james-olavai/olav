@@ -26,7 +26,8 @@ class WorkspaceCommand(BaseCommand):
 
     def __init__(self) -> None:
         super().__init__(name="workspace", description="Manage workspace lifecycle")
-        self.workspace_root = Path(".olav") / "workspace"
+        from olav.core.workspace import resolve_workspace_root
+        self.workspace_root = resolve_workspace_root()
 
     async def execute(self, args: str = "", role: str = "admin") -> str:
         parts = shlex.split(args.strip()) if args.strip() else ["status"]

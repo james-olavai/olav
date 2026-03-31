@@ -382,11 +382,30 @@ def check_dependencies() -> None:
         sys.exit(1)
 
 
+def _resolve_agent_id(agent_id: str, workspace: str | None) -> str:
+    """Resolve effective agent_id for OLAVAgent given an optional workspace name.
+
+    Strategy (flat→nested, §11.6):
+    1. If workspace is None: return agent_id as-is (flat compat)
+    2. If flat .olav/workspace/<agent_id>/ exists: return agent_id (backward compat)
+    3. Otherwise: return "<workspace>/<agent_id>" for nested structure
+    """
+    from olav.core.workspace import resolve_workspace_path
+
+    resolved = resolve_workspace_path(agent_id, workspace=workspace)
+    workspace_root = (Path(".olav") / "workspace").resolve()
+    try:
+        return str(resolved.relative_to(workspace_root))
+    except ValueError:
+        return agent_id
+
+
 def create_olav_agent_with_backend(
     assistant_id: str,
     session_id: str | None = None,
     sandbox=None,
     sandbox_type: str | None = None,
+    workspace: str | None = None,
 ):
     """Create OLAV agent with CompositeBackend.
 
@@ -406,9 +425,12 @@ def create_olav_agent_with_backend(
 
     from olav.agents.agent import OLAVAgent
 
+    # Resolve agent_id through workspace routing (§4, §11.6)
+    effective_id = _resolve_agent_id(assistant_id, workspace)
+
     # Create OLAV agent (which uses create_deep_agent internally)
     olav_agent = OLAVAgent(
-        agent_id=assistant_id,
+        agent_id=effective_id,
         session_id=session_id,
         enable_checkpointer=True,
     )
@@ -857,10 +879,16 @@ def _silent_auth() -> UserIdentity | None:
 
 
 async def run_interactive(
-    assistant_id: str, session_state, sandbox_type: str = "none", session_id: str | None = None
+    assistant_id: str,
+    session_state,
+    sandbox_type: str = "none",
+    session_id: str | None = None,
+    workspace: str | None = None,
 ) -> None:
     """Run interactive mode."""
-    agent, backend = create_olav_agent_with_backend(assistant_id, session_id=session_id)
+    agent, backend = create_olav_agent_with_backend(
+        assistant_id, session_id=session_id, workspace=workspace
+    )
 
     # P1: inline login gate (skipped in mode=none)
     if _get_auth_mode() != "none":
@@ -878,7 +906,12 @@ async def run_interactive(
     )
 
 
-async def run_single_query(query: str, assistant_id: str, session_id: str | None = None) -> None:
+async def run_single_query(
+    query: str,
+    assistant_id: str,
+    session_id: str | None = None,
+    workspace: str | None = None,
+) -> None:
     """Run a single query and exit."""
     import uuid
 
@@ -902,7 +935,9 @@ async def run_single_query(query: str, assistant_id: str, session_id: str | None
     else:
         user_id = os.environ.get("USER", "anonymous")
 
-    agent, backend = create_olav_agent_with_backend(assistant_id, session_id=session_id)
+    agent, backend = create_olav_agent_with_backend(
+        assistant_id, session_id=session_id, workspace=workspace
+    )
 
     run_id = str(uuid.uuid4())
     recorder = AuditEventRecorder()
@@ -1459,9 +1494,12 @@ TODO: Add usage examples.
             no_splash=args.no_splash,
         )
 
+        _workspace = getattr(args, "workspace", None)
         if args.query:
             # Single query mode
-            await run_single_query(args.query, args.agent, session_id=args.session)
+            await run_single_query(
+                args.query, args.agent, session_id=args.session, workspace=_workspace
+            )
         else:
             # Interactive mode
             await run_interactive(
@@ -1469,6 +1507,7 @@ TODO: Add usage examples.
                 session_state=session_state,
                 sandbox_type=args.sandbox,
                 session_id=args.session,
+                workspace=_workspace,
             )
 
     except KeyboardInterrupt:
