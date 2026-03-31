@@ -95,9 +95,7 @@ def test_run_single_query_audit_chain(audit_db, monkeypatch):
 
         from olav.cli.main import run_single_query
 
-        asyncio.get_event_loop().run_until_complete(
-            run_single_query("show devices", "quick")
-        )
+        asyncio.run(run_single_query("show devices", "quick"))
 
     # Use a fresh recorder (same DB) — its connection is the write connection
     recorder2 = _make_recorder(audit_db)

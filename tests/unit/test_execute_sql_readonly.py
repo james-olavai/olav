@@ -15,11 +15,14 @@ from pathlib import Path
 # We test the db_query function from the workspace tool directly.
 # Since it uses sys.path.insert, we need to handle the import carefully.
 
+_TOOL_PATH = Path(__file__).resolve().parents[2] / ".olav" / "workspace" / "ops" / "tools" / "execute_sql.py"
+
+
 def _import_db_query():
     """Import db_query from the workspace execute_sql tool."""
-    tool_path = Path(".olav/workspace/ops/tools/execute_sql.py")
+    tool_path = _TOOL_PATH
     if not tool_path.exists():
-        pytest.skip("execute_sql tool not found at .olav/workspace/ops/tools/execute_sql.py")
+        pytest.skip(f"execute_sql tool not found at {tool_path}")
     import importlib.util
     spec = importlib.util.spec_from_file_location("execute_sql_tool", tool_path)
     mod = importlib.util.module_from_spec(spec)
