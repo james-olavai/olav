@@ -81,3 +81,87 @@ def _parse_agent(data: dict) -> AgentDeclaration:
 def check_binary_requirements(requires: RequiresDeclaration) -> list[str]:
     """Return list of binary names that are not on PATH."""
     return [b for b in requires.binaries if shutil.which(b) is None]
+
+
+# ── Active workspace resolution ───────────────────────────────────────────────
+
+def get_active_workspace() -> str:
+    """Return the active workspace name from .olav/config/settings.json.
+
+    Falls back to "core" if settings.json is absent, broken, or has no
+    active_workspace key.
+    """
+    settings_path = Path(".olav") / "config" / "settings.json"
+    if settings_path.exists():
+        try:
+            import json as _json
+            data = _json.loads(settings_path.read_text(encoding="utf-8"))
+            return str(data.get("active_workspace", "core"))
+        except Exception:  # noqa: BLE001
+            pass
+    return "core"
+
+
+def resolve_workspace_path(
+    *parts: str,
+    workspace: str | None = None,
+    workspace_root: Path | None = None,
+) -> Path:
+    """Resolve a path under the workspace directory with flat→nested fallback.
+
+    Strategy:
+    1. No parts → return workspace_root (or workspace_root/<workspace>)
+    2. Flat structure exists (.olav/workspace/<parts>/…) → return it (backward compat)
+    3. Nested structure → .olav/workspace/<workspace>/<parts>/…
+       where <workspace> = explicit kwarg or active workspace from settings.json
+
+    Args:
+        *parts: Path components relative to the workspace root.
+        workspace: Explicit workspace name; if None, uses get_active_workspace().
+        workspace_root: Override for the base workspace directory.
+                        Defaults to Path(".olav/workspace").
+
+    Examples:
+        resolve_workspace_path()                         → .olav/workspace/
+        resolve_workspace_path(workspace="netops")       → .olav/workspace/netops/
+        resolve_workspace_path("audit", "profiles")      → .olav/workspace/audit/profiles  (flat)
+                                                        or .olav/workspace/core/audit/profiles
+        resolve_workspace_path("ops", workspace="itsm")  → .olav/workspace/itsm/ops/
+    """
+    if workspace_root is None:
+        workspace_root = (Path(".olav") / "workspace").resolve()
+    else:
+        workspace_root = workspace_root.resolve()
+
+    if not parts:
+        if workspace is not None:
+            return workspace_root / workspace
+        return workspace_root
+
+    # Flat path check (backward compat — wins if it exists on disk)
+    flat_path = workspace_root / Path(*parts)
+    if flat_path.exists():
+        return flat_path
+
+    # Nested path: workspace_root / <workspace> / <parts>
+    ws = workspace if workspace is not None else get_active_workspace()
+    return workspace_root / ws / Path(*parts)
+
+
+def resolve_workspace_root(
+    workspace: str | None = None,
+    workspace_root: Path | None = None,
+) -> Path:
+    """Return the root directory of the workspace tree or a specific workspace.
+
+    Args:
+        workspace: Workspace name; if None, returns the workspace tree root.
+        workspace_root: Override for the base workspace directory.
+    """
+    if workspace_root is None:
+        workspace_root = (Path(".olav") / "workspace").resolve()
+    else:
+        workspace_root = workspace_root.resolve()
+    if workspace is not None:
+        return workspace_root / workspace
+    return workspace_root

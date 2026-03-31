@@ -335,7 +335,8 @@ async def _kb_status(args: str) -> dict:
         from pathlib import Path as _Path
 
         # Use workspace-centric knowledge management tools
-        path = _Path(".olav/workspace/config/knowledge/tools/get_knowledge_status.py")
+        from olav.core.workspace import resolve_workspace_path
+        path = resolve_workspace_path("config", "knowledge", "tools") / "get_knowledge_status.py"
         spec = importlib.util.spec_from_file_location("_olav_skill_kb_status", path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -369,7 +370,8 @@ async def _kb_index(args: str) -> dict:
         import importlib.util
         from pathlib import Path as _Path
 
-        path = _Path(".olav/workspace/config/knowledge/tools/index_knowledge_files.py")
+        from olav.core.workspace import resolve_workspace_path
+        path = resolve_workspace_path("config", "knowledge", "tools") / "index_knowledge_files.py"
         spec = importlib.util.spec_from_file_location("_olav_skill_kb_index", path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -464,7 +466,8 @@ async def _kb_reload(args: str) -> dict:
         import importlib.util
         from pathlib import Path as _Path
 
-        path = _Path(".olav/workspace/config/knowledge/tools/index_knowledge_files.py")
+        from olav.core.workspace import resolve_workspace_path
+        path = resolve_workspace_path("config", "knowledge", "tools") / "index_knowledge_files.py"
         spec = importlib.util.spec_from_file_location("_olav_skill_kb_reload", path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
