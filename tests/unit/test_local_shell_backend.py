@@ -1,8 +1,8 @@
 """Tests for §sandbox: LocalShellBackend enabled in local mode.
 
-When no --sandbox flag is given, create_olav_agent_with_backend must use
-LocalShellBackend (which implements SandboxBackendProtocol and injects an
-`execute` shell tool), not the bare FilesystemBackend.
+When no --sandbox flag is given, create_olav_agent_with_backend must return
+a LocalShellBackend directly (NOT wrapped in CompositeBackend) so that
+deepagents recognises it as a SandboxBackendProtocol and injects `execute`.
 """
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 
 
 def _make_mock_agent():
-    """Return a minimal mock that satisfies create_olav_agent_with_backend."""
     agent = MagicMock()
     agent.graph = MagicMock()
     agent.plugin_registry = MagicMock()
@@ -20,19 +19,31 @@ def _make_mock_agent():
 
 
 class TestLocalShellBackendInLocalMode:
-    def test_local_mode_uses_local_shell_backend(self, tmp_path, monkeypatch):
-        """Without --sandbox, backend must be LocalShellBackend."""
+    def test_local_mode_returns_local_shell_backend(self, tmp_path, monkeypatch):
+        """Without --sandbox, returned backend must be LocalShellBackend."""
         monkeypatch.chdir(tmp_path)
 
         with patch("olav.agents.agent.OLAVAgent", return_value=_make_mock_agent()):
             from olav.cli.main import create_olav_agent_with_backend
             _, backend = create_olav_agent_with_backend("quick", sandbox=None)
 
-        from deepagents.backends import CompositeBackend, LocalShellBackend
-        assert isinstance(backend, CompositeBackend)
-        assert isinstance(backend.default, LocalShellBackend), (
-            f"Local mode must use LocalShellBackend, got {type(backend.default).__name__}"
+        from deepagents.backends import LocalShellBackend
+        assert isinstance(backend, LocalShellBackend), (
+            f"Local mode must return LocalShellBackend directly, got {type(backend).__name__}"
         )
+
+    def test_local_shell_backend_implements_sandbox_protocol(self, tmp_path, monkeypatch):
+        """LocalShellBackend must implement SandboxBackendProtocol (provides execute tool)."""
+        monkeypatch.chdir(tmp_path)
+
+        with patch("olav.agents.agent.OLAVAgent", return_value=_make_mock_agent()):
+            from olav.cli.main import create_olav_agent_with_backend
+            _, backend = create_olav_agent_with_backend("quick", sandbox=None)
+
+        from deepagents.backends import LocalShellBackend
+        assert isinstance(backend, LocalShellBackend)
+        # SandboxBackendProtocol requirement: must have execute()
+        assert hasattr(backend, "execute"), "Backend must have execute() for shell tool injection"
 
     def test_explicit_sandbox_arg_overrides(self, tmp_path, monkeypatch):
         """An explicit sandbox arg still takes precedence over LocalShellBackend."""
@@ -47,17 +58,16 @@ class TestLocalShellBackendInLocalMode:
         assert isinstance(backend, CompositeBackend)
         assert backend.default is custom_sandbox
 
-    def test_local_shell_backend_root_dir_is_cwd(self, tmp_path, monkeypatch):
-        """LocalShellBackend root_dir must be the current working directory."""
+    def test_local_shell_backend_cwd_is_project_root(self, tmp_path, monkeypatch):
+        """LocalShellBackend must be rooted at the current working directory."""
         monkeypatch.chdir(tmp_path)
 
         with patch("olav.agents.agent.OLAVAgent", return_value=_make_mock_agent()):
             from olav.cli.main import create_olav_agent_with_backend
             _, backend = create_olav_agent_with_backend("quick", sandbox=None)
 
-        from deepagents.backends import LocalShellBackend, CompositeBackend
-        assert isinstance(backend.default, LocalShellBackend)
-        # root_dir is stored as 'cwd' on the backend
-        root = getattr(backend.default, "root_dir", None) or getattr(backend.default, "cwd", None)
+        from deepagents.backends import LocalShellBackend
+        assert isinstance(backend, LocalShellBackend)
+        root = getattr(backend, "root_dir", None) or getattr(backend, "cwd", None)
         assert root is not None
         assert Path(root).resolve() == tmp_path.resolve()
