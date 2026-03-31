@@ -1,4 +1,4 @@
-# Python
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.class
@@ -20,12 +20,9 @@ pip-wheel-metadata/
 *.egg-info/
 .installed.cfg
 *.egg
-.claude/
-.github/
 MANIFEST
 
-# Virtual environments
-.env
+# ── Virtual environments ───────────────────────────────────────────────────────
 .venv
 env/
 venv/
@@ -33,7 +30,7 @@ ENV/
 env.bak/
 venv.bak/
 
-# IDEs & Editors
+# ── IDEs & Editors ─────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
@@ -41,31 +38,50 @@ venv.bak/
 *~
 .DS_Store
 
-# Testing & QA (Strictly Excluded)
+# ── Test artifacts (caches only — test SOURCE is committed) ───────────────────
 .pytest_cache/
 .coverage
-htmlcov/                        # Coverage reports (never commit)
+htmlcov/
 .tox/
 *.cover
 .hypothesis/
+MagicMock/
+
+# ── Type checker / linter caches ──────────────────────────────────────────────
 .mypy_cache/
 .dmypy.json
 dmypy.json
-.pyright_cache/                 # Pyright cache
-.ruff_cache/                    # Ruff cache
+.pyright_cache/
+.ruff_cache/
 
-# ContainerLab E2E — runtime artifacts (not source, not committed)
-.agent/skills/containerlab-e2e/references/*.duckdb   # Test run history DB
-.agent/skills/containerlab-e2e/evidence/             # Test evidence artifacts
-tests/
-*/tests/
-test_*.py
+# ── Build / Packaging ──────────────────────────────────────────────────────────
+uv.lock
+dist/
+build/
 
-# Platform Logs
+# ── Claude / GitHub meta ───────────────────────────────────────────────────────
+.claude/
+.github/
+
+# ── Archives & Legacy ──────────────────────────────────────────────────────────
+archive/
+_legacy_archived/
+README_ZH.md
+
+# ── Platform Logs & Runtime ────────────────────────────────────────────────────
 logs/
 *.log
+agent_outputs/
+tmp/
+run/
 
-# Exported Data (User-Facing, Version Controlled Optional)
+# ── OLAV workspace: ignore runtime state, keep config templates ───────────────
+.olav/*
+!.olav/workspace/
+!.olav/templates/
+!.olav/config/schemas/
+
+# ── Exported data ──────────────────────────────────────────────────────────────
 exports/snapshots/*
 exports/reports/*
 exports/visualizations/*
@@ -75,115 +91,23 @@ exports/visualizations/*
 !exports/reports/analysis/.gitkeep
 !exports/visualizations/.gitkeep
 
-# Sensitive Configuration (User-Specific - Never Commit)
-# CRITICAL: These files contain API keys, passwords, network credentials, and secrets
-# NEVER add these to version control - they are user-specific and sensitive
-.env                           # Environment variables (API keys, secrets)
-.env.local                     # Local environment overrides
-.env.*.local                   # Environment-specific local overrides
-.olav/settings.json            # User configuration with potential secrets
-.olav/.agent_memory.json       # Agent internal state
-.olav/.cli_history             # Command history with potentially sensitive commands
-.olav/knowledge/aliases.md     # Device aliases (may contain sensitive info)
-config/inventory.csv           # Device inventory (IP addresses, credentials)
-.olav/config/nornir/hosts.yaml # Nornir configuration (device credentials, SSH keys)
-config/nornir/hosts.yaml       # Device configuration with passwords
-
-# User-specific knowledge (agent-generated)
-.olav/knowledge/solutions/
-
-# Build/Packaging
-uv.lock
-
-# Archives & Legacy (Excluded from Release)
-archive/
-_legacy_archived/
-README_ZH.md
-
-# Testing & QA (Strictly Excluded)
-tests/
-test_*.py
-*_test.py
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-*.cover
-.hypothesis/
-.mypy_cache/
-.dmypy.json
-dmypy.json
-.pyright_cache/
-.ruff_cache/
-
-# Runtime Generated Files (Excluded from Release)
-agent_outputs/
-exports/
-logs/
-tmp/
-run/
-.olav/
-*.log
-
-# Demo and Test Scripts (Excluded from Release)
-demo_*.py
-test_*.py
-*_test.py
-*test*.py
-WATERMARK_IMPLEMENTATION_REPORT.md
-tmp/
-run/
-.olav/
-*.log
-
-# Build/Packaging
-uv.lock
-dist/
-build/
-*.egg-info/
-
-# IDEs & Editors
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# Python
-__pycache__/
-*.py[cod]
-*.class
-*.so
-.Python
-develop-eggs/
-downloads/
-eggs/
-.eggs/
-/lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-pip-wheel-metadata/
-.installed.cfg
-*.egg
-.claude/
-.github/
-MANIFEST
-
-# Virtual environments
+# ── Sensitive Configuration (NEVER commit) ────────────────────────────────────
 .env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
+.env.local
+.env.*.local
+.olav/settings.json
+.olav/.agent_memory.json
+.olav/.cli_history
+.olav/knowledge/aliases.md
+.olav/knowledge/solutions/
+config/inventory.csv
+.olav/config/nornir/hosts.yaml
+config/nornir/hosts.yaml
 
-# OLAV - ignore everything by default, except workspace/templates/schemas
-.olav/*
-!.olav/workspace/
-!.olav/templates/
-!.olav/config/schemas/
+# ── ContainerLab E2E runtime artifacts ────────────────────────────────────────
+.agent/skills/containerlab-e2e/references/*.duckdb
+.agent/skills/containerlab-e2e/evidence/
+
+# ── Demo scripts ───────────────────────────────────────────────────────────────
+demo_*.py
+WATERMARK_IMPLEMENTATION_REPORT.md

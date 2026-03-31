@@ -234,28 +234,58 @@ def run_init(dry_run: bool = False) -> int:
         )
     )
 
-    import asyncio
-
-    from olav.cli.main import run_single_query  # platform dependency
-
-    asyncio.run(
-        run_single_query(
-            "Run sync_inventory() then sync_commands(). "
-            "DO NOT run collect_commands or generate_topology — those run next. "
-            "Report device count and template count only.",
-            assistant_id="config",
-        )
-    )
-
     # ── Steps 3b–5: staged pipeline ─────────────────────────────────────────
     from olav.core.config import AGENT_DIR, CONFIG_DIR
 
-    _sync_tools = AGENT_DIR / "workspace" / "config" / "sync" / "tools"
-    _learner_tools = AGENT_DIR / "workspace" / "config" / "learner" / "tools"
+    # olav-netops package ships its own workspace under its own .olav/ directory.
+    # Tools must be found there first, then fall back to the project AGENT_DIR.
+    _netops_dir = _SCRIPT_DIR.parent  # olav-netops/
+    _netops_sync_tools    = _netops_dir / ".olav" / "workspace" / "config" / "sync" / "tools"
+    _netops_learner_tools = _netops_dir / ".olav" / "workspace" / "config" / "learner" / "tools"
+    _sync_tools     = AGENT_DIR / "workspace" / "config" / "sync" / "tools"
+    _learner_tools  = AGENT_DIR / "workspace" / "config" / "learner" / "tools"
     _discovery_tools = AGENT_DIR / "workspace" / "config" / "discovery" / "tools"
-    for _p in (_sync_tools, _learner_tools, _discovery_tools):
-        if str(_p) not in sys.path:
+    for _p in (_netops_sync_tools, _netops_learner_tools, _sync_tools, _learner_tools, _discovery_tools):
+        if _p.exists() and str(_p) not in sys.path:
             sys.path.insert(0, str(_p))
+
+    # Bootstrap netops schema tables BEFORE sync_schemas runs — sync_schemas
+    # queries netops.parsed_outputs, which must exist first.
+    try:
+        from olav.core.database import get_database as _get_db  # noqa: PLC0415
+        from olav_netops.core.tables import (  # noqa: PLC0415
+            DevicesTable,
+            OcOutputsTable,
+            ParsedOutputsTable,
+            TopologyLinksTable,
+        )
+        _db = _get_db()
+        ParsedOutputsTable().ensure_schema(_db.conn)
+        DevicesTable().ensure_schema(_db.conn)
+        TopologyLinksTable().ensure_schema(_db.conn)
+        OcOutputsTable().ensure_schema(_db.conn)
+        console.print("[green]✅ netops schema tables bootstrapped[/green]")
+    except Exception as _boot_err:
+        console.print(f"[yellow]⚠ netops schema bootstrap skipped: {_boot_err}[/yellow]")
+
+    # Ensure topology_protocol_recipes and schema_catalog tables exist
+    # before collect_commands runs (Stage 1 depends on them for OC mapping).
+    try:
+        from sync_schemas import sync_schemas as _ss  # noqa: PLC0415
+        _ss.invoke({"force_recreate": False})
+        console.print("[green]✅ DB schema verified (topology_protocol_recipes ready)[/green]")
+    except Exception as _schema_err:
+        console.print(f"[yellow]⚠ sync_schemas skipped: {_schema_err}[/yellow]")
+
+    # Populate schema_catalog with TextFSM field definitions (prerequisite for OC mapping).
+    try:
+        from sync_commands import sync_commands as _sc  # noqa: PLC0415
+        _sc_result = _sc.invoke({})
+        console.print(
+            f"[green]✅ schema_catalog populated: {_sc_result.get('schema_catalog_upserted', 0)} entries[/green]"
+        )
+    except Exception as _sc_err:
+        console.print(f"[yellow]⚠ sync_commands skipped: {_sc_err}[/yellow]")
 
     from collect_commands import collect_commands  # noqa: PLC0415
     from repair_template import repair_template  # noqa: PLC0415
@@ -459,6 +489,15 @@ def run_init(dry_run: bool = False) -> int:
             )
 
     # ── Stage 4: Topology ─────────────────────────────────────────────────
+    # Release the get_database() singleton before Stage 4 — topology ETL
+    # opens its own DuckDB write connection.
+    # DuckDB does not allow two simultaneous write connections to the same file.
+    try:
+        from olav.core.database import reset_database as _reset_db  # noqa: PLC0415
+        _reset_db()
+    except Exception:
+        pass
+
     console.rule("[bold cyan]Stage 4: Generate Topology[/bold cyan]")
     with Progress(
         SpinnerColumn(),
@@ -466,6 +505,16 @@ def run_init(dry_run: bool = False) -> int:
         console=console,
     ) as progress:
         task = progress.add_task("Building topology from CDP/LLDP/OSPF...", total=None)
+        # Step 1: ETL — extract LLDP/CDP links from parsed_outputs → topology_links
+        try:
+            import duckdb as _topo_duckdb  # noqa: PLC0415
+            from olav.core.config import MAIN_DB_PATH as _TOPO_DB_PATH  # noqa: PLC0415
+            from olav.core.topology_engine import extract_lldp_topology  # noqa: PLC0415
+            with _topo_duckdb.connect(str(_TOPO_DB_PATH)) as _topo_con:
+                extract_lldp_topology(_topo_con)
+        except Exception as _topo_etl_err:
+            console.print(f"[yellow]⚠ Topology ETL error (non-blocking): {_topo_etl_err}[/yellow]")
+        # Step 2: Analysis — NetworkX graph analytics on topology_links
         topo_result = run_topology_sandbox.func(snapshot_id=snapshot_id)
         topo_links = topo_result.get("edge_count", 0) if isinstance(topo_result, dict) else 0
         progress.update(
@@ -493,8 +542,8 @@ def run_init(dry_run: bool = False) -> int:
         for _gap in gaps_remaining:
             console.print(f"  • {_gap.get('platform', '?')} / {_gap.get('command', '?')}")
 
-    # ── Stage 5: Register trace_learner cron ──────────────────────────────
-    console.rule("[bold cyan]Stage 5: Register trace_learner cron[/bold cyan]")
+    # ── Stage 5: Register cron jobs ───────────────────────────────────────
+    console.rule("[bold cyan]Stage 5: Register Cron[/bold cyan]")
     try:
         cron_result = _register_trace_learner_cron(project_root=_PROJECT_ROOT)
         if cron_result["status"] == "registered":
