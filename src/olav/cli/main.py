@@ -437,11 +437,21 @@ def create_olav_agent_with_backend(
 
     # Create backend
     if sandbox is None:
-        # Local mode - use filesystem backend
-        composite_backend = CompositeBackend(
-            default=FilesystemBackend(),
-            routes={},
-        )
+        # Local mode — use LocalShellBackend so the agent gets an `execute`
+        # shell tool and can run arbitrary commands (docker, git, olav CLI, etc.)
+        # without requiring pre-built @tool wrappers for every operation.
+        from olav.agents._deepagents_bridge import HAS_LOCAL_SHELL_BACKEND, LocalShellBackend
+
+        if HAS_LOCAL_SHELL_BACKEND and LocalShellBackend is not None:
+            composite_backend = CompositeBackend(
+                default=LocalShellBackend(root_dir=str(Path.cwd()), inherit_env=True),
+                routes={},
+            )
+        else:
+            composite_backend = CompositeBackend(
+                default=FilesystemBackend(),
+                routes={},
+            )
     else:
         # Remote sandbox mode
         composite_backend = CompositeBackend(
