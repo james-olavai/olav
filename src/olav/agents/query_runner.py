@@ -18,15 +18,12 @@ from olav.core.llm import LLMFactory
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_REF = (
-    Path(__file__).resolve().parents[3] / ".olav/workspace/quick/references/SCHEMA_REFERENCE.md"
-)
-
-
 def _get_schema_context() -> str:
-    if not _SCHEMA_REF.exists():
-        raise FileNotFoundError(f"Schema reference not found: {_SCHEMA_REF}")
-    return _SCHEMA_REF.read_text(encoding="utf-8")
+    from olav.core.workspace import resolve_workspace_path
+    schema_ref = resolve_workspace_path("quick", "references") / "SCHEMA_REFERENCE.md"
+    if not schema_ref.exists():
+        raise FileNotFoundError(f"Schema reference not found: {schema_ref}")
+    return schema_ref.read_text(encoding="utf-8")
 
 
 def _build_messages(schema_context: str, question: str) -> tuple[str, str]:

@@ -107,7 +107,8 @@ def parse_args():
         # Use a lightweight pre-parser to extract flags while leaving the
         # query tokens untouched.
         pre = argparse.ArgumentParser(add_help=False)
-        pre.add_argument("--agent", "-a", default="quick")
+        pre.add_argument("--agent", "-a", default=None)
+        pre.add_argument("--workspace", "-w", default=None)
         pre.add_argument("--auto-approve", dest="auto_approve", action="store_true")
         pre.add_argument(
             "--sandbox", default="none", choices=["none", "modal", "daytona", "runloop"]
@@ -125,15 +126,26 @@ def parse_args():
         if pre_args.profile and not query:
             profile_name = pre_args.profile
             if not profile_name.endswith(".md") and "/" not in profile_name:
-                profile_path = f".olav/workspace/audit/profiles/{profile_name}.md"
+                from olav.core.workspace import resolve_workspace_path
+                profile_path = str(
+                    resolve_workspace_path("audit", "profiles", workspace=pre_args.workspace)
+                    / f"{profile_name}.md"
+                )
             else:
                 profile_path = profile_name
             query = f"Run audit using profile {profile_path}"
+        # Resolve agent default: use active workspace default if not specified
+        agent = pre_args.agent
+        if agent is None:
+            from olav.core.workspace import get_active_workspace
+            ws = pre_args.workspace or get_active_workspace()
+            agent = "quick" if ws == "core" else ws
         # Build a Namespace that matches what the rest of main() expects
         return _types.SimpleNamespace(
             command=None,
             query=query,
-            agent=pre_args.agent,
+            agent=agent,
+            workspace=pre_args.workspace,
             auto_approve=pre_args.auto_approve,
             sandbox=pre_args.sandbox,
             sandbox_id=pre_args.sandbox_id,
@@ -1024,8 +1036,9 @@ async def cli_main_impl() -> None:
         # Handle list command
         if args.command == "list":
             import yaml
+            from olav.core.workspace import resolve_workspace_root
 
-            workspace_root = Path(".olav/workspace")
+            workspace_root = resolve_workspace_root()
             console.print("\n[bold]Available Agents:[/bold]\n")
             found = []
             if workspace_root.exists():
@@ -1350,7 +1363,8 @@ async def cli_main_impl() -> None:
 
         # Handle skills command - manage SKILL.md files in .olav/workspace/
         if args.command == "skills":
-            workspace = Path(".olav/workspace")
+            from olav.core.workspace import resolve_workspace_root
+            workspace = resolve_workspace_root()
             skills_cmd = getattr(args, "skills_command", None)
 
             if skills_cmd is None or skills_cmd == "list":
