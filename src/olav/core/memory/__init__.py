@@ -19,6 +19,8 @@ from typing import Any
 import lancedb
 import pyarrow as pa
 
+from olav.platform.safety.injection_scanner import scan_content as _scan_content
+
 logger = logging.getLogger(__name__)
 
 # Default LanceDB database path
@@ -221,6 +223,20 @@ class LanceDBStore:
         Returns:
             Dict with status and message
         """
+        # Injection scan — reject hostile content before writing to memory
+        is_clean, match = _scan_content(text)
+        if not is_clean:
+            logger.warning(
+                "InjectionScanner blocked memory write: category=%s pattern=%r snippet=%r",
+                match.category,  # type: ignore[union-attr]
+                match.matched_pattern,  # type: ignore[union-attr]
+                match.matched_text[:60],  # type: ignore[union-attr]
+            )
+            return {
+                "status": "blocked",
+                "reason": f"Injection pattern detected: {match.category}",  # type: ignore[union-attr]
+            }
+
         try:
             # Ensure table exists
             if not self.table_exists(table_name):
