@@ -9,9 +9,6 @@ import json
 from pathlib import Path
 
 from olav.cli.commands.base import BaseCommand
-from olav.core.bootstrap_yang import ensure_bundled_openconfig_reference
-from olav.core.config import MAIN_DB_PATH
-from olav.core.views import ensure_semantic_views
 
 
 class InitCommand(BaseCommand):
@@ -50,29 +47,10 @@ class InitCommand(BaseCommand):
             )
 
         llm_status = await self._check_llm()
-        yang_status = self._bootstrap_yang_reference()
         return (
             "platform ready: created .olav scaffolding and baseline api.json\n"
-            f"llm: {llm_status}\n"
-            f"yang: {yang_status}"
+            f"llm: {llm_status}"
         )
-
-    def _bootstrap_yang_reference(self) -> str:
-        try:
-            import duckdb
-
-            MAIN_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-            with duckdb.connect(str(MAIN_DB_PATH)) as con:
-                result = ensure_bundled_openconfig_reference(con)
-                try:
-                    ensure_semantic_views(con)
-                except Exception:  # noqa: BLE001
-                    pass
-            if result.get("status") == "already_populated":
-                return f"✓ existing yang_leaves preserved ({result['existing_rows']} rows)"
-            return f"✓ bundled OpenConfig reference loaded ({result['leaves_inserted']} leaves)"
-        except Exception as exc:  # noqa: BLE001
-            return f"⚠ skipped ({exc})"
 
     async def _check_llm(self) -> str:
         """Test LLM connectivity. Never raises — returns a human-readable status string."""

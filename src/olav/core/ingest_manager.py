@@ -7,9 +7,10 @@ Staging-First flow:
      (overwritten on each snapshot run — no accumulation).
   2. IngestManager.bulk_load() uses DuckDB read_json_auto for a single
      high-speed atomic write, avoiding per-row INSERT overhead.
-  3. Config backups persist in exports/backup/{date}/{device}/;
-     operational raw output goes to tmp/snapshots/{date}/raw/;
-     the DB holds only structured (parsed_data JSON) records.
+  3. raw_output is stored in raw_output_store — one row per (device, command),
+     always overwritten with the latest snapshot's data. No history, no dedup.
+  4. Commands listed in .olav/config/backup_only_commands.yaml are written
+     to exports/backup/{snapshot_id}/{device_name}.txt after each ingest.
 
 Staging file schema (JSON array):
   [{"device_name": "R1", "command": "show version",
@@ -24,8 +25,20 @@ from typing import Any
 
 import duckdb
 
-from olav.core.config import MAIN_DB_PATH
+from olav.core.config import BACKUP_DIR, CONFIG_DIR, MAIN_DB_PATH
 from olav.platform.ingest_base import TableRegistry
+
+
+def _load_backup_commands() -> frozenset[str]:
+    """Read backup command list from .olav/config/backup_only_commands.yaml."""
+    yaml_path = Path(CONFIG_DIR) / "backup_only_commands.yaml"
+    try:
+        import yaml
+        entries = yaml.safe_load(yaml_path.read_text()) or []
+        return frozenset(e["command"] for e in entries if isinstance(e, dict) and e.get("command"))
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not load backup_only_commands.yaml: %s", exc)
+        return frozenset()
 
 logger = logging.getLogger(__name__)
 
@@ -60,50 +73,56 @@ class IngestManager:
         snapshot run (Schema-On-Read, idempotent upsert).
 
         Returns:
-            Dict with status, files_processed, records_inserted.
+            Dict with status, files_processed, records_inserted, snapshot_ids.
         """
         staging_files = list(self.staging_dir.glob("*.staging.json"))
 
         if not staging_files:
             return {"status": "no_files", "files_processed": 0, "records_inserted": 0}
 
-        # Glob pattern for DuckDB — must be a POSIX string
         staging_pattern = (self.staging_dir / "*.staging.json").as_posix()
 
-        # Resolve target table name via TableRegistry (domain-package aware).
-        # If olav-netops (or another domain package) has registered
-        # 'parsed_outputs', use its qualified_name (e.g. 'netops.parsed_outputs').
-        # Fall back to the legacy flat-table name for backward compatibility.
         _tbl = TableRegistry.get("parsed_outputs")
+        _store_tbl = TableRegistry.get("raw_output_store")
         target_table = _tbl.qualified_name if _tbl else "parsed_outputs"
+        store_table = _store_tbl.qualified_name if _store_tbl else "netops.raw_output_store"
 
         try:
             with duckdb.connect(str(self.db_path), read_only=False) as conn:
-                # Ensure schema + table exist if domain package registered the table.
                 if _tbl is not None:
                     _tbl.ensure_schema(conn)
-                # read_json_auto reads all files in one pass.
-                # parsed_data is cast to JSON to match the column type.
-                # ON CONFLICT upserts — safe to re-run after a partial failure.
+                if _store_tbl is not None:
+                    _store_tbl.ensure_schema(conn)
+
+                # Step 1: Upsert raw_output_store — latest data wins per (device, command)
                 conn.execute(f"""
-                    INSERT INTO {target_table} (device_name, command, parsed_data, snapshot_id, raw_output)
-                    SELECT
-                        device_name,
-                        command,
-                        parsed_data::JSON,
-                        snapshot_id,
-                        TRY_CAST(raw_output AS VARCHAR)
+                    INSERT INTO {store_table} (device_name, command, raw_output, snapshot_id, updated_at)
+                    SELECT device_name, command, raw_output, snapshot_id, NOW()
+                    FROM read_json_auto('{staging_pattern}', format='array', ignore_errors=true)
+                    WHERE raw_output IS NOT NULL AND raw_output != ''
+                    ON CONFLICT (device_name, command)
+                    DO UPDATE SET
+                        raw_output  = EXCLUDED.raw_output,
+                        snapshot_id = EXCLUDED.snapshot_id,
+                        updated_at  = NOW()
+                """)
+
+                # Step 2: Upsert parsed_outputs (no inline raw_output)
+                conn.execute(f"""
+                    INSERT INTO {target_table} (device_name, command, parsed_data, snapshot_id)
+                    SELECT device_name, command, parsed_data::JSON, snapshot_id
                     FROM read_json_auto('{staging_pattern}', format='array', ignore_errors=true)
                     WHERE parsed_data IS NOT NULL
                     ON CONFLICT (device_name, command, snapshot_id)
-                    DO UPDATE SET
-                        parsed_data = EXCLUDED.parsed_data,
-                        raw_output  = EXCLUDED.raw_output
+                    DO UPDATE SET parsed_data = EXCLUDED.parsed_data
                 """)
-                # DuckDB does not support changes(); count staging records directly
+
                 rows_inserted = conn.execute(
                     f"SELECT COUNT(*) FROM read_json_auto('{staging_pattern}', format='array', ignore_errors=true)"
                 ).fetchone()
+                snapshot_ids = conn.execute(
+                    f"SELECT DISTINCT snapshot_id FROM read_json_auto('{staging_pattern}', format='array', ignore_errors=true) WHERE snapshot_id IS NOT NULL"
+                ).fetchall()
 
             inserted = rows_inserted[0] if rows_inserted else len(staging_files)
             logger.info(
@@ -115,6 +134,7 @@ class IngestManager:
                 "status": "success",
                 "files_processed": len(staging_files),
                 "records_inserted": inserted,
+                "snapshot_ids": [r[0] for r in snapshot_ids],
             }
 
         except Exception as e:
@@ -126,6 +146,11 @@ class IngestManager:
                 "records_inserted": 0,
             }
 
+        try:
+            self._backup_commands(result.get("snapshot_ids", []))
+        except Exception as exc:
+            logger.warning("Command backup failed: %s", exc)
+
         for hook in self._post_ingest_hooks:
             try:
                 hook(result)
@@ -133,3 +158,43 @@ class IngestManager:
                 logger.warning("post_ingest_hook %r failed: %s", hook, hook_exc)
 
         return result
+
+    def _backup_commands(self, snapshot_ids: list[str]) -> None:
+        """Write raw output for backup_only_commands.yaml entries to disk.
+
+        Output: BACKUP_DIR / {snapshot_id} / {device_name}_{command_slug}.txt
+        Reads command list from .olav/config/backup_only_commands.yaml each time
+        so changes to the YAML take effect without restart.
+        """
+        backup_commands = _load_backup_commands()
+        if not backup_commands or not snapshot_ids:
+            return
+
+        _store_tbl = TableRegistry.get("raw_output_store")
+        store_table = _store_tbl.qualified_name if _store_tbl else "netops.raw_output_store"
+
+        cmds_sql = ", ".join(f"'{c}'" for c in backup_commands)
+
+        try:
+            with duckdb.connect(str(self.db_path), read_only=True) as conn:
+                rows = conn.execute(f"""
+                    SELECT device_name, command, raw_output, snapshot_id
+                    FROM {store_table}
+                    WHERE command IN ({cmds_sql})
+                      AND raw_output IS NOT NULL
+                """).fetchall()
+        except Exception as exc:
+            logger.warning("Backup query failed: %s", exc)
+            return
+
+        for device_name, command, raw_output, snapshot_id in rows:
+            snap = snapshot_id or "unknown"
+            out_dir = Path(BACKUP_DIR) / snap
+            out_dir.mkdir(parents=True, exist_ok=True)
+            slug = command.replace(" ", "_").replace("/", "-")
+            out_file = out_dir / f"{device_name}_{slug}.txt"
+            out_file.write_text(raw_output, encoding="utf-8")
+            logger.debug("Backup written: %s", out_file)
+
+        if rows:
+            logger.info("Command backup: %d files written to %s", len(rows), BACKUP_DIR)

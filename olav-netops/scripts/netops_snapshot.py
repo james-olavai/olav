@@ -52,10 +52,14 @@ def run_snapshot(repair: bool = False) -> int:
     from olav.core.config import AGENT_DIR
 
     console = Console()
-    _sync_tools = AGENT_DIR / "workspace" / "config" / "sync" / "tools"
+    # olav-netops ships its own workspace — prefer package-local paths.
+    _netops_dir = _SCRIPT_DIR.parent  # olav-netops/
+    _netops_sync_tools    = _netops_dir / ".olav" / "workspace" / "config" / "sync" / "tools"
+    _netops_learner_tools = _netops_dir / ".olav" / "workspace" / "config" / "learner" / "tools"
+    _sync_tools    = AGENT_DIR / "workspace" / "config" / "sync" / "tools"
     _learner_tools = AGENT_DIR / "workspace" / "config" / "learner" / "tools"
-    for _p in (_sync_tools, _learner_tools):
-        if str(_p) not in sys.path:
+    for _p in (_netops_sync_tools, _netops_learner_tools, _sync_tools, _learner_tools):
+        if _p.exists() and str(_p) not in sys.path:
             sys.path.insert(0, str(_p))
 
     try:
