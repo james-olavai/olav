@@ -45,16 +45,41 @@ import duckdb as _duckdb
 from olav.core.config import MAIN_DB_PATH
 
 
+def _classify_sql(sql: str) -> str:
+    """Classify a SQL statement as SELECT, INSERT, MUTATE, DDL, or OTHER."""
+    normalized = sql.strip().upper().lstrip("(")
+    if normalized.startswith(("SELECT", "WITH")):
+        return "SELECT"
+    if normalized.startswith(("INSERT", "UPSERT", "COPY")):
+        return "INSERT"
+    if normalized.startswith(("UPDATE", "DELETE", "TRUNCATE")):
+        return "MUTATE"
+    if normalized.startswith(("CREATE", "DROP", "ALTER")):
+        return "DDL"
+    return "OTHER"
+
+
 def db_query(sql: str, params: list | None = None) -> list[dict]:
-    """Execute a SQL query against the main DuckDB database."""
-    with _duckdb.connect(str(MAIN_DB_PATH)) as conn:
-        cur = conn.cursor()
-        cur.execute(sql, params or [])
-        if cur.description:
-            cols = [d[0] for d in cur.description]
-            result = [dict(zip(cols, row, strict=False)) for row in cur.fetchall()]
-            return result
-        return []
+    """Execute a SQL query against the main DuckDB database.
+
+    SELECT/WITH queries run read-only. All mutating SQL (INSERT, UPDATE,
+    DELETE, DDL) requires explicit approval before execution.
+    """
+    sql_type = _classify_sql(sql)
+
+    if sql_type == "SELECT":
+        # Safe read-only path
+        with _duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
+            cur = conn.cursor()
+            cur.execute(sql, params or [])
+            if cur.description:
+                cols = [d[0] for d in cur.description]
+                return [dict(zip(cols, row, strict=False)) for row in cur.fetchall()]
+            return []
+
+    # Mutating SQL — require approval
+    return [{"requires_approval": True, "sql_type": sql_type, "sql": sql,
+             "reason": f"{sql_type} operation requires explicit approval before execution"}]
 
 
 

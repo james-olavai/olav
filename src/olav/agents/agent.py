@@ -34,10 +34,14 @@ Replaces: LangGraph StateGraph + flat tool list (agent.py v3.2)
 """
 
 
-from deepagents import create_deep_agent
-from deepagents.middleware.subagents import CompiledSubAgent, SubAgent
 from langchain.agents import create_agent
 from langchain.agents.middleware import TodoListMiddleware
+
+from olav.agents._deepagents_bridge import (
+    CompiledSubAgent,
+    SubAgent,
+    create_deep_agent,
+)
 from langgraph.checkpoint.duckdb import DuckDBSaver
 
 from olav.core.config import settings
@@ -147,6 +151,7 @@ class OLAVAgent:
         enable_checkpointer: bool = True,
         agent_id: str | None = None,
         session_id: str | None = None,
+        workspace: str | None = None,
     ):
         """Initialize OLAV Orchestrator Agent."""
         self.model_name = model_name or settings.llm_model_name
@@ -154,6 +159,7 @@ class OLAVAgent:
         self.olav_base_path = Path(olav_base_path)
         self.agent_id = agent_id or "quick"
         self.session_id = session_id
+        self.workspace = workspace
 
         # LLM via LLMFactory
         self.llm = LLMFactory.get_chat_model(
@@ -186,7 +192,11 @@ class OLAVAgent:
                 from olav.core.checkpointer import create_checkpointer
 
                 _user = os.environ.get("USER") or os.environ.get("USERNAME", "default_user")
-                self.checkpointer = create_checkpointer(agent_id=self.agent_id, username=_user)
+                from olav.core.workspace import get_active_workspace
+                _ws = self.workspace or get_active_workspace()
+                self.checkpointer = create_checkpointer(
+                    agent_id=self.agent_id, username=_user, workspace=_ws
+                )
             except Exception as e:
                 logger.warning(
                     f"AsyncDuckDBSaver init failed ({e}), no checkpoint support available"
@@ -290,12 +300,35 @@ class OLAVAgent:
         return post.metadata
 
     def _load_orchestrator_tools(self, olav_config: dict) -> list:
-        """Load tools from AGENT.md."""
+        """Load tools: core workspace tools (global) + this agent's tools.
+
+        Core workspace tools (e.g. recall_memory, execute_sql) are always
+        loaded first so they are available in every agent regardless of
+        workspace. Agent-specific tools are appended after, with duplicates
+        (by name) removed.
+        """
+        tools: list = []
+        seen_names: set[str] = set()
+
+        def _add(new_tools: list) -> None:
+            for t in new_tools:
+                if t.name not in seen_names:
+                    tools.append(t)
+                    seen_names.add(t.name)
+
+        # ① Always load core workspace tools (global availability)
+        core_skill = self.olav_base_path / "workspace" / "core" / "SKILL.md"
+        if core_skill.exists():
+            _add(self._load_tools_from_skill(core_skill))
+
+        # ② Load this agent's own tools
         skill_path = self._agent_dir / "SKILL.md"
         if skill_path.exists():
-            return self._load_tools_from_skill(skill_path)
-        logger.info("No SKILL.md found, using subagents only")
-        return []
+            _add(self._load_tools_from_skill(skill_path))
+        elif not core_skill.exists():
+            logger.info("No SKILL.md found, using subagents only")
+
+        return tools
 
     def _load_tools_from_skill(self, skill_path: Path) -> list:
         """Load tools from a SKILL.md file."""
