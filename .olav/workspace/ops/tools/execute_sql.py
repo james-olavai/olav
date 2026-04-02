@@ -327,18 +327,31 @@ class SchemaContext:
         return db_query(sql)
 
 
+_MAX_FIELD_CHARS = 800  # prevent single large JSON fields from flooding LLM context
+
+
 def _sanitize_value(val: Any) -> Any:
-    """Convert non-JSON-serializable types to strings."""
+    """Convert non-JSON-serializable types to strings, truncating large values."""
     if isinstance(val, (datetime, date, time_type)):
         return val.isoformat()
     if isinstance(val, Decimal):
         return float(val)
     if isinstance(val, bytes):
-        return val.decode("utf-8", errors="replace")
+        val = val.decode("utf-8", errors="replace")
     if isinstance(val, dict):
-        return {k: _sanitize_value(v) for k, v in val.items()}
+        sanitized = {k: _sanitize_value(v) for k, v in val.items()}
+        as_str = str(sanitized)
+        if len(as_str) > _MAX_FIELD_CHARS:
+            return as_str[:_MAX_FIELD_CHARS] + "…[truncated]"
+        return sanitized
     if isinstance(val, (list, tuple)):
-        return [_sanitize_value(v) for v in val]
+        sanitized = [_sanitize_value(v) for v in val]
+        as_str = str(sanitized)
+        if len(as_str) > _MAX_FIELD_CHARS:
+            return as_str[:_MAX_FIELD_CHARS] + "…[truncated]"
+        return sanitized
+    if isinstance(val, str) and len(val) > _MAX_FIELD_CHARS:
+        return val[:_MAX_FIELD_CHARS] + "…[truncated]"
     return val
 
 
