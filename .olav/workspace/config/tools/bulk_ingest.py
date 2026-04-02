@@ -14,9 +14,7 @@ Usage in DeepAgents:
 from __future__ import annotations
 
 import sys
-from datetime import date
 from pathlib import Path
-from typing import Optional
 
 from langchain_core.tools import tool
 
@@ -32,21 +30,22 @@ def _find_project_root():
 
 sys.path.insert(0, str(_find_project_root() / "src"))
 
-from olav.core.ingest_manager import bulk_ingest as _bulk_ingest
+from olav.core.config import MAIN_DB_PATH, SNAPSHOTS_STAGING_JSON
+from olav.core.ingest_manager import IngestManager
 
 
 @tool
 def bulk_ingest(snapshot_date: str | None = None) -> dict:
     """Bulk ingest staging JSON files into DuckDB.
 
-    This tool reads all JSON files from exports/snapshots/json/ and
-    bulk loads them into the parsed_outputs table in DuckDB.
+    This tool reads all *.staging.json files from exports/snapshots/json/ and
+    bulk loads them into the parsed_outputs table in DuckDB using IngestManager.
 
     Use this after running take_snapshot to persist the results.
 
     Args:
-        snapshot_date: Optional date string (YYYY-MM-DD) to filter.
-                      If not provided, loads all available files.
+        snapshot_date: Ignored (kept for API compatibility). All staging files
+                       in the staging_json directory are loaded atomically.
 
     Returns:
         {
@@ -55,18 +54,11 @@ def bulk_ingest(snapshot_date: str | None = None) -> dict:
             "records_inserted": 10
         }
     """
-    parsed_date = None
-    if snapshot_date:
-        try:
-            parsed_date = date.fromisoformat(snapshot_date)
-        except ValueError:
-            return {
-                "status": "error",
-                "message": f"Invalid date format: {snapshot_date}. Use YYYY-MM-DD.",
-            }
-
-    result = _bulk_ingest(parsed_date)
-    return result
+    try:
+        mgr = IngestManager(db_path=MAIN_DB_PATH, staging_dir=SNAPSHOTS_STAGING_JSON)
+        return mgr.bulk_load()
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
 
 
 if __name__ == "__main__":
