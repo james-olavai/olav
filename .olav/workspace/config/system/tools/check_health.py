@@ -328,6 +328,68 @@ def _check_env() -> dict:
             results["checks"].append({"name": "api.json LLM config", "status": "ok",
                                        "provider": provider, "model": model})
 
+    # ── settings.json: active_workspace + syslog ─────────────────────────────
+    settings_path = _OLAV_DIR / "config" / "settings.json"
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text())
+
+            # active_workspace must be a registered agent
+            active_ws = settings.get("active_workspace", "")
+            if active_ws:
+                platform_md = _WORKSPACE / "PLATFORM.md"
+                registered: list = []
+                if platform_md.exists():
+                    try:
+                        import yaml
+                        m = re.match(r"^---\n(.*?)\n---",
+                                     platform_md.read_text(), re.DOTALL)
+                        if m:
+                            registered = yaml.safe_load(m.group(1)).get("agents", [])
+                    except Exception:
+                        pass
+                if active_ws in registered:
+                    results["checks"].append({"name": "Active workspace", "status": "ok",
+                                               "workspace": active_ws})
+                else:
+                    results["checks"].append({"name": "Active workspace", "status": "warning",
+                                               "message": f"'{active_ws}' not in PLATFORM.md agents"})
+                    if results["status"] == "ok":
+                        results["status"] = "warning"
+
+            # syslog receiver — if enabled, check if port is actually listening
+            sr = settings.get("syslog_receiver", {})
+            if sr.get("enabled"):
+                import socket
+                port = sr.get("port", 5514)
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    sock.settimeout(0.2)
+                    sock.sendto(b"", ("127.0.0.1", port))
+                    # For UDP we can only check if the port is bound (bind attempt)
+                    sock.close()
+                    # Try to bind — if it succeeds, nothing is listening
+                    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    try:
+                        probe.bind(("127.0.0.1", port))
+                        probe.close()
+                        # Bind succeeded → port is free → syslog NOT running
+                        results["checks"].append({"name": "Syslog receiver", "status": "warning",
+                                                   "message": f"enabled but not listening on UDP:{port}"})
+                        if results["status"] == "ok":
+                            results["status"] = "warning"
+                    except OSError:
+                        # Bind failed → something is already bound → syslog IS running
+                        probe.close()
+                        results["checks"].append({"name": "Syslog receiver", "status": "ok",
+                                                   "port": port, "protocol": "UDP"})
+                except Exception as e:
+                    results["checks"].append({"name": "Syslog receiver", "status": "warning",
+                                               "message": str(e)})
+        except Exception:
+            pass
+
     return results
 
 
@@ -401,6 +463,44 @@ def _check_database() -> dict:
                                                        " — run take_snapshot"})
                 if results["status"] == "ok":
                     results["status"] = "warning"
+
+            # Snapshot freshness — warn if last completed snapshot > 24h old
+            try:
+                from datetime import datetime as _dt
+                row = conn.execute(
+                    "SELECT end_time, status, device_count, success_count "
+                    "FROM sync_metadata ORDER BY end_time DESC LIMIT 1"
+                ).fetchone()
+                if row:
+                    end_time, snap_status, total, success = row
+                    age_h = (_dt.now() - end_time.replace(tzinfo=None)).total_seconds() / 3600
+                    snap_info: dict = {"snap_status": snap_status,
+                                       "devices": f"{success}/{total}",
+                                       "age_hours": round(age_h, 1)}
+                    if snap_status != "completed":
+                        results["checks"].append({"name": "Snapshot freshness",
+                                                   "status": "warning",
+                                                   "message": f"Last snapshot status={snap_status}",
+                                                   **snap_info})
+                        if results["status"] == "ok":
+                            results["status"] = "warning"
+                    elif age_h > 24:
+                        results["checks"].append({"name": "Snapshot freshness",
+                                                   "status": "warning",
+                                                   "message": f"{round(age_h,1)}h since last snapshot",
+                                                   **snap_info})
+                        if results["status"] == "ok":
+                            results["status"] = "warning"
+                    else:
+                        results["checks"].append({"name": "Snapshot freshness",
+                                                   "status": "ok", **snap_info})
+                else:
+                    results["checks"].append({"name": "Snapshot freshness", "status": "warning",
+                                               "message": "No snapshot recorded yet"})
+                    if results["status"] == "ok":
+                        results["status"] = "warning"
+            except Exception:
+                pass
 
             conn.close()
         except Exception as e:
@@ -596,6 +696,8 @@ def _generate_recommendations(health: dict) -> list[str]:
                 recs.append("No schema catalog — run schema discovery pipeline")
             elif "Network state views" in name:
                 recs.append("No network data — run 'take_snapshot' to collect device state")
+            elif "Snapshot freshness" in name:
+                recs.append(f"Snapshot stale ({check.get('age_hours','?')}h) — run 'take_snapshot'")
 
     if not recs:
         recs.append("System is healthy — no immediate improvements needed")
