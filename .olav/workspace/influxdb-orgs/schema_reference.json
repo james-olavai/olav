@@ -1,0 +1,71 @@
+{
+  "service": "influxdb",
+  "endpoint": "http://localhost:8087/api/v2",
+  "readonly_only": false,
+  "tag_filter": "Organizations",
+  "operations": {
+    "GET /orgs": {
+      "summary": "List all organizations",
+      "query_params": [
+        {
+          "name": "org",
+          "type": "string",
+          "description": "Filter organizations to a specific organization name.",
+          "required": false
+        },
+        {
+          "name": "orgID",
+          "type": "string",
+          "description": "Filter organizations to a specific organization ID.",
+          "required": false
+        },
+        {
+          "name": "userID",
+          "type": "string",
+          "description": "Filter organizations to a specific user ID.",
+          "required": false
+        }
+      ]
+    },
+    "POST /orgs": {
+      "summary": "Create an organization",
+      "query_params": []
+    },
+    "DELETE /orgs/{orgID}": {
+      "summary": "Delete an organization",
+      "query_params": []
+    },
+    "GET /orgs/{orgID}": {
+      "summary": "Retrieve an organization",
+      "query_params": []
+    },
+    "PATCH /orgs/{orgID}": {
+      "summary": "Update an organization",
+      "query_params": []
+    },
+    "GET /orgs/{orgID}/members": {
+      "summary": "List all members of an organization",
+      "query_params": []
+    },
+    "POST /orgs/{orgID}/members": {
+      "summary": "Add a member to an organization",
+      "query_params": []
+    },
+    "DELETE /orgs/{orgID}/members/{userID}": {
+      "summary": "Remove a member from an organization",
+      "query_params": []
+    },
+    "GET /orgs/{orgID}/owners": {
+      "summary": "List all owners of an organization",
+      "query_params": []
+    },
+    "POST /orgs/{orgID}/owners": {
+      "summary": "Add an owner to an organization",
+      "query_params": []
+    },
+    "DELETE /orgs/{orgID}/owners/{userID}": {
+      "summary": "Remove an owner from an organization",
+      "query_params": []
+    }
+  }
+}

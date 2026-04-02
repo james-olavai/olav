@@ -327,11 +327,20 @@ def load_schema(
             ).fetchone()
         return row[0] if row else 0
 
-    # Fetch schema
+    # Fetch schema — JSON first, YAML fallback
     with httpx.Client(timeout=30.0) as client:
         resp = client.get(schema_url)
         resp.raise_for_status()
-        doc: dict[str, Any] = resp.json()
+        ct = resp.headers.get("content-type", "")
+        if "yaml" in ct or "yml" in ct:
+            import yaml as _yaml
+            doc: dict[str, Any] = _yaml.safe_load(resp.text)
+        else:
+            try:
+                doc = resp.json()
+            except Exception:
+                import yaml as _yaml
+                doc = _yaml.safe_load(resp.text)
 
     spec_version = _detect_version(doc)
 
