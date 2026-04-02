@@ -95,11 +95,15 @@ def run_shell(
             text=True,
             timeout=timeout,
         )
+        stdout = result.stdout.strip()
+        stderr = result.stderr.strip()
+        truncated = len(stdout) > 10_000 or len(stderr) > 2_000
         return {
             "returncode": result.returncode,
-            "stdout": result.stdout.strip(),
-            "stderr": result.stderr.strip(),
+            "stdout": stdout[:10_000] + ("\n…[output truncated]" if len(stdout) > 10_000 else ""),
+            "stderr": stderr[:2_000] + ("\n…[stderr truncated]" if len(stderr) > 2_000 else ""),
             "success": result.returncode == 0,
+            "truncated": truncated,
         }
     except subprocess.TimeoutExpired:
         return {"returncode": -1, "stdout": "", "stderr": f"Command timed out after {timeout}s",
