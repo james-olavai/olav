@@ -38,6 +38,17 @@ _SCHEMA_PROBE_PATHS = [
     "/v1/openapi.json",
     "/api/v1/openapi.json",
     "/api/schema/swagger/?format=openapi",
+    # InfluxDB 2.x style
+    "/api/v2/swagger.json",
+    "/api/v2/api-docs",
+    # SpringDoc / SpringFox
+    "/v3/api-docs",
+    "/v2/api-docs",
+    "/api-docs",
+    # Kubernetes API server
+    "/openapi/v2",
+    # FastAPI / Starlette alternate
+    "/api/v3/openapi.json",
 ]
 
 
