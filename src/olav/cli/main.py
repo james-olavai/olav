@@ -1464,7 +1464,8 @@ async def cli_main_impl() -> None:
                     template = f"""---
 name: {skill_name}
 description: |
-  TODO: Describe what this skill does.
+  Describe what this skill does in one sentence.
+  What domain does it cover? What agent does it enable?
 version: "1.0"
 ---
 
@@ -1472,11 +1473,15 @@ version: "1.0"
 
 ## Instructions
 
-TODO: Add detailed instructions for how to use this skill.
+Describe the agent's role, capabilities, and operating constraints here.
+What should the agent do? What should it avoid?
+What tools are available and when should each be used?
 
 ## Examples
 
-TODO: Add usage examples.
+- "Show me all interfaces on router-01"
+- "Compare running config vs last snapshot"
+- "Deploy the lab topology from topology.yaml"
 """
                     skill_md.write_text(template)
                     console.print(
