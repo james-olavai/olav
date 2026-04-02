@@ -10,6 +10,7 @@ agents:
 - netbox
 - olav
 - venv-test
+- netbox-circuits
 platform:
   db: .olav/databases/olav.duckdb
   memory: .olav/databases/memory.lance
