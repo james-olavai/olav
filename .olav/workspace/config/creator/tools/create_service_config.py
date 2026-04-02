@@ -19,6 +19,7 @@ def create_service_config(
     output_dir: str = ".olav/workspace/ops/tools/_generated",
     display_name: str = "",
     description: str = "",
+    readonly_post_paths: list | None = None,
 ) -> dict:
     """Add or update a service entry in .olav/config/services.yaml.
 
@@ -26,24 +27,27 @@ def create_service_config(
     Does NOT trigger tool generation; call register_api_service() after this.
 
     Args:
-        service_name:   Unique key for the service (e.g. 'netbox', 'influxdb')
-        endpoint:       Base URL of the API (e.g. 'http://localhost:8086')
-        auth_type:      One of: 'bearer', 'jwt', 'basic', 'api_key', 'none'
-        tag_groups:     List of dicts with keys: tag, tool_prefix, description
-                        Example: [{"tag": "write", "tool_prefix": "influxdb_write",
-                                   "description": "InfluxDB write endpoints"}]
-        schema_url:     Full URL to OpenAPI schema (JSON or YAML). Leave empty for auto-detection.
-        readonly_only:  If True, only GET tools are generated (safer default)
-        token_env:      Env var name holding the token (auth_type=bearer or api_key)
-        username_env:   Env var name for username (auth_type=jwt or basic)
-        password_env:   Env var name for password (auth_type=jwt or basic)
-        login_path:     Login endpoint path for JWT auth (e.g. '/api/v1/auth/login')
-        header_name:    Header name for api_key auth (e.g. 'Authorization', 'X-Api-Key').
-                        Defaults to 'Authorization'. Use 'Authorization' with value 'Token <token>'
-                        format for InfluxDB v2.
-        output_dir:     Where generated tool files will be written
-        display_name:   Human-readable service name
-        description:    One-line description of the service
+        service_name:        Unique key for the service (e.g. 'netbox', 'influxdb')
+        endpoint:            Base URL of the API (e.g. 'http://localhost:8086')
+        auth_type:           One of: 'bearer', 'jwt', 'basic', 'api_key', 'none'
+        tag_groups:          List of dicts with keys: tag, tool_prefix, description
+                             Example: [{"tag": "write", "tool_prefix": "influxdb_write",
+                                        "description": "InfluxDB write endpoints"}]
+        schema_url:          Full URL to OpenAPI schema (JSON or YAML). Leave empty for auto-detection.
+        readonly_only:       If True, only GET tools are generated (safer default)
+        token_env:           Env var name holding the token (auth_type=bearer or api_key)
+        username_env:        Env var name for username (auth_type=jwt or basic)
+        password_env:        Env var name for password (auth_type=jwt or basic)
+        login_path:          Login endpoint path for JWT auth (e.g. '/api/v1/auth/login')
+        header_name:         Header name for api_key auth (e.g. 'Authorization', 'X-Api-Key').
+                             Defaults to 'Authorization'. Use 'Authorization' with value 'Token <token>'
+                             format for InfluxDB v2.
+        output_dir:          Where generated tool files will be written
+        display_name:        Human-readable service name
+        description:         One-line description of the service
+        readonly_post_paths: When readonly_only=True, POST paths that are semantically read-only
+                             and should still be included (e.g. ['/query', '/graphql']).
+                             These are query endpoints that use POST for complex request bodies.
 
     Returns:
         dict with status and the written service configuration
@@ -111,6 +115,8 @@ def create_service_config(
             "groups": groups,
         },
     }
+    if readonly_only and readonly_post_paths:
+        service_cfg["readonly_post_paths"] = [p.rstrip("/") for p in readonly_post_paths]
 
     action = "updated" if service_name in data["services"] else "created"
     data["services"][service_name] = service_cfg

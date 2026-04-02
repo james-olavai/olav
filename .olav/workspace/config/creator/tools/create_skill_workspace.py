@@ -12,6 +12,8 @@ def create_skill_workspace(
     static_context_paths: list | None = None,
     agent_description: str = "",
     schema_ref_path: str = "",
+    manifest_keywords: list | None = None,
+    system_prompt: str = "",
 ) -> dict:
     """Create a workspace under .olav/workspace/<workspace_name>/ with SKILL.md
     pointing to the specified generated tool files, then register the workspace
@@ -34,6 +36,14 @@ def create_skill_workspace(
         schema_ref_path:     Path to schema_reference.json from extract_schema_reference().
                              If provided, automatically added to static_context so the
                              agent loads API schema awareness at startup.
+        manifest_keywords:   List of routing keywords for MANIFEST.yaml (used by the
+                             platform router to dispatch user queries to this agent).
+                             Example: ['netbox', 'dcim', 'device', 'ip address', 'rack']
+                             Always provide these — they are mandatory for agent discovery.
+        system_prompt:       Optional system prompt text written to prompts/system.md.
+                             Describe the agent's purpose, what data it has access to,
+                             any important constraints (e.g. "read-only", "org: olav-netops"),
+                             and 2-3 example queries the user might ask.
 
     Returns:
         dict with status and paths of created files
@@ -96,6 +106,40 @@ def create_skill_workspace(
     agent_md_path.write_text(agent_md_content)
     files_created.append(str(agent_md_path))
 
+    # --- MANIFEST.yaml (route_keywords for platform router) ---
+    if manifest_keywords:
+        manifest_data = {
+            "name": _skill_name,
+            "kind": "Agent",
+            "description": description,
+            "version": "1.0.0",
+            "route_keywords": list(manifest_keywords),
+        }
+        manifest_path = ws_dir / "MANIFEST.yaml"
+        manifest_path.write_text(
+            _yaml.dump(manifest_data, default_flow_style=False, allow_unicode=True)
+        )
+        files_created.append(str(manifest_path))
+
+    # --- prompts/system.md (optional agent context) ---
+    if system_prompt:
+        prompts_dir = ws_dir / "prompts"
+        prompts_dir.mkdir(exist_ok=True)
+        system_md_path = prompts_dir / "system.md"
+        system_md_path.write_text(system_prompt)
+        files_created.append(str(system_md_path))
+
+        # Register system_prompt_file in AGENT.md
+        agent_md_path.write_text(
+            "---\n"
+            f"name: {_skill_name}\n"
+            f"description: \"{_agent_desc}\"\n"
+            f"system_prompt_file: prompts/system.md\n"
+            "---\n\n"
+            f"# {_skill_name.replace('-', ' ').title()}\n\n"
+            f"{_agent_desc}\n"
+        )
+
     # --- Register in PLATFORM.md ---
     platform_md_path = workspace_root / "PLATFORM.md"
     registered_in_platform = False
@@ -134,10 +178,13 @@ def create_skill_workspace(
         "skill_name": _skill_name,
         "tools_referenced": len(tool_file_paths or []),
         "schema_aware": bool(all_ctx_paths),
+        "has_manifest": bool(manifest_keywords),
+        "has_system_prompt": bool(system_prompt),
         "static_context_files": all_ctx_paths,
         "next_step": (
             f"Workspace '{workspace_name}' is ready"
-            + (" (schema-aware ✓)" if all_ctx_paths else "")
+            + (" (schema-aware ✓)" if all_ctx_paths else " ⚠ not schema-aware — run extract_schema_reference")
+            + (" (manifest ✓)" if manifest_keywords else " ⚠ no MANIFEST — router cannot discover this agent")
             + ". Verify with: read_file('.olav/workspace/"
             + workspace_name + "/SKILL.md')"
         ),

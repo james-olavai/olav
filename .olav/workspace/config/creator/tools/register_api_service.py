@@ -51,12 +51,33 @@ def register_api_service(
         return result
 
     files = result.get("files_written", [])
+
+    # Validate @tool decorators in all generated files
+    import re as _re
+    tool_counts: dict[str, int] = {}
+    missing_decorators: list[str] = []
+    for f in files:
+        try:
+            content = open(f).read()
+            count = len(_re.findall(r"^@tool\b", content, _re.MULTILINE))
+            tool_counts[f] = count
+            if count == 0:
+                missing_decorators.append(f)
+        except OSError:
+            tool_counts[f] = -1
+
     return {
         "status": "ok",
         "service_name": service_name,
         "ops_loaded": result.get("ops_loaded", 0),
         "files_written": files,
         "files_count": len(files),
+        "tool_counts": tool_counts,
+        "validation": (
+            "✓ all files have @tool decorators"
+            if not missing_decorators
+            else f"⚠ MISSING @tool in: {missing_decorators}"
+        ),
         "next_step": (
             f"Call create_skill_workspace() pointing to: {files}"
             if files else "No files generated — check tag_groups in services.yaml."
