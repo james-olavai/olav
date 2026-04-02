@@ -72,7 +72,7 @@ def _create_edge_key(source: str, dest: str) -> str:
 
 def _get_topology_links(snapshot_id: str) -> dict[str, dict]:
     """Get topology links for a snapshot, indexed by edge key."""
-    with duckdb.connect(str(MAIN_DB_PATH)) as conn:
+    with duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
         try:
             result = conn.execute(
                 """

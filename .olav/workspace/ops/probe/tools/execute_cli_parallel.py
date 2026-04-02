@@ -45,7 +45,7 @@ def _validate_command(command: str, platform: str | None = None) -> dict:
         has_pipe = "|" in command
         base_cmd = command.split("|")[0].strip().lower()
 
-        with duckdb.connect(str(MAIN_DB_PATH)) as conn:
+        with duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
             tables = [r[0] for r in conn.execute(
                 "SELECT table_name FROM information_schema.tables WHERE table_name='commands'"
             ).fetchall()]

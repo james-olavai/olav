@@ -1,18 +1,17 @@
-"""run_python_code — General-purpose Python sandbox for the core workspace.
+"""run_python_code — Pure-computation Python sandbox for the core workspace.
 
-Executes arbitrary Python code in an isolated subprocess. The agent writes
-code that can use any installed package, run shell commands via subprocess,
-read/write files, make HTTP requests, etc.
-
-Self-contained subprocess-based sandbox. No external simulation dependencies.
+Executes Python code for data processing, analysis, and transformation.
+Scope is intentionally limited to computation — for shell commands use
+``run_shell``, for file writes use ``write_workspace_file``, for service
+deployment use ``deploy_service``.
 
 The agent's code may set `_result` to any JSON-serialisable value; that value
 is returned in the `result` field of the response.
 
 Usage example (agent writes this code):
-    import subprocess
-    out = subprocess.check_output(["docker", "compose", "ps"])
-    _result = {"containers": out.decode()}
+    import json
+    data = [{"ip": "10.0.0.1", "prefix": 24}]
+    _result = [f"{d['ip']}/{d['prefix']}" for d in data]
 """
 
 from __future__ import annotations
@@ -126,21 +125,22 @@ def run_python_code(
     timeout: int = 60,
     cwd: str = "",
 ) -> dict[str, Any]:
-    """Execute arbitrary Python code in an isolated subprocess.
+    """Execute Python code for data computation, analysis, and transformation.
 
-    Use this to accomplish any task that requires code: calling APIs,
-    managing docker containers, writing files, processing data, installing
-    packages, running CLI tools, etc. The code runs in a fresh subprocess
-    with access to the full Python standard library and all installed packages.
+    Use for: parsing structured data, mathematical calculations, format
+    conversion, graph algorithms, JSON/YAML manipulation, and any task
+    that is purely computational.
+
+    Do NOT use for: shell commands (use run_shell), file writes (use
+    write_workspace_file), service deployment (use deploy_service), or
+    docker operations (use run_shell).
 
     The code may set `_result` to any JSON-serialisable value; that value is
     returned in the response `result` field.
 
     Available in the execution environment:
-    - Full Python standard library (subprocess, pathlib, os, json, yaml, etc.)
-    - All packages installed in the current Python environment
-    - subprocess for shell commands (docker, git, curl, olav CLI, etc.)
-    - Network access (httpx, requests) for HTTP calls
+    - Full Python standard library (json, math, re, itertools, collections, etc.)
+    - All packages installed in the current Python environment (networkx, pandas, etc.)
 
     Args:
         code: Python source code to execute. Set `_result` to return structured data.

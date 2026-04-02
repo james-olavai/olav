@@ -8,7 +8,7 @@ subagents:
   - path: ./probe/SKILL.md
   - path: ./diff/SKILL.md
   - path: ./lab/SKILL.md
-  - path: ./oc/SKILL.md
+  - path: ./netbox/SKILL.md
 ---
 
 ## Overview
@@ -22,4 +22,31 @@ The Operations Agent is the deep-dive troubleshooting expert. It orchestrates a 
 3. **probe** — Active liveness detection, latency testing, network segment exploration
 4. **diff** — Time-series drift detection between snapshots
 5. **lab** — ContainerLab digital twin emulation for CAB gate validation (deploys real SR Linux containers, pushes OC-derived config, asserts protocol convergence)
-6. **oc** — OC Coverage Engineer. Audits OpenConfig transform coverage, generates missing LLM transforms, repairs openconfig-unknown rows, backfills historical snapshots.
+6. **netbox** — NetBox DCIM/IPAM agent; manage devices, IPs, VLANs, racks via REST API
+
+## Sandbox Network Isolation Policy
+
+When a tool calls `execute_in_sandbox(code, ...)`, it must declare whether the sandbox code needs external network access:
+
+```python
+# Pure computation — DB reads, networkx, local math → isolate
+execute_in_sandbox(code, network_isolation=True)
+
+# Needs external network — httpx to clab API, service calls → allow
+execute_in_sandbox(code, network_isolation=False)
+```
+
+**Per-agent policy:**
+
+| Agent | network_isolation | Reason |
+|-------|------------------|--------|
+| sim   | `True`           | Simulation is pure local computation (networkx, DuckDB) |
+| diff  | `True`           | Config comparison is pure local computation |
+| topology | `True`        | Graph analysis is pure local computation |
+| lab   | `False`          | Sandbox pushes configs to ContainerLab exec API via httpx |
+| probe | N/A              | No sandbox — uses execute_cli_parallel directly |
+
+**When writing a new skill:**
+- Default to `network_isolation=True` unless the sandbox code explicitly calls an external API
+- If network is needed, document why in the tool's docstring
+- `network_isolation=True` closes all network bypass vectors (urllib, aiohttp, raw socket, etc.) via `unshare --net` when `unshare` is available
