@@ -171,8 +171,14 @@ def service_call(
         ValueError: if auth configuration is incomplete
     """
     # §20 SECURITY_MODEL §6.3: write methods require approval before any HTTP
-    # (bypassed when confirmed=True, or OLAV_DANGEROUSLY_SKIP_PERMISSIONS=1)
-    if method.upper() in _WRITE_METHODS and not confirmed and not is_bypass_active():
+    # (bypassed when confirmed=True, OLAV_DANGEROUSLY_SKIP_PERMISSIONS=1, or
+    #  path is in the service's readonly_post_paths whitelist)
+    registry = ServiceRegistry.get_instance()
+    svc = registry.get(service_name)
+    is_readonly_post = (
+        method.upper() == "POST" and path in (svc.readonly_post_paths or [])
+    )
+    if method.upper() in _WRITE_METHODS and not confirmed and not is_bypass_active() and not is_readonly_post:
         return {
             "status": "requires_approval",
             "service": service_name,
@@ -188,9 +194,6 @@ def service_call(
                 "Once the user confirms, re-call with confirmed=True to execute."
             ),
         }
-
-    registry = ServiceRegistry.get_instance()
-    svc = registry.get(service_name)
 
     url = svc.endpoint.rstrip("/") + path
     headers = _get_auth_headers(svc)
