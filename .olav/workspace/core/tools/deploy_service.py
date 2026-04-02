@@ -144,6 +144,8 @@ def deploy_service(
 
     compose_file = service_dir / "docker-compose.yml"
     if not compose_file.exists():
+        compose_file = service_dir / "docker-compose.yaml"
+    if not compose_file.exists():
         return {
             "success": False,
             "error": f"No docker-compose.yml found in {service_dir}. "
