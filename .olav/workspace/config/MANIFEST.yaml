@@ -1,0 +1,14 @@
+kind: Agent
+name: config
+version: "0.11.0"
+description: "Config Agent — Data ingestion, schema normalization, snapshot sync, and self-healing"
+route_keywords:
+  - create skill
+  - build knowledge base
+  - manage schema
+  - discover fields
+  - scaffold agent
+  - sync inventory
+tools_dir: tools/
+requires:
+  - olav-platform>=0.11

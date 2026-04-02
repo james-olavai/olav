@@ -23,6 +23,9 @@ tools:
   - call_api               # CLAB REST: GET/DELETE labs
   - exec_on_node           # Verify node state after config push
   - recall_memory          # Known CLAB API behaviors and operational quirks
+  - create_srl_links       # Build SR Linux link definitions from topology
+  - fix_srl_topology       # Patch CLAB topology YAML for SR Linux constraints
+  - search_knowledge_lancedb  # Semantic search over CLAB/lab knowledge base
 static_context:
   - path: ./references/LAB_REFERENCE.md
 ---
@@ -47,3 +50,17 @@ static_context:
 - deploy_lab handles CLAB REST API bugs (fix_srl_topology + create_srl_links) — use it, not call_api, for deployment
 - If lab already exists (409): `call_api DELETE /api/v1/labs/{name}` then retry deploy_lab
 - Never destroy a lab without confirming the lab name with the user
+
+## Sandbox Network Policy
+
+**`network_isolation=False`** — lab sandbox REQUIRES external network access.
+
+The sandbox code pushes configs to the ContainerLab exec API via httpx:
+```python
+execute_in_sandbox(code, network_isolation=False)  # lab agent always uses this
+```
+
+This is intentional: the lab agent's primary function is to push configurations to
+running containers and verify convergence, which requires HTTP access to the CLAB
+REST API (typically `http://clab-api:8080`). Do NOT set `network_isolation=True`
+for lab sandbox tasks — it will cause all httpx calls to fail with Connection refused.

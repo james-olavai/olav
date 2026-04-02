@@ -19,6 +19,8 @@ import json
 import sys
 from pathlib import Path
 
+import duckdb
+
 from langchain_core.tools import tool
 
 # ---------------------------------------------------------------------------
@@ -43,7 +45,7 @@ from olav.core.config import MAIN_DB_PATH
 def _get_device_platform(device_name: str) -> str | None:
     """Look up device platform from DuckDB devices table."""
     try:
-        with duckdb.connect(str(MAIN_DB_PATH)) as conn:
+        with duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
             rows = conn.execute(
                 "SELECT platform FROM devices WHERE LOWER(name) = LOWER(?) LIMIT 1",
                 [device_name],
@@ -61,7 +63,7 @@ def _search_commands_in_db(
 ) -> list[dict]:
     """Query commands table for a platform, filtered by keyword substring."""
     try:
-        with duckdb.connect(str(MAIN_DB_PATH)) as conn:
+        with duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
             # Check table exists
             tables = [
                 r[0]

@@ -2,9 +2,11 @@
 name: core
 description: "Core platform tools — available globally in all agents and workspaces."
 tools:
-  - run_python_code          # run_python_code.py — Execute arbitrary Python in isolated subprocess
-  - recall_memory            # recall_memory.py   — Semantic memory recall (LanceDB)
-  - web_search               # web_search.py      — DuckDuckGo web search
+  - run_python_code          # run_python_code.py — Pure-computation Python sandbox (no IO/shell)
+  # recall_memory and web_search are provided by agent-specific tools/ dirs (ops, quick, config)
+  # They are listed here for documentation; actual files resolved at agent runtime
+static_context:
+  - path: ./references/SKILL_DEVELOPMENT.md
 metadata:
   version: 1.0.0
   type: core
@@ -18,12 +20,15 @@ They provide general-purpose capabilities that any agent may need.
 
 ## run_python_code
 
-Execute arbitrary Python code in an isolated subprocess. Use this to:
-- Run docker/docker-compose commands
-- Call REST APIs via httpx/requests
-- Write and read files
-- Run any CLI tool (git, curl, olav, etc.)
-- Process data with any installed Python package
+Execute Python code for **pure computation**: data parsing, format conversion,
+mathematical analysis, graph algorithms, JSON/YAML manipulation.
+
+**Scope is intentionally limited to computation — not IO.** For anything beyond:
+- Shell / docker commands → `run_shell` (declare in workspace SKILL.md to enable)
+- Writing files → `write_workspace_file` (declare in workspace SKILL.md to enable)
+- Service deployment → `deploy_service` (declare in workspace SKILL.md to enable)
+
+IO capabilities are opt-in per workspace, not globally available.
 
 ## recall_memory
 

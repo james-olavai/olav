@@ -1,0 +1,15 @@
+kind: Agent
+name: quick
+version: "0.11.0"
+description: "Quick Agent — Fast SQL queries, CLI execution, KB search, and data export without ReAct overhead"
+agent: olav
+route_keywords:
+  - quick query
+  - show me
+  - list devices
+  - what is
+  - how many
+  - find device
+tools_dir: tools/
+requires:
+  - olav-platform>=0.11

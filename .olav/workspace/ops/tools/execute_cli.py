@@ -63,7 +63,7 @@ def _validate_command(command: str, platform: str | None = None) -> dict:
         # Normalize: strip pipe and everything after it to get base command
         base_cmd = command.split("|")[0].strip().lower()
 
-        with duckdb.connect(str(MAIN_DB_PATH)) as conn:
+        with duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
             # Check if commands table exists
             tables = [
                 r[0]
