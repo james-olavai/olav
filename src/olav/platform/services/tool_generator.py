@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from pathlib import Path
 from textwrap import dedent
 from typing import Any
@@ -25,6 +26,89 @@ from olav.core.api_registry import load_schema, list_apis, is_loaded
 from olav.platform.services.registry import ServiceConfig, ServiceRegistry, ToolGroupConfig
 
 logger = logging.getLogger(__name__)
+
+
+_SCHEMA_PROBE_PATHS = [
+    "/api/schema/?format=json",
+    "/api/schema/",
+    "/openapi.json",
+    "/api/openapi.json",
+    "/swagger.json",
+    "/api/swagger.json",
+    "/v1/openapi.json",
+    "/api/v1/openapi.json",
+    "/api/schema/swagger/?format=openapi",
+]
+
+
+def _fetch_openapi_schema(url: str, timeout: float = 30.0) -> dict:
+    """Fetch and return the raw OpenAPI schema dict from *url*.
+
+    Extracted as a standalone function so tests can mock it independently
+    of httpx internals.  Raises on HTTP or connection errors.
+    """
+    import httpx
+    with httpx.Client(timeout=timeout) as client:
+        resp = client.get(url)
+        resp.raise_for_status()
+        ct = resp.headers.get("content-type", "")
+        if "yaml" in ct or "yml" in ct:
+            import yaml
+            return yaml.safe_load(resp.text)
+        return resp.json()
+
+
+def _discover_schema_url(endpoint: str, configured_url: str | None = None) -> str:
+    """Return a working OpenAPI schema URL.
+
+    Tries *configured_url* first, then probes common paths under *endpoint*.
+    Raises RuntimeError if no working URL is found.
+    """
+    import httpx
+
+    candidates: list[str] = []
+    if configured_url:
+        candidates.append(configured_url)
+    for path in _SCHEMA_PROBE_PATHS:
+        url = endpoint.rstrip("/") + path
+        if url not in candidates:
+            candidates.append(url)
+
+    with httpx.Client(timeout=10.0) as client:
+        for url in candidates:
+            try:
+                resp = client.get(url)
+                if resp.status_code == 200:
+                    ct = resp.headers.get("content-type", "")
+                    # Must look like OpenAPI (JSON or YAML with openapi/swagger key)
+                    if "yaml" in ct or "yml" in ct:
+                        import yaml
+                        doc = yaml.safe_load(resp.text)
+                    else:
+                        try:
+                            doc = resp.json()
+                        except Exception:
+                            continue
+                    if isinstance(doc, dict) and ("openapi" in doc or "swagger" in doc):
+                        logger.info("Discovered schema URL: %s", url)
+                        return url
+            except Exception:
+                continue
+
+    raise RuntimeError(
+        f"Could not discover OpenAPI schema at {endpoint}. "
+        f"Tried: {candidates}"
+    )
+
+
+def _store_schema(service_name: str, svc: ServiceConfig, resolved_url: str, force: bool = False) -> int:
+    """Load schema from the service into api_registry. Returns operation count."""
+    return load_schema(
+        api_name=service_name,
+        schema_url=resolved_url,
+        base_url=svc.endpoint,
+        force=force,
+    )
 
 # ---------------------------------------------------------------------------
 # Tool file template
@@ -41,6 +125,8 @@ DO NOT EDIT MANUALLY — re-run `olav service register {service_name}` to update
 
 from __future__ import annotations
 
+from langchain_core.tools import tool
+
 from olav.platform.services.client import service_call as _call
 
 
@@ -48,15 +134,16 @@ from olav.platform.services.client import service_call as _call
 '''
 
 _FUNCTION_TEMPLATE = '''\
+@tool
 def {func_name}({params}) -> dict:
     """{summary}
 
     Service: {service_name}  |  {method} {path}
-    """
+    {write_note}"""
     return _call(
         "{service_name}",
         "{method}",
-        f"{path_template}",{body_arg}{response_def_arg}
+        f"{path_template}",{body_arg}{response_def_arg}{confirmed_arg}
     )
 '''
 
@@ -105,11 +192,25 @@ def _build_function(
     params = ", ".join(param_parts)
 
     # Body kwarg for service_call
+    is_write = method.upper() in ("POST", "PUT", "PATCH", "DELETE")
     has_body = request_body_def and method.upper() in ("POST", "PUT", "PATCH")
     body_arg = "\n        body=body," if has_body else ""
 
     # response_def arg
     response_def_arg = f'\n        response_def="{response_200_def}",' if response_200_def else ""
+
+    # Write operations: add confirmed param so agent can re-call after user approval
+    if is_write:
+        if param_parts:
+            param_parts.append("confirmed: bool = False")
+        else:
+            param_parts = ["confirmed: bool = False"]
+        params = ", ".join(param_parts)
+        confirmed_arg = "\n        confirmed=confirmed,"
+        write_note = "Write op — first call returns requires_approval; re-call with confirmed=True after user confirms."
+    else:
+        confirmed_arg = ""
+        write_note = ""
 
     return _FUNCTION_TEMPLATE.format(
         func_name=func_name,
@@ -121,6 +222,8 @@ def _build_function(
         path_template=_path_to_fstring(path),
         body_arg=body_arg,
         response_def_arg=response_def_arg,
+        confirmed_arg=confirmed_arg,
+        write_note=write_note,
     )
 
 
@@ -128,37 +231,70 @@ def _build_function(
 # Registration flow
 # ---------------------------------------------------------------------------
 
-def register_service(service_name: str, force: bool = False) -> dict[str, Any]:
+def register_service(
+    service_name: str,
+    force: bool = False,
+    max_retries: int = 1,
+    retry_delay: float = 5.0,
+) -> dict[str, Any]:
     """Full registration flow for a service.
 
-    1. Load OpenAPI schema into api_registry
-    2. Generate tool files for each tag group
-    3. Return registration summary
+    1. Fetch OpenAPI schema (with retries — GAP-08)
+    2. Load schema into api_registry
+    3. Generate tool files for each tag group
+    4. Return registration summary
 
     Args:
         service_name: Key in services.yaml
         force:        Re-fetch schema even if already loaded
+        max_retries:  Total fetch attempts before giving up (default 1 = no retry)
+        retry_delay:  Seconds to wait between attempts
 
     Returns:
         {"service": name, "ops_loaded": int, "files_written": [str, ...]}
+        or {"service": name, "status": "error", "error": str} on failure
     """
     registry = ServiceRegistry.get_instance()
     svc = registry.get(service_name)
 
-    if not svc.schema_url:
-        raise ValueError(f"Service '{service_name}' has no schema_url configured")
+    # Step 1: discover working schema URL (auto-probe if configured URL fails or missing)
+    try:
+        resolved_url = _discover_schema_url(svc.endpoint, svc.schema_url or None)
+    except RuntimeError as exc:
+        return {"service": service_name, "status": "error", "error": str(exc)}
 
-    # Step 1: load schema into api_registry
-    logger.info("Fetching schema for '%s' from %s", service_name, svc.schema_url)
-    ops_count = load_schema(
-        api_name=service_name,
-        schema_url=svc.schema_url,
-        base_url=svc.endpoint,
-        force=force,
-    )
+    # Step 2: fetch schema with retry (GAP-08)
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            logger.info(
+                "Fetching schema for '%s' from %s (attempt %d/%d)",
+                service_name, resolved_url, attempt + 1, max_retries,
+            )
+            _fetch_openapi_schema(resolved_url)
+            break  # success
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("Schema fetch failed for '%s': %s", service_name, exc)
+            if attempt < max_retries - 1:
+                logger.info("Retrying in %.1fs…", retry_delay)
+                time.sleep(retry_delay)
+    else:
+        return {
+            "service": service_name,
+            "status": "error",
+            "error": f"Schema fetch failed after {max_retries} attempt(s): {last_exc}",
+        }
+
+    # Step 3: load schema into api_registry
+    try:
+        ops_count = _store_schema(service_name, svc, resolved_url=resolved_url, force=force)
+    except Exception as exc:
+        return {"service": service_name, "status": "error",
+                "error": f"Schema store failed: {exc}"}
     logger.info("Loaded %d operations for '%s'", ops_count, service_name)
 
-    # Step 2: generate tool files
+    # Step 3: generate tool files
     files_written: list[str] = []
     for group in svc.tool_generation.groups:
         path = _generate_group_tool_file(svc, group)
@@ -167,34 +303,51 @@ def register_service(service_name: str, force: bool = False) -> dict[str, Any]:
 
     return {
         "service": service_name,
+        "status": "ok",
         "ops_loaded": ops_count,
         "files_written": files_written,
     }
 
 
-def _generate_group_tool_file(svc: ServiceConfig, group: ToolGroupConfig) -> str | None:
-    """Generate a Python tool file for one tag group. Returns file path or None."""
+_READONLY_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+def _query_tag_operations(
+    api_name: str, tag: str, readonly_only: bool
+) -> list[tuple]:
+    """Query api_registry for operations matching tag, filtered by readonly_only."""
     import duckdb
     from olav.core.api_registry import DEFAULT_DB
 
+    method_clause = "AND method IN ('GET', 'HEAD', 'OPTIONS')" if readonly_only else ""
+    with duckdb.connect(str(DEFAULT_DB), read_only=True) as con:
+        return con.execute(
+            f"""
+            SELECT method, path, summary, request_body_def, response_200_def
+            FROM api_registry.operations
+            WHERE api_name = ? AND list_contains(tags, ?)
+            {method_clause}
+            ORDER BY path, method
+            """,
+            [api_name, tag],
+        ).fetchall()
+
+
+def _generate_group_tool_file(svc: ServiceConfig, group: ToolGroupConfig) -> str | None:
+    """Generate a Python tool file for one tag group. Returns file path or None."""
     tag = group.tag
     prefix = group.tool_prefix or svc.name
 
     # Query operations for this tag from api_registry
     try:
-        with duckdb.connect(str(DEFAULT_DB), read_only=True) as con:
-            rows = con.execute(
-                """
-                SELECT method, path, summary, request_body_def, response_200_def
-                FROM api_registry.operations
-                WHERE api_name = ? AND list_contains(tags, ?)
-                ORDER BY path, method
-                """,
-                [svc.name, tag],
-            ).fetchall()
+        rows = _query_tag_operations(svc.name, tag, readonly_only=False)
     except Exception as e:
         logger.warning("Could not query operations for '%s' tag '%s': %s", svc.name, tag, e)
         return None
+
+    # Apply readonly filter after fetch (allows mocking in tests)
+    if svc.readonly_only:
+        rows = [r for r in rows if r[0].upper() in _READONLY_METHODS]
 
     if not rows:
         logger.warning("No operations found for '%s' tag '%s'", svc.name, tag)

@@ -15,6 +15,11 @@ from olav.plugins.base import OLAVPlugin
 
 def load_builtin_plugins(registry: PluginRegistry) -> None:  # noqa: F821
     """扫描内置 middleware/ 和 callbacks/ 目录，自动发现并注册所有 OLAVPlugin 子类。"""
+    from olav.plugins.base import OLAVCallbackPlugin, OLAVMiddlewarePlugin
+
+    # Base classes that should never be instantiated directly
+    _base_classes = {OLAVPlugin, OLAVCallbackPlugin, OLAVMiddlewarePlugin}
+
     base = Path(__file__).parent
     for subdir in ("middleware", "callbacks"):
         for path in sorted((base / subdir).glob("*.py")):
@@ -25,7 +30,8 @@ def load_builtin_plugins(registry: PluginRegistry) -> None:  # noqa: F821
                 if (
                     isinstance(obj, type)
                     and issubclass(obj, OLAVPlugin)
-                    and obj is not OLAVPlugin
+                    and obj not in _base_classes
+                    and obj.__module__ == module.__name__  # only register classes defined in this module
                 ):
                     try:
                         registry.register(obj())
