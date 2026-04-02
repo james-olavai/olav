@@ -1,17 +1,25 @@
 ---
+description: 'NetBox DCIM/IPAM read-only agent: query devices, racks, sites, cables,
+  IPs, prefixes, VLANs, circuits, VMs, tenants'
 name: netbox
-description: "NetBox API tools — DCIM and IPAM"
-tools:
-  - path: ../ops/tools/_generated/netbox_dcim.py
-  - path: ../ops/tools/_generated/netbox_ipam.py
-  - path: ../ops/tools/_generated/netbox_virtualization.py
-  - path: ../ops/tools/_generated/netbox_tenancy.py
 static_context:
-  - path: ./references/API_GUIDE.md
+- path: .olav/workspace/netbox/schema_reference.json
+tools:
+- path: .olav/workspace/ops/tools/_generated/netbox_dcim.py
+- path: .olav/workspace/ops/tools/_generated/netbox_ipam.py
+- path: .olav/workspace/ops/tools/_generated/netbox_tenancy.py
+- path: .olav/workspace/ops/tools/_generated/netbox_circuits.py
+- path: .olav/workspace/ops/tools/_generated/netbox_virtualization.py
 ---
 
-# NetBox Skill
+# Netbox
 
-Tools for querying NetBox via its REST API.
-Generated tools in ops/_generated/netbox_*.
-    
+NetBox DCIM/IPAM read-only agent: query devices, racks, sites, cables, IPs, prefixes, VLANs, circuits, VMs, tenants
+
+## Tools
+
+- `netbox_dcim` — from `.olav/workspace/ops/tools/_generated/netbox_dcim.py`
+- `netbox_ipam` — from `.olav/workspace/ops/tools/_generated/netbox_ipam.py`
+- `netbox_tenancy` — from `.olav/workspace/ops/tools/_generated/netbox_tenancy.py`
+- `netbox_circuits` — from `.olav/workspace/ops/tools/_generated/netbox_circuits.py`
+- `netbox_virtualization` — from `.olav/workspace/ops/tools/_generated/netbox_virtualization.py`

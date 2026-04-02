@@ -5,6 +5,27 @@ All notable changes to OLAV will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-04-02
+
+### 🚀 Features
+- **Platform**: Creator Agent 6-step workflow — auto-generates skills from any OpenAPI service
+- **Platform**: Docker full lifecycle — `deploy_service`, `stop_service`, `list_services` tools
+- **Platform**: Core tools workspace — 8 platform tools migrated to `core/` and injected into all agents
+- **Platform**: `olav_delegate` — deep-agent tool isolation fix; all subagents as `CompiledSubAgent`
+- **Security**: Multi-user audit concurrency — short-lived DuckDB connections + threading lock + retry
+- **Security**: `readonly_post_paths` enforced in HTTP client write gate
+
+### 🐛 Bug Fixes
+- Fixed `service_call` ignoring `readonly_post_paths` whitelist (POST /query was blocked)
+- Fixed Creator Agent function name hallucination (Step 4b: reads generated file for real names)
+- Fixed `deploy_service` not finding `.yaml` extension (only checked `.yml`)
+- Fixed schema probe paths expanded to 17 entries (InfluxDB, SpringDoc, K8s, FastAPI)
+
+### 🗑️ Removed
+- `ping_device`, `traceroute`, `port_scan` tools (use `run_shell` instead)
+- `call_api.py` (hardcoded IP) — replaced by `service_call("clab", ...)`
+- `v0_10_raw_diffs.py` ghost migration (unreferenced)
+
 ## [1.0.0] - 2026-02-25
 
 ### 🚀 Features

@@ -2,21 +2,24 @@
 name: ops-probe
 description: "Probe Expert — Active liveness detection, latency testing, and network segment exploration"
 metadata:
-  version: 1.1.0
+  version: 1.2.0
   type: agent
   category: network-operations
   intent: active_probing_network_discovery
 tools:
-  - ping_device              # Ping target — check reachability and latency
-  - traceroute               # Trace network path to destination
-  - port_scan                # Scan target ports for open services
   - execute_cli_parallel     # Run a CLI command on multiple devices in parallel (Nornir; whitelist/blacklist enforced)
 system: $ref:./prompts/system.md
 ---
 
 ## Overview
 
-The Probe Expert specializes in active network discovery and troubleshooting through direct network probing.
+The Probe Expert specialises in active network discovery and troubleshooting through direct network probing.
+
+> **Note:** `ping`, `traceroute`, and `port_scan` are simple shell commands.
+> Use the platform `run_shell` tool for these operations:
+> - Ping: `run_shell("ping -c 4 <host>")`
+> - Traceroute: `run_shell("traceroute <host>")`
+> - Port scan: `run_shell("nc -zv <host> <port>")`
 
 ## `execute_cli_parallel` — Safety Model
 

@@ -1,11 +1,9 @@
 ---
 name: netbox
-description: "NetBox DCIM/IPAM — device inventory and IP management queries"
+description: "NetBox DCIM/IPAM read-only agent: query devices, racks, sites, cables, IPs, prefixes, VLANs, circuits, VMs, tenants"
 system_prompt_file: prompts/system.md
 ---
 
-# NetBox Agent
+# Netbox
 
-Handles queries against the NetBox DCIM and IPAM API.
-Supports device inventory, IPAM, racks, sites, VLANs, prefixes, cables.
-    
+NetBox DCIM/IPAM read-only agent: query devices, racks, sites, cables, IPs, prefixes, VLANs, circuits, VMs, tenants

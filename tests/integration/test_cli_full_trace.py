@@ -19,6 +19,7 @@ import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import duckdb
 import pytest
 
 
@@ -50,19 +51,21 @@ def test_run_single_query_writes_run_start(audit_db):
     )
     recorder.record_run_end(run_id=run_id, status="completed")
 
-    # Use recorder's own connection to verify (avoids read_only conflict)
-    rows = recorder._conn.execute(
-        "SELECT source_channel, status FROM audit_runs WHERE run_id = ?",
-        [run_id],
-    ).fetchall()
+    # Use a fresh direct DB connection to verify — recorder uses short-lived connections
+    with duckdb.connect(str(audit_db)) as conn:
+        rows = conn.execute(
+            "SELECT source_channel, status FROM audit_runs WHERE run_id = ?",
+            [run_id],
+        ).fetchall()
     assert rows, "audit_runs must have an entry for this run_id"
     assert rows[0][0] == "cli", f"source_channel must be 'cli', got {rows[0][0]}"
     assert rows[0][1] == "completed", f"status must be 'completed', got {rows[0][1]}"
 
-    events = recorder._conn.execute(
-        "SELECT event_type FROM audit_events WHERE run_id = ?",
-        [run_id],
-    ).fetchall()
+    with duckdb.connect(str(audit_db)) as conn:
+        events = conn.execute(
+            "SELECT event_type FROM audit_events WHERE run_id = ?",
+            [run_id],
+        ).fetchall()
     event_types = {r[0] for r in events}
     assert "user_input_received" in event_types, (
         f"'user_input_received' must be in audit_events; found: {event_types}"
@@ -97,16 +100,17 @@ def test_run_single_query_audit_chain(audit_db, monkeypatch):
 
         asyncio.run(run_single_query("show devices", "quick"))
 
-    # Use a fresh recorder (same DB) — its connection is the write connection
-    recorder2 = _make_recorder(audit_db)
-    runs = recorder2._conn.execute("SELECT status, source_channel FROM audit_runs").fetchall()
+    # Use fresh direct DB connections — recorder uses short-lived connections (no _conn attr)
+    with duckdb.connect(str(audit_db)) as conn:
+        runs = conn.execute("SELECT status, source_channel FROM audit_runs").fetchall()
     assert runs, "audit_runs must have at least one row"
     statuses = {r[0] for r in runs}
     channels = {r[1] for r in runs}
     assert "cli" in channels, f"source_channel 'cli' not found; got {channels}"
     assert statuses & {"completed", "error"}, f"No terminal status found; got {statuses}"
 
-    events = recorder2._conn.execute("SELECT event_type FROM audit_events").fetchall()
+    with duckdb.connect(str(audit_db)) as conn:
+        events = conn.execute("SELECT event_type FROM audit_events").fetchall()
     event_types = {r[0] for r in events}
     assert "user_input_received" in event_types, (
         f"'user_input_received' missing from audit_events; found: {event_types}"
@@ -142,9 +146,10 @@ async def test_audit_callback_plugin_tool_events(audit_db):
         run_id=tool_run_id,
     )
 
-    rows = recorder._conn.execute(
-        "SELECT event_type, payload FROM audit_events ORDER BY timestamp"
-    ).fetchall()
+    with duckdb.connect(str(audit_db)) as conn:
+        rows = conn.execute(
+            "SELECT event_type, payload FROM audit_events ORDER BY timestamp"
+        ).fetchall()
     event_types = [r[0] for r in rows]
 
     assert "tool_call_started" in event_types, (
