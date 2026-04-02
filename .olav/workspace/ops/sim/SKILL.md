@@ -12,10 +12,8 @@ metadata:
   category: network-operations
   intents: [routing_analysis, change_simulation, topology_analysis]
 tools:
-  - execute_sql              # Query: bgp_routes, routes, ospf_neighbors, bgp_neighbors, topology_links, interfaces
   - execute_cli              # Live: show ip bgp / show ip ospf neighbor / show ip route
   - run_python_simulation    # Sandbox: LLMExperimentSandbox with sim + networkx + netutils
-  - format_and_export        # Output: CSV/JSON/Markdown report export
 allowed_tables:
   - bgp_routes
   - routes
