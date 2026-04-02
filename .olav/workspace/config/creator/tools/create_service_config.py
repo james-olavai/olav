@@ -15,6 +15,7 @@ def create_service_config(
     username_env: str = "",
     password_env: str = "",
     login_path: str = "",
+    header_name: str = "",
     output_dir: str = ".olav/workspace/ops/tools/_generated",
     display_name: str = "",
     description: str = "",
@@ -25,18 +26,21 @@ def create_service_config(
     Does NOT trigger tool generation; call register_api_service() after this.
 
     Args:
-        service_name:   Unique key for the service (e.g. 'netbox', 'servicenow')
-        endpoint:       Base URL of the API (e.g. 'http://localhost:8000')
-        auth_type:      One of: 'bearer', 'jwt', 'basic', 'none'
+        service_name:   Unique key for the service (e.g. 'netbox', 'influxdb')
+        endpoint:       Base URL of the API (e.g. 'http://localhost:8086')
+        auth_type:      One of: 'bearer', 'jwt', 'basic', 'api_key', 'none'
         tag_groups:     List of dicts with keys: tag, tool_prefix, description
-                        Example: [{"tag": "circuits", "tool_prefix": "netbox_circuits",
-                                   "description": "Circuit and provider management"}]
-        schema_url:     Full URL to OpenAPI schema. Leave empty for auto-detection.
+                        Example: [{"tag": "write", "tool_prefix": "influxdb_write",
+                                   "description": "InfluxDB write endpoints"}]
+        schema_url:     Full URL to OpenAPI schema (JSON or YAML). Leave empty for auto-detection.
         readonly_only:  If True, only GET tools are generated (safer default)
-        token_env:      Env var name holding the bearer token (auth_type=bearer)
+        token_env:      Env var name holding the token (auth_type=bearer or api_key)
         username_env:   Env var name for username (auth_type=jwt or basic)
         password_env:   Env var name for password (auth_type=jwt or basic)
         login_path:     Login endpoint path for JWT auth (e.g. '/api/v1/auth/login')
+        header_name:    Header name for api_key auth (e.g. 'Authorization', 'X-Api-Key').
+                        Defaults to 'Authorization'. Use 'Authorization' with value 'Token <token>'
+                        format for InfluxDB v2.
         output_dir:     Where generated tool files will be written
         display_name:   Human-readable service name
         description:    One-line description of the service
@@ -66,6 +70,11 @@ def create_service_config(
     auth: dict = {"type": auth_type}
     if auth_type == "bearer" and token_env:
         auth["token_env"] = token_env
+    elif auth_type == "api_key":
+        if token_env:
+            auth["token_env"] = token_env
+        if header_name:
+            auth["header_name"] = header_name
     elif auth_type == "jwt":
         if login_path:
             auth["login_path"] = login_path
