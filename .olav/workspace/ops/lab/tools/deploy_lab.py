@@ -68,7 +68,7 @@ def deploy_lab(
         tools_dir = Path(__file__).parent
         sys.path.insert(0, str(tools_dir))
         import yaml as _yaml
-        from call_api import call_api
+        from olav.platform.services.client import service_call
 
         # Parse YAML to dict (API requires JSON object, not raw YAML string)
         topo_dict = _yaml.safe_load(yaml_content)
@@ -81,10 +81,15 @@ def deploy_lab(
                 "ipv4-subnet": "172.20.50.0/24",
             }
 
-        deploy_result = json.loads(
-            call_api({"api_name": "clab", "method": "POST", "path": "/api/v1/labs",
-                      "body": {"topologyContent": topo_dict}})
+        deploy_result = service_call(
+            "clab",
+            method="POST",
+            path="/api/v1/labs",
+            body={"topologyContent": topo_dict},
+            confirmed=True,
         )
+        if not isinstance(deploy_result, dict):
+            deploy_result = {"status_code": 0, "body": str(deploy_result)}
         results["deploy"] = {
             "status_code": deploy_result.get("status_code"),
             "body": str(deploy_result.get("body", ""))[:300],

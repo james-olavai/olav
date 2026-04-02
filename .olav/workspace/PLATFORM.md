@@ -7,11 +7,11 @@ agents:
 - config
 - audit
 - core
-- netbox
 - olav
 - venv-test
 - netbox-circuits
 - influxdb-orgs
+- influxdb-netops
 platform:
   db: .olav/databases/olav.duckdb
   memory: .olav/databases/memory.lance
