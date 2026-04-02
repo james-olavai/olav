@@ -14,6 +14,54 @@ from olav.platform.services.client import service_call as _call
 
 
 @tool
+def influxdb_netops_query_post_query(params: dict | None = None, body: dict | None = None) -> dict:
+    """Query data
+
+    Service: influxdb_netops  |  POST /query
+    Query params: org(), orgID(). Pass as params={'key': 'value'}.
+    """
+    return _call(
+        "influxdb_netops",
+        "POST",
+        f"/query",
+        params=params,
+        body=body,
+    )
+
+
+@tool
+def influxdb_netops_query_post_query_analyze(params: dict | None = None, body: dict | None = None) -> dict:
+    """Analyze a Flux query
+
+    Service: influxdb_netops  |  POST /query/analyze
+    """
+    return _call(
+        "influxdb_netops",
+        "POST",
+        f"/query/analyze",
+        params=params,
+        body=body,
+        response_def="AnalyzeQueryResponse",
+    )
+
+
+@tool
+def influxdb_netops_query_post_query_ast(params: dict | None = None, body: dict | None = None) -> dict:
+    """Generate an Abstract Syntax Tree (AST) from a query
+
+    Service: influxdb_netops  |  POST /query/ast
+    """
+    return _call(
+        "influxdb_netops",
+        "POST",
+        f"/query/ast",
+        params=params,
+        body=body,
+        response_def="ASTResponse",
+    )
+
+
+@tool
 def influxdb_netops_query_get_query_suggestions(params: dict | None = None) -> dict:
     """Retrieve query suggestions
 
