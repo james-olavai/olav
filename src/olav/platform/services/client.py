@@ -224,4 +224,13 @@ def service_call(
     except Exception:
         return resp.text
 
-    return _trim_response(data, service_name, response_def)
+    # Prefer explicit response_def; fall back to auto_extract which auto-detects
+    # the schema from api_registry and applies list truncation.
+    if response_def:
+        return _trim_response(data, service_name, response_def)
+
+    try:
+        from olav.platform.services.response_extractor import auto_extract
+        return auto_extract(data, service_name, method, path)
+    except Exception:
+        return data
