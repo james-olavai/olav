@@ -72,16 +72,37 @@ class SkillCommand(BaseCommand):
 
     async def _install(self, args: list[str]) -> str:
         if not args:
-            return "error: usage: olav skill install <path>"
+            return "error: usage: olav skill install <path|url> [--merge-into <workspace>]"
 
-        source = args[0]
-        source_path = Path(source)
+        # Parse --merge-into flag
+        merge_into: str | None = None
+        filtered: list[str] = []
+        i = 0
+        while i < len(args):
+            if args[i] == "--merge-into" and i + 1 < len(args):
+                merge_into = args[i + 1]
+                i += 2
+            else:
+                filtered.append(args[i])
+                i += 1
+        if not filtered:
+            return "error: usage: olav skill install <path|url> [--merge-into <workspace>]"
+        source = filtered[0]
 
-        if not source_path.exists():
-            return f"error: path not found: {source}"
-
-        if not source_path.is_dir():
-            return f"error: not a directory: {source}"
+        # GAP-06: git URL support — clone to temp dir then proceed
+        tmp_dir: Path | None = None
+        if _is_git_url(source):
+            clone_result = _git_clone(source)
+            if clone_result["status"] == "error":
+                return f"error: git clone failed: {clone_result['error']}"
+            tmp_dir = Path(clone_result["path"])
+            source_path = tmp_dir
+        else:
+            source_path = Path(source)
+            if not source_path.exists():
+                return f"error: path not found: {source}"
+            if not source_path.is_dir():
+                return f"error: not a directory: {source}"
 
         # GAP-01: workspace.yaml is preferred; fall back to MANIFEST.yaml
         workspace_yaml_path = source_path / "workspace.yaml"
@@ -101,6 +122,14 @@ class SkillCommand(BaseCommand):
                 return f"error: invalid MANIFEST.yaml: {e}"
         else:
             return f"error: neither workspace.yaml nor MANIFEST.yaml found in {source}"
+
+        # GAP-07: --merge-into appends tools to an existing workspace
+        if merge_into:
+            result = _merge_into_workspace(source_path, decl, merge_into)
+            if tmp_dir:
+                import shutil as _sh
+                _sh.rmtree(tmp_dir, ignore_errors=True)
+            return result
 
         # Binary check (warn, don't block)
         warnings: list[str] = []
@@ -125,8 +154,9 @@ class SkillCommand(BaseCommand):
         for agent in decl.agents:
             _create_agent_dir(workspace_dir, agent, decl.version)
 
-        # Write lock file
-        _write_lock_file(workspace_dir, decl, str(source_path.resolve()))
+        # Write lock file — record original git URL as source if cloned
+        lock_source = source if not tmp_dir else source
+        _write_lock_file(workspace_dir, decl, lock_source)
 
         # GAP-02: update PLATFORM.md agents list
         _update_platform_md(workspace_root, decl.name)
@@ -145,6 +175,11 @@ class SkillCommand(BaseCommand):
         # Update settings.json if set_active
         if decl.set_active:
             _update_active_workspace(decl.name)
+
+        # Clean up temp clone dir
+        if tmp_dir:
+            import shutil as _sh
+            _sh.rmtree(tmp_dir, ignore_errors=True)
 
         warn_str = ""
         if warnings:
@@ -188,9 +223,10 @@ class SkillCommand(BaseCommand):
     def _usage(self) -> str:
         return (
             "usage: olav skill <subcommand>\n"
-            "  install <path>   Install workspace from local directory\n"
-            "  list             List installed workspaces\n"
-            "  status <name>    Show workspace status"
+            "  install <path|url>              Install workspace from local dir or git URL\n"
+            "  install <path|url> --merge-into <ws>  Append tools into existing workspace\n"
+            "  list                            List installed workspaces\n"
+            "  status <name>                   Show workspace status"
         )
 
 
@@ -391,3 +427,114 @@ def _update_active_workspace(name: str) -> None:
             data = {}
     data["active_workspace"] = name
     settings_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+# ── GAP-06: git URL detection + clone ─────────────────────────────────────────
+
+
+def _is_git_url(source: str) -> bool:
+    """Return True if source looks like a git remote URL."""
+    return (
+        source.startswith("https://")
+        or source.startswith("http://")
+        or source.startswith("git@")
+        or source.startswith("git://")
+        or source.endswith(".git")
+    )
+
+
+def _git_clone(url: str) -> dict:
+    """Clone a git repository to a temporary directory.
+
+    Returns:
+        {"status": "ok", "path": str}  on success
+        {"status": "error", "error": str}  on failure
+    """
+    import tempfile
+
+    tmp = tempfile.mkdtemp(prefix="olav_skill_")
+    result = subprocess.run(
+        ["git", "clone", "--depth=1", url, tmp],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
+        return {"status": "error", "error": result.stderr.strip() or "git clone failed"}
+    return {"status": "ok", "path": tmp}
+
+
+# ── GAP-07: --merge-into ────────────────────────────────────────────────────
+
+
+def _merge_into_workspace(
+    source_path: Path,
+    decl: "WorkspaceDeclaration",
+    target_name: str,
+) -> str:
+    """Append tool references from source workspace into an existing workspace's SKILL.md.
+
+    Steps:
+    1. Locate target workspace directory (.olav/workspace/<target_name>).
+    2. Copy tool files from source into target (skip duplicates).
+    3. Parse target SKILL.md frontmatter and append new tool paths.
+    4. Rewrite SKILL.md with merged tool list.
+
+    Returns a human-readable status string.
+    """
+    workspace_root = Path(".olav") / "workspace"
+    target_dir = workspace_root / target_name
+    if not target_dir.exists():
+        return f"error: target workspace '{target_name}' not found at {target_dir}"
+
+    skill_md_path = target_dir / "SKILL.md"
+    if not skill_md_path.exists():
+        return f"error: target workspace '{target_name}' has no SKILL.md"
+
+    # Parse existing SKILL.md frontmatter
+    try:
+        text = skill_md_path.read_text(encoding="utf-8").lstrip()
+        if not text.startswith("---"):
+            return f"error: SKILL.md in '{target_name}' has no frontmatter — cannot merge"
+        parts = text.split("---", 2)
+        if len(parts) < 3:
+            return f"error: malformed SKILL.md frontmatter in '{target_name}'"
+        fm_text, body = parts[1], parts[2]
+        fm_data: dict = yaml.safe_load(fm_text) or {}
+    except Exception as exc:  # noqa: BLE001
+        return f"error: cannot parse SKILL.md in '{target_name}': {exc}"
+
+    existing_tools: list[dict] = fm_data.get("tools", [])
+    existing_paths = {t.get("path", "") for t in existing_tools if isinstance(t, dict)}
+
+    # Copy source tool files into target workspace tools/ dir
+    tools_src = source_path / "tools"
+    tools_dest = target_dir / "tools"
+    added_tools: list[str] = []
+
+    if tools_src.is_dir():
+        tools_dest.mkdir(exist_ok=True)
+        import shutil
+        for tool_file in sorted(tools_src.glob("*.py")):
+            dest_file = tools_dest / tool_file.name
+            if not dest_file.exists():
+                shutil.copy2(tool_file, dest_file)
+            # Record relative path for SKILL.md
+            rel = str(dest_file.relative_to(Path(".")))
+            if rel not in existing_paths:
+                existing_tools.append({"path": rel})
+                added_tools.append(rel)
+
+    if not added_tools:
+        return f"merge-into '{target_name}': no new tools to add (all already present)"
+
+    # Rewrite SKILL.md frontmatter with merged tools
+    fm_data["tools"] = existing_tools
+    new_fm = yaml.dump(fm_data, default_flow_style=False, allow_unicode=True).rstrip()
+    skill_md_path.write_text(f"---\n{new_fm}\n---{body}", encoding="utf-8")
+
+    return (
+        f"merged {len(added_tools)} tool(s) into '{target_name}':\n"
+        + "\n".join(f"  + {p}" for p in added_tools)
+    )
