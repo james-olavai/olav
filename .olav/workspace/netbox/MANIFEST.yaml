@@ -1,0 +1,15 @@
+description: "NetBox DCIM/IPAM \u2014 device inventory and IP management queries"
+kind: Agent
+name: netbox
+route_keywords:
+- netbox
+- dcim
+- ipam
+- device inventory
+- ip address management
+- prefix
+- vlan
+- rack
+- site
+- cable
+version: 1.0.0

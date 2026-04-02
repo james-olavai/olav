@@ -10,7 +10,7 @@ metadata:
 tools:
   - execute_sql              # Dedicated: Query topology_links, interfaces, CDP/LLDP
   - format_and_export        # Dedicated: Export topology diagrams (.mmd)
-  - analyze_network_topology # Dedicated: Pathfinding, cycle detection
+  - topology                 # Dedicated: Pathfinding, cycle detection, L2/L3 graph analysis
 database_schema:
   topology_links:
     description: "Unified relationship map (L2 physical + L3 logical links from BGP/OSPF)"

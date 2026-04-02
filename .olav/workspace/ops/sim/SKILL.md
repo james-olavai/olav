@@ -56,6 +56,20 @@ the exact outcome using networkx and netutils in a secure sandbox.
   Any update to the canonical file propagates to sim automatically.
 - `execute_cli` enforces the `commands` table whitelist/blacklist before connecting to any device.
 
+## Sandbox Network Policy
+
+**`network_isolation=True`** — sim sandbox is fully network-isolated.
+
+All simulation is pure local computation (networkx, DuckDB in-memory clone, netutils).
+No external network access is needed or permitted:
+```python
+execute_in_sandbox(code, network_isolation=True)  # sim agent always uses this
+```
+
+If you write new sim tools that use `execute_in_sandbox`, always pass `network_isolation=True`.
+The isolation is enforced via `unshare --net` when available — all network calls
+(httpx, urllib, socket) will fail with Connection refused inside the sandbox.
+
 ## Replaced Agents
 
 - `ops-routing` (v1.0.0): all capabilities migrated here

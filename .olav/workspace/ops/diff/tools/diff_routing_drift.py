@@ -69,7 +69,7 @@ MAX_CHANGES = 20
 
 def _find_lost_routes(snapshot_1: str, snapshot_2: str, device: str | None) -> list[str]:
     """Find prefixes that existed in T1 but not in T2."""
-    with duckdb.connect(str(MAIN_DB_PATH)) as conn:
+    with duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
         if device:
             query = """
                 SELECT DISTINCT network || '/' || mask as prefix
@@ -98,7 +98,7 @@ def _find_lost_routes(snapshot_1: str, snapshot_2: str, device: str | None) -> l
 
 def _find_next_hop_shifts(snapshot_1: str, snapshot_2: str, device: str | None) -> list[dict]:
     """Find routes where next_hop changed."""
-    with duckdb.connect(str(MAIN_DB_PATH)) as conn:
+    with duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
         if device:
             query = """
                 SELECT t1.network, t1.mask, t1.next_hop as old_hop, t2.next_hop as new_hop
@@ -138,7 +138,7 @@ def _find_next_hop_shifts(snapshot_1: str, snapshot_2: str, device: str | None) 
 
 def _find_bgp_as_path_changes(snapshot_1: str, snapshot_2: str, device: str | None) -> list[dict]:
     """Find BGP routes where AS_PATH changed."""
-    with duckdb.connect(str(MAIN_DB_PATH)) as conn:
+    with duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
         if device:
             query = """
                 SELECT t1.network, t1.as_path as old_path, t2.as_path as new_path

@@ -1,0 +1,9 @@
+
+kind: Agent
+name: venv-test
+version: "1.0.0"
+description: "Test skill with venv requiring tabulate"
+route_keywords:
+  - venv-test
+  - test-skill
+  - venv

@@ -58,7 +58,7 @@ class DiffOutput(BaseModel):
 
 def _get_table_columns(table_name: str, snapshot_id: str) -> list[str]:
     """Get column names for a table."""
-    with duckdb.connect(str(MAIN_DB_PATH)) as conn:
+    with duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
         try:
             result = conn.execute(f"DESCRIBE {table_name}").fetchall()
             return [r[0] for r in result if r[0] != "snapshot_id"]
@@ -68,7 +68,7 @@ def _get_table_columns(table_name: str, snapshot_id: str) -> list[str]:
 
 def _diff_table(table_name: str, snapshot_1: str, snapshot_2: str) -> tuple[list[dict], list[dict]]:
     """Compare table between two snapshots using SQL EXCEPT."""
-    with duckdb.connect(str(MAIN_DB_PATH)) as conn:
+    with duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
         columns = _get_table_columns(table_name, snapshot_1)
 
         if not columns:
