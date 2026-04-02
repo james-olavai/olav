@@ -639,6 +639,189 @@ def _check_nornir(connectivity_sample: int = 3) -> dict:
     return results
 
 
+# ── AAA check ─────────────────────────────────────────────────────────────────
+
+def _check_aaa() -> dict:
+    """Check Authentication, Authorization, and Accounting configuration.
+
+    Authentication tiers:
+      none   → OS identity ($USER) — no real auth, warn in non-dev
+      token  → ~/.olav/token + users.duckdb hash verification
+      server → .olav/run/server.token (service-to-service)
+      ldap / ad / oidc → enterprise SSO (config fields must be non-empty)
+
+    Authorization:
+      - security_policies.yaml  — BLOCK/CONFIRM/WARN pattern rules
+      - approval_rules.yaml     — dangerous command approval patterns
+      - HITL settings (require_hitl_for_write, require_hitl_for_delete)
+
+    Accounting:
+      - audit.duckdb tables are checked in the database section
+    """
+    import yaml
+    results: dict = {"status": "ok", "checks": []}
+    config_dir = _OLAV_DIR / "config"
+
+    # ── Authentication ────────────────────────────────────────────────────────
+    api_json_path = config_dir / "api.json"
+    auth_cfg: dict = {}
+    if api_json_path.exists():
+        try:
+            auth_cfg = json.loads(api_json_path.read_text()).get("auth", {})
+        except Exception:
+            pass
+
+    mode = auth_cfg.get("mode", "none")
+
+    if mode == "none":
+        results["checks"].append({
+            "name": "Auth mode", "status": "warning", "mode": mode,
+            "message": "auth.mode=none — OS identity only, no real authentication"
+        })
+        if results["status"] == "ok":
+            results["status"] = "warning"
+
+    elif mode == "token":
+        results["checks"].append({"name": "Auth mode", "status": "ok", "mode": mode})
+        # users.duckdb must exist and have at least one admin
+        users_db = _OLAV_DIR / "databases" / "users.duckdb"
+        if not users_db.exists():
+            results["checks"].append({
+                "name": "users.duckdb", "status": "error",
+                "message": "Missing — run 'olav onboard' to initialise"
+            })
+            results["status"] = "error"
+        else:
+            try:
+                import duckdb
+                conn = duckdb.connect(str(users_db), read_only=True)
+                count = conn.execute(
+                    "SELECT COUNT(*) FROM users WHERE role='admin'"
+                ).fetchone()[0]
+                conn.close()
+                if count == 0:
+                    results["checks"].append({
+                        "name": "users.duckdb", "status": "error",
+                        "message": "No admin users — run 'olav admin add-user'"
+                    })
+                    results["status"] = "error"
+                else:
+                    results["checks"].append({
+                        "name": "users.duckdb", "status": "ok", "admin_count": count
+                    })
+            except Exception as e:
+                results["checks"].append({
+                    "name": "users.duckdb", "status": "error", "message": str(e)
+                })
+                results["status"] = "error"
+        # Current user token file
+        token_file = Path(auth_cfg.get("token_file", "~/.olav/token")).expanduser()
+        if token_file.exists():
+            results["checks"].append({
+                "name": "User token file", "status": "ok", "path": str(token_file)
+            })
+        else:
+            results["checks"].append({
+                "name": "User token file", "status": "warning",
+                "message": f"~/.olav/token missing for current user"
+            })
+            if results["status"] == "ok":
+                results["status"] = "warning"
+
+    elif mode == "server":
+        results["checks"].append({"name": "Auth mode", "status": "ok", "mode": mode})
+        server_token = _OLAV_DIR / "run" / "server.token"
+        if server_token.exists():
+            results["checks"].append({
+                "name": "Server token", "status": "ok", "path": str(server_token)
+            })
+        else:
+            results["checks"].append({
+                "name": "Server token", "status": "error",
+                "message": ".olav/run/server.token missing"
+            })
+            results["status"] = "error"
+
+    else:
+        # ldap / ad / oidc — check required fields are non-empty
+        required_fields = {
+            "ldap":  ["host", "base_dn"],
+            "ad":    ["domain", "dc_host"],
+            "oidc":  ["issuer_url", "client_id"],
+        }
+        results["checks"].append({"name": "Auth mode", "status": "ok", "mode": mode})
+        fields = auth_cfg.get(mode, {})
+        missing = [f for f in required_fields.get(mode, []) if not fields.get(f)]
+        if missing:
+            results["checks"].append({
+                "name": f"{mode} config", "status": "warning",
+                "message": f"Required fields empty: {', '.join(missing)}"
+            })
+            if results["status"] == "ok":
+                results["status"] = "warning"
+        else:
+            results["checks"].append({"name": f"{mode} config", "status": "ok"})
+
+    # ── Authorization ─────────────────────────────────────────────────────────
+    for filename in ["security_policies.yaml", "approval_rules.yaml"]:
+        fpath = config_dir / filename
+        if not fpath.exists():
+            results["checks"].append({
+                "name": filename, "status": "warning", "message": "File missing"
+            })
+            if results["status"] == "ok":
+                results["status"] = "warning"
+        else:
+            try:
+                yaml.safe_load(fpath.read_text())
+                results["checks"].append({"name": filename, "status": "ok"})
+            except Exception as e:
+                results["checks"].append({
+                    "name": filename, "status": "error",
+                    "message": f"Parse error: {e}"
+                })
+                results["status"] = "error"
+
+    # ── HITL / write-guard settings ───────────────────────────────────────────
+    settings_path = config_dir / "settings.json"
+    if settings_path.exists():
+        try:
+            perms = json.loads(settings_path.read_text()).get("permissions", {})
+            hitl_write = perms.get("require_hitl_for_write", False)
+            hitl_delete = perms.get("require_hitl_for_delete", False)
+            audit_on = perms.get("audit_log_enabled", False)
+            issues = []
+            if not hitl_write:
+                issues.append("require_hitl_for_write=false")
+            if not hitl_delete:
+                issues.append("require_hitl_for_delete=false")
+            if not audit_on:
+                issues.append("audit_log_enabled=false")
+            if issues:
+                results["checks"].append({
+                    "name": "HITL / audit settings", "status": "warning",
+                    "message": "; ".join(issues)
+                })
+                if results["status"] == "ok":
+                    results["status"] = "warning"
+            else:
+                results["checks"].append({
+                    "name": "HITL / audit settings", "status": "ok",
+                    "hitl_write": hitl_write, "hitl_delete": hitl_delete,
+                    "audit": audit_on
+                })
+        except Exception:
+            pass
+
+    # ── Accounting note ───────────────────────────────────────────────────────
+    results["checks"].append({
+        "name": "Accounting (audit.duckdb)", "status": "ok",
+        "note": "See database section for audit event counts"
+    })
+
+    return results
+
+
 # ── Services check ────────────────────────────────────────────────────────────
 
 def _pid_alive(pid_file: Path) -> tuple[bool, int | None]:
@@ -795,6 +978,17 @@ def _generate_recommendations(health: dict) -> list[str]:
         if check.get("status") == "warning" and "Unregistered" in check.get("name", ""):
             recs.append(f"Register agents in PLATFORM.md: {check.get('agents', [])}")
 
+    for check in health.get("aaa", {}).get("checks", []):
+        if check.get("status") in ("error", "warning"):
+            name = check.get("name", "")
+            msg = check.get("message", "")
+            if "Auth mode" in name and "none" in msg:
+                recs.append("Auth is disabled (mode=none) — set auth.mode=token in api.json for real auth")
+            elif "users.duckdb" in name and "Missing" in msg:
+                recs.append("Run 'olav onboard' to create users.duckdb and admin token")
+            elif "users.duckdb" in name and "admin" in msg:
+                recs.append("Run 'olav admin add-user --role admin' to create first admin")
+
     for check in health.get("services", {}).get("checks", []):
         if check.get("status") == "warning":
             name = check.get("name", "")
@@ -841,6 +1035,8 @@ def check_health(
     - system_prompt_file references exist
     - LLM API key + api.json model/provider configuration
     - Active workspace validation + syslog receiver status
+    - AAA: auth mode (none/token/server/ldap/oidc), users.duckdb, security policies,
+      approval rules, HITL write-guard settings
     - OLAV Web API + CLI daemon process health (PID files + HTTP probe)
     - External services in services.yaml (HTTP reachability)
     - Database health: main.duckdb (network state + snapshot freshness),
@@ -863,6 +1059,7 @@ def check_health(
     health["packages"] = _check_packages()
 
     if not workspace_only:
+        health["aaa"] = _check_aaa()
         health["services"] = _check_services()
         health["database"] = _check_database()
         health["nornir"] = _check_nornir(connectivity_sample=connectivity_sample)
