@@ -1,8 +1,8 @@
 ---
 name: netbox-circuits
-description: "NetBox circuits API: providers, circuits, terminations, circuit groups, and virtual circuits management"
+description: "NetBox circuits API tools for querying and managing circuits, providers, terminations, and related resources"
 ---
 
 # Netbox Circuits
 
-NetBox circuits API: providers, circuits, terminations, circuit groups, and virtual circuits management
+NetBox circuits API tools for querying and managing circuits, providers, terminations, and related resources
