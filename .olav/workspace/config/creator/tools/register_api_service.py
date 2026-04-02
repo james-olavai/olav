@@ -34,6 +34,13 @@ def register_api_service(
             "error": f"Cannot import platform tool_generator: {exc}",
         }
 
+    # Force reload services.yaml so the singleton reflects any recent create_service_config changes
+    try:
+        from olav.platform.services.registry import ServiceRegistry
+        ServiceRegistry.get_instance().reload()
+    except Exception:
+        pass
+
     try:
         result = register_service(service_name, force=force)
     except Exception as exc:
