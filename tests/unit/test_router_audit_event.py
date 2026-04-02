@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import uuid
+import duckdb
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -53,7 +54,7 @@ def test_route_semantic_records_routing_decision(tmp_path: Path):
 
     assert result["agent"] == "ops"
 
-    rows = recorder._conn.execute(
+    rows = duckdb.connect(str(recorder._db_path)).execute(
         "SELECT event_type, payload FROM audit_events"
     ).fetchall()
     assert rows, "No event written"
@@ -83,7 +84,7 @@ def test_route_fallback_records_routing_decision(tmp_path: Path):
 
     assert result["agent"] == "query"
 
-    rows = recorder._conn.execute(
+    rows = duckdb.connect(str(recorder._db_path)).execute(
         "SELECT event_type, payload FROM audit_events"
     ).fetchall()
     assert rows, "No event written"
@@ -110,7 +111,7 @@ def test_route_recorder_without_run_id_does_not_crash(tmp_path: Path):
     with patch.object(router, "_semantic_route", return_value=mock_result):
         result = router.route("show interfaces", recorder=recorder)  # no run_id
     assert result["agent"] == "ops"
-    count = recorder._conn.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0]
+    count = duckdb.connect(str(recorder._db_path)).execute("SELECT COUNT(*) FROM audit_events").fetchone()[0]
     assert count == 0, "No run_id → no event expected"
 
 
@@ -123,5 +124,5 @@ def test_route_empty_query_not_recorded(tmp_path: Path):
     result = router.route("", recorder=recorder, run_id=run_id)
     assert result["agent"] is None
 
-    count = recorder._conn.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0]
+    count = duckdb.connect(str(recorder._db_path)).execute("SELECT COUNT(*) FROM audit_events").fetchone()[0]
     assert count == 0, "Empty query short-circuit should not write event"

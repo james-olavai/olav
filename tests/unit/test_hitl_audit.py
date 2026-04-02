@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import uuid
+import duckdb
 from pathlib import Path
 
 import pytest
@@ -48,7 +49,7 @@ def test_record_hitl_requested_writes_event(audit_db: Path):
         agent_id="ops",
     )
 
-    rows = recorder._conn.execute(
+    rows = duckdb.connect(str(recorder._db_path)).execute(
         "SELECT event_type, payload FROM audit_events WHERE run_id = ?",
         [run_id],
     ).fetchall()
@@ -75,7 +76,7 @@ def test_record_hitl_decision_writes_event(audit_db: Path):
         agent_id="ops",
     )
 
-    rows = recorder._conn.execute(
+    rows = duckdb.connect(str(recorder._db_path)).execute(
         "SELECT event_type, payload FROM audit_events WHERE run_id = ?",
         [run_id],
     ).fetchall()
@@ -103,7 +104,7 @@ def test_record_hitl_reject_decision(audit_db: Path):
         auto_approve_enabled=False,
     )
 
-    rows = recorder._conn.execute(
+    rows = duckdb.connect(str(recorder._db_path)).execute(
         "SELECT payload FROM audit_events WHERE run_id = ? AND event_type = 'hitl_decision'",
         [run_id],
     ).fetchall()
@@ -139,7 +140,7 @@ def test_hitl_audit_scope_patches_prompt(audit_db: Path, monkeypatch):
         )
         assert result == {"type": "approve"}, "HITL decision should pass through"
 
-    rows = recorder._conn.execute(
+    rows = duckdb.connect(str(recorder._db_path)).execute(
         "SELECT event_type FROM audit_events WHERE run_id = ? ORDER BY sequence_no",
         [run_id],
     ).fetchall()

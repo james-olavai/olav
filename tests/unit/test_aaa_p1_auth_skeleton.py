@@ -144,7 +144,7 @@ def test_audit_recorder_redacts_password_in_messages() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         recorder = AuditEventRecorder(db_path=str(Path(tmp) / "audit.duckdb"))
         recorder.record_message(role="assistant", content="neighbor 10.0.0.1 password Sekr3t!")
-        row = recorder._conn.execute(
+        row = duckdb.connect(str(recorder._db_path)).execute(
             "SELECT content FROM audit_messages LIMIT 1"
         ).fetchone()
         assert row is not None
@@ -160,7 +160,7 @@ def test_audit_recorder_redacts_snmp_community() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         recorder = AuditEventRecorder(db_path=str(Path(tmp) / "audit.duckdb"))
         recorder.record_message(role="assistant", content="snmp-server community public123 RO")
-        row = recorder._conn.execute(
+        row = duckdb.connect(str(recorder._db_path)).execute(
             "SELECT content FROM audit_messages LIMIT 1"
         ).fetchone()
         assert row is not None
@@ -175,7 +175,7 @@ def test_audit_recorder_redacts_secret() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         recorder = AuditEventRecorder(db_path=str(Path(tmp) / "audit.duckdb"))
         recorder.record_message(role="assistant", content="enable secret 5 $1$abc$xyz")
-        row = recorder._conn.execute(
+        row = duckdb.connect(str(recorder._db_path)).execute(
             "SELECT content FROM audit_messages LIMIT 1"
         ).fetchone()
         assert row is not None

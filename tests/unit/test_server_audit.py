@@ -70,12 +70,15 @@ def test_stream_run_records_audit_events(audit_db, monkeypatch):
         asyncio.run(_run())
 
     recorder = AuditEventRecorder()
-    runs = recorder._conn.execute("SELECT source_channel, status FROM audit_runs").fetchall()
+    import duckdb
+    with duckdb.connect(str(recorder._db_path)) as _c:
+        runs = _c.execute("SELECT source_channel, status FROM audit_runs").fetchall()
     assert runs, "audit_runs must have at least one row after stream_run()"
     channels = {r[0] for r in runs}
     assert "api" in channels, f"source_channel 'api' not found; got {channels}"
 
-    events = recorder._conn.execute("SELECT event_type FROM audit_events").fetchall()
+    with duckdb.connect(str(recorder._db_path)) as _c:
+        events = _c.execute("SELECT event_type FROM audit_events").fetchall()
     event_types = {r[0] for r in events}
     assert "user_input_received" in event_types, (
         f"'user_input_received' missing; found: {event_types}"
