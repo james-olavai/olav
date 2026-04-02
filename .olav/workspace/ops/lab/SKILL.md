@@ -17,15 +17,12 @@ metadata:
     - destroy_lab
     - push_config
 tools:
-  - execute_sql            # Discover devices, topology, configs from snapshot DB
   - run_python_simulation  # Build topology YAML, translate configs, push via httpx, diff
   - deploy_lab             # POST CLAB YAML → auto fix_srl_topology + create_srl_links
   - call_api               # CLAB REST: GET/DELETE labs
   - exec_on_node           # Verify node state after config push
-  - recall_memory          # Known CLAB API behaviors and operational quirks
   - create_srl_links       # Build SR Linux link definitions from topology
   - fix_srl_topology       # Patch CLAB topology YAML for SR Linux constraints
-  - search_knowledge_lancedb  # Semantic search over CLAB/lab knowledge base
 static_context:
   - path: ./references/LAB_REFERENCE.md
 ---

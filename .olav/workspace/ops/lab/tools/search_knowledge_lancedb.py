@@ -1,1 +1,0 @@
-../../tools/search_knowledge_lancedb.py

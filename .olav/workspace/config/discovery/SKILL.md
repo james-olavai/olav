@@ -14,7 +14,6 @@ tools:
   - trigger_schema_evolve   # OPTICS clustering on unclassified fields → propose standards
   - fuzzy_map_schema        # Legacy LLM-based schema normalisation (fallback)
   - run_topology_sandbox    # NetworkX topology analysis + Mermaid generation
-  - execute_sql             # Direct DuckDB query execution
   - discover_view_schemas   # Auto-discover and register DuckDB view schemas
   - sync_schema_reference   # Sync SCHEMA_REFERENCE.md with live DB column names
   - scaffold_domain_agent   # Scaffold a new domain agent workspace from template

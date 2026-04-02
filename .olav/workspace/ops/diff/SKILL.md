@@ -12,7 +12,6 @@ tools:
   - diff_topology_drift    # Dedicated: Physical link state changes
   - diff_routing_drift    # Dedicated: Routing path shifts
   - diff_configs           # Dedicated: Raw config file comparison
-  - execute_sql            # Dedicated: For reading snapshot data
 system: $ref:./prompts/system.md
 ---
 
