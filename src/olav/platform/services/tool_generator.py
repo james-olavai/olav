@@ -180,6 +180,7 @@ def _build_function(
     request_body_def: str | None,
     response_200_def: str | None,
     query_params: list[dict] | None = None,
+    is_readonly_post: bool = False,
 ) -> str:
     """Render a single tool function string."""
     func_name = _to_func_name(prefix, method, path)
@@ -189,8 +190,8 @@ def _build_function(
     path_params = re.findall(r"\{(\w+)\}", path)
     param_parts = list(path_params)  # positional
 
-    is_read = method.upper() in _READONLY_METHODS
-    is_write = method.upper() in ("POST", "PUT", "PATCH", "DELETE")
+    is_read = method.upper() in _READONLY_METHODS or is_readonly_post
+    is_write = method.upper() in ("POST", "PUT", "PATCH", "DELETE") and not is_readonly_post
 
     # Read methods get a generic params: dict | None = None for query filter passthrough
     if is_read:
@@ -370,7 +371,12 @@ def _generate_group_tool_file(svc: ServiceConfig, group: ToolGroupConfig) -> str
 
     # Apply readonly filter after fetch (allows mocking in tests)
     if svc.readonly_only:
-        rows = [r for r in rows if r[0].upper() in _READONLY_METHODS]
+        allowed_post_paths = {p.rstrip("/") for p in (svc.readonly_post_paths or [])}
+        rows = [
+            r for r in rows
+            if r[0].upper() in _READONLY_METHODS
+            or (r[0].upper() == "POST" and r[1].rstrip("/") in allowed_post_paths)
+        ]
 
     if not rows:
         logger.warning("No operations found for '%s' tag '%s'", svc.name, tag)
@@ -379,9 +385,11 @@ def _generate_group_tool_file(svc: ServiceConfig, group: ToolGroupConfig) -> str
     # Build function strings
     functions: list[str] = []
     import json as _json
+    readonly_post_paths = {p.rstrip("/") for p in (svc.readonly_post_paths or [])}
     for method, path, summary, req_def, resp_def, qp_raw in rows:
         qp = _json.loads(qp_raw) if isinstance(qp_raw, str) else (qp_raw or [])
-        fn = _build_function(svc.name, prefix, method, path, summary, req_def, resp_def, query_params=qp)
+        is_readonly_post = (method.upper() == "POST" and path.rstrip("/") in readonly_post_paths)
+        fn = _build_function(svc.name, prefix, method, path, summary, req_def, resp_def, query_params=qp, is_readonly_post=is_readonly_post)
         functions.append(fn)
 
     tool_code = _TOOL_TEMPLATE.format(

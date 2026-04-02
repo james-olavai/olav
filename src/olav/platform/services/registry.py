@@ -76,6 +76,9 @@ class ServiceConfig:
     endpoint: str = ""
     schema_url: str = ""
     readonly_only: bool = True   # When True, tool_generator only imports GET ops
+    # POST paths that are semantically read-only (e.g. InfluxDB /query, GraphQL /graphql)
+    # These are included even when readonly_only=True
+    readonly_post_paths: list[str] = field(default_factory=list)
     auth: AuthConfig = field(default_factory=AuthConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     lifecycle: LifecycleConfig = field(default_factory=LifecycleConfig)
@@ -190,6 +193,7 @@ def _parse_service(name: str, raw: dict) -> ServiceConfig:
         endpoint=raw.get("endpoint", ""),
         schema_url=raw.get("schema_url", ""),
         readonly_only=bool(raw.get("readonly_only", True)),
+        readonly_post_paths=list(raw.get("readonly_post_paths", [])),
         auth=_parse_auth(raw.get("auth", {})),
         execution=_parse_execution(raw.get("execution", {})),
         lifecycle=_parse_lifecycle(raw.get("lifecycle", {})),
