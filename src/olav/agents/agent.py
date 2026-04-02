@@ -37,9 +37,15 @@ Replaces: LangGraph StateGraph + flat tool list (agent.py v3.2)
 from langchain.agents import create_agent
 from langchain.agents.middleware import TodoListMiddleware
 
+from olav.agents.delegate_tool import build_delegate_tool
 from olav.agents._deepagents_bridge import (
+    AnthropicPromptCachingMiddleware,
     CompiledSubAgent,
+    HAS_PROMPT_CACHING,
+    HAS_SUMMARIZATION,
     SubAgent,
+    SummarizationMiddleware,
+    build_summarization_middleware,
     create_deep_agent,
 )
 from langgraph.checkpoint.duckdb import DuckDBSaver
@@ -227,7 +233,22 @@ class OLAVAgent:
             logger.warning("MANIFEST discovery failed (non-fatal): %s", _e)
 
         subagents = self._build_subagents(olav_config)
+
+        # Build olav_delegate tool bound to compiled subagent runnables.
+        # Gives the orchestrator a way to delegate with guaranteed tool isolation,
+        # bypassing deepagents' SubAgentMiddleware (which injects FilesystemMiddleware).
+        _compiled_runnables = {
+            sa["name"]: sa["runnable"]
+            for sa in subagents
+            if "runnable" in sa
+        }
         orchestrator_tools = self._load_orchestrator_tools(olav_config)
+        if _compiled_runnables:
+            orchestrator_tools = list(orchestrator_tools) + [build_delegate_tool(_compiled_runnables)]
+            logger.info(
+                f"✓ olav_delegate registered with {len(_compiled_runnables)} subagents: "
+                f"{sorted(_compiled_runnables.keys())}"
+            )
         logger.info(
             f"✓ Orchestrator tools ({len(orchestrator_tools)}): "
             f"{[t.name for t in orchestrator_tools]}"
@@ -402,53 +423,68 @@ class OLAVAgent:
 
             logger.info(f"✓ SubAgent '{name}' ({len(tools)} tools): {[t.name for t in tools]}")
 
-            if tools:
-                # Pre-compile with a minimal middleware stack (TodoList only) so
-                # that create_deep_agent cannot inject FilesystemMiddleware.  This
-                # prevents the subagent from using ls/glob/grep instead of its
-                # declared domain tools.
-                runnable = create_agent(
-                    self.llm,
-                    system_prompt=prompt,
-                    tools=tools,
-                    middleware=[TodoListMiddleware()],
-                    name=name,
-                )
-                subagents.append(
-                    {
-                        "name": name,
-                        "description": description,
-                        "runnable": runnable,
-                    }
-                )
-            else:
-                subagents.append(
-                    {
-                        "name": name,
-                        "description": description,
-                        "system_prompt": prompt,
-                        "tools": [],
-                    }
-                )
+            # Always compile subagents as CompiledSubAgent (runnable) so deepagents
+            # uses them as-is and does NOT inject FilesystemMiddleware.
+            # Previously, zero-tool subagents were passed as plain SubAgent dicts,
+            # which caused deepagents to rebuild them with the full middleware stack.
+            _middleware = [TodoListMiddleware()]
+            _summ = build_summarization_middleware(self.llm)
+            if _summ is not None:
+                _middleware.append(_summ)
+            if HAS_PROMPT_CACHING and AnthropicPromptCachingMiddleware is not None:
+                _middleware.append(AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"))
+
+            runnable = create_agent(
+                self.llm,
+                system_prompt=prompt,
+                tools=tools,  # may be empty list — still prevents FilesystemMiddleware
+                middleware=_middleware,
+                name=name,
+            )
+            subagents.append(
+                {
+                    "name": name,
+                    "description": description,
+                    "runnable": runnable,
+                }
+            )
 
         return subagents
 
     def _get_orchestrator_prompt(self, olav_config: dict) -> str:
-        """Get the system prompt for the orchestrator."""
-        prompt_file = self._agent_dir / "prompts" / "system.md"
-        prompt = _read_prompt_file(prompt_file)
+        """Get the system prompt for the orchestrator.
 
-        if prompt:
+        Build order:
+          1. PLATFORM.md context (global — platform topology, registered agents)
+          2. Agent's own prompts/system.md
+          3. static_context files declared in AGENT.md frontmatter
+        """
+        # ① PLATFORM.md global context
+        try:
+            from olav.core.platform_registry import PlatformRegistry
+            platform_ctx = PlatformRegistry.load(self.olav_base_path / "workspace").as_context()
+        except Exception as _e:
+            logger.debug("PLATFORM.md context unavailable: %s", _e)
+            platform_ctx = ""
+
+        # ② Agent-specific system prompt
+        prompt_file = self._agent_dir / "prompts" / "system.md"
+        agent_prompt = _read_prompt_file(prompt_file)
+
+        if agent_prompt:
             try:
-                prompt = _resolve_env_ref(prompt)
+                agent_prompt = _resolve_env_ref(agent_prompt)
             except RuntimeError as e:
                 logger.warning(f"Failed to resolve env vars in prompt: {e}")
-            # Inject static_context references declared in AGENT.md frontmatter
-            prompt = _inject_static_context(prompt, self._agent_dir, olav_config)
+            # ③ Inject static_context from AGENT.md frontmatter
+            agent_prompt = _inject_static_context(agent_prompt, self._agent_dir, olav_config)
             logger.info(f"Loaded system prompt from {prompt_file}")
-            return prompt
+        else:
+            agent_prompt = olav_config.get("description", "You are OLAV, an AI operations assistant.")
 
-        return olav_config.get("description", "You are OLAV, an AI operations assistant.")
+        if platform_ctx:
+            return platform_ctx + "\n\n---\n\n" + agent_prompt
+        return agent_prompt
 
     # ------------------------------------------------------------------
     # Invoke methods (interface for backwards compatibility)
