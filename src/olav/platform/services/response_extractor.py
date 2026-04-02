@@ -193,8 +193,12 @@ def auto_extract(
         envelope = {k: v for k, v in data.items() if k != "results"}
         items = data["results"]
 
-    # 3. Schema trim
-    items = schema_trim(items, service_name, def_name)
+    # 3. Schema trim — only when response_def was explicitly supplied.
+    #    Auto-detected def_names from the registry describe the full response object
+    #    (e.g. PaginatedDeviceList), not the inner item type, so auto-trimming is
+    #    unreliable. Explicit response_def (passed by caller) is always correct.
+    if response_def and envelope is None:
+        items = schema_trim(items, service_name, response_def)
 
     # 4. Truncate if over budget
     if isinstance(items, list):

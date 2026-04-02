@@ -1,0 +1,67 @@
+Syslog logging: enabled (0 messages dropped, 2 messages rate-limited, 0 flushes, 0 overruns, xml disabled, filtering disabled)
+
+No Active Message Discriminator.
+
+
+
+No Inactive Message Discriminator.
+
+
+    Console logging: level debugging, 90 messages logged, xml disabled,
+                     filtering disabled
+    Monitor logging: level debugging, 0 messages logged, xml disabled,
+                     filtering disabled
+    Buffer logging:  level debugging, 91 messages logged, xml disabled,
+                    filtering disabled
+    Exception Logging: size (4096 bytes)
+    Count and timestamp logging messages: disabled
+    Persistent logging: disabled
+    Trap logging: level informational, 96 message lines logged
+        Logging to 192.168.100.30  (udp port 514, audit disabled,
+              link up),
+              95 message lines logged, 
+              0 message lines rate-limited, 
+              0 message lines dropped-by-MD, 
+              xml disabled, sequence number disabled
+              filtering disabled
+        Logging to 192.168.100.50  (udp port 5514, audit disabled,
+              link up),
+              96 message lines logged, 
+              0 message lines rate-limited, 
+              0 message lines dropped-by-MD, 
+              xml disabled, sequence number disabled
+              filtering disabled
+        Logging Source-Interface:       VRF Name:
+    TLS Profiles: 
+
+Log Buffer (4096 bytes):
+LAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:05:16.156: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:06:08.580: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:07:02.108: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:08:00.272: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:08:49.223: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:09:45.151: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:10:41.951: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:11:35.902: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:12:33.470: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:13:25.191: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:14:19.204: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:15:18.883: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:16:15.014: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:17:08.667: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:18:04.204: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:18:55.605: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:19:51.479: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:20:49.656: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:21:41.847: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:22:31.091: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:23:21.649: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:24:17.561: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:25:04.248: %SSH-5-SSH_CLOSE: SSH Session from 192.168.100.50 (tty = 0) for user '' using crypto cipher '' closed
+*Mar 16 13:25:08.070: %SSH-5-SSH2_SESSION: SSH2 Session request from 192.168.100.50 (tty = 0) using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256-etm@openssh.com' Succeeded
+*Mar 16 13:25:08.274: %SEC_LOGIN-5-LOGIN_SUCCESS: Login Success [user: cisco] [Source: 192.168.100.50] [localport: 22] at 13:25:08 UTC Mon Mar 16 2026
+*Mar 16 13:25:08.274: %SSH-5-SSH2_USERAUTH: User 'cisco' authentication for SSH2 Session from 192.168.100.50 (tty = 0) using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256-etm@openssh.com' Succeeded
+*Mar 16 13:25:13.072: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:26:06.373: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
+*Mar 16 13:27:01.083: %CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on Ethernet0/2 (100), with Switch Ethernet0/0 (1).
