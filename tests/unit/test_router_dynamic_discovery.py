@@ -48,21 +48,17 @@ class TestDiscoverValidAgents:
         # Should always include at least "quick" or "core" as fallback
         assert len(agents) >= 1
 
-    def test_includes_nested_agent_names(self, tmp_path, monkeypatch):
+    def test_platform_md_list_takes_precedence(self, tmp_path, monkeypatch):
+        """PLATFORM.md agents: list is used directly — no filesystem scan needed."""
         monkeypatch.chdir(tmp_path)
         ws_root = tmp_path / ".olav" / "workspace"
-        # Nested: .olav/workspace/netops/ops/MANIFEST.yaml
-        nested_dir = ws_root / "netops" / "ops"
-        nested_dir.mkdir(parents=True, exist_ok=True)
-        import yaml
-        (nested_dir / "MANIFEST.yaml").write_text(
-            yaml.dump({"kind": "Agent", "name": "ops", "version": "1.0.0",
-                       "description": "ops", "route_keywords": []}),
-            encoding="utf-8",
+        ws_root.mkdir(parents=True)
+        (ws_root / "PLATFORM.md").write_text(
+            "---\nagents: [quick, ops, audit]\nactive: quick\n---\n"
         )
         from olav.core.router import discover_valid_agents
-        agents = discover_valid_agents()
-        assert "ops" in agents
+        agents = discover_valid_agents(ws_root)
+        assert agents == ["quick", "ops", "audit"]
 
     def test_custom_workspace_root(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)

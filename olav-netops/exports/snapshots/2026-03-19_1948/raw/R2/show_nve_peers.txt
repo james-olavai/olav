@@ -1,0 +1,1 @@
+Interface  VNI      Type Peer-IP          RMAC/Num_RTs   eVNI     state flags UP time

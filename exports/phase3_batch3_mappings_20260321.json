@@ -1,0 +1,169 @@
+{
+  "batch_id": "phase3_batch3_20260321",
+  "timestamp": "2026-03-21",
+  "model": "extended-validation-mapping",
+  "confidence_level": 0.75,
+  "candidates": [
+    {
+      "raw_key": "key",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/config/name"
+    },
+    {
+      "raw_key": "description",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/config/description"
+    },
+    {
+      "raw_key": "status",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/oper-status"
+    },
+    {
+      "raw_key": "state",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/admin-status"
+    },
+    {
+      "raw_key": "address",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/subinterfaces/subinterface/ipv4-unnumbered/config/enabled"
+    },
+    {
+      "raw_key": "subnet",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/subinterfaces/subinterface/ipv4/addresses/address/config/prefix-length"
+    },
+    {
+      "raw_key": "router_id",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/bgp/global/config/router-id"
+    },
+    {
+      "raw_key": "as_number",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/bgp/global/config/as"
+    },
+    {
+      "raw_key": "neighbor",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/config/neighbor-address"
+    },
+    {
+      "raw_key": "interface_status",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/oper-status"
+    },
+    {
+      "raw_key": "gateway",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/subinterfaces/subinterface/ipv4/config/dhcp-client"
+    },
+    {
+      "raw_key": "static_route",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/static-routes/static/config/prefix"
+    },
+    {
+      "raw_key": "default_route",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/static-routes/static/next-hops/next-hop/config/next-hop"
+    },
+    {
+      "raw_key": "prefix_length",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/subinterfaces/subinterface/ipv4/addresses/address/config/prefix-length"
+    },
+    {
+      "raw_key": "route_table",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/config/name"
+    },
+    {
+      "raw_key": "input_packets",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/counters/in-pkts"
+    },
+    {
+      "raw_key": "output_packets",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/counters/out-pkts"
+    },
+    {
+      "raw_key": "input_octets",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/counters/in-octets"
+    },
+    {
+      "raw_key": "output_octets",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/counters/out-octets"
+    },
+    {
+      "raw_key": "crc_errors",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/ethernet/state/counters/in-crc-errors"
+    },
+    {
+      "raw_key": "process_id",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/ospf/config/ospf-version"
+    },
+    {
+      "raw_key": "ospf_area",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/ospf/areas/area/config/identifier"
+    },
+    {
+      "raw_key": "hello_interval",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/ospf/areas/area/interfaces/interface/config/hello-interval"
+    },
+    {
+      "raw_key": "dead_interval",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/ospf/areas/area/interfaces/interface/config/dead-interval"
+    },
+    {
+      "raw_key": "ospf_priority",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/ospf/areas/area/interfaces/interface/config/priority"
+    },
+    {
+      "raw_key": "serial_number",
+      "openconfig_path": "openconfig-system:system/state/serial-num"
+    },
+    {
+      "raw_key": "version",
+      "openconfig_path": "openconfig-system:system/state/software-version"
+    },
+    {
+      "raw_key": "boot_image",
+      "openconfig_path": "openconfig-system:system/config/boot-config/config-url"
+    },
+    {
+      "raw_key": "memory",
+      "openconfig_path": "openconfig-system:system/state/memory"
+    },
+    {
+      "raw_key": "cpu_usage",
+      "openconfig_path": "openconfig-system:system/state/cpu-state/total"
+    },
+    {
+      "raw_key": "capability",
+      "openconfig_path": "openconfig-lldp:lldp/state/capability"
+    },
+    {
+      "raw_key": "sys_description",
+      "openconfig_path": "openconfig-lldp:lldp/state/system-description"
+    },
+    {
+      "raw_key": "chassis_id",
+      "openconfig_path": "openconfig-lldp:lldp/state/chassis-id"
+    },
+    {
+      "raw_key": "port_id",
+      "openconfig_path": "openconfig-lldp:lldp/state/port-id"
+    },
+    {
+      "raw_key": "time_to_live",
+      "openconfig_path": "openconfig-lldp:lldp/state/ttl"
+    },
+    {
+      "raw_key": "trunk_mode",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/ethernet/config/native-vlan"
+    },
+    {
+      "raw_key": "access_vlan",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/ethernet/config/access-vlan"
+    },
+    {
+      "raw_key": "allowed_vlans",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/ethernet/config/trunk-vlans"
+    },
+    {
+      "raw_key": "bridge_id",
+      "openconfig_path": "openconfig-if-ethernet:ethernet/stp/config/bridge-priority"
+    },
+    {
+      "raw_key": "port_cost",
+      "openconfig_path": "openconfig-if-ethernet:ethernet/stp/config/cost"
+    }
+  ],
+  "notes": "Batch 3: Extended coverage of high-frequency fields + additional domain areas (IP addressing, OSPF, device inventory, LLDP, STP)"
+}

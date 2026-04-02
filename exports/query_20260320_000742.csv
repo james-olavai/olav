@@ -1,0 +1,333 @@
+command,snapshot_id
+netconf_interfaces,2026-03-19_2030
+netconf_bgp,2026-03-19_2030
+netconf_lldp,2026-03-19_2030
+netconf_platform,2026-03-19_2030
+show ip cef detail,2026-03-19_2026
+show route-map,2026-03-19_2026
+show ip route,2026-03-19_2026
+show ip ospf database router,2026-03-19_2026
+show ip ospf database,2026-03-19_2026
+show ip cef,2026-03-19_2026
+show ip ospf interface brief,2026-03-19_2026
+show ip bgp summary,2026-03-19_2026
+show capability feature routing,2026-03-19_2026
+show processes memory sorted,2026-03-19_2023
+dir,2026-03-19_2023
+show users,2026-03-19_2023
+show license status,2026-03-19_2023
+show version,2026-03-19_2023
+show redundancy,2026-03-19_2023
+show inventory,2026-03-19_2023
+show platform,2026-03-19_2023
+show platform diag,2026-03-19_2023
+show file systems,2026-03-19_2023
+show clock,2026-03-19_2023
+show clock,2026-03-19_2001
+show file systems,2026-03-19_2001
+show aliases,2026-03-19_2001
+show platform diag,2026-03-19_2001
+show archive,2026-03-19_2001
+show inventory,2026-03-19_2001
+show license status,2026-03-19_2001
+dir,2026-03-19_2001
+show version,2026-03-19_2001
+show platform diag,2026-03-19_1959
+show aliases,2026-03-19_1959
+show archive,2026-03-19_1959
+show file systems,2026-03-19_1959
+show clock,2026-03-19_1959
+show ip http server status,2026-03-19_1959
+dir,2026-03-19_1959
+show version,2026-03-19_1959
+show inventory,2026-03-19_1959
+show license status,2026-03-19_1959
+show ospf neighbor,2026-03-16_1440
+show lldp neighbors,2026-03-16_1440
+show chassis hardware,2026-03-16_1440
+show system uptime,2026-03-16_1440
+show version,2026-03-16_1440
+show route summary,2026-03-16_1440
+show system configuration database usage,2026-03-16_1440
+show vlans,2026-03-16_1440
+show arp no-resolve,2026-03-16_1440
+show chassis firmware,2026-03-16_1440
+show route summary,2026-03-16_1414
+show system configuration database usage,2026-03-16_1414
+show version,2026-03-16_1414
+show chassis hardware,2026-03-16_1414
+show system uptime,2026-03-16_1414
+show ospf neighbor,2026-03-16_1414
+show lldp neighbors,2026-03-16_1414
+show chassis firmware,2026-03-16_1414
+show arp no-resolve,2026-03-16_1414
+show vlans,2026-03-16_1414
+show vlans,2026-03-06_0931
+show chassis firmware,2026-03-06_0931
+show arp no-resolve,2026-03-06_0931
+show chassis hardware,2026-03-06_0931
+show system configuration database usage,2026-03-06_0931
+show system uptime,2026-03-06_0931
+show route summary,2026-03-06_0931
+show ospf neighbor,2026-03-06_0931
+show lldp neighbors,2026-03-06_0931
+show version,2026-03-06_0931
+show arp no-resolve,2026-03-06_0246
+show chassis firmware,2026-03-06_0246
+show vlans,2026-03-06_0246
+show ospf neighbor,2026-03-06_0246
+show version,2026-03-06_0246
+show lldp neighbors,2026-03-06_0246
+show system uptime,2026-03-06_0246
+show route summary,2026-03-06_0246
+show system configuration database usage,2026-03-06_0246
+show chassis hardware,2026-03-06_0246
+show chassis firmware,2026-03-05_1918
+show arp no-resolve,2026-03-05_1918
+show vlans,2026-03-05_1918
+show ospf neighbor,2026-03-05_1918
+show version,2026-03-05_1918
+show lldp neighbors,2026-03-05_1918
+show system uptime,2026-03-05_1918
+show route summary,2026-03-05_1918
+show system configuration database usage,2026-03-05_1918
+show chassis hardware,2026-03-05_1918
+show system configuration database usage,2026-03-05_1627
+show route summary,2026-03-05_1627
+show version,2026-03-05_1627
+show ospf neighbor,2026-03-05_1627
+show chassis hardware,2026-03-05_1627
+show system uptime,2026-03-05_1627
+show lldp neighbors,2026-03-05_1627
+show arp no-resolve,2026-03-05_1627
+show chassis firmware,2026-03-05_1627
+show vlans,2026-03-05_1627
+show arp no-resolve,2026-03-05_1615
+show chassis firmware,2026-03-05_1615
+show vlans,2026-03-05_1615
+show system uptime,2026-03-05_1615
+show system configuration database usage,2026-03-05_1615
+show route summary,2026-03-05_1615
+show chassis hardware,2026-03-05_1615
+show lldp neighbors,2026-03-05_1615
+show version,2026-03-05_1615
+show ospf neighbor,2026-03-05_1615
+show lldp neighbors,2026-03-05_1559
+show ospf neighbor,2026-03-05_1559
+show system uptime,2026-03-05_1559
+show chassis hardware,2026-03-05_1559
+show version,2026-03-05_1559
+show route summary,2026-03-05_1559
+show system configuration database usage,2026-03-05_1559
+show vlans,2026-03-05_1559
+show chassis firmware,2026-03-05_1559
+show arp no-resolve,2026-03-05_1559
+show system configuration database usage,2026-03-04_1124
+show route summary,2026-03-04_1124
+show version,2026-03-04_1124
+show lldp neighbors,2026-03-04_1124
+show ospf neighbor,2026-03-04_1124
+show chassis hardware,2026-03-04_1124
+show system uptime,2026-03-04_1124
+show arp no-resolve,2026-03-04_1124
+show chassis firmware,2026-03-04_1124
+show vlans,2026-03-04_1124
+show chassis hardware,2026-03-04_1115
+show system uptime,2026-03-04_1115
+show lldp neighbors,2026-03-04_1115
+show ospf neighbor,2026-03-04_1115
+show system configuration database usage,2026-03-04_1115
+show route summary,2026-03-04_1115
+show version,2026-03-04_1115
+show chassis firmware,2026-03-04_1115
+show arp no-resolve,2026-03-04_1115
+show vlans,2026-03-04_1115
+show system uptime,2026-03-04_1109
+show chassis hardware,2026-03-04_1109
+show ospf neighbor,2026-03-04_1109
+show lldp neighbors,2026-03-04_1109
+show version,2026-03-04_1109
+show system configuration database usage,2026-03-04_1109
+show route summary,2026-03-04_1109
+show arp no-resolve,2026-03-04_1109
+show chassis firmware,2026-03-04_1109
+show vlans,2026-03-04_1109
+show bgp summary,2026-03-03_2009
+show vlans,2026-03-03_2009
+show chassis firmware,2026-03-03_2009
+show arp no-resolve,2026-03-03_2009
+show lldp neighbors,2026-03-03_2009
+show ospf neighbor,2026-03-03_2009
+show version,2026-03-03_2009
+show system configuration database usage,2026-03-03_2009
+show route summary,2026-03-03_2009
+show system uptime,2026-03-03_2009
+show interfaces,2026-03-03_2009
+show chassis hardware,2026-03-03_2009
+show vlans,2026-03-03_1951
+show bgp summary,2026-03-03_1951
+show arp no-resolve,2026-03-03_1951
+show chassis firmware,2026-03-03_1951
+show version,2026-03-03_1951
+show ospf neighbor,2026-03-03_1951
+show lldp neighbors,2026-03-03_1951
+show system uptime,2026-03-03_1951
+show interfaces,2026-03-03_1951
+show route summary,2026-03-03_1951
+show chassis hardware,2026-03-03_1951
+show system configuration database usage,2026-03-03_1951
+show version,2026-03-03_1944
+show route summary,2026-03-03_1944
+show system configuration database usage,2026-03-03_1944
+show interfaces,2026-03-03_1944
+show ospf neighbor,2026-03-03_1944
+show lldp neighbors,2026-03-03_1944
+show system uptime,2026-03-03_1944
+show chassis hardware,2026-03-03_1944
+show vlans,2026-03-03_1944
+show bgp summary,2026-03-03_1944
+show arp no-resolve,2026-03-03_1944
+show chassis firmware,2026-03-03_1944
+show system uptime,2026-03-03_1940
+show chassis hardware,2026-03-03_1940
+show ospf neighbor,2026-03-03_1940
+show lldp neighbors,2026-03-03_1940
+show system configuration database usage,2026-03-03_1940
+show version,2026-03-03_1940
+show route summary,2026-03-03_1940
+show interfaces,2026-03-03_1940
+show arp no-resolve,2026-03-03_1940
+show chassis firmware,2026-03-03_1940
+show bgp summary,2026-03-03_1940
+show vlans,2026-03-03_1940
+show chassis hardware,2026-03-03_1754
+show system uptime,2026-03-03_1754
+show lldp neighbors,2026-03-03_1754
+show ospf neighbor,2026-03-03_1754
+show version,2026-03-03_1754
+show interfaces,2026-03-03_1754
+show route summary,2026-03-03_1754
+show system configuration database usage,2026-03-03_1754
+show chassis firmware,2026-03-03_1754
+show arp no-resolve,2026-03-03_1754
+show bgp summary,2026-03-03_1754
+show vlans,2026-03-03_1754
+show vlans,2026-03-03_1751
+show bgp summary,2026-03-03_1751
+show chassis firmware,2026-03-03_1751
+show route summary,2026-03-03_1751
+show system configuration database usage,2026-03-03_1751
+show chassis hardware,2026-03-03_1751
+show system uptime,2026-03-03_1751
+show interfaces,2026-03-03_1751
+show lldp neighbors,2026-03-03_1751
+show ospf neighbor,2026-03-03_1751
+show version,2026-03-03_1751
+show version,2026-03-03_1746
+show route summary,2026-03-03_1746
+show system configuration database usage,2026-03-03_1746
+show interfaces,2026-03-03_1746
+show ospf neighbor,2026-03-03_1746
+show lldp neighbors,2026-03-03_1746
+show system uptime,2026-03-03_1746
+show chassis hardware,2026-03-03_1746
+show vlans,2026-03-03_1746
+show bgp summary,2026-03-03_1746
+show chassis firmware,2026-03-03_1746
+show chassis firmware,2026-03-02_2246
+show configuration,2026-03-02_2246
+show bgp summary,2026-03-02_2246
+show vlans,2026-03-02_2246
+show route summary,2026-03-02_2246
+show system uptime,2026-03-02_2246
+show chassis hardware,2026-03-02_2246
+show interfaces,2026-03-02_2246
+show system configuration database usage,2026-03-02_2246
+show version,2026-03-02_2246
+show ospf neighbor,2026-03-02_2246
+show lldp neighbors,2026-03-02_2246
+show chassis firmware,2026-03-02_2133
+show configuration,2026-03-02_2133
+show bgp summary,2026-03-02_2133
+show vlans,2026-03-02_2133
+show system uptime,2026-03-02_2133
+show interfaces,2026-03-02_2133
+show chassis hardware,2026-03-02_2133
+show route summary,2026-03-02_2133
+show system configuration database usage,2026-03-02_2133
+show version,2026-03-02_2133
+show lldp neighbors,2026-03-02_2133
+show ospf neighbor,2026-03-02_2133
+show interfaces,2026-03-02_2127
+show route summary,2026-03-02_2127
+show system configuration database usage,2026-03-02_2127
+show version,2026-03-02_2127
+show chassis hardware,2026-03-02_2127
+show system uptime,2026-03-02_2127
+show ospf neighbor,2026-03-02_2127
+show lldp neighbors,2026-03-02_2127
+show configuration,2026-03-02_2127
+show chassis firmware,2026-03-02_2127
+show vlans,2026-03-02_2127
+show bgp summary,2026-03-02_2127
+show configuration,2026-03-02_2110
+show vlans,2026-03-02_2110
+show bgp summary,2026-03-02_2110
+show chassis firmware,2026-03-02_2110
+show system configuration database usage,2026-03-02_2110
+show system uptime,2026-03-02_2110
+show chassis hardware,2026-03-02_2110
+show route summary,2026-03-02_2110
+show lldp neighbors,2026-03-02_2110
+show version,2026-03-02_2110
+show ospf neighbor,2026-03-02_2110
+show configuration,2026-03-02_2038
+show vlans,2026-03-02_2038
+show chassis firmware,2026-03-02_2038
+show route summary,2026-03-02_2038
+show system uptime,2026-03-02_2038
+show chassis hardware,2026-03-02_2038
+show system configuration database usage,2026-03-02_2038
+show lldp neighbors,2026-03-02_2038
+show version,2026-03-02_2038
+show ospf neighbor,2026-03-02_2038
+show version,2026-03-02_1829
+show system configuration database usage,2026-03-02_1829
+show route summary,2026-03-02_1829
+show system uptime,2026-03-02_1829
+show ospf neighbor,2026-03-02_1829
+show lldp neighbors,2026-03-02_1829
+show chassis hardware,2026-03-02_1829
+show vlans,2026-03-02_1829
+show chassis firmware,2026-03-02_1829
+show configuration,2026-03-02_1829
+show lldp neighbors,2026-03-02_1810
+show ospf neighbor,2026-03-02_1810
+show chassis hardware,2026-03-02_1810
+show system uptime,2026-03-02_1810
+show system configuration database usage,2026-03-02_1810
+show version,2026-03-02_1810
+show route summary,2026-03-02_1810
+show vlans,2026-03-02_1810
+show configuration,2026-03-02_1810
+show chassis firmware,2026-03-02_1810
+show chassis firmware,2026-03-02_1717
+show vlans,2026-03-02_1717
+show configuration,2026-03-02_1717
+show system uptime,2026-03-02_1717
+show route summary,2026-03-02_1717
+show system configuration database usage,2026-03-02_1717
+show chassis hardware,2026-03-02_1717
+show version,2026-03-02_1717
+show lldp neighbors,2026-03-02_1717
+show ospf neighbor,2026-03-02_1717
+show configuration,2026-03-02_1652
+show vlans,2026-03-02_1652
+show chassis firmware,2026-03-02_1652
+show system configuration database usage,2026-03-02_1652
+show system uptime,2026-03-02_1652
+show route summary,2026-03-02_1652
+show chassis hardware,2026-03-02_1652
+show version,2026-03-02_1652
+show ospf neighbor,2026-03-02_1652
+show lldp neighbors,2026-03-02_1652

@@ -15,7 +15,13 @@ from olav.platform.ingest_base import BaseIngestTable, ColumnDef, TableRegistry
 
 
 class ParsedOutputsTable(BaseIngestTable):
-    """Stores parsed CLI output from network devices."""
+    """Stores parsed CLI output from network devices.
+
+    raw_output is no longer stored inline — it is deduplicated in
+    RawOutputStoreTable and referenced via raw_output_hash.
+    The raw_output column is kept for backward compatibility but is
+    nulled out during ingest migration.
+    """
 
     schema_name = "netops"
     table_name = "parsed_outputs"
@@ -24,10 +30,30 @@ class ParsedOutputsTable(BaseIngestTable):
         ColumnDef("command", "VARCHAR", nullable=False),
         ColumnDef("parsed_data", "JSON"),
         ColumnDef("snapshot_id", "VARCHAR"),
-        ColumnDef("raw_output", "TEXT"),
+        ColumnDef("raw_output", "TEXT"),       # legacy — kept for compat, will be NULL
+        ColumnDef("raw_output_hash", "VARCHAR"),  # FK → raw_output_store.content_hash
         ColumnDef("ingested_at", "TIMESTAMP"),
     ]
     conflict_key = ["device_name", "command", "snapshot_id"]
+
+
+class RawOutputStoreTable(BaseIngestTable):
+    """Latest raw CLI output per device per command.
+
+    Always keeps the most recent snapshot's raw output — no history,
+    no dedup complexity. One row per (device_name, command).
+    """
+
+    schema_name = "netops"
+    table_name = "raw_output_store"
+    columns = [
+        ColumnDef("device_name",  "VARCHAR",   nullable=False),
+        ColumnDef("command",      "VARCHAR",   nullable=False),
+        ColumnDef("raw_output",   "TEXT",      nullable=False),
+        ColumnDef("snapshot_id",  "VARCHAR"),
+        ColumnDef("updated_at",   "TIMESTAMP"),
+    ]
+    conflict_key = ["device_name", "command"]
 
 
 class DevicesTable(BaseIngestTable):
@@ -79,7 +105,24 @@ class TopologyLinksTable(BaseIngestTable):
     conflict_key = ["link_id"]
 
 
+class OcOutputsTable(BaseIngestTable):
+    """Strict OpenConfig JSON per device per snapshot per OC module."""
+
+    schema_name = "netops"
+    table_name = "oc_outputs"
+    columns = [
+        ColumnDef("device_name", "VARCHAR", nullable=False),
+        ColumnDef("snapshot_id", "VARCHAR", nullable=False),
+        ColumnDef("oc_module",   "VARCHAR", nullable=False),
+        ColumnDef("oc_data",     "JSON",    nullable=False),
+        ColumnDef("source_cmd",  "VARCHAR"),
+    ]
+    conflict_key = ["device_name", "snapshot_id", "oc_module"]
+
+
 # Auto-register at import time (entry-point discovery triggers this)
 TableRegistry.register(ParsedOutputsTable())
+TableRegistry.register(RawOutputStoreTable())
 TableRegistry.register(DevicesTable())
 TableRegistry.register(TopologyLinksTable())
+TableRegistry.register(OcOutputsTable())

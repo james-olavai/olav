@@ -52,6 +52,9 @@ if _DA_VERSION >= _DA_NEXT_MAJOR:
 HAS_SUMMARIZATION: bool = _DA_VERSION >= V("0.4.0")
 """True when SummarizationMiddleware is available (auto context compression)."""
 
+HAS_PROMPT_CACHING: bool = True
+"""True when AnthropicPromptCachingMiddleware is available (from langchain_anthropic)."""
+
 HAS_LOCAL_SHELL_BACKEND: bool = _DA_VERSION >= V("0.4.0")
 """True when LocalShellBackend is available (subprocess execution backend)."""
 
@@ -67,11 +70,19 @@ from deepagents.middleware.subagents import CompiledSubAgent, SubAgent  # noqa: 
 
 if HAS_SUMMARIZATION:
     try:
+        from deepagents.backends import StateBackend as _StateBackend
+        from deepagents.middleware.summarization import (
+            create_summarization_middleware as _create_summarization_middleware,
+        )
         from deepagents.middleware import SummarizationMiddleware
     except ImportError:
         SummarizationMiddleware = None  # type: ignore[assignment,misc]
+        _StateBackend = None  # type: ignore[assignment,misc]
+        _create_summarization_middleware = None  # type: ignore[assignment,misc]
 else:
     SummarizationMiddleware = None  # type: ignore[assignment,misc]
+    _StateBackend = None  # type: ignore[assignment,misc]
+    _create_summarization_middleware = None  # type: ignore[assignment,misc]
 
 if HAS_LOCAL_SHELL_BACKEND:
     try:
@@ -80,6 +91,16 @@ if HAS_LOCAL_SHELL_BACKEND:
         LocalShellBackend = None  # type: ignore[assignment,misc]
 else:
     LocalShellBackend = None  # type: ignore[assignment,misc]
+
+# AnthropicPromptCachingMiddleware: from langchain_anthropic (available in 0.4.x via deepagents dep)
+if HAS_PROMPT_CACHING:
+    try:
+        from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
+    except ImportError:
+        AnthropicPromptCachingMiddleware = None  # type: ignore[assignment,misc]
+        HAS_PROMPT_CACHING = False
+else:
+    AnthropicPromptCachingMiddleware = None  # type: ignore[assignment,misc]
 
 
 # ── Stable wrapper ────────────────────────────────────────────────────────────
@@ -100,18 +121,40 @@ def create_deep_agent(**kwargs):  # type: ignore[no-untyped-def]
     return _create_deep_agent(**kwargs)
 
 
+def build_summarization_middleware(model):  # type: ignore[no-untyped-def]
+    """Create a SummarizationMiddleware instance for the given model.
+
+    Uses StateBackend (in-memory, no filesystem dependency) as the backend
+    so compiled subagents get context compression without needing a real
+    filesystem or sandbox backend.
+
+    Returns None when SummarizationMiddleware or StateBackend are unavailable.
+    """
+    if not HAS_SUMMARIZATION:
+        return None
+    if _create_summarization_middleware is None or _StateBackend is None:
+        return None
+    try:
+        return _create_summarization_middleware(model, _StateBackend)
+    except Exception:
+        return None
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 __all__ = [
     # Core
     "create_deep_agent",
+    "build_summarization_middleware",
     "CompiledSubAgent",
     "SubAgent",
     # Version-gated (may be None if version too old)
     "SummarizationMiddleware",
+    "AnthropicPromptCachingMiddleware",
     "LocalShellBackend",
     # Feature flags
     "HAS_SUMMARIZATION",
+    "HAS_PROMPT_CACHING",
     "HAS_LOCAL_SHELL_BACKEND",
     "HAS_NAMESPACE_FACTORY",
     # Version info

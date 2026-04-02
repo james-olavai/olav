@@ -11,6 +11,7 @@ def create_skill_workspace(
     skill_name: str = "",
     static_context_paths: list | None = None,
     agent_description: str = "",
+    schema_ref_path: str = "",
 ) -> dict:
     """Create a workspace under .olav/workspace/<workspace_name>/ with SKILL.md
     pointing to the specified generated tool files, then register the workspace
@@ -27,8 +28,12 @@ def create_skill_workspace(
                              (relative to project root, e.g.
                               ['.olav/workspace/ops/tools/_generated/netbox_circuits.py'])
         skill_name:          SKILL.md 'name' field (defaults to workspace_name)
-        static_context_paths: Optional list of reference file paths to embed as context
+        static_context_paths: Optional list of reference file paths to embed as context.
+                              Prefer using schema_ref_path for schema references.
         agent_description:   Longer description for AGENT.md (defaults to description)
+        schema_ref_path:     Path to schema_reference.json from extract_schema_reference().
+                             If provided, automatically added to static_context so the
+                             agent loads API schema awareness at startup.
 
     Returns:
         dict with status and paths of created files
@@ -45,9 +50,14 @@ def create_skill_workspace(
     _agent_desc = agent_description or description
     files_created: list[str] = []
 
+    # Merge schema_ref_path into static_context_paths
+    all_ctx_paths = list(static_context_paths or [])
+    if schema_ref_path and schema_ref_path not in all_ctx_paths:
+        all_ctx_paths.append(schema_ref_path)
+
     # --- SKILL.md (v5 frontmatter format) ---
     tool_refs = [{"path": p} for p in (tool_file_paths or [])]
-    ctx_refs = [{"path": p} for p in (static_context_paths or [])]
+    ctx_refs = [{"path": p} for p in all_ctx_paths]
 
     frontmatter: dict = {
         "name": _skill_name,
@@ -123,9 +133,12 @@ def create_skill_workspace(
         "registered_in_platform": registered_in_platform,
         "skill_name": _skill_name,
         "tools_referenced": len(tool_file_paths or []),
+        "schema_aware": bool(all_ctx_paths),
+        "static_context_files": all_ctx_paths,
         "next_step": (
-            f"Workspace '{workspace_name}' is ready. "
-            "Verify with: read_file('.olav/workspace/"
+            f"Workspace '{workspace_name}' is ready"
+            + (" (schema-aware ✓)" if all_ctx_paths else "")
+            + ". Verify with: read_file('.olav/workspace/"
             + workspace_name + "/SKILL.md')"
         ),
     }

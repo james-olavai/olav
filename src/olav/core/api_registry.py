@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS api_registry.operations (
     tags             VARCHAR[],
     request_body_def VARCHAR,
     response_200_def VARCHAR,
+    query_params     JSON,
     PRIMARY KEY (api_name, method, path)
 );
 
@@ -82,6 +83,13 @@ def _open(db_path: Path, read_only: bool = False) -> duckdb.DuckDBPyConnection:
             stmt = stmt.strip()
             if stmt:
                 con.execute(stmt)
+        # Migrate: add query_params column to existing DBs that predate this column
+        try:
+            con.execute(
+                "ALTER TABLE api_registry.operations ADD COLUMN IF NOT EXISTS query_params JSON"
+            )
+        except Exception:
+            pass  # column already exists or DDL already added it
     return con
 
 
@@ -140,11 +148,18 @@ def _normalize_swagger2(doc: dict, api_name: str) -> tuple[list[dict], list[dict
 
             # request_body_def – from parameters where in=body
             req_body_def: str | None = None
+            query_params: list[dict] = []
             for param in op_obj.get("parameters", []):
                 if param.get("in") == "body":
                     schema_obj = param.get("schema", {})
                     req_body_def = _resolve_ref(schema_obj)
-                    break
+                elif param.get("in") == "query":
+                    query_params.append({
+                        "name": param.get("name", ""),
+                        "type": param.get("type") or param.get("schema", {}).get("type", "string"),
+                        "description": param.get("description", ""),
+                        "required": param.get("required", False),
+                    })
 
             # response_200_def
             resp_200 = (
@@ -162,6 +177,7 @@ def _normalize_swagger2(doc: dict, api_name: str) -> tuple[list[dict], list[dict
                 "tags": tags,
                 "request_body_def": req_body_def,
                 "response_200_def": resp_200_def,
+                "query_params": query_params,
             })
 
     # Definitions
@@ -215,6 +231,18 @@ def _normalize_openapi3(doc: dict, api_name: str) -> tuple[list[dict], list[dict
                 json_schema = content.get("application/json", {}).get("schema", {})
                 req_body_def = _resolve_ref(json_schema)
 
+            # query_params – OpenAPI 3.x uses parameters list with in=query
+            query_params: list[dict] = []
+            for param in op_obj.get("parameters", []):
+                if param.get("in") == "query":
+                    schema_obj = param.get("schema", {})
+                    query_params.append({
+                        "name": param.get("name", ""),
+                        "type": schema_obj.get("type", "string") if schema_obj else "string",
+                        "description": param.get("description", ""),
+                        "required": param.get("required", False),
+                    })
+
             # response_200_def
             resp_200 = (
                 op_obj.get("responses", {}).get("200", {})
@@ -234,6 +262,7 @@ def _normalize_openapi3(doc: dict, api_name: str) -> tuple[list[dict], list[dict
                 "tags": tags,
                 "request_body_def": req_body_def,
                 "response_200_def": resp_200_def,
+                "query_params": query_params,
             })
 
     # Definitions from components/schemas
@@ -343,8 +372,8 @@ def load_schema(
             con.execute(
                 """
                 INSERT INTO api_registry.operations
-                    (api_name, method, path, summary, tags, request_body_def, response_200_def)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (api_name, method, path, summary, tags, request_body_def, response_200_def, query_params)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     row["api_name"],
@@ -354,6 +383,7 @@ def load_schema(
                     row["tags"],
                     row["request_body_def"],
                     row["response_200_def"],
+                    json.dumps(row.get("query_params") or []),
                 ],
             )
 
@@ -430,6 +460,42 @@ def verify_operations(
                 missing.append(f"{name}: {method.upper()} {path}")
     if missing:
         raise KeyError(f"Operations missing from registry for '{api_name}': {missing}")
+
+
+def get_query_params(
+    api_name: str,
+    tag: str | None = None,
+    db_path: Path = DEFAULT_DB,
+) -> dict[str, list[dict]]:
+    """Return per-operation query params from the registry.
+
+    Returns a dict keyed by "METHOD /path" with a list of query param dicts:
+        {"name": "status", "type": "string", "description": "...", "required": False}
+
+    Optionally filtered by tag.
+    """
+    db_path = Path(db_path)
+    tag_clause = "AND list_contains(tags, ?)" if tag else ""
+    params = [api_name]
+    if tag:
+        params.append(tag)
+
+    with _open(db_path, read_only=True) as con:
+        rows = con.execute(
+            f"""
+            SELECT method, path, query_params
+            FROM api_registry.operations
+            WHERE api_name = ? {tag_clause}
+            ORDER BY path, method
+            """,
+            params,
+        ).fetchall()
+
+    result: dict[str, list[dict]] = {}
+    for method, path, qp_json in rows:
+        qp = json.loads(qp_json) if isinstance(qp_json, str) else (qp_json or [])
+        result[f"{method} {path}"] = qp
+    return result
 
 
 def is_loaded(api_name: str, db_path: Path = DEFAULT_DB) -> bool:

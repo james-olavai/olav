@@ -293,15 +293,16 @@ class SemanticRouter:
                     "method": "default",
                 }
 
-        # Discover agents from workspace
-        valid_agents = discover_valid_agents()
-        default_agent = valid_agents[0] if valid_agents else "quick"
-
-        # Build dynamic prompt from discovered agents
-        from olav.core.agent_registry import discover_agents
+        # Discover agents via PLATFORM.md (Tier 1) then AGENT.md fallback
+        from olav.core.platform_registry import PlatformRegistry
         from olav.core.workspace import resolve_workspace_root
 
         ws_root = resolve_workspace_root()
+        valid_agents = discover_valid_agents(ws_root if ws_root.exists() else None)
+        default_agent = valid_agents[0] if valid_agents else "quick"
+
+        # Build routing prompt: use MANIFEST route_keywords where available
+        from olav.core.agent_registry import discover_agents
         manifests = discover_agents(ws_root) if ws_root.exists() else {}
 
         agent_lines = []
@@ -375,16 +376,19 @@ def initialize_router(agents: list[dict[str, Any]] | None = None) -> dict:
 
 
 def discover_valid_agents(workspace_root: "Path | None" = None) -> list[str]:
-    """Return list of agent names discovered from workspace MANIFEST.yaml files.
+    """Return the ordered list of top-level agent names for this platform.
 
-    Scans both flat (.olav/workspace/<agent>/MANIFEST.yaml) and nested
-    (.olav/workspace/<workspace>/<agent>/MANIFEST.yaml) structures.
+    Resolution order (first match wins):
+      1. PLATFORM.md ``agents:`` list  — explicit Tier-1 registration
+      2. Workspace subdirs with AGENT.md — filesystem fallback
+      3. ["quick"]                      — last-resort default
 
-    Falls back to ["quick"] if no agents are found.
+    MANIFEST.yaml is no longer used at Tier 1; it is reserved for Skill
+    auto-discovery (Tier 3) via :func:`olav.core.agent_registry.merge_into_config`.
     """
     from pathlib import Path
 
-    from olav.core.agent_registry import discover_agents
+    from olav.core.platform_registry import PlatformRegistry
     from olav.core.workspace import resolve_workspace_root
 
     if workspace_root is None:
@@ -395,58 +399,60 @@ def discover_valid_agents(workspace_root: "Path | None" = None) -> list[str]:
     if not workspace_root.exists():
         return ["quick"]
 
-    manifests = discover_agents(workspace_root)
-    names = list(manifests.keys())
+    # Tier 1 — PLATFORM.md explicit list
+    registry = PlatformRegistry.load(workspace_root)
+    if registry.agents:
+        return registry.agents
+
+    # Tier 2 fallback — any workspace subdir that has an AGENT.md
+    names = [
+        d.name
+        for d in sorted(workspace_root.iterdir())
+        if d.is_dir() and (d / "AGENT.md").exists()
+    ]
     return names if names else ["quick"]
 
 
 def _load_agents_from_workspace() -> list[dict[str, Any]]:
-    """Load agent definitions from workspace.
+    """Load agent definitions for the LanceDB semantic routing index.
 
-    Returns:
-        List of agent definitions
+    Uses PLATFORM.md agents list (Tier 1) to enumerate agents, then reads
+    MANIFEST.yaml route_keywords for each to build the index entries.
+    Falls back to AGENT.md description if no MANIFEST exists.
     """
-    from pathlib import Path
+    from olav.core.agent_registry import discover_agents
+    from olav.core.workspace import resolve_workspace_root
 
-    config = get_config()
-    workspace_path = Path(config.paths.workspace_dir)
-
+    workspace_path = resolve_workspace_root()
     if not workspace_path.exists():
         logger.warning(f"Workspace not found at {workspace_path}")
         return []
 
+    agent_names = discover_valid_agents(workspace_path)
+    manifests = discover_agents(workspace_path)
+
     agents = []
+    for name in agent_names:
+        m = manifests.get(name)
+        if m and m.route_keywords:
+            description = " ".join(m.route_keywords)
+        else:
+            # Read AGENT.md description as fallback
+            agent_md = workspace_path / name / "AGENT.md"
+            description = name
+            if agent_md.exists():
+                try:
+                    import frontmatter as _fm
+                    post = _fm.load(str(agent_md))
+                    description = post.metadata.get("description", name)
+                except Exception:
+                    pass
 
-    # Load each agent directory
-    for agent_dir in workspace_path.iterdir():
-        if not agent_dir.is_dir():
-            continue
-
-        # Look for SKILL.md or AGENT.md
-        skill_md = agent_dir / "SKILL.md"
-
-        if skill_md.exists():
-            try:
-                import frontmatter
-
-                with open(skill_md) as f:
-                    post = frontmatter.load(f)
-
-                metadata = post.metadata or {}
-                agents.append(
-                    {
-                        "name": agent_dir.name,
-                        "description": metadata.get("description", ""),
-                        "skills": [
-                            {
-                                "name": metadata.get("name", agent_dir.name),
-                                "description": post.content[:500],  # First 500 chars as description
-                            }
-                        ],
-                    }
-                )
-            except Exception as e:
-                logger.warning(f"Failed to load {skill_md}: {e}")
+        agents.append({
+            "name": name,
+            "description": description,
+            "skills": [{"name": name, "description": description}],
+        })
 
     return agents
 

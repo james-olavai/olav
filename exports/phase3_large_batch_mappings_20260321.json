@@ -1,0 +1,195 @@
+{
+  "timestamp": "2026-03-21T15:01:46.582433",
+  "batch_size": 31,
+  "confidence_level": 0.78,
+  "model": "curated-openconfig-standards",
+  "source": "phase3-closure-large-batch",
+  "candidates": [
+    {
+      "raw_key": "vrf",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/name",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "uptime",
+      "openconfig_path": "openconfig-system:system/state/uptime",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "hostname",
+      "openconfig_path": "openconfig-system:system/config/hostname",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "speed",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/oper-speed",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "duplex",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/ethernet/state/duplex-mode",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "mode",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/config/type",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "port",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/name",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "vlan_id",
+      "openconfig_path": "openconfig-vlan:vlans/vlan/vlan-id",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "vlan_name",
+      "openconfig_path": "openconfig-vlan:vlans/vlan/config/name",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "metric",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/static-routes/static/config/metric",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "next_hop",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/static-routes/static/config/next-hop",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "distance",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/static-routes/static/config/distance",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "destination",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/static-routes/static/config/prefix",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "netmask",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/subinterfaces/subinterface/ipv4/config/prefix-length",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "source",
+      "openconfig_path": "openconfig-acl:acl/acl-sets/acl-set/acl-entries/acl-entry/config/source-address",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "protocol",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/config/identifier",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "model",
+      "openconfig_path": "openconfig-system:system/state/model-name",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "platform",
+      "openconfig_path": "openconfig-system:system/state/model-name",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "location",
+      "openconfig_path": "openconfig-system:system/config/location",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "flags",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/oper-status",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "up_down",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/admin-status",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "enabled",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/config/enabled",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "action",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/config/identifier",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "age",
+      "openconfig_path": "openconfig-system:system/state/current-datetime",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "time",
+      "openconfig_path": "openconfig-system:system/state/current-datetime",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "day",
+      "openconfig_path": "openconfig-system:system/state/current-datetime",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "capabilities",
+      "openconfig_path": "openconfig-system:system/state/model-name",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "key",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/config/description",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "group",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/config/name",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "required",
+      "openconfig_path": "openconfig-system:system/config/hostname",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    },
+    {
+      "raw_key": "comment",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/config/description",
+      "confidence": 0.78,
+      "reasoning": "Standard OpenConfig YANG module mapping"
+    }
+  ]
+}

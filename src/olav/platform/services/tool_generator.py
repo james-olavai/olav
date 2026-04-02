@@ -139,11 +139,11 @@ def {func_name}({params}) -> dict:
     """{summary}
 
     Service: {service_name}  |  {method} {path}
-    {write_note}"""
+    {params_note}{write_note}"""
     return _call(
         "{service_name}",
         "{method}",
-        f"{path_template}",{body_arg}{response_def_arg}{confirmed_arg}
+        f"{path_template}",{params_arg}{body_arg}{response_def_arg}{confirmed_arg}
     )
 '''
 
@@ -179,6 +179,7 @@ def _build_function(
     summary: str | None,
     request_body_def: str | None,
     response_200_def: str | None,
+    query_params: list[dict] | None = None,
 ) -> str:
     """Render a single tool function string."""
     func_name = _to_func_name(prefix, method, path)
@@ -187,17 +188,37 @@ def _build_function(
     # Path params → required positional; body → optional kwarg
     path_params = re.findall(r"\{(\w+)\}", path)
     param_parts = list(path_params)  # positional
+
+    is_read = method.upper() in _READONLY_METHODS
+    is_write = method.upper() in ("POST", "PUT", "PATCH", "DELETE")
+
+    # Read methods get a generic params: dict | None = None for query filter passthrough
+    if is_read:
+        param_parts.append("params: dict | None = None")
+
     if request_body_def and method.upper() in ("POST", "PUT", "PATCH"):
         param_parts.append("body: dict | None = None")
-    params = ", ".join(param_parts)
+    params_str = ", ".join(param_parts)
+
+    # params kwarg for service_call (read methods only)
+    params_arg = "\n        params=params," if is_read else ""
 
     # Body kwarg for service_call
-    is_write = method.upper() in ("POST", "PUT", "PATCH", "DELETE")
     has_body = request_body_def and method.upper() in ("POST", "PUT", "PATCH")
     body_arg = "\n        body=body," if has_body else ""
 
     # response_def arg
     response_def_arg = f'\n        response_def="{response_200_def}",' if response_200_def else ""
+
+    # Build query params docstring note
+    if is_read and query_params:
+        param_lines = ", ".join(
+            f"{p['name']}({'*' if p.get('required') else ''})"
+            for p in query_params[:10]
+        )
+        params_note = f"Query params: {param_lines}. Pass as params={{'key': 'value'}}.\n    "
+    else:
+        params_note = ""
 
     # Write operations: add confirmed param so agent can re-call after user approval
     if is_write:
@@ -205,7 +226,7 @@ def _build_function(
             param_parts.append("confirmed: bool = False")
         else:
             param_parts = ["confirmed: bool = False"]
-        params = ", ".join(param_parts)
+        params_str = ", ".join(param_parts)
         confirmed_arg = "\n        confirmed=confirmed,"
         write_note = "Write op — first call returns requires_approval; re-call with confirmed=True after user confirms."
     else:
@@ -214,15 +235,17 @@ def _build_function(
 
     return _FUNCTION_TEMPLATE.format(
         func_name=func_name,
-        params=params,
+        params=params_str,
         summary=summary or f"{method} {path}",
         service_name=svc_name,
         method=method.upper(),
         path=path,
         path_template=_path_to_fstring(path),
+        params_arg=params_arg,
         body_arg=body_arg,
         response_def_arg=response_def_arg,
         confirmed_arg=confirmed_arg,
+        params_note=params_note,
         write_note=write_note,
     )
 
@@ -323,7 +346,7 @@ def _query_tag_operations(
     with duckdb.connect(str(DEFAULT_DB), read_only=True) as con:
         return con.execute(
             f"""
-            SELECT method, path, summary, request_body_def, response_200_def
+            SELECT method, path, summary, request_body_def, response_200_def, query_params
             FROM api_registry.operations
             WHERE api_name = ? AND list_contains(tags, ?)
             {method_clause}
@@ -355,8 +378,10 @@ def _generate_group_tool_file(svc: ServiceConfig, group: ToolGroupConfig) -> str
 
     # Build function strings
     functions: list[str] = []
-    for method, path, summary, req_def, resp_def in rows:
-        fn = _build_function(svc.name, prefix, method, path, summary, req_def, resp_def)
+    import json as _json
+    for method, path, summary, req_def, resp_def, qp_raw in rows:
+        qp = _json.loads(qp_raw) if isinstance(qp_raw, str) else (qp_raw or [])
+        fn = _build_function(svc.name, prefix, method, path, summary, req_def, resp_def, query_params=qp)
         functions.append(fn)
 
     tool_code = _TOOL_TEMPLATE.format(
@@ -375,3 +400,73 @@ def _generate_group_tool_file(svc: ServiceConfig, group: ToolGroupConfig) -> str
 
     logger.info("Generated %d tools → %s", len(functions), out_file)
     return str(out_file)
+
+
+def generate_schema_reference(
+    service_name: str,
+    tag: str | None = None,
+) -> dict:
+    """Build a schema reference dict for a registered service.
+
+    Returns a compact JSON-serializable dict suitable for writing to
+    schema_reference.json and embedding as static_context in a workspace.
+
+    Structure::
+
+        {
+          "service": "netbox",
+          "endpoint": "http://localhost:8000",
+          "readonly_only": true,
+          "operations": {
+            "GET /api/circuits/circuits/": {
+              "summary": "circuits_circuits_list",
+              "query_params": [
+                {"name": "status", "type": "string", "description": "...", "required": false},
+                ...
+              ]
+            },
+            ...
+          }
+        }
+    """
+    import json as _json
+
+    from olav.core.api_registry import DEFAULT_DB, get_query_params
+    from olav.platform.services.registry import ServiceRegistry
+
+    svc = ServiceRegistry().get(service_name)
+    qp_map = get_query_params(service_name, tag=tag, db_path=DEFAULT_DB)
+
+    # Fetch summaries too
+    import duckdb
+    tag_clause = "AND list_contains(tags, ?)" if tag else ""
+    db_params = [service_name]
+    if tag:
+        db_params.append(tag)
+    with duckdb.connect(str(DEFAULT_DB), read_only=True) as con:
+        rows = con.execute(
+            f"""
+            SELECT method, path, summary
+            FROM api_registry.operations
+            WHERE api_name = ? {tag_clause}
+            ORDER BY path, method
+            """,
+            db_params,
+        ).fetchall()
+
+    operations: dict = {}
+    for method, path, summary in rows:
+        key = f"{method} {path}"
+        operations[key] = {
+            "summary": summary or "",
+            "query_params": qp_map.get(key, []),
+        }
+
+    return {
+        "service": service_name,
+        "endpoint": svc.endpoint,
+        "readonly_only": svc.readonly_only,
+        "tag_filter": tag,
+        "operations": operations,
+    }
+

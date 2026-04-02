@@ -64,12 +64,20 @@ class OlavDatabase:
 _db_instance: OlavDatabase | None = None
 
 
-def get_database(db_path: str | Path | None = None, read_only: bool = False) -> OlavDatabase:
+def get_database(db_path: str | Path | None = None, read_only: bool = True) -> OlavDatabase:
     """Get the global database instance with thread-safe access.
+
+    WARNING — DuckDB locking model: a persistent read-write (read_only=False)
+    singleton holds an exclusive file lock, blocking ALL other processes
+    (including ingest/snapshot) from connecting.  Default is now read_only=True.
+
+    For write operations (ingest, migrations) use short-lived per-call
+    connections with `with duckdb.connect(..., read_only=False) as conn:`
+    and hold the lock only for the duration of the write.
 
     Args:
         db_path: Optional database path (uses default if not provided)
-        read_only: Whether to open in read-only mode
+        read_only: Open in read-only mode (default: True)
 
     Returns:
         OlavDatabase instance

@@ -76,6 +76,14 @@ class ServiceCommand(BaseCommand):
         parts = shlex.split(args.strip())
         first = parts[0]
 
+        # ── "olav service register <name> [--force]" ─────────────────────
+        if first == "register":
+            service_name = parts[1] if len(parts) > 1 else ""
+            if not service_name:
+                return "[red]Usage: olav service register <service_name> [--force][/red]"
+            kwargs = self._parse_kwargs(parts[2:])
+            return await self._register_service(service_name, force=bool(kwargs.get("force")))
+
         # ── "olav service status" (no service name) ──────────────────────
         if first == "status" and len(parts) == 1:
             return await self._status_all()
@@ -174,6 +182,30 @@ class ServiceCommand(BaseCommand):
             "Stop all: [bold]olav service stop --all[/bold][/dim]\n"
         )
         return ""
+
+    async def _register_service(self, service_name: str, force: bool = False) -> str:
+        """Pull OpenAPI schema and generate tools for a registered service."""
+        from olav.platform.services.tool_generator import register_service
+
+        self.console.print(
+            f"\n[bold cyan]Registering service:[/bold cyan] {service_name}"
+            + (" [dim](force)[/dim]" if force else "")
+        )
+        result = register_service(service_name, force=force, max_retries=3, retry_delay=5.0)
+
+        if result.get("status") == "error":
+            self.console.print(f"[red]Error:[/red] {result['error']}")
+            return f"error: {result['error']}"
+
+        ops = result.get("ops_loaded", 0)
+        files = result.get("files_written", [])
+        self.console.print(f"  [green]✓[/green] Loaded [bold]{ops}[/bold] API operations")
+        for f in files:
+            self.console.print(f"  [green]✓[/green] Generated: [dim]{f}[/dim]")
+        if not files:
+            self.console.print("  [yellow]⚠[/yellow] No tool files generated (check tag config)")
+        self.console.print()
+        return f"registered {service_name}: {ops} ops, {len(files)} tool files"
 
     def _show_help(self) -> str:
         """Show help for service command."""

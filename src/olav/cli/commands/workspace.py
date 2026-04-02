@@ -69,7 +69,7 @@ class WorkspaceCommand(BaseCommand):
         if action == "validate":
             if len(parts) < 2:
                 return "error: usage: olav workspace validate <name>"
-            return self._validate_workspace(parts[1])
+            return self._validate(parts[1])
         if action == "migrate":
             return self._migrate()
         if action == "status":
@@ -98,10 +98,6 @@ class WorkspaceCommand(BaseCommand):
             if len(parts) < 2:
                 return "workspace install requires a source directory path"
             return self._install(parts[1])
-        if action == "validate":
-            if len(parts) < 2:
-                return "workspace validate requires a skill/agent name"
-            return self._validate(parts[1])
 
         return f"unknown workspace action: {action}"
 
@@ -156,6 +152,10 @@ class WorkspaceCommand(BaseCommand):
 
         data["active_workspace"] = name
         settings_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+        # GAP-05: sync PLATFORM.md active: field
+        _update_platform_md_active(self.workspace_root, name)
+
         return result_msg
 
     def _validate_workspace(self, name: str) -> str:
@@ -410,9 +410,15 @@ class WorkspaceCommand(BaseCommand):
         if not agent_dir.exists():
             return f"workspace entry not found: {name}"
 
+        lock_path = agent_dir / "workspace.lock.yaml"
+        if lock_path.exists():
+            # Managed workspace — validate lock file + agent dirs
+            return self._validate_workspace(name)
+
+        # Flat (unmanaged) agent — check MANIFEST.yaml + dependencies
         manifest_path = agent_dir / "MANIFEST.yaml"
         if not manifest_path.exists():
-            return f"MANIFEST.yaml not found for {name}"
+            return f"⚠ '{name}' is an unmanaged agent (no lock file) — run 'olav skill install' to manage it"
 
         from olav.core.agent_registry import AgentManifest
 
@@ -426,3 +432,27 @@ class WorkspaceCommand(BaseCommand):
             return f"{name}: valid manifest, dependencies unavailable — {dep_result.summary()}"
 
         return f"{name}: valid manifest, all dependencies available"
+
+
+# ── module-level helpers ──────────────────────────────────────────────────────
+
+def _update_platform_md_active(workspace_root: Path, agent_name: str) -> None:
+    """GAP-05: update PLATFORM.md active: field when workspace use is called."""
+    from olav.core.platform_registry import PlatformRegistry, _parse_frontmatter
+    import yaml as _yaml
+
+    platform_md = workspace_root / "PLATFORM.md"
+    if not platform_md.exists():
+        return  # nothing to update if PLATFORM.md doesn't exist
+
+    try:
+        text = platform_md.read_text(encoding="utf-8")
+        meta, body = _parse_frontmatter(text)
+        meta["active"] = agent_name
+        new_text = "---\n" + _yaml.dump(meta, default_flow_style=False) + "---\n"
+        if body:
+            new_text += "\n" + body
+        platform_md.write_text(new_text, encoding="utf-8")
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Failed to update PLATFORM.md active: %s", exc)
