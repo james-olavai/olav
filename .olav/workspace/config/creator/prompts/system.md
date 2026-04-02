@@ -115,6 +115,17 @@ If it reports `⚠ MISSING @tool`, the tools cannot be loaded by agents. In that
 that the platform `tool_generator.py` is using the current `_FUNCTION_TEMPLATE` (which includes
 `@tool`) and retry with `force=True`.
 
+### Step 4b — Extract real function names (mandatory before writing system_prompt)
+```
+read_file("<tool_file_path returned by Step 4>")
+```
+Scan the returned content for lines matching `^def ` and collect 3–5 representative
+function names. These are the **exact callable names** the agent will use.
+
+**Use ONLY these real names** in the `system_prompt` examples you write in Step 5.
+Never invent or guess function names. The generated names follow the pattern:
+`<prefix>_<method>_<path_segments>` (e.g. `netbox_dcim_get_api_dcim_devices`).
+
 ### Step 4.5 — Extract schema reference (makes workspace schema-aware)
 ```
 extract_schema_reference(

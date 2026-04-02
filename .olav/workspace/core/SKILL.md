@@ -9,6 +9,7 @@ tools:
   - search_knowledge_lancedb # Semantic KB search (LanceDB vector store)
   - format_and_export        # Write reports/CSV/JSON to exports/
   - deploy_service           # Docker Compose lifecycle — up, health-check, logs
+  - stop_service             # Docker Compose stop/down + list running services
   - write_workspace_file     # Write files to .olav/workspace or .olav/services
   - run_shell                # Shell command execution (docker, git, curl, etc.)
 static_context:
@@ -32,6 +33,7 @@ These tools are globally available to **all agents** regardless of active worksp
 | `search_knowledge_lancedb` | Semantic search over indexed KB documents |
 | `format_and_export` | Write markdown reports, CSV, JSON to `exports/` |
 | `deploy_service` | Start any Docker Compose service, wait for health, return logs on failure |
+| `stop_service` | Stop or remove a running Docker Compose service; `list_services()` shows all |
 | `write_workspace_file` | Write any file to `.olav/workspace/` or `.olav/services/` |
 | `run_shell` | Execute shell commands — docker, git, curl, file ops |
 
