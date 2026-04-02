@@ -28,7 +28,6 @@ from typing import Any
 
 import pyarrow as pa
 
-from olav.core.embedder import get_embedder
 from olav.core.memory import (
     DEFAULT_MEMORY_DB,
     LanceDBStore,
@@ -79,18 +78,26 @@ class KnowledgeBase:
         Args:
             store:          LanceDBStore instance (shared with memory).
             embedding_dim:  Embedding vector dimension. If None, auto-detects
-                            from configured model (768 for bge-base, 384 otherwise).
+                            from configured model (1536 for text-embedding-3-small).
         """
         self._store = store
-        self._embedder = None  # lazy-loaded
-        self._config_model_dim: int | None = None  # resolved on first embed
 
         if embedding_dim is None:
             from olav.core.config import get_embedding_config
 
             _cfg = get_embedding_config()
-            _model = (_cfg.local_model if _cfg.mode == "local" else _cfg.openai_model).lower()
-            embedding_dim = 768 if "bge-base" in _model or "bge-large" in _model else 384
+            if _cfg.mode == "api":
+                _model = _cfg.openai_model.lower()
+                # OpenAI embedding dimensions
+                if "3-large" in _model:
+                    embedding_dim = 3072
+                elif "3-small" in _model or "ada" in _model:
+                    embedding_dim = 1536
+                else:
+                    embedding_dim = 1536  # safe default for unknown API models
+            else:
+                _model = _cfg.local_model.lower()
+                embedding_dim = 768 if "bge-base" in _model or "bge-large" in _model else 384
 
         # If the table exists, respect its existing vector dimension to avoid mismatch
         table_dim: int | None = None
@@ -153,93 +160,10 @@ class KnowledgeBase:
                 logger.debug(f"FTS index skipped: {e}")
 
     def _embed(self, text: str) -> list[float] | None:
-        """Lazy-load embedder and embed text using the configured model.
+        """Embed text via the configured embedding backend (api or local)."""
+        from olav.core.embedder import embed_text
 
-        Prefers the process-wide singleton from ``get_embedder()`` to avoid
-        loading the ~90 MB model multiple times.  Falls back to a local
-        ``SentenceTransformer`` instance only when the singleton's output
-        dimension does not match the existing table dimension.
-        """
-        if self._embedder is None:
-            try:
-                from olav.core.config import get_embedding_config
-
-                cfg = get_embedding_config()
-                model_name = cfg.local_model if cfg.mode == "local" else cfg.openai_model
-
-                # Resolve expected dim for the configured model
-                m = model_name.lower()
-                config_dim = 768 if ("bge-base" in m or "bge-large" in m) else 384
-
-                # If dim mismatch with existing table, fall back to a compatible model
-                if config_dim != self._embedding_dim:
-                    fallback = (
-                        "BAAI/bge-small-en-v1.5"
-                        if self._embedding_dim == 384
-                        else "BAAI/bge-base-en-v1.5"
-                    )
-                    logger.info(
-                        f"KB: config model '{model_name}' produces {config_dim}-dim but table has "
-                        f"{self._embedding_dim}-dim. Using '{fallback}' for compatibility. "
-                        f"Run force_reindex=True to rebuild with new model."
-                    )
-                    model_name = fallback
-
-                # Try the process-wide singleton first
-                shared = get_embedder(model_name)
-                if shared is not None:
-                    # Verify dimension compatibility
-                    singleton_dim = (
-                        shared.get_sentence_embedding_dimension()
-                        if hasattr(shared, "get_sentence_embedding_dimension")
-                        else None
-                    )
-                    if singleton_dim == self._embedding_dim:
-                        self._embedder = shared
-                        logger.debug(
-                            "KB: reusing shared embedder singleton (%s, %d-dim)",
-                            model_name,
-                            singleton_dim,
-                        )
-                    else:
-                        # Dimension mismatch — create a dedicated instance
-                        import os
-
-                        from sentence_transformers import SentenceTransformer
-
-                        os.environ["CUDA_VISIBLE_DEVICES"] = ""
-                        self._embedder = SentenceTransformer(
-                            model_name, trust_remote_code=True, device=cfg.device
-                        )
-                        logger.debug(
-                            "KB: singleton dim %s ≠ table dim %d — loaded dedicated "
-                            "embedder (%s) on %s",
-                            singleton_dim,
-                            self._embedding_dim,
-                            model_name,
-                            cfg.device,
-                        )
-                else:
-                    # Singleton unavailable — try local load
-                    import os
-
-                    from sentence_transformers import SentenceTransformer
-
-                    os.environ["CUDA_VISIBLE_DEVICES"] = ""
-                    self._embedder = SentenceTransformer(
-                        model_name, trust_remote_code=True, device=cfg.device
-                    )
-                    logger.debug(f"KB: embedder loaded ({model_name}) on {cfg.device}")
-            except Exception as e:
-                logger.debug(f"KB: embedder unavailable ({e}), falling back to zero vectors")
-                self._embedder = False
-        if not self._embedder:
-            return None
-        try:
-            return self._embedder.encode(text, normalize_embeddings=True).tolist()
-        except Exception as e:
-            logger.warning(f"KB: embedding failed: {e}")
-            return None
+        return embed_text(text)
 
     def index_document(
         self,
@@ -293,7 +217,7 @@ class KnowledgeBase:
                 )
                 if existing:
                     dist = existing[0].get("_distance", 1.0)
-                    if dist < 0.05:  # very similar
+                    if dist < 0.005:  # nearly identical (same chunk reindexed)
                         logger.debug(f"KB: skipping duplicate chunk {chunk_index}")
                         skipped += 1
                         continue

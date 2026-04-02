@@ -1,0 +1,7041 @@
+{
+  "service": "netbox",
+  "endpoint": "http://localhost:8000",
+  "readonly_only": true,
+  "tag_filter": "circuits",
+  "operations": {
+    "DELETE /api/circuits/circuit-group-assignments/": {
+      "summary": "circuits_circuit_group_assignments_bulk_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/circuit-group-assignments/": {
+      "summary": "circuits_circuit_group_assignments_list",
+      "query_params": [
+        {
+          "name": "circuit",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "circuit_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "group",
+          "type": "array",
+          "description": "Circuit group (slug)",
+          "required": false
+        },
+        {
+          "name": "group__n",
+          "type": "array",
+          "description": "Circuit group (slug)",
+          "required": false
+        },
+        {
+          "name": "group_id",
+          "type": "array",
+          "description": "Circuit group (ID)",
+          "required": false
+        },
+        {
+          "name": "group_id__n",
+          "type": "array",
+          "description": "Circuit group (ID)",
+          "required": false
+        },
+        {
+          "name": "id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "description": "Number of results to return per page.",
+          "required": false
+        },
+        {
+          "name": "member_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "member_id__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "member_id__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "member_id__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "member_id__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "member_id__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "member_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "member_type",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "member_type__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "modified_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "description": "The initial index from which to return the results.",
+          "required": false
+        },
+        {
+          "name": "ordering",
+          "type": "string",
+          "description": "Which field to use when ordering the results.",
+          "required": false
+        },
+        {
+          "name": "priority",
+          "type": "string",
+          "description": "* `primary` - Primary\n* `secondary` - Secondary\n* `tertiary` - Tertiary\n* `inactive` - Inactive",
+          "required": false
+        },
+        {
+          "name": "priority__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "priority__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "priority__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "priority__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "priority__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "priority__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "priority__n",
+          "type": "string",
+          "description": "* `primary` - Primary\n* `secondary` - Secondary\n* `tertiary` - Tertiary\n* `inactive` - Inactive",
+          "required": false
+        },
+        {
+          "name": "priority__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "priority__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "priority__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "priority__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "priority__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "provider",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "provider_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "q",
+          "type": "string",
+          "description": "Search",
+          "required": false
+        },
+        {
+          "name": "tag",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "updated_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "virtual_circuit",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "virtual_circuit_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        }
+      ]
+    },
+    "PATCH /api/circuits/circuit-group-assignments/": {
+      "summary": "circuits_circuit_group_assignments_bulk_partial_update",
+      "query_params": []
+    },
+    "POST /api/circuits/circuit-group-assignments/": {
+      "summary": "circuits_circuit_group_assignments_create",
+      "query_params": []
+    },
+    "PUT /api/circuits/circuit-group-assignments/": {
+      "summary": "circuits_circuit_group_assignments_bulk_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/circuit-group-assignments/{id}/": {
+      "summary": "circuits_circuit_group_assignments_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/circuit-group-assignments/{id}/": {
+      "summary": "circuits_circuit_group_assignments_retrieve",
+      "query_params": []
+    },
+    "PATCH /api/circuits/circuit-group-assignments/{id}/": {
+      "summary": "circuits_circuit_group_assignments_partial_update",
+      "query_params": []
+    },
+    "PUT /api/circuits/circuit-group-assignments/{id}/": {
+      "summary": "circuits_circuit_group_assignments_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/circuit-groups/": {
+      "summary": "circuits_circuit_groups_bulk_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/circuit-groups/": {
+      "summary": "circuits_circuit_groups_list",
+      "query_params": [
+        {
+          "name": "created",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "description": "Number of results to return per page.",
+          "required": false
+        },
+        {
+          "name": "modified_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "description": "The initial index from which to return the results.",
+          "required": false
+        },
+        {
+          "name": "ordering",
+          "type": "string",
+          "description": "Which field to use when ordering the results.",
+          "required": false
+        },
+        {
+          "name": "owner",
+          "type": "array",
+          "description": "Owner (name)",
+          "required": false
+        },
+        {
+          "name": "owner__n",
+          "type": "array",
+          "description": "Owner (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group",
+          "type": "array",
+          "description": "Owner Group (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group__n",
+          "type": "array",
+          "description": "Owner Group (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group_id",
+          "type": "array",
+          "description": "Owner Group (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_group_id__n",
+          "type": "array",
+          "description": "Owner Group (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_id",
+          "type": "array",
+          "description": "Owner (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_id__n",
+          "type": "array",
+          "description": "Owner (ID)",
+          "required": false
+        },
+        {
+          "name": "q",
+          "type": "string",
+          "description": "Search",
+          "required": false
+        },
+        {
+          "name": "slug",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tenant",
+          "type": "array",
+          "description": "Tenant (slug)",
+          "required": false
+        },
+        {
+          "name": "tenant__n",
+          "type": "array",
+          "description": "Tenant (slug)",
+          "required": false
+        },
+        {
+          "name": "tenant_group",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tenant_group__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tenant_group_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tenant_group_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "array",
+          "description": "Tenant (ID)",
+          "required": false
+        },
+        {
+          "name": "tenant_id__n",
+          "type": "array",
+          "description": "Tenant (ID)",
+          "required": false
+        },
+        {
+          "name": "updated_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        }
+      ]
+    },
+    "PATCH /api/circuits/circuit-groups/": {
+      "summary": "circuits_circuit_groups_bulk_partial_update",
+      "query_params": []
+    },
+    "POST /api/circuits/circuit-groups/": {
+      "summary": "circuits_circuit_groups_create",
+      "query_params": []
+    },
+    "PUT /api/circuits/circuit-groups/": {
+      "summary": "circuits_circuit_groups_bulk_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/circuit-groups/{id}/": {
+      "summary": "circuits_circuit_groups_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/circuit-groups/{id}/": {
+      "summary": "circuits_circuit_groups_retrieve",
+      "query_params": []
+    },
+    "PATCH /api/circuits/circuit-groups/{id}/": {
+      "summary": "circuits_circuit_groups_partial_update",
+      "query_params": []
+    },
+    "PUT /api/circuits/circuit-groups/{id}/": {
+      "summary": "circuits_circuit_groups_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/circuit-terminations/": {
+      "summary": "circuits_circuit_terminations_bulk_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/circuit-terminations/": {
+      "summary": "circuits_circuit_terminations_list",
+      "query_params": [
+        {
+          "name": "cable_connector",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_connector__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_connector__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_connector__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_connector__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_connector__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_connector__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_end",
+          "type": "string",
+          "description": "* `A` - A\n* `B` - B",
+          "required": false
+        },
+        {
+          "name": "cable_end__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_end__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_end__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_end__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_end__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_end__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_end__n",
+          "type": "string",
+          "description": "* `A` - A\n* `B` - B",
+          "required": false
+        },
+        {
+          "name": "cable_end__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_end__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_end__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_end__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_end__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cable_id",
+          "type": "array",
+          "description": "Cable (ID)",
+          "required": false
+        },
+        {
+          "name": "cable_id__n",
+          "type": "array",
+          "description": "Cable (ID)",
+          "required": false
+        },
+        {
+          "name": "cabled",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "circuit_id",
+          "type": "array",
+          "description": "Circuit",
+          "required": false
+        },
+        {
+          "name": "circuit_id__n",
+          "type": "array",
+          "description": "Circuit",
+          "required": false
+        },
+        {
+          "name": "created",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "description": "Number of results to return per page.",
+          "required": false
+        },
+        {
+          "name": "location",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "location__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "location_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "location_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "mark_connected",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "modified_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "occupied",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "description": "The initial index from which to return the results.",
+          "required": false
+        },
+        {
+          "name": "ordering",
+          "type": "string",
+          "description": "Which field to use when ordering the results.",
+          "required": false
+        },
+        {
+          "name": "port_speed",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "port_speed__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "port_speed__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "port_speed__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "port_speed__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "port_speed__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "port_speed__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "pp_info",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "pp_info__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "pp_info__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "pp_info__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "pp_info__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "pp_info__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "pp_info__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "pp_info__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "pp_info__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "pp_info__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "pp_info__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "pp_info__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "pp_info__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "provider",
+          "type": "array",
+          "description": "Provider (slug)",
+          "required": false
+        },
+        {
+          "name": "provider__n",
+          "type": "array",
+          "description": "Provider (slug)",
+          "required": false
+        },
+        {
+          "name": "provider_id",
+          "type": "array",
+          "description": "Provider (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_id__n",
+          "type": "array",
+          "description": "Provider (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_network_id",
+          "type": "array",
+          "description": "ProviderNetwork (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_network_id__n",
+          "type": "array",
+          "description": "ProviderNetwork (ID)",
+          "required": false
+        },
+        {
+          "name": "q",
+          "type": "string",
+          "description": "Search",
+          "required": false
+        },
+        {
+          "name": "region",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "region__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "region_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "region_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "site",
+          "type": "array",
+          "description": "Site (slug)",
+          "required": false
+        },
+        {
+          "name": "site__n",
+          "type": "array",
+          "description": "Site (slug)",
+          "required": false
+        },
+        {
+          "name": "site_group",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "site_group__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "site_group_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "site_group_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "site_id",
+          "type": "array",
+          "description": "Site (ID)",
+          "required": false
+        },
+        {
+          "name": "site_id__n",
+          "type": "array",
+          "description": "Site (ID)",
+          "required": false
+        },
+        {
+          "name": "tag",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "term_side",
+          "type": "string",
+          "description": "* `A` - A\n* `Z` - Z",
+          "required": false
+        },
+        {
+          "name": "term_side__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "term_side__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "term_side__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "term_side__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "term_side__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "term_side__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "term_side__n",
+          "type": "string",
+          "description": "* `A` - A\n* `Z` - Z",
+          "required": false
+        },
+        {
+          "name": "term_side__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "term_side__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "term_side__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "term_side__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "term_side__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "termination_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "termination_id__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "termination_id__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "termination_id__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "termination_id__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "termination_id__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "termination_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "termination_type",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "termination_type__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "updated_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "upstream_speed",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "upstream_speed__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "upstream_speed__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "upstream_speed__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "upstream_speed__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "upstream_speed__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "upstream_speed__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "xconnect_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "xconnect_id__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "xconnect_id__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "xconnect_id__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "xconnect_id__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "xconnect_id__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "xconnect_id__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "xconnect_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "xconnect_id__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "xconnect_id__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "xconnect_id__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "xconnect_id__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "xconnect_id__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        }
+      ]
+    },
+    "PATCH /api/circuits/circuit-terminations/": {
+      "summary": "circuits_circuit_terminations_bulk_partial_update",
+      "query_params": []
+    },
+    "POST /api/circuits/circuit-terminations/": {
+      "summary": "circuits_circuit_terminations_create",
+      "query_params": []
+    },
+    "PUT /api/circuits/circuit-terminations/": {
+      "summary": "circuits_circuit_terminations_bulk_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/circuit-terminations/{id}/": {
+      "summary": "circuits_circuit_terminations_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/circuit-terminations/{id}/": {
+      "summary": "circuits_circuit_terminations_retrieve",
+      "query_params": []
+    },
+    "PATCH /api/circuits/circuit-terminations/{id}/": {
+      "summary": "circuits_circuit_terminations_partial_update",
+      "query_params": []
+    },
+    "PUT /api/circuits/circuit-terminations/{id}/": {
+      "summary": "circuits_circuit_terminations_update",
+      "query_params": []
+    },
+    "GET /api/circuits/circuit-terminations/{id}/paths/": {
+      "summary": "circuits_circuit_terminations_paths_retrieve",
+      "query_params": []
+    },
+    "DELETE /api/circuits/circuit-types/": {
+      "summary": "circuits_circuit_types_bulk_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/circuit-types/": {
+      "summary": "circuits_circuit_types_list",
+      "query_params": [
+        {
+          "name": "color",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "description": "Number of results to return per page.",
+          "required": false
+        },
+        {
+          "name": "modified_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "description": "The initial index from which to return the results.",
+          "required": false
+        },
+        {
+          "name": "ordering",
+          "type": "string",
+          "description": "Which field to use when ordering the results.",
+          "required": false
+        },
+        {
+          "name": "owner",
+          "type": "array",
+          "description": "Owner (name)",
+          "required": false
+        },
+        {
+          "name": "owner__n",
+          "type": "array",
+          "description": "Owner (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group",
+          "type": "array",
+          "description": "Owner Group (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group__n",
+          "type": "array",
+          "description": "Owner Group (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group_id",
+          "type": "array",
+          "description": "Owner Group (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_group_id__n",
+          "type": "array",
+          "description": "Owner Group (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_id",
+          "type": "array",
+          "description": "Owner (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_id__n",
+          "type": "array",
+          "description": "Owner (ID)",
+          "required": false
+        },
+        {
+          "name": "q",
+          "type": "string",
+          "description": "Search",
+          "required": false
+        },
+        {
+          "name": "slug",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "updated_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        }
+      ]
+    },
+    "PATCH /api/circuits/circuit-types/": {
+      "summary": "circuits_circuit_types_bulk_partial_update",
+      "query_params": []
+    },
+    "POST /api/circuits/circuit-types/": {
+      "summary": "circuits_circuit_types_create",
+      "query_params": []
+    },
+    "PUT /api/circuits/circuit-types/": {
+      "summary": "circuits_circuit_types_bulk_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/circuit-types/{id}/": {
+      "summary": "circuits_circuit_types_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/circuit-types/{id}/": {
+      "summary": "circuits_circuit_types_retrieve",
+      "query_params": []
+    },
+    "PATCH /api/circuits/circuit-types/{id}/": {
+      "summary": "circuits_circuit_types_partial_update",
+      "query_params": []
+    },
+    "PUT /api/circuits/circuit-types/{id}/": {
+      "summary": "circuits_circuit_types_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/circuits/": {
+      "summary": "circuits_circuits_bulk_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/circuits/": {
+      "summary": "circuits_circuits_list",
+      "query_params": [
+        {
+          "name": "cid",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "commit_rate",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "commit_rate__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "commit_rate__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "commit_rate__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "commit_rate__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "commit_rate__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "commit_rate__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "contact",
+          "type": "array",
+          "description": "Contact",
+          "required": false
+        },
+        {
+          "name": "contact__n",
+          "type": "array",
+          "description": "Contact",
+          "required": false
+        },
+        {
+          "name": "contact_group",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "contact_group__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "contact_role",
+          "type": "array",
+          "description": "Contact Role",
+          "required": false
+        },
+        {
+          "name": "contact_role__n",
+          "type": "array",
+          "description": "Contact Role",
+          "required": false
+        },
+        {
+          "name": "created",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance_unit",
+          "type": "string",
+          "description": "* `km` - Kilometers\n* `m` - Meters\n* `mi` - Miles\n* `ft` - Feet",
+          "required": false
+        },
+        {
+          "name": "distance_unit__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance_unit__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance_unit__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance_unit__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance_unit__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance_unit__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance_unit__n",
+          "type": "string",
+          "description": "* `km` - Kilometers\n* `m` - Meters\n* `mi` - Miles\n* `ft` - Feet",
+          "required": false
+        },
+        {
+          "name": "distance_unit__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance_unit__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance_unit__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance_unit__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "distance_unit__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "install_date",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "install_date__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "install_date__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "install_date__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "install_date__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "install_date__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "install_date__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "description": "Number of results to return per page.",
+          "required": false
+        },
+        {
+          "name": "location_id",
+          "type": "array",
+          "description": "Location (ID)",
+          "required": false
+        },
+        {
+          "name": "location_id__n",
+          "type": "array",
+          "description": "Location (ID)",
+          "required": false
+        },
+        {
+          "name": "modified_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "description": "The initial index from which to return the results.",
+          "required": false
+        },
+        {
+          "name": "ordering",
+          "type": "string",
+          "description": "Which field to use when ordering the results.",
+          "required": false
+        },
+        {
+          "name": "owner",
+          "type": "array",
+          "description": "Owner (name)",
+          "required": false
+        },
+        {
+          "name": "owner__n",
+          "type": "array",
+          "description": "Owner (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group",
+          "type": "array",
+          "description": "Owner Group (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group__n",
+          "type": "array",
+          "description": "Owner Group (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group_id",
+          "type": "array",
+          "description": "Owner Group (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_group_id__n",
+          "type": "array",
+          "description": "Owner Group (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_id",
+          "type": "array",
+          "description": "Owner (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_id__n",
+          "type": "array",
+          "description": "Owner (ID)",
+          "required": false
+        },
+        {
+          "name": "provider",
+          "type": "array",
+          "description": "Provider (slug)",
+          "required": false
+        },
+        {
+          "name": "provider__n",
+          "type": "array",
+          "description": "Provider (slug)",
+          "required": false
+        },
+        {
+          "name": "provider_account",
+          "type": "array",
+          "description": "Provider account (account)",
+          "required": false
+        },
+        {
+          "name": "provider_account__n",
+          "type": "array",
+          "description": "Provider account (account)",
+          "required": false
+        },
+        {
+          "name": "provider_account_id",
+          "type": "array",
+          "description": "Provider account (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_account_id__n",
+          "type": "array",
+          "description": "Provider account (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_id",
+          "type": "array",
+          "description": "Provider (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_id__n",
+          "type": "array",
+          "description": "Provider (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_network_id",
+          "type": "array",
+          "description": "Provider network (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_network_id__n",
+          "type": "array",
+          "description": "Provider network (ID)",
+          "required": false
+        },
+        {
+          "name": "q",
+          "type": "string",
+          "description": "Search",
+          "required": false
+        },
+        {
+          "name": "region",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "region__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "region_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "region_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "site",
+          "type": "array",
+          "description": "Site (slug)",
+          "required": false
+        },
+        {
+          "name": "site__n",
+          "type": "array",
+          "description": "Site (slug)",
+          "required": false
+        },
+        {
+          "name": "site_group",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "site_group__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "site_group_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "site_group_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "site_id",
+          "type": "array",
+          "description": "Site (ID)",
+          "required": false
+        },
+        {
+          "name": "site_id__n",
+          "type": "array",
+          "description": "Site (ID)",
+          "required": false
+        },
+        {
+          "name": "status",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tenant",
+          "type": "array",
+          "description": "Tenant (slug)",
+          "required": false
+        },
+        {
+          "name": "tenant__n",
+          "type": "array",
+          "description": "Tenant (slug)",
+          "required": false
+        },
+        {
+          "name": "tenant_group",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tenant_group__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tenant_group_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tenant_group_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "array",
+          "description": "Tenant (ID)",
+          "required": false
+        },
+        {
+          "name": "tenant_id__n",
+          "type": "array",
+          "description": "Tenant (ID)",
+          "required": false
+        },
+        {
+          "name": "termination_a_id",
+          "type": "array",
+          "description": "Termination A (ID)",
+          "required": false
+        },
+        {
+          "name": "termination_a_id__n",
+          "type": "array",
+          "description": "Termination A (ID)",
+          "required": false
+        },
+        {
+          "name": "termination_date",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "termination_date__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "termination_date__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "termination_date__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "termination_date__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "termination_date__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "termination_date__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "termination_z_id",
+          "type": "array",
+          "description": "Termination A (ID)",
+          "required": false
+        },
+        {
+          "name": "termination_z_id__n",
+          "type": "array",
+          "description": "Termination A (ID)",
+          "required": false
+        },
+        {
+          "name": "type",
+          "type": "array",
+          "description": "Circuit type (slug)",
+          "required": false
+        },
+        {
+          "name": "type__n",
+          "type": "array",
+          "description": "Circuit type (slug)",
+          "required": false
+        },
+        {
+          "name": "type_id",
+          "type": "array",
+          "description": "Circuit type (ID)",
+          "required": false
+        },
+        {
+          "name": "type_id__n",
+          "type": "array",
+          "description": "Circuit type (ID)",
+          "required": false
+        },
+        {
+          "name": "updated_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        }
+      ]
+    },
+    "PATCH /api/circuits/circuits/": {
+      "summary": "circuits_circuits_bulk_partial_update",
+      "query_params": []
+    },
+    "POST /api/circuits/circuits/": {
+      "summary": "circuits_circuits_create",
+      "query_params": []
+    },
+    "PUT /api/circuits/circuits/": {
+      "summary": "circuits_circuits_bulk_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/circuits/{id}/": {
+      "summary": "circuits_circuits_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/circuits/{id}/": {
+      "summary": "circuits_circuits_retrieve",
+      "query_params": []
+    },
+    "PATCH /api/circuits/circuits/{id}/": {
+      "summary": "circuits_circuits_partial_update",
+      "query_params": []
+    },
+    "PUT /api/circuits/circuits/{id}/": {
+      "summary": "circuits_circuits_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/provider-accounts/": {
+      "summary": "circuits_provider_accounts_bulk_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/provider-accounts/": {
+      "summary": "circuits_provider_accounts_list",
+      "query_params": [
+        {
+          "name": "account",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "account__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "account__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "account__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "account__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "account__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "account__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "account__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "account__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "account__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "account__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "account__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "account__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "contact",
+          "type": "array",
+          "description": "Contact",
+          "required": false
+        },
+        {
+          "name": "contact__n",
+          "type": "array",
+          "description": "Contact",
+          "required": false
+        },
+        {
+          "name": "contact_group",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "contact_group__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "contact_role",
+          "type": "array",
+          "description": "Contact Role",
+          "required": false
+        },
+        {
+          "name": "contact_role__n",
+          "type": "array",
+          "description": "Contact Role",
+          "required": false
+        },
+        {
+          "name": "created",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "description": "Number of results to return per page.",
+          "required": false
+        },
+        {
+          "name": "modified_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "description": "The initial index from which to return the results.",
+          "required": false
+        },
+        {
+          "name": "ordering",
+          "type": "string",
+          "description": "Which field to use when ordering the results.",
+          "required": false
+        },
+        {
+          "name": "owner",
+          "type": "array",
+          "description": "Owner (name)",
+          "required": false
+        },
+        {
+          "name": "owner__n",
+          "type": "array",
+          "description": "Owner (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group",
+          "type": "array",
+          "description": "Owner Group (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group__n",
+          "type": "array",
+          "description": "Owner Group (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group_id",
+          "type": "array",
+          "description": "Owner Group (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_group_id__n",
+          "type": "array",
+          "description": "Owner Group (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_id",
+          "type": "array",
+          "description": "Owner (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_id__n",
+          "type": "array",
+          "description": "Owner (ID)",
+          "required": false
+        },
+        {
+          "name": "provider",
+          "type": "array",
+          "description": "Provider (slug)",
+          "required": false
+        },
+        {
+          "name": "provider__n",
+          "type": "array",
+          "description": "Provider (slug)",
+          "required": false
+        },
+        {
+          "name": "provider_id",
+          "type": "array",
+          "description": "Provider (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_id__n",
+          "type": "array",
+          "description": "Provider (ID)",
+          "required": false
+        },
+        {
+          "name": "q",
+          "type": "string",
+          "description": "Search",
+          "required": false
+        },
+        {
+          "name": "tag",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "updated_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        }
+      ]
+    },
+    "PATCH /api/circuits/provider-accounts/": {
+      "summary": "circuits_provider_accounts_bulk_partial_update",
+      "query_params": []
+    },
+    "POST /api/circuits/provider-accounts/": {
+      "summary": "circuits_provider_accounts_create",
+      "query_params": []
+    },
+    "PUT /api/circuits/provider-accounts/": {
+      "summary": "circuits_provider_accounts_bulk_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/provider-accounts/{id}/": {
+      "summary": "circuits_provider_accounts_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/provider-accounts/{id}/": {
+      "summary": "circuits_provider_accounts_retrieve",
+      "query_params": []
+    },
+    "PATCH /api/circuits/provider-accounts/{id}/": {
+      "summary": "circuits_provider_accounts_partial_update",
+      "query_params": []
+    },
+    "PUT /api/circuits/provider-accounts/{id}/": {
+      "summary": "circuits_provider_accounts_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/provider-networks/": {
+      "summary": "circuits_provider_networks_bulk_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/provider-networks/": {
+      "summary": "circuits_provider_networks_list",
+      "query_params": [
+        {
+          "name": "created",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "description": "Number of results to return per page.",
+          "required": false
+        },
+        {
+          "name": "modified_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "description": "The initial index from which to return the results.",
+          "required": false
+        },
+        {
+          "name": "ordering",
+          "type": "string",
+          "description": "Which field to use when ordering the results.",
+          "required": false
+        },
+        {
+          "name": "owner",
+          "type": "array",
+          "description": "Owner (name)",
+          "required": false
+        },
+        {
+          "name": "owner__n",
+          "type": "array",
+          "description": "Owner (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group",
+          "type": "array",
+          "description": "Owner Group (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group__n",
+          "type": "array",
+          "description": "Owner Group (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group_id",
+          "type": "array",
+          "description": "Owner Group (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_group_id__n",
+          "type": "array",
+          "description": "Owner Group (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_id",
+          "type": "array",
+          "description": "Owner (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_id__n",
+          "type": "array",
+          "description": "Owner (ID)",
+          "required": false
+        },
+        {
+          "name": "provider",
+          "type": "array",
+          "description": "Provider (slug)",
+          "required": false
+        },
+        {
+          "name": "provider__n",
+          "type": "array",
+          "description": "Provider (slug)",
+          "required": false
+        },
+        {
+          "name": "provider_id",
+          "type": "array",
+          "description": "Provider (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_id__n",
+          "type": "array",
+          "description": "Provider (ID)",
+          "required": false
+        },
+        {
+          "name": "q",
+          "type": "string",
+          "description": "Search",
+          "required": false
+        },
+        {
+          "name": "service_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "service_id__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "service_id__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "service_id__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "service_id__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "service_id__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "service_id__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "service_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "service_id__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "service_id__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "service_id__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "service_id__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "service_id__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "updated_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        }
+      ]
+    },
+    "PATCH /api/circuits/provider-networks/": {
+      "summary": "circuits_provider_networks_bulk_partial_update",
+      "query_params": []
+    },
+    "POST /api/circuits/provider-networks/": {
+      "summary": "circuits_provider_networks_create",
+      "query_params": []
+    },
+    "PUT /api/circuits/provider-networks/": {
+      "summary": "circuits_provider_networks_bulk_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/provider-networks/{id}/": {
+      "summary": "circuits_provider_networks_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/provider-networks/{id}/": {
+      "summary": "circuits_provider_networks_retrieve",
+      "query_params": []
+    },
+    "PATCH /api/circuits/provider-networks/{id}/": {
+      "summary": "circuits_provider_networks_partial_update",
+      "query_params": []
+    },
+    "PUT /api/circuits/provider-networks/{id}/": {
+      "summary": "circuits_provider_networks_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/providers/": {
+      "summary": "circuits_providers_bulk_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/providers/": {
+      "summary": "circuits_providers_list",
+      "query_params": [
+        {
+          "name": "asn",
+          "type": "array",
+          "description": "ASN",
+          "required": false
+        },
+        {
+          "name": "asn__n",
+          "type": "array",
+          "description": "ASN",
+          "required": false
+        },
+        {
+          "name": "asn_id",
+          "type": "array",
+          "description": "ASN (ID)",
+          "required": false
+        },
+        {
+          "name": "asn_id__n",
+          "type": "array",
+          "description": "ASN (ID)",
+          "required": false
+        },
+        {
+          "name": "contact",
+          "type": "array",
+          "description": "Contact",
+          "required": false
+        },
+        {
+          "name": "contact__n",
+          "type": "array",
+          "description": "Contact",
+          "required": false
+        },
+        {
+          "name": "contact_group",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "contact_group__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "contact_role",
+          "type": "array",
+          "description": "Contact Role",
+          "required": false
+        },
+        {
+          "name": "contact_role__n",
+          "type": "array",
+          "description": "Contact Role",
+          "required": false
+        },
+        {
+          "name": "created",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "description": "Number of results to return per page.",
+          "required": false
+        },
+        {
+          "name": "modified_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "description": "The initial index from which to return the results.",
+          "required": false
+        },
+        {
+          "name": "ordering",
+          "type": "string",
+          "description": "Which field to use when ordering the results.",
+          "required": false
+        },
+        {
+          "name": "owner",
+          "type": "array",
+          "description": "Owner (name)",
+          "required": false
+        },
+        {
+          "name": "owner__n",
+          "type": "array",
+          "description": "Owner (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group",
+          "type": "array",
+          "description": "Owner Group (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group__n",
+          "type": "array",
+          "description": "Owner Group (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group_id",
+          "type": "array",
+          "description": "Owner Group (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_group_id__n",
+          "type": "array",
+          "description": "Owner Group (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_id",
+          "type": "array",
+          "description": "Owner (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_id__n",
+          "type": "array",
+          "description": "Owner (ID)",
+          "required": false
+        },
+        {
+          "name": "q",
+          "type": "string",
+          "description": "Search",
+          "required": false
+        },
+        {
+          "name": "region",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "region__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "region_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "region_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "site",
+          "type": "array",
+          "description": "Site (slug)",
+          "required": false
+        },
+        {
+          "name": "site__n",
+          "type": "array",
+          "description": "Site (slug)",
+          "required": false
+        },
+        {
+          "name": "site_group",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "site_group__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "site_group_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "site_group_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "site_id",
+          "type": "array",
+          "description": "Site",
+          "required": false
+        },
+        {
+          "name": "site_id__n",
+          "type": "array",
+          "description": "Site",
+          "required": false
+        },
+        {
+          "name": "slug",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "updated_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        }
+      ]
+    },
+    "PATCH /api/circuits/providers/": {
+      "summary": "circuits_providers_bulk_partial_update",
+      "query_params": []
+    },
+    "POST /api/circuits/providers/": {
+      "summary": "circuits_providers_create",
+      "query_params": []
+    },
+    "PUT /api/circuits/providers/": {
+      "summary": "circuits_providers_bulk_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/providers/{id}/": {
+      "summary": "circuits_providers_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/providers/{id}/": {
+      "summary": "circuits_providers_retrieve",
+      "query_params": []
+    },
+    "PATCH /api/circuits/providers/{id}/": {
+      "summary": "circuits_providers_partial_update",
+      "query_params": []
+    },
+    "PUT /api/circuits/providers/{id}/": {
+      "summary": "circuits_providers_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/virtual-circuit-terminations/": {
+      "summary": "circuits_virtual_circuit_terminations_bulk_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/virtual-circuit-terminations/": {
+      "summary": "circuits_virtual_circuit_terminations_list",
+      "query_params": [
+        {
+          "name": "created",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "interface_id",
+          "type": "array",
+          "description": "Interface (ID)",
+          "required": false
+        },
+        {
+          "name": "interface_id__n",
+          "type": "array",
+          "description": "Interface (ID)",
+          "required": false
+        },
+        {
+          "name": "last_updated",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "description": "Number of results to return per page.",
+          "required": false
+        },
+        {
+          "name": "modified_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "description": "The initial index from which to return the results.",
+          "required": false
+        },
+        {
+          "name": "ordering",
+          "type": "string",
+          "description": "Which field to use when ordering the results.",
+          "required": false
+        },
+        {
+          "name": "provider",
+          "type": "array",
+          "description": "Provider (slug)",
+          "required": false
+        },
+        {
+          "name": "provider__n",
+          "type": "array",
+          "description": "Provider (slug)",
+          "required": false
+        },
+        {
+          "name": "provider_account",
+          "type": "array",
+          "description": "Provider account (account)",
+          "required": false
+        },
+        {
+          "name": "provider_account__n",
+          "type": "array",
+          "description": "Provider account (account)",
+          "required": false
+        },
+        {
+          "name": "provider_account_id",
+          "type": "array",
+          "description": "Provider account (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_account_id__n",
+          "type": "array",
+          "description": "Provider account (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_id",
+          "type": "array",
+          "description": "Provider (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_id__n",
+          "type": "array",
+          "description": "Provider (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_network_id",
+          "type": "array",
+          "description": "Provider network (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_network_id__n",
+          "type": "array",
+          "description": "Provider network (ID)",
+          "required": false
+        },
+        {
+          "name": "q",
+          "type": "string",
+          "description": "Search",
+          "required": false
+        },
+        {
+          "name": "role",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "role__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "role__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "role__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "role__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "role__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "role__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "role__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "role__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "role__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "role__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "role__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "role__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "updated_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "virtual_circuit_id",
+          "type": "array",
+          "description": "Virtual circuit",
+          "required": false
+        },
+        {
+          "name": "virtual_circuit_id__n",
+          "type": "array",
+          "description": "Virtual circuit",
+          "required": false
+        }
+      ]
+    },
+    "PATCH /api/circuits/virtual-circuit-terminations/": {
+      "summary": "circuits_virtual_circuit_terminations_bulk_partial_update",
+      "query_params": []
+    },
+    "POST /api/circuits/virtual-circuit-terminations/": {
+      "summary": "circuits_virtual_circuit_terminations_create",
+      "query_params": []
+    },
+    "PUT /api/circuits/virtual-circuit-terminations/": {
+      "summary": "circuits_virtual_circuit_terminations_bulk_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/virtual-circuit-terminations/{id}/": {
+      "summary": "circuits_virtual_circuit_terminations_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/virtual-circuit-terminations/{id}/": {
+      "summary": "circuits_virtual_circuit_terminations_retrieve",
+      "query_params": []
+    },
+    "PATCH /api/circuits/virtual-circuit-terminations/{id}/": {
+      "summary": "circuits_virtual_circuit_terminations_partial_update",
+      "query_params": []
+    },
+    "PUT /api/circuits/virtual-circuit-terminations/{id}/": {
+      "summary": "circuits_virtual_circuit_terminations_update",
+      "query_params": []
+    },
+    "GET /api/circuits/virtual-circuit-terminations/{id}/paths/": {
+      "summary": "circuits_virtual_circuit_terminations_paths_retrieve",
+      "query_params": []
+    },
+    "DELETE /api/circuits/virtual-circuit-types/": {
+      "summary": "circuits_virtual_circuit_types_bulk_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/virtual-circuit-types/": {
+      "summary": "circuits_virtual_circuit_types_list",
+      "query_params": [
+        {
+          "name": "color",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "color__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "description": "Number of results to return per page.",
+          "required": false
+        },
+        {
+          "name": "modified_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "name__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "description": "The initial index from which to return the results.",
+          "required": false
+        },
+        {
+          "name": "ordering",
+          "type": "string",
+          "description": "Which field to use when ordering the results.",
+          "required": false
+        },
+        {
+          "name": "owner",
+          "type": "array",
+          "description": "Owner (name)",
+          "required": false
+        },
+        {
+          "name": "owner__n",
+          "type": "array",
+          "description": "Owner (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group",
+          "type": "array",
+          "description": "Owner Group (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group__n",
+          "type": "array",
+          "description": "Owner Group (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group_id",
+          "type": "array",
+          "description": "Owner Group (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_group_id__n",
+          "type": "array",
+          "description": "Owner Group (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_id",
+          "type": "array",
+          "description": "Owner (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_id__n",
+          "type": "array",
+          "description": "Owner (ID)",
+          "required": false
+        },
+        {
+          "name": "q",
+          "type": "string",
+          "description": "Search",
+          "required": false
+        },
+        {
+          "name": "slug",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "slug__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "updated_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        }
+      ]
+    },
+    "PATCH /api/circuits/virtual-circuit-types/": {
+      "summary": "circuits_virtual_circuit_types_bulk_partial_update",
+      "query_params": []
+    },
+    "POST /api/circuits/virtual-circuit-types/": {
+      "summary": "circuits_virtual_circuit_types_create",
+      "query_params": []
+    },
+    "PUT /api/circuits/virtual-circuit-types/": {
+      "summary": "circuits_virtual_circuit_types_bulk_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/virtual-circuit-types/{id}/": {
+      "summary": "circuits_virtual_circuit_types_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/virtual-circuit-types/{id}/": {
+      "summary": "circuits_virtual_circuit_types_retrieve",
+      "query_params": []
+    },
+    "PATCH /api/circuits/virtual-circuit-types/{id}/": {
+      "summary": "circuits_virtual_circuit_types_partial_update",
+      "query_params": []
+    },
+    "PUT /api/circuits/virtual-circuit-types/{id}/": {
+      "summary": "circuits_virtual_circuit_types_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/virtual-circuits/": {
+      "summary": "circuits_virtual_circuits_bulk_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/virtual-circuits/": {
+      "summary": "circuits_virtual_circuits_list",
+      "query_params": [
+        {
+          "name": "cid",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "cid__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "created_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "description__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__empty",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__gte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lt",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__lte",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "last_updated__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "description": "Number of results to return per page.",
+          "required": false
+        },
+        {
+          "name": "modified_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "description": "The initial index from which to return the results.",
+          "required": false
+        },
+        {
+          "name": "ordering",
+          "type": "string",
+          "description": "Which field to use when ordering the results.",
+          "required": false
+        },
+        {
+          "name": "owner",
+          "type": "array",
+          "description": "Owner (name)",
+          "required": false
+        },
+        {
+          "name": "owner__n",
+          "type": "array",
+          "description": "Owner (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group",
+          "type": "array",
+          "description": "Owner Group (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group__n",
+          "type": "array",
+          "description": "Owner Group (name)",
+          "required": false
+        },
+        {
+          "name": "owner_group_id",
+          "type": "array",
+          "description": "Owner Group (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_group_id__n",
+          "type": "array",
+          "description": "Owner Group (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_id",
+          "type": "array",
+          "description": "Owner (ID)",
+          "required": false
+        },
+        {
+          "name": "owner_id__n",
+          "type": "array",
+          "description": "Owner (ID)",
+          "required": false
+        },
+        {
+          "name": "provider",
+          "type": "array",
+          "description": "Provider (slug)",
+          "required": false
+        },
+        {
+          "name": "provider__n",
+          "type": "array",
+          "description": "Provider (slug)",
+          "required": false
+        },
+        {
+          "name": "provider_account",
+          "type": "array",
+          "description": "Provider account (account)",
+          "required": false
+        },
+        {
+          "name": "provider_account__n",
+          "type": "array",
+          "description": "Provider account (account)",
+          "required": false
+        },
+        {
+          "name": "provider_account_id",
+          "type": "array",
+          "description": "Provider account (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_account_id__n",
+          "type": "array",
+          "description": "Provider account (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_id",
+          "type": "array",
+          "description": "Provider (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_id__n",
+          "type": "array",
+          "description": "Provider (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_network_id",
+          "type": "array",
+          "description": "Provider network (ID)",
+          "required": false
+        },
+        {
+          "name": "provider_network_id__n",
+          "type": "array",
+          "description": "Provider network (ID)",
+          "required": false
+        },
+        {
+          "name": "q",
+          "type": "string",
+          "description": "Search",
+          "required": false
+        },
+        {
+          "name": "status",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__empty",
+          "type": "boolean",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__ic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__ie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__iew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__iregex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__isw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__nic",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__nie",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__niew",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__nisw",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "status__regex",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tag_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tenant",
+          "type": "array",
+          "description": "Tenant (slug)",
+          "required": false
+        },
+        {
+          "name": "tenant__n",
+          "type": "array",
+          "description": "Tenant (slug)",
+          "required": false
+        },
+        {
+          "name": "tenant_group",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tenant_group__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tenant_group_id",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tenant_group_id__n",
+          "type": "array",
+          "description": "",
+          "required": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "array",
+          "description": "Tenant (ID)",
+          "required": false
+        },
+        {
+          "name": "tenant_id__n",
+          "type": "array",
+          "description": "Tenant (ID)",
+          "required": false
+        },
+        {
+          "name": "type",
+          "type": "array",
+          "description": "Virtual circuit type (slug)",
+          "required": false
+        },
+        {
+          "name": "type__n",
+          "type": "array",
+          "description": "Virtual circuit type (slug)",
+          "required": false
+        },
+        {
+          "name": "type_id",
+          "type": "array",
+          "description": "Virtual circuit type (ID)",
+          "required": false
+        },
+        {
+          "name": "type_id__n",
+          "type": "array",
+          "description": "Virtual circuit type (ID)",
+          "required": false
+        },
+        {
+          "name": "updated_by_request",
+          "type": "string",
+          "description": "",
+          "required": false
+        }
+      ]
+    },
+    "PATCH /api/circuits/virtual-circuits/": {
+      "summary": "circuits_virtual_circuits_bulk_partial_update",
+      "query_params": []
+    },
+    "POST /api/circuits/virtual-circuits/": {
+      "summary": "circuits_virtual_circuits_create",
+      "query_params": []
+    },
+    "PUT /api/circuits/virtual-circuits/": {
+      "summary": "circuits_virtual_circuits_bulk_update",
+      "query_params": []
+    },
+    "DELETE /api/circuits/virtual-circuits/{id}/": {
+      "summary": "circuits_virtual_circuits_destroy",
+      "query_params": []
+    },
+    "GET /api/circuits/virtual-circuits/{id}/": {
+      "summary": "circuits_virtual_circuits_retrieve",
+      "query_params": []
+    },
+    "PATCH /api/circuits/virtual-circuits/{id}/": {
+      "summary": "circuits_virtual_circuits_partial_update",
+      "query_params": []
+    },
+    "PUT /api/circuits/virtual-circuits/{id}/": {
+      "summary": "circuits_virtual_circuits_update",
+      "query_params": []
+    }
+  }
+}

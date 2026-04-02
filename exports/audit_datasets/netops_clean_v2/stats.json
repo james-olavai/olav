@@ -1,0 +1,29 @@
+{
+  "runs_scanned": 6,
+  "runs_after_filter": 6,
+  "runs_exported": 3,
+  "runs_rejected": 3,
+  "samples_exported": 3,
+  "samples_scored": 6,
+  "avg_messages_per_sample": 9.0,
+  "avg_rule_score": 0.6556,
+  "avg_quality_score": 0.6556,
+  "scoring_policy": {
+    "min_rule_score": 0.0,
+    "llm_scoring": false,
+    "weights": {
+      "completeness": 0.2,
+      "tool_consistency": 0.15,
+      "query_specificity": 0.15,
+      "analysis_value": 0.15,
+      "tool_selection_relevance": 0.15,
+      "parameter_quality": 0.1,
+      "output_usage": 0.1
+    }
+  },
+  "rejected_by_reason": {
+    "high_failure_rate:12/22": 1,
+    "high_failure_rate:1/1": 1,
+    "filesystem_only_tools": 1
+  }
+}

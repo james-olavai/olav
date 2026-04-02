@@ -1,0 +1,406 @@
+{
+  "profile": "health_full_drift",
+  "window": "1h",
+  "snapshot_resolution": "1d",
+  "resolution_minutes": 1440,
+  "generated_at": "2026-03-04T05:52:16.435430+00:00",
+  "jobs": {
+    "CPU_Anomaly": {
+      "severity": "Warning",
+      "count": 0,
+      "findings": []
+    },
+    "Memory_Anomaly": {
+      "severity": "Warning",
+      "count": 0,
+      "findings": []
+    },
+    "Interface_Down": {
+      "severity": "Critical",
+      "count": 0,
+      "findings": []
+    },
+    "BGP_Not_Established": {
+      "severity": "Critical",
+      "count": 0,
+      "findings": []
+    },
+    "OSPF_Not_Full": {
+      "severity": "Warning",
+      "count": 0,
+      "findings": []
+    },
+    "STP_Error_Disable": {
+      "severity": "Critical",
+      "count": 0,
+      "findings": []
+    },
+    "Critical_Syslog": {
+      "severity": "Critical",
+      "count": 0,
+      "findings": []
+    },
+    "CPU_Drift": {
+      "severity": "Warning",
+      "count": 0,
+      "findings": []
+    },
+    "Memory_Drift": {
+      "severity": "Warning",
+      "count": 0,
+      "findings": []
+    },
+    "Interface_State_Drift": {
+      "severity": "Warning",
+      "count": 0,
+      "findings": []
+    },
+    "BGP_Drift": {
+      "severity": "Critical",
+      "count": 0,
+      "findings": []
+    },
+    "OSPF_Drift": {
+      "severity": "Warning",
+      "count": 6,
+      "findings": [
+        {
+          "device_name": "R1",
+          "snap_before": "2026-03-03_1940",
+          "snap_after": "2026-03-03_1951",
+          "added_count": 1,
+          "removed_count": 1,
+          "diff_preview": "--- \n+++ \n@@ -1 +1 @@\n-[{\"ip_address\":\"10.1.13.3\",\"interface\":\"ge-0/0/2.0\",\"state\":\"Full\",\"neighbor_id\":\"3.3.3.3\",\"priority\":\"1\",\"dead_time\":\"31\"}]\n+[{\"ip_address\":\"10.1.13.3\",\"interface\":\"ge-0/0/2.0\",\"state\":\"Full\",\"neighbor_id\":\"3.3.3.3\",\"priority\":\"1\",\"dead_time\":\"39\"}]"
+        },
+        {
+          "device_name": "R2",
+          "snap_before": "2026-03-03_1940",
+          "snap_after": "2026-03-03_1951",
+          "added_count": 1,
+          "removed_count": 1,
+          "diff_preview": "--- \n+++ \n@@ -1 +1 @@\n-[{\"ip_address\":\"10.1.24.4\",\"interface\":\"ge-0/0/2.0\",\"state\":\"Full\",\"neighbor_id\":\"4.4.4.4\",\"priority\":\"1\",\"dead_time\":\"37\"}]\n+[{\"ip_address\":\"10.1.24.4\",\"interface\":\"ge-0/0/2.0\",\"state\":\"Full\",\"neighbor_id\":\"4.4.4.4\",\"priority\":\"1\",\"dead_time\":\"34\"}]"
+        },
+        {
+          "device_name": "R3",
+          "snap_before": "2026-03-03_1940",
+          "snap_after": "2026-03-03_1951",
+          "added_count": 1,
+          "removed_count": 1,
+          "diff_preview": "--- \n+++ \n@@ -1 +1 @@\n-[{\"neighbor_id\":\"1.1.1.1\",\"intf_addr\":\"10.1.13.1\",\"area\":\"0\",\"interface\":\"Ethernet0/0\",\"priority\":\"128\",\"state\":\"FULL\",\"state_changes\":\"6\",\"dr\":\"10.1.13.1\",\"bdr\":\"10.1.13.3\",\"hello_options_hex\":\"0x12\",\"hello_bits\":\"E-bit, L-bit\",\"dbd_options_hex\":\"0x52\",\"dbd_bits\":\"E-bit, L-bit, O-bit\",\"lls_options_hex\":\"0x1\",\"lls_bits\":\"LR\",\"dead_timer\":\"00:00:34\",\"uptime\":\"2d21h\",\"index\":\"1/1/1\",\"retrans_queue_len\":\"0\",\"num_retrans\":\"0\",\"first\":\"0x0(0)/0x0(0)/0x0(0)\",\"next\":\"0x0(0)/0x0(0)/0x0(0)\",\"scan_len\":\"0\",\"scan_len_max\":\"0\",\"scan_time\":\"0\",\"scan_time_max\":\"0\"}]\n+[{\"neighbor_id\":\"1.1.1.1\",\"intf_addr\":\"10.1.13.1\",\"area\":\"0\",\"interface\":\"Ethernet0/0\",\"priority\":\"128\",\"state\":\"FULL\",\"state_changes\":\"6\",\"dr\":\"10.1.13.1\",\"bdr\":\"10.1.13.3\",\"hello_options_hex\":\"0x12\",\"hello_bits\":\"E-"
+        },
+        {
+          "device_name": "R3",
+          "snap_before": "2026-03-03_1940",
+          "snap_after": "2026-03-03_1951",
+          "added_count": 1,
+          "removed_count": 1,
+          "diff_preview": "--- \n+++ \n@@ -1 +1 @@\n-[{\"neighbor_id\":\"1.1.1.1\",\"pri\":\"128\",\"state\":\"FULL/DR\",\"dead_time\":\"00:00:34\",\"address\":\"10.1.13.1\",\"interface\":\"Ethernet0/0\"}]\n+[{\"neighbor_id\":\"1.1.1.1\",\"pri\":\"128\",\"state\":\"FULL/DR\",\"dead_time\":\"00:00:33\",\"address\":\"10.1.13.1\",\"interface\":\"Ethernet0/0\"}]"
+        },
+        {
+          "device_name": "R4",
+          "snap_before": "2026-03-03_1940",
+          "snap_after": "2026-03-03_1951",
+          "added_count": 1,
+          "removed_count": 1,
+          "diff_preview": "--- \n+++ \n@@ -1 +1 @@\n-[{\"neighbor_id\":\"2.2.2.2\",\"pri\":\"128\",\"state\":\"FULL/DR\",\"dead_time\":\"00:00:33\",\"address\":\"10.1.24.2\",\"interface\":\"Ethernet0/0\"}]\n+[{\"neighbor_id\":\"2.2.2.2\",\"pri\":\"128\",\"state\":\"FULL/DR\",\"dead_time\":\"00:00:32\",\"address\":\"10.1.24.2\",\"interface\":\"Ethernet0/0\"}]"
+        },
+        {
+          "device_name": "R4",
+          "snap_before": "2026-03-03_1940",
+          "snap_after": "2026-03-03_1951",
+          "added_count": 1,
+          "removed_count": 1,
+          "diff_preview": "--- \n+++ \n@@ -1 +1 @@\n-[{\"neighbor_id\":\"2.2.2.2\",\"intf_addr\":\"10.1.24.2\",\"area\":\"0\",\"interface\":\"Ethernet0/0\",\"priority\":\"128\",\"state\":\"FULL\",\"state_changes\":\"6\",\"dr\":\"10.1.24.2\",\"bdr\":\"10.1.24.4\",\"hello_options_hex\":\"0x12\",\"hello_bits\":\"E-bit, L-bit\",\"dbd_options_hex\":\"0x52\",\"dbd_bits\":\"E-bit, L-bit, O-bit\",\"lls_options_hex\":\"0x1\",\"lls_bits\":\"LR\",\"dead_timer\":\"00:00:33\",\"uptime\":\"2d21h\",\"index\":\"1/1/1\",\"retrans_queue_len\":\"0\",\"num_retrans\":\"0\",\"first\":\"0x0(0)/0x0(0)/0x0(0)\",\"next\":\"0x0(0)/0x0(0)/0x0(0)\",\"scan_len\":\"0\",\"scan_len_max\":\"0\",\"scan_time\":\"0\",\"scan_time_max\":\"0\"}]\n+[{\"neighbor_id\":\"2.2.2.2\",\"intf_addr\":\"10.1.24.2\",\"area\":\"0\",\"interface\":\"Ethernet0/0\",\"priority\":\"128\",\"state\":\"FULL\",\"state_changes\":\"6\",\"dr\":\"10.1.24.2\",\"bdr\":\"10.1.24.4\",\"hello_options_hex\":\"0x12\",\"hello_bits\":\"E-"
+        }
+      ]
+    },
+    "STP_Drift": {
+      "severity": "Warning",
+      "count": 4,
+      "findings": [
+        {
+          "device_name": "SW1",
+          "snap_before": "2026-03-03_1940",
+          "snap_after": "2026-03-03_1951",
+          "added_count": 1,
+          "removed_count": 1,
+          "diff_preview": "--- \n+++ \n@@ -1 +1 @@\n-[{\"vlan_id\":\"1\",\"interface\":\"Et0/0\",\"role\":\"Root\",\"status\":\"FWD\",\"cost\":\"100\",\"port_priority\":\"128\",\"port_id\":\"1\",\"type\":\"P2p \"},{\"vlan_id\":\"1\",\"interface\":\"Et0/2\",\"role\":\"Desg\",\"status\":\"FWD\",\"cost\":\"100\",\"port_priority\":\"128\",\"port_id\":\"3\",\"type\":\"P2p \"},{\"vlan_id\":\"10\",\"interface\":\"Et0/0\",\"role\":\"Root\",\"status\":\"FWD\",\"cost\":\"100\",\"port_priority\":\"128\",\"port_id\":\"1\",\"type\":\"P2p \"},{\"vlan_id\":\"10\",\"interface\":\"Et0/1\",\"role\":\"Desg\",\"status\":\"FWD\",\"cost\":\"100\",\"port_priority\":\"128\",\"port_id\":\"2\",\"type\":\"P2p Edge \"}]\n+[{\"vlan_id\":\"1\",\"interface\":\"Et0/0\",\"role\":\"Root\",\"status\":\"FWD\",\"cost\":\"100\",\"port_priority\":\"128\",\"port_id\":\"1\",\"type\":\"P2p \"},{\"vlan_id\":\"1\",\"interface\":\"Et0/2\",\"role\":\"Desg\",\"status\":\"FWD\",\"cost\":\"100\",\"port_priority\":\"128\",\"port_id\":\"3\",\"type\":\"P2p \""
+        },
+        {
+          "device_name": "SW1",
+          "snap_before": "2026-03-03_1940",
+          "snap_after": "2026-03-03_1951",
+          "added_count": 1,
+          "removed_count": 1,
+          "diff_preview": "--- \n+++ \n@@ -1 +1 @@\n-[{\"vlan_id\":\"VLAN0001\",\"priority\":\"32769\",\"root_id\":\"aabb.cc00.3000\",\"root_cost\":\"100\",\"hello_time\":\"2\",\"max_age\":\"20\",\"fwd_dly\":\"15\",\"root_port\":\"Et0/0\"},{\"vlan_id\":\"VLAN0010\",\"priority\":\"32778\",\"root_id\":\"aabb.cc00.3000\",\"root_cost\":\"100\",\"hello_time\":\"2\",\"max_age\":\"20\",\"fwd_dly\":\"15\",\"root_port\":\"Et0/0\"}]\n+[{\"vlan_id\":\"VLAN0001\",\"priority\":\"32769\",\"root_id\":\"aabb.cc00.3000\",\"root_cost\":\"100\",\"hello_time\":\"2\",\"max_age\":\"20\",\"fwd_dly\":\"15\",\"root_port\":\"Et0/0\"},{\"vlan_id\":\"VLAN0010\",\"priority\":\"32778\",\"root_id\":\"aabb.cc00.3000\",\"root_cost\":\"100\",\"hello_time\":\"2\",\"max_age\":\"20\",\"fwd_dly\":\"15\",\"root_port\":\"Et0/0\"},{\"vlan_id\":\"VLAN0999\",\"priority\":\"33767\",\"root_id\":\"aabb.cc00.5000\",\"root_cost\":\"0\",\"hello_time\":\"2\",\"max_age\":\"20\",\"fwd_dly\":\"15\",\"root_port\":\"\"}]"
+        },
+        {
+          "device_name": "SW2",
+          "snap_before": "2026-03-03_1940",
+          "snap_after": "2026-03-03_1951",
+          "added_count": 1,
+          "removed_count": 1,
+          "diff_preview": "--- \n+++ \n@@ -1 +1 @@\n-[{\"vlan_id\":\"VLAN0001\",\"priority\":\"32769\",\"root_id\":\"aabb.cc00.4000\",\"root_cost\":\"100\",\"hello_time\":\"2\",\"max_age\":\"20\",\"fwd_dly\":\"15\",\"root_port\":\"Et0/0\"},{\"vlan_id\":\"VLAN0020\",\"priority\":\"32788\",\"root_id\":\"aabb.cc00.4000\",\"root_cost\":\"100\",\"hello_time\":\"2\",\"max_age\":\"20\",\"fwd_dly\":\"15\",\"root_port\":\"Et0/0\"},{\"vlan_id\":\"VLAN0100\",\"priority\":\"32868\",\"root_id\":\"aabb.cc00.4000\",\"root_cost\":\"100\",\"hello_time\":\"2\",\"max_age\":\"20\",\"fwd_dly\":\"15\",\"root_port\":\"Et0/0\"}]\n+[{\"vlan_id\":\"VLAN0001\",\"priority\":\"32769\",\"root_id\":\"aabb.cc00.4000\",\"root_cost\":\"100\",\"hello_time\":\"2\",\"max_age\":\"20\",\"fwd_dly\":\"15\",\"root_port\":\"Et0/0\"},{\"vlan_id\":\"VLAN0020\",\"priority\":\"32788\",\"root_id\":\"aabb.cc00.4000\",\"root_cost\":\"100\",\"hello_time\":\"2\",\"max_age\":\"20\",\"fwd_dly\":\"15\",\"root_port\":\"Et0/0\"},{\"v"
+        },
+        {
+          "device_name": "SW2",
+          "snap_before": "2026-03-03_1940",
+          "snap_after": "2026-03-03_1951",
+          "added_count": 1,
+          "removed_count": 1,
+          "diff_preview": "--- \n+++ \n@@ -1 +1 @@\n-[{\"vlan_id\":\"1\",\"interface\":\"Et0/0\",\"role\":\"Root\",\"status\":\"FWD\",\"cost\":\"100\",\"port_priority\":\"128\",\"port_id\":\"1\",\"type\":\"P2p \"},{\"vlan_id\":\"20\",\"interface\":\"Et0/0\",\"role\":\"Root\",\"status\":\"FWD\",\"cost\":\"100\",\"port_priority\":\"128\",\"port_id\":\"1\",\"type\":\"P2p \"},{\"vlan_id\":\"20\",\"interface\":\"Et0/1\",\"role\":\"Desg\",\"status\":\"FWD\",\"cost\":\"100\",\"port_priority\":\"128\",\"port_id\":\"2\",\"type\":\"P2p Edge \"},{\"vlan_id\":\"100\",\"interface\":\"Et0/0\",\"role\":\"Root\",\"status\":\"FWD\",\"cost\":\"100\",\"port_priority\":\"128\",\"port_id\":\"1\",\"type\":\"P2p \"},{\"vlan_id\":\"100\",\"interface\":\"Et0/2\",\"role\":\"Desg\",\"status\":\"FWD\",\"cost\":\"100\",\"port_priority\":\"128\",\"port_id\":\"3\",\"type\":\"P2p Edge \"}]\n+[{\"vlan_id\":\"1\",\"interface\":\"Et0/0\",\"role\":\"Root\",\"status\":\"FWD\",\"cost\":\"100\",\"port_priority\":\"128\",\"port_id\":\"1\",\"typ"
+        }
+      ]
+    },
+    "Log_Spike": {
+      "severity": "Warning",
+      "count": 0,
+      "findings": []
+    },
+    "Config_Drift": {
+      "severity": "Warning",
+      "count": 14,
+      "findings": [
+        {
+          "device_name": "R1",
+          "command": "show configuration",
+          "snap_before": "2026-03-04_1109",
+          "snap_after": "2026-03-04_1115",
+          "added_count": 9,
+          "removed_count": 1,
+          "total_changes": 10,
+          "diff_preview": "--- \n+++ \n@@ -1,4 +1,4 @@\n-## Last commit: 2026-03-03 18:54:52 UTC by cisco\n+## Last commit: 2026-03-04 10:00:07 UTC by cisco\n version 18.4R3-S3;\n system {\n     login {\n@@ -140,6 +140,14 @@\n         }\n     }\n }\n+routing-instances {\n+    OLAV-TEST-VRF {\n+        description OLAV-DIFF-TEST;\n+        instance-type vrf;\n+        route-distinguisher 65000:999;\n+        vrf-target target:65000:999;\n+    }\n+}\n protocols {\n     ospf {\n         area 0.0.0.0 {"
+        },
+        {
+          "device_name": "R2",
+          "command": "show configuration",
+          "snap_before": "2026-03-04_1109",
+          "snap_after": "2026-03-04_1115",
+          "added_count": 9,
+          "removed_count": 1,
+          "total_changes": 10,
+          "diff_preview": "--- \n+++ \n@@ -1,4 +1,4 @@\n-## Last commit: 2026-03-03 18:54:50 UTC by cisco\n+## Last commit: 2026-03-04 10:00:07 UTC by cisco\n version 18.4R3-S3;\n system {\n     login {\n@@ -143,6 +143,14 @@\n         }\n     }\n }\n+routing-instances {\n+    OLAV-TEST-VRF {\n+        description OLAV-DIFF-TEST;\n+        instance-type vrf;\n+        route-distinguisher 65000:999;\n+        vrf-target target:65000:999;\n+    }\n+}\n protocols {\n     ospf {\n         area 0.0.0.0 {"
+        },
+        {
+          "device_name": "R1",
+          "command": "show configuration",
+          "snap_before": "2026-03-04_1115",
+          "snap_after": "2026-03-04_1124",
+          "added_count": 1,
+          "removed_count": 9,
+          "total_changes": 10,
+          "diff_preview": "--- \n+++ \n@@ -1,4 +1,4 @@\n-## Last commit: 2026-03-04 10:00:07 UTC by cisco\n+## Last commit: 2026-03-04 10:09:41 UTC by cisco\n version 18.4R3-S3;\n system {\n     login {\n@@ -140,14 +140,6 @@\n         }\n     }\n }\n-routing-instances {\n-    OLAV-TEST-VRF {\n-        description OLAV-DIFF-TEST;\n-        instance-type vrf;\n-        route-distinguisher 65000:999;\n-        vrf-target target:65000:999;\n-    }\n-}\n protocols {\n     ospf {\n         area 0.0.0.0 {"
+        },
+        {
+          "device_name": "R2",
+          "command": "show configuration",
+          "snap_before": "2026-03-04_1115",
+          "snap_after": "2026-03-04_1124",
+          "added_count": 1,
+          "removed_count": 9,
+          "total_changes": 10,
+          "diff_preview": "--- \n+++ \n@@ -1,4 +1,4 @@\n-## Last commit: 2026-03-04 10:00:07 UTC by cisco\n+## Last commit: 2026-03-04 10:09:41 UTC by cisco\n version 18.4R3-S3;\n system {\n     login {\n@@ -143,14 +143,6 @@\n         }\n     }\n }\n-routing-instances {\n-    OLAV-TEST-VRF {\n-        description OLAV-DIFF-TEST;\n-        instance-type vrf;\n-        route-distinguisher 65000:999;\n-        vrf-target target:65000:999;\n-    }\n-}\n protocols {\n     ospf {\n         area 0.0.0.0 {"
+        },
+        {
+          "device_name": "R4",
+          "command": "show running-config",
+          "snap_before": "2026-03-04_1109",
+          "snap_after": "2026-03-04_1115",
+          "added_count": 6,
+          "removed_count": 2,
+          "total_changes": 8,
+          "diff_preview": "--- \n+++ \n@@ -1,8 +1,8 @@\n Building configuration...\n \n-Current configuration : 2491 bytes\n+Current configuration : 2582 bytes\n !\n-! Last configuration change at 18:54:48 UTC Tue Mar 3 2026 by cisco\n+! Last configuration change at 10:00:04 UTC Wed Mar 4 2026 by cisco\n !\n version 17.15\n service timestamps debug datetime msec\n@@ -64,6 +64,10 @@\n interface Loopback0\n  ip address 4.4.4.4 255.255.255.255\n  ip ospf 1 area 0\n+!\n+interface Loopback99\n+ description OLAV-DIFF-TEST\n+ ip address 172.31.99.1 255.255.255.255\n !\n interface Ethernet0/0\n  description to_R2_Gi2"
+        },
+        {
+          "device_name": "R3",
+          "command": "show running-config",
+          "snap_before": "2026-03-04_1109",
+          "snap_after": "2026-03-04_1115",
+          "added_count": 6,
+          "removed_count": 2,
+          "total_changes": 8,
+          "diff_preview": "--- \n+++ \n@@ -1,8 +1,8 @@\n Building configuration...\n \n-Current configuration : 2519 bytes\n+Current configuration : 2610 bytes\n !\n-! Last configuration change at 18:54:48 UTC Tue Mar 3 2026 by cisco\n+! Last configuration change at 10:00:04 UTC Wed Mar 4 2026 by cisco\n !\n version 17.15\n service timestamps debug datetime msec\n@@ -64,6 +64,10 @@\n interface Loopback0\n  ip address 3.3.3.3 255.255.255.255\n  ip ospf 1 area 0\n+!\n+interface Loopback99\n+ description OLAV-DIFF-TEST\n+ ip address 172.31.99.1 255.255.255.255\n !\n interface Ethernet0/0\n  description to_R1_Gi2"
+        },
+        {
+          "device_name": "R3",
+          "command": "show running-config",
+          "snap_before": "2026-03-04_1115",
+          "snap_after": "2026-03-04_1124",
+          "added_count": 2,
+          "removed_count": 6,
+          "total_changes": 8,
+          "diff_preview": "--- \n+++ \n@@ -1,8 +1,8 @@\n Building configuration...\n \n-Current configuration : 2610 bytes\n+Current configuration : 2519 bytes\n !\n-! Last configuration change at 10:00:04 UTC Wed Mar 4 2026 by cisco\n+! Last configuration change at 10:09:40 UTC Wed Mar 4 2026 by cisco\n !\n version 17.15\n service timestamps debug datetime msec\n@@ -64,10 +64,6 @@\n interface Loopback0\n  ip address 3.3.3.3 255.255.255.255\n  ip ospf 1 area 0\n-!\n-interface Loopback99\n- description OLAV-DIFF-TEST\n- ip address 172.31.99.1 255.255.255.255\n !\n interface Ethernet0/0\n  description to_R1_Gi2"
+        },
+        {
+          "device_name": "R4",
+          "command": "show running-config",
+          "snap_before": "2026-03-04_1115",
+          "snap_after": "2026-03-04_1124",
+          "added_count": 2,
+          "removed_count": 6,
+          "total_changes": 8,
+          "diff_preview": "--- \n+++ \n@@ -1,8 +1,8 @@\n Building configuration...\n \n-Current configuration : 2582 bytes\n+Current configuration : 2491 bytes\n !\n-! Last configuration change at 10:00:04 UTC Wed Mar 4 2026 by cisco\n+! Last configuration change at 10:09:40 UTC Wed Mar 4 2026 by cisco\n !\n version 17.15\n service timestamps debug datetime msec\n@@ -64,10 +64,6 @@\n interface Loopback0\n  ip address 4.4.4.4 255.255.255.255\n  ip ospf 1 area 0\n-!\n-interface Loopback99\n- description OLAV-DIFF-TEST\n- ip address 172.31.99.1 255.255.255.255\n !\n interface Ethernet0/0\n  description to_R2_Gi2"
+        },
+        {
+          "device_name": "SW2",
+          "command": "show running-config",
+          "snap_before": "2026-03-04_1109",
+          "snap_after": "2026-03-04_1115",
+          "added_count": 5,
+          "removed_count": 2,
+          "total_changes": 7,
+          "diff_preview": "--- \n+++ \n@@ -1,8 +1,8 @@\n Building configuration...\n \n-Current configuration : 4144 bytes\n+Current configuration : 4228 bytes\n !\n-! Last configuration change at 18:54:49 UTC Tue Mar 3 2026 by cisco\n+! Last configuration change at 10:00:05 UTC Wed Mar 4 2026 by cisco\n !\n version 17.15\n service timestamps debug datetime msec\n@@ -124,6 +124,9 @@\n ip http secure-server\n ip ssh bulk-mode 131072\n !\n+ip access-list standard OLAV-TEST-ACL\n+ remark OLAV E2E diff test - safe to remove\n+!\n no logging btrace\n logging host 192.168.100.30\n logging host 192.168.100.50 transport udp port 5514"
+        },
+        {
+          "device_name": "SW1",
+          "command": "show running-config",
+          "snap_before": "2026-03-04_1115",
+          "snap_after": "2026-03-04_1124",
+          "added_count": 2,
+          "removed_count": 5,
+          "total_changes": 7,
+          "diff_preview": "--- \n+++ \n@@ -1,8 +1,8 @@\n Building configuration...\n \n-Current configuration : 4121 bytes\n+Current configuration : 4037 bytes\n !\n-! Last configuration change at 10:00:06 UTC Wed Mar 4 2026 by cisco\n+! Last configuration change at 10:09:41 UTC Wed Mar 4 2026 by cisco\n !\n version 17.15\n service timestamps debug datetime msec\n@@ -121,9 +121,6 @@\n ip http secure-server\n ip ssh bulk-mode 131072\n !\n-ip access-list standard OLAV-TEST-ACL\n- remark OLAV E2E diff test - safe to remove\n-!\n no logging btrace\n logging host 192.168.100.50 transport udp port 5514\n ip access-list standard 1"
+        },
+        {
+          "device_name": "SW2",
+          "command": "show running-config",
+          "snap_before": "2026-03-04_1115",
+          "snap_after": "2026-03-04_1124",
+          "added_count": 2,
+          "removed_count": 5,
+          "total_changes": 7,
+          "diff_preview": "--- \n+++ \n@@ -1,8 +1,8 @@\n Building configuration...\n \n-Current configuration : 4228 bytes\n+Current configuration : 4144 bytes\n !\n-! Last configuration change at 10:00:05 UTC Wed Mar 4 2026 by cisco\n+! Last configuration change at 10:09:41 UTC Wed Mar 4 2026 by cisco\n !\n version 17.15\n service timestamps debug datetime msec\n@@ -124,9 +124,6 @@\n ip http secure-server\n ip ssh bulk-mode 131072\n !\n-ip access-list standard OLAV-TEST-ACL\n- remark OLAV E2E diff test - safe to remove\n-!\n no logging btrace\n logging host 192.168.100.30\n logging host 192.168.100.50 transport udp port 5514"
+        },
+        {
+          "device_name": "SW1",
+          "command": "show running-config",
+          "snap_before": "2026-03-04_1109",
+          "snap_after": "2026-03-04_1115",
+          "added_count": 5,
+          "removed_count": 2,
+          "total_changes": 7,
+          "diff_preview": "--- \n+++ \n@@ -1,8 +1,8 @@\n Building configuration...\n \n-Current configuration : 4037 bytes\n+Current configuration : 4121 bytes\n !\n-! Last configuration change at 18:54:49 UTC Tue Mar 3 2026 by cisco\n+! Last configuration change at 10:00:06 UTC Wed Mar 4 2026 by cisco\n !\n version 17.15\n service timestamps debug datetime msec\n@@ -121,6 +121,9 @@\n ip http secure-server\n ip ssh bulk-mode 131072\n !\n+ip access-list standard OLAV-TEST-ACL\n+ remark OLAV E2E diff test - safe to remove\n+!\n no logging btrace\n logging host 192.168.100.50 transport udp port 5514\n ip access-list standard 1"
+        },
+        {
+          "device_name": "SW2",
+          "command": "show running-config partition access-list",
+          "snap_before": "2026-03-03_1940",
+          "snap_after": "2026-03-03_1951",
+          "added_count": 1,
+          "removed_count": 1,
+          "total_changes": 2,
+          "diff_preview": "--- \n+++ \n@@ -1 +1 @@\n-[{\"acl_name\":\"1\",\"acl_type\":\"standard\",\"line_num\":\"\",\"comment\":[],\"action\":\"\",\"protocol\":\"\",\"src_host\":\"\",\"src_any\":\"\",\"src_network\":\"\",\"src_wildcard\":\"\",\"src_port_match\":\"\",\"src_port\":\"\",\"src_port_range_start\":\"\",\"src_port_range_end\":\"\",\"dst_host\":\"\",\"dst_any\":\"\",\"dst_network\":\"\",\"dst_wildcard\":\"\",\"dst_port_match\":\"\",\"dst_port\":\"\",\"dst_port_range_start\":\"\",\"dst_port_range_end\":\"\",\"flags_match\":\"\",\"tcp_flag\":\"\",\"log\":\"\",\"icmp_type\":\"\",\"time\":\"\"},{\"acl_name\":\"1\",\"acl_type\":\"standard\",\"line_num\":\"10\",\"comment\":[],\"action\":\"permit\",\"protocol\":\"\",\"src_host\":\"\",\"src_any\":\"\",\"src_network\":\"192.168.100.0\",\"src_wildcard\":\"0.0.0.255\",\"src_port_match\":\"\",\"src_port\":\"\",\"src_port_range_start\":\"\",\"src_port_range_end\":\"\",\"dst_host\":\"\",\"dst_any\":\"\",\"dst_network\":\"\",\"dst_wildcard\":\"\",\"dst_port_match\":\"\",\"dst_port\":\"\",\"dst_port_range_start\":\"\",\"dst_port_range_end\":\"\",\"flags_match\":\"\",\"tcp_flag\":\"\",\"log\":\"\",\"icmp_type\":\"\",\"time\":\"\"}]\n+[{\"acl_name\":\"OLAV-TEST-ACL\",\"acl_type\":\"standard\",\"line_num\":\"\",\"comment\":[],\"action\":\"\",\"protocol\":\"\",\"src_host\":\"\",\"src_any\":\"\",\"src_network\":\"\",\"src_wildcard\":\"\",\"src_port_match\":\"\",\"src_port\":\"\",\"src_port_range_start\":\"\",\"src_port_range_end\""
+        },
+        {
+          "device_name": "SW1",
+          "command": "show running-config partition access-list",
+          "snap_before": "2026-03-03_1940",
+          "snap_after": "2026-03-03_1951",
+          "added_count": 1,
+          "removed_count": 1,
+          "total_changes": 2,
+          "diff_preview": "--- \n+++ \n@@ -1 +1 @@\n-[{\"acl_name\":\"1\",\"acl_type\":\"standard\",\"line_num\":\"\",\"comment\":[],\"action\":\"\",\"protocol\":\"\",\"src_host\":\"\",\"src_any\":\"\",\"src_network\":\"\",\"src_wildcard\":\"\",\"src_port_match\":\"\",\"src_port\":\"\",\"src_port_range_start\":\"\",\"src_port_range_end\":\"\",\"dst_host\":\"\",\"dst_any\":\"\",\"dst_network\":\"\",\"dst_wildcard\":\"\",\"dst_port_match\":\"\",\"dst_port\":\"\",\"dst_port_range_start\":\"\",\"dst_port_range_end\":\"\",\"flags_match\":\"\",\"tcp_flag\":\"\",\"log\":\"\",\"icmp_type\":\"\",\"time\":\"\"},{\"acl_name\":\"1\",\"acl_type\":\"standard\",\"line_num\":\"10\",\"comment\":[],\"action\":\"permit\",\"protocol\":\"\",\"src_host\":\"\",\"src_any\":\"\",\"src_network\":\"192.168.100.0\",\"src_wildcard\":\"0.0.0.255\",\"src_port_match\":\"\",\"src_port\":\"\",\"src_port_range_start\":\"\",\"src_port_range_end\":\"\",\"dst_host\":\"\",\"dst_any\":\"\",\"dst_network\":\"\",\"dst_wildcard\":\"\",\"dst_port_match\":\"\",\"dst_port\":\"\",\"dst_port_range_start\":\"\",\"dst_port_range_end\":\"\",\"flags_match\":\"\",\"tcp_flag\":\"\",\"log\":\"\",\"icmp_type\":\"\",\"time\":\"\"}]\n+[{\"acl_name\":\"OLAV-TEST-ACL\",\"acl_type\":\"standard\",\"line_num\":\"\",\"comment\":[],\"action\":\"\",\"protocol\":\"\",\"src_host\":\"\",\"src_any\":\"\",\"src_network\":\"\",\"src_wildcard\":\"\",\"src_port_match\":\"\",\"src_port\":\"\",\"src_port_range_start\":\"\",\"src_port_range_end\""
+        }
+      ]
+    }
+  },
+  "incident_clusters": [
+    {
+      "cluster_id": "INC-001",
+      "start_time": "2026-03-04T11:21:21.744636+00:00",
+      "end_time": "2026-03-04T11:28:31.110522+00:00",
+      "duration_mins": 7,
+      "event_count": 12,
+      "devices_affected": [
+        "R1",
+        "R3",
+        "SW2",
+        "SW1",
+        "R4",
+        "R2"
+      ],
+      "event_types": {
+        "config_change": 12
+      },
+      "root_cause_candidates": [
+        "SW2",
+        "SW1"
+      ],
+      "cascade_chain": "SW2, SW1 → R1, R3, R4, R2",
+      "events": [
+        {
+          "event_type": "config_change",
+          "device_name": "R1",
+          "detail": "show configuration (+9/-1 lines)",
+          "ts": "2026-03-04T11:21:21.744636+00:00"
+        },
+        {
+          "event_type": "config_change",
+          "device_name": "R2",
+          "detail": "show configuration (+9/-1 lines)",
+          "ts": "2026-03-04T11:21:21.756182+00:00"
+        },
+        {
+          "event_type": "config_change",
+          "device_name": "R3",
+          "detail": "show running-config (+6/-2 lines)",
+          "ts": "2026-03-04T11:21:21.763922+00:00"
+        },
+        {
+          "event_type": "config_change",
+          "device_name": "R4",
+          "detail": "show running-config (+6/-2 lines)",
+          "ts": "2026-03-04T11:21:21.771639+00:00"
+        },
+        {
+          "event_type": "config_change",
+          "device_name": "SW1",
+          "detail": "show running-config (+5/-2 lines)",
+          "ts": "2026-03-04T11:21:21.779410+00:00"
+        },
+        {
+          "event_type": "config_change",
+          "device_name": "SW2",
+          "detail": "show running-config (+5/-2 lines)",
+          "ts": "2026-03-04T11:21:21.787993+00:00"
+        },
+        {
+          "event_type": "config_change",
+          "device_name": "R1",
+          "detail": "show configuration (+1/-9 lines)",
+          "ts": "2026-03-04T11:28:31.070250+00:00"
+        },
+        {
+          "event_type": "config_change",
+          "device_name": "R2",
+          "detail": "show configuration (+1/-9 lines)",
+          "ts": "2026-03-04T11:28:31.079043+00:00"
+        },
+        {
+          "event_type": "config_change",
+          "device_name": "R3",
+          "detail": "show running-config (+2/-6 lines)",
+          "ts": "2026-03-04T11:28:31.086478+00:00"
+        },
+        {
+          "event_type": "config_change",
+          "device_name": "R4",
+          "detail": "show running-config (+2/-6 lines)",
+          "ts": "2026-03-04T11:28:31.095187+00:00"
+        },
+        {
+          "event_type": "config_change",
+          "device_name": "SW1",
+          "detail": "show running-config (+2/-5 lines)",
+          "ts": "2026-03-04T11:28:31.103353+00:00"
+        },
+        {
+          "event_type": "config_change",
+          "device_name": "SW2",
+          "detail": "show running-config (+2/-5 lines)",
+          "ts": "2026-03-04T11:28:31.110522+00:00"
+        }
+      ]
+    }
+  ]
+}

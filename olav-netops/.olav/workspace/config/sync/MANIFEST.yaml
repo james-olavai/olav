@@ -1,0 +1,7 @@
+kind: Skill
+name: config-sync
+version: "2.2.0"
+agent: config-orchestrator
+description: "Snapshot & Sync — SSH data collection, TextFSM parsing, device inventory (netops-specific)"
+requires:
+  - olav-netops>=0.11

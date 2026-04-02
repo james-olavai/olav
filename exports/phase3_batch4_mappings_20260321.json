@@ -1,0 +1,209 @@
+{
+  "batch_id": "phase3_batch4_20260321",
+  "timestamp": "2026-03-21",
+  "model": "targeted-unmapped-field-mapping",
+  "confidence_level": 0.72,
+  "candidates": [
+    {
+      "raw_key": "month",
+      "openconfig_path": "openconfig-system:system/state/current-datetime"
+    },
+    {
+      "raw_key": "pid",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/ospf/config/ospf-version"
+    },
+    {
+      "raw_key": "origin",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/bgp/global/state/as"
+    },
+    {
+      "raw_key": "nexthop_ip",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/static-routes/static/next-hops/next-hop/config/next-hop"
+    },
+    {
+      "raw_key": "year",
+      "openconfig_path": "openconfig-system:system/state/current-datetime"
+    },
+    {
+      "raw_key": "timezone",
+      "openconfig_path": "openconfig-system:system/config/timezone"
+    },
+    {
+      "raw_key": "sn",
+      "openconfig_path": "openconfig-system:system/state/serial-num"
+    },
+    {
+      "raw_key": "id",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/config/name"
+    },
+    {
+      "raw_key": "size",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/mtu"
+    },
+    {
+      "raw_key": "filldown",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/counters/in-pkts"
+    },
+    {
+      "raw_key": "weight",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/bgp/global/config/as"
+    },
+    {
+      "raw_key": "tag",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/config/name"
+    },
+    {
+      "raw_key": "mac",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/mac-address"
+    },
+    {
+      "raw_key": "number",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/config/name"
+    },
+    {
+      "raw_key": "local_pref",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/state/local-as"
+    },
+    {
+      "raw_key": "state_pfxrcd",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/state/messages/received"
+    },
+    {
+      "raw_key": "hold_time",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/timers/state/hold-time"
+    },
+    {
+      "raw_key": "bia",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/bia"
+    },
+    {
+      "raw_key": "ap_name",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/config/description"
+    },
+    {
+      "raw_key": "holdtime",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/timers/state/hold-time"
+    },
+    {
+      "raw_key": "msg_rcvd",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/state/messages/received"
+    },
+    {
+      "raw_key": "rd",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/config/route-distinguisher"
+    },
+    {
+      "raw_key": "domain",
+      "openconfig_path": "openconfig-system:system/config/domain-name"
+    },
+    {
+      "raw_key": "link_state",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/oper-status"
+    },
+    {
+      "raw_key": "category",
+      "openconfig_path": "openconfig-system:system/state/model-name"
+    },
+    {
+      "raw_key": "fsp",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/config/name"
+    },
+    {
+      "raw_key": "ssid",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/config/description"
+    },
+    {
+      "raw_key": "slot",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/config/name"
+    },
+    {
+      "raw_key": "role",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/oper-status"
+    },
+    {
+      "raw_key": "ports",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/config/name"
+    },
+    {
+      "raw_key": "date_time",
+      "openconfig_path": "openconfig-system:system/state/current-datetime"
+    },
+    {
+      "raw_key": "username",
+      "openconfig_path": "openconfig-system:system/aaa/config/enable-password"
+    },
+    {
+      "raw_key": "dead_time",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/ospf/areas/area/interfaces/interface/config/dead-interval"
+    },
+    {
+      "raw_key": "descr",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/config/description"
+    },
+    {
+      "raw_key": "uptime_minutes",
+      "openconfig_path": "openconfig-system:system/state/uptime"
+    },
+    {
+      "raw_key": "link",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/oper-status"
+    },
+    {
+      "raw_key": "cpu",
+      "openconfig_path": "openconfig-system:system/state/cpu-state/total"
+    },
+    {
+      "raw_key": "in_queue",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/counters/in-pkts"
+    },
+    {
+      "raw_key": "route_source",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/config/identifier"
+    },
+    {
+      "raw_key": "uptime_days",
+      "openconfig_path": "openconfig-system:system/state/uptime"
+    },
+    {
+      "raw_key": "nexthop_if",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/static-routes/static/next-hops/next-hop/config/next-hop"
+    },
+    {
+      "raw_key": "network",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/static-routes/static/config/prefix"
+    },
+    {
+      "raw_key": "out_queue",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/state/counters/out-pkts"
+    },
+    {
+      "raw_key": "vid",
+      "openconfig_path": "openconfig-vlan:vlans/vlan/vlan-id"
+    },
+    {
+      "raw_key": "encryption",
+      "openconfig_path": "openconfig-system:system/config/domain-name"
+    },
+    {
+      "raw_key": "mask",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/subinterfaces/subinterface/ipv4/addresses/address/config/prefix-length"
+    },
+    {
+      "raw_key": "manufacturer",
+      "openconfig_path": "openconfig-system:system/state/model-name"
+    },
+    {
+      "raw_key": "dynamic",
+      "openconfig_path": "openconfig-interfaces:interfaces/interface/config/enabled"
+    },
+    {
+      "raw_key": "uptime_hours",
+      "openconfig_path": "openconfig-system:system/state/uptime"
+    },
+    {
+      "raw_key": "timeout",
+      "openconfig_path": "openconfig-network-instance:network-instances/network-instance/protocols/protocol/bgp/global/timers/config/connect-retry"
+    }
+  ],
+  "notes": "Batch 4: Targeted mappings for top 50 actual unmapped field names from database analysis"
+}

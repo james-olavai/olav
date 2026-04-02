@@ -1,0 +1,58 @@
+Syslog logging: enabled (0 messages dropped, 2 messages rate-limited, 0 flushes, 0 overruns, xml disabled, filtering disabled)
+
+No Active Message Discriminator.
+
+
+
+No Inactive Message Discriminator.
+
+
+    Console logging: level debugging, 319 messages logged, xml disabled,
+                     filtering disabled
+    Monitor logging: level debugging, 0 messages logged, xml disabled,
+                     filtering disabled
+    Buffer logging:  level debugging, 322 messages logged, xml disabled,
+                    filtering disabled
+    Exception Logging: size (4096 bytes)
+    Count and timestamp logging messages: disabled
+    Persistent logging: disabled
+    Trap logging: level informational, 327 message lines logged
+        Logging to 192.168.100.50  (udp port 5514, audit disabled,
+              link up),
+              231 message lines logged, 
+              0 message lines rate-limited, 
+              0 message lines dropped-by-MD, 
+              xml disabled, sequence number disabled
+              filtering disabled
+        Logging Source-Interface:       VRF Name:
+    TLS Profiles: 
+
+Log Buffer (4096 bytes):
+2.168.100.50)
+*Mar  4 10:06:33.537: %SSH-5-SSH2_CLOSE: SSH2 Session from 192.168.100.50 (tty = 0) for user 'cisco' using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256-etm@openssh.com' closed
+*Mar  4 10:09:41.281: %SYS-5-CONFIG_I: Configured from console by cisco on vty1 (192.168.100.50)
+*Mar  4 10:09:46.518: %SSH-5-SSH_CLOSE: SSH Session from 192.168.100.50 (tty = 0) for user '' using crypto cipher '' closed
+*Mar  4 10:09:50.505: %SSH-5-SSH2_SESSION: SSH2 Session request from 192.168.100.50 (tty = 0) using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256-etm@openssh.com' Succeeded
+*Mar  4 10:09:50.708: %SEC_LOGIN-5-LOGIN_SUCCESS: Login Success [user: cisco] [Source: 192.168.100.50] [localport: 22] at 10:09:50 UTC Wed Mar 4 2026
+*Mar  4 10:09:50.708: %SSH-5-SSH2_USERAUTH: User 'cisco' authentication for SSH2 Session from 192.168.100.50 (tty = 0) using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256-etm@openssh.com' Succeeded
+*Mar  4 10:12:37.570: %SYS-6-TTY_EXPIRE_TIMER: (exec timer expired, tty 4 (192.168.100.50)), user cisco
+*Mar  4 10:12:37.570: %SYS-6-LOGOUT: User cisco has exited tty session 4(192.168.100.50)
+*Mar  4 10:12:37.571: %SSH-5-SSH2_CLOSE: SSH2 Session from 192.168.100.50 (tty = 2) for user 'cisco' using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256-etm@openssh.com' closed
+*Mar  4 10:14:16.519: %SSH-5-SSH2_SESSION: SSH2 Session request from 192.168.100.50 (tty = 2) using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256-etm@openssh.com' Succeeded
+*Mar  4 10:14:16.723: %SEC_LOGIN-5-LOGIN_SUCCESS: Login Success [user: cisco] [Source: 192.168.100.50] [localport: 22] at 10:14:16 UTC Wed Mar 4 2026
+*Mar  4 10:14:16.723: %SSH-5-SSH2_USERAUTH: User 'cisco' authentication for SSH2 Session from 192.168.100.50 (tty = 2) using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256-etm@openssh.com' Succeeded
+*Mar  4 10:14:52.351: %SYS-6-LOGOUT: User cisco has exited tty session 4(192.168.100.50)
+*Mar  4 10:14:52.351: %SSH-5-SSH2_CLOSE: SSH2 Session from 192.168.100.50 (tty = 2) for user '' using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256-etm@openssh.com' closed
+*Mar  4 10:15:58.030: %SYS-6-LOGOUT: User cisco has exited tty session 3(192.168.100.50)
+*Mar  4 10:15:58.030: %SSH-5-SSH2_CLOSE: SSH2 Session from 192.168.100.50 (tty = 1) for user '' using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256-etm@openssh.com' closed
+*Mar  4 10:15:58.369: %SSH-5-SSH2_CLOSE: SSH2 Session from 192.168.100.50 (tty = 0) for user '' using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256-etm@openssh.com' closed
+*Mar  5 14:44:09.041: %SSH-5-SSH_CLOSE: SSH Session from 192.168.100.50 (tty = 0) for user '' using crypto cipher '' closed
+*Mar  5 14:44:13.177: %SSH-5-SSH2_SESSION: SSH2 Session request from 192.168.100.50 (tty = 0) using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256-etm@openssh.com' Succeeded
+*Mar  5 14:44:13.381: %SEC_LOGIN-5-LOGIN_SUCCESS: Login Success [user: cisco] [Source: 192.168.100.50] [localport: 22] at 14:44:13 UTC Thu Mar 5 2026
+*Mar  5 14:44:13.381: %SSH-5-SSH2_USERAUTH: User 'cisco' authentication for SSH2 Session from 192.168.100.50 (tty = 0) using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256-etm@openssh.com' Succeeded
+*Mar  5 14:56:17.083: %SYS-6-LOGOUT: User cisco has exited tty session 2(192.168.100.50)
+*Mar  5 14:56:17.083: %SSH-5-SSH2_CLOSE: SSH2 Session from 192.168.100.50 (tty = 0) for user '' using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256-etm@openssh.com' closed
+*Mar  5 15:00:10.996: %SSH-5-SSH_CLOSE: SSH Session from 192.168.100.50 (tty = 0) for user '' using crypto cipher '' closed
+*Mar  5 15:00:14.771: %SSH-5-SSH2_SESSION: SSH2 Session request from 192.168.100.50 (tty = 0) using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256-etm@openssh.com' Succeeded
+*Mar  5 15:00:14.895: %SEC_LOGIN-5-LOGIN_SUCCESS: Login Success [user: cisco] [Source: 192.168.100.50] [localport: 22] at 15:00:14 UTC Thu Mar 5 2026
+*Mar  5 15:00:14.895: %SSH-5-SSH2_USERAUTH: User 'cisco' authentication for SSH2 Session from 192.168.100.50 (tty = 0) using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256-etm@openssh.com' Succeeded

@@ -1,0 +1,6 @@
+Chassis type: ISRV
+
+Slot      Type                State                 Insert time (ago) 
+--------- ------------------- --------------------- ----------------- 
+R0        ISRV                ok, active            05:03:11      
+F0        ISRV                ok, active            05:03:11      

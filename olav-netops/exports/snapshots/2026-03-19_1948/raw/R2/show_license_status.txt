@@ -1,0 +1,25 @@
+Smart Licensing is ENABLED
+
+Utility:
+  Status: DISABLED
+
+Data Privacy:
+  Sending Hostname: yes
+    Callhome hostname privacy: DISABLED
+    Smart Licensing hostname privacy: DISABLED
+  Version privacy: DISABLED
+
+Transport:
+  Type: Callhome
+
+Registration:
+  Status: UNREGISTERED
+  Export-Controlled Functionality: NOT ALLOWED
+
+License Authorization: 
+  Status: No Licenses in Use
+
+Export Authorization Key:
+  Features Authorized:
+    <none>
+

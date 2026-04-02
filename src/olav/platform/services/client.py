@@ -16,9 +16,24 @@ from typing import Any
 
 import httpx
 
+from olav.platform.safety.permissions import is_bypass_active
 from olav.platform.services.registry import ServiceConfig, ServiceRegistry
 
 logger = logging.getLogger(__name__)
+
+# HTTP methods that modify external service state — always require approval
+_WRITE_METHODS: frozenset[str] = frozenset({"DELETE", "POST", "PUT", "PATCH"})
+
+# Process-wide HTTP client singleton — connection pool reused across all service_call() invocations.
+# Per-request timeouts are passed via httpx.Timeout at call time.
+_http_client: httpx.Client | None = None
+
+
+def _get_http_client() -> httpx.Client:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.Client()
+    return _http_client
 
 
 # ---------------------------------------------------------------------------
@@ -36,10 +51,10 @@ def _jwt_login(svc: ServiceConfig) -> str:
 
     username, password = svc.get_credentials()
     url = svc.endpoint.rstrip("/") + svc.auth.login_path
-    with httpx.Client(timeout=15.0) as client:
-        resp = client.post(url, json={"username": username, "password": password})
-        resp.raise_for_status()
-        body = resp.json()
+    client = _get_http_client()
+    resp = client.post(url, json={"username": username, "password": password}, timeout=15.0)
+    resp.raise_for_status()
+    body = resp.json()
 
     # ContainerLab returns {"token": "..."}, try common keys
     token = body.get("token") or body.get("access_token") or body.get("jwt", "")
@@ -120,27 +135,51 @@ def service_call(
     params: dict | None = None,
     response_def: str | None = None,
     timeout: float = 30.0,
+    confirmed: bool = False,
 ) -> Any:
     """Make an authenticated REST call to a registered service.
 
     Args:
-        service_name:  Key in services.yaml (e.g. "containerlab")
+        service_name:  Key in services.yaml (e.g. "netbox", "containerlab")
         method:        HTTP method (GET, POST, PUT, DELETE, …)
-        path:          API path (e.g. "/api/v1/labs")
+        path:          API path (e.g. "/api/dcim/sites/")
         body:          JSON request body (for POST/PUT/PATCH)
         params:        Query parameters
         response_def:  OpenAPI definition name for response trimming
-                       (e.g. "Lab"); uses api_registry.field_names()
         timeout:       Request timeout in seconds
+        confirmed:     Set True after presenting the operation to the user and
+                       receiving explicit approval. Bypasses the write gate for
+                       this single call only.
 
     Returns:
         Parsed JSON response (dict or list), schema-trimmed if response_def given.
+        On unconfirmed write: {"status": "requires_approval", ...} — show the
+        user the method/path/body, then re-call with confirmed=True.
 
     Raises:
         httpx.HTTPStatusError: on 4xx/5xx responses
         KeyError: if service_name not found in registry
         ValueError: if auth configuration is incomplete
     """
+    # §20 SECURITY_MODEL §6.3: write methods require approval before any HTTP
+    # (bypassed when confirmed=True, or OLAV_DANGEROUSLY_SKIP_PERMISSIONS=1)
+    if method.upper() in _WRITE_METHODS and not confirmed and not is_bypass_active():
+        return {
+            "status": "requires_approval",
+            "service": service_name,
+            "method": method.upper(),
+            "path": path,
+            "body": body,
+            "reason": (
+                f"Write operation '{method.upper()} {path}' on service "
+                f"'{service_name}' requires operator approval"
+            ),
+            "suggested_action": (
+                "Show the user exactly what will be created/modified (method, path, body). "
+                "Once the user confirms, re-call with confirmed=True to execute."
+            ),
+        }
+
     registry = ServiceRegistry.get_instance()
     svc = registry.get(service_name)
 
@@ -149,22 +188,24 @@ def service_call(
 
     logger.debug("service_call: %s %s → %s", method.upper(), service_name, url)
 
-    with httpx.Client(timeout=timeout) as client:
+    client = _get_http_client()
+    resp = client.request(
+        method.upper(),
+        url,
+        json=body,
+        params=params,
+        headers=headers,
+        timeout=timeout,
+    )
+    if resp.status_code == 401 and svc.auth.type == "jwt":
+        # Token expired — clear cache and retry once with fresh token
+        _token_cache.pop(service_name, None)
+        headers = _get_auth_headers(svc)
         resp = client.request(
-            method.upper(),
-            url,
-            json=body,
-            params=params,
-            headers=headers,
+            method.upper(), url, json=body, params=params, headers=headers,
+            timeout=timeout,
         )
-        if resp.status_code == 401 and svc.auth.type == "jwt":
-            # Token expired — clear cache and retry once with fresh token
-            _token_cache.pop(service_name, None)
-            headers = _get_auth_headers(svc)
-            resp = client.request(
-                method.upper(), url, json=body, params=params, headers=headers
-            )
-        resp.raise_for_status()
+    resp.raise_for_status()
 
     try:
         data = resp.json()

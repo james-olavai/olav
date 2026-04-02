@@ -1,0 +1,30 @@
+kind: Agent
+name: ops
+version: "0.11.0"
+route_keywords:
+  - troubleshoot
+  - probe
+  - diff config
+  - check topology
+  - trace route
+  - ping
+  - diagnose
+tools_dir: tools/
+requires:
+  - olav-platform>=0.11
+
+slash_commands:
+  - name: learn_cmd
+    aliases: [learn, lc]
+    kind: python
+    entrypoint: olav_netops.cli.builtin:cmd_learn
+    help: Learn a network command and generate a TextFSM template
+    approval: none
+    timeout: 300
+
+  - name: netops_init
+    kind: python
+    entrypoint: olav_netops.cli.builtin:netops_init_main
+    help: Initialize netops workspace and bootstrap inventory
+    approval: required
+    timeout: 1800

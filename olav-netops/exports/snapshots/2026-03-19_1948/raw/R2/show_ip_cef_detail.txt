@@ -1,0 +1,108 @@
+IPv4 CEF is enabled for distributed and running
+VRF Default
+ 28 prefixes (28/0 fwd/non-fwd)
+ Table id 0x0
+ Database epoch:        2 (28 entries at this epoch)
+
+0.0.0.0/0, epoch 2, flags [default route handler, default route]
+  no route
+0.0.0.0/8, epoch 2
+  Special source: drop
+  drop
+0.0.0.0/32, epoch 2, flags [receive]
+  Special source: receive
+  receive
+2.2.2.2/32, epoch 2, flags [attached, connected, receive, local, source eligible]
+  Interface source: Loopback0 flags: local, source eligible flags3: none
+  receive for Loopback0
+10.1.12.0/24, epoch 2, flags [attached, connected, cover dependents, need deagg]
+  Covered dependent prefixes: 3
+    need deagg: 2
+    notify cover updated: 1
+  attached to GigabitEthernet1
+10.1.12.0/32, epoch 2, flags [receive]
+  Interface source: GigabitEthernet1 flags: none flags3: none
+    Dependent covered prefix type cover need deagg, cover 10.1.12.0/24
+  receive for GigabitEthernet1
+10.1.12.1/32, epoch 2, flags [attached]
+  Adj source: IP adj out of GigabitEthernet1, addr 10.1.12.1 7FB387029CE8
+    Dependent covered prefix type adjfib, cover 10.1.12.0/24
+  attached to GigabitEthernet1
+10.1.12.2/32, epoch 2, flags [receive, local, source eligible]
+  Interface source: GigabitEthernet1 flags: local, source eligible flags3: none
+  receive for GigabitEthernet1
+10.1.12.255/32, epoch 2, flags [receive]
+  Interface source: GigabitEthernet1 flags: none flags3: none
+    Dependent covered prefix type cover need deagg, cover 10.1.12.0/24
+  receive for GigabitEthernet1
+10.1.24.0/24, epoch 2, flags [attached, connected, cover dependents, need deagg]
+  Covered dependent prefixes: 3
+    need deagg: 2
+    notify cover updated: 1
+  attached to GigabitEthernet2
+10.1.24.0/32, epoch 2, flags [receive]
+  Interface source: GigabitEthernet2 flags: none flags3: none
+    Dependent covered prefix type cover need deagg, cover 10.1.24.0/24
+  receive for GigabitEthernet2
+10.1.24.2/32, epoch 2, flags [receive, local, source eligible]
+  Interface source: GigabitEthernet2 flags: local, source eligible flags3: none
+  receive for GigabitEthernet2
+10.1.24.4/32, epoch 2, flags [attached]
+  Adj source: IP adj out of GigabitEthernet2, addr 10.1.24.4 7FB3EB948528
+    Dependent covered prefix type adjfib, cover 10.1.24.0/24
+  attached to GigabitEthernet2
+10.1.24.255/32, epoch 2, flags [receive]
+  Interface source: GigabitEthernet2 flags: none flags3: none
+    Dependent covered prefix type cover need deagg, cover 10.1.24.0/24
+  receive for GigabitEthernet2
+127.0.0.0/8, epoch 2
+  Special source: drop
+  drop
+192.168.100.0/24, epoch 2, flags [attached, connected, cover dependents, need deagg]
+  Covered dependent prefixes: 7
+    need deagg: 2
+    notify cover updated: 5
+  attached to GigabitEthernet4
+192.168.100.0/32, epoch 2, flags [receive]
+  Interface source: GigabitEthernet4 flags: none flags3: none
+    Dependent covered prefix type cover need deagg, cover 192.168.100.0/24
+  receive for GigabitEthernet4
+192.168.100.10/32, epoch 2, flags [attached]
+  Adj source: IP adj out of GigabitEthernet4, addr 192.168.100.10 7FB387029888
+    Dependent covered prefix type adjfib, cover 192.168.100.0/24
+  attached to GigabitEthernet4
+192.168.100.50/32, epoch 2, flags [attached]
+  Adj source: IP adj out of GigabitEthernet4, addr 192.168.100.50 7FB382D4A130
+    Dependent covered prefix type adjfib, cover 192.168.100.0/24
+  attached to GigabitEthernet4
+192.168.100.102/32, epoch 2, flags [receive, local, source eligible]
+  Interface source: GigabitEthernet4 flags: local, source eligible flags3: none
+  receive for GigabitEthernet4
+192.168.100.202/32, epoch 2, flags [attached]
+  Adj source: IP adj out of GigabitEthernet4, addr 192.168.100.202 7FB387029AB8
+    Dependent covered prefix type adjfib, cover 192.168.100.0/24
+  attached to GigabitEthernet4
+192.168.100.209/32, epoch 2, flags [attached]
+  Adj source: IP adj out of GigabitEthernet4, addr 192.168.100.209 7FB387029658
+    Dependent covered prefix type adjfib, cover 192.168.100.0/24
+  attached to GigabitEthernet4
+192.168.100.254/32, epoch 2, flags [attached]
+  Adj source: IP adj out of GigabitEthernet4, addr 192.168.100.254 7FB3EB948BB8
+    Dependent covered prefix type adjfib, cover 192.168.100.0/24
+  attached to GigabitEthernet4
+192.168.100.255/32, epoch 2, flags [receive]
+  Interface source: GigabitEthernet4 flags: none flags3: none
+    Dependent covered prefix type cover need deagg, cover 192.168.100.0/24
+  receive for GigabitEthernet4
+224.0.0.0/4, epoch 2
+  Special source: drop
+  drop
+224.0.0.0/24, epoch 2, flags [receive]
+  Special source: receive
+  receive
+240.0.0.0/4, epoch 2
+  Special source: drop
+  drop
+255.255.255.255/32, epoch 2, flags [receive]
+  Special source: receive
+  receive

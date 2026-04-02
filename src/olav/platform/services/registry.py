@@ -74,6 +74,7 @@ class ServiceConfig:
     description: str = ""
     endpoint: str = ""
     schema_url: str = ""
+    readonly_only: bool = True   # When True, tool_generator only imports GET ops
     auth: AuthConfig = field(default_factory=AuthConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     lifecycle: LifecycleConfig = field(default_factory=LifecycleConfig)
@@ -83,9 +84,22 @@ class ServiceConfig:
     # ── convenience accessors ────────────────────────────────────────────────
 
     def get_token(self) -> str | None:
-        """Read auth token from the configured env var."""
-        if self.auth.token_env:
-            return os.environ.get(self.auth.token_env)
+        """Read auth token: env var first, then service env file fallback."""
+        if not self.auth.token_env:
+            return None
+        token = os.environ.get(self.auth.token_env)
+        if token:
+            return token
+        # Fallback: load from .olav/services/<name>/env/<name>.env
+        env_file = Path(f".olav/services/{self.name}/env/{self.name}.env")
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                line = line.strip()
+                if line.startswith(f"{self.auth.token_env}="):
+                    token = line.split("=", 1)[1].strip()
+                    if token:
+                        os.environ[self.auth.token_env] = token  # cache in env
+                        return token
         return None
 
     def get_ssh_host(self) -> str | None:
@@ -173,6 +187,7 @@ def _parse_service(name: str, raw: dict) -> ServiceConfig:
         description=raw.get("description", ""),
         endpoint=raw.get("endpoint", ""),
         schema_url=raw.get("schema_url", ""),
+        readonly_only=bool(raw.get("readonly_only", True)),
         auth=_parse_auth(raw.get("auth", {})),
         execution=_parse_execution(raw.get("execution", {})),
         lifecycle=_parse_lifecycle(raw.get("lifecycle", {})),
@@ -200,9 +215,14 @@ class ServiceRegistry:
 
     @classmethod
     def get_instance(cls, config_path: Path = _DEFAULT_CONFIG) -> ServiceRegistry:
-        """Return singleton, loading from config_path on first call."""
+        """Return singleton, loading from config_path on first call.
+
+        Respects OLAV_SERVICES_PATH env var override (useful in tests).
+        """
         if cls._instance is None:
-            cls._instance = cls(config_path)
+            env_path = os.environ.get("OLAV_SERVICES_PATH")
+            resolved = Path(env_path) if env_path else config_path
+            cls._instance = cls(resolved)
         return cls._instance
 
     @classmethod

@@ -1,0 +1,29 @@
+Router Self-Signed Certificate
+  Status: Available
+  Certificate Serial Number (hex): 01
+  Certificate Usage: General Purpose
+  Issuer: 
+    cn=IOS-Self-Signed-Certificate-867637713
+  Subject:
+    Name: IOS-Self-Signed-Certificate-867637713
+    cn=IOS-Self-Signed-Certificate-867637713
+  Validity Date: 
+    start date: 15:14:06 UTC Mar 19 2026
+    end   date: 00:00:00 UTC Jan 1 2030
+  Associated Trustpoints: TP-self-signed-867637713 
+
+CA Certificate
+  Status: Available
+  Certificate Serial Number (hex): 01
+  Certificate Usage: Signature
+  Issuer: 
+    cn=Cisco Licensing Root CA
+    o=Cisco
+  Subject: 
+    cn=Cisco Licensing Root CA
+    o=Cisco
+  Validity Date: 
+    start date: 19:48:47 UTC May 30 2013
+    end   date: 19:48:47 UTC May 30 2038
+  Associated Trustpoints: SLA-TrustPoint Trustpool 
+
