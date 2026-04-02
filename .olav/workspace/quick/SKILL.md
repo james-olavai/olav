@@ -2,14 +2,10 @@
 name: quick-query
 description: "Unified network operations skill — SQL queries, CLI execution, KB search, data export, topology analysis, and fault investigation."
 tools:
-  - execute_sql              # execute_sql.py    — DuckDB query + explain_only schema discovery
   - search_commands          # search_commands.py — Query commands table by device/platform + keyword
   - execute_cli              # execute_cli.py    — Nornir CLI; validates blacklist + pipe_allowed
   - diff_configs             # diff_configs.py   — Compare raw snapshots between dates to detect drift
-  - format_and_export        # format_and_export.py — Export to CSV/JSON/Markdown
   - take_snapshot            # take_snapshot.py  — Trigger snapshot collection on devices
-  - search_knowledge_lancedb # search_knowledge_lancedb.py — Semantic KB search (LanceDB)
-  - web_search               # web_search.py    — Web search via DuckDuckGo for external info
   - path: ../ops/tools/_generated/netbox_dcim.py          # NetBox DCIM — sites, racks, devices, interfaces
   - path: ../ops/tools/_generated/netbox_ipam.py          # NetBox IPAM — prefixes, IPs, VLANs, VRFs
   - path: ../ops/tools/_generated/netbox_virtualization.py # NetBox VM — clusters, VMs, VM interfaces

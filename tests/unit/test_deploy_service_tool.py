@@ -17,7 +17,7 @@ class TestDeployServiceDiscoverable:
 
         spec = importlib.util.spec_from_file_location(
             "deploy_service_mod",
-            Path(".olav/workspace/ops/tools/deploy_service.py"),
+            Path(".olav/workspace/core/tools/deploy_service.py"),
         )
         mod = importlib.util.module_from_spec(spec)
         # Patch langchain_core.tools.tool to avoid heavy imports during load
@@ -33,7 +33,7 @@ class TestDeployServiceDiscoverable:
 
         spec = importlib.util.spec_from_file_location(
             "deploy_service_mod2",
-            Path(".olav/workspace/ops/tools/deploy_service.py"),
+            Path(".olav/workspace/core/tools/deploy_service.py"),
         )
         mod = importlib.util.module_from_spec(spec)
         with patch.dict("sys.modules", {"langchain_core.tools": MagicMock(tool=lambda f: f)}):
