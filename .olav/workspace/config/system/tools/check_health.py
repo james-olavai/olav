@@ -639,6 +639,114 @@ def _check_nornir(connectivity_sample: int = 3) -> dict:
     return results
 
 
+# ── Services check ────────────────────────────────────────────────────────────
+
+def _pid_alive(pid_file: Path) -> tuple[bool, int | None]:
+    """Return (is_alive, pid). Detects stale/mock PID files."""
+    if not pid_file.exists():
+        return False, None
+    try:
+        raw = pid_file.read_text().strip()
+        pid = int(raw)
+        os.kill(pid, 0)
+        return True, pid
+    except (ValueError, TypeError):
+        return False, None  # non-integer content (e.g. MagicMock)
+    except ProcessLookupError:
+        return False, None  # stale PID
+    except PermissionError:
+        return True, None   # process exists but we can't signal it
+
+
+def _check_services() -> dict:
+    """Check OLAV-managed services and external service dependencies."""
+    import socket
+    import urllib.request
+    results: dict = {"status": "ok", "checks": []}
+
+    run_dir = _OLAV_DIR / "run"
+
+    # ── OLAV Web API (uvicorn/FastAPI on DEFAULT_WEB_PORT) ────────────────────
+    web_pid_file = run_dir / "web.pid"
+    alive, pid = _pid_alive(web_pid_file)
+    if alive:
+        # Try HTTP health probe
+        try:
+            from olav.core.defaults import DEFAULT_WEB_PORT
+            port = DEFAULT_WEB_PORT
+        except Exception:
+            port = 2280
+        try:
+            req = urllib.request.urlopen(
+                f"http://localhost:{port}/health", timeout=2)
+            results["checks"].append({"name": "OLAV Web API", "status": "ok",
+                                       "pid": pid, "port": port,
+                                       "http_status": req.status})
+        except Exception:
+            # Running but /health returned error or not available — still up
+            results["checks"].append({"name": "OLAV Web API", "status": "ok",
+                                       "pid": pid, "port": port,
+                                       "note": "process alive, /health unreachable"})
+    else:
+        stale = web_pid_file.exists()
+        results["checks"].append({"name": "OLAV Web API", "status": "warning",
+                                   "message": "Not running"
+                                               + (" (stale PID file)" if stale else "")})
+        if stale:
+            # Clean up stale PID file
+            try:
+                web_pid_file.unlink()
+            except Exception:
+                pass
+        if results["status"] == "ok":
+            results["status"] = "warning"
+
+    # ── OLAV CLI Daemon ───────────────────────────────────────────────────────
+    daemon_pid_file = run_dir / "daemon.pid"
+    alive, pid = _pid_alive(daemon_pid_file)
+    if alive:
+        results["checks"].append({"name": "OLAV CLI daemon", "status": "ok", "pid": pid})
+    else:
+        stale = daemon_pid_file.exists()
+        results["checks"].append({"name": "OLAV CLI daemon", "status": "warning",
+                                   "message": "Not running"
+                                               + (" (stale PID file)" if stale else "")})
+        if results["status"] == "ok":
+            results["status"] = "warning"
+
+    # ── External services from services.yaml ──────────────────────────────────
+    services_yaml = _OLAV_DIR / "config" / "services.yaml"
+    if services_yaml.exists():
+        try:
+            import yaml
+            cfg = yaml.safe_load(services_yaml.read_text()) or {}
+            services = cfg.get("services", {})
+            for svc_name, svc in services.items():
+                endpoint = svc.get("endpoint", "")
+                if not endpoint:
+                    continue
+                try:
+                    resp = urllib.request.urlopen(endpoint, timeout=2)
+                    results["checks"].append({"name": f"Service: {svc_name}", "status": "ok",
+                                               "endpoint": endpoint,
+                                               "http_status": resp.status})
+                except Exception as e:
+                    msg = str(e)
+                    # HTTP errors (401, 403) mean the service IS running
+                    is_up = any(code in msg for code in ["401", "403", "404", "302"])
+                    status_str = "ok" if is_up else "warning"
+                    results["checks"].append({"name": f"Service: {svc_name}",
+                                               "status": status_str,
+                                               "endpoint": endpoint,
+                                               "message": msg[:80]})
+                    if not is_up and results["status"] == "ok":
+                        results["status"] = "warning"
+        except Exception:
+            pass
+
+    return results
+
+
 # ── Package sanity check ──────────────────────────────────────────────────────
 
 def _check_packages() -> dict:
@@ -687,6 +795,16 @@ def _generate_recommendations(health: dict) -> list[str]:
         if check.get("status") == "warning" and "Unregistered" in check.get("name", ""):
             recs.append(f"Register agents in PLATFORM.md: {check.get('agents', [])}")
 
+    for check in health.get("services", {}).get("checks", []):
+        if check.get("status") == "warning":
+            name = check.get("name", "")
+            if "Web API" in name:
+                recs.append("OLAV Web API not running — start with 'olav service web start'")
+            elif "daemon" in name:
+                recs.append("OLAV daemon not running — start with 'olav service daemon start'")
+            elif "Service:" in name:
+                recs.append(f"{name} unreachable at {check.get('endpoint','?')}")
+
     for check in health.get("database", {}).get("checks", []):
         if check.get("status") == "warning":
             name = check.get("name", "")
@@ -722,8 +840,11 @@ def check_health(
     - Orphaned tool files (exist on disk but not declared in SKILL.md)
     - system_prompt_file references exist
     - LLM API key + api.json model/provider configuration
-    - Database health: main.duckdb (network state), audit.duckdb schema + row counts,
-      LanceDB memory store, user checkpoint files
+    - Active workspace validation + syslog receiver status
+    - OLAV Web API + CLI daemon process health (PID files + HTTP probe)
+    - External services in services.yaml (HTTP reachability)
+    - Database health: main.duckdb (network state + snapshot freshness),
+      audit.duckdb schema + row counts, LanceDB memory store
     - Critical Python package imports (duckdb, lancedb, langchain, deepagents, nornir)
     - Nornir inventory reachability + optional SSH connectivity sample
 
@@ -742,6 +863,7 @@ def check_health(
     health["packages"] = _check_packages()
 
     if not workspace_only:
+        health["services"] = _check_services()
         health["database"] = _check_database()
         health["nornir"] = _check_nornir(connectivity_sample=connectivity_sample)
 
