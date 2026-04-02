@@ -48,7 +48,8 @@ To inspect specific endpoints use: `read_api_schema(source=..., tag_filter="circ
 create_service_config(
     service_name=...,    # lowercase, snake_case, e.g. "netbox_circuits"
     endpoint=...,        # base URL, no trailing slash
-    auth_type=...,       # inferred from schema
+    auth_type=...,       # inferred from schema (see Auth Decision Guide)
+    readonly_only=...,   # True/False based on API purpose (see readonly_only Decision Guide)
     tag_groups=[...],    # each: {tag, tool_prefix, description}
     schema_url=...,      # if known; else leave empty for auto-detection
     token_env=...,       # env var name for the token
@@ -105,6 +106,23 @@ Check that:
 | `http` scheme `basic` | `basic` | username_env, password_env |
 | Login endpoint returns JWT | `jwt` | login_path, username_env, password_env |
 | No security defined | `none` | — |
+
+---
+
+## readonly_only Decision Guide
+
+Decide based on the API's **purpose** inferred from its schema:
+
+| API Purpose | readonly_only | Rationale |
+|------------|--------------|-----------|
+| DCIM / IPAM / Inventory (e.g. NetBox, Nautobot) | `True` | Monitoring only; mutations should go through change management |
+| Monitoring / Observability (e.g. Prometheus, Grafana) | `True` | Read-only by design |
+| Lab/Simulation (e.g. ContainerLab) | `False` | Deploy/destroy operations are the main purpose |
+| ITSM / Ticketing (e.g. ServiceNow) | `False` | Creating/updating tickets is core workflow |
+| Secret/Credential store (e.g. Vault) | `True` | Never expose write ops to AI |
+| Config push (e.g. NSO, Netconf) | `True` unless user explicitly requests write ops | High risk |
+
+**Default**: `True`. Only set to `False` when write operations are the **primary use case** of the integration.
 
 ---
 
