@@ -142,11 +142,16 @@ Check that:
 
 | Schema says | Use auth_type | Set |
 |------------|--------------|-----|
-| `apiKey` in header named `Authorization` | `bearer` | token_env |
+| `apiKey` in header named `Authorization` | `api_key` | token_env, header_name="Authorization" |
+| `apiKey` in custom header (e.g. `X-Api-Key`) | `api_key` | token_env, header_name="X-Api-Key" |
 | `http` scheme `bearer` | `bearer` | token_env |
 | `http` scheme `basic` | `basic` | username_env, password_env |
 | Login endpoint returns JWT | `jwt` | login_path, username_env, password_env |
 | No security defined | `none` | — |
+
+> **InfluxDB v2 note**: uses `Authorization: Token <token>` — set auth_type=`api_key`,
+> header_name=`Authorization`, token_env=`INFLUXDB_TOKEN`. The env var should hold the
+> full value `Token abc123` (prefix included).
 
 ---
 

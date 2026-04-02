@@ -91,6 +91,15 @@ def _get_auth_headers(svc: ServiceConfig) -> dict[str, str]:
         creds = base64.b64encode(f"{username}:{password}".encode()).decode()
         return {"Authorization": f"Basic {creds}"}
 
+    if auth_type == "api_key":
+        token = svc.get_token()
+        if not token:
+            raise ValueError(
+                f"Service '{svc.name}': auth.type=api_key but {svc.auth.token_env!r} env var is not set"
+            )
+        header = svc.auth.header_name or "Authorization"
+        return {header: token}
+
     raise ValueError(f"Service '{svc.name}': unknown auth.type={auth_type!r}")
 
 

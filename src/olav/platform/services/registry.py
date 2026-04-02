@@ -24,11 +24,12 @@ import yaml
 
 @dataclass
 class AuthConfig:
-    type: str = "none"           # jwt | bearer | basic | none
+    type: str = "none"           # jwt | bearer | basic | api_key | none
     login_path: str = "/login"
     username_env: str = ""
     password_env: str = ""
     token_env: str = ""
+    header_name: str = "Authorization"  # for api_key: header name (e.g. 'Authorization', 'X-Api-Key')
 
 
 @dataclass
@@ -135,6 +136,7 @@ def _parse_auth(raw: dict) -> AuthConfig:
         username_env=raw.get("username_env", ""),
         password_env=raw.get("password_env", ""),
         token_env=raw.get("token_env", ""),
+        header_name=raw.get("header_name", "Authorization"),
     )
 
 

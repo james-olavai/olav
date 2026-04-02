@@ -11,6 +11,7 @@ agents:
 - olav
 - venv-test
 - netbox-circuits
+- influxdb-orgs
 platform:
   db: .olav/databases/olav.duckdb
   memory: .olav/databases/memory.lance
