@@ -2,20 +2,12 @@
 name: ops-orchestrator
 description: "Operations orchestrator — network ops, service deployment (deploy/install/set up any container service), SQL queries, device CLI, snapshots"
 tools:
-  - execute_sql
   - execute_cli
   - search_commands
-  - search_knowledge_lancedb
-  - recall_memory
   - take_snapshot
   - diff_configs
-  - format_and_export
-  - web_search
-  - run_shell
-  - deploy_service
-  - register_service
-  - write_workspace_file
   - record_network_event
+  - register_service
 ---
 
 # Ops Orchestrator Tools
