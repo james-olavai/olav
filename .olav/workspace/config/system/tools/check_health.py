@@ -353,22 +353,55 @@ def _check_database() -> dict:
             if results["status"] == "ok":
                 results["status"] = "warning"
 
-    # ── main.duckdb: network state tables ────────────────────────────────────
+    # ── main.duckdb: current network state tables ─────────────────────────────
     main_db = db_dir / "main.duckdb"
     if main_db.exists():
         try:
             import duckdb
             conn = duckdb.connect(str(main_db), read_only=True)
-            for tbl in ["devices", "parsed_outputs"]:
+
+            # Core registry tables — must have rows if system is configured
+            for tbl, label in [("commands", "Command registry"),
+                                ("schema_catalog", "Schema catalog"),
+                                ("sync_metadata", "Sync metadata")]:
                 try:
-                    count = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+                    count = conn.execute(f'SELECT COUNT(*) FROM "{tbl}"').fetchone()[0]
                     results["stats"][tbl] = count
                     s = "ok" if count > 0 else "warning"
-                    results["checks"].append({"name": tbl, "status": s, "rows": count})
+                    results["checks"].append({"name": label, "status": s, "rows": count})
                     if count == 0 and results["status"] == "ok":
                         results["status"] = "warning"
                 except Exception:
                     pass
+
+            # Auto-generated network state views — at least one should have data
+            auto_views = [
+                t for (t,) in conn.execute(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema='main' AND table_name LIKE 'v_%_auto'"
+                ).fetchall()
+            ]
+            populated = {}
+            for v in auto_views:
+                try:
+                    c = conn.execute(f'SELECT COUNT(*) FROM "{v}"').fetchone()[0]
+                    if c > 0:
+                        populated[v] = c
+                except Exception:
+                    pass
+            if populated:
+                results["checks"].append({"name": "Network state views", "status": "ok",
+                                           "populated": len(populated),
+                                           "total": len(auto_views),
+                                           "sample": dict(list(populated.items())[:4])})
+                results["stats"]["network_views"] = populated
+            else:
+                results["checks"].append({"name": "Network state views", "status": "warning",
+                                           "message": f"0/{len(auto_views)} auto-views have data"
+                                                       " — run take_snapshot"})
+                if results["status"] == "ok":
+                    results["status"] = "warning"
+
             conn.close()
         except Exception as e:
             results["checks"].append({"name": "main.duckdb read", "status": "error",
@@ -409,13 +442,15 @@ def _check_database() -> dict:
         try:
             import lancedb
             db = lancedb.connect(str(lancedb_path))
-            tables = db.list_tables()
+            response = db.list_tables()
+            # list_tables() returns a ListTablesResponse with .tables attribute in newer lancedb
+            table_names = (response.tables if hasattr(response, "tables") else list(response))
             lance_stats = {}
-            for t in tables:
+            for t in table_names:
                 try:
-                    lance_stats[t] = db.open_table(t).count_rows()
+                    lance_stats[str(t)] = db.open_table(str(t)).count_rows()
                 except Exception:
-                    lance_stats[t] = "?"
+                    lance_stats[str(t)] = "?"
             results["checks"].append({"name": "LanceDB memory store", "status": "ok",
                                        "tables": lance_stats})
             results["stats"]["lancedb"] = lance_stats
@@ -553,11 +588,14 @@ def _generate_recommendations(health: dict) -> list[str]:
             recs.append(f"Register agents in PLATFORM.md: {check.get('agents', [])}")
 
     for check in health.get("database", {}).get("checks", []):
-        if check.get("rows", 1) == 0:
-            if check["name"] == "devices":
-                recs.append("No devices — run 'sync_inventory'")
-            elif check["name"] == "parsed_outputs":
-                recs.append("No snapshots — run 'take_snapshot'")
+        if check.get("status") == "warning":
+            name = check.get("name", "")
+            if "Command registry" in name:
+                recs.append("No commands — run 'olav workspace sync' to register commands")
+            elif "Schema catalog" in name:
+                recs.append("No schema catalog — run schema discovery pipeline")
+            elif "Network state views" in name:
+                recs.append("No network data — run 'take_snapshot' to collect device state")
 
     if not recs:
         recs.append("System is healthy — no immediate improvements needed")
