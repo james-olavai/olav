@@ -88,14 +88,32 @@ def test_auto_extract_unwraps_pagination_envelope():
             {"id": 2, "name": "sw2", "_noise": "y"},
         ],
     }
-    known = {"id", "name"}
+    # Without explicit response_def, items are returned unchanged (no auto-trim)
     with patch("olav.platform.services.response_extractor._lookup_response_def", return_value="Device"):
-        with patch("olav.core.api_registry.field_names", return_value=known):
-            result = auto_extract(data, "netbox", "GET", "/api/dcim/devices/")
+        result = auto_extract(data, "netbox", "GET", "/api/dcim/devices/")
 
     assert result["count"] == 2
-    assert result["results"] == [{"id": 1, "name": "sw1"}, {"id": 2, "name": "sw2"}]
+    # items preserved intact (auto-detected def_name doesn't trim envelope items)
+    assert result["results"] == [
+        {"id": 1, "name": "sw1", "_noise": "x"},
+        {"id": 2, "name": "sw2", "_noise": "y"},
+    ]
     assert "next" in result
+
+
+def test_auto_extract_explicit_response_def_trims_envelope_items():
+    """With explicit response_def, items in a plain list are field-filtered."""
+    from olav.platform.services.response_extractor import auto_extract
+
+    data = [
+        {"id": 1, "name": "sw1", "_noise": "x"},
+        {"id": 2, "name": "sw2", "_noise": "y"},
+    ]
+    known = {"id", "name"}
+    with patch("olav.core.api_registry.field_names", return_value=known):
+        result = auto_extract(data, "netbox", "GET", "/api/dcim/devices/", response_def="Device")
+
+    assert result == [{"id": 1, "name": "sw1"}, {"id": 2, "name": "sw2"}]
 
 
 # ── 6. auto_extract truncates oversized list ──────────────────────────────────
