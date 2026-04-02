@@ -2,14 +2,10 @@
 name: config-orchestrator
 description: "Config lifecycle orchestrator — data ingestion, schema normalization, self-healing, and framework maintenance"
 tools:
-  - execute_sql              # DuckDB query execution with auto schema discovery
   - execute_cli              # Run live CLI commands on network devices via SSH
   - bulk_ingest              # Bulk-load staging JSON snapshots into DuckDB (atomic)
   - diff_configs             # Diff two snapshots or config files
-  - format_and_export        # Write reports/diagrams to exports/
   - search_commands          # Search available CLI commands by platform/keyword
-  - search_knowledge_lancedb # Semantic search of KB documents
-  - web_search               # Web search for external documentation
 metadata:
   version: 1.0.0
   type: orchestrator
