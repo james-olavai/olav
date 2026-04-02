@@ -412,6 +412,19 @@ class OLAVAgent:
             if tools_dir.is_dir():
                 tools = discover_tools(tools_dir)
 
+            # Prepend core workspace tools so every subagent inherits platform
+            # capabilities (execute_sql, web_search, deploy_service, run_shell, etc.)
+            # without needing local copies in each subagent's tools/ directory.
+            core_skill = None
+            _base = getattr(self, "olav_base_path", None)
+            if _base is not None:
+                core_skill = _base / "workspace" / "core" / "SKILL.md"
+            if core_skill is not None and core_skill.exists():
+                core_tools = self._load_tools_from_skill(core_skill)
+                existing_names = {t.name for t in tools}
+                # Prepend core tools; subagent-local tools take precedence on name clash
+                tools = [t for t in core_tools if t.name not in existing_names] + tools
+
             prompt_file = metadata.get("system_prompt_file", "prompts/system.md")
             prompt_path = sa_dir / prompt_file
             prompt = _read_prompt_file(prompt_path)

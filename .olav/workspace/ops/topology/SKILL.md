@@ -8,8 +8,6 @@ metadata:
   category: network-operations
   intent: topology_analysis
 tools:
-  - execute_sql              # Dedicated: Query topology_links, interfaces, CDP/LLDP
-  - format_and_export        # Dedicated: Export topology diagrams (.mmd)
   - topology                 # Dedicated: Pathfinding, cycle detection, L2/L3 graph analysis
 database_schema:
   topology_links:

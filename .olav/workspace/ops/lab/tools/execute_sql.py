@@ -1,1 +1,0 @@
-../../tools/execute_sql.py
