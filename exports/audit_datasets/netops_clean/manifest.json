@@ -1,0 +1,36 @@
+{
+  "export_id": "netops_clean",
+  "source_db": "in-memory",
+  "window": {
+    "hours": 2,
+    "exported_at": "2026-03-18T00:22:36.327926+00:00"
+  },
+  "redaction_policy": "audit-redaction-v1",
+  "encryption": {
+    "applied": false,
+    "mode": "disabled",
+    "provider": null,
+    "primitive": null,
+    "key_ref": null
+  },
+  "formats": [
+    "sft"
+  ],
+  "runs_scanned": 6,
+  "runs_after_filter": 6,
+  "runs_exported": 6,
+  "runs_rejected": 0,
+  "scoring_policy": {
+    "min_rule_score": 0.0,
+    "llm_scoring": false,
+    "weights": {
+      "completeness": 0.2,
+      "tool_consistency": 0.15,
+      "query_specificity": 0.15,
+      "analysis_value": 0.15,
+      "tool_selection_relevance": 0.15,
+      "parameter_quality": 0.1,
+      "output_usage": 0.1
+    }
+  }
+}

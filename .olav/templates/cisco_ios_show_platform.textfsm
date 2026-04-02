@@ -1,0 +1,10 @@
+Value slot (\S+)
+Value type (\S+)
+Value state (.+?)
+Value insert_time (\S+)
+
+Start
+  ^Chassis\stype: -> Start
+  ^Slot\s+Type\s+State\s+Insert\stime -> Start
+  ^-+\s+-+\s+-+\s+-+ -> Start
+  ^${slot}\s+${type}\s+${state}\s+${insert_time}\s*$$ -> Record

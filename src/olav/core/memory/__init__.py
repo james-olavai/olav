@@ -547,6 +547,17 @@ _store_embedding_dim: int | None = None
 def _detect_embedding_dim() -> int:
     """Return the active embedder's output dimension, or 384 as fallback."""
     try:
+        from olav.core.config import get_embedding_config
+
+        cfg = get_embedding_config()
+        if cfg.mode == "api":
+            model = cfg.openai_model.lower()
+            if "3-large" in model:
+                return 3072
+            elif "3-small" in model or "ada" in model:
+                return 1536
+            return 1536  # safe default for unknown api models
+        # Local mode: ask the singleton
         from olav.core.embedder import get_embedder
 
         emb = get_embedder()

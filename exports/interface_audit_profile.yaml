@@ -1,0 +1,47 @@
+name: interface_down_audit
+description: Audit all device interfaces for operational status. Counts down interfaces
+  (line_status LIKE '%down%' OR = 'down'). Flags issues if >5% down.
+version: '1.0'
+snapshot_id: 2026-03-06_0931
+queries:
+- name: total_summary
+  sql: SELECT COUNT(*) as total_interfaces, COUNT(CASE WHEN LOWER(line_status) LIKE
+    '%down%' OR LOWER(line_status) = 'down' THEN 1 END) as down_interfaces FROM v_interfaces_auto
+    WHERE snapshot_id = (SELECT snapshot_id FROM v_interfaces_auto GROUP BY snapshot_id
+    ORDER BY MAX(created_at) DESC LIMIT 1);
+  thresholds:
+    down_interfaces:
+      warning: '>5'
+      critical: '>10'
+- name: per_device
+  sql: SELECT device_name, COUNT(*) as total, COUNT(CASE WHEN LOWER(line_status) LIKE
+    '%down%' OR LOWER(line_status) = 'down' THEN 1 END) as down_count, ROUND(100.0
+    * COUNT(CASE WHEN LOWER(line_status) LIKE '%down%' OR LOWER(line_status) = 'down'
+    THEN 1 END) / COUNT(*), 2) as down_pct FROM v_interfaces_auto WHERE snapshot_id
+    = (SELECT snapshot_id FROM v_interfaces_auto GROUP BY snapshot_id ORDER BY MAX(created_at)
+    DESC LIMIT 1) GROUP BY device_name ORDER BY down_count DESC;
+  thresholds:
+    down_pct:
+      warning: '>5'
+      critical: '>10'
+current_results:
+  summary:
+    total: 76
+    down: 0
+  per_device:
+  - device_name: R4
+    total: 22
+    down: 0
+    down_pct: 0.0
+  - device_name: R3
+    total: 22
+    down: 0
+    down_pct: 0.0
+  - device_name: SW1
+    total: 16
+    down: 0
+    down_pct: 0.0
+  - device_name: SW2
+    total: 16
+    down: 0
+    down_pct: 0.0

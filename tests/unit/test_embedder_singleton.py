@@ -27,21 +27,27 @@ def test_get_embedder_returns_singleton():
         def __init__(self, model, *a, **kw):
             init_count.append(model)
 
+        def get_sentence_embedding_dimension(self):
+            return 384
+
     # 重置模块级缓存，确保每次测试独立
     import olav.core.embedder as embedder_mod
 
-    original = embedder_mod._embedder
-    embedder_mod._embedder = None
+    original = embedder_mod._local_embedder
+    embedder_mod._local_embedder = None
+
+    fake_cfg = MagicMock(mode="local", local_model="BAAI/bge-small-en-v1.5", device="cpu")
 
     try:
-        with patch.dict(
-            "sys.modules", {"sentence_transformers": MagicMock(SentenceTransformer=FakeST)}
+        with (
+            patch.dict("sys.modules", {"sentence_transformers": MagicMock(SentenceTransformer=FakeST)}),
+            patch("olav.core.config.get_embedding_config", return_value=fake_cfg),
         ):
             e1 = embedder_mod.get_embedder()
             e2 = embedder_mod.get_embedder()
             e3 = embedder_mod.get_embedder()
     finally:
-        embedder_mod._embedder = original
+        embedder_mod._local_embedder = original
 
     assert e1 is e2 is e3, "get_embedder() must return the same instance on every call."
     assert len(init_count) == 1, (
@@ -53,14 +59,14 @@ def test_get_embedder_returns_none_when_st_unavailable():
     """sentence_transformers 不可用时，get_embedder() 必须返回 None（不抛异常）。"""
     import olav.core.embedder as embedder_mod
 
-    original = embedder_mod._embedder
+    original = embedder_mod._local_embedder
 
-    embedder_mod._embedder = None
+    embedder_mod._local_embedder = None
     try:
         with patch.dict("sys.modules", {"sentence_transformers": None}):
             result = embedder_mod.get_embedder()
     finally:
-        embedder_mod._embedder = original
+        embedder_mod._local_embedder = original
 
     assert result is None, (
         "get_embedder() must return None when sentence_transformers is unavailable."
@@ -72,72 +78,37 @@ def test_get_embedder_returns_none_when_st_unavailable():
 # ---------------------------------------------------------------------------
 
 
-def test_kb_embed_uses_singleton_when_dims_match():
-    """KnowledgeBase._embed must call get_embedder() instead of creating its own SentenceTransformer.
+def test_kb_embed_delegates_to_embed_text():
+    """KnowledgeBase._embed must delegate to embed_text() (the unified embedding service).
 
-    When the singleton's output dimension matches the KB table dimension,
-    the singleton must be reused — no new SentenceTransformer created.
+    KB no longer manages its own embedder — it calls embed_text() which handles
+    api vs local mode via the process-wide singleton.
     """
-    fake_model = MagicMock()
-    fake_model.get_sentence_embedding_dimension.return_value = 384
-    fake_model.encode.return_value = np.zeros(384, dtype=np.float32)
+    fake_vector = list(np.zeros(1536, dtype=np.float32))
 
-    with (
-        patch("olav.core.knowledge.get_embedder", return_value=fake_model) as mock_get,
-        patch("olav.core.config.get_embedding_config") as mock_cfg,
-    ):
-        mock_cfg.return_value = MagicMock(
-            mode="local",
-            local_model="BAAI/bge-small-en-v1.5",
-            device="cpu",
-        )
-
+    with patch("olav.core.embedder.embed_text", return_value=fake_vector) as mock_embed:
         from olav.core.knowledge import KnowledgeBase
 
         store = MagicMock()
         store.table_exists.return_value = False
-        kb = KnowledgeBase(store=store, embedding_dim=384)
+        kb = KnowledgeBase(store=store, embedding_dim=1536)
         result = kb._embed("hello world")
 
-    mock_get.assert_called()
-    fake_model.encode.assert_called_once()
-    assert result is not None, "_embed should return embeddings when singleton is available"
+    mock_embed.assert_called_once_with("hello world")
+    assert result == fake_vector, "_embed should return whatever embed_text returns"
 
 
-def test_kb_embed_falls_back_on_dim_mismatch():
-    """When singleton dim ≠ table dim, KB must fall back to local SentenceTransformer.
+def test_kb_embed_returns_none_on_failure():
+    """KnowledgeBase._embed must return None when embed_text() fails."""
+    with patch("olav.core.embedder.embed_text", return_value=None):
+        from olav.core.knowledge import KnowledgeBase
 
-    This preserves the dimension-compatibility safety logic.
-    """
-    # Singleton produces 384-dim but KB table expects 768-dim
-    fake_singleton = MagicMock()
-    fake_singleton.get_sentence_embedding_dimension.return_value = 384
+        store = MagicMock()
+        store.table_exists.return_value = False
+        kb = KnowledgeBase(store=store, embedding_dim=1536)
+        result = kb._embed("hello world")
 
-    fake_fallback = MagicMock()
-    fake_fallback.encode.return_value = np.zeros(768, dtype=np.float32)
-
-    with (
-        patch("olav.core.knowledge.get_embedder", return_value=fake_singleton),
-        patch("olav.core.config.get_embedding_config") as mock_cfg,
-    ):
-        mock_cfg.return_value = MagicMock(
-            mode="local",
-            local_model="BAAI/bge-base-en-v1.5",
-            device="cpu",
-        )
-
-        # Patch SentenceTransformer at the source module — _embed() does
-        # ``from sentence_transformers import SentenceTransformer`` locally,
-        # so we must patch the class in its home module.
-        with patch("sentence_transformers.SentenceTransformer", return_value=fake_fallback):
-            from olav.core.knowledge import KnowledgeBase
-
-            store = MagicMock()
-            store.table_exists.return_value = False
-            kb = KnowledgeBase(store=store, embedding_dim=768)
-            result = kb._embed("hello world")
-
-    assert result is not None, "_embed should still work via fallback when dims mismatch"
+    assert result is None, "_embed should return None when embed_text returns None"
 
 
 # ---------------------------------------------------------------------------

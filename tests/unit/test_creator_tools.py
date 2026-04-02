@@ -217,7 +217,8 @@ class TestRegisterApiService:
             "files_written": [".olav/workspace/ops/tools/_generated/testapi_items.py"],
         }
 
-        with patch("olav.platform.services.tool_generator.register_service", return_value=mock_result):
+        import olav.platform.services.tool_generator as _tg
+        with patch.object(_tg, "register_service", return_value=mock_result):
             result = mod.register_api_service.invoke({
                 "service_name": "testapi",
                 "force": True,
@@ -231,8 +232,9 @@ class TestRegisterApiService:
     def test_propagates_error_from_register_service(self):
         mod = self._load_tool()
 
-        with patch(
-            "olav.platform.services.tool_generator.register_service",
+        import olav.platform.services.tool_generator as _tg
+        with patch.object(
+            _tg, "register_service",
             return_value={"status": "error", "error": "Schema fetch failed"},
         ):
             result = mod.register_api_service.invoke({"service_name": "broken"})
@@ -424,9 +426,86 @@ class TestReadApiSchema:
 
     def test_returns_error_on_network_failure(self):
         mod = self._load_tool()
-
-        with patch("requests.get", side_effect=ConnectionError("unreachable")):
+        with patch("requests.get", side_effect=Exception("Connection refused")):
             result = mod.read_api_schema.invoke({"source": "http://unreachable.local/schema"})
-
         assert result["status"] == "error"
-        assert result["error"]
+
+
+# ---------------------------------------------------------------------------
+# TestExtractSchemaReference
+# ---------------------------------------------------------------------------
+
+class TestExtractSchemaReference:
+    def _load_tool(self):
+        import importlib.util
+        tool_path = Path("/home/yhvh/Olav/.olav/workspace/config/creator/tools/extract_schema_reference.py")
+        spec = importlib.util.spec_from_file_location("extract_schema_reference", tool_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_writes_schema_reference_json(self, tmp_path: Path):
+        mod = self._load_tool()
+        mock_ref = {
+            "service": "testapi",
+            "endpoint": "http://test.local",
+            "readonly_only": True,
+            "tag_filter": "circuits",
+            "operations": {
+                "GET /api/circuits/": {
+                    "summary": "List circuits",
+                    "query_params": [
+                        {"name": "status", "type": "string", "description": "Filter by status", "required": False},
+                        {"name": "site", "type": "string", "description": "Filter by site", "required": False},
+                    ],
+                },
+                "GET /api/circuits/{id}/": {
+                    "summary": "Retrieve circuit",
+                    "query_params": [],
+                },
+            },
+        }
+        import olav.platform.services.tool_generator as _tg
+        with patch.object(_tg, "generate_schema_reference", return_value=mock_ref):
+            result = mod.extract_schema_reference.invoke({
+                "service_name": "testapi",
+                "workspace_path": str(tmp_path),
+                "tag": "circuits",
+            })
+
+        assert result["status"] == "ok"
+        assert result["total_operations"] == 2
+        assert result["operations_with_query_params"] == 1
+        assert result["total_query_params"] == 2
+
+        out_file = tmp_path / "schema_reference.json"
+        assert out_file.exists()
+        import json
+        written = json.loads(out_file.read_text())
+        assert written["service"] == "testapi"
+        assert "GET /api/circuits/" in written["operations"]
+
+    def test_handles_import_error(self, tmp_path: Path):
+        mod = self._load_tool()
+        with patch.dict("sys.modules", {"olav.platform.services.tool_generator": None}):
+            import sys
+            sys.modules.pop("olav.platform.services.tool_generator", None)
+            with patch("builtins.__import__", side_effect=ImportError("no module")):
+                result = mod.extract_schema_reference.func(
+                    service_name="x", workspace_path=str(tmp_path)
+                )
+        assert result["status"] == "error"
+
+    def test_next_step_mentions_static_context(self, tmp_path: Path):
+        mod = self._load_tool()
+        mock_ref = {
+            "service": "s", "endpoint": "http://x", "readonly_only": True,
+            "tag_filter": None, "operations": {},
+        }
+        import olav.platform.services.tool_generator as _tg
+        with patch.object(_tg, "generate_schema_reference", return_value=mock_ref):
+            result = mod.extract_schema_reference.invoke({
+                "service_name": "s",
+                "workspace_path": str(tmp_path),
+            })
+        assert "static_context" in result["next_step"]

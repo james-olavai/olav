@@ -114,7 +114,9 @@ def _migrate_table(conn, table: str, table_def=None) -> None:
         conn.execute(f"DROP TABLE IF EXISTS main.{table}")
         logger.info("Dropped flat table/view: main.%s", table)
 
-    conn.execute(f"CREATE VIEW IF NOT EXISTS {table} AS SELECT * FROM {netops_table}")
+    # Always use CREATE OR REPLACE to handle re-runs where a stale TABLE may
+    # exist in place of the expected VIEW (e.g. after a partial migration).
+    conn.execute(f"CREATE OR REPLACE VIEW {table} AS SELECT * FROM {netops_table}")
     logger.info("Created compat view: main.%s → %s", table, netops_table)
 
 

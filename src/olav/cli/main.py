@@ -111,6 +111,12 @@ def parse_args():
         pre.add_argument("--workspace", "-w", default=None)
         pre.add_argument("--auto-approve", dest="auto_approve", action="store_true")
         pre.add_argument(
+            "--dangerously-skip-permissions",
+            dest="dangerously_skip_permissions",
+            action="store_true",
+            help="Skip all approval gates (for testing only — not for production use)",
+        )
+        pre.add_argument(
             "--sandbox", default="none", choices=["none", "modal", "daytona", "runloop"]
         )
         pre.add_argument("--sandbox-id", dest="sandbox_id", default=None)
@@ -147,6 +153,7 @@ def parse_args():
             agent=agent,
             workspace=pre_args.workspace,
             auto_approve=pre_args.auto_approve,
+            dangerously_skip_permissions=pre_args.dangerously_skip_permissions,
             sandbox=pre_args.sandbox,
             sandbox_id=pre_args.sandbox_id,
             sandbox_setup=pre_args.sandbox_setup,
@@ -321,6 +328,12 @@ def parse_args():
         "--auto-approve",
         action="store_true",
         help="Auto-approve tool usage without prompting (disables HITL)",
+    )
+    parser.add_argument(
+        "--dangerously-skip-permissions",
+        dest="dangerously_skip_permissions",
+        action="store_true",
+        help="Skip all approval gates — check_approval, sandbox_guard, service_call write gate (for testing only)",
     )
     parser.add_argument(
         "--sandbox",
@@ -1493,6 +1506,16 @@ TODO: Add usage examples.
                     console.print(f"[red]Skill '{skill_name}' not found.[/red]")
                     console.print("[dim]Use 'olav skills list' to see available skills.[/dim]")
             return
+
+        # Activate bypass mode before creating session (sets env var for all gates)
+        if getattr(args, "dangerously_skip_permissions", False):
+            from olav.platform.safety.permissions import set_bypass
+            set_bypass(True)
+            console.print(
+                "  [bold red]⚠ --dangerously-skip-permissions: ON[/bold red] "
+                "[dim](all approval gates disabled — for testing only)[/dim]"
+            )
+            console.print()
 
         # Create session state
         from deepagents_cli.config import SessionState

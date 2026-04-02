@@ -1,0 +1,10 @@
+Value line (\d+\s+\S+(?:\s+\d+)?)
+Value user (\S+)
+Value hosts (\S+)
+Value idle (\S+)
+Value location (\S+)
+
+Start
+  ^\s*Line\s+User\s+Host\(s\)\s+Idle\s+Location -> Start
+  ^\*?${line}\s+${user}\s+${hosts}\s+${idle}\s+${location}\s*$$ -> Record
+  ^\s*Interface\s+User\s+Mode\s+Idle\s+Peer\s+Address -> Start

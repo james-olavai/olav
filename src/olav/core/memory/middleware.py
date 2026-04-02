@@ -87,21 +87,12 @@ class AutoRecallMiddleware:
         self._store = store
         self._top_k = top_k
         self._min_score = min_score_threshold
-        self._embedder = None  # lazy-loaded
 
     def _embed(self, text: str) -> list[float] | None:
-        """Embed text via the process-wide shared embedder."""
-        from olav.core.embedder import get_embedder
+        """Embed text via the configured embedding backend (api or local)."""
+        from olav.core.embedder import embed_text
 
-        embedder = get_embedder()
-        if embedder is None:
-            logger.debug("AutoRecall: embedder unavailable, text-only fallback")
-            return None
-        try:
-            return embedder.encode(text, normalize_embeddings=True).tolist()
-        except Exception as e:
-            logger.debug(f"AutoRecall: embedding failed: {e}")
-            return None
+        return embed_text(text)
 
     def _format_memory_block(self, memories: list[dict]) -> str:
         """Format recalled memories as an XML context block."""
@@ -263,19 +254,12 @@ class AutoCaptureMiddleware:
                 self._dedup_threshold = get_memory_config().dedup_threshold
             except Exception:
                 self._dedup_threshold = 0.92
-        self._embedder = None  # lazy-loaded
 
     def _embed(self, text: str) -> list[float] | None:
-        """Embed text via the process-wide shared embedder."""
-        from olav.core.embedder import get_embedder
+        """Embed text via the configured embedding backend (api or local)."""
+        from olav.core.embedder import embed_text
 
-        embedder = get_embedder()
-        if embedder is None:
-            return None
-        try:
-            return embedder.encode(text, normalize_embeddings=True).tolist()
-        except Exception:
-            return None
+        return embed_text(text)
 
     def _build_conversation_text(self, original_input, result: dict) -> str:
         """Build a text representation of the conversation from input + result."""

@@ -8,22 +8,32 @@ approval.py — 网络危险命令审批门
   - 非阻断式: 返回 ApprovalResult，由调用方决定是阻断还是升级为 HITL
   - 只检测写操作（configure terminal 类命令）
   - read-only 命令（show、display、get）不触发审批
-  - 规则列表可通过 .olav/config/approval_rules.yaml 扩展（未来）
+  - 规则列表可通过 .olav/config/approval_rules.yaml 扩展
 
 参考: dev_docs/15. hermes.md §3.2
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
+from olav.platform.safety.permissions import is_bypass_active
 
-# ── 危险命令模式 ───────────────────────────────────────────────────────────────
+logger = logging.getLogger(__name__)
+
+# ── YAML rules file path (overridable in tests via monkeypatch) ──────────────
+
+_RULES_YAML_PATH: Path = Path(__file__).parents[4] / ".olav" / "config" / "approval_rules.yaml"
+
+# ── 内置危险命令模式 ────────────────────────────────────────────────────────────
 # 每条规则: (pattern, severity, description)
 # severity: "high" = 直接阻断建议；"medium" = 警告建议
 
-_DANGEROUS_RULES: list[tuple[str, str, str]] = [
+_BUILTIN_DANGEROUS_RULES: list[tuple[str, str, str]] = [
     # ── 设备生命周期 ────────────────────────────────────────────────────────
     (r"(?i)^\s*reload\b", "high", "Device reload — will cause network outage"),
     (r"(?i)^\s*shutdown\s*$", "high", "System shutdown command"),
@@ -66,17 +76,114 @@ _DANGEROUS_RULES: list[tuple[str, str, str]] = [
     (r"(?i)\bmkfs\b", "high", "Filesystem format — irreversible data loss"),
 ]
 
-# read-only 前缀白名单（命中则直接放行，不检查危险规则）
+# ── 公开 API: 声明式规则加载 ──────────────────────────────────────────────────
+
+
+def load_approval_rules(env: str | None = None) -> list[tuple[str, str, str]]:
+    """Load approval rules from YAML config, merged with built-in rules.
+
+    Reads ``_RULES_YAML_PATH`` (``/.olav/config/approval_rules.yaml``).
+    If the file is absent or malformed, falls back to ``_BUILTIN_DANGEROUS_RULES``.
+
+    YAML schema::
+
+        override_builtins: false   # optional; if true, built-ins are not included
+        rules:
+          - pattern: "regex"
+            severity: "high|medium|low"
+            description: "Human readable"
+        env_overrides:
+          lab:
+            - pattern: "..."
+              severity: "low"
+              description: "..."
+
+    Merge logic:
+      1. Start with ``_BUILTIN_DANGEROUS_RULES`` (unless ``override_builtins: true``)
+      2. Append ``rules`` from YAML
+      3. If ``env`` is provided and ``env_overrides.<env>`` exists in YAML,
+         replace step-2 rules with the env-specific list.
+
+    Args:
+        env: Optional environment name (e.g. "lab", "production").
+             When provided, env_overrides.<env> replaces the base YAML rules.
+
+    Returns:
+        List of (pattern, severity, description) tuples.
+    """
+    try:
+        import yaml  # PyYAML is a transitive dependency via langchain/pydantic
+        yaml_path = _RULES_YAML_PATH
+        if not yaml_path.exists():
+            return list(_BUILTIN_DANGEROUS_RULES)
+
+        with open(yaml_path, encoding="utf-8") as f:
+            data: Any = yaml.safe_load(f)
+
+        if not isinstance(data, dict):
+            return list(_BUILTIN_DANGEROUS_RULES)
+
+        override_builtins: bool = bool(data.get("override_builtins", False))
+        base_rules: list[tuple[str, str, str]] = (
+            [] if override_builtins else list(_BUILTIN_DANGEROUS_RULES)
+        )
+
+        # Determine which rule list to use (env override or base YAML rules)
+        env_overrides: dict = data.get("env_overrides") or {}
+        if env and env in env_overrides and isinstance(env_overrides[env], list):
+            yaml_rules_raw = env_overrides[env]
+        else:
+            yaml_rules_raw = data.get("rules") or []
+
+        extra: list[tuple[str, str, str]] = []
+        for item in yaml_rules_raw:
+            if not isinstance(item, dict):
+                continue
+            pattern = item.get("pattern", "")
+            severity = item.get("severity", "medium")
+            description = item.get("description", "Custom rule")
+            if pattern:
+                extra.append((str(pattern), str(severity), str(description)))
+
+        return base_rules + extra
+
+    except Exception as exc:
+        logger.warning(f"Failed to load approval rules from YAML: {exc} — using built-in rules")
+        return list(_BUILTIN_DANGEROUS_RULES)
+
+
+# ── read-only 前缀白名单 ────────────────────────────────────────────────────────
+
 _READONLY_PREFIXES = re.compile(
     r"(?i)^\s*(show|display|get|list|describe|print|type|cat|more|less|"
     r"ping|traceroute|tracert|nslookup|dig|whois|curl\s+.*-[gG]|"
     r"info|status|version|who|w\s|id\s|uptime)\b"
 )
 
-_COMPILED_RULES: list[tuple[re.Pattern, str, str]] = [
-    (re.compile(pattern), severity, description)
-    for pattern, severity, description in _DANGEROUS_RULES
-]
+# ── 运行时编译规则列表 ─────────────────────────────────────────────────────────
+
+def _build_compiled_rules() -> list[tuple[re.Pattern, str, str]]:
+    """Build compiled regex rules from the current rule set."""
+    return [
+        (re.compile(pattern), severity, description)
+        for pattern, severity, description in load_approval_rules()
+    ]
+
+
+_COMPILED_RULES: list[tuple[re.Pattern, str, str]] = _build_compiled_rules()
+
+
+def _reload_compiled_rules(env: str | None = None) -> None:
+    """Reload compiled rules from YAML (call after monkeypatching _RULES_YAML_PATH in tests).
+
+    Args:
+        env: Optional environment name to pass to load_approval_rules().
+    """
+    global _COMPILED_RULES
+    _COMPILED_RULES = [
+        (re.compile(pattern), severity, description)
+        for pattern, severity, description in load_approval_rules(env=env)
+    ]
 
 
 # ── 结果类型 ───────────────────────────────────────────────────────────────────
@@ -143,6 +250,10 @@ def check_approval(command: str, device: str = "") -> ApprovalResult:
     if not command or not command.strip():
         return ApprovalResult(requires_approval=False)
 
+    # bypass mode — all commands are allowed
+    if is_bypass_active():
+        return ApprovalResult(requires_approval=False)
+
     # read-only 命令直接放行
     if _READONLY_PREFIXES.match(command):
         return ApprovalResult(requires_approval=False)
@@ -159,3 +270,8 @@ def check_approval(command: str, device: str = "") -> ApprovalResult:
             )
 
     return ApprovalResult(requires_approval=False)
+
+
+# Backward-compatible alias (some tests/tools may use approve_command)
+approve_command = check_approval
+

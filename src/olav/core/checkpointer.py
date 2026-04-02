@@ -92,6 +92,38 @@ class AsyncDuckDBSaver(DuckDBSaver):
         async with self._lock:
             return await asyncio.to_thread(self.put_writes, config, writes, task_id)
 
+    async def list_threads(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Return distinct threads with their latest checkpoint_id as updated_at.
+
+        Queries the checkpoints table and returns one entry per thread_id,
+        using the lexicographically maximum checkpoint_id (ISO timestamp) as
+        updated_at.  This provides a lightweight thread discovery API that
+        does not parse checkpoint blobs.
+
+        Args:
+            limit: Maximum number of threads to return (default 100).
+
+        Returns:
+            List of dicts with keys:
+              - thread_id (str)
+              - updated_at (str) — latest checkpoint_id for this thread
+        """
+        def _query() -> list[dict[str, Any]]:
+            try:
+                rows = self.conn.execute(
+                    "SELECT thread_id, MAX(checkpoint_id) AS updated_at "
+                    "FROM checkpoints "
+                    "GROUP BY thread_id "
+                    "ORDER BY updated_at DESC "
+                    f"LIMIT {int(limit)}"
+                ).fetchall()
+                return [{"thread_id": r[0], "updated_at": r[1]} for r in rows]
+            except Exception:
+                return []
+
+        async with self._lock:
+            return await asyncio.to_thread(_query)
+
 
 def create_checkpointer(
     agent_id: str,

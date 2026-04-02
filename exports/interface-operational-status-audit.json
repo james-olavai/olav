@@ -1,0 +1,38 @@
+{
+  "profile_name": "interface-operational-status",
+  "description": "Audits operational status of all device interfaces. Counts down/up per device.",
+  "sql_query": "WITH latest AS (SELECT MAX(snapshot_id) AS ls FROM v_interfaces) SELECT device_name, COUNT(*) as total_interfaces, COUNT(CASE WHEN line_status != 'up' OR line_status IS NULL THEN 1 END) as down_interfaces, COUNT(CASE WHEN line_status = 'up' THEN 1 END) as up_interfaces, ROUND(100.0 * COUNT(CASE WHEN line_status != 'up' OR line_status IS NULL THEN 1 END) / COUNT(*), 2) as down_pct FROM v_interfaces v JOIN latest l ON v.snapshot_id = l.ls GROUP BY device_name ORDER BY down_interfaces DESC;",
+  "latest_snapshot": "2026-03-06_0246",
+  "total_interfaces": 20,
+  "total_down": 0,
+  "results": [
+    {
+      "device_name": "R4",
+      "total_interfaces": 6,
+      "down_interfaces": 0,
+      "up_interfaces": 6,
+      "down_pct": 0.0
+    },
+    {
+      "device_name": "SW2",
+      "total_interfaces": 4,
+      "down_interfaces": 0,
+      "up_interfaces": 4,
+      "down_pct": 0.0
+    },
+    {
+      "device_name": "R3",
+      "total_interfaces": 6,
+      "down_interfaces": 0,
+      "up_interfaces": 6,
+      "down_pct": 0.0
+    },
+    {
+      "device_name": "SW1",
+      "total_interfaces": 4,
+      "down_interfaces": 0,
+      "up_interfaces": 4,
+      "down_pct": 0.0
+    }
+  ]
+}

@@ -311,7 +311,7 @@ CREATE TABLE users (
 | **P2** | `olav admin add-user/list-users/revoke-token` CLI 子命令 + admin token rotation（expires_at 90天）+ **GAP-2 audit manifest** + **GAP-3 admin action audit** + **GAP-5 retention policy** | ~150 行 | P1 完成后 |
 | **P2.5 ✅** | 最小 RBAC：`role_skill_permissions` + skill 粒度授权 + workspace lifecycle 仅 admin | ~180 行 | P2 稳定后 |
 | **P2.6 ✅** | Skill 安装控制面：`workspace install/validate/status` + 依赖预检 + unavailable 状態展示 | ~180 行 | P2.5 後 |
-| **P3** | `ServerTokenProvider`（WebUI JupyterLab-style）+ **GAP-4 secure cookie flags + CSRF** | ~100 行 | WebUI 对外暴露时 |
+| **P3** | `ServerTokenProvider`（WebUI JupyterLab-style）+ **GAP-4 secure cookie flags + CSRF** | ~100 行 | WebUI 启用时（内网部署） |
 | **P4** | LDAP stub 激活 | ~80 行 | 企业 AD/LDAP 要求时 |
 | **P5** | AD / OIDC | ~100 行 | SSO 要求时 |
 
@@ -434,7 +434,7 @@ content = redact_sensitive(content, REDACT_PATTERNS)
 
 ---
 
-#### GAP-4：WebUI Session Cookie 缺乏安全标志（高危，WebUI 对外暴露时）
+#### GAP-4：WebUI Session Cookie 缺乏安全标志（内网部署时建议启用）
 
 **问题**：D7 中设计了写 session cookie，但未指定 `Secure`、`HttpOnly`、`SameSite=Strict`，且无 CSRF token 保护。
 
@@ -453,7 +453,7 @@ response.set_cookie(
     path="/",
 )
 ```
-**优先级：P3（WebUI 对外暴露时必须）**
+**优先级：P3（内网 WebUI 启用时建议配置）**
 
 ---
 

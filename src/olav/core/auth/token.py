@@ -90,16 +90,16 @@ class TokenAuthProvider:
         try:
             import duckdb
 
-            conn = duckdb.connect(str(self._users_db), read_only=True)
-            rows = conn.execute(
-                "SELECT username, role, token_salt, expires_at FROM users WHERE is_active = true"
-            ).fetchall()
-            conn.close()
+            with duckdb.connect(str(self._users_db), read_only=True) as conn:
+                rows = conn.execute(
+                    "SELECT username, role, token_salt, token_hash, expires_at "
+                    "FROM users WHERE is_active = true"
+                ).fetchall()
         except Exception:  # DB not initialised or schema mismatch
             return None
 
-        for username, role, salt, expires_at in rows:
-            if salt and self._hash(salt, token) == self._get_stored_hash(username):
+        for username, role, salt, token_hash, expires_at in rows:
+            if salt and self._hash(salt, token) == token_hash:
                 identity = UserIdentity(
                     username=username, role=role, source="token", expires_at=expires_at
                 )
@@ -110,19 +110,6 @@ class TokenAuthProvider:
 
     def _hash(self, salt: str, token: str) -> str:
         return hashlib.sha256(f"{salt}{token}".encode()).hexdigest()
-
-    def _get_stored_hash(self, username: str) -> str | None:
-        try:
-            import duckdb
-
-            conn = duckdb.connect(str(self._users_db), read_only=True)
-            row = conn.execute(
-                "SELECT token_hash FROM users WHERE username = ?", [username]
-            ).fetchone()
-            conn.close()
-            return row[0] if row else None
-        except Exception:
-            return None
 
     def _audit_login(
         self,

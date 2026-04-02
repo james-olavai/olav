@@ -1,0 +1,7 @@
+
+            OSPF Router with ID (2.2.2.2) (Process ID 1)
+
+		Router Link States (Area 0)
+
+Link ID         ADV Router      Age         Seq#       Checksum Link count
+2.2.2.2         2.2.2.2         354         0x8000000A 0x00EEED 2         

@@ -1,0 +1,20 @@
+File Systems:
+
+       Size(b)       Free(b)      Type  Flags  Prefixes
+             -             -    opaque     rw   system:
+             -             -    opaque     rw   tmpsys:
+*   6286540800    5372928000      disk     rw   bootflash: flash:
+    2014175232    1926549504      disk     ro   webui:
+             -             -    opaque     rw   null:
+             -             -    opaque     ro   tar:
+             -             -   network     rw   tftp:
+      33554432      33548236     nvram     rw   nvram:
+             -             -    opaque     wo   syslog:
+             -             -   network     rw   rcp:
+             -             -   network     rw   pram:
+             -             -   network     rw   http:
+             -             -   network     rw   ftp:
+             -             -   network     rw   scp:
+             -             -   network     rw   sftp:
+             -             -   network     rw   https:
+             -             -    opaque     ro   cns:

@@ -1,0 +1,411 @@
+device_name,command,snapshot_id,latest_snapshot
+R1,show lldp neighbors,2026-03-02_2246,2026-03-27_1221
+R1,show lldp neighbors,2026-03-02_2127,2026-03-27_1221
+R1,show lldp neighbors,2026-03-02_1717,2026-03-27_1221
+R1,show lldp neighbors,2026-03-05_1615,2026-03-27_1221
+R1,show lldp neighbors,2026-03-02_1810,2026-03-27_1221
+R1,show lldp neighbors,2026-03-05_1559,2026-03-27_1221
+R1,show lldp neighbors,2026-03-16_1440,2026-03-27_1221
+R1,show lldp neighbors,2026-03-02_2110,2026-03-27_1221
+R1,show lldp neighbors,2026-03-02_2133,2026-03-27_1221
+R1,show lldp neighbors,2026-03-02_1652,2026-03-27_1221
+R1,show lldp neighbors,2026-03-06_0931,2026-03-27_1221
+R1,show lldp neighbors,2026-03-03_1751,2026-03-27_1221
+R1,show lldp neighbors,2026-03-04_1115,2026-03-27_1221
+R1,show lldp neighbors,2026-03-03_1940,2026-03-27_1221
+R1,show lldp neighbors,2026-03-03_1754,2026-03-27_1221
+R1,show lldp neighbors,2026-03-21_1850,2026-03-27_1221
+R1,show lldp neighbors,2026-03-03_1944,2026-03-27_1221
+R1,show lldp neighbors,2026-03-02_1829,2026-03-27_1221
+R1,show lldp neighbors,2026-03-03_1746,2026-03-27_1221
+R1,show lldp neighbors,2026-03-04_1109,2026-03-27_1221
+R1,show lldp neighbors,2026-03-05_1627,2026-03-27_1221
+R1,show lldp neighbors,2026-03-16_1414,2026-03-27_1221
+R1,show lldp neighbors,2026-03-03_2009,2026-03-27_1221
+R1,show lldp neighbors,2026-03-27_1221,2026-03-27_1221
+R1,show lldp neighbors,2026-03-06_0246,2026-03-27_1221
+R1,show lldp neighbors,2026-03-05_1918,2026-03-27_1221
+R1,show lldp neighbors,2026-03-04_1124,2026-03-27_1221
+R1,show lldp neighbors,2026-03-03_1951,2026-03-27_1221
+R1,show lldp neighbors,2026-03-02_2038,2026-03-27_1221
+R2,show lldp neighbors,2026-03-16_1440,2026-03-16_1440
+R2,show lldp neighbors,2026-03-03_1951,2026-03-16_1440
+R2,show lldp neighbors,2026-03-02_1810,2026-03-16_1440
+R2,show lldp neighbors,2026-03-05_1615,2026-03-16_1440
+R2,show lldp neighbors,2026-03-02_1717,2026-03-16_1440
+R2,show lldp neighbors,2026-03-02_2133,2026-03-16_1440
+R2,show lldp neighbors,2026-03-04_1115,2026-03-16_1440
+R2,show lldp neighbors,2026-03-05_1559,2026-03-16_1440
+R2,show lldp neighbors,2026-03-03_1754,2026-03-16_1440
+R2,show lldp neighbors,2026-03-04_1109,2026-03-16_1440
+R2,show lldp neighbors,2026-03-02_2246,2026-03-16_1440
+R2,show lldp neighbors,2026-03-06_0246,2026-03-16_1440
+R2,show lldp neighbors,2026-03-05_1918,2026-03-16_1440
+R2,show lldp neighbors,2026-03-03_1944,2026-03-16_1440
+R2,show lldp neighbors,2026-03-03_1751,2026-03-16_1440
+R2,show lldp neighbors,2026-03-02_1652,2026-03-16_1440
+R2,show lldp neighbors,2026-03-06_0931,2026-03-16_1440
+R2,show lldp neighbors,2026-03-02_2038,2026-03-16_1440
+R2,show lldp neighbors,2026-03-02_2110,2026-03-16_1440
+R2,show lldp neighbors,2026-03-03_1746,2026-03-16_1440
+R2,show lldp neighbors,2026-03-02_1829,2026-03-16_1440
+R2,show lldp neighbors,2026-03-16_1414,2026-03-16_1440
+R2,show lldp neighbors,2026-03-03_2009,2026-03-16_1440
+R2,show lldp neighbors,2026-03-04_1124,2026-03-16_1440
+R2,show lldp neighbors,2026-03-02_2127,2026-03-16_1440
+R2,show lldp neighbors,2026-03-05_1627,2026-03-16_1440
+R2,show lldp neighbors,2026-03-03_1940,2026-03-16_1440
+R3,show cdp neighbors,2026-03-21_1850,2026-03-27_1221
+R3,show cdp neighbors,2026-03-03_1751,2026-03-27_1221
+R3,show cdp neighbors,2026-03-02_1829,2026-03-27_1221
+R3,show cdp neighbors,2026-03-03_1746,2026-03-27_1221
+R3,show cdp neighbors,2026-03-16_1440,2026-03-27_1221
+R3,show cdp neighbors,2026-03-05_1559,2026-03-27_1221
+R3,show cdp neighbors,2026-03-02_1810,2026-03-27_1221
+R3,show cdp neighbors,2026-03-02_2133,2026-03-27_1221
+R3,show cdp neighbors,2026-03-03_2009,2026-03-27_1221
+R3,show cdp neighbors,2026-03-02_1717,2026-03-27_1221
+R3,show cdp neighbors,2026-03-05_1615,2026-03-27_1221
+R3,show cdp neighbors,2026-03-02_2127,2026-03-27_1221
+R3,show cdp neighbors,2026-03-04_1124,2026-03-27_1221
+R3,show cdp neighbors,2026-03-16_1414,2026-03-27_1221
+R3,show cdp neighbors,2026-03-05_1627,2026-03-27_1221
+R3,show cdp neighbors,2026-03-27_1221,2026-03-27_1221
+R3,show cdp neighbors,2026-03-06_0246,2026-03-27_1221
+R3,show cdp neighbors,2026-03-05_1918,2026-03-27_1221
+R3,show cdp neighbors,2026-03-04_1109,2026-03-27_1221
+R3,show cdp neighbors,2026-03-03_1754,2026-03-27_1221
+R3,show cdp neighbors,2026-03-03_1940,2026-03-27_1221
+R3,show cdp neighbors,2026-03-04_1115,2026-03-27_1221
+R3,show cdp neighbors,2026-03-21_1840,2026-03-27_1221
+R3,show cdp neighbors,2026-03-02_2246,2026-03-27_1221
+R3,show cdp neighbors,2026-03-03_1951,2026-03-27_1221
+R3,show cdp neighbors,2026-03-02_2038,2026-03-27_1221
+R3,show cdp neighbors,2026-03-02_2110,2026-03-27_1221
+R3,show cdp neighbors,2026-03-02_1652,2026-03-27_1221
+R3,show cdp neighbors,2026-03-06_0931,2026-03-27_1221
+R3,show cdp neighbors,2026-03-03_1944,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-05_1627,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-03_2009,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-02_2127,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-04_1124,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-03_1940,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-03_1754,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-04_1115,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-04_1109,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-06_0931,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-05_1918,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-27_1221,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-03_1746,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-03_1944,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-02_1829,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-21_1850,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-02_1810,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-16_1440,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-05_1559,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-02_2133,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-02_2246,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-02_1717,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-05_1615,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-02_1652,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-06_0246,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-03_1751,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-02_2038,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-02_2110,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-03_1951,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-21_1840,2026-03-27_1221
+R3,show cdp neighbors detail,2026-03-16_1414,2026-03-27_1221
+R3,show lldp neighbors,2026-03-03_1940,2026-03-27_1221
+R3,show lldp neighbors,2026-03-21_1840,2026-03-27_1221
+R3,show lldp neighbors,2026-03-04_1115,2026-03-27_1221
+R3,show lldp neighbors,2026-03-04_1109,2026-03-27_1221
+R3,show lldp neighbors,2026-03-27_1221,2026-03-27_1221
+R3,show lldp neighbors,2026-03-05_1918,2026-03-27_1221
+R3,show lldp neighbors,2026-03-06_0246,2026-03-27_1221
+R3,show lldp neighbors,2026-03-05_1615,2026-03-27_1221
+R3,show lldp neighbors,2026-03-02_1810,2026-03-27_1221
+R3,show lldp neighbors,2026-03-16_1440,2026-03-27_1221
+R3,show lldp neighbors,2026-03-05_1559,2026-03-27_1221
+R3,show lldp neighbors,2026-03-02_1717,2026-03-27_1221
+R3,show lldp neighbors,2026-03-02_2246,2026-03-27_1221
+R3,show lldp neighbors,2026-03-02_2133,2026-03-27_1221
+R3,show lldp neighbors,2026-03-03_1951,2026-03-27_1221
+R3,show lldp neighbors,2026-03-02_2038,2026-03-27_1221
+R3,show lldp neighbors,2026-03-03_2009,2026-03-27_1221
+R3,show lldp neighbors,2026-03-04_1124,2026-03-27_1221
+R3,show lldp neighbors,2026-03-02_2127,2026-03-27_1221
+R3,show lldp neighbors,2026-03-03_1746,2026-03-27_1221
+R3,show lldp neighbors,2026-03-03_1944,2026-03-27_1221
+R3,show lldp neighbors,2026-03-02_1829,2026-03-27_1221
+R3,show lldp neighbors,2026-03-21_1850,2026-03-27_1221
+R3,show lldp neighbors,2026-03-16_1414,2026-03-27_1221
+R3,show lldp neighbors,2026-03-05_1627,2026-03-27_1221
+R3,show lldp neighbors,2026-03-02_2110,2026-03-27_1221
+R3,show lldp neighbors,2026-03-02_1652,2026-03-27_1221
+R3,show lldp neighbors,2026-03-06_0931,2026-03-27_1221
+R3,show lldp neighbors,2026-03-03_1751,2026-03-27_1221
+R3,show lldp neighbors,2026-03-03_1754,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-27_1221,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-02_1810,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-16_1440,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-02_1829,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-21_1850,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-03_1746,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-03_1944,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-03_2009,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-03_1951,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-03_1754,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-03_1940,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-04_1109,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-04_1115,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-21_1840,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-05_1918,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-05_1559,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-04_1124,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-02_2127,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-02_2246,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-02_2133,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-05_1615,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-02_2038,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-02_2110,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-03_1751,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-02_1652,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-06_0931,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-16_1414,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-05_1627,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-06_0246,2026-03-27_1221
+R3,show lldp neighbors detail,2026-03-02_1717,2026-03-27_1221
+R4,show cdp neighbors,2026-03-03_2009,2026-03-27_1221
+R4,show cdp neighbors,2026-03-03_1754,2026-03-27_1221
+R4,show cdp neighbors,2026-03-21_1840,2026-03-27_1221
+R4,show cdp neighbors,2026-03-05_1918,2026-03-27_1221
+R4,show cdp neighbors,2026-03-27_1221,2026-03-27_1221
+R4,show cdp neighbors,2026-03-06_0246,2026-03-27_1221
+R4,show cdp neighbors,2026-03-04_1115,2026-03-27_1221
+R4,show cdp neighbors,2026-03-03_1940,2026-03-27_1221
+R4,show cdp neighbors,2026-03-16_1414,2026-03-27_1221
+R4,show cdp neighbors,2026-03-04_1109,2026-03-27_1221
+R4,show cdp neighbors,2026-03-03_1751,2026-03-27_1221
+R4,show cdp neighbors,2026-03-02_1652,2026-03-27_1221
+R4,show cdp neighbors,2026-03-06_0931,2026-03-27_1221
+R4,show cdp neighbors,2026-03-02_2038,2026-03-27_1221
+R4,show cdp neighbors,2026-03-02_2110,2026-03-27_1221
+R4,show cdp neighbors,2026-03-02_2133,2026-03-27_1221
+R4,show cdp neighbors,2026-03-02_2246,2026-03-27_1221
+R4,show cdp neighbors,2026-03-05_1615,2026-03-27_1221
+R4,show cdp neighbors,2026-03-02_1717,2026-03-27_1221
+R4,show cdp neighbors,2026-03-16_1440,2026-03-27_1221
+R4,show cdp neighbors,2026-03-05_1559,2026-03-27_1221
+R4,show cdp neighbors,2026-03-02_1810,2026-03-27_1221
+R4,show cdp neighbors,2026-03-02_1829,2026-03-27_1221
+R4,show cdp neighbors,2026-03-03_1951,2026-03-27_1221
+R4,show cdp neighbors,2026-03-21_1850,2026-03-27_1221
+R4,show cdp neighbors,2026-03-03_1944,2026-03-27_1221
+R4,show cdp neighbors,2026-03-02_2127,2026-03-27_1221
+R4,show cdp neighbors,2026-03-04_1124,2026-03-27_1221
+R4,show cdp neighbors,2026-03-05_1627,2026-03-27_1221
+R4,show cdp neighbors,2026-03-03_1746,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-02_2246,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-03_1940,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-02_2133,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-03_1751,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-02_2038,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-02_2110,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-02_1652,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-06_0931,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-02_1717,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-05_1615,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-05_1627,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-04_1124,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-03_1944,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-21_1850,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-03_1746,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-02_1829,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-02_2127,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-16_1414,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-03_2009,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-03_1951,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-02_1810,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-05_1559,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-16_1440,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-21_1840,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-27_1221,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-05_1918,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-04_1109,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-04_1115,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-03_1754,2026-03-27_1221
+R4,show cdp neighbors detail,2026-03-06_0246,2026-03-27_1221
+R4,show lldp neighbors,2026-03-04_1115,2026-03-16_1440
+R4,show lldp neighbors,2026-03-02_1652,2026-03-16_1440
+R4,show lldp neighbors,2026-03-02_1829,2026-03-16_1440
+R4,show lldp neighbors,2026-03-03_1951,2026-03-16_1440
+R4,show lldp neighbors,2026-03-03_1754,2026-03-16_1440
+R4,show lldp neighbors,2026-03-04_1109,2026-03-16_1440
+R4,show lldp neighbors,2026-03-03_1751,2026-03-16_1440
+R4,show lldp neighbors,2026-03-02_2133,2026-03-16_1440
+R4,show lldp neighbors,2026-03-02_2246,2026-03-16_1440
+R4,show lldp neighbors,2026-03-05_1615,2026-03-16_1440
+R4,show lldp neighbors,2026-03-02_1717,2026-03-16_1440
+R4,show lldp neighbors,2026-03-03_1944,2026-03-16_1440
+R4,show lldp neighbors,2026-03-06_0931,2026-03-16_1440
+R4,show lldp neighbors,2026-03-03_1940,2026-03-16_1440
+R4,show lldp neighbors,2026-03-02_2110,2026-03-16_1440
+R4,show lldp neighbors,2026-03-02_2038,2026-03-16_1440
+R4,show lldp neighbors,2026-03-02_2127,2026-03-16_1440
+R4,show lldp neighbors,2026-03-16_1440,2026-03-16_1440
+R4,show lldp neighbors,2026-03-05_1559,2026-03-16_1440
+R4,show lldp neighbors,2026-03-02_1810,2026-03-16_1440
+R4,show lldp neighbors,2026-03-04_1124,2026-03-16_1440
+R4,show lldp neighbors,2026-03-16_1414,2026-03-16_1440
+R4,show lldp neighbors,2026-03-05_1627,2026-03-16_1440
+R4,show lldp neighbors,2026-03-03_2009,2026-03-16_1440
+R4,show lldp neighbors,2026-03-06_0246,2026-03-16_1440
+R4,show lldp neighbors,2026-03-05_1918,2026-03-16_1440
+R4,show lldp neighbors,2026-03-03_1746,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-03_1944,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-04_1124,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-02_1652,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-06_0931,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-02_2038,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-02_2110,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-02_1829,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-02_1717,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-03_2009,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-03_1951,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-16_1414,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-05_1627,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-02_2127,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-03_1746,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-05_1559,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-02_1810,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-16_1440,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-03_1754,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-02_2133,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-02_2246,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-05_1615,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-06_0246,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-03_1940,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-04_1109,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-04_1115,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-05_1918,2026-03-16_1440
+R4,show lldp neighbors detail,2026-03-03_1751,2026-03-16_1440
+SW1,show cdp neighbors,2026-03-03_1944,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-27_1221,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-02_1652,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-02_2038,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-02_2110,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-16_1414,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-05_1627,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-04_1124,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-02_2127,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-21_1850,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-03_1751,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-04_1109,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-02_1829,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-03_1746,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-21_1840,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-02_2246,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-02_2133,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-02_1717,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-05_1615,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-03_2009,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-03_1951,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-05_1559,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-02_1810,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-16_1440,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-03_1754,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-03_1940,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-04_1115,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-05_1918,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-06_0246,2026-03-27_1221
+SW1,show cdp neighbors,2026-03-06_0931,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-06_0931,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-03_1754,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-02_1652,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-02_2038,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-02_2110,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-02_2127,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-04_1124,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-03_1746,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-02_1829,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-03_1944,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-21_1850,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-05_1627,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-16_1414,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-05_1615,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-03_1951,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-03_2009,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-21_1840,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-02_1717,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-02_2133,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-16_1440,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-02_1810,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-05_1559,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-02_2246,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-27_1221,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-06_0246,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-05_1918,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-04_1115,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-04_1109,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-03_1940,2026-03-27_1221
+SW1,show cdp neighbors detail,2026-03-03_1751,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-21_1850,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-03_1751,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-02_1829,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-03_1746,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-02_2127,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-04_1124,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-16_1414,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-05_1627,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-03_2009,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-02_2246,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-02_1717,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-05_1615,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-04_1109,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-03_1754,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-03_1940,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-04_1115,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-16_1440,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-05_1559,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-02_1810,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-27_1221,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-06_0246,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-05_1918,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-21_1840,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-02_2133,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-03_1951,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-02_2038,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-02_2110,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-06_0931,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-02_1652,2026-03-27_1221
+SW2,show cdp neighbors,2026-03-03_1944,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-04_1109,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-27_1221,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-03_1754,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-03_1940,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-16_1414,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-02_2127,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-04_1124,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-05_1627,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-02_1717,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-05_1559,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-16_1440,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-21_1840,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-03_1951,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-03_2009,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-03_1944,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-21_1850,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-03_1746,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-02_1829,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-03_1751,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-02_2038,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-02_2110,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-06_0931,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-02_1652,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-02_1810,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-05_1615,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-02_2133,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-02_2246,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-05_1918,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-06_0246,2026-03-27_1221
+SW2,show cdp neighbors detail,2026-03-04_1115,2026-03-27_1221

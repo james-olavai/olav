@@ -300,7 +300,12 @@ async def create_thread(
 async def search_threads(identity: Any | None = None):
     if identity is None:
         identity = await _require_auth()
-    return {"threads": []}
+    agent = await get_agent()
+    checkpointer = getattr(agent, "checkpointer", None)
+    if checkpointer is None or not hasattr(checkpointer, "list_threads"):
+        return {"threads": []}
+    threads = await checkpointer.list_threads()
+    return {"threads": threads}
 
 
 @app.post("/threads/{thread_id}/runs/stream")

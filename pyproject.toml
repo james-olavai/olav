@@ -17,14 +17,26 @@ include = [
 
 [project]
 name = "olav"
-version = "0.11.0"
-description = "OLAV - Network Operations AI Assistant with DeepAgents"
+version = "0.12.0"
+description = "OLAV — Enterprise AIOps platform with domain-aware agents, declarative service registry, and structured audit"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
     {name = "OLAV Team"}
 ]
-license = {text = "MIT"}
+license = {text = "BSL-1.1"}
+keywords = ["aiops", "netops", "agent", "langgraph", "deepagents", "network-automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Developers",
+    "Topic :: System :: Networking :: Monitoring",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: POSIX :: Linux",
+]
 
 dependencies = [
     # LLM & Agents
@@ -56,14 +68,12 @@ dependencies = [
     "python-dateutil>=2.8.0",
     "python-crontab>=3.0.0",
     "tenacity>=8.0",
-    "deepagents",
-    "deepagents-cli",
+    "deepagents>=0.4.11,<1.0",
     "langchain-community>=0.4.1",
     "langgraph>=1.0.8",
     "duckdb-engine>=0.17.0",
     "langgraph-checkpoint-duckdb>=2.0.2",
     "python-frontmatter>=1.1.0",
-    "pytest-timeout>=2.4.0",
     # Knowledge Base & Document Processing
     "PyPDF2>=3.0.0",
     "duckduckgo-search>=3.0.0",
@@ -84,16 +94,24 @@ dependencies = [
     "pyang>=2.7.1",
     "yangson>=1.6.7",
     "textfsm>=1.1.3",
+    "ntc-templates>=9.0.0",
 ]
 
 [project.scripts]
 olav = "olav.cli.main:cli_main"
+
+[project.urls]
+Homepage = "https://github.com/yhvh/olav"
+Repository = "https://github.com/yhvh/olav"
+Documentation = "https://github.com/yhvh/olav/tree/main/dev_docs"
+Changelog = "https://github.com/yhvh/olav/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0",
+    "pytest-timeout>=2.4.0",
     "ruff>=0.1.0",
     "mypy>=1.5.0",
     "black>=23.0",
@@ -194,6 +212,7 @@ reportRedeclaration = "warning"
 [tool.pytest.ini_options]
 minversion = "7.0"
 testpaths = ["tests"]
+pythonpath = ["src", "olav-netops/src"]
 # Run notes:
 #   Default: pytest tests/                     (all tests, no LLM/network needed)
 #   E2E CLI:  pytest tests/e2e/test_cli.py     (subprocess, no LLM)
@@ -213,6 +232,7 @@ markers = [
     "llm: Tests requiring real LLM API calls",
     "network: Tests requiring network device access",
     "slow: Slow-running tests",
+    "integration: Integration tests (requires live CLAB/network services)",
 ]
 timeout = 120
 filterwarnings = [
@@ -239,12 +259,3 @@ exclude_lines = [
     "@abstractmethod",
 ]
 
-[tool.uv.workspace]
-members = [
-    "_legacy_archived/archive_v0_to_v0.11/deepagents/libs/deepagents",
-    "_legacy_archived/archive_v0_to_v0.11/deepagents/libs/deepagents-cli",
-]
-
-[tool.uv.sources]
-deepagents = { workspace = true }
-deepagents-cli = { workspace = true }
