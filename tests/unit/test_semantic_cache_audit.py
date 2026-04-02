@@ -10,6 +10,7 @@ import uuid
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import duckdb
 import pytest
 
 
@@ -55,9 +56,9 @@ def test_cache_hit_emits_semantic_cache_hit(tmp_path: Path):
 
     assert result == cached_results, f"Wrong result: {result}"
 
-    rows = recorder._conn.execute(
-        "SELECT event_type, payload FROM audit_events"
-    ).fetchall()
+    recorder.close()
+    with duckdb.connect(str(recorder._db_path)) as _c:
+        rows = _c.execute("SELECT event_type, payload FROM audit_events").fetchall()
     assert rows, "No event written on cache hit"
     event_type, payload_str = rows[0]
     assert event_type == "semantic_cache_hit", f"Got {event_type}"
@@ -88,7 +89,9 @@ def test_cache_miss_no_event(tmp_path: Path):
         result = cache.get([0.1, 0.2, 0.3], recorder=recorder, run_id=run_id)
 
     assert result is None
-    count = recorder._conn.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0]
+    recorder.close()
+    with duckdb.connect(str(recorder._db_path)) as _c:
+        count = _c.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0]
     assert count == 0, "Miss should not produce an audit event"
 
 
@@ -106,7 +109,9 @@ def test_empty_table_no_event(tmp_path: Path):
         result = cache.get([0.1, 0.2, 0.3], recorder=recorder, run_id=run_id)
 
     assert result is None
-    count = recorder._conn.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0]
+    recorder.close()
+    with duckdb.connect(str(recorder._db_path)) as _c:
+        count = _c.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0]
     assert count == 0
 
 
@@ -150,5 +155,7 @@ def test_cache_hit_recorder_no_run_id_no_event(tmp_path: Path):
         result = cache.get([0.1, 0.2, 0.3], recorder=recorder)  # no run_id
 
     assert result == cached_results
-    count = recorder._conn.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0]
+    recorder.close()
+    with duckdb.connect(str(recorder._db_path)) as _c:
+        count = _c.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0]
     assert count == 0, "No run_id → no event expected"

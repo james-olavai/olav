@@ -11,13 +11,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import random
 import re
+import threading
+import time
 import uuid
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import duckdb
+
+# Module-level lock — serialises concurrent writes *within the same process*
+# (e.g. API server with multiple request threads).  Cross-process serialisation
+# is handled by DuckDB's own file-level write lock.
+_WRITE_LOCK = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # GAP-1: Audit log redaction (ISO 27001 A.10 / NIST SC-28)
@@ -159,8 +167,10 @@ class AuditEventRecorder:
     If *db_path* is omitted, defaults to ``AUDIT_DB_PATH`` from
     ``olav.core.config``.
 
-    When the DuckDB file is locked by another process, the recorder
-    gracefully degrades: audit is disabled for this instance (no crash).
+    **Multi-user concurrency**: each write uses a short-lived connection so the
+    exclusive DuckDB lock is held only for the duration of the INSERT (~ms),
+    not for the entire session lifetime.  Concurrent invocations serialise
+    naturally on the file lock with no data loss.
     """
 
     def __init__(self, db_path: str | Path | None = None) -> None:
@@ -170,27 +180,67 @@ class AuditEventRecorder:
             db_path = AUDIT_DB_PATH
         self._db_path = Path(db_path)
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn: duckdb.DuckDBPyConnection | None = None
-        try:
-            self._conn = duckdb.connect(str(self._db_path))
-            self._conn.execute(_DDL)
-            # Migration: add tool_calls column if it doesn't exist yet
-            self._conn.execute(
-                "ALTER TABLE audit_messages ADD COLUMN IF NOT EXISTS tool_calls VARCHAR"
-            )
-        except Exception as _exc:
-            import logging as _logging
-
-            _logging.getLogger(__name__).warning(
-                "audit.duckdb unavailable (lock contention or error) — audit disabled: %s", _exc
-            )
-            if self._conn is not None:
-                try:
-                    self._conn.close()
-                except Exception:
-                    pass
-            self._conn = None
+        self._enabled: bool = True
+        # Run DDL + migration once at startup.  Retry with jitter to survive
+        # the narrow window where concurrent processes all hit a brand-new DB.
+        self._enabled = self._run_with_retry(
+            lambda conn: (
+                conn.execute(_DDL),
+                conn.execute(
+                    "ALTER TABLE audit_messages ADD COLUMN IF NOT EXISTS tool_calls VARCHAR"
+                ),
+            ),
+            error_context="DDL init",
+        )
         self._sequence: int = 0
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    _RETRYABLE = ("write-write conflict", "locked", "database is locked",
+                  "conflicting lock")
+
+    def _is_retryable(self, exc: Exception) -> bool:
+        msg = str(exc).lower()
+        return any(kw in msg for kw in self._RETRYABLE)
+
+    def _run_with_retry(self, fn, *, error_context: str = "write",
+                        max_attempts: int = 8) -> bool:
+        """Open a short-lived connection, run *fn(conn)*, close immediately.
+
+        A module-level threading.Lock serialises concurrent writes within the
+        same process (e.g. API server threads).  For cross-process concurrent
+        CLI invocations, DuckDB's file-level write lock provides serialisation;
+        retries with exponential back-off handle the brief contention window.
+
+        Returns True on success, False on permanent failure.
+        """
+        with _WRITE_LOCK:
+            for attempt in range(max_attempts):
+                try:
+                    with duckdb.connect(str(self._db_path)) as conn:
+                        fn(conn)
+                    return True
+                except Exception as exc:
+                    if self._is_retryable(exc) and attempt < max_attempts - 1:
+                        delay = 0.02 * (2 ** attempt) + random.random() * 0.05
+                        time.sleep(delay)
+                        continue
+                    import logging as _logging
+                    _logging.getLogger(__name__).warning(
+                        "audit.duckdb unavailable (%s) — audit disabled: %s",
+                        error_context, exc,
+                    )
+                    return False
+        return False  # unreachable
+
+    def _execute(self, sql: str, params: list) -> None:
+        """Run a single DML statement with retry on lock contention."""
+        if not self._enabled:
+            return
+        self._run_with_retry(lambda conn: conn.execute(sql, params),
+                             error_context="write")
 
     # ------------------------------------------------------------------
     # Public API
@@ -207,31 +257,19 @@ class AuditEventRecorder:
         source_channel: str | None = None,
     ) -> None:
         """Insert a row into *audit_runs* marking the start of an invocation."""
-        if self._conn is None:
-            return
-        self._conn.execute(
+        self._execute(
             """
             INSERT INTO audit_runs
                 (run_id, start_time, status, agent_id, session_id,
                  thread_id, user_id, source_channel)
             VALUES (?, ?, 'running', ?, ?, ?, ?, ?)
             """,
-            [
-                run_id,
-                _now(),
-                agent_id,
-                session_id,
-                thread_id,
-                user_id,
-                source_channel,
-            ],
+            [run_id, _now(), agent_id, session_id, thread_id, user_id, source_channel],
         )
 
     def record_run_end(self, run_id: str, *, status: str = "completed") -> None:
         """Update the *audit_runs* row with an end timestamp and final status."""
-        if self._conn is None:
-            return
-        self._conn.execute(
+        self._execute(
             "UPDATE audit_runs SET end_time = ?, status = ? WHERE run_id = ?",
             [_now(), status, run_id],
         )
@@ -249,27 +287,16 @@ class AuditEventRecorder:
         """Insert a row into *audit_events* and return the new event_id."""
         self._sequence += 1
         event_id = str(uuid.uuid4())
-        if self._conn is None:
-            return event_id
         payload_str = json.dumps(payload) if payload is not None else None
-        self._conn.execute(
+        self._execute(
             """
             INSERT INTO audit_events
                 (event_id, event_type, timestamp, sequence_no, run_id,
                  session_id, agent_id, payload, redaction)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [
-                event_id,
-                event_type,
-                _now(),
-                self._sequence,
-                run_id,
-                session_id,
-                agent_id,
-                payload_str,
-                redaction,
-            ],
+            [event_id, event_type, _now(), self._sequence, run_id,
+             session_id, agent_id, payload_str, redaction],
         )
         return event_id
 
@@ -286,9 +313,7 @@ class AuditEventRecorder:
     ) -> str:
         """Insert a row into *audit_tool_calls* and return the new call_id."""
         call_id = str(uuid.uuid4())
-        if self._conn is None:
-            return call_id
-        self._conn.execute(
+        self._execute(
             """
             INSERT INTO audit_tool_calls
                 (call_id, run_id, timestamp, tool_name, input_args,
@@ -296,15 +321,10 @@ class AuditEventRecorder:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                call_id,
-                run_id,
-                _now(),
-                tool_name,
+                call_id, run_id, _now(), tool_name,
                 json.dumps(input_args) if input_args is not None else None,
                 json.dumps(output) if output is not None else None,
-                status,
-                error,
-                duration_ms,
+                status, error, duration_ms,
             ],
         )
         return call_id
@@ -322,24 +342,14 @@ class AuditEventRecorder:
         self._sequence += 1
         message_id = str(uuid.uuid4())
         safe_content = redact_sensitive(content)
-        if self._conn is None:
-            return message_id
-        self._conn.execute(
+        self._execute(
             """
             INSERT INTO audit_messages
                 (message_id, run_id, timestamp, sequence_no, role, content, tool_call_id, tool_calls)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [
-                message_id,
-                run_id,
-                _now(),
-                self._sequence,
-                role,
-                safe_content,
-                tool_call_id,
-                tool_calls,
-            ],
+            [message_id, run_id, _now(), self._sequence, role,
+             safe_content, tool_call_id, tool_calls],
         )
         return message_id
 
@@ -402,13 +412,13 @@ class AuditEventRecorder:
         )
 
     def close(self) -> None:
-        """Flush and close the DuckDB connection, writing a tamper-evidence manifest."""
-        if self._conn is None:
+        """Write a tamper-evidence manifest entry.
+
+        No connection to close — each write already used a short-lived
+        context-manager connection.
+        """
+        if not self._enabled:
             return
-        try:
-            self._conn.close()
-        except Exception:
-            pass
         try:
             write_audit_manifest(self._db_path)
         except Exception:

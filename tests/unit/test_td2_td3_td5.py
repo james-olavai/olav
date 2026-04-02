@@ -191,17 +191,18 @@ def test_audit_retention_deletes_old_records(tmp_path):
     db = tmp_path / "audit.duckdb"
     recorder = AuditEventRecorder(db_path=db)
 
-    # Insert old record (200 days ago)
+    # Insert old record (200 days ago) via public API or direct duckdb
     old_ts = datetime.now(timezone.utc) - timedelta(days=200)
     run_id = str(uuid.uuid4())
-    recorder._conn.execute(
-        "INSERT INTO audit_runs (run_id, start_time, status) VALUES (?, ?, ?)",
-        [run_id, old_ts, "completed"],
-    )
-    recorder._conn.execute(
-        "INSERT INTO audit_events (event_id, event_type, timestamp, run_id) VALUES (?, ?, ?, ?)",
-        [str(uuid.uuid4()), "old_event", old_ts, run_id],
-    )
+    with duckdb.connect(str(db)) as _c:
+        _c.execute(
+            "INSERT INTO audit_runs (run_id, start_time, status) VALUES (?, ?, ?)",
+            [run_id, old_ts, "completed"],
+        )
+        _c.execute(
+            "INSERT INTO audit_events (event_id, event_type, timestamp, run_id) VALUES (?, ?, ?, ?)",
+            [str(uuid.uuid4()), "old_event", old_ts, run_id],
+        )
     recorder.close()
 
     deleted = audit_retention(db, max_age_days=90)
@@ -241,16 +242,16 @@ def test_audit_retention_returns_count(tmp_path):
 
     db = tmp_path / "audit.duckdb"
     recorder = AuditEventRecorder(db_path=db)
+    recorder.close()  # ensure schema created
 
     old_ts = datetime.now(timezone.utc) - timedelta(days=200)
-    # Insert 3 old records across different tables
-    for i in range(3):
-        recorder._conn.execute(
-            "INSERT INTO audit_events (event_id, event_type, timestamp) VALUES (?, ?, ?)",
-            [str(uuid.uuid4()), f"old_{i}", old_ts],
-        )
-
-    recorder.close()
+    # Insert 3 old records directly
+    with duckdb.connect(str(db)) as _c:
+        for i in range(3):
+            _c.execute(
+                "INSERT INTO audit_events (event_id, event_type, timestamp) VALUES (?, ?, ?)",
+                [str(uuid.uuid4()), f"old_{i}", old_ts],
+            )
 
     deleted = audit_retention(db, max_age_days=90)
     assert deleted == 3, f"Expected 3 deleted rows, got {deleted}"

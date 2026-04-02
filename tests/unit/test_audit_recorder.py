@@ -100,3 +100,44 @@ def test_record_run_end_updates_row(tmp_path):
     conn.close()
 
     assert rows[0][0] == "completed"
+
+
+def test_concurrent_writers_no_data_loss(tmp_path):
+    """Multiple simultaneous AuditEventRecorder instances must ALL write successfully.
+
+    This is the regression test for the original bug where only the first
+    process acquired the DuckDB exclusive lock; all others silently lost data.
+    """
+    import threading
+    from olav.core.audit_recorder import AuditEventRecorder
+
+    db = tmp_path / "audit.duckdb"
+    N = 10  # concurrent writers
+    errors: list[str] = []
+
+    def write_one(i: int) -> None:
+        try:
+            r = AuditEventRecorder(db_path=db)
+            run_id = str(uuid.uuid4())
+            r.record_run_start(run_id=run_id, agent_id=f"agent-{i}", user_id=f"user-{i}")
+            r.record(event_type="test_event", run_id=run_id, payload={"worker": i})
+            r.record_run_end(run_id=run_id, status="completed")
+            r.close()
+        except Exception as exc:
+            errors.append(str(exc))
+
+    threads = [threading.Thread(target=write_one, args=(i,)) for i in range(N)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors, f"Exceptions in threads: {errors}"
+
+    import duckdb
+    with duckdb.connect(str(db)) as conn:
+        run_count = conn.execute("SELECT COUNT(*) FROM audit_runs").fetchone()[0]
+        event_count = conn.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0]
+
+    assert run_count == N, f"Expected {N} audit_runs rows, got {run_count} — data was lost"
+    assert event_count == N, f"Expected {N} audit_events rows, got {event_count} — data was lost"
