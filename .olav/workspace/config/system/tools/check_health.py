@@ -275,32 +275,58 @@ def _check_workspace() -> dict:
     return results
 
 
-# ── Environment check ─────────────────────────────────────────────────────────
+# ── Environment / Config check ────────────────────────────────────────────────
 
 def _check_env() -> dict:
-    """Check environment and LLM configuration."""
+    """Check environment and LLM configuration (env vars + api.json)."""
     results: dict = {"status": "ok", "checks": []}
 
-    api_key = (os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+    # ── LLM API key ───────────────────────────────────────────────────────────
+    env_key = (os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
                or os.getenv("OPENROUTER_API_KEY") or os.getenv("ANTHROPIC_API_KEY"))
-    if api_key:
+    api_json_path = _OLAV_DIR / "config" / "api.json"
+    cfg: dict = {}
+    if api_json_path.exists():
+        try:
+            cfg = json.loads(api_json_path.read_text())
+        except Exception:
+            pass
+
+    # Key can be in env, cfg.llm.api_key, or cfg.shared.api_key
+    json_key = cfg.get("llm", {}).get("api_key") or cfg.get("shared", {}).get("api_key")
+    if env_key:
         results["checks"].append({"name": "LLM API key", "status": "ok", "source": "env"})
+    elif json_key:
+        results["checks"].append({"name": "LLM API key", "status": "ok", "source": "api.json"})
     else:
-        api_json = _OLAV_DIR / "config" / "api.json"
-        if api_json.exists():
-            import json as _json
-            cfg = _json.loads(api_json.read_text())
-            if cfg.get("llm", {}).get("api_key"):
-                results["checks"].append({"name": "LLM API key", "status": "ok",
-                                           "source": "api.json"})
-            else:
-                results["checks"].append({"name": "LLM API key", "status": "warning",
-                                           "message": "Not found in env or api.json"})
-                results["status"] = "warning"
-        else:
-            results["checks"].append({"name": "LLM API key", "status": "warning",
-                                       "message": "LLM_API_KEY not set"})
+        results["checks"].append({"name": "LLM API key", "status": "warning",
+                                   "message": "Not found in env or api.json"})
+        results["status"] = "warning"
+
+    # ── api.json model / provider ─────────────────────────────────────────────
+    if not cfg:
+        results["checks"].append({"name": "api.json", "status": "warning",
+                                   "message": "Not found or invalid JSON"})
+        results["status"] = "warning"
+    else:
+        llm = cfg.get("llm", {})
+        model = llm.get("model", "")
+        provider = llm.get("provider", "")
+        base_url = llm.get("base_url", "")
+        issues = []
+        if not model:
+            issues.append("llm.model not set")
+        if not provider:
+            issues.append("llm.provider not set")
+        if provider == "custom" and not base_url:
+            issues.append("llm.base_url required for custom provider")
+        if issues:
+            results["checks"].append({"name": "api.json LLM config", "status": "warning",
+                                       "message": "; ".join(issues)})
             results["status"] = "warning"
+        else:
+            results["checks"].append({"name": "api.json LLM config", "status": "ok",
+                                       "provider": provider, "model": model})
 
     return results
 
@@ -308,10 +334,12 @@ def _check_env() -> dict:
 # ── Database check ────────────────────────────────────────────────────────────
 
 def _check_database() -> dict:
-    """Check database health."""
+    """Check database health: DuckDB network state, audit schema, LanceDB memory."""
     results: dict = {"status": "ok", "checks": [], "stats": {}}
 
     db_dir = _OLAV_DIR / "databases"
+
+    # ── DuckDB files ──────────────────────────────────────────────────────────
     for db_name, label in [("main.duckdb", "Network state DB"),
                             ("audit.duckdb", "Audit event store")]:
         db_path = db_dir / db_name
@@ -325,6 +353,7 @@ def _check_database() -> dict:
             if results["status"] == "ok":
                 results["status"] = "warning"
 
+    # ── main.duckdb: network state tables ────────────────────────────────────
     main_db = db_dir / "main.duckdb"
     if main_db.exists():
         try:
@@ -346,6 +375,62 @@ def _check_database() -> dict:
                                        "message": str(e)})
             results["status"] = "error"
 
+    # ── audit.duckdb: schema + row counts ────────────────────────────────────
+    audit_db = db_dir / "audit.duckdb"
+    if audit_db.exists():
+        try:
+            import duckdb
+            conn = duckdb.connect(str(audit_db), read_only=True)
+            audit_stats: dict = {}
+            for tbl in ["audit_events", "audit_runs", "audit_tool_calls", "audit_messages"]:
+                try:
+                    count = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+                    audit_stats[tbl] = count
+                except Exception as e:
+                    audit_stats[tbl] = f"ERR: {e}"
+            conn.close()
+            missing = [t for t, v in audit_stats.items() if isinstance(v, str)]
+            if missing:
+                results["checks"].append({"name": "Audit schema", "status": "error",
+                                           "missing_tables": missing})
+                results["status"] = "error"
+            else:
+                results["checks"].append({"name": "Audit schema", "status": "ok",
+                                           "stats": audit_stats})
+                results["stats"]["audit"] = audit_stats
+        except Exception as e:
+            results["checks"].append({"name": "audit.duckdb read", "status": "error",
+                                       "message": str(e)})
+            results["status"] = "error"
+
+    # ── LanceDB memory store ──────────────────────────────────────────────────
+    lancedb_path = db_dir / "memory.lancedb"
+    if lancedb_path.exists():
+        try:
+            import lancedb
+            db = lancedb.connect(str(lancedb_path))
+            tables = db.list_tables()
+            lance_stats = {}
+            for t in tables:
+                try:
+                    lance_stats[t] = db.open_table(t).count_rows()
+                except Exception:
+                    lance_stats[t] = "?"
+            results["checks"].append({"name": "LanceDB memory store", "status": "ok",
+                                       "tables": lance_stats})
+            results["stats"]["lancedb"] = lance_stats
+        except Exception as e:
+            results["checks"].append({"name": "LanceDB memory store", "status": "warning",
+                                       "message": str(e)})
+            if results["status"] == "ok":
+                results["status"] = "warning"
+    else:
+        results["checks"].append({"name": "LanceDB memory store", "status": "warning",
+                                   "message": "Not initialized (.olav/databases/memory.lancedb missing)"})
+        if results["status"] == "ok":
+            results["status"] = "warning"
+
+    # ── User session checkpoints ──────────────────────────────────────────────
     session_dir = Path.home() / ".olav" / "checkpoints"
     cp_files = list(session_dir.glob("*.duckdb")) if session_dir.exists() else []
     results["checks"].append({"name": "User checkpoints", "status": "ok",
@@ -376,7 +461,7 @@ def _check_nornir(connectivity_sample: int = 3) -> dict:
     try:
         from nornir import InitNornir
         _orig = os.getcwd()
-        os.chdir(nornir_config.parent.parent.parent)
+        os.chdir(_PROJECT_ROOT)  # config.yaml paths are relative to project root
         nr = InitNornir(config_file=str(nornir_config))
         os.chdir(_orig)
         host_count = len(nr.inventory.hosts)
@@ -416,6 +501,33 @@ def _check_nornir(connectivity_sample: int = 3) -> dict:
             if results["status"] == "ok":
                 results["status"] = "warning"
 
+    return results
+
+
+# ── Package sanity check ──────────────────────────────────────────────────────
+
+def _check_packages() -> dict:
+    """Verify critical Python packages are importable."""
+    results: dict = {"status": "ok", "checks": []}
+    required = [
+        ("duckdb", "DuckDB"),
+        ("lancedb", "LanceDB"),
+        ("langchain_core", "LangChain core"),
+        ("langchain_openai", "LangChain OpenAI"),
+        ("deepagents", "deepagents (skills middleware)"),
+        ("nornir", "Nornir"),
+        ("yaml", "PyYAML"),
+    ]
+    for module, label in required:
+        try:
+            mod = __import__(module)
+            ver = getattr(mod, "__version__", "?")
+            results["checks"].append({"name": label, "status": "ok", "version": ver})
+        except ImportError:
+            results["checks"].append({"name": label, "status": "warning",
+                                       "message": f"'{module}' not importable"})
+            if results["status"] == "ok":
+                results["status"] = "warning"
     return results
 
 
@@ -469,7 +581,10 @@ def check_health(
     - All tools declared in each SKILL.md exist on disk
     - Orphaned tool files (exist on disk but not declared in SKILL.md)
     - system_prompt_file references exist
-    - Database health (main.duckdb, audit.duckdb, user checkpoints)
+    - LLM API key + api.json model/provider configuration
+    - Database health: main.duckdb (network state), audit.duckdb schema + row counts,
+      LanceDB memory store, user checkpoint files
+    - Critical Python package imports (duckdb, lancedb, langchain, deepagents, nornir)
     - Nornir inventory reachability + optional SSH connectivity sample
 
     Args:
@@ -484,6 +599,7 @@ def check_health(
 
     health["workspace"] = _check_workspace()
     health["env"] = _check_env()
+    health["packages"] = _check_packages()
 
     if not workspace_only:
         health["database"] = _check_database()
