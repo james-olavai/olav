@@ -8,9 +8,12 @@ DO NOT EDIT MANUALLY — re-run `olav service register netbox` to update.
 
 from __future__ import annotations
 
+from langchain_core.tools import tool
+
 from olav.platform.services.client import service_call as _call
 
 
+@tool
 def netbox_circuits_get_api_circuits_circuit_group_assignments() -> dict:
     """circuits_circuit_group_assignments_list
 
@@ -24,6 +27,7 @@ def netbox_circuits_get_api_circuits_circuit_group_assignments() -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_circuit_group_assignments_by_id(id) -> dict:
     """circuits_circuit_group_assignments_retrieve
 
@@ -37,6 +41,7 @@ def netbox_circuits_get_api_circuits_circuit_group_assignments_by_id(id) -> dict
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_circuit_groups() -> dict:
     """circuits_circuit_groups_list
 
@@ -50,6 +55,7 @@ def netbox_circuits_get_api_circuits_circuit_groups() -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_circuit_groups_by_id(id) -> dict:
     """circuits_circuit_groups_retrieve
 
@@ -63,6 +69,7 @@ def netbox_circuits_get_api_circuits_circuit_groups_by_id(id) -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_circuit_terminations() -> dict:
     """circuits_circuit_terminations_list
 
@@ -76,6 +83,7 @@ def netbox_circuits_get_api_circuits_circuit_terminations() -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_circuit_terminations_by_id(id) -> dict:
     """circuits_circuit_terminations_retrieve
 
@@ -89,6 +97,7 @@ def netbox_circuits_get_api_circuits_circuit_terminations_by_id(id) -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_circuit_terminations_by_id_paths(id) -> dict:
     """circuits_circuit_terminations_paths_retrieve
 
@@ -102,6 +111,7 @@ def netbox_circuits_get_api_circuits_circuit_terminations_by_id_paths(id) -> dic
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_circuit_types() -> dict:
     """circuits_circuit_types_list
 
@@ -115,6 +125,7 @@ def netbox_circuits_get_api_circuits_circuit_types() -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_circuit_types_by_id(id) -> dict:
     """circuits_circuit_types_retrieve
 
@@ -128,6 +139,7 @@ def netbox_circuits_get_api_circuits_circuit_types_by_id(id) -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_circuits() -> dict:
     """circuits_circuits_list
 
@@ -141,6 +153,7 @@ def netbox_circuits_get_api_circuits_circuits() -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_circuits_by_id(id) -> dict:
     """circuits_circuits_retrieve
 
@@ -154,6 +167,7 @@ def netbox_circuits_get_api_circuits_circuits_by_id(id) -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_provider_accounts() -> dict:
     """circuits_provider_accounts_list
 
@@ -167,6 +181,7 @@ def netbox_circuits_get_api_circuits_provider_accounts() -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_provider_accounts_by_id(id) -> dict:
     """circuits_provider_accounts_retrieve
 
@@ -180,6 +195,7 @@ def netbox_circuits_get_api_circuits_provider_accounts_by_id(id) -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_provider_networks() -> dict:
     """circuits_provider_networks_list
 
@@ -193,6 +209,7 @@ def netbox_circuits_get_api_circuits_provider_networks() -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_provider_networks_by_id(id) -> dict:
     """circuits_provider_networks_retrieve
 
@@ -206,6 +223,7 @@ def netbox_circuits_get_api_circuits_provider_networks_by_id(id) -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_providers() -> dict:
     """circuits_providers_list
 
@@ -219,6 +237,7 @@ def netbox_circuits_get_api_circuits_providers() -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_providers_by_id(id) -> dict:
     """circuits_providers_retrieve
 
@@ -232,6 +251,7 @@ def netbox_circuits_get_api_circuits_providers_by_id(id) -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_virtual_circuit_terminations() -> dict:
     """circuits_virtual_circuit_terminations_list
 
@@ -245,6 +265,7 @@ def netbox_circuits_get_api_circuits_virtual_circuit_terminations() -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_virtual_circuit_terminations_by_id(id) -> dict:
     """circuits_virtual_circuit_terminations_retrieve
 
@@ -258,6 +279,7 @@ def netbox_circuits_get_api_circuits_virtual_circuit_terminations_by_id(id) -> d
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_virtual_circuit_terminations_by_id_paths(id) -> dict:
     """circuits_virtual_circuit_terminations_paths_retrieve
 
@@ -271,6 +293,7 @@ def netbox_circuits_get_api_circuits_virtual_circuit_terminations_by_id_paths(id
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_virtual_circuit_types() -> dict:
     """circuits_virtual_circuit_types_list
 
@@ -284,6 +307,7 @@ def netbox_circuits_get_api_circuits_virtual_circuit_types() -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_virtual_circuit_types_by_id(id) -> dict:
     """circuits_virtual_circuit_types_retrieve
 
@@ -297,6 +321,7 @@ def netbox_circuits_get_api_circuits_virtual_circuit_types_by_id(id) -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_virtual_circuits() -> dict:
     """circuits_virtual_circuits_list
 
@@ -310,6 +335,7 @@ def netbox_circuits_get_api_circuits_virtual_circuits() -> dict:
     )
 
 
+@tool
 def netbox_circuits_get_api_circuits_virtual_circuits_by_id(id) -> dict:
     """circuits_virtual_circuits_retrieve
 
