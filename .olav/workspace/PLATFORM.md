@@ -12,6 +12,7 @@ agents:
 - netbox-circuits
 - influxdb-orgs
 - influxdb-netops
+- verify-skill
 platform:
   db: .olav/databases/olav.duckdb
   memory: .olav/databases/memory.lance

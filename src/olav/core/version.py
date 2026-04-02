@@ -9,13 +9,13 @@ including version numbers, build information, copyright, and cryptographic signa
 # ==============================================================================
 
 #: Semantic version of OLAV
-VERSION = "0.11.0"
+VERSION = "0.12.0"
 
 #: Major version component
 MAJOR = 0
 
 #: Minor version component
-MINOR = 11
+MINOR = 12
 
 #: Patch version component
 PATCH = 0
@@ -28,10 +28,10 @@ VERSION_STRING = f"{MAJOR}.{MINOR}.{PATCH}"
 # ==============================================================================
 
 #: Build date (YYYY-MM-DD)
-BUILD_DATE = "2026-03-06"
+BUILD_DATE = "2026-04-02"
 
 #: Release date (YYYY-MM-DD) - same as build date for initial release
-RELEASE_DATE = "2026-03-06"
+RELEASE_DATE = "2026-04-02"
 
 #: Development status
 DEV_STATUS = "stable"  # Options: "alpha", "beta", "rc", "stable"
@@ -82,13 +82,13 @@ SIGNATURE = f"olav-v{VERSION_STRING}-{BUILD_DATE}"
 CHECKSUM_ALGORITHM = "sha256"
 
 #: Core package checksum (computed at build time)
-CORE_CHECKSUM = "sha256:olav-core-v0.11.0-2026-03-06"
+CORE_CHECKSUM = "sha256:olav-core-v0.12.0-2026-04-02"
 
 #: CLI checksum
-CLI_CHECKSUM = "sha256:olav-cli-v0.11.0-2026-03-06"
+CLI_CHECKSUM = "sha256:olav-cli-v0.12.0-2026-04-02"
 
 #: Combined system checksum
-SYSTEM_CHECKSUM = "sha256:olav-system-v0.11.0-2026-03-06"
+SYSTEM_CHECKSUM = "sha256:olav-system-v0.12.0-2026-04-02"
 
 # ==============================================================================
 # COPYRIGHT
