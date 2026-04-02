@@ -51,6 +51,24 @@ From the output, reason about:
 - **Auth type** from the security schemes (see Auth Decision Guide below)
 - Skip tags like `schema`, `status`, `meta`, `webhook`, `auth` — these are platform internals
 
+**Detect read-semantic POST endpoints** (required when `readonly_only=True`):
+```python
+import httpx, json
+doc = httpx.get("<endpoint>/schema-url", timeout=30).json()
+# Find POST endpoints whose summary/description implies "query", "search", "read", "fetch"
+read_post_paths = []
+READ_KEYWORDS = {"query", "search", "read", "fetch", "list", "get", "find", "retrieve", "analytics", "explore"}
+for path, methods in doc.get("paths", {}).items():
+    op = methods.get("post", {})
+    if op:
+        text = (op.get("summary", "") + " " + op.get("description", "")).lower()
+        if any(k in text for k in READ_KEYWORDS):
+            read_post_paths.append(path)
+# Also flag known patterns: /query, /graphql, /search, /analytics, /explore
+print(json.dumps({"readonly_post_candidates": read_post_paths}, indent=2))
+```
+Pass non-empty results as `readonly_post_paths` in Step 3.
+
 To inspect a specific tag's query params (key for schema-awareness):
 ```python
 import httpx, json
@@ -70,13 +88,15 @@ but sandbox exploration gives you full control when the schema is non-standard.
 ### Step 3 — Write service config
 ```
 create_service_config(
-    service_name=...,    # lowercase, snake_case, e.g. "netbox"
-    endpoint=...,        # base URL, no trailing slash
-    auth_type=...,       # inferred from schema (see Auth Decision Guide)
-    readonly_only=...,   # True/False based on API purpose (see readonly_only Decision Guide)
-    tag_groups=[...],    # each: {tag, tool_prefix, description}
-    schema_url=...,      # if known; else leave empty for auto-detection
-    token_env=...,       # env var name for the token
+    service_name=...,          # lowercase, snake_case, e.g. "netbox"
+    endpoint=...,              # base URL, no trailing slash
+    auth_type=...,             # inferred from schema (see Auth Decision Guide)
+    readonly_only=...,         # True/False based on API purpose (see readonly_only Decision Guide)
+    tag_groups=[...],          # each: {tag, tool_prefix, description}
+    schema_url=...,            # if known; else leave empty for auto-detection
+    token_env=...,             # env var name for the token
+    readonly_post_paths=[...], # read-semantic POSTs detected in Step 2 (e.g. ['/query', '/graphql'])
+                               # ONLY when readonly_only=True and read-POST candidates were found
 )
 ```
 `tool_prefix` = `<service>_<tag>` pattern, e.g. `netbox_circuits`.
@@ -89,6 +109,11 @@ This triggers `tool_generator.py` which fetches the schema and produces one Pyth
 tag group. Each file contains one function per endpoint using `service_call()` for auth.
 Generated GET functions include `params: dict | None = None` — agents pass query filters here.
 **Do not write Python code yourself** — the pipeline does it better.
+
+**Always check the returned `validation` field** — it must say `✓ all files have @tool decorators`.
+If it reports `⚠ MISSING @tool`, the tools cannot be loaded by agents. In that case, check
+that the platform `tool_generator.py` is using the current `_FUNCTION_TEMPLATE` (which includes
+`@tool`) and retry with `force=True`.
 
 ### Step 4.5 — Extract schema reference (makes workspace schema-aware)
 ```
@@ -111,10 +136,23 @@ create_skill_workspace(
     description=...,            # one-line, plain English
     tool_file_paths=[...],      # paths returned by register_api_service (Step 4)
     schema_ref_path="...",      # path returned by extract_schema_reference (Step 4.5)
+    manifest_keywords=[...],    # REQUIRED — routing keywords for platform router
+                                # derive from the API domain: service name, resource types,
+                                # common user query terms (e.g. ['netbox', 'dcim', 'device',
+                                # 'rack', 'site', 'cable', 'interface'])
+    system_prompt="...",        # REQUIRED — describe: purpose, data access, constraints,
+                                # 2-3 example queries. Minimum content:
+                                # "You are the <service> agent. Use <prefix>_* tools to query
+                                # <what>. <Auth note>. <Key constraints>."
 )
 ```
 The `schema_ref_path` is automatically added to `static_context` in SKILL.md, making the
 workspace schema-aware from the first agent invocation.
+
+**Verify the returned status** — it must show:
+- `has_manifest: true` (enables router discovery)
+- `has_system_prompt: true` (enables agent context)
+- `schema_aware: true` (enables filter-aware queries)
 
 ### Step 6 — Verify
 ```
@@ -124,6 +162,7 @@ Check that:
 - The file exists and has multiple functions (one per endpoint)
 - Functions use `service_call()` not raw `requests` or `httpx`
 - Count the functions — report how many endpoints were wrapped
+- `@tool` count matches `tool_counts` from `register_api_service` output
 
 ---
 
@@ -203,4 +242,8 @@ Decide based on the API's **purpose** inferred from its schema:
 - ❌ Do NOT use `.olav/skills/` as output dir — correct path is `.olav/workspace/ops/tools/_generated/`
 - ❌ Do NOT skip Step 4.5 (`extract_schema_reference`) — schema-aware workspaces are non-negotiable
 - ❌ Do NOT pass `schema_ref_path` to `static_context_paths` directly — use the dedicated `schema_ref_path` param
+- ❌ Do NOT use `write_workspace_file` or `write_file` to write schema/reference data — ONLY use `extract_schema_reference`
+  (writing Python code into .json files corrupts the workspace and breaks schema-awareness)
+- ❌ Do NOT omit `manifest_keywords` — a workspace without MANIFEST.yaml is invisible to the platform router
+- ❌ Do NOT omit `system_prompt` — a workspace without prompts/system.md leaves the agent without task context
 
