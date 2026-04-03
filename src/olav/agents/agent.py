@@ -18,6 +18,7 @@ from pathlib import Path
 
 import langchain
 from langchain_community.cache import SQLiteCache
+from langchain_core.globals import set_llm_cache
 
 """
 OLAV Orchestrator Agent - v3.4 (DeepAgents + SubAgents)
@@ -48,7 +49,6 @@ from olav.agents._deepagents_bridge import (
     build_summarization_middleware,
     create_deep_agent,
 )
-from langgraph.checkpoint.duckdb import DuckDBSaver
 
 from olav.core.config import settings
 from olav.core.llm import LLMFactory
@@ -178,18 +178,31 @@ class OLAVAgent:
             f"model={self.model_name}, temperature={self.temperature}, agent={self.agent_id}"
         )
 
+        # Fire session.start hook (non-blocking)
+        try:
+            from olav.core.hooks import fire_hook
+            import os
+            fire_hook(
+                "session.start",
+                agent_id=self.agent_id,
+                model=self.model_name,
+                user=os.environ.get("USER", "unknown"),
+            )
+        except Exception:
+            pass
+
         # LangChain LLM cache — SQLite (user-isolated in ~/.olav/cache/{user}/)
         from olav.core.config import USER_CACHE_DIR
 
         cache_path = USER_CACHE_DIR / "llm_cache.db"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            langchain.llm_cache = SQLiteCache(database_path=str(cache_path))
+            set_llm_cache(SQLiteCache(database_path=str(cache_path)))
             logger.info(f"✓ LLM cache enabled: {cache_path}")
         except Exception as e:
             logger.warning(f"LLM cache init failed: {e}. Caching disabled.")
 
-        # Checkpointer — AsyncDuckDBSaver: user-isolated, persistent, async-safe
+        # Checkpointer — AsyncSqliteSaver: user-isolated, persistent, async-safe
         self.checkpointer = None
         if enable_checkpointer:
             try:
@@ -205,7 +218,7 @@ class OLAVAgent:
                 )
             except Exception as e:
                 logger.warning(
-                    f"AsyncDuckDBSaver init failed ({e}), no checkpoint support available"
+                    f"AsyncSqliteSaver init failed ({e}), no checkpoint support available"
                 )
 
         # LanceDB long-term semantic memory store
@@ -233,6 +246,21 @@ class OLAVAgent:
             logger.warning("MANIFEST discovery failed (non-fatal): %s", _e)
 
         subagents = self._build_subagents(olav_config)
+
+        # Append remote async subagents from api.json (non-blocking, graceful skip on error)
+        try:
+            from olav.agents.remote_subagents import load_remote_subagents
+            import olav.core.config as _cfg
+            api_config = getattr(_cfg.settings, "_api", {}) or {}
+            remote_sas = load_remote_subagents(config=api_config)
+            if remote_sas:
+                subagents = list(subagents) + remote_sas
+                logger.info(
+                    "✓ Remote subagents loaded: %s",
+                    [sa["name"] for sa in remote_sas],
+                )
+        except Exception as _e:
+            logger.warning("Remote subagent loading failed (non-fatal): %s", _e)
 
         # Build olav_delegate tool bound to compiled subagent runnables.
         # Gives the orchestrator a way to delegate with guaranteed tool isolation,
@@ -536,13 +564,19 @@ class OLAVAgent:
         return asyncio.run(self.ainvoke(input_, thread_id, **kwargs))
 
     async def close(self) -> None:
-        """Release resources (DuckDB connection, etc.)."""
+        """Release resources (SQLite connection, etc.)."""
+        # Fire session.end hook (non-blocking)
         try:
-            from olav.core.checkpointer import AsyncDuckDBSaver
+            from olav.core.hooks import fire_hook
+            fire_hook("session.end", agent_id=self.agent_id)
+        except Exception:
+            pass
+        try:
+            from olav.core.checkpointer import AsyncSqliteSaver
 
-            if isinstance(self.checkpointer, AsyncDuckDBSaver):
+            if isinstance(self.checkpointer, AsyncSqliteSaver):
                 self.checkpointer.conn.close()
-                logger.debug("Checkpointer DuckDB connection closed.")
+                logger.debug("Checkpointer SQLite connection closed.")
         except Exception as e:
             logger.debug(f"close(): {e}")
 

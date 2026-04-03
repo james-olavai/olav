@@ -1,0 +1,17 @@
+description: Gitea API agent for repository CRUD, branches, contents, users, search,
+  and more.
+kind: Agent
+name: gitea
+route_keywords:
+- gitea
+- git
+- repository
+- repo
+- repos
+- user
+- users
+- branch
+- fork
+- release
+- issue
+version: 1.0.0

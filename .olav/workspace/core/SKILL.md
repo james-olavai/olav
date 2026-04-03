@@ -14,6 +14,7 @@ tools:
   - run_shell                # Shell command execution (docker, git, curl, etc.)
 static_context:
   - path: ./references/SKILL_DEVELOPMENT.md
+  - path: ./references/REQUIRED_INFO_CHECK.md
 metadata:
   version: 2.0.0
   type: core

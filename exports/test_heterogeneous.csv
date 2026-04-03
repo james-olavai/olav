@@ -1,4 +1,0 @@
-table,total,active,total_rows,unique_commands,top_commands,unique_devices,top_devices
-devices,6.0,6.0,,,,,
-parsed_outputs,,,202.0,5.0,['show version'],,
-commands,,,,,,6.0,"['R1', 'R2']"

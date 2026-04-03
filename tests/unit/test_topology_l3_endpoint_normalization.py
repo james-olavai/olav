@@ -123,6 +123,9 @@ class TestL3DeviceResolution:
 class TestSyncToolsIsIp:
     """Tests for sync_tools._is_ip() — must not raise, always returns bool."""
 
+    def setup_method(self, _method=None):
+        pytest.importorskip("nornir", reason="olav-netops requires nornir: uv pip install -e olav-netops")
+
     def _get(self):
         from sync_tools import _is_ip  # type: ignore[import]
         return _is_ip
@@ -163,6 +166,9 @@ class TestSyncToolsIsIp:
 )
 class TestSyncToolsStripDomain:
     """Tests for sync_tools._strip_domain() — the core regression fix."""
+
+    def setup_method(self, _method=None):
+        pytest.importorskip("nornir", reason="olav-netops requires nornir: uv pip install -e olav-netops")
 
     def _get(self):
         from sync_tools import _strip_domain  # type: ignore[import]

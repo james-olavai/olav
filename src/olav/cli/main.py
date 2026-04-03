@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OLAV v0.12.0 CLI - Full deepagents-cli integration.
+"""OLAV v0.10.0 CLI - Full deepagents-cli integration.
 
 This is a thin wrapper around deepagents-cli for domain operations.
 All domain functionality is exposed through workspace agents and tools, not CLI commands.
@@ -192,7 +192,7 @@ def parse_args():
     )
     config_parser.add_argument(
         "args",
-        nargs="*",
+        nargs=argparse.REMAINDER,
         help="'evolve --list', 'evolve --approve <id>', or natural language config query",
     )
 
@@ -703,6 +703,21 @@ async def simple_cli(
                 continue
 
             from deepagents_cli.commands import handle_command
+
+            # Check OLAV's own slash command registry first (e.g. /model, /tokens, /history)
+            from olav.cli.commands.builtin import execute_command
+
+            try:
+                _olav_result = await execute_command(user_input)
+            except EOFError:
+                console.print("\nGoodbye!", style=COLORS["primary"])
+                break
+            if not isinstance(_olav_result, str) or not _olav_result.startswith(
+                "Unknown command:"
+            ):
+                if _olav_result:
+                    console.print(_olav_result)
+                continue
 
             result = handle_command(user_input, agent, token_tracker)
             if result == "exit":

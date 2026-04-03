@@ -6,8 +6,10 @@ tools:
   - bulk_ingest              # Bulk-load staging JSON snapshots into DuckDB (atomic)
   - diff_configs             # Diff two snapshots or config files
   - search_commands          # Search available CLI commands by platform/keyword
+static_context:
+  - path: ../core/references/REQUIRED_INFO_CHECK.md
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   type: orchestrator
   category: config-management
 ---
