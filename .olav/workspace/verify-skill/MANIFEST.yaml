@@ -1,5 +1,0 @@
-name: verify-skill
-version: "1.0.0"
-kind: Agent
-description: "CLI verification test skill"
-route_keywords: [verify, test, demo]

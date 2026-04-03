@@ -1,1 +1,0 @@
-../../ops/lab/tools/deploy_lab.py

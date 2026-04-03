@@ -1,6 +1,0 @@
-Value feature (RC_FEATURE_\S+)
-Value state (enabled|disabled)
-
-Start
-  ^Displaying capability information for all available features:\s*$$ -> Start
-  ^\s*${feature}\s+${state}\s*$$ -> Record

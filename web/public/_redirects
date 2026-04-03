@@ -1,0 +1,2 @@
+# Redirect bare docs path to docs subdomain
+/docs/* https://docs.olavplatform.com/:splat 301
