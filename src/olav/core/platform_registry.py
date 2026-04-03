@@ -24,7 +24,7 @@ Example::
       db: .olav/databases/olav.duckdb
       memory: .olav/databases/memory.lance
       services:
-        clab: http://192.168.100.12:8080
+        clab: http://clab-server.example.com:8080
     ---
 
     # My Network Lab
