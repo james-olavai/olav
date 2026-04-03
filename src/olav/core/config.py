@@ -707,7 +707,7 @@ AGENT_OUTPUTS_DIR = _path_resolver.resolve(
     "AGENT_OUTPUTS_DIR"
 )  # Agent output files (reports, diagrams)
 LOGS_DIR = _path_resolver.resolve("LOGS_DIR")
-TEXTFSM_TEMPLATES_DIR = _PROJECT_ROOT / get_paths_config().templates_dir
+# ── Platform-core path constants ──────────────────────────────────────────────
 KNOWLEDGE_BASE_DIR = _path_resolver.resolve("KNOWLEDGE_BASE_DIR")
 WORKSPACE_DIR = _path_resolver.resolve("WORKSPACE_DIR")
 CONFIG_DIR = _path_resolver.resolve("CONFIG_DIR")
@@ -716,25 +716,30 @@ AGENT_DIR = _path_resolver.resolve("AGENT_DIR")
 SKILL_BASE_PATH = WORKSPACE_DIR
 UNIFIED_DB = MAIN_DB_PATH  # Legacy alias
 DOMAIN_DB_PATH = MAIN_DB_PATH  # Preferred name: domain-scoped unified DB
-SNAPSHOTS_DIR = EXPORTS_DIR / "snapshots"  # Legacy: kept for backward compat
-BACKUP_DIR = EXPORTS_DIR / "backup"
-TMP_SNAPSHOTS_DIR = _PROJECT_ROOT / get_paths_config().tmp_snapshots_dir
-TMP_STAGING_DIR = _PROJECT_ROOT / get_paths_config().tmp_staging_dir
-SNAPSHOTS_STAGING_JSON = _PROJECT_ROOT / get_paths_config().snapshots_staging_json
-NORNIR_CONFIG_PATH = CONFIG_DIR / "nornir" / "config.yaml"
-NETWORK_DB_PATH = MAIN_DB_PATH
 
-# User-local paths (from old config.paths)
+# User-local paths
 try:
     _username = os.environ.get("USER") or os.getlogin()
 except Exception:
     _username = os.environ.get("USERNAME", "default_user")
 
 USER_SESSION_DIR = Path.home() / ".olav" / "sessions"
+
+# ── NetOps-specific constants (moved here for backward compat, will migrate to
+# ── workspace config/ in M2 — see ISSUE-M2-CONFIG-ARCHITECTURE-REFACTOR) ─────
+TEXTFSM_TEMPLATES_DIR = _PROJECT_ROOT / get_paths_config().templates_dir
+SNAPSHOTS_DIR = EXPORTS_DIR / "snapshots"
+BACKUP_DIR = EXPORTS_DIR / "backup"
+TMP_SNAPSHOTS_DIR = _PROJECT_ROOT / get_paths_config().tmp_snapshots_dir
+TMP_STAGING_DIR = _PROJECT_ROOT / get_paths_config().tmp_staging_dir
+SNAPSHOTS_STAGING_JSON = _PROJECT_ROOT / get_paths_config().snapshots_staging_json
+NORNIR_CONFIG_PATH = CONFIG_DIR / "nornir" / "config.yaml"
+NETWORK_DB_PATH = MAIN_DB_PATH
 GUARD_WHITELIST_PATH = SKILLS_DIR / "guard" / "whitelist.yaml"
+
 # ── Domain config directory convention ───────────────────────────────────────
 # Per-domain configuration lives under .olav/config/domains/<domain>/
-# This is the standard established in olav_platform.md §3.5.
+# Will migrate to workspace/<domain>/config/ in M2.
 
 
 def get_domain_config_dir(domain: str) -> "Path":

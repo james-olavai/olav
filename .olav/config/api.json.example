@@ -1,0 +1,22 @@
+{
+  "shared": {
+    "api_key": "YOUR_API_KEY_HERE"
+  },
+  "llm": {
+    "provider": "openai",
+    "model": "gpt-4o",
+    "temperature": 0.1
+  },
+  "embedding": {
+    "mode": "api",
+    "api": {
+      "model": "openai/text-embedding-3-small"
+    },
+    "fallback": {
+      "enabled": true
+    }
+  },
+  "auth": {
+    "mode": "none"
+  }
+}

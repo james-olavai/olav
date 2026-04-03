@@ -3,6 +3,6 @@ import tailwind from '@astrojs/tailwind';
 
 export default defineConfig({
   integrations: [tailwind()],
-  site: 'https://olavplatform.com',
+  site: 'https://olavai.com',
   output: 'static',
 });

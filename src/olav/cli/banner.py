@@ -31,7 +31,7 @@ def apply_professional_theme() -> None:
         "  ╚═════╝  ╚══════╝ ╚═╝  ╚═╝   ╚═══╝  ",
     ]
 
-    tagline = "Online Analytical Vertex for Agentic Operations ☃️"
+    tagline = "Online Analytical Vertex for Agentic Operations 🐺"
     reset = "\x1b[0m"
     bold = "\x1b[1m"
 
