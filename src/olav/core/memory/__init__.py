@@ -12,7 +12,7 @@ Following the integration plan in dev_docs/LANCEDB_MEMORY_SYSTEM_INTEGRATION.md
 
 import json
 import logging
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 

@@ -16,24 +16,8 @@ Replaces: LangGraph StateGraph + flat tool list (agent.py v3.2)
 import logging
 from pathlib import Path
 
-import langchain
 from langchain_community.cache import SQLiteCache
 from langchain_core.globals import set_llm_cache
-
-"""
-OLAV Orchestrator Agent - v3.4 (DeepAgents + SubAgents)
-
-Architecture:
-- OLAVAgent: pure orchestrator with format_and_export only
-- olav-ops SubAgent: execute_sql, execute_cli, search_knowledge, format_and_export
-- olav-config SubAgent: sync_schemas, sync_inventory, take_snapshot, sync_commands, manage_cron
-- LangChain SQLiteCache for LLM caching
-- LangGraph DuckDBSaver for checkpoint/persistence (persistent across restarts)
-- LanceDB (via langgraph_adapter) for long-term semantic memory
-
-Replaces: LangGraph StateGraph + flat tool list (agent.py v3.2)
-"""
-
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import TodoListMiddleware
@@ -132,14 +116,6 @@ def _resolve_env_ref(value: str) -> str:
             raise RuntimeError(
                 f"OLAV.md references env var ${{{var}}} but it is not set. "
                 f"Set '{var}=<model-name>' via environment variable or .olav/config/api.json."
-            )
-        return val
-        var = m.group(1)
-        val = os.environ.get(var)
-        if val is None:
-            raise RuntimeError(
-                f"OLAV.md references env var ${{{var}}} but it is not set. "
-                f"Add '{var}=<model-name>' to your .env file."
             )
         return val
 

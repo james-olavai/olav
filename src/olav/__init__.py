@@ -1,5 +1,5 @@
 """
-OLAV v0.11.0 - AI Operations Assistant
+OLAV v0.10.0 - AI Operations Assistant
 DeepAgents Native Framework
 """
 

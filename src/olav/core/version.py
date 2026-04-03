@@ -62,13 +62,13 @@ AUTHOR_EMAIL = "team@olav-ai.dev"
 HOMEPAGE = "https://github.com/olav-ai/olav"
 
 #: Documentation URL
-DOCUMENTATION_URL = "https://olav-ai.dev/docs"
+DOCUMENTATION_URL = "https://docs.olavplatform.com"
 
 #: License type
-LICENSE = "MIT"
+LICENSE = "BSL-1.1"
 
 #: License URL
-LICENSE_URL = "https://opensource.org/licenses/MIT"
+LICENSE_URL = "https://mariadb.com/bsl11/"
 
 # ==============================================================================
 # DIGITAL SIGNATURE & INTEGRITY
@@ -98,7 +98,7 @@ SYSTEM_CHECKSUM = "sha256:olav-system-v0.10.0-2026-04-02"
 COPYRIGHT_YEAR = "2024-2026"
 
 #: Copyright holder
-COPYRIGHT_HOLDER = "OLAV Team"
+COPYRIGHT_HOLDER = "DATATECHIE PTY LTD"
 
 #: Full copyright notice
 COPYRIGHT_NOTICE = f"© {COPYRIGHT_YEAR} {COPYRIGHT_HOLDER}. All rights reserved."

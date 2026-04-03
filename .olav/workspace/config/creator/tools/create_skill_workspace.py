@@ -1,4 +1,4 @@
-"""Create a skill workspace directory and register it in PLATFORM.md."""
+"""Create a skill workspace directory and register it in PLATFORM.md or as a subskill."""
 
 from langchain_core.tools import tool
 
@@ -14,18 +14,29 @@ def create_skill_workspace(
     schema_ref_path: str = "",
     manifest_keywords: list | None = None,
     system_prompt: str = "",
+    parent_agent: str = "",
 ) -> dict:
-    """Create a workspace under .olav/workspace/<workspace_name>/ with SKILL.md
-    pointing to the specified generated tool files, then register the workspace
-    in PLATFORM.md so it becomes immediately available to the platform.
+    """Create a workspace under .olav/workspace/ with SKILL.md pointing to the
+    specified generated tool files, then register the workspace either as a
+    top-level agent in PLATFORM.md OR as a subskill under an existing agent.
+
+    Registration mode is controlled by `parent_agent`:
+    - parent_agent="" (default): workspace created at .olav/workspace/<workspace_name>/
+      and registered in PLATFORM.md as an independent top-level agent.
+    - parent_agent="ops" (example): workspace created at .olav/workspace/ops/<workspace_name>/
+      and the parent's AGENT.md subagents list is updated with the new SKILL.md path.
+      PLATFORM.md is NOT modified. MANIFEST.yaml is NOT created (subskills are not
+      independently routed — they are invoked via their parent agent).
 
     The workspace follows SKILL.md v5 format (frontmatter + markdown body).
     Tool paths are stored as relative references — they are NOT copied, just
     referenced. The actual tool code lives in the _generated/ directory.
 
     Args:
-        workspace_name:      Directory name under .olav/workspace/ (e.g. 'netbox-circuits')
-        description:         One-line description shown in PLATFORM.md agent table
+        workspace_name:      Directory name for the workspace (e.g. 'netbox-circuits')
+                             Top-level mode: .olav/workspace/<workspace_name>/
+                             Subskill mode:  .olav/workspace/<parent_agent>/<workspace_name>/
+        description:         One-line description shown in PLATFORM.md or parent AGENT.md
         tool_file_paths:     List of paths to generated tool files
                              (relative to project root, e.g.
                               ['.olav/workspace/ops/tools/_generated/netbox_circuits.py'])
@@ -36,24 +47,29 @@ def create_skill_workspace(
         schema_ref_path:     Path to schema_reference.json from extract_schema_reference().
                              If provided, automatically added to static_context so the
                              agent loads API schema awareness at startup.
-        manifest_keywords:   List of routing keywords for MANIFEST.yaml (used by the
-                             platform router to dispatch user queries to this agent).
-                             Example: ['netbox', 'dcim', 'device', 'ip address', 'rack']
-                             Always provide these — they are mandatory for agent discovery.
+        manifest_keywords:   List of routing keywords for MANIFEST.yaml. Only used in
+                             top-level mode. In subskill mode this is ignored — the parent
+                             agent handles routing.
         system_prompt:       Optional system prompt text written to prompts/system.md.
-                             Describe the agent's purpose, what data it has access to,
-                             any important constraints (e.g. "read-only", "org: olav-netops"),
-                             and 2-3 example queries the user might ask.
+        parent_agent:        Name of an existing agent workspace to register this skill
+                             under (e.g. "ops", "audit"). When set, the skill is created
+                             as a subskill and registered in the parent's AGENT.md instead
+                             of PLATFORM.md. Leave empty for a top-level agent.
 
     Returns:
-        dict with status and paths of created files
+        dict with status, paths of created files, and registration mode
     """
     from pathlib import Path
 
     import yaml as _yaml
 
     workspace_root = Path(".olav/workspace")
-    ws_dir = workspace_root / workspace_name
+    # Subskill mode: nest under parent agent directory
+    is_subskill = bool(parent_agent)
+    if is_subskill:
+        ws_dir = workspace_root / parent_agent / workspace_name
+    else:
+        ws_dir = workspace_root / workspace_name
     ws_dir.mkdir(parents=True, exist_ok=True)
 
     _skill_name = skill_name or workspace_name
@@ -106,8 +122,8 @@ def create_skill_workspace(
     agent_md_path.write_text(agent_md_content)
     files_created.append(str(agent_md_path))
 
-    # --- MANIFEST.yaml (route_keywords for platform router) ---
-    if manifest_keywords:
+    # --- MANIFEST.yaml (top-level agents only — subskills are routed via parent) ---
+    if manifest_keywords and not is_subskill:
         manifest_data = {
             "name": _skill_name,
             "kind": "Agent",
@@ -140,52 +156,90 @@ def create_skill_workspace(
             f"{_agent_desc}\n"
         )
 
-    # --- Register in PLATFORM.md ---
-    platform_md_path = workspace_root / "PLATFORM.md"
+    # --- Registration: PLATFORM.md (top-level) or parent AGENT.md (subskill) ---
     registered_in_platform = False
+    registered_as_subskill_of = ""
 
-    if platform_md_path.exists():
-        platform_content = platform_md_path.read_text()
-
-        # Check if already registered
-        if workspace_name not in platform_content:
-            # Inject into frontmatter agents list
+    if is_subskill:
+        # Register as subagent in parent agent's AGENT.md
+        parent_agent_md = workspace_root / parent_agent / "AGENT.md"
+        if parent_agent_md.exists():
             try:
                 import re
-                # Find frontmatter block
-                fm_match = re.match(r"^---\n(.*?)\n---", platform_content, re.DOTALL)
+                content = parent_agent_md.read_text()
+                fm_match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
                 if fm_match:
                     fm_text = fm_match.group(1)
                     fm_data = _yaml.safe_load(fm_text) or {}
-                    agents_list: list = fm_data.get("agents", [])
-                    if workspace_name not in agents_list:
-                        agents_list.append(workspace_name)
-                        fm_data["agents"] = agents_list
-                        new_fm = _yaml.dump(fm_data, default_flow_style=False, allow_unicode=True).rstrip()
-                        new_content = f"---\n{new_fm}\n---" + platform_content[fm_match.end():]
-                        platform_md_path.write_text(new_content)
-                        registered_in_platform = True
+                    subagents: list = fm_data.get("subagents", [])
+                    # Relative path from parent workspace dir to new SKILL.md
+                    new_path = f"./{workspace_name}/SKILL.md"
+                    existing_paths = [s.get("path", "") for s in subagents if isinstance(s, dict)]
+                    if new_path not in existing_paths:
+                        subagents.append({"path": new_path})
+                        fm_data["subagents"] = subagents
+                        new_fm = _yaml.dump(
+                            fm_data, default_flow_style=False, allow_unicode=True
+                        ).rstrip()
+                        new_content = f"---\n{new_fm}\n---" + content[fm_match.end():]
+                        parent_agent_md.write_text(new_content)
+                        registered_as_subskill_of = parent_agent
             except Exception:
-                # Non-fatal: workspace created, platform registration skipped
-                pass
+                pass  # Non-fatal
+    else:
+        # Register as top-level agent in PLATFORM.md
+        platform_md_path = workspace_root / "PLATFORM.md"
+        if platform_md_path.exists():
+            platform_content = platform_md_path.read_text()
+            if workspace_name not in platform_content:
+                try:
+                    import re
+                    fm_match = re.match(r"^---\n(.*?)\n---", platform_content, re.DOTALL)
+                    if fm_match:
+                        fm_text = fm_match.group(1)
+                        fm_data = _yaml.safe_load(fm_text) or {}
+                        agents_list: list = fm_data.get("agents", [])
+                        if workspace_name not in agents_list:
+                            agents_list.append(workspace_name)
+                            fm_data["agents"] = agents_list
+                            new_fm = _yaml.dump(
+                                fm_data, default_flow_style=False, allow_unicode=True
+                            ).rstrip()
+                            new_content = f"---\n{new_fm}\n---" + platform_content[fm_match.end():]
+                            platform_md_path.write_text(new_content)
+                            registered_in_platform = True
+                except Exception:
+                    pass  # Non-fatal
+
+    # Build result summary
+    if is_subskill:
+        next_step = (
+            f"Subskill '{workspace_name}' created under '{parent_agent}' agent"
+            + (" (schema-aware ✓)" if all_ctx_paths else " ⚠ not schema-aware — run extract_schema_reference")
+            + (f" (registered in {parent_agent}/AGENT.md ✓)" if registered_as_subskill_of else " ⚠ parent AGENT.md not updated — check parent_agent name")
+            + f". Verify with: read_file('.olav/workspace/{parent_agent}/{workspace_name}/SKILL.md')"
+        )
+    else:
+        next_step = (
+            f"Agent '{workspace_name}' is ready"
+            + (" (schema-aware ✓)" if all_ctx_paths else " ⚠ not schema-aware — run extract_schema_reference")
+            + (" (manifest ✓)" if manifest_keywords else " ⚠ no MANIFEST — router cannot discover this agent")
+            + f". Verify with: read_file('.olav/workspace/{workspace_name}/SKILL.md')"
+        )
 
     return {
         "status": "ok",
         "workspace_name": workspace_name,
         "workspace_path": str(ws_dir),
         "files_created": files_created,
+        "registration_mode": "subskill" if is_subskill else "top-level",
         "registered_in_platform": registered_in_platform,
+        "registered_as_subskill_of": registered_as_subskill_of,
         "skill_name": _skill_name,
         "tools_referenced": len(tool_file_paths or []),
         "schema_aware": bool(all_ctx_paths),
-        "has_manifest": bool(manifest_keywords),
+        "has_manifest": bool(manifest_keywords) and not is_subskill,
         "has_system_prompt": bool(system_prompt),
         "static_context_files": all_ctx_paths,
-        "next_step": (
-            f"Workspace '{workspace_name}' is ready"
-            + (" (schema-aware ✓)" if all_ctx_paths else " ⚠ not schema-aware — run extract_schema_reference")
-            + (" (manifest ✓)" if manifest_keywords else " ⚠ no MANIFEST — router cannot discover this agent")
-            + ". Verify with: read_file('.olav/workspace/"
-            + workspace_name + "/SKILL.md')"
-        ),
+        "next_step": next_step,
     }

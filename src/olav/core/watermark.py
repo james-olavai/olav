@@ -4,7 +4,9 @@ Provides watermark generation and tracking for compliance and IP protection.
 All outputs are tagged with version, copyright, and usage restrictions.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
+
+from olav.core.version import VERSION_STRING, COPYRIGHT_HOLDER, LICENSE, HOMEPAGE
 
 
 def get_watermark_metadata() -> dict:
@@ -15,15 +17,15 @@ def get_watermark_metadata() -> dict:
     """
     return {
         "framework": "olav",
-        "version": "0.10.0",
+        "version": VERSION_STRING,
         "watermark_id": "DTP-OLAV-0100",
-        "copyright": "Copyright © 2026-2030 DATATECHIE PTY LTD. All rights reserved.",
-        "license": "Business Source License 1.1",
-        "license_url": "https://github.com/[repo]/LICENSE",
+        "copyright": f"Copyright © 2026-2030 {COPYRIGHT_HOLDER}. All rights reserved.",
+        "license": LICENSE,
+        "license_url": f"{HOMEPAGE}/blob/main/LICENSE",
         "change_date": "2030-01-01",
         "usage_allowed": ["personal_use", "internal_enterprise"],
         "requires_license_for": ["MSP", "CSP", "resale", "commercial_service"],
-        "terms_url": "https://github.com/[repo]/PARTNERS.md",
+        "terms_url": f"{HOMEPAGE}/blob/main/PARTNERS.md",
     }
 
 
@@ -34,9 +36,9 @@ def get_watermark_notice() -> str:
         Formatted notice string for display in CLI output.
     """
     return (
-        "olav v0.10.0 (DTP-OLAV-0100) | "
-        "© 2026-2030 DATATECHIE PTY LTD | "
-        "Licensed under BSL 1.1 | "
+        f"olav v{VERSION_STRING} (DTP-OLAV-0100) | "
+        f"© 2026-2030 {COPYRIGHT_HOLDER} | "
+        f"Licensed under {LICENSE} | "
         "Unauthorized commercial use prohibited"
     )
 
@@ -47,11 +49,11 @@ def get_watermark_banner() -> str:
     Returns:
         Multi-line banner string with copyright and license info.
     """
-    return """
+    return f"""
 ╔─────────────────────────────────────────────────────────────╗
-║          olav Framework v0.10.0 (DTP-OLAV-0100)            ║
-║          © 2026-2030 DATATECHIE PTY LTD                     ║
-║          Licensed under Business Source License 1.1        ║
+║          olav Framework v{VERSION_STRING} (DTP-OLAV-0100)            ║
+║          © 2026-2030 {COPYRIGHT_HOLDER}                     ║
+║          Licensed under {LICENSE}                           ║
 ║                                                              ║
 ║  Non-commercial use only                                    ║
 ║  Unauthorized commercial use prohibited                     ║
@@ -72,7 +74,7 @@ def inject_watermark_json(data: dict) -> dict:
     watermarked = {
         "_watermark": {
             **get_watermark_metadata(),
-            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "generated_at": datetime.now(UTC).isoformat(),
         },
         **data,
     }
@@ -85,10 +87,10 @@ def get_audit_log_watermark() -> str:
     Returns:
         Log entry string with watermark info.
     """
-    timestamp = datetime.utcnow().isoformat() + "Z"
+    timestamp = datetime.now(UTC).isoformat()
     return (
-        f"[{timestamp}] [WATERMARK] olav Framework v0.10.0 (DTP-OLAV-0100) initialized | "
-        "© 2026-2030 DATATECHIE PTY LTD | "
-        "Licensed under BSL 1.1 - Non-commercial use only. "
+        f"[{timestamp}] [WATERMARK] olav Framework v{VERSION_STRING} (DTP-OLAV-0100) initialized | "
+        f"© 2026-2030 {COPYRIGHT_HOLDER} | "
+        f"Licensed under {LICENSE} - Non-commercial use only. "
         "See LICENSE for commercial licensing."
     )

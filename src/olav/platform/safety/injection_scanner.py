@@ -93,7 +93,6 @@ def _is_mixed_script_domain(domain: str) -> bool:
         if ord(ch) < 0x80:
             scripts.add("Latin")
             continue
-        cat = unicodedata.category(ch)
         # Get Unicode script block (approximation via codepoint ranges)
         cp = ord(ch)
         if 0x0400 <= cp <= 0x04FF or 0x0500 <= cp <= 0x052F:

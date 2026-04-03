@@ -20,7 +20,6 @@ import logging
 import os
 import sys
 import uuid as _uuid_mod
-from importlib.metadata import entry_points
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,14 +27,6 @@ from rich.console import Console
 
 from olav.core.audit_recorder import AuditEventRecorder
 from olav.core.version import (
-    AUTHOR,
-    BUILD_DATE,
-    CHECKSUM_ALGORITHM,
-    COPYRIGHT_NOTICE,
-    HOMEPAGE,
-    LICENSE,
-    SIGNATURE,
-    SYSTEM_CHECKSUM,
     VERSION,
     format_version_banner,
 )
@@ -480,90 +471,6 @@ def create_olav_agent_with_backend(
     # binding the top-level run context to callback plugins (e.g. audit).
     graph.plugin_registry = olav_agent.plugin_registry  # type: ignore[attr-defined]
     return graph, composite_backend
-
-
-def get_domain_prompt() -> str:
-    """Extension point for domain packages to inject a custom system prompt prefix.
-
-    Domain packages (e.g. ``olav-netops``) register a ``DOMAIN_PROMPT`` string
-    constant via the ``olav.domain_prompts`` entry-point group.  The first
-    discovered entry point is loaded and its value returned.
-
-    Returns
-    -------
-    str
-        Domain-specific prompt string, or a generic fallback when no domain
-        package is installed.
-    """
-    eps = entry_points(group="olav.domain_prompts")
-    for ep in eps:
-        try:
-            prompt = ep.load()
-            return prompt
-        except Exception:
-            logger.warning(
-                "Failed to load domain prompt entry point '%s' — using fallback",
-                ep.name,
-            )
-    return "You are an AI Operations Assistant."
-
-
-def get_system_prompt(assistant_id: str, sandbox_type: str | None = None) -> str:
-    """Get the system prompt for OLAV agent."""
-    cwd = Path.cwd()
-    agent_dir = ".olav"
-
-    if sandbox_type:
-        from deepagents_cli.integrations.sandbox_factory import get_default_working_dir
-
-        working_dir = get_default_working_dir(sandbox_type)
-        working_dir_section = f"""### Current Working Directory
-
-You are operating in a **remote Linux sandbox** at `{working_dir}`.
-
-All code execution and file operations happen in this sandbox environment.
-"""
-    else:
-        working_dir_section = f"""<env>
-Working directory: {cwd}
-</env>
-
-### Current Working Directory
-
-The filesystem backend is currently operating in: `{cwd}`
-
-### File System and Paths
-
-**IMPORTANT - Path Handling:**
-- All file paths must be absolute paths (e.g., `{cwd}/file.txt`)
-- Use the working directory from <env> to construct absolute paths
-"""
-
-    return (
-        working_dir_section
-        + f"""### Agents & Skills Directory
-
-Your agents and their skills are defined in: `{agent_dir}/workspace/`
-
-### Domain Context
-
-{get_domain_prompt()}
-### Human-in-the-Loop Tool Approval
-
-Some tool calls require user approval before execution. When a tool call is rejected:
-1. Accept the decision immediately - do NOT retry the same command
-2. Explain that you understand they rejected the action
-3. Suggest an alternative approach or ask for clarification
-
-### Todo List Management
-
-When using write_todos:
-1. Keep the list MINIMAL - aim for 3-6 items maximum
-2. Only create todos for complex, multi-step tasks
-3. For simple tasks (1-2 steps), just do them directly
-4. Update status promptly as you complete each item
-"""
-    )
 
 
 @contextlib.contextmanager

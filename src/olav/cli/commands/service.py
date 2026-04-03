@@ -207,44 +207,6 @@ class ServiceCommand(BaseCommand):
         self.console.print()
         return f"registered {service_name}: {ops} ops, {len(files)} tool files"
 
-    def _show_help(self) -> str:
-        """Show help for service command."""
-        help_text = """
-[bold cyan]OLAV Service Management[/bold cyan]
-
-[bold]Usage:[/bold]
-  olav service <service> <action> [options]
-  olav service start  --all          Start all services
-  olav service stop   --all          Stop  all services
-  olav service status                Show all service statuses
-
-[bold]Services:[/bold]
-  logs    – Syslog UDP receiver (RFC 3164/5424 → Parquet)
-  web     – FastAPI REST + SSE API server  (default port 2280)
-  daemon  – Agent daemon via Unix socket   (fast pre-warmed LLM)
-
-[bold]Actions:[/bold]
-  start   – Start the service
-  stop    – Stop the service
-  restart – Restart the service
-  status  – Show service status
-  logs    – View recent log output
-
-[bold]Options per service:[/bold]
-  logs:   --port 5514 --flush-interval 120
-  web:    --port 2280 --host 0.0.0.0
-  daemon: (no options)
-
-[bold]Examples:[/bold]
-  olav service start --all
-  olav service logs start --port 5514
-  olav service web  start --port 8080
-  olav service daemon status
-  olav service web  logs --tail 100
-"""
-        self.console.print(help_text)
-        return ""
-
     @staticmethod
     def _parse_kwargs(args: list[str]) -> dict[str, Any]:
         """Parse keyword arguments from CLI args.

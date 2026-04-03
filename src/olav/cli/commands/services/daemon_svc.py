@@ -9,7 +9,6 @@ the syslog receiver and web API with a single `olav service` command.
 
 import asyncio
 import logging
-import time
 from pathlib import Path
 
 from rich.console import Console

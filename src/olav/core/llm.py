@@ -13,7 +13,6 @@ from typing import Any
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 
-from olav.core.config import settings
 from olav.core.embedder import get_embedder
 
 logger = logging.getLogger(__name__)
@@ -91,8 +90,8 @@ class LLMFactory:
 
         # Log identification for debugging
         model = params.get("model", "unknown")
-        params.get("base_url", "")
-        logger.debug(f"Initializing ChatModel: {model} (agent={agent_id})")
+        base_url = params.get("base_url", "")
+        logger.debug(f"Initializing ChatModel: {model} base_url={base_url} (agent={agent_id})")
 
         # Use init_chat_model - LangChain handles provider detection
         try:
@@ -132,6 +131,20 @@ class LLMFactory:
         else:
             model = embedding_model or config.local_model
 
+        class SentenceTransformerEmbeddings:
+            def __init__(self, st_model):
+                self.model = st_model
+
+            def embed_documents(self, texts):
+                return self.model.encode(
+                    texts, normalize_embeddings=config.normalize_embeddings
+                ).tolist()
+
+            def embed_query(self, text):
+                return self.model.encode(
+                    text, normalize_embeddings=config.normalize_embeddings
+                ).tolist()
+
         try:
             if mode == "api":
                 from langchain_openai import OpenAIEmbeddings
@@ -145,21 +158,6 @@ class LLMFactory:
                     raise RuntimeError(
                         "sentence-transformers unavailable; cannot create local embeddings"
                     )
-
-                class SentenceTransformerEmbeddings:
-                    def __init__(self, model):
-                        self.model = model
-
-                    def embed_documents(self, texts):
-                        return self.model.encode(
-                            texts, normalize_embeddings=config.normalize_embeddings
-                        ).tolist()
-
-                    def embed_query(self, text):
-                        return self.model.encode(
-                            text, normalize_embeddings=config.normalize_embeddings
-                        ).tolist()
-
                 return SentenceTransformerEmbeddings(st_model)
         except Exception as e:
             logger.warning(f"Embedding initialization failed ({mode}/{model}): {e}")
@@ -170,21 +168,6 @@ class LLMFactory:
                     raise RuntimeError(
                         "sentence-transformers unavailable; cannot create fallback embeddings"
                     ) from e
-
-                class SentenceTransformerEmbeddings:
-                    def __init__(self, model):
-                        self.model = model
-
-                    def embed_documents(self, texts):
-                        return self.model.encode(
-                            texts, normalize_embeddings=config.normalize_embeddings
-                        ).tolist()
-
-                    def embed_query(self, text):
-                        return self.model.encode(
-                            text, normalize_embeddings=config.normalize_embeddings
-                        ).tolist()
-
                 return SentenceTransformerEmbeddings(st_model)
             raise
 

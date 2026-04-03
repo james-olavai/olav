@@ -22,7 +22,7 @@ from pathlib import Path
 from textwrap import dedent
 from typing import Any
 
-from olav.core.api_registry import load_schema, list_apis, is_loaded
+from olav.core.api_registry import load_schema
 from olav.platform.services.registry import ServiceConfig, ServiceRegistry, ToolGroupConfig
 
 logger = logging.getLogger(__name__)
@@ -177,11 +177,6 @@ def _to_func_name(prefix: str, method: str, path: str) -> str:
     return f"{prefix}_{method.lower()}_{slug}" if slug else f"{prefix}_{method.lower()}"
 
 
-def _path_to_fstring(path: str) -> str:
-    """Convert OpenAPI path /labs/{name} to Python f-string body /labs/{name}."""
-    return path  # Python f-string syntax matches OpenAPI {} style
-
-
 def _build_function(
     svc_name: str,
     prefix: str,
@@ -252,7 +247,7 @@ def _build_function(
         service_name=svc_name,
         method=method.upper(),
         path=path,
-        path_template=_path_to_fstring(path),
+        path_template=path,
         params_arg=params_arg,
         body_arg=body_arg,
         response_def_arg=response_def_arg,

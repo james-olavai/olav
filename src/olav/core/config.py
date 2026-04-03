@@ -715,7 +715,6 @@ SKILLS_DIR = WORKSPACE_DIR
 AGENT_DIR = _path_resolver.resolve("AGENT_DIR")
 SKILL_BASE_PATH = WORKSPACE_DIR
 UNIFIED_DB = MAIN_DB_PATH  # Legacy alias
-UNIFIED_DB = MAIN_DB_PATH  # Legacy alias
 DOMAIN_DB_PATH = MAIN_DB_PATH  # Preferred name: domain-scoped unified DB
 SNAPSHOTS_DIR = EXPORTS_DIR / "snapshots"  # Legacy: kept for backward compat
 BACKUP_DIR = EXPORTS_DIR / "backup"

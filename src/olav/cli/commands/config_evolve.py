@@ -21,7 +21,6 @@ Design constraints (api_discovery.md §3.5, §4):
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
