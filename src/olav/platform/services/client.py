@@ -112,27 +112,12 @@ def _trim_response(
 
     Removes unknown/noisy fields from response dicts to reduce LLM context.
     Falls back to returning data unchanged if no schema is known.
+
+    Delegates to response_extractor.schema_trim() to avoid duplication.
     """
-    if not def_name or not isinstance(data, (dict, list)):
-        return data
+    from olav.platform.services.response_extractor import schema_trim
 
-    try:
-        from olav.core.api_registry import field_names
-        known_fields = field_names(api_name, def_name)
-        if not known_fields:
-            return data
-    except Exception:
-        return data
-
-    if isinstance(data, dict):
-        return {k: v for k, v in data.items() if k in known_fields}
-    if isinstance(data, list):
-        return [
-            {k: v for k, v in item.items() if k in known_fields}
-            if isinstance(item, dict) else item
-            for item in data
-        ]
-    return data
+    return schema_trim(data, api_name, def_name)
 
 
 def service_call(

@@ -14,7 +14,6 @@ Typical workflow:
 from __future__ import annotations
 
 import hashlib
-import os
 from pathlib import Path
 
 from olav.core.auth.identity import UserIdentity

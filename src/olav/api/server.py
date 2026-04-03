@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
@@ -76,7 +76,7 @@ def _verify_bearer(credentials: HTTPAuthorizationCredentials | None) -> UserIden
 
 
 async def _require_auth(
-    credentials: HTTPAuthorizationCredentials | None | None = None,
+    credentials: HTTPAuthorizationCredentials | None = None,
 ) -> UserIdentity:
     if credentials is None:
         credentials = await _bearer_scheme(Request({"type": "http", "headers": []}))

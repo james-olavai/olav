@@ -16,12 +16,11 @@ Covered hooks:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import time
 import uuid
-from typing import Any, Union
+from typing import Any
 
 from langchain_core.outputs import LLMResult
 

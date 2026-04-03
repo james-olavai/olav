@@ -17,12 +17,10 @@ Architecture:
   - Search: hybrid_search() with optional category/scope filters
 """
 
-import hashlib
 import json
 import logging
-import math
 import uuid
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 

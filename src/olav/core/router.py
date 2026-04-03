@@ -274,14 +274,16 @@ class SemanticRouter:
 
         This uses a cheap model (Tier 1) to determine the appropriate agent.
         """
+        from olav.core.config import get_llm_config
         from olav.core.llm import LLMFactory
 
         # Use injected LLM (for testing) or create one
         llm = getattr(self, "_llm", None)
         if llm is None:
             try:
+                llm_config = get_llm_config()
                 llm = LLMFactory.get_chat_model(
-                    model_name="gpt-4o-mini",  # Cheap model
+                    model_name=llm_config.model,
                     temperature=0.0,
                     agent_id="router",
                 )
