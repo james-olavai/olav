@@ -3,29 +3,42 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/olav", "config"]
+packages = ["src/olav"]
 include = [
     "src/olav/data/**/*.txt",
+]
+exclude = [
+    "src/olav/enterprise/",
+    "src/olav/core/schema_cache.py",
+    "src/olav/platform/services/lifecycle.py",
+    "src/olav/platform/services/permission_generator.py",
 ]
 
 [tool.hatch.build.targets.sdist]
 include = [
+    "/src/olav/**/*.py",
     "/src/olav/data/**/*.txt",
-    "/config",
+    "/src/olav/api/static/**",
+    "/src/olav/py.typed",
     "/README.md",
+    "/LICENSE",
+    "/pyproject.toml",
+]
+exclude = [
+    "/src/olav/enterprise/",
 ]
 
 [project]
 name = "olav"
 version = "0.10.0"
-description = "OLAV — Enterprise AIOps platform with domain-aware agents, declarative service registry, and structured audit"
+description = "OLAV — AI-native platform for autonomous operations with domain-aware agents, API-as-Tool, and Agent Harness"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
     {name = "OLAV Team"}
 ]
 license = {text = "BSL-1.1"}
-keywords = ["aiops", "netops", "agent", "langgraph", "deepagents", "network-automation"]
+keywords = ["aiops", "agent", "langgraph", "deepagents", "agentic-platform", "api-as-tool"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: System Administrators",
@@ -115,10 +128,8 @@ dependencies = [
 olav = "olav.cli.main:cli_main"
 
 [project.urls]
-Homepage = "https://github.com/yhvh/olav"
-Repository = "https://github.com/yhvh/olav"
-Documentation = "https://github.com/yhvh/olav/tree/main/dev_docs"
-Changelog = "https://github.com/yhvh/olav/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/olav-ai/olav"
+Repository = "https://github.com/olav-ai/olav"
 
 [project.optional-dependencies]
 dev = [
