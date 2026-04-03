@@ -8,6 +8,21 @@ tools:
   - diff_configs
   - record_network_event
   - register_service
+static_context:
+  - path: ../core/references/REQUIRED_INFO_CHECK.md
+metadata:
+  version: 2.1.0
+  required_params:
+    service_deployment:
+      - admin_password_or_secret
+      - port_mapping
+      - base_dn_or_org_name
+      - data_persistence_path
+    device_cli:
+      - hostname_or_ip
+      - platform
+    snapshot:
+      - device_list_confirmed
 ---
 
 # Ops Orchestrator Tools

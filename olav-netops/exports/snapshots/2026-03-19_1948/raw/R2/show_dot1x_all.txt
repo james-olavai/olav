@@ -1,2 +1,0 @@
-Sysauthcontrol                Disabled
-Dot1x Protocol Version               3

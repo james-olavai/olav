@@ -35,7 +35,7 @@ def test_tracking_design_doc_index_paths_exist() -> None:
         "dev_docs/plugin_rector.md",
         "dev_docs/olav_platform.md",
         "dev_docs/api_discovery.md",
-        "docs/olav/05_AGENTIC_FEATURES.md",
+        "docs/archive/olav/05_AGENTIC_FEATURES.md",
     ]
 
     for tracked_path in tracked_paths:

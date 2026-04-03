@@ -1,11 +1,11 @@
 """
-Async-compatible DuckDB Checkpointer for OLAV.
+Async-compatible SQLite Checkpointer for OLAV.
 
-LangGraph's DuckDBSaver only has sync checkpoint methods (get_tuple, list, put).
+LangGraph's SqliteSaver only has sync checkpoint methods (get_tuple, list, put).
 The base class raises NotImplementedError for all aget_* methods.
 
-This module wraps DuckDBSaver with asyncio.to_thread() so that LangGraph's
-async graph execution (graph.ainvoke) can work correctly with DuckDB.
+This module wraps SqliteSaver with asyncio.to_thread() so that LangGraph's
+async graph execution (graph.ainvoke) can work correctly with SQLite.
 
 Usage:
     from olav.core.checkpointer import create_checkpointer
@@ -17,33 +17,33 @@ Usage:
 import asyncio
 import logging
 import os
-from collections.abc import AsyncIterator, Iterator
+import sqlite3
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
-    BaseCheckpointSaver,
     Checkpoint,
     CheckpointMetadata,
     CheckpointTuple,
 )
-from langgraph.checkpoint.duckdb import DuckDBSaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 logger = logging.getLogger(__name__)
 
 
-class AsyncDuckDBSaver(DuckDBSaver):
+class AsyncSqliteSaver(SqliteSaver):
     """
-    DuckDBSaver with async wrappers using asyncio.to_thread().
+    SqliteSaver with async wrappers using asyncio.to_thread().
 
     LangGraph requires async checkpointer methods for graph.ainvoke().
-    DuckDBSaver only implements sync methods. This class bridges the gap
-    by running sync DuckDB operations in a thread pool, making them
+    SqliteSaver only implements sync methods. This class bridges the gap
+    by running sync SQLite operations in a thread pool, making them
     awaitable without blocking the event loop.
 
-    Thread safety: DuckDB connections are not thread-safe by default.
-    We use a per-instance lock to ensure single-threaded DB access.
+    Thread safety: sqlite3 connections are opened with check_same_thread=False
+    and access is serialised via a per-instance asyncio.Lock.
     """
 
     def __init__(self, *args, **kwargs):
@@ -115,7 +115,8 @@ class AsyncDuckDBSaver(DuckDBSaver):
                     "FROM checkpoints "
                     "GROUP BY thread_id "
                     "ORDER BY updated_at DESC "
-                    f"LIMIT {int(limit)}"
+                    "LIMIT ?",
+                    (int(limit),),
                 ).fetchall()
                 return [{"thread_id": r[0], "updated_at": r[1]} for r in rows]
             except Exception:
@@ -125,16 +126,20 @@ class AsyncDuckDBSaver(DuckDBSaver):
             return await asyncio.to_thread(_query)
 
 
+# Keep the old name as an alias so any remaining isinstance() checks still work.
+AsyncDuckDBSaver = AsyncSqliteSaver
+
+
 def create_checkpointer(
     agent_id: str,
     username: str | None = None,
     workspace: str = "core",
-) -> AsyncDuckDBSaver | None:
+) -> AsyncSqliteSaver | None:
     """
-    Create a user-isolated AsyncDuckDBSaver for the given agent.
+    Create a user-isolated AsyncSqliteSaver for the given agent.
 
     Stores checkpoints in
-    ~/.olav/checkpoints/{username}/{workspace}/{agent_id}/checkpoints.duckdb
+    ~/.olav/checkpoints/{username}/{workspace}/{agent_id}/checkpoints.db
     so each user + workspace combination gets its own isolated checkpoint store.
     Two workspaces with the same agent name (e.g. "quick") will never collide.
 
@@ -144,11 +149,9 @@ def create_checkpointer(
         workspace: Active workspace name. Defaults to "core".
 
     Returns:
-        AsyncDuckDBSaver instance, or None if creation fails.
+        AsyncSqliteSaver instance, or None if creation fails.
     """
     try:
-        import duckdb
-
         if username is None:
             try:
                 username = os.environ.get("USER") or os.getlogin()
@@ -157,14 +160,14 @@ def create_checkpointer(
 
         checkpoint_dir = Path.home() / ".olav" / "checkpoints" / username / workspace / agent_id
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        db_path = checkpoint_dir / "checkpoints.duckdb"
+        db_path = checkpoint_dir / "checkpoints.db"
 
-        conn = duckdb.connect(str(db_path), read_only=False)
-        saver = AsyncDuckDBSaver(conn)
+        conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        saver = AsyncSqliteSaver(conn)
         saver.setup()  # Create tables if not exist
 
-        logger.info(f"✓ Checkpointer (DuckDB) initialized: {db_path}")
+        logger.info(f"✓ Checkpointer (SQLite) initialized: {db_path}")
         return saver
     except Exception as e:
-        logger.warning(f"AsyncDuckDBSaver init failed ({e}), checkpoints disabled.")
+        logger.warning(f"AsyncSqliteSaver init failed ({e}), checkpoints disabled.")
         return None

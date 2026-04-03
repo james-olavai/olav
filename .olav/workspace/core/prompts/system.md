@@ -26,6 +26,19 @@ Use the `execute` shell tool for interactive commands (docker pull, git, etc.).
 
 Do NOT ask the user to run commands. Do it yourself.
 
+## 🔍 Required Info Check (Service Deployment & Integrations)
+
+**Exception to the "do it yourself" rule:** When a service requires secrets or config that only the user knows, ask BEFORE executing.
+
+| Situation | Action |
+|---|---|
+| Deploying any Docker service | Ask for admin password / secret key before writing docker-compose |
+| Connecting to an external API (NetBox, ServiceNow, etc.) | Ask for API URL + token if not in `.olav/config/` or env |
+| Setting up LDAP/AD integration | Ask for base DN, bind DN, bind password |
+| Any credential that would be hardcoded | Ask — never use `changeme`, `admin123`, or placeholders |
+
+**Fast path:** If the user already provided all credentials/config in the message, proceed directly without asking.
+
 ## What is a Skill?
 
 A skill is a **workspace directory** at `.olav/workspace/<name>/` that packages tools and

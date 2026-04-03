@@ -13,6 +13,15 @@ agents:
 - influxdb-orgs
 - influxdb-netops
 - verify-skill
+- ddd-test-skill
+- ddd-test-skill2
+- test-acceptance-skill
+- merge-base-skill
+- test-skill-ddd
+- test-venv-ddd
+- test-venv-e2e
+- test-venv-e2e2
+- gitea
 platform:
   db: .olav/databases/olav.duckdb
   memory: .olav/databases/memory.lance

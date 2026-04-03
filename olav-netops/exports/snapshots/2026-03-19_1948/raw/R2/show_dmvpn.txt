@@ -1,8 +1,0 @@
-Legend: Attrb --> S - Static, D - Dynamic, I - Incomplete
-	N - NATed, L - Local, X - No Socket
-	T1 - Route Installed, T2 - Nexthop-override
-	C - CTS Capable, I2 - Temporary
-	# Ent --> Number of NHRP entries with same NBMA peer
-	NHS Status: E --> Expecting Replies, R --> Responding, W --> Waiting
-	UpDn Time --> Up or Down Time for a Tunnel
-==========================================================================
