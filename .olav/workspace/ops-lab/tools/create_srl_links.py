@@ -1,1 +1,0 @@
-../../ops/lab/tools/create_srl_links.py

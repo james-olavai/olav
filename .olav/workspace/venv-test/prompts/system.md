@@ -1,1 +1,0 @@
-You are the Venv Test Agent. Respond to queries about the test skill and venv.

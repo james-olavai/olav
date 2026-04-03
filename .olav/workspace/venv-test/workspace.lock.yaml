@@ -1,7 +1,0 @@
-installed_at: '2026-03-31T05:32:54.631347+00:00'
-name: venv-test
-requires:
-  binaries: []
-  packages: []
-source: /tmp/venv-test-skill
-version: 1.0.0
