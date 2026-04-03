@@ -1,6 +1,0 @@
-kind: Agent
-name: test-skill-ddd
-version: "0.1.0"
-description: "Temporary DDD verification skill"
-route_keywords:
-  - test-skill-ddd

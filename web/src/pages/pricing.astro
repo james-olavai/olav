@@ -1,0 +1,148 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+
+const tiers = [
+  {
+    name: 'Open Source',
+    price: 'Free',
+    priceNote: 'forever',
+    license: 'BSL-1.1',
+    highlight: false,
+    features: [
+      'Full platform core',
+      'Unlimited agents & skills',
+      'Creator Agent (6-step workflow)',
+      'Multi-user with audit trail',
+      'HTTP API + WebSocket',
+      'MkDocs documentation site',
+      'Community support (GitHub Issues)',
+    ],
+    cta: 'Get Started Free',
+    ctaHref: 'https://docs.olavplatform.com/getting-started/installation',
+    ctaExternal: true,
+  },
+  {
+    name: 'Enterprise',
+    price: 'Contact us',
+    priceNote: 'per team',
+    license: 'Commercial',
+    highlight: true,
+    features: [
+      'Everything in Open Source',
+      'LDAP / OIDC / SSO authentication',
+      'Role-based access control (RBAC)',
+      'NetOps extension (nornir, SNMP, YANG)',
+      'Priority support + SLA',
+      'Private workspace registry',
+      'On-premises deployment support',
+      'Custom skill development',
+    ],
+    cta: 'Contact Sales',
+    ctaHref: 'mailto:enterprise@olavplatform.com',
+    ctaExternal: false,
+  },
+];
+---
+
+<Layout
+  title="Pricing — OLAV Platform"
+  description="OLAV is open source (BSL-1.1). Enterprise tier adds LDAP/OIDC, NetOps extension, and priority support."
+>
+  <Header />
+
+  <main class="pt-28 pb-24">
+    <div class="mx-auto max-w-7xl px-6">
+      <!-- Page header -->
+      <div class="mx-auto max-w-2xl text-center mb-16">
+        <h1 class="text-4xl sm:text-5xl font-extrabold text-white">Simple Pricing</h1>
+        <p class="mt-4 text-xl text-gray-400">
+          Start free. Scale with Enterprise when you need it.
+        </p>
+      </div>
+
+      <!-- Tier cards -->
+      <div class="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+        {tiers.map((tier) => (
+          <div
+            class={`rounded-2xl p-8 flex flex-col ${
+              tier.highlight
+                ? 'border-2 border-brand-500 bg-brand-500/5 shadow-[0_0_40px_rgba(99,102,241,0.15)]'
+                : 'border border-white/10 bg-gray-900/50'
+            }`}
+          >
+            {tier.highlight && (
+              <div class="text-xs font-semibold text-brand-400 uppercase tracking-wider mb-4">
+                ★ Most Popular
+              </div>
+            )}
+            <div>
+              <h2 class="text-xl font-bold text-white">{tier.name}</h2>
+              <div class="mt-4 flex items-baseline gap-2">
+                <span class="text-4xl font-extrabold text-white">{tier.price}</span>
+                <span class="text-gray-400 text-sm">{tier.priceNote}</span>
+              </div>
+              <div class="mt-1 text-xs text-gray-600">License: {tier.license}</div>
+            </div>
+
+            <ul class="mt-8 space-y-3 flex-1">
+              {tier.features.map((f) => (
+                <li class="flex items-start gap-3 text-sm text-gray-300">
+                  <svg class="w-4 h-4 text-brand-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                  {f}
+                </li>
+              ))}
+            </ul>
+
+            <a
+              href={tier.ctaHref}
+              {...(tier.ctaExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+              class={`mt-8 block w-full rounded-lg py-3.5 text-center text-base font-semibold transition-colors ${
+                tier.highlight
+                  ? 'bg-brand-600 text-white hover:bg-brand-500'
+                  : 'border border-white/10 bg-white/5 text-white hover:bg-white/10'
+              }`}
+            >
+              {tier.cta}
+            </a>
+          </div>
+        ))}
+      </div>
+
+      <!-- FAQ -->
+      <div class="mt-24 max-w-2xl mx-auto">
+        <h2 class="text-2xl font-bold text-white text-center mb-10">Frequently Asked</h2>
+        <div class="space-y-6">
+          {[
+            {
+              q: 'What does BSL-1.1 mean?',
+              a: 'Business Source License 1.1: you can use OLAV freely for internal operations and development. Commercial redistribution or SaaS offerings require a commercial license. It converts to Apache 2.0 after 4 years.',
+            },
+            {
+              q: 'Do I need the Enterprise tier for production?',
+              a: 'No. The open source tier is fully functional for production use. Enterprise adds authentication integrations (LDAP/OIDC), the NetOps extension package, and priority support.',
+            },
+            {
+              q: 'Is there a cloud-hosted version?',
+              a: 'Not yet. OLAV is self-hosted. Cloud-hosted SaaS is on the roadmap for a future release.',
+            },
+            {
+              q: 'What is the NetOps extension?',
+              a: 'olav-netops is a separate package adding nornir, netmiko, SNMP, and YANG-model support for network device operations. It has heavyweight dependencies intentionally separated from the core platform.',
+            },
+          ].map((item) => (
+            <div class="border border-white/5 rounded-xl p-6">
+              <h3 class="font-semibold text-white">{item.q}</h3>
+              <p class="mt-2 text-sm text-gray-400 leading-relaxed">{item.a}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <Footer />
+</Layout>

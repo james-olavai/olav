@@ -1,5 +1,0 @@
-name: test-venv-ddd
-version: "1.0.0"
-kind: Agent
-description: "DDD venv isolation test"
-route_keywords: [venv, test]

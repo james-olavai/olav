@@ -1,1 +1,0 @@
-../../ops/tools/take_snapshot.py
