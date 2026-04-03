@@ -2,7 +2,7 @@
 
 import sys
 
-from olav.core.watermark import get_watermark_banner, get_watermark_notice
+from olav.core.watermark import get_watermark_notice
 
 # Configuration parameters: industrial-grade color scheme (deep blue -> tech teal)
 COLOR_START = (60, 80, 255)  # Protocol Blue (physical layer stability)

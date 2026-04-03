@@ -33,8 +33,9 @@ You are authorized to use the Software in a production environment under the fol
 
 1. **Personal Use:** You may use the Software for personal, non-commercial research and experimentation.
 2. **Internal Enterprise Use:** Organizations may use the Software for their **own internal infrastructure management**, provided that:
-* The Software is operated, configured, and maintained exclusively by **direct, full-time employees** of that organization.
+* The Software is used to manage infrastructure **owned or leased by that organization**.
 * The use is not intended to provide services to any third party.
+* Contractors, consultants, and part-time staff acting **on behalf of and under the direction of** the organization are permitted to operate the Software for that organization's internal use.
 
 
 
@@ -44,7 +45,7 @@ The following use cases are **EXPRESSLY PROHIBITED** under this Free Grant and r
 
 * **Managed Service Providers (MSP):** Using olav to manage, monitor, or operate infrastructure belonging to third-party clients.
 * **Cloud Service Providers (CSP):** Offering olav as a hosted service, managed instance, or via an API to external customers.
-* **Outsourced Operations:** Using the Software via third-party contractors or outsourcing firms to bypass the "Direct Employee" requirement.
+* **Outsourced Operations:** A third-party firm using the Software to manage **another organization's** infrastructure as a commercial service (note: contractors working under the direction of the infrastructure owner for internal use are permitted under §A.2).
 * **Bundling & Resale:** Packaging olav within a commercial product, hardware appliance, or proprietary software suite.
 * **Commercial Consulting:** Selling "olav Implementation" or "Expert Skill Tuning" as a paid service to third parties.
 
@@ -89,11 +90,19 @@ DATATECHIE PTY LTD makes no representations or warranties regarding:
 * The absence of errors, defects, or malicious code
 * The uninterrupted or error-free operation of the Software
 
+### AI-Generated Output Notice
+
+The Software uses large language models (LLMs) to generate responses, tool calls, and operational recommendations. **AI-generated outputs are non-deterministic and may contain errors.** Users must:
+
+* **Review all AI-generated actions** before applying them to production infrastructure
+* **Not rely solely on AI outputs** for critical infrastructure decisions without human verification
+* Understand that the Software's Agent Harness provides safety layers (HITL approval, sandbox isolation, read-only enforcement) but **cannot guarantee the correctness of LLM-generated content**
+
 ### User's Responsibility
 
-By downloading, installing, or using the Software, you **automatically accept full responsibility** for:
+By downloading, installing, or using the Software, you acknowledge and accept responsibility for:
 
-* All decisions made by the Software in your infrastructure
+* Reviewing and approving all actions the Software takes in your infrastructure
 * All data processed, modified, or deleted by the Software
 * Configuration errors that may result in unintended network changes
 * Security vulnerabilities you may fail to patch

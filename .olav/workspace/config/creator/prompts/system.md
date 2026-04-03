@@ -140,6 +140,31 @@ each endpoint accepts without any hardcoding.
 
 Save the returned `path` value — you need it in Step 5.
 
+### Step 4.7 — Decide registration mode (REQUIRED — ask the user)
+
+Before deploying, you MUST ask the user:
+
+> "Should this skill be a **top-level agent** (independently routable via the platform
+> router) or a **subskill under an existing agent** (invoked only by that agent)?
+>
+> Available agents to attach to: `ops`, `audit`, `config`, `quick`, `olav` (or others in PLATFORM.md)
+>
+> — Choose **top-level** for large standalone integrations (e.g. a full NetBox or InfluxDB API).
+> — Choose **subskill** for domain-specific extensions of an existing agent (e.g. a new
+>   troubleshooting capability under `ops`, a new audit check under `audit`)."
+
+**Decision rules (use if user doesn't specify):**
+| Signal | Mode |
+|--------|------|
+| API covers a broad domain (DCIM, IPAM, monitoring) | top-level |
+| Skill extends existing agent's domain (e.g. new network probe under ops) | subskill of that agent |
+| API is a utility/helper for one specific agent | subskill |
+| User says "add to ops" / "under audit" / etc. | subskill of named agent |
+
+Record the decision as:
+- `parent_agent = ""` → top-level
+- `parent_agent = "<agent_name>"` → subskill (e.g. `"ops"`)
+
 ### Step 5 — Deploy workspace
 ```
 create_skill_workspace(
@@ -147,7 +172,10 @@ create_skill_workspace(
     description=...,            # one-line, plain English
     tool_file_paths=[...],      # paths returned by register_api_service (Step 4)
     schema_ref_path="...",      # path returned by extract_schema_reference (Step 4.5)
-    manifest_keywords=[...],    # REQUIRED — routing keywords for platform router
+    parent_agent="",            # "" = top-level agent; or "ops"/"audit"/etc. = subskill
+                                # (from Step 4.7 decision)
+    # --- Only for top-level agents: ---
+    manifest_keywords=[...],    # routing keywords for platform router (omit for subskills)
                                 # derive from the API domain: service name, resource types,
                                 # common user query terms (e.g. ['netbox', 'dcim', 'device',
                                 # 'rack', 'site', 'cable', 'interface'])
@@ -160,10 +188,16 @@ create_skill_workspace(
 The `schema_ref_path` is automatically added to `static_context` in SKILL.md, making the
 workspace schema-aware from the first agent invocation.
 
-**Verify the returned status** — it must show:
+**For top-level agents, verify the returned status shows:**
+- `registration_mode: "top-level"`
 - `has_manifest: true` (enables router discovery)
 - `has_system_prompt: true` (enables agent context)
 - `schema_aware: true` (enables filter-aware queries)
+
+**For subskills, verify the returned status shows:**
+- `registration_mode: "subskill"`
+- `registered_as_subskill_of: "<parent_agent>"` (parent AGENT.md updated)
+- `schema_aware: true`
 
 ### Step 6 — Verify
 ```

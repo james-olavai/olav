@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from langchain_core.messages import AIMessage, ToolCall, ToolMessage
 from langgraph.runtime import Runtime
@@ -26,9 +26,6 @@ from langchain.agents.middleware.human_in_the_loop import (
     ReviewConfig,
 )
 from olav.plugins.base import OLAVMiddlewarePlugin
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 

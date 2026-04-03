@@ -12,7 +12,6 @@ Design reference: dev_docs/slash_command_auto_registration.md
 from __future__ import annotations
 
 import importlib
-import inspect
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field

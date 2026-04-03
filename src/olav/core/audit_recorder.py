@@ -16,7 +16,7 @@ import re
 import threading
 import time
 import uuid
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -427,8 +427,6 @@ class AuditEventRecorder:
 
 def audit_retention(db_path: str | Path, max_age_days: int = 90) -> int:
     """Delete audit records older than *max_age_days*. Returns total deleted rows."""
-    import duckdb
-
     db_path = Path(db_path)
     threshold = datetime.now(UTC) - timedelta(days=max_age_days)
     total = 0

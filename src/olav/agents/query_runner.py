@@ -7,7 +7,6 @@ import logging
 import re
 from collections.abc import Mapping
 from collections.abc import Sequence
-from pathlib import Path
 from typing import Any, cast
 
 import duckdb
