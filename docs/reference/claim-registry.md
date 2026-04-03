@@ -97,7 +97,7 @@
 | ID | 声明 | CLI 指令 | 文档页 | 状态 | 版本 |
 |----|------|---------|--------|------|------|
 | C-L2-23 | 管理员创建/管理用户和令牌 | `olav admin "add-user..."` | [用户与角色](users-and-roles.md) | ✅ | v0.12.0 |
-| C-L2-28 | 支持多种认证模式 | `auth.mode` 配置 | [安全模型](../concepts/security-model.md) | ⬜ | |
+| C-L2-28 | 支持多种认证模式 | `auth.mode` 配置 | [安全模型](../concepts/security-model.md) | ✅ | v0.12.0 |
 
 ### Core Agent 工具
 
@@ -129,8 +129,8 @@
 
 | 状态 | 数量 |
 |------|------|
-| ✅ Verified | 33 |
-| ⬜ Pending | 2 |
+| ✅ Verified | 34 |
+| ⬜ Pending | 1 |
 | 🔶 Env-Blocked | 1 |
 | **合计** | **36** |
 

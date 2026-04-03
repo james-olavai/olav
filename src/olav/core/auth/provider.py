@@ -46,6 +46,19 @@ def get_auth_provider(mode: str | None = None) -> AuthProvider:
         case "server":
             from olav.core.auth.server_token import ServerTokenProvider
             return ServerTokenProvider()
+        case "ldap":
+            from olav.core.auth.ldap_provider import LDAPAuthProvider
+            try:
+                from olav.core.config import ConfigLoader
+                cfg = ConfigLoader().auth.ldap
+                return LDAPAuthProvider(
+                    host=cfg.get("host", "localhost"),
+                    port=int(cfg.get("port", 389)),
+                    base_dn=cfg.get("base_dn", "dc=example,dc=com"),
+                    tls=bool(cfg.get("tls", False)),
+                )
+            except Exception:
+                return LDAPAuthProvider()
         case _:
             from olav.core.auth.os_identity import OSIdentityProvider
             return OSIdentityProvider()

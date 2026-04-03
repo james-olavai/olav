@@ -445,6 +445,21 @@ class AuthConfig:
         """Session cookie TTL in hours (default: 24)."""
         return int(self._data.get("session_ttl_hours", 24))
 
+    @property
+    def ldap(self) -> dict:
+        """LDAP connection config dict: host, port, base_dn, tls."""
+        return self._data.get("ldap", {})
+
+    @property
+    def ad(self) -> dict:
+        """Active Directory config dict: domain, dc_host."""
+        return self._data.get("ad", {})
+
+    @property
+    def oidc(self) -> dict:
+        """OIDC config dict: issuer_url, client_id."""
+        return self._data.get("oidc", {})
+
 
 class DatasetExportConfig:
     def __init__(self, data: dict, loader: "ConfigLoader"):
