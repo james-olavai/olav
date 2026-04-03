@@ -1238,3 +1238,66 @@ class TestTraceReviewClaim:
             timeout=60,
         )
         assert "Traceback" not in result.stderr
+
+
+# ─────────────────────────────────────────────────────────
+# C-L2-28  多种认证模式（LDAP）
+# Claim: auth.mode=ldap 支持通过 LDAP bind 验证用户身份
+# Doc:   docs/concepts/security-model.md
+# Requires: lldap running on localhost:3890
+# ─────────────────────────────────────────────────────────
+class TestLDAPAuthClaim:
+    """
+    Claim C-L2-28: auth.mode 可配置为 ldap，使用 LDAP bind 验证用户凭证。
+    Verified: 2026-04-03 | Doc: docs/concepts/security-model.md
+    Requires lldap (nitnelave/lldap:stable) on localhost:3890.
+    """
+
+    LDAP_HOST = "localhost"
+    LDAP_PORT = 3890
+
+    @pytest.fixture(autouse=True)
+    def _require_lldap(self):
+        """Skip if lldap is not running."""
+        import socket
+        try:
+            s = socket.create_connection((self.LDAP_HOST, self.LDAP_PORT), timeout=2)
+            s.close()
+        except OSError:
+            pytest.skip(f"lldap not running on {self.LDAP_HOST}:{self.LDAP_PORT}")
+
+    def _make_provider(self):
+        from olav.core.auth.ldap_provider import LDAPAuthProvider
+        return LDAPAuthProvider(
+            host=self.LDAP_HOST,
+            port=self.LDAP_PORT,
+            base_dn="dc=example,dc=com",
+        )
+
+    def test_ldap_provider_instantiates(self):
+        from olav.core.auth.provider import get_auth_provider
+        provider = get_auth_provider("ldap")
+        assert type(provider).__name__ == "LDAPAuthProvider"
+
+    def test_ldap_admin_auth_success(self):
+        provider = self._make_provider()
+        identity = provider.authenticate(token="admin:adminpassword")
+        assert identity.username == "admin"
+        assert identity.source == "token"
+
+    def test_ldap_user_auth_success(self):
+        provider = self._make_provider()
+        identity = provider.authenticate(token="ddd-tester:TestPass123")
+        assert identity.username == "ddd-tester"
+        assert identity.source == "token"
+
+    def test_ldap_wrong_password_rejected(self):
+        provider = self._make_provider()
+        identity = provider.authenticate(token="admin:wrongpassword")
+        # Falls back to OS identity, not the requested user
+        assert identity.source == "os"
+
+    def test_ldap_no_credentials_fallback(self):
+        provider = self._make_provider()
+        identity = provider.authenticate(token=None)
+        assert identity.source == "os"
