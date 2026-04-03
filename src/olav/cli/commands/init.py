@@ -87,8 +87,21 @@ class InitCommand(BaseCommand):
             api_json_path.write_text(
                 json.dumps(
                     {
-                        "llm": {"provider": "openai", "model": "gpt-4-turbo"},
-                        "embedding": {"mode": "local"},
+                        "shared": {
+                            "api_key": "",
+                        },
+                        "llm": {
+                            "provider": "openai",
+                            "model": "gpt-4o",
+                        },
+                        "embedding": {
+                            "mode": "api",
+                            "api": {
+                                "model": "openai/text-embedding-3-small",
+                            },
+                            "fallback": {"enabled": True},
+                        },
+                        "auth": {"mode": "none"},
                     },
                     indent=2,
                     ensure_ascii=False,

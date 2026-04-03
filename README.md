@@ -1,11 +1,32 @@
-# OLAV
+<p align="center">
+  <img src="src/olav_logo.png" alt="OLAV Logo" width="200">
+</p>
 
-**Enterprise AI-native platform for autonomous infrastructure operations.**
+<h1 align="center">OLAV 🐺</h1>
 
-[![Version](https://img.shields.io/badge/version-v0.10.0-blue)]()
-[![License](https://img.shields.io/badge/license-BSL--1.1-green)]()
-[![Python](https://img.shields.io/badge/python-3.11+-yellow)]()
-[![Docs](https://img.shields.io/badge/docs-docs.olavplatform.com-informational)](https://docs.olavplatform.com)
+<p align="center">
+  <strong>Online Analytical Vertex for Agentic Operations</strong><br>
+  AI-native platform for autonomous infrastructure operations.
+</p>
+
+<p align="center">
+  <a href="">
+    <img src="https://img.shields.io/badge/version-v0.10.0-blue" alt="Version">
+  </a>
+  <a href="">
+    <img src="https://img.shields.io/badge/license-BSL--1.1-green" alt="License">
+  </a>
+  <a href="">
+    <img src="https://img.shields.io/badge/python-3.11+-yellow" alt="Python">
+  </a>
+  <a href="">
+    <img src="https://img.shields.io/badge/docs-TBA-lightgrey" alt="Docs">
+  </a>
+</p>
+
+<p align="center">
+  <a href="src/README_ZH.md">中文文档</a>
+</p>
 
 > Control your infrastructure with natural language. Connect any API, deploy specialized AI agents, orchestrate operational workflows — without writing SQL or memorizing CLI flags.
 
@@ -15,7 +36,7 @@ olav "which BGP neighbors are down?"
 olav --agent core "run a health check on all endpoints"
 ```
 
-[Documentation](https://docs.olavplatform.com) | [Quick Start](#quick-start) | [中文](README_ZH.md)
+[Quick Start](#quick-start) | [中文](src/README_ZH.md)
 
 ---
 
@@ -53,7 +74,7 @@ Use OLAV → audit log captures every tool call and error
     → future runs recall constraints before acting → known pitfalls avoided
 ```
 
-Data-driven improvement, not manual prompt tuning. Export audit traces as SFT / Trajectory / ATIF training data to fine-tune your own models.
+Data-driven improvement, not manual prompt tuning.
 
 ### Multi-Layer Cache — Measured 2000x+ Speedup
 
@@ -74,7 +95,7 @@ Not one omniscient Agent — **multiple specialists collaborating**:
 - Per-Agent model assignment: cheap models for frequent queries, powerful models for complex analysis — 40-70% token cost reduction
 - Hot-swappable Skills: `olav skill install` extends capabilities instantly
 
-### Enterprise AAA — Authentication, Authorization, Audit
+### AAA — Authentication, Authorization, Audit
 
 - **Auth**: none / token / LDAP / AD / OIDC; tokens stored as salted SHA256 hashes
 - **RBAC**: 3 roles (admin/user/readonly) × 5 actions, fine-grained per Agent/Skill
@@ -85,32 +106,55 @@ Not one omniscient Agent — **multiple specialists collaborating**:
 Audit logs are not just compliance — they're a **continuously growing data asset**:
 
 - Query any dimension with DuckDB SQL (token usage, cache hit rate, tool call frequency, error patterns)
-- Export to training data; swap in fine-tuned models by changing one field in `api.json`
 - Multi-user concurrent-safe (DuckDB atomic writes, each record tagged with `user_id`)
 
 ---
 
 ## Quick Start
 
+=== "pip install (recommended)"
+    ```bash
+    # 1. Install
+    pip install olav
+
+    # 2. Initialize project
+    olav init                                   # creates .olav/ with config skeleton
+
+    # 3. Configure API key (edit the generated file)
+    #    Set shared.api_key in .olav/config/api.json
+    #    Or use environment variables:
+    export OLAV_LLM_API_KEY="sk-..."           # your LLM provider API key
+
+    # 4. Connect a service and start querying
+    olav registry register http://netbox.example.com/api/schema/
+    olav "how many devices are in rack A1?"
+
+    # Or install a community skill
+    olav skill install https://github.com/olav-ai/skill-netbox
+    olav "list all sites in Europe"
+    ```
+
+=== "From source (development)"
+    ```bash
+    # 1. Clone and install
+    git clone https://github.com/olav-ai/olav.git && cd olav
+    uv sync
+
+    # 2. Initialize and configure
+    uv run olav init                           # creates .olav/ with config skeleton
+    # Edit .olav/config/api.json → set shared.api_key
+    # Or: export OLAV_LLM_API_KEY="sk-..."
+    uv run olav registry register http://netbox.example.com/api/schema/
+    uv run olav "how many devices are in rack A1?"
+    ```
+
+### Other ways to use
+
 ```bash
-# Install
-git clone https://github.com/olav-ai/olav.git && cd olav
-uv sync
-
-# Initialize
-olav init
-
-# Configure LLM (edit .olav/config/api.json or use env vars)
-export OLAV_LLM_API_KEY="sk-..."
-export OLAV_LLM_MODEL="gpt-4o"
-
-# Run
-olav "how many devices are in the database?"
-olav                          # interactive TUI
-olav service web start        # web UI at http://localhost:2280
+olav                            # interactive TUI (multi-turn conversations)
+olav service web start          # web UI at http://localhost:2280
+olav --agent core "run: df -h"  # execute shell commands via Core Agent
 ```
-
-See [Installation Guide](https://docs.olavplatform.com/getting-started/installation/) for details.
 
 ---
 
@@ -146,11 +190,9 @@ Response + Audit Log (automatic, every run)
 
 ```
 src/olav/          ← OLAV core platform (this repo)
-olav-netops/       ← Network operations extension (separate package, public)
-olav-ent/          ← Enterprise features (separate package, private)
-docs/              ← Documentation (EN/ZH bilingual, MkDocs Material)
-tests/             ← E2E acceptance tests + unit tests
-.olav/workspace/   ← Agent & Skill definitions (committed to git)
+src/README_ZH.md   ← 中文文档
+src/olav_logo.png  ← Logo
+.olav/workspace/   ← Platform agent definitions (config/ + core/)
 .olav/config/      ← Runtime config (gitignored — contains API keys)
 .olav/databases/   ← Runtime data (gitignored — audit logs, domain data)
 ```
@@ -159,12 +201,7 @@ tests/             ← E2E acceptance tests + unit tests
 
 ## Documentation
 
-Full documentation at **[docs.olavplatform.com](https://docs.olavplatform.com)** (English + Chinese):
-
-- [Getting Started](https://docs.olavplatform.com/getting-started/installation/) — Install and run your first query
-- [Guides](https://docs.olavplatform.com/guides/connect-a-service/) — Connect services, build skills, manage workspaces
-- [Concepts](https://docs.olavplatform.com/concepts/agents-and-skills/) — Agents, Skills, Security Model, Agent Harness
-- [Reference](https://docs.olavplatform.com/reference/cli/) — CLI, Configuration, HTTP API
+Documentation site: **TBA** (coming soon at `docs.olavai.com`)
 
 ---
 
