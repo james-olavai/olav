@@ -1,1 +1,0 @@
-[{"device_name": "R1", "command": "gnmi_bgp", "parsed_data": {"notification": []}, "snapshot_id": "2026-03-19_1200", "raw_output": "{\"notification\": []}"}]
