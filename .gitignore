@@ -66,7 +66,12 @@ build/
 # ── Archives & Legacy ──────────────────────────────────────────────────────────
 archive/
 _legacy_archived/
-README_ZH.md
+dev_doc_archive/
+
+# ── AI tooling state (sisyphus, agent skills, etc.) ───────────────────────────
+.sisyphus/
+.agent/
+test-skill/
 
 # ── Platform Logs & Runtime ────────────────────────────────────────────────────
 logs/
@@ -74,7 +79,6 @@ logs/
 agent_outputs/
 tmp/
 run/
-x
 
 # ── OLAV workspace: ignore runtime state, keep config templates ───────────────
 .olav/*
@@ -150,3 +154,4 @@ parse_test.py
 fix_openconfig_closure.py
 test_playwright.py
 test_watermark_integration.py
+.agent/
