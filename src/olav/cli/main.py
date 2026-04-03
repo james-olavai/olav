@@ -1553,8 +1553,14 @@ What tools are available and when should each be used?
         console.print(f"\n[bold red]Error:[/bold red] {e}")
         import traceback
 
-        # Always print traceback for debugging
-        traceback.print_exc()
+        # Only print full traceback in debug mode; suppress for known API errors
+        # (e.g., 402 Payment Required, 429 Rate Limit) to avoid noisy stderr.
+        _is_api_error = any(
+            marker in str(type(e).__name__) or marker in str(e)
+            for marker in ("APIStatusError", "APIError", "RateLimitError", "AuthenticationError")
+        )
+        if logging.getLogger().level == logging.DEBUG or not _is_api_error:
+            traceback.print_exc()
         if logging.getLogger().level == logging.DEBUG:
             console.print_exception()
         sys.exit(1)
