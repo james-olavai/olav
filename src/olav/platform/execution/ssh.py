@@ -42,7 +42,7 @@ class SSHBackend:
 
     Example::
 
-        backend = SSHBackend(host="192.168.100.12", user="olav")
+        backend = SSHBackend(host="lab-server.example.com", user="olav")
         result = backend.execute("docker ps")
         if result.ok:
             print(result.stdout)

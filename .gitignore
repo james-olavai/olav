@@ -80,7 +80,10 @@ x
 .olav/*
 !.olav/workspace/
 !.olav/templates/
+!.olav/config/
+.olav/config/*
 !.olav/config/schemas/
+!.olav/config/*.example
 
 # ── Exported data (snapshots, reports, audit datasets, device backups) ─────────
 exports/
