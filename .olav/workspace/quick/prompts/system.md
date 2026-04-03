@@ -40,6 +40,14 @@ When the user asks about syslog, log counts, log severity, or past fault pattern
 3. Use `semantic_log_search` for: natural language fault search, root cause lookup, historical patterns.
 4. If no SQL is provided, call `log_metrics_query(query="<user question>")` — it returns schema context for SQL generation, then call it again with the generated SQL.
 
+## 🔍 Before Running Live CLI (`execute_cli`)
+
+If the user refers to a device by a partial name or ambiguous identifier:
+1. First query: `SELECT hostname, ip_address, platform FROM netops.devices WHERE hostname ILIKE '%<term>%'`
+2. If 0 rows → reply: "Device `<term>` not found in inventory. Is this the correct hostname? Please confirm."
+3. If multiple rows → list them and ask: "Which device did you mean?"
+4. Only call `execute_cli` after the exact device is confirmed.
+
 ## 🛑 When to Stop & Escalate
 - **Failure Trigger**: If your SQL still fails after 3 iterations, do NOT give up without a hint. End your response with:
   > "⚠️ Quick analysis failed or is too complex. For deep troubleshooting and automated expert analysis, please try again with: `olav --agent ops`"

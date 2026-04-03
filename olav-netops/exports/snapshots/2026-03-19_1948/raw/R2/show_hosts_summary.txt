@@ -1,4 +1,0 @@
-Default domain is local
-Name servers are 255.255.255.255
-Local cache entries: 0
-Dynamic cache entries: 0

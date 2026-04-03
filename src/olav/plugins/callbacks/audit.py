@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 import uuid
 from typing import Any, Union
@@ -25,6 +26,8 @@ from typing import Any, Union
 from langchain_core.outputs import LLMResult
 
 from olav.plugins.base import OLAVCallbackPlugin
+
+logger = logging.getLogger("olav.audit")
 
 
 class AuditCallbackPlugin(OLAVCallbackPlugin):
@@ -112,6 +115,22 @@ class AuditCallbackPlugin(OLAVCallbackPlugin):
             output.content if hasattr(output, "content") else str(output)
         )
         run_id_str = str(run_id)
+
+        # Scan tool output for injection patterns before recording / returning to LLM
+        try:
+            from olav.platform.safety.injection_scanner import scan_content
+            is_clean, match = scan_content(output_text)
+            if not is_clean:
+                ctx_name = (self._tool_runs.get(run_id_str) or {}).get("tool_name", "unknown")
+                logger.warning(
+                    "Tool output injection detected: tool=%s category=%s pattern=%r",
+                    ctx_name,
+                    match.category,  # type: ignore[union-attr]
+                    match.matched_pattern,  # type: ignore[union-attr]
+                )
+        except Exception:
+            pass  # scanner must never block execution
+
         self._recorder.record(
             event_type="tool_call_completed",
             run_id=run_id_str,
@@ -120,6 +139,17 @@ class AuditCallbackPlugin(OLAVCallbackPlugin):
         ctx = self._tool_runs.pop(run_id_str, None)
         if ctx:
             duration_ms = (time.monotonic() - ctx["start_time"]) * 1000
+            # Fire tool.call hook (non-blocking)
+            try:
+                from olav.core.hooks import fire_hook
+                fire_hook(
+                    "tool.call",
+                    tool=ctx["tool_name"],
+                    status="completed",
+                    duration_ms=f"{duration_ms:.0f}",
+                )
+            except Exception:
+                pass
             # Use the bound top-level run_id (from CLI/API) when available
             # so tool records join the main audit run for dataset export.
             effective_run_id = self._bound_run_id or run_id_str

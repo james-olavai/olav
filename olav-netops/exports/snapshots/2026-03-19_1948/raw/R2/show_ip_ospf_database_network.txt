@@ -1,2 +1,0 @@
-
-            OSPF Router with ID (2.2.2.2) (Process ID 1)

@@ -74,6 +74,7 @@ logs/
 agent_outputs/
 tmp/
 run/
+x
 
 # ── OLAV workspace: ignore runtime state, keep config templates ───────────────
 .olav/*
@@ -81,10 +82,8 @@ run/
 !.olav/templates/
 !.olav/config/schemas/
 
-# ── Exported data ──────────────────────────────────────────────────────────────
-exports/snapshots/*
-exports/reports/*
-exports/visualizations/*
+# ── Exported data (snapshots, reports, audit datasets, device backups) ─────────
+exports/
 !exports/.gitkeep
 !exports/snapshots/.gitkeep
 !exports/reports/.gitkeep
@@ -95,19 +94,56 @@ exports/visualizations/*
 .env
 .env.local
 .env.*.local
+.olav/config/api.json
+.olav/config/settings.json
 .olav/settings.json
 .olav/.agent_memory.json
 .olav/.cli_history
 .olav/knowledge/aliases.md
 .olav/knowledge/solutions/
+.olav/run/
+.olav/databases/
+.olav/logs/
 config/inventory.csv
 .olav/config/nornir/hosts.yaml
 config/nornir/hosts.yaml
+# Runtime tokens and session state
+*.token
+~/.olav/
+.olav/config/*.json
+!.olav/config/schemas/
+
+# ── Separate sub-repos (NOT part of olav platform release) ────────────────────
+# olav-netops: network operations domain package (separate PyPI package)
+olav-netops/
+# olav-ent: enterprise features (private Milestone 3 repo)
+olav-ent/
+# olav-doc: documentation site repo (separate deployment)
+olav-doc/
+
+# ── MkDocs built site (generated, not source) ─────────────────────────────────
+site/
 
 # ── ContainerLab E2E runtime artifacts ────────────────────────────────────────
 .agent/skills/containerlab-e2e/references/*.duckdb
 .agent/skills/containerlab-e2e/evidence/
 
-# ── Demo scripts ───────────────────────────────────────────────────────────────
+# ── Demo / watermark scripts ───────────────────────────────────────────────────
 demo_*.py
 WATERMARK_IMPLEMENTATION_REPORT.md
+
+# ── Other repo boundaries (co-located but separate projects) ──────────────────
+# These are NOT part of OLAV platform — excluded from this repo entirely
+olav-netops/
+olav-ent/
+olav-doc/
+
+# ── MkDocs build output ────────────────────────────────────────────────────────
+site/
+TRAINING_DATA_AUDIT.md
+TRAINING_DATA_FIX_CHECKLIST.md
+TRAINING_DATA_USER_RECOMMENDATION.md
+parse_test.py
+fix_openconfig_closure.py
+test_playwright.py
+test_watermark_integration.py

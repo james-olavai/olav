@@ -60,17 +60,25 @@ def log_show(
     run_id: str,
     db_path: Path | str | None = None,
 ) -> list[dict[str, Any]]:
-    """Return all audit events for *run_id* ordered by sequence_no / timestamp."""
+    """Return all audit events for *run_id* ordered by sequence_no / timestamp.
+
+    *run_id* may be a full UUID or the 8-character prefix shown by ``log list``.
+    """
     conn = _connect(db_path)
     try:
+        # Support 8-char prefix (as shown by log list) as well as full UUID
+        if len(run_id) <= 8:
+            where, param = "WHERE run_id LIKE ?", [run_id + "%"]
+        else:
+            where, param = "WHERE run_id = ?", [run_id]
         rows = conn.execute(
-            """
+            f"""
             SELECT event_id, event_type, timestamp, sequence_no, agent_id, payload
             FROM audit_events
-            WHERE run_id = ?
+            {where}
             ORDER BY COALESCE(sequence_no, 0), timestamp
             """,
-            [run_id],
+            param,
         ).fetchall()
         cols = ["event_id", "event_type", "timestamp", "sequence_no", "agent_id", "payload"]
         return [dict(zip(cols, row, strict=True)) for row in rows]

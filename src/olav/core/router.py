@@ -1,6 +1,6 @@
 """Semantic Router - LanceDB-based Agent Intent Matching.
 
-This module implements the Semantic Router for OLAV v0.12.0.
+This module implements the Semantic Router for OLAV v0.10.0.
 It uses LanceDB to perform semantic matching between user queries
 and agent intents, providing millisecond-level routing performance.
 

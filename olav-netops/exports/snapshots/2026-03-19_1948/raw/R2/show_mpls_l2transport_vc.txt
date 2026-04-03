@@ -1,3 +1,0 @@
-
-Local intf     Local circuit              Dest address    VC ID      Status
--------------  -------------------------- --------------- ---------- ----------

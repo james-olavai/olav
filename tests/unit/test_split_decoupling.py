@@ -31,7 +31,7 @@ _API_ACTION_SVC_PY = _SRC / "olav" / "core" / "api_action_service.py"
 _CONFIG_EVOLVE_PY = _SRC / "olav" / "cli" / "commands" / "config_evolve.py"
 _PYPROJECT = _ROOT / "pyproject.toml"
 _NETOPS_MANIFEST = _ROOT / "dev_docs" / "NETOPS_WORKSPACE_MANIFEST.md"
-_DOCS_README = _ROOT / "docs" / "01_README.md"
+_DOCS_README = _ROOT / "docs" / "index.en.md"
 _ENT_PYPROJECT = _ROOT / "olav-ent" / "pyproject.toml"
 
 
@@ -543,7 +543,7 @@ class TestTD32TrackingDocIndexPaths:
 
     def test_tracking_section6_cn_agentic_features_path_exists(self):
         """docs/olav/cn/05_AGENTIC_FEATURES.md must exist (TD-32 fix)."""
-        cn_path = _ROOT / "docs" / "olav" / "cn" / "05_AGENTIC_FEATURES.md"
+        cn_path = _ROOT / "docs" / "archive" / "olav" / "cn" / "05_AGENTIC_FEATURES.md"
         assert cn_path.exists(), (
             f"CN Agentic Features doc not found at {cn_path}. "
             "Tracking §6 must reference the real path, not the stale docs/cn/09_AGENTIC_FEATURES.md"

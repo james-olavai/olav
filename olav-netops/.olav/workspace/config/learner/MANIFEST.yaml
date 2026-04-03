@@ -1,7 +1,0 @@
-kind: Skill
-name: config-learner
-version: "1.1.0"
-agent: config-orchestrator
-description: "Command Learner — TextFSM template generation via interactive learning workflow (netops-specific)"
-requires:
-  - olav-netops>=0.11
