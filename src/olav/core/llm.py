@@ -56,6 +56,11 @@ class LLMFactory:
             "temperature": temperature if temperature is not None else llm_config.temperature,
         }
 
+        # Explicitly pass max_tokens so OpenRouter/provider doesn't default to
+        # the model's full context window (e.g. 30000 for grok-4.1-fast).
+        if llm_config.max_tokens:
+            params["max_tokens"] = llm_config.max_tokens
+
         # Add API key if available
         if llm_config.api_key:
             params["api_key"] = llm_config.api_key
