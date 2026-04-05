@@ -1,0 +1,13 @@
+{
+  "build": {
+    "command": "cd olav-web && npm install && npm run build",
+    "cwd": "./",
+    "root_dir": "./olav-web"
+  },
+  "env": {
+    "production": {
+      "route": "olavai.com/*",
+      "zone_id": ""
+    }
+  }
+}
