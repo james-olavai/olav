@@ -56,13 +56,13 @@ PROJECT_FULL_NAME = "OLAV - AI Operations Assistant"
 AUTHOR = "OLAV Team"
 
 #: Contact email
-AUTHOR_EMAIL = "team@olav-ai.dev"
+AUTHOR_EMAIL = "james@olavai.com"
 
 #: Homepage
 HOMEPAGE = "https://github.com/olav-ai/olav"
 
 #: Documentation URL
-DOCUMENTATION_URL = ""  # TBA: https://docs.olavai.com
+DOCUMENTATION_URL = "https://docs.olavai.com"
 
 #: License type
 LICENSE = "BSL-1.1"
