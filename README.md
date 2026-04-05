@@ -19,8 +19,11 @@
   <a href="">
     <img src="https://img.shields.io/badge/python-3.11+-yellow" alt="Python">
   </a>
-  <a href="">
-    <img src="https://img.shields.io/badge/docs-TBA-lightgrey" alt="Docs">
+  <a href="https://docs.olavai.com">
+    <img src="https://img.shields.io/badge/docs-docs.olavai.com-blue" alt="Docs">
+  </a>
+  <a href="https://olavai.com">
+    <img src="https://img.shields.io/badge/website-olavai.com-blueviolet" alt="Website">
   </a>
 </p>
 
@@ -201,7 +204,9 @@ src/olav_logo.png  ← Logo
 
 ## Documentation
 
-Documentation site: **TBA** (coming soon at `docs.olavai.com`)
+Documentation: **[docs.olavai.com](https://docs.olavai.com)**
+
+Website: **[olavai.com](https://olavai.com)**
 
 ---
 

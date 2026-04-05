@@ -19,8 +19,11 @@
   <a href="">
     <img src="https://img.shields.io/badge/python-3.11+-yellow" alt="Python">
   </a>
-  <a href="">
-    <img src="https://img.shields.io/badge/docs-TBA-lightgrey" alt="Docs">
+  <a href="https://docs.olavai.com">
+    <img src="https://img.shields.io/badge/docs-docs.olavai.com-blue" alt="Docs">
+  </a>
+  <a href="https://olavai.com">
+    <img src="https://img.shields.io/badge/website-olavai.com-blueviolet" alt="Website">
   </a>
 </p>
 
@@ -201,10 +204,20 @@ src/olav_logo.png  ← Logo
 
 ## 文档
 
-文档站：**TBA**（即将上线 `docs.olavai.com`）
+文档站：**[docs.olavai.com](https://docs.olavai.com)**
+
+官网：**[olavai.com](https://olavai.com)**
 
 ---
 
 ## 许可证
 
 [BSL-1.1](LICENSE) — Business Source License 1.1
+
+---
+
+## 联系我们
+
+<p align="center">
+  <img src="wechat.jpeg" width="200" alt="微信公众号">
+</p>
