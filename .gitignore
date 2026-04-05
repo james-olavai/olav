@@ -94,6 +94,7 @@ _legacy_archived/
 olav-netops/
 .olav/workspace/ops/
 .olav/workspace/ops-lab/
+.olav/workspace/config/prompts/snapshot_sop.md
 
 # enterprise
 olav-ent/
