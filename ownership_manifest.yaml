@@ -1,0 +1,461 @@
+version: 1
+default_owner: unknown
+
+owners:
+  - olav
+  - olav-netops
+  - olav-ent
+  - olav-doc
+  - olav-web
+
+classes:
+  - platform
+  - netops
+  - enterprise
+  - docs
+  - website
+  - runtime-workspace
+  - testing
+  - build
+  - generated
+  - legacy
+
+statuses:
+  - authoritative
+  - transitional
+  - externalized
+  - misplaced
+  - generated
+
+# git: track | ignore | secret
+#   track   — committed to this repo
+#   ignore  — on disk for dev but NOT committed (non-release content, generated, sub-repos)
+#   secret  — NEVER committed (credentials, env files)
+#
+# .gitignore is generated from this manifest via:
+#   uv run python scripts/gen_gitignore.py
+
+# file-type patterns that don't map to ownership paths
+# (kept here so the generator can emit them into .gitignore)
+gitignore_file_patterns:
+  python:
+    - "__pycache__/"
+    - "*.py[cod]"
+    - "*.so"
+    - "*.egg-info/"
+    - "*.egg"
+    - "build/"
+    - "sdist/"
+    - "wheels/"
+    - "MANIFEST"
+  venv:
+    - "venv/"
+    - "env/"
+  ide:
+    - ".idea/"
+    - "*.swp"
+    - "*.swo"
+    - "*~"
+    - ".DS_Store"
+  lint_cache:
+    - "htmlcov/"
+    - ".tox/"
+    - ".hypothesis/"
+    - ".mypy_cache/"
+    - ".pyright_cache/"
+    - "MagicMock/"
+  misc:
+    - "*.log"
+    - "logs/"
+    - "agent_outputs/"
+    - "node_modules/"
+  temp_scripts:
+    - "demo_*.py"
+    - "parse_test.py"
+    - "fix_openconfig_closure.py"
+    - "test_playwright.py"
+    - "test_watermark_integration.py"
+    - "WATERMARK_IMPLEMENTATION_REPORT.md"
+    - "TRAINING_DATA_*.md"
+
+# Rules are evaluated top-to-bottom, last match wins.
+# More specific rules MUST appear after broader ones.
+
+rules:
+  # ── Platform core (tracked — released) ─────────────────────────
+  - pattern: src/*
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: src/olav/**
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: pyproject.toml
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: uv.lock
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: ignore
+    notes: lockfile — reproducible from pyproject.toml
+
+  - pattern: README.md
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: LICENSE
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: ownership_manifest.yaml
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: CLAUDE.md
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: .gitignore
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+
+  # ── Platform core (ignored — non-release dev content) ──────────
+  - pattern: CHANGELOG.md
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: ignore
+
+  - pattern: PARTNERS.md
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: ignore
+
+  - pattern: .dockerignore
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: ignore
+
+  - pattern: dev_docs/**
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: ignore
+
+  - pattern: scripts/**
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: ignore
+
+  - pattern: tests/**
+    owner: olav
+    class: testing
+    status: authoritative
+    enforced: true
+    git: ignore
+
+  - pattern: run/**
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: ignore
+
+  # ── Platform generated / ephemeral ─────────────────────────────
+  - pattern: dist/**
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
+  - pattern: exports/**
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
+  - pattern: tmp/**
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
+  - pattern: .coverage
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
+  - pattern: .pytest_cache/**
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
+  - pattern: .ruff_cache/**
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
+  - pattern: .venv/**
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
+  - pattern: .agent/**
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+    notes: containerlab session files
+
+  - pattern: olav-post/**
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+    notes: local-only content archive — never publish to any remote
+
+  - pattern: .github/workflows/**
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: false
+    git: track
+    notes: CI/CD GitHub Actions workflows
+
+  - pattern: .github/skills/**
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: false
+    git: track
+    notes: VS Code agent skills (content-writer, social-poster)
+
+  # ── Platform config / tooling ──────────────────────────────────
+  - pattern: .vscode/**
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: false
+    git: ignore
+
+  - pattern: .claude/**
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: false
+    git: ignore
+
+  # ── Secrets (NEVER committed) ──────────────────────────────────
+  - pattern: .env
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: false
+    git: secret
+
+  - pattern: .pypirc
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: false
+    git: secret
+
+  - pattern: .pypirc_test
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: false
+    git: secret
+
+  # ── Legacy ─────────────────────────────────────────────────────
+  - pattern: _legacy_archived/**
+    owner: olav
+    class: legacy
+    status: externalized
+    enforced: false
+    git: ignore
+    notes: archived code — kept for reference only
+
+  # ── Sub-repos (co-located but separate projects) ───────────────
+  - pattern: olav-netops/**
+    owner: olav-netops
+    class: netops
+    status: authoritative
+    enforced: true
+    git: ignore
+
+  - pattern: olav-netops/exports/**
+    owner: olav-netops
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
+  - pattern: olav-ent/**
+    owner: olav-ent
+    class: enterprise
+    status: authoritative
+    enforced: true
+    git: ignore
+
+  - pattern: olav-doc/**
+    owner: olav-doc
+    class: docs
+    status: authoritative
+    enforced: true
+    git: ignore
+
+  - pattern: olav-doc/site/**
+    owner: olav-doc
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
+  # ── olav-web (website + edge application) ────────────────────────
+  - pattern: olav-web/**
+    owner: olav-web
+    class: website
+    status: authoritative
+    enforced: true
+    git: ignore
+
+  - pattern: olav-web/dist/**
+    owner: olav-web
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
+  - pattern: olav-web/node_modules/**
+    owner: olav-web
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
+  - pattern: olav-web/.wrangler/**
+    owner: olav-web
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
+  # ── Workspace control plane ────────────────────────────────────
+  - pattern: .olav/**
+    owner: olav
+    class: runtime-workspace
+    status: authoritative
+    enforced: true
+    git: ignore
+    notes: .olav/ uses whitelist model — default ignore, selective track via .gitignore negation
+
+  - pattern: .olav/databases/**
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
+  - pattern: .olav/logs/**
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
+  - pattern: .olav/workspace/ops/**
+    owner: olav-netops
+    class: netops
+    status: transitional
+    target_repo: olav-netops
+    reason: vendored-netops-workspace-asset-still-shipped-from-root-runtime
+    enforced: false
+    git: ignore
+
+  - pattern: .olav/workspace/ops-lab/**
+    owner: olav-netops
+    class: netops
+    status: transitional
+    target_repo: olav-netops
+    reason: vendored-netops-lab-workspace-asset-still-shipped-from-root-runtime
+    enforced: false
+    git: ignore
+
+  # ── .olav/ whitelist (tracked paths — negations) ───────────────
+  - pattern: .olav/config/*.example
+    owner: olav
+    class: runtime-workspace
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: .olav/config/schemas/**
+    owner: olav
+    class: runtime-workspace
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: .olav/workspace/config/**
+    owner: olav
+    class: runtime-workspace
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: .olav/workspace/core/**
+    owner: olav
+    class: runtime-workspace
+    status: authoritative
+    enforced: true
+    git: track
