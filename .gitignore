@@ -1,73 +1,47 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # OLAV Platform .gitignore
 #
-# Principle: ONLY platform source code and docs are tracked.
-# Tests, scripts, dev_docs, netops workspaces, and all runtime data
-# stay on disk for development but are NOT published.
+# AUTO-GENERATED from ownership_manifest.yaml
+# Do not edit manually — run: uv run python scripts/gen_gitignore.py --write
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── Python ────────────────────────────────────────────────────────────────────
+# ── python ──
 __pycache__/
 *.py[cod]
 *.so
 *.egg-info/
 *.egg
-dist/
 build/
 sdist/
 wheels/
 MANIFEST
 
-# ── Virtual environments ─────────────────────────────────────────────────────
-.venv/
+# ── venv ──
 venv/
 env/
 
-# ── IDEs & Editors ───────────────────────────────────────────────────────────
-.vscode/
+# ── ide ──
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
 
-# ── Test & lint caches ───────────────────────────────────────────────────────
-.pytest_cache/
-.coverage
+# ── lint_cache ──
 htmlcov/
 .tox/
 .hypothesis/
 .mypy_cache/
 .pyright_cache/
-.ruff_cache/
 MagicMock/
 
-# ── Build / Packaging ────────────────────────────────────────────────────────
-uv.lock
+# ── misc ──
+*.log
+logs/
+agent_outputs/
+node_modules/
 
-# ── Non-release directories (on disk for development, NOT in release) ────────
-tests/
-scripts/
-dev_docs/
-dev_doc_archive/
-docs/
-mkdocs.yml
-archive/
-_legacy_archived/
-site/
-CHANGELOG.md
-PARTNERS.md
-.dockerignore
-
-# ── AI tooling / IDE agent state ─────────────────────────────────────────────
-.claude/
-.github/
-.sisyphus/
-.agent/
-.backup/
-test-skill/
-
-# ── Temporary / one-off scripts ──────────────────────────────────────────────
+# ── temp_scripts ──
 demo_*.py
 parse_test.py
 fix_openconfig_closure.py
@@ -76,56 +50,77 @@ test_watermark_integration.py
 WATERMARK_IMPLEMENTATION_REPORT.md
 TRAINING_DATA_*.md
 
-# ── Platform Logs & Runtime ──────────────────────────────────────────────────
-logs/
-*.log
-agent_outputs/
-tmp/
+# ── Paths ignored by manifest rules ──
+
+# platform
+uv.lock
+CHANGELOG.md
+PARTNERS.md
+.dockerignore
+dev_docs/
+scripts/
 run/
+.vscode/
+.claude/
 
-# ── Sub-repos and enterprise (co-located but separate projects) ──────────────
-olav-netops/
-olav-ent/
-olav-doc/
-src/olav/enterprise/
+# testing
+tests/
 
-# ── Web / Node (web/ Astro site) ─────────────────────────────────────────────
-node_modules/
-web/node_modules/
-web/dist/
-web/.astro/
-web/dist
-
-# ── Exported data ────────────────────────────────────────────────────────────
+# generated
+dist/
 exports/
+tmp/
+.coverage
+.pytest_cache/
+.ruff_cache/
+.venv/
+.agent/
+olav-post/
+olav-netops/exports/
+olav-doc/site/
+olav-web/dist/
+olav-web/node_modules/
+olav-web/.wrangler/
+.olav/databases/
+.olav/logs/
 
-# ── Sensitive files (NEVER commit) ──────────────────────────────────────────
-.env
-.env.local
-.env.*.local
-*.pypirc
-.pypirc*
-*.token
-*.key
-*.pem
+# legacy
+_legacy_archived/
 
-# ══════════════════════════════════════════════════════════════════════════════
-# .olav/ — Runtime directory (whitelist only platform-core content)
-# ══════════════════════════════════════════════════════════════════════════════
+# netops
+olav-netops/
+.olav/workspace/ops/
+.olav/workspace/ops-lab/
 
-# Default: ignore everything
+# enterprise
+olav-ent/
+
+# docs
+olav-doc/
+
+# website
+olav-web/
+
+# runtime-workspace
+.olav/
+
+# ── Whitelist (tracked paths inside ignored parents) ──
+!.olav/
 .olav/*
-
-# Whitelist: config examples only (real configs contain secrets)
 !.olav/config/
-.olav/config/*
-!.olav/config/schemas/
 !.olav/config/*.example
-
-# Whitelist: only platform-core workspace agents
-# All other workspaces (netops, test, experimental) are installed at runtime
-# via `olav skill install` and stay on disk but are NOT in the release.
+!.olav/config/schemas/
 !.olav/workspace/
 .olav/workspace/*
 !.olav/workspace/config/
 !.olav/workspace/core/
+
+# ── Secrets (NEVER commit) ──
+.env
+.pypirc
+.pypirc_test
+.env.local
+.env.*.local
+*.token
+*.key
+*.pem
