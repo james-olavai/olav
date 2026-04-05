@@ -9,9 +9,9 @@ This workspace uses a **monorepo split** with distinct repository targets. **ALW
 | Repo Name | GitHub URL | Git Remote | Purpose | Push Branch | Status |
 |-----------|-----------|-----------|---------|-------------|--------|
 | **olav-docs** | `https://github.com/james-olavai/olav-docs.git` | `origin` (in `olav-doc/`) | **Documentation only** — MkDocs config, docs content, i18n | `main` | ✅ **ACTIVE** |
-| **olav** (main) | `http://192.168.100.50:3000/admin/olav.git` | `gitea` | **Main platform core** — src/olav, pyproject.toml, CLI | `main`, `0.10.0`, feature branches | ✅ **ACTIVE** |
-| olav (mirror) | `https://github.com/yhvh-chen/Olav.git` | `origin` (in root) | GitHub backup/mirror | Synced with gitea | ⚠️ **Backup only** |
-| ~~olav-jamesai~~ | `https://github.com/james-olavai/olav.git` | `james` | ❌ **DEPRECATED** — Do NOT push here | — | 🗑️ **DELETE** |
+| **olav** (primary) | `http://192.168.100.50:3000/admin/olav.git` | `gitea` | **Main platform core** — src/olav, pyproject.toml, CLI | `main`, `0.10.0`, feature branches | ✅ **ACTIVE** |
+| **olav** (GitHub) | `https://github.com/james-olavai/olav.git` | `james` | **GitHub mirror** — public release, CI/CD | `0.10.0`, feature branches | ✅ **ACTIVE** |
+| **olav-web** | `https://github.com/james-olavai/olav-web.git` | `origin` (in `olav-web/`) | **Marketing website** — Astro + Cloudflare Worker | `main` | ✅ **ACTIVE** |
 
 ### Directory Mappings
 
@@ -48,8 +48,7 @@ This workspace uses a **monorepo split** with distinct repository targets. **ALW
 ├── .pypirc                      ← PyPI credentials (NEVER commit)
 ├── .git/ → remotes:
 │   ├── gitea = http://192.168.100.50:3000/admin/olav.git (PRIMARY)
-│   ├── origin = https://github.com/yhvh-chen/Olav.git (BACKUP)
-│   └── james = https://github.com/james-olavai/olav.git (DEPRECATED)
+│   └── james = https://github.com/james-olavai/olav.git (GitHub mirror)
 │
 └── .github/
     └── copilot-instructions.md (this file)
@@ -75,7 +74,7 @@ cd /home/yhvh/Olav
 git add src/olav pyproject.toml
 git commit -m "message"
 git push gitea 0.10.0    # ✅ PRIMARY: gitea (Gitea server)
-git push origin 0.10.0   # ✅ BACKUP: GitHub mirror
+git push james 0.10.0   # ✅ MIRROR: GitHub (james-olavai/olav)
 ```
 
 **For PyPI Release:**
@@ -85,10 +84,10 @@ uv build
 uvx twine upload --config-file .pypirc -r pypi dist/*  # ✅ CORRECT: uses [pypi] token
 ```
 
-**For Cloudflare Pages (olav-web):**
-- olav-web is NOT a separate git repo
-- Cloudflare Pages auto-deploys from main olav repo
-- Configure in Cloudflare Dashboard: Root directory = `olav-web`
+**For Cloudflare Workers (olav-web):**
+- olav-web is a SEPARATE git repo: james-olavai/olav-web
+- Cloudflare Workers auto-deploys from james-olavai/olav-web
+- Push: `cd olav-web && git push origin main`
 
 ---
 
@@ -96,8 +95,9 @@ uvx twine upload --config-file .pypirc -r pypi dist/*  # ✅ CORRECT: uses [pypi
 
 | Operation | Why | Fix |
 |-----------|-----|-----|
-| `git push james 0.10.0` | james remote is DEPRECATED | Delete the remote: `git remote rm james` |
-| `git commit` in `olav-web/` individually | olav-web belongs to main repo monorepo | Commit from repo root with `src/`, `olav-web/`, etc. together |
+| `git push origin 0.10.0` | origin remote has been removed | Use `git push james 0.10.0` instead |
+| Push olav code to `olav-web` repo | Wrong repo | Use `git push james 0.10.0` from root |
+| Commit olav-web changes from root | olav-web is a separate git repo | `cd olav-web && git push origin main` |
 | Push olav-doc to main repo | docs ≠ platform core | Use separate `.git` in olav-doc/ only |
 | Push olav-web individually | Web is subdir, not submodule | No separate .git in olav-web/ |
 | Commit .pypirc to git | Credentials exposure | Always `.gitignore` — use local file only |
