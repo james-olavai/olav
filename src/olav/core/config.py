@@ -53,7 +53,10 @@ class ConfigLoader:
             self._embedding = self._load_json("embedding.json")
             self._shared = {}
 
-        self._paths = self._load_json("paths.json")
+        # Path configuration — all defaults are baked into PathsConfig properties.
+        # Previously loaded from paths.json; now uses hardcoded defaults only so that
+        # .olav/config/ stays minimal (platform-only files).
+        self._paths: dict = {}
         self._runtime = self._load_json("runtime.json")
         self._tasks = self._load_json("tasks.json")
 
@@ -733,7 +736,11 @@ BACKUP_DIR = EXPORTS_DIR / "backup"
 TMP_SNAPSHOTS_DIR = _PROJECT_ROOT / get_paths_config().tmp_snapshots_dir
 TMP_STAGING_DIR = _PROJECT_ROOT / get_paths_config().tmp_staging_dir
 SNAPSHOTS_STAGING_JSON = _PROJECT_ROOT / get_paths_config().snapshots_staging_json
-NORNIR_CONFIG_PATH = CONFIG_DIR / "nornir" / "config.yaml"
+NORNIR_CONFIG_PATH = (
+    CONFIG_DIR / "domains" / "netops" / "nornir" / "config.yaml"
+    if (CONFIG_DIR / "domains" / "netops" / "nornir" / "config.yaml").exists()
+    else CONFIG_DIR / "nornir" / "config.yaml"
+)
 NETWORK_DB_PATH = MAIN_DB_PATH
 GUARD_WHITELIST_PATH = SKILLS_DIR / "guard" / "whitelist.yaml"
 

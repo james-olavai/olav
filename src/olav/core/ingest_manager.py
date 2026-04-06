@@ -30,8 +30,14 @@ from olav.platform.ingest_base import TableRegistry
 
 
 def _load_backup_commands() -> frozenset[str]:
-    """Read backup command list from .olav/config/backup_only_commands.yaml."""
-    yaml_path = Path(CONFIG_DIR) / "backup_only_commands.yaml"
+    """Read backup command list from .olav/config/domains/netops/backup_only_commands.yaml.
+
+    Falls back to the legacy .olav/config/backup_only_commands.yaml path for
+    installations that have not yet migrated to the domain-scoped layout.
+    """
+    domain_path = Path(CONFIG_DIR) / "domains" / "netops" / "backup_only_commands.yaml"
+    legacy_path = Path(CONFIG_DIR) / "backup_only_commands.yaml"
+    yaml_path = domain_path if domain_path.exists() else legacy_path
     try:
         import yaml
         entries = yaml.safe_load(yaml_path.read_text()) or []
