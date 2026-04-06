@@ -132,14 +132,16 @@ class WorkspaceCommand(BaseCommand):
         return "\n".join(lines) if lines else "no workspaces installed"
 
     def _use(self, name: str) -> str:
-        """Set active workspace in settings.json."""
-        settings_path = Path(".olav") / "config" / "settings.json"
-        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        """Set active workspace in api.json."""
+        import json as _json
+
+        api_path = Path(".olav") / "config" / "api.json"
+        api_path.parent.mkdir(parents=True, exist_ok=True)
 
         data: dict = {}
-        if settings_path.exists():
+        if api_path.exists():
             try:
-                data = json.loads(settings_path.read_text(encoding="utf-8"))
+                data = _json.loads(api_path.read_text(encoding="utf-8"))
             except Exception:  # noqa: BLE001
                 data = {}
 
@@ -151,7 +153,7 @@ class WorkspaceCommand(BaseCommand):
             result_msg = f"active workspace → {name}"
 
         data["active_workspace"] = name
-        settings_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        api_path.write_text(_json.dumps(data, indent=2), encoding="utf-8")
 
         # GAP-05: sync PLATFORM.md active: field
         _update_platform_md_active(self.workspace_root, name)
