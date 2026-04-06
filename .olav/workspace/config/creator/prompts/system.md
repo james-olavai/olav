@@ -85,6 +85,34 @@ for path, methods in doc.get("paths", {}).items():
 You may also use `read_api_schema(source=..., tag_filter="<tag>")` for a compact summary,
 but sandbox exploration gives you full control when the schema is non-standard.
 
+### Step 2.5 — Decide registration mode (ask the user NOW, before heavy work)
+
+**Before** generating tools or writing service configs, ask the user:
+
+> "Should this skill be a **top-level agent** (independently routable — user can query it
+> directly) or a **subskill under an existing agent** (invoked only by that parent agent)?
+>
+> Available agents to attach to: `ops`, `audit`, `config`, `quick`, `olav` (or others in PLATFORM.md).
+>
+> — Choose **top-level** for broad integrations covering a full domain (e.g. DCIM, IPAM, monitoring).
+> — Choose **subskill** for domain-specific extensions of an existing agent (e.g. a new
+>   network probe under `ops`, a new compliance check under `audit`)."
+
+**Decision rules (use if user doesn't specify):**
+| Signal | Mode |
+|--------|------|
+| API covers a broad domain (DCIM, IPAM, time-series) | top-level |
+| Skill extends an existing agent's domain | subskill of that agent |
+| API is a utility helper for one specific agent | subskill |
+| User says "add to ops" / "under audit" / etc. | subskill of named agent |
+
+Record as a local variable for later:
+- `_parent_agent = ""` → top-level
+- `_parent_agent = "<agent_name>"` → subskill (e.g. `"ops"`)
+
+Use this value in Step 5 (`parent_agent=_parent_agent`). Step 4.7 is now a reminder
+to confirm — not a new question.
+
 ### Step 3 — Write service config
 ```
 create_service_config(
