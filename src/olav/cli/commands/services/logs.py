@@ -37,7 +37,7 @@ PROJECT_ROOT = _find_project_root()
 # Receiver is a proper src module — invoke via `python -m olav.services.syslog_receiver`
 PID_FILE = PROJECT_ROOT / ".olav" / "run" / "syslog_receiver.pid"
 LOG_FILE = PROJECT_ROOT / ".olav" / "logs" / "syslog_receiver.log"
-CONFIG_FILE = PROJECT_ROOT / ".olav" / "config" / "settings.json"
+CONFIG_FILE = PROJECT_ROOT / ".olav" / "config" / "api.json"
 RUNTIME_FILE = PROJECT_ROOT / ".olav" / "config" / "runtime.json"
 
 
