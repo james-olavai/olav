@@ -444,7 +444,11 @@ class OLAVAgent:
             # uses them as-is and does NOT inject FilesystemMiddleware.
             # Previously, zero-tool subagents were passed as plain SubAgent dicts,
             # which caused deepagents to rebuild them with the full middleware stack.
-            _middleware = [TodoListMiddleware()]
+            #
+            # agent_type: api — pure API/query agents skip TodoListMiddleware to keep
+            # the execution path minimal (no filesystem side-effects expected).
+            _is_api_agent = metadata.get("agent_type", "").strip().lower() in ("api", "query")
+            _middleware = [] if _is_api_agent else [TodoListMiddleware()]
             _summ = build_summarization_middleware(self.llm)
             if _summ is not None:
                 _middleware.append(_summ)
