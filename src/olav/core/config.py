@@ -736,23 +736,41 @@ BACKUP_DIR = EXPORTS_DIR / "backup"
 TMP_SNAPSHOTS_DIR = _PROJECT_ROOT / get_paths_config().tmp_snapshots_dir
 TMP_STAGING_DIR = _PROJECT_ROOT / get_paths_config().tmp_staging_dir
 SNAPSHOTS_STAGING_JSON = _PROJECT_ROOT / get_paths_config().snapshots_staging_json
-NORNIR_CONFIG_PATH = (
-    CONFIG_DIR / "domains" / "netops" / "nornir" / "config.yaml"
-    if (CONFIG_DIR / "domains" / "netops" / "nornir" / "config.yaml").exists()
-    else CONFIG_DIR / "nornir" / "config.yaml"
-)
+def _resolve_nornir_config_path() -> "Path":
+    """Resolve the nornir config path with migration-aware fallback.
+
+    Priority:
+    1. Post-M2 workspace path: .olav/workspace/ops/config/nornir/config.yaml
+    2. Legacy domains path:    .olav/config/domains/netops/nornir/config.yaml
+    3. Old flat path:          .olav/config/nornir/config.yaml
+    """
+    ws_path = AGENT_DIR / "workspace" / "ops" / "config" / "nornir" / "config.yaml"
+    if ws_path.exists():
+        return ws_path
+    legacy_path = CONFIG_DIR / "domains" / "netops" / "nornir" / "config.yaml"
+    if legacy_path.exists():
+        return legacy_path
+    return CONFIG_DIR / "nornir" / "config.yaml"
+
+
+NORNIR_CONFIG_PATH = _resolve_nornir_config_path()
 NETWORK_DB_PATH = MAIN_DB_PATH
 GUARD_WHITELIST_PATH = SKILLS_DIR / "guard" / "whitelist.yaml"
 
 # ── Domain config directory convention ───────────────────────────────────────
-# Per-domain configuration lives under .olav/config/domains/<domain>/
-# Will migrate to workspace/<domain>/config/ in M2.
+# Mapping from domain name to workspace directory name.
+# Post-M2: domain config has migrated from .olav/config/domains/<domain>/
+# to .olav/workspace/<workspace>/config/.
+_DOMAIN_WORKSPACE_MAP: "dict[str, str]" = {
+    "netops": "ops",
+}
 
 
 def get_domain_config_dir(domain: str) -> "Path":
     """Return the config directory for *domain*.
 
-    Convention: ``.olav/config/domains/<domain>/``.
+    Checks the workspace-based path first (post-M2 migration), then falls
+    back to the legacy ``.olav/config/domains/<domain>/`` path.
 
     The directory is not created by this function; callers are responsible
     for ensuring it exists when needed.
@@ -765,8 +783,13 @@ def get_domain_config_dir(domain: str) -> "Path":
     Returns
     -------
     Path
-        Absolute path to ``.olav/config/domains/<domain>/``.
+        Absolute path to the domain config directory.
     """
+    ws_name = _DOMAIN_WORKSPACE_MAP.get(domain)
+    if ws_name:
+        ws_config = AGENT_DIR / "workspace" / ws_name / "config"
+        if ws_config.is_dir():
+            return ws_config
     return CONFIG_DIR / "domains" / domain
 
 
