@@ -115,13 +115,16 @@ class InitCommand(BaseCommand):
         if not services_yaml_path.exists():
             services_yaml_path.write_text(_SERVICES_YAML_TEMPLATE, encoding="utf-8")
 
-        # settings.json — default active workspace (skip if already exists)
-        settings_path = base_dir / "config" / "settings.json"
-        if not settings_path.exists():
-            settings_path.write_text(
-                json.dumps({"active_workspace": "core"}, indent=2),
-                encoding="utf-8",
-            )
+        # api.json — store active_workspace alongside LLM/auth config (skip if already set)
+        api_path = base_dir / "config" / "api.json"
+        if api_path.exists():
+            try:
+                api_data = json.loads(api_path.read_text(encoding="utf-8"))
+                if "active_workspace" not in api_data:
+                    api_data["active_workspace"] = "core"
+                    api_path.write_text(json.dumps(api_data, indent=2), encoding="utf-8")
+            except Exception:  # noqa: BLE001
+                pass
 
         # Platform databases
         db_status = self._init_databases(base_dir / "databases")

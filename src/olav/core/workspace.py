@@ -86,17 +86,33 @@ def check_binary_requirements(requires: RequiresDeclaration) -> list[str]:
 # ── Active workspace resolution ───────────────────────────────────────────────
 
 def get_active_workspace() -> str:
-    """Return the active workspace name from .olav/config/settings.json.
+    """Return the active workspace name.
 
-    Falls back to "core" if settings.json is absent, broken, or has no
-    active_workspace key.
+    Checks ``.olav/config/api.json`` (new location) first, then falls back
+    to the legacy ``.olav/config/settings.json`` so existing installations
+    continue to work until they run ``olav workspace use <name>`` once.
     """
+    import json as _json
+
+    # Primary: api.json (stores active_workspace alongside LLM / auth config)
+    api_path = Path(".olav") / "config" / "api.json"
+    if api_path.exists():
+        try:
+            data = _json.loads(api_path.read_text(encoding="utf-8"))
+            ws = data.get("active_workspace")
+            if ws:
+                return str(ws)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Legacy fallback: settings.json (removed in M2, kept for compat)
     settings_path = Path(".olav") / "config" / "settings.json"
     if settings_path.exists():
         try:
-            import json as _json
             data = _json.loads(settings_path.read_text(encoding="utf-8"))
-            return str(data.get("active_workspace", "core"))
+            ws = data.get("active_workspace")
+            if ws:
+                return str(ws)
         except Exception:  # noqa: BLE001
             pass
     return "core"

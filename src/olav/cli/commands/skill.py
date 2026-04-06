@@ -417,16 +417,17 @@ def _update_platform_md(workspace_root: Path, agent_name: str) -> None:
 
 
 def _update_active_workspace(name: str) -> None:
-    settings_path = Path(".olav") / "config" / "settings.json"
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    """Persist the active workspace name in api.json."""
+    api_path = Path(".olav") / "config" / "api.json"
+    api_path.parent.mkdir(parents=True, exist_ok=True)
     data: dict = {}
-    if settings_path.exists():
+    if api_path.exists():
         try:
-            data = json.loads(settings_path.read_text(encoding="utf-8"))
+            data = json.loads(api_path.read_text(encoding="utf-8"))
         except Exception:  # noqa: BLE001
             data = {}
     data["active_workspace"] = name
-    settings_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    api_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 # ── GAP-06: git URL detection + clone ─────────────────────────────────────────
