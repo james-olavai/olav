@@ -323,7 +323,7 @@ class PathsConfig:
     @property
     def main_db(self) -> str:
         files = self._data.get("files", {})
-        return files.get("main_db", ".olav/databases/domain.duckdb")
+        return files.get("main_db", ".olav/databases/main.duckdb")
 
     @property
     def domain_db(self) -> str:
