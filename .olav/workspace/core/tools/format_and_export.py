@@ -57,7 +57,7 @@ def format_and_export(
         {"path": "exports/reports/ospf_diagnosis.md", "size": 2048}
     """
     # 1. Determine output directory based on format
-    from olav.core.config import REPORTS_DIR
+    from olav.core.config import EXPORTS_DIR as REPORTS_DIR
 
 
     if format and format.lower() in ("csv", "json", "yaml", "yml"):
@@ -110,7 +110,7 @@ def format_and_export(
 
     # 4. Resolve output_dir if not yet determined
     if output_dir is None:
-        from olav.core.config import REPORTS_DIR as _REPORTS_DIR
+        from olav.core.config import EXPORTS_DIR as _REPORTS_DIR
         if format in ("csv", "json", "yaml", "yml"):
             output_dir = _REPORTS_DIR.parent  # exports/
         else:
