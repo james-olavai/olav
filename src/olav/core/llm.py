@@ -77,6 +77,9 @@ class LLMFactory:
         # Disable streaming for DeepAgents async compatibility
         params["streaming"] = False
 
+        # Apply HTTP request timeout from shared config
+        params["timeout"] = llm_config.timeout
+
         # Handle JSON mode
         if json_mode:
             # Add JSON output constraint based on provider hints in base_url
