@@ -13,6 +13,7 @@ Architecture:
 Replaces: LangGraph StateGraph + flat tool list (agent.py v3.2)
 """
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -537,6 +538,13 @@ class OLAVAgent:
 
         try:
             result = await self.graph.ainvoke(input_, config=config, **kwargs)
+        except asyncio.CancelledError as e:
+            # CancelledError is BaseException in Python 3.8+, not Exception.
+            # Typically raised when memory extraction or an LLM API call times
+            # out during graph execution.  Degrade gracefully instead of letting
+            # the coroutine die silently with exit-code 0.
+            logger.warning("ainvoke cancelled (likely LLM API timeout during memory extraction): %s", e)
+            return {"status": "error", "response": f"Agent execution was cancelled: {e}"}
         except Exception as e:
             logger.error(f"ainvoke failed: {e}")
             return {"status": "error", "response": str(e)}
