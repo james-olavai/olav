@@ -18,6 +18,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import signal
 import sys
 import uuid as _uuid_mod
 from pathlib import Path
@@ -38,6 +39,34 @@ if TYPE_CHECKING:
 
 console = Console()
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# SIGTERM / atexit guard — mark active run as "interrupted" on unexpected exit
+# ---------------------------------------------------------------------------
+_active_audit: AuditEventRecorder | None = None
+_active_run_id: str | None = None
+
+
+def _mark_run_interrupted() -> None:
+    """Best-effort: mark the current active run as interrupted."""
+    global _active_audit, _active_run_id
+    if _active_run_id and _active_audit:
+        try:
+            _active_audit.record_run_end(run_id=_active_run_id, status="interrupted")
+            _active_audit.close()
+        except Exception:
+            pass
+        finally:
+            _active_audit = None
+            _active_run_id = None
+
+
+def _sigterm_handler(signum: int, frame: object) -> None:
+    _mark_run_interrupted()
+    sys.exit(0)
+
+
+signal.signal(signal.SIGTERM, _sigterm_handler)
 
 
 def parse_args():
@@ -485,7 +514,8 @@ def _hitl_audit_scope(recorder: AuditEventRecorder, run_id: str, agent_id: str):
         import deepagents_cli.execution as _dce  # type: ignore[import]
 
         _original = _dce.prompt_for_tool_approval
-    except Exception:
+    except Exception as _e:
+        logger.debug("_hitl_audit_scope: deepagents_cli not available (%s) — HITL events disabled", _e)
         yield
         return
 
@@ -649,6 +679,9 @@ async def simple_cli(
 
         _run_id = str(_uuid.uuid4())
         _audit = AuditEventRecorder()
+        # Register as active run so SIGTERM handler can mark it interrupted
+        global _active_audit, _active_run_id
+        _active_audit, _active_run_id = _audit, _run_id
         _audit.record_run_start(
             run_id=_run_id,
             agent_id=assistant_id,
@@ -725,6 +758,8 @@ async def simple_cli(
             for _cb in _audit_cbs:
                 _cb.unbind_run()
             _audit.close()
+            _active_audit = None
+            _active_run_id = None
 
 
 # ---------------------------------------------------------------------------
@@ -884,6 +919,8 @@ async def run_single_query(
 
     run_id = str(uuid.uuid4())
     recorder = AuditEventRecorder()
+    global _active_audit, _active_run_id
+    _active_audit, _active_run_id = recorder, run_id
     recorder.record_run_start(
         run_id=run_id,
         agent_id=assistant_id,
@@ -965,6 +1002,8 @@ async def run_single_query(
         for _cb in _audit_cbs:
             _cb.unbind_run()
         recorder.close()
+        _active_audit = None
+        _active_run_id = None
 
 
 def cli_main_async() -> None:

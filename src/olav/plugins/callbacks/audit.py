@@ -313,6 +313,32 @@ class AuditCallbackPlugin(OLAVCallbackPlugin):
             except Exception:
                 pass  # audit must never block agent execution
 
+        # Detect reasoning/thinking blocks in the full response (works with streaming=False).
+        # When Anthropic extended thinking is enabled, response.generations contains
+        # content blocks with type="thinking" or "redacted_thinking".
+        if self._bound_run_id and self._bound_recorder:
+            try:
+                for gen_list in response.generations:
+                    for g in gen_list:
+                        msg_obj = getattr(g, "message", None)
+                        content = getattr(msg_obj, "content", None)
+                        if isinstance(content, list):
+                            for block in content:
+                                if (
+                                    isinstance(block, dict)
+                                    and block.get("type") in ("thinking", "redacted_thinking")
+                                ):
+                                    self._bound_recorder.record(
+                                        event_type="reasoning_block",
+                                        run_id=self._bound_run_id,
+                                        payload={
+                                            "thinking": (block.get("thinking") or "")[:500],
+                                            "type": block.get("type"),
+                                        },
+                                    )
+            except Exception:
+                pass  # audit must never block agent execution
+
     async def on_llm_new_token(
         self,
         token: str,
