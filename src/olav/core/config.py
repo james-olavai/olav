@@ -154,6 +154,11 @@ class LLMConfig:
         )
 
     @property
+    def timeout(self) -> int:
+        shared = getattr(self._loader, "_shared", {})
+        return int(shared.get("timeout", self._data.get("timeout", 60)))
+
+    @property
     def custom_headers(self) -> dict:
         return self._data.get("custom_headers", {})
 
