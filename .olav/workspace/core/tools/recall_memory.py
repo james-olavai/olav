@@ -79,6 +79,31 @@ def recall_memory(
 
     limit = max(1, min(int(limit), 10))
 
+    import concurrent.futures as _cf
+    import functools
+
+    def _search() -> str:
+        return _recall_memory_inner(query=query, category=category, scope=scope, limit=limit)
+
+    try:
+        with _cf.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(_search)
+            return future.result(timeout=15)
+    except _cf.TimeoutError:
+        logger.warning("recall_memory: timed out after 15s — continuing without memory")
+        return "Memory recall skipped (timeout)."
+    except Exception as e:
+        logger.error(f"recall_memory failed: {e}")
+        return f"Memory recall failed: {e}"
+
+
+def _recall_memory_inner(
+    query: str,
+    category: str | None,
+    scope: str,
+    limit: int,
+) -> str:
+    """Core memory search logic — called inside a thread by recall_memory."""
     try:
         store = get_store(embedding_dim=DEFAULT_EMBEDDING_DIM)
 
