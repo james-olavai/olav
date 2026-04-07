@@ -331,6 +331,11 @@ class OLAVAgent:
         loaded first so they are available in every agent regardless of
         workspace. Agent-specific tools are appended after, with duplicates
         (by name) removed.
+
+        If AGENT.md frontmatter has an ``excluded_tools`` list, those tool
+        names are removed from the final set before returning. This allows
+        domain agents (e.g. ops-lab) to suppress generic core tools (e.g.
+        web_search) that would interfere with their constrained workflows.
         """
         tools: list = []
         seen_names: set[str] = set()
@@ -352,6 +357,16 @@ class OLAVAgent:
             _add(self._load_tools_from_skill(skill_path))
         elif not core_skill.exists():
             logger.info("No SKILL.md found, using subagents only")
+
+        # ③ Apply excluded_tools from AGENT.md frontmatter
+        excluded: list[str] = list(olav_config.get("excluded_tools", []))
+        if excluded:
+            before = len(tools)
+            tools = [t for t in tools if t.name not in excluded]
+            logger.info(
+                f"excluded_tools filter: removed {before - len(tools)} tools "
+                f"({excluded}); {len(tools)} tools remaining"
+            )
 
         return tools
 

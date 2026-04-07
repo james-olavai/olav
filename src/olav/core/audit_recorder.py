@@ -193,6 +193,9 @@ class AuditEventRecorder:
             error_context="DDL init",
         )
         self._sequence: int = 0
+        # Per-run message sequence counter — tracks message ordering within each run
+        # independently from the global event sequence, avoiding gaps in audit_messages.
+        self._msg_seq: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -339,7 +342,11 @@ class AuditEventRecorder:
         tool_calls: str | None = None,
     ) -> str:
         """Insert a row into *audit_messages* and return the new message_id."""
-        self._sequence += 1
+        # Use a per-run counter so sequence_no is consecutive within each run
+        # (global _sequence is shared with events and would leave gaps).
+        _key = run_id or ""
+        _msg_no = self._msg_seq.get(_key, 0) + 1
+        self._msg_seq[_key] = _msg_no
         message_id = str(uuid.uuid4())
         safe_content = redact_sensitive(content)
         self._execute(
@@ -348,7 +355,7 @@ class AuditEventRecorder:
                 (message_id, run_id, timestamp, sequence_no, role, content, tool_call_id, tool_calls)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [message_id, run_id, _now(), self._sequence, role,
+            [message_id, run_id, _now(), _msg_no, role,
              safe_content, tool_call_id, tool_calls],
         )
         return message_id
