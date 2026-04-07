@@ -191,6 +191,8 @@ class AuditEventRecorder:
                 ),
             ),
             error_context="DDL init",
+            max_attempts=12,      # longer wait for DDL: up to ~25s total when another
+            base_delay=0.1,       # process holds a sustained write lock at startup
         )
         self._sequence: int = 0
         # Per-run message sequence counter — tracks message ordering within each run
@@ -209,13 +211,16 @@ class AuditEventRecorder:
         return any(kw in msg for kw in self._RETRYABLE)
 
     def _run_with_retry(self, fn, *, error_context: str = "write",
-                        max_attempts: int = 8) -> bool:
+                        max_attempts: int = 8, base_delay: float = 0.02) -> bool:
         """Open a short-lived connection, run *fn(conn)*, close immediately.
 
         A module-level threading.Lock serialises concurrent writes within the
         same process (e.g. API server threads).  For cross-process concurrent
         CLI invocations, DuckDB's file-level write lock provides serialisation;
         retries with exponential back-off handle the brief contention window.
+
+        DDL init uses max_attempts=12 + base_delay=0.1 for ~25s total wait;
+        DML writes use the defaults (8 attempts, ~5s) for low-latency writes.
 
         Returns True on success, False on permanent failure.
         """
@@ -227,7 +232,7 @@ class AuditEventRecorder:
                     return True
                 except Exception as exc:
                     if self._is_retryable(exc) and attempt < max_attempts - 1:
-                        delay = 0.02 * (2 ** attempt) + random.random() * 0.05
+                        delay = base_delay * (2 ** attempt) + random.random() * 0.05
                         time.sleep(delay)
                         continue
                     import logging as _logging
