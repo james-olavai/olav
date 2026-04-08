@@ -91,6 +91,7 @@ olav-web/.wrangler/
 _legacy_archived/
 
 # netops
+labs/
 olav-netops/
 .olav/workspace/ops/
 .olav/workspace/ops-lab/
