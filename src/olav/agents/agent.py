@@ -26,11 +26,11 @@ from langchain.agents.middleware import TodoListMiddleware
 from olav.agents.delegate_tool import build_delegate_tool
 from olav.agents._deepagents_bridge import (
     AnthropicPromptCachingMiddleware,
+    AsyncSubAgent,
     CompiledSubAgent,
+    HAS_ASYNC_SUBAGENTS,
     HAS_PROMPT_CACHING,
-    HAS_SUMMARIZATION,
     SubAgent,
-    SummarizationMiddleware,
     build_summarization_middleware,
     create_deep_agent,
 )
@@ -389,7 +389,7 @@ class OLAVAgent:
     # SubAgent construction
     # ------------------------------------------------------------------
 
-    def _build_subagents(self, olav_config: dict) -> list[SubAgent | CompiledSubAgent]:
+    def _build_subagents(self, olav_config: dict) -> list[SubAgent | CompiledSubAgent | AsyncSubAgent]:
         """Build SubAgents from workspace/AGENT.md config.
 
         Workspace subagents that declare custom tools are pre-compiled as
