@@ -22,15 +22,11 @@ import logging
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
-
 import pyarrow as pa
 
 from olav.core.memory import (
-    DEFAULT_MEMORY_DB,
     LanceDBStore,
     SemanticCache,
-    hybrid_search,
     rrf_fusion,
 )
 

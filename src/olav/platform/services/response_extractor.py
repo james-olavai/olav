@@ -180,11 +180,15 @@ def auto_extract(
     if data is None:
         return data
 
-    # 1. Resolve def_name
+    # 1. Resolve response_def from registry if not explicitly supplied.
+    #    Note: auto-detected def_names describe the full response object (e.g. PaginatedDeviceList),
+    #    not the inner item type, so they are NOT used for schema_trim (unreliable).
+    #    This call is retained for graceful-fallback validation — if the registry DB is
+    #    unavailable, auto_extract must still work normally.
     try:
-        def_name = response_def or _lookup_response_def(service_name, method, path)
+        _ = response_def or _lookup_response_def(service_name, method, path)
     except Exception:
-        def_name = None
+        pass
 
     # 2. Unwrap paginated envelope  {"count": N, "results": [...], ...}
     envelope: dict | None = None
