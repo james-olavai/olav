@@ -21,7 +21,7 @@ Implements Phase 2 of the LANCEDB_MEMORY_SYSTEM_INTEGRATION plan:
 import json
 import logging
 import math
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from olav.core.memory import MEMORY_TABLE, hybrid_search
@@ -384,8 +384,6 @@ class AutoCaptureMiddleware:
                 # Embed
                 vector = self._embed(text)
                 if vector is None:
-                    import hashlib
-                    import struct
 
                     # Fallback: zero vector (will be text-searched only)
                     vector = [0.0] * self._store.embedding_dim

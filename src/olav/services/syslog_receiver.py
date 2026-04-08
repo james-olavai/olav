@@ -24,7 +24,6 @@ import logging
 import os
 import re
 import signal
-import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path

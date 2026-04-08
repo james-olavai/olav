@@ -7,7 +7,6 @@
 """
 from __future__ import annotations
 
-from abc import ABC
 
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.callbacks import AsyncCallbackHandler

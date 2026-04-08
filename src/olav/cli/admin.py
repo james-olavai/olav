@@ -332,7 +332,6 @@ async def _kb_status(args: str) -> dict:
     """Get knowledge base statistics and status."""
     try:
         import importlib.util
-        from pathlib import Path as _Path
 
         # Use workspace-centric knowledge management tools
         from olav.core.workspace import resolve_workspace_path
@@ -368,7 +367,6 @@ async def _kb_index(args: str) -> dict:
     """Index knowledge files. Usage: /admin kb-index or /admin kb-index rebuild"""
     try:
         import importlib.util
-        from pathlib import Path as _Path
 
         from olav.core.workspace import resolve_workspace_path
         path = resolve_workspace_path("config", "knowledge", "tools") / "index_knowledge_files.py"
@@ -464,7 +462,6 @@ async def _kb_reload(args: str) -> dict:
     """Reload knowledge base (rebuild all indexes). Usage: /admin kb-reload"""
     try:
         import importlib.util
-        from pathlib import Path as _Path
 
         from olav.core.workspace import resolve_workspace_path
         path = resolve_workspace_path("config", "knowledge", "tools") / "index_knowledge_files.py"
