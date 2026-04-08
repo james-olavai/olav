@@ -12,6 +12,10 @@ tools:
   - stop_service             # Docker Compose stop/down + list running services
   - write_workspace_file     # Write files to .olav/workspace or .olav/services
   - run_shell                # Shell command execution (docker, git, curl, etc.)
+  - list_cron                # List all olav-managed cron jobs
+  - add_cron                 # Add or update a scheduled olav task (natural language → crontab)
+  - remove_cron              # Remove a scheduled olav task by agent + instruction
+  - apply_cron_schedules     # Apply cron_schedules.yaml declaratively
 static_context:
   - path: ./references/SKILL_DEVELOPMENT.md
   - path: ./references/REQUIRED_INFO_CHECK.md
@@ -37,6 +41,10 @@ These tools are globally available to **all agents** regardless of active worksp
 | `stop_service` | Stop or remove a running Docker Compose service; `list_services()` shows all |
 | `write_workspace_file` | Write any file to `.olav/workspace/` or `.olav/services/` |
 | `run_shell` | Execute shell commands — docker, git, curl, file ops |
+| `list_cron` | List all olav-managed scheduled tasks |
+| `add_cron` | Add or update a cron job: natural language → system crontab |
+| `remove_cron` | Remove a scheduled task by agent + instruction |
+| `apply_cron_schedules` | Declaratively apply `.olav/workspace/ops/config/cron_schedules.yaml` |
 
 ## Design Principle
 
