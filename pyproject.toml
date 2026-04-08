@@ -60,9 +60,8 @@ dependencies = [
     # DeepAgents Framework
     # Note: deepagents-cli has a dep conflict with langgraph-checkpoint-duckdb
     # (langgraph-checkpoint version requirements are mutually exclusive for >=0.0.15).
-    # Install separately after uv sync (pinned to last compatible version):
-    #   uv pip install --reinstall deepagents==0.4.12
-    #   uv pip install deepagents-cli==0.0.10 --no-deps && uv pip install markdownify
+    # Install separately after uv sync:
+    #   uv pip install deepagents-cli --no-deps && uv pip install markdownify
     # olav-ent is a Milestone 3 private package — NOT installed here.
     # Data Processing
     "pydantic>=2.0",
@@ -86,7 +85,7 @@ dependencies = [
     "python-dateutil>=2.8.0",
     "python-crontab>=3.0.0",
     "tenacity>=8.0",
-    "deepagents>=0.4.11,<1.0",
+    "deepagents>=0.5.0,<1.0",
     # deepagents-cli: install manually after uv sync (see below comment).
     # deepagents-cli>=0.0.15 requires langgraph-checkpoint-sqlite>=3.0.0 (already a dep).
     # Install with:
