@@ -19,7 +19,6 @@ import logging
 import re
 import time
 from pathlib import Path
-from textwrap import dedent
 from typing import Any
 
 from olav.core.api_registry import load_schema
@@ -443,7 +442,6 @@ def generate_schema_reference(
           }
         }
     """
-    import json as _json
 
     from olav.core.api_registry import DEFAULT_DB, get_query_params
     from olav.platform.services.registry import ServiceRegistry

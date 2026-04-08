@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json as _json
 import os as _os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import argparse

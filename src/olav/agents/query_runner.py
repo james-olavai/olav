@@ -7,7 +7,7 @@ import logging
 import re
 from collections.abc import Mapping
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import cast
 
 import duckdb
 from langchain_core.messages import HumanMessage, SystemMessage

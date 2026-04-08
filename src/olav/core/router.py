@@ -296,7 +296,6 @@ class SemanticRouter:
                 }
 
         # Discover agents via PLATFORM.md (Tier 1) then AGENT.md fallback
-        from olav.core.platform_registry import PlatformRegistry
         from olav.core.workspace import resolve_workspace_root
 
         ws_root = resolve_workspace_root()

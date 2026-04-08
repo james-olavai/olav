@@ -25,7 +25,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from olav.core.auth.authz import AuthorizationError, require_permission
+from olav.core.auth.authz import require_permission
 
 logger = logging.getLogger(__name__)
 

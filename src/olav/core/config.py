@@ -9,7 +9,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-from olav.core import defaults
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 _CONFIG_DIR = _PROJECT_ROOT / ".olav" / "config"

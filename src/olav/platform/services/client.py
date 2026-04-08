@@ -10,7 +10,6 @@ Reference: dev_docs/16. SERVICE_REGISTRY_DESIGN.md §Phase2
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
