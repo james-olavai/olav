@@ -17,7 +17,6 @@ Subcommands:
 
 from __future__ import annotations
 
-import json
 import re
 import shlex
 import shutil
@@ -440,7 +439,7 @@ class WorkspaceCommand(BaseCommand):
 
 def _update_platform_md_active(workspace_root: Path, agent_name: str) -> None:
     """GAP-05: update PLATFORM.md active: field when workspace use is called."""
-    from olav.core.platform_registry import PlatformRegistry, _parse_frontmatter
+    from olav.core.platform_registry import _parse_frontmatter
     import yaml as _yaml
 
     platform_md = workspace_root / "PLATFORM.md"

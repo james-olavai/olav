@@ -12,7 +12,6 @@ Provides ``olav admin-users`` sub-commands for managing users in
 from __future__ import annotations
 
 import hashlib
-import os
 import secrets
 from datetime import UTC
 from pathlib import Path
@@ -69,7 +68,7 @@ class AdminUsersCommand(BaseCommand):
         if "--expires" in parts:
             idx = parts.index("--expires")
             if idx + 1 < len(parts):
-                from datetime import datetime, timezone
+                from datetime import datetime
 
                 try:
                     expires_at = datetime.strptime(parts[idx + 1], "%Y-%m-%d").replace(

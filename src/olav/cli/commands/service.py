@@ -16,7 +16,6 @@ Quick start (all services):
   olav service status
 """
 
-import asyncio
 import logging
 import shlex
 from typing import Any
