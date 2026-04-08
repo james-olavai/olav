@@ -49,3 +49,30 @@ result = write_skill_code(
 2. Use appropriate templates for different API types
 3. Ensure generated code follows OLAV conventions
 4. Test generated skills before deployment
+
+---
+
+## Cron Schedule Management
+
+**IMPORTANT: Always use the dedicated cron tools below. NEVER use `run_shell` or `crontab` commands directly for cron management.**
+
+Use cron tools to manage scheduled olav tasks via system crontab.
+All jobs call: `olav --agent <agent> --auto-approve "<instruction>"`
+
+### Tools (use these, not run_shell)
+- `list_cron()` — show all olav-managed jobs
+- `add_cron(schedule, agent, instruction)` — add/update a job (idempotent)
+- `remove_cron(agent, instruction)` — remove a job
+- `apply_cron_schedules()` — apply `.olav/workspace/ops/config/cron_schedules.yaml`
+
+### Example interactions
+- "每天凌晨4点做一次 audit" → `add_cron("0 4 * * *", "audit", "generate daily report")`
+- "把 snapshot 改到凌晨3点" → `add_cron("0 3 * * *", "config", "take snapshot")`
+- "查看所有定时任务" → `list_cron()`
+- "取消 audit 周报" → `remove_cron("audit", "generate weekly compliance report")`
+- "应用默认 cron 配置" → `apply_cron_schedules()`
+
+### Schedule format: "minute hour day month weekday"
+- `"0 2 * * *"` — 每天 02:00
+- `"0 6 * * 1"` — 每周一 06:00
+- `"*/30 * * * *"` — 每 30 分钟
