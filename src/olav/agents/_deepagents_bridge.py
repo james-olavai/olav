@@ -5,9 +5,16 @@ _deepagents_bridge.py — deepagents API 的版本隔离层。
 agent.py 和其他模块从这里导入，不直接接触 deepagents 包。
 
 版本策略:
-  supported range: >=0.4.12, <1.0
+  supported range: >=0.5.0, <1.0
   - 低于 _DA_MIN  → ImportError (明确告知升级路径)
   - >=1.0         → UserWarning (可能有 breaking changes，需人工验证)
+
+0.5 新增功能:
+  - AsyncSubAgent / AsyncSubAgentMiddleware: 非阻塞后台子智能体 (需 LangGraph Platform)
+  - SummarizationToolMiddleware: 工具形式的摘要中间件
+  - 多模态 read_file: 支持 PDF / 音频 / 视频
+  - 后端协议 binary 文件支持 (base64)
+  - Anthropic Prompt Caching 改进
 """
 
 from __future__ import annotations
@@ -24,10 +31,10 @@ try:
     _DA_VERSION = V(_pkg_version("deepagents"))
 except PackageNotFoundError as exc:
     raise ImportError(
-        "deepagents is not installed. Run: pip install 'deepagents>=0.4.12,<1.0'"
+        "deepagents is not installed. Run: pip install 'deepagents>=0.5.0,<1.0'"
     ) from exc
 
-_DA_MIN = V("0.4.11")
+_DA_MIN = V("0.5.0")
 _DA_NEXT_MAJOR = V("1.0.0")
 
 if _DA_VERSION < _DA_MIN:
@@ -61,7 +68,11 @@ HAS_LOCAL_SHELL_BACKEND: bool = _DA_VERSION >= V("0.4.0")
 HAS_NAMESPACE_FACTORY: bool = _DA_VERSION >= V("0.4.0")
 """True when NamespaceFactory / BackendContext pattern is available."""
 
-# ── Core exports (stable across 0.4.x) ───────────────────────────────────────
+HAS_ASYNC_SUBAGENTS: bool = _DA_VERSION >= V("0.5.0")
+"""True when AsyncSubAgent / AsyncSubAgentMiddleware are available (non-blocking background subagents).
+Requires LangGraph Platform or self-hosted LangGraph server for actual remote execution."""
+
+# ── Core exports (stable across 0.4.x → 0.5.x) ───────────────────────────────
 
 from deepagents import create_deep_agent as _create_deep_agent  # noqa: E402
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent  # noqa: E402
@@ -72,15 +83,18 @@ if HAS_SUMMARIZATION:
     try:
         from deepagents.backends import StateBackend as _StateBackend
         from deepagents.middleware.summarization import (
+            SummarizationToolMiddleware,
             create_summarization_middleware as _create_summarization_middleware,
         )
         from deepagents.middleware import SummarizationMiddleware
     except ImportError:
         SummarizationMiddleware = None  # type: ignore[assignment,misc]
+        SummarizationToolMiddleware = None  # type: ignore[assignment,misc]
         _StateBackend = None  # type: ignore[assignment,misc]
         _create_summarization_middleware = None  # type: ignore[assignment,misc]
 else:
     SummarizationMiddleware = None  # type: ignore[assignment,misc]
+    SummarizationToolMiddleware = None  # type: ignore[assignment,misc]
     _StateBackend = None  # type: ignore[assignment,misc]
     _create_summarization_middleware = None  # type: ignore[assignment,misc]
 
@@ -91,6 +105,16 @@ if HAS_LOCAL_SHELL_BACKEND:
         LocalShellBackend = None  # type: ignore[assignment,misc]
 else:
     LocalShellBackend = None  # type: ignore[assignment,misc]
+
+if HAS_ASYNC_SUBAGENTS:
+    try:
+        from deepagents.middleware.async_subagents import AsyncSubAgent, AsyncSubAgentMiddleware
+    except ImportError:
+        AsyncSubAgent = None  # type: ignore[assignment,misc]
+        AsyncSubAgentMiddleware = None  # type: ignore[assignment,misc]
+else:
+    AsyncSubAgent = None  # type: ignore[assignment,misc]
+    AsyncSubAgentMiddleware = None  # type: ignore[assignment,misc]
 
 # AnthropicPromptCachingMiddleware: from langchain_anthropic (available in 0.4.x via deepagents dep)
 if HAS_PROMPT_CACHING:
@@ -150,13 +174,17 @@ __all__ = [
     "SubAgent",
     # Version-gated (may be None if version too old)
     "SummarizationMiddleware",
+    "SummarizationToolMiddleware",
     "AnthropicPromptCachingMiddleware",
     "LocalShellBackend",
+    "AsyncSubAgent",
+    "AsyncSubAgentMiddleware",
     # Feature flags
     "HAS_SUMMARIZATION",
     "HAS_PROMPT_CACHING",
     "HAS_LOCAL_SHELL_BACKEND",
     "HAS_NAMESPACE_FACTORY",
+    "HAS_ASYNC_SUBAGENTS",
     # Version info
     "_DA_VERSION",
     "_DA_MIN",
