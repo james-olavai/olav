@@ -85,16 +85,19 @@ if HAS_SUMMARIZATION:
         from deepagents.middleware.summarization import (
             SummarizationToolMiddleware,
             create_summarization_middleware as _create_summarization_middleware,
+            create_summarization_tool_middleware,
         )
         from deepagents.middleware import SummarizationMiddleware
     except ImportError:
         SummarizationMiddleware = None  # type: ignore[assignment,misc]
         SummarizationToolMiddleware = None  # type: ignore[assignment,misc]
+        create_summarization_tool_middleware = None  # type: ignore[assignment,misc]
         _StateBackend = None  # type: ignore[assignment,misc]
         _create_summarization_middleware = None  # type: ignore[assignment,misc]
 else:
     SummarizationMiddleware = None  # type: ignore[assignment,misc]
     SummarizationToolMiddleware = None  # type: ignore[assignment,misc]
+    create_summarization_tool_middleware = None  # type: ignore[assignment,misc]
     _StateBackend = None  # type: ignore[assignment,misc]
     _create_summarization_middleware = None  # type: ignore[assignment,misc]
 
@@ -175,6 +178,7 @@ __all__ = [
     # Version-gated (may be None if version too old)
     "SummarizationMiddleware",
     "SummarizationToolMiddleware",
+    "create_summarization_tool_middleware",
     "AnthropicPromptCachingMiddleware",
     "LocalShellBackend",
     "AsyncSubAgent",
