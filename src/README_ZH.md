@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="">
-    <img src="https://img.shields.io/badge/version-v0.10.0-blue" alt="Version">
+  <a href="https://pypi.org/project/olav/">
+    <img src="https://img.shields.io/badge/version-v0.13.0-blue" alt="Version">
   </a>
   <a href="">
     <img src="https://img.shields.io/badge/license-BSL--1.1-green" alt="License">
@@ -31,182 +31,188 @@
   <a href="../README.md">English</a>
 </p>
 
-> 用自然语言操控你的基础设施。连接任意 API，部署专业 AI Agent，编排运维工作流——无需手写 SQL 或记忆 CLI 参数。
+> 用自然语言操控你的基础设施。一条命令接入任何 REST API，即时查询，生成环境感知的自动化脚本——不需要 MCP 服务器，不生成代码，零运行时复杂度。
 
 ```bash
-olav "有多少台设备在线？"
-olav "哪些 BGP 邻居状态异常？"
-olav --agent core "对所有端点执行健康检查"
+pip install olav
+olav registry register http://netbox:8000        # 接入任何 API
+olav --agent infra "NetBox 里有多少台设备？"       # 即时查询
+olav --agent devops "写一个备份脚本"               # 生成真实脚本
 ```
 
-[快速开始](#快速开始) | [English](../README.md)
+[快速开始](#快速开始) | [博客：v0.13 发布](https://olavai.com/blog/olav-v013) | [English](../README.md)
 
 ---
 
 ## 为什么选择 OLAV？
 
-### API-as-Tool — 一行命令把任何 API 变成 Agent 工具
+### API-as-Service — 超越 MCP
 
-不写代码、不维护 MCP Server。注册 OpenAPI 服务后，Agent 自动获得调用能力：
+MCP 需要为每个服务维护一个 server 进程、stdio/HTTP 传输、框架适配器。OLAV 的方式不同：
+
+```
+MCP:   服务 → MCP server 进程 → stdio/HTTP → 适配器 → agent
+OLAV:  服务 → olav registry register → reference markdown → api_request → 完成
+```
+
+一条命令。无 server 进程。不生成代码。零运行时开销。
 
 ```bash
-olav registry register http://netbox.example.com/api/schema/
-olav "机柜 A1 里有多少台设备？"   # 立即可用
+# 注册一次
+olav registry register http://netbox:8000
+
+# 任何 agent 都能查询
+olav "NetBox 里有多少台设备？"
+olav --agent infra "对比 OLAV 数据库和 NetBox 的设备清单"
 ```
 
-Creator Agent 还能从 OpenAPI schema 自动生成可编辑的 Python `@tool` 函数，实现深度定制。
+`api_request` 工具**感知 API 结构** — 读取注册时生成的 API 参考文档，自动处理分页（DRF/NetBox 风格），自动管理认证（JWT/Bearer/API-key）。
 
-### Agent Harness — 四层执行治理
-
-所有 Agent 决策都必须经过的执行控制层：
+### 六个专业 Agent — 不是一个万能模型
 
 ```
-Layer 0: AAA        Token/LDAP/OIDC 认证 → RBAC 授权 → 全量审计
-Layer 1: Middleware  HITL 危险命令拦截 + 记忆注入 + 输出约束
-Layer 2: Sandbox    Pre-scan → DuckDB 只读强制 → 网络命名空间隔离
-Layer 3: Output     凭证自动脱敏 + SSE JSON 编码 + HttpOnly Cookie
+olav "快速问题"                          → Quick Agent（日常 80%）
+olav --agent infra "查询 NetBox"         → Infra Agent（API 读写）
+olav --agent devops "写一个脚本"          → DevOps Agent（环境感知）
+olav --agent ops "模拟链路故障"           → Ops Agent（网络运维）
+olav --agent audit "执行健康检查"         → Audit Agent（合规报告）
 ```
 
-Hard Constraints（DuckDB 只读）不可绕过；Soft Constraints（注入扫描、网络隔离）可按需配置。
+每个 agent **只有它需要的工具**。Analysis agent 不能 SSH 到设备。Infra agent 不能修改网络。最小权限原则，由 harness 强制执行。
 
-### 自我改进循环 — Agent 越用越好
+### DevOps Agent — 写「你的」脚本，不是模板
 
-```
-使用 OLAV → 审计日志记录每次工具调用和错误
-    → /trace-review 提取失败约束 → 写入 LanceDB 记忆
-    → 下次运行前自动召回约束 → 已知陷阱自动规避
-```
+DevOps Agent 先查你的数据库，再写代码：
 
-数据驱动的自动改进，不靠手调 Prompt。
-
-### 多层缓存 — 实测 2000x+ 加速
-
-```
-Tier-0: SemanticCache（LanceDB 向量相似匹配，~10ms）
-Tier-1: LLM SQLiteCache（精确 prompt 命中，<1ms，0 token）
-Tier-2: LLM API 调用（真正的网络请求）
+```bash
+olav --agent devops "写一个脚本备份所有路由器配置"
 ```
 
-用户级隔离。Anthropic 模型自动启用 Prompt Caching（system prompt 只计费一次）。
+它发现你有 R1（192.168.100.101，Juniper）、R2-R4（Cisco IOS）、SW1-SW2，然后生成 158 行 bash 脚本：
+- 平台感知命令（`show run` vs `show configuration`）
+- `--dry-run` 标志、错误处理、依赖检查
+- 导出到 `exports/scripts/backup-configs.sh` — 真正的文件，不是对话文本
 
-### 联邦专家 Agent 架构
+### 7 层写安全
 
-不是一个万能 Agent，而是**多个专家协作**：
+AI agent 写入生产环境，仅靠 HITL 审批不够：
 
-- 语义路由器根据 `route_keywords` 自动分派到最合适的 Agent
-- 每个 Agent 只持有自己职责范围内的工具（最小权限原则）
-- Per-Agent 模型分配：高频查询用便宜模型，复杂分析用强力模型——Token 成本降低 40-70%
-- Skill 热插拔：`olav skill install` 即时扩展能力，无需重启
+| 层 | 防御 | 可绕过？ |
+|----|------|:---:|
+| `--enable-api-write` | 写模式默认锁死 | 不能 |
+| `services.yaml readonly_only` | 按服务控读写 | 仅配置 |
+| Dry-run 模拟 | 必须通过才能审批 | 不能 |
+| HITL 审批 | 用户看到 diff 后确认 | **不能** |
+| `sandbox_guard hard_block` | 隔离沙箱内拦截 HTTP 写 | **不能** |
+| `unshare --net` | 内核级网络隔离 | **不能** |
+| 审计日志 | 全链路记录 | — |
 
-### AAA — 认证、授权、审计
+`--dangerously-skip-permissions` 绕过工具审批（仅测试用）— 但**不能**绕过 API 写审批。网络设备永远只读。
 
-- **认证**：none / token / LDAP / AD / OIDC；令牌以 SHA256 加盐哈希存储
-- **授权**：三级角色（admin/user/readonly）× 五种操作，精细到 Agent/Skill 级别
-- **审计**：每次操作写入 DuckDB（4 张表），SHA256 防篡改（NIST AU-9），凭证自动脱敏
+### Agent Harness — AI Agent 的操作系统
 
-### 全栈可观测 — 审计即数据资产
+每个 agent 决策都经过强制执行控制层：
 
-审计日志不只是合规工具，而是**持续积累的数据资产**：
+```
+Layer 0: AAA        Token/LDAP/OIDC 认证 → RBAC → 全量审计
+Layer 1: Middleware  HITL 拦截 + 记忆注入
+Layer 2: Sandbox    Pre-scan → DuckDB 只读 → 网络命名空间隔离
+Layer 3: Output     凭证脱敏 + SSE 编码
+```
 
-- 用 DuckDB SQL 查询任意维度（Token 消耗、缓存命中率、工具调用频次、错误模式）
-- 多用户并发安全（DuckDB 原子写入，每条记录标记 user_id）
+### 自我改进循环
+
+```
+使用 OLAV → 审计日志记录每次工具调用
+    → 失败模式提取 → 写入 LanceDB 记忆
+    → 下次运行前自动召回约束
+```
+
+7,650+ 条审计消息已捕获。导出训练数据：`olav log export sft`。
 
 ---
 
 ## 快速开始
 
-=== "pip install（推荐）"
-    ```bash
-    # 1. 安装
-    pip install olav
+```bash
+# 1. 安装
+pip install olav
 
-    # 2. 初始化项目
-    olav init                                   # 创建 .olav/ 目录和配置骨架
+# 2. 初始化
+olav init
 
-    # 3. 配置 API Key（编辑生成的文件）
-    #    在 .olav/config/api.json 中设置 shared.api_key
-    #    或使用环境变量：
-    export OLAV_LLM_API_KEY="sk-..."           # LLM 提供商 API Key
+# 3. 配置 LLM
+export OLAV_LLM_API_KEY="sk-..."
 
-    # 4. 连接服务并开始查询
-    olav registry register http://netbox.example.com/api/schema/
-    olav "机柜 A1 里有多少台设备？"
+# 4. 接入服务
+olav registry register http://netbox:8000
 
-    # 或安装社区技能
-    olav skill install https://github.com/olav-ai/skill-netbox
-    olav "列出欧洲所有站点"
-    ```
+# 5. 查询
+olav "NetBox 里有多少台设备？"
 
-=== "从源码安装（开发模式）"
-    ```bash
-    # 1. 克隆并安装
-    git clone https://github.com/olav-ai/olav.git && cd olav
-    uv sync
+# 6. 生成脚本
+olav --agent devops "写一个备份所有路由器配置的脚本"
+```
 
-    # 2. 初始化并配置
-    uv run olav init                           # 创建 .olav/ 目录和配置骨架
-    # 编辑 .olav/config/api.json → 设置 shared.api_key
-    # 或：export OLAV_LLM_API_KEY="sk-..."
-    uv run olav registry register http://netbox.example.com/api/schema/
-    uv run olav "机柜 A1 里有多少台设备？"
-    ```
+### 网络运维（可选）
+
+```bash
+pip install olav-netops
+
+olav --agent ops "/netops_init"                    # SSH 采集设备数据
+olav --agent ops "模拟 R2 链路故障"                 # What-If 分析
+olav --agent ops-lab "部署数字孪生"                 # ContainerLab 验证
+```
 
 ### 其他使用方式
 
 ```bash
-olav                            # 交互式终端（多轮对话）
-olav service web start          # Web 界面 http://localhost:2280
-olav --agent core "run: df -h"  # 通过 Core Agent 执行 Shell 命令
+olav                            # 交互式终端
+olav service web start          # Web 界面 localhost:2280
+olav --agent core "run: df -h"  # 通过 Core Agent 执行 Shell
 ```
-
----
-
-## 三种使用方式
-
-| 接口 | 命令 | 适用场景 |
-|------|------|---------|
-| **CLI** | `olav "你的问题"` | 脚本集成、一次性查询、CI/CD |
-| **TUI** | `olav` | 多轮对话、探索式分析 |
-| **Web UI** | `olav service web start` | 团队共享、浏览器访问 |
 
 ---
 
 ## 架构
 
 ```
-用户查询
-    ↓
-语义路由器 → 选择最合适的 Agent（或 --agent 指定）
-    ↓
-Agent Harness → AAA → Middleware → Sandbox
-    ↓
-LLM + 工具调用循环（调用工具、获取结果、综合回答）
-    ↓
-返回结果 + 审计日志（自动，每次运行）
+olav v0.13 (pip install olav)
+├── core     — 工具层：api_request, execute_sql, sandbox, export
+├── quick    — 快速问答（默认 agent）
+├── infra    — API 查询 + 写操作（--enable-api-write）
+├── devops   — 环境感知脚本生成
+├── audit    — 合规审计
+└── config   — 平台管理
+
+olav-netops v0.13 (pip install olav-netops)
+├── ops 编排器
+│   ├── analysis — Dijkstra + ECMP 模拟（networkx）
+│   ├── probe    — 并行 SSH + 命令白名单（Nornir）
+│   ├── diff     — 跨快照漂移检测
+│   └── lab      — ContainerLab 数字孪生 + commit-validate
+└── netops.*     — DuckDB 表 + TextFSM 采集流水线
 ```
 
-**技术栈**：LangChain + LangGraph + DeepAgents + DuckDB + LanceDB + FastAPI
+**技术栈**：LangChain · LangGraph · DeepAgents · DuckDB · LanceDB · FastAPI · NetworkX
 
 ---
 
-## 仓库结构
+## 数字
 
-```
-src/olav/          ← OLAV 平台核心（本仓库）
-src/README_ZH.md   ← 中文文档
-src/olav_logo.png  ← Logo
-.olav/workspace/   ← 平台 Agent 定义（config/ + core/）
-.olav/config/      ← 运行时配置（已 gitignore——包含 API 密钥）
-.olav/databases/   ← 运行时数据（已 gitignore——审计日志、业务数据）
-```
+| 指标 | 数值 |
+|------|:----:|
+| 测试 | 1,358 通过 |
+| DDD Claims | 44 已验证 |
+| 已关闭 Issues | 62+ |
+| 文档页面 | 28（中英双语） |
+| 审计消息 | 7,650+ |
 
 ---
 
 ## 文档
 
-文档站：**[docs.olavai.com](https://docs.olavai.com)**
-
-官网：**[olavai.com](https://olavai.com)**
+**文档站**：[docs.olavai.com](https://docs.olavai.com) · **官网**：[olavai.com](https://olavai.com) · **博客**：[v0.13 发布](https://olavai.com/blog/olav-v013)
 
 ---
 
