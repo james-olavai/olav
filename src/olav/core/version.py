@@ -9,13 +9,13 @@ including version numbers, build information, copyright, and cryptographic signa
 # ==============================================================================
 
 #: Semantic version of OLAV
-VERSION = "0.11.0"
+VERSION = "0.13.0"
 
 #: Major version component
 MAJOR = 0
 
 #: Minor version component
-MINOR = 11
+MINOR = 13
 
 #: Patch version component
 PATCH = 0

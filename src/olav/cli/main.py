@@ -21,6 +21,7 @@ import os
 import signal
 import sys
 import uuid as _uuid_mod
+from importlib.metadata import entry_points
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -67,6 +68,23 @@ def _sigterm_handler(signum: int, frame: object) -> None:
 
 
 signal.signal(signal.SIGTERM, _sigterm_handler)
+
+_GENERIC_DOMAIN_PROMPT = "You are an AI Operations Assistant."
+
+
+def get_domain_prompt() -> str:
+    """Discover domain prompt from installed plugins via entry_points.
+
+    Checks the ``olav.domain_prompts`` entry point group. Returns the prompt
+    from the first registered entry point, or a generic fallback if none exist.
+    """
+    eps = entry_points(group="olav.domain_prompts")
+    for ep in eps:
+        try:
+            return ep.load()
+        except Exception:
+            logger.warning("Failed to load domain prompt entry point %r", ep.name)
+    return _GENERIC_DOMAIN_PROMPT
 
 
 def parse_args():
@@ -145,6 +163,12 @@ def parse_args():
         pre.add_argument("--no-splash", dest="no_splash", action="store_true")
         pre.add_argument("--verbose", "-v", action="store_true")
         pre.add_argument("--profile", default=None)  # ISSUE-004: audit profile shorthand
+        pre.add_argument(
+            "--enable-api-write",
+            dest="enable_api_write",
+            action="store_true",
+            help="Unlock API write operations (POST/PUT/PATCH/DELETE). Writes still require dry-run + approval.",
+        )
 
         pre_args, query_tokens = pre.parse_known_args()
         query = " ".join(query_tokens).strip()
@@ -354,6 +378,12 @@ def parse_args():
         dest="dangerously_skip_permissions",
         action="store_true",
         help="Skip all approval gates — check_approval, sandbox_guard, service_call write gate (for testing only)",
+    )
+    parser.add_argument(
+        "--enable-api-write",
+        dest="enable_api_write",
+        action="store_true",
+        help="Unlock API write operations. Writes still require dry-run + mandatory approval.",
     )
     parser.add_argument(
         "--sandbox",
@@ -1480,6 +1510,20 @@ What tools are available and when should each be used?
             console.print(
                 "  [bold red]⚠ --dangerously-skip-permissions: ON[/bold red] "
                 "[dim](all approval gates disabled — for testing only)[/dim]"
+            )
+            console.print()
+
+        # Activate API write mode (separate from skip-permissions)
+        if getattr(args, "enable_api_write", False):
+            import os as _os
+            _os.environ["OLAV_ENABLE_API_WRITE"] = "1"
+            console.print(
+                "  [bold yellow]⚠ API WRITE MODE ENABLED[/bold yellow]"
+            )
+            console.print(
+                "  [dim]• Backup your data before proceeding[/dim]\n"
+                "  [dim]• All writes require dry-run verification + manual approval[/dim]\n"
+                "  [dim]• --dangerously-skip-permissions does NOT bypass write approval[/dim]"
             )
             console.print()
 
