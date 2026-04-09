@@ -744,10 +744,14 @@ def _resolve_nornir_config_path() -> "Path":
     """Resolve the nornir config path with migration-aware fallback.
 
     Priority:
-    1. Post-M2 workspace path: .olav/workspace/ops/config/nornir/config.yaml
-    2. Legacy domains path:    .olav/config/domains/netops/nornir/config.yaml
-    3. Old flat path:          .olav/config/nornir/config.yaml
+    1. Post-M3 probe-scoped path:  .olav/workspace/ops/probe/config/nornir/config.yaml
+    2. Post-M2 workspace path:     .olav/workspace/ops/config/nornir/config.yaml
+    3. Legacy domains path:        .olav/config/domains/netops/nornir/config.yaml
+    4. Old flat path:              .olav/config/nornir/config.yaml
     """
+    probe_path = AGENT_DIR / "workspace" / "ops" / "probe" / "config" / "nornir" / "config.yaml"
+    if probe_path.exists():
+        return probe_path
     ws_path = AGENT_DIR / "workspace" / "ops" / "config" / "nornir" / "config.yaml"
     if ws_path.exists():
         return ws_path
