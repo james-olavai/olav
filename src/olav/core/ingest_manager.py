@@ -25,19 +25,30 @@ from typing import Any
 
 import duckdb
 
-from olav.core.config import BACKUP_DIR, CONFIG_DIR, MAIN_DB_PATH
+from olav.core.config import AGENT_DIR, BACKUP_DIR, CONFIG_DIR, MAIN_DB_PATH
 from olav.platform.ingest_base import TableRegistry
 
 
 def _load_backup_commands() -> frozenset[str]:
-    """Read backup command list from .olav/config/domains/netops/backup_only_commands.yaml.
+    """Read backup command list from .olav/workspace/ops/netops_init/config/backup_only_commands.yaml.
 
-    Falls back to the legacy .olav/config/backup_only_commands.yaml path for
-    installations that have not yet migrated to the domain-scoped layout.
+    Falls back to legacy paths for installations that have not yet migrated
+    to the M3 netops_init-scoped layout.
+
+    Priority:
+    1. Post-M3 netops_init-scoped: .olav/workspace/ops/netops_init/config/backup_only_commands.yaml
+    2. Post-M2 domain path:        .olav/config/domains/netops/backup_only_commands.yaml
+    3. Legacy flat path:           .olav/config/backup_only_commands.yaml
     """
+    netops_init_path = AGENT_DIR / "workspace" / "ops" / "netops_init" / "config" / "backup_only_commands.yaml"
     domain_path = Path(CONFIG_DIR) / "domains" / "netops" / "backup_only_commands.yaml"
     legacy_path = Path(CONFIG_DIR) / "backup_only_commands.yaml"
-    yaml_path = domain_path if domain_path.exists() else legacy_path
+    if netops_init_path.exists():
+        yaml_path = netops_init_path
+    elif domain_path.exists():
+        yaml_path = domain_path
+    else:
+        yaml_path = legacy_path
     try:
         import yaml
         entries = yaml.safe_load(yaml_path.read_text()) or []
