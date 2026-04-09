@@ -1,0 +1,36 @@
+# approval_rules.yaml — 危险命令审批规则
+#
+# 规则定义格式:
+#   rules:            — 基础规则列表（追加到内置规则）
+#   env_overrides:    — 环境级覆盖，覆盖 rules 段（不影响 override_builtins=false 时的内置规则）
+#     <env>:          — 环境名，如 lab, production
+#       - pattern/severity/description
+#
+# 字段:
+#   pattern:     Python re 正则表达式（str）
+#   severity:    "high" | "medium" | "low"
+#   description: 人类可读描述（用于审批提示）
+#
+# 注意:
+#   - 此文件中的规则 *追加到* 内置规则（不替换），除非设置 override_builtins: true
+#   - env_overrides.<env> 的规则 *替换* rules 段（但不替换内置规则，除非 override_builtins: true）
+#
+# 内置规则位于 src/olav/platform/safety/approval.py::_BUILTIN_DANGEROUS_RULES
+# 如需彻底替换所有规则: 设置 override_builtins: true，并在 rules 中重新声明所有规则
+
+# override_builtins: false  # 默认: 保留内置规则
+
+rules: []
+  # 示例: 增加自定义规则
+  # - pattern: "(?i)^\\s*no\\s+ntp\\b"
+  #   severity: "medium"
+  #   description: "Remove NTP server — time sync loss"
+
+env_overrides:
+  lab:
+    # Lab 环境下额外放宽的规则（或专用规则）
+    # 空列表 = 仅追加内置规则，不额外添加 lab 专用规则
+    []
+  production:
+    # Production 环境下额外加严的规则
+    []

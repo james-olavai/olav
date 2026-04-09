@@ -46,7 +46,7 @@ These tools are globally available to **all agents** regardless of active worksp
 | `list_cron` | List all olav-managed scheduled tasks |
 | `add_cron` | Add or update a cron job: natural language → system crontab |
 | `remove_cron` | Remove a scheduled task by agent + instruction |
-| `apply_cron_schedules` | Declaratively apply `.olav/workspace/ops/config/cron_schedules.yaml` |
+| `apply_cron_schedules` | Declaratively apply `.olav/workspace/ops/netops_init/config/cron_schedules.yaml` |
 
 ## Design Principle
 
