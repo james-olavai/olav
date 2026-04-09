@@ -110,13 +110,14 @@ def apply_cron_schedules(yaml_path: str = "") -> dict[str, Any]:
     """Apply cron_schedules.yaml declaratively — add/update all declared jobs.
 
     Args:
-        yaml_path: Path to cron_schedules.yaml. Defaults to .olav/workspace/ops/config/cron_schedules.yaml
+        yaml_path: Path to cron_schedules.yaml. Defaults to .olav/workspace/ops/netops_init/config/cron_schedules.yaml
     """
     if not yaml_path:
-        yaml_path = str(
-            Path(__file__).resolve().parents[4]
-            / ".olav/workspace/ops/config/cron_schedules.yaml"
-        )
+        root = Path(__file__).resolve().parents[4]
+        # Post-M3: netops_init/config/ is canonical; fall back to legacy ops/config/
+        new_path = root / ".olav/workspace/ops/netops_init/config/cron_schedules.yaml"
+        legacy_path = root / ".olav/workspace/ops/config/cron_schedules.yaml"
+        yaml_path = str(new_path if new_path.exists() else legacy_path)
 
     path = Path(yaml_path)
     if not path.exists():
