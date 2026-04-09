@@ -57,7 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `call_api.py` (hardcoded IP) — replaced by `service_call("clab", ...)`
 - `v0_10_raw_diffs.py` ghost migration (unreferenced)
 
-## [1.0.0] - 2026-02-25
+## [0.10.0] - 2026-02-25
 
 ### 🚀 Features
 

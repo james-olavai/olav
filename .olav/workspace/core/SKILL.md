@@ -2,6 +2,7 @@
 name: core
 description: "Core platform tools — available globally in all agents and workspaces."
 tools:
+  - api_request              # Authenticated API request to any registered service
   - run_python_code          # Pure-computation Python sandbox (no IO/shell)
   - execute_sql              # DuckDB query with read-only/write approval gate
   - web_search               # Web search via DuckDuckGo
@@ -31,6 +32,7 @@ These tools are globally available to **all agents** regardless of active worksp
 
 | Tool | Purpose |
 |------|---------|
+| `api_request` | Authenticated API request to any registered service (auth automatic, writes require HITL) |
 | `run_python_code` | Pure-computation sandbox — data parsing, format conversion, graph algorithms |
 | `execute_sql` | DuckDB queries; SELECT is read-only, mutating SQL requires approval |
 | `web_search` | DuckDuckGo search for external documentation or known issues |
