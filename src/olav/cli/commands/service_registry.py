@@ -113,14 +113,16 @@ class ServiceRegistryCommand(BaseCommand):
             self.console.print(f"[red]Registration failed:[/red] {e}")
             return "error"
 
+        ops_count = result.get("ops_loaded", 0)
         self.console.print(
-            f"  [green]✓[/green] Loaded [bold]{result['ops_loaded']}[/bold] operations"
+            f"  [green]✓[/green] Loaded [bold]{ops_count}[/bold] operations"
         )
-        for f in result["files_written"]:
-            self.console.print(f"  [green]✓[/green] Generated [dim]{f}[/dim]")
+        ref_files = result.get("reference_files", result.get("files_written", []))
+        for f in ref_files:
+            self.console.print(f"  [green]✓[/green] Reference [dim]{f}[/dim]")
 
-        if not result["files_written"]:
-            self.console.print("  [yellow]No tool files generated (check tag names in services.yaml)[/yellow]")
+        if not ref_files:
+            self.console.print("  [yellow]No reference files generated (check tag names in services.yaml)[/yellow]")
 
         return "success"
 

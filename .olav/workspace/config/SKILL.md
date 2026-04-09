@@ -33,9 +33,9 @@ Direct tools available to the config-orchestrator (not delegated to subagents).
 
 Config orchestrator **does NOT run tools on behalf of subagents** — it delegates:
 - Complex schema work → `task(subagent_type="config-discovery")`
-- New API onboarding → `task(subagent_type="config-creator")`
 - System health/repair → `task(subagent_type="config-system")`
 - Knowledge indexing → `task(subagent_type="config-knowledge")`
+- **API onboarding / script generation** → `olav --agent devops` (not config)
 
 Direct tools are for reconnaissance (`execute_sql`, `execute_cli`) and
 data lifecycle (`bulk_ingest`, `diff_configs`, `format_and_export`).

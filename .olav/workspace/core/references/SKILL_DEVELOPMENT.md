@@ -120,8 +120,10 @@ olav registry register <name>
 # services.yaml entry needed: endpoint, schema_url, auth.type, auth.token_env
 ```
 
-After registration, generated tools appear in:
-`.olav/workspace/ops/tools/_generated/<name>_<tag>.py`
+After registration, the API reference markdown appears in:
+`.olav/workspace/infra/references/<name>_<tag>_api.md`
+
+Use `api_request(service="<name>", path="...", ...)` to call the service.
 
 ### Step 3 — Create the skill workspace directory
 
@@ -192,13 +194,13 @@ When you run `olav registry register <name>`:
 
 1. Platform fetches the OpenAPI schema from `schema_url`
 2. Operations are stored in `~/.olav/olav_registry.duckdb`
-3. Tool files are generated in `.olav/workspace/ops/tools/_generated/`
-4. Each generated tool calls `service_call(name, method, path, ...)` automatically
+3. A markdown reference file is generated in `.olav/workspace/infra/references/`
+4. Use `api_request(service=name, ...)` to call any endpoint (auth automatic)
 
 The agent is "schema-aware" because:
-- The generated tools have docstrings describing each endpoint
-- The tool's parameter names match the API's query parameters
-- Response trimming uses the schema's field definitions
+- The reference markdown lists each endpoint with parameters
+- `api_request` automatically handles auth and HITL for writes
+- The infra agent prompt directs it to consult the reference docs
 
 To check what was registered:
 ```bash
@@ -253,12 +255,11 @@ services:
     auth:
       type: bearer        # bearer | jwt | basic | none
       token_env: MY_SERVICE_TOKEN   # env var holding the token
-    tool_generation:
-      output_dir: ".olav/workspace/ops/tools/_generated"
+    reference_generation:
+      output_dir: ".olav/workspace/infra/references"
       groups:
         - tag: "devices"
-          tool_prefix: "ms"
-          description: "Device management tools"
+          description: "Device management endpoints"
     permissions:
       admin:
         actions: [use, mutate, install, admin]

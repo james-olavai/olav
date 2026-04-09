@@ -154,7 +154,15 @@ def execute_in_sandbox(
     if network_isolation is None:
         network_isolation = os.environ.get("OLAV_SANDBOX_NETNS") == "1"
 
-    guard = scan_sandbox_code(code)
+    guard = scan_sandbox_code(code, network_isolation=bool(network_isolation))
+    if guard.hard_block:
+        return {
+            "status": "hard_block",
+            "reason": guard.reason,
+            "matched_pattern": guard.matched_pattern,
+            "suggested_action": guard.suggested_action,
+            "result": None,
+        }
     if guard.requires_approval:
         return {
             "status": "requires_approval",
