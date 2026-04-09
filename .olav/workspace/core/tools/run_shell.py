@@ -50,6 +50,40 @@ def _is_safe(command: str) -> tuple[bool, str]:
     return True, ""
 
 
+def _check_clab_redirect(command: str) -> str | None:
+    """Return a redirect message if the command targets a CLAB container on remote host."""
+    import re
+    cmd = command.strip()
+    # Detect: docker exec ... clab-<lab>-<node>
+    m = re.search(r'docker\s+exec.*?clab-([a-z0-9_-]+)-([a-z0-9_-]+)', cmd, re.IGNORECASE)
+    if m:
+        lab_name = m.group(1)
+        node = m.group(2)
+        return (
+            f"ERROR: CLAB containers run on REMOTE host 192.168.100.12 — docker exec will never work here.\n"
+            f"Use push_node_config instead:\n"
+            f'  push_node_config({{"lab_name": "{lab_name}", "node": "{node}", "config": "<your SRL set commands>"}})\n'
+            f"Or use exec_on_node for show commands:\n"
+            f'  exec_on_node({{"lab_name": "{lab_name}", "node": "{node}", "command": "sr_cli -c \'show version\'"}})'
+        )
+    # Detect: SSH to CLAB host
+    if re.search(r'ssh\s+.*?192\.168\.100\.12', cmd, re.IGNORECASE):
+        return (
+            "ERROR: Do not SSH to 192.168.100.12 to run commands.\n"
+            "Use exec_on_node to run commands on lab nodes:\n"
+            "  exec_on_node({\"lab_name\": \"<lab>\", \"node\": \"<node>\", \"command\": \"sr_cli -c 'show version'\"})\n"
+            "Use push_node_config to push SRL config:\n"
+            "  push_node_config({\"lab_name\": \"<lab>\", \"node\": \"<node>\", \"config\": \"set / ...\"})"
+        )
+    # Detect: containerlab or clab CLI (these run remotely too)
+    if re.match(r'\s*(containerlab|clab)\s+(deploy|destroy|inspect|list)', cmd, re.IGNORECASE):
+        return (
+            "ERROR: containerlab CLI is on REMOTE host 192.168.100.12 — it cannot be run locally.\n"
+            "Use deploy_lab tool to deploy/destroy labs instead."
+        )
+    return None
+
+
 @tool
 def run_shell(
     command: str,
@@ -79,6 +113,11 @@ def run_shell(
     if not safe:
         return {"returncode": -1, "stdout": "", "stderr": reason, "success": False,
                 "blocked": True, "reason": reason}
+
+    clab_redirect = _check_clab_redirect(command)
+    if clab_redirect:
+        return {"returncode": -1, "stdout": "", "stderr": clab_redirect, "success": False,
+                "blocked": True, "reason": clab_redirect}
 
     work_dir = Path(cwd) if cwd else PROJECT_ROOT
     if not work_dir.is_absolute():

@@ -25,6 +25,7 @@ def format_and_export(
     data: Any,  # noqa: ANN401
     filename: str | None = None,
     format: str | None = None,
+    subdir: str | None = None,
 ) -> dict[str, Any]:
     """
     Export data to file (unified output to exports/ directory).
@@ -39,7 +40,11 @@ def format_and_export(
               For markdown/text: can be a formatted string.
 
         filename: Filename (without extension), auto-generated if omitted
-        format: Output format (md/json/txt/csv/yaml/mmd), auto-detected if omitted
+        format: Output format (md/json/txt/csv/yaml/mmd/sh), auto-detected if omitted
+        subdir: Optional subdirectory under exports/, e.g. "scripts" → exports/scripts/.
+                When set, overrides the automatic directory selection.
+                Nested paths are supported, e.g. "scripts/netbox".
+                None (default) preserves existing behavior.
 
     Returns:
         dict: {"path": "exports/xxx.csv", "size": 1234}
@@ -55,12 +60,20 @@ def format_and_export(
         >>> # Diagnosis report (auto-detected as Markdown)
         >>> format_and_export("# Diagnosis Report\n...", filename="ospf_diagnosis")
         {"path": "exports/reports/ospf_diagnosis.md", "size": 2048}
+
+        >>> # Changeset script to scripts/ subdirectory
+        >>> format_and_export(changeset_json, filename="changeset-netbox-2026-04-08",
+        ...                   format="json", subdir="scripts")
+        {"path": "exports/scripts/changeset-netbox-2026-04-08.json", "size": 512}
     """
     # 1. Determine output directory based on format
     from olav.core.config import EXPORTS_DIR as REPORTS_DIR
 
-
-    if format and format.lower() in ("csv", "json", "yaml", "yml"):
+    if subdir is not None:
+        # Explicit subdir overrides all automatic routing.
+        # subdir is relative to EXPORTS_DIR (e.g. "scripts" → exports/scripts/)
+        output_dir = REPORTS_DIR / subdir
+    elif format and format.lower() in ("csv", "json", "yaml", "yml"):
         output_dir = REPORTS_DIR.parent  # exports/
     elif format and format.lower() in ("md", "txt", "mmd"):
         output_dir = REPORTS_DIR  # exports/reports/
@@ -108,10 +121,10 @@ def format_and_export(
     if not format:
         format = _detect_format(data)
 
-    # 4. Resolve output_dir if not yet determined
+    # 4. Resolve output_dir if not yet determined (only when subdir=None and format was auto-detected)
     if output_dir is None:
         from olav.core.config import EXPORTS_DIR as _REPORTS_DIR
-        if format in ("csv", "json", "yaml", "yml"):
+        if format in ("csv", "json", "yaml", "yml", "sh"):
             output_dir = _REPORTS_DIR.parent  # exports/
         else:
             output_dir = _REPORTS_DIR  # exports/reports/
@@ -127,7 +140,7 @@ def format_and_export(
     #    If filename has extension, we use it as the format if format was auto-detected
     from pathlib import PurePath
     p = PurePath(filename)
-    if p.suffix and p.suffix[1:].lower() in ("md", "json", "txt", "csv", "yaml", "yml", "mmd"):
+    if p.suffix and p.suffix[1:].lower() in ("md", "json", "txt", "csv", "yaml", "yml", "mmd", "sh"):
         # If user provided extension, and it's a known one, split it
         actual_format = p.suffix[1:].lower()
         filename = p.stem
@@ -248,6 +261,11 @@ def _write_file(filepath: Path, data: Any, format: str) -> None:  # noqa: ANN401
     elif format == "yaml":
         # YAML格式：结构化数据
         _write_yaml(filepath, data)
+
+    elif format == "sh":
+        # Shell script: write as plain text, ensure LF line endings
+        content = str(data)
+        filepath.write_text(content, encoding="utf-8", newline="\n")
 
     else:
         # Markdown/Text/其他

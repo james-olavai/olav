@@ -56,7 +56,15 @@ class ToolGroupConfig:
 
 @dataclass
 class ToolGenerationConfig:
-    output_dir: str = ".olav/workspace/ops/tools/_generated"
+    """Legacy config — retained for backward-compat parsing of old services.yaml.
+    New services use ReferenceGenerationConfig instead."""
+    output_dir: str = ".olav/workspace/infra/references"
+    groups: list[ToolGroupConfig] = field(default_factory=list)
+
+
+@dataclass
+class ReferenceGenerationConfig:
+    output_dir: str = ".olav/workspace/infra/references"
     groups: list[ToolGroupConfig] = field(default_factory=list)
 
 
@@ -83,6 +91,7 @@ class ServiceConfig:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     lifecycle: LifecycleConfig = field(default_factory=LifecycleConfig)
     tool_generation: ToolGenerationConfig = field(default_factory=ToolGenerationConfig)
+    reference_generation: ReferenceGenerationConfig = field(default_factory=ReferenceGenerationConfig)
     permissions: dict[str, PermissionEntry] = field(default_factory=dict)
 
     # ── convenience accessors ────────────────────────────────────────────────
@@ -170,7 +179,22 @@ def _parse_tool_generation(raw: dict) -> ToolGenerationConfig:
         for g in raw.get("groups", [])
     ]
     return ToolGenerationConfig(
-        output_dir=raw.get("output_dir", ".olav/workspace/ops/tools/_generated"),
+        output_dir=raw.get("output_dir", ".olav/workspace/infra/references"),
+        groups=groups,
+    )
+
+
+def _parse_reference_generation(raw: dict) -> ReferenceGenerationConfig:
+    groups = [
+        ToolGroupConfig(
+            tag=g.get("tag", ""),
+            tool_prefix=g.get("tool_prefix", ""),
+            description=g.get("description", ""),
+        )
+        for g in raw.get("groups", [])
+    ]
+    return ReferenceGenerationConfig(
+        output_dir=raw.get("output_dir", ".olav/workspace/infra/references"),
         groups=groups,
     )
 
@@ -186,6 +210,22 @@ def _parse_permissions(raw: dict) -> dict[str, PermissionEntry]:
 
 
 def _parse_service(name: str, raw: dict) -> ServiceConfig:
+    import warnings
+
+    tool_gen_raw = raw.get("tool_generation", {})
+    ref_gen_raw = raw.get("reference_generation", {})
+
+    # Backward compat: if only tool_generation present, migrate with deprecation warning
+    if tool_gen_raw and not ref_gen_raw:
+        warnings.warn(
+            f"Service '{name}': 'tool_generation' is deprecated. "
+            "Migrate to 'reference_generation'. "
+            "Run: uv run python scripts/migrate_services_yaml.py --write",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        ref_gen_raw = tool_gen_raw  # use same groups/output_dir as fallback
+
     return ServiceConfig(
         name=name,
         display_name=raw.get("display_name", name),
@@ -197,7 +237,8 @@ def _parse_service(name: str, raw: dict) -> ServiceConfig:
         auth=_parse_auth(raw.get("auth", {})),
         execution=_parse_execution(raw.get("execution", {})),
         lifecycle=_parse_lifecycle(raw.get("lifecycle", {})),
-        tool_generation=_parse_tool_generation(raw.get("tool_generation", {})),
+        tool_generation=_parse_tool_generation(tool_gen_raw),
+        reference_generation=_parse_reference_generation(ref_gen_raw),
         permissions=_parse_permissions(raw.get("permissions", {})),
     )
 

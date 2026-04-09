@@ -33,8 +33,12 @@ def generate_permission_rules(
     """
     rules: list[PermissionRule] = []
 
-    # Derive skill name prefix from tool_generation groups
-    tool_prefixes = {g.tool_prefix for g in svc.tool_generation.groups if g.tool_prefix}
+    # Derive skill name prefix from reference_generation (preferred) or tool_generation (legacy)
+    ref_groups = getattr(svc, "reference_generation", None)
+    tool_groups = getattr(svc, "tool_generation", None)
+    groups = (ref_groups.groups if ref_groups and ref_groups.groups else
+              tool_groups.groups if tool_groups and tool_groups.groups else [])
+    tool_prefixes = {g.tool_prefix for g in groups if g.tool_prefix}
     # Use service name as fallback skill scope
     skill_scope = f"{next(iter(tool_prefixes))}_*" if tool_prefixes else f"{svc.name}_*"
 

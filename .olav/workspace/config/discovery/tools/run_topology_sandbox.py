@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 """
+⚠️ DEPRECATED — This tool imports LLMExperimentSandbox which has been removed.
+Will crash at runtime. Scheduled for migration to devops agent in M3.
+See dev_docs/40. DEVOPS_AGENT_DESIGN.md §8.5
+
 Topology Sandbox Tool - NetworkX-powered graph analysis (Phase 5).
 
 Replaces the YAML-strategy-based generate_topology.py with a direct
