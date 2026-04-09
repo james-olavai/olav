@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="">
-    <img src="https://img.shields.io/badge/version-v0.10.0-blue" alt="Version">
+  <a href="https://pypi.org/project/olav/">
+    <img src="https://img.shields.io/badge/version-v0.13.0-blue" alt="Version">
   </a>
   <a href="">
     <img src="https://img.shields.io/badge/license-BSL--1.1-green" alt="License">
@@ -31,182 +31,188 @@
   <a href="src/README_ZH.md">中文文档</a>
 </p>
 
-> Control your infrastructure with natural language. Connect any API, deploy specialized AI agents, orchestrate operational workflows — without writing SQL or memorizing CLI flags.
+> Control your infrastructure with natural language. Connect any REST API in one command, query it instantly, generate environment-aware automation scripts — no MCP servers, no code generation, no runtime complexity.
 
 ```bash
-olav "how many devices are online?"
-olav "which BGP neighbors are down?"
-olav --agent core "run a health check on all endpoints"
+pip install olav
+olav registry register http://netbox:8000      # connect any API
+olav --agent infra "how many devices in NetBox?" # query immediately
+olav --agent devops "write a backup script"      # generate real scripts
 ```
 
-[Quick Start](#quick-start) | [中文](src/README_ZH.md)
+[Quick Start](#quick-start) | [Blog: v0.13 Release](https://olavai.com/blog/olav-v013) | [中文](src/README_ZH.md)
 
 ---
 
 ## Why OLAV?
 
-### API-as-Tool — Any API Becomes an Agent Tool in One Command
+### API-as-Service — Beyond MCP
 
-No code, no MCP servers. Register an OpenAPI service once, query it in natural language forever:
+MCP requires a server process per service, stdio/HTTP transport, and framework-specific adapters. OLAV takes a different approach:
 
-```bash
-olav registry register http://netbox.example.com/api/schema/
-olav "how many devices are in rack A1?"   # works immediately
+```
+MCP:   Service → MCP server process → stdio/HTTP → adapter → agent
+OLAV:  Service → olav registry register → reference markdown → api_request → done
 ```
 
-The Creator Agent can also generate editable Python `@tool` functions from any OpenAPI schema for deep customization.
+One command. No server processes. No generated code. No runtime overhead.
 
-### Agent Harness — Four-Layer Execution Governance
+```bash
+# Register once
+olav registry register http://netbox:8000
 
-Every Agent decision passes through a mandatory execution control layer:
+# Query from any agent, forever
+olav "how many devices are in NetBox?"
+olav --agent infra "compare OLAV database vs NetBox — are they in sync?"
+```
+
+The `api_request` tool is **schema-aware** — it reads API reference docs generated at registration time, handles pagination (DRF/NetBox style), and manages auth (JWT/Bearer/API-key) automatically.
+
+### Six Specialized Agents — Not One Omniscient Model
+
+```
+olav "quick question"                    → Quick Agent (80% of daily use)
+olav --agent infra "query NetBox"        → Infra Agent (API read + write)
+olav --agent devops "write a script"     → DevOps Agent (environment-aware)
+olav --agent ops "simulate link failure" → Ops Agent (network operations)
+olav --agent audit "run health check"    → Audit Agent (compliance reports)
+```
+
+Each agent has **only the tools it needs**. The analysis agent can't SSH to devices. The infra agent can't modify the network. Principle of least authority, enforced by the harness.
+
+### DevOps Agent — Scripts for YOUR Infrastructure
+
+The DevOps agent doesn't write templates. It queries your actual database first:
+
+```bash
+olav --agent devops "write a script to backup all router configs"
+```
+
+It discovers R1 (192.168.100.101, Juniper), R2-R4 (Cisco IOS), SW1-SW2, then generates a 158-line bash script with:
+- Platform-specific commands (`show run` vs `show configuration`)
+- `--dry-run` flag, error handling, dependency checks
+- Exported to `exports/scripts/backup-configs.sh` — a real file, not chat text
+
+### 7-Layer Write Security
+
+AI agents that can write to production need more than HITL approval:
+
+| Layer | Defense | Bypassable? |
+|-------|---------|:-----------:|
+| `--enable-api-write` | Write mode locked by default | No |
+| `services.yaml readonly_only` | Per-service read/write control | Config only |
+| Dry-run simulation | Must pass before approval offered | No |
+| HITL approval | User sees diff, then confirms | **Not skippable** |
+| `sandbox_guard hard_block` | HTTP writes in isolated sandbox | **Not skippable** |
+| `unshare --net` | Kernel-level network isolation | **Not skippable** |
+| Audit trail | Every api_request logged | — |
+
+`--dangerously-skip-permissions` bypasses tool approval for testing — but **cannot** bypass API write approval. Network devices are always read-only.
+
+### Agent Harness — The OS for AI Agents
+
+Every agent decision passes through a mandatory execution control layer:
 
 ```
 Layer 0: AAA        Token/LDAP/OIDC auth → RBAC → full audit trail
-Layer 1: Middleware  HITL dangerous-command interception + memory injection
-Layer 2: Sandbox    Pre-scan → DuckDB read-only enforcement → network namespace isolation
-Layer 3: Output     Credential auto-redaction + SSE JSON encoding + HttpOnly cookies
+Layer 1: Middleware  HITL interception + memory injection
+Layer 2: Sandbox    Pre-scan → DuckDB read-only → network namespace isolation
+Layer 3: Output     Credential redaction + SSE encoding
 ```
 
-Hard constraints (DuckDB read-only) cannot be bypassed. Soft constraints (injection scanning, network isolation) are configurable.
-
-### Self-Improving Loop — Agents Get Better Over Time
+### Self-Improving Loop
 
 ```
-Use OLAV → audit log captures every tool call and error
-    → /trace-review extracts failure constraints → writes to LanceDB memory
-    → future runs recall constraints before acting → known pitfalls avoided
+Use OLAV → audit log captures every tool call
+    → failure patterns extracted → written to LanceDB memory
+    → future runs recall constraints before acting
 ```
 
-Data-driven improvement, not manual prompt tuning.
-
-### Multi-Layer Cache — Measured 2000x+ Speedup
-
-```
-Tier-0: SemanticCache (LanceDB vector similarity, ~10ms)
-Tier-1: LLM SQLiteCache (exact prompt match, <1ms, 0 tokens)
-Tier-2: LLM API call (real network request)
-```
-
-Per-user isolation. Anthropic models automatically use prompt caching (system prompt billed once).
-
-### Federated Specialist Agents
-
-Not one omniscient Agent — **multiple specialists collaborating**:
-
-- Semantic router dispatches queries to the best-fit Agent based on `route_keywords`
-- Each Agent holds only its own tools (least privilege)
-- Per-Agent model assignment: cheap models for frequent queries, powerful models for complex analysis — 40-70% token cost reduction
-- Hot-swappable Skills: `olav skill install` extends capabilities instantly
-
-### AAA — Authentication, Authorization, Audit
-
-- **Auth**: none / token / LDAP / AD / OIDC; tokens stored as salted SHA256 hashes
-- **RBAC**: 3 roles (admin/user/readonly) × 5 actions, fine-grained per Agent/Skill
-- **Audit**: Every operation recorded to DuckDB (4 tables), SHA256 tamper-proofing (NIST AU-9), credentials auto-redacted
-
-### Full-Stack Observability — Audit as Data Asset
-
-Audit logs are not just compliance — they're a **continuously growing data asset**:
-
-- Query any dimension with DuckDB SQL (token usage, cache hit rate, tool call frequency, error patterns)
-- Multi-user concurrent-safe (DuckDB atomic writes, each record tagged with `user_id`)
+7,650+ audit messages captured. Export as SFT/trajectory training data: `olav log export sft`.
 
 ---
 
 ## Quick Start
 
-=== "pip install (recommended)"
-    ```bash
-    # 1. Install
-    pip install olav
-
-    # 2. Initialize project
-    olav init                                   # creates .olav/ with config skeleton
-
-    # 3. Configure API key (edit the generated file)
-    #    Set shared.api_key in .olav/config/api.json
-    #    Or use environment variables:
-    export OLAV_LLM_API_KEY="sk-..."           # your LLM provider API key
-
-    # 4. Connect a service and start querying
-    olav registry register http://netbox.example.com/api/schema/
-    olav "how many devices are in rack A1?"
-
-    # Or install a community skill
-    olav skill install https://github.com/olav-ai/skill-netbox
-    olav "list all sites in Europe"
-    ```
-
-=== "From source (development)"
-    ```bash
-    # 1. Clone and install
-    git clone https://github.com/olav-ai/olav.git && cd olav
-    uv sync
-
-    # 2. Initialize and configure
-    uv run olav init                           # creates .olav/ with config skeleton
-    # Edit .olav/config/api.json → set shared.api_key
-    # Or: export OLAV_LLM_API_KEY="sk-..."
-    uv run olav registry register http://netbox.example.com/api/schema/
-    uv run olav "how many devices are in rack A1?"
-    ```
-
-### Other ways to use
-
 ```bash
-olav                            # interactive TUI (multi-turn conversations)
-olav service web start          # web UI at http://localhost:2280
-olav --agent core "run: df -h"  # execute shell commands via Core Agent
+# 1. Install
+pip install olav
+
+# 2. Initialize
+olav init
+
+# 3. Configure LLM
+export OLAV_LLM_API_KEY="sk-..."
+
+# 4. Connect a service
+olav registry register http://netbox:8000
+
+# 5. Query
+olav "how many devices are in NetBox?"
+
+# 6. Generate scripts
+olav --agent devops "write a backup script for all routers"
 ```
 
----
+### Network Operations (optional)
 
-## Three Interfaces
+```bash
+pip install olav-netops
 
-| Interface | Command | Best For |
-|-----------|---------|----------|
-| **CLI** | `olav "your query"` | Scripting, one-off queries, CI/CD |
-| **TUI** | `olav` | Multi-turn conversations, exploration |
-| **Web UI** | `olav service web start` | Team sharing, browser access |
+olav --agent ops "/netops_init"                    # collect device data via SSH
+olav --agent ops "simulate R2 link failure"        # What-If analysis
+olav --agent ops-lab "deploy digital twin"         # ContainerLab validation
+```
+
+### Other Interfaces
+
+```bash
+olav                            # interactive TUI
+olav service web start          # web UI at localhost:2280
+olav --agent core "run: df -h"  # shell commands via Core Agent
+```
 
 ---
 
 ## Architecture
 
 ```
-User Query
-    ↓
-Semantic Router → selects best Agent (or --agent override)
-    ↓
-Agent Harness → AAA → Middleware → Sandbox
-    ↓
-LLM + Tool Loop (calls tools, gets results, synthesizes response)
-    ↓
-Response + Audit Log (automatic, every run)
+olav v0.13 (pip install olav)
+├── core     — Tools: api_request, execute_sql, sandbox, export
+├── quick    — Fast queries (default agent)
+├── infra    — API read + write (--enable-api-write)
+├── devops   — Environment-aware script generation
+├── audit    — Compliance profiles + health reports
+└── config   — Platform management
+
+olav-netops v0.13 (pip install olav-netops)
+├── ops orchestrator
+│   ├── analysis — Dijkstra + ECMP simulation (networkx)
+│   ├── probe    — Parallel SSH with command whitelist (Nornir)
+│   ├── diff     — Cross-snapshot drift detection
+│   └── lab      — ContainerLab digital twin + commit-validate
+└── netops.*     — DuckDB tables + TextFSM collection pipeline
 ```
 
-**Tech Stack**: LangChain + LangGraph + DeepAgents + DuckDB + LanceDB + FastAPI
+**Tech Stack**: LangChain · LangGraph · DeepAgents · DuckDB · LanceDB · FastAPI · NetworkX
 
 ---
 
-## Repository Structure
+## By the Numbers
 
-```
-src/olav/          ← OLAV core platform (this repo)
-src/README_ZH.md   ← 中文文档
-src/olav_logo.png  ← Logo
-.olav/workspace/   ← Platform agent definitions (config/ + core/)
-.olav/config/      ← Runtime config (gitignored — contains API keys)
-.olav/databases/   ← Runtime data (gitignored — audit logs, domain data)
-```
+| Metric | Value |
+|--------|:-----:|
+| Tests | 1,358 passing |
+| DDD Claims | 44 verified |
+| Issues closed | 62+ |
+| Doc pages | 28 (EN + ZH) |
+| Audit messages | 7,650+ |
 
 ---
 
 ## Documentation
 
-Documentation: **[docs.olavai.com](https://docs.olavai.com)**
-
-Website: **[olavai.com](https://olavai.com)**
+**Docs**: [docs.olavai.com](https://docs.olavai.com) · **Website**: [olavai.com](https://olavai.com) · **Blog**: [v0.13 Release](https://olavai.com/blog/olav-v013)
 
 ---
 
