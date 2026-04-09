@@ -40,7 +40,7 @@ All jobs call: `olav --agent <agent> --auto-approve "<instruction>"`
 - `list_cron()` — show all olav-managed jobs
 - `add_cron(schedule, agent, instruction)` — add/update a job (idempotent)
 - `remove_cron(agent, instruction)` — remove a job
-- `apply_cron_schedules()` — apply `.olav/workspace/ops/config/cron_schedules.yaml`
+- `apply_cron_schedules()` — apply `.olav/workspace/ops/netops_init/config/cron_schedules.yaml`
 
 ### Example interactions
 - "每天凌晨4点做一次 audit" → `add_cron("0 4 * * *", "audit", "generate daily report")`
@@ -64,7 +64,7 @@ All jobs call: `olav --agent <agent> --auto-approve "<instruction>"`
 - `list_cron()` — show all olav-managed jobs
 - `add_cron(schedule, agent, instruction)` — add/update a job (idempotent)
 - `remove_cron(agent, instruction)` — remove a job
-- `apply_cron_schedules()` — apply `.olav/workspace/ops/config/cron_schedules.yaml`
+- `apply_cron_schedules()` — apply `.olav/workspace/ops/netops_init/config/cron_schedules.yaml`
 
 ### Example interactions
 - "每天凌晨4点做一次 audit" → `add_cron("0 4 * * *", "audit", "generate daily report")`
