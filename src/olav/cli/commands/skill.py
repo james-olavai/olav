@@ -147,8 +147,15 @@ class SkillCommand(BaseCommand):
         workspace_dir = workspace_root / decl.name
         workspace_dir.mkdir(parents=True, exist_ok=True)
 
-        # Copy all source files into workspace (preserving structure)
-        _copy_skill_files(source_path, workspace_dir)
+        # Copy workspace files into target directory.
+        # If workspace.yaml declares `source: <subdir>`, copy from that subdir
+        # instead of the repo root (avoids copying src/, tests/, .venv/, etc.)
+        copy_source = source_path
+        if decl.source:
+            candidate = source_path / decl.source
+            if candidate.is_dir():
+                copy_source = candidate
+        _copy_skill_files(copy_source, workspace_dir)
 
         # Create agent subdirectories from declaration (if declared)
         for agent in decl.agents:
