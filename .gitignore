@@ -112,7 +112,10 @@ olav-web/
 !.olav/
 .olav/*
 !.olav/config/
+.olav/config/api.json
+.olav/config/services.yaml
 !.olav/config/*.example
+!.olav/config/approval_rules.yaml
 !.olav/config/schemas/
 !.olav/workspace/
 .olav/workspace/*
