@@ -56,7 +56,6 @@ TRAINING_DATA_*.md
 uv.lock
 ownership_manifest.yaml
 CLAUDE.md
-CHANGELOG.md
 PARTNERS.md
 .dockerignore
 dev_docs/
