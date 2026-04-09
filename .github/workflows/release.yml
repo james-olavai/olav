@@ -1,0 +1,49 @@
+name: Create GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # Extract the block between ## [VERSION] and the next ## [
+          python3 - "$VERSION" << 'PYEOF'
+          import sys, re, pathlib
+
+          version = sys.argv[1]
+          text = pathlib.Path("CHANGELOG.md").read_text()
+
+          # Match the section for this version
+          pattern = rf"(## \[{re.escape(version)}\].*?)(?=\n## \[|\Z)"
+          match = re.search(pattern, text, re.DOTALL)
+
+          if match:
+              notes = match.group(1).strip()
+          else:
+              notes = f"Release v{version}"
+
+          pathlib.Path("/tmp/release_notes.md").write_text(notes)
+          print(f"Extracted {len(notes)} chars for v{version}")
+          PYEOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "v${{ steps.changelog.outputs.version }}"
+          body_path: /tmp/release_notes.md
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
