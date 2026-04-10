@@ -12,6 +12,7 @@ Workflow:
 """
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +21,7 @@ from langchain_core.tools import tool
 from olav.platform.safety.patterns import DANGEROUS_EXEC_PATTERNS
 
 _DANGEROUS_PATTERNS = DANGEROUS_EXEC_PATTERNS
+_CLAB_HOST = os.environ.get("OLAV_CLAB_HOST", "192.168.100.12")
 
 _ALLOWED_COMMANDS = [
     "docker", "docker-compose", "docker compose",
@@ -60,7 +62,7 @@ def _check_clab_redirect(command: str) -> str | None:
         lab_name = m.group(1)
         node = m.group(2)
         return (
-            f"ERROR: CLAB containers run on REMOTE host 192.168.100.12 — docker exec will never work here.\n"
+            f"ERROR: CLAB containers run on REMOTE host {_CLAB_HOST} — docker exec will never work here.\n"
             f"Use push_node_config instead:\n"
             f'  push_node_config({{"lab_name": "{lab_name}", "node": "{node}", "config": "<your SRL set commands>"}})\n'
             f"Or use exec_on_node for show commands:\n"
@@ -69,7 +71,7 @@ def _check_clab_redirect(command: str) -> str | None:
     # Detect: SSH to CLAB host
     if re.search(r'ssh\s+.*?192\.168\.100\.12', cmd, re.IGNORECASE):
         return (
-            "ERROR: Do not SSH to 192.168.100.12 to run commands.\n"
+            f"ERROR: Do not SSH to {_CLAB_HOST} to run commands.\n"
             "Use exec_on_node to run commands on lab nodes:\n"
             "  exec_on_node({\"lab_name\": \"<lab>\", \"node\": \"<node>\", \"command\": \"sr_cli -c 'show version'\"})\n"
             "Use push_node_config to push SRL config:\n"
@@ -78,7 +80,7 @@ def _check_clab_redirect(command: str) -> str | None:
     # Detect: containerlab or clab CLI (these run remotely too)
     if re.match(r'\s*(containerlab|clab)\s+(deploy|destroy|inspect|list)', cmd, re.IGNORECASE):
         return (
-            "ERROR: containerlab CLI is on REMOTE host 192.168.100.12 — it cannot be run locally.\n"
+            f"ERROR: containerlab CLI is on REMOTE host {_CLAB_HOST} — it cannot be run locally.\n"
             "Use deploy_lab tool to deploy/destroy labs instead."
         )
     return None

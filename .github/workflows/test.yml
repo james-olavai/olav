@@ -1,0 +1,103 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  schedule:
+    # Nightly at 02:00 UTC — runs E2E suite (requires secrets)
+    - cron: "0 2 * * *"
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # Unit tests — always run, no external dependencies
+  # ─────────────────────────────────────────────────────────────
+  unit:
+    name: Unit tests (${{ matrix.suite }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        suite:
+          - root        # src/olav + tests/unit/
+          - netops      # olav-netops + olav-netops/tests/unit/
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install Python dependencies
+        run: uv sync --all-extras
+
+      - name: Run unit tests — root
+        if: matrix.suite == 'root'
+        run: uv run pytest tests/unit/ -q --tb=short
+
+      - name: Run unit tests — netops
+        if: matrix.suite == 'netops'
+        run: uv run pytest olav-netops/tests/unit/ -q --tb=short
+        continue-on-error: true  # netops unit dir may not exist yet
+
+  # ─────────────────────────────────────────────────────────────
+  # Gate tests — always run; auto-skip if DB absent
+  # ─────────────────────────────────────────────────────────────
+  gates:
+    name: Gate tests (${{ matrix.suite }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        suite:
+          - root        # tests/gates/
+          - netops      # olav-netops/tests/gates/
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install Python dependencies
+        run: uv sync --all-extras
+
+      - name: Run gate tests — root
+        if: matrix.suite == 'root'
+        run: uv run pytest tests/gates/ -q --tb=short
+
+      - name: Run gate tests — netops
+        if: matrix.suite == 'netops'
+        run: uv run pytest olav-netops/tests/gates/ -q --tb=short
+
+  # ─────────────────────────────────────────────────────────────
+  # E2E tests — nightly only, requires PROBE_E2E_ENABLED secret
+  # ─────────────────────────────────────────────────────────────
+  e2e:
+    name: E2E tests (nightly)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    env:
+      PROBE_E2E_ENABLED: "1"
+      DEVOPS_E2E_ENABLED: "1"
+      OLAV_CLAB_HOST: ${{ secrets.OLAV_CLAB_HOST }}
+      OLAV_LLM_API_KEY: ${{ secrets.OLAV_LLM_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install Python dependencies
+        run: uv sync --all-extras
+
+      - name: Run root E2E tests
+        run: uv run pytest tests/e2e/ -q --tb=short
+        continue-on-error: true  # infrastructure failures should not block the run
+
+      - name: Run netops E2E claims
+        run: uv run pytest olav-netops/tests/test_claims_e2e.py -q --tb=short
+        continue-on-error: true
