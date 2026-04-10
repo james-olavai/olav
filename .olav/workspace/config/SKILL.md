@@ -8,6 +8,8 @@ tools:
   - search_commands          # Search available CLI commands by platform/keyword
 static_context:
   - path: ../core/references/REQUIRED_INFO_CHECK.md
+  # coding_guidance: for writing health-check/schema scripts → ../devops/references/system_health_patterns.md
+  # coding_guidance: for schema discovery scripts → ../devops/references/schema_discovery_patterns.md
 metadata:
   version: 1.1.0
   type: orchestrator
