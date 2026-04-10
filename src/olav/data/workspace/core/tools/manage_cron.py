@@ -15,6 +15,7 @@ Usage:
     apply_cron_schedules(yaml_path)            → apply cron_schedules.yaml declaratively
 """
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -26,6 +27,17 @@ from langchain_core.tools import tool
 
 _COMMENT_PREFIX = "olav:"
 _OLAV_BIN = shutil.which("olav") or "olav"
+
+
+def _get_project_root() -> Path:
+    """Resolve project root: OLAV_HOME env > walk up from cwd looking for pyproject.toml > cwd."""
+    if home := os.getenv("OLAV_HOME"):
+        return Path(home)
+    p = Path.cwd()
+    for candidate in [p, *p.parents]:
+        if (candidate / "pyproject.toml").exists():
+            return candidate
+    return p
 
 
 def _get_crontab() -> CronTab:
@@ -73,7 +85,8 @@ def add_cron(schedule: str, agent: str, instruction: str) -> dict[str, Any]:
     """
     cron = _get_crontab()
     comment = f"{_COMMENT_PREFIX}{agent}|{instruction}"
-    command = f'cd /home/yhvh/Olav && {_OLAV_BIN} --agent {agent} --auto-approve "{instruction}" >> ~/.olav/logs/cron_{agent}.log 2>&1'
+    project_root = _get_project_root()
+    command = f'cd {project_root} && {_OLAV_BIN} --agent {agent} --auto-approve "{instruction}" >> ~/.olav/logs/cron_{agent}.log 2>&1'
 
     existing = _find_job(cron, agent, instruction)
     if existing:

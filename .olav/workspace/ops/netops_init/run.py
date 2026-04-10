@@ -139,7 +139,7 @@ def _run_collection(devices: list[str], commands: list[str]) -> dict:
     # Direct nornir execution (simpler path)
     from nornir import InitNornir
     from nornir_netmiko.tasks import netmiko_send_command
-    from olav.core.config import _resolve_nornir_config_path, MAIN_DB_PATH, SNAPSHOTS_DIR
+    from olav.core.config import _resolve_nornir_config_path, MAIN_DB_PATH, SNAPSHOTS_DIR, SNAPSHOTS_STAGING_JSON
     import duckdb
     import json
     import uuid
@@ -168,6 +168,7 @@ def _run_collection(devices: list[str], commands: list[str]) -> dict:
     results_summary = []
     total_ok = 0
     total_fail = 0
+    all_rows: list[dict] = []
 
     for cmd in commands:
         run_target = (ios_target if _use_platform_split and cmd in DISCOVERY_COMMANDS_IOS
@@ -177,7 +178,6 @@ def _run_collection(devices: list[str], commands: list[str]) -> dict:
             result = run_target.run(task=netmiko_send_command, command_string=cmd)
             cmd_ok = 0
             cmd_fail = 0
-            rows_to_insert = []
 
             for host, multi in result.items():
                 if multi.failed:
@@ -197,7 +197,7 @@ def _run_collection(devices: list[str], commands: list[str]) -> dict:
                 parsed_rows = 0
                 try:
                     from olav.core.ingest_manager import IngestManager
-                    mgr = IngestManager()
+                    mgr = IngestManager(staging_dir=SNAPSHOTS_STAGING_JSON)
                     platform = nr.inventory.hosts[host].platform or "cisco_ios"
                     parsed = mgr.parse_output(platform, cmd, raw_output)
                     if parsed:
@@ -206,9 +206,8 @@ def _run_collection(devices: list[str], commands: list[str]) -> dict:
                 except Exception:
                     pass
 
-                rows_to_insert.append({
+                all_rows.append({
                     "snapshot_id": snapshot_id,
-                    "snapshot_date": snapshot_date,
                     "device_name": host,
                     "command": cmd,
                     "raw_output": raw_output,
@@ -217,25 +216,37 @@ def _run_collection(devices: list[str], commands: list[str]) -> dict:
                 results_summary.append({"device": host, "command": cmd,
                                         "status": "success", "parsed_rows": parsed_rows})
 
-            # Write to DuckDB — use explicit column names (table schema differs from CREATE stub)
-            # netops.parsed_outputs actual columns: device_name, command, parsed_data,
-            # snapshot_id, raw_output, raw_output_hash, ingested_at
-            if rows_to_insert:
-                with duckdb.connect(str(MAIN_DB_PATH)) as conn:
-                    for row in rows_to_insert:
-                        conn.execute(
-                            """INSERT OR IGNORE INTO netops.parsed_outputs
-                               (device_name, command, parsed_data, snapshot_id, raw_output, ingested_at)
-                               VALUES (?, ?, ?, ?, ?, current_timestamp)""",
-                            [row["device_name"], row["command"], row["parsed_data"],
-                             row["snapshot_id"], row["raw_output"]]
-                        )
             total_ok += cmd_ok
             total_fail += cmd_fail
             print(f"✓ {cmd_ok} devices, {cmd_fail} failures")
         except Exception as e:
             total_fail += len(devices)
             print(f"✗ ERROR: {e}")
+
+    # ── Persist via IngestManager pipeline ─────────────────────────────────
+    if all_rows:
+        from olav.core.ingest_manager import IngestManager
+        from olav.core.topology_engine import extract_lldp_topology
+        from olav.core.config import SNAPSHOTS_STAGING_JSON
+
+        staging_file = SNAPSHOTS_STAGING_JSON / f"{snapshot_id}.staging.json"
+        SNAPSHOTS_STAGING_JSON.mkdir(parents=True, exist_ok=True)
+        staging_file.write_text(json.dumps(all_rows))
+        print(f"  → Staging JSON written: {staging_file.name}")
+
+        try:
+            ingest = IngestManager(db_path=MAIN_DB_PATH, staging_dir=SNAPSHOTS_STAGING_JSON)
+            load_result = ingest.bulk_load()
+            print(f"  ✓ IngestManager loaded: {load_result}")
+        except Exception as e:
+            print(f"  ✗ IngestManager error: {e}")
+
+        try:
+            with duckdb.connect(str(MAIN_DB_PATH)) as conn:
+                topo_rows = extract_lldp_topology(conn)
+                print(f"  ✓ Topology ETL: {topo_rows} link(s) extracted")
+        except Exception as e:
+            print(f"  ✗ Topology ETL error: {e}")
 
     return {
         "snapshot_id": snapshot_id,

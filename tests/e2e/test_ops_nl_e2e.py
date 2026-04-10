@@ -89,6 +89,22 @@ class TestOpsAnalysisNLE2E:
             f"Response does not mention any routers:\n{combined[:800]}"
         )
 
+    def test_response_mentions_at_least_two_devices(self):
+        """C-NE-20: routing path must reference ≥2 devices (source + destination)."""
+        combined = self._get_result().stdout + self._get_result().stderr
+        devices_mentioned = [r for r in ("R1", "R2", "R3", "R4") if r in combined]
+        assert len(devices_mentioned) >= 2, (
+            f"Expected ≥2 device names in routing path response, found {devices_mentioned}:\n{combined[:800]}"
+        )
+
+    def test_response_mentions_hop_or_path_indicator(self):
+        """C-NE-20: routing path response must reference hops or path structure."""
+        combined = self._get_result().stdout + self._get_result().stderr
+        hop_indicators = ("hop", "跳", "via", "path", "路径", "→", "->", "through", "经过")
+        assert any(kw in combined.lower() for kw in hop_indicators), (
+            f"Response does not describe path structure (no hop/via/path indicator):\n{combined[:800]}"
+        )
+
     def test_no_traceback(self):
         combined = self._get_result().stdout + self._get_result().stderr
         assert "Traceback" not in combined, (
@@ -123,6 +139,22 @@ class TestOpsWhatIfNLE2E:
         combined = self._get_result().stdout + self._get_result().stderr
         assert "R2" in combined, (
             f"Response does not mention R2:\n{combined[:800]}"
+        )
+
+    def test_response_mentions_blast_radius_devices(self):
+        """C-NE-22: what-if response must name multiple affected devices (blast radius)."""
+        combined = self._get_result().stdout + self._get_result().stderr
+        devices_mentioned = [r for r in ("R1", "R2", "R3", "R4") if r in combined]
+        assert len(devices_mentioned) >= 2, (
+            f"Expected blast radius to include ≥2 devices, found {devices_mentioned}:\n{combined[:800]}"
+        )
+
+    def test_response_mentions_impact_or_affected(self):
+        """C-NE-22: what-if response must describe impact (affected/断开/影响/unreachable)."""
+        combined = self._get_result().stdout + self._get_result().stderr
+        impact_keywords = ("affect", "impact", "影响", "断开", "unreachable", "不可达", "isolated", "隔离", "路径")
+        assert any(kw in combined.lower() for kw in impact_keywords), (
+            f"Response does not describe blast radius impact:\n{combined[:800]}"
         )
 
     def test_no_traceback(self):
@@ -179,6 +211,22 @@ class TestOpsDiffNLE2E:
         )
         assert has_content, f"Response does not mention topology changes:\n{combined[:800]}"
 
+    def test_response_mentions_specific_topology_element(self):
+        """C-NE-26: diff response must name at least one specific interface or link."""
+        if not self._has_two_snapshots():
+            pytest.skip("< 2 topology snapshots in DB — create two snapshots first")
+        result = _run_agent("ops", "最近两次快照的拓扑变化是什么")
+        combined = result.stdout + result.stderr
+        # Should mention a specific interface name, link, or device pair
+        specific_indicators = (
+            "Loopback", "loopback", "interface", "接口",
+            "ethernet", "Ethernet", "link", "链路",
+            "R1", "R2", "R3", "R4",
+        )
+        assert any(kw in combined for kw in specific_indicators), (
+            f"Diff response is too generic — expected specific topology element:\n{combined[:800]}"
+        )
+
     def test_no_traceback(self):
         if not self._has_two_snapshots():
             pytest.skip("< 2 topology snapshots in DB — create two snapshots first")
@@ -216,6 +264,32 @@ class TestAuditDesignerNLE2E:
         combined = self._get_result().stdout + self._get_result().stderr
         assert "BGP" in combined or "bgp" in combined.lower(), (
             f"Response does not mention BGP:\n{combined[:800]}"
+        )
+
+    def test_response_mentions_health_check_structure(self):
+        """C-NE-32: audit profile must describe a health check with at least one job/check."""
+        combined = self._get_result().stdout + self._get_result().stderr
+        structure_keywords = (
+            "job", "check", "检查", "profile", "配置", "health",
+            "neighbor", "邻居", "state", "established",
+        )
+        assert any(kw in combined.lower() for kw in structure_keywords), (
+            f"Response lacks health check job structure:\n{combined[:800]}"
+        )
+
+    def test_response_contains_yaml_or_structured_output(self):
+        """C-NE-32: audit profile should contain YAML frontmatter or structured format."""
+        combined = self._get_result().stdout + self._get_result().stderr
+        structured_indicators = (
+            "---",   # YAML frontmatter delimiter
+            "```",   # code block
+            "name:", # YAML key
+            "jobs:", # YAML jobs section
+            "checks:", # YAML checks section
+            "profile:",
+        )
+        assert any(ind in combined for ind in structured_indicators), (
+            f"Audit profile output lacks structured format (no YAML/code block found):\n{combined[:800]}"
         )
 
     def test_no_traceback(self):
