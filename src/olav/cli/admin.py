@@ -408,22 +408,25 @@ async def _kb_search(args: str) -> dict:
         message = f"🔍 KB Search results for: '{query}'\n\n"
 
         try:
-            from olav.core.knowledge import KB_TABLE, get_knowledge_base
-            from olav.core.memory import get_store
+            from olav.core.memory import get_store, MEMORY_TABLE
 
-            # Get KB engine
+            # Get unified memory store
             store = get_store()
-            kb = get_knowledge_base(store)
 
-            # Check if KB has any indexed data
-            if not store.table_exists(KB_TABLE):
+            # Check if memory table has any data
+            if not store.table_exists(MEMORY_TABLE):
                 return {
                     "status": "error",
-                    "message": "❌ Knowledge base not indexed. Run: olav config kb-index",
+                    "message": "❌ Knowledge base is empty. Use `olav kb import` to add documents.",
                 }
 
-            # Perform hybrid search
-            results = kb.search(query, limit=limit)
+            # Perform vector search via unified memory table
+            try:
+                from olav.core.embedder import embed_text
+                vector = embed_text(query)
+            except Exception:
+                vector = None
+            results = store.search_by_vector(vector, limit=limit) if vector else []
 
             if not results:
                 message += "⚠️  No relevant results found"
@@ -439,7 +442,7 @@ async def _kb_search(args: str) -> dict:
                         source_file = "Unknown"
 
                     content = result.get("text", "")[:150]
-                    score = result.get("rrf_score", 0.0)
+                    score = result.get("score", result.get("rrf_score", 0.0)) or 0.0
 
                     message += f"[{i}] {source_file} (relevance: {score:.2f})\n"
                     message += f"    {content}...\n\n"

@@ -47,12 +47,16 @@ Output ONLY a JSON array. Each item must have:
   - "text": A concise human-readable statement of the fact/decision (max 120 chars).
   - "category": One of "fact", "decision", or "preference".
   - "importance": A float 0.0–1.0 indicating how important this is to remember.
+  - "tags": A list of 2-5 entity/topic tags relevant to this item.
+    Tags should be specific identifiers (device names, protocol names,
+    IP addresses, tool names) rather than generic words.
 
 Rules:
 - Only extract genuinely useful, non-trivial information.
 - If nothing worth remembering occurred, return: []
 - Do not include generic greetings or error messages.
 - Do not duplicate information already covered by obvious conversation context.
+- Tags must be lowercase, no spaces (use hyphens for multi-word).
 
 Conversation:
 {conversation}
@@ -392,12 +396,18 @@ class AutoCaptureMiddleware:
                 import uuid
 
                 memory_id = f"cap-{uuid.uuid4().hex[:8]}"
+                tags_list = item.get("tags", [])
+                if not isinstance(tags_list, list):
+                    tags_list = []
                 self._store.add_memory(
                     id=memory_id,
                     text=text,
                     vector=vector,
                     category=category,
                     scope=scope,
+                    origin="agent",
+                    confidence=importance,
+                    tags=json.dumps(tags_list),
                     metadata={
                         "source": "auto_capture",
                         "importance": importance,
@@ -464,6 +474,23 @@ def apply_time_decay(
             skipped += 1
             continue
 
+        # ── Origin-based differentiation (C-KB-06/07) ────────────────────────
+        origin = mem.get("origin", "agent") or "agent"
+        if origin in ("document", "user"):
+            # Never decay documents or user knowledge
+            skipped += 1
+            continue
+
+        if origin == "audit":
+            effective_half_life = 365.0
+        else:
+            effective_half_life = half_life_days
+
+        # ── access_count boost (C-KB-08): high-recall memories decay slower ──
+        access_count = mem.get("access_count", 0) or 0
+        if access_count >= 5:
+            effective_half_life *= 2.0
+
         ts = mem.get("timestamp")
         if ts is None:
             skipped += 1
@@ -481,7 +508,7 @@ def apply_time_decay(
             skipped += 1
             continue
 
-        new_weight = max(weight_floor, 0.5 + 0.5 * math.exp(-age_days / half_life_days))
+        new_weight = max(weight_floor, 0.5 + 0.5 * math.exp(-age_days / effective_half_life))
         result = store.update_weight(id=mem_id, weight=new_weight, table_name=tname)
 
         if result.get("status") == "success":
