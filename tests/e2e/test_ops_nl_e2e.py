@@ -36,6 +36,18 @@ _LLM_SKIP = pytest.mark.skipif(
     reason="LLM-gated: set OPS_NL_E2E_ENABLED=1 or provide an API key to run",
 )
 
+_PROBE_ENABLED = _LLM_ENABLED and os.environ.get("PROBE_E2E_ENABLED", "").strip() == "1"
+_PROBE_SKIP = pytest.mark.skipif(
+    not _PROBE_ENABLED,
+    reason="Probe E2E: set PROBE_E2E_ENABLED=1 and ensure LLM API key is present",
+)
+
+_NETBOX_ENABLED = _LLM_ENABLED and os.environ.get("NETBOX_E2E_ENABLED", "").strip() == "1"
+_NETBOX_SKIP = pytest.mark.skipif(
+    not _NETBOX_ENABLED,
+    reason="NetBox E2E: set NETBOX_E2E_ENABLED=1 and ensure LLM API key is present",
+)
+
 
 def _run_agent(agent: str, prompt: str, timeout: int = 180) -> subprocess.CompletedProcess:
     """Run `olav --agent <agent> <prompt>` and return the CompletedProcess."""
@@ -214,33 +226,43 @@ class TestAuditDesignerNLE2E:
 
 
 # ---------------------------------------------------------------------------
-# C-NE-39 — infra write full flow (requires NetBox — always skip in CI)
+# C-NE-39 — infra write full flow (requires NetBox — env-var gated)
 # ---------------------------------------------------------------------------
 class TestInfraWriteFlowClaim:
-    """C-NE-39: full write flow requires a NetBox instance — skip marker only."""
+    """C-NE-39: full write flow requires a NetBox instance."""
 
-    @pytest.mark.skip(
-        reason=(
-            "C-NE-39: requires a running NetBox instance at localhost:8000. "
-            "Run manually: olav --agent devops 'sync OLAV devices to NetBox at localhost:8000' "
-            "then: bash exports/scripts/<generated>.sh --dry-run"
-        )
-    )
+    @_NETBOX_SKIP
     def test_infra_write_full_flow(self):
         """Full infra write flow with real NetBox instance."""
+        result = _run_agent(
+            "devops",
+            "sync OLAV devices to NetBox at localhost:8000",
+            timeout=180,
+        )
+        assert result.returncode == 0, f"devops agent failed:\n{result.stderr}"
+        output = result.stdout + result.stderr
+        assert any(kw in output.lower() for kw in ["netbox", "device", "sync", "script"]), (
+            f"devops output does not mention NetBox sync:\n{output[:500]}"
+        )
 
 
 # ---------------------------------------------------------------------------
-# C-NE-21 — probe NL (requires LLM + SSH device — always skip in CI)
+# C-NE-21 — probe NL (requires LLM + SSH device — env-var gated)
 # ---------------------------------------------------------------------------
 class TestProbeNLClaim:
     """C-NE-21: probe agent requires an LLM and a live SSH-accessible device."""
 
-    @pytest.mark.skip(
-        reason=(
-            "C-NE-21: requires a live SSH-accessible device and LLM. "
-            "Run manually: olav --agent ops '通过 SSH 探测 192.168.1.1 的接口状态'"
-        )
-    )
+    @_PROBE_SKIP
+    @pytest.mark.timeout(300)
     def test_probe_nl_over_ssh(self):
-        """Probe NL over SSH to a real device."""
+        """Probe NL over SSH to a real device (R2 at 192.168.100.102)."""
+        result = _run_agent(
+            "ops",
+            "通过 SSH 探测 R2 的接口状态",
+            timeout=240,
+        )
+        assert result.returncode == 0, f"ops probe agent failed:\n{result.stderr}"
+        output = result.stdout + result.stderr
+        assert any(kw in output.lower() for kw in ["interface", "接口", "r2", "status", "up", "down"]), (
+            f"probe output does not contain interface info:\n{output[:500]}"
+        )
