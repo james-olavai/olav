@@ -110,6 +110,7 @@ def parse_args():
         "export",
         "skill",
         "registry",
+        "kb",
     }
 
     # Flags that consume the immediately following token as their value.
@@ -361,6 +362,10 @@ def parse_args():
     log_export_grant.add_argument(
         "--ttl-minutes", type=int, default=10, help="Token TTL in minutes (default: 10)"
     )
+
+    # KB (Unified Knowledge Store) command group
+    from olav.cli.commands.kb import build_kb_parser
+    build_kb_parser(subparsers)
 
     # Default interactive mode flags
     parser.add_argument(
@@ -1511,6 +1516,12 @@ What tools are available and when should each be used?
                 if not found:
                     console.print(f"[red]Skill '{skill_name}' not found.[/red]")
                     console.print("[dim]Use 'olav skills list' to see available skills.[/dim]")
+            return
+
+        # Handle kb command group (Unified Knowledge Store)
+        if args.command == "kb":
+            from olav.cli.commands.kb import handle_kb_command
+            sys.exit(handle_kb_command(args))
             return
 
         # Activate bypass mode before creating session (sets env var for all gates)
