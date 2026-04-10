@@ -141,21 +141,30 @@ class TestDiffNetmikoE2E:
             finally:
                 conn.disconnect()
 
-            # Insert directly into netops.parsed_outputs as new snapshot
+            # Persist fresh output via IngestManager staging pipeline
             cls._snap_after = _make_snap_id()
-            with duckdb.connect(str(MAIN_DB_PATH)) as con:
+            _rows = [
+                {
+                    "snapshot_id": cls._snap_after,
+                    "device_name": "R2",
+                    "command": cmd,
+                    "raw_output": raw,
+                    "parsed_data": None,
+                }
                 for cmd, raw in [
                     ("show ip interface brief", raw_brief),
                     ("show interfaces", raw_intf),
-                ]:
-                    con.execute(
-                        """
-                        INSERT INTO netops.parsed_outputs
-                          (device_name, command, parsed_data, snapshot_id, raw_output, ingested_at)
-                        VALUES (?, ?, ?, ?, ?, current_timestamp)
-                        """,
-                        ["R2", cmd, "[]", cls._snap_after, raw],
-                    )
+                ]
+            ]
+
+            from olav.core.config import MAIN_DB_PATH, SNAPSHOTS_STAGING_JSON
+            from olav.core.ingest_manager import IngestManager
+            import json as _json
+
+            SNAPSHOTS_STAGING_JSON.mkdir(parents=True, exist_ok=True)
+            staging_file = SNAPSHOTS_STAGING_JSON / f"{cls._snap_after}.staging.json"
+            staging_file.write_text(_json.dumps(_rows))
+            IngestManager(db_path=MAIN_DB_PATH, staging_dir=SNAPSHOTS_STAGING_JSON).bulk_load()
         finally:
             # ── rollback (always runs) ───────────────────────────────
             _rollback_loopback()
@@ -177,7 +186,11 @@ class TestDiffNetmikoE2E:
 
         from diff_sql_state import diff_sql_state
 
-        result = diff_sql_state.func("netops.parsed_outputs", self._snap_before, self._snap_after)
+        result = diff_sql_state.invoke({
+            "table": "netops.parsed_outputs",
+            "snapshot_id_1": self._snap_before,
+            "snapshot_id_2": self._snap_after,
+        })
         assert result.get("status") == "success", f"diff_sql_state failed: {result}"
 
         new_rows = result.get("new_in_t2", [])

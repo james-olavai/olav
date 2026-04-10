@@ -354,8 +354,8 @@ class TestApiRequestUnregisteredService:
         )
         mod = _ilu.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        # Call the raw Python function, bypassing the LangChain @tool wrapper
-        return mod.api_request.func(service, method="GET", path="/")
+        # Call via .invoke() to exercise the full LangChain tool wrapper
+        return mod.api_request.invoke({"service": service, "method": "GET", "path": "/"})
 
     def test_returns_error_dict_not_exception(self):
         """Unregistered service returns a dict, not a raised KeyError."""
