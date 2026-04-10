@@ -69,7 +69,7 @@ def _check_clab_redirect(command: str) -> str | None:
             f'  exec_on_node({{"lab_name": "{lab_name}", "node": "{node}", "command": "sr_cli -c \'show version\'"}})'
         )
     # Detect: SSH to CLAB host
-    if re.search(r'ssh\s+.*?192\.168\.100\.12', cmd, re.IGNORECASE):
+    if re.search(rf'ssh\s+.*?{re.escape(_CLAB_HOST)}', cmd, re.IGNORECASE):
         return (
             f"ERROR: Do not SSH to {_CLAB_HOST} to run commands.\n"
             "Use exec_on_node to run commands on lab nodes:\n"
