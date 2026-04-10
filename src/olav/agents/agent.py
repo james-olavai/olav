@@ -106,7 +106,14 @@ def _inject_static_context(prompt: str, skill_dir: Path, metadata: dict) -> str:
 
 
 def _resolve_env_ref(value: str) -> str:
-    """Expand ``${ENV_VAR}`` references in a string against os.environ."""
+    """Expand ``${ENV_VAR}`` references in a string against os.environ.
+
+    Only simple identifier references (e.g. ``${OPENAI_API_KEY}``) are
+    expanded.  Shell parameter-expansion syntax such as ``${VAR:?error}``,
+    ``${VAR:-default}``, or ``${VAR:+alt}`` is intentionally left unchanged
+    so that documentation examples in prompts/system.md are not misinterpreted
+    as missing environment variables.
+    """
     import os
     import re
 
@@ -120,7 +127,8 @@ def _resolve_env_ref(value: str) -> str:
             )
         return val
 
-    return re.sub(r"\$\{([^}]+)\}", _sub, value)
+    # Only match bare identifiers: letters, digits, underscores — no shell operators
+    return re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", _sub, value)
 
 
 class OLAVAgent:
