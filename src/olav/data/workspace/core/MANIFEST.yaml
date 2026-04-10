@@ -1,0 +1,10 @@
+kind: Agent
+name: core
+version: "0.1.0"
+description: "Core OLAV platform agent (built-in)"
+route_keywords:
+  - help
+  - version
+  - status
+  - workspace
+managed: true
