@@ -157,14 +157,41 @@ class InitCommand(BaseCommand):
             return f"⚠ skipped ({exc})"
 
     def _deploy_core_workspace(self, core_dir: Path) -> str:
-        """Write .olav/workspace/core/ with AGENT.md and MANIFEST.yaml."""
+        """Deploy .olav/workspace/core/ from bundled package data.
+
+        Copies the full core workspace (AGENT.md, MANIFEST.yaml, SKILL.md,
+        tools/, prompts/, references/) from ``olav/data/workspace/core/``.
+        Existing files are never overwritten so user customisations survive
+        repeated ``olav init`` calls.
+        """
+        import shutil
+
         try:
-            from olav.core.version import __version__ as ver
+            from importlib.resources import files as _pkg_files
+            bundled = _pkg_files("olav.data.workspace") / "core"
+            bundled_path = Path(str(bundled))
         except Exception:  # noqa: BLE001
-            ver = "0.1.0"
+            bundled_path = None
 
         try:
             core_dir.mkdir(parents=True, exist_ok=True)
+
+            if bundled_path and bundled_path.is_dir():
+                for src in bundled_path.rglob("*"):
+                    rel = src.relative_to(bundled_path)
+                    dst = core_dir / rel
+                    if src.is_dir():
+                        dst.mkdir(parents=True, exist_ok=True)
+                    elif not dst.exists():
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src, dst)
+                return "✓ core workspace deployed"
+
+            # Fallback: write minimal stubs if package data is unavailable
+            try:
+                from olav.core.version import __version__ as ver
+            except Exception:  # noqa: BLE001
+                ver = "0.1.0"
             agent_md = core_dir / "AGENT.md"
             if not agent_md.exists():
                 agent_md.write_text(
@@ -175,7 +202,7 @@ class InitCommand(BaseCommand):
                 manifest.write_text(
                     _CORE_MANIFEST_YAML.format(version=ver), encoding="utf-8"
                 )
-            return "✓ core workspace deployed"
+            return "✓ core workspace deployed (stubs only — package data missing)"
         except Exception as exc:  # noqa: BLE001
             return f"⚠ skipped ({exc})"
 

@@ -6,6 +6,9 @@ build-backend = "hatchling.build"
 packages = ["src/olav"]
 include = [
     "src/olav/data/**/*.txt",
+    "src/olav/data/**/*.md",
+    "src/olav/data/**/*.yaml",
+    "src/olav/data/**/*.py",
 ]
 exclude = [
     "src/olav/enterprise/",
