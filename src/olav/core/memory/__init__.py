@@ -137,11 +137,32 @@ class LanceDBStore:
                 ("created_at", pa.timestamp("us")),
                 ("access_count", pa.int32()),
                 ("weight", pa.float32()),  # time-decay weight
+                ("origin", pa.string()),  # agent | document | user | audit
+                ("confidence", pa.float32()),  # 0.0-1.0 knowledge reliability
+                ("tags", pa.string()),  # JSON array of entity/topic tags
             ]
         )
 
+    def get_schema(self, table_name: str = MEMORY_TABLE) -> pa.Schema:
+        """Return the actual schema of the live table (or the spec schema if table absent).
+
+        Args:
+            table_name: Name of the table
+
+        Returns:
+            PyArrow schema
+        """
+        db = self.connect()
+        if table_name in db.table_names():
+            return db.open_table(table_name).schema
+        return self._get_schema()
+
     def create_table(self, table_name: str = MEMORY_TABLE) -> lancedb.table.LanceTable:
         """Create memory table if not exists, and register an FTS index on the text column.
+
+        If the table already exists but is missing the new UKS columns
+        (origin, confidence, tags), they are added with safe default values
+        so that existing data is preserved (C-KB-03 migration).
 
         Args:
             table_name: Name of the table to create
@@ -164,7 +185,9 @@ class LanceDBStore:
             return tbl
 
         tbl = db.open_table(table_name)
-        # Schema migration: recreate if vector dim doesn't match active embedder
+        existing_names = {f.name for f in tbl.schema}
+
+        # ── Vector dim migration (existing behaviour) ────────────────────────
         for field in tbl.schema:
             if field.name == "vector" and hasattr(field.type, "list_size"):
                 if field.type.list_size != self._embedding_dim:
@@ -178,6 +201,18 @@ class LanceDBStore:
                     db.drop_table(table_name)
                     return self.create_table(table_name)
                 break
+
+        # ── UKS Schema migration (C-KB-03): add missing columns ─────────────
+        if "origin" not in existing_names:
+            tbl.add_columns({"origin": "'agent'"})
+            logger.info(f"Migration: added 'origin' column to '{table_name}' (default='agent')")
+        if "confidence" not in existing_names:
+            tbl.add_columns({"confidence": "cast(0.5 as float)"})
+            logger.info(f"Migration: added 'confidence' column to '{table_name}' (default=0.5)")
+        if "tags" not in existing_names:
+            tbl.add_columns({"tags": "'[]'"})
+            logger.info(f"Migration: added 'tags' column to '{table_name}' (default='[]')")
+
         return tbl
 
     def get_table(self, table_name: str = MEMORY_TABLE) -> lancedb.table.LanceTable:
@@ -199,6 +234,31 @@ class LanceDBStore:
 
         return db.open_table(table_name)
 
+    def get_memory(
+        self,
+        id: str,
+        table_name: str = MEMORY_TABLE,
+    ) -> dict | None:
+        """Retrieve a single memory entry by ID.
+
+        Args:
+            id: Memory ID to look up
+            table_name: Table to search
+
+        Returns:
+            Dict with memory fields, or None if not found
+        """
+        try:
+            tbl = self.get_table(table_name)
+            results = tbl.search().where(f"id = '{id}'").limit(1).to_list()
+            if not results:
+                return None
+            r = results[0]
+            return {k: r.get(k) for k in tbl.schema.names}
+        except Exception as e:
+            logger.debug(f"get_memory({id!r}) failed: {e}")
+            return None
+
     def add_memory(
         self,
         id: str,
@@ -208,6 +268,9 @@ class LanceDBStore:
         scope: str = "global",
         metadata: dict | None = None,
         table_name: str = MEMORY_TABLE,
+        origin: str = "agent",
+        confidence: float = 0.5,
+        tags: str = "[]",
     ) -> dict:
         """Add a memory entry to the store.
 
@@ -219,6 +282,9 @@ class LanceDBStore:
             scope: Scope for isolation (global, agent name, etc.)
             metadata: Additional metadata as dict
             table_name: Table to add to
+            origin: Knowledge source — "agent" | "document" | "user" | "audit"
+            confidence: Reliability score 0.0-1.0 (default 0.5 for agent captures)
+            tags: JSON array string of entity/topic tags (default "[]")
 
         Returns:
             Dict with status and message
@@ -260,6 +326,9 @@ class LanceDBStore:
                     pa.array([now]),
                     pa.array([1]),  # access_count
                     pa.array([1.0]),  # initial weight
+                    pa.array([origin]),
+                    pa.array([confidence], type=pa.float32()),
+                    pa.array([tags]),
                 ],
                 schema=self._get_schema(),
             )
@@ -343,7 +412,12 @@ class LanceDBStore:
                         "metadata": r.get("metadata"),
                         "timestamp": r.get("timestamp"),
                         "weight": r.get("weight"),
+                        "access_count": r.get("access_count"),
+                        "origin": r.get("origin", "agent"),
+                        "confidence": r.get("confidence", 0.5),
+                        "tags": r.get("tags", "[]"),
                         "score": r.get("_distance"),  # LanceDB provides distance
+                        "vector": r.get("vector"),
                     }
                 )
 
@@ -460,6 +534,11 @@ class LanceDBStore:
                     "metadata": r.get("metadata"),
                     "timestamp": r.get("timestamp"),
                     "weight": r.get("weight"),
+                    "access_count": r.get("access_count"),
+                    "origin": r.get("origin", "agent"),
+                    "confidence": r.get("confidence", 0.5),
+                    "tags": r.get("tags", "[]"),
+                    "vector": r.get("vector"),
                 }
                 for r in results
             ]
@@ -515,6 +594,36 @@ class LanceDBStore:
 
         except Exception as e:
             logger.error(f"Failed to update weight for {id}: {e}")
+            return {"status": "error", "message": str(e)}
+
+    def update_memory(
+        self,
+        id: str,
+        table_name: str = MEMORY_TABLE,
+        **fields,
+    ) -> dict:
+        """Update arbitrary fields on a memory entry (for migration / enrichment).
+
+        Only columns present in the schema are accepted; unknown keys are ignored.
+
+        Args:
+            id: ID of the memory to update
+            table_name: Table to update
+            **fields: Field→value pairs to update (e.g. origin="agent", confidence=0.8)
+
+        Returns:
+            Dict with status
+        """
+        try:
+            tbl = self.get_table(table_name)
+            valid = {f.name for f in tbl.schema}
+            values = {k: v for k, v in fields.items() if k in valid}
+            if not values:
+                return {"status": "noop", "id": id}
+            tbl.update(where=f"id = '{id}'", values=values)
+            return {"status": "success", "id": id}
+        except Exception as e:
+            logger.error(f"Failed to update memory {id}: {e}")
             return {"status": "error", "message": str(e)}
 
     def get_table_names(self) -> list[str]:
