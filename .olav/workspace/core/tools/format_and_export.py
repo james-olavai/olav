@@ -274,9 +274,19 @@ def _write_file(filepath: Path, data: Any, format: str) -> None:  # noqa: ANN401
         _write_yaml(filepath, data)
 
     elif format == "sh":
-        # Shell script: write as plain text, ensure LF line endings
-        content = str(data)
+        # Shell script: dedent (LLM often indents entire body, but shebang is at col-0
+        # so textwrap.dedent finds no common prefix — dedent the body separately).
+        import textwrap
+        raw = str(data).lstrip("\n")
+        lines = raw.splitlines(keepends=True)
+        if lines and lines[0].startswith("#!"):
+            shebang = lines[0]
+            body = textwrap.dedent("".join(lines[1:]))
+            content = shebang + body
+        else:
+            content = textwrap.dedent(raw)
         filepath.write_text(content, encoding="utf-8", newline="\n")
+        filepath.chmod(0o755)
 
     elif format == "mmd":
         # Mermaid diagram — strip any wrapping code fences (```mermaid ... ```)
