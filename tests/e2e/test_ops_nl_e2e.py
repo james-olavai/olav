@@ -52,26 +52,33 @@ def _run_agent(agent: str, prompt: str, timeout: int = 180) -> subprocess.Comple
 # C-NE-20 — ops analysis NL
 # ---------------------------------------------------------------------------
 @_LLM_SKIP
+@pytest.mark.timeout(300)
 class TestOpsAnalysisNLE2E:
     """C-NE-20: ops agent can explain routing path from R1 to R4 in natural language."""
 
+    _result: "subprocess.CompletedProcess | None" = None
+
+    @classmethod
+    def _get_result(cls) -> subprocess.CompletedProcess:
+        if cls._result is None:
+            cls._result = _run_agent("ops", "分析 R1 到 R4 的路由路径")
+        return cls._result
+
     def test_exits_zero(self):
-        result = _run_agent("ops", "分析 R1 到 R4 的路由路径")
+        result = self._get_result()
         assert result.returncode == 0, (
             f"ops analysis exited {result.returncode}:\n"
             f"{result.stdout}\n{result.stderr}"
         )
 
     def test_response_mentions_routers(self):
-        result = _run_agent("ops", "分析 R1 到 R4 的路由路径")
-        combined = result.stdout + result.stderr
+        combined = self._get_result().stdout + self._get_result().stderr
         assert any(r in combined for r in ("R1", "R2", "R3", "R4")), (
             f"Response does not mention any routers:\n{combined[:800]}"
         )
 
     def test_no_traceback(self):
-        result = _run_agent("ops", "分析 R1 到 R4 的路由路径")
-        combined = result.stdout + result.stderr
+        combined = self._get_result().stdout + self._get_result().stderr
         assert "Traceback" not in combined, (
             f"Unhandled exception in ops analysis:\n{combined[:800]}"
         )
@@ -81,26 +88,33 @@ class TestOpsAnalysisNLE2E:
 # C-NE-22 — ops What-If NL
 # ---------------------------------------------------------------------------
 @_LLM_SKIP
+@pytest.mark.timeout(300)
 class TestOpsWhatIfNLE2E:
     """C-NE-22: ops agent can simulate 'what-if R2 loses all links'."""
 
+    _result: "subprocess.CompletedProcess | None" = None
+
+    @classmethod
+    def _get_result(cls) -> subprocess.CompletedProcess:
+        if cls._result is None:
+            cls._result = _run_agent("ops", "模拟 R2 所有链路断开对全网的影响")
+        return cls._result
+
     def test_exits_zero(self):
-        result = _run_agent("ops", "模拟 R2 所有链路断开对全网的影响")
+        result = self._get_result()
         assert result.returncode == 0, (
             f"ops what-if exited {result.returncode}:\n"
             f"{result.stdout}\n{result.stderr}"
         )
 
     def test_response_mentions_r2(self):
-        result = _run_agent("ops", "模拟 R2 所有链路断开对全网的影响")
-        combined = result.stdout + result.stderr
+        combined = self._get_result().stdout + self._get_result().stderr
         assert "R2" in combined, (
             f"Response does not mention R2:\n{combined[:800]}"
         )
 
     def test_no_traceback(self):
-        result = _run_agent("ops", "模拟 R2 所有链路断开对全网的影响")
-        combined = result.stdout + result.stderr
+        combined = self._get_result().stdout + self._get_result().stderr
         assert "Traceback" not in combined, (
             f"Unhandled exception in ops what-if:\n{combined[:800]}"
         )
@@ -167,26 +181,33 @@ class TestOpsDiffNLE2E:
 # C-NE-32 — audit-designer NL
 # ---------------------------------------------------------------------------
 @_LLM_SKIP
+@pytest.mark.timeout(300)
 class TestAuditDesignerNLE2E:
     """C-NE-32: audit-designer agent creates a BGP health-check profile."""
 
+    _result: "subprocess.CompletedProcess | None" = None
+
+    @classmethod
+    def _get_result(cls) -> subprocess.CompletedProcess:
+        if cls._result is None:
+            cls._result = _run_agent("audit-designer", "创建 BGP 健康检查 profile")
+        return cls._result
+
     def test_exits_zero(self):
-        result = _run_agent("audit-designer", "创建 BGP 健康检查 profile")
+        result = self._get_result()
         assert result.returncode == 0, (
             f"audit-designer exited {result.returncode}:\n"
             f"{result.stdout}\n{result.stderr}"
         )
 
     def test_response_mentions_bgp(self):
-        result = _run_agent("audit-designer", "创建 BGP 健康检查 profile")
-        combined = result.stdout + result.stderr
+        combined = self._get_result().stdout + self._get_result().stderr
         assert "BGP" in combined or "bgp" in combined.lower(), (
             f"Response does not mention BGP:\n{combined[:800]}"
         )
 
     def test_no_traceback(self):
-        result = _run_agent("audit-designer", "创建 BGP 健康检查 profile")
-        combined = result.stdout + result.stderr
+        combined = self._get_result().stdout + self._get_result().stderr
         assert "Traceback" not in combined, (
             f"Unhandled exception in audit-designer:\n{combined[:800]}"
         )
