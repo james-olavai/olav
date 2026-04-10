@@ -13,7 +13,7 @@ tools:
   - register_api_schema     # Parse OpenAPI 3.x spec → classify all fields
   - trigger_schema_evolve   # OPTICS clustering on unclassified fields → propose standards
   - fuzzy_map_schema        # Legacy LLM-based schema normalisation (fallback)
-  - run_topology_sandbox    # NetworkX topology analysis + Mermaid generation
+  - run_topology_sandbox    # ⚠️ REMOVED — use devops agent + run_python_code + NetworkX instead
   - discover_view_schemas   # Auto-discover and register DuckDB view schemas
   - sync_schema_reference   # Sync SCHEMA_REFERENCE.md with live DB column names
   - scaffold_domain_agent   # Scaffold a new domain agent workspace from template

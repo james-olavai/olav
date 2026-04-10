@@ -99,11 +99,49 @@ def _check_http(url: str, timeout: int = 10) -> bool:
         return False
 
 
+def _extract_and_record_token(name: str, cmd: str, cwd: Path) -> dict:
+    """Run token_extract_cmd, persist token to services.yaml, return tokens dict.
+
+    Returns {} on failure (non-fatal — service is still healthy).
+    Returns {"tokens": {"<name>": "<token>"}} on success.
+    """
+    try:
+        rc, out, err = _run(cmd, cwd, timeout=30)
+        token = out.strip()
+        if rc != 0 or not token:
+            return {"token_extract_warning": err or "command produced no output"}
+    except Exception as exc:
+        return {"token_extract_warning": str(exc)}
+
+    # Persist to .olav/config/services.yaml
+    services_yaml = PROJECT_ROOT / ".olav" / "config" / "services.yaml"
+    try:
+        services_yaml.parent.mkdir(parents=True, exist_ok=True)
+        data: dict = {}
+        if services_yaml.exists():
+            import yaml as _yaml
+            data = _yaml.safe_load(services_yaml.read_text(encoding="utf-8")) or {}
+        if "services" not in data or not isinstance(data["services"], dict):
+            data["services"] = {}
+        svc = data["services"].setdefault(name, {})
+        svc["token_extracted"] = token
+        import yaml as _yaml
+        services_yaml.write_text(
+            _yaml.dump(data, default_flow_style=False, allow_unicode=True),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass  # Persistence failure is non-fatal
+
+    return {"tokens": {name: token}}
+
+
 @tool
 def deploy_service(
     name: str,
     health_url: str = "",
     health_timeout: int = 300,
+    token_extract_cmd: str = "",
 ) -> dict:
     """Deploy any container-based service (NetBox, Grafana, Prometheus, etc.).
 
@@ -125,10 +163,14 @@ def deploy_service(
     "hint": "fix guidance"} so you can diagnose, fix a file, and retry.
 
     Args:
-        name:           Service name → files live at .olav/services/<name>/
-        health_url:     HTTP URL polled until < 500 (e.g. "http://localhost:8000/")
-        health_timeout: Max seconds to wait (default 300). Use 600 for services
-                        that run DB migrations on first start (NetBox, GitLab, etc.).
+        name:               Service name → files live at .olav/services/<name>/
+        health_url:         HTTP URL polled until < 500 (e.g. "http://localhost:8000/")
+        health_timeout:     Max seconds to wait (default 300). Use 600 for services
+                            that run DB migrations on first start (NetBox, GitLab, etc.).
+        token_extract_cmd:  Shell command to extract an API token after healthy start,
+                            e.g. "docker exec netbox python manage.py shell -c \\"...\\""
+                            The command's stdout is saved as the service token in
+                            .olav/config/services.yaml under services.<name>.token_extracted.
 
     Returns on success: {"success": true, "containers": [...]}
     Returns on failure: {"success": false, "logs": "...", "hint": "..."}
@@ -218,6 +260,7 @@ def deploy_service(
         "status": "healthy",
         "service_dir": str(service_dir.relative_to(PROJECT_ROOT)),
         "containers": [{"name": c.get("Name", ""), "state": c.get("State", ""), "health": c.get("Health", "")} for c in containers],
+        **(_extract_and_record_token(name, token_extract_cmd, service_dir) if token_extract_cmd else {}),
     }
 
 

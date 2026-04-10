@@ -97,6 +97,12 @@ class SkillCommand(BaseCommand):
                 return f"error: git clone failed: {clone_result['error']}"
             tmp_dir = Path(clone_result["path"])
             source_path = tmp_dir
+        elif _is_archive_url(source):
+            extract_result = _download_and_extract(source)
+            if extract_result["status"] == "error":
+                return f"error: archive download/extract failed: {extract_result['error']}"
+            tmp_dir = Path(extract_result["path"])
+            source_path = tmp_dir
         else:
             source_path = Path(source)
             if not source_path.exists():
@@ -124,6 +130,16 @@ class SkillCommand(BaseCommand):
             return f"error: neither workspace.yaml nor MANIFEST.yaml found in {source}"
 
         # GAP-07: --merge-into appends tools to an existing workspace
+        # SkillPack kind requires --merge-into (it's a toolset, not a standalone workspace)
+        if getattr(decl, "kind", "Agent").lower() == "skillpack" and not merge_into:
+            if tmp_dir:
+                import shutil as _sh
+                _sh.rmtree(tmp_dir, ignore_errors=True)
+            return (
+                "error: workspace.yaml declares kind: SkillPack — "
+                "use --merge-into <workspace> to append tools to an existing workspace"
+            )
+
         if merge_into:
             result = _merge_into_workspace(source_path, decl, merge_into)
             if tmp_dir:
@@ -471,6 +487,63 @@ def _git_clone(url: str) -> dict:
         shutil.rmtree(tmp, ignore_errors=True)
         return {"status": "error", "error": result.stderr.strip() or "git clone failed"}
     return {"status": "ok", "path": tmp}
+
+
+def _is_archive_url(source: str) -> bool:
+    """Return True if source looks like a downloadable archive URL."""
+    return (source.startswith("https://") or source.startswith("http://")) and (
+        source.endswith(".tar.gz")
+        or source.endswith(".tgz")
+        or source.endswith(".zip")
+    )
+
+
+def _download_and_extract(url: str) -> dict:
+    """Download an archive URL and extract it to a temporary directory.
+
+    Supports .tar.gz / .tgz and .zip archives.
+
+    Returns:
+        {"status": "ok", "path": str}  on success
+        {"status": "error", "error": str}  on failure
+    """
+    import shutil
+    import tempfile
+    import urllib.request
+
+    tmp_dir = tempfile.mkdtemp(prefix="olav_skill_")
+    suffix = ".zip" if url.endswith(".zip") else ".tar.gz"
+    archive_path = Path(tmp_dir) / f"skillpack{suffix}"
+
+    try:
+        urllib.request.urlretrieve(url, str(archive_path))  # noqa: S310 (intentional)
+    except Exception as exc:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return {"status": "error", "error": f"download failed: {exc}"}
+
+    extract_dir = Path(tmp_dir) / "extracted"
+    extract_dir.mkdir()
+
+    try:
+        if suffix == ".zip":
+            import zipfile
+
+            with zipfile.ZipFile(archive_path, "r") as zf:
+                zf.extractall(extract_dir)
+        else:
+            import tarfile
+
+            with tarfile.open(archive_path, "r:gz") as tf:
+                tf.extractall(extract_dir)
+    except Exception as exc:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return {"status": "error", "error": f"extraction failed: {exc}"}
+
+    # If archive contains a single top-level dir, descend into it
+    entries = list(extract_dir.iterdir())
+    if len(entries) == 1 and entries[0].is_dir():
+        return {"status": "ok", "path": str(entries[0])}
+    return {"status": "ok", "path": str(extract_dir)}
 
 
 # ── GAP-07: --merge-into ────────────────────────────────────────────────────
