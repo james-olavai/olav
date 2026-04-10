@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OLAV v0.10.0 CLI - Full deepagents-cli integration.
+"""OLAV v0.13.1 CLI - Full deepagents-cli integration.
 
 This is a thin wrapper around deepagents-cli for domain operations.
 All domain functionality is exposed through workspace agents and tools, not CLI commands.

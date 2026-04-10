@@ -27,6 +27,8 @@ def _connect(db_path: Path | str | None):
     from olav.core.config import AUDIT_DB_PATH
 
     path = str(db_path) if db_path is not None else str(AUDIT_DB_PATH)
+    if not Path(path).exists():
+        return None
     return duckdb.connect(path, read_only=True)
 
 
@@ -38,9 +40,16 @@ def log_list(
     """Return audit runs started within the last *hours* hours.
 
     Each item is a dict with keys: run_id, start_time, status, agent_id, user_id.
+    Returns an empty list if the audit database has not been initialised yet.
     """
     conn = _connect(db_path)
+    if conn is None:
+        return []
     try:
+        # Table only exists after the first agent run — return empty on fresh install.
+        tables = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
+        if "audit_runs" not in tables:
+            return []
         rows = conn.execute(
             """
             SELECT run_id, start_time, status, agent_id, user_id
@@ -63,9 +72,15 @@ def log_show(
     """Return all audit events for *run_id* ordered by sequence_no / timestamp.
 
     *run_id* may be a full UUID or the 8-character prefix shown by ``log list``.
+    Returns an empty list if the audit database has not been initialised yet.
     """
     conn = _connect(db_path)
+    if conn is None:
+        return []
     try:
+        tables = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
+        if "audit_events" not in tables:
+            return []
         # Support 8-char prefix (as shown by log list) as well as full UUID
         if len(run_id) <= 8:
             where, param = "WHERE run_id LIKE ?", [run_id + "%"]
@@ -96,30 +111,36 @@ def log_errors(
     Args:
         db_path: Override the default AUDIT_DB_PATH.
         since_hours: If set, only return events from the last N hours.
-    """
-    type_placeholders = ", ".join("?" * len(_ERROR_TYPES))
-    if since_hours is not None:
-        error_types = list(_ERROR_TYPES)
-        time_ph = "AND timestamp >= now() - INTERVAL (?) HOUR"
-        sql = f"""
-            SELECT event_id, event_type, timestamp, run_id, agent_id, payload
-            FROM audit_events
-            WHERE event_type IN ({type_placeholders})
-            {time_ph}
-            ORDER BY timestamp DESC
-        """
-        params = error_types + [since_hours]
-    else:
-        sql = f"""
-            SELECT event_id, event_type, timestamp, run_id, agent_id, payload
-            FROM audit_events
-            WHERE event_type IN ({type_placeholders})
-            ORDER BY timestamp DESC
-        """
-        params = list(_ERROR_TYPES)
 
+    Returns an empty list if the audit database has not been initialised yet.
+    """
     conn = _connect(db_path)
+    if conn is None:
+        return []
     try:
+        tables = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
+        if "audit_events" not in tables:
+            return []
+        type_placeholders = ", ".join("?" * len(_ERROR_TYPES))
+        if since_hours is not None:
+            error_types = list(_ERROR_TYPES)
+            time_ph = "AND timestamp >= now() - INTERVAL (?) HOUR"
+            sql = f"""
+                SELECT event_id, event_type, timestamp, run_id, agent_id, payload
+                FROM audit_events
+                WHERE event_type IN ({type_placeholders})
+                {time_ph}
+                ORDER BY timestamp DESC
+            """
+            params = error_types + [since_hours]
+        else:
+            sql = f"""
+                SELECT event_id, event_type, timestamp, run_id, agent_id, payload
+                FROM audit_events
+                WHERE event_type IN ({type_placeholders})
+                ORDER BY timestamp DESC
+            """
+            params = list(_ERROR_TYPES)
         rows = conn.execute(sql, params).fetchall()
         cols = ["event_id", "event_type", "timestamp", "run_id", "agent_id", "payload"]
         return [dict(zip(cols, row, strict=True)) for row in rows]
