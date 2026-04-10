@@ -421,8 +421,8 @@ def main(params: dict) -> dict:
                 import csv
                 from pathlib import Path
 
-                export_dir = Path("exports")
-                export_dir.mkdir(exist_ok=True)
+                export_dir = Path("exports") / "queries"
+                export_dir.mkdir(parents=True, exist_ok=True)
 
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 csv_path = export_dir / f"query_{timestamp}.csv"
