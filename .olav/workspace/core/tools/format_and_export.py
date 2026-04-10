@@ -278,6 +278,19 @@ def _write_file(filepath: Path, data: Any, format: str) -> None:  # noqa: ANN401
         content = str(data)
         filepath.write_text(content, encoding="utf-8", newline="\n")
 
+    elif format == "mmd":
+        # Mermaid diagram — strip any wrapping code fences (```mermaid ... ```)
+        # so the file contains raw Mermaid syntax only.
+        content = str(data).strip()
+        if content.startswith("```"):
+            lines = content.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            content = "\n".join(lines).strip()
+        filepath.write_text(content + "\n", encoding="utf-8")
+
     else:
         # Markdown/Text/其他
         if format == "md" and isinstance(data, dict):
