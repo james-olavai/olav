@@ -10,7 +10,25 @@ from pathlib import Path
 from typing import Any
 
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+def _resolve_project_root() -> Path:
+    """Resolve the project root directory.
+
+    When installed as a package, ``Path(__file__)`` points inside the venv's
+    site-packages — not the user's working directory.  We prefer:
+    1. ``OLAV_HOME`` env var (explicit override)
+    2. The nearest ancestor of CWD that contains a ``.olav/`` directory
+    3. CWD itself (fresh install — ``olav init`` will create ``.olav/`` here)
+    """
+    if home := os.getenv("OLAV_HOME"):
+        return Path(home).resolve()
+    cwd = Path.cwd()
+    for candidate in [cwd, *cwd.parents]:
+        if (candidate / ".olav").is_dir():
+            return candidate
+    return cwd
+
+
+_PROJECT_ROOT = _resolve_project_root()
 _CONFIG_DIR = _PROJECT_ROOT / ".olav" / "config"
 _AGENT_DIR = os.getenv("AGENT_DIR", ".olav")
 _AGENT_DIR_PATH = _PROJECT_ROOT / _AGENT_DIR
