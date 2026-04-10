@@ -95,6 +95,17 @@ def format_and_export(
 
     # 3. Handle dictionary data that should be extracted
     # If the LLM passes {"content": "..."}, or a single-key dict where either key or value is markdown.
+
+    # Case 0: LLM passes the RETURN VALUE of format_and_export back in:
+    #   [{'path': 'exports/reports/x.md', 'content': '# BGP...'}]  ← list with one path+content dict
+    #   {'path': 'exports/reports/x.md', 'content': '# BGP...'}    ← dict with path+content
+    if isinstance(data, list) and len(data) == 1 and isinstance(data[0], dict):
+        item = data[0]
+        if "content" in item and isinstance(item["content"], str):
+            data = item["content"]
+    elif isinstance(data, dict) and "content" in data and "path" in data and isinstance(data["content"], str):
+        data = data["content"]
+
     if isinstance(data, dict) and len(data) == 1:
         key = list(data.keys())[0]
         val = data[key]
