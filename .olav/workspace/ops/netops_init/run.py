@@ -42,9 +42,14 @@ sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
 # ── Discovery command list ──────────────────────────────────────────────────
 
-DISCOVERY_COMMANDS = [
+# Universal commands (work on both Cisco IOS and Juniper JunOS)
+DISCOVERY_COMMANDS_UNIVERSAL = [
     "show version",
     "show interfaces",
+]
+
+# Cisco IOS-specific commands
+DISCOVERY_COMMANDS_IOS = [
     "show ip interface brief",
     "show cdp neighbors detail",
     "show lldp neighbors detail",
@@ -58,6 +63,12 @@ DISCOVERY_COMMANDS = [
     "show spanning-tree",
     "show running-config",
 ]
+
+# Legacy flat list used when --commands override is passed
+DISCOVERY_COMMANDS = DISCOVERY_COMMANDS_UNIVERSAL + DISCOVERY_COMMANDS_IOS
+
+# Platforms that are NOT Cisco IOS-compatible
+_JUNOS_PLATFORMS = {"juniper_junos", "juniper", "junos"}
 
 # ── Stage helpers ──────────────────────────────────────────────────────────
 
@@ -141,17 +152,29 @@ def _run_collection(devices: list[str], commands: list[str]) -> dict:
     nornir_cfg = str(_resolve_nornir_config_path())
     nr = InitNornir(config_file=nornir_cfg, logging={"enabled": False})
 
-    # Filter to requested devices
+    # Filter to requested devices; split by platform for command compatibility
     target = nr.filter(filter_func=lambda h: h.name in devices)
+    # Separate Juniper hosts so IOS-only commands aren't sent to them
+    junos_hosts = {
+        h for h in devices
+        if (nr.inventory.hosts.get(h) and
+            (nr.inventory.hosts[h].platform or "").lower() in _JUNOS_PLATFORMS)
+    }
+    ios_target = nr.filter(filter_func=lambda h: h.name in devices and h.name not in junos_hosts)
+
+    # When caller supplies a manual override list, honour it without platform filtering
+    _use_platform_split = (commands == DISCOVERY_COMMANDS)
 
     results_summary = []
     total_ok = 0
     total_fail = 0
 
     for cmd in commands:
+        run_target = (ios_target if _use_platform_split and cmd in DISCOVERY_COMMANDS_IOS
+                      else target)
         print(f"  → Collecting: {cmd} ... ", end="", flush=True)
         try:
-            result = target.run(task=netmiko_send_command, command_string=cmd)
+            result = run_target.run(task=netmiko_send_command, command_string=cmd)
             cmd_ok = 0
             cmd_fail = 0
             rows_to_insert = []
@@ -194,21 +217,18 @@ def _run_collection(devices: list[str], commands: list[str]) -> dict:
                 results_summary.append({"device": host, "command": cmd,
                                         "status": "success", "parsed_rows": parsed_rows})
 
-            # Write to DuckDB
+            # Write to DuckDB — use explicit column names (table schema differs from CREATE stub)
+            # netops.parsed_outputs actual columns: device_name, command, parsed_data,
+            # snapshot_id, raw_output, raw_output_hash, ingested_at
             if rows_to_insert:
                 with duckdb.connect(str(MAIN_DB_PATH)) as conn:
-                    conn.execute("""
-                        CREATE TABLE IF NOT EXISTS parsed_outputs (
-                            snapshot_id TEXT, snapshot_date DATE, device_name TEXT,
-                            command TEXT, raw_output TEXT, parsed_data JSON,
-                            created_at TIMESTAMP DEFAULT current_timestamp
-                        )
-                    """)
                     for row in rows_to_insert:
                         conn.execute(
-                            "INSERT INTO parsed_outputs VALUES (?,?,?,?,?,?,current_timestamp)",
-                            [row["snapshot_id"], row["snapshot_date"], row["device_name"],
-                             row["command"], row["raw_output"], row["parsed_data"]]
+                            """INSERT OR IGNORE INTO netops.parsed_outputs
+                               (device_name, command, parsed_data, snapshot_id, raw_output, ingested_at)
+                               VALUES (?, ?, ?, ?, ?, current_timestamp)""",
+                            [row["device_name"], row["command"], row["parsed_data"],
+                             row["snapshot_id"], row["raw_output"]]
                         )
             total_ok += cmd_ok
             total_fail += cmd_fail
