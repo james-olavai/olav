@@ -31,8 +31,8 @@ def _get_store():
         except Exception:
             db_path = str(Path.home() / ".olav" / "databases" / "memory.db")
 
-    from olav.core.memory import LanceDBStore
-    return LanceDBStore(db_path=db_path)
+    from olav.core.memory import get_store
+    return get_store(db_path=db_path)
 
 
 def _default_export_dir() -> Path:
