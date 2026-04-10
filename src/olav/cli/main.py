@@ -21,6 +21,7 @@ import os
 import signal
 import sys
 import uuid as _uuid_mod
+import warnings
 from importlib.metadata import entry_points
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -1038,6 +1039,15 @@ async def run_single_query(
 
 def cli_main_async() -> None:
     """Main entry point for console script (async wrapper)."""
+    # Suppress LangChain Pydantic V1 deprecation warning on Python 3.14+.
+    # LangChain internally uses pydantic.v1 compatibility shim; the warning is
+    # cosmetic — it does not affect runtime behaviour on Python 3.11–3.14.
+    warnings.filterwarnings(
+        "ignore",
+        message="Core Pydantic V1 functionality",
+        category=UserWarning,
+    )
+
     # Fix for gRPC fork issue on macOS
     if sys.platform == "darwin":
         os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "0"
