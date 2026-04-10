@@ -14,10 +14,10 @@ jobs:
     risk).'
   query: "SELECT \n  d.hostname AS device,\n  COALESCE(b.cnt, 0) AS metric_value,\n\
     \  'BGP Neighbor Count' AS metric_name,\n  CASE \n    WHEN COALESCE(b.cnt, 0)\
-    \ = 0 THEN 'Critical'\n    ELSE 'Info' \n  END AS severity_hint\nFROM devices\
-    \ d\nLEFT JOIN (\n  SELECT device_name, COUNT(*) AS cnt\n  FROM bgp_neighbors\
-    \ \n  WHERE created_at >= NOW() - INTERVAL :window\n  GROUP BY device_name\n)\
-    \ b ON d.hostname = b.device_name\nWHERE d.is_active = true"
+    \ = 0 THEN 'Critical'\n    ELSE 'Info' \n  END AS severity_hint\nFROM netops.devices\
+    \ d\nLEFT JOIN (\n  SELECT device_name, COUNT(*) AS cnt\n  FROM v_bgp_neighbors_auto\
+    \ \n  GROUP BY device_name\n)\
+    \ b ON d.hostname = b.device_name"
 - name: BGP_SESSION_STATE
   type: sql
   severity: High
