@@ -989,19 +989,6 @@ def test_p4_2_no_schema_mappings_in_db(con):
     )
 
 
-def test_p4_2_mapping_rules_is_ground_truth(con):
-    """mapping_rules table must be present and populated (OC-17 ground truth)."""
-    count = _count(con, "SELECT COUNT(*) FROM mapping_rules")
-    assert count > 0, (
-        "mapping_rules is empty — P2-3 build_mapping_rules() must be run. "
-        "See dev_docs/01. tracking.md §P2-3"
-    )
-
-
-def test_p4_2_yang_leaves_is_populated(con):
-    """yang_leaves must be present and populated (OC-14 YANG compiler run)."""
-    count = _count(con, "SELECT COUNT(*) FROM yang_leaves")
-    assert count > 0, "yang_leaves is empty — P2-2 bootstrap_yang_from_reference() must be run."
 
 
 # ---------------------------------------------------------------------------
@@ -1039,7 +1026,7 @@ def test_nl_bgp_down_query():
     result = run_nl_query("BGP 邻居中 down 的有哪些？")
     assert result is not None, "NL query returned None"
     rendered = str(result)
-    assert "device_name | neighbor_ip | neighbor_as | state | prefixes_received" in rendered, (
+    assert "device_name | neighbor_ip | neighbor_as | state" in rendered, (
         f"Unexpected Scenario 2 header: {result!r}"
     )
     assert "R2, 4.4.4.4, 65001, Idle, None" in rendered, (

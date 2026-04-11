@@ -113,7 +113,7 @@ dependencies = [
     "pandas>=3.0.1",
     "ddgs>=9.11.4",
     "pygnmi>=0.8.15",
-    "ncclient>=0.7.1",
+
     "xmltodict>=1.0.4",
     "pyang>=2.7.1",
     "yangson>=1.6.7",
