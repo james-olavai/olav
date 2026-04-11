@@ -222,67 +222,15 @@ def _write_to_lancedb(
 ) -> bool:
     """Write an approved standard name into the domain LanceDB collection.
 
-    Returns True if the write succeeded, False if LanceDB / embedder is
-    unavailable (graceful degradation — the DB row is still marked approved).
+    NOTE: Deprecated — schema_engine (get_domain_collection) was removed in the
+    OC/NETCONF cleanup. Always returns False; the DB row is still marked approved.
     """
-    try:
-        import lancedb  # noqa: PLC0415
-        import pyarrow as pa  # noqa: PLC0415
-
-        from olav.core.embedder import get_embedder  # noqa: PLC0415
-        from olav.core.schema_engine import get_domain_collection  # noqa: PLC0415
-    except ImportError as exc:
-        logger.warning("LanceDB write skipped (import error): %s", exc)
-        return False
-
-    try:
-        if lancedb_path is None:
-            from olav.core.config import settings  # noqa: PLC0415
-
-            lancedb_path = Path(settings.databases_dir) / "memory.lancedb"
-
-        db = lancedb.connect(str(lancedb_path))
-        collection_name = get_domain_collection(domain)
-
-        embedder = get_embedder()
-        # Build a minimal semantic summary for the proposed name
-        summary = f"{proposed_name} | evolved standard field | llm_evolved"
-        vector = embedder.encode(summary, normalize_embeddings=True).tolist()
-
-        record = {
-            "openconfig_path": proposed_name,
-            "description": f"Evolved standard field (cluster_id={cluster_id})",
-            "data_type": "VARCHAR",
-            "category": "evolved",
-            "vector": vector,
-            "source": "llm_evolved",
-        }
-
-        # Schema for the field_mappings collection
-        schema = pa.schema(
-            [
-                ("openconfig_path", pa.string()),
-                ("description", pa.string()),
-                ("data_type", pa.string()),
-                ("category", pa.string()),
-                ("vector", pa.list_(pa.float32(), len(vector))),
-                ("source", pa.string()),
-            ]
-        )
-
-        try:
-            table = db.open_table(collection_name)
-            table.add([record])
-        except Exception:  # noqa: BLE001
-            # Table does not exist yet — create it
-            db.create_table(collection_name, data=[record], schema=schema)
-
-        logger.info("Written %r to LanceDB collection %r", proposed_name, collection_name)
-        return True
-
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("LanceDB write failed for %r: %s", proposed_name, exc)
-        return False
+    logger.debug(
+        "_write_to_lancedb: skipped (schema_engine removed) — proposed=%r domain=%r",
+        proposed_name,
+        domain,
+    )
+    return False
 
 
 def run_evolve_command(
