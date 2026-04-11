@@ -59,6 +59,36 @@ def _load_backup_commands() -> frozenset[str]:
 
 logger = logging.getLogger(__name__)
 
+_TABLE_PLUGINS_LOADED = False
+
+
+def _load_table_plugins() -> None:
+    """Auto-discover and register domain table definitions via entry-points.
+
+    Loads the ``olav.ingest_tables`` entry-point group.  Each entry-point
+    must point to a :class:`~olav.platform.ingest_base.BaseIngestTable`
+    subclass; an instance is registered into ``TableRegistry``.
+
+    This is a no-op after the first call (idempotent).  Falls back silently
+    when no entry-points are installed (e.g., in test environments where
+    domain packages are added to ``sys.path`` but not installed via pip).
+    """
+    global _TABLE_PLUGINS_LOADED
+    if _TABLE_PLUGINS_LOADED:
+        return
+    _TABLE_PLUGINS_LOADED = True
+    try:
+        from importlib.metadata import entry_points
+        for ep in entry_points(group="olav.ingest_tables"):
+            try:
+                cls = ep.load()
+                TableRegistry.register(cls())
+                logger.debug("Registered ingest table plugin: %s → %s", ep.name, cls)
+            except Exception as exc:
+                logger.debug("Failed to load ingest table plugin %s: %s", ep.name, exc)
+    except Exception as exc:
+        logger.debug("Entry-point discovery failed: %s", exc)
+
 
 class IngestManager:
     """Manager for bulk ingesting staging JSON files into DuckDB."""
@@ -92,6 +122,7 @@ class IngestManager:
         Returns:
             Dict with status, files_processed, records_inserted, snapshot_ids.
         """
+        _load_table_plugins()
         staging_files = list(self.staging_dir.glob("*.staging.json"))
 
         if not staging_files:
