@@ -34,10 +34,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_EMBEDDING_DIM = 768
 
 
-def _get_embedder():
-    """Return the process-wide embedder singleton (delegates to olav.core.embedder)."""
-    from olav.core.embedder import get_embedder
-    return get_embedder()
+def _embed_query(text: str) -> "list[float] | None":
+    """Embed a query string using the same embedder as kb_import (olav.core.embedder.embed_text)."""
+    try:
+        from olav.core.embedder import embed_text
+        return embed_text(text)
+    except Exception as e:
+        logger.debug(f"recall_memory: embed_query failed ({e})")
+        return None
 
 
 @tool
@@ -117,12 +121,7 @@ def _recall_memory_inner(
             return "No long-term memories stored yet."
 
         # Embed query
-        query_vector = None
-        try:
-            embedder = _get_embedder()
-            query_vector = embedder.encode(query, normalize_embeddings=True).tolist()
-        except Exception as e:
-            logger.debug(f"recall_memory: embedder unavailable ({e}), text-only search")
+        query_vector = _embed_query(query)
 
         if query_vector:
             results = hybrid_search(
