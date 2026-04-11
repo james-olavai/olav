@@ -106,6 +106,8 @@ def parse_args():
         "skills",
         "log",
         "init",
+        "refresh",
+        "sessions",
         "workspace",
         "export",
         "skill",
@@ -248,6 +250,17 @@ def parse_args():
     # Refresh command — rebuild global agent registry (deterministic, no LLM)
     subparsers.add_parser(
         "refresh", help="Rebuild global agent registry (PLATFORM.md + routing table)"
+    )
+
+    # Sessions command — list conversation sessions across interfaces (M4)
+    sessions_parser = subparsers.add_parser(
+        "sessions", help="List conversation sessions across CLI/TUI/Web interfaces"
+    )
+    sessions_parser.add_argument(
+        "--all", action="store_true", help="Include inactive sessions"
+    )
+    sessions_parser.add_argument(
+        "--user", metavar="NAME", help="Admin: list sessions for a specific user"
     )
 
     # Workspace command
@@ -1243,7 +1256,7 @@ async def cli_main_impl() -> None:
 
         # Handle admin command
         if args.command == "admin":
-            cmd_args = args.args[0] if args.args else "status"
+            cmd_args = " ".join(args.args) if args.args else "status"
 
             # User management sub-commands → AdminUsersCommand
             _user_mgmt_cmds = {"add-user", "list-users", "revoke-token", "rotate-token"}
@@ -1254,6 +1267,8 @@ async def cli_main_impl() -> None:
                 _admin_users = AdminUsersCommand()
                 _result_str = await _admin_users.execute(cmd_args)
                 console.print(_result_str)
+                if _result_str.startswith("error:"):
+                    raise SystemExit(1)
                 return
 
             # System admin commands → legacy admin_handler
@@ -1315,8 +1330,13 @@ async def cli_main_impl() -> None:
             from olav.cli.commands.sessions import SessionsCommand
 
             cmd = SessionsCommand()
-            sessions_args = " ".join(args.args) if args.args else ""
-            result = await cmd.execute(sessions_args)
+            # Build args string from the proper argparse attributes
+            _sessions_parts = []
+            if getattr(args, "all", False):
+                _sessions_parts.append("--all")
+            if getattr(args, "user", None):
+                _sessions_parts.extend(["--user", args.user])
+            result = await cmd.execute(" ".join(_sessions_parts))
             console.print(result)
             return
 
