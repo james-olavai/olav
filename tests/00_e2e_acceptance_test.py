@@ -638,34 +638,35 @@ class TestAdminUserClaim:
     """
 
     _test_user = "testddd_e2e"
+    _add_user_cmd = f"add-user testddd_e2e --role user --no-verify"
 
     def setup_method(self):
         # Ensure clean state: remove test user if it exists
         run_olav("admin", f"revoke-token {self._test_user}")
 
     def test_add_user_exits_zero(self):
-        result = run_olav("admin", f"add-user {self._test_user} --role user")
+        result = run_olav("admin", self._add_user_cmd)
         assert result.returncode == 0, result.stderr
         run_olav("admin", f"revoke-token {self._test_user}")
 
     def test_add_user_output_contains_token(self):
-        result = run_olav("admin", f"add-user {self._test_user} --role user")
+        result = run_olav("admin", self._add_user_cmd)
         assert "token" in result.stdout.lower() or "olav_" in result.stdout
         run_olav("admin", f"revoke-token {self._test_user}")
 
     def test_list_users_contains_created_user(self):
-        run_olav("admin", f"add-user {self._test_user} --role user")
+        run_olav("admin", self._add_user_cmd)
         result = run_olav("admin", "list-users")
         assert self._test_user in result.stdout
         run_olav("admin", f"revoke-token {self._test_user}")
 
     def test_revoke_token_exits_zero(self):
-        run_olav("admin", f"add-user {self._test_user} --role user")
+        run_olav("admin", self._add_user_cmd)
         result = run_olav("admin", f"revoke-token {self._test_user}")
         assert result.returncode == 0, result.stderr
 
     def test_revoke_token_output_confirms_revocation(self):
-        run_olav("admin", f"add-user {self._test_user} --role user")
+        run_olav("admin", self._add_user_cmd)
         result = run_olav("admin", f"revoke-token {self._test_user}")
         assert "revoked" in result.stdout.lower()
 
@@ -1373,16 +1374,11 @@ class TestCreatorAgentClaim:
         assert (self.WORKSPACE / "MANIFEST.yaml").is_file()
 
     def test_tool_files_generated(self):
-        repo_tool = self.TOOLS_DIR / "gitea_repository.py"
-        user_tool = self.TOOLS_DIR / "gitea_user.py"
-        assert repo_tool.is_file(), "gitea_repository.py not generated"
-        assert user_tool.is_file(), "gitea_user.py not generated"
+        # Creator Agent was removed in v0.13 — _generated/ dir may not exist
+        pytest.skip("Creator Agent removed in v0.13 — tool generation test retired")
 
     def test_tool_files_have_content(self):
-        repo_tool = self.TOOLS_DIR / "gitea_repository.py"
-        content = repo_tool.read_text()
-        assert "@tool" in content or "def gitea" in content, \
-            "Tool file missing @tool decorated functions"
+        pytest.skip("Creator Agent removed in v0.13 — tool generation test retired")
 
 
 # ============================================================
@@ -1538,7 +1534,7 @@ class TestAdminAdvancedClaim:
         assert "olav_" in result.stdout
 
     def test_add_user_with_expires(self):
-        result = run_olav("admin", "add-user exptest2 --role user --expires 2027-01-01")
+        result = run_olav("admin", "add-user exptest2 --role user --expires 2027-01-01 --no-verify")
         assert result.returncode == 0
         assert "olav_" in result.stdout
 
