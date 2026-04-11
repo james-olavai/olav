@@ -245,6 +245,11 @@ def parse_args():
     # Init command
     subparsers.add_parser("init", help="Initialize platform scaffolding")
 
+    # Refresh command — rebuild global agent registry (deterministic, no LLM)
+    subparsers.add_parser(
+        "refresh", help="Rebuild global agent registry (PLATFORM.md + routing table)"
+    )
+
     # Workspace command
     workspace_parser = subparsers.add_parser("workspace", help="Manage workspace lifecycle")
     workspace_parser.add_argument(
@@ -1292,6 +1297,15 @@ async def cli_main_impl() -> None:
             from olav.cli.commands.init import InitCommand
 
             cmd = InitCommand()
+            result = await cmd.execute()
+            console.print(result)
+            return
+
+        # Handle refresh command — rebuild global agent registry
+        if args.command == "refresh":
+            from olav.cli.commands.refresh import RefreshCommand
+
+            cmd = RefreshCommand()
             result = await cmd.execute()
             console.print(result)
             return
