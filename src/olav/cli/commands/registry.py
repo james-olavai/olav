@@ -212,7 +212,7 @@ def _parse_command_block(
         cwd_policy = "project_root"
 
     return SlashCommandSpec(
-        name=str(name),
+        name=str(name).lstrip("/"),  # strip leading slash to normalise "name: /cmd" → "cmd"
         kind=kind,  # type: ignore[arg-type]
         source=source,
         help=str(block.get("help", "")),

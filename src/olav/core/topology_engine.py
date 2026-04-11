@@ -93,13 +93,15 @@ def extract_lldp_topology(con: "_duckdb.DuckDBPyConnection") -> int:
                 or entry.get("LOCAL_INTERFACE")
             )
             dst_dev = _normalise(
-                entry.get("neighbor_name")
+                entry.get("NEIGHBOR_NAME")
+                or entry.get("neighbor_name")
                 or entry.get("NEIGHBOR")
                 or entry.get("neighbor")
             )
             dst_intf = _normalise(
-                entry.get("neighbor_interface")
-                or entry.get("NEIGHBOR_INTERFACE")
+                entry.get("NEIGHBOR_INTERFACE")
+                or entry.get("neighbor_interface")
+                or entry.get("NEIGHBOR_PORT_ID")
                 or entry.get("neighbor_port_id")
             )
 

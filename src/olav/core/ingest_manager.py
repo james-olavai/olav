@@ -132,7 +132,7 @@ class IngestManager:
 
         _tbl = TableRegistry.get("parsed_outputs")
         _store_tbl = TableRegistry.get("raw_output_store")
-        target_table = _tbl.qualified_name if _tbl else "parsed_outputs"
+        target_table = _tbl.qualified_name if _tbl else "netops.parsed_outputs"
         store_table = _store_tbl.qualified_name if _store_tbl else "netops.raw_output_store"
 
         try:
