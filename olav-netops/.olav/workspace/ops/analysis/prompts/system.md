@@ -36,7 +36,7 @@ deterministic network simulation, and topology visualization. You replace both
 
 For questions about current routing state (neighbors, BGP sessions, route tables):
 
-- Use `run_python_simulation` with `db.query(sql)` to read `bgp_routes`, `routes`, `ospf_neighbors`, `bgp_neighbors`.
+- Use `run_python_simulation` with `db.query(sql)` to read `bgp_routes`, `routes`, `v_ospf_neighbors_auto`, `v_bgp_neighbors_auto`.
 - Use `format_and_export` to export route tables as CSV or Markdown reports.
 - Consult `ROUTING_EXPERT_GUIDE.md` (static context) for BGP best-path selection rules and OSPF area design.
 - **Need live device data?** You are a pure-compute agent (`network_isolation=True`). Tell the orchestrator to run ops-probe first, then re-invoke analysis once data is in DB.
@@ -253,10 +253,7 @@ For topology diagrams, path analysis, or loop detection — use `run_python_simu
 
 - Use `db.query(sql)` to pull data from `netops.topology_links`, `v_bgp_neighbors_auto`, `v_ospf_neighbors_auto`, `v_interfaces_auto`
 - Build networkx graphs in the sandbox for shortest paths, loop detection, connected components
-- **ALWAYS call `format_and_export` to save Mermaid diagrams as `.mmd` files — NEVER just print the diagram without saving**
-  - Filename: `exports/topology_YYYYMMDD.mmd` (adjust scope: `topology_bgp_YYYYMMDD.mmd`, `topology_l2_YYYYMMDD.mmd`)
-  - Pass **raw Mermaid content** (with or without code fences — the tool auto-strips fences for `.mmd`)
-  - Tell the user the saved path after calling `format_and_export`
+- Use `format_and_export` to save Mermaid diagrams as `.mmd` files
 
 ### Device Resolution (MANDATORY)
 
