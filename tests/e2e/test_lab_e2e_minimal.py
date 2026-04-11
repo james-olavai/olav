@@ -27,6 +27,12 @@ sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 _LAB_TOOLS = _PROJECT_ROOT / ".olav/workspace/ops/lab/tools"
 sys.path.insert(0, str(_LAB_TOOLS))
 
+_PROBE_E2E_ENABLED = os.environ.get("PROBE_E2E_ENABLED", "").strip() == "1"
+pytestmark = pytest.mark.skipif(
+    not _PROBE_E2E_ENABLED,
+    reason="Lab E2E: set PROBE_E2E_ENABLED=1 and ensure CLAB host is reachable",
+)
+
 LAB_NAME = "e2e-minimal"
 SRL_IMAGE = "ghcr.io/nokia/srlinux:latest"
 
