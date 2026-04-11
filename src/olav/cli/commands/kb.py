@@ -2,13 +2,15 @@
 
 Provides the `olav kb` command group:
 
-  olav kb                     Show knowledge store status (alias for `status`)
-  olav kb export [--dir DIR]  Export vault to Obsidian markdown
-  olav kb sync [--dir DIR]    Sync markdown vault ↔ LanceDB
-  olav kb import <file>       Import a single file into the knowledge store
-  olav kb graph [--output F]  Generate vis.js HTML knowledge graph
-  olav kb status              Print knowledge store statistics
-  olav kb migrate             Backfill origin/confidence/tags on legacy entries
+  olav kb                         Show knowledge store status (alias for `status`)
+  olav kb export [--dir DIR]      Export vault to Obsidian markdown
+  olav kb sync [--dir DIR]        Sync markdown vault ↔ LanceDB
+  olav kb import <file>           Import a single file into the knowledge store
+  olav kb graph [--output F]      Generate vis.js HTML knowledge graph
+  olav kb status                  Print knowledge store statistics
+  olav kb search <query>          Full-text search the knowledge store
+  olav kb migrate                 Backfill origin/confidence/tags on legacy entries
+  olav kb backfill-tags           Batch LLM tag extraction for untagged entries
 """
 
 from __future__ import annotations
@@ -131,7 +133,7 @@ def cmd_import(args) -> int:
 def cmd_graph(args) -> int:
     """Generate vis.js HTML knowledge graph."""
     store = _get_store()
-    output = Path(getattr(args, "output", None) or "_graph.html")
+    output = Path(getattr(args, "output", None) or str(_default_vault_dir() / "_graph.html"))
     open_browser = getattr(args, "open", False)
 
     from olav.core.memory.knowledge_graph import materialize_graph, export_visjs, cluster_knowledge
@@ -154,10 +156,122 @@ def cmd_graph(args) -> int:
 def cmd_migrate(args) -> int:
     """Backfill origin/confidence/tags for legacy memory entries."""
     store = _get_store()
+    drop_legacy = getattr(args, "drop_legacy", False)
     from olav.core.memory.migrate import migrate_memory_table
     result = migrate_memory_table(store)
     print(f"Migration complete: updated={result['updated']}, skipped={result['skipped']}, errors={result['errors']}")
+
+    if drop_legacy:
+        import lancedb  # type: ignore[import]
+        db = lancedb.connect(store._db_path)
+        dropped = []
+        for tbl in ("kb_chunks", "kb_query_cache"):
+            if tbl in db.table_names():
+                db.drop_table(tbl)
+                dropped.append(tbl)
+        if dropped:
+            print(f"Dropped legacy tables: {', '.join(dropped)}")
+        else:
+            print("No legacy tables found (kb_chunks / kb_query_cache).")
+
     return 0 if result["errors"] == 0 else 1
+
+
+def cmd_search(args) -> int:
+    """Search the unified knowledge store."""
+    store = _get_store()
+    query = args.query
+    limit = getattr(args, "limit", 5)
+
+    results = store.search_by_text(query, limit=limit)
+    if not results:
+        print("No results found.")
+        return 0
+
+    for i, mem in enumerate(results, 1):
+        mem_id = mem.get("id", "?")
+        origin = mem.get("origin") or "?"
+        confidence = float(mem.get("confidence") or 0.5)
+        text = (mem.get("text") or "").replace("\n", " ")
+        snippet = text[:120] + "…" if len(text) > 120 else text
+        print(f"[{i}] {mem_id}  origin={origin}  conf={confidence:.2f}")
+        print(f"     {snippet}")
+        print()
+    return 0
+
+
+def cmd_backfill_tags(args) -> int:
+    """Batch LLM tag extraction for entries with empty tags."""
+    store = _get_store()
+    batch_size = getattr(args, "batch_size", 50)
+    dry_run = getattr(args, "dry_run", False)
+
+    from olav.core.memory import MEMORY_TABLE
+    memories = store.get_memories(limit=100_000, table_name=MEMORY_TABLE)
+    empty = [m for m in memories if not m.get("tags") or m.get("tags") in ("[]", "null", "")]
+    print(f"Found {len(empty)} entries with empty tags.")
+
+    if not empty:
+        return 0
+
+    # Try to get LLM from platform config
+    llm = None
+    try:
+        from langchain_openai import ChatOpenAI  # type: ignore[import]
+        import os
+        if os.environ.get("OPENAI_API_KEY"):
+            llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    except ImportError:
+        pass
+
+    if llm is None:
+        print("LLM not available (set OPENAI_API_KEY + install langchain-openai).")
+        print("Use --dry-run to preview which entries need tagging.")
+        if not dry_run:
+            return 1
+
+    if dry_run:
+        for m in empty[:10]:
+            print(f"  {m.get('id')}: {(m.get('text') or '')[:80]}")
+        if len(empty) > 10:
+            print(f"  ... and {len(empty) - 10} more")
+        return 0
+
+    from langchain_core.messages import HumanMessage  # type: ignore[import]
+
+    BATCH_PROMPT = (
+        "Extract 1-5 concise keyword tags from each text. "
+        "Return a JSON array of arrays: [[\"tag1\",\"tag2\"], [\"tag3\"], ...]\n\n"
+        "Texts:\n{texts}"
+    )
+
+    def _chunked(lst, n):
+        for i in range(0, len(lst), n):
+            yield lst[i:i + n]
+
+    updated = errors = 0
+    for batch in _chunked(empty, batch_size):
+        texts_block = "\n---\n".join(f"{i+1}. {(m.get('text') or '')[:300]}" for i, m in enumerate(batch))
+        try:
+            resp = llm.invoke([HumanMessage(content=BATCH_PROMPT.format(texts=texts_block))])
+            raw = resp.content.strip()
+            if raw.startswith("```"):
+                raw = raw.split("```")[1].lstrip("json").strip()
+            tags_list = json.loads(raw)
+            if not isinstance(tags_list, list):
+                raise ValueError("Expected list")
+        except Exception as e:
+            print(f"  Batch LLM error: {e}", file=sys.stderr)
+            errors += len(batch)
+            continue
+
+        for mem, tags in zip(batch, tags_list):
+            if isinstance(tags, list):
+                store.update_memory(mem["id"], tags=json.dumps(tags))
+                updated += 1
+
+    print(f"Backfill complete: updated={updated}, errors={errors}")
+    return 0 if errors == 0 else 1
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -198,7 +312,19 @@ def build_kb_parser(parent_subparsers) -> argparse.ArgumentParser:
     grp.add_argument("--open", action="store_true", help="Open in browser after generating")
 
     # migrate
-    kb_sub.add_parser("migrate", help="Backfill origin/confidence/tags for legacy entries")
+    mig = kb_sub.add_parser("migrate", help="Backfill origin/confidence/tags for legacy entries")
+    mig.add_argument("--drop-legacy", action="store_true", dest="drop_legacy",
+                     help="Drop kb_chunks and kb_query_cache tables after migration")
+
+    # search
+    srch = kb_sub.add_parser("search", help="Full-text search the unified knowledge store")
+    srch.add_argument("query", help="Search query text")
+    srch.add_argument("--limit", type=int, default=5, help="Maximum results (default: 5)")
+
+    # backfill-tags
+    bft = kb_sub.add_parser("backfill-tags", help="Batch LLM tag extraction for untagged entries")
+    bft.add_argument("--batch-size", type=int, default=50, dest="batch_size")
+    bft.add_argument("--dry-run", action="store_true", dest="dry_run", help="Preview only")
 
     return kb_parser
 
@@ -219,6 +345,10 @@ def handle_kb_command(args) -> int:
         return cmd_graph(args)
     elif kb_cmd == "migrate":
         return cmd_migrate(args)
+    elif kb_cmd == "search":
+        return cmd_search(args)
+    elif kb_cmd == "backfill-tags":
+        return cmd_backfill_tags(args)
     else:
         print(f"Unknown kb subcommand: {kb_cmd}", file=sys.stderr)
         return 1
