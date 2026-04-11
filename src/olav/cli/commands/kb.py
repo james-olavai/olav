@@ -21,18 +21,12 @@ from pathlib import Path
 
 
 def _get_store():
-    """Return a configured LanceDBStore from environment / config."""
+    """Return a configured LanceDBStore, running UKS migration if needed."""
     db_path = os.environ.get("OLAV_MEMORY_DB_PATH")
-    if not db_path:
-        try:
-            from olav.core.config import get_memory_config
-            cfg = get_memory_config()
-            db_path = str(cfg.db_path)
-        except Exception:
-            db_path = str(Path.home() / ".olav" / "databases" / "memory.db")
-
     from olav.core.memory import get_store
-    return get_store(db_path=db_path)
+    store = get_store(db_path=db_path) if db_path else get_store()
+    store.create_table()  # idempotent — ensures origin/confidence/tags columns exist
+    return store
 
 
 def _default_export_dir() -> Path:
