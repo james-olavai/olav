@@ -1,68 +1,43 @@
 #!/bin/bash
-set -euo pipefail
+    set -euo pipefail
 
-usage() {
-  cat << EOF
-Usage: $0 [OPTIONS]
+    # List all devices from OLAV database
+    # Usage: ./list-devices.sh [--dry-run]
+    #   DRY_RUN=true ./list-devices.sh
+    #   DB_PATH=/path/to/domain.duckdb ./list-devices.sh
 
-List all devices from OLAV database.
+    DRY_RUN="${DRY_RUN:-false}"
+    DB_PATH="${DB_PATH:-.olav/databases/domain.duckdb}"
 
-Options:
-  --dry-run    Print SQL queries without executing (default: false)
-EOF
-}
-
-DRY_RUN=false
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    --dry-run)
-      DRY_RUN=true
-      shift
-      ;;
-    -h|--help)
-      usage
+    if [[ "$DRY_RUN" == "true" ]]; then
+      echo "DRY RUN: Would execute the following query on $DB_PATH:"
+      echo "SELECT hostname, ip_address, platform, role, site FROM netops.devices;"
+      echo
+      echo "Expected columns: hostname, ip_address, platform, role, site"
       exit 0
-      ;;
-    *)
-      echo "Unknown option: $1"
-      usage
+    fi
+
+    # Dependency check
+    if ! command -v duckdb &>/dev/null; then
+      echo "Error: duckdb CLI required. Install with: brew install duckdb (macOS) or https://duckdb.org/docs/installation" >&2
       exit 1
-      ;;
-  esac
-done
+    fi
 
-OLAV_DB_PATH="${OLAV_DB_PATH:-.olav/databases/domain.duckdb}"
-OLAV_DB_PATH="${OLAV_DB_PATH:?OLAV database path required}"
+    # Validate DB path
+    if [[ ! -f "$DB_PATH" ]]; then
+      echo "Error: Database not found at $DB_PATH" >&2
+      exit 1
+    fi
 
-command -v duckdb &>/dev/null || {
-  echo "Error: duckdb required. Install via 'pip install duckdb' or your package manager."
-  exit 1
-}
+    QUERY="SELECT hostname, ip_address, platform, role, site FROM netops.devices ORDER BY hostname;"
 
-COUNT_SQL="SELECT COUNT(*) as total_devices FROM netops.devices;"
-LIST_SQL="SELECT hostname, ip_address, platform, role, site FROM netops.devices ORDER BY hostname;"
+    echo "Querying devices from $DB_PATH..."
+    echo
 
-if [[ "$DRY_RUN" == true ]]; then
-  echo "DRY-RUN mode:"
-  echo "1. Count query: $COUNT_SQL"
-  echo "2. List query: $LIST_SQL"
-  exit 0
-fi
+    # Execute query and format output
+    duckdb -no-header "$DB_PATH" "$QUERY" | column -t -s $'\t' | sed '1i hostname\tip_address\tplatform\trole\tsite'
 
-echo "Querying OLAV database: $OLAV_DB_PATH"
-
-total=$(duckdb "$OLAV_DB_PATH" "$COUNT_SQL" --no-header --quiet) || {
-  echo "Error: Failed to query count from database."
-  exit 1
-}
-
-echo "Found $total devices:"
-echo "================================"
-
-duckdb "$OLAV_DB_PATH" "$LIST_SQL" || {
-  echo "Error: Failed to list devices from database."
-  exit 1
-}
-
-echo "================================"
-echo "Summary: Queried $total devices successfully."
+    COUNT=$(duckdb -no-header -c "$QUERY" | wc -l)
+    echo
+    echo "Summary: Found $COUNT devices."
+    
