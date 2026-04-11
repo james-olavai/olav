@@ -294,6 +294,8 @@ def cmd_backfill_tags(args) -> int:
             try:
                 tbl.update(where=f"id IN ({id_list})", values={"tags": tags_json})
                 updated += len(ids)
+                # Print generated tags so callers can verify domain relevance
+                print(f"  tags: {tags_json}")
             except Exception as e:
                 print(f"  Batch {batch_num} tag update error: {e}", file=sys.stderr)
                 errors += len(ids)

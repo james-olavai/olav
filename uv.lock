@@ -2880,12 +2880,11 @@ wheels = [
 
 [[package]]
 name = "olav"
-version = "0.14.0"
+version = "0.14.1"
 source = { editable = "." }
 dependencies = [
     { name = "ddgs" },
     { name = "deepagents" },
-    { name = "deepagents-cli" },
     { name = "duckdb" },
     { name = "duckdb-engine" },
     { name = "duckduckgo-search" },
@@ -2899,7 +2898,6 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-sqlite" },
-    { name = "markdownify" },
     { name = "nest-asyncio" },
     { name = "netutils" },
     { name = "networkx" },
@@ -2910,7 +2908,6 @@ dependencies = [
     { name = "prompt-toolkit" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-    { name = "pyjwt" },
     { name = "pypdf2" },
     { name = "python-crontab" },
     { name = "python-dateutil" },
@@ -2924,7 +2921,6 @@ dependencies = [
     { name = "scipy" },
     { name = "sentence-transformers" },
     { name = "sqlalchemy" },
-    { name = "tavily-python" },
     { name = "tenacity" },
     { name = "textfsm" },
     { name = "typer" },
@@ -2951,6 +2947,12 @@ gnmi = [
 ldap = [
     { name = "ldap3" },
 ]
+tui = [
+    { name = "deepagents-cli" },
+    { name = "markdownify" },
+    { name = "pyjwt" },
+    { name = "tavily-python" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -2976,7 +2978,7 @@ requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0" },
     { name = "ddgs", specifier = ">=9.11.4" },
     { name = "deepagents", specifier = ">=0.5.0,<1.0" },
-    { name = "deepagents-cli", specifier = "==0.0.10" },
+    { name = "deepagents-cli", marker = "extra == 'tui'", specifier = "==0.0.10" },
     { name = "duckdb", specifier = ">=0.8.0" },
     { name = "duckdb-engine", specifier = ">=0.17.0" },
     { name = "duckduckgo-search", specifier = ">=3.0.0" },
@@ -2991,7 +2993,7 @@ requires-dist = [
     { name = "langgraph", specifier = ">=1.0.8" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=3.0.0" },
     { name = "ldap3", marker = "extra == 'ldap'", specifier = ">=2.9" },
-    { name = "markdownify", specifier = ">=0.13.0" },
+    { name = "markdownify", marker = "extra == 'tui'", specifier = ">=0.13.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.5.0" },
     { name = "nest-asyncio", specifier = ">=1.5.0" },
     { name = "netutils", specifier = ">=1.17.1" },
@@ -3004,8 +3006,8 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
     { name = "pygnmi", marker = "extra == 'gnmi'", specifier = ">=0.8.0" },
-    { name = "pyjwt", specifier = ">=2.12.1" },
     { name = "pyjwt", marker = "extra == 'enterprise'", specifier = ">=2.8.0" },
+    { name = "pyjwt", marker = "extra == 'tui'", specifier = ">=2.12.1" },
     { name = "pypdf2", specifier = ">=3.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
@@ -3024,14 +3026,14 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.17.1" },
     { name = "sentence-transformers", specifier = ">=5.2.3" },
     { name = "sqlalchemy", specifier = ">=2.0" },
-    { name = "tavily-python", specifier = ">=0.3.0" },
+    { name = "tavily-python", marker = "extra == 'tui'", specifier = ">=0.3.0" },
     { name = "tenacity", specifier = ">=8.0" },
     { name = "textfsm", specifier = ">=1.1.3" },
     { name = "tink", marker = "extra == 'enterprise'", specifier = ">=1.14.1" },
     { name = "typer", specifier = ">=0.9.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27.0" },
 ]
-provides-extras = ["dev", "netops", "gnmi", "enterprise", "ldap"]
+provides-extras = ["dev", "tui", "netops", "gnmi", "enterprise", "ldap"]
 
 [package.metadata.requires-dev]
 dev = [

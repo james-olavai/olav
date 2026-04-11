@@ -613,10 +613,17 @@ async def simple_cli(
     no_splash: bool = False,
 ) -> None:
     """Main CLI loop using deepagents-cli components."""
-    from deepagents_cli.config import COLORS
-    from deepagents_cli.execution import execute_task
-    from deepagents_cli.input import create_prompt_session
-    from deepagents_cli.ui import TokenTracker
+    try:
+        from deepagents_cli.config import COLORS
+        from deepagents_cli.execution import execute_task
+        from deepagents_cli.input import create_prompt_session
+        from deepagents_cli.ui import TokenTracker
+    except ImportError as _e:
+        console.print(
+            f"[red]Error:[/red] Interactive TUI requires deepagents-cli: {_e}\n"
+            "Install with: [cyan]pip install deepagents-cli==0.0.10 --no-deps[/cyan]"
+        )
+        return
 
     # Show splash
     if not no_splash:
@@ -947,10 +954,30 @@ async def run_single_query(
     """Run a single query and exit."""
     import uuid
 
-    from deepagents_cli.config import COLORS
-    from deepagents_cli.execution import execute_task
-    from deepagents_cli.input import SessionState
-    from deepagents_cli.ui import TokenTracker
+    # Intercept slash commands before sending to LLM — workspace MANIFEST.yaml
+    # slash_commands (kind=shell) run scripts directly without LLM overhead.
+    if query.strip().startswith("/"):
+        from olav.cli.commands.builtin import execute_command
+
+        _slash_result = await execute_command(query.strip(), auto_approve=True)
+        if _slash_result is not None and not (
+            isinstance(_slash_result, str) and _slash_result.startswith("Unknown command:")
+        ):
+            if _slash_result:
+                console.print(_slash_result)
+            return
+
+    try:
+        from deepagents_cli.config import COLORS
+        from deepagents_cli.execution import execute_task
+        from deepagents_cli.input import SessionState
+        from deepagents_cli.ui import TokenTracker
+    except ImportError as _e:
+        console.print(
+            f"[red]Error:[/red] Single-query mode requires deepagents-cli: {_e}\n"
+            "Install with: [cyan]pip install deepagents-cli==0.0.10 --no-deps[/cyan]"
+        )
+        sys.exit(1)
 
     # P1: silent auth check (D6) — no interactive prompt in single-query mode
     if _get_auth_mode() != "none":
@@ -1593,7 +1620,14 @@ What tools are available and when should each be used?
             console.print()
 
         # Create session state
-        from deepagents_cli.config import SessionState
+        try:
+            from deepagents_cli.config import SessionState
+        except ImportError as _e:
+            console.print(
+                f"[red]Error:[/red] Interactive mode requires deepagents-cli: {_e}\n"
+                "Install with: [cyan]pip install deepagents-cli==0.0.10 --no-deps[/cyan]"
+            )
+            sys.exit(1)
 
         session_state = SessionState(
             auto_approve=args.auto_approve,

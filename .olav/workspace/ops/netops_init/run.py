@@ -70,6 +70,56 @@ DISCOVERY_COMMANDS = DISCOVERY_COMMANDS_UNIVERSAL + DISCOVERY_COMMANDS_IOS
 # Platforms that are NOT Cisco IOS-compatible
 _JUNOS_PLATFORMS = {"juniper_junos", "juniper", "junos"}
 
+# ── TextFSM helper ────────────────────────────────────────────────────────
+
+def _textfsm_parse(platform: str, command: str, raw_output: str) -> list[dict] | None:
+    """Parse command output with ntc_templates/TextFSM. Returns list of dicts or None."""
+    try:
+        import ntc_templates
+        import textfsm
+        from pathlib import Path as _P
+
+        templates_dir = _P(ntc_templates.__file__).parent / "templates"
+        # Normalize platform
+        platform_norm = platform.replace("-", "_").lower()
+        if platform_norm in ("ios", "cisco_ios", "cisco_ios_xe"):
+            platform_norm = "cisco_ios"
+        elif platform_norm in ("junos", "juniper_junos", "juniper"):
+            platform_norm = "juniper_junos"
+
+        # Command → NTC template name overrides (where CLI name ≠ template filename)
+        _CMD_ALIASES: dict[str, str] = {
+            "show ip ospf neighbors":  "show_ip_ospf_neighbor",
+            "show vlan brief":          "show_vlan",
+            "show lldp neighbors":      "show_lldp_neighbors",
+            "show cdp neighbors":       "show_cdp_neighbors",
+            # bgp variants — map to ip bgp summary (best available)
+            "show bgp summary":         "show_ip_bgp_summary",
+            "show bgp all summary":     "show_ip_bgp_summary",
+        }
+
+        cmd_stripped = command.strip().lower()
+        if cmd_stripped in _CMD_ALIASES:
+            cmd_key = _CMD_ALIASES[cmd_stripped]
+        else:
+            cmd_key = cmd_stripped.replace(" ", "_").replace("-", "-")
+
+        template_path = templates_dir / f"{platform_norm}_{cmd_key}.textfsm"
+        if not template_path.exists():
+            return None
+
+        with open(template_path) as f:
+            fsm = textfsm.TextFSM(f)
+            rows = fsm.ParseText(raw_output)
+
+        if not rows:
+            return None
+        headers = fsm.header
+        return [dict(zip(headers, row)) for row in rows]
+    except Exception:
+        return None
+
+
 # ── Stage helpers ──────────────────────────────────────────────────────────
 
 def _check_environment() -> tuple[bool, list[str]]:
@@ -192,14 +242,14 @@ def _run_collection(devices: list[str], commands: list[str]) -> dict:
                 safe_cmd = cmd.replace(" ", "_").replace("/", "_")[:60]
                 (raw_dir / f"{safe_cmd}.txt").write_text(raw_output)
 
-                # Try TextFSM parse
+                # Try TextFSM parse via ntc_templates
                 parsed_data = None
                 parsed_rows = 0
                 try:
-                    from olav.core.ingest_manager import IngestManager
-                    mgr = IngestManager(staging_dir=SNAPSHOTS_STAGING_JSON)
-                    platform = nr.inventory.hosts[host].platform or "cisco_ios"
-                    parsed = mgr.parse_output(platform, cmd, raw_output)
+                    parsed = _textfsm_parse(
+                        nr.inventory.hosts[host].platform or "cisco_ios",
+                        cmd, raw_output
+                    )
                     if parsed:
                         parsed_data = json.dumps(parsed)
                         parsed_rows = len(parsed) if isinstance(parsed, list) else 1
@@ -228,6 +278,51 @@ def _run_collection(devices: list[str], commands: list[str]) -> dict:
         from olav.core.ingest_manager import IngestManager
         from olav.core.topology_engine import extract_lldp_topology
         from olav.core.config import SNAPSHOTS_STAGING_JSON
+
+        # Register olav-netops tables if the package is installed;
+        # fall back to direct DuckDB DDL so the script works even when
+        # olav-netops is skill-only (not installed as a Python package).
+        try:
+            from olav_netops.core.tables import _register_all  # type: ignore[import]
+            _register_all()
+        except ImportError:
+            import duckdb as _ddb
+            with _ddb.connect(str(MAIN_DB_PATH)) as _setup_conn:
+                _setup_conn.execute("CREATE SCHEMA IF NOT EXISTS netops")
+                _setup_conn.execute("""
+                    CREATE TABLE IF NOT EXISTS netops.raw_output_store (
+                        device_name  VARCHAR NOT NULL,
+                        command      VARCHAR NOT NULL,
+                        raw_output   TEXT,
+                        snapshot_id  VARCHAR,
+                        updated_at   TIMESTAMPTZ,
+                        UNIQUE (device_name, command)
+                    )
+                """)
+                _setup_conn.execute("""
+                    CREATE TABLE IF NOT EXISTS netops.parsed_outputs (
+                        device_name  VARCHAR NOT NULL,
+                        command      VARCHAR NOT NULL,
+                        parsed_data  JSON,
+                        snapshot_id  VARCHAR NOT NULL,
+                        UNIQUE (device_name, command, snapshot_id)
+                    )
+                """)
+                _setup_conn.execute("""
+                    CREATE TABLE IF NOT EXISTS netops.topology_links (
+                        link_id              VARCHAR PRIMARY KEY,
+                        source_device        VARCHAR NOT NULL,
+                        source_interface     VARCHAR,
+                        destination_device   VARCHAR NOT NULL,
+                        destination_interface VARCHAR,
+                        discovery_protocol   VARCHAR,
+                        link_type            VARCHAR,
+                        link_status          VARCHAR DEFAULT 'up',
+                        first_seen           VARCHAR,
+                        last_seen            VARCHAR,
+                        snapshot_id          VARCHAR
+                    )
+                """)
 
         staging_file = SNAPSHOTS_STAGING_JSON / f"{snapshot_id}.staging.json"
         SNAPSHOTS_STAGING_JSON.mkdir(parents=True, exist_ok=True)

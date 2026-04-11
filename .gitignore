@@ -121,8 +121,10 @@ olav-web/
 !.olav/
 .olav/*
 !.olav/config/
+.olav/config/*
 !.olav/config/*.example
 !.olav/config/schemas/
+!.olav/config/schemas/**
 !.olav/workspace/
 .olav/workspace/*
 !.olav/workspace/config/

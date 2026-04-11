@@ -415,4 +415,13 @@ def kb_import(
         if result.get("status") not in ("blocked",):
             stored += 1
 
+    # Force FTS index rebuild so the newly inserted chunks are visible to
+    # text search immediately (LanceDB FTS is static; stale until rebuilt).
+    if stored > 0:
+        try:
+            tbl = store.get_table(MEMORY_TABLE)
+            tbl.create_fts_index("text", replace=True)
+        except Exception as _e:
+            logger.debug(f"kb_import: FTS rebuild skipped: {_e}")
+
     return {"status": "success", "file": str(path), "chunks": stored}
