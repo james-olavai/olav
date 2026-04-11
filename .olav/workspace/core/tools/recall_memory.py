@@ -34,6 +34,12 @@ logger = logging.getLogger(__name__)
 DEFAULT_EMBEDDING_DIM = 768
 
 
+def _get_embedder():
+    """Return the process-wide embedder singleton (delegates to olav.core.embedder)."""
+    from olav.core.embedder import get_embedder
+    return get_embedder()
+
+
 @tool
 def recall_memory(
     query: str,
@@ -113,9 +119,8 @@ def _recall_memory_inner(
         # Embed query
         query_vector = None
         try:
-            from sentence_transformers import SentenceTransformer
-            _embedder = SentenceTransformer("BAAI/bge-base-en-v1.5")
-            query_vector = _embedder.encode(query, normalize_embeddings=True).tolist()
+            embedder = _get_embedder()
+            query_vector = embedder.encode(query, normalize_embeddings=True).tolist()
         except Exception as e:
             logger.debug(f"recall_memory: embedder unavailable ({e}), text-only search")
 
