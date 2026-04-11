@@ -212,6 +212,58 @@ def _audit_subagent(subagent_dir: Path) -> dict:
     return result
 
 
+def _check_platform_md_stale() -> dict | None:
+    """Check if PLATFORM.md is missing or lists agents not in the workspace.
+
+    Returns a warning dict (compatible with audit issue format) if stale,
+    or None if PLATFORM.md is up-to-date.
+    """
+    platform_md = _WORKSPACE_DIR / "PLATFORM.md"
+
+    # Actual agent dirs (those with an AGENT.md)
+    actual_agents = {
+        d.name
+        for d in _WORKSPACE_DIR.iterdir()
+        if d.is_dir() and (d / "AGENT.md").exists()
+    }
+
+    if not platform_md.exists():
+        if actual_agents:
+            return {
+                "type": "platform_md_missing",
+                "message": f"PLATFORM.md does not exist — run `olav refresh` ({len(actual_agents)} agents found)",
+                "severity": "warning",
+            }
+        return None
+
+    # Parse agents list from PLATFORM.md frontmatter
+    try:
+        text = platform_md.read_text(encoding="utf-8")
+        if text.startswith("---"):
+            parts = text.split("---", 2)
+            meta = yaml.safe_load(parts[1]) if len(parts) >= 2 else {}
+        else:
+            meta = {}
+        registered: set[str] = set(meta.get("agents") or [])
+    except Exception:
+        registered = set()
+
+    missing = actual_agents - registered
+    extra = registered - actual_agents
+    if missing or extra:
+        parts_msg = []
+        if missing:
+            parts_msg.append(f"unregistered: {sorted(missing)}")
+        if extra:
+            parts_msg.append(f"stale: {sorted(extra)}")
+        return {
+            "type": "platform_md_stale",
+            "message": "PLATFORM.md is out of date — " + ", ".join(parts_msg) + " — run `olav refresh`",
+            "severity": "warning",
+        }
+    return None
+
+
 @tool
 def audit_workspace(agent_dir: str = "") -> str:
     """Audit .olav/workspace/ for code quality issues.
@@ -222,13 +274,15 @@ def audit_workspace(agent_dir: str = "") -> str:
     - SKILL.md declared tool list vs actual @tool functions (drift)
     - Missing prompts/system.md
     - Broken static_context: file references
+    - PLATFORM.md staleness (missing or out-of-date agent list)
 
     Args:
         agent_dir: Optional agent folder name to limit scope (e.g. "config", "ops").
                    Leave empty to scan the entire workspace.
 
     Returns:
-        JSON with keys: summary (counts), report (human-readable text), details (per-subagent).
+        JSON with keys: summary (counts), report (human-readable text), details (per-subagent),
+        platform_issues (PLATFORM.md staleness warnings).
     """
     if not _WORKSPACE_DIR.exists():
         return json.dumps({"error": f"Workspace not found: {_WORKSPACE_DIR}"})
@@ -251,6 +305,14 @@ def audit_workspace(agent_dir: str = "") -> str:
         total_errors += sum(1 for i in audit["issues"] if i.get("severity") == "error")
         total_warnings += sum(1 for i in audit["issues"] if i.get("severity") == "warning")
 
+    # PLATFORM.md staleness check (only when scanning whole workspace)
+    platform_issues: list[dict] = []
+    if not agent_dir:
+        stale = _check_platform_md_stale()
+        if stale:
+            platform_issues.append(stale)
+            total_warnings += 1
+
     summary = {
         "scanned": len(audit_results),
         "errors": total_errors,
@@ -266,6 +328,11 @@ def audit_workspace(agent_dir: str = "") -> str:
         f"Summary: {total_errors} errors  |  {total_warnings} warnings",
         "",
     ]
+    if platform_issues:
+        lines.append("[platform]")
+        for issue in platform_issues:
+            lines.append(f"  ⚠️  [{issue['type']}] {issue['message']}")
+        lines.append("")
     for r in audit_results:
         if r["issues"]:
             lines.append(f"[{r['subagent']}]  {r['path']}")
@@ -279,6 +346,7 @@ def audit_workspace(agent_dir: str = "") -> str:
         "summary": summary,
         "report": "\n".join(lines),
         "details": audit_results,
+        "platform_issues": platform_issues,
     }, ensure_ascii=False, indent=2)
 
 
