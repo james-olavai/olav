@@ -41,6 +41,14 @@ logs/
 agent_outputs/
 node_modules/
 
+# ── root_artifacts ──
+_graph.html
+backup-summary.json
+export_*.json
+r*_links.json
+r*_analysis.json
+*_analysis.json
+
 # ── temp_scripts ──
 demo_*.py
 parse_test.py
@@ -107,15 +115,13 @@ olav-web/
 
 # runtime-workspace
 .olav/
+.olav/workspace/audit/
 
 # ── Whitelist (tracked paths inside ignored parents) ──
 !.olav/
 .olav/*
 !.olav/config/
-.olav/config/api.json
-.olav/config/services.yaml
 !.olav/config/*.example
-!.olav/config/approval_rules.yaml
 !.olav/config/schemas/
 !.olav/workspace/
 .olav/workspace/*
