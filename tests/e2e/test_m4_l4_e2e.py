@@ -6,6 +6,8 @@ Always-run (no LLM required):
   C-L4-01 — olav init auto-creates admin user + token file + auth.mode=token
   C-L4-02 — olav admin add-user validates that the Linux user exists
   C-L4-03 — olav sessions returns output without crashing (even on empty DB)
+  C-L4-08 — olav service status returns status table (exit 0)
+  C-L4-09 — olav service logs start/stop lifecycle
 
 Web-service gated (L4_WEB_E2E_ENABLED=1 + running web server):
   C-L4-05 — HTTP 403 when user B accesses user A's thread
@@ -291,3 +293,71 @@ class TestL4Thread403:
             assert exc.code == 403, (
                 f"Expected HTTP 403, got {exc.code} — thread ownership not enforced"
             )
+
+
+# ---------------------------------------------------------------------------
+# C-L4-08 — olav service status returns table (exit 0)
+# ---------------------------------------------------------------------------
+
+
+class TestL4ServiceStatus:
+    """C-L4-08: `olav service status` prints a status table and exits 0."""
+
+    @classmethod
+    def _get_result(cls):
+        if not hasattr(cls, "_cached"):
+            cls._cached = _run("service", "status")
+        return cls._cached
+
+    def test_exits_zero(self):
+        rc, out, err = self._get_result()
+        assert rc == 0, f"service status exited {rc}\nstderr: {err}"
+
+    def test_table_has_service_names(self):
+        """Table must list the core services: logs, web, daemon."""
+        _, out, err = self._get_result()
+        combined = (out + err).lower()
+        for svc in ("logs", "web", "daemon"):
+            assert svc in combined, (
+                f"Service '{svc}' not found in service status output:\n{out[:600]}"
+            )
+
+    def test_stopped_or_running_status(self):
+        """Each service must show a Stopped or Running status."""
+        _, out, err = self._get_result()
+        combined = out + err
+        assert any(
+            kw in combined for kw in ("Stopped", "Running", "●", "○")
+        ), f"No status indicators in service status output:\n{combined[:600]}"
+
+
+# ---------------------------------------------------------------------------
+# C-L4-09 — olav service logs start/stop lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TestL4ServiceLogsLifecycle:
+    """C-L4-09: `olav service logs start` starts the syslog receiver;
+    `olav service logs stop` cleanly stops it."""
+
+    # Use a non-standard port to avoid conflicts with any running syslog
+    _PORT = "15516"
+
+    def test_logs_start_succeeds(self):
+        rc, out, err = _run("service", "logs", "start", "--port", self._PORT)
+        combined = out + err
+        assert rc == 0, f"service logs start failed (rc={rc}):\n{combined}"
+        combined_lower = combined.lower()
+        assert "syslog" in combined_lower or "started" in combined_lower, (
+            f"Expected start confirmation, got:\n{combined[:400]}"
+        )
+
+    def test_logs_stop_succeeds(self):
+        # Stop whatever was started (idempotent — safe even if not running)
+        rc, out, err = _run("service", "logs", "stop")
+        combined = out + err
+        assert rc == 0, f"service logs stop failed (rc={rc}):\n{combined}"
+        combined_lower = combined.lower()
+        assert "stopped" in combined_lower or "not running" in combined_lower, (
+            f"Expected stop confirmation, got:\n{combined[:400]}"
+        )
