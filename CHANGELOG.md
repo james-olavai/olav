@@ -5,6 +5,77 @@ All notable changes to OLAV will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-04-11
+
+### 🚀 Features — Unified Knowledge Store (M3)
+- **Knowledge Base CLI**: `olav kb` command group — `status`, `export`, `sync`, `import`, `search`, `graph`, `backfill-tags`, `migrate` (C-KB-01~28, C-L3-UKS)
+- **Unified Storage**: Single LanceDB `memory` table replaces legacy `kb_chunks` + `memory` dual tables. New columns: `origin` (agent/document/user/audit), `confidence` (0.0-1.0), `tags` (JSON array)
+- **Knowledge Graph**: `materialize_graph()` — LanceDB vector similarity as implicit edges + tags co-occurrence as explicit edges; vis.js interactive HTML export (`olav kb graph`)
+- **Obsidian Export**: `olav kb export` → `.olav/knowledge/` vault with YAML frontmatter + `[[wikilinks]]` + `_entities/` index pages
+- **Bidirectional Sync**: `olav kb sync` — markdown file changes sync back to LanceDB (insert/update/delete diff); `--dry-run` support
+- **AutoCapture Tags**: `_EXTRACT_PROMPT` extracts 2-5 entity/topic tags per captured memory; `backfill-tags` retroactively tags existing entries via LLM
+- **Time Decay Differentiation**: `document`/`user` origin never decays; `agent` decays normally (half_life=60d); `audit` slow decay (365d); high-frequency recall (access_count>=5) halves decay rate
+
+### 🚀 Features — Multi-User & Sessions (M4)
+- **Auto User Creation**: `olav init` auto-creates admin user from `$USER`, writes token to `~/.olav/token`, sets `auth.mode=token` (C-L4-01)
+- **Linux User Validation**: `olav admin add-user` verifies Linux user exists via `pwd.getpwnam()`; `--no-verify` flag for containers (C-L4-02)
+- **Session Sync**: `sessions` table in `audit.duckdb`; `olav sessions` lists current-user sessions; `olav --resume <thread_id>` resumes across CLI/TUI/Web (C-L4-03/04)
+- **Thread Ownership**: API `stream_run()` enforces 403 for non-owner access; admin role bypasses (C-L4-05)
+- **Auth Security**: `secure=True` on session cookies; `auth.mode=none` emits startup WARNING (C-L4-07)
+
+### 🚀 Features — Platform
+- **Syslog Consumer**: `search_logs` core skill — DuckDB `read_parquet()` queries on syslog Parquet files; registered in core SKILL.md (C-L4-06)
+- **Agent Registry**: `olav refresh` — scans `.olav/workspace/*/AGENT.md`, generates `PLATFORM.md`, updates main agent routing table; auto-triggered by `olav init` + `olav skill install`
+- **Topology Engine**: `extract_lldp_topology()` — CDP/LLDP parsed_outputs ETL to topology_links; bidirectional link ID deduplication; `src != dst` self-loop filter
+- **IngestManager Pipeline**: `netops_init/run.py` uses staging JSON → `IngestManager.bulk_load()` → `extract_lldp_topology()` (replaces direct INSERT)
+
+### 🗑️ Removed
+- **NETCONF**: `netconf_collector.py` (281 lines) + `ncclient` dependency — SSH/TextFSM pipeline replaces NETCONF collection
+- **OpenConfig**: `schema_engine.py`, `schema_cache.py`, `schema_mutation_service.py` (950+ lines) — OC normalization architecture removed
+- **OC Discovery Tools**: `classify_field.py`, `trigger_schema_evolve.py`, `create_unified_view.py`, `register_api_schema.py` — dead imports to missing schema_engine
+- **Legacy KB**: `KnowledgeBase` class, `kb_chunks`/`kb_query_cache` LanceDB tables, `search_knowledge_lancedb.py` tool, `config/knowledge/` workspace tools — replaced by unified `memory` table + `olav kb` CLI
+- **Dead Dependencies**: `pygnmi`, `xmltodict`, `pyang`, `yangson` — zero code imports
+- **Dead Tests**: `test_netconf_collector.py`, `test_kb_semantic_cache.py`, `test_gate_phase2_normalization.py`, 9 unconditional-skip tests, `test_tracking_doc_consistency.py`
+
+### 🐛 Bug Fixes
+- `kb.py _get_store()`: `MemoryConfig.db_path` AttributeError → fallback to wrong path; fixed to direct `get_store()` call
+- `kb.py --output` argparse default `"_graph.html"` overrode vault path logic; fixed to `default=None`
+- `export_obsidian()`: tags containing `/` crashed file creation (e.g. `FastEthernet0/0`); added `_safe_tag()` sanitizer
+- `search_by_text()`: return dict missing `origin`/`confidence`/`tags` fields; aligned with `search_by_vector()`
+- `olav sessions`: not registered as argparse subparser → treated as NL query; added to subparser + `known_commands`
+- `olav admin add-user bob`: args parsing only took first token; fixed `" ".join(args.args)`
+- `olav admin add-user <nonexistent>`: printed error but exit 0; fixed to `raise SystemExit(1)`
+- `manage_cron.py` source template: hardcoded `/home/yhvh/Olav`; fixed to `_get_project_root()`
+- CLAB IP `192.168.100.12`: hardcoded in `run_shell.py` regex + agent prompts; extracted to `OLAV_CLAB_HOST` env var
+- `topology_links` self-loops: `topology_engine.py` added `src_dev != dst_dev` filter
+- Gate tests `prefixes_received` column: referenced non-existent column in `v_bgp_neighbors`; removed from 13 files
+- 5 unit tests hardcoded `/home/yhvh/Olav`; fixed to `Path(__file__).parents[2]`
+
+### 🧹 Cleanup
+- **deepagents-cli**: Added as formal dependency with `[tool.uv] override-dependencies` resolving version conflict (no more `--no-deps`)
+- **DB rebuild**: `main.duckdb` full rebuild from clean SSH collection; legacy OC tables removed
+- **Test restructuring**: 86 fake E2E tests → `tests/gates/`; 24 fake claim tests → `olav-netops/tests/gates/`; CI `test.yml` workflow added
+- **Phase tests**: `_HAS_LAB_DATA` fine-grained skipif per phase (mapping_rules, topology_links, v_bgp_neighbors_auto)
+- **Pyc artifacts**: deleted orphaned `__pycache__/*.pyc` from removed source files
+- **`config_evolve.py`**: `_write_to_lancedb()` returns False (schema_engine deleted)
+
+### 🧪 Tests
+- **1490 passed, 0 FAIL** (unit + gate + e2e + integration)
+- 119 claims in registry (C-L1 + C-L2 + C-NE + C-KB + C-L3 + C-L4)
+- `test_m4_l4_e2e.py`: 13 always-run tests (C-L4-01/02/03)
+- `test_m3_kb_llm_e2e.py`: 10 LLM-gated tests (C-KB-22/28 + C-KB-04)
+- `test_uks_*.py`: 28 TDD unit tests (C-KB-01~28)
+- `test_m4_*.py`: 5 unit test files (init_user, search_logs, sessions_cli, sessions_table, thread_ownership)
+- All `.func()` calls replaced with `.invoke()` across test suite
+
+### 📚 Documentation
+- `guides/knowledge-base.en.md`: Rewritten for UKS (olav kb CLI, Obsidian export, graph visualization)
+- `guides/services.en.md`: Added `search_logs` warning banner (v0.12+)
+- `reference/users-and-roles.en.md`: Added `olav init` user creation flow, `olav sessions`, thread ownership
+- `concepts/security-model.en.md`: Corrected session storage location + thread ownership enforcement
+- `reference/claim-registry.en.md`: Added Level 3 (C-L3-UKS + C-KB-01~28) and Level 4 (C-L4-01~07)
+- `42. DEMO_RUNSHEET.md`: Rewritten for v0.14.0 with 12 chapters including KB, syslog, multi-user
+
 ## [0.13.0] - 2026-04-09
 
 ### 🚀 Features
