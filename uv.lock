@@ -1054,15 +1054,6 @@ wheels = [
 ]
 
 [[package]]
-name = "elementpath"
-version = "4.8.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ac/41/afdd82534c80e9675d1c51dc21d0889b72d023bfe395a2f5a44d751d3a73/elementpath-4.8.0.tar.gz", hash = "sha256:5822a2560d99e2633d95f78694c7ff9646adaa187db520da200a8e9479dc46ae", size = 358528, upload-time = "2025-03-03T20:51:08.397Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/45/95/615af832e7f507fe5ce4562b4be1bd2fec080c4ff6da88dcd0c2dbfca582/elementpath-4.8.0-py3-none-any.whl", hash = "sha256:5393191f84969bcf8033b05ec4593ef940e58622ea13cefe60ecefbbf09d58d9", size = 243271, upload-time = "2025-03-03T20:51:03.027Z" },
-]
-
-[[package]]
 name = "execnet"
 version = "2.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2917,10 +2908,8 @@ dependencies = [
     { name = "pandas" },
     { name = "pdfplumber" },
     { name = "prompt-toolkit" },
-    { name = "pyang" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-    { name = "pygnmi" },
     { name = "pyjwt" },
     { name = "pypdf2" },
     { name = "python-crontab" },
@@ -2940,8 +2929,6 @@ dependencies = [
     { name = "textfsm" },
     { name = "typer" },
     { name = "uvicorn", extra = ["standard"] },
-    { name = "xmltodict" },
-    { name = "yangson" },
 ]
 
 [package.optional-dependencies]
@@ -3014,10 +3001,8 @@ requires-dist = [
     { name = "pandas", specifier = ">=3.0.1" },
     { name = "pdfplumber", specifier = ">=0.11.9" },
     { name = "prompt-toolkit", specifier = ">=3.0.0" },
-    { name = "pyang", specifier = ">=2.7.1" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
-    { name = "pygnmi", specifier = ">=0.8.15" },
     { name = "pygnmi", marker = "extra == 'gnmi'", specifier = ">=0.8.0" },
     { name = "pyjwt", specifier = ">=2.12.1" },
     { name = "pyjwt", marker = "extra == 'enterprise'", specifier = ">=2.8.0" },
@@ -3045,8 +3030,6 @@ requires-dist = [
     { name = "tink", marker = "extra == 'enterprise'", specifier = ">=1.14.1" },
     { name = "typer", specifier = ">=0.9.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27.0" },
-    { name = "xmltodict", specifier = ">=1.0.4" },
-    { name = "yangson", specifier = ">=1.6.7" },
 ]
 provides-extras = ["dev", "netops", "gnmi", "enterprise", "ldap"]
 
@@ -3729,18 +3712,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/c5/f5/65d838092fd01c44d16037953fd4c2cc851e783de9b8f02b27ec4ffd906f/protobuf-6.33.5-cp39-abi3-manylinux2014_s390x.whl", hash = "sha256:8afa18e1d6d20af15b417e728e9f60f3aa108ee76f23c3b2c07a2c3b546d3afd", size = 339411, upload-time = "2026-01-29T21:51:27.446Z" },
     { url = "https://files.pythonhosted.org/packages/9b/53/a9443aa3ca9ba8724fdfa02dd1887c1bcd8e89556b715cfbacca6b63dbec/protobuf-6.33.5-cp39-abi3-manylinux2014_x86_64.whl", hash = "sha256:cbf16ba3350fb7b889fca858fb215967792dc125b35c7976ca4818bee3521cf0", size = 323465, upload-time = "2026-01-29T21:51:28.925Z" },
     { url = "https://files.pythonhosted.org/packages/57/bf/2086963c69bdac3d7cff1cc7ff79b8ce5ea0bec6797a017e1be338a46248/protobuf-6.33.5-py3-none-any.whl", hash = "sha256:69915a973dd0f60f31a08b8318b73eab2bd6a392c79184b3612226b0a3f8ec02", size = 170687, upload-time = "2026-01-29T21:51:32.557Z" },
-]
-
-[[package]]
-name = "pyang"
-version = "2.7.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "lxml" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/4f/14/1baf1c9e6e702a2d693bbd776830a880024f52eff98e1da3288e1175f47b/pyang-2.7.1.tar.gz", hash = "sha256:ccffeebc6796a462ed6f63e802b9d61b0f21bf6cee0af88362cbda553483fe32", size = 497003, upload-time = "2025-08-29T07:37:54.279Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/58/a9/ffb5056d13cb5e2b86dad7131d2195fc61e86ce8ac5d7e6ee4ccb804406a/pyang-2.7.1-py2.py3-none-any.whl", hash = "sha256:eadff4c0a37cbdd509c231b1bd6c3b322ae60cf971a22cc268c60a6f82241a1d", size = 598508, upload-time = "2025-08-29T07:37:52.784Z" },
 ]
 
 [[package]]
@@ -5491,15 +5462,6 @@ wheels = [
 ]
 
 [[package]]
-name = "xmltodict"
-version = "1.0.4"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/19/70/80f3b7c10d2630aa66414bf23d210386700aa390547278c789afa994fd7e/xmltodict-1.0.4.tar.gz", hash = "sha256:6d94c9f834dd9e44514162799d344d815a3a4faec913717a9ecbfa5be1bb8e61", size = 26124, upload-time = "2026-02-22T02:21:22.074Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/38/34/98a2f52245f4d47be93b580dae5f9861ef58977d73a79eb47c58f1ad1f3a/xmltodict-1.0.4-py3-none-any.whl", hash = "sha256:a4a00d300b0e1c59fc2bfccb53d7b2e88c32f200df138a0dd2229f842497026a", size = 13580, upload-time = "2026-02-22T02:21:21.039Z" },
-]
-
-[[package]]
 name = "xxhash"
 version = "3.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5600,19 +5562,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/50/55/15a7b8a56590e66ccd374bbfa3f9ffc45b810886c8c3b614e3f90bd2367c/xxhash-3.6.0-pp311-pypy311_pp73-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:881b47fc47e051b37d94d13e7455131054b56749b91b508b0907eb07900d1c13", size = 36251, upload-time = "2025-10-02T14:37:04.44Z" },
     { url = "https://files.pythonhosted.org/packages/62/b2/5ac99a041a29e58e95f907876b04f7067a0242cb85b5f39e726153981503/xxhash-3.6.0-pp311-pypy311_pp73-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:c6dc31591899f5e5666f04cc2e529e69b4072827085c1ef15294d91a004bc1bd", size = 32481, upload-time = "2025-10-02T14:37:05.869Z" },
     { url = "https://files.pythonhosted.org/packages/7b/d9/8d95e906764a386a3d3b596f3c68bb63687dfca806373509f51ce8eea81f/xxhash-3.6.0-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:15e0dac10eb9309508bfc41f7f9deaa7755c69e35af835db9cb10751adebc35d", size = 31565, upload-time = "2025-10-02T14:37:06.966Z" },
-]
-
-[[package]]
-name = "yangson"
-version = "1.7.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "elementpath" },
-    { name = "pyyaml" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/cb/6229cb631ed296421848dd0db6f4d317f8096e3360c63bc8ddf75578701c/yangson-1.7.1.tar.gz", hash = "sha256:18ae3a30766b231d11d99599173f7db5613329dbdeab2b2ea3e140d2d740ba69", size = 75095, upload-time = "2026-03-30T09:53:20.143Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/cd/cf/620bb1dc657fd3401f3011e826a3a3b46aefa57ec6040772c843ee241c18/yangson-1.7.1-py3-none-any.whl", hash = "sha256:7c055c2feeda8cbaa336a23b890967d1b4379954e9590405bc51026c0ef1a890", size = 92520, upload-time = "2026-03-30T09:53:18.732Z" },
 ]
 
 [[package]]
