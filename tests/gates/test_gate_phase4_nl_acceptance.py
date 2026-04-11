@@ -44,18 +44,17 @@ import pytest
 
 _DB_PATH = Path(__file__).resolve().parents[2] / ".olav" / "databases" / "main.duckdb"
 
-_HAS_LAB_DATA = False
+_HAS_PHASE4_DATA = False
 try:
     with duckdb.connect(str(_DB_PATH), read_only=True) as _con:
-        _HAS_LAB_DATA = (
-            _con.execute("SELECT count(*) FROM netops.parsed_outputs").fetchone()[0] > 0
-        )
+        _tables = {r[0] for r in _con.execute("SHOW TABLES").fetchall()}
+        _HAS_PHASE4_DATA = "v_bgp_neighbors_auto" in _tables
 except Exception:
     pass
 
 pytestmark = pytest.mark.skipif(
-    not _HAS_LAB_DATA,
-    reason="No lab data in main.duckdb — run CLAB lab first",
+    not _HAS_PHASE4_DATA,
+    reason="v_bgp_neighbors_auto missing — run Phase 4 NL pipeline first",
 )
 
 # ---------------------------------------------------------------------------
