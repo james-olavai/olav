@@ -152,6 +152,12 @@ CREATE TABLE IF NOT EXISTS audit_messages (
 """
 
 
+def _apply_sessions_migration(conn) -> None:
+    """Idempotently create the sessions table (M4 migration v0.14)."""
+    from olav.core.migrations.v0_14_sessions import apply_migration
+    apply_migration(conn)
+
+
 class AuditEventRecorder:
     """Writes audit events to a DuckDB file.
 
@@ -189,10 +195,11 @@ class AuditEventRecorder:
                 conn.execute(
                     "ALTER TABLE audit_messages ADD COLUMN IF NOT EXISTS tool_calls VARCHAR"
                 ),
+                _apply_sessions_migration(conn),
             ),
             error_context="DDL init",
-            max_attempts=12,      # longer wait for DDL: up to ~25s total when another
-            base_delay=0.1,       # process holds a sustained write lock at startup
+            max_attempts=12,
+            base_delay=0.1,
         )
         self._sequence: int = 0
         # Per-run message sequence counter — tracks message ordering within each run
@@ -274,6 +281,19 @@ class AuditEventRecorder:
             """,
             [run_id, _now(), agent_id, session_id, thread_id, user_id, source_channel],
         )
+        # M4: UPSERT into sessions table when thread_id + user_id are known
+        if thread_id and user_id:
+            self._execute(
+                """
+                INSERT INTO sessions (thread_id, user_id, agent_id, interface, last_active)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (thread_id) DO UPDATE SET
+                    last_active   = excluded.last_active,
+                    interface     = COALESCE(excluded.interface, sessions.interface),
+                    message_count = sessions.message_count + 1
+                """,
+                [thread_id, user_id, agent_id, source_channel, _now()],
+            )
 
     def record_run_end(self, run_id: str, *, status: str = "completed") -> None:
         """Update the *audit_runs* row with an end timestamp and final status."""

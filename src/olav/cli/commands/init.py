@@ -17,6 +17,8 @@ NOT performed: YANG compilation, network views, device tables, syslog setup.
 from __future__ import annotations
 
 import json
+import os
+import pwd
 from pathlib import Path
 
 from olav.cli.commands.base import BaseCommand
@@ -135,12 +137,94 @@ class InitCommand(BaseCommand):
         # LLM connectivity check
         llm_status = await self._check_llm()
 
+        # M4: Auto-create admin user + set auth.mode=token
+        user_status = self._init_admin_user(base_dir)
+
         return (
             "platform ready: created .olav scaffolding\n"
             f"llm: {llm_status}\n"
             f"db: {db_status}\n"
-            f"workspace: {core_status}"
+            f"workspace: {core_status}\n"
+            f"auth: {user_status}"
         )
+
+    def _init_admin_user(self, base_dir: Path) -> str:
+        """Create an admin user for $USER, write token to ~/.olav/token, set auth.mode=token.
+
+        Skipped gracefully if:
+        - $USER is not set (headless/CI environment)
+        - Username not in /etc/passwd (container environment)
+        - users.duckdb already has the user (idempotent)
+        """
+        username = os.environ.get("USER", "").strip()
+        if not username:
+            return "⚠ skipped (USER env not set)"
+
+        # Verify Linux user exists
+        try:
+            pwd.getpwnam(username)
+        except KeyError:
+            return f"⚠ skipped (Linux user '{username}' not found)"
+
+        try:
+            from olav.cli.commands.admin_users import AdminUsersCommand
+
+            users_db = base_dir / "databases" / "users.duckdb"
+            admin_cmd = AdminUsersCommand(users_db=users_db)
+
+            # Check if user already exists (idempotent)
+            import duckdb
+            from olav.core.migrations.v0_12_users import apply_migration as _apply_users
+
+            users_db.parent.mkdir(parents=True, exist_ok=True)
+            with duckdb.connect(str(users_db)) as conn:
+                _apply_users(conn)
+                existing = conn.execute(
+                    "SELECT COUNT(*) FROM users WHERE username = ?", [username]
+                ).fetchone()[0]
+
+            if existing:
+                return f"✓ admin user '{username}' already exists"
+
+            # Create admin user
+            result = admin_cmd._add_user([username, "--role", "admin", "--no-verify"])
+            # Extract token from result string ("Token (shown once...)\n  olav_xxx")
+            token = ""
+            for line in result.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("olav_"):
+                    token = stripped
+                    break
+
+            # Write token to ~/.olav/token
+            token_dir = Path.home() / ".olav"
+            token_dir.mkdir(parents=True, exist_ok=True)
+            token_path = token_dir / "token"
+            token_path.write_text(token + "\n", encoding="utf-8")
+            token_path.chmod(0o600)
+
+            # Update api.json auth.mode → token
+            api_json_path = base_dir / "config" / "api.json"
+            if api_json_path.exists():
+                try:
+                    api_data = json.loads(api_json_path.read_text(encoding="utf-8"))
+                    if api_data.get("auth", {}).get("mode") != "token":
+                        api_data.setdefault("auth", {})["mode"] = "token"
+                        api_json_path.write_text(
+                            json.dumps(api_data, indent=2, ensure_ascii=False) + "\n",
+                            encoding="utf-8",
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
+
+            return (
+                f"✓ admin user '{username}' created\n"
+                f"  token → ~/.olav/token (chmod 600)\n"
+                f"  web login: http://localhost:2280/?token={token}"
+            )
+
+        except Exception as exc:  # noqa: BLE001
+            return f"⚠ user init skipped ({exc})"
 
     def _init_databases(self, db_dir: Path) -> str:
         """Create domain.duckdb and audit.duckdb (empty, just open+close)."""
