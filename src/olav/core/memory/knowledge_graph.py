@@ -221,6 +221,7 @@ def export_obsidian(
     memories = store.get_memories(limit=10_000, table_name=tname)
     entity_map: dict[str, list[dict]] = {}
     written = 0
+    written_paths: dict[str, str] = {}  # mem_id → relative path (for sync state)
 
     for mem in memories:
         mem_id = mem.get("id", "")
@@ -261,6 +262,7 @@ def export_obsidian(
         )
         out_path.write_text(content, encoding="utf-8")
         written += 1
+        written_paths[mem_id] = str(out_path.relative_to(output_dir))
 
         for tag in tags:
             entity_map.setdefault(tag, []).append(mem)
@@ -278,6 +280,24 @@ def export_obsidian(
             f"# {tag}\n\n{len(mems)} entries reference this entity.\n\n{links}\n",
             encoding="utf-8",
         )
+
+    # Populate sync state so `olav kb sync` recognises exported files as already tracked
+    if written_paths:
+        try:
+            import hashlib as _hashlib
+            import json as _json
+
+            def _fhash(p: Path) -> str:
+                return _hashlib.md5(p.read_bytes()).hexdigest()
+
+            state_path = output_dir / ".olav_sync_state.json"
+            state = {
+                rel: {"hash": _fhash(output_dir / rel), "ids": [mem_id]}
+                for mem_id, rel in written_paths.items()
+            }
+            state_path.write_text(_json.dumps(state, indent=2))
+        except Exception as _e:
+            logger.warning(f"export_obsidian: could not write sync state: {_e}")
 
     logger.info(f"export_obsidian: wrote {written} notes, {len(entity_map)} entity pages → {output_dir}")
     return {"written": written, "entities": len(entity_map)}
