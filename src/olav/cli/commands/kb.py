@@ -338,7 +338,7 @@ def build_kb_parser(parent_subparsers) -> argparse.ArgumentParser:
 
     # graph
     grp = kb_sub.add_parser("graph", help="Generate vis.js HTML knowledge graph")
-    grp.add_argument("--output", default="_graph.html", help="Output HTML file")
+    grp.add_argument("--output", default=None, help="Output HTML file (default: .olav/knowledge/_graph.html)")
     grp.add_argument("--open", action="store_true", help="Open in browser after generating")
 
     # migrate
