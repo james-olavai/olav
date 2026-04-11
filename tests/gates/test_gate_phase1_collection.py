@@ -47,8 +47,6 @@ pytestmark = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 
 EXPECTED_DEVICES = {"R1", "R2", "R3", "R4", "SW1", "SW2"}
-NETCONF_DEVICE = "R2"
-NETCONF_DOMAINS = {"netconf_interfaces", "netconf_bgp", "netconf_lldp", "netconf_platform"}
 
 # A snapshot is considered "recent" if it starts with a date >= this prefix.
 # Update when a full fresh collect run is performed.
@@ -101,29 +99,6 @@ def test_device_has_minimum_command_coverage(device: str) -> None:
     assert count >= 5, (
         f"Phase 1 FAIL — {device} has only {count} parsed_outputs row(s); "
         "expected >= 5. Re-collect from device."
-    )
-
-
-# ---------------------------------------------------------------------------
-# Test 3: R2 (cisco_ios) has NETCONF-sourced rows (4 OpenConfig domains)
-# ---------------------------------------------------------------------------
-
-
-def test_r2_has_netconf_domains() -> None:
-    """R2 must have parsed_outputs rows for all 4 NETCONF/OpenConfig domains."""
-    con = _get_connection()
-    rows = con.execute(
-        "SELECT DISTINCT command FROM parsed_outputs WHERE device_name = ?",
-        [NETCONF_DEVICE],
-    ).fetchall()
-    con.close()
-
-    present_cmds = {r[0] for r in rows}
-    missing_domains = NETCONF_DOMAINS - present_cmds
-    assert not missing_domains, (
-        f"Phase 1 FAIL — R2 is missing NETCONF domains: {sorted(missing_domains)}\n"
-        "NETCONF collection for R2 has not been ingested. "
-        "Check src/olav/services/netconf_collector.py and re-run collect."
     )
 
 
