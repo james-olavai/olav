@@ -170,7 +170,7 @@ def test_topology_links_populated() -> None:
 def test_devices_table_has_all_lab_devices() -> None:
     """The devices table must reference all 6 lab devices."""
     con = _get_connection()
-    rows = con.execute("SELECT name FROM devices ORDER BY name").fetchall()
+    rows = con.execute("SELECT hostname FROM devices ORDER BY hostname").fetchall()
     con.close()
 
     registered = {r[0] for r in rows}

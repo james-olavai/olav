@@ -210,6 +210,10 @@ def export_obsidian(
     Returns:
         {"written": int, "entities": int}
     """
+    def _safe_tag(t: str) -> str:
+        """Sanitize a tag string for use as a filesystem path component."""
+        return t.replace("/", "_").replace("\\", "_").replace(":", "_").replace(" ", "_")
+
     from olav.core.memory import MEMORY_TABLE
 
     tname = table_name or MEMORY_TABLE
@@ -245,7 +249,7 @@ def export_obsidian(
         out_path = output_dir / subdir / f"{mem_id}.md"
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        wikilinks = "\n".join(f"- [[entity_{t}|{t}]]" for t in tags) if tags else ""
+        wikilinks = "\n".join(f"- [[entity_{_safe_tag(t)}|{t}]]" for t in tags) if tags else ""
         related_section = f"\n## Related\n{wikilinks}" if wikilinks else ""
 
         content = (
@@ -271,7 +275,7 @@ def export_obsidian(
     entities_dir = output_dir / "_entities"
     entities_dir.mkdir(parents=True, exist_ok=True)
     for tag, mems in entity_map.items():
-        ent_path = entities_dir / f"entity_{tag}.md"
+        ent_path = entities_dir / f"entity_{_safe_tag(tag)}.md"
         links = "\n".join(
             f"- [[{m['id']}]] — {(m.get('text') or '')[:60]}"
             for m in mems

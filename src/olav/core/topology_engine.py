@@ -103,7 +103,7 @@ def extract_lldp_topology(con: "_duckdb.DuckDBPyConnection") -> int:
                 or entry.get("neighbor_port_id")
             )
 
-            if not (src_dev and dst_dev):
+            if not (src_dev and dst_dev) or src_dev == dst_dev:
                 continue
 
             link_id = _make_link_id(src_dev, src_intf, dst_dev, dst_intf)
