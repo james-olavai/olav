@@ -30,6 +30,11 @@ from olav.core.auth import UserIdentity, get_auth_provider
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
+import logging
+import os
+
+_logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # P1: Bearer token authentication dependency
 # ---------------------------------------------------------------------------
@@ -44,6 +49,16 @@ def _get_auth_mode() -> str:
         return ConfigLoader().auth.mode
     except Exception:
         return "none"
+
+
+def _emit_auth_mode_warning() -> None:
+    """Emit a security warning if auth.mode is 'none' (no authentication)."""
+    if _get_auth_mode() == "none":
+        _logger.warning(
+            "⚠️  auth.mode=none — Web has no authentication. "
+            "Run 'olav admin-users add-user %s --role admin' then set auth.mode='token' in api.json.",
+            os.environ.get("USER", "admin"),
+        )
 
 
 def _verify_bearer(credentials: HTTPAuthorizationCredentials | None) -> UserIdentity:
@@ -81,6 +96,42 @@ async def _require_auth(
     if credentials is None:
         credentials = await _bearer_scheme(Request({"type": "http", "headers": []}))
     return _verify_bearer(credentials)
+
+
+def _get_thread_owner(thread_id: str) -> str | None:
+    """Return the user_id who owns the given thread, or None if not found."""
+    try:
+        import duckdb
+        from olav.core.config import AUDIT_DB_PATH
+        db_path = Path(AUDIT_DB_PATH)
+        if not db_path.exists():
+            return None
+        with duckdb.connect(str(db_path), read_only=True) as conn:
+            row = conn.execute(
+                "SELECT user_id FROM sessions WHERE thread_id = ?", [thread_id]
+            ).fetchone()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
+def _check_thread_access(thread_id: str, identity: UserIdentity) -> None:
+    """Raise HTTP 403 if identity does not own thread_id and is not admin.
+
+    New threads (not yet in sessions) are always allowed.
+    """
+    owner = _get_thread_owner(thread_id)
+    if owner is None:
+        return  # new thread — allow
+    if owner == identity.username:
+        return  # owner
+    role = getattr(identity, "role", "user")
+    if role == "admin":
+        return  # admin can access everything
+    raise HTTPException(
+        status_code=403,
+        detail=f"Thread {thread_id!r} belongs to '{owner}'. Access denied.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +173,7 @@ async def get_agent():
 
 @asynccontextmanager
 async def lifespan(app):
+    _emit_auth_mode_warning()
     yield
     if _agent_instance is not None:
         await _agent_instance.close()
@@ -222,7 +274,7 @@ def _set_session_cookie(response: Response, token: str) -> None:
         key="olav_session",
         value=token,
         httponly=True,  # GAP-4: block JS access
-        secure=False,  # Set True in production (HTTPS)
+        secure=True,   # GAP-4: require HTTPS (use reverse proxy in dev)
         samesite="strict",  # GAP-4: CSRF protection
         max_age=ttl_hours * 3600,
         path="/",
@@ -316,6 +368,8 @@ async def stream_run(
 ):
     if identity is None:
         identity = await _require_auth()
+    # M4: enforce thread ownership (admin can access any thread)
+    _check_thread_access(thread_id, identity)
     agent = await get_agent()
 
     # Use authenticated identity as user_id (P1)

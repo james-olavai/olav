@@ -64,6 +64,18 @@ class AdminUsersCommand(BaseCommand):
         if role not in valid_roles:
             return f"invalid role '{role}'. Choose from: {', '.join(sorted(valid_roles))}"
 
+        # Linux user validation (skip with --no-verify or in container envs)
+        if "--no-verify" not in parts and not _is_container_env():
+            import pwd
+            try:
+                pwd.getpwnam(username)
+            except KeyError:
+                return (
+                    f"error: Linux user '{username}' not found. "
+                    f"Create with: sudo useradd {username}\n"
+                    f"(Use --no-verify to skip this check)"
+                )
+
         expires_at = None
         if "--expires" in parts:
             idx = parts.index("--expires")
@@ -192,6 +204,15 @@ class AdminUsersCommand(BaseCommand):
 # ---------------------------------------------------------------------------
 # Token generation (module-level helper, reusable by onboard command)
 # ---------------------------------------------------------------------------
+
+
+def _is_container_env() -> bool:
+    """Return True if running inside a container (Docker/LXC/k8s)."""
+    try:
+        cgroup = Path("/proc/1/cgroup").read_text(encoding="utf-8")
+        return any(k in cgroup for k in ("docker", "lxc", "containerd", "kubepods"))
+    except OSError:
+        return False
 
 
 def _generate_token() -> tuple[str, str, str]:

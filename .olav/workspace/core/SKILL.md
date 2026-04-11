@@ -8,6 +8,7 @@ tools:
   - web_search               # Web search via DuckDuckGo
   - recall_memory            # Recall from semantic memory (LanceDB)
   - search_knowledge_lancedb # Semantic KB search (LanceDB vector store)
+  - search_logs              # Search syslog Parquet records (severity/host/time filters)
   - format_and_export        # Write reports/CSV/JSON to exports/
   - deploy_service           # Docker Compose lifecycle — up, health-check, logs
   - stop_service             # Docker Compose stop/down + list running services
@@ -38,6 +39,7 @@ These tools are globally available to **all agents** regardless of active worksp
 | `web_search` | DuckDuckGo search for external documentation or known issues |
 | `recall_memory` | Recall relevant past decisions from semantic memory (LanceDB) |
 | `search_knowledge_lancedb` | Semantic search over indexed KB documents |
+| `search_logs` | Query syslog Parquet records with severity/host/time filters |
 | `format_and_export` | Write markdown reports, CSV, JSON to `exports/` |
 | `deploy_service` | Start any Docker Compose service, wait for health, return logs on failure |
 | `stop_service` | Stop or remove a running Docker Compose service; `list_services()` shows all |
