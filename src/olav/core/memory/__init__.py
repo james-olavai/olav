@@ -479,6 +479,9 @@ class LanceDBStore:
                     "text": r.get("text"),
                     "category": r.get("category"),
                     "scope": r.get("scope"),
+                    "origin": r.get("origin", "agent"),
+                    "confidence": r.get("confidence", 0.5),
+                    "tags": r.get("tags", "[]"),
                     "metadata": r.get("metadata"),
                     "timestamp": r.get("timestamp"),
                 }

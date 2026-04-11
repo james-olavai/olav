@@ -207,32 +207,46 @@ def cmd_backfill_tags(args) -> int:
     dry_run = getattr(args, "dry_run", False)
 
     from olav.core.memory import MEMORY_TABLE
-    memories = store.get_memories(limit=100_000, table_name=MEMORY_TABLE)
-    empty = [m for m in memories if not m.get("tags") or m.get("tags") in ("[]", "null", "")]
+    # Use to_pandas() for a fast full-table scan (avoids vector search hang)
+    try:
+        tbl = store.get_table(MEMORY_TABLE)
+        df = tbl.to_pandas()
+        memories = df.to_dict("records")
+    except Exception as e:
+        print(f"Failed to read knowledge store: {e}", file=sys.stderr)
+        return 1
+
+    empty = [m for m in memories if not m.get("tags") or str(m.get("tags")) in ("[]", "null", "")]
     print(f"Found {len(empty)} entries with empty tags.")
 
     if not empty:
         return 0
 
-    # Try to get LLM from platform config
+    # Try to get LLM from platform config (api_key + base_url)
     llm = None
     try:
         from langchain_openai import ChatOpenAI  # type: ignore[import]
-        import os
-        if os.environ.get("OPENAI_API_KEY"):
-            llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-    except ImportError:
+        from olav.core.config import get_llm_config
+        cfg = get_llm_config()
+        api_key = cfg.api_key or os.environ.get("OPENAI_API_KEY", "")
+        if api_key:
+            kwargs: dict = {"model": "gpt-4o-mini", "temperature": 0, "api_key": api_key}
+            base_url = cfg.base_url or os.environ.get("OPENAI_BASE_URL", "")
+            if base_url:
+                kwargs["base_url"] = base_url
+            llm = ChatOpenAI(**kwargs)
+    except Exception:
         pass
 
     if llm is None:
-        print("LLM not available (set OPENAI_API_KEY + install langchain-openai).")
+        print("LLM not available (set OPENAI_API_KEY or configure api_key in .olav/config/api.json).")
         print("Use --dry-run to preview which entries need tagging.")
         if not dry_run:
             return 1
 
     if dry_run:
         for m in empty[:10]:
-            print(f"  {m.get('id')}: {(m.get('text') or '')[:80]}")
+            print(f"  {m.get('id')}: {str(m.get('text') or '')[:80]}")
         if len(empty) > 10:
             print(f"  ... and {len(empty) - 10} more")
         return 0
@@ -250,8 +264,9 @@ def cmd_backfill_tags(args) -> int:
             yield lst[i:i + n]
 
     updated = errors = 0
-    for batch in _chunked(empty, batch_size):
-        texts_block = "\n---\n".join(f"{i+1}. {(m.get('text') or '')[:300]}" for i, m in enumerate(batch))
+
+    for batch_num, batch in enumerate(_chunked(empty, batch_size), 1):
+        texts_block = "\n---\n".join(f"{i+1}. {str(m.get('text') or '')[:300]}" for i, m in enumerate(batch))
         try:
             resp = llm.invoke([HumanMessage(content=BATCH_PROMPT.format(texts=texts_block))])
             raw = resp.content.strip()
@@ -261,14 +276,29 @@ def cmd_backfill_tags(args) -> int:
             if not isinstance(tags_list, list):
                 raise ValueError("Expected list")
         except Exception as e:
-            print(f"  Batch LLM error: {e}", file=sys.stderr)
+            print(f"  Batch {batch_num} LLM error: {e}", file=sys.stderr)
             errors += len(batch)
             continue
 
+        # Write this batch immediately — group by tag JSON to reduce update calls
+        from collections import defaultdict
+        tags_to_ids: dict[str, list[str]] = defaultdict(list)
         for mem, tags in zip(batch, tags_list):
             if isinstance(tags, list):
-                store.update_memory(mem["id"], tags=json.dumps(tags))
-                updated += 1
+                mid = str(mem.get("id", ""))
+                if mid:
+                    tags_to_ids[json.dumps(tags)].append(mid)
+
+        for tags_json, ids in tags_to_ids.items():
+            id_list = ", ".join(f"'{rid}'" for rid in ids)
+            try:
+                tbl.update(where=f"id IN ({id_list})", values={"tags": tags_json})
+                updated += len(ids)
+            except Exception as e:
+                print(f"  Batch {batch_num} tag update error: {e}", file=sys.stderr)
+                errors += len(ids)
+
+        print(f"  Batch {batch_num}: tagged {len(tags_to_ids)} groups ({sum(len(v) for v in tags_to_ids.values())} entries)")
 
     print(f"Backfill complete: updated={updated}, errors={errors}")
     return 0 if errors == 0 else 1
