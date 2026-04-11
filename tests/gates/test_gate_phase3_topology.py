@@ -27,18 +27,18 @@ import pytest
 
 _DB_PATH = Path(__file__).resolve().parents[2] / ".olav" / "databases" / "main.duckdb"
 
-_HAS_LAB_DATA = False
+_HAS_PHASE3_DATA = False
 try:
     with duckdb.connect(str(_DB_PATH), read_only=True) as _con:
-        _HAS_LAB_DATA = (
-            _con.execute("SELECT count(*) FROM netops.parsed_outputs").fetchone()[0] > 0
+        _HAS_PHASE3_DATA = (
+            _con.execute("SELECT count(*) FROM netops.topology_links").fetchone()[0] > 0
         )
 except Exception:
     pass
 
 pytestmark = pytest.mark.skipif(
-    not _HAS_LAB_DATA,
-    reason="No lab data in main.duckdb — run CLAB lab first",
+    not _HAS_PHASE3_DATA,
+    reason="topology_links table empty — run Phase 3 LLDP/CDP topology pipeline first",
 )
 
 # ---------------------------------------------------------------------------

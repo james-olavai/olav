@@ -63,17 +63,14 @@ def migrate_memory_table(
 ) -> dict:
     """Backfill origin, confidence, and tags for existing memory rows.
 
-    Iterates over all rows in the memory table and writes inferred values
-    for the three new UKS columns based on the existing metadata.source field.
-
-    This function is idempotent — rows that already have a non-default origin
-    are still re-evaluated (idempotency holds because the inference is
-    deterministic given the same metadata).
+    Uses a bulk pandas-based approach to avoid per-row LanceDB update calls.
+    Groups rows by inferred (origin, confidence) and issues one tbl.update()
+    per distinct group via an IN (id, ...) WHERE clause.
 
     Args:
         store:      LanceDBStore instance.
         table_name: Optional table name override (defaults to MEMORY_TABLE).
-        batch_size: Not currently used (reserved for future chunking).
+        batch_size: Number of IDs per IN-clause batch to avoid SQL length limits.
 
     Returns:
         Summary dict with keys ``updated``, ``skipped``, ``errors``.
@@ -86,35 +83,47 @@ def migrate_memory_table(
         logger.info(f"migrate_memory_table: table '{tname}' does not exist — skipping.")
         return {"updated": 0, "skipped": 0, "errors": 0}
 
+    # Use tbl.to_pandas() for a fast full-table scan (avoids vector search hang)
     try:
-        memories = store.get_memories(limit=100_000, table_name=tname)
+        tbl = store.get_table(tname)
+        df = tbl.to_pandas()
     except Exception as e:
-        logger.error(f"migrate_memory_table: failed to fetch rows: {e}")
+        logger.error(f"migrate_memory_table: failed to read table: {e}")
         return {"updated": 0, "skipped": 0, "errors": 1}
 
-    updated = skipped = errors = 0
+    if df.empty:
+        return {"updated": 0, "skipped": 0, "errors": 0}
 
-    for mem in memories:
-        mem_id = mem.get("id")
-        if not mem_id:
+    # Group rows by (origin, confidence) to minimise number of UPDATE calls
+    from collections import defaultdict
+    groups: dict[tuple[str, float], list[str]] = defaultdict(list)
+    skipped = 0
+
+    for _, row in df.iterrows():
+        row_id = row.get("id")
+        if not row_id:
             skipped += 1
             continue
+        origin, confidence = _infer_origin_confidence(row.to_dict())
+        groups[(origin, confidence)].append(str(row_id))
 
-        origin, confidence = _infer_origin_confidence(mem)
+    updated = errors = 0
 
-        result = store.update_memory(
-            mem_id,
-            table_name=tname,
-            origin=origin,
-            confidence=confidence,
-            tags="[]",
-        )
-
-        if result.get("status") in ("success", "noop"):
-            updated += 1
-        else:
-            errors += 1
-            logger.warning(f"migrate_memory_table: failed to update {mem_id}: {result}")
+    for (origin, confidence), ids in groups.items():
+        # Batch IDs into chunks to avoid excessively long SQL
+        for i in range(0, len(ids), batch_size):
+            chunk = ids[i : i + batch_size]
+            id_list = ", ".join(f"'{rid}'" for rid in chunk)
+            where = f"id IN ({id_list})"
+            try:
+                tbl.update(
+                    where=where,
+                    values={"origin": origin, "confidence": confidence, "tags": "[]"},
+                )
+                updated += len(chunk)
+            except Exception as e:
+                logger.warning(f"migrate_memory_table: batch update failed: {e}")
+                errors += len(chunk)
 
     summary = {"updated": updated, "skipped": skipped, "errors": errors}
     logger.info(f"migrate_memory_table: {summary}")
