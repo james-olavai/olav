@@ -208,6 +208,14 @@ class SkillCommand(BaseCommand):
         if warnings:
             warn_str = "\n  ⚠ " + "\n  ⚠ ".join(warnings)
 
+        # Rebuild global agent registry so routing table reflects the new agent
+        try:
+            from olav.cli.commands.refresh import refresh_workspace
+
+            refresh_workspace()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("refresh_workspace failed after skill install: %s", exc)
+
         return f"installed {decl.name} v{decl.version} → .olav/workspace/{decl.name}/{venv_msg}{warn_str}"
 
     # ── list / status ───────────────────────────────────────────────────────

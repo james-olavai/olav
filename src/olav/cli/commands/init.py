@@ -140,12 +140,21 @@ class InitCommand(BaseCommand):
         # M4: Auto-create admin user + set auth.mode=token
         user_status = self._init_admin_user(base_dir)
 
+        # Rebuild global agent registry (deterministic, no LLM)
+        try:
+            from olav.cli.commands.refresh import refresh_workspace
+
+            refresh_status = refresh_workspace(base_dir / "workspace")
+        except Exception as exc:  # noqa: BLE001
+            refresh_status = f"⚠ skipped ({exc})"
+
         return (
             "platform ready: created .olav scaffolding\n"
             f"llm: {llm_status}\n"
             f"db: {db_status}\n"
             f"workspace: {core_status}\n"
-            f"auth: {user_status}"
+            f"auth: {user_status}\n"
+            f"registry: {refresh_status}"
         )
 
     def _init_admin_user(self, base_dir: Path) -> str:
