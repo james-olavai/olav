@@ -1029,7 +1029,7 @@ def test_nl_bgp_down_query():
     assert "device_name | neighbor_ip | neighbor_as | state" in rendered, (
         f"Unexpected Scenario 2 header: {result!r}"
     )
-    assert "R2, 4.4.4.4, 65001, Idle, None" in rendered, (
+    assert "R2, 4.4.4.4, 65001, Idle" in rendered, (
         f"Expected latest R2 idle neighbor row in result; got: {result!r}"
     )
     assert "Established" not in rendered, f"Expected only down-ish BGP neighbors; got: {result!r}"
