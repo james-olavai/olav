@@ -1296,6 +1296,16 @@ async def cli_main_impl() -> None:
             console.print(result)
             return
 
+        # Handle sessions command (M4: session listing across interfaces)
+        if args.command == "sessions":
+            from olav.cli.commands.sessions import SessionsCommand
+
+            cmd = SessionsCommand()
+            sessions_args = " ".join(args.args) if args.args else ""
+            result = await cmd.execute(sessions_args)
+            console.print(result)
+            return
+
         # Handle service command
         if args.command == "service":
             from olav.cli.commands.service import ServiceCommand
