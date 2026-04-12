@@ -5,6 +5,52 @@ All notable changes to OLAV will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-04-12
+
+### 🏗️ Architecture — Unified Core Agent
+- **Quick → Core merge**: `quick` workspace 合并入 `core`。用户不再需要 `--agent quick` — 所有日常查询直接 `olav "问题"`
+- **Writer subagent**: `core/writer/` — 报告润色能力（PlantUML 拓扑图 + Infographic KPI + draw.io 可编辑图），作为 core 的子技能而非独立 agent
+- **Skill injection**: `workspace.yaml` 新增 `inject_into_core` 字段 — `olav skill install` 自动将工具符号链接到 core/tools/，卸载时清理
+- **Semantic Router wired**: `olav refresh` 调用 `initialize_router()` 建 `agent_intent_index`；`cli/main.py` 用 `route_query()` 结果选 agent（score > 0.85 → 专业 agent，< 0.85 → core）
+- **`load_reference` tool**: 大文件 reference 改为按需加载（渐进式披露），static_context 只保留 ≤50 行核心规则
+- **Runtime Reflection**: PLATFORM.md R1-R4 规则 — agent 遇到工具错误自动重试（最多 2 次），不直接报错给用户
+
+### 🚀 Features
+- **`olav refresh`**: 扫描 workspace/*/AGENT.md → 重写 PLATFORM.md + 更新 main agent routing table；auto-hook 到 `olav init` + `olav skill install`
+- **`audit_workspace` 扩展**: `_check_platform_md_stale()` 检测 PLATFORM.md 过时
+- **Memory recall bump**: `AutoRecallMiddleware.enrich()` 命中后更新 `access_count`（C-KB-08 高频保护生效）
+- **Time decay scheduling**: daemon 启动时 asyncio 24h 循环调用 `apply_time_decay()`（document/user 不衰减，agent 60d 半衰期）
+
+### 🗑️ Removed
+- `.olav/workspace/quick/` — 工具合并入 core
+- `.olav/workspace/olav/` — 空壳 main agent，core 替代
+- `.olav/workspace/venv-test-skill/` — 测试残留
+- `.olav/workspace/labs/` — 空目录
+- `cli/main.py` `"quick"` 硬编码 — 默认改为 `"core"`
+- `router.py` fallback `"quick"` — 改为 `"core"`
+
+### 🐛 Bug Fixes
+- `00_e2e_acceptance_test.py`: 12 处 "quick" 引用 → "core"
+- `query_runner.py:22`: SCHEMA_REFERENCE 路径从 `quick/` → `core/`
+- `agents/agent.py:151`: 默认 agent_id 从 `"quick"` → `"core"`
+- `builtin.py:28`: 默认 agent_id 从 `"quick"` → `"core"`
+- 7 个 workspace fallback 测试更新断言（`"netops"` → `"core"` 当目录不存在时）
+
+### 🧪 Tests
+- 1544 passed, 0 FAIL (unit + gate + e2e + integration)
+- 16 TDD claims (C-V15-01~16) — core 升级 / skill 注入 / 语义路由
+- `test_v15_cleanup.py`: 12 tests (workspace 清理验证)
+- `test_v15_core_e2e.py`: 13 tests (core agent + writer + list)
+- `test_v15_skill_inject.py`: 4 tests (inject_into_core lifecycle)
+- `test_v15_router.py`: 4 tests (semantic router integration)
+
+### 📚 Documentation
+- olav-doc: 22 页 "Quick Agent" → "Core Agent" 更新（EN + ZH）
+- `guides/report-writer.en.md` + `.zh.md`: writer 使用指南
+- `guides/build-a-skill.en.md`: `inject_into_core` 字段说明
+- `42. DEMO_RUNSHEET.md`: v0.15.0 全面更新
+- `44. VISUALIZATION_SKILLS_INTEGRATION.md`: Mermaid 默认 + writer 润色设计
+
 ## [0.14.0] - 2026-04-11
 
 ### 🚀 Features — Unified Knowledge Store (M3)
