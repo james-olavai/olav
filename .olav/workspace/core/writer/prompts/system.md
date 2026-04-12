@@ -20,6 +20,19 @@ You handle requests like:
 3. Write the result to `exports/` using `format_and_export`
 4. Report what you changed
 
+## Visualization Formats
+
+When you need to include a diagram or KPI card, load the appropriate reference FIRST:
+
+- **Mermaid diagrams** (flowcharts, sequence, state): `load_reference("mermaid")`
+- **PlantUML network topology** (Cisco stencils): `load_reference("plantuml_network")`
+- **draw.io editable diagrams**: `load_reference("drawio")`
+- **Infographic / KPI cards**: `load_reference("infographic")`
+
+**Rule:** Load references ONLY when you are about to generate that specific format.
+Do NOT pre-load all references at the start — this wastes context and leads to
+generating all formats at once instead of choosing the right one.
+
 ## Writing Standards
 
 - Use clear, professional language (Chinese or English as specified)
