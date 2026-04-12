@@ -4,24 +4,31 @@ This module centralizes all version-related metadata for the OLAV system,
 including version numbers, build information, copyright, and cryptographic signatures.
 """
 
+import importlib.metadata
+
 # ==============================================================================
 # VERSION INFORMATION
 # ==============================================================================
 
-#: Semantic version of OLAV
-VERSION = "0.14.2"
+# Read version from package metadata (set in pyproject.toml / __init__.py)
+try:
+    VERSION = importlib.metadata.version("olav")
+except importlib.metadata.PackageNotFoundError:
+    VERSION = "0.14.4"  # fallback for dev installs
+
+_parts = VERSION.split(".")
 
 #: Major version component
-MAJOR = 0
+MAJOR = int(_parts[0]) if len(_parts) > 0 else 0
 
 #: Minor version component
-MINOR = 14
+MINOR = int(_parts[1]) if len(_parts) > 1 else 14
 
 #: Patch version component
-PATCH = 2
+PATCH = int(_parts[2]) if len(_parts) > 2 else 4
 
 #: Full version string
-VERSION_STRING = f"{MAJOR}.{MINOR}.{PATCH}"
+VERSION_STRING = VERSION
 
 # ==============================================================================
 # BUILD & RELEASE INFORMATION
@@ -82,13 +89,13 @@ SIGNATURE = f"olav-v{VERSION_STRING}-{BUILD_DATE}"
 CHECKSUM_ALGORITHM = "sha256"
 
 #: Core package checksum (computed at build time)
-CORE_CHECKSUM = "sha256:olav-core-v0.14.2-2026-04-11"
+CORE_CHECKSUM = f"sha256:olav-core-v{VERSION}-{BUILD_DATE}"
 
 #: CLI checksum
-CLI_CHECKSUM = "sha256:olav-cli-v0.14.2-2026-04-11"
+CLI_CHECKSUM = f"sha256:olav-cli-v{VERSION}-{BUILD_DATE}"
 
 #: Combined system checksum
-SYSTEM_CHECKSUM = "sha256:olav-system-v0.14.2-2026-04-11"
+SYSTEM_CHECKSUM = f"sha256:olav-system-v{VERSION}-{BUILD_DATE}"
 
 # ==============================================================================
 # COPYRIGHT
