@@ -4,12 +4,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/olav"]
-include = [
-    "src/olav/data/**/*.txt",
-    "src/olav/data/**/*.md",
-    "src/olav/data/**/*.yaml",
-    "src/olav/data/**/*.py",
-]
 exclude = [
     "src/olav/enterprise/",
     "src/olav/core/schema_cache.py",
@@ -21,6 +15,9 @@ exclude = [
 include = [
     "/src/olav/**/*.py",
     "/src/olav/data/**/*.txt",
+    "/src/olav/data/**/*.md",
+    "/src/olav/data/**/*.yaml",
+    "/src/olav/data/**/*.json",
     "/src/olav/api/static/**",
     "/src/olav/py.typed",
     "/README.md",

@@ -76,9 +76,9 @@ class SemanticRouter:
                 from langchain_openai import OpenAIEmbeddings
 
                 self._embeddings = OpenAIEmbeddings(
-                    model=emb_config.api_model,
-                    api_key=emb_config.api_key,
-                    base_url=emb_config.base_url or None,
+                    model=emb_config.openai_model or emb_config.api_model,
+                    api_key=emb_config.openai_api_key or emb_config.api_key,
+                    base_url=emb_config.openai_base_url or None,
                 )
 
         return self._embeddings
