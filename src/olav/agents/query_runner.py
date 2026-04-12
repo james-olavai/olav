@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 def _get_schema_context() -> str:
     from olav.core.workspace import resolve_workspace_path
-    schema_ref = resolve_workspace_path("quick", "references") / "SCHEMA_REFERENCE.md"
+    schema_ref = resolve_workspace_path("core", "references") / "SCHEMA_REFERENCE.md"
     if not schema_ref.exists():
         raise FileNotFoundError(f"Schema reference not found: {schema_ref}")
     return schema_ref.read_text(encoding="utf-8")

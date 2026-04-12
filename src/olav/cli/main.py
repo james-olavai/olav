@@ -193,7 +193,7 @@ def parse_args():
         if agent is None:
             from olav.core.workspace import get_active_workspace
             ws = pre_args.workspace or get_active_workspace()
-            agent = "quick" if ws == "core" else ws
+            agent = ws  # core is the default agent (v0.15+)
         # Build a Namespace that matches what the rest of main() expects
         return _types.SimpleNamespace(
             command=None,
@@ -389,8 +389,8 @@ def parse_args():
     parser.add_argument(
         "--agent",
         "-a",
-        default="quick",
-        help="Agent identifier for separate memory stores (default: quick)",
+        default="core",
+        help="Agent identifier for separate memory stores (default: core)",
     )
     parser.add_argument(
         "--auto-approve",
@@ -994,6 +994,22 @@ async def run_single_query(
     else:
         user_id = os.environ.get("USER", "anonymous")
 
+    # Semantic routing: when assistant_id is default ("core"), let route_query
+    # potentially upgrade to a specialized agent (score > 0.85 → use that agent).
+    try:
+        from olav.core.router import route_query as _route_query
+
+        _routing_result = _route_query(query)
+        if (
+            assistant_id == "core"
+            and _routing_result.get("confidence", 0.0) > 0.85
+            and _routing_result.get("agent")
+            and _routing_result["agent"] != "core"
+        ):
+            assistant_id = _routing_result["agent"]
+    except Exception:
+        pass
+
     agent, backend = create_olav_agent_with_backend(
         assistant_id, session_id=session_id, workspace=workspace
     )
@@ -1029,7 +1045,7 @@ async def run_single_query(
     for _cb in _audit_cbs:
         _cb.bind_run(run_id, recorder)
 
-    # Record routing decision
+    # Record routing decision for audit
     try:
         from olav.core.router import route_query as _route_query
 
@@ -1244,7 +1260,7 @@ async def cli_main_impl() -> None:
             console.print()
             console.print("[bold]Global Options:[/bold]")
             console.print(
-                "  [yellow]-a, --agent[/yellow] AGENT       Set active agent (quick, ops, audit, config)"
+                "  [yellow]-a, --agent[/yellow] AGENT       Set active agent (core, ops, audit, config)"
             )
             console.print(
                 "  [yellow]--sandbox[/yellow] TYPE          Remote sandbox (none, modal, daytona, runloop)"

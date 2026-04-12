@@ -290,7 +290,7 @@ class SemanticRouter:
             except Exception as e:
                 logger.error(f"Failed to get routing LLM: {e}")
                 return {
-                    "agent": "olav",  # Default agent
+                    "agent": "core",  # Default agent
                     "confidence": 0.0,
                     "method": "default",
                 }
@@ -300,7 +300,7 @@ class SemanticRouter:
 
         ws_root = resolve_workspace_root()
         valid_agents = discover_valid_agents(ws_root if ws_root.exists() else None)
-        default_agent = valid_agents[0] if valid_agents else "quick"
+        default_agent = valid_agents[0] if valid_agents else "core"
 
         # Build routing prompt: use MANIFEST route_keywords where available
         from olav.core.agent_registry import discover_agents
@@ -342,10 +342,10 @@ Respond with only the agent name."""
         except Exception as e:
             logger.error(f"LLM routing failed: {e}")
             return {
-                "agent": "olav",
-                "confidence": 0.0,
-                "method": "default",
-            }
+                    "agent": "core",
+                    "confidence": 0.0,
+                    "method": "default",
+                }
 
 
 # Global router instance
@@ -382,7 +382,7 @@ def discover_valid_agents(workspace_root: "Path | None" = None) -> list[str]:
     Resolution order (first match wins):
       1. PLATFORM.md ``agents:`` list  — explicit Tier-1 registration
       2. Workspace subdirs with AGENT.md — filesystem fallback
-      3. ["quick"]                      — last-resort default
+      3. ["core"]                        — last-resort default (v0.15+)
 
     MANIFEST.yaml is no longer used at Tier 1; it is reserved for Skill
     auto-discovery (Tier 3) via :func:`olav.core.agent_registry.merge_into_config`.

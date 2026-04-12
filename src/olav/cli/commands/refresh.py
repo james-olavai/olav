@@ -225,6 +225,13 @@ def refresh_workspace(workspace_root: Path | None = None) -> str:
     _write_platform_md(workspace_root, agents)
     routing_updated = _update_main_agent_routing(workspace_root, agents)
 
+    # Build semantic routing index (non-fatal if LanceDB/embeddings unavailable)
+    try:
+        from olav.core.router import initialize_router
+        initialize_router()
+    except Exception as exc:
+        logger.debug("initialize_router skipped: %s", exc)
+
     flags = [a["flag"] for a in agents]
     note = "" if routing_updated else " (routing markers not found in olav/prompts/system.md)"
     return f"✓ {len(agents)} agents registered: {', '.join(flags)}{note}"
