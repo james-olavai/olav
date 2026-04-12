@@ -241,7 +241,7 @@ def merge_into_config(
     manifests:
         ``{name: AgentManifest}`` mapping from :func:`discover_agents`.
     agent_id:
-        The current agent's identifier (e.g. ``"quick"``).  Only MANIFEST
+        The current agent's identifier (e.g. ``"core"``).  Only MANIFEST
         entries whose ``agent == agent_id`` are injected.
 
     Returns

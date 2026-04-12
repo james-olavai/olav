@@ -199,6 +199,9 @@ class SkillCommand(BaseCommand):
         if decl.set_active:
             _update_active_workspace(decl.name)
 
+        # inject_into_core: symlink tools into core workspace
+        inject_tools_into_core(decl, workspace_dir, workspace_root)
+
         # Clean up temp clone dir
         if tmp_dir:
             import shutil as _sh
@@ -627,3 +630,99 @@ def _merge_into_workspace(
         f"merged {len(added_tools)} tool(s) into '{target_name}':\n"
         + "\n".join(f"  + {p}" for p in added_tools)
     )
+
+
+# ── inject_into_core ─────────────────────────────────────────────────────────
+
+
+def inject_tools_into_core(
+    decl: "WorkspaceDeclaration",
+    skill_workspace_dir: Path,
+    workspace_root: Path,
+) -> None:
+    """Inject tools declared in inject_into_core into the core workspace.
+
+    For each tool path in decl.inject_into_core.tools:
+    - Creates a symlink (or copy on non-POSIX) in core/tools/<toolname>
+    - Appends an entry to core/SKILL.md if not already present
+
+    Idempotent — safe to call multiple times.
+    """
+    if not decl.inject_into_core:
+        return
+    if not decl.inject_into_core.tools and not decl.inject_into_core.references:
+        return
+
+    core_dir = workspace_root / "core"
+    if not core_dir.exists():
+        return  # core workspace not present — skip silently
+
+    core_tools_dir = core_dir / "tools"
+    core_tools_dir.mkdir(parents=True, exist_ok=True)
+
+    injected_names: list[str] = []
+
+    for rel_tool_path in decl.inject_into_core.tools:
+        src_file = skill_workspace_dir / rel_tool_path
+        if not src_file.exists():
+            continue
+        tool_name = src_file.name
+        dest = core_tools_dir / tool_name
+        if dest.exists() or dest.is_symlink():
+            continue  # already present — idempotent
+        try:
+            dest.symlink_to(src_file.resolve())
+        except OSError:
+            import shutil as _sh
+            _sh.copy2(src_file, dest)
+        injected_names.append(tool_name)
+
+    if injected_names:
+        _append_tools_to_skill_md(core_dir / "SKILL.md", injected_names, decl.name)
+
+
+def remove_injected_tools_from_core(skill_name: str, workspace_root: Path) -> None:
+    """Remove symlinks and SKILL.md entries injected by a skill from core workspace.
+
+    Called during `olav skill uninstall <skill_name>`.
+    """
+    core_dir = workspace_root / "core"
+    if not core_dir.exists():
+        return
+
+    core_tools_dir = core_dir / "tools"
+    # Remove symlinks that point into the uninstalled skill's workspace dir
+    if core_tools_dir.exists():
+        skill_ws_dir = (workspace_root / skill_name).resolve()
+        for entry in list(core_tools_dir.iterdir()):
+            if entry.is_symlink():
+                target = entry.resolve()
+                try:
+                    target.relative_to(skill_ws_dir)
+                    entry.unlink()
+                except ValueError:
+                    pass  # symlink points elsewhere — keep it
+
+    # Remove SKILL.md lines annotated with the skill name
+    skill_md = core_dir / "SKILL.md"
+    if skill_md.exists():
+        lines = skill_md.read_text(encoding="utf-8").splitlines(keepends=True)
+        new_lines = [
+            ln for ln in lines
+            if f"injected by {skill_name}" not in ln
+        ]
+        skill_md.write_text("".join(new_lines), encoding="utf-8")
+
+
+def _append_tools_to_skill_md(skill_md_path: Path, tool_names: list[str], skill_name: str) -> None:
+    """Append tool entries to SKILL.md, skipping entries already present."""
+    if not skill_md_path.exists():
+        return
+    content = skill_md_path.read_text(encoding="utf-8")
+    lines_to_add = []
+    for name in tool_names:
+        stem = Path(name).stem
+        if stem not in content and name not in content:
+            lines_to_add.append(f"  - {stem:<22} # injected by {skill_name}\n")
+    if lines_to_add:
+        skill_md_path.write_text(content + "".join(lines_to_add), encoding="utf-8")

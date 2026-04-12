@@ -25,7 +25,7 @@ _cached_agent = None
 _cached_agent_params = {}
 
 
-def _get_or_create_agent(agent_id: str = "quick", **kwargs: object) -> object:
+def _get_or_create_agent(agent_id: str = "core", **kwargs: object) -> object:
     """Get cached agent or create new one with given params."""
     global _cached_agent, _cached_agent_params
 

@@ -148,7 +148,7 @@ class OLAVAgent:
         self.model_name = model_name or settings.llm_model_name
         self.temperature = temperature if temperature is not None else settings.llm_temperature
         self.olav_base_path = Path(olav_base_path)
-        self.agent_id = agent_id or "quick"
+        self.agent_id = agent_id or "core"
         self.session_id = session_id
         self.workspace = workspace
 

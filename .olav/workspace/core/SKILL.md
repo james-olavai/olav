@@ -5,6 +5,10 @@ tools:
   - api_request              # Authenticated API request to any registered service
   - run_python_code          # Pure-computation Python sandbox (no IO/shell)
   - execute_sql              # DuckDB query with read-only/write approval gate
+  - execute_cli              # Nornir CLI execution on network devices
+  - search_commands          # Query commands table by device/platform + keyword
+  - diff_configs             # Compare raw config snapshots between dates
+  - take_snapshot            # Trigger snapshot collection on network devices
   - web_search               # Web search via DuckDuckGo
   - recall_memory            # Recall from semantic memory (LanceDB)
   - search_knowledge_lancedb # Semantic KB search (LanceDB vector store)
@@ -22,7 +26,7 @@ static_context:
   - path: ./references/SKILL_DEVELOPMENT.md
   - path: ./references/REQUIRED_INFO_CHECK.md
 metadata:
-  version: 2.0.0
+  version: 3.0.0
   type: core
   category: platform
 ---
@@ -30,6 +34,8 @@ metadata:
 # Core Workspace
 
 These tools are globally available to **all agents** regardless of active workspace.
+
+## Platform Tools
 
 | Tool | Purpose |
 |------|---------|
@@ -48,10 +54,20 @@ These tools are globally available to **all agents** regardless of active worksp
 | `list_cron` | List all olav-managed scheduled tasks |
 | `add_cron` | Add or update a cron job: natural language → system crontab |
 | `remove_cron` | Remove a scheduled task by agent + instruction |
-| `apply_cron_schedules` | Declaratively apply `.olav/workspace/ops/netops_init/config/cron_schedules.yaml` |
+| `apply_cron_schedules` | Declaratively apply cron_schedules.yaml |
 
-## Design Principle
+## Network Operations Tools (v0.15+)
 
-Core tools are **platform infrastructure** — any agent or subagent may need them
-regardless of domain. Agent-specific tools (execute_cli, diff_configs, etc.)
-stay in their respective workspace SKILL.md.
+| Tool | Purpose |
+|------|---------|
+| `execute_cli` | Execute CLI commands on network devices (Nornir/Netmiko) |
+| `search_commands` | Query the commands table by device, platform, or keyword |
+| `diff_configs` | Compare raw config snapshots between two dates |
+| `take_snapshot` | Trigger snapshot collection on specified devices |
+
+## Escalation (complex tasks)
+
+For network simulation, topology changes, or multi-step operations, core will suggest:
+- `--agent ops` for network operations (deploy, simulate, topological changes)
+- `--agent audit` for compliance reports and policy auditing
+
