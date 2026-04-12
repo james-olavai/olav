@@ -79,14 +79,14 @@ class TestListAgentsClaim:
         result = run_olav("list")
         assert result.returncode == 0, result.stderr
 
-    def test_list_shows_quick_agent(self):
+    def test_list_shows_core_agent(self):
         result = run_olav("list")
-        assert "quick" in result.stdout
+        assert "core" in result.stdout
 
     def test_list_shows_multiple_agents(self):
         result = run_olav("list")
-        # At minimum quick, config, core should be present
-        for agent in ("quick", "config", "core"):
+        # At minimum ops, config, core should be present
+        for agent in ("ops", "config", "core"):
             assert agent in result.stdout, f"Agent '{agent}' not in list output"
 
 
@@ -105,17 +105,17 @@ class TestWorkspaceSwitchClaim:
         result = run_olav("workspace", "list")
         assert result.returncode == 0, result.stderr
 
-    def test_workspace_list_shows_quick(self):
+    def test_workspace_list_shows_core(self):
         result = run_olav("workspace", "list")
-        assert "quick" in result.stdout
+        assert "core" in result.stdout
 
     def test_workspace_use_exits_zero(self):
-        result = run_olav("workspace", "use", "quick")
+        result = run_olav("workspace", "use", "core")
         assert result.returncode == 0, result.stderr
 
     def test_workspace_use_confirms_switch(self):
-        result = run_olav("workspace", "use", "quick")
-        assert "quick" in result.stdout
+        result = run_olav("workspace", "use", "core")
+        assert "core" in result.stdout
 
 
 # ─────────────────────────────────────────────────────────
@@ -267,12 +267,12 @@ class TestExportClaim:
         shutil.rmtree(self.outdir, ignore_errors=True)
 
     def test_export_claude_plugin_exits_zero(self):
-        result = run_olav("export", "claude-plugin", "--agent", "quick", "--output", str(self.outdir))
+        result = run_olav("export", "claude-plugin", "--agent", "core", "--output", str(self.outdir))
         assert result.returncode == 0, f"stderr: {result.stderr}\nstdout: {result.stdout}"
 
     def test_export_claude_plugin_confirms_output(self):
-        result = run_olav("export", "claude-plugin", "--agent", "quick", "--output", str(self.outdir))
-        assert "exported" in result.stdout or "quick" in result.stdout
+        result = run_olav("export", "claude-plugin", "--agent", "core", "--output", str(self.outdir))
+        assert "exported" in result.stdout or "core" in result.stdout
 
 
 # ─────────────────────────────────────────────────────────
@@ -427,7 +427,7 @@ class TestSkillListClaim:
 
     def test_skill_list_shows_core_workspaces(self):
         result = run_olav("skill", "list")
-        for agent in ("quick", "config", "core"):
+        for agent in ("ops", "config", "core"):
             assert agent in result.stdout, f"Agent '{agent}' not in skill list output"
 
     def test_skill_list_shows_managed_skills(self):
@@ -521,12 +521,12 @@ class TestResetClaim:
     """
 
     def test_reset_exits_zero(self):
-        result = run_olav("reset", "--agent", "quick")
+        result = run_olav("reset", "--agent", "core")
         assert result.returncode == 0, result.stderr
 
     def test_reset_output_contains_reset_confirmation(self):
-        result = run_olav("reset", "--agent", "quick")
-        assert "reset" in result.stdout.lower() or "Agent quick" in result.stdout
+        result = run_olav("reset", "--agent", "core")
+        assert "reset" in result.stdout.lower() or "Agent core" in result.stdout
 
 
 # ─────────────────────────────────────────────────────────
@@ -687,7 +687,7 @@ class TestAgentOverrideClaim:
         original = api_json.read_text()
         try:
             config = json.loads(original)
-            config["agent_overrides"] = {"quick": {"model": "gpt-4o-mini"}}
+            config["agent_overrides"] = {"core": {"model": "gpt-4o-mini"}}
             api_json.write_text(json.dumps(config, indent=2))
             result = run_olav("version")
             assert result.returncode == 0, result.stderr
@@ -700,7 +700,7 @@ class TestAgentOverrideClaim:
         original = api_json.read_text()
         try:
             config = json.loads(original)
-            config["agent_overrides"] = {"quick": {"model": "gpt-4o-mini"}}
+            config["agent_overrides"] = {"core": {"model": "gpt-4o-mini"}}
             api_json.write_text(json.dumps(config, indent=2))
             result = run_olav("version")
             assert "v0." in result.stdout
@@ -1094,7 +1094,7 @@ class TestSSEStreamClaim:
         try:
             req = urllib.request.Request(
                 "http://localhost:2280/runs/stream",
-                data=_json.dumps({"input": {"messages": [{"role": "user", "content": "say hi in one word"}], "agent": "quick"}}).encode(),
+                data=_json.dumps({"input": {"messages": [{"role": "user", "content": "say hi in one word"}], "agent": "core"}}).encode(),
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
@@ -1112,7 +1112,7 @@ class TestSSEStreamClaim:
         try:
             req = urllib.request.Request(
                 "http://localhost:2280/runs/stream",
-                data=_json.dumps({"input": {"messages": [{"role": "user", "content": "say hi in one word"}], "agent": "quick"}}).encode(),
+                data=_json.dumps({"input": {"messages": [{"role": "user", "content": "say hi in one word"}], "agent": "core"}}).encode(),
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
@@ -1141,7 +1141,7 @@ class TestThreadManagementClaim:
         try:
             req = urllib.request.Request(
                 "http://localhost:2280/threads",
-                data=_json.dumps({"agent": "quick"}).encode(),
+                data=_json.dumps({"agent": "core"}).encode(),
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
@@ -1160,7 +1160,7 @@ class TestThreadManagementClaim:
             # Create thread
             req = urllib.request.Request(
                 "http://localhost:2280/threads",
-                data=_json.dumps({"agent": "quick"}).encode(),
+                data=_json.dumps({"agent": "core"}).encode(),
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
@@ -1169,7 +1169,7 @@ class TestThreadManagementClaim:
             # Stream in thread
             req2 = urllib.request.Request(
                 f"http://localhost:2280/threads/{tid}/runs/stream",
-                data=_json.dumps({"input": {"messages": [{"role": "user", "content": "say hi"}], "agent": "quick"}}).encode(),
+                data=_json.dumps({"input": {"messages": [{"role": "user", "content": "say hi"}], "agent": "core"}}).encode(),
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
@@ -1299,14 +1299,14 @@ class TestLDAPAuthClaim:
 class TestNaturalLanguageClaim:
     """C-L1-01 — OLAV accepts natural language and translates to real tool calls.
 
-    Verification: `olav --agent quick "list all devices in the inventory"`
+    Verification: `olav --agent core "list all devices in the inventory"`
     LLM must call execute_sql and return formatted table.
     """
 
     @pytest.fixture(scope="class", autouse=True)
     def run_nl_query(self, request):
         result = subprocess.run(
-            ["uv", "run", "python", "-m", "olav", "--agent", "quick",
+            ["uv", "run", "python", "-m", "olav", "--agent", "core",
              "list all devices in the inventory"],
             capture_output=True, text=True, cwd=REPO_ROOT, timeout=180,
         )
@@ -1510,7 +1510,7 @@ class TestWorkspaceStatusClaim:
     def test_workspace_status_shows_agents(self):
         result = run_olav("workspace", "status")
         out = result.stdout
-        assert "quick" in out
+        assert "core" in out
         assert "ops" in out
 
     def test_workspace_status_shows_route_keywords(self):
