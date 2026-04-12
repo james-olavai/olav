@@ -112,6 +112,35 @@ class DaemonServer:
         except Exception:
             pass
 
+    async def _run_time_decay_loop(
+        self, stop_event: asyncio.Event, interval_hours: float = 24.0
+    ) -> None:
+        """Run apply_time_decay() every interval_hours until stop_event is set."""
+        interval_secs = interval_hours * 3600
+        # Wait one full interval before first run so startup is not delayed
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_secs)
+            return  # stop_event fired before first decay run
+        except asyncio.TimeoutError:
+            pass
+
+        while not stop_event.is_set():
+            try:
+                from olav.core.memory import get_store
+                from olav.core.memory.middleware import apply_time_decay
+
+                store = get_store()
+                apply_time_decay(store)
+                logger.info("Daemon: time-decay applied.")
+            except Exception as e:
+                logger.warning("Daemon: time-decay failed (non-fatal): %s", e)
+
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=interval_secs)
+                return
+            except asyncio.TimeoutError:
+                pass
+
     async def run(self) -> None:
         """Start the Unix socket server and block until SIGTERM/SIGINT."""
         self._socket_path.parent.mkdir(parents=True, exist_ok=True)
@@ -146,8 +175,17 @@ class DaemonServer:
         signal.signal(signal.SIGTERM, _shutdown)
         signal.signal(signal.SIGINT, _shutdown)
 
+        # Start background time-decay task (runs every 24h, non-fatal)
+        decay_task = asyncio.create_task(self._run_time_decay_loop(stop_event))
+
         async with self._server:
             await stop_event.wait()
+
+        decay_task.cancel()
+        try:
+            await decay_task
+        except asyncio.CancelledError:
+            pass
 
         # Cleanup
         if self._socket_path.exists():
