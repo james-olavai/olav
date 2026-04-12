@@ -22,11 +22,12 @@ tools:
   - add_cron                 # Add or update a scheduled olav task (natural language → crontab)
   - remove_cron              # Remove a scheduled olav task by agent + instruction
   - apply_cron_schedules     # Apply cron_schedules.yaml declaratively
+  - load_reference           # Load viz/schema reference docs on demand (mermaid, plantuml, drawio, infographic, schema)
 static_context:
   - path: ./references/SKILL_DEVELOPMENT.md
   - path: ./references/REQUIRED_INFO_CHECK.md
 metadata:
-  version: 3.0.0
+  version: 3.1.0
   type: core
   category: platform
 ---
