@@ -33,6 +33,13 @@ class AgentDeclaration:
 
 
 @dataclass
+class InjectIntoCoreDeclaration:
+    """Declares tools/references to be injected into the core workspace on install."""
+    tools: list[str] = field(default_factory=list)
+    references: list[str] = field(default_factory=list)
+
+
+@dataclass
 class WorkspaceDeclaration:
     name: str
     version: str = "0.1.0"
@@ -43,6 +50,7 @@ class WorkspaceDeclaration:
     db_schema: str | None = None
     init_command: str | None = None
     agents: list[AgentDeclaration] = field(default_factory=list)
+    inject_into_core: InjectIntoCoreDeclaration | None = None
 
     @classmethod
     def from_yaml(cls, path: Path) -> "WorkspaceDeclaration":
@@ -54,6 +62,13 @@ class WorkspaceDeclaration:
             env_hint=list(requires_raw.get("env_hint") or []),
         )
         agents = [_parse_agent(a) for a in (data.get("agents") or [])]
+        inject_raw = data.get("inject_into_core")
+        inject: InjectIntoCoreDeclaration | None = None
+        if inject_raw:
+            inject = InjectIntoCoreDeclaration(
+                tools=list(inject_raw.get("tools") or []),
+                references=list(inject_raw.get("references") or []),
+            )
         return cls(
             name=data["name"],  # required — raises KeyError if absent
             version=str(data.get("version", "0.1.0")),
@@ -64,6 +79,7 @@ class WorkspaceDeclaration:
             db_schema=data.get("db_schema"),
             init_command=data.get("init_command"),
             agents=agents,
+            inject_into_core=inject,
         )
 
 
@@ -92,17 +108,11 @@ def get_active_workspace() -> str:
     to the legacy ``.olav/config/settings.json`` so existing installations
     continue to work until they run ``olav workspace use <name>`` once.
 
-    Validates that the named workspace directory exists; if the stored name
-    points to a non-existent workspace (e.g. a stale "quick" entry), falls
-    back to "core" to avoid RuntimeError on first run.
+    Returns whatever name is stored in the config; defaults to "core" only
+    when no valid name is found. Directory existence is NOT validated here —
+    the caller is responsible for handling missing workspace directories.
     """
     import json as _json
-
-    def _workspace_exists(name: str) -> bool:
-        ws_root = Path(".olav") / "workspace" / name
-        return ws_root.is_dir() and (
-            (ws_root / "MANIFEST.yaml").exists() or (ws_root / "AGENT.md").exists()
-        )
 
     # Primary: api.json (stores active_workspace alongside LLM / auth config)
     api_path = Path(".olav") / "config" / "api.json"
@@ -110,7 +120,7 @@ def get_active_workspace() -> str:
         try:
             data = _json.loads(api_path.read_text(encoding="utf-8"))
             ws = data.get("active_workspace")
-            if ws and _workspace_exists(str(ws)):
+            if ws and str(ws).strip():
                 return str(ws)
         except Exception:  # noqa: BLE001
             pass
@@ -121,7 +131,7 @@ def get_active_workspace() -> str:
         try:
             data = _json.loads(settings_path.read_text(encoding="utf-8"))
             ws = data.get("active_workspace")
-            if ws and _workspace_exists(str(ws)):
+            if ws and str(ws).strip():
                 return str(ws)
         except Exception:  # noqa: BLE001
             pass

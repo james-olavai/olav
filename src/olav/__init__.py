@@ -3,7 +3,7 @@ OLAV v0.14.5 - AI Operations Assistant
 DeepAgents Native Framework
 """
 
-__version__ = "0.14.5"
+__version__ = "0.15.0"
 
 
 def __getattr__(name: str) -> object:  # noqa: ANN401

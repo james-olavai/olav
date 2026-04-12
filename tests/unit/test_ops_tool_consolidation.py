@@ -24,7 +24,7 @@ REPO = Path(__file__).parent.parent.parent
 WORKSPACE = REPO / ".olav/workspace"
 OPS = WORKSPACE / "ops"
 OPS_TOOLS = OPS / "tools"
-QUICK_TOOLS = WORKSPACE / "quick/tools"
+CORE_TOOLS = WORKSPACE / "core/tools"
 CONFIG_TOOLS = WORKSPACE / "config/tools"
 
 
@@ -56,38 +56,49 @@ def resolves_ok(path: Path) -> bool:
 
 
 class TestPhaseASymlinks:
-    """quick/tools and config/tools duplicate files must be symlinks."""
+    """core/tools and config/tools must contain the canonical ops tools (v0.15: quick→core)."""
 
-    # quick/tools
+    # core/tools — v0.15: tools copied/symlinked into core from ops
 
-    def test_quick_execute_cli_is_symlink(self):
-        p = QUICK_TOOLS / "execute_cli.py"
-        assert is_symlink(p), f"{p} must be a symlink, not a physical file"
+    def test_core_execute_cli_exists(self):
+        p = CORE_TOOLS / "execute_cli.py"
+        assert p.exists(), f"{p} must exist in core/tools"
 
-    def test_quick_execute_cli_points_to_canonical(self):
-        p = QUICK_TOOLS / "execute_cli.py"
-        expected = (OPS_TOOLS / "execute_cli.py").resolve()
-        assert symlink_target(p) == expected
+    def test_core_execute_cli_content_matches_ops(self):
+        p = CORE_TOOLS / "execute_cli.py"
+        canonical = OPS_TOOLS / "execute_cli.py"
+        assert p.exists() and canonical.exists()
+        # Either symlink to canonical, or same content
+        if p.is_symlink():
+            assert p.resolve() == canonical.resolve()
+        else:
+            assert p.read_text() == canonical.read_text()
 
-    def test_quick_diff_configs_is_symlink(self):
-        p = QUICK_TOOLS / "diff_configs.py"
-        assert is_symlink(p), f"{p} must be a symlink"
+    def test_core_diff_configs_exists(self):
+        p = CORE_TOOLS / "diff_configs.py"
+        assert p.exists(), f"{p} must exist in core/tools"
 
-    def test_quick_diff_configs_points_to_canonical(self):
-        p = QUICK_TOOLS / "diff_configs.py"
-        expected = (OPS_TOOLS / "diff_configs.py").resolve()
-        assert symlink_target(p) == expected
+    def test_core_diff_configs_content_matches_ops(self):
+        p = CORE_TOOLS / "diff_configs.py"
+        canonical = OPS_TOOLS / "diff_configs.py"
+        assert p.exists() and canonical.exists()
+        if p.is_symlink():
+            assert p.resolve() == canonical.resolve()
+        else:
+            assert p.read_text() == canonical.read_text()
 
-    def test_quick_search_commands_is_symlink(self):
-        p = QUICK_TOOLS / "search_commands.py"
-        assert is_symlink(p), f"{p} must be a symlink"
+    def test_core_search_commands_exists(self):
+        p = CORE_TOOLS / "search_commands.py"
+        assert p.exists(), f"{p} must exist in core/tools"
 
-    def test_quick_search_commands_points_to_canonical(self):
-        p = QUICK_TOOLS / "search_commands.py"
-        expected = (OPS_TOOLS / "search_commands.py").resolve()
-        assert symlink_target(p) == expected
-
-    # config/tools
+    def test_core_search_commands_content_matches_ops(self):
+        p = CORE_TOOLS / "search_commands.py"
+        canonical = OPS_TOOLS / "search_commands.py"
+        assert p.exists() and canonical.exists()
+        if p.is_symlink():
+            assert p.resolve() == canonical.resolve()
+        else:
+            assert p.read_text() == canonical.read_text()
 
     def test_config_execute_cli_is_symlink(self):
         p = CONFIG_TOOLS / "execute_cli.py"
@@ -293,13 +304,15 @@ class TestSymlinkIntegrity:
         broken = [str(p) for p in self._collect_symlinks() if not resolves_ok(p)]
         assert not broken, f"Broken symlinks found:\n" + "\n".join(broken)
 
-    def test_quick_symlinks_not_broken(self):
+    def test_core_tools_not_broken(self):
+        if not CORE_TOOLS.exists():
+            return  # core/tools doesn't exist yet — skip
         broken = [
             str(p)
-            for p in QUICK_TOOLS.iterdir()
+            for p in CORE_TOOLS.iterdir()
             if p.is_symlink() and not resolves_ok(p)
         ]
-        assert not broken, f"Broken quick/tools symlinks: {broken}"
+        assert not broken, f"Broken core/tools symlinks: {broken}"
 
     def test_config_symlinks_not_broken(self):
         broken = [

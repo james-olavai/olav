@@ -141,10 +141,10 @@ def create_checkpointer(
     Stores checkpoints in
     ~/.olav/checkpoints/{username}/{workspace}/{agent_id}/checkpoints.db
     so each user + workspace combination gets its own isolated checkpoint store.
-    Two workspaces with the same agent name (e.g. "quick") will never collide.
+    Two workspaces with the same agent name (e.g. "core") will never collide.
 
     Args:
-        agent_id: Agent identifier (e.g., "ops", "quick").
+        agent_id: Agent identifier (e.g., "ops", "core").
         username: OS username. Defaults to $USER env var.
         workspace: Active workspace name. Defaults to "core".
 
