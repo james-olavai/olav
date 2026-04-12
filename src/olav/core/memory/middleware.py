@@ -190,6 +190,16 @@ class AutoRecallMiddleware:
             if not context_block:
                 return input_
 
+            # Bump access_count for every recalled memory (non-blocking)
+            for mem in memories:
+                try:
+                    self._store.update_memory(
+                        mem["id"],
+                        access_count=(mem.get("access_count") or 0) + 1,
+                    )
+                except Exception:
+                    pass
+
             # Prepend to user message
             enriched_text = f"{context_block}\n\n{query_text}"
             logger.info(
