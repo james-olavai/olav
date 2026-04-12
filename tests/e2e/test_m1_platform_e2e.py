@@ -4,7 +4,7 @@ Tests core platform CLI commands via real subprocess calls.
 All tests are always-run (no LLM, no external services required).
 
 Always-run:
-  C-L1-01 — olav version → output contains version string + v0.14.0
+  C-L1-01 — olav version → output contains version string matching installed package
   C-L1-02 — olav list → returns at least one agent name
   C-L1-03 — olav --help → exits 0 and lists subcommands
   C-L1-04 — olav refresh → outputs N agents registered + exit 0
@@ -19,10 +19,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+import importlib.metadata
+
 import pytest
 
 _ROOT = Path(__file__).resolve().parents[2]
 _PYTHON = sys.executable
+_CURRENT_VERSION = importlib.metadata.version("olav")
 
 
 def _run(*args, timeout=60):
@@ -55,9 +58,9 @@ class TestPlatformVersion:
         assert self._rc == 0, f"olav version exited {self._rc}"
 
     def test_version_string_present(self):
-        """Version line must contain v0.14.0."""
-        assert "v0.14.0" in self._out, (
-            f"Expected 'v0.14.0' in version output, got:\n{self._out[:400]}"
+        """Version line must contain the current installed version."""
+        assert _CURRENT_VERSION in self._out, (
+            f"Expected '{_CURRENT_VERSION}' in version output, got:\n{self._out[:400]}"
         )
 
     def test_olav_branding_present(self):
