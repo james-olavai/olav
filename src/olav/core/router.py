@@ -398,7 +398,7 @@ def discover_valid_agents(workspace_root: "Path | None" = None) -> list[str]:
         workspace_root = Path(workspace_root)
 
     if not workspace_root.exists():
-        return ["quick"]
+        return ["core"]
 
     # Tier 1 — PLATFORM.md explicit list
     registry = PlatformRegistry.load(workspace_root)
@@ -411,7 +411,7 @@ def discover_valid_agents(workspace_root: "Path | None" = None) -> list[str]:
         for d in sorted(workspace_root.iterdir())
         if d.is_dir() and (d / "AGENT.md").exists()
     ]
-    return names if names else ["quick"]
+    return names if names else ["core"]
 
 
 def _load_agents_from_workspace() -> list[dict[str, Any]]:

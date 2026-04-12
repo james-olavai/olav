@@ -231,7 +231,7 @@ def parse_args():
 
     # Admin command
     admin_parser = subparsers.add_parser("admin", help="Admin commands (status, backup, etc.)")
-    admin_parser.add_argument("args", nargs="*", help="Admin command arguments")
+    admin_parser.add_argument("args", nargs=argparse.REMAINDER, help="Admin command arguments")
 
     # Config command
     config_parser = subparsers.add_parser(

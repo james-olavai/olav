@@ -91,8 +91,18 @@ def get_active_workspace() -> str:
     Checks ``.olav/config/api.json`` (new location) first, then falls back
     to the legacy ``.olav/config/settings.json`` so existing installations
     continue to work until they run ``olav workspace use <name>`` once.
+
+    Validates that the named workspace directory exists; if the stored name
+    points to a non-existent workspace (e.g. a stale "quick" entry), falls
+    back to "core" to avoid RuntimeError on first run.
     """
     import json as _json
+
+    def _workspace_exists(name: str) -> bool:
+        ws_root = Path(".olav") / "workspace" / name
+        return ws_root.is_dir() and (
+            (ws_root / "MANIFEST.yaml").exists() or (ws_root / "AGENT.md").exists()
+        )
 
     # Primary: api.json (stores active_workspace alongside LLM / auth config)
     api_path = Path(".olav") / "config" / "api.json"
@@ -100,7 +110,7 @@ def get_active_workspace() -> str:
         try:
             data = _json.loads(api_path.read_text(encoding="utf-8"))
             ws = data.get("active_workspace")
-            if ws:
+            if ws and _workspace_exists(str(ws)):
                 return str(ws)
         except Exception:  # noqa: BLE001
             pass
@@ -111,7 +121,7 @@ def get_active_workspace() -> str:
         try:
             data = _json.loads(settings_path.read_text(encoding="utf-8"))
             ws = data.get("active_workspace")
-            if ws:
+            if ws and _workspace_exists(str(ws)):
                 return str(ws)
         except Exception:  # noqa: BLE001
             pass
