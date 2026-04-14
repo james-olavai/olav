@@ -12,6 +12,9 @@ Following the integration plan in dev_docs/LANCEDB_MEMORY_SYSTEM_INTEGRATION.md
 
 import json
 import logging
+import math
+import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -717,69 +720,48 @@ def reset_store():
         _store_instance = None
 
 
-def _get_cache_schema(embedding_dim: int) -> pa.Schema:
-    """PyArrow schema for the semantic cache table."""
-    return pa.schema(
-        [
-            ("id", pa.string()),
-            ("query_vector", pa.list_(pa.float32(), embedding_dim)),
-            ("result_json", pa.string()),
-            ("created_at", pa.timestamp("us")),
-        ]
-    )
-
-
 class SemanticCache:
-    """Tier-0 Semantic Cache for hybrid_search() results.
+    """Tier-0 in-memory Semantic Cache for hybrid_search() results.
 
     When a query vector is within `threshold` cosine distance of a previously
     cached query, the stored results are returned immediately — bypassing the
     full vector + BM25 pipeline.  Cache entries are evicted after `ttl_hours`
-    hours or when the table exceeds `max_entries` rows.
+    hours or when the store exceeds `max_entries` rows.
+
+    In-memory is appropriate here: TTL ≤24h means entries expire before
+    typical service restarts, so disk persistence adds overhead with no benefit.
+    Class-level shared state ensures all instances (including those created
+    just to call invalidate_all()) access the same cache.
 
     Implements §4 of LANCEDB_MEMORY_SYSTEM_INTEGRATION.md:
         "If a query is 98% similar to a frequent cached request, return the
         cached answer immediately."
     """
 
+    # Shared across all instances — (query_vector, results, timestamp_seconds)
+    _entries: list[tuple[list[float], list[dict], float]] = []
+    _lock = threading.Lock()
+
     def __init__(
         self,
-        store: "LanceDBStore",
+        store=None,  # kept for API compatibility, no longer used
         threshold: float = 0.02,
         ttl_hours: int = 24,
         max_entries: int = 500,
-        table_name: str = CACHE_TABLE,
+        table_name: str = CACHE_TABLE,  # kept for API compatibility
     ) -> None:
-        self._store = store
         self._threshold = threshold
-        self._ttl_hours = ttl_hours
+        self._ttl_seconds = ttl_hours * 3600
         self._max_entries = max_entries
-        self._table_name = table_name
 
-    def _ensure_table(self) -> "lancedb.table.LanceTable":
-        db = self._store.connect()
-        if self._table_name not in db.table_names():
-            schema = _get_cache_schema(self._store.embedding_dim)
-            tbl = db.create_table(self._table_name, schema=schema)
-            logger.debug(f"Created semantic cache table: {self._table_name}")
-            return tbl
-        tbl = db.open_table(self._table_name)
-        # Schema migration: recreate if query_vector dim doesn't match
-        for field in tbl.schema:
-            if field.name == "query_vector" and hasattr(field.type, "list_size"):
-                if field.type.list_size != self._store.embedding_dim:
-                    logger.warning(
-                        "Cache table '%s' has vector dim %d but embedder is %d — recreating.",
-                        self._table_name,
-                        field.type.list_size,
-                        self._store.embedding_dim,
-                    )
-                    db.drop_table(self._table_name)
-                    schema = _get_cache_schema(self._store.embedding_dim)
-                    tbl = db.create_table(self._table_name, schema=schema)
-                    logger.debug(f"Recreated semantic cache table: {self._table_name}")
-                break
-        return tbl
+    @staticmethod
+    def _cosine_distance(a: list[float], b: list[float]) -> float:
+        dot = sum(x * y for x, y in zip(a, b))
+        mag_a = math.sqrt(sum(x * x for x in a))
+        mag_b = math.sqrt(sum(x * x for x in b))
+        if mag_a == 0.0 or mag_b == 0.0:
+            return 1.0
+        return 1.0 - dot / (mag_a * mag_b)
 
     def get(
         self,
@@ -790,93 +772,57 @@ class SemanticCache:
     ) -> list[dict] | None:
         """Return cached results if a very similar query was seen recently.
 
-        Args:
-            query_vector: Embedding of the current query.
-            recorder: Optional ``AuditEventRecorder`` — when provided together
-                with *run_id*, a ``semantic_cache_hit`` event is written on hit.
-            run_id: Current run identifier (required for audit recording).
-
         Returns None on cache miss or any error (non-fatal).
         """
         try:
-            tbl = self._ensure_table()
-            if tbl.count_rows() == 0:
-                return None
-
-            hits = tbl.search(query_vector, vector_column_name="query_vector").limit(1).to_list()
-            if not hits:
-                return None
-
-            hit = hits[0]
-            distance = hit.get("_distance", 1.0)
-            if distance > self._threshold:
-                return None  # not similar enough
-
-            # TTL check
-            created_at = hit.get("created_at")
-            if created_at is not None:
-                if isinstance(created_at, datetime):
-                    if created_at.tzinfo is None:
-                        created_at = created_at.replace(tzinfo=UTC)
-                    age_hours = (datetime.now(UTC) - created_at).total_seconds() / 3600
-                    if age_hours > self._ttl_hours:
-                        return None  # expired
-
-            logger.debug("SemanticCache: hit (distance=%.4f)", distance)
-
-            if recorder is not None and run_id is not None:
-                recorder.record(
-                    event_type="semantic_cache_hit",
-                    run_id=run_id,
-                    payload={"distance": distance},
-                )
-
-            return json.loads(hit["result_json"])
-
+            now = time.time()
+            best_dist = 1.0
+            best_result: list[dict] | None = None
+            with SemanticCache._lock:
+                for vec, results, ts in SemanticCache._entries:
+                    if now - ts > self._ttl_seconds:
+                        continue  # expired
+                    dist = self._cosine_distance(query_vector, vec)
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_result = results
+            if best_dist <= self._threshold and best_result is not None:
+                logger.debug("SemanticCache: hit (distance=%.4f)", best_dist)
+                if recorder is not None and run_id is not None:
+                    recorder.record(
+                        event_type="semantic_cache_hit",
+                        run_id=run_id,
+                        payload={"distance": best_dist},
+                    )
+                return best_result
         except Exception as e:
             logger.debug(f"SemanticCache.get error (non-fatal): {e}")
-            return None
+        return None
 
     def put(self, query_vector: list[float], results: list[dict]) -> None:
         """Store search results keyed by query vector."""
         try:
-            import uuid
-
-            tbl = self._ensure_table()
-            entry_id = f"cache-{uuid.uuid4().hex[:8]}"
-            record = pa.table(
-                [
-                    pa.array([entry_id]),
-                    pa.array([query_vector]),
-                    pa.array([json.dumps(results, default=str)]),
-                    pa.array([datetime.now()]),
-                ],
-                schema=_get_cache_schema(self._store.embedding_dim),
-            )
-            tbl.add(record)
-
-            # Evict oldest entries when over capacity
-            try:
-                count = tbl.count_rows()
-                if count > self._max_entries:
-                    overflow = count - self._max_entries
-                    oldest = tbl.search().limit(overflow).to_list()
-                    for row in oldest:
-                        if row.get("id"):
-                            tbl.delete(f"id = '{row['id']}'")
-            except Exception:
-                pass  # eviction failure is non-fatal
-
+            now = time.time()
+            with SemanticCache._lock:
+                # Evict expired entries first
+                SemanticCache._entries = [
+                    (v, r, ts)
+                    for v, r, ts in SemanticCache._entries
+                    if now - ts <= self._ttl_seconds
+                ]
+                # Trim to max_entries (drop oldest)
+                if len(SemanticCache._entries) >= self._max_entries:
+                    SemanticCache._entries = SemanticCache._entries[-(self._max_entries - 1):]
+                SemanticCache._entries.append((query_vector, results, now))
         except Exception as e:
             logger.debug(f"SemanticCache.put error (non-fatal): {e}")
 
     def invalidate_all(self) -> None:
-        """Drop the entire cache table."""
+        """Clear the entire in-memory cache."""
         try:
-            db = self._store.connect()
-            if self._table_name in db.table_names():
-                db.drop_table(self._table_name)
-                logger.debug("SemanticCache: invalidated all entries.")
+            with SemanticCache._lock:
+                SemanticCache._entries.clear()
+            logger.debug("SemanticCache: invalidated all entries.")
         except Exception as e:
             logger.debug(f"SemanticCache.invalidate_all error: {e}")
 
