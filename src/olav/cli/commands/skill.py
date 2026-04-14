@@ -232,6 +232,11 @@ class SkillCommand(BaseCommand):
             # inject_into_core: symlink tools into core workspace
             inject_tools_into_core(decl, workspace_dir, workspace_root)
 
+            # Post-install audit: validate SKILL.md, tools, inject_into_core
+            audit_issues = _audit_skill_install(decl, workspace_dir, workspace_root)
+            for issue in audit_issues:
+                warnings.append(f"[audit] {issue}")
+
             installed_names.append(decl.name)
 
         # Update settings.json if set_active
@@ -788,3 +793,66 @@ def _append_tools_to_skill_md(skill_md_path: Path, tool_names: list[str], skill_
             lines_to_add.append(f"  - {stem:<22} # injected by {skill_name}\n")
     if lines_to_add:
         skill_md_path.write_text(content + "".join(lines_to_add), encoding="utf-8")
+
+
+# ── Post-install audit ────────────────────────────────────────────────────────
+
+
+def _audit_skill_install(
+    decl: "WorkspaceDeclaration",
+    workspace_dir: Path,
+    workspace_root: Path,
+) -> list[str]:
+    """Validate a freshly installed workspace.
+
+    Returns list of warning strings (empty = all good).
+    Checks:
+    1. SKILL.md exists and has YAML frontmatter
+    2. Tools listed in SKILL.md frontmatter exist as .py files
+    3. inject_into_core tools are present in core/tools/
+    4. AGENT.md exists (for full agent workspaces)
+    5. prompts/system.md exists (for full agent workspaces)
+    """
+    issues: list[str] = []
+
+    # 1. SKILL.md frontmatter
+    skill_md = workspace_dir / "SKILL.md"
+    skill_tools: list[str] = []
+    if not skill_md.exists():
+        issues.append("SKILL.md missing")
+    else:
+        text = skill_md.read_text(encoding="utf-8").lstrip()
+        if not text.startswith("---"):
+            issues.append("SKILL.md has no YAML frontmatter")
+        else:
+            try:
+                parts = text.split("---", 2)
+                meta = yaml.safe_load(parts[1]) or {} if len(parts) >= 2 else {}
+                skill_tools = list(meta.get("tools", []) or [])
+            except Exception as exc:  # noqa: BLE001
+                issues.append(f"SKILL.md frontmatter parse error: {exc}")
+
+    # 2. Tools listed in SKILL.md exist as .py files
+    for tool_path in skill_tools:
+        tool_file = workspace_dir / tool_path if not tool_path.endswith(".py") \
+            else workspace_dir / tool_path
+        if not tool_file.exists():
+            alt = workspace_dir / "tools" / Path(tool_path).name
+            if not alt.exists():
+                issues.append(f"tool declared in SKILL.md not found: {tool_path}")
+
+    # 3. inject_into_core tools present in core/tools/
+    if decl.inject_into_core and decl.inject_into_core.tools:
+        core_tools = workspace_root / "core" / "tools"
+        for rel_path in decl.inject_into_core.tools:
+            dest = core_tools / Path(rel_path).name
+            if not dest.exists() and not dest.is_symlink():
+                issues.append(f"inject_into_core tool not found in core/tools: {Path(rel_path).name}")
+
+    # 4 & 5. AGENT.md + prompts/system.md (optional but expected for full agents)
+    agent_md = workspace_dir / "AGENT.md"
+    system_md = workspace_dir / "prompts" / "system.md"
+    if agent_md.exists() and not system_md.exists():
+        issues.append("AGENT.md present but prompts/system.md missing")
+
+    return issues

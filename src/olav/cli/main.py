@@ -1586,7 +1586,7 @@ What tools are available and when should each be used?
         except ImportError as _e:
             console.print(
                 f"[red]Error:[/red] Interactive mode requires deepagents-cli: {_e}\n"
-                "Install with: [cyan]pip install deepagents-cli==0.0.10 --no-deps[/cyan]"
+                "Install with: [cyan]pip install 'deepagents-cli>=0.0.37'[/cyan]"
             )
             sys.exit(1)
 

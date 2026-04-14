@@ -282,9 +282,9 @@ exclude_lines = [
 ]
 
 [tool.uv]
-# Override deepagents-cli==0.0.10's deepagents==0.2.8 exact pin in [tui] extras.
-# Core olav does not depend on deepagents-cli; this only applies when [tui] is installed.
-# Our package requires deepagents>=0.5.0,<1.0; these constraints take precedence.
+# deepagents-cli>=0.0.37 is a core dependency (see pyproject.toml [project.dependencies]).
+# deepagents-cli transitively requires deepagents>=0.5.0,<1.0; pin here to avoid
+# any future transitive conflict.
 override-dependencies = [
     "deepagents>=0.5.0,<1.0",
 ]
