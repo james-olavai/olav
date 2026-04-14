@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# OLAV v0.17.0 — Tier 4: Extended Feature Tests (T4-01 ~ T4-27)
+# OLAV v0.17.0 — Tier 4: Extended Feature Tests (T4-01 ~ T4-29)
 # ==============================================================================
 # Covers features not exercised by T1-T3:
 #   Group 1 (T4-01~03):  Slash commands (/model, /help) — no LLM
@@ -10,6 +10,7 @@
 #   Group 5 (T4-17~19):  Input parser unit tests — no LLM
 #   Group 6 (T4-20~22):  Service daemon lifecycle — LLM-gated
 #   Group 7 (T4-23~27):  Session restore & --auto-approve — LLM-gated
+#   Group 8 (T4-28~29):  input_parser CLI integration (!cmd + @file) — T4-28 no LLM, T4-29 LLM-gated
 #
 # Usage:
 #   bash tests/ci/tier4_extended.sh
@@ -515,6 +516,35 @@ PYEOF
         warn_test "[T4-27]" "new session isolation" "(response OK: ${_t427_out:0:100})"
     else
         fail_test "[T4-27]" "new session isolation" "(rc=${_t427_rc} out=${_t427_out:0:120})"
+    fi
+fi
+echo ""
+
+# ══════════════════════════════════════════════════════════════════════════
+# Group 8: input_parser CLI integration (T4-28 ~ T4-29)
+# ══════════════════════════════════════════════════════════════════════════
+echo "=== Group 8: input_parser CLI Integration (T4-28 ~ T4-29) ==="
+
+# T4-28: !cmd passthrough — no LLM needed, returns shell output immediately
+_t428_out=$(timeout 10 "$OLAV" '!echo INPUT_PARSER_SHELL_TEST' 2>&1) && _t428_rc=0 || _t428_rc=$?
+if echo "$_t428_out" | grep -q "INPUT_PARSER_SHELL_TEST"; then
+    pass_test "[T4-28]" "CLI '!cmd' runs shell command and returns output (no LLM)"
+else
+    fail_test "[T4-28]" "CLI '!cmd' shell passthrough" "(rc=${_t428_rc} out=${_t428_out:0:120})"
+fi
+
+# T4-29: @file expansion — LLM-gated
+if [ -z "${OLAV_DEV_CONFIG:-}" ]; then
+    skip_test "[T4-29]" "CLI '@file' expansion sends file content to LLM (no OLAV_DEV_CONFIG)"
+else
+    echo "The answer is forty-two" > "${TEST_DIR}/t429_data.txt"
+    _t429_out=$(timeout 60 "$OLAV" "What is in @${TEST_DIR}/t429_data.txt ? Reply with just the number word." 2>&1) && _t429_rc=0 || _t429_rc=$?
+    if echo "$_t429_out" | grep -qiE "forty.two|42"; then
+        pass_test "[T4-29]" "CLI '@file' expands file content into LLM query"
+    elif [ "$_t429_rc" -eq 0 ] && [ -n "$_t429_out" ]; then
+        warn_test "[T4-29]" "CLI '@file' expansion" "(LLM responded but content unclear: ${_t429_out:0:100})"
+    else
+        fail_test "[T4-29]" "CLI '@file' expansion" "(rc=${_t429_rc} out=${_t429_out:0:120})"
     fi
 fi
 echo ""
