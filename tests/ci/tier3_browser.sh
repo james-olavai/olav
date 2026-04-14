@@ -41,6 +41,13 @@ TEST_DIR="$(mktemp -d /tmp/olav-ci-t3-XXXXXXXX)"
 WEB_PORT=2281  # use separate port so T1/T2 don't conflict
 WEB_PID=""
 
+# Isolate HOME so olav init does not write to real ~/.olav/token or ~/.olav/checkpoints.
+# Preserve PLAYWRIGHT_BROWSERS_PATH so Chromium can still be found.
+_REAL_HOME="$HOME"
+export PLAYWRIGHT_BROWSERS_PATH="${_REAL_HOME}/.cache/ms-playwright"
+export HOME="${TEST_DIR}/fakehome"
+mkdir -p "$HOME"
+
 # ── Verify playwright is available ────────────────────────────────────────────
 if ! python3 -c "from playwright.sync_api import sync_playwright" 2>/dev/null; then
     echo "ERROR: playwright Python package not found."
