@@ -278,7 +278,7 @@ async def health():
 
 @app.post("/reload")
 async def reload_agent():
-    """Reset the agent singleton so the next request rebuilds it from workspace."""
+    """Reset agent and config singletons so the next request rebuilds from disk."""
     global _agent_instance
     if _agent_instance is not None:
         try:
@@ -286,7 +286,15 @@ async def reload_agent():
         except Exception:
             pass
     _agent_instance = None
-    _logger.info("Agent instance reset — next request will rebuild from workspace")
+    # Also invalidate the ConfigLoader singleton so auth/llm/embedding config
+    # changes in api.json are picked up on the next request.
+    try:
+        from olav.core.config import ConfigLoader
+        ConfigLoader._loaded = False
+        ConfigLoader._instance = None
+    except Exception:
+        pass
+    _logger.info("Agent and config reset — next request will rebuild from workspace")
     return {"status": "reloaded"}
 
 
