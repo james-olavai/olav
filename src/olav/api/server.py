@@ -188,6 +188,62 @@ app = FastAPI(
 
 
 # ---------------------------------------------------------------------------
+# CIDR Allowlist Middleware
+# ---------------------------------------------------------------------------
+
+
+def _load_allowed_cidrs() -> list | None:
+    """Load allowed_cidrs from api.json security section. Returns None if unconfigured."""
+    try:
+        from olav.core.config import ConfigLoader
+
+        cidrs = ConfigLoader().security.allowed_cidrs
+        if not cidrs:
+            return None
+        import ipaddress
+
+        return [ipaddress.ip_network(c, strict=False) for c in cidrs]
+    except Exception:
+        return None
+
+
+@app.middleware("http")
+async def cidr_allowlist_middleware(request: Request, call_next):
+    """Block requests from IPs outside the configured CIDR allowlist.
+
+    - If no allowlist is configured, all IPs are allowed (backward compatible).
+    - 127.0.0.1 and ::1 are always allowed.
+    - /health is always allowed (monitoring probes).
+    """
+    if request.url.path == "/health":
+        return await call_next(request)
+
+    allowed = _load_allowed_cidrs()
+    if allowed is None:
+        return await call_next(request)
+
+    import ipaddress
+
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    try:
+        addr = ipaddress.ip_address(client_ip)
+    except ValueError:
+        return await call_next(request)
+
+    # Localhost always allowed
+    if addr.is_loopback:
+        return await call_next(request)
+
+    for network in allowed:
+        if addr in network:
+            return await call_next(request)
+
+    from starlette.responses import JSONResponse
+
+    return JSONResponse({"detail": "Forbidden"}, status_code=403)
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -206,7 +262,7 @@ async def root(request: Request):
             if url_token:
                 # JupyterLab-style: ?token= sets cookie then redirects clean
                 resp = RedirectResponse(url="/", status_code=302)
-                _set_session_cookie(resp, url_token)
+                _set_session_cookie(resp, url_token, request)
                 return resp
             return RedirectResponse(url="/login")
     index = _STATIC_DIR / "index.html"
@@ -218,6 +274,66 @@ async def root(request: Request):
 @app.get("/health")
 async def health():
     return {"status": "healthy", "service": "olav-api"}
+
+
+@app.post("/reload")
+async def reload_agent():
+    """Reset the agent singleton so the next request rebuilds it from workspace."""
+    global _agent_instance
+    if _agent_instance is not None:
+        try:
+            await _agent_instance.close()
+        except Exception:
+            pass
+    _agent_instance = None
+    _logger.info("Agent instance reset — next request will rebuild from workspace")
+    return {"status": "reloaded"}
+
+
+@app.get("/agents")
+async def list_agents():
+    """Return registered agents from workspace AGENT.md files."""
+    try:
+        from olav.cli.commands.refresh import _scan_agents
+
+        workspace_root = Path(".olav") / "workspace"
+        agents = _scan_agents(workspace_root)
+        return [
+            {"id": a["flag"], "name": a["name"], "description": a.get("description", "")}
+            for a in agents
+        ]
+    except Exception as exc:
+        _logger.warning("Failed to scan agents: %s", exc)
+        return [{"id": "core", "name": "core", "description": "Core platform agent"}]
+
+
+@app.get("/memory/graph", include_in_schema=False)
+async def memory_graph():
+    """Serve the knowledge graph visualization (vis.js HTML)."""
+    graph_path = Path(".olav/knowledge/_graph.html")
+    if not graph_path.exists():
+        try:
+            from olav.core.memory.knowledge_graph import build_graph, export_visjs
+
+            graph_path.parent.mkdir(parents=True, exist_ok=True)
+            graph_data = build_graph()
+            export_visjs(graph_data, graph_path)
+        except Exception as exc:
+            from fastapi.responses import HTMLResponse
+
+            return HTMLResponse(
+                "<html><body style='font-family:sans-serif;background:#0d1117;color:#e6edf3;padding:40px'>"
+                "<h2>Knowledge Graph</h2>"
+                "<p style='color:#8b949e'>No knowledge data yet. The graph will appear after:</p>"
+                "<ul style='color:#8b949e'>"
+                "<li><code>olav kb import &lt;file&gt;</code> — import documents</li>"
+                "<li>Agent conversations — auto-captured as operational knowledge</li>"
+                "</ul>"
+                f"<p style='font-size:12px;color:#484f58'>Debug: {exc}</p>"
+                "</body></html>",
+                status_code=200,
+            )
+    return FileResponse(str(graph_path), media_type="text/html")
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +355,7 @@ class LoginRequest(BaseModel):
 
 
 @app.post("/login", include_in_schema=False)
-async def login_submit(body: LoginRequest, response: Response):
+async def login_submit(body: LoginRequest, request: Request, response: Response):
     """Validate token, write session cookie (P3, GAP-4 secure flags)."""
     from olav.core.auth import get_auth_provider
 
@@ -249,7 +365,8 @@ async def login_submit(body: LoginRequest, response: Response):
         resp = RedirectResponse(url="/", status_code=302)
         return resp
 
-    identity = get_auth_provider(mode).authenticate(token=body.token, source_channel="webui")
+    provider = get_auth_provider(mode)
+    identity = provider.authenticate(token=body.token)
     if identity.source != "token":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -258,24 +375,32 @@ async def login_submit(body: LoginRequest, response: Response):
 
     # GAP-4: secure cookie flags
     resp = RedirectResponse(url="/", status_code=302)
-    _set_session_cookie(resp, body.token)
+    _set_session_cookie(resp, body.token, request)
     return resp
 
 
-def _set_session_cookie(response: Response, token: str) -> None:
-    """Set olav_session cookie with GAP-4 security flags."""
+def _set_session_cookie(
+    response: Response, token: str, request: Request | None = None
+) -> None:
+    """Set olav_session cookie with GAP-4 security flags.
+
+    ``secure`` is set dynamically: True only when the request arrived over
+    HTTPS.  This prevents the browser from silently discarding the cookie
+    when the server is accessed via plain HTTP (common in dev/LAN setups).
+    """
     try:
         from olav.core.config import ConfigLoader
 
         ttl_hours = ConfigLoader().auth.session_ttl_hours
     except Exception:
         ttl_hours = 24
+    is_https = request is not None and request.url.scheme == "https"
     response.set_cookie(
         key="olav_session",
         value=token,
-        httponly=True,  # GAP-4: block JS access
-        secure=True,   # GAP-4: require HTTPS (use reverse proxy in dev)
-        samesite="strict",  # GAP-4: CSRF protection
+        httponly=True,       # GAP-4: block JS access
+        secure=is_https,     # GAP-4: only set Secure flag over HTTPS
+        samesite="lax",      # "strict" drops cookie on cross-site redirects
         max_age=ttl_hours * 3600,
         path="/",
     )
@@ -352,11 +477,17 @@ async def create_thread(
 async def search_threads(identity: Any | None = None):
     if identity is None:
         identity = await _require_auth()
-    agent = await get_agent()
+    try:
+        agent = await get_agent()
+    except Exception:
+        return {"threads": []}
     checkpointer = getattr(agent, "checkpointer", None)
     if checkpointer is None or not hasattr(checkpointer, "list_threads"):
         return {"threads": []}
-    threads = await checkpointer.list_threads()
+    try:
+        threads = await checkpointer.list_threads()
+    except Exception:
+        threads = []
     return {"threads": threads}
 
 

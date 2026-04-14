@@ -259,9 +259,14 @@ async def run_receiver(
     buffer: list[dict] = []
     stats = {"received": 0, "flushed": 0}
 
+    import socket as _socket
+
+    sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+    sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+    sock.bind((host, port))
     transport, _ = await loop.create_datagram_endpoint(
         lambda: SyslogUDPProtocol(buffer, stats),
-        local_addr=(host, port),
+        sock=sock,
     )
     logger.info("OLAV Syslog Receiver listening on UDP %s:%d", host, port)
     logger.info("Log storage: %s", LOG_DIR)

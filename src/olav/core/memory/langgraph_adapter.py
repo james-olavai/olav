@@ -27,13 +27,19 @@ class LangGraphLanceDBStore(BaseStore):
     - Falls back to text-only search when no embedder is available
     """
 
-    def __init__(self, db_path: str | None = None, embedding_dim: int = 384) -> None:
+    def __init__(self, db_path: str | None = None, embedding_dim: int | None = None) -> None:
         """Initialize the adapter.
 
         Args:
             db_path: Optional path to LanceDB database
-            embedding_dim: Embedding dimension (default 384 for bge-small)
+            embedding_dim: Embedding dimension (auto-detected if None)
         """
+        if embedding_dim is None:
+            try:
+                from olav.core.embedder import detect_embedding_dim
+                embedding_dim = detect_embedding_dim()
+            except Exception:
+                embedding_dim = 512
         self._store = OCLanceDBStore(db_path=db_path, embedding_dim=embedding_dim)
         self._table_name = MEMORY_TABLE
         self._embedder = None  # lazy-loaded on first use

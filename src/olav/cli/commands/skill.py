@@ -153,54 +153,90 @@ class SkillCommand(BaseCommand):
         if missing_bins:
             warnings.append(f"missing binaries: {', '.join(missing_bins)}")
 
-        # Package check (warn, don't block)
-        missing_pkgs = _check_packages(decl.requires.packages)
-        if missing_pkgs:
-            warnings.append(f"missing packages: {', '.join(missing_pkgs)}")
+        # ── Auto-install Python package if pyproject.toml exists ──────────
+        import sys
 
-        # Create workspace directory and copy source files
-        workspace_root = Path(".olav") / "workspace"
-        workspace_dir = workspace_root / decl.name
-        workspace_dir.mkdir(parents=True, exist_ok=True)
+        pyproject_path = source_path / "pyproject.toml"
+        requirements_path = source_path / "requirements.txt"
+        pip_installed = False
 
-        # Copy workspace files into target directory.
-        # If workspace.yaml declares `source: <subdir>`, copy from that subdir
-        # instead of the repo root (avoids copying src/, tests/, .venv/, etc.)
-        copy_source = source_path
-        if decl.source:
-            candidate = source_path / decl.source
-            if candidate.is_dir():
-                copy_source = candidate
-        _copy_skill_files(copy_source, workspace_dir)
-
-        # Create agent subdirectories from declaration (if declared)
-        for agent in decl.agents:
-            _create_agent_dir(workspace_dir, agent, decl.version)
-
-        # Write lock file — record original git URL as source if cloned
-        lock_source = source if not tmp_dir else source
-        _write_lock_file(workspace_dir, decl, lock_source)
-
-        # GAP-02: update PLATFORM.md agents list
-        _update_platform_md(workspace_root, decl.name)
-
-        # GAP-10: create per-skill venv if SKILL.md declares requires_packages
-        venv_msg = ""
-        skill_md_path = workspace_dir / "SKILL.md"
-        packages = _read_requires_packages(skill_md_path)
-        if packages:
-            venv_result = _create_skill_venv(workspace_dir, packages)
-            if venv_result["status"] == "ok":
-                venv_msg = f"\n  venv: {venv_result.get('venv', workspace_dir / '.venv')} ({len(packages)} packages)"
+        if pyproject_path.exists():
+            pip_result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-e", str(source_path)],
+                capture_output=True, text=True,
+            )
+            if pip_result.returncode == 0:
+                pip_installed = True
             else:
-                warnings.append(f"venv creation failed: {venv_result.get('error', 'unknown')}")
+                warnings.append(f"pip install failed: {pip_result.stderr[:200]}")
+        elif requirements_path.exists():
+            pip_result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-r", str(requirements_path)],
+                capture_output=True, text=True,
+            )
+            if pip_result.returncode == 0:
+                pip_installed = True
+            else:
+                warnings.append(f"pip install -r failed: {pip_result.stderr[:200]}")
+
+        # Fallback: check workspace.yaml requires.packages if pip not used
+        if not pip_installed:
+            missing_pkgs = _check_packages(decl.requires.packages)
+            if missing_pkgs:
+                warnings.append(f"missing packages: {', '.join(missing_pkgs)}")
+
+        # ── Determine workspaces to install ───────────────────────────────
+        workspace_root = Path(".olav") / "workspace"
+        installed_names: list[str] = []
+
+        if decl.workspaces:
+            # Multi-workspace mode: install each sub-workspace
+            for sub_ws in decl.workspaces:
+                sub_source = source_path / sub_ws.source
+                if not sub_source.is_dir():
+                    warnings.append(f"workspace '{sub_ws.name}' source not found: {sub_ws.source}")
+                    continue
+                ws_dir = workspace_root / sub_ws.name
+                ws_dir.mkdir(parents=True, exist_ok=True)
+                _copy_skill_files(sub_source, ws_dir)
+                _update_platform_md(workspace_root, sub_ws.name)
+                installed_names.append(sub_ws.name)
+        else:
+            # Single workspace mode (original behavior)
+            workspace_dir = workspace_root / decl.name
+            workspace_dir.mkdir(parents=True, exist_ok=True)
+
+            copy_source = source_path
+            if decl.source:
+                candidate = source_path / decl.source
+                if candidate.is_dir():
+                    copy_source = candidate
+            _copy_skill_files(copy_source, workspace_dir)
+
+            for agent in decl.agents:
+                _create_agent_dir(workspace_dir, agent, decl.version)
+
+            lock_source = source if not tmp_dir else source
+            _write_lock_file(workspace_dir, decl, lock_source)
+
+            _update_platform_md(workspace_root, decl.name)
+
+            # GAP-10: create per-skill venv if SKILL.md declares requires_packages
+            skill_md_path = workspace_dir / "SKILL.md"
+            packages = _read_requires_packages(skill_md_path)
+            if packages:
+                venv_result = _create_skill_venv(workspace_dir, packages)
+                if venv_result["status"] != "ok":
+                    warnings.append(f"venv creation failed: {venv_result.get('error', 'unknown')}")
+
+            # inject_into_core: symlink tools into core workspace
+            inject_tools_into_core(decl, workspace_dir, workspace_root)
+
+            installed_names.append(decl.name)
 
         # Update settings.json if set_active
         if decl.set_active:
-            _update_active_workspace(decl.name)
-
-        # inject_into_core: symlink tools into core workspace
-        inject_tools_into_core(decl, workspace_dir, workspace_root)
+            _update_active_workspace(installed_names[0] if installed_names else decl.name)
 
         # Clean up temp clone dir
         if tmp_dir:
@@ -211,7 +247,7 @@ class SkillCommand(BaseCommand):
         if warnings:
             warn_str = "\n  ⚠ " + "\n  ⚠ ".join(warnings)
 
-        # Rebuild global agent registry so routing table reflects the new agent
+        # Rebuild global agent registry so routing table reflects the new agent(s)
         try:
             from olav.cli.commands.refresh import refresh_workspace
 
@@ -219,7 +255,24 @@ class SkillCommand(BaseCommand):
         except Exception as exc:  # noqa: BLE001
             logger.warning("refresh_workspace failed after skill install: %s", exc)
 
-        return f"installed {decl.name} v{decl.version} → .olav/workspace/{decl.name}/{venv_msg}{warn_str}"
+        # Hot-reload running web service (non-blocking, best-effort)
+        try:
+            from urllib.request import urlopen, Request as _Req
+
+            _req = _Req("http://localhost:2280/reload", method="POST")
+            urlopen(_req, timeout=3)
+            logger.info("Web service agent reloaded")
+        except Exception:
+            pass  # web not running — user will restart manually
+
+        if decl.workspaces:
+            names_str = ", ".join(installed_names)
+            return (
+                f"installed {decl.name} v{decl.version} "
+                f"({len(installed_names)} workspaces: {names_str})"
+                f"{warn_str}"
+            )
+        return f"installed {decl.name} v{decl.version} → .olav/workspace/{decl.name}/{warn_str}"
 
     # ── list / status ───────────────────────────────────────────────────────
 
@@ -352,26 +405,35 @@ def _decl_from_manifest(manifest_path: Path, source_path: Path) -> "WorkspaceDec
 
 
 def _copy_skill_files(source: Path, dest: Path) -> None:
-    """Copy workspace files from source into dest (skip lock/workspace.yaml)."""
+    """Copy workspace files from source into dest (skip lock/workspace.yaml).
+
+    Broken symlinks are silently skipped rather than crashing the install.
+    """
     import shutil
     skip = {"workspace.lock.yaml", "__pycache__"}
     for item in source.iterdir():
         if item.name in skip:
             continue
+        # Skip broken symlinks (target doesn't exist)
+        if item.is_symlink() and not item.exists():
+            logger.warning("Skipping broken symlink: %s", item)
+            continue
         target = dest / item.name
         if item.is_dir():
             if target.exists():
-                # Merge: copy files not already present
+                # Merge: copy all files, overwrite if source is newer
                 for sub in item.rglob("*"):
+                    if sub.is_symlink() and not sub.exists():
+                        continue  # skip broken nested symlinks
                     rel = sub.relative_to(item)
                     t = target / rel
                     if sub.is_dir():
                         t.mkdir(parents=True, exist_ok=True)
-                    elif not t.exists():
+                    else:
                         shutil.copy2(sub, t)
             else:
-                shutil.copytree(item, target)
-        elif not target.exists():
+                shutil.copytree(item, target, ignore=shutil.ignore_patterns("__pycache__"))
+        else:
             shutil.copy2(item, target)
 
 

@@ -60,17 +60,33 @@ class SemanticRouter:
     def _get_embeddings(self):
         """Get embedding model."""
         if self._embeddings is None:
-            from langchain_community.embeddings import HuggingFaceEmbeddings
+            try:
+                from langchain_huggingface import HuggingFaceEmbeddings
+            except ImportError:  # fallback for older installs
+                from langchain_community.embeddings import HuggingFaceEmbeddings
 
             emb_config = get_embedding_config()
 
             # Try local embedding first
             if emb_config.mode == "local":
-                self._embeddings = HuggingFaceEmbeddings(
-                    model_name=emb_config.local_model,
-                    model_kwargs={"device": emb_config.device},
-                    encode_kwargs={"normalize_embeddings": emb_config.normalize_embeddings},
-                )
+                import contextlib, io, os as _os, logging as _logging
+                for _n in ("sentence_transformers", "transformers", "transformers.modeling_utils", "huggingface_hub"):
+                    _logging.getLogger(_n).setLevel(_logging.ERROR)
+                # Suppress C-level stdout (safetensors shard reports)
+                _saved = _os.dup(1)
+                _null = _os.open(_os.devnull, _os.O_WRONLY)
+                _os.dup2(_null, 1)
+                try:
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        self._embeddings = HuggingFaceEmbeddings(
+                            model_name=emb_config.local_model,
+                            model_kwargs={"device": emb_config.device},
+                            encode_kwargs={"normalize_embeddings": emb_config.normalize_embeddings},
+                        )
+                finally:
+                    _os.dup2(_saved, 1)
+                    _os.close(_null)
+                    _os.close(_saved)
             else:
                 # Use OpenAI or other API-based embeddings
                 from langchain_openai import OpenAIEmbeddings
@@ -100,6 +116,22 @@ class SemanticRouter:
             # Try to open existing table
             self._table = db.open_table("agent_intent_index")
 
+            # Check vector dim — if model changed, recreate the index
+            for field in self._table.schema:
+                if field.name == "vector" and hasattr(field.type, "list_size"):
+                    try:
+                        from olav.core.embedder import detect_embedding_dim
+                        current_dim = detect_embedding_dim()
+                        if field.type.list_size != current_dim:
+                            logger.warning(
+                                "agent_intent_index has vector dim %d but embedder is %d — recreating",
+                                field.type.list_size, current_dim,
+                            )
+                            db.drop_table("agent_intent_index")
+                            raise ValueError("dim mismatch — recreate")
+                    except ImportError:
+                        pass
+
             # Check if table has data
             count = self._table.count_rows()
             if count > 0:
@@ -107,8 +139,8 @@ class SemanticRouter:
                 return {"status": "exists", "count": count}
 
         except Exception as e:
-            # Table doesn't exist or is empty - proceed to create
-            logger.debug(f"No existing table or empty: {e}")
+            # Table doesn't exist, empty, or dim mismatch - proceed to create
+            logger.debug(f"No existing table or rebuild needed: {e}")
 
         # Prepare records for insertion
         records = []

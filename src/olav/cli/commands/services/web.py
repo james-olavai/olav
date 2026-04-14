@@ -40,6 +40,38 @@ LOG_FILE = PROJECT_ROOT / ".olav" / "logs" / "web.log"
 _DEFAULT_HOST = "0.0.0.0"
 _DEFAULT_PORT = DEFAULT_WEB_PORT
 
+# Markers that identify our uvicorn process in the command line
+_CMDLINE_MARKERS = ("uvicorn", "olav.api.server")
+
+
+def _is_our_process(pid: int) -> bool:
+    """Return True if *pid* is our uvicorn/olav-api process.
+
+    Reads ``/proc/<pid>/cmdline`` on Linux, falls back to ``ps`` on macOS/BSD.
+    Returns ``True`` conservatively when the identity cannot be determined
+    (e.g. PermissionError) to prevent accidental double-starts.
+    """
+    # Linux fast path — /proc is always available and needs no subprocess
+    cmdline_path = Path(f"/proc/{pid}/cmdline")
+    if cmdline_path.exists():
+        try:
+            cmdline = cmdline_path.read_bytes().replace(b"\x00", b" ").decode(errors="replace")
+            return any(m in cmdline for m in _CMDLINE_MARKERS)
+        except OSError:
+            return True  # can't read — be conservative
+
+    # macOS / BSD fallback
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        return any(m in result.stdout for m in _CMDLINE_MARKERS)
+    except Exception:
+        return True  # can't verify — be conservative
+
 
 class WebService:
     """Manage OLAV API Server (uvicorn + FastAPI) lifecycle."""
@@ -58,7 +90,12 @@ class WebService:
             return False
         try:
             pid = int(PID_FILE.read_text().strip())
-            os.kill(pid, 0)
+            os.kill(pid, 0)  # raises ProcessLookupError if PID is gone
+            # Guard against PID reuse: verify the process is actually our service
+            if not _is_our_process(pid):
+                # Stale PID file — some other process inherited this PID
+                PID_FILE.unlink(missing_ok=True)
+                return False
             return True
         except (ValueError, ProcessLookupError, FileNotFoundError, PermissionError):
             return False

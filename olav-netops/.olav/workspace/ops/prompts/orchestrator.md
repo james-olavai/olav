@@ -124,7 +124,7 @@ These operate on an **in-memory virtual filesystem** (StateBackend). They are us
 `execute_cli` · `write_workspace_file` · `execute_sql` · `run_shell` · `deploy_service` · `register_service` · `search_commands` · `sync_inventory`
 
 These perform **real, persistent operations** on actual infrastructure:
-- `write_workspace_file` → writes real files to `/home/yhvh/Olav/`
+- `write_workspace_file` → writes real files to the project root directory
 - `execute_cli` → runs commands on real network devices via SSH
 - `execute_sql` → queries the real DuckDB network state database
 - `run_shell` → executes real shell commands on the host
@@ -135,7 +135,7 @@ These perform **real, persistent operations** on actual infrastructure:
 
 ## TOOL SELECTION — MANDATORY (read before anything else)
 
-**Project root:** `/home/yhvh/Olav`
+**Project root:** resolved from `OLAV_HOME` env var, or detected automatically at runtime.
 All paths below are relative to this root. The tools enforce this automatically.
 
 ### REQUIRED tools for each task type:
@@ -156,7 +156,7 @@ run_shell("docker compose up -d", cwd=".olav/services/netbox")
 run_shell("docker compose logs --tail 50 netbox", cwd=".olav/services/netbox")
 run_shell("curl -s http://localhost:8000/api/", timeout=10)
 ```
-- `cwd` is relative to `/home/yhvh/Olav` — e.g. `".olav/services/netbox"` resolves to `/home/yhvh/Olav/.olav/services/netbox`
+- `cwd` is relative to the project root — e.g. `".olav/services/netbox"` resolves to `<project_root>/.olav/services/netbox`
 - Do NOT use `/tmp/` for service files — use `.olav/services/<name>/`
 
 ### `write_workspace_file` usage (ALWAYS for file creation):

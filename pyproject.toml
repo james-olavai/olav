@@ -30,7 +30,7 @@ exclude = [
 
 [project]
 name = "olav"
-version = "0.15.0"
+version = "0.17.0"
 description = "OLAV — AI-native platform for autonomous operations with domain-aware agents, API-as-Tool, and Agent Harness"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -57,12 +57,7 @@ dependencies = [
     "langchain-openai>=0.0.1",
     "langchain-ollama>=0.1.0",
     "langchain-core>=0.1.0",
-    # DeepAgents Framework
-    # Note: deepagents-cli has a dep conflict with langgraph-checkpoint-duckdb
-    # (langgraph-checkpoint version requirements are mutually exclusive for >=0.0.15).
-    # Install separately after uv sync:
-    #   uv pip install deepagents-cli --no-deps && uv pip install markdownify
-    # olav-ent is a Milestone 3 private package — NOT installed here.
+    "langchain-huggingface>=0.1.0",
     # Data Processing
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
@@ -85,12 +80,8 @@ dependencies = [
     "python-dateutil>=2.8.0",
     "python-crontab>=3.0.0",
     "tenacity>=8.0",
-    "deepagents>=0.5.0,<1.0",
-    # deepagents-cli is required for interactive TUI mode (olav interactive shell).
-    # It is an optional hard dep — install with: pip install 'olav[tui]'
-    # or install manually: pip install deepagents-cli==0.0.10 --no-deps
-    # Note: deepagents-cli 0.0.10 pins deepagents==0.2.8 (exact) which conflicts;
-    # use --no-deps when pip is used, or [tool.uv] override in uv environments.
+    # DeepAgents CLI — v0.0.37 pins deepagents==0.5.2 (compatible)
+    "deepagents-cli>=0.0.37",
     "langchain-community>=0.4.1",
     "langgraph>=1.0.8",
     "duckdb-engine>=0.17.0",
@@ -132,15 +123,8 @@ dev = [
     "mypy>=1.5.0",
     "black>=23.0",
 ]
-# TUI optional: deepagents-cli 0.0.10 provides the interactive shell.
-# It pins deepagents==0.2.8 (conflict with our >=0.5.0); install with --no-deps:
-#   pip install 'olav[tui]' --no-deps-for deepagents-cli
-# Or: pip install deepagents-cli==0.0.10 --no-deps  (after olav install)
-# In uv environments, [tool.uv].override-dependencies handles this automatically.
+# TUI optional — kept for backward compatibility; deepagents-cli is now a core dep.
 tui = [
-    "deepagents-cli==0.0.10",
-    "tavily-python>=0.3.0",
-    "markdownify>=0.13.0",
     "pyjwt>=2.12.1",
 ]
 # netops optional is intentionally empty — nornir/netmiko moved to olav-netops package.

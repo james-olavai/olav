@@ -96,6 +96,24 @@ def api_request(
                 f"Available services: {available}"
             ),
         }
+    except Exception as exc:  # noqa: BLE001
+        # Return HTTP/connection errors as structured dicts so the LLM can handle
+        # them gracefully rather than crashing the agent graph.
+        err_str = str(exc)
+        status_code: int | None = None
+        try:
+            import httpx
+            if isinstance(exc, httpx.HTTPStatusError):
+                status_code = exc.response.status_code
+        except ImportError:
+            pass
+        return {
+            "status": "error",
+            "reason": err_str,
+            "http_status": status_code,
+            "service": service,
+            "path": path,
+        }
 
     # ── Auto-expand DRF/NetBox-style paginated list responses ─────────
     if isinstance(result, dict) and "results" in result and "count" in result:

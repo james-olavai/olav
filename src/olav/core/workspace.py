@@ -40,6 +40,13 @@ class InjectIntoCoreDeclaration:
 
 
 @dataclass
+class SubWorkspaceDeclaration:
+    """One entry in the ``workspaces`` list (multi-workspace install)."""
+    name: str
+    source: str
+
+
+@dataclass
 class WorkspaceDeclaration:
     name: str
     version: str = "0.1.0"
@@ -51,6 +58,7 @@ class WorkspaceDeclaration:
     init_command: str | None = None
     agents: list[AgentDeclaration] = field(default_factory=list)
     inject_into_core: InjectIntoCoreDeclaration | None = None
+    workspaces: list[SubWorkspaceDeclaration] = field(default_factory=list)
 
     @classmethod
     def from_yaml(cls, path: Path) -> "WorkspaceDeclaration":
@@ -69,6 +77,10 @@ class WorkspaceDeclaration:
                 tools=list(inject_raw.get("tools") or []),
                 references=list(inject_raw.get("references") or []),
             )
+        workspaces = [
+            SubWorkspaceDeclaration(name=w["name"], source=w["source"])
+            for w in (data.get("workspaces") or [])
+        ]
         return cls(
             name=data["name"],  # required — raises KeyError if absent
             version=str(data.get("version", "0.1.0")),
@@ -80,6 +92,7 @@ class WorkspaceDeclaration:
             init_command=data.get("init_command"),
             agents=agents,
             inject_into_core=inject,
+            workspaces=workspaces,
         )
 
 

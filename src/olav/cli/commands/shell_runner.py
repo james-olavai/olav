@@ -127,7 +127,8 @@ async def run_shell_command(
     script_path = (project_root / spec.script).resolve()
     if not script_path.exists():
         return f"❌ Script not found: {script_path}"
-    if not os.access(script_path, os.X_OK):
+    # Python scripts are invoked via sys.executable — no +x bit required.
+    if script_path.suffix != ".py" and not os.access(script_path, os.X_OK):
         return f"❌ Script is not executable: {script_path}\nRun: chmod +x {script_path}"
 
     # ── approval gate ─────────────────────────────────────────────────────────
@@ -141,7 +142,14 @@ async def run_shell_command(
     except ValueError as exc:
         return f"❌ Argument parse error: {exc}"
 
-    argv = [str(script_path)] + extra_args
+    # For Python scripts, use the current interpreter (venv-aware) instead of
+    # relying on the shebang which may resolve to the system python.
+    import sys
+
+    if script_path.suffix == ".py":
+        argv = [sys.executable, str(script_path)] + extra_args
+    else:
+        argv = [str(script_path)] + extra_args
 
     # ── resolve cwd & env ─────────────────────────────────────────────────────
     cwd = _resolve_cwd(spec, project_root)

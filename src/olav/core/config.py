@@ -128,6 +128,25 @@ class ConfigLoader:
     def tasks(self):
         return self._tasks
 
+    @property
+    def security(self):
+        return SecurityConfig(self._api.get("security", {}))
+
+
+class SecurityConfig:
+    """Parsed ``security`` section from api.json."""
+
+    def __init__(self, data: dict):
+        self._data = data
+
+    @property
+    def allowed_cidrs(self) -> list[str]:
+        return list(self._data.get("allowed_cidrs") or [])
+
+    @property
+    def trust_proxy_headers(self) -> bool:
+        return bool(self._data.get("trust_proxy_headers", False))
+
 
 class LLMConfig:
     def __init__(self, data: dict, loader: ConfigLoader):
