@@ -32,9 +32,6 @@ DEFAULT_MEMORY_DB = ".olav/databases/memory.lance"
 # Memory table name
 MEMORY_TABLE = "memory"
 
-# Semantic cache table name (Tier-0 cache)
-CACHE_TABLE = "query_cache"
-
 
 # Memory categories
 class MemoryCategory:
@@ -748,7 +745,7 @@ class SemanticCache:
         threshold: float = 0.02,
         ttl_hours: int = 24,
         max_entries: int = 500,
-        table_name: str = CACHE_TABLE,  # kept for API compatibility
+        table_name: str = "query_cache",  # kept for API compatibility, ignored (in-memory)
     ) -> None:
         self._threshold = threshold
         self._ttl_seconds = ttl_hours * 3600

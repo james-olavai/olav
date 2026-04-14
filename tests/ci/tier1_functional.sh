@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# OLAV v0.17.0 — Tier 1: Functional Tests (T1-01 ~ T1-52)
+# OLAV v0.17.0 — Tier 1: Functional Tests (T1-01 ~ T1-53)
 # ==============================================================================
 # Usage:
 #   bash tests/ci/tier1_functional.sh
@@ -707,7 +707,16 @@ else
     fi
 fi
 
-echo -n "  [T1-21] olav log export trajectory --hours 1... "
+echo -n "  [T1-21a] olav log export raw --hours 1 (base AAA export)... "
+_out=$("$OLAV" log export raw --hours 1 2>&1)
+if ! echo "$_out" | grep -q "^Traceback" && \
+   (echo "$_out" | grep -qi "no audit runs\|runs exported\|complete"); then
+    echo "OK"; PASS=$((PASS + 1))
+else
+    echo "FAIL (got: ${_out:0:120})"; FAIL=$((FAIL + 1))
+fi
+
+echo -n "  [T1-21b] olav log export trajectory --hours 1 (olav-ent check)... "
 _out=$("$OLAV" log export trajectory --hours 1 2>&1)
 if echo "$_out" | grep -qi "olav-ent.*not installed\|install.*pip"; then
     echo "WARN (olav-ent not installed — expected in base CI)"; WARN=$((WARN + 1))
