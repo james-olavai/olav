@@ -134,6 +134,9 @@ class InitCommand(BaseCommand):
         # Pre-download embedding model so first query doesn't hit HF Hub
         embedder_status = self._ensure_embedding_model()
 
+        # Pre-warm semantic router + LanceDB memory table to eliminate first-query penalty
+        index_status = self._warmup_indexes()
+
         # LLM connectivity check
         llm_status = await self._check_llm()
 
@@ -154,6 +157,7 @@ class InitCommand(BaseCommand):
             f"db: {db_status}\n"
             f"workspace: {core_status}\n"
             f"embedder: {embedder_status}\n"
+            f"indexes: {index_status}\n"
             f"auth: {user_status}\n"
             f"registry: {refresh_status}"
         )
@@ -305,30 +309,27 @@ class InitCommand(BaseCommand):
         except Exception as exc:
             return f"⚠ embedder download failed ({exc})"
 
-    @staticmethod
-    def _ensure_deepagents_cli() -> str:
-        """Install deepagents-cli==0.0.10 with --no-deps if not already present.
+    def _warmup_indexes(self) -> str:
+        """Pre-warm semantic router LanceDB index and memory table.
 
-        The package pins deepagents==0.2.8 which conflicts with our >=0.5.0;
-        --no-deps avoids pulling in the conflicting pin.  All real sub-deps
-        (markdownify, tavily-python) are already in olav's own dependencies.
+        Prevents ~2s first-query penalty by creating the LanceDB index at init
+        time rather than lazily on the first user query.
         """
+        results = []
         try:
-            import deepagents_cli  # noqa: F401
-            return "✓ deepagents-cli ready"
-        except ImportError:
-            pass
-        import subprocess
-        import sys
-
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "install",
-             "deepagents-cli==0.0.10", "--no-deps", "-q"],
-            capture_output=True, text=True,
-        )
-        if result.returncode == 0:
-            return "✓ deepagents-cli installed"
-        return f"⚠ deepagents-cli install failed ({result.stderr[:100]})"
+            from olav.core.router import initialize_router
+            init_result = initialize_router()
+            n = init_result.get("agents_indexed", 0)
+            results.append(f"router({n} agents)")
+        except Exception as exc:  # noqa: BLE001
+            results.append(f"router(⚠ {exc})")
+        try:
+            from olav.core.memory import get_store
+            get_store()  # ensures LanceDB memory table + index are created
+            results.append("memory(ready)")
+        except Exception as exc:  # noqa: BLE001
+            results.append(f"memory(⚠ {exc})")
+        return "✓ " + ", ".join(results)
 
     def _init_databases(self, db_dir: Path) -> str:
         """Create domain.duckdb and audit.duckdb (empty, just open+close)."""
