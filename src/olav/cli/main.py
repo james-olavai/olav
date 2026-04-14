@@ -330,6 +330,10 @@ def parse_args():
     # log export sft — export audit data as SFT chat JSONL
     log_export_p = log_sub.add_parser("export", help="Export audit data for training")
     log_export_sub = log_export_p.add_subparsers(dest="export_format", help="Export format")
+    # raw — basic AAA export (no olav-ent required)
+    log_export_raw_p = log_export_sub.add_parser("raw", help="Export raw audit runs+events as JSONL (no olav-ent required)")
+    log_export_raw_p.add_argument("--hours", type=int, default=24, help="Look-back window in hours")
+    log_export_raw_p.add_argument("--output", default=None, help="Output directory")
     log_export_sft = log_export_sub.add_parser("sft", help="Export SFT chat JSONL")
     log_export_sft.add_argument("--hours", type=int, default=24, help="Look-back window in hours")
     log_export_sft.add_argument("--output", default=None, help="Output directory")
@@ -1399,6 +1403,20 @@ async def cli_main_impl() -> None:
                         )
             elif log_sub_cmd == "export":
                 export_fmt = getattr(args, "export_format", None)
+                # raw export — base package, no olav-ent required
+                if export_fmt == "raw":
+                    from olav.cli.log_cmd import log_export_raw
+                    hours = getattr(args, "hours", 24)
+                    output_dir = getattr(args, "output", None)
+                    result = log_export_raw(output_dir=output_dir, hours=hours)
+                    if result["runs_exported"] == 0:
+                        console.print("[yellow]No audit runs in the last %dh[/yellow]" % hours)
+                    else:
+                        console.print(f"[bold green]✓[/bold green] Raw export complete → {result['output_dir']}")
+                        console.print(f"  Runs exported:   {result['runs_exported']}")
+                        console.print(f"  Events exported: {result['events_exported']}")
+                    return
+                # enterprise formats — require olav-ent
                 try:
                     from olav.enterprise.cli_bridge import dispatch_log_export
                 except ImportError:

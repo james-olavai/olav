@@ -4,9 +4,11 @@ Public API (also used by CLI sub-commands):
     log_list(db_path, hours)            — runs in last N hours (default 24)
     log_show(run_id, db_path)           — full event sequence for one run
     log_errors(db_path, since_hours)    — error/failed events within window
+    log_export_raw(output_dir, hours)   — dump audit runs+events as JSONL (no olav-ent required)
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -146,3 +148,44 @@ def log_errors(
         return [dict(zip(cols, row, strict=True)) for row in rows]
     finally:
         conn.close()
+
+
+def log_export_raw(
+    output_dir: Path | str | None = None,
+    *,
+    hours: int = 24,
+    db_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Export raw audit runs and events as JSONL files (no olav-ent required).
+
+    This is a basic AAA export: all audit_runs and their audit_events within
+    the look-back window are written to:
+        <output_dir>/audit_runs.jsonl
+        <output_dir>/audit_events.jsonl
+
+    Returns a summary dict: {"output_dir", "runs_exported", "events_exported"}.
+    Returns {"runs_exported": 0, "events_exported": 0} if audit DB not found.
+    """
+    runs = log_list(db_path, hours=hours)
+    if not runs:
+        return {"output_dir": str(output_dir or ""), "runs_exported": 0, "events_exported": 0}
+
+    out = Path(output_dir) if output_dir else Path("exports/audit_raw")
+    out.mkdir(parents=True, exist_ok=True)
+
+    runs_path = out / "audit_runs.jsonl"
+    events_path = out / "audit_events.jsonl"
+
+    event_count = 0
+    with runs_path.open("w") as rf, events_path.open("w") as ef:
+        for run in runs:
+            rf.write(json.dumps(run, default=str) + "\n")
+            for ev in log_show(run["run_id"], db_path):
+                ef.write(json.dumps(ev, default=str) + "\n")
+                event_count += 1
+
+    return {
+        "output_dir": str(out),
+        "runs_exported": len(runs),
+        "events_exported": event_count,
+    }
