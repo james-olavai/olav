@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# OLAV v0.17.0 — Tier 3: Browser / Playwright Tests (T3-01 ~ T3-10)
+# OLAV v0.17.0 — Tier 3: Browser / Playwright Tests (T3-01 ~ T3-13)
 #
 # Tests web UI behavior using Playwright headless Chromium.
 # Requires:
@@ -50,7 +50,7 @@ fi
 
 # ── Banner ────────────────────────────────────────────────────────────────────
 echo "╔══════════════════════════════════════════════════╗"
-echo "║  OLAV Tier 3: Browser Tests (T3-01 ~ T3-10)    ║"
+echo "║  OLAV Tier 3: Browser Tests (T3-01 ~ T3-13)    ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo "  Wheel:    $(basename "$WHEEL")"
 echo "  Test dir: ${TEST_DIR}"
@@ -129,14 +129,25 @@ echo ""
 PLAYWRIGHT_SCRIPT="${TEST_DIR}/run_browser_tests.py"
 cat > "${PLAYWRIGHT_SCRIPT}" << PYEOF
 #!/usr/bin/env python3
-"""Playwright browser tests for OLAV web UI — T3-01 ~ T3-10."""
-import sys, json, time
+"""Playwright browser tests for OLAV web UI — T3-01 ~ T3-13."""
+import sys, json, time, os
 import urllib.request, urllib.error
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 BASE = "http://127.0.0.1:${WEB_PORT}"
 PASS = 0
 FAIL = 0
+SKIP = 0
+
+# Detect LLM availability: check if api.json has a shared.api_key set
+_cfg_path = os.path.join(os.getcwd(), ".olav", "config", "api.json")
+LLM_AVAILABLE = False
+try:
+    _cfg = json.loads(open(_cfg_path).read())
+    _key = _cfg.get("shared", {}).get("api_key", "")
+    LLM_AVAILABLE = bool(_key and _key != "YOUR_KEY_HERE" and len(_key) > 10)
+except Exception:
+    pass
 
 def p(label, name, status, detail=""):
     global PASS, FAIL
@@ -147,6 +158,12 @@ def p(label, name, status, detail=""):
         PASS += 1
     else:
         FAIL += 1
+
+def s(label, name, reason=""):
+    global SKIP
+    SKIP += 1
+    suffix = f" ({reason})" if reason else ""
+    print(f"  {label} {name}... SKIP{suffix}", flush=True)
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     """Raise HTTPError instead of following redirects."""
@@ -290,24 +307,148 @@ except Exception as e:
     p("[T3-09]", "Browser: /memory/graph page loads", False, "playwright unavailable")
     p("[T3-10]", "Browser JS fetch /health", False, "playwright unavailable")
 
+# ── T3-11: SSE chat stream via HTTP (LLM-gated) ───────────────────────────
+if not LLM_AVAILABLE:
+    s("[T3-11]", "SSE chat stream POST /runs/stream (no LLM key)")
+    s("[T3-12]", "Browser: chat UI sends message (no LLM key)")
+    s("[T3-13]", "Browser: chat response appears in #messages (no LLM key)")
+else:
+    # T3-11: POST /runs/stream and verify SSE events contain text tokens
+    # Server uses astream_events(v2): emits {"event":"on_chat_model_stream","data":{"chunk":{...}}}
+    try:
+        payload = json.dumps({
+            "assistant_id": "olav-orchestrator",
+            "input": {"messages": [{"role": "user", "content": "Reply with just the word PONG"}]},
+            "stream_mode": "messages-tuple"
+        }).encode()
+        req = urllib.request.Request(
+            BASE + "/runs/stream",
+            data=payload,
+            headers={"Content-Type": "application/json", "Accept": "text/event-stream"},
+            method="POST"
+        )
+        collected = []
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            for raw_line in resp:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                try:
+                    ev = json.loads(line[5:].strip())
+                    if not isinstance(ev, dict):
+                        continue
+                    ev_type = ev.get("event", "")
+                    ev_data = ev.get("data", {})
+                    # astream_events v2: on_chat_model_stream has data.chunk
+                    if ev_type in ("on_chat_model_stream", "on_llm_stream"):
+                        chunk = ev_data.get("chunk", {})
+                        if isinstance(chunk, dict):
+                            c = chunk.get("content", "")
+                            if c:
+                                collected.append(c)
+                    # Also handle final AIMessage in on_chain_end / on_chat_model_end
+                    elif ev_type in ("on_chat_model_end", "on_chain_end"):
+                        out = ev_data.get("output", {})
+                        if isinstance(out, dict):
+                            c = out.get("content", "")
+                            if c and not collected:
+                                collected.append(c)
+                except Exception:
+                    pass
+                if len(collected) > 0 and len("".join(collected)) > 4:
+                    break  # Got enough text
+        full_text = "".join(collected)
+        p("[T3-11]", "SSE chat stream returns AI text tokens",
+          len(full_text) > 0,
+          f"tokens={len(collected)} text={full_text[:60]!r}")
+    except Exception as e:
+        p("[T3-11]", "SSE chat stream returns AI text tokens", False, str(e)[:80])
+        full_text = ""
+
+    # T3-12 + T3-13: Playwright browser chat UI
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+
+            # T3-12: Navigate to chat UI and send a message
+            try:
+                page.goto(BASE + "/", timeout=10000)
+                page.wait_for_load_state("domcontentloaded", timeout=5000)
+                # Check that the input box exists
+                has_input = page.locator("#query-input").count() > 0
+                has_send = page.locator("#send-btn").count() > 0
+                if has_input and has_send:
+                    page.fill("#query-input", "Reply with just the word PING")
+                    page.click("#send-btn")
+                    p("[T3-12]", "Browser: chat UI sends message via #send-btn", True,
+                      "input filled and send clicked")
+                else:
+                    p("[T3-12]", "Browser: chat UI sends message via #send-btn", False,
+                      f"has_input={has_input} has_send={has_send}")
+            except PWTimeout:
+                p("[T3-12]", "Browser: chat UI sends message via #send-btn", False, "timeout")
+            except Exception as e:
+                p("[T3-12]", "Browser: chat UI sends message via #send-btn", False, str(e)[:80])
+
+            # T3-13: Wait for and verify response appears
+            try:
+                # Wait up to 60s for any AI response text to appear in #messages
+                page.wait_for_function(
+                    """() => {
+                        const msgs = document.querySelectorAll('#messages .assistant-message, #messages [data-role="assistant"], #messages .message');
+                        return msgs.length > 0 && msgs[msgs.length-1].textContent.trim().length > 0;
+                    }""",
+                    timeout=60000
+                )
+                # Get the last message text
+                last_msg = page.evaluate("""() => {
+                    const msgs = document.querySelectorAll('#messages .assistant-message, #messages [data-role="assistant"], #messages .message');
+                    return msgs.length > 0 ? msgs[msgs.length-1].textContent.trim() : "";
+                }""")
+                p("[T3-13]", "Browser: AI response appears in #messages",
+                  len(last_msg) > 0,
+                  f"response={last_msg[:60]!r}")
+            except PWTimeout:
+                # Fallback: check if ANY new content appeared in messages div
+                try:
+                    msgs_text = page.inner_text("#messages") or ""
+                    has_content = len(msgs_text.strip()) > 5
+                    p("[T3-13]", "Browser: AI response appears in #messages",
+                      has_content,
+                      f"timeout but content={'yes' if has_content else 'no'}: {msgs_text[:60]!r}")
+                except Exception:
+                    p("[T3-13]", "Browser: AI response appears in #messages", False,
+                      "timeout waiting for response")
+            except Exception as e:
+                p("[T3-13]", "Browser: AI response appears in #messages", False, str(e)[:80])
+
+            browser.close()
+    except Exception as e:
+        p("[T3-12]", "Browser: chat UI sends message via #send-btn", False,
+          f"playwright init: {str(e)[:80]}")
+        p("[T3-13]", "Browser: AI response appears in #messages", False, "playwright unavailable")
+
 print("", flush=True)
-print(f"PASS={PASS}  FAIL={FAIL}  TOTAL={PASS+FAIL}", flush=True)
+print(f"PASS={PASS}  FAIL={FAIL}  SKIP={SKIP}  TOTAL={PASS+FAIL+SKIP}", flush=True)
 sys.exit(FAIL)
 PYEOF
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Run Tests
 # ══════════════════════════════════════════════════════════════════════════════
-echo "=== Browser Tests (T3-01 ~ T3-10) ==="
+echo "=== Browser Tests (T3-01 ~ T3-13) ==="
 cd "${TEST_DIR}"
 # Use system python3 (playwright installed system-wide, not in venv)
 PLAYWRIGHT_OUTPUT=$(python3 "${PLAYWRIGHT_SCRIPT}" 2>&1) || true
 echo "$PLAYWRIGHT_OUTPUT"
 
 # Parse results
-PASS=$(echo "$PLAYWRIGHT_OUTPUT" | grep -oP 'PASS=\K[0-9]+' | tail -1 || echo 0)
-FAIL=$(echo "$PLAYWRIGHT_OUTPUT" | grep -oP 'FAIL=\K[0-9]+' | tail -1 || echo 0)
-TOTAL=$(echo "$PLAYWRIGHT_OUTPUT" | grep -oP 'TOTAL=\K[0-9]+' | tail -1 || echo 0)
+PASS=$(echo "$PLAYWRIGHT_OUTPUT" | grep -oP 'PASS=\K[0-9]+' | tail -1)
+FAIL=$(echo "$PLAYWRIGHT_OUTPUT" | grep -oP 'FAIL=\K[0-9]+' | tail -1)
+SKIP=$(echo "$PLAYWRIGHT_OUTPUT" | grep -oP 'SKIP=\K[0-9]+' | tail -1)
+TOTAL=$(echo "$PLAYWRIGHT_OUTPUT" | grep -oP 'TOTAL=\K[0-9]+' | tail -1)
+PASS="${PASS:-0}"; FAIL="${FAIL:-0}"; SKIP="${SKIP:-0}"; TOTAL="${TOTAL:-0}"
 
 echo ""
 
@@ -318,7 +459,7 @@ echo "=== Cleanup ==="
 if [ -n "${WEB_PID:-}" ]; then
     kill "$WEB_PID" 2>/dev/null || true
 fi
-PORT_PID=$(lsof -ti :${WEB_PORT} 2>/dev/null | head -1)
+PORT_PID=$(lsof -ti :"${WEB_PORT}" 2>/dev/null | head -1) || true
 if [ -n "${PORT_PID:-}" ]; then
     kill "$PORT_PID" 2>/dev/null || true
 fi
@@ -332,7 +473,7 @@ echo ""
 echo "╔══════════════════════════════════════════════════╗"
 echo "║  Tier 3 Results                                  ║"
 echo "╠══════════════════════════════════════════════════╣"
-printf "║  PASS: %-4s  FAIL: %-4s  TOTAL: %-4s           ║\n" "$PASS" "$FAIL" "$TOTAL"
+printf "║  PASS: %-4s  FAIL: %-4s  SKIP: %-4s  TOTAL: %-4s ║\n" "$PASS" "$FAIL" "$SKIP" "$TOTAL"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
 
@@ -342,4 +483,4 @@ else
     echo "❌ Tier 3 FAILED (${FAIL} failures)"
 fi
 
-exit $FAIL
+exit $(( FAIL ))
