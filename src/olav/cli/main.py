@@ -612,215 +612,29 @@ async def simple_cli(
     sandbox_type: str | None = None,
     no_splash: bool = False,
 ) -> None:
-    """Main CLI loop using deepagents-cli components."""
+    """Main CLI loop using deepagents-cli 0.0.37 Textual TUI."""
     try:
-        from deepagents_cli.config import COLORS
-        from deepagents_cli.execution import execute_task
-        from deepagents_cli.input import create_prompt_session
-        from deepagents_cli.ui import TokenTracker
+        from deepagents_cli.app import run_textual_app
     except ImportError as _e:
         console.print(
-            f"[red]Error:[/red] Interactive TUI requires deepagents-cli: {_e}\n"
-            "Install with: [cyan]pip install deepagents-cli==0.0.10 --no-deps[/cyan]"
+            f"[red]Error:[/red] Interactive TUI requires deepagents-cli>=0.0.37: {_e}\n"
+            "Use single-query mode: [cyan]olav \"your question\"[/cyan]"
         )
         return
 
-    # Show splash
     if not no_splash:
-        # Print OLAV banner with gradient
         print_olav_banner()
 
-    if session_state.auto_approve:
-        console.print(
-            "  [yellow]⚡ Auto-approve: ON[/yellow] [dim](tools run without confirmation)[/dim]"
-        )
-        console.print()
+    # Delegate to deepagents-cli's Textual TUI with our pre-built agent graph
+    _graph = agent.graph if hasattr(agent, "graph") else agent
+    result = await run_textual_app(
+        agent=_graph,
+        assistant_id=assistant_id,
+        backend=backend,
+        auto_approve=getattr(session_state, "auto_approve", False),
+    )
+    return
 
-    # Show key bindings
-    if sys.platform == "darwin":
-        tips = (
-            "  Tips: ⏎ Enter to submit, ⌥ Option + ⏎ Enter for newline, "
-            "⌃E to open editor, ⌃T to toggle auto-approve, ⌃C to exit"
-        )
-    else:
-        tips = (
-            "  Tips: Enter to submit, Alt+Enter for newline, "
-            "Ctrl+E to open editor, Ctrl+T to toggle auto-approve, Ctrl+C to exit"
-        )
-    console.print(tips, style=f"dim {COLORS['dim']}")
-    console.print()
-
-    # Create prompt session and token tracker
-    session = create_prompt_session(assistant_id, session_state)
-    token_tracker = TokenTracker()
-
-    while True:
-        try:
-            user_input = await session.prompt_async()
-            if session_state.exit_hint_handle:
-                session_state.exit_hint_handle.cancel()
-                session_state.exit_hint_handle = None
-            session_state.exit_hint_until = None
-            user_input = user_input.strip()
-        except EOFError:
-            break
-        except KeyboardInterrupt:
-            console.print("\nGoodbye!", style=COLORS["primary"])
-            break
-
-        if not user_input:
-            continue
-
-        # Handle slash commands (/quit, /exit, /q, /clear, /help, /tokens)
-        if user_input.startswith("/"):
-            # Custom OLAV slash commands — handled before deepagents_cli
-            _cmd = user_input.strip().lower().split()[0]
-            if _cmd == "/trace-review":
-                _parts = user_input.strip().split()
-                _hours = 168
-                _limit = 50
-                for _p in _parts[1:]:
-                    if _p.startswith("hours="):
-                        try:
-                            _hours = int(_p.split("=", 1)[1])
-                        except ValueError:
-                            pass
-                    elif _p.startswith("limit="):
-                        try:
-                            _limit = int(_p.split("=", 1)[1])
-                        except ValueError:
-                            pass
-                from olav.cli.commands.trace_review import (
-                    _handle_trace_review,
-                    print_trace_review,
-                )
-
-                console.print("\n[bold cyan]Running trace review...[/bold cyan]")
-                _tr_result = _handle_trace_review(hours=_hours, limit=_limit)
-                print_trace_review(_tr_result, console)
-                continue
-
-            from deepagents_cli.commands import handle_command
-
-            # Check OLAV's own slash command registry first (e.g. /model, /tokens, /history)
-            from olav.cli.commands.builtin import execute_command
-
-            try:
-                _olav_result = await execute_command(user_input)
-            except EOFError:
-                console.print("\nGoodbye!", style=COLORS["primary"])
-                break
-            if not isinstance(_olav_result, str) or not _olav_result.startswith(
-                "Unknown command:"
-            ):
-                if _olav_result:
-                    console.print(_olav_result)
-                continue
-
-            result = handle_command(user_input, agent, token_tracker)
-            if result == "exit":
-                console.print("\nGoodbye!", style=COLORS["primary"])
-                break
-            continue
-
-        # Handle !bash prefix for local shell execution
-        if user_input.startswith("!"):
-            from deepagents_cli.commands import execute_bash_command
-
-            execute_bash_command(user_input)
-            continue
-
-        # Check for bare quit keywords
-        if user_input.lower() in ["quit", "exit", "q"]:
-            console.print("\nGoodbye!", style=COLORS["primary"])
-            break
-
-        import os as _os
-        import uuid as _uuid
-
-        _run_id = str(_uuid.uuid4())
-        _audit = AuditEventRecorder()
-        # Register as active run so SIGTERM handler can mark it interrupted
-        global _active_audit, _active_run_id
-        _active_audit, _active_run_id = _audit, _run_id
-        _audit.record_run_start(
-            run_id=_run_id,
-            agent_id=assistant_id,
-            user_id=_os.environ.get("USER", "anonymous"),
-            source_channel="cli_interactive",
-        )
-        _audit.record(
-            event_type="user_input_received",
-            run_id=_run_id,
-            agent_id=assistant_id,
-            payload={"content": user_input},
-        )
-        # Record the user turn in audit_messages for dataset export
-        _audit.record_message(run_id=_run_id, role="user", content=user_input)
-
-        # Bind the top-level run context to AuditCallbackPlugin so tool events
-        # and LLM responses are recorded under the same run_id.
-        from olav.plugins.callbacks.audit import AuditCallbackPlugin as _AuditCBPlugin
-        _audit_cbs = [
-            _cb for _cb in (
-                agent.plugin_registry.get_callback_plugins()
-                if hasattr(agent, "plugin_registry") else []
-            )
-            if isinstance(_cb, _AuditCBPlugin)
-        ]
-        for _cb in _audit_cbs:
-            _cb.bind_run(_run_id, _audit)
-
-        # Record routing decision
-        try:
-            from olav.core.router import route_query as _route_query
-
-            _route_query(user_input, recorder=_audit, run_id=_run_id)
-        except Exception:
-            pass
-
-        # Execute task (with HITL audit wrapping)
-        try:
-            with _hitl_audit_scope(_audit, _run_id, assistant_id):
-                await execute_task(
-                    user_input,
-                    agent,
-                    assistant_id,
-                    session_state,
-                    token_tracker,
-                    backend=backend,
-                )
-            _audit.record(
-                event_type="assistant_output_final",
-                run_id=_run_id,
-                agent_id=assistant_id,
-                payload={},
-            )
-            _audit.record_run_end(run_id=_run_id, status="completed")
-        except KeyboardInterrupt:
-            _audit.record(
-                event_type="run_cancelled",
-                run_id=_run_id,
-                agent_id=assistant_id,
-                payload={"reason": "KeyboardInterrupt"},
-            )
-            _audit.record_run_end(run_id=_run_id, status="cancelled")
-            raise
-        except Exception:
-            _audit.record(
-                event_type="run_error",
-                run_id=_run_id,
-                agent_id=assistant_id,
-                payload={},
-            )
-            _audit.record_run_end(run_id=_run_id, status="error")
-            raise
-        finally:
-            for _cb in _audit_cbs:
-                _cb.unbind_run()
-            _audit.close()
-            _active_audit = None
-            _active_run_id = None
 
 
 # ---------------------------------------------------------------------------
@@ -967,24 +781,12 @@ async def run_single_query(
                 console.print(_slash_result)
             return
 
-    try:
-        from deepagents_cli.config import COLORS
-        from deepagents_cli.execution import execute_task
-        from deepagents_cli.input import SessionState
-        from deepagents_cli.ui import TokenTracker
-    except ImportError as _e:
-        console.print(
-            f"[red]Error:[/red] Single-query mode requires deepagents-cli: {_e}\n"
-            "Install with: [cyan]pip install deepagents-cli==0.0.10 --no-deps[/cyan]"
-        )
-        sys.exit(1)
+    # deepagents-cli is used for TUI mode; single-query uses langgraph native API
 
     # P1: silent auth check (D6) — no interactive prompt in single-query mode
     if _get_auth_mode() != "none":
         identity = _silent_auth()
         if identity is None:
-            import sys
-
             print(
                 "Not authenticated. Run `olav` to log in or set OLAV_TOKEN env var.",
                 file=sys.stderr,
@@ -1007,6 +809,34 @@ async def run_single_query(
             and _routing_result["agent"] != "core"
         ):
             assistant_id = _routing_result["agent"]
+    except Exception:
+        pass
+
+    # ── Semantic cache: check for cached answer ──
+    try:
+        from olav.core.memory import SemanticCache, get_store
+        from olav.core.embedder import embed_text as _embed
+        _cstore = get_store()
+        if _cstore:
+            try:
+                from olav.core.config import ConfigLoader
+                _mcfg = ConfigLoader().memory
+                _sc = SemanticCache(
+                    _cstore,
+                    threshold=_mcfg.cache_similarity_threshold,
+                    ttl_hours=_mcfg.cache_ttl_hours,
+                    max_entries=_mcfg.cache_max_entries,
+                )
+            except Exception:
+                _sc = SemanticCache(_cstore)
+            _qv = _embed(query)
+            if _qv:
+                _hit = _sc.get(_qv)
+                if _hit and isinstance(_hit, list) and _hit:
+                    _answer = _hit[0].get("answer", "")
+                    if _answer:
+                        console.print(_answer)
+                        return
     except Exception:
         pass
 
@@ -1053,20 +883,41 @@ async def run_single_query(
     except Exception:
         pass
 
-    session_state = SessionState(auto_approve=True)
-    token_tracker = TokenTracker()
-
     try:
-        with _hitl_audit_scope(recorder, run_id, assistant_id):
-            result = await execute_task(
-                query,
-                agent,
-                assistant_id,
-                session_state,
-                token_tracker,
-                backend=backend,
-            )
-        final_content = str(result) if result is not None else ""
+        # Stream agent execution using native langgraph API
+        config = {"configurable": {"thread_id": session_id or run_id}, "recursion_limit": 75}
+        input_msg = {"messages": [{"role": "human", "content": query}]}
+        _chunks: list[str] = []
+
+        _graph = agent.graph if hasattr(agent, "graph") else agent
+        async for event in _graph.astream_events(input_msg, config=config, version="v2"):
+            kind = event.get("event", "")
+            data = event.get("data", {})
+
+            if kind == "on_chat_model_stream":
+                chunk = data.get("chunk")
+                if chunk:
+                    text = getattr(chunk, "content", "")
+                    if text:
+                        console.print(text, end="")
+                        _chunks.append(text)
+
+            elif kind == "on_chat_model_end":
+                # Non-streaming mode: full response arrives here
+                output = data.get("output")
+                if output:
+                    text = getattr(output, "content", "")
+                    if text and not _chunks:  # only if not already streamed
+                        console.print(text)
+                        _chunks.append(text)
+
+            elif kind == "on_tool_start":
+                tool_name = event.get("name", "")
+                tool_input = data.get("input", {})
+                _input_preview = str(tool_input)[:60]
+                console.print(f"  🔧 {tool_name}({_input_preview}...)")
+
+        final_content = "".join(_chunks)
         recorder.record(
             event_type="assistant_output_final",
             run_id=run_id,
@@ -1077,6 +928,52 @@ async def run_single_query(
         if final_content:
             recorder.record_message(run_id=run_id, role="assistant", content=final_content)
         recorder.record_run_end(run_id=run_id, status="completed")
+
+        # ── OLAV middleware hooks (workaround: deepagents doesn't mount them) ──
+        if hasattr(agent, "_olav_middleware") and final_content:
+            _state = {
+                "messages": [
+                    {"role": "human", "content": query},
+                    {"role": "assistant", "content": final_content},
+                ]
+            }
+            for _mw in agent._olav_middleware:
+                try:
+                    _hook = getattr(_mw, "aafter_agent", None)
+                    if _hook:
+                        await _hook(_state, None)
+                except Exception as _mw_err:
+                    logging.debug("Middleware hook %s failed: %s", type(_mw).__name__, _mw_err)
+
+        # ── Semantic cache: store result for future queries ──
+        # execute_task prints to console, returns None. Read the assistant
+        # message from audit DB (written by AuditCallbackPlugin during run).
+        _cached_content = final_content
+        if not _cached_content:
+            try:
+                import duckdb
+                from olav.core.config import AUDIT_DB_PATH
+                with duckdb.connect(str(AUDIT_DB_PATH), read_only=True) as _adb:
+                    _row = _adb.execute(
+                        "SELECT content FROM audit_messages WHERE run_id=? AND role='assistant' ORDER BY id DESC LIMIT 1",
+                        [run_id],
+                    ).fetchone()
+                    if _row and _row[0]:
+                        _cached_content = _row[0]
+            except Exception:
+                pass
+        if _cached_content:
+            try:
+                from olav.core.memory import SemanticCache, get_store
+                from olav.core.embedder import embed_text as _embed
+                _cstore = get_store()
+                if _cstore:
+                    _sc = SemanticCache(_cstore)
+                    _qv = _embed(query)
+                    if _qv:
+                        _sc.put(_qv, [{"query": query, "answer": _cached_content[:2000]}])
+            except Exception:
+                pass
     except KeyboardInterrupt:
         recorder.record(
             event_type="run_cancelled",
@@ -1113,6 +1010,21 @@ def cli_main_async() -> None:
         message="Core Pydantic V1 functionality",
         category=UserWarning,
     )
+    # Suppress noisy HuggingFace / transformers / sentence-transformers warnings
+    warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
+    warnings.filterwarnings("ignore", category=FutureWarning, module="olav.core.memory")
+    warnings.filterwarnings("ignore", message=".*get_sentence_embedding_dimension.*")
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    os.environ.setdefault("SAFETENSORS_FAST_GPU", "0")
+    os.environ.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
+    # Suppress BertModel LOAD REPORT, HF Hub auth, and safetensors shard reports
+    for _noisy_logger in ("sentence_transformers", "transformers", "transformers.modeling_utils",
+                          "huggingface_hub", "huggingface_hub.utils", "safetensors"):
+        logging.getLogger(_noisy_logger).setLevel(logging.ERROR)
+    # Suppress HF Hub "unauthenticated requests" stderr warning
+    warnings.filterwarnings("ignore", message=".*unauthenticated.*HF Hub.*")
+    warnings.filterwarnings("ignore", message=".*Sending unauthenticated.*")
 
     # Fix for gRPC fork issue on macOS
     if sys.platform == "darwin":

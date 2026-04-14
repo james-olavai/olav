@@ -294,6 +294,9 @@ class OLAVAgent:
             subagents=subagents,
             middleware=self.plugin_registry.get_middleware_plugins(),
         )
+        # Store middleware ref for manual invocation — deepagents 0.5.2
+        # accepts the `middleware` kwarg but doesn't mount it on the graph.
+        self._olav_middleware = list(self.plugin_registry.get_middleware_plugins())
 
     # ------------------------------------------------------------------
     # Tool loading helpers

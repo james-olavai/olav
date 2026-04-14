@@ -152,21 +152,17 @@
   <div id="sidebar">
     <div class="sidebar-header">
       <h1>⚡ OLAV</h1>
-      <div class="version">AI Operations Assistant · v0.11.0</div>
+      <div class="version">AI Operations Assistant · v0.15.1</div>
     </div>
     <button class="new-chat-btn" onclick="newThread()">
       <span>＋</span> New Chat
     </button>
     <div id="thread-list"></div>
     <div class="sidebar-footer">
+      <a href="/memory/graph" target="_blank" style="display:block;padding:6px 0;font-size:12px;color:var(--accent);text-decoration:none;margin-bottom:6px;">Memory Graph ↗</a>
       <div class="status-row"><span class="dot" id="api-dot"></span><span id="api-status">Checking API…</span></div>
       <select class="agent-select" id="agent-select">
-        <option value="quick">quick (default)</option>
-        <option value="ops">ops</option>
-        <option value="config">config</option>
-        <option value="audit">audit</option>
-        <option value="query">query</option>
-        <option value="log">log</option>
+        <option value="core">core (default)</option>
       </select>
     </div>
   </div>
@@ -218,9 +214,7 @@ function hideWelcome() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 checkHealth();
-// (async () => {
-// await checkHealth();
-  // Don't auto-create a thread; show welcome screen instead
+loadAgents();
 
 
 async function checkHealth() {
@@ -233,6 +227,23 @@ async function checkHealth() {
     document.getElementById('api-dot').className = 'dot err';
     document.getElementById('api-status').textContent = 'API unreachable';
   }
+}
+
+async function loadAgents() {
+  try {
+    const r = await fetch('/agents');
+    const agents = await r.json();
+    const sel = document.getElementById('agent-select');
+    if (agents.length > 0) {
+      sel.innerHTML = '';
+      agents.forEach((a, i) => {
+        const opt = document.createElement('option');
+        opt.value = a.id;
+        opt.textContent = a.id + (i === 0 ? ' (default)' : '');
+        sel.appendChild(opt);
+      });
+    }
+  } catch (e) { /* keep fallback option */ }
 }
 
 // ── Thread management ──────────────────────────────────────────────────────

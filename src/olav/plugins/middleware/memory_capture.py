@@ -85,10 +85,8 @@ class MemoryCapturePlugin(OLAVMiddlewarePlugin):
 
         try:
             capture = self._get_capture_mw()
-            asyncio.create_task(
-                capture.process(original_input, result, scope=self._scope)
-            )
+            await capture.process(original_input, result, scope=self._scope)
         except Exception as exc:
-            logger.warning("MemoryCapturePlugin: failed to schedule capture (non-fatal): %s", exc)
+            logger.debug("MemoryCapturePlugin: capture failed (non-fatal): %s", exc)
 
         return None  # capture doesn't modify agent state

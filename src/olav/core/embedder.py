@@ -62,19 +62,19 @@ def get_embedder(model: str | None = None):
                     logging.getLogger(_noisy).setLevel(logging.ERROR)
 
                 try:
-                    with contextlib.redirect_stderr(io.StringIO()):
+                    with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
                         _local_embedder = SentenceTransformer(
-                            resolved_model, local_files_only=True, device=device
+                            resolved_model, device=device
                         )
                     logger.info(
-                        "Shared embedder loaded (local cache, device=%s): %s", device, resolved_model
+                        "Shared embedder loaded (device=%s): %s", device, resolved_model
                     )
-                except OSError:
-                    logger.info(
-                        "Embedder model '%s' not in local cache; semantic memory disabled. "
-                        "Run `olav config download-embedder` to pre-fetch, or set "
-                        "`embedding.mode = \"none\"` to suppress this message.",
-                        resolved_model,
+                except Exception as _load_err:
+                    logger.warning(
+                        "Embedder model '%s' failed to load: %s. "
+                        "Run `olav init` to download, or set "
+                        "`embedding.mode = \"none\"` to disable.",
+                        resolved_model, _load_err,
                     )
                     _local_embedder = False  # sentinel: do not retry
         except Exception as exc:  # pragma: no cover – environment-specific
@@ -99,6 +99,38 @@ def _get_api_client():
         _api_model = cfg.openai_model
         logger.debug("API embedding client initialized (model=%s)", _api_model)
     return _api_client, _api_model
+
+
+_detected_dim: int | None = None
+
+
+def detect_embedding_dim() -> int:
+    """Detect the actual embedding dimension by running a probe.
+
+    Result is cached for the process lifetime.  All components that need
+    the dimension (MemoryStore, SemanticRouter, AutoCapture) should call
+    this instead of hardcoding a value.
+    """
+    global _detected_dim
+    if _detected_dim is not None:
+        return _detected_dim
+
+    vec = embed_text("dimension probe")
+    if vec is not None:
+        _detected_dim = len(vec)
+        logger.info("Detected embedding dimension: %d", _detected_dim)
+        return _detected_dim
+
+    # Fallback: ask local embedder directly
+    emb = get_embedder()
+    if emb is not None:
+        dim_fn = getattr(emb, "get_embedding_dimension", None) or getattr(emb, "get_sentence_embedding_dimension", None)
+        if dim_fn:
+            _detected_dim = int(dim_fn())
+            return _detected_dim
+
+    _detected_dim = 512  # safe default for bge-small-zh-v1.5
+    return _detected_dim
 
 
 def embed_text(text: str) -> "list[float] | None":

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import pwd
 from pathlib import Path
 
@@ -97,11 +98,7 @@ class InitCommand(BaseCommand):
                             "model": "gpt-4o",
                         },
                         "embedding": {
-                            "mode": "api",
-                            "api": {
-                                "model": "openai/text-embedding-3-small",
-                            },
-                            "fallback": {"enabled": True},
+                            "mode": "local",
                         },
                         "auth": {"mode": "none"},
                     },
@@ -134,6 +131,9 @@ class InitCommand(BaseCommand):
         # Core workspace
         core_status = self._deploy_core_workspace(base_dir / "workspace" / "core")
 
+        # Pre-download embedding model so first query doesn't hit HF Hub
+        embedder_status = self._ensure_embedding_model()
+
         # LLM connectivity check
         llm_status = await self._check_llm()
 
@@ -153,6 +153,7 @@ class InitCommand(BaseCommand):
             f"llm: {llm_status}\n"
             f"db: {db_status}\n"
             f"workspace: {core_status}\n"
+            f"embedder: {embedder_status}\n"
             f"auth: {user_status}\n"
             f"registry: {refresh_status}"
         )
@@ -226,14 +227,108 @@ class InitCommand(BaseCommand):
                 except Exception:  # noqa: BLE001
                     pass
 
+            try:
+                host_ip = socket.gethostbyname(socket.gethostname())
+            except Exception:
+                host_ip = "localhost"
             return (
                 f"✓ admin user '{username}' created\n"
                 f"  token → ~/.olav/token (chmod 600)\n"
-                f"  web login: http://localhost:2280/?token={token}"
+                f"  web login: http://{host_ip}:2280/?token={token}"
             )
 
         except Exception as exc:  # noqa: BLE001
             return f"⚠ user init skipped ({exc})"
+
+    @staticmethod
+    def _ensure_embedding_model() -> str:
+        """Download the local embedding model if not already cached.
+
+        Runs the download with stderr suppressed so the user sees a clean
+        status line instead of HuggingFace progress bars and warnings.
+        """
+        import contextlib
+        import io
+        import logging as _logging
+
+        import os as _os
+        for _n in ("sentence_transformers", "transformers", "huggingface_hub"):
+            _logging.getLogger(_n).setLevel(_logging.ERROR)
+        _os.environ["SAFETENSORS_FAST_GPU"] = "0"
+        _os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+
+        try:
+            from olav.core.config import get_embedding_config
+
+            cfg = get_embedding_config()
+            if cfg.mode != "local":
+                return "✓ embedder skipped (mode=api)"
+
+            model_name = cfg.local_model
+            from sentence_transformers import SentenceTransformer
+
+            # Suppress C-level stdout (safetensors shard reports)
+            _saved_fd = _os.dup(1)
+            _devnull = _os.open(_os.devnull, _os.O_WRONLY)
+            def _quiet():
+                _os.dup2(_devnull, 1)
+            def _restore():
+                _os.dup2(_saved_fd, 1)
+                _os.close(_devnull)
+                _os.close(_saved_fd)
+
+            # Try local cache first
+            try:
+                _quiet()
+                try:
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        SentenceTransformer(model_name, local_files_only=True)
+                finally:
+                    _restore()
+                return f"✓ {model_name} (cached)"
+            except OSError:
+                pass
+
+            # Download
+            print(f"  ⏳ downloading embedding model {model_name}...")
+            _saved_fd2 = _os.dup(1)
+            _devnull2 = _os.open(_os.devnull, _os.O_WRONLY)
+            _os.dup2(_devnull2, 1)
+            try:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    SentenceTransformer(model_name)
+            finally:
+                _os.dup2(_saved_fd2, 1)
+                _os.close(_devnull2)
+                _os.close(_saved_fd2)
+            return f"✓ {model_name} downloaded"
+        except Exception as exc:
+            return f"⚠ embedder download failed ({exc})"
+
+    @staticmethod
+    def _ensure_deepagents_cli() -> str:
+        """Install deepagents-cli==0.0.10 with --no-deps if not already present.
+
+        The package pins deepagents==0.2.8 which conflicts with our >=0.5.0;
+        --no-deps avoids pulling in the conflicting pin.  All real sub-deps
+        (markdownify, tavily-python) are already in olav's own dependencies.
+        """
+        try:
+            import deepagents_cli  # noqa: F401
+            return "✓ deepagents-cli ready"
+        except ImportError:
+            pass
+        import subprocess
+        import sys
+
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install",
+             "deepagents-cli==0.0.10", "--no-deps", "-q"],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            return "✓ deepagents-cli installed"
+        return f"⚠ deepagents-cli install failed ({result.stderr[:100]})"
 
     def _init_databases(self, db_dir: Path) -> str:
         """Create domain.duckdb and audit.duckdb (empty, just open+close)."""
@@ -302,6 +397,14 @@ class InitCommand(BaseCommand):
     async def _check_llm(self) -> str:
         """Test LLM connectivity. Never raises — returns a human-readable status string."""
         try:
+            from olav.core.config import ConfigLoader
+
+            api_key = ConfigLoader().llm.api_key
+            if not api_key:
+                return "⚠ unavailable (no API key — edit .olav/config/api.json)"
+        except Exception:  # noqa: BLE001
+            return "⚠ unavailable (no API key — edit .olav/config/api.json)"
+        try:
             from olav.core.llm import LLMFactory
 
             ok = LLMFactory.test_connectivity()
@@ -309,4 +412,4 @@ class InitCommand(BaseCommand):
                 return "✓ connected"
             return "⚠ unavailable (check api.json llm settings)"
         except Exception as exc:  # noqa: BLE001
-            return f"⚠ skipped ({exc})"
+            return f"⚠ unavailable ({exc})"

@@ -31,7 +31,12 @@ from olav.core.memory import get_store, hybrid_search, MEMORY_TABLE
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_EMBEDDING_DIM = 768
+def _get_embedding_dim() -> int:
+    try:
+        from olav.core.embedder import detect_embedding_dim
+        return detect_embedding_dim()
+    except Exception:
+        return 512
 
 
 def _embed_query(text: str) -> "list[float] | None":
@@ -117,7 +122,7 @@ def _recall_memory_inner(
     import os
     try:
         db_path = os.environ.get("OLAV_MEMORY_DB_PATH")
-        store = get_store(db_path=db_path, embedding_dim=DEFAULT_EMBEDDING_DIM)
+        store = get_store(db_path=db_path, embedding_dim=_get_embedding_dim())
 
         if not store.table_exists(MEMORY_TABLE):
             return "No long-term memories stored yet."

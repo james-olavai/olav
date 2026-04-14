@@ -23,7 +23,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 # Agents skipped from the main routing table (the olav main agent routes to others — not to itself)
-_ROUTING_TABLE_SKIP: frozenset[str] = frozenset({"olav"})
+_ROUTING_TABLE_SKIP: frozenset[str] = frozenset({"core"})
 
 _ROUTING_START_MARKER = "<!-- BEGIN_AGENT_ROUTING -->"
 _ROUTING_END_MARKER = "<!-- END_AGENT_ROUTING -->"
@@ -194,7 +194,7 @@ def _update_main_agent_routing(workspace_root: Path, agents: list[dict[str, Any]
         True  — markers found and section updated.
         False — system.md missing or markers absent (no change made).
     """
-    system_md = workspace_root / "olav" / "prompts" / "system.md"
+    system_md = workspace_root / "core" / "prompts" / "system.md"
     if not system_md.exists():
         logger.warning("Main agent system.md not found: %s", system_md)
         return False

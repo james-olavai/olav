@@ -56,14 +56,16 @@ class LanceDBStore:
         embedding_dim: Dimension of embedding vectors
     """
 
-    def __init__(self, db_path: str | Path | None = None, embedding_dim: int = 384):
+    def __init__(self, db_path: str | Path | None = None, embedding_dim: int | None = None):
         """Initialize LanceDB store.
 
         Args:
             db_path: Path to LanceDB database. Defaults to DEFAULT_MEMORY_DB
-            embedding_dim: Dimension of embedding vectors. Default 384 (bge-small)
+            embedding_dim: Dimension of embedding vectors. Auto-detected if None.
         """
         self._db_path = Path(db_path) if db_path else self._get_default_db_path()
+        if embedding_dim is None:
+            embedding_dim = _detect_embedding_dim()
         self._embedding_dim = embedding_dim
         self._db: lancedb.LanceDBConnection | None = None
         # FTS dirty tracking: rebuild index after N writes to keep BM25 fresh
@@ -657,27 +659,17 @@ _store_embedding_dim: int | None = None
 
 
 def _detect_embedding_dim() -> int:
-    """Return the active embedder's output dimension, or 384 as fallback."""
+    """Return the active embedder's output dimension via probe.
+
+    Delegates to ``embedder.detect_embedding_dim()`` which runs an actual
+    embedding probe and caches the result.  All LanceDB tables in the process
+    share the same detected dimension.
+    """
     try:
-        from olav.core.config import get_embedding_config
-
-        cfg = get_embedding_config()
-        if cfg.mode == "api":
-            model = cfg.openai_model.lower()
-            if "3-large" in model:
-                return 3072
-            elif "3-small" in model or "ada" in model:
-                return 1536
-            return 1536  # safe default for unknown api models
-        # Local mode: ask the singleton
-        from olav.core.embedder import get_embedder
-
-        emb = get_embedder()
-        if emb is not None:
-            return int(emb.get_sentence_embedding_dimension())
+        from olav.core.embedder import detect_embedding_dim
+        return detect_embedding_dim()
     except Exception:
-        pass
-    return 384
+        return 512
 
 
 def get_store(

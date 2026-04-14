@@ -77,3 +77,8 @@ olav registry list                 # List registered services
 - Do NOT create skills for one-off tasks
 - Do NOT write platform code — only workspace files and tools
 - Do NOT pre-build skill tools before verifying the service works
+
+## Available Agents
+
+<!-- BEGIN_AGENT_ROUTING -->
+<!-- END_AGENT_ROUTING -->
