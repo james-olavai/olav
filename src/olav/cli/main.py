@@ -785,6 +785,21 @@ async def run_single_query(
                 console.print(_slash_result)
             return
 
+    # Apply input_parser: expand @file references and handle !cmd shell commands
+    try:
+        from olav.cli.input_parser import parse_input as _parse_input
+        import subprocess as _subprocess
+        query, _is_shell_cmd, _shell_cmd = _parse_input(query)
+        if _is_shell_cmd and _shell_cmd:
+            _proc = _subprocess.run(_shell_cmd, shell=True, capture_output=True, text=True)
+            if _proc.stdout:
+                console.print(_proc.stdout, end="")
+            if _proc.stderr:
+                console.print(_proc.stderr, end="", style="red")
+            return
+    except Exception:
+        pass
+
     # deepagents-cli is used for TUI mode; single-query uses langgraph native API
 
     # P1: silent auth check (D6) — no interactive prompt in single-query mode
