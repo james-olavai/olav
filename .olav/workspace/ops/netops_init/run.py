@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -40,9 +41,9 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _find_project_root()
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
-# ── Discovery command list ──────────────────────────────────────────────────
+# ── Platform command mapping ──────────────────────────────────────────────
 
-# Universal commands (work on both Cisco IOS and Juniper JunOS)
+# Universal commands (work on most platforms)
 DISCOVERY_COMMANDS_UNIVERSAL = [
     "show version",
     "show interfaces",
@@ -64,11 +65,44 @@ DISCOVERY_COMMANDS_IOS = [
     "show running-config",
 ]
 
+# Juniper JunOS-specific commands (matched to ntc_templates availability)
+DISCOVERY_COMMANDS_JUNOS = [
+    "show interfaces terse",
+    "show lldp neighbors",
+    "show bgp summary",
+    "show ospf neighbor",
+    "show route summary",
+    "show arp no-resolve",
+    "show chassis hardware",
+    "show vlans",
+    "show configuration",
+]
+
+# Platform → command list mapping
+_PLATFORM_COMMANDS: dict[str, list[str]] = {
+    "cisco_ios": DISCOVERY_COMMANDS_UNIVERSAL + DISCOVERY_COMMANDS_IOS,
+    "cisco_nxos": DISCOVERY_COMMANDS_UNIVERSAL + DISCOVERY_COMMANDS_IOS,
+    "juniper_junos": DISCOVERY_COMMANDS_UNIVERSAL + DISCOVERY_COMMANDS_JUNOS,
+}
+
 # Legacy flat list used when --commands override is passed
 DISCOVERY_COMMANDS = DISCOVERY_COMMANDS_UNIVERSAL + DISCOVERY_COMMANDS_IOS
 
 # Platforms that are NOT Cisco IOS-compatible
 _JUNOS_PLATFORMS = {"juniper_junos", "juniper", "junos"}
+
+
+def _normalise_platform(platform: str) -> str:
+    """Map various platform strings to canonical form."""
+    p = (platform or "").replace("-", "_").lower()
+    if p in ("ios", "cisco_ios", "cisco_ios_xe"):
+        return "cisco_ios"
+    if p in ("junos", "juniper_junos", "juniper"):
+        return "juniper_junos"
+    if p in ("nxos", "cisco_nxos"):
+        return "cisco_nxos"
+    return p or "cisco_ios"
+
 
 # ── TextFSM helper ────────────────────────────────────────────────────────
 
@@ -80,12 +114,7 @@ def _textfsm_parse(platform: str, command: str, raw_output: str) -> list[dict] |
         from pathlib import Path as _P
 
         templates_dir = _P(ntc_templates.__file__).parent / "templates"
-        # Normalize platform
-        platform_norm = platform.replace("-", "_").lower()
-        if platform_norm in ("ios", "cisco_ios", "cisco_ios_xe"):
-            platform_norm = "cisco_ios"
-        elif platform_norm in ("junos", "juniper_junos", "juniper"):
-            platform_norm = "juniper_junos"
+        platform_norm = _normalise_platform(platform)
 
         # Command → NTC template name overrides (where CLI name ≠ template filename)
         _CMD_ALIASES: dict[str, str] = {
@@ -154,6 +183,19 @@ def _check_environment() -> tuple[bool, list[str]]:
             else:
                 print(f"  ✓ Nornir config: {cfg}")
                 print(f"  ✓ Devices found: {device_count} ({', '.join(list(data.keys())[:6])}{'...' if device_count > 6 else ''})")
+
+            # Validate full Nornir inventory (catches group reference mismatches)
+            try:
+                from nornir import InitNornir
+                _nr = InitNornir(config_file=str(cfg), logging={"enabled": False})  # noqa: F841
+                print(f"  ✓ Nornir inventory validated")
+            except KeyError as ke:
+                issues.append(
+                    f"hosts.yaml references undefined group: {ke}. "
+                    f"Check groups.yaml for available group names."
+                )
+            except Exception as inv_err:
+                issues.append(f"Nornir inventory validation failed: {inv_err}")
     except Exception as e:
         issues.append(f"Nornir config error: {e}")
 
@@ -172,26 +214,13 @@ def _load_devices() -> list[str]:
     return list(data.keys())
 
 
-def _run_collection(devices: list[str], commands: list[str]) -> dict:
+def _run_collection(devices: list[str], commands: list[str] | None) -> dict:
     """Stage 3: SSH collection via Nornir."""
-    import sys
-    # Reuse take_snapshot logic
-    _tools_dir = _SCRIPT_DIR.parent / "tools"
-    if str(_tools_dir) not in sys.path:
-        sys.path.insert(0, str(_tools_dir))
-
     # Import inline to avoid langchain decorator at import time
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location("take_snapshot", _tools_dir / "take_snapshot.py")
-    mod = importlib.util.load_from_spec(spec) if hasattr(importlib.util, "load_from_spec") else None
-
-    # Direct nornir execution (simpler path)
     from nornir import InitNornir
     from nornir_netmiko.tasks import netmiko_send_command
-    from olav.core.config import _resolve_nornir_config_path, MAIN_DB_PATH, SNAPSHOTS_DIR, SNAPSHOTS_STAGING_JSON
+    from olav.core.config import _resolve_nornir_config_path, MAIN_DB_PATH, SNAPSHOTS_DIR
     import duckdb
-    import json
     import uuid
     from datetime import datetime
 
@@ -202,76 +231,59 @@ def _run_collection(devices: list[str], commands: list[str]) -> dict:
     nornir_cfg = str(_resolve_nornir_config_path())
     nr = InitNornir(config_file=nornir_cfg, logging={"enabled": False})
 
-    # Filter to requested devices; split by platform for command compatibility
-    target = nr.filter(filter_func=lambda h: h.name in devices)
-    # Separate Juniper hosts so IOS-only commands aren't sent to them
-    junos_hosts = {
-        h for h in devices
-        if (nr.inventory.hosts.get(h) and
-            (nr.inventory.hosts[h].platform or "").lower() in _JUNOS_PLATFORMS)
-    }
-    ios_target = nr.filter(filter_func=lambda h: h.name in devices and h.name not in junos_hosts)
+    # ── Build per-platform command sets ───────────────────────────────────
+    # Group devices by normalised platform
+    platform_groups: dict[str, list[str]] = {}
+    for h in devices:
+        host_obj = nr.inventory.hosts.get(h)
+        plat = _normalise_platform(host_obj.platform if host_obj else "cisco_ios")
+        platform_groups.setdefault(plat, []).append(h)
 
-    # When caller supplies a manual override list, honour it without platform filtering
-    _use_platform_split = (commands == DISCOVERY_COMMANDS)
+    # If caller supplied explicit commands, use them for all devices
+    # Otherwise, use platform-specific command lists
+    use_explicit = commands is not None
+    if commands is None:
+        # Collect the union of all platform commands for progress display
+        all_cmds_set: set[str] = set()
+        for plat in platform_groups:
+            all_cmds_set.update(_PLATFORM_COMMANDS.get(plat, DISCOVERY_COMMANDS_UNIVERSAL))
+        commands_display = sorted(all_cmds_set)
+    else:
+        commands_display = commands
 
     results_summary = []
     total_ok = 0
     total_fail = 0
     all_rows: list[dict] = []
 
-    for cmd in commands:
-        run_target = (ios_target if _use_platform_split and cmd in DISCOVERY_COMMANDS_IOS
-                      else target)
-        print(f"  → Collecting: {cmd} ... ", end="", flush=True)
-        try:
-            result = run_target.run(task=netmiko_send_command, command_string=cmd)
-            cmd_ok = 0
-            cmd_fail = 0
-
-            for host, multi in result.items():
-                if multi.failed:
-                    cmd_fail += 1
-                    results_summary.append({"device": host, "command": cmd, "status": "failed",
-                                            "error": str(multi.exception)[:100]})
-                    continue
-                raw_output = multi[0].result or ""
-                cmd_ok += 1
-                raw_dir = SNAPSHOTS_DIR / snapshot_date / "raw" / host
-                raw_dir.mkdir(parents=True, exist_ok=True)
-                safe_cmd = cmd.replace(" ", "_").replace("/", "_")[:60]
-                (raw_dir / f"{safe_cmd}.txt").write_text(raw_output)
-
-                # Try TextFSM parse via ntc_templates
-                parsed_data = None
-                parsed_rows = 0
-                try:
-                    parsed = _textfsm_parse(
-                        nr.inventory.hosts[host].platform or "cisco_ios",
-                        cmd, raw_output
-                    )
-                    if parsed:
-                        parsed_data = json.dumps(parsed)
-                        parsed_rows = len(parsed) if isinstance(parsed, list) else 1
-                except Exception:
-                    pass
-
-                all_rows.append({
-                    "snapshot_id": snapshot_id,
-                    "device_name": host,
-                    "command": cmd,
-                    "raw_output": raw_output,
-                    "parsed_data": parsed_data,
-                })
-                results_summary.append({"device": host, "command": cmd,
-                                        "status": "success", "parsed_rows": parsed_rows})
-
-            total_ok += cmd_ok
-            total_fail += cmd_fail
-            print(f"✓ {cmd_ok} devices, {cmd_fail} failures")
-        except Exception as e:
-            total_fail += len(devices)
-            print(f"✗ ERROR: {e}")
+    # Collect per platform
+    if use_explicit:
+        # Explicit commands: send to all devices
+        target = nr.filter(filter_func=lambda h: h.name in devices)
+        for cmd in commands:
+            print(f"  → Collecting: {cmd} ... ", end="", flush=True)
+            _collect_cmd(nr, target, cmd, devices, snapshot_id, snapshot_date,
+                         SNAPSHOTS_DIR, all_rows, results_summary)
+            ok = sum(1 for r in results_summary if r["command"] == cmd and r["status"] == "success")
+            fail = sum(1 for r in results_summary if r["command"] == cmd and r["status"] == "failed")
+            total_ok += ok
+            total_fail += fail
+            print(f"✓ {ok} devices, {fail} failures")
+    else:
+        # Platform-aware: each platform gets its own command list
+        for plat, plat_devices in platform_groups.items():
+            plat_cmds = _PLATFORM_COMMANDS.get(plat, DISCOVERY_COMMANDS_UNIVERSAL)
+            plat_target = nr.filter(filter_func=lambda h, _d=plat_devices: h.name in _d)
+            print(f"  [{plat}] {len(plat_devices)} device(s): {', '.join(plat_devices)}")
+            for cmd in plat_cmds:
+                print(f"    → {cmd} ... ", end="", flush=True)
+                _collect_cmd(nr, plat_target, cmd, plat_devices, snapshot_id, snapshot_date,
+                             SNAPSHOTS_DIR, all_rows, results_summary)
+                ok = sum(1 for r in results_summary if r["command"] == cmd and r["device"] in plat_devices and r["status"] == "success")
+                fail = sum(1 for r in results_summary if r["command"] == cmd and r["device"] in plat_devices and r["status"] == "failed")
+                total_ok += ok
+                total_fail += fail
+                print(f"✓ {ok}, {fail} fail")
 
     # ── Persist via IngestManager pipeline ─────────────────────────────────
     if all_rows:
@@ -279,15 +291,16 @@ def _run_collection(devices: list[str], commands: list[str]) -> dict:
         from olav.core.topology_engine import extract_lldp_topology
         from olav.core.config import SNAPSHOTS_STAGING_JSON
 
-        # Register olav-netops tables if the package is installed;
-        # fall back to direct DuckDB DDL so the script works even when
-        # olav-netops is skill-only (not installed as a Python package).
+        # Register olav-netops tables and ensure ALL schemas exist in DB
         try:
-            from olav_netops.core.tables import _register_all  # type: ignore[import]
+            from olav_netops.core.tables import _register_all
+            from olav.platform.ingest_base import TableRegistry
             _register_all()
+            with duckdb.connect(str(MAIN_DB_PATH)) as _setup_conn:
+                TableRegistry.ensure_all_schemas(_setup_conn)
         except ImportError:
-            import duckdb as _ddb
-            with _ddb.connect(str(MAIN_DB_PATH)) as _setup_conn:
+            # Fallback DDL for skill-only installs (no pip install olav-netops)
+            with duckdb.connect(str(MAIN_DB_PATH)) as _setup_conn:
                 _setup_conn.execute("CREATE SCHEMA IF NOT EXISTS netops")
                 _setup_conn.execute("""
                     CREATE TABLE IF NOT EXISTS netops.raw_output_store (
@@ -301,10 +314,13 @@ def _run_collection(devices: list[str], commands: list[str]) -> dict:
                 """)
                 _setup_conn.execute("""
                     CREATE TABLE IF NOT EXISTS netops.parsed_outputs (
-                        device_name  VARCHAR NOT NULL,
-                        command      VARCHAR NOT NULL,
-                        parsed_data  JSON,
-                        snapshot_id  VARCHAR NOT NULL,
+                        device_name     VARCHAR NOT NULL,
+                        command         VARCHAR NOT NULL,
+                        parsed_data     JSON,
+                        snapshot_id     VARCHAR NOT NULL,
+                        raw_output      TEXT,
+                        raw_output_hash VARCHAR,
+                        ingested_at     TIMESTAMP,
                         UNIQUE (device_name, command, snapshot_id)
                     )
                 """)
@@ -312,15 +328,19 @@ def _run_collection(devices: list[str], commands: list[str]) -> dict:
                     CREATE TABLE IF NOT EXISTS netops.topology_links (
                         link_id              VARCHAR PRIMARY KEY,
                         source_device        VARCHAR NOT NULL,
-                        source_interface     VARCHAR,
+                        source_interface     VARCHAR NOT NULL,
                         destination_device   VARCHAR NOT NULL,
-                        destination_interface VARCHAR,
+                        destination_interface VARCHAR NOT NULL,
                         discovery_protocol   VARCHAR,
                         link_type            VARCHAR,
-                        link_status          VARCHAR DEFAULT 'up',
-                        first_seen           VARCHAR,
-                        last_seen            VARCHAR,
-                        snapshot_id          VARCHAR
+                        link_status          VARCHAR,
+                        link_speed           VARCHAR,
+                        first_seen           TIMESTAMP NOT NULL,
+                        last_seen            TIMESTAMP NOT NULL,
+                        last_verified        TIMESTAMP,
+                        status_changes       INTEGER,
+                        snapshot_id          VARCHAR NOT NULL,
+                        platform             VARCHAR
                     )
                 """)
 
@@ -334,24 +354,198 @@ def _run_collection(devices: list[str], commands: list[str]) -> dict:
             load_result = ingest.bulk_load()
             print(f"  ✓ IngestManager loaded: {load_result}")
         except Exception as e:
-            print(f"  ✗ IngestManager error: {e}")
+            print(f"  ✗ IngestManager ERROR: {e}")
 
         try:
             with duckdb.connect(str(MAIN_DB_PATH)) as conn:
                 topo_rows = extract_lldp_topology(conn)
                 print(f"  ✓ Topology ETL: {topo_rows} link(s) extracted")
         except Exception as e:
-            print(f"  ✗ Topology ETL error: {e}")
+            print(f"  ✗ Topology ETL ERROR: {e}")
+
+        # ── Device ETL: nornir inventory + show version → netops.devices ──
+        try:
+            dev_count = _populate_devices(MAIN_DB_PATH, snapshot_id)
+            print(f"  ✓ Device ETL: {dev_count} device(s) registered")
+        except Exception as e:
+            print(f"  ✗ Device ETL ERROR: {e}")
 
     return {
         "snapshot_id": snapshot_id,
         "snapshot_date": snapshot_date,
         "devices": len(devices),
-        "commands": len(commands),
+        "commands": len(commands_display),
         "successful": total_ok,
         "failed": total_fail,
         "results": results_summary,
     }
+
+
+def _populate_devices(db_path, snapshot_id: str) -> int:
+    """Device ETL: extract device info from parsed_outputs → netops.devices.
+
+    Nornir-independent — reads only from DB tables populated by IngestManager.
+    Sources: show version (model/os), show ip interface brief / show interfaces terse (mgmt IP).
+    """
+    import duckdb as _ddb
+
+    _PLATFORM_VENDOR = {
+        "cisco_ios": "Cisco", "cisco_nxos": "Cisco", "cisco_xr": "Cisco",
+        "juniper_junos": "Juniper", "arista_eos": "Arista", "huawei_vrp": "Huawei",
+    }
+
+    count = 0
+    with _ddb.connect(str(db_path)) as conn:
+        devices = conn.execute(
+            "SELECT DISTINCT device_name FROM netops.raw_output_store"
+        ).fetchall()
+
+        for (device_name,) in devices:
+            model = os_ver = plat = mgmt_ip = None
+
+            # ── show version → platform, model, os_version ───────────────
+            try:
+                row = conn.execute(
+                    "SELECT parsed_data::VARCHAR FROM netops.parsed_outputs "
+                    "WHERE device_name=? AND command='show version' "
+                    "ORDER BY snapshot_id DESC LIMIT 1",
+                    [device_name],
+                ).fetchone()
+                if row and row[0]:
+                    entries = json.loads(row[0])
+                    if entries and isinstance(entries, list):
+                        v = entries[0]
+                        if v.get("JUNOS_VERSION"):
+                            plat = "juniper_junos"
+                        elif v.get("HARDWARE") or v.get("VERSION"):
+                            plat = "cisco_ios"
+                        model = v.get("MODEL") or (v.get("HARDWARE", [None]) or [None])[0]
+                        os_ver = (v.get("JUNOS_VERSION") or v.get("VERSION")
+                                  or v.get("ROMMON") or v.get("SOFTWARE_IMAGE") or "")
+            except Exception:
+                pass
+
+            # ── show ip interface brief → management IP (IOS) ────────────
+            try:
+                row = conn.execute(
+                    "SELECT parsed_data::VARCHAR FROM netops.parsed_outputs "
+                    "WHERE device_name=? AND command='show ip interface brief' "
+                    "ORDER BY snapshot_id DESC LIMIT 1",
+                    [device_name],
+                ).fetchone()
+                if row and row[0]:
+                    ifaces = json.loads(row[0])
+                    if ifaces and isinstance(ifaces, list):
+                        # Prefer: Loopback0 > management interface > highest non-link-local IP
+                        for iface in ifaces:
+                            name = (iface.get("INTF") or iface.get("INTERFACE") or "").lower()
+                            ip = iface.get("IPADDR") or iface.get("IP_ADDRESS") or ""
+                            status = (iface.get("STATUS") or "").lower()
+                            if ip and ip != "unassigned" and "up" in status:
+                                if "loopback" in name:
+                                    mgmt_ip = ip
+                                    break
+                                if not mgmt_ip and not ip.startswith("10."):
+                                    mgmt_ip = ip
+                        # Fallback: any up interface with an IP
+                        if not mgmt_ip:
+                            for iface in ifaces:
+                                ip = iface.get("IPADDR") or iface.get("IP_ADDRESS") or ""
+                                if ip and ip != "unassigned":
+                                    mgmt_ip = ip
+                                    break
+            except Exception:
+                pass
+
+            # ── show interfaces terse → management IP (Junos) ────────────
+            # ntc_templates has no template for this command; parse raw output directly
+            if not mgmt_ip:
+                try:
+                    import re
+                    row = conn.execute(
+                        "SELECT raw_output FROM netops.raw_output_store "
+                        "WHERE device_name=? AND command='show interfaces terse' "
+                        "ORDER BY snapshot_id DESC LIMIT 1",
+                        [device_name],
+                    ).fetchone()
+                    if row and row[0]:
+                        # Junos format: "fxp0.0  up  up  inet  192.168.100.101/24"
+                        for line in row[0].splitlines():
+                            parts = line.split()
+                            if len(parts) >= 4:
+                                iface_name = parts[0].lower()
+                                for p in parts:
+                                    m = re.match(r"(\d+\.\d+\.\d+\.\d+)(?:/\d+)?$", p)
+                                    if m and ("fxp0" in iface_name or "em0" in iface_name
+                                              or "me0" in iface_name):
+                                        mgmt_ip = m.group(1)
+                                        break
+                                    if m and "lo0" in iface_name:
+                                        mgmt_ip = mgmt_ip or m.group(1)
+                                if mgmt_ip and "fxp" in iface_name:
+                                    break  # fxp0 is preferred management interface
+                except Exception:
+                    pass
+
+            plat = plat or "unknown"
+            vendor = _PLATFORM_VENDOR.get(plat, "")
+
+            conn.execute("""
+                INSERT INTO netops.devices
+                    (hostname, ip_address, platform, site, role, vendor, model, os_version, last_seen, metadata)
+                VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, NOW(), NULL)
+                ON CONFLICT (hostname) DO UPDATE SET
+                    ip_address=COALESCE(EXCLUDED.ip_address, netops.devices.ip_address),
+                    platform=COALESCE(EXCLUDED.platform, netops.devices.platform),
+                    vendor=COALESCE(EXCLUDED.vendor, netops.devices.vendor),
+                    model=COALESCE(EXCLUDED.model, netops.devices.model),
+                    os_version=COALESCE(EXCLUDED.os_version, netops.devices.os_version),
+                    last_seen=NOW()
+            """, [device_name, mgmt_ip, plat, vendor, model, os_ver])
+            count += 1
+    return count
+
+
+def _collect_cmd(nr, target, cmd, devices, snapshot_id, snapshot_date,
+                 snapshots_dir, all_rows, results_summary):
+    """Run a single command on target hosts, store results."""
+    from nornir_netmiko.tasks import netmiko_send_command
+    try:
+        result = target.run(task=netmiko_send_command, command_string=cmd)
+        for host, multi in result.items():
+            if multi.failed:
+                results_summary.append({"device": host, "command": cmd, "status": "failed",
+                                        "error": str(multi.exception)[:100]})
+                continue
+            raw_output = multi[0].result or ""
+            raw_dir = snapshots_dir / snapshot_date / "raw" / host
+            raw_dir.mkdir(parents=True, exist_ok=True)
+            safe_cmd = cmd.replace(" ", "_").replace("/", "_")[:60]
+            (raw_dir / f"{safe_cmd}.txt").write_text(raw_output)
+
+            parsed_data = None
+            parsed_rows = 0
+            parsed = _textfsm_parse(
+                nr.inventory.hosts[host].platform or "cisco_ios",
+                cmd, raw_output
+            )
+            if parsed:
+                parsed_data = json.dumps(parsed)
+                parsed_rows = len(parsed)
+
+            all_rows.append({
+                "snapshot_id": snapshot_id,
+                "device_name": host,
+                "command": cmd,
+                "raw_output": raw_output,
+                "parsed_data": parsed_data,
+            })
+            results_summary.append({"device": host, "command": cmd,
+                                    "status": "success", "parsed_rows": parsed_rows})
+    except Exception as e:
+        for d in devices:
+            results_summary.append({"device": d, "command": cmd, "status": "failed",
+                                    "error": str(e)[:100]})
 
 
 # ── Main ───────────────────────────────────────────────────────────────────
@@ -362,7 +556,7 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true",
                         help="Check environment only — no SSH connections")
     parser.add_argument("--commands", nargs="+",
-                        help="Override discovery commands (default: built-in list)")
+                        help="Override discovery commands (default: platform-aware)")
     args = parser.parse_args()
 
     print("\n🔍 Stage 1: Environment Check")
@@ -377,10 +571,9 @@ def main() -> int:
 
     if args.dry_run:
         devices = _load_devices()
-        cmds = args.commands or DISCOVERY_COMMANDS
         print(f"\n✅ Dry-run complete:")
         print(f"  Devices  : {len(devices)} ({', '.join(devices)})")
-        print(f"  Commands : {len(cmds)}")
+        print(f"  Mode     : platform-aware command selection")
         print(f"  Nornir   : config loaded, SSH NOT executed (dry-run)")
         return 0
 
@@ -388,10 +581,10 @@ def main() -> int:
     devices = _load_devices()
     print(f"  ✓ {len(devices)} devices: {', '.join(devices)}")
 
-    cmds = args.commands or DISCOVERY_COMMANDS
-    print(f"\n🔌 Stage 3: SSH Collection ({len(cmds)} commands × {len(devices)} devices)")
+    print(f"\n🔌 Stage 3: SSH Collection (platform-aware)")
     t1 = time.time()
-    result = _run_collection(devices, cmds)
+    explicit_cmds = args.commands if args.commands else None
+    result = _run_collection(devices, explicit_cmds)
     elapsed = time.time() - t1
 
     print(f"\n📊 Stage 4: Summary")
@@ -402,15 +595,15 @@ def main() -> int:
     print(f"  Failed      : {result['failed']}")
     print(f"  Elapsed     : {elapsed:.1f}s")
 
-    if result['failed'] > 0:
-        print("\n⚠️  Some collections failed — check credentials in hosts.yaml / defaults.yaml")
-        failed = [r for r in result['results'] if r['status'] == 'failed']
-        for r in failed[:5]:
-            print(f"  {r['device']} / {r['command']}: {r.get('error', 'unknown')}")
-        return 2
-
-    print(f"\n✅ Network initialization complete — DB populated, run 'olav \"show BGP status\"' to query")
-    return 0
+    if result["failed"] > 0:
+        print(f"\n⚠  Some collections failed — check credentials in hosts.yaml / defaults.yaml")
+        for r in result["results"]:
+            if r["status"] == "failed":
+                print(f"  {r['device']} / {r['command']}: {r.get('error', 'unknown')[:80]}")
+        return 0  # partial success is not a hard error
+    else:
+        print(f"\n✅ Network initialization complete — DB populated, run 'olav \"show BGP status\"' to query")
+        return 0
 
 
 if __name__ == "__main__":

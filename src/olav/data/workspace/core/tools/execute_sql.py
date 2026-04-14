@@ -186,12 +186,10 @@ class SchemaContext:
                     pass
 
             # Get sample data — prefer views and devices; skip noisy catalog/JSON tables
-            SKIP_SAMPLES = {"main.schema_catalog", "main.yang_leaves",
+            SKIP_SAMPLES = {"main.schema_catalog",
                             "netops.oc_outputs", "netops.parsed_outputs"}
             PREFER_SAMPLES = [
-                "main.v_bgp_neighbors_auto", "main.v_interfaces_auto",
-                "main.v_ospf_neighbors_auto", "main.v_topology_l2_auto",
-                "main.v_topo_links_clean", "netops.devices",
+                "netops.devices", "netops.topology_links",
             ]
             self._schema_cache["samples"] = {}
             # First try preferred tables, then fill from remaining (skip noisy ones)
@@ -262,30 +260,33 @@ class SchemaContext:
         # CRITICAL: schema-qualified names required for netops tables
         context_parts.append(
             "⚠️  ALWAYS use schema-qualified names: `netops.devices`, `netops.parsed_outputs`, etc.\n"
-            "   Views (v_*) are in main schema and can be queried unqualified.\n"
         )
 
         # List tables
         context_parts.append(f"Tables: {', '.join(self._schema_cache['tables'])}\n")
 
-        # View semantic hints — help agent pick the right view immediately
-        context_parts.append("**View Quick Reference (USE THESE FIRST for network queries):**")
+        # Table semantic hints — direct agent to actual tables
+        context_parts.append("**Table Quick Reference:**")
         context_parts.append(
-            "  v_interfaces_auto         → interface admin/oper status + IP address per device\n"
-            "  v_bgp_neighbors_auto      → BGP neighbor state, remote-AS, prefixes received\n"
-            "  v_ospf_neighbors_auto     → OSPF neighbor state + cost (LLM-compiled, all vendors)\n"
-            "  v_topology_l2_auto        → L2 neighbors: CDP/LLDP local/remote interface + protocol\n"
-            "  v_arp_auto                → ARP table: ip_address, mac_address, interface per device\n"
-            "  v_topo_links_clean        → resolved topology: src/dst device + interface pairs\n"
-            "  v_device_neighbors_summary → compact neighbor table (LLDP/CDP)\n"
-            "  v_isis_adjacencies        → IS-IS adjacency state + level\n"
-            "  v_evpn_instances          → EVPN VNI/RD per device\n"
-            "  v_mpls_ldp_peers          → MPLS LDP peer state\n"
-            "  netops.devices            → device inventory: hostname, platform, ip_address, role\n"
-            "  netops.parsed_outputs     → raw TextFSM rows: parsed_data (JSON), command, snapshot_id\n"
-            "  netops.topology_links     → computed topology links (src/dst device+interface+protocol)\n"
-            "  netops.oc_outputs         → OC JSON per module: oc_module, oc_data, device_name\n"
-            "  netops.raw_output_store   → latest raw CLI text per (device, command)"
+            "  netops.devices            → device inventory: hostname, platform, ip_address, vendor, model, os_version\n"
+            "  netops.parsed_outputs     → TextFSM parsed data: device_name, command, parsed_data (JSON), snapshot_id\n"
+            "  netops.topology_links     → CDP/LLDP topology: source_device, source_interface, destination_device, destination_interface, discovery_protocol\n"
+            "  netops.raw_output_store   → latest raw CLI text per (device_name, command)\n"
+            "\n"
+            "**parsed_data is a JSON array. Known schemas per command:**\n"
+            "  show ip interface brief → [{INTF, IPADDR, STATUS, PROTO}]\n"
+            "  show ip bgp summary    → [{BGP_NEIGH, NEIGH_AS, STATE_PFXRCD, UP_DOWN, ...}]\n"
+            "  show ip arp            → [{ADDRESS, AGE, MAC, TYPE, INTERFACE}]\n"
+            "  show ip ospf neighbors → [{NEIGHBOR_ID, PRIORITY, STATE, DEAD_TIME, ADDRESS, INTERFACE}]\n"
+            "  show ip route          → [{PROTOCOL, NETWORK, MASK, DISTANCE, METRIC, NEXTHOP_IP, NEXTHOP_IF}]\n"
+            "  show version           → [{HOSTNAME, HARDWARE, VERSION, ROMMON, ...}] (Junos: MODEL, JUNOS_VERSION)\n"
+            "  show cdp neighbors detail → [{NEIGHBOR_NAME, MGMT_ADDRESS, LOCAL_INTERFACE, NEIGHBOR_INTERFACE, PLATFORM}]\n"
+            "  show lldp neighbors    → [{NEIGHBOR, LOCAL_INTERFACE, NEIGHBOR_INTERFACE}]\n"
+            "  show vlan brief        → [{VLAN_ID, NAME, STATUS, INTERFACES}]\n"
+            "\n"
+            "**DuckDB JSON query pattern:**\n"
+            "  SELECT device_name, j.* FROM netops.parsed_outputs, LATERAL unnest(from_json_strict(parsed_data, '[{\"INTF\":\"VARCHAR\",\"IPADDR\":\"VARCHAR\",\"STATUS\":\"VARCHAR\"}]')) AS j WHERE command='show ip interface brief'\n"
+            "  Or simpler: SELECT device_name, parsed_data::VARCHAR FROM netops.parsed_outputs WHERE command='...'"
         )
 
         # Detail each table
@@ -458,11 +459,10 @@ def main(params: dict) -> dict:
 
             # Include compact schema hint in success response for follow-up query accuracy
             SCHEMA_HINT = (
-                "Schema reminder: netops.devices(hostname,platform,ip_address,role) | "
+                "Schema: netops.devices(hostname,ip_address,platform,vendor,model,os_version) | "
                 "netops.parsed_outputs(device_name,command,parsed_data,snapshot_id) | "
                 "netops.topology_links(source_device,source_interface,destination_device,destination_interface,discovery_protocol) | "
-                "views(no prefix): v_interfaces_auto, v_bgp_neighbors_auto, v_ospf_neighbors_auto, "
-                "v_topology_l2_auto, v_arp_auto, v_topo_links_clean"
+                "netops.raw_output_store(device_name,command,raw_output,snapshot_id)"
             )
             output = DatabaseQueryOutput(
                 data=display_data,
@@ -505,22 +505,20 @@ def execute_sql(query: str = "", sql: str = "", explain_only: bool = False) -> d
     ⭐ DEFAULT TOOL for device queries. Use this FIRST before execute_cli.
 
     ⚠️  SCHEMA RULES (always follow):
-    - netops tables REQUIRE schema prefix: netops.devices, netops.parsed_outputs,
-      netops.oc_outputs, netops.topology_links
-    - Views are in main and can be used WITHOUT prefix: v_interfaces_auto, v_bgp_neighbors_auto,
-      v_ospf_neighbors_auto, v_topology_l2_auto, v_arp_auto, v_topo_links_clean, v_device_neighbors_summary
+    - ALL tables require schema prefix: netops.devices, netops.parsed_outputs,
+      netops.topology_links, netops.raw_output_store
     - Column names: use `hostname` (not `name`) for netops.devices
 
-    QUICK REFERENCE:
-    - Device list/count      → SELECT hostname, platform FROM netops.devices
-    - Interface + IP         → SELECT device_name, interface, ip_address FROM v_interfaces_auto
-    - BGP neighbors          → SELECT * FROM v_bgp_neighbors_auto
-    - OSPF neighbors         → SELECT * FROM v_ospf_neighbors_auto
-    - L2 topology (CDP/LLDP) → SELECT * FROM v_topology_l2_auto
-    - ARP table              → SELECT * FROM v_arp_auto
-    - Resolved topology      → SELECT src, dst, source_interface FROM v_topo_links_clean
-    - Raw TextFSM data       → SELECT parsed_data FROM netops.parsed_outputs WHERE command='...'
-    - Raw CLI text           → SELECT raw_output FROM netops.raw_output_store WHERE command='...'
+    QUICK REFERENCE (copy-paste ready SQL):
+    - Devices:     SELECT hostname, ip_address, platform, vendor, model FROM netops.devices
+    - Topology:    SELECT source_device, source_interface, destination_device, destination_interface, discovery_protocol FROM netops.topology_links
+    - Interfaces:  SELECT device_name, parsed_data::VARCHAR FROM netops.parsed_outputs WHERE command='show ip interface brief'
+                   JSON fields: [{INTF, IPADDR, STATUS, PROTO}]
+    - BGP:         SELECT device_name, parsed_data::VARCHAR FROM netops.parsed_outputs WHERE command='show ip bgp summary'
+                   JSON fields: [{BGP_NEIGH, NEIGH_AS, STATE_PFXRCD, UP_DOWN}]
+    - ARP:         SELECT device_name, parsed_data::VARCHAR FROM netops.parsed_outputs WHERE command='show ip arp'
+    - OSPF:        SELECT device_name, parsed_data::VARCHAR FROM netops.parsed_outputs WHERE command='show ip ospf neighbors'
+    - Raw CLI:     SELECT raw_output FROM netops.raw_output_store WHERE device_name='R1' AND command='show version'
 
     Args:
         query: Natural language question about the database
@@ -538,7 +536,7 @@ def execute_sql(query: str = "", sql: str = "", explain_only: bool = False) -> d
         >>> execute_sql(sql="SELECT hostname, ip_address, platform, role FROM netops.devices")
 
         Example 3 - BGP neighbors:
-        >>> execute_sql(sql="SELECT device_name, neighbor_ip, neighbor_as, state FROM v_bgp_neighbors_auto")
+        >>> execute_sql(sql="SELECT device_name, parsed_data FROM netops.parsed_outputs WHERE command='show ip bgp summary'")
 
         Example 4 - Get schema for SQL generation:
         >>> execute_sql(explain_only=True)
