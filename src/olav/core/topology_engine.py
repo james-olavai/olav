@@ -46,6 +46,29 @@ def extract_lldp_topology(con: "_duckdb.DuckDBPyConnection") -> int:
     Returns:
         Number of new rows inserted into ``topology_links``.
     """
+    # Ensure topology_links table exists (may not have been created by IngestManager)
+    try:
+        from olav.platform.ingest_base import TableRegistry
+        topo_tbl = TableRegistry.get("topology_links")
+        if topo_tbl is not None:
+            topo_tbl.ensure_schema(con)
+        else:
+            # Minimal DDL fallback if table not registered
+            con.execute("CREATE SCHEMA IF NOT EXISTS netops")
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS netops.topology_links (
+                    link_id VARCHAR PRIMARY KEY,
+                    source_device VARCHAR NOT NULL, source_interface VARCHAR NOT NULL,
+                    destination_device VARCHAR NOT NULL, destination_interface VARCHAR NOT NULL,
+                    discovery_protocol VARCHAR, link_type VARCHAR, link_status VARCHAR,
+                    link_speed VARCHAR, first_seen TIMESTAMP NOT NULL, last_seen TIMESTAMP NOT NULL,
+                    last_verified TIMESTAMP, status_changes INTEGER,
+                    snapshot_id VARCHAR NOT NULL, platform VARCHAR
+                )
+            """)
+    except Exception as exc:
+        logger.warning("topology_engine: could not ensure topology_links table: %s", exc)
+
     query = """
         SELECT device_name, command, parsed_data, snapshot_id
         FROM   netops.parsed_outputs

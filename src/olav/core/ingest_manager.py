@@ -199,6 +199,16 @@ class IngestManager:
         except Exception as exc:
             logger.warning("Command backup failed: %s", exc)
 
+        # Invalidate semantic cache — ingested data may change query results
+        try:
+            from olav.core.memory import SemanticCache, get_store
+            _store = get_store()
+            if _store:
+                SemanticCache(_store).invalidate_all()
+                logger.info("SemanticCache invalidated after data ingest")
+        except Exception:
+            pass
+
         for hook in self._post_ingest_hooks:
             try:
                 hook(result)
