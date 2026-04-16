@@ -58,13 +58,13 @@ class ToolGroupConfig:
 class ToolGenerationConfig:
     """Legacy config — retained for backward-compat parsing of old services.yaml.
     New services use ReferenceGenerationConfig instead."""
-    output_dir: str = ".olav/workspace/infra/references"
+    output_dir: str = ".olav/workspace/core/references/services"
     groups: list[ToolGroupConfig] = field(default_factory=list)
 
 
 @dataclass
 class ReferenceGenerationConfig:
-    output_dir: str = ".olav/workspace/infra/references"
+    output_dir: str = ".olav/workspace/core/references/services"
     groups: list[ToolGroupConfig] = field(default_factory=list)
 
 
@@ -179,7 +179,7 @@ def _parse_tool_generation(raw: dict) -> ToolGenerationConfig:
         for g in raw.get("groups", [])
     ]
     return ToolGenerationConfig(
-        output_dir=raw.get("output_dir", ".olav/workspace/infra/references"),
+        output_dir=raw.get("output_dir", ".olav/workspace/core/references/services"),
         groups=groups,
     )
 
@@ -194,7 +194,7 @@ def _parse_reference_generation(raw: dict) -> ReferenceGenerationConfig:
         for g in raw.get("groups", [])
     ]
     return ReferenceGenerationConfig(
-        output_dir=raw.get("output_dir", ".olav/workspace/infra/references"),
+        output_dir=raw.get("output_dir", ".olav/workspace/core/references/services"),
         groups=groups,
     )
 

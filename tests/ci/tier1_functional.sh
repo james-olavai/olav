@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# OLAV v0.17.0 — Tier 1: Functional Tests (T1-01 ~ T1-53)
+# OLAV v0.18.0 — Tier 1: Functional Tests (T1-01 ~ T1-53)
 # ==============================================================================
 # Usage:
 #   bash tests/ci/tier1_functional.sh
@@ -27,6 +27,17 @@ WHEEL=$(ls "${REPO_ROOT}/dist/"*.whl 2>/dev/null | tail -1)
 if [ -z "${WHEEL:-}" ]; then
     echo "ERROR: No wheel found in dist/. Run 'uv build' first."
     exit 1
+fi
+
+# ── Parse flags ───────────────────────────────────────────────────────────────
+KEEP_DIR=false
+for _arg in "$@"; do
+    case "$_arg" in --keep-dir) KEEP_DIR=true ;; esac
+done
+
+# ── Auto-cleanup on exit (skip with --keep-dir for post-mortem debugging) ─────
+if [ "$KEEP_DIR" = false ]; then
+    trap 'rm -rf "${TEST_DIR}" 2>/dev/null || true' EXIT
 fi
 
 # ── Capture env vars before isolation ────────────────────────────────────────
@@ -93,7 +104,7 @@ llm_skip_if_unavailable() {
 
 # ── Banner ─────────────────────────────────────────────────────────────────
 echo "╔══════════════════════════════════════════════════╗"
-echo "║  OLAV Tier 1: Functional Tests (T1-01 ~ T1-52)  ║"
+echo "║  OLAV Tier 1: Functional Tests (T1-01 ~ T1-53)  ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo "  Wheel:    $(basename "$WHEEL")"
 echo "  Test dir: ${TEST_DIR}"
@@ -892,13 +903,13 @@ else
     echo "FAIL (got: ${_resp:0:100})"; FAIL=$((FAIL + 1))
 fi
 
-echo -n "  [T1-34] GET /agents ≥9 entries... "
+echo -n "  [T1-34] GET /agents ≥3 entries (core + ops + audit)... "
 _resp=$(curl -sf http://localhost:2280/agents 2>&1 || echo "CURL_FAIL")
 _count=$(echo "$_resp" | "$PYTHON" -c "import sys,json; d=json.load(sys.stdin); print(len(d))" 2>/dev/null || echo "0")
-if [ "${_count:-0}" -ge 9 ] 2>/dev/null; then
+if [ "${_count:-0}" -ge 3 ] 2>/dev/null; then
     echo "OK (${_count} agents)"; PASS=$((PASS + 1))
 else
-    echo "FAIL (got ${_count:-?} agents, want ≥9)"; FAIL=$((FAIL + 1))
+    echo "FAIL (got ${_count:-?} agents, want ≥3)"; FAIL=$((FAIL + 1))
 fi
 
 echo -n "  [T1-35] GET /memory/graph 优雅降级... "
@@ -1064,7 +1075,11 @@ if [ -n "${SYSLOG_PID:-}" ]; then
     kill "$SYSLOG_PID" 2>/dev/null || true
 fi
 echo "  web service: stopped"
-echo "  Test dir: ${TEST_DIR} (preserved for debugging)"
+if [ "$KEEP_DIR" = true ]; then
+    echo "  Test dir preserved (--keep-dir): ${TEST_DIR}"
+else
+    echo "  Test dir: auto-removed on exit (use --keep-dir to preserve)"
+fi
 echo ""
 
 # ══════════════════════════════════════════════════════════════════════════════

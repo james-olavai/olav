@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# OLAV v0.17.0 — Tier 3: Browser / Playwright Tests (T3-01 ~ T3-13)
+# OLAV v0.18.0 — Tier 3: Browser / Playwright Tests (T3-01 ~ T3-13)
 #
 # Tests web UI behavior using Playwright headless Chromium.
 # Requires:

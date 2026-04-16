@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# OLAV v0.17.0 — Tier 4: Extended Feature Tests (T4-01 ~ T4-29)
+# OLAV v0.18.0 — Tier 4: Extended Feature Tests (T4-01 ~ T4-29)
 # ==============================================================================
 # Covers features not exercised by T1-T3:
 #   Group 1 (T4-01~03):  Slash commands (/model, /help) — no LLM
@@ -31,6 +31,17 @@ WHEEL=$(ls "${REPO_ROOT}/dist/"*.whl 2>/dev/null | tail -1)
 if [ -z "${WHEEL:-}" ]; then
     echo "ERROR: No wheel found in dist/. Run 'uv build' first."
     exit 1
+fi
+
+# ── Parse flags ───────────────────────────────────────────────────────────────
+KEEP_DIR=false
+for _arg in "$@"; do
+    case "$_arg" in --keep-dir) KEEP_DIR=true ;; esac
+done
+
+# ── Auto-cleanup on exit (skip with --keep-dir for post-mortem debugging) ─────
+if [ "$KEEP_DIR" = false ]; then
+    trap 'rm -rf "${TEST_DIR}" 2>/dev/null || true' EXIT
 fi
 
 # ── Capture env vars before isolation ────────────────────────────────────────
@@ -558,6 +569,11 @@ echo "=== Cleanup ==="
 "$OLAV" service daemon stop >/dev/null 2>&1 || true
 sleep 1
 echo "  services stopped"
+if [ "$KEEP_DIR" = true ]; then
+    echo "  Test dir preserved (--keep-dir): ${TEST_DIR}"
+else
+    echo "  Test dir: auto-removed on exit (use --keep-dir to preserve)"
+fi
 
 # ══════════════════════════════════════════════════════════════════════════
 # Summary

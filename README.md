@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://pypi.org/project/olav/">
-    <img src="https://img.shields.io/badge/version-v0.13.0-blue" alt="Version">
+    <img src="https://img.shields.io/badge/version-v0.18.0-blue" alt="Version">
   </a>
   <a href="">
     <img src="https://img.shields.io/badge/license-BSL--1.1-green" alt="License">
@@ -35,12 +35,12 @@
 
 ```bash
 pip install olav
-olav registry register http://netbox:8000      # connect any API
-olav --agent infra "how many devices in NetBox?" # query immediately
-olav --agent devops "write a backup script"      # generate real scripts
+olav registry register http://netbox:8000        # connect any API
+olav "how many devices are in NetBox?"            # query immediately
+olav --agent ops "write a backup script"          # generate real scripts
 ```
 
-[Quick Start](#quick-start) | [Blog: v0.13 Release](https://olavai.com/blog/olav-v013) | [中文](src/README_ZH.md)
+[Quick Start](#quick-start) | [Docs](https://docs.olavai.com) | [中文](src/README_ZH.md)
 
 ---
 
@@ -63,35 +63,30 @@ olav registry register http://netbox:8000
 
 # Query from any agent, forever
 olav "how many devices are in NetBox?"
-olav --agent infra "compare OLAV database vs NetBox — are they in sync?"
+olav --agent ops "compare OLAV database vs NetBox — are they in sync?"
 ```
 
 The `api_request` tool is **schema-aware** — it reads API reference docs generated at registration time, handles pagination (DRF/NetBox style), and manages auth (JWT/Bearer/API-key) automatically.
 
-### Six Specialized Agents — Not One Omniscient Model
+### Three Agents — Strict Tool Isolation
 
 ```
-olav "quick question"                    → Quick Agent (80% of daily use)
-olav --agent infra "query NetBox"        → Infra Agent (API read + write)
-olav --agent devops "write a script"     → DevOps Agent (environment-aware)
-olav --agent ops "simulate link failure" → Ops Agent (network operations)
-olav --agent audit "run health check"    → Audit Agent (compliance reports)
+olav "list all devices"                  → Core Agent (database + knowledge base)
+olav --agent ops "simulate link failure" → Ops Agent (network operations + SSH)
+olav --agent audit "run health check"    → Audit Agent (compliance + learning)
 ```
 
-Each agent has **only the tools it needs**. The analysis agent can't SSH to devices. The infra agent can't modify the network. Principle of least authority, enforced by the harness.
+Core agent uses a **subagent architecture** — the orchestrator sees only 5 tools:
 
-### DevOps Agent — Scripts for YOUR Infrastructure
-
-The DevOps agent doesn't write templates. It queries your actual database first:
-
-```bash
-olav --agent devops "write a script to backup all router configs"
+```
+core orchestrator (5 tools: execute_sql, recall_memory, web_search, format_and_export, olav_delegate)
+  ├── db_query    — database queries, knowledge base, web search, export
+  ├── api_query   — API requests, health checks, web search, export
+  ├── remote      — SSH to servers, local shell commands
+  └── admin       — platform management, deployment, cron
 ```
 
-It discovers R1 (192.168.100.101, Juniper), R2-R4 (Cisco IOS), SW1-SW2, then generates a 158-line bash script with:
-- Platform-specific commands (`show run` vs `show configuration`)
-- `--dry-run` flag, error handling, dependency checks
-- Exported to `exports/scripts/backup-configs.sh` — a real file, not chat text
+Each subagent has **only the tools it needs**. `execute_sql` and `api_request` are in different subagents — the LLM cannot confuse them. Principle of least authority, enforced by the harness.
 
 ### 7-Layer Write Security
 
@@ -128,7 +123,7 @@ Use OLAV → audit log captures every tool call
     → future runs recall constraints before acting
 ```
 
-7,650+ audit messages captured. Export as SFT/trajectory training data: `olav log export sft`.
+Export as SFT/trajectory training data: `olav log export sft`.
 
 ---
 
@@ -142,33 +137,30 @@ pip install olav
 olav init
 
 # 3. Configure LLM
-export OLAV_LLM_API_KEY="sk-..."
+nano .olav/config/api.json   # set shared.api_key + llm.model
 
 # 4. Connect a service
 olav registry register http://netbox:8000
 
 # 5. Query
 olav "how many devices are in NetBox?"
-
-# 6. Generate scripts
-olav --agent devops "write a backup script for all routers"
 ```
 
 ### Network Operations (optional)
 
 ```bash
-pip install olav-netops
+olav skill install /path/to/olav-netops/          # 2 workspaces: ops + audit
 
 olav --agent ops "/netops_init"                    # collect device data via SSH
 olav --agent ops "simulate R2 link failure"        # What-If analysis
-olav --agent ops-lab "deploy digital twin"         # ContainerLab validation
+olav --agent ops "deploy digital twin"             # ContainerLab validation
 ```
 
 ### Other Interfaces
 
 ```bash
 olav                            # interactive TUI
-olav service web start          # web UI at localhost:2280
+olav service start --all        # web UI at localhost:2280
 olav --agent core "run: df -h"  # shell commands via Core Agent
 ```
 
@@ -177,20 +169,22 @@ olav --agent core "run: df -h"  # shell commands via Core Agent
 ## Architecture
 
 ```
-olav v0.13 (pip install olav)
-├── core     — Tools: api_request, execute_sql, sandbox, export
-├── quick    — Fast queries (default agent)
-├── infra    — API read + write (--enable-api-write)
-├── devops   — Environment-aware script generation
-├── audit    — Compliance profiles + health reports
-└── config   — Platform management
-
-olav-netops v0.13 (pip install olav-netops)
+olav v0.18.0 (pip install olav)
+├── core orchestrator (5 tools)
+│   ├── db_query    — execute_sql, recall_memory, web_search, format_and_export
+│   ├── api_query   — api_request, service_health, web_search, format_and_export
+│   ├── remote      — remote_execute (SSH), run_shell
+│   └── admin       — workspace_health, bulk_ingest, deploy/stop_service, cron, ...
+│
+olav-netops v0.18.0 (olav skill install olav-netops/)
 ├── ops orchestrator
-│   ├── analysis — Dijkstra + ECMP simulation (networkx)
 │   ├── probe    — Parallel SSH with command whitelist (Nornir)
+│   ├── analysis — Dijkstra + ECMP simulation (networkx)
 │   ├── diff     — Cross-snapshot drift detection
 │   └── lab      — ContainerLab digital twin + commit-validate
+├── audit
+│   ├── design   — Compliance profiles + health reports
+│   └── learn    — TextFSM template learning
 └── netops.*     — DuckDB tables + TextFSM collection pipeline
 ```
 
@@ -198,21 +192,9 @@ olav-netops v0.13 (pip install olav-netops)
 
 ---
 
-## By the Numbers
-
-| Metric | Value |
-|--------|:-----:|
-| Tests | 1,358 passing |
-| DDD Claims | 44 verified |
-| Issues closed | 62+ |
-| Doc pages | 28 (EN + ZH) |
-| Audit messages | 7,650+ |
-
----
-
 ## Documentation
 
-**Docs**: [docs.olavai.com](https://docs.olavai.com) · **Website**: [olavai.com](https://olavai.com) · **Blog**: [v0.13 Release](https://olavai.com/blog/olav-v013)
+**Docs**: [docs.olavai.com](https://docs.olavai.com) · **Website**: [olavai.com](https://olavai.com)
 
 ---
 
