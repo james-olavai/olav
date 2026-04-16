@@ -484,12 +484,15 @@ def main(params: dict) -> dict:
 @tool
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 def execute_sql(query: str = "", sql: str = "", explain_only: bool = False) -> dict:
-    """Query the DuckDB database. Use explain_only=True to discover tables first.
+    """Query the DuckDB database. Pass sql directly when you know the table name.
+
+    Schema hint is included in every response — no need to call explain_only first.
+    Common tables: netops.devices, netops.parsed_outputs, netops.topology_links.
 
     Args:
-        query: Natural language question about the data.
-        sql: Direct SQL query (e.g. "SELECT * FROM netops.devices").
-        explain_only: If True, returns available tables and columns without executing a query.
+        query: Natural language question (auto-generates SQL).
+        sql: Direct SQL (preferred — faster, single call).
+        explain_only: Returns schema only. Rarely needed — schema is in every response.
     """
     params = {"query": query, "sql": sql, "explain_only": explain_only}
     return main(params)
