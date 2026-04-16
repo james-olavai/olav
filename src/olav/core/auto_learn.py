@@ -58,6 +58,51 @@ def should_learn(command: str, raw_output: str) -> bool:
     return True
 
 
+# ── Completeness estimation ───────────────────────────────────────────────
+
+def _estimate_data_rows(raw_output: str, command: str) -> int:
+    """Estimate how many data rows the raw output contains.
+
+    Heuristic: count lines that look like data (start with IP, hostname, or
+    interface name) vs headers/separators/blank lines.
+
+    Returns 0 if estimation is unreliable (better to accept any parse result).
+    """
+    import re
+
+    lines = raw_output.strip().split("\n")
+    if len(lines) < 3:
+        return 0
+
+    # For tabular output: skip header lines (first 1-3 lines), count data lines
+    # A data line typically starts with a non-space character and contains
+    # at least 2 whitespace-separated fields
+    data_lines = 0
+    header_seen = False
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        # Skip obvious headers/separators
+        if stripped.startswith("---") or stripped.startswith("==="):
+            continue
+        if any(kw in stripped.lower() for kw in [
+            "threading", "groups:", "table ", "peer ", "local interface",
+            "device id", "capability", "platform:",
+        ]):
+            header_seen = True
+            continue
+
+        # After header, lines starting with IP/hostname/interface are data
+        if header_seen:
+            # Matches: IP address, hostname (letters+digits), interface name
+            if re.match(r'^[0-9a-zA-Z]', stripped) and len(stripped.split()) >= 2:
+                data_lines += 1
+
+    return data_lines
+
+
 # ── Custom template management ────────────────────────────────────────────
 
 def _template_path(base_dir: Path, platform: str, command: str) -> Path:
@@ -323,10 +368,29 @@ def auto_learn_failed_parses(
 
             result = _parse_with_template_text(template, raw_output)
             if result and len(result) > 0:
+                # ── Reflection: validate completeness ──
+                expected = _estimate_data_rows(raw_output, command)
+                parsed_count = len(result)
+
+                if expected > 0 and parsed_count < expected * 0.7:
+                    # Parsed less than 70% of expected rows — template is incomplete
+                    prev_template = template
+                    prev_error = (
+                        f"Template parsed only {parsed_count} rows but raw output "
+                        f"has ~{expected} data lines. Missing rows — the Record "
+                        f"transition likely fires too late or misses some entries. "
+                        f"Ensure every data line produces a Record."
+                    )
+                    logger.debug(
+                        "auto_learn: attempt %d incomplete for %s/%s: %d/%d rows",
+                        attempt + 1, platform, command, parsed_count, expected,
+                    )
+                    continue  # retry with reflection feedback
+
                 save_custom_template(custom_template_dir, platform, command, template)
                 logger.info(
-                    "auto_learn: ✓ learned %s/%s in %d attempt(s) (%d rows)",
-                    platform, command, attempt + 1, len(result),
+                    "auto_learn: ✓ learned %s/%s in %d attempt(s) (%d rows, expected ~%d)",
+                    platform, command, attempt + 1, parsed_count, expected,
                 )
                 for item in parse_failures:
                     if item["platform"] == platform and item["command"] == command:
