@@ -125,3 +125,30 @@ class TestTemplatePriority:
         assert path.parent.name == "juniper_junos"
         assert path.name == "show_bgp_summary.textfsm"
         assert path.exists()
+
+
+class TestEstimateDataRows:
+    """_estimate_data_rows should count actual data lines in raw output."""
+
+    def test_bgp_summary_2_peers(self):
+        from olav.core.auto_learn import _estimate_data_rows
+        raw = """Threading mode: BGP I/O
+Groups: 2 Peers: 2 Down peers: 0
+Table          Tot Paths  Act Paths Suppressed    History Damp State    Pending
+inet.0               
+                       1          0          0          0          0          0
+Peer                     AS      InPkt     OutPkt    OutQ   Flaps Last Up/Dwn State
+3.3.3.3               65000      98779     100260       0       0 4w3d Establ
+  inet.0: 0/1/1/0
+10.1.12.2             65001      64501      65478       0       2 2w6d Establ
+  inet.0: 0/0/0/0"""
+        count = _estimate_data_rows(raw, "show bgp summary")
+        assert count >= 2, f"Should detect ≥2 data rows (peers), got {count}"
+
+    def test_empty_output(self):
+        from olav.core.auto_learn import _estimate_data_rows
+        assert _estimate_data_rows("", "show version") == 0
+
+    def test_short_output(self):
+        from olav.core.auto_learn import _estimate_data_rows
+        assert _estimate_data_rows("one line", "show version") == 0
