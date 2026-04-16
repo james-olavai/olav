@@ -44,6 +44,36 @@ Direct tools available to the orchestrator (not delegated to subagents):
 | `format_and_export` | Write markdown reports to exports/ |
 | `web_search` | Search the web for documentation or known issues |
 
+## Database Schema
+
+**Database:** `main.duckdb` (accessed via `execute_sql`). Key tables:
+
+| Table | Key columns |
+|---|---|
+| `netops.devices` | `hostname`, `ip_address`, `platform`, `vendor`, `model`, `role`, `site`, `os_version`, `last_seen` |
+| `netops.parsed_outputs` | `device_name`, `command`, `parsed_data` (JSON), `raw_output`, `snapshot_id`, `ingested_at` |
+| `netops.topology_links` | `source_device`, `source_interface`, `destination_device`, `destination_interface`, `link_type`, `link_status`, `discovery_protocol` |
+
+**Common queries — use DIRECTLY without schema exploration:**
+```sql
+-- List all devices
+SELECT hostname, ip_address, platform, vendor FROM netops.devices ORDER BY hostname;
+
+-- Devices by platform
+SELECT hostname, ip_address FROM netops.devices WHERE platform LIKE '%ios%';
+
+-- BGP neighbor data (parsed_data is JSON)
+SELECT device_name, parsed_data FROM netops.parsed_outputs
+WHERE command LIKE '%bgp%' ORDER BY ingested_at DESC;
+
+-- Network topology links
+SELECT source_device, source_interface, destination_device, destination_interface
+FROM netops.topology_links WHERE link_status = 'up';
+```
+
+> **Never** call `execute_sql` just to discover table names or column names.
+> Use the schema above and write the query directly.
+
 ## Output Export Rules
 
 **When a subagent returns a Mermaid diagram, simulation result, or analysis report:**

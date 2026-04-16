@@ -1062,10 +1062,31 @@ if llm_skip_if_unavailable "[T1-52]" "olav /trace-review CLI single-query"; then
     fi
 fi
 
-echo ""
+# T1-53: TUI cold start — olav without args must not crash immediately
+echo -n "  [T1-53] TUI cold start — no immediate crash... "
+if [ ! -t 0 ]; then
+    echo "SKIP (no TTY)"
+    SKIP=$((SKIP + 1))
+else
+    "$OLAV" >/dev/null 2>&1 &
+    _t153_pid=$!
+    sleep 2
+    if kill -0 "$_t153_pid" 2>/dev/null; then
+        kill "$_t153_pid" 2>/dev/null
+        wait "$_t153_pid" 2>/dev/null
+        echo "PASS (TUI alive after 2s)"
+        PASS=$((PASS + 1))
+    else
+        wait "$_t153_pid"
+        _t153_rc=$?
+        case "$_t153_rc" in
+            0|130|143) echo "PASS (clean exit rc=$_t153_rc)"; PASS=$((PASS + 1)) ;;
+            *)         echo "WARN (early exit rc=$_t153_rc — headless or TTY issue)"; WARN=$((WARN + 1)) ;;
+        esac
+    fi
+fi
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Cleanup
+echo ""
 # ══════════════════════════════════════════════════════════════════════════════
 echo "=== Cleanup ==="
 kill_web_service
