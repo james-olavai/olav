@@ -55,17 +55,24 @@ class OutputFormatterPlugin(OLAVMiddlewarePlugin):
             elif role in ("assistant", "ai"):
                 assistant_content = str(content) if content else assistant_content
 
-        if not tool_results:
-            return None
-
         supplements: list[str] = []
 
         # ── 1. render_report: extract Executive Summary ──────────────
+        # Check both direct tool results AND olav_delegate results (which wrap subagent output)
         for tr in tool_results:
-            if tr["name"] == "render_report" and tr["content"]:
-                summary = self._extract_summary_from_report(tr["content"])
+            content = tr["content"]
+            if tr["name"] == "render_report" and content:
+                summary = self._extract_summary_from_report(content)
                 if summary and summary not in assistant_content:
                     supplements.append(summary)
+            elif tr["name"] == "olav_delegate" and "Report saved:" in content:
+                # olav_delegate wraps subagent — extract report path from its output
+                import re as _re
+                _path_match = _re.search(r'Report saved:\s*(.+\.md)', content)
+                if _path_match:
+                    summary = self._extract_summary_from_report(_path_match.group(1))
+                    if summary and summary not in assistant_content:
+                        supplements.append(summary)
 
         # ── 2. Script auto-export ────────────────────────────────────
         if self._has_script_content(assistant_content) and not self._has_export_path(assistant_content):
@@ -73,20 +80,10 @@ class OutputFormatterPlugin(OLAVMiddlewarePlugin):
             if export_path:
                 supplements.append(f"\n📁 Script auto-exported: {export_path}")
 
-        # ── 3. Append supplements to state ───────────────────────────
+        # ── 3. Return supplements for main.py to print ─────────────
         if supplements:
-            supplement_text = "\n".join(supplements)
-            logger.info("OutputFormatterPlugin: appending %d supplements", len(supplements))
-            # Modify the last assistant message to include supplements
-            for msg in reversed(messages):
-                if isinstance(msg, dict) and msg.get("role") in ("assistant", "ai"):
-                    msg["content"] = str(msg.get("content", "")) + "\n\n" + supplement_text
-                    break
-                elif hasattr(msg, "content") and getattr(msg, "type", "") in ("assistant", "ai"):
-                    # LangChain message object — content may be immutable,
-                    # so we store supplement in state metadata instead
-                    state.setdefault("_output_supplements", []).extend(supplements)
-                    break
+            logger.info("OutputFormatterPlugin: %d supplements ready", len(supplements))
+            state["_output_supplements"] = supplements
 
         return state if supplements else None
 
