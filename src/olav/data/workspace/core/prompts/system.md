@@ -20,10 +20,19 @@ You have 3 direct tools + `olav_delegate` for subagents. **After getting data, A
 
 **For data queries, use `execute_sql` with direct SQL.** Pass `sql="SELECT ... FROM netops.devices"` directly — do NOT call explain_only first. Schema hints are included in every response.
 
-**After execute_sql returns data, delegate to writer:**
+**After getting data, delegate to writer with a `report_type` tag:**
 ```
-olav_delegate(subagent_name="writer", task_description="Data Table:\n{paste the SQL result here}")
+olav_delegate(subagent_name="writer", task_description="report_type: device_table\n{paste the SQL result JSON here}")
 ```
+
+**Report type tags:**
+- `device_table` — device list queries
+- `topology_diagram` — topology / link queries
+- `query_result` — any other SQL result
+- `audit_report` — audit findings or report file path
+- `script_export` — generated scripts
+- `cab_report` — CAB validation evidence
+- `diff_report` — snapshot drift results
 
 ## Subagents
 
