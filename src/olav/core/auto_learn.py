@@ -113,12 +113,61 @@ def _parse_with_template_text(template_text: str, raw_output: str) -> list[dict]
         return None
 
 
-# ── LLM template generation ──────────────────────────────────────────────
+# ── LLM template generation (ReAct pattern) ──────────────────────────────
+
+def _get_reference_templates(platform: str, max_examples: int = 3) -> str:
+    """Load existing ntc-templates for the same platform as few-shot examples."""
+    try:
+        import ntc_templates
+        templates_dir = Path(ntc_templates.__file__).parent / "templates"
+        candidates = sorted(templates_dir.glob(f"{platform}_*.textfsm"))
+        if not candidates:
+            return ""
+
+        examples = []
+        for t in candidates[:max_examples]:
+            content = t.read_text(encoding="utf-8")
+            examples.append(f"# --- {t.name} ---\n{content}")
+        return "\n\n".join(examples)
+    except Exception:
+        return ""
+
+
+def _get_existing_template(platform: str, command: str) -> str | None:
+    """Load the existing ntc-template for this exact command (the one that failed)."""
+    try:
+        import ntc_templates
+        templates_dir = Path(ntc_templates.__file__).parent / "templates"
+        cmd_key = command.strip().lower().replace(" ", "_")
+        path = templates_dir / f"{platform}_{cmd_key}.textfsm"
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+    except Exception:
+        pass
+    return None
+
+
+def _extract_parse_error(template_text: str, raw_output: str) -> str:
+    """Try parsing and capture the specific error message."""
+    try:
+        import io
+        import textfsm
+        fsm = textfsm.TextFSM(io.StringIO(template_text))
+        fsm.ParseText(raw_output)
+        return "No error (but returned 0 rows)"
+    except Exception as exc:
+        return str(exc)[:300]
+
 
 def generate_textfsm_template(
-    platform: str, command: str, raw_output: str
+    platform: str, command: str, raw_output: str,
+    previous_template: str | None = None,
+    previous_error: str | None = None,
 ) -> str | None:
-    """Generate a TextFSM template from raw CLI output using LLM.
+    """Generate a TextFSM template using ReAct pattern.
+
+    First call: provides reference templates from same platform as few-shot examples.
+    Retry calls: provides previous template + error for iterative fix.
 
     Returns template string or None if LLM is unavailable.
     """
@@ -129,28 +178,73 @@ def generate_textfsm_template(
         logger.debug("auto_learn: LLM unavailable, skipping template generation")
         return None
 
-    prompt = f"""Generate a TextFSM template to parse this {platform} CLI output.
+    # Build prompt
+    if previous_template and previous_error:
+        # ReAct RETRY: fix the previous template based on error
+        prompt = f"""Fix this TextFSM template that fails to parse {platform} "{command}" output.
 
-Command: {command}
+## Previous template (FAILED):
+```
+{previous_template}
+```
 
-Raw output:
+## Parse error:
+{previous_error}
+
+## Raw output to parse:
 ```
 {raw_output[:2000]}
 ```
 
-Rules:
-1. Use Value directives for each column/field
-2. Use regex patterns that match the exact output format
-3. Include a Start state with Record transitions
-4. Return ONLY the TextFSM template text, no explanation
+## Fix instructions:
+- The error shows which line caused the failure
+- "State Error" usually means a line doesn't match any rule — add a catch-all or skip rule
+- "^\s+. -> Error" is too strict — replace with "^\s+." (no Error action) to skip unknown lines
+- Ensure every possible line format has a matching rule or is safely skipped
 
-TextFSM template:"""
+Return ONLY the fixed TextFSM template, no explanation."""
+    else:
+        # First attempt: provide reference templates as examples
+        existing = _get_existing_template(platform, command)
+        references = _get_reference_templates(platform)
+
+        prompt = f"""Generate a TextFSM template to parse this {platform} "{command}" output.
+
+## Raw output:
+```
+{raw_output[:2000]}
+```"""
+
+        if existing:
+            prompt += f"""
+
+## Existing template (from ntc-templates, but it FAILS on this output):
+```
+{existing}
+```
+Fix the existing template to handle this output format. Common issues:
+- "^\s+. -> Error" is too strict for outputs with unexpected indented lines
+- Table header/stats lines between records need skip rules"""
+
+        if references:
+            prompt += f"""
+
+## Reference: other {platform} templates (for syntax style):
+{references[:3000]}"""
+
+        prompt += """
+
+## Rules:
+1. Use Value directives with regex for each field
+2. Handle multi-line records if needed (e.g. Junos inet.0 stats after peer lines)
+3. NEVER use "-> Error" for lines that might vary — use plain match or skip
+4. Return ONLY the TextFSM template text, no explanation"""
 
     try:
         response = llm.invoke(prompt)
         template = response.content.strip()
-        # Clean markdown code blocks if present
-        if template.startswith("```"):
+        # Clean markdown code blocks
+        if "```" in template:
             lines = template.split("\n")
             template = "\n".join(
                 l for l in lines if not l.strip().startswith("```")
@@ -172,7 +266,8 @@ def auto_learn_failed_parses(
 ) -> list[dict]:
     """Auto-learn TextFSM templates for commands that failed parsing.
 
-    Called by netops_init between SSH collection (Stage 3) and Topology ETL (Stage 4).
+    Uses ReAct pattern: generate → validate → feed error back → regenerate.
+    Each retry is informed by the previous failure, not blind retry.
 
     Args:
         parse_failures: List of {device, platform, command, raw_output} dicts
@@ -185,7 +280,7 @@ def auto_learn_failed_parses(
     newly_parsed = []
 
     # Deduplicate by (platform, command) — learn once per command, not per device
-    seen_commands: dict[tuple[str, str], str] = {}  # (platform, command) → raw_output
+    seen_commands: dict[tuple[str, str], str] = {}
     for item in parse_failures:
         key = (item["platform"], item["command"])
         if key not in seen_commands:
@@ -201,7 +296,6 @@ def auto_learn_failed_parses(
         result = parse_with_custom_template(custom_template_dir, platform, command, raw_output)
         if result:
             logger.info("auto_learn: %s/%s parsed with existing custom template", platform, command)
-            # Apply to all devices with this command
             for item in parse_failures:
                 if item["platform"] == platform and item["command"] == command:
                     newly_parsed.append({
@@ -212,13 +306,20 @@ def auto_learn_failed_parses(
                     })
             continue
 
-        # 3. LLM learn (max retries)
+        # 3. ReAct learn loop
         learned = False
+        prev_template = None
+        prev_error = None
+
         for attempt in range(max_retries):
-            template = generate_textfsm_template(platform, command, raw_output)
+            template = generate_textfsm_template(
+                platform, command, raw_output,
+                previous_template=prev_template,
+                previous_error=prev_error,
+            )
             if template is None:
                 logger.info("auto_learn: LLM unavailable, stopping learn for %s/%s", platform, command)
-                break  # LLM not available, no point retrying
+                break
 
             result = _parse_with_template_text(template, raw_output)
             if result and len(result) > 0:
@@ -237,6 +338,14 @@ def auto_learn_failed_parses(
                         })
                 learned = True
                 break
+            else:
+                # ReAct: capture error for next iteration
+                prev_template = template
+                prev_error = _extract_parse_error(template, raw_output)
+                logger.debug(
+                    "auto_learn: attempt %d failed for %s/%s: %s",
+                    attempt + 1, platform, command, prev_error[:100],
+                )
 
         if not learned:
             logger.warning("auto_learn: ✗ failed to learn %s/%s after %d attempts", platform, command, max_retries)
