@@ -286,15 +286,21 @@ async def reload_agent():
         except Exception:
             pass
     _agent_instance = None
-    # Also invalidate the ConfigLoader singleton so auth/llm/embedding config
-    # changes in api.json are picked up on the next request.
+    # Invalidate ConfigLoader singleton so config changes are picked up
     try:
         from olav.core.config import ConfigLoader
         ConfigLoader._loaded = False
         ConfigLoader._instance = None
     except Exception:
         pass
-    _logger.info("Agent and config reset — next request will rebuild from workspace")
+    # Reset semantic router so new skills are indexed
+    try:
+        from olav.core.router import _router_instance
+        import olav.core.router as _router_mod
+        _router_mod._router_instance = None
+    except Exception:
+        pass
+    _logger.info("Agent, config, and router reset — next request will rebuild from workspace")
     return {"status": "reloaded"}
 
 

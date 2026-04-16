@@ -125,15 +125,10 @@ def run_python_code(
     timeout: int = 60,
     cwd: str = "",
 ) -> dict[str, Any]:
-    """Execute Python code for data computation, analysis, and transformation.
+    """Execute Python code for computation and data transformation.
 
-    Use for: parsing structured data, mathematical calculations, format
-    conversion, graph algorithms, JSON/YAML manipulation, and any task
-    that is purely computational.
-
-    Do NOT use for: shell commands (use run_shell), file writes (use
-    write_workspace_file), service deployment (use deploy_service), or
-    docker operations (use run_shell).
+    Use for: mathematical calculations, format conversion, graph algorithms,
+    JSON/YAML manipulation.
 
     The code may set `_result` to any JSON-serialisable value; that value is
     returned in the response `result` field.

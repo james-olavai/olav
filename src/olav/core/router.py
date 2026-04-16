@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 # Default routing threshold
-DEFAULT_ROUTING_THRESHOLD = 0.85
+DEFAULT_ROUTING_THRESHOLD = 0.55
 
 
 class SemanticRouter:
@@ -48,6 +48,7 @@ class SemanticRouter:
         self.db_path = Path(db_path)
         self.threshold = threshold
         self._db = None
+        self._keyword_index: dict[str, str] = {}  # agent_name → concatenated keywords
         self._table = None
         self._embeddings = None
 
@@ -132,17 +133,34 @@ class SemanticRouter:
                     except ImportError:
                         pass
 
-            # Check if table has data
+            # Check if table matches current agent count
             count = self._table.count_rows()
-            if count > 0:
-                logger.info(f"Agent intent index already exists with {count} entries")
+            # Each agent contributes 1 __root__ + N skills entries
+            expected = sum(1 + len(a.get("skills", [])) for a in agents)
+            if count > 0 and count == expected:
+                logger.info(f"Agent intent index up to date ({count} entries)")
                 return {"status": "exists", "count": count}
+            elif count > 0:
+                # Agent/skill count changed — rebuild
+                logger.info(f"Agent intent index stale ({count} entries, expected {expected}) — rebuilding")
+                db.drop_table("agent_intent_index")
+                raise ValueError("agent count mismatch — recreate")
 
         except Exception as e:
             # Table doesn't exist, empty, or dim mismatch - proceed to create
             logger.debug(f"No existing table or rebuild needed: {e}")
 
         # Prepare records for insertion
+        # Build keyword index for fast text matching
+        self._keyword_index = {}
+        for agent in agents:
+            _name = agent.get("name", "unknown")
+            _parts = [agent.get("description", "")]
+            for skill in agent.get("skills", []):
+                _parts.append(skill.get("description", ""))
+            self._keyword_index[_name] = " ".join(_parts)
+        logger.info("Keyword index built: %s", list(self._keyword_index.keys()))
+
         records = []
         for agent in agents:
             agent_name = agent.get("name", "unknown")
@@ -256,11 +274,84 @@ class SemanticRouter:
 
         return result
 
+    def _keyword_route(self, query: str) -> dict[str, Any] | None:
+        """Fast keyword-based routing (no embedding needed).
+
+        Scores each agent's route_keywords against the query using word overlap.
+        Returns the best match if score difference is significant, else None (fall through to semantic).
+        """
+        # Lazy-load keyword index from workspace if not yet populated
+        if not self._keyword_index:
+            try:
+                agents = _load_agents_from_workspace()
+                for agent in agents:
+                    _name = agent.get("name", "unknown")
+                    _parts = [agent.get("description", "")]
+                    for skill in agent.get("skills", []):
+                        _parts.append(skill.get("description", ""))
+                    self._keyword_index[_name] = " ".join(_parts)
+            except Exception:
+                pass
+
+        if not self._keyword_index:
+            return None
+
+        import re
+
+        query_lower = query.lower()
+        # Split on whitespace + individual CJK characters for Chinese support
+        query_tokens = set(re.findall(r'[\u4e00-\u9fff]+|[a-z0-9_\-]+', query_lower))
+        # Also add individual CJK characters as tokens (bigram-like)
+        cjk_chars = set()
+        for token in list(query_tokens):
+            if re.match(r'^[\u4e00-\u9fff]+$', token) and len(token) > 1:
+                for i in range(len(token) - 1):
+                    cjk_chars.add(token[i:i+2])
+                for ch in token:
+                    cjk_chars.add(ch)
+        query_tokens |= cjk_chars
+
+        scores: dict[str, int] = {}
+        for agent_name, keywords_text in self._keyword_index.items():
+            kw_tokens = set(re.findall(r'[\u4e00-\u9fff]+|[a-z0-9_\-]+', keywords_text.lower()))
+            # Exact token match
+            score = len(query_tokens & kw_tokens)
+            # Substring match (CJK bigrams in keywords)
+            for qt in query_tokens:
+                for kw in kw_tokens:
+                    if len(qt) >= 2 and len(kw) >= 2 and qt != kw:
+                        if qt in kw or kw in qt:
+                            score += 1
+            scores[agent_name] = score
+
+        if not scores or max(scores.values()) == 0:
+            return None
+
+        sorted_agents = sorted(scores.items(), key=lambda x: -x[1])
+        best_agent, best_score = sorted_agents[0]
+        second_score = sorted_agents[1][1] if len(sorted_agents) > 1 else 0
+
+        # Only route if clear winner (>= 2x the runner-up, and at least 2 keyword hits)
+        if best_score >= 2 and best_score > second_score * 1.5:
+            confidence = min(1.0, best_score / 5.0)  # normalize to 0-1
+            return {
+                "agent": best_agent,
+                "confidence": confidence,
+                "method": "keyword",
+            }
+
+        return None  # ambiguous — fall through to semantic
+
     def _semantic_route(self, query: str) -> dict[str, Any] | None:
         """Perform semantic routing using LanceDB.
 
         Returns None if no match above threshold.
         """
+        # Try fast keyword routing first
+        kw_result = self._keyword_route(query)
+        if kw_result is not None:
+            return kw_result
+
         if self._table is None:
             db = self._get_db()
             try:
@@ -269,26 +360,23 @@ class SemanticRouter:
                 logger.debug("Agent intent index not found, using fallback routing")
                 return None
 
-        # Check if table has data
         count = self._table.count_rows()
         if count == 0:
-            logger.info("Agent intent index is empty, using fallback routing")
             return None
 
-        # Generate query embedding
         embeddings = self._get_embeddings()
         query_vector = embeddings.embed_query(query)
 
-        # Search for nearest match
         results = self._table.search(query_vector, "vector").limit(1).to_list()
 
         if not results:
             return None
 
         best_match = results[0]
-        # LanceDB returns distance, convert to similarity
-        distance = best_match.get("distance", 1.0)
-        confidence = 1.0 - distance
+        # LanceDB returns _distance (with underscore); cosine distance 0=identical, 2=opposite
+        distance = best_match.get("_distance", best_match.get("distance", 1.0))
+        # Convert cosine distance to similarity: sim = 1 - (dist/2), range [0, 1]
+        confidence = max(0.0, 1.0 - distance / 2.0)
 
         if confidence >= self.threshold:
             return {
@@ -481,10 +569,26 @@ def _load_agents_from_workspace() -> list[dict[str, Any]]:
                 except Exception:
                     pass
 
+        # Also collect subagent/skill descriptions for richer embedding
+        skills = [{"name": name, "description": description}]
+        agent_dir = workspace_path / name
+        if agent_dir.is_dir():
+            for sub in sorted(agent_dir.iterdir()):
+                skill_md = sub / "SKILL.md"
+                if sub.is_dir() and skill_md.exists():
+                    try:
+                        import frontmatter as _fm
+                        _post = _fm.load(str(skill_md))
+                        _desc = _post.metadata.get("description", "")
+                        if _desc:
+                            skills.append({"name": sub.name, "description": _desc})
+                    except Exception:
+                        pass
+
         agents.append({
             "name": name,
             "description": description,
-            "skills": [{"name": name, "description": description}],
+            "skills": skills,
         })
 
     return agents

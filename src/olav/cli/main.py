@@ -815,21 +815,10 @@ async def run_single_query(
     else:
         user_id = os.environ.get("USER", "anonymous")
 
-    # Semantic routing: when assistant_id is default ("core"), let route_query
-    # potentially upgrade to a specialized agent (score > 0.85 → use that agent).
-    try:
-        from olav.core.router import route_query as _route_query
-
-        _routing_result = _route_query(query)
-        if (
-            assistant_id == "core"
-            and _routing_result.get("confidence", 0.0) > 0.85
-            and _routing_result.get("agent")
-            and _routing_result["agent"] != "core"
-        ):
-            assistant_id = _routing_result["agent"]
-    except Exception:
-        pass
+    # Top-level agent selection is explicit (--agent ops/audit).
+    # Core is always the default. Semantic routing is used WITHIN an agent
+    # to select subagents, not to switch between top-level agents.
+    # If core can't handle the query, it should suggest "--agent ops" in its response.
 
     # ── Semantic cache: check for cached answer ──
     try:
@@ -894,13 +883,12 @@ async def run_single_query(
     for _cb in _audit_cbs:
         _cb.bind_run(run_id, recorder)
 
-    # Record routing decision for audit
-    try:
-        from olav.core.router import route_query as _route_query
-
-        _route_query(query, recorder=recorder, run_id=run_id)
-    except Exception:
-        pass
+    # Routing audit: record which agent handles this query (informational only)
+    recorder.record(
+        event_type="routing_decision",
+        run_id=run_id,
+        payload={"agent": assistant_id, "method": "explicit"},
+    )
 
     try:
         # Stream agent execution using native langgraph API
