@@ -133,8 +133,8 @@ def _textfsm_parse(platform: str, command: str, raw_output: str) -> list[dict] |
 
     # ── 1. Custom templates (auto-learned, priority) ──
     try:
-        from olav.core.config import ConfigLoader
-        _olav_base = _P(ConfigLoader.get().agent_dir)
+        from olav.core.config import get_paths_config
+        _olav_base = _P(get_paths_config().agent_dir)
         custom_dir = _olav_base / "templates"
         custom_path = custom_dir / platform_norm / f"{cmd_key}.textfsm"
         if custom_path.exists():
@@ -380,8 +380,8 @@ def _run_collection(devices: list[str], commands: list[str] | None) -> dict:
             try:
                 from olav.core.auto_learn import auto_learn_failed_parses
                 # Save to .olav/templates/ — shared with take_snapshot and _textfsm_parse
-                from olav.core.config import ConfigLoader
-                _olav_base = Path(ConfigLoader.get().agent_dir)
+                from olav.core.config import get_paths_config
+                _olav_base = Path(get_paths_config().agent_dir)
                 custom_template_dir = _olav_base / "templates"
                 print(f"\n🎓 Stage 3.5: Auto-learn ({len(parse_failures)} unparsed commands)")
                 newly_parsed = auto_learn_failed_parses(
