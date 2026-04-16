@@ -443,7 +443,7 @@ def main(params: dict) -> dict:
 
             # Dynamic schema hint from actual tables
             _hint_parts = []
-            for _tbl, _det in self._schema_cache.get("table_details", {}).items():
+            for _tbl, _det in context._schema_cache.get("table_details", {}).items():
                 _cols = ",".join(c["name"] for c in _det.get("columns", [])[:5])
                 _hint_parts.append(f"{_tbl}({_cols})")
             SCHEMA_HINT = ("Schema: " + " | ".join(_hint_parts)) if _hint_parts else "Use explain_only=True to discover schema"
