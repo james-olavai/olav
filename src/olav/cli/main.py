@@ -895,6 +895,7 @@ async def run_single_query(
         config = {"configurable": {"thread_id": session_id or run_id}, "recursion_limit": 75}
         input_msg = {"messages": [{"role": "human", "content": query}]}
         _chunks: list[str] = []
+        _tool_results: list[dict] = []  # capture tool outputs for post-processing
 
         _graph = agent.graph if hasattr(agent, "graph") else agent
         async for event in _graph.astream_events(input_msg, config=config, version="v2"):
@@ -924,6 +925,11 @@ async def run_single_query(
                 _input_preview = str(tool_input)[:60]
                 console.print(f"  🔧 {tool_name}({_input_preview}...)")
 
+            elif kind == "on_tool_end":
+                tool_name = event.get("name", "")
+                output = data.get("output", "")
+                _tool_results.append({"name": tool_name, "content": str(output)[:4096]})
+
         final_content = "".join(_chunks)
         recorder.record(
             event_type="assistant_output_final",
@@ -937,10 +943,14 @@ async def run_single_query(
         recorder.record_run_end(run_id=run_id, status="completed")
 
         # ── OLAV middleware hooks (workaround: deepagents doesn't mount them) ──
-        if hasattr(agent, "_olav_middleware") and final_content:
+        if hasattr(agent, "_olav_middleware"):
             _state = {
                 "messages": [
                     {"role": "human", "content": query},
+                ] + [
+                    {"role": "tool", "name": tr["name"], "content": tr["content"]}
+                    for tr in _tool_results
+                ] + [
                     {"role": "assistant", "content": final_content},
                 ]
             }
@@ -948,7 +958,11 @@ async def run_single_query(
                 try:
                     _hook = getattr(_mw, "aafter_agent", None)
                     if _hook:
-                        await _hook(_state, None)
+                        result = await _hook(_state, None)
+                        # OutputFormatterPlugin may append supplements
+                        if result and "_output_supplements" in result:
+                            for s in result["_output_supplements"]:
+                                console.print(s)
                 except Exception as _mw_err:
                     logging.debug("Middleware hook %s failed: %s", type(_mw).__name__, _mw_err)
 
