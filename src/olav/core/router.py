@@ -70,24 +70,27 @@ class SemanticRouter:
 
             # Try local embedding first
             if emb_config.mode == "local":
-                import contextlib, io, os as _os, logging as _logging
+                import os as _os, logging as _logging
                 for _n in ("sentence_transformers", "transformers", "transformers.modeling_utils", "huggingface_hub"):
                     _logging.getLogger(_n).setLevel(_logging.ERROR)
-                # Suppress C-level stdout (safetensors shard reports)
-                _saved = _os.dup(1)
+                # Suppress C-level stdout+stderr (safetensors shard reports come on fd 2)
+                _saved1 = _os.dup(1)
+                _saved2 = _os.dup(2)
                 _null = _os.open(_os.devnull, _os.O_WRONLY)
                 _os.dup2(_null, 1)
+                _os.dup2(_null, 2)
                 try:
-                    with contextlib.redirect_stderr(io.StringIO()):
-                        self._embeddings = HuggingFaceEmbeddings(
-                            model_name=emb_config.local_model,
-                            model_kwargs={"device": emb_config.device},
-                            encode_kwargs={"normalize_embeddings": emb_config.normalize_embeddings},
-                        )
+                    self._embeddings = HuggingFaceEmbeddings(
+                        model_name=emb_config.local_model,
+                        model_kwargs={"device": emb_config.device},
+                        encode_kwargs={"normalize_embeddings": emb_config.normalize_embeddings},
+                    )
                 finally:
-                    _os.dup2(_saved, 1)
+                    _os.dup2(_saved1, 1)
+                    _os.dup2(_saved2, 2)
                     _os.close(_null)
-                    _os.close(_saved)
+                    _os.close(_saved1)
+                    _os.close(_saved2)
             else:
                 # Use OpenAI or other API-based embeddings
                 from langchain_openai import OpenAIEmbeddings

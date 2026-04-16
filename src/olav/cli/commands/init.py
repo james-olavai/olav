@@ -251,10 +251,7 @@ class InitCommand(BaseCommand):
         Runs the download with stderr suppressed so the user sees a clean
         status line instead of HuggingFace progress bars and warnings.
         """
-        import contextlib
-        import io
         import logging as _logging
-
         import os as _os
         for _n in ("sentence_transformers", "transformers", "huggingface_hub"):
             _logging.getLogger(_n).setLevel(_logging.ERROR)
@@ -271,22 +268,25 @@ class InitCommand(BaseCommand):
             model_name = cfg.local_model
             from sentence_transformers import SentenceTransformer
 
-            # Suppress C-level stdout (safetensors shard reports)
-            _saved_fd = _os.dup(1)
+            # Suppress C-level stdout+stderr (safetensors shard reports come on fd 2)
+            _saved1 = _os.dup(1)
+            _saved2 = _os.dup(2)
             _devnull = _os.open(_os.devnull, _os.O_WRONLY)
             def _quiet():
                 _os.dup2(_devnull, 1)
+                _os.dup2(_devnull, 2)
             def _restore():
-                _os.dup2(_saved_fd, 1)
+                _os.dup2(_saved1, 1)
+                _os.dup2(_saved2, 2)
                 _os.close(_devnull)
-                _os.close(_saved_fd)
+                _os.close(_saved1)
+                _os.close(_saved2)
 
             # Try local cache first
             try:
                 _quiet()
                 try:
-                    with contextlib.redirect_stderr(io.StringIO()):
-                        SentenceTransformer(model_name, local_files_only=True)
+                    SentenceTransformer(model_name, local_files_only=True)
                 finally:
                     _restore()
                 return f"✓ {model_name} (cached)"
@@ -295,16 +295,19 @@ class InitCommand(BaseCommand):
 
             # Download
             print(f"  ⏳ downloading embedding model {model_name}...")
-            _saved_fd2 = _os.dup(1)
+            _saved1b = _os.dup(1)
+            _saved2b = _os.dup(2)
             _devnull2 = _os.open(_os.devnull, _os.O_WRONLY)
             _os.dup2(_devnull2, 1)
+            _os.dup2(_devnull2, 2)
             try:
-                with contextlib.redirect_stderr(io.StringIO()):
-                    SentenceTransformer(model_name)
+                SentenceTransformer(model_name)
             finally:
-                _os.dup2(_saved_fd2, 1)
+                _os.dup2(_saved1b, 1)
+                _os.dup2(_saved2b, 2)
                 _os.close(_devnull2)
-                _os.close(_saved_fd2)
+                _os.close(_saved1b)
+                _os.close(_saved2b)
             return f"✓ {model_name} downloaded"
         except Exception as exc:
             return f"⚠ embedder download failed ({exc})"
