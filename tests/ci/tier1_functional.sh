@@ -406,7 +406,7 @@ cat > "${HELPERS}/t1_39_format_export.py" << 'EOF'
 import sys, importlib.util, os, json
 from pathlib import Path
 os.chdir(Path(sys.argv[1]))
-tool_path = Path(".olav/workspace/core/tools/format_and_export.py")
+tool_path = Path(".olav/workspace/core/writer/tools/format_and_export.py")
 if not tool_path.exists():
     print(f"Not found: {tool_path}", file=sys.stderr)
     sys.exit(1)
