@@ -728,13 +728,15 @@ else
 fi
 
 echo -n "  [T1-21b] olav log export trajectory --hours 1 (olav-ent check)... "
-_out=$("$OLAV" log export trajectory --hours 1 2>&1)
-if echo "$_out" | grep -qi "olav-ent.*not installed\|install.*pip"; then
-    echo "WARN (olav-ent not installed — expected in base CI)"; WARN=$((WARN + 1))
-elif ! echo "$_out" | grep -q "^Traceback" && (echo "$_out" | grep -qi "export\|no data\|written\|trajectory\|done\|0 runs"); then
-    echo "OK"; PASS=$((PASS + 1))
+if ! "$PYTHON" -c "import olav.enterprise" 2>/dev/null; then
+    echo "SKIP (olav-ent not installed)"; SKIP=$((SKIP + 1))
 else
-    echo "FAIL (got: ${_out:0:100})"; FAIL=$((FAIL + 1))
+    _out=$("$OLAV" log export trajectory --hours 1 2>&1)
+    if ! echo "$_out" | grep -q "^Traceback" && (echo "$_out" | grep -qi "export\|no data\|written\|trajectory\|done\|0 runs"); then
+        echo "OK"; PASS=$((PASS + 1))
+    else
+        echo "FAIL (got: ${_out:0:100})"; FAIL=$((FAIL + 1))
+    fi
 fi
 
 echo -n "  [T1-22] olav sessions... "
