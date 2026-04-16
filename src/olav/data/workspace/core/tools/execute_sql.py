@@ -487,7 +487,8 @@ def execute_sql(query: str = "", sql: str = "", explain_only: bool = False) -> d
     """Query the DuckDB database. Pass sql directly when you know the table name.
 
     Schema hint is included in every response — no need to call explain_only first.
-    Common tables: netops.devices, netops.parsed_outputs, netops.topology_links.
+    Common tables: netops.devices, netops.parsed_outputs, netops.topology_links, netops.raw_output_store.
+    If parsed_outputs is empty for a device, query raw_output_store for raw CLI text.
 
     Args:
         query: Natural language question (auto-generates SQL).
