@@ -334,7 +334,7 @@ def parse_args():
     log_export_raw_p = log_export_sub.add_parser("raw", help="Export raw audit runs+events as JSONL (no olav-ent required)")
     log_export_raw_p.add_argument("--hours", type=int, default=24, help="Look-back window in hours")
     log_export_raw_p.add_argument("--output", default=None, help="Output directory")
-    log_export_sft = log_export_sub.add_parser("sft", help="Export SFT chat JSONL")
+    log_export_sft = log_export_sub.add_parser("sft", help="Export SFT chat JSONL (requires olav-ent)")
     log_export_sft.add_argument("--hours", type=int, default=24, help="Look-back window in hours")
     log_export_sft.add_argument("--output", default=None, help="Output directory")
     log_export_sft.add_argument(
@@ -348,7 +348,7 @@ def parse_args():
     )
     log_export_sft.add_argument("--key-ref", default=None, help="Keyset reference name")
     log_export_traj = log_export_sub.add_parser(
-        "trajectory", help="Export tool-use trajectory JSONL"
+        "trajectory", help="Export tool-use trajectory JSONL (requires olav-ent)"
     )
     log_export_traj.add_argument("--hours", type=int, default=24, help="Look-back window in hours")
     log_export_traj.add_argument("--output", default=None, help="Output directory")
@@ -1423,9 +1423,10 @@ async def cli_main_impl() -> None:
                 try:
                     from olav.enterprise.cli_bridge import dispatch_log_export
                 except ImportError:
-                    console.print(
-                        "[red]Error: olav-ent package not installed. "
-                        "Install with: pip install olav-ent[/red]"
+                    print(
+                        "Error: olav-ent package not installed. "
+                        "Install with: pip install olav-ent",
+                        file=sys.stderr,
                     )
                     return
                 dispatch_log_export(export_fmt, args, console)

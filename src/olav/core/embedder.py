@@ -62,10 +62,23 @@ def get_embedder(model: str | None = None):
                     logging.getLogger(_noisy).setLevel(logging.ERROR)
 
                 try:
-                    with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+                    import os as _os
+                    # Suppress C-level stdout+stderr (safetensors shard reports come on fd 2)
+                    _saved1 = _os.dup(1)
+                    _saved2 = _os.dup(2)
+                    _null = _os.open(_os.devnull, _os.O_WRONLY)
+                    _os.dup2(_null, 1)
+                    _os.dup2(_null, 2)
+                    try:
                         _local_embedder = SentenceTransformer(
                             resolved_model, device=device
                         )
+                    finally:
+                        _os.dup2(_saved1, 1)
+                        _os.dup2(_saved2, 2)
+                        _os.close(_null)
+                        _os.close(_saved1)
+                        _os.close(_saved2)
                     logger.info(
                         "Shared embedder loaded (device=%s): %s", device, resolved_model
                     )

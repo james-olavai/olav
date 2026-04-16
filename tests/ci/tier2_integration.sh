@@ -667,7 +667,7 @@ if [ "$LLM_AVAILABLE" = false ]; then
     done
 else
     # T2-19: audit agent (designer) creates a profile
-    OUT_19=$("$OLAV" --agent audit "create BGP health check profile" 2>&1)
+    OUT_19=$(timeout 120 "$OLAV" --agent audit "create BGP health check profile" 2>&1)
     if echo "${OUT_19}" | grep -qi "\.md\|profile\|created\|bgp.*health\|check.*profile\|audit\|health\|monitor\|check"; then
         pass_test "T2-19" "audit designer: BGP health check profile generated"
     elif [ ${#OUT_19} -gt 100 ]; then
@@ -681,7 +681,7 @@ else
         2>/dev/null | grep -v ".venv" | head -1)
 
     # T2-20: audit agent (auditor) executes the profile
-    OUT_20=$("$OLAV" --agent audit "run BGP health check" 2>&1)
+    OUT_20=$(timeout 120 "$OLAV" --agent audit "run BGP health check" 2>&1)
     if echo "${OUT_20}" | grep -qi "audit\|report\|result\|health\|BGP"; then
         pass_test "T2-20" "audit auditor: profile execution returned output"
     elif [ ${#OUT_20} -gt 100 ]; then
