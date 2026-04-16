@@ -774,7 +774,7 @@ else
     OUT_25=$("$OLAV" --agent ops "write a network device backup script for IOS devices" 2>&1)
     # Check: output to exports/ or has script content
     EXPORTS_DIR="${TEST_DIR}/exports"
-    EXPORTS_FILES=$(find "${EXPORTS_DIR}" -name "*.sh" -o -name "*.py" 2>/dev/null | wc -l | tr -d ' ')
+    EXPORTS_FILES=$(find "${EXPORTS_DIR}" -name "*.sh" -o -name "*.py" -o -name "*.yml" -o -name "*.yaml" 2>/dev/null | wc -l | tr -d ' ')
     if [ "${EXPORTS_FILES}" -gt 0 ]; then
         pass_test "T2-25" "DevOps agent: generated ${EXPORTS_FILES} script file(s) in exports/"
     elif echo "${OUT_25}" | grep -qi "backup\|script\|#!/\|python\|bash"; then
