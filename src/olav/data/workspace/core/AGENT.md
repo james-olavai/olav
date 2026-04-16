@@ -9,6 +9,7 @@ subagents:
   - path: ./api_query/SKILL.md
   - path: ./remote/SKILL.md
   - path: ./admin/SKILL.md
+  - path: ./writer/SKILL.md
 route_keywords:
   - help version status workspace platform health check
   - database SQL query select table column list count how many
