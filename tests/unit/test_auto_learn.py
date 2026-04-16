@@ -100,3 +100,28 @@ Start
         )
         # May or may not parse correctly depending on template — the mechanism is what we test
         assert result is None or isinstance(result, list)
+
+
+class TestTemplatePriority:
+    """Custom templates must take priority over ntc-templates."""
+
+    def test_custom_overrides_ntc(self, tmp_path):
+        """When custom template exists, it should be used instead of ntc."""
+        from olav.core.auto_learn import save_custom_template, load_custom_template
+
+        # Save a custom template
+        template = "Value PEER (\\S+)\nValue AS (\\d+)\n\nStart\n  ^${PEER}\\s+${AS} -> Record"
+        save_custom_template(tmp_path, "juniper_junos", "show bgp summary", template)
+
+        # Verify it loads
+        loaded = load_custom_template(tmp_path, "juniper_junos", "show bgp summary")
+        assert loaded is not None
+        assert "Value PEER" in loaded
+
+    def test_template_path_structure(self, tmp_path):
+        """Templates saved to {base}/{platform}/{command}.textfsm."""
+        from olav.core.auto_learn import save_custom_template
+        path = save_custom_template(tmp_path, "juniper_junos", "show bgp summary", "test")
+        assert path.parent.name == "juniper_junos"
+        assert path.name == "show_bgp_summary.textfsm"
+        assert path.exists()

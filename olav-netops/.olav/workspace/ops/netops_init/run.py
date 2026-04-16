@@ -107,33 +107,51 @@ def _normalise_platform(platform: str) -> str:
 # ── TextFSM helper ────────────────────────────────────────────────────────
 
 def _textfsm_parse(platform: str, command: str, raw_output: str) -> list[dict] | None:
-    """Parse command output with ntc_templates/TextFSM. Returns list of dicts or None."""
+    """Parse command output with TextFSM. Custom templates take priority over ntc-templates.
+
+    Search order:
+    1. Custom templates: .olav/workspace/ops/templates/custom/{platform}/{command}.textfsm
+    2. ntc-templates: site-packages/ntc_templates/templates/{platform}_{command}.textfsm
+    """
+    import textfsm
+    from pathlib import Path as _P
+
+    platform_norm = _normalise_platform(platform)
+    cmd_key = command.strip().lower().replace(" ", "_").replace("-", "-")
+
+    # Command → NTC template name overrides (where CLI name ≠ template filename)
+    _CMD_ALIASES: dict[str, str] = {
+        "show ip ospf neighbors":  "show_ip_ospf_neighbor",
+        "show vlan brief":          "show_vlan",
+        "show lldp neighbors":      "show_lldp_neighbors",
+        "show cdp neighbors":       "show_cdp_neighbors",
+        "show bgp summary":         "show_ip_bgp_summary",
+        "show bgp all summary":     "show_ip_bgp_summary",
+    }
+    cmd_stripped = command.strip().lower()
+    ntc_cmd_key = _CMD_ALIASES.get(cmd_stripped, cmd_key)
+
+    # ── 1. Custom templates (auto-learned, priority) ──
+    try:
+        from olav.core.config import ConfigLoader
+        _olav_base = _P(ConfigLoader.get().agent_dir)
+        custom_dir = _olav_base / "templates"
+        custom_path = custom_dir / platform_norm / f"{cmd_key}.textfsm"
+        if custom_path.exists():
+            with open(custom_path) as f:
+                fsm = textfsm.TextFSM(f)
+                rows = fsm.ParseText(raw_output)
+            if rows:
+                headers = fsm.header
+                return [dict(zip(headers, row)) for row in rows]
+    except Exception:
+        pass  # custom template failed — fall through to ntc
+
+    # ── 2. ntc-templates (upstream) ──
     try:
         import ntc_templates
-        import textfsm
-        from pathlib import Path as _P
-
         templates_dir = _P(ntc_templates.__file__).parent / "templates"
-        platform_norm = _normalise_platform(platform)
-
-        # Command → NTC template name overrides (where CLI name ≠ template filename)
-        _CMD_ALIASES: dict[str, str] = {
-            "show ip ospf neighbors":  "show_ip_ospf_neighbor",
-            "show vlan brief":          "show_vlan",
-            "show lldp neighbors":      "show_lldp_neighbors",
-            "show cdp neighbors":       "show_cdp_neighbors",
-            # bgp variants — map to ip bgp summary (best available)
-            "show bgp summary":         "show_ip_bgp_summary",
-            "show bgp all summary":     "show_ip_bgp_summary",
-        }
-
-        cmd_stripped = command.strip().lower()
-        if cmd_stripped in _CMD_ALIASES:
-            cmd_key = _CMD_ALIASES[cmd_stripped]
-        else:
-            cmd_key = cmd_stripped.replace(" ", "_").replace("-", "-")
-
-        template_path = templates_dir / f"{platform_norm}_{cmd_key}.textfsm"
+        template_path = templates_dir / f"{platform_norm}_{ntc_cmd_key}.textfsm"
         if not template_path.exists():
             return None
 
@@ -361,7 +379,10 @@ def _run_collection(devices: list[str], commands: list[str] | None) -> dict:
         if parse_failures:
             try:
                 from olav.core.auto_learn import auto_learn_failed_parses
-                custom_template_dir = Path(__file__).resolve().parent.parent / "templates" / "custom"
+                # Save to .olav/templates/ — shared with take_snapshot and _textfsm_parse
+                from olav.core.config import ConfigLoader
+                _olav_base = Path(ConfigLoader.get().agent_dir)
+                custom_template_dir = _olav_base / "templates"
                 print(f"\n🎓 Stage 3.5: Auto-learn ({len(parse_failures)} unparsed commands)")
                 newly_parsed = auto_learn_failed_parses(
                     parse_failures, custom_template_dir, max_retries=5,
