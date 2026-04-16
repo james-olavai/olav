@@ -1,11 +1,8 @@
 ---
 name: db_query
-description: "Database queries — DuckDB SQL, knowledge base recall, web search, report export"
+description: "Database queries — complex multi-step DuckDB SQL workflows"
 tools:
   - execute_sql
-  - recall_memory
-  - web_search
-  - format_and_export
 ---
 
 ## Output Rules

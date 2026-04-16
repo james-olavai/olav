@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 """
-OLAV Orchestrator Agent - v3.4 (DeepAgents + SubAgents)
+OLAV Orchestrator Agent - v4.0 (MVC: Agent=Controller, Tools=Model, Writer=View)
 
 Architecture:
-- OLAVAgent: pure orchestrator with format_and_export only
-- olav-ops SubAgent: execute_sql, execute_cli, search_knowledge, format_and_export
-- olav-config SubAgent: sync_schemas, sync_inventory, take_snapshot, sync_commands, manage_cron
-- LangChain SQLiteCache for LLM caching
+- OLAVAgent: orchestrator with 3 direct tools (execute_sql, recall_memory, web_search)
+- 5 subagents: db_query, api_query, remote, admin, writer
+- writer subagent: unified output engine with report-type references
 - LangGraph MemorySaver for checkpoint/persistence
-- LanceDB (via langgraph_adapter) for long-term semantic memory
-
-Replaces: LangGraph StateGraph + flat tool list (agent.py v3.2)
+- LanceDB for long-term semantic memory
 """
 
 import asyncio
