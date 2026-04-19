@@ -5,9 +5,95 @@ Unified API config for LLM and Embedding.
 """
 
 import json
+import logging
 import os
+import re
+import threading
+from enum import Enum
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+# ── Sprint 0b model_tier: constitutional config for ARCH-16/17/18/19 ────────
+
+
+class ModelTier(str, Enum):
+    """OLAV model tier classifications.
+
+    Downstream features (static_context depth, tool-return compaction,
+    AutoRecall top_k, summarisation cadence, …) all key off this tier
+    instead of carrying their own size heuristics.
+    """
+
+    SMALL = "small"    # ~4-8B class; usable context ~8K
+    MEDIUM = "medium"  # ~13-34B class; usable context ~32K
+    LARGE = "large"    # 70B+ / Claude / GPT-4; usable context ≥200K
+
+
+# Per-tier feature defaults. Features that want different behaviour for
+# small vs large models call ``tier_default(tier, key, fallback)``. Keep
+# this dict inline — the issue tracker (ARCH-17/18/19) explicitly keys
+# off it and a separate module would just add import-path churn.
+TIER_DEFAULTS: dict[str, dict[str, Any]] = {
+    "small": {
+        "recall_top_k": 1,
+        "return_compact_chars": 2000,
+        "static_context_mode": "on_intent",
+        "context_budget": 8000,      # ~4-8B class total window
+        # ARCH-19 #A: on non-first turns, skip recall injection when fewer
+        # than this fraction of the budget is still free. Small models run
+        # tightest so skip sooner; large tier never skips.
+        "recall_skip_headroom_pct": 0.20,
+        # ARCH-16 (Round 41) — tool-level LIMITs:
+        # rows from execute_sql surfaced to the LLM context (CSV still exports
+        # full set at >50 rows regardless of tier).
+        "execute_sql_context_rows": 10,
+        # default `limit` for search_logs when caller omits it.
+        "search_logs_default_limit": 20,
+        # ARCH-19 SummarizationMiddleware tier threshold (Round 42):
+        # fire summarization when conversation reaches this fraction of
+        # ``context_budget``. Small tier summarizes early (50%) so the
+        # model can keep chipping at tasks without blowing context;
+        # large tier holds off (80%) because it has headroom and
+        # summarization loses nuance.
+        "summarization_trigger_pct": 0.50,
+    },
+    "medium": {
+        "recall_top_k": 2,
+        "return_compact_chars": 5000,
+        "static_context_mode": "on_intent",
+        "context_budget": 32000,
+        "recall_skip_headroom_pct": 0.10,
+        "execute_sql_context_rows": 20,
+        "search_logs_default_limit": 50,
+        "summarization_trigger_pct": 0.65,
+    },
+    "large": {
+        "recall_top_k": 3,
+        "return_compact_chars": 10000,
+        "static_context_mode": "always",
+        "context_budget": 200000,
+        "recall_skip_headroom_pct": 0.00,
+        "execute_sql_context_rows": 50,
+        "search_logs_default_limit": 100,
+        "summarization_trigger_pct": 0.80,
+    },
+}
+
+
+def tier_default(tier: str, key: str, fallback: Any) -> Any:
+    """Resolve a per-tier default or return ``fallback`` if unknown."""
+    return TIER_DEFAULTS.get(tier, {}).get(key, fallback)
+
+
+# Regex patterns for inferring tier from model name when the config
+# doesn't set one explicitly. Order matters: check small-tier hints
+# before medium (a "7b" in "qwen2-72b" would wrongly match "7b" alone,
+# so the patterns use word boundaries).
+_TIER_REGEX_SMALL = re.compile(r"\b(1\.?5b|3b|4b|7b|8b|gemma|phi-3|haiku-4-5)\b", re.I)
+_TIER_REGEX_MEDIUM = re.compile(r"\b(13b|14b|22b|32b|34b|mixtral|mistral-small)\b", re.I)
 
 
 def _resolve_project_root() -> Path:
@@ -34,19 +120,26 @@ _AGENT_DIR = os.getenv("AGENT_DIR", ".olav")
 _AGENT_DIR_PATH = _PROJECT_ROOT / _AGENT_DIR
 
 
+_config_lock = threading.RLock()
+
+
 class ConfigLoader:
     _instance = None
     _loaded = False
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
+            with _config_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(self):
         if not ConfigLoader._loaded:
-            self._load_all()
-            ConfigLoader._loaded = True
+            with _config_lock:
+                if not ConfigLoader._loaded:
+                    self._load_all()
+                    ConfigLoader._loaded = True
 
     def _load_json(self, filename: str) -> dict:
         path = _CONFIG_DIR / filename
@@ -54,7 +147,11 @@ class ConfigLoader:
             try:
                 return json.loads(path.read_text(encoding="utf-8"))
             except json.JSONDecodeError as e:
-                print(f"Warning: Failed to parse {filename}: {e}")
+                logger.warning("Failed to parse %s: %s", filename, e)
+            except UnicodeDecodeError as e:
+                logger.warning("Encoding error in %s (expected utf-8): %s", filename, e)
+            except OSError as e:
+                logger.warning("Cannot read %s: %s", filename, e)
         return {}
 
     def _load_all(self):
@@ -197,6 +294,31 @@ class LLMConfig:
     @property
     def custom_headers(self) -> dict:
         return self._data.get("custom_headers", {})
+
+    @property
+    def model_tier(self) -> str:
+        """Return ``"small"`` | ``"medium"`` | ``"large"`` (Sprint 0b).
+
+        Resolution order:
+
+        1. ``OLAV_LLM_MODEL_TIER`` env var.
+        2. Explicit ``llm.model_tier`` in api.json / llm.json.
+        3. Regex match on ``self.model`` (e.g. "gemma-7b" → small,
+           "qwen2-32b" → medium).
+        4. Conservative fallback ``"large"`` — downstream features that
+           cap payloads will behave as if the caller has a large context.
+        """
+        explicit = self._loader._env_override(
+            "llm", "model_tier", self._data.get("model_tier")
+        )
+        if explicit:
+            return str(explicit).lower()
+        name = (self.model or "").lower()
+        if _TIER_REGEX_SMALL.search(name):
+            return ModelTier.SMALL.value
+        if _TIER_REGEX_MEDIUM.search(name):
+            return ModelTier.MEDIUM.value
+        return ModelTier.LARGE.value
 
 
 class EmbeddingConfig:
@@ -597,15 +719,18 @@ _config = None
 def get_config() -> ConfigLoader:
     global _config
     if _config is None:
-        _config = ConfigLoader()
+        with _config_lock:
+            if _config is None:
+                _config = ConfigLoader()
     return _config
 
 
 def reload_config():
     global _config
-    ConfigLoader._loaded = False
-    ConfigLoader._instance = None
-    _config = ConfigLoader()
+    with _config_lock:
+        ConfigLoader._loaded = False
+        ConfigLoader._instance = None
+        _config = ConfigLoader()
     return _config
 
 
@@ -781,17 +906,24 @@ def _resolve_nornir_config_path() -> "Path":
     """Resolve the nornir config path with migration-aware fallback.
 
     Priority:
-    1. Post-M3 probe-scoped path:  .olav/workspace/ops/probe/config/nornir/config.yaml
-    2. Post-M2 workspace path:     .olav/workspace/ops/config/nornir/config.yaml
-    3. Legacy domains path:        .olav/config/domains/netops/nornir/config.yaml
-    4. Old flat path:              .olav/config/nornir/config.yaml
+    0. Post-R32 collect-scoped path: .olav/workspace/ops/collect/config/nornir/config.yaml
+    1. Post-M3 probe-scoped path:   .olav/workspace/ops/probe/config/nornir/config.yaml (pre-R32)
+    2. Post-M2 workspace path:      .olav/workspace/ops/config/nornir/config.yaml
+    3. Legacy domains path:         .olav/config/domains/netops/nornir/config.yaml
+    4. Old flat path:               .olav/config/nornir/config.yaml
     """
+    collect_path = AGENT_DIR / "workspace" / "ops" / "collect" / "config" / "nornir" / "config.yaml"
+    if collect_path.exists():
+        return collect_path
     probe_path = AGENT_DIR / "workspace" / "ops" / "probe" / "config" / "nornir" / "config.yaml"
     if probe_path.exists():
         return probe_path
     ws_path = AGENT_DIR / "workspace" / "ops" / "config" / "nornir" / "config.yaml"
     if ws_path.exists():
         return ws_path
+    # LEGACY-KEEP: pre-M2 domain config path. Pre-v0.13 installations still
+    # have their nornir config at .olav/config/domains/netops/nornir/; keep
+    # this probe until the earliest supported release moves past M2.
     legacy_path = CONFIG_DIR / "domains" / "netops" / "nornir" / "config.yaml"
     if legacy_path.exists():
         return legacy_path
