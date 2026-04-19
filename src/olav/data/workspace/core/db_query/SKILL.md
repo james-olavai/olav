@@ -3,6 +3,7 @@ name: db_query
 description: "Database queries — complex multi-step DuckDB SQL workflows"
 tools:
   - execute_sql
+  - describe_table
 ---
 
 ## Output Rules

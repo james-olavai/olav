@@ -9,4 +9,8 @@ tools:
   - deploy_service
   - stop_service
   - write_workspace_file
+  - search_logs
+  - get_static_context
+  - load_reference
+  - tool_help
 ---
