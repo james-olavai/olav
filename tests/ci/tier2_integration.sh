@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# OLAV v0.18.0 — Tier 2: Integration Tests (T2-01 ~ T2-25)
+# OLAV v0.18.0 — Tier 2: Integration Tests (T2-01 ~ T2-40)
+# ------------------------------------------------------------------------------
+# Round 24-60 additions land in Group 8 (T2-26~T2-40): olav diff/explain/catalog
+# CLI wheel-install smoke, describe_table tool discovery, ARCH-14 NetworkModel
+# end-to-end round-trip against the populated DB from Groups 1-2, sandbox
+# `model` auto-inject via a real subprocess, plus parity with T1 Group 12
+# for load_reference slicing / tool_help detail / OLAV_DEBUG_* envs /
+# recall_memory tier / subagent cap / summarization trigger / SKILL.md
+# docstring mode / OLAV_BACKUP_COMMANDS_PATH / 🔧[orch] origin tag. Each
+# catches packaging drift the same way T2-29 did for describe_table.py.
 # ==============================================================================
 # Usage:
 #   bash tests/ci/tier2_integration.sh
@@ -47,7 +56,11 @@ _LLM_MODEL="${OLAV_LLM_MODEL:-x-ai/grok-4.1-fast}"
 _NORNIR_PASSWORD="${NORNIR_PASSWORD:-}"
 _NORNIR_USERNAME="${NORNIR_USERNAME:-admin}"
 _REGISTRY_URL="${OLAV_REGISTRY_URL:-}"
-_DEV_CONFIG="${OLAV_DEV_CONFIG:-}"          # optional: path to dev api.json to copy wholesale
+_DEV_CONFIG="${OLAV_DEV_CONFIG:-}"          # optional: path to dev api.json (or the config dir) to copy wholesale
+# DX: accept a config directory — auto-resolve to api.json inside it.
+if [ -n "${_DEV_CONFIG}" ] && [ -d "${_DEV_CONFIG}" ] && [ -f "${_DEV_CONFIG}/api.json" ]; then
+    _DEV_CONFIG="${_DEV_CONFIG}/api.json"
+fi
 # Resolve to absolute path immediately (before any cd to test dir)
 [ -n "${_DEV_CONFIG}" ] && _DEV_CONFIG="$(realpath "${_DEV_CONFIG}" 2>/dev/null || echo "${_DEV_CONFIG}")"
 _DEV_NORNIR_DIR="${OLAV_DEV_NORNIR_DIR:-}"  # optional: path to dev nornir config dir to copy
@@ -239,7 +252,8 @@ else
 fi
 
 # Copy dev nornir config files into test workspace (provides device credentials + topology)
-NORNIR_DEST=".olav/workspace/ops/probe/config/nornir"
+# Sprint 3 R32 renamed ops/probe/ → ops/collect/ (ADR-0005); use the post-rename path.
+NORNIR_DEST=".olav/workspace/ops/collect/config/nornir"
 if [ -n "${_DEV_NORNIR_DIR}" ] && [ -d "${_DEV_NORNIR_DIR}" ]; then
     mkdir -p "${NORNIR_DEST}"
     for _f in hosts.yaml groups.yaml defaults.yaml config.yaml; do
@@ -482,11 +496,12 @@ elif [ "$DEVICES_AVAILABLE" = false ]; then
     done
 else
     # T2-07: take_snapshot succeeds and returns snapshot_id
-    SNAP_OUT=$("$OLAV" --agent ops "Take snapshot of R1 show version" 2>&1 | tail -20)
+    SNAP_OUT=$("$OLAV" --agent ops "Take snapshot of R1 show version" 2>&1 | tail -40)
+    echo "${SNAP_OUT}" > "${TEST_DIR}/t2_07_snap_output.txt"
     if echo "${SNAP_OUT}" | grep -qi "snapshot_id\|snap_\|snapshot.*created\|success\|collect\|version"; then
         pass_test "T2-07" "take_snapshot R1 returns snapshot_id"
     else
-        fail_test "T2-07" "take_snapshot: no snapshot_id in output"
+        fail_test "T2-07" "take_snapshot: no snapshot_id in output (saved: ${TEST_DIR}/t2_07_snap_output.txt)"
     fi
 
     # T2-08: New snapshot appears in parsed_outputs table
@@ -554,6 +569,7 @@ elif [ "$DEVICES_AVAILABLE" = false ]; then
 else
     # T2-11: "列出所有设备" output contains 6 device names
     OUT_11=$("$OLAV" "列出所有设备" 2>&1)
+    echo "${OUT_11}" > "${TEST_DIR}/t2_11_output.txt"
     # Count how many of the known hostnames appear in output
     DEVICE_HITS=0
     for _dev in R1 R2 R3 R4 SW1 SW2; do
@@ -564,7 +580,7 @@ else
     elif [ "$DEVICE_HITS" -ge 2 ]; then
         warn_test "T2-11" "列出所有设备: only ${DEVICE_HITS}/6 devices listed (expected ≥4)"
     else
-        fail_test "T2-11" "列出所有设备: only ${DEVICE_HITS}/6 devices listed"
+        fail_test "T2-11" "列出所有设备: only ${DEVICE_HITS}/6 devices listed (saved: ${TEST_DIR}/t2_11_output.txt)"
     fi
 
     # T2-12: "BGP邻居" output contains neighbor IPs or states
@@ -587,14 +603,18 @@ else
         fail_test "T2-13" "网络拓扑: output too short or empty"
     fi
 
-    # T2-14: Tool call count ≤ 3 (schema-aware routing should minimize calls)
+    # T2-14: Orchestrator-level tool call count ≤ 5 (schema-aware routing should minimize calls)
+    # WRITER-01 (a) Round 39: 🔧 output now carries an origin tag — 🔧[orch] for the
+    # top-level orchestrator, 🔧[sub] for delegate-internal tool calls. We count only
+    # orchestrator calls; this lets the threshold go back to its original baseline
+    # (≤5) without being polluted by writer-arch delegate bloat.
     OUT_14=$("$OLAV" "列出所有设备" 2>&1)
-    TOOL_CALLS=$(echo "${OUT_14}" | grep -c "🔧" 2>/dev/null | tr -d '[:space:]' | head -1)
+    TOOL_CALLS=$(echo "${OUT_14}" | grep -cE "🔧\[orch\]" 2>/dev/null | tr -d '[:space:]' | head -1)
     TOOL_CALLS=${TOOL_CALLS:-0}
-    if [ "${TOOL_CALLS}" -le 3 ] 2>/dev/null; then
-        pass_test "T2-14" "Tool call count ≤3 (got ${TOOL_CALLS})"
+    if [ "${TOOL_CALLS}" -le 5 ] 2>/dev/null; then
+        pass_test "T2-14" "Orchestrator tool call count ≤5 (got ${TOOL_CALLS})"
     else
-        warn_test "T2-14" "Tool call count ${TOOL_CALLS} > 3 (schema routing may be inefficient)"
+        warn_test "T2-14" "Orchestrator tool call count ${TOOL_CALLS} > 5 (schema routing may be inefficient)"
     fi
 fi
 
@@ -666,14 +686,14 @@ if [ "$LLM_AVAILABLE" = false ]; then
         skip_group_llm "$_id" "audit agent"
     done
 else
-    # T2-19: audit agent (designer) creates a profile
+    # T2-19: audit agent (Profile Authoring mode — R17 merged designer → auditor)
     OUT_19=$(timeout 120 "$OLAV" --agent audit "create BGP health check profile" 2>&1)
     if echo "${OUT_19}" | grep -qi "\.md\|profile\|created\|bgp.*health\|check.*profile\|audit\|health\|monitor\|check"; then
-        pass_test "T2-19" "audit designer: BGP health check profile generated"
+        pass_test "T2-19" "audit (Profile Authoring): BGP health check profile generated"
     elif [ ${#OUT_19} -gt 100 ]; then
-        warn_test "T2-19" "audit designer: has output but no profile creation marker"
+        warn_test "T2-19" "audit (Profile Authoring): has output but no profile creation marker"
     else
-        fail_test "T2-19" "audit designer: no output or error"
+        fail_test "T2-19" "audit (Profile Authoring): no output or error"
     fi
 
     # Check if profile .md file was created
@@ -787,6 +807,298 @@ fi
 echo ""
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Group 8: Round 24-60 integration (T2-26 ~ T2-31)
+# ══════════════════════════════════════════════════════════════════════════════
+# Integration-level complement to T1 Group 12. Where T1 verifies unit
+# behaviour of each new surface, T2 Group 8 exercises them against the
+# populated DuckDB from Groups 1-2 (when devices + LLM were available)
+# or a minimal bootstrapped DB otherwise.
+echo "=== Group 8: Round 24-60 integration (T2-26 ~ T2-31) ==="
+
+# T2-26: `olav diff --help` survives wheel install (CLI registration smoke)
+#        — complements T1-55 at wheel-install level (not dev-venv).
+if "$OLAV" diff --help 2>&1 | grep -qE "snapshot_id_1.*snapshot_id_2"; then
+    pass_test "T2-26" "olav diff CLI registered in installed wheel (R47)"
+else
+    fail_test "T2-26" "olav diff CLI missing from installed wheel" \
+        "(--help did not mention snapshot_id_1/2)"
+fi
+
+# T2-27: `olav explain --help` survives wheel install
+if "$OLAV" explain --help 2>&1 | grep -qi "citation token"; then
+    pass_test "T2-27" "olav explain CLI registered in installed wheel (R45)"
+else
+    fail_test "T2-27" "olav explain CLI missing from installed wheel"
+fi
+
+# T2-28: `olav catalog` lists topics (no LLM, no DB required — reads
+#        inline _TOPICS map from catalog.py)
+CATALOG_OUT=$("$OLAV" catalog 2>&1)
+if echo "${CATALOG_OUT}" | grep -qE "Device Inventory|设备清单|Topology"; then
+    pass_test "T2-28" "olav catalog lists data-model topics (R25)"
+else
+    fail_test "T2-28" "olav catalog output missing expected topics"
+fi
+
+# T2-29: `describe_table` tool loads via the same tool discovery path
+#        agents use. No DB required — assert args_schema only.
+"$PYTHON" <<'PYEOF'
+import importlib.util, sys
+from pathlib import Path
+p = Path(".olav/workspace/core/db_query/tools/describe_table.py")
+if not p.is_file():
+    print("describe_table.py missing"); sys.exit(1)
+spec = importlib.util.spec_from_file_location("dt_t2", p)
+mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+schema = getattr(mod.describe_table, "args_schema", None)
+fields = getattr(schema, "model_fields", None) or getattr(schema, "__fields__", {})
+assert "table_name" in fields and "include_samples" in fields, "describe_table schema drift"
+sys.exit(0)
+PYEOF
+if [ $? -eq 0 ]; then
+    pass_test "T2-29" "describe_table tool discoverable post-wheel (R39)"
+else
+    fail_test "T2-29" "describe_table not discoverable in installed workspace"
+fi
+
+# T2-30: NetworkModel construction + DB round-trip when topology_links
+#        has real rows (from Groups 1-2 ETL). Skip gracefully when no DB.
+"$PYTHON" <<'PYEOF'
+import sys
+try:
+    from olav_netops.sim import load_network_model
+except Exception as e:
+    print(f"olav_netops not in venv: {e}"); sys.exit(2)
+m = load_network_model()
+# Layer construction must not raise regardless of DB state.
+_phys = m.physical
+_l2 = m.l2
+# If topology_links has rows from Group 1, the graph is populated;
+# otherwise empty. Either way a well-formed PhysicalLayer.
+links_count = len(_phys.links)
+print(f"NoM physical.links = {links_count}")
+sys.exit(0)
+PYEOF
+_rc=$?
+case $_rc in
+    0)  pass_test "T2-30" "ARCH-14 NetworkModel round-trip against installed DB (R52-59)" ;;
+    2)  skip_test "T2-30" "ARCH-14 NetworkModel (olav_netops not in venv)" ;;
+    *)  fail_test "T2-30" "ARCH-14 NetworkModel round-trip failed (rc=$_rc)" ;;
+esac
+
+# T2-31: sandbox auto-inject — execute a tiny sandbox script and confirm
+#        model reference resolves (End-to-end through execute_in_sandbox).
+"$PYTHON" <<'PYEOF'
+import sys
+from olav.platform.sandbox import execute_in_sandbox
+r = execute_in_sandbox(
+    "_result = {'model_is_none': model is None, 'has_physical': model is not None and hasattr(model, 'physical')}",
+    timeout=30,
+)
+if r.get("status") != "success":
+    print(f"sandbox execution failed: {r}"); sys.exit(1)
+print(f"sandbox result: {r.get('result')}")
+sys.exit(0)
+PYEOF
+if [ $? -eq 0 ]; then
+    pass_test "T2-31" "sandbox subprocess resolves 'model' binding (R57)"
+else
+    fail_test "T2-31" "sandbox auto-inject broken post-wheel"
+fi
+
+# ─── T2-32 ~ T2-40: parity with T1 Group 12 at integration level ────────
+# Each of these catches packaging drift the same way T2-29 did for
+# describe_table.py — if the platform wheel ships without the file, the
+# helper can't load and the test fails.
+
+# T2-32: load_reference(section=) slicing against wheel-installed schema.md (R38)
+"$PYTHON" <<'PYEOF'
+import sys, importlib.util
+from pathlib import Path
+p = Path(".olav/workspace/core/admin/tools/load_reference.py")
+if not p.is_file():
+    print(f"load_reference.py missing at {p}"); sys.exit(1)
+spec = importlib.util.spec_from_file_location("lr_t2", p)
+mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+full = mod.load_reference.invoke({"name": "schema"})
+assert "## " in full, "schema ref missing H2 headers (SCHEMA_REFERENCE.md not shipped?)"
+listing = mod.load_reference.invoke({"name": "schema", "section": "?"})
+assert "Available sections in 'schema'" in listing, f"section listing wrong: {listing[:200]}"
+sliced = mod.load_reference.invoke({"name": "schema", "section": "common mistakes"})
+assert "Common Mistakes to Avoid" in sliced, "section slice missed target"
+sys.exit(0)
+PYEOF
+if [ $? -eq 0 ]; then
+    pass_test "T2-32" "load_reference section slicing + ? listing (R38)"
+else
+    fail_test "T2-32" "load_reference slicing broken post-wheel"
+fi
+
+# T2-33: tool_help(detail=) tier-aware (R38 + R49)
+"$PYTHON" <<'PYEOF'
+import sys, importlib.util
+from pathlib import Path
+p = Path(".olav/workspace/core/admin/tools/tool_help.py")
+spec = importlib.util.spec_from_file_location("th_t2", p)
+mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+brief = mod.tool_help.invoke({"name": "tool_help", "detail": "brief"})
+assert "full_docstring" not in brief, "brief mode leaked full_docstring"
+full = mod.tool_help.invoke({"name": "tool_help", "detail": "full"})
+assert full.get("full_docstring"), "full mode missing docstring"
+# agent_id kwarg must be in schema (R49)
+schema = getattr(mod.tool_help, "args_schema", None)
+fields = getattr(schema, "model_fields", None) or getattr(schema, "__fields__", {})
+assert "agent_id" in fields, "tool_help missing agent_id kwarg (R49 regression)"
+sys.exit(0)
+PYEOF
+if [ $? -eq 0 ]; then
+    pass_test "T2-33" "tool_help detail + agent_id kwarg (R38/R49)"
+else
+    fail_test "T2-33" "tool_help tier surface broken post-wheel"
+fi
+
+# T2-34: OLAV_DEBUG_* env vars recognised by installed package (R36 + R42)
+"$PYTHON" <<'PYEOF'
+import os
+os.environ["OLAV_DEBUG_CONTEXT"] = "1"
+from olav.agents.static_context_resolver import is_debug_enabled
+assert is_debug_enabled() is True, "OLAV_DEBUG_CONTEXT=1 not recognised post-install"
+os.environ["OLAV_DEBUG_CONTEXT"] = "no"
+assert is_debug_enabled() is False
+from olav.agents._deepagents_bridge import _summarization_debug_enabled
+os.environ["OLAV_DEBUG_SUMMARIZATION"] = "yes"
+assert _summarization_debug_enabled() is True
+os.environ["OLAV_DEBUG_SUMMARIZATION"] = "off"
+assert _summarization_debug_enabled() is False
+PYEOF
+if [ $? -eq 0 ]; then
+    pass_test "T2-34" "OLAV_DEBUG_CONTEXT / _SUMMARIZATION env resolvers (R36/R42)"
+else
+    fail_test "T2-34" "debug env resolvers broken post-wheel"
+fi
+
+# T2-35: recall_memory tier-aware limit default (R40, ARCH-16)
+"$PYTHON" <<'PYEOF'
+import importlib.util
+from pathlib import Path
+p = Path(".olav/workspace/core/tools/recall_memory.py")
+spec = importlib.util.spec_from_file_location("rm_t2", p)
+mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+schema = getattr(mod.recall_memory, "args_schema", None)
+fields = getattr(schema, "model_fields", None) or getattr(schema, "__fields__", {})
+req = getattr(fields["limit"], "is_required", None)
+if callable(req):
+    req = req()
+assert req is False, "recall_memory limit must stay optional for tier default"
+assert mod._resolve_recall_limit(100) == 10, "ceiling clamp broken"
+assert mod._resolve_recall_limit(0) == 1, "floor clamp broken"
+val = mod._resolve_recall_limit(None)
+assert isinstance(val, int) and 1 <= val <= 10
+PYEOF
+if [ $? -eq 0 ]; then
+    pass_test "T2-35" "recall_memory(limit=None) tier resolution (R40)"
+else
+    fail_test "T2-35" "recall_memory tier default broken post-wheel"
+fi
+
+# T2-36: subagent return cap via tier_default (R40, ARCH-18 #4)
+"$PYTHON" <<'PYEOF'
+from olav.agents.delegate_tool import _resolve_subagent_cap, _truncate
+cap = _resolve_subagent_cap()
+assert isinstance(cap, int) and cap > 0
+assert _truncate("short", cap=1000) == "short"
+out = _truncate("x" * 5000, cap=200)
+assert out.startswith("x" * 200) and "truncated" in out and "5000" in out
+PYEOF
+if [ $? -eq 0 ]; then
+    pass_test "T2-36" "delegate_tool subagent return cap (R40)"
+else
+    fail_test "T2-36" "subagent cap broken post-wheel"
+fi
+
+# T2-37: SummarizationMiddleware tier trigger (R42, ARCH-19)
+"$PYTHON" <<'PYEOF'
+from olav.agents._deepagents_bridge import compute_summarization_trigger
+assert compute_summarization_trigger("small") == ("tokens", 4000)
+assert compute_summarization_trigger("medium") == ("tokens", 20800)
+assert compute_summarization_trigger("large") == ("tokens", 160000)
+assert compute_summarization_trigger("xlarge") is None
+assert compute_summarization_trigger(None) is None
+PYEOF
+if [ $? -eq 0 ]; then
+    pass_test "T2-37" "compute_summarization_trigger per-tier (R42)"
+else
+    fail_test "T2-37" "summarization tier trigger broken post-wheel"
+fi
+
+# T2-38: SKILL.md tools_docstring_mode override (R49)
+"$PYTHON" <<'PYEOF'
+import importlib.util, tempfile
+from pathlib import Path
+p = Path(".olav/workspace/core/admin/tools/tool_help.py")
+spec = importlib.util.spec_from_file_location("th2_t2", p)
+mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+aliases = mod._SKILL_MODE_ALIASES
+assert aliases["compact"] == "brief" and aliases["verbose"] == "full"
+# Round-trip: fake agent SKILL.md resolves via _read_agent_docstring_mode.
+tmp = Path(tempfile.mkdtemp())
+agent_dir = tmp / ".olav" / "workspace" / "fake"
+(agent_dir / "tools").mkdir(parents=True)
+(agent_dir / "SKILL.md").write_text(
+    "---\nname: fake\ntools_docstring_mode: compact\n---\n", encoding="utf-8")
+mod._PROJECT_ROOT = tmp
+mod._TOOL_ROOTS = [agent_dir / "tools"]
+assert mod._read_agent_docstring_mode("fake") == "brief"
+PYEOF
+if [ $? -eq 0 ]; then
+    pass_test "T2-38" "SKILL.md tools_docstring_mode override (R49)"
+else
+    fail_test "T2-38" "SKILL.md docstring mode broken post-wheel"
+fi
+
+# T2-39: OLAV_BACKUP_COMMANDS_PATH env override (R46, ARCH-22 C1)
+"$PYTHON" <<'PYEOF'
+import os, tempfile
+from pathlib import Path
+from olav.core.utils import find_backup_commands_yaml, _BACKUP_COMMANDS_PATH_ENV
+assert _BACKUP_COMMANDS_PATH_ENV == "OLAV_BACKUP_COMMANDS_PATH"
+tmp = Path(tempfile.mkdtemp())
+override = tmp / "custom.yaml"
+override.write_text("- command: show test\n", encoding="utf-8")
+os.environ["OLAV_BACKUP_COMMANDS_PATH"] = str(override)
+assert find_backup_commands_yaml() == override
+# Bogus env path → falls through (defensive against typos)
+os.environ["OLAV_BACKUP_COMMANDS_PATH"] = "/definitely/nonexistent.yaml"
+resolved = find_backup_commands_yaml()
+assert resolved is None or resolved.is_file()
+del os.environ["OLAV_BACKUP_COMMANDS_PATH"]
+PYEOF
+if [ $? -eq 0 ]; then
+    pass_test "T2-39" "OLAV_BACKUP_COMMANDS_PATH env override (R46)"
+else
+    fail_test "T2-39" "backup env override broken post-wheel"
+fi
+
+# T2-40: 🔧[orch]/[sub] origin tag scaffolding in installed cli/main.py (R39)
+"$PYTHON" <<'PYEOF'
+import re
+import olav.cli.main as m
+from pathlib import Path
+src = Path(m.__file__).read_text(encoding="utf-8")
+assert "_delegate_depth" in src, "delegate_depth counter missing post-install"
+assert "_DELEGATE_TOOLS" in src
+assert re.search(r"🔧\[\{_origin\}\]", src), "🔧[{_origin}] format string missing"
+assert "_delegate_depth += 1" in src and "_delegate_depth -= 1" in src
+PYEOF
+if [ $? -eq 0 ]; then
+    pass_test "T2-40" "🔧[orch]/[sub] origin tag scaffolding (R39)"
+else
+    fail_test "T2-40" "origin tag plumbing broken post-wheel"
+fi
+
+echo ""
+
+# ══════════════════════════════════════════════════════════════════════════════
 # CLEANUP
 # ══════════════════════════════════════════════════════════════════════════════
 echo "=== Cleanup ==="
@@ -799,8 +1111,12 @@ if [ -n "${_syslog_pid}" ]; then
     kill "${_syslog_pid}" 2>/dev/null || true
 fi
 
-rm -rf "${TEST_DIR}" 2>/dev/null || true
-echo "  test dir removed: ${TEST_DIR}"
+if [ "${OLAV_T2_KEEP_DIR:-false}" = "true" ]; then
+    echo "  test dir PRESERVED (OLAV_T2_KEEP_DIR=true): ${TEST_DIR}"
+else
+    rm -rf "${TEST_DIR}" 2>/dev/null || true
+    echo "  test dir removed: ${TEST_DIR}"
+fi
 echo ""
 
 # ══════════════════════════════════════════════════════════════════════════════

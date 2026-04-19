@@ -58,21 +58,53 @@ class OutputFormatterPlugin(OLAVMiddlewarePlugin):
         supplements: list[str] = []
 
         # ── 1. render_report: extract Executive Summary ──────────────
-        # Check both direct tool results AND olav_delegate results (which wrap subagent output)
+        # Check direct tool results AND both subagent-delegation tool names
+        # (``olav_delegate`` + deepagents' ``task``) because the audit
+        # orchestrator routes through ``task`` while ops-analyze routes
+        # through ``olav_delegate``. Plus we scan assistant_content itself
+        # for the report-path marker — if neither delegation tool carried
+        # the wrapped output (some models surface it only in the final
+        # assistant message), the fallback below still catches the path.
+        _DELEGATION_TOOLS = {"olav_delegate", "task"}
+        # Match common render_report success markers:
+        #   "Report saved: /path/x.md"
+        #   "report_path: /path/x.md"
+        #   "exports/audit_reports/x.md"  (last resort — just a .md path)
+        import re as _re
+        _REPORT_PATH_RE = _re.compile(
+            r'(?:Report saved:|report_path[:=]?|report saved at)\s*["\']?([^\s"\'\]]+\.md)',
+            _re.IGNORECASE,
+        )
+        _FALLBACK_MD_RE = _re.compile(
+            r'(exports[\w/_-]*/audit_reports/[\w./_-]+\.md)',
+            _re.IGNORECASE,
+        )
+        seen_paths: set[str] = set()
+
+        def _maybe_append(path_str: str) -> None:
+            if not path_str or path_str in seen_paths:
+                return
+            seen_paths.add(path_str)
+            summary = self._extract_summary_from_report(path_str)
+            if summary and summary not in assistant_content:
+                supplements.append(summary)
+
         for tr in tool_results:
             content = tr["content"]
             if tr["name"] == "render_report" and content:
-                summary = self._extract_summary_from_report(content)
-                if summary and summary not in assistant_content:
-                    supplements.append(summary)
-            elif tr["name"] == "olav_delegate" and "Report saved:" in content:
-                # olav_delegate wraps subagent — extract report path from its output
-                import re as _re
-                _path_match = _re.search(r'Report saved:\s*(.+\.md)', content)
-                if _path_match:
-                    summary = self._extract_summary_from_report(_path_match.group(1))
-                    if summary and summary not in assistant_content:
-                        supplements.append(summary)
+                _maybe_append(content)
+            elif tr["name"] in _DELEGATION_TOOLS and content:
+                m = _REPORT_PATH_RE.search(content) or _FALLBACK_MD_RE.search(content)
+                if m:
+                    _maybe_append(m.group(1))
+
+        # Fallback: scan final assistant message for a report path even if
+        # neither delegation tool's result carried it structured. Catches
+        # the "agent just prints the path" surface (Gitea #5).
+        if not supplements and assistant_content:
+            m = _REPORT_PATH_RE.search(assistant_content) or _FALLBACK_MD_RE.search(assistant_content)
+            if m:
+                _maybe_append(m.group(1))
 
         # ── 2. Script auto-export ────────────────────────────────────
         if self._has_script_content(assistant_content) and not self._has_export_path(assistant_content):
