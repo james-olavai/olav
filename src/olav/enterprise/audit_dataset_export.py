@@ -40,6 +40,12 @@ except ImportError:  # pragma: no cover
 # ---------------------------------------------------------------------------
 # Regex helpers
 # ---------------------------------------------------------------------------
+# ARCH-22 C2: centralise the dedup strategy tag rather than scattering the
+# literal "exact_v1" at call sites. Bumping this to a new strategy (e.g.
+# a simhash-based dedup) only requires one edit here. ``OLAV_DEDUP_STRATEGY``
+# env var lets operators pin a specific strategy for rollout testing.
+DEDUP_STRATEGY = os.environ.get("OLAV_DEDUP_STRATEGY", "exact_v1")
+
 _IP_RE = re.compile(r"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?:/(\d{1,2}))?\b")
 
 # Cisco-style interface names (Gi0/1, TenGigE0/0/0/0, etc.)
@@ -1344,7 +1350,7 @@ def audit_to_tool_trajectory(
                     "requires_tool": bool(tool_seq),
                     "redaction_policy": "audit-redaction-v1",
                     "dedup_fingerprint": fingerprint,
-                    "dedup_strategy": "exact_v1",
+                    "dedup_strategy": DEDUP_STRATEGY,
                     "invalid_trajectory": not is_valid,
                 },
             }
@@ -1402,7 +1408,7 @@ def audit_to_tool_trajectory(
             ad = build_associated_data(
                 export_id=output_path.name,
                 format_name="trajectory",
-                dedup_strategy="exact_v1",
+                dedup_strategy=DEDUP_STRATEGY,
                 scoring_policy="dataset-score-v1",
             )
             _encrypt_export_file(traj_path, encryptor, ad)
