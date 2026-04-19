@@ -5,6 +5,56 @@ All notable changes to OLAV will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-04-19
+
+### 🏗️ Architecture — ARCH-23 MVC Core Refactor (R64 + R65)
+
+- **Core 3 orchestrator tools + 5 sub-agents**: `core/tools/` trimmed to
+  the 3 truly-cross-domain tools (`execute_sql`, `recall_memory`,
+  `web_search`); 17 tools relocated into sub-agent homes:
+  - `core/admin/tools/` — 11 tools (`analyze_logs`, `bulk_ingest`,
+    `deploy_service`, `get_static_context`, `load_reference`,
+    `manage_cron`, `search_logs`, `stop_service`, `tool_help`,
+    `workspace_health`, `write_workspace_file`)
+  - `core/api_query/tools/` — `api_request`, `service_health`
+  - `core/db_query/tools/` — `describe_table`, `execute_sql`
+  - `core/remote/tools/` — `remote_execute`, `run_shell`
+  - `core/writer/tools/` — `format_and_export`, `read_file`
+- **`core/AGENT.md` frontmatter** carries `subagents:` list (5 entries);
+  packaged + deployment aligned byte-for-byte for tool files.
+- **`api_request.py` compact envelope**: `_COMPACT_LIST_CAP=50` with
+  `status: truncated` envelope for DRF-pagination responses
+  (ARCH-18 #2 pattern).
+
+### 🗑️ Removed — ARCH-22 A2 v0.19 Cut (R66)
+
+- **`src/olav/core/audit_logger.py`** — 148 LOC no-op shim deleted.
+  `AuditEventRecorder` has been the authoritative audit write path
+  since Round 18; audit_logger.py carried a `LEGACY-REMOVE-v0.19`
+  marker for this cut. 0 importers under `src/olav` verified before
+  deletion.
+
+### 🔧 Fixed
+
+- **Tier 0 B11 (nornir resolver)** — `_resolve_nornir_config_path()`
+  adds priority 0 for the post-R32 canonical
+  `.olav/workspace/ops/collect/config/nornir/config.yaml`; the older
+  `probe/` path demoted to priority 1 for pre-R32 deployments.
+- **ARCH-22 C2 DEDUP_STRATEGY** — `exact_v1` literal extracted to a
+  module-level `DEDUP_STRATEGY` constant in
+  `src/olav/enterprise/audit_dataset_export.py` with
+  `OLAV_DEDUP_STRATEGY` env override. 2 call sites use the constant.
+- **Version sync** — `src/olav/__init__.py::__version__` bumped from
+  0.15.0 → 0.19.0, fixing pre-existing drift from `pyproject.toml`.
+
+### ♻️ ARCH-22 Matrix — Platform Scope Closed
+
+Post-R66: **9 Closed / 3 Fixed / 0 Deferred** + 1 Warning-only (C5
+`store` param physical removal left for next major). A4
+(`_legacy_archived/` 180MB archive) reclassified as non-governance:
+already gitignored (line 98), never enters clones/wheels/release
+artefacts; local disk footprint is an operator cleanup concern.
+
 ## [0.15.0] - 2026-04-12
 
 ### 🏗️ Architecture — Unified Core Agent
