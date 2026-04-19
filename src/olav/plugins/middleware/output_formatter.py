@@ -170,9 +170,22 @@ class OutputFormatterPlugin(OLAVMiddlewarePlugin):
 
     @staticmethod
     def _has_script_content(text: str) -> bool:
-        """Check if text contains a shell/python script."""
-        markers = ["#!/bin/bash", "#!/usr/bin/env", "set -euo pipefail", "def main(", "import argparse"]
-        return any(m in text for m in markers)
+        """Check if text contains a shell/python script.
+
+        Detects (in order of strength):
+          * Explicit shebangs or hardening pragmas
+          * ``def main(`` / ``import argparse`` style Python entry points
+          * A fenced code block tagged as bash/sh/python — covers the
+            common "here's a script:" pattern without a shebang
+        """
+        markers = ["#!/bin/bash", "#!/usr/bin/env", "set -euo pipefail",
+                   "def main(", "import argparse"]
+        if any(m in text for m in markers):
+            return True
+        # Fenced code block tagged as bash/sh/python/py counts as script.
+        if re.search(r'```(?:bash|sh|python|py)\b', text):
+            return True
+        return False
 
     @staticmethod
     def _has_export_path(text: str) -> bool:
@@ -181,9 +194,17 @@ class OutputFormatterPlugin(OLAVMiddlewarePlugin):
 
     @staticmethod
     def _auto_export_script(text: str) -> str | None:
-        """Extract script from markdown code block and write to exports/scripts/."""
-        # Find the largest code block
-        blocks = re.findall(r'```(?:bash|sh|python|py)?\n(.*?)```', text, re.DOTALL)
+        """Extract script from markdown code block and write to exports/scripts/.
+
+        Writes to the project-root ``exports/scripts/`` via the
+        ``olav.core.config.EXPORTS_DIR`` constant — the same location
+        the ``format_and_export`` tool uses — so T2-25 and other
+        downstream checks that scan ``exports/`` find the file.
+        """
+        # Find the largest code block — allow arbitrary / missing language tag.
+        blocks = re.findall(
+            r'```(?:[a-zA-Z0-9_-]*)?\n(.*?)```', text, re.DOTALL
+        )
         if not blocks:
             return None
 
@@ -196,8 +217,8 @@ class OutputFormatterPlugin(OLAVMiddlewarePlugin):
         filename = f"auto_export.{ext}"
 
         try:
-            from olav.core.workspace import resolve_workspace_root
-            exports_dir = resolve_workspace_root().parent / "exports" / "scripts"
+            from olav.core.config import EXPORTS_DIR
+            exports_dir = EXPORTS_DIR / "scripts"
             exports_dir.mkdir(parents=True, exist_ok=True)
             out = exports_dir / filename
             out.write_text(script, encoding="utf-8")
