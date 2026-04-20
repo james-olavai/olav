@@ -902,35 +902,13 @@ BACKUP_DIR = EXPORTS_DIR / "backup"
 TMP_SNAPSHOTS_DIR = _PROJECT_ROOT / get_paths_config().tmp_snapshots_dir
 TMP_STAGING_DIR = _PROJECT_ROOT / get_paths_config().tmp_staging_dir
 SNAPSHOTS_STAGING_JSON = _PROJECT_ROOT / get_paths_config().snapshots_staging_json
-def _resolve_nornir_config_path() -> "Path":
-    """Resolve the nornir config path with migration-aware fallback.
 
-    Priority:
-    0. Post-R32 collect-scoped path: .olav/workspace/ops/collect/config/nornir/config.yaml
-    1. Post-M3 probe-scoped path:   .olav/workspace/ops/probe/config/nornir/config.yaml (pre-R32)
-    2. Post-M2 workspace path:      .olav/workspace/ops/config/nornir/config.yaml
-    3. Legacy domains path:         .olav/config/domains/netops/nornir/config.yaml
-    4. Old flat path:               .olav/config/nornir/config.yaml
-    """
-    collect_path = AGENT_DIR / "workspace" / "ops" / "collect" / "config" / "nornir" / "config.yaml"
-    if collect_path.exists():
-        return collect_path
-    probe_path = AGENT_DIR / "workspace" / "ops" / "probe" / "config" / "nornir" / "config.yaml"
-    if probe_path.exists():
-        return probe_path
-    ws_path = AGENT_DIR / "workspace" / "ops" / "config" / "nornir" / "config.yaml"
-    if ws_path.exists():
-        return ws_path
-    # LEGACY-KEEP: pre-M2 domain config path. Pre-v0.13 installations still
-    # have their nornir config at .olav/config/domains/netops/nornir/; keep
-    # this probe until the earliest supported release moves past M2.
-    legacy_path = CONFIG_DIR / "domains" / "netops" / "nornir" / "config.yaml"
-    if legacy_path.exists():
-        return legacy_path
-    return CONFIG_DIR / "nornir" / "config.yaml"
+# ARCH-20 Phase 3 follow-up (R66f): _resolve_nornir_config_path +
+# NORNIR_CONFIG_PATH relocated to olav_netops.core.config_paths — nornir
+# is a netops-domain concept, not a platform concept. Importers inside
+# olav-netops updated; platform wheel no longer leaks nornir path
+# knowledge. olav-netops >= 0.19.0 is required for the new path.
 
-
-NORNIR_CONFIG_PATH = _resolve_nornir_config_path()
 NETWORK_DB_PATH = MAIN_DB_PATH
 GUARD_WHITELIST_PATH = SKILLS_DIR / "guard" / "whitelist.yaml"
 
@@ -938,6 +916,9 @@ GUARD_WHITELIST_PATH = SKILLS_DIR / "guard" / "whitelist.yaml"
 # Mapping from domain name to workspace directory name.
 # Post-M2: domain config has migrated from .olav/config/domains/<domain>/
 # to .olav/workspace/<workspace>/config/.
+# LEGACY-KEEP: pre-M2 .olav/config/domains/<domain>/ fallback remains for
+# users upgrading from v0.12.x installations; the ``get_domain_config_dir``
+# helper walks both paths.
 _DOMAIN_WORKSPACE_MAP: "dict[str, str]" = {
     "netops": "ops",
 }
@@ -998,7 +979,6 @@ __all__ = [
     "TMP_SNAPSHOTS_DIR",
     "TMP_STAGING_DIR",
     "SNAPSHOTS_STAGING_JSON",
-    "NORNIR_CONFIG_PATH",
     "NETWORK_DB_PATH",
     "USER_SESSION_DIR",
     "GUARD_WHITELIST_PATH",
