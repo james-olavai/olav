@@ -1,11 +1,14 @@
+# LEGACY-KEEP: v0.19 cut audit re-evaluated this module — the plugin
+# framework *wraps* these classes (``olav.plugins.middleware.memory_recall``
+# imports AutoRecallMiddleware, ``...memory_capture`` imports
+# AutoCaptureMiddleware, and ``cli/daemon.py`` imports apply_time_decay).
+# The plugins don't replace this module; they register its classes as
+# plugins. No removal target.
 """Memory Middleware for OLAV Agentic Memory System.
 
-.. deprecated::
-    This module is superseded by the plugin framework.
-    Use ``olav.plugins.middleware.memory_recall.MemoryRecallPlugin`` and
-    ``olav.plugins.middleware.memory_capture.MemoryCapturePlugin`` instead.
-    This file will be removed in the next major release.
-
+Backing implementation for the ``olav.plugins.middleware.memory_recall``
+and ``olav.plugins.middleware.memory_capture`` plugins, plus the
+``apply_time_decay()`` daemon hook called from ``cli/daemon.py``.
 
 Implements Phase 2 of the LANCEDB_MEMORY_SYSTEM_INTEGRATION plan:
   - AutoRecallMiddleware:  Pre-processor — injects relevant historical context
@@ -22,7 +25,7 @@ import json
 import logging
 import math
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from olav.core.memory import MEMORY_TABLE, hybrid_search
 
@@ -85,12 +88,62 @@ class AutoRecallMiddleware:
     def __init__(
         self,
         store: "LanceDBStore",
-        top_k: int = RECALL_TOP_K,
+        top_k: int | None = None,
         min_score_threshold: float = 0.0,
+        budget_monitor: Any = None,
     ) -> None:
         self._store = store
-        self._top_k = top_k
+        # ARCH-18 #3: top_k defaults to the tier-appropriate value from
+        # TIER_DEFAULTS — small-context models get 1 memory, medium 2,
+        # large 3. Explicit ``top_k=`` still overrides. Resolved lazily
+        # via ``_resolve_top_k`` so tests / callers can change tier
+        # between constructions (avoids caching an import-time value).
+        self._top_k = top_k  # None ⇒ resolve from model_tier at call time
         self._min_score = min_score_threshold
+        # ARCH-19 #A: optional ContextBudgetMonitor. When attached, recall
+        # injection is skipped on non-first turns once the budget headroom
+        # drops below the tier-specific ``recall_skip_headroom_pct`` — the
+        # goal is keeping the smallest-tier run from burning its last 1-2K
+        # tokens on historical hints instead of the live task.
+        self._budget_monitor = budget_monitor
+
+    def _resolve_top_k(self) -> int:
+        if self._top_k is not None:
+            return self._top_k
+        try:
+            from olav.core.config import get_llm_config, tier_default
+            tier = get_llm_config().model_tier
+            return int(tier_default(tier, "recall_top_k", RECALL_TOP_K))
+        except Exception as exc:
+            logger.debug("AutoRecall tier resolution failed: %s", exc)
+            return RECALL_TOP_K
+
+    def _should_skip_for_budget(self) -> bool:
+        """Return True when injecting recall would push over the per-tier
+        headroom (ARCH-19 #A). First turns bypass this check — cold-start
+        hints are always worth a small spend.
+
+        A missing budget monitor is treated as unlimited budget (never skip).
+        """
+        monitor = self._budget_monitor
+        if monitor is None:
+            return False
+        try:
+            from olav.core.config import get_llm_config, tier_default
+            tier = get_llm_config().model_tier
+            headroom_pct = float(tier_default(tier, "recall_skip_headroom_pct", 0.0))
+        except Exception as exc:
+            logger.debug("AutoRecall headroom resolution failed: %s", exc)
+            return False
+        if headroom_pct <= 0:
+            return False
+        try:
+            snap = monitor.snapshot()
+            remaining_pct = 1.0 - float(snap.get("ratio", 0.0))
+        except Exception as exc:
+            logger.debug("AutoRecall budget snapshot failed: %s", exc)
+            return False
+        return remaining_pct < headroom_pct
 
     def _embed(self, text: str) -> list[float] | None:
         """Embed text via the configured embedding backend (api or local)."""
@@ -114,8 +167,8 @@ class AutoRecallMiddleware:
                         date_str = f" [{ts.strftime('%Y-%m-%d')}]"
                     else:
                         date_str = f" [{str(ts)[:10]}]"
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("memory timestamp format failed: %s", e)
             lines.append(f"  <memory id='{i}' category='{cat}'{date_str}>{text}</memory>")
         lines.append("</relevant-memories>")
         return "\n".join(lines)
@@ -124,16 +177,30 @@ class AutoRecallMiddleware:
         self,
         input_: str | dict,
         scope: str = "global",
+        turn: int = 1,
     ) -> str | dict:
         """Enrich the input with recalled memories.
 
         Args:
             input_: The user input (str or LangGraph messages dict).
             scope: Memory scope to query (e.g. agent name or "global").
+            turn: 1-indexed turn number (ARCH-19 #A). turn=1 always
+                injects — the cold-start hint is too cheap to skip. From
+                turn=2 onwards the caller-supplied ``budget_monitor`` can
+                veto injection when the per-tier headroom drops below the
+                configured threshold.
 
         Returns:
             Enriched input with memory context prepended to the last user message.
         """
+        # ARCH-19 #A — budget guard for non-first turns.
+        if turn > 1 and self._should_skip_for_budget():
+            logger.debug(
+                "AutoRecall skipped (turn=%d) — budget headroom below threshold",
+                turn,
+            )
+            return input_
+
         try:
             # Extract query text from input
             if isinstance(input_, str):
@@ -167,19 +234,20 @@ class AutoRecallMiddleware:
 
             # Hybrid search: vector + text
             query_vector = self._embed(query_text)
+            effective_top_k = self._resolve_top_k()
 
             if query_vector:
                 memories = hybrid_search(
                     store=self._store,
                     query=query_text,
                     query_vector=query_vector,
-                    limit=self._top_k,
+                    limit=effective_top_k,
                     scope=scope,
                 )
             else:
                 memories = self._store.search_by_text(
                     query=query_text,
-                    limit=self._top_k,
+                    limit=effective_top_k,
                     scope=scope,
                 )
 
@@ -197,8 +265,8 @@ class AutoRecallMiddleware:
                         mem["id"],
                         access_count=(mem.get("access_count") or 0) + 1,
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("access_count bump failed for %s: %s", mem.get("id"), e)
 
             # Prepend to user message
             enriched_text = f"{context_block}\n\n{query_text}"
@@ -323,8 +391,8 @@ class AutoCaptureMiddleware:
                 if score is not None and score < (1.0 - self._dedup_threshold):
                     logger.debug(f"AutoCapture: dedup hit (score={score:.3f}): {text[:60]}")
                     return True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("AutoCapture dedup lookup failed: %s", e)
         return False
 
     async def process(
