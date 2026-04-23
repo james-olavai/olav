@@ -127,7 +127,8 @@ def apply_cron_schedules(yaml_path: str = "") -> dict[str, Any]:
     """
     if not yaml_path:
         root = Path(__file__).resolve().parents[4]
-        # Post-M3: netops_init/config/ is canonical; fall back to legacy ops/config/
+        # LEGACY-KEEP: Post-M3 moved cron config to netops_init/config/;
+        # pre-M3 installs still have it under ops/config/. Fall back for them.
         new_path = root / ".olav/workspace/ops/netops_init/config/cron_schedules.yaml"
         legacy_path = root / ".olav/workspace/ops/config/cron_schedules.yaml"
         yaml_path = str(new_path if new_path.exists() else legacy_path)

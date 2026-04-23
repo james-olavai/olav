@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "olav-netops"
-version = "0.18.0"
+version = "0.19.0"
 description = "OLAV Network Operations domain package — SSH collection, topology analysis, audit, drift detection"
 requires-python = ">=3.11"
 dependencies = [
-    "olav>=0.18.0",
+    "olav>=0.19.0",
     # Network SSH collection (Nornir + Netmiko)
     "nornir>=3.3.0",
     "nornir-netmiko>=1.0.0",
@@ -30,9 +30,12 @@ dependencies = [
 # The platform IngestManager calls importlib.metadata.entry_points to discover
 # and auto-register domain tables at startup.
 [project.entry-points."olav.ingest_tables"]
-parsed_outputs = "olav_netops.core.tables:ParsedOutputsTable"
-devices        = "olav_netops.core.tables:DevicesTable"
-topology_links = "olav_netops.core.tables:TopologyLinksTable"
+parsed_outputs   = "olav_netops.core.tables:ParsedOutputsTable"
+devices          = "olav_netops.core.tables:DevicesTable"
+topology_links   = "olav_netops.core.tables:TopologyLinksTable"
+commands         = "olav_netops.core.tables:CommandsTable"
+raw_output_store = "olav_netops.core.tables:RawOutputStoreTable"
+oc_outputs       = "olav_netops.core.tables:OcOutputsTable"
 
 
 # ── Slash command entry points ────────────────────────────────────────────
@@ -44,7 +47,6 @@ topology_links = "olav_netops.core.tables:TopologyLinksTable"
 learn_cmd         = "olav_netops.cli.builtin:cmd_learn"
 netops_init       = "olav_netops.cli.builtin:netops_init_main"
 netops_snapshot   = "olav_netops.cli.builtin:netops_snapshot_main"
-netops_migrate    = "olav_netops.cli.builtin:netops_migrate_main"
 
 [project.entry-points."olav.domain_prompts"]
 netops = "olav_netops.cli.prompt:DOMAIN_PROMPT"
@@ -54,6 +56,18 @@ netops = "olav_netops.command_registry:reload_hook"
 
 [project.entry-points."olav.config_commands"]
 netops = "olav_netops.command_registry:get_config_commands"
+
+# ── Sandbox prologue — injects NetworkModel into every sandbox execution ──
+# ADR-0002: the platform core has no knowledge of this; it discovers us
+# via the `olav.sandbox_prologues` entry-point group.
+[project.entry-points."olav.sandbox_prologues"]
+netops_network_model = "olav_netops.sandbox_prologue:network_model_prologue"
+
+# ── Catalog topics — populate `olav catalog` with netops tables/views ──
+# ADR-0002 compliance: the platform core ships no topics itself;
+# `olav catalog` aggregates this entry-point group.
+[project.entry-points."olav.catalog_topics"]
+netops = "olav_netops.catalog:get_catalog_topics"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/olav_netops"]

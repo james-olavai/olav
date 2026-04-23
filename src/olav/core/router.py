@@ -11,6 +11,7 @@ Key features:
 """
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -293,8 +294,8 @@ class SemanticRouter:
                     for skill in agent.get("skills", []):
                         _parts.append(skill.get("description", ""))
                     self._keyword_index[_name] = " ".join(_parts)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("keyword index lazy-load failed: %s", e)
 
         if not self._keyword_index:
             return None
@@ -473,13 +474,16 @@ Respond with only the agent name."""
 
 # Global router instance
 _router_instance: SemanticRouter | None = None
+_router_lock = threading.Lock()
 
 
 def get_router() -> SemanticRouter:
     """Get or create the global SemanticRouter instance."""
     global _router_instance
     if _router_instance is None:
-        _router_instance = SemanticRouter()
+        with _router_lock:
+            if _router_instance is None:
+                _router_instance = SemanticRouter()
     return _router_instance
 
 
@@ -569,8 +573,8 @@ def _load_agents_from_workspace() -> list[dict[str, Any]]:
                     import frontmatter as _fm
                     post = _fm.load(str(agent_md))
                     description = post.metadata.get("description", name)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("frontmatter load failed for %s: %s", agent_md, e)
 
         # Also collect subagent/skill descriptions for richer embedding
         skills = [{"name": name, "description": description}]
@@ -585,8 +589,8 @@ def _load_agents_from_workspace() -> list[dict[str, Any]]:
                         _desc = _post.metadata.get("description", "")
                         if _desc:
                             skills.append({"name": sub.name, "description": _desc})
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("frontmatter load failed for %s: %s", skill_md, e)
 
         agents.append({
             "name": name,

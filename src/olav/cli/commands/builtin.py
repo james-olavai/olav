@@ -326,15 +326,16 @@ Examples:
 
 For detailed admin operations, use OLAV admin CLI: uv run olav config"""
 
-    # Delegate to OLAVAgent (olav-config SubAgent handles writes/scheduling with HITL)
-    # Use cached agent to avoid heavy re-initialization
+    # ARCH-20 Phase 1 收尾: config/ agent 已合并到 core/ (admin 工具迁入
+    # core/admin/tools/)。/config 槽位保留作为用户习惯快捷入口，但实际委派
+    # 给 core 处理。
     try:
         import uuid
 
-        agent = _get_or_create_agent(agent_id="config")
+        agent = _get_or_create_agent(agent_id="core")
         thread_id = str(uuid.uuid4())
 
-        print("⚙️  Config SubAgent processing task (HITL enabled for write operations)...")
+        print("⚙️  Admin task dispatched to core agent (HITL enabled for write operations)...")
         print(f"   Task: {args}")
         print()
 
@@ -344,7 +345,7 @@ For detailed admin operations, use OLAV admin CLI: uv run olav config"""
     except Exception as e:
         import traceback
 
-        return f"❌ Config Error: {str(e)}\n\n{traceback.format_exc()}"
+        return f"❌ Admin Error: {str(e)}\n\n{traceback.format_exc()}"
 
 
 # Model switching command

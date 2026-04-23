@@ -8,6 +8,9 @@ Single entry point for all embedding operations:
 All components call ``embed_text()`` — never construct clients themselves.
 ``get_embedder()`` is retained for local-mode callers that need the raw
 SentenceTransformer object (e.g. dimension detection).
+
+LEGACY-KEEP: local mode is labelled "legacy" because API mode is the
+default since v0.15, but offline deployments still need it — keep it.
 """
 from __future__ import annotations
 

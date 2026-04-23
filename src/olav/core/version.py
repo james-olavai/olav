@@ -270,7 +270,10 @@ SUPPORTED_PYTHON_VERSIONS = ["3.11", "3.12", "3.13"]
 
 #: Backward compatibility cutoff version
 #: (versions older than this should upgrade)
-COMPATIBILITY_CUTOFF = "0.9.0"
+#: Raised to 0.15.0 in ARCH-22 B FULL — users DDL promoted out of migrations
+#: into the baseline ``core/auth/schema.py`` module, and v0_13_rbac was
+#: removed as obsolete. v0_14_sessions remains as a live migration.
+COMPATIBILITY_CUTOFF = "0.15.0"
 
 
 def is_version_compatible(other_version: str) -> bool:

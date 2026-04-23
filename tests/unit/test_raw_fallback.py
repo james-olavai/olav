@@ -96,14 +96,14 @@ class TestTopologyRawFallback:
 
     def test_parsed_links_extracted(self, db):
         """Baseline: R2→R4 CDP link from parsed_outputs works."""
-        from olav.core.topology_engine import extract_lldp_topology
+        from olav_netops.core.topology_engine import extract_lldp_topology
         count = extract_lldp_topology(db)
         links = db.execute("SELECT source_device, destination_device FROM netops.topology_links").fetchall()
         assert any(l[0] == "R2" and l[1] == "R4" for l in links), f"R2→R4 missing: {links}"
 
     def test_raw_lldp_fallback_extracts_r1_links(self, db):
         """R1 has no parsed LLDP but raw exists — should extract R1→R3 link."""
-        from olav.core.topology_engine import extract_lldp_topology
+        from olav_netops.core.topology_engine import extract_lldp_topology
         extract_lldp_topology(db)
         links = db.execute("SELECT source_device, destination_device FROM netops.topology_links").fetchall()
         r1_links = [(s, d) for s, d in links if s == "R1"]
@@ -112,7 +112,7 @@ class TestTopologyRawFallback:
 
     def test_no_duplicate_links_after_fallback(self, db):
         """Running ETL twice should not create duplicate links."""
-        from olav.core.topology_engine import extract_lldp_topology
+        from olav_netops.core.topology_engine import extract_lldp_topology
         extract_lldp_topology(db)
         extract_lldp_topology(db)
         count = db.execute("SELECT COUNT(*) FROM netops.topology_links").fetchone()[0]

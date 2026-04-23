@@ -35,9 +35,9 @@
 
 ```bash
 pip install olav
-olav registry register http://netbox:8000        # 接入任何 API
-olav --agent infra "NetBox 里有多少台设备？"       # 即时查询
-olav --agent devops "写一个备份脚本"               # 生成真实脚本
+olav --agent services "注册 NetBox 服务 http://netbox:8000"   # 接入任何 API
+olav --agent services "NetBox 里有多少台设备？"               # 即时查询
+olav --agent core "写一个备份脚本"                            # 生成真实脚本
 ```
 
 [快速开始](#快速开始) | [博客：v0.13 发布](https://olavai.com/blog/olav-v013) | [English](../README.md)
@@ -59,33 +59,34 @@ OLAV:  服务 → olav registry register → reference markdown → api_request 
 
 ```bash
 # 注册一次
-olav registry register http://netbox:8000
+olav --agent services "注册 NetBox 服务 http://netbox:8000"
 
 # 任何 agent 都能查询
 olav "NetBox 里有多少台设备？"
-olav --agent infra "对比 OLAV 数据库和 NetBox 的设备清单"
+olav --agent services "对比 OLAV 数据库和 NetBox 的设备清单"
 ```
 
 `api_request` 工具**感知 API 结构** — 读取注册时生成的 API 参考文档，自动处理分页（DRF/NetBox 风格），自动管理认证（JWT/Bearer/API-key）。
 
-### 六个专业 Agent — 不是一个万能模型
+### 四个顶层 Agent — 职责清晰
+
+v0.18.1 canonical set（Round 18 Step D lite 后）：
 
 ```
-olav "快速问题"                          → Quick Agent（日常 80%）
-olav --agent infra "查询 NetBox"         → Infra Agent（API 读写）
-olav --agent devops "写一个脚本"          → DevOps Agent（环境感知）
-olav --agent ops "模拟链路故障"           → Ops Agent（网络运维）
-olav --agent audit "执行健康检查"         → Audit Agent（合规报告）
+olav "快速问题"                          → Core Agent（日常 80%，含脚本生成）
+olav --agent services "查询 NetBox"       → Services Agent（API 集成、服务注册）
+olav --agent ops "模拟链路故障"           → Ops Agent（网络运维 + lab / probe 子 agent）
+olav --agent audit "执行健康检查"         → Audit Agent（profile 作者 + 执行器）
 ```
 
-每个 agent **只有它需要的工具**。Analysis agent 不能 SSH 到设备。Infra agent 不能修改网络。最小权限原则，由 harness 强制执行。
+每个 agent **只有它需要的工具**。Audit 不能 SSH。Services 不能改路由。最小权限原则，由 harness 强制执行。
 
-### DevOps Agent — 写「你的」脚本，不是模板
+### Core Agent — 写「你的」脚本，不是模板
 
-DevOps Agent 先查你的数据库，再写代码：
+Core Agent 先查你的数据库，再写代码：
 
 ```bash
-olav --agent devops "写一个脚本备份所有路由器配置"
+olav --agent core "写一个脚本备份所有路由器配置"
 ```
 
 它发现你有 R1（192.168.100.101，Juniper）、R2-R4（Cisco IOS）、SW1-SW2，然后生成 158 行 bash 脚本：
@@ -151,7 +152,7 @@ olav registry register http://netbox:8000
 olav "NetBox 里有多少台设备？"
 
 # 6. 生成脚本
-olav --agent devops "写一个备份所有路由器配置的脚本"
+olav --agent core "写一个备份所有路由器配置的脚本"
 ```
 
 ### 网络运维（可选）
@@ -161,7 +162,7 @@ pip install olav-netops
 
 olav --agent ops "/netops_init"                    # SSH 采集设备数据
 olav --agent ops "模拟 R2 链路故障"                 # What-If 分析
-olav --agent ops-lab "部署数字孪生"                 # ContainerLab 验证
+olav --agent ops "部署数字孪生（CAB 验证）"         # ContainerLab 验证（由 ops orchestrator 委派到 ops/lab 子 agent）
 ```
 
 ### 其他使用方式

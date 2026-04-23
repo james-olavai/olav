@@ -182,6 +182,13 @@ rules:
     enforced: true
     git: ignore
 
+  - pattern: docs/adr/**
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+
   - pattern: scripts/**
     owner: olav
     class: platform
@@ -477,20 +484,32 @@ rules:
     enforced: true
     git: track
 
-  - pattern: .olav/workspace/config/prompts/snapshot_sop.md
-    owner: olav-netops
-    class: netops
-    status: transitional
-    enforced: false
-    git: ignore
-    notes: netops-specific SOP — will migrate to olav-netops
-
-  - pattern: .olav/workspace/config/**
+  # Live config files (non-example). These are instance-local runtime state
+  # and frequently contain credentials (API keys, service passwords). Never
+  # commit — keep the *.example templates as the tracked SSOT.
+  - pattern: .olav/config/api.json
     owner: olav
     class: runtime-workspace
     status: authoritative
     enforced: true
-    git: track
+    git: secret
+    reason: contains-llm-api-keys
+
+  - pattern: .olav/config/services.yaml
+    owner: olav
+    class: runtime-workspace
+    status: authoritative
+    enforced: true
+    git: secret
+    reason: service-registry-may-contain-credentials
+
+  - pattern: .olav/config/approval_rules.yaml
+    owner: olav
+    class: runtime-workspace
+    status: authoritative
+    enforced: true
+    git: ignore
+    reason: per-install-approval-policy
 
   - pattern: .olav/workspace/core/**
     owner: olav

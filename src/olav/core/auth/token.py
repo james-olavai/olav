@@ -14,9 +14,12 @@ Typical workflow:
 from __future__ import annotations
 
 import hashlib
+import logging
 from pathlib import Path
 
 from olav.core.auth.identity import UserIdentity
+
+logger = logging.getLogger(__name__)
 
 
 class TokenAuthProvider:
@@ -139,5 +142,6 @@ class TokenAuthProvider:
                 payload=payload,
             )
             recorder.close()
-        except Exception:  # noqa: BLE001
-            pass  # Audit must not block auth
+        except Exception as e:
+            # Audit must not block auth, but silent failure masks record loss.
+            logger.debug("token auth audit record failed: %s", e)

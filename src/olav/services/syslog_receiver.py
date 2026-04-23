@@ -163,7 +163,7 @@ def parse_syslog(raw: bytes, source_ip: str) -> dict[str, Any]:
         parsed_ts = now_iso
         if ts_raw:
             try:
-                year = datetime.now().year
+                year = datetime.now(UTC).year
                 t = datetime.strptime(f"{year} {ts_raw}", "%Y %b %d %H:%M:%S")
                 parsed_ts = t.replace(tzinfo=UTC).isoformat()
             except ValueError:
@@ -187,7 +187,9 @@ def parse_syslog(raw: bytes, source_ip: str) -> dict[str, Any]:
 
 
 def _parquet_path() -> Path:
-    now = datetime.now()
+    # UTC-partitioned so operators browsing log archives get consistent dirs
+    # regardless of the host's local offset.
+    now = datetime.now(UTC)
     day_dir = LOG_DIR / now.strftime("%Y-%m-%d")
     day_dir.mkdir(parents=True, exist_ok=True)
     return day_dir / f"syslog-{now.strftime('%H')}.parquet"

@@ -2,7 +2,7 @@
 base.py — Execution Backend Protocol
 
 统一的命令执行抽象层，支持 local / SSH 后端无缝切换。
-服务注册（M4）和 ops-lab/ops-probe 工具通过此协议调用底层执行引擎。
+服务注册（M4）和 ops/lab、ops/probe 工具通过此协议调用底层执行引擎。
 
 参考: dev_docs/15. hermes.md §3.1, dev_docs/16. SERVICE_REGISTRY_DESIGN.md §7.1
 """

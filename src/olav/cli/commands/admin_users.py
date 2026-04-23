@@ -184,11 +184,11 @@ class AdminUsersCommand(BaseCommand):
         """Create users table if it doesn't exist yet."""
         import duckdb
 
-        from olav.core.migrations.v0_12_users import apply_migration
+        from olav.core.auth.schema import apply_baseline
 
         self._users_db.parent.mkdir(parents=True, exist_ok=True)
         with duckdb.connect(str(self._users_db)) as conn:
-            apply_migration(conn)
+            apply_baseline(conn)
 
     @staticmethod
     def _usage() -> str:

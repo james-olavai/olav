@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
@@ -91,11 +91,33 @@ def _verify_bearer(credentials: HTTPAuthorizationCredentials | None) -> UserIden
 
 
 async def _require_auth(
-    credentials: HTTPAuthorizationCredentials | None = None,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
 ) -> UserIdentity:
-    if credentials is None:
-        credentials = await _bearer_scheme(Request({"type": "http", "headers": []}))
-    return _verify_bearer(credentials)
+    """Resolve identity from Authorization: Bearer header OR olav_session cookie."""
+    mode = _get_auth_mode()
+    if mode == "none":
+        return get_auth_provider("none").authenticate()
+
+    token = credentials.credentials if credentials else None
+    if not token:
+        token = request.cookies.get("olav_session")
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated. Provide Authorization: Bearer <token> or olav_session cookie.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    identity = get_auth_provider(mode).authenticate(token=token, source_channel="api_bearer")
+    if identity.source != "token":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return identity
 
 
 def _get_thread_owner(thread_id: str) -> str | None:
@@ -255,16 +277,33 @@ async def root(request: Request):
     If auth.mode != 'none' and no valid cookie/token, redirect to /login.
     """
     # P3: check session cookie when WebUI mode active
-    if _get_auth_mode() != "none":
+    mode = _get_auth_mode()
+    if mode != "none":
+        url_token = request.query_params.get("token")
+        if url_token:
+            # JupyterLab-style: ?token= sets cookie then redirects clean
+            resp = RedirectResponse(url="/", status_code=302)
+            _set_session_cookie(resp, url_token, request)
+            return resp
+
         session_token = request.cookies.get("olav_session")
         if not session_token:
-            url_token = request.query_params.get("token")
-            if url_token:
-                # JupyterLab-style: ?token= sets cookie then redirects clean
-                resp = RedirectResponse(url="/", status_code=302)
-                _set_session_cookie(resp, url_token, request)
-                return resp
             return RedirectResponse(url="/login")
+
+        # Verify cookie is still valid — stale cookies (e.g. after a re-init) must
+        # redirect to /login rather than serving the SPA that then 401s on every API call.
+        try:
+            identity = get_auth_provider(mode).authenticate(
+                token=session_token, source_channel="api_bearer"
+            )
+            if identity.source != "token":
+                resp = RedirectResponse(url="/login")
+                resp.delete_cookie("olav_session")
+                return resp
+        except Exception:
+            resp = RedirectResponse(url="/login")
+            resp.delete_cookie("olav_session")
+            return resp
     index = _STATIC_DIR / "index.html"
     if index.exists():
         return FileResponse(str(index), media_type="text/html")
@@ -479,18 +518,14 @@ def _minimal_login_html() -> str:
 @app.post("/threads")
 async def create_thread(
     body: ThreadCreate,
-    identity: Any | None = None,
+    identity: UserIdentity = Depends(_require_auth),
 ):
-    if identity is None:
-        identity = await _require_auth()
     thread_id = str(uuid.uuid4())
     return {"thread_id": thread_id, "metadata": body.metadata or {}}
 
 
 @app.get("/threads/search")
-async def search_threads(identity: Any | None = None):
-    if identity is None:
-        identity = await _require_auth()
+async def search_threads(identity: UserIdentity = Depends(_require_auth)):
     try:
         agent = await get_agent()
     except Exception:
@@ -509,11 +544,8 @@ async def search_threads(identity: Any | None = None):
 async def stream_run(
     thread_id: str,
     body: RunStreamRequest,
-    identity: Any | None = None,
+    identity: UserIdentity = Depends(_require_auth),
 ):
-    if identity is None:
-        identity = await _require_auth()
-    # M4: enforce thread ownership (admin can access any thread)
     _check_thread_access(thread_id, identity)
     agent = await get_agent()
 
@@ -640,10 +672,8 @@ async def stream_run(
 @app.post("/runs/stream")
 async def threadless_stream(
     body: RunStreamRequest,
-    identity: Any | None = None,
+    identity: UserIdentity = Depends(_require_auth),
 ):
-    if identity is None:
-        identity = await _require_auth()
     thread_id = body.thread_id or str(uuid.uuid4())
     body.thread_id = thread_id
     return await stream_run(thread_id, body, identity)

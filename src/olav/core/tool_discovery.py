@@ -50,12 +50,6 @@ def discover_tools(tools_path: Path, modules: list[str] | None = None) -> list[B
     if modules is None:
         modules = _discover_modules_from_dir(tools_path)
 
-    # Add tools_path to sys.path for imports
-    import sys
-
-    if str(tools_path) not in sys.path:
-        sys.path.insert(0, str(tools_path))
-
     # Deduplicate by tool name (aliases create multiple names for same object)
     seen_names: set[str] = set()
 

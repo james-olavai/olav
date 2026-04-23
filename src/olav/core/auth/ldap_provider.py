@@ -115,5 +115,5 @@ class LDAPAuthProvider:
             recorder = AuditEventRecorder()
             recorder.record(event_type=event, payload=payload)
             recorder.close()
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("ldap audit event record failed: %s", e)

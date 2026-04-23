@@ -31,12 +31,7 @@ from olav.core.memory import get_store, hybrid_search, MEMORY_TABLE
 
 logger = logging.getLogger(__name__)
 
-def _get_embedding_dim() -> int:
-    try:
-        from olav.core.embedder import detect_embedding_dim
-        return detect_embedding_dim()
-    except Exception:
-        return 512
+DEFAULT_EMBEDDING_DIM = 768
 
 
 def _embed_query(text: str) -> "list[float] | None":
@@ -49,12 +44,34 @@ def _embed_query(text: str) -> "list[float] | None":
         return None
 
 
+_RECALL_MEMORY_FALLBACK_TOP_K = 3  # ARCH-16: conservative small-model-safe default
+
+
+def _resolve_recall_limit(explicit: int | None) -> int:
+    """Resolve ``limit`` for recall_memory respecting tier defaults.
+
+    Priority: explicit caller value (clamped to 1..10) > tier default from
+    ``TIER_DEFAULTS[<tier>]["recall_top_k"]`` > fallback. Keeps the hard
+    ceiling of 10 even for large tier so a buggy caller can't blow the
+    context budget via huge ``limit=`` values.
+    """
+    if explicit is not None:
+        return max(1, min(int(explicit), 10))
+    try:
+        from olav.core.config import get_llm_config, tier_default
+        tier = get_llm_config().model_tier
+        resolved = tier_default(tier, "recall_top_k", _RECALL_MEMORY_FALLBACK_TOP_K)
+        return max(1, min(int(resolved), 10))
+    except Exception:  # noqa: BLE001
+        return _RECALL_MEMORY_FALLBACK_TOP_K
+
+
 @tool
 def recall_memory(
     query: str,
     category: str | None = None,
     scope: str = "global",
-    limit: int = 5,
+    limit: int | None = None,
 ) -> str:
     """Query long-term memory for past experiences, decisions, and network events.
 
@@ -83,7 +100,9 @@ def recall_memory(
         scope:    Memory scope to search (default "global").
                   Use the specific agent name (e.g. "ops", "config") to restrict
                   to that agent's private memory, or "global" for all shared memory.
-        limit:    Max results to return (default 5, max 10).
+        limit:    Max results to return. Omit to use the model-tier default
+                  (small=1, medium=2, large=3 per ``TIER_DEFAULTS.recall_top_k``,
+                  ARCH-16). Hard ceiling is 10 regardless of tier.
 
     Returns:
         Formatted list of relevant memories with timestamps and categories,
@@ -92,7 +111,7 @@ def recall_memory(
     if not query or not query.strip():
         return "Error: query must not be empty."
 
-    limit = max(1, min(int(limit), 10))
+    limit = _resolve_recall_limit(limit)
 
     import concurrent.futures as _cf
     import functools
@@ -119,20 +138,14 @@ def _recall_memory_inner(
     limit: int,
 ) -> str:
     """Core memory search logic — called inside a thread by recall_memory."""
-    import os
     try:
-        db_path = os.environ.get("OLAV_MEMORY_DB_PATH")
-        store = get_store(db_path=db_path, embedding_dim=_get_embedding_dim())
+        store = get_store(embedding_dim=DEFAULT_EMBEDDING_DIM)
 
         if not store.table_exists(MEMORY_TABLE):
             return "No long-term memories stored yet."
 
-        # Embed query using the same API embedder as kb_import
-        query_vector = None
-        try:
-            query_vector = _embed_query(query)
-        except Exception as e:
-            logger.debug(f"recall_memory: embedder unavailable ({e}), text-only search")
+        # Embed query
+        query_vector = _embed_query(query)
 
         if query_vector:
             results = hybrid_search(

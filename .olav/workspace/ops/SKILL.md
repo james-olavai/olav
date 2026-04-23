@@ -74,6 +74,28 @@ FROM netops.topology_links WHERE link_status = 'up';
 > **Never** call `execute_sql` just to discover table names or column names.
 > Use the schema above and write the query directly.
 
+### Raw Fallback (重要)
+
+`raw_output_store` contains raw CLI text for **every** collected command (覆盖更新，只保留最新):
+
+| Column | Type | 说明 |
+|---|---|---|
+| device_name | VARCHAR | 设备名 |
+| command | VARCHAR | CLI 命令 |
+| raw_output | TEXT | 原始 CLI 文本 |
+| updated_at | TIMESTAMP | 最后更新 |
+
+**主键:** (device_name, command) — 覆盖更新。
+
+**When parsed_outputs is empty for a device/command, fall back to raw:**
+```sql
+SELECT device_name, command, raw_output FROM netops.raw_output_store
+WHERE command LIKE '%bgp%'
+  AND device_name NOT IN (
+    SELECT DISTINCT device_name FROM netops.parsed_outputs WHERE command LIKE '%bgp%'
+  );
+```
+
 ## Output Export Rules
 
 **When a subagent returns a Mermaid diagram, simulation result, or analysis report:**

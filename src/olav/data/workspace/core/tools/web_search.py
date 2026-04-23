@@ -64,8 +64,9 @@ def _get_search_engine():
 def web_search(query: str) -> str:
     """Search the web for network troubleshooting information.
 
-    Use this tool when search_knowledge() finds no relevant internal
-    documentation. Common use cases:
+    Use this tool when ``recall_memory()`` (unified KB + long-term memory
+    + captured facts) finds no relevant internal documentation. Common
+    use cases:
 
     - Latest CVEs and vendor advisories (e.g., "Cisco IOS BGP CVE 2026")
     - Community solutions (e.g., "VXLAN control plane timeout Reddit")

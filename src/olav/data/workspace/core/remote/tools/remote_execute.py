@@ -33,7 +33,7 @@ def remote_execute(
 
     Examples:
         >>> remote_execute(host="server1", command="df -h")
-        >>> remote_execute(host="192.168.1.10", command="docker ps", user="admin")
+        >>> remote_execute(host="server1.example.com", command="docker ps", user="admin")
         >>> remote_execute(host="db-server", command="pg_isready")
     """
     from olav.platform.execution import SSHBackend, ExecutionConfig

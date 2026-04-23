@@ -31,6 +31,10 @@ class MemoryRecallPlugin(OLAVMiddlewarePlugin):
         self._store = store
         self._scope = scope
         self._recall_mw = None  # lazy
+        # ARCH-19 #A: turn counter. Plugin instance is per-agent-run so this
+        # is the natural place to track how deep into a conversation we are.
+        # The counter is 1-indexed to match ``enrich(turn=1)`` semantics.
+        self._turn = 0
 
     def _get_store(self):
         if self._store is not None:
@@ -53,9 +57,10 @@ class MemoryRecallPlugin(OLAVMiddlewarePlugin):
             return None
 
         input_dict = {"messages": list(messages)}
+        self._turn += 1
         try:
             recall = self._get_recall_mw()
-            enriched = await recall.enrich(input_dict, scope=self._scope)
+            enriched = await recall.enrich(input_dict, scope=self._scope, turn=self._turn)
         except Exception as exc:
             logger.warning("MemoryRecallPlugin: enrich failed (non-fatal): %s", exc)
             return None

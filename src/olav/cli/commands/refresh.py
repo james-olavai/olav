@@ -228,6 +228,34 @@ def _update_main_agent_routing(workspace_root: Path, agents: list[dict[str, Any]
     return True
 
 
+# ── stale file cleanup ──────────────────────────────────────────────────────
+
+
+def _cleanup_disabled_files(workspace_root: Path) -> list[Path]:
+    """Remove ``*.disabled`` files left behind by prior vendored-tool deletions.
+
+    ARCH-22 A: when a vendored workspace tool is retired, the source is deleted
+    from ``src/olav/data/workspace/`` but user deployments under
+    ``.olav/workspace/`` keep a renamed ``<name>.disabled`` copy.  Refresh
+    sweeps those out so deployments stay aligned with the current release.
+
+    Returns the list of removed paths (relative to ``workspace_root``).
+    """
+    removed: list[Path] = []
+    for path in workspace_root.rglob("*.disabled"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(workspace_root)
+        try:
+            path.unlink()
+        except OSError as exc:
+            logger.warning("failed to remove stale %s: %s", rel, exc)
+            continue
+        removed.append(rel)
+        logger.info("[refresh] removed stale: %s", rel)
+    return removed
+
+
 # ── public API ───────────────────────────────────────────────────────────────
 
 
@@ -251,6 +279,8 @@ def refresh_workspace(workspace_root: Path | None = None) -> str:
     if not workspace_root.exists():
         return f"error: workspace not found: {workspace_root}"
 
+    removed_disabled = _cleanup_disabled_files(workspace_root)
+
     agents = _scan_agents(workspace_root)
     if not agents:
         return "warning: no AGENT.md files found in workspace"
@@ -267,7 +297,12 @@ def refresh_workspace(workspace_root: Path | None = None) -> str:
 
     flags = [a["flag"] for a in agents]
     note = "" if routing_updated else " (routing markers not found in olav/prompts/system.md)"
-    return f"✓ {len(agents)} agents registered: {', '.join(flags)}{note}"
+    cleanup_note = (
+        f"; cleaned {len(removed_disabled)} stale .disabled file(s)"
+        if removed_disabled
+        else ""
+    )
+    return f"✓ {len(agents)} agents registered: {', '.join(flags)}{note}{cleanup_note}"
 
 
 # ── CLI command class ─────────────────────────────────────────────────────────

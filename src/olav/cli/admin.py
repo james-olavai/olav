@@ -16,7 +16,7 @@ import json
 import logging
 import shutil
 import tarfile
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -103,7 +103,7 @@ async def _fast_status(args: str) -> dict:
         db_path = base_path / "databases"
 
         status_info = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "databases": {},
             "agents_count": 0,
             "tools_count": 0,

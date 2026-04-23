@@ -142,6 +142,9 @@ def migrate_kb_chunks(
 ) -> dict:
     """Move all rows from the legacy kb_chunks table into the unified memory table.
 
+    LEGACY-KEEP: driven by ``olav kb migrate``. Remove after v0.11.0 drops
+    out of the supported upgrade window (see COMPATIBILITY_CUTOFF).
+
     Each chunk is inserted with origin='document', confidence=1.0, and an
     empty tags list.  The source kb_chunks table is NOT dropped automatically
     to allow rollback inspection; use ``store.db.drop_table('kb_chunks')``

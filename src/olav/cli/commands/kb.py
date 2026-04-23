@@ -154,7 +154,13 @@ def cmd_graph(args) -> int:
 
 
 def cmd_migrate(args) -> int:
-    """Backfill origin/confidence/tags for legacy memory entries."""
+    """Backfill origin/confidence/tags for legacy memory entries.
+
+    LEGACY-KEEP: ``olav kb migrate`` upgrades v0.10 memory rows (kb_chunks /
+    kb_query_cache tables) to the unified v0.11+ schema. Remove this command
+    only once COMPATIBILITY_CUTOFF reaches v0.11.0+ and no supported
+    deployment can still be on the old schema.
+    """
     store = _get_store()
     drop_legacy = getattr(args, "drop_legacy", False)
     from olav.core.memory.migrate import migrate_memory_table

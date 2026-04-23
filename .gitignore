@@ -102,7 +102,6 @@ labs/
 olav-netops/
 .olav/workspace/ops/
 .olav/workspace/ops-lab/
-.olav/workspace/config/prompts/snapshot_sop.md
 
 # enterprise
 olav-ent/
@@ -116,24 +115,24 @@ olav-web/
 # runtime-workspace
 .olav/
 .olav/workspace/audit/
+.olav/config/approval_rules.yaml
 
 # ── Whitelist (tracked paths inside ignored parents) ──
 !.olav/
 .olav/*
 !.olav/config/
-.olav/config/*
 !.olav/config/*.example
 !.olav/config/schemas/
-!.olav/config/schemas/**
 !.olav/workspace/
 .olav/workspace/*
-!.olav/workspace/config/
 !.olav/workspace/core/
 
 # ── Secrets (NEVER commit) ──
 .env
 .pypirc
 .pypirc_test
+.olav/config/api.json
+.olav/config/services.yaml
 .env.local
 .env.*.local
 *.token
