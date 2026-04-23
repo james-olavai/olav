@@ -37,9 +37,16 @@ MiddlewareMode = Literal["callback", "middleware"]
 _ENV_VAR = "OLAV_MIDDLEWARE_MODE"
 """Environment variable consulted by :func:`resolve_middleware_mode`."""
 
-_DEFAULT_MODE: MiddlewareMode = "callback"
-"""v0.20.1 ships with callback mode as the default.  v0.20.2 flips
-this to ``"middleware"``; v0.20.3 removes the switch entirely."""
+_DEFAULT_MODE: MiddlewareMode = "middleware"
+"""v0.20.3 cutover: middleware is now the default audit path.
+
+History:
+* v0.20.1 — introduced ``OLAV_MIDDLEWARE_MODE`` with default ``callback``
+* v0.20.2 — infrastructure (tool_loader / migrate), no change here
+* v0.20.3 — default flipped to ``middleware``; ``callback`` still
+  available via explicit opt-in
+* v0.21.x (planned) — ``AuditCallbackPlugin`` deletion once we have
+  one full release cycle of confidence in middleware behaviour."""
 
 _AUDIT_MIDDLEWARE_NAME = "audit_middleware"
 """Plugin name registered by :class:`AuditMiddleware`.  The partitioner
