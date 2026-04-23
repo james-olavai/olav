@@ -32,9 +32,9 @@ class SessionsCommand(BaseCommand):
         super().__init__(name="sessions", description="List conversation sessions")
 
     async def execute(self, args: str = "") -> str:
-        import shlex
+        from olav.cli.commands._argparse import parse_subcommand_args
 
-        parts = shlex.split(args.strip()) if args.strip() else []
+        parts = parse_subcommand_args(args)
 
         show_all = "--all" in parts
         target_user: str | None = None
