@@ -714,7 +714,43 @@ async def simple_cli(
     # and have the old muscle memory.
     _ = no_splash  # retained for API compatibility
 
-    # Delegate to deepagents-cli's Textual TUI with our pre-built agent graph
+    # P6 dispatch: native mode spawns a langgraph subprocess (deepagents-cli
+    # owns the lifecycle; our scaffold patch redirects it at OLAV's graph
+    # factory).  Overlay mode keeps the v0.19.x in-process path.  Auto-detect
+    # picks native when the new workspace layout is in play or no workspace
+    # exists yet; legacy layout stays on overlay for compatibility.
+    from olav.cli.tui_overlay import resolve_tui_mode
+
+    mode = resolve_tui_mode()
+    mode_explicit = bool((os.environ.get("OLAV_TUI_MODE") or "").strip())
+
+    if mode == "native":
+        try:
+            await run_textual_app(
+                assistant_id=assistant_id,
+                auto_approve=getattr(session_state, "auto_approve", False),
+                server_kwargs={
+                    "assistant_id": assistant_id,
+                    "auto_approve": getattr(session_state, "auto_approve", False),
+                    "no_mcp": True,
+                    "interactive": True,
+                },
+            )
+            return
+        except Exception as exc:  # noqa: BLE001
+            if mode_explicit:
+                # User explicitly asked for native; don't silently fall back —
+                # that would hide a real configuration problem.
+                logger.error("native TUI failed (%s)", exc, exc_info=True)
+                raise
+            logger.warning(
+                "native TUI launch failed (%s); falling back to overlay mode. "
+                "Set OLAV_TUI_MODE=overlay to silence this warning.",
+                exc,
+            )
+            # Fall through to overlay path
+
+    # Overlay mode — v0.19.x in-process path.
     _graph = agent.graph if hasattr(agent, "graph") else agent
     await run_textual_app(
         agent=_graph,
