@@ -12,11 +12,61 @@ Provides ``olav admin-users`` sub-commands for managing users in
 from __future__ import annotations
 
 import hashlib
+import os
 import secrets
 from datetime import UTC
 from pathlib import Path
 
 from olav.cli.commands.base import BaseCommand
+
+
+def _current_os_user() -> str:
+    """Return the invoking OS username (used to decide if the generated
+    token should be auto-stored in the local keyring)."""
+    return (os.environ.get("USER") or os.environ.get("USERNAME") or "").strip()
+
+
+def _maybe_save_local(
+    token: str,
+    username: str,
+    users_db: Path,
+) -> str:
+    """Save *token* to the local keyring when *username* matches the
+    invoking OS user, otherwise return a hint for out-of-band delivery.
+
+    The admin's keyring never holds other users' tokens — cross-user
+    rotations print the token and expect the target user to import it
+    on their own machine.
+
+    Args:
+        token: Freshly-generated bearer token.
+        username: OLAV username the token authenticates as.
+        users_db: Absolute path to ``users.duckdb`` for per-env service
+            discrimination.
+
+    Returns:
+        Human-readable storage status line to append to the CLI output.
+    """
+    if username != _current_os_user():
+        return (
+            "  Not saved locally — deliver this token to "
+            f"'{username}' out-of-band; they should store it with "
+            "`olav auth login` on their machine."
+        )
+    from olav.core.auth.keyring_store import save_token
+
+    try:
+        where = save_token(token, users_db_path=users_db)
+    except Exception as exc:  # noqa: BLE001
+        return f"  ⚠ Token not saved locally ({exc}). Store manually."
+    if where == "keyring":
+        return "  ✓ Stored in OS keyring for this workspace."
+    from olav.core.auth.keyring_store import _per_env_token_path
+
+    path = _per_env_token_path(users_db)
+    return (
+        f"  ⚠ OS keyring unavailable — token written to {path} (chmod 600)."
+    )
 
 
 class AdminUsersCommand(BaseCommand):
@@ -103,10 +153,11 @@ class AdminUsersCommand(BaseCommand):
                 [username, role, token_hash, salt, expires_at],
             )
 
+        storage_line = _maybe_save_local(token, username, self._users_db)
         return (
             f"user '{username}' created with role='{role}'.\n"
             f"Token (shown once — save immediately):\n  {token}\n"
-            f"Store it in ~/.olav/token (chmod 600)."
+            f"{storage_line}"
         )
 
     def _list_users(self) -> str:
@@ -170,10 +221,11 @@ class AdminUsersCommand(BaseCommand):
                 [token_hash, salt, username],
             )
 
+        storage_line = _maybe_save_local(token, username, self._users_db)
         return (
             f"token rotated for user '{username}'.\n"
             f"New token (shown once — save immediately):\n  {token}\n"
-            f"Store it in ~/.olav/token (chmod 600)."
+            f"{storage_line}"
         )
 
     # ------------------------------------------------------------------

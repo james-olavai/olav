@@ -111,6 +111,7 @@ def parse_args():
         "workspace",
         "export",
         "skill",
+        "agent",  # P5 (v0.20.0) — new verb, forwards to `skill` until P1 (v0.20.2)
         "registry",
         "kb",
         # ARCH-12 / ARCH-11 / ARCH-13 CLI shortcuts added across Rounds 25/45/47.
@@ -294,10 +295,21 @@ def parse_args():
     )
 
     skill_parser = subparsers.add_parser(
-        "skill", help="Install and manage workspace skills from git repos"
+        "skill", help="[v0.20.x LEGACY] use 'olav agent install' instead"
     )
     skill_parser.add_argument(
         "args", nargs=argparse.REMAINDER, help="Skill subcommand and arguments"
+    )
+
+    # v0.20.0 — new `olav agent install` verb (P5 scaffold; full takeover in P1)
+    agent_parser = subparsers.add_parser(
+        "agent",
+        help="Install and manage OLAV agent packages (git URL, archive, local path)",
+    )
+    agent_parser.add_argument(
+        "args",
+        nargs=argparse.REMAINDER,
+        help="Agent subcommand and arguments (install / ...)",
     )
 
     # Reset command - clear agent conversation/checkpoint history
@@ -635,22 +647,32 @@ async def simple_cli(
     sandbox_type: str | None = None,
     no_splash: bool = False,
 ) -> None:
-    """Main CLI loop using deepagents-cli 0.0.37 Textual TUI."""
+    """Main CLI loop using deepagents-cli Textual TUI with OLAV overlay."""
     try:
         from deepagents_cli.app import run_textual_app
     except ImportError as _e:
         console.print(
-            f"[red]Error:[/red] Interactive TUI requires deepagents-cli>=0.0.37: {_e}\n"
+            f"[red]Error:[/red] Interactive TUI requires deepagents-cli: {_e}\n"
             "Use single-query mode: [cyan]olav \"your question\"[/cyan]"
         )
         return
 
-    if not no_splash:
-        print_olav_banner()
+    # Apply OLAV branding (banner, title) and /workspace command BEFORE the
+    # Textual app is constructed.  Version-guarded — a mismatch falls back to
+    # vanilla deepagents-cli so the TUI still works.
+    from olav.cli.tui_overlay import apply_olav_overlay
+
+    apply_olav_overlay()
+
+    # Banner is owned by the overlay's WelcomeBanner replacement; the legacy
+    # pre-TUI ANSI splash would just flash and be wiped by Textual's alternate
+    # screen anyway.  Keep it as an opt-in for users who pass --no-splash=false
+    # and have the old muscle memory.
+    _ = no_splash  # retained for API compatibility
 
     # Delegate to deepagents-cli's Textual TUI with our pre-built agent graph
     _graph = agent.graph if hasattr(agent, "graph") else agent
-    result = await run_textual_app(
+    await run_textual_app(
         agent=_graph,
         assistant_id=assistant_id,
         backend=backend,
@@ -676,17 +698,38 @@ def _get_auth_mode() -> str:
 
 
 async def _inline_login_gate() -> UserIdentity | None:
-    """Inline login prompt for interactive mode when auth.mode != 'none'.
+    """Inline login gate for interactive mode when auth.mode != 'none'.
 
-    Uses prompt_toolkit masked password input (D5). Returns UserIdentity on
-    success, None if user aborts (Ctrl-C).
-    Returns None immediately if mode == 'none' (OS identity).
+    Tries three auth paths, in order:
+
+    1. Silent — resolve the token via
+       :func:`olav.core.auth.keyring_store.load_token` (``OLAV_TOKEN``
+       env → OS keyring → legacy ``~/.olav/token``).  A hit means the
+       TUI launches without any prompt, matching single-query mode's
+       UX — no more paste-the-token-every-time-you-open-the-TUI friction.
+    2. Prompted — prompt_toolkit masked input, 3 attempts.
+    3. ``getpass`` fallback when prompt_toolkit isn't importable.
+
+    Returns:
+        UserIdentity on success, ``None`` when the user aborts (Ctrl-C)
+        or exhausts the attempt budget.  ``None`` immediately for
+        ``mode == "none"`` (OS identity).
     """
     from olav.core.auth import UserIdentity, get_auth_provider
 
     mode = _get_auth_mode()
     if mode == "none":
         return get_auth_provider("none").authenticate()
+
+    # 1. Silent-first — reuse the single-query resolver so the keyring,
+    # per-env file, legacy file, and OLAV_TOKEN paths all apply to the TUI.
+    silent = _silent_auth()
+    if silent is not None and silent.source == "token":
+        console.print(
+            f"  [green]✓ Authenticated as [bold]{silent.username}[/bold] "
+            f"[{silent.role}] (stored token)[/green]"
+        )
+        return silent
 
     try:
         from prompt_toolkit import prompt as pt_prompt
@@ -715,8 +758,23 @@ async def _inline_login_gate() -> UserIdentity | None:
             token=token, source_channel="cli_interactive"
         )
         if identity.source == "token":
+            # Persist to the OS keyring so the next TUI launch takes the
+            # silent path.  Failures here are non-fatal — the token file
+            # fallback or another prompt on next launch are both fine.
+            try:
+                from olav.core.auth.keyring_store import save_token
+
+                where = save_token(token)
+                storage_hint = (
+                    " · saved to keyring"
+                    if where == "keyring"
+                    else " · saved to ~/.olav/token"
+                )
+            except Exception:  # noqa: BLE001
+                storage_hint = ""
             console.print(
-                f"  [green]✓ Authenticated as [bold]{identity.username}[/bold] [{identity.role}][/green]"
+                f"  [green]✓ Authenticated as [bold]{identity.username}[/bold] "
+                f"[{identity.role}][/green][dim]{storage_hint}[/dim]"
             )
             return identity
         console.print(f"  [red]✗ Authentication failed (attempt {attempt}/{max_attempts})[/red]")
@@ -725,10 +783,17 @@ async def _inline_login_gate() -> UserIdentity | None:
 
 
 def _silent_auth() -> UserIdentity | None:
-    """Silent token auth for single-query mode (D6).
+    """Silent token auth for single-query mode (D6) and for the TUI's
+    silent-first path.
 
-    Reads ~/.olav/token or OLAV_TOKEN env var. Returns None if not
-    authenticated in token mode, so caller can show error and exit.
+    Resolves the bearer token via
+    :func:`olav.core.auth.keyring_store.load_token` — which honours
+    ``OLAV_TOKEN`` env → OS keyring → legacy ``~/.olav/token`` — and
+    validates it against the current workspace's ``users.duckdb``.
+
+    Returns ``None`` when no valid token is available so the caller can
+    choose between an interactive prompt (TUI) and a hard error
+    (single-query mode).
     """
     mode = _get_auth_mode()
     if mode == "none":
@@ -736,13 +801,9 @@ def _silent_auth() -> UserIdentity | None:
 
         return get_auth_provider("none").authenticate()
 
-    # Check OLAV_TOKEN env override first (D6, CI scenario)
-    token = os.environ.get("OLAV_TOKEN")
-    if not token:
-        token_file = Path.home() / ".olav" / "token"
-        if token_file.exists():
-            token = token_file.read_text(encoding="utf-8").strip()
+    from olav.core.auth.keyring_store import load_token
 
+    token = load_token()
     if not token:
         return None  # caller prints error
 
@@ -761,25 +822,44 @@ async def run_interactive(
     session_id: str | None = None,
     workspace: str | None = None,
 ) -> None:
-    """Run interactive mode."""
-    agent, backend = create_olav_agent_with_backend(
-        assistant_id, session_id=session_id, workspace=workspace
-    )
+    """Run interactive mode.
 
-    # P1: inline login gate (skipped in mode=none)
+    Wraps :func:`simple_cli` in a swap-aware loop: when the in-TUI
+    ``/workspace <name>`` command fires, the overlay stores the target
+    in ``tui_overlay._PENDING_WORKSPACE`` and exits the Textual app.
+    We read that flag here, rebuild the agent+backend for the new
+    workspace, and re-enter — giving the user a one-shot restart.
+    """
+    from olav.cli.tui_overlay import consume_pending_workspace
+
+    # P1: inline login gate (skipped in mode=none).  Run once; token survives
+    # across swaps.
     if _get_auth_mode() != "none":
         identity = await _inline_login_gate()
         if identity is None:
             return  # aborted or too many failures
 
-    await simple_cli(
-        agent,
-        assistant_id,
-        session_state,
-        backend,
-        sandbox_type=sandbox_type if sandbox_type != "none" else None,
-        no_splash=session_state.no_splash,
-    )
+    current_id = assistant_id
+    while True:
+        agent, backend = create_olav_agent_with_backend(
+            current_id, session_id=session_id, workspace=workspace
+        )
+        await simple_cli(
+            agent,
+            current_id,
+            session_state,
+            backend,
+            sandbox_type=sandbox_type if sandbox_type != "none" else None,
+            no_splash=session_state.no_splash,
+        )
+
+        pending = consume_pending_workspace()
+        if not pending:
+            return
+        current_id = pending
+        # A workspace swap starts a fresh agent — detach the previous
+        # session_id so the new agent doesn't inherit the wrong thread.
+        session_id = None
 
 
 async def run_single_query(
@@ -1377,6 +1457,18 @@ async def cli_main_impl() -> None:
             cmd = SkillCommand()
             skill_args = " ".join(args.args) if args.args else ""
             result = await cmd.execute(skill_args)
+            console.print(result)
+            return
+
+        if args.command == "agent":
+            # v0.20.0 scaffold: new public verb, dispatches via the
+            # AgentInstallCommand shim until P1 (v0.20.2) fully moves
+            # the install implementation out of SkillCommand.
+            from olav.cli.commands.agent_install import AgentInstallCommand
+
+            agent_cmd = AgentInstallCommand()
+            agent_args = " ".join(args.args) if args.args else ""
+            result = await agent_cmd.execute(agent_args)
             console.print(result)
             return
 

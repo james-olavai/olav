@@ -1,0 +1,439 @@
+"""OLAV overlay on top of ``deepagents-cli``'s Textual TUI.
+
+OLAV delegates the interactive TUI to ``deepagents_cli.app.run_textual_app``
+but re-skins the shell and adds a ``/workspace`` slash command that triggers
+a restart-style agent swap.
+
+Monkey-patch targets (version-guarded)
+--------------------------------------
+* ``deepagents_cli.config._UNICODE_BANNER`` / ``_ASCII_BANNER`` —
+  welcome banner text consumed by ``WelcomeBanner.__init__``.
+* ``deepagents_cli.app.DeepAgentsApp.TITLE`` / ``SUB_TITLE`` — window
+  title shown in the Textual header.
+* ``deepagents_cli.command_registry.COMMANDS`` /
+  ``SLASH_COMMANDS`` — extended with OLAV's ``/workspace`` entry so
+  autocomplete discovers it.
+* ``DeepAgentsApp._handle_command`` — wrapped to intercept
+  ``/workspace <name>`` and request a restart via a module-level flag.
+
+The ``/workspace`` command itself does **not** hot-swap the LangGraph
+graph; it sets :data:`_PENDING_WORKSPACE` and asks the app to exit.  The
+outer interactive loop in ``olav.cli.main.run_interactive`` reads the
+flag via :func:`consume_pending_workspace` and re-enters with the new
+``assistant_id``.
+
+Version guard
+-------------
+Monkey-patching deepagents-cli internals is only safe against pinned
+versions.  :data:`_SUPPORTED_VERSIONS` lists the versions we have
+smoke-tested; on any other version the overlay logs a warning and
+skips every patch so the TUI falls back to vanilla deepagents-cli
+branding (no crash).
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+_SUPPORTED_VERSIONS: frozenset[str] = frozenset({"0.0.41"})
+"""deepagents-cli versions where the overlay has been smoke-tested.
+
+Update this set together with the ``deepagents-cli`` pin in
+``pyproject.toml`` after verifying the TUI manually (see
+``tests/ci/tier1_functional.sh`` T1-53)."""
+
+_PENDING_WORKSPACE: str | None = None
+"""Set by the ``/workspace <name>`` handler when the user asks to swap
+agent.  Consumed (and cleared) by :func:`consume_pending_workspace` in
+the outer interactive loop."""
+
+_applied: bool = False
+"""True once the overlay has been applied in this process so repeated
+calls short-circuit."""
+
+
+OLAV_UNICODE_BANNER = """
+  ██████╗  ██╗       █████╗  ██╗   ██╗
+ ██╔═══██╗ ██║      ██╔══██╗ ██║   ██║
+ ██║   ██║ ██║      ███████║ ██║   ██║
+ ██║   ██║ ██║      ██╔══██║ ╚██╗ ██╔╝
+ ╚██████╔╝ ███████╗ ██║  ██║  ╚████╔╝
+  ╚═════╝  ╚══════╝ ╚═╝  ╚═╝   ╚═══╝
+
+ Online Analytical Vertex for Agentic Operations 🐺
+"""
+
+OLAV_ASCII_BANNER = """
+  ___  _      ___  __   __
+ / _ \\| |    / _ \\ \\ \\ / /
+| | | | |   | |_| | \\ V /
+| |_| | |___|  _  |  | |
+ \\___/|_____|_| |_|  |_|
+
+ Online Analytical Vertex for Agentic Operations
+"""
+
+
+def consume_pending_workspace() -> str | None:
+    """Return and clear the pending workspace swap request, if any.
+
+    Called by :func:`olav.cli.main.run_interactive` after the TUI exits
+    to decide whether to restart with a new agent.
+
+    Returns:
+        The workspace/agent name the user requested, or ``None`` when
+        the TUI exited for any other reason.
+    """
+    global _PENDING_WORKSPACE
+    target = _PENDING_WORKSPACE
+    _PENDING_WORKSPACE = None
+    return target
+
+
+def apply_olav_overlay() -> bool:
+    """Apply the OLAV branding + ``/workspace`` overlay.
+
+    Safe to call repeatedly; only applies patches once per process.  Any
+    individual patch failure is swallowed (logged at WARNING) so a
+    partial overlay is better than a crashed CLI.
+
+    Returns:
+        ``True`` when every patch landed, ``False`` when the overlay was
+        skipped (unsupported version) or at least one patch failed.
+    """
+    global _applied
+    if _applied:
+        return True
+
+    try:
+        import deepagents_cli
+    except ImportError:
+        logger.warning("deepagents_cli not importable — overlay skipped")
+        return False
+
+    version = getattr(deepagents_cli, "__version__", "unknown")
+    if version not in _SUPPORTED_VERSIONS:
+        logger.warning(
+            "deepagents-cli %s is not in the overlay's supported set %s — "
+            "falling back to vanilla deepagents TUI (branding and /workspace "
+            "command disabled). Update _SUPPORTED_VERSIONS after smoke-testing.",
+            version,
+            sorted(_SUPPORTED_VERSIONS),
+        )
+        return False
+
+    ok = True
+    ok &= _patch_banner()
+    ok &= _patch_title()
+    ok &= _patch_workspace_command()
+    ok &= _patch_disable_self_upgrade()
+
+    _applied = True
+    return ok
+
+
+_BLOCKED_COMMANDS: frozenset[str] = frozenset({"/update", "/auto-update"})
+"""Slash commands hidden from the menu and intercepted by the overlay.
+
+These commands trigger ``deepagents_cli.update_check.perform_upgrade``
+which would bump ``deepagents-cli`` past our exact pin and break the
+overlay.  We hide them from autocomplete and, as belt-and-braces,
+intercept them in ``_handle_command`` with a message pointing users
+back to ``pip install --upgrade olav``."""
+
+
+def _patch_banner() -> bool:
+    """Swap the deepagents welcome banner constants for OLAV's."""
+    try:
+        import deepagents_cli.config as _dc_config
+
+        if not hasattr(_dc_config, "_UNICODE_BANNER") or not hasattr(
+            _dc_config, "_ASCII_BANNER"
+        ):
+            logger.warning(
+                "deepagents_cli.config is missing _UNICODE_BANNER/_ASCII_BANNER — "
+                "banner overlay skipped"
+            )
+            return False
+
+        _dc_config._UNICODE_BANNER = OLAV_UNICODE_BANNER
+        _dc_config._ASCII_BANNER = OLAV_ASCII_BANNER
+        return True
+    except Exception:
+        logger.warning("Banner patch failed", exc_info=True)
+        return False
+
+
+def _patch_title() -> bool:
+    """Set the Textual window TITLE/SUB_TITLE to OLAV's."""
+    try:
+        from deepagents_cli.app import DeepAgentsApp
+
+        DeepAgentsApp.TITLE = "OLAV"
+        DeepAgentsApp.SUB_TITLE = "Online Analytical Vertex for Agentic Operations"
+        return True
+    except Exception:
+        logger.warning("Title patch failed", exc_info=True)
+        return False
+
+
+def _patch_workspace_command() -> bool:
+    """Register the ``/workspace`` slash command and its handler.
+
+    Steps:
+
+    1. Build a ``SlashCommand`` for ``/workspace`` and prepend it to
+       :data:`deepagents_cli.command_registry.COMMANDS` so autocomplete
+       surfaces it.
+    2. Extend :data:`deepagents_cli.command_registry.SLASH_COMMANDS`
+       (the derived list consumed by the autocomplete UI).
+    3. Wrap ``DeepAgentsApp._handle_command`` with a dispatcher that
+       intercepts ``/workspace`` and delegates everything else to the
+       original.
+    """
+    try:
+        from deepagents_cli import command_registry as _cr
+        from deepagents_cli.app import DeepAgentsApp
+
+        if not hasattr(_cr, "COMMANDS") or not hasattr(_cr, "SLASH_COMMANDS"):
+            logger.warning(
+                "command_registry is missing COMMANDS/SLASH_COMMANDS — "
+                "/workspace command skipped"
+            )
+            return False
+        if not hasattr(_cr, "SlashCommand") or not hasattr(_cr, "BypassTier"):
+            logger.warning(
+                "command_registry is missing SlashCommand/BypassTier — "
+                "/workspace command skipped"
+            )
+            return False
+        if not hasattr(DeepAgentsApp, "_handle_command"):
+            logger.warning(
+                "DeepAgentsApp._handle_command no longer exists — "
+                "/workspace command skipped"
+            )
+            return False
+
+        workspace_cmd = _cr.SlashCommand(
+            name="/workspace",
+            description="Switch to a different OLAV workspace (restarts TUI)",
+            bypass_tier=_cr.BypassTier.IMMEDIATE_UI,
+            hidden_keywords="agent swap switch",
+            argument_hint="<name>",
+        )
+
+        # Filter out deepagents-cli's self-upgrade commands — they'd break
+        # our pinned version — and prepend /workspace.
+        filtered_commands = tuple(
+            c for c in _cr.COMMANDS if c.name not in _BLOCKED_COMMANDS
+        )
+
+        # Compute /<workspace> aliases (/ops, /audit, …) that don't shadow
+        # any existing built-in command or /workspace itself.  These are a
+        # startup-time snapshot — newly installed workspaces still work via
+        # /workspace <name> without a restart; the short alias just won't
+        # appear until next TUI launch.
+        reserved = {c.name for c in filtered_commands} | {"/workspace"}
+        workspace_names = _discover_workspaces()
+        alias_cmds: list[Any] = []
+        aliases_registered: set[str] = set()
+        for name in sorted(workspace_names):
+            alias = f"/{name}"
+            if alias in reserved:
+                logger.warning(
+                    "Workspace %r collides with existing command %s; "
+                    "alias not registered",
+                    name,
+                    alias,
+                )
+                continue
+            alias_cmds.append(
+                _cr.SlashCommand(
+                    name=alias,
+                    description=f"Switch to the '{name}' workspace",
+                    bypass_tier=_cr.BypassTier.IMMEDIATE_UI,
+                    hidden_keywords="workspace agent swap switch",
+                )
+            )
+            aliases_registered.add(name)
+
+        _cr.COMMANDS = (workspace_cmd, *filtered_commands, *alias_cmds)
+        _cr.SLASH_COMMANDS[:] = [c.to_entry() for c in _cr.COMMANDS]
+
+        _original_handle = DeepAgentsApp._handle_command
+
+        async def _olav_handle_command(self: Any, command: str) -> None:
+            cmd_lower = command.lower().strip()
+            # Match "/workspace" exactly and any "/workspace <args>" form.
+            if cmd_lower == "/workspace" or cmd_lower.startswith("/workspace "):
+                await _dispatch_workspace(self, command)
+                return
+            # Match a registered workspace alias with no extra args —
+            # e.g. "/ops" but NOT "/ops some free-form message".
+            cmd_token = cmd_lower.split(maxsplit=1)[0] if cmd_lower else ""
+            if cmd_lower == cmd_token and cmd_token.startswith("/"):
+                alias_name = cmd_token[1:]
+                if alias_name in aliases_registered:
+                    await _dispatch_workspace(self, f"/workspace {alias_name}")
+                    return
+            # Intercept upgrade commands so they can't break the pin even if
+            # typed manually.  (They no longer appear in autocomplete but a
+            # determined user can still type them by hand.)
+            if cmd_token in _BLOCKED_COMMANDS:
+                _notify(
+                    self,
+                    "This command is disabled under OLAV — deepagents-cli is "
+                    "pinned. Run `pip install --upgrade olav` to update.",
+                    severity="warning",
+                )
+                return
+            await _original_handle(self, command)
+
+        DeepAgentsApp._handle_command = _olav_handle_command  # type: ignore[method-assign]
+        return True
+    except Exception:
+        logger.warning("/workspace command patch failed", exc_info=True)
+        return False
+
+
+def _patch_disable_self_upgrade() -> bool:
+    """Neutralise deepagents-cli's background auto-update and on-demand
+    upgrade helpers.
+
+    ``deepagents-cli`` has two upgrade paths we need to close:
+
+    * ``update_check.is_auto_update_enabled()`` — polled on TUI start and
+      in the background; when true and a newer version is live on PyPI,
+      the CLI silently runs ``pip install --upgrade deepagents-cli``,
+      which would bump past our pin.
+    * ``update_check.perform_upgrade()`` — invoked by ``/update`` and by
+      the auto-update loop; executes the upgrade directly.
+
+    We replace both with inert versions.  ``is_auto_update_enabled``
+    always returns ``False`` and ``perform_upgrade`` returns a
+    ``(False, <message>)`` tuple explaining the block.  These functions
+    are defensive: the slash commands themselves are already hidden and
+    intercepted in :func:`_patch_workspace_command`, but a future
+    deepagents-cli release might expose a new entry point that still
+    calls these helpers.
+    """
+    try:
+        from deepagents_cli import update_check
+
+        if hasattr(update_check, "is_auto_update_enabled"):
+            update_check.is_auto_update_enabled = lambda: False  # type: ignore[assignment]
+        else:
+            logger.warning(
+                "update_check.is_auto_update_enabled missing — auto-update "
+                "block skipped"
+            )
+            return False
+
+        if hasattr(update_check, "perform_upgrade"):
+            async def _blocked_upgrade() -> tuple[bool, str]:
+                return (
+                    False,
+                    "deepagents-cli upgrade blocked by OLAV overlay. "
+                    "Run `pip install --upgrade olav` to receive a "
+                    "compatible deepagents-cli bump.",
+                )
+
+            update_check.perform_upgrade = _blocked_upgrade  # type: ignore[assignment]
+        else:
+            logger.warning(
+                "update_check.perform_upgrade missing — upgrade block skipped"
+            )
+            return False
+
+        return True
+    except Exception:
+        logger.warning("Self-upgrade disable patch failed", exc_info=True)
+        return False
+
+
+async def _dispatch_workspace(app: Any, command: str) -> None:
+    """Handle a ``/workspace [<name>]`` submission from inside the TUI.
+
+    Without an argument we list available workspaces.  With one we
+    record the target on :data:`_PENDING_WORKSPACE` and ask the app to
+    exit so :func:`olav.cli.main.run_interactive` can relaunch.
+    """
+    global _PENDING_WORKSPACE
+
+    parts = command.strip().split(maxsplit=1)
+    target = parts[1].strip() if len(parts) > 1 else ""
+
+    if not target:
+        _notify(app, _list_workspaces_message(), severity="information")
+        return
+
+    # Reject switching to the current agent.
+    current = getattr(app, "_assistant_id", None)
+    if current and target == current:
+        _notify(app, f"Already on workspace '{target}'.", severity="warning")
+        return
+
+    # Validate against discovered workspaces.
+    available = _discover_workspaces()
+    if available and target not in available:
+        _notify(
+            app,
+            f"Unknown workspace '{target}'. Available: {', '.join(sorted(available))}",
+            severity="warning",
+        )
+        return
+
+    _PENDING_WORKSPACE = target
+    _notify(
+        app,
+        f"Switching to workspace '{target}'…",
+        severity="information",
+    )
+    try:
+        app.exit()
+    except Exception:
+        logger.warning("Failed to exit TUI cleanly for workspace swap", exc_info=True)
+
+
+def _notify(app: Any, message: str, *, severity: str = "information") -> None:
+    """Best-effort Textual notification with a plain-print fallback."""
+    try:
+        app.notify(message, severity=severity, markup=False)
+    except Exception:
+        print(message)
+
+
+def _list_workspaces_message() -> str:
+    """Format a human-readable list of discovered workspaces."""
+    names = _discover_workspaces()
+    if not names:
+        return (
+            "Usage: /workspace <name>\n"
+            "No workspaces discovered in .olav/workspace/"
+        )
+    return "Usage: /workspace <name>\nAvailable: " + ", ".join(sorted(names))
+
+
+def _discover_workspaces() -> set[str]:
+    """Return the set of agent directories under ``.olav/workspace/``."""
+    try:
+        from olav.core.workspace import resolve_workspace_root
+
+        root = resolve_workspace_root()
+        if not root.exists():
+            return set()
+        return {p.name for p in root.iterdir() if (p / "AGENT.md").is_file()}
+    except Exception:
+        logger.debug("Workspace discovery failed", exc_info=True)
+        return set()
+
+
+__all__ = [
+    "OLAV_ASCII_BANNER",
+    "OLAV_UNICODE_BANNER",
+    "apply_olav_overlay",
+    "consume_pending_workspace",
+]
