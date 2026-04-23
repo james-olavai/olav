@@ -65,9 +65,9 @@ class AgentInstallCommand(BaseCommand):
             Human-readable result line(s) — typed as a string so the
             caller can pass the whole thing to ``console.print``.
         """
-        import shlex
+        from olav.cli.commands._argparse import parse_subcommand_args
 
-        parts = shlex.split(args.strip()) if args.strip() else []
+        parts = parse_subcommand_args(args)
         if not parts:
             return self._usage()
         sub = parts[0]
