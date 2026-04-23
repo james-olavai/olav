@@ -178,27 +178,75 @@ class MessageInput(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Agent singleton
+# Per-assistant agent cache (v0.21.0-rc2)
 # ---------------------------------------------------------------------------
+#
+# Pre-rc2: one singleton agent_instance, created on first request via
+# ``create_olav_agent()`` with no agent_id → always resolved to "core".
+# Every request reused that same graph regardless of ``body.assistant_id``,
+# so the web dropdown's "ops" / "audit" / … selections had no effect on
+# which agent actually ran — only on audit-log attribution.
+#
+# Fix: a dict cache keyed on assistant_id.  Each distinct id lazily
+# constructs its own OLAVAgent on first use and is reused thereafter.
+# Memory cost: ~50 MB per cached agent; acceptable for the ~5 top-level
+# agents typical installs ship.
 
-_agent_instance = None
+_agent_cache: dict[str, object] = {}
+"""Holds one :class:`OLAVAgent` instance per assistant_id the server
+has been asked to run.  Populated lazily by :func:`get_agent`; cleared
+on app shutdown by :func:`lifespan`."""
 
 
-async def get_agent():
-    global _agent_instance
-    if _agent_instance is None:
+_DEFAULT_ASSISTANT_ID = "core"
+"""Default assistant id used when callers don't supply one.  Matches
+:data:`olav.server.graph_factory._DEFAULT_ASSISTANT_ID`."""
+
+
+async def get_agent(assistant_id: str | None = None):
+    """Return the cached OLAVAgent for *assistant_id* (creating on miss).
+
+    Args:
+        assistant_id: Top-level agent name.  ``None`` or empty string
+            resolves to ``"core"`` for back-compat with the pre-rc2
+            no-arg callers.
+
+    Returns:
+        An :class:`OLAVAgent` instance whose graph is built from the
+        workspace at ``.olav/workspace/<assistant_id>/`` (or the
+        v0.20.2 ``.deepagents/agents/<assistant_id>/`` equivalent).
+
+    Notes:
+        Distinct ``assistant_id``s produce distinct instances — no
+        more accidental "ops" requests hitting the core graph.  The
+        cache is process-scoped, so distinct Uvicorn workers each
+        warm their own cache on first use.
+    """
+    key = (assistant_id or "").strip() or _DEFAULT_ASSISTANT_ID
+    if key not in _agent_cache:
         from olav.agents.agent import create_olav_agent
 
-        _agent_instance = create_olav_agent()
-    return _agent_instance
+        _agent_cache[key] = create_olav_agent(agent_id=key)
+    return _agent_cache[key]
 
 
 @asynccontextmanager
 async def lifespan(app):
     _emit_auth_mode_warning()
     yield
-    if _agent_instance is not None:
-        await _agent_instance.close()
+    # Close every cached agent on shutdown — each owns its own
+    # plugin_registry, checkpointer, and potentially an LLM pool.
+    for agent in list(_agent_cache.values()):
+        try:
+            closer = getattr(agent, "close", None)
+            if closer is not None:
+                result = closer()
+                # Close may be sync or async depending on OLAVAgent version.
+                if hasattr(result, "__await__"):
+                    await result
+        except Exception:  # noqa: BLE001
+            pass  # best-effort; server shutdown must not be blocked
+    _agent_cache.clear()
 
 
 app = FastAPI(
@@ -345,15 +393,43 @@ async def reload_agent():
 
 @app.get("/agents")
 async def list_agents():
-    """Return registered agents from workspace AGENT.md files."""
-    try:
-        from olav.cli.commands.refresh import _scan_agents
+    """Return registered agents for the agent-picker dropdown.
 
-        workspace_root = Path(".olav") / "workspace"
-        agents = _scan_agents(workspace_root)
-        return [
-            {"id": a["flag"], "name": a["name"], "description": a.get("description", "")}
-            for a in agents
+    v0.21.0-rc2: uses :func:`olav.core.workspace_discovery.discover_agent_paths`
+    so both legacy (``.olav/workspace/<n>/AGENT.md``) and new
+    (``.deepagents/agents/<n>/AGENTS.md``) layouts are surfaced.
+    Pre-rc2 the endpoint called ``refresh._scan_agents`` which only
+    knew about the legacy path.
+
+    Each returned entry matches what the web dropdown expects:
+    ``id`` (passed as ``assistant_id`` on subsequent runs),
+    ``name`` (display), and ``description`` (tooltip).
+    """
+    import yaml
+
+    try:
+        from olav.core.workspace_discovery import discover_agent_paths
+
+        entries = []
+        for name, agent_md in discover_agent_paths():
+            # Frontmatter is best-effort — failures don't drop the agent.
+            display_name = name
+            description = ""
+            try:
+                text = agent_md.read_text(encoding="utf-8")
+                if text.startswith("---"):
+                    parts = text.split("---", 2)
+                    if len(parts) >= 2:
+                        meta = yaml.safe_load(parts[1]) or {}
+                        display_name = meta.get("name") or name
+                        description = meta.get("description", "") or ""
+            except Exception as exc:  # noqa: BLE001
+                _logger.debug("frontmatter parse failed for %s: %s", agent_md, exc)
+            entries.append(
+                {"id": name, "name": display_name, "description": description}
+            )
+        return entries or [
+            {"id": "core", "name": "core", "description": "Core platform agent"}
         ]
     except Exception as exc:
         _logger.warning("Failed to scan agents: %s", exc)
@@ -547,7 +623,10 @@ async def stream_run(
     identity: UserIdentity = Depends(_require_auth),
 ):
     _check_thread_access(thread_id, identity)
-    agent = await get_agent()
+    # v0.21.0-rc2: route on body.assistant_id so the web's agent
+    # dropdown actually switches the running graph.  Pre-rc2 this
+    # call passed no argument → singleton "core" every time.
+    agent = await get_agent(body.assistant_id)
 
     # Use authenticated identity as user_id (P1)
     effective_user_id = identity.username if hasattr(identity, "username") else body.user_id

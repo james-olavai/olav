@@ -243,7 +243,7 @@ fi
 
 # Install netops skill (workspace files) + Python package (nornir/netmiko deps)
 if [ -d "${NETOPS_DIR}" ]; then
-    "$OLAV" skill install "${NETOPS_DIR}" >/dev/null 2>&1
+    "$OLAV" agent install "${NETOPS_DIR}" >/dev/null 2>&1
     # Explicitly pip install to guarantee nornir etc. land in this venv
     "$PIP" install -q -e "${NETOPS_DIR}" 2>&1 | grep -v "^notice\|^hint" || true
     echo "  skill install: done (${NETOPS_DIR})"
