@@ -668,7 +668,14 @@ class OLAVAgent:
         # dropped when OLAV_MIDDLEWARE_MODE=middleware (otherwise audit
         # events get recorded twice — once via callback, once via
         # AuditMiddleware's graph hooks).
-        config: dict = {"callbacks": self._olav_callbacks}
+        # Back-compat: tests that bypass __init__ (e.g. via
+        # ``object.__new__(OLAVAgent)``) never set ``_olav_callbacks``
+        # — fall back to the raw registry list so those tests still
+        # work without carrying stale partitioning logic.
+        effective_callbacks = getattr(self, "_olav_callbacks", None)
+        if effective_callbacks is None:
+            effective_callbacks = self.plugin_registry.get_callback_plugins()
+        config: dict = {"callbacks": effective_callbacks}
         if thread_id:
             config["configurable"] = {"thread_id": thread_id}
 
