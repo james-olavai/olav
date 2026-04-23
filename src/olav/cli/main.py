@@ -112,6 +112,7 @@ def parse_args():
         "export",
         "skill",
         "agent",  # P5 (v0.20.0) — new verb, forwards to `skill` until P1 (v0.20.2)
+        "migrate",  # P1 (v0.20.2) — workspace layout migration
         "registry",
         "kb",
         # ARCH-12 / ARCH-11 / ARCH-13 CLI shortcuts added across Rounds 25/45/47.
@@ -310,6 +311,34 @@ def parse_args():
         "args",
         nargs=argparse.REMAINDER,
         help="Agent subcommand and arguments (install / ...)",
+    )
+
+    # v0.20.2 P1 — workspace layout migration.  Uses first-class
+    # argparse flags (NOT REMAINDER) so top-level argparse doesn't
+    # capture `--dry-run` before we see it.
+    migrate_parser = subparsers.add_parser(
+        "migrate",
+        help="Migrate workspace from v0.19.x to v0.20.2+ layout",
+    )
+    migrate_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print what would change; do not touch disk",
+    )
+    migrate_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="(with --dry-run) emit plan as JSON",
+    )
+    migrate_parser.add_argument(
+        "--no-backup",
+        action="store_true",
+        help="Skip .olav.bak/ tarball (NOT recommended)",
+    )
+    migrate_parser.add_argument(
+        "--root",
+        default=None,
+        help="OLAV install root (default: current dir)",
     )
 
     # Reset command - clear agent conversation/checkpoint history
@@ -1469,6 +1498,27 @@ async def cli_main_impl() -> None:
             agent_cmd = AgentInstallCommand()
             agent_args = " ".join(args.args) if args.args else ""
             result = await agent_cmd.execute(agent_args)
+            console.print(result)
+            return
+
+        if args.command == "migrate":
+            # v0.20.2 P1 — olav migrate [--dry-run] [--json]
+            #              [--no-backup] [--root PATH]
+            from olav.cli.commands.migrate import MigrateCommand
+
+            migrate_cmd = MigrateCommand()
+            # Reconstruct the flag string from the parsed args so the
+            # command module stays self-contained and testable.
+            migrate_flags: list[str] = []
+            if args.dry_run:
+                migrate_flags.append("--dry-run")
+            if args.json:
+                migrate_flags.append("--json")
+            if args.no_backup:
+                migrate_flags.append("--no-backup")
+            if args.root:
+                migrate_flags.extend(["--root", args.root])
+            result = await migrate_cmd.execute(" ".join(migrate_flags))
             console.print(result)
             return
 
