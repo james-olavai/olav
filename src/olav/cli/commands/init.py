@@ -210,12 +210,13 @@ class InitCommand(BaseCommand):
                     token = stripped
                     break
 
-            # Write token to ~/.olav/token
-            token_dir = Path.home() / ".olav"
-            token_dir.mkdir(parents=True, exist_ok=True)
-            token_path = token_dir / "token"
-            token_path.write_text(token + "\n", encoding="utf-8")
-            token_path.chmod(0o600)
+            # Persist the token — OS keyring preferred, ~/.olav/token fallback.
+            # keyring_store uses a per-workspace service name derived from the
+            # users.duckdb path, so dev / demo environments no longer clobber
+            # one another's token.  See olav.core.auth.keyring_store.
+            from olav.core.auth.keyring_store import save_token
+
+            _token_storage = save_token(token, users_db_path=users_db)
 
             # Update api.json auth.mode → token
             api_json_path = base_dir / "config" / "api.json"
@@ -235,9 +236,19 @@ class InitCommand(BaseCommand):
                 host_ip = socket.gethostbyname(socket.gethostname())
             except Exception:
                 host_ip = "localhost"
+            if _token_storage == "keyring":
+                storage_line = "  token → OS keyring (shown once below)"
+            else:
+                from olav.core.auth.keyring_store import _per_env_token_path
+
+                storage_line = (
+                    f"  token → {_per_env_token_path(users_db)} "
+                    "(chmod 600, keyring unavailable)"
+                )
             return (
                 f"✓ admin user '{username}' created\n"
-                f"  token → ~/.olav/token (chmod 600)\n"
+                f"{storage_line}\n"
+                f"  token (copy to save elsewhere): {token}\n"
                 f"  web login: http://{host_ip}:2280/?token={token}"
             )
 

@@ -1,0 +1,7 @@
+{
+  "graphs": {
+    "agent": "./src/olav/server/graph_factory.py:graph"
+  },
+  "dependencies": ["."],
+  "python_version": "3.12"
+}

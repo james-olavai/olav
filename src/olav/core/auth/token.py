@@ -83,10 +83,13 @@ class TokenAuthProvider:
     # ------------------------------------------------------------------
 
     def _read_token_file(self) -> str | None:
-        token_file = Path.home() / ".olav" / "token"
-        if token_file.exists():
-            return token_file.read_text(encoding="utf-8").strip()
-        return None
+        # Delegate to the central secret-store resolver so OLAV_TOKEN,
+        # OS keyring, and legacy ~/.olav/token are all honoured in one
+        # place.  Per-workspace service-name keying means the dev env
+        # never reads the demo env's token.
+        from olav.core.auth.keyring_store import load_token
+
+        return load_token(users_db_path=self._users_db)
 
     def _verify_token(self, token: str) -> UserIdentity | None:
         try:
