@@ -239,10 +239,10 @@ if [ "$RUN_NETOPS" = true ]; then
     if [ ! -d "$NETOPS_DIR" ]; then
         echo "  SKIP: olav-netops not found at ${NETOPS_DIR}"
     else
-        # ── B1: Skill install ────────────────────────────────
-        SKILL_LOG=$($OLAV skill install "$NETOPS_DIR" 2>&1)
-        check "B1: skill install — 2 workspaces (ops + audit)" \
-            sh -c "echo '$SKILL_LOG' | grep -q '2 workspaces'"
+        # ── B1: Agent install (verb renamed from `skill` to `agent` in v0.20.3) ──
+        SKILL_LOG=$($OLAV agent install "$NETOPS_DIR" 2>&1)
+        check "B1: agent install — netops workspaces registered" \
+            sh -c "echo '$SKILL_LOG' | grep -qE 'workspaces|installed netops'"
 
         # ── B2-B4: Agent list (3 agents: core, ops, audit) ──
         LIST_LOG=$($OLAV list 2>&1)

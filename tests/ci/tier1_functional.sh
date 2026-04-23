@@ -167,7 +167,7 @@ fi
 
 # Install netops skill
 if [ -d "${NETOPS_DIR}" ]; then
-    "$OLAV" skill install "${NETOPS_DIR}" >/dev/null 2>&1
+    "$OLAV" agent install "${NETOPS_DIR}" >/dev/null 2>&1
     echo "  skill install: done (${NETOPS_DIR})"
 else
     echo "  skill install: skipped (${NETOPS_DIR} not found)"
@@ -1391,7 +1391,7 @@ if [ -d "${NETOPS_DIR}" ]; then
     if [ -n "$_skill_tool" ]; then
         # Touch the tool file to give it a "stale" mtime
         touch -t 202001010000 "$_skill_tool" 2>/dev/null || true
-        "$OLAV" skill install "${NETOPS_DIR}" >/dev/null 2>&1
+        "$OLAV" agent install "${NETOPS_DIR}" >/dev/null 2>&1
         if [ -f "$_skill_tool" ]; then
             echo "  [T1-44] Skill install 覆盖文件... OK"; PASS=$((PASS + 1))
         else
