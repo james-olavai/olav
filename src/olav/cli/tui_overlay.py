@@ -186,6 +186,11 @@ def apply_olav_overlay() -> bool:
     ok &= _patch_title()
     ok &= _patch_workspace_command()
     ok &= _patch_disable_self_upgrade()
+    # Scaffold patch is "best effort" for native mode — don't let its
+    # absence flip `ok` to False when the core overlay (banner, title,
+    # /workspace command) is otherwise healthy.  Native users still
+    # get the patch when it succeeds; overlay users don't care.
+    _patch_scaffold_for_olav_graph()
 
     _applied = True
     return ok
@@ -407,6 +412,91 @@ def _patch_disable_self_upgrade() -> bool:
         return True
     except Exception:
         logger.warning("Self-upgrade disable patch failed", exc_info=True)
+        return False
+
+
+def _patch_scaffold_for_olav_graph() -> bool:
+    """Redirect deepagents-cli's subprocess graph loader at OLAV's factory.
+
+    Without this patch, ``run_textual_app(server_kwargs=...)`` spawns
+    a ``langgraph dev`` subprocess whose ``langgraph.json`` points at
+    ``./server_graph.py:graph`` — deepagents-cli's own default graph.
+    The subprocess therefore completely ignores OLAV's agents, tools,
+    and plugin registry.
+
+    The patch wraps
+    :func:`deepagents_cli.server_manager._scaffold_workspace`.  After
+    deepagents' default scaffolding (checkpointer module, pyproject
+    template, initial langgraph.json) writes its files, the wrapper
+    calls :func:`deepagents_cli.server.generate_langgraph_json` one
+    more time with ``graph_ref="olav.server.graph_factory:graph"`` to
+    overwrite the config file.
+
+    Why this works
+    --------------
+    :func:`deepagents_cli.server._build_server_cmd` launches the
+    subprocess via ``sys.executable -m langgraph_cli dev`` — same
+    Python interpreter, same ``site-packages``.  OLAV is therefore
+    already importable in the subprocess, so ``dependencies: ["."]``
+    in the generated langgraph.json just re-installs an empty
+    ``deepagents-server-runtime`` shell while the real graph is
+    loaded by module path.
+
+    Returns:
+        ``True`` when the patch was applied, ``False`` when a
+        required deepagents-cli symbol is missing (older / newer
+        release than the overlay was tested against).
+    """
+    try:
+        from deepagents_cli import server_manager as _sm
+
+        if not hasattr(_sm, "_scaffold_workspace"):
+            logger.warning(
+                "deepagents_cli.server_manager._scaffold_workspace no longer "
+                "exists — native /agents cutover patch skipped"
+            )
+            return False
+
+        try:
+            from deepagents_cli.server import generate_langgraph_json
+        except ImportError:
+            logger.warning(
+                "deepagents_cli.server.generate_langgraph_json not importable "
+                "— scaffold patch skipped"
+            )
+            return False
+
+        original = _sm._scaffold_workspace
+
+        # Idempotence — detect prior wrap via a marker attribute.
+        if getattr(original, "_olav_wrapped", False):
+            return True
+
+        def _olav_scaffold_workspace(work_dir):
+            # Run deepagents' default scaffolding first so checkpointer.py,
+            # pyproject.toml, and the initial langgraph.json all exist.
+            original(work_dir)
+            # Then overwrite langgraph.json with OLAV's graph_ref.  The
+            # checkpointer_path must match deepagents' default so the
+            # server still finds the checkpointer module it just wrote.
+            try:
+                generate_langgraph_json(
+                    work_dir,
+                    graph_ref="olav.server.graph_factory:graph",
+                    checkpointer_path="./checkpointer.py:create_checkpointer",
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "OLAV scaffold override failed; subprocess will run "
+                    "deepagents' default graph",
+                    exc_info=True,
+                )
+
+        _olav_scaffold_workspace._olav_wrapped = True  # type: ignore[attr-defined]
+        _sm._scaffold_workspace = _olav_scaffold_workspace
+        return True
+    except Exception:
+        logger.warning("Scaffold patch failed", exc_info=True)
         return False
 
 
