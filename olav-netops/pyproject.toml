@@ -69,5 +69,11 @@ netops_network_model = "olav_netops.sandbox_prologue:network_model_prologue"
 [project.entry-points."olav.catalog_topics"]
 netops = "olav_netops.catalog:get_catalog_topics"
 
+# ── CLI tool loaders — platform dispatches `olav diff` etc. via this group ──
+# ADR-0002 P4: platform no longer importlib-loads workspace Python files
+# directly. The domain package owns the locator + loader.
+[project.entry-points."olav.cli_tools"]
+diff_snapshots = "olav_netops.cli.diff_hook:load_diff_snapshots"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/olav_netops"]
