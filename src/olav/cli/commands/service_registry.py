@@ -11,7 +11,6 @@ Subcommands:
 from __future__ import annotations
 
 import logging
-import shlex
 
 from rich.console import Console
 from rich.table import Table
@@ -32,7 +31,9 @@ class ServiceRegistryCommand(BaseCommand):
         self.console = Console()
 
     async def execute(self, args: str = "") -> str:
-        parts = shlex.split(args.strip()) if args.strip() else []
+        from olav.cli.commands._argparse import parse_subcommand_args
+
+        parts = parse_subcommand_args(args)
         if not parts:
             return await self._list()
 

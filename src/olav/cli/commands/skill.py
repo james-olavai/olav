@@ -13,7 +13,6 @@ from __future__ import annotations
 import importlib.util
 import json
 import logging
-import shlex
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,7 +52,9 @@ class SkillCommand(BaseCommand):
         super().__init__(name="skill", description="Install and manage workspace skills")
 
     async def execute(self, args: str = "") -> str:
-        parts = shlex.split(args.strip()) if args.strip() else []
+        from olav.cli.commands._argparse import parse_subcommand_args
+
+        parts = parse_subcommand_args(args)
         if not parts:
             return self._usage()
 
