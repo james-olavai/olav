@@ -20,51 +20,37 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import sys
-from pathlib import Path
 from typing import Any
 
 
 def _load_diff_snapshots():
-    """Locate and import the workspace-vendored diff_snapshots module.
+    """Resolve ``diff_snapshots`` via ``olav.cli_tools`` entry-points.
 
-    The tool lives under ``.olav/workspace/ops/tools/`` — not on the
-    ``olav`` package path — so we load it via importlib the same way
-    tests / catalog / explain do.
+    ADR-0002 P4: platform never reaches into a domain workspace via
+    importlib. olav-netops registers a ``load_diff_snapshots`` hook
+    which returns the actual callable (it owns the path walk + spec
+    loading internally).
     """
-    candidates: list[Path] = []
-    # 1. Resolve via workspace_root if config is wired.
+    from importlib.metadata import entry_points
     try:
-        from olav.core.config import get_paths_config
-        ws_root = Path(get_paths_config().workspace_root).resolve()
-        candidates.append(
-            ws_root.parent / ".olav" / "workspace" / "ops" / "tools" / "diff_snapshots.py"
-        )
+        eps = list(entry_points(group="olav.cli_tools"))
     except Exception:
-        pass
-    # 2. Walk up from this file looking for .olav/workspace.
-    here = Path(__file__).resolve()
-    for anc in here.parents:
-        alt = (
-            anc / ".olav" / "workspace" / "ops" / "tools" / "diff_snapshots.py"
-        )
-        if alt.exists():
-            candidates.append(alt)
-            break
-
-    for candidate in candidates:
-        if candidate.exists():
-            spec = importlib.util.spec_from_file_location(
-                "_olav_diff_snapshots", candidate
-            )
-            mod = importlib.util.module_from_spec(spec)
-            try:
-                spec.loader.exec_module(mod)  # type: ignore[union-attr]
-            except Exception:
-                continue
-            return getattr(mod, "diff_snapshots", None)
+        eps = []
+    for ep in eps:
+        if ep.name != "diff_snapshots":
+            continue
+        try:
+            loader = ep.load()
+        except Exception:
+            continue
+        try:
+            fn = loader() if callable(loader) else None
+        except Exception:
+            fn = None
+        if fn is not None:
+            return fn
     return None
 
 

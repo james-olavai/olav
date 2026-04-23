@@ -448,8 +448,8 @@ rules:
     class: netops
     status: transitional
     target_repo: olav-netops
-    reason: vendored-netops-workspace-asset-still-shipped-from-root-runtime
-    enforced: false
+    reason: dev-mirror-of-olav-netops-workspace-drift-guarded-by-test_workspace_ops_ssot
+    enforced: true
     git: ignore
 
   - pattern: .olav/workspace/ops-lab/**
