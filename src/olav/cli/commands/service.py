@@ -17,7 +17,6 @@ Quick start (all services):
 """
 
 import logging
-import shlex
 from typing import Any
 
 from rich.console import Console
@@ -72,7 +71,11 @@ class ServiceCommand(BaseCommand):
             # Bare "olav service" → show status of all services
             return await self._status_all()
 
-        parts = shlex.split(args.strip())
+        from olav.cli.commands._argparse import parse_subcommand_args
+
+        parts = parse_subcommand_args(args)
+        if not parts:
+            return await self._status_all()
         first = parts[0]
 
         # ── "olav service register <name> [--force]" ─────────────────────

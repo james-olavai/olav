@@ -474,14 +474,17 @@ def _list_workspaces_message() -> str:
 
 
 def _discover_workspaces() -> set[str]:
-    """Return the set of agent directories under ``.olav/workspace/``."""
-    try:
-        from olav.core.workspace import resolve_workspace_root
+    """Return the set of agent directory names across both layouts.
 
-        root = resolve_workspace_root()
-        if not root.exists():
-            return set()
-        return {p.name for p in root.iterdir() if (p / "AGENT.md").is_file()}
+    Delegates to :func:`olav.core.workspace_discovery.discover_agent_names`
+    so the overlay + CLI + API all share one implementation.  Returns
+    an empty set on any failure — overlay must never crash the TUI
+    just because workspace discovery hiccuped.
+    """
+    try:
+        from olav.core.workspace_discovery import discover_agent_names
+
+        return set(discover_agent_names())
     except Exception:
         logger.debug("Workspace discovery failed", exc_info=True)
         return set()

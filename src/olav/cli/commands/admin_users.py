@@ -81,9 +81,9 @@ class AdminUsersCommand(BaseCommand):
         self._users_db = Path(users_db)
 
     async def execute(self, args: str = "") -> str:
-        import shlex
+        from olav.cli.commands._argparse import parse_subcommand_args
 
-        parts = shlex.split(args.strip()) if args.strip() else []
+        parts = parse_subcommand_args(args)
         if not parts:
             return self._usage()
         action = parts[0]

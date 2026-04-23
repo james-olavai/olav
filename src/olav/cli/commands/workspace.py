@@ -18,7 +18,6 @@ Subcommands:
 from __future__ import annotations
 
 import re
-import shlex
 import shutil
 from pathlib import Path
 
@@ -45,7 +44,9 @@ class WorkspaceCommand(BaseCommand):
         self.workspace_root = resolve_workspace_root()
 
     async def execute(self, args: str = "", role: str = "admin") -> str:
-        parts = shlex.split(args.strip()) if args.strip() else ["status"]
+        from olav.cli.commands._argparse import parse_subcommand_args
+
+        parts = parse_subcommand_args(args) or ["status"]
         action = parts[0]
 
         if action in self._LIFECYCLE_ACTIONS:
