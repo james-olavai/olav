@@ -88,14 +88,8 @@ def get_domain_prompt() -> str:
     return _GENERIC_DOMAIN_PROMPT
 
 
-def parse_args():
-    """Parse command line arguments - deepagents-cli compatible."""
-    import types as _types
-
-    # Known subcommands – if the first non-flag positional arg is NOT one of
-    # these, treat all remaining positionals as a natural-language query so
-    # that both `olav "show log statistics"` and `olav show log counts` work.
-    known_commands = {
+_KNOWN_COMMANDS: frozenset[str] = frozenset(
+    {
         "list",
         "help",
         "version",
@@ -110,9 +104,11 @@ def parse_args():
         "sessions",
         "workspace",
         "export",
-        "skill",
-        "agent",  # P5 (v0.20.0) — new verb, forwards to `skill` until P1 (v0.20.2)
-        "migrate",  # P1 (v0.20.2) — workspace layout migration
+        # "skill" verb removed in v0.20.3 — use `olav agent install`.
+        # SkillCommand class still exists internally for agent_install
+        # back-compat.
+        "agent",
+        "migrate",
         "registry",
         "kb",
         # ARCH-12 / ARCH-11 / ARCH-13 CLI shortcuts added across Rounds 25/45/47.
@@ -123,6 +119,29 @@ def parse_args():
         "explain",
         "diff",
     }
+)
+"""Subcommand tokens the CLI recognises.  Anything else is treated as
+natural-language query text so ``olav show log statistics`` and
+``olav "show log statistics"`` behave the same way."""
+
+
+def _get_known_commands() -> frozenset[str]:
+    """Return the frozenset of known CLI subcommand names.
+
+    Exposed for tests that assert on which verbs are wired without
+    instantiating the full argparse structure.
+    """
+    return _KNOWN_COMMANDS
+
+
+def parse_args():
+    """Parse command line arguments - deepagents-cli compatible."""
+    import types as _types
+
+    # Known subcommands – if the first non-flag positional arg is NOT one of
+    # these, treat all remaining positionals as a natural-language query so
+    # that both `olav "show log statistics"` and `olav show log counts` work.
+    known_commands = _KNOWN_COMMANDS
 
     # Flags that consume the immediately following token as their value.
     # We must skip those tokens when searching for the first true positional.
@@ -295,12 +314,8 @@ def parse_args():
         "args", nargs=argparse.REMAINDER, help="Registry subcommand arguments"
     )
 
-    skill_parser = subparsers.add_parser(
-        "skill", help="[v0.20.x LEGACY] use 'olav agent install' instead"
-    )
-    skill_parser.add_argument(
-        "args", nargs=argparse.REMAINDER, help="Skill subcommand and arguments"
-    )
+    # `skill` verb removed in v0.20.3 — replaced by `olav agent install`.
+    # SkillCommand class kept for internal use by agent_install.
 
     # v0.20.0 — new `olav agent install` verb (P5 scaffold; full takeover in P1)
     agent_parser = subparsers.add_parser(
@@ -1480,14 +1495,10 @@ async def cli_main_impl() -> None:
                 console.print(result)
             return
 
-        if args.command == "skill":
-            from olav.cli.commands.skill import SkillCommand
-
-            cmd = SkillCommand()
-            skill_args = " ".join(args.args) if args.args else ""
-            result = await cmd.execute(skill_args)
-            console.print(result)
-            return
+        # `skill` verb dispatcher removed in v0.20.3.  `olav skill …`
+        # now falls through to the natural-language query path which
+        # the LLM will either answer or route.  Users wanting the old
+        # install flow should use `olav agent install`.
 
         if args.command == "agent":
             # v0.20.0 scaffold: new public verb, dispatches via the
