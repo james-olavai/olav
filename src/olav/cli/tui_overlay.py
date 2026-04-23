@@ -34,9 +34,65 @@ branding (no crash).
 from __future__ import annotations
 
 import logging
-from typing import Any
+import os
+from pathlib import Path
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
+
+
+TuiMode = Literal["native", "overlay"]
+
+_TUI_MODE_ENV = "OLAV_TUI_MODE"
+"""Env var selecting between native (deepagents server_kwargs) and
+overlay (v0.19-style in-process ``agent=`` path).  Phase B (v0.20.2)
+ships both; the default depends on workspace layout."""
+
+
+def resolve_tui_mode(root: Path | None = None) -> TuiMode:
+    """Return the effective TUI mode for this invocation.
+
+    Precedence:
+
+    1. ``OLAV_TUI_MODE`` env var — ``"native"`` or ``"overlay"``.
+       Unknown values log a warning and fall through to layout-
+       driven default.
+    2. Auto-detect from filesystem layout:
+       * ``.deepagents/agents/`` present → ``"native"``
+       * Only ``.olav/workspace/`` present → ``"overlay"``
+       * Neither present → ``"native"`` (fresh projects should use
+         the new layout).
+
+    Args:
+        root: Project root to probe.  Defaults to current working
+            directory.
+
+    Returns:
+        The effective mode as a string literal.
+    """
+    raw = (os.environ.get(_TUI_MODE_ENV) or "").strip().lower()
+    if raw in ("native", "overlay"):
+        return raw  # type: ignore[return-value]
+    if raw:
+        logger.warning(
+            "%s=%r is not a recognised value; auto-detecting from layout. "
+            "Valid values: 'native', 'overlay'.",
+            _TUI_MODE_ENV,
+            raw,
+        )
+
+    probe_root = (root or Path.cwd()).resolve()
+
+    new_root = probe_root / ".deepagents" / "agents"
+    if new_root.is_dir() and any(p.is_dir() for p in new_root.iterdir()):
+        return "native"
+
+    legacy_root = probe_root / ".olav" / "workspace"
+    if legacy_root.is_dir():
+        return "overlay"
+
+    # No workspace at all → native (new default for fresh projects).
+    return "native"
 
 _SUPPORTED_VERSIONS: frozenset[str] = frozenset({"0.0.41"})
 """deepagents-cli versions where the overlay has been smoke-tested.
