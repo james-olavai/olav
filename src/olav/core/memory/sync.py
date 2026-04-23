@@ -49,8 +49,8 @@ def _parse_yaml_value(v: str):
         # Try JSON first (handles ["a", "b"])
         try:
             return json.loads(v)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("YAML value JSON parse failed, falling back to inline-list: %s", e)
         # YAML inline list: [a, b, c] — items without quotes
         inner = v[1:-1].strip()
         if not inner:
@@ -133,8 +133,8 @@ def _load_state(kb_dir: Path) -> dict[str, dict]:
     if sp.exists():
         try:
             return json.loads(sp.read_text())
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("sync state load failed: %s", e)
     return {}
 
 

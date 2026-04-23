@@ -178,8 +178,51 @@ def render_report(
     playbook = _generate_postcheck_playbook(audit_json, lang=lang)
     _append_to_file(report_path, playbook)
 
+    # 8. ARCH-11 Phase 2 — citation linter. Only runs when the profile
+    # declared ``emit_sources: true`` (otherwise every section would flag).
+    if audit_json.get("emit_sources") or profile_cfg.get("emit_sources"):
+        try:
+            from render_report_linter import (
+                format_audit_block,
+                lint_report_file,
+            )
+            non_empty = {
+                name for name, data in audit_json["jobs"].items()
+                if data.get("count", 0) > 0
+            }
+            violations = lint_report_file(report_path, non_empty_sections=non_empty)
+            _append_to_file(report_path, format_audit_block(violations))
+            if violations:
+                logger.warning(
+                    "render_report: %d citation violation(s): %s",
+                    len(violations),
+                    [v.section for v in violations],
+                )
+        except Exception as lint_err:
+            logger.debug("citation linter skipped: %s", lint_err)
+
     logger.info("render_report: final report at %s", report_path)
-    return str(report_path)
+
+    # Extract Executive Summary for immediate display (avoids LLM max_tokens truncation)
+    executive_summary = ""
+    try:
+        report_text = report_path.read_text(encoding="utf-8")
+        import re as _re
+        _match = _re.search(
+            r'##\s*(?:Executive\s+Summary|Summary|Overview)\s*\n(.*?)(?=\n##|\n---|\Z)',
+            report_text, _re.DOTALL | _re.IGNORECASE,
+        )
+        if _match:
+            executive_summary = _match.group(1).strip()
+    except Exception:
+        pass
+
+    return (
+        f"Report saved: {report_path}\n\n"
+        f"## Executive Summary\n\n{executive_summary}"
+        if executive_summary
+        else str(report_path)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -556,6 +599,115 @@ def _get_section_prompt(profile_cfg: dict, job_name: str) -> str:
     return job.get("section_prompt", "Analyze the findings below. Identify anomalies, root causes, and provide remediation recommendations.")
 
 
+def _format_source_suffix(src: dict | None) -> str:
+    """ARCH-11 Phase 1: render a `_source` dict into a ``[src: …]`` tag.
+
+    Returns the empty string for falsy / non-dict inputs so callers can
+    unconditionally concatenate the result.
+
+    Format (stable across versions — see :func:`parse_src_token`):
+        [src: <table>[#<snapshot_id>][; device=<name>][; row=<n>]]
+    """
+    if not isinstance(src, dict) or not src:
+        return ""
+    parts: list[str] = []
+    table = src.get("table")
+    snap = src.get("snapshot_id")
+    if table and snap:
+        parts.append(f"{table}#{snap}")
+    elif table:
+        parts.append(str(table))
+    if src.get("device"):
+        parts.append(f"device={src['device']}")
+    if "row_index" in src:
+        parts.append(f"row={src['row_index']}")
+    return f"[src: {'; '.join(parts)}]" if parts else ""
+
+
+# ARCH-11 Round 44 — parse_src_token: inverse of _format_source_suffix.
+# Foundation for a future ``olav explain <token>`` CLI (ARCH-11 gap #3).
+# The CLI will parse the token, re-run the underlying query, and surface
+# the raw rows so operators can verify an LLM-generated finding without
+# writing SQL themselves.
+_SRC_TOKEN_RE = __import__("re").compile(r"\[src:\s*(?P<body>[^\]]+)\]")
+
+
+def parse_src_token(tag: str) -> dict | None:
+    """Parse a ``[src: …]`` tag into a source dict (ARCH-11 Phase 3 groundwork).
+
+    Inverse of :func:`_format_source_suffix`. Handles the format::
+
+        [src: <table>[#<snapshot_id>][; device=<name>][; row=<n>]]
+
+    Args:
+        tag: A string potentially containing one ``[src: …]`` tag. Leading
+            / trailing whitespace is tolerated. If the string carries
+            additional text, only the first token is parsed.
+
+    Returns:
+        A dict with any of ``{table, snapshot_id, device, row_index}`` set,
+        or ``None`` if the string does not contain a recognisable token.
+
+    Round-trip invariant:
+        ``_format_source_suffix(parse_src_token(s)) == s`` for every ``s``
+        produced by :func:`_format_source_suffix` (pinned by
+        ``tests/governance/test_round44_arch11_reconcile.py``).
+    """
+    if not isinstance(tag, str) or not tag:
+        return None
+    m = _SRC_TOKEN_RE.search(tag)
+    if not m:
+        return None
+    body = m.group("body").strip()
+    if not body:
+        return None
+    out: dict = {}
+    segments = [s.strip() for s in body.split(";") if s.strip()]
+    if not segments:
+        return None
+    head = segments[0]
+    # head is either "<table>#<snapshot_id>" or "<table>"
+    if "#" in head:
+        table, snap = head.split("#", 1)
+        out["table"] = table.strip()
+        out["snapshot_id"] = snap.strip()
+    else:
+        out["table"] = head
+    for seg in segments[1:]:
+        if "=" not in seg:
+            continue
+        key, _, val = seg.partition("=")
+        key = key.strip()
+        val = val.strip()
+        if key == "device":
+            out["device"] = val
+        elif key == "row":
+            try:
+                out["row_index"] = int(val)
+            except ValueError:
+                continue
+    return out or None
+
+
+def _build_evidence_block(findings: list[dict]) -> str:
+    """Render a markdown bullet list of `[src: …]` tags outside the JSON block.
+
+    Keeping the citations outside the fenced JSON ensures the LLM (which
+    parses the JSON literally) still receives them as free-form markdown
+    it can quote in its output.
+    """
+    tags: list[str] = []
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        suffix = _format_source_suffix(f.get("_source"))
+        if suffix:
+            tags.append(f"- {suffix}")
+    if not tags:
+        return ""
+    return "## Evidence\n" + "\n".join(tags) + "\n\n"
+
+
 def _assemble_prompt(system_envelope: str, section_prompt: str, findings: list[dict], lang: str = "en") -> str:
     """Build the full prompt for a single Job section."""
     lang_override = (
@@ -565,12 +717,14 @@ def _assemble_prompt(system_envelope: str, section_prompt: str, findings: list[d
         "**LANGUAGE OVERRIDE**: You MUST write this entire section in English."
     )
     findings_json = json.dumps(findings, ensure_ascii=False, indent=2)
+    evidence_block = _build_evidence_block(findings)
     return (
         f"{lang_override}\n\n"
         f"{system_envelope}\n\n"
         f"---\n\n"
         f"## Rendering Guidelines (Business Rules)\n{section_prompt}\n\n"
         f"---\n\n"
+        f"{evidence_block}"
         f"## Detection Data (JSON)\n```json\n{findings_json}\n```"
     )
 

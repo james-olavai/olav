@@ -8,6 +8,7 @@ NOTE: v0.11.0 - Refactored from if-elif to init_chat_model for simplicity.
 """
 
 import logging
+import os
 from typing import Any
 
 from langchain.chat_models import init_chat_model
@@ -73,6 +74,22 @@ class LLMFactory:
         # from custom model names like "x-ai/grok-4.1-fast" or "openrouter/*".
         if llm_config.model_provider:
             params["model_provider"] = llm_config.model_provider
+        else:
+            # Auto-detect provider from base_url when config leaves it blank.
+            # Without this fallback langchain's init_chat_model raises
+            # "Unable to infer model provider" for OpenRouter-style model
+            # names like "x-ai/grok-4.1-fast".
+            _url = str(params.get("base_url") or "").lower()
+            if "openrouter" in _url:
+                params["model_provider"] = "openrouter"
+            elif "together.xyz" in _url or "together.ai" in _url:
+                params["model_provider"] = "together"
+            elif "groq" in _url:
+                params["model_provider"] = "groq"
+            elif "deepseek" in _url:
+                params["model_provider"] = "deepseek"
+            elif "perplexity" in _url:
+                params["model_provider"] = "perplexity"
 
         # Disable streaming for DeepAgents async compatibility
         params["streaming"] = False
@@ -91,10 +108,41 @@ class LLMFactory:
         # Apply any additional kwargs
         params.update(kwargs)
 
+        # ── ARCH-19 #B: forward backend-specific prompt-cache hints ───────
+        # Local LLM backends (vLLM / llama.cpp / Ollama) recognise different
+        # cache flags. OpenAI-compatible APIs silently ignore unknown keys
+        # so attaching them unconditionally (when the base_url matches) is
+        # safe. ``OLAV_LOCAL_CACHE_DISABLE=1`` is the debug escape hatch.
+        if not os.environ.get("OLAV_LOCAL_CACHE_DISABLE"):
+            base_hint = str(params.get("base_url") or "").lower()
+            mkw = params.setdefault("model_kwargs", {})
+            if "vllm" in base_hint:
+                extra = mkw.setdefault("extra_body", {})
+                extra.setdefault("enable_prefix_caching", True)
+            elif "llama.cpp" in base_hint or ":8080" in base_hint:
+                mkw.setdefault("cache_prompt", True)
+            elif "ollama" in base_hint or ":11434" in base_hint:
+                mkw.setdefault("keep_alive", "5m")
+
         # Log identification for debugging
         model = params.get("model", "unknown")
         base_url = params.get("base_url", "")
         logger.debug(f"Initializing ChatModel: {model} base_url={base_url} (agent={agent_id})")
+
+        # ── Sprint 0a token_meter: attach TokenUsageCallback ──────────────
+        # Soft-fail — if the callback / recorder is unavailable we log at
+        # debug and proceed, never blocking an LLM invocation.
+        try:
+            from olav.core.llm_instrumentation import TokenUsageCallback
+
+            callback = TokenUsageCallback(
+                model_name=params.get("model"),
+                model_tier=llm_config.model_tier,
+            )
+            existing = params.get("callbacks") or []
+            params["callbacks"] = [*existing, callback]
+        except Exception as _tm_err:
+            logger.debug("token_meter attach skipped: %s", _tm_err)
 
         # Use init_chat_model - LangChain handles provider detection
         try:

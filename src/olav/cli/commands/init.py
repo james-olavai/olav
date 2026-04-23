@@ -188,11 +188,11 @@ class InitCommand(BaseCommand):
 
             # Check if user already exists (idempotent)
             import duckdb
-            from olav.core.migrations.v0_12_users import apply_migration as _apply_users
+            from olav.core.auth.schema import apply_baseline
 
             users_db.parent.mkdir(parents=True, exist_ok=True)
             with duckdb.connect(str(users_db)) as conn:
-                _apply_users(conn)
+                apply_baseline(conn)
                 existing = conn.execute(
                     "SELECT COUNT(*) FROM users WHERE username = ?", [username]
                 ).fetchone()[0]

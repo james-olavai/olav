@@ -12,7 +12,19 @@ Loading priority (high to low):
 4. This file (defaults)
 """
 
+import os
 from typing import Any
+
+
+def _env_int(name: str, default: int) -> int:
+    """Return int env var ``name``, or ``default`` when unset or not parseable."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
 
 # ============================================================================
 # LLM Configuration Defaults
@@ -91,8 +103,8 @@ DEFAULT_RUNTIME_CONFIG: dict[str, Any] = {
 # Constants
 # ============================================================================
 
-# Default port for OLAV Web (FastAPI) server
-DEFAULT_WEB_PORT: int = 2280
+# Default port for OLAV Web (FastAPI) server — ``OLAV_WEB_PORT`` env overrides.
+DEFAULT_WEB_PORT: int = _env_int("OLAV_WEB_PORT", 2280)
 
 # Default port for OLAV Syslog collector (UDP/TCP)
 DEFAULT_LOG_PORT: int = 5514

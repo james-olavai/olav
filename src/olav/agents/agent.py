@@ -57,6 +57,69 @@ def _read_prompt_file(path: Path) -> str | None:
     return None
 
 
+def _debug_log_injection(
+    skill_dir: Path,
+    mode: str,
+    injected: list[tuple[str, int]],
+    available_refs: list[str] | None = None,
+) -> None:
+    """Emit a multi-line static_context debug summary when enabled.
+
+    Gated by ``OLAV_DEBUG_CONTEXT`` (see
+    :func:`olav.agents.static_context_resolver.is_debug_enabled`). No-op
+    when the env var is unset — zero overhead beyond a single env lookup.
+
+    Output format (one log record, ``\\n``-joined)::
+
+        OLAV_DEBUG_CONTEXT: agent=<name> mode=<mode> tier=<tier> budget=<N>T
+          + ROUTING_EXPERT_GUIDE.md: 12345B (~3086T)
+          + REQUIRED_INFO_CHECK.md: 2345B (~586T)
+          → injected: 14690B (~3672T) / 8000T budget (45.9%)
+
+    Token estimate is ``bytes // 4`` to match the heuristic used by
+    ``tests/governance/test_v018_1_spec_guardrails.py::test_core_prompt_within_small_tier_budget``.
+    """
+    try:
+        from olav.agents.static_context_resolver import is_debug_enabled
+    except Exception:  # noqa: BLE001
+        return
+    if not is_debug_enabled():
+        return
+
+    try:
+        from olav.core.config import get_llm_config, tier_default
+        tier = get_llm_config().model_tier
+        budget_tokens = int(tier_default(tier, "context_budget", 0) or 0)
+    except Exception:  # noqa: BLE001
+        tier, budget_tokens = "unknown", 0
+
+    lines = [
+        f"OLAV_DEBUG_CONTEXT: agent={skill_dir.name} "
+        f"mode={mode} tier={tier} budget={budget_tokens}T"
+    ]
+    if mode != "always" and available_refs:
+        lines.append(
+            f"  (skipped init inject; {len(available_refs)} ref(s) available for lazy load: "
+            f"{', '.join(available_refs)})"
+        )
+    total_bytes = 0
+    for label, nbytes in injected:
+        tokens = nbytes // 4
+        total_bytes += nbytes
+        lines.append(f"  + {label}: {nbytes}B (~{tokens}T)")
+    total_tokens = total_bytes // 4
+    if injected:
+        if budget_tokens:
+            pct = 100.0 * total_tokens / budget_tokens
+            lines.append(
+                f"  → injected: {total_bytes}B (~{total_tokens}T) "
+                f"/ {budget_tokens}T budget ({pct:.1f}%)"
+            )
+        else:
+            lines.append(f"  → injected: {total_bytes}B (~{total_tokens}T)")
+    logger.info("\n".join(lines))
+
+
 def _inject_static_context(prompt: str, skill_dir: Path, metadata: dict) -> str:
     """Append static_context files to the system prompt.
 
@@ -81,7 +144,39 @@ def _inject_static_context(prompt: str, skill_dir: Path, metadata: dict) -> str:
     if not static_ctx:
         return prompt
 
+    # ARCH-17 P1: honour mode — only "always" bakes static_context into the
+    # init prompt. "on_intent" and "lazy" modes leave the prompt lean;
+    # StaticContextPlugin (per-turn) and get_static_context(@tool) handle
+    # the other two paths.
+    try:
+        from olav.agents.static_context_resolver import resolve_mode
+        mode = resolve_mode(metadata)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("static_context_resolver failed, defaulting to always: %s", exc)
+        mode = "always"
+    if mode != "always":
+        logger.info(
+            "static_context mode=%s for %s — skipping init-time inject",
+            mode, skill_dir.name,
+        )
+        # Let the model self-direct: list the available references so it
+        # knows what it can ask ``get_static_context(name)`` for.
+        available = []
+        for entry in static_ctx:
+            rel = entry.get("path", entry) if isinstance(entry, dict) else entry
+            rel = str(rel).removeprefix("$ref:")
+            available.append(Path(rel).stem)
+        _debug_log_injection(skill_dir, mode, [], available_refs=available)
+        if available:
+            hint = (
+                f"\n\n---\n## References (call ``get_static_context(name)`` to retrieve)\n"
+                f"Available: {', '.join(available)}\n"
+            )
+            return prompt + hint
+        return prompt
+
     appended: list[str] = []
+    injected_pairs: list[tuple[str, int]] = []
     for entry in static_ctx:
         # Support both {path: ...} dict and bare string
         rel_path = entry.get("path", entry) if isinstance(entry, dict) else entry
@@ -91,14 +186,18 @@ def _inject_static_context(prompt: str, skill_dir: Path, metadata: dict) -> str:
         content = _read_prompt_file(full_path)
         if content:
             label = full_path.name
-            appended.append(f"\n\n---\n## Reference: {label}\n\n{content.strip()}")
+            block = f"\n\n---\n## Reference: {label}\n\n{content.strip()}"
+            appended.append(block)
+            injected_pairs.append((label, len(block.encode("utf-8"))))
             logger.debug(f"  injected static_context: {label}")
         else:
             logger.warning(f"static_context file not found: {full_path}")
 
     if appended:
         logger.info(f"Injected {len(appended)} static_context file(s) from {skill_dir.name}")
+        _debug_log_injection(skill_dir, "always", injected_pairs)
         return prompt + "".join(appended)
+    _debug_log_injection(skill_dir, "always", injected_pairs)
     return prompt
 
 
@@ -343,7 +442,7 @@ class OLAVAgent:
 
         If AGENT.md frontmatter has an ``excluded_tools`` list, those tool
         names are removed from the final set before returning. This allows
-        domain agents (e.g. ops-lab) to suppress generic core tools (e.g.
+        domain agents (e.g. ops/lab) to suppress generic core tools (e.g.
         web_search) that would interfere with their constrained workflows.
         """
         tools: list = []
@@ -473,7 +572,15 @@ class OLAVAgent:
             # the execution path minimal (no filesystem side-effects expected).
             _is_api_agent = metadata.get("agent_type", "").strip().lower() in ("api", "query")
             _middleware = [] if _is_api_agent else [TodoListMiddleware()]
-            _summ = build_summarization_middleware(self.llm)
+            # ARCH-19 Round 42: tier-aware summarization threshold — small
+            # tier fires at 50% of context_budget, medium at 65%, large at
+            # 80% (via TIER_DEFAULTS.summarization_trigger_pct).
+            try:
+                from olav.core.config import get_llm_config
+                _tier = get_llm_config().model_tier
+            except Exception:
+                _tier = None
+            _summ = build_summarization_middleware(self.llm, tier=_tier)
             if _summ is not None:
                 _middleware.append(_summ)
             if HAS_PROMPT_CACHING and AnthropicPromptCachingMiddleware is not None:

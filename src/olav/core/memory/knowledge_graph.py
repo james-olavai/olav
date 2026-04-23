@@ -125,8 +125,8 @@ def materialize_graph(
         tags = []
         try:
             tags = json.loads(mem.get("tags") or "[]")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("kg: tags json parse failed for mem %s: %s", mem_id, e)
         for tag in tags:
             entities.setdefault(tag, []).append(mem_id)
 
@@ -235,8 +235,8 @@ def export_obsidian(
         tags = []
         try:
             tags = json.loads(mem.get("tags") or "[]")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("kg export: tags json parse failed for mem %s: %s", mem_id, e)
 
         # Determine subdirectory
         origin = mem.get("origin") or "agent"

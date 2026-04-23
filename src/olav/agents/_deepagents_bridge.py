@@ -77,57 +77,74 @@ Requires LangGraph Platform or self-hosted LangGraph server for actual remote ex
 from deepagents import create_deep_agent as _create_deep_agent  # noqa: E402
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent  # noqa: E402
 
+
+# ── Helper: atomic multi-submodule import ────────────────────────────────────
+# ARCH-22 E (Round 30): replaces 4 repeated ``if HAS_X: try/except: None; else:
+# None`` blocks. "All or nothing" semantics mean a partial-install deepagents
+# version degrades cleanly to "feature off" rather than half-available.
+
+
+def _safe_imports(
+    *specs: tuple[str, str, str | None],
+    enabled: bool = True,
+) -> dict[str, object | None]:
+    """Atomically import ``(module_path, attr, alias_or_None)`` specs.
+
+    Returns a dict keyed by ``alias or attr``. When ``enabled`` is False, or
+    any import in the group fails, every key maps to ``None``.
+    """
+    import importlib
+
+    keys = [alias or attr for _module, attr, alias in specs]
+    if not enabled:
+        return dict.fromkeys(keys, None)
+    try:
+        out: dict[str, object | None] = {}
+        for module_path, attr, alias in specs:
+            mod = importlib.import_module(module_path)
+            out[alias or attr] = getattr(mod, attr)
+        return out
+    except (ImportError, AttributeError):
+        return dict.fromkeys(keys, None)
+
+
 # ── Version-gated exports ─────────────────────────────────────────────────────
 
-if HAS_SUMMARIZATION:
-    try:
-        from deepagents.backends import StateBackend as _StateBackend
-        from deepagents.middleware.summarization import (
-            SummarizationToolMiddleware,
-            create_summarization_middleware as _create_summarization_middleware,
-            create_summarization_tool_middleware,
-        )
-        from deepagents.middleware import SummarizationMiddleware
-    except ImportError:
-        SummarizationMiddleware = None  # type: ignore[assignment,misc]
-        SummarizationToolMiddleware = None  # type: ignore[assignment,misc]
-        create_summarization_tool_middleware = None  # type: ignore[assignment,misc]
-        _StateBackend = None  # type: ignore[assignment,misc]
-        _create_summarization_middleware = None  # type: ignore[assignment,misc]
-else:
-    SummarizationMiddleware = None  # type: ignore[assignment,misc]
-    SummarizationToolMiddleware = None  # type: ignore[assignment,misc]
-    create_summarization_tool_middleware = None  # type: ignore[assignment,misc]
-    _StateBackend = None  # type: ignore[assignment,misc]
-    _create_summarization_middleware = None  # type: ignore[assignment,misc]
+_summ = _safe_imports(
+    ("deepagents.backends", "StateBackend", "_StateBackend"),
+    ("deepagents.middleware.summarization", "SummarizationToolMiddleware", None),
+    ("deepagents.middleware.summarization", "create_summarization_middleware", "_create_summarization_middleware"),
+    ("deepagents.middleware.summarization", "create_summarization_tool_middleware", None),
+    ("deepagents.middleware", "SummarizationMiddleware", None),
+    enabled=HAS_SUMMARIZATION,
+)
+_StateBackend = _summ["_StateBackend"]
+SummarizationToolMiddleware = _summ["SummarizationToolMiddleware"]
+_create_summarization_middleware = _summ["_create_summarization_middleware"]
+create_summarization_tool_middleware = _summ["create_summarization_tool_middleware"]
+SummarizationMiddleware = _summ["SummarizationMiddleware"]
 
-if HAS_LOCAL_SHELL_BACKEND:
-    try:
-        from deepagents.backends import LocalShellBackend
-    except ImportError:
-        LocalShellBackend = None  # type: ignore[assignment,misc]
-else:
-    LocalShellBackend = None  # type: ignore[assignment,misc]
+LocalShellBackend = _safe_imports(
+    ("deepagents.backends", "LocalShellBackend", None),
+    enabled=HAS_LOCAL_SHELL_BACKEND,
+)["LocalShellBackend"]
 
-if HAS_ASYNC_SUBAGENTS:
-    try:
-        from deepagents.middleware.async_subagents import AsyncSubAgent, AsyncSubAgentMiddleware
-    except ImportError:
-        AsyncSubAgent = None  # type: ignore[assignment,misc]
-        AsyncSubAgentMiddleware = None  # type: ignore[assignment,misc]
-else:
-    AsyncSubAgent = None  # type: ignore[assignment,misc]
-    AsyncSubAgentMiddleware = None  # type: ignore[assignment,misc]
+_async = _safe_imports(
+    ("deepagents.middleware.async_subagents", "AsyncSubAgent", None),
+    ("deepagents.middleware.async_subagents", "AsyncSubAgentMiddleware", None),
+    enabled=HAS_ASYNC_SUBAGENTS,
+)
+AsyncSubAgent = _async["AsyncSubAgent"]
+AsyncSubAgentMiddleware = _async["AsyncSubAgentMiddleware"]
 
-# AnthropicPromptCachingMiddleware: from langchain_anthropic (available in 0.4.x via deepagents dep)
-if HAS_PROMPT_CACHING:
-    try:
-        from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
-    except ImportError:
-        AnthropicPromptCachingMiddleware = None  # type: ignore[assignment,misc]
-        HAS_PROMPT_CACHING = False
-else:
-    AnthropicPromptCachingMiddleware = None  # type: ignore[assignment,misc]
+# AnthropicPromptCachingMiddleware: from langchain_anthropic (available in 0.4.x
+# via deepagents dep). Missing import demotes the feature flag too.
+AnthropicPromptCachingMiddleware = _safe_imports(
+    ("langchain_anthropic.middleware", "AnthropicPromptCachingMiddleware", None),
+    enabled=HAS_PROMPT_CACHING,
+)["AnthropicPromptCachingMiddleware"]
+if AnthropicPromptCachingMiddleware is None:
+    HAS_PROMPT_CACHING = False
 
 
 # ── Stable wrapper ────────────────────────────────────────────────────────────
@@ -148,12 +165,60 @@ def create_deep_agent(**kwargs):  # type: ignore[no-untyped-def]
     return _create_deep_agent(**kwargs)
 
 
-def build_summarization_middleware(model):  # type: ignore[no-untyped-def]
+_SUMMARIZATION_DEBUG_ENV = "OLAV_DEBUG_SUMMARIZATION"
+
+
+def _summarization_debug_enabled() -> bool:
+    """True when operator opts into SummarizationMiddleware config logging."""
+    import os
+    raw = os.environ.get(_SUMMARIZATION_DEBUG_ENV, "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def compute_summarization_trigger(tier: str | None) -> tuple[str, int] | None:
+    """Compute tier-specific ``trigger`` for SummarizationMiddleware (ARCH-19).
+
+    Returns a ``("tokens", N)`` tuple so the trigger works regardless of
+    whether the model carries a ``profile`` / ``max_input_tokens``
+    attribute (upstream's ``("fraction", 0.85)`` default fails silently on
+    profile-less models; our absolute-tokens threshold always fires).
+
+    Resolution:
+    * ``tier`` must be one of small/medium/large to enable tier-aware mode.
+    * Threshold = ``TIER_DEFAULTS[tier].context_budget *
+      summarization_trigger_pct``.
+    * Returns ``None`` when tier is missing or config unavailable — caller
+      must fall back to upstream defaults.
+    """
+    if tier not in {"small", "medium", "large"}:
+        return None
+    try:
+        from olav.core.config import TIER_DEFAULTS, tier_default
+        budget = int(TIER_DEFAULTS.get(tier, {}).get("context_budget") or 0)
+        if budget <= 0:
+            return None
+        pct = float(tier_default(tier, "summarization_trigger_pct", 0.0) or 0.0)
+        if pct <= 0 or pct >= 1:
+            return None
+        return ("tokens", int(budget * pct))
+    except Exception:
+        return None
+
+
+def build_summarization_middleware(model, tier: str | None = None):  # type: ignore[no-untyped-def]
     """Create a SummarizationMiddleware instance for the given model.
 
     Uses StateBackend (in-memory, no filesystem dependency) as the backend
     so compiled subagents get context compression without needing a real
     filesystem or sandbox backend.
+
+    Args:
+        model: Resolved ``BaseChatModel`` instance.
+        tier: Optional tier hint (``"small"`` / ``"medium"`` / ``"large"``).
+            When provided, selects an ARCH-19 tier-aware ``trigger`` from
+            ``TIER_DEFAULTS.summarization_trigger_pct`` × ``context_budget``
+            instead of the upstream 85% default. ``None`` or unknown tier
+            falls back to upstream ``create_summarization_middleware``.
 
     Returns None when SummarizationMiddleware or StateBackend are unavailable.
     """
@@ -161,10 +226,46 @@ def build_summarization_middleware(model):  # type: ignore[no-untyped-def]
         return None
     if _create_summarization_middleware is None or _StateBackend is None:
         return None
+
+    trigger = compute_summarization_trigger(tier)
     try:
-        return _create_summarization_middleware(model, _StateBackend)
+        if trigger is None:
+            # Unknown / unsupported tier → upstream defaults (profile-aware
+            # fraction=0.85 when available, fixed-token fallback otherwise).
+            mw = _create_summarization_middleware(model, _StateBackend)
+        else:
+            # Tier-aware path — instantiate directly so we can override
+            # trigger without fighting ``compute_summarization_defaults``.
+            if SummarizationMiddleware is None:
+                return _create_summarization_middleware(model, _StateBackend)
+            mw = SummarizationMiddleware(
+                model=model,
+                backend=_StateBackend,
+                trigger=trigger,
+                keep=("messages", 6),
+            )
     except Exception:
         return None
+
+    if _summarization_debug_enabled():
+        try:
+            import logging
+            _log = logging.getLogger(__name__)
+            if trigger is not None:
+                _log.info(
+                    "OLAV_DEBUG_SUMMARIZATION: tier=%s trigger=%s keep=%s "
+                    "(ARCH-19 tier-aware)",
+                    tier, trigger, ("messages", 6),
+                )
+            else:
+                _log.info(
+                    "OLAV_DEBUG_SUMMARIZATION: tier=%r — upstream defaults "
+                    "(compute_summarization_defaults auto-selected)",
+                    tier,
+                )
+        except Exception:
+            pass
+    return mw
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -173,6 +274,7 @@ __all__ = [
     # Core
     "create_deep_agent",
     "build_summarization_middleware",
+    "compute_summarization_trigger",
     "CompiledSubAgent",
     "SubAgent",
     # Version-gated (may be None if version too old)

@@ -4,6 +4,13 @@ Bypasses deepagents' SubAgentMiddleware to guarantee that each named
 subagent runs with ONLY the tools declared in its SKILL.md, with no
 FilesystemMiddleware or other deepagents-injected tools.
 
+ARCH-18 (Round 40): returned content is truncated to the current tier's
+``return_compact_chars`` budget (small=2000, medium=5000, large=10000)
+so a chatty subagent can't single-handedly eat a small-model
+orchestrator's context window. Truncation appends a visible
+``…[truncated, ran N > M chars]`` suffix — callers can always re-delegate
+with more specific scope if they need the tail.
+
 Usage (registered on the orchestrator):
     tools = [olav_delegate, ...]
     graph = create_deep_agent(model=llm, tools=tools, ...)
@@ -19,6 +26,40 @@ from langchain_core.runnables import Runnable
 from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
+
+
+# Hard floor so small-tier budgets (2000) still leave room for a meaningful
+# response; test environments with no config fall back to this.
+_SUBAGENT_RETURN_FALLBACK = 10000
+
+
+def _resolve_subagent_cap() -> int:
+    """Return the current tier's subagent return budget in characters.
+
+    Priority: ``TIER_DEFAULTS[<tier>]["return_compact_chars"]`` first (same
+    switchboard ARCH-18 #2 uses for execute_cli / diff_configs / api_request
+    response truncation); fall back to ``_SUBAGENT_RETURN_FALLBACK`` if
+    config is unavailable.
+    """
+    try:
+        from olav.core.config import get_llm_config, tier_default
+        tier = get_llm_config().model_tier
+        budget = tier_default(tier, "return_compact_chars", _SUBAGENT_RETURN_FALLBACK)
+        return int(budget) if budget else _SUBAGENT_RETURN_FALLBACK
+    except Exception:  # noqa: BLE001
+        return _SUBAGENT_RETURN_FALLBACK
+
+
+def _truncate(content: str, cap: int) -> str:
+    """Truncate ``content`` to ``cap`` chars with a visible suffix.
+
+    The suffix includes the full size so the orchestrator LLM can decide
+    whether to re-delegate with a narrower scope (e.g. "summarize in 500
+    chars") or accept the truncated view as sufficient.
+    """
+    if cap <= 0 or len(content) <= cap:
+        return content
+    return content[:cap] + f"\n…[truncated, subagent produced {len(content)} > {cap} chars]"
 
 
 def build_delegate_tool(
@@ -67,12 +108,14 @@ def build_delegate_tool(
             logger.exception("olav_delegate: subagent '%s' raised", subagent_name)
             return f"Subagent '{subagent_name}' failed: {exc}"
 
-        # Extract final AI response
+        # Extract final AI response, capped to the tier's return budget
+        # (ARCH-18 #4 Round 40).
+        cap = _resolve_subagent_cap()
         messages = result.get("messages", [])
         for msg in reversed(messages):
             content = getattr(msg, "content", None)
             if content and isinstance(content, str):
-                return content
+                return _truncate(content, cap)
             if content and isinstance(content, list):
                 # Anthropic structured content blocks
                 text_parts = [
@@ -80,7 +123,7 @@ def build_delegate_tool(
                 ]
                 combined = "\n".join(p for p in text_parts if p)
                 if combined:
-                    return combined
+                    return _truncate(combined, cap)
 
         return f"Subagent '{subagent_name}' completed with no text output."
 

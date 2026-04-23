@@ -220,7 +220,9 @@ class ApprovalResult:
 
 # ── 公开 API ──────────────────────────────────────────────────────────────────
 
-def check_approval(command: str, device: str = "") -> ApprovalResult:
+def check_approval(
+    command: str, device: str = "", environment: str | None = None
+) -> ApprovalResult:
     """检查命令是否需要人工审批。
 
     在 execute_cli_main() 的黑名单校验之后、Nornir 执行之前调用。
@@ -228,6 +230,8 @@ def check_approval(command: str, device: str = "") -> ApprovalResult:
     Args:
         command: 待执行的 CLI 命令字符串
         device:  目标设备名（仅用于错误信息，不影响判断逻辑）
+        environment: 可选的环境标签（lab/prod/staging）。仅追加到审计 reason
+            字串用于上下文，不影响审批判断本身（ARCH-08 Phase 2）。
 
     Returns:
         ``ApprovalResult(requires_approval=False)`` — 安全，可直接执行
@@ -236,7 +240,7 @@ def check_approval(command: str, device: str = "") -> ApprovalResult:
 
     Example::
 
-        result = check_approval("no router bgp 65000", device="R1")
+        result = check_approval("no router bgp 65000", device="R1", environment="prod")
         if result.requires_approval:
             return {
                 "status": "requires_approval",
@@ -262,10 +266,11 @@ def check_approval(command: str, device: str = "") -> ApprovalResult:
     for pattern, severity, description in _COMPILED_RULES:
         if pattern.search(command):
             device_hint = f" on {device}" if device else ""
+            env_hint = f" (env={environment})" if environment else ""
             return ApprovalResult(
                 requires_approval=True,
                 severity=severity,
-                reason=f"{description}{device_hint}",
+                reason=f"{description}{device_hint}{env_hint}",
                 matched_pattern=pattern.pattern,
             )
 

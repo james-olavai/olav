@@ -33,6 +33,9 @@ def generate_permission_rules(
     """
     rules: list[PermissionRule] = []
 
+    # LEGACY-KEEP: tool_generation is the pre-v0.15 schema name for what is
+    # now reference_generation. Users with unmigrated services.yaml still
+    # rely on this fallback until migrate_services_yaml.py is run.
     # Derive skill name prefix from reference_generation (preferred) or tool_generation (legacy)
     ref_groups = getattr(svc, "reference_generation", None)
     tool_groups = getattr(svc, "tool_generation", None)

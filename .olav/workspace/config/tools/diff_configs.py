@@ -1,1 +1,0 @@
-../../ops/tools/diff_configs.py

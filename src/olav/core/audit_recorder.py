@@ -453,8 +453,8 @@ class AuditEventRecorder:
             return
         try:
             write_audit_manifest(self._db_path)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("write_audit_manifest failed: %s", e)
 
 
 def audit_retention(db_path: str | Path, max_age_days: int = 90) -> int:
@@ -475,8 +475,8 @@ def audit_retention(db_path: str | Path, max_age_days: int = 90) -> int:
                 conn.execute(f"DELETE FROM {table} WHERE {ts_col} < ?", [threshold])
                 after = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
                 total += before - after
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("audit_retention table %s cleanup failed: %s", table, e)
 
     return total
 

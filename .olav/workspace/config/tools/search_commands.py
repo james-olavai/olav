@@ -1,1 +1,0 @@
-../../ops/tools/search_commands.py

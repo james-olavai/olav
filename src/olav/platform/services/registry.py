@@ -215,7 +215,8 @@ def _parse_service(name: str, raw: dict) -> ServiceConfig:
     tool_gen_raw = raw.get("tool_generation", {})
     ref_gen_raw = raw.get("reference_generation", {})
 
-    # Backward compat: if only tool_generation present, migrate with deprecation warning
+    # LEGACY-KEEP: pre-v0.15 services.yaml uses `tool_generation` — migrate
+    # window kept open via the DeprecationWarning below until v0.19.
     if tool_gen_raw and not ref_gen_raw:
         warnings.warn(
             f"Service '{name}': 'tool_generation' is deprecated. "

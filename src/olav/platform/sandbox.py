@@ -48,16 +48,64 @@ _DUCKDB_READONLY_PROLOGUE = textwrap.dedent("""\
 """)
 
 
+# ── Domain-registered sandbox prologues (ADR-0002 boundary) ──────────────
+# The platform core has no knowledge of which domain extensions are
+# installed. Extensions inject pre-loaded locals into the sandbox by
+# registering a prologue via the ``olav.sandbox_prologues`` entry-point
+# group. Each registered entry is either:
+#
+#   * a callable returning the Python source to inject (runtime-computed), or
+#   * a string constant carrying the injected source verbatim.
+#
+# Each prologue must be self-guarded (try/except) so a missing dependency
+# inside the prologue never breaks the sandbox.
+#
+# olav-netops registers an ARCH-14 ``model = load_network_model()``
+# prologue in its pyproject — that lives in the olav-netops tree, not
+# here.
+
+def _collect_domain_prologues() -> str:
+    """Iterate ``olav.sandbox_prologues`` entry-points and concatenate results.
+
+    Returns an empty string when no extension registers a prologue (pure
+    platform install or CI smoke). Any individual prologue that raises is
+    swallowed so the rest of the sandbox still starts.
+    """
+    try:
+        from importlib.metadata import entry_points
+    except Exception:
+        return ""
+    collected: list[str] = []
+    try:
+        eps = entry_points(group="olav.sandbox_prologues")
+    except Exception:
+        return ""
+    for ep in eps:
+        try:
+            obj = ep.load()
+            source = obj() if callable(obj) else str(obj)
+            if source:
+                collected.append(source)
+        except Exception:
+            # A broken prologue from one extension must never prevent
+            # the sandbox from starting for another.
+            continue
+    return "\n".join(collected)
+
+
 def _build_wrapper(code: str) -> str:
     """Build the wrapper script string for sandbox execution.
 
     Injects:
     1. DuckDB read_only=True monkey-patch (hardening §6.1)
-    2. Standard _result serialisation boilerplate
-    3. User code
+    2. Domain-registered prologues (``olav.sandbox_prologues`` entry-points)
+    3. Standard _result serialisation boilerplate
+    4. User code
     """
+    domain_prologues = _collect_domain_prologues()
     return (
         _DUCKDB_READONLY_PROLOGUE
+        + (domain_prologues + "\n" if domain_prologues else "")
         + textwrap.dedent("""\
             import json as _json
             import sys as _sys

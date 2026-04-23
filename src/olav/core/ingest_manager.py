@@ -29,32 +29,52 @@ from olav.core.config import AGENT_DIR, BACKUP_DIR, CONFIG_DIR, MAIN_DB_PATH
 from olav.platform.ingest_base import TableRegistry
 
 
-def _load_backup_commands() -> frozenset[str]:
-    """Read backup command list from .olav/workspace/ops/netops_init/config/backup_only_commands.yaml.
+def _load_backup_commands(db_path=None) -> frozenset[str]:
+    """Read backup command list from the ``netops.commands`` DB table.
 
-    Falls back to legacy paths for installations that have not yet migrated
-    to the M3 netops_init-scoped layout.
+    R76 cutover: backup-command classification moved from
+    ``backup_only_commands.yaml`` (read via ARCH-22 C
+    ``find_backup_commands_yaml``) to the R73 SSOT
+    ``netops.commands WHERE backup_only = true``.
 
-    Priority:
-    1. Post-M3 netops_init-scoped: .olav/workspace/ops/netops_init/config/backup_only_commands.yaml
-    2. Post-M2 domain path:        .olav/config/domains/netops/backup_only_commands.yaml
-    3. Legacy flat path:           .olav/config/backup_only_commands.yaml
+    Falls back to YAML only if the table is absent (fresh install
+    before the first ``sync_commands()`` run). That fallback will be
+    removed once existing deployments are known to have upgraded.
     """
-    netops_init_path = AGENT_DIR / "workspace" / "ops" / "netops_init" / "config" / "backup_only_commands.yaml"
-    domain_path = Path(CONFIG_DIR) / "domains" / "netops" / "backup_only_commands.yaml"
-    legacy_path = Path(CONFIG_DIR) / "backup_only_commands.yaml"
-    if netops_init_path.exists():
-        yaml_path = netops_init_path
-    elif domain_path.exists():
-        yaml_path = domain_path
-    else:
-        yaml_path = legacy_path
+    try:
+        import duckdb as _ddb
+        from olav.core.config import MAIN_DB_PATH
+        target = Path(db_path or MAIN_DB_PATH)
+        with _ddb.connect(str(target), read_only=True) as conn:
+            has_table = conn.execute(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema = 'netops' AND table_name = 'commands' LIMIT 1"
+            ).fetchone()
+            if has_table:
+                rows = conn.execute(
+                    "SELECT DISTINCT command FROM netops.commands "
+                    "WHERE backup_only = true"
+                ).fetchall()
+                return frozenset(r[0] for r in rows)
+    except Exception as exc:
+        logging.getLogger(__name__).debug(
+            "_load_backup_commands: DB path failed (%s); falling back to YAML", exc,
+        )
+
+    # Fallback: YAML file (pre-R73 deployments).
+    from olav.core.utils import find_backup_commands_yaml
+    yaml_path = find_backup_commands_yaml()
+    if yaml_path is None:
+        return frozenset()
     try:
         import yaml
         entries = yaml.safe_load(yaml_path.read_text()) or []
-        return frozenset(e["command"] for e in entries if isinstance(e, dict) and e.get("command"))
+        return frozenset(
+            e["command"] for e in entries
+            if isinstance(e, dict) and e.get("command")
+        )
     except Exception as exc:
-        logging.getLogger(__name__).warning("Could not load backup_only_commands.yaml: %s", exc)
+        logging.getLogger(__name__).warning("Could not load %s: %s", yaml_path, exc)
         return frozenset()
 
 logger = logging.getLogger(__name__)
@@ -206,8 +226,8 @@ class IngestManager:
             if _store:
                 SemanticCache(_store).invalidate_all()
                 logger.info("SemanticCache invalidated after data ingest")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("SemanticCache invalidate failed: %s", e)
 
         for hook in self._post_ingest_hooks:
             try:
@@ -221,26 +241,30 @@ class IngestManager:
         """Write raw output for backup_only_commands.yaml entries to disk.
 
         Output: BACKUP_DIR / {snapshot_id} / {device_name}_{command_slug}.txt
-        Reads command list from .olav/config/backup_only_commands.yaml each time
-        so changes to the YAML take effect without restart.
+        R76 cutover: backup-command list comes from ``netops.commands``
+        (populated by ``sync_commands`` at /netops_init Stage 0). The
+        ``backup_only_commands.yaml`` file is a fallback for pre-R73 deployments.
         """
-        backup_commands = _load_backup_commands()
+        backup_commands = _load_backup_commands(self.db_path)
         if not backup_commands or not snapshot_ids:
             return
 
         _store_tbl = TableRegistry.get("raw_output_store")
         store_table = _store_tbl.qualified_name if _store_tbl else "netops.raw_output_store"
 
-        cmds_sql = ", ".join(f"'{c}'" for c in backup_commands)
+        placeholders = ",".join(["?"] * len(backup_commands))
 
         try:
             with duckdb.connect(str(self.db_path), read_only=True) as conn:
-                rows = conn.execute(f"""
+                rows = conn.execute(
+                    f"""
                     SELECT device_name, command, raw_output, snapshot_id
                     FROM {store_table}
-                    WHERE command IN ({cmds_sql})
+                    WHERE command IN ({placeholders})
                       AND raw_output IS NOT NULL
-                """).fetchall()
+                    """,
+                    backup_commands,
+                ).fetchall()
         except Exception as exc:
             logger.warning("Backup query failed: %s", exc)
             return

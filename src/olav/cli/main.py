@@ -113,6 +113,13 @@ def parse_args():
         "skill",
         "registry",
         "kb",
+        # ARCH-12 / ARCH-11 / ARCH-13 CLI shortcuts added across Rounds 25/45/47.
+        # Missing from the NL-query escape hatch below, these subcommands
+        # would misroute through the auth-gated single-query fast-path and
+        # refuse to serve even ``--help`` on non-authenticated machines.
+        "catalog",
+        "explain",
+        "diff",
     }
 
     # Flags that consume the immediately following token as their value.
@@ -388,6 +395,18 @@ def parse_args():
     # KB (Unified Knowledge Store) command group
     from olav.cli.commands.kb import build_kb_parser
     build_kb_parser(subparsers)
+
+    # Catalog — three-level data model drill-down (ARCH-12)
+    from olav.cli.commands.catalog import build_catalog_parser
+    build_catalog_parser(subparsers)
+
+    # Explain — resolve an audit-report [src: ...] citation token (ARCH-11 Round 45)
+    from olav.cli.commands.explain import build_explain_parser
+    build_explain_parser(subparsers)
+
+    # Diff — cross-snapshot diff CLI shortcut (ARCH-13 Round 47)
+    from olav.cli.commands.diff import build_diff_parser
+    build_diff_parser(subparsers)
 
     # Default interactive mode flags
     parser.add_argument(
@@ -898,6 +917,14 @@ async def run_single_query(
         _tool_results: list[dict] = []  # capture tool outputs for post-processing
 
         _graph = agent.graph if hasattr(agent, "graph") else agent
+        # WRITER-01 (a) Round 39: tag 🔧 output with origin — "orch" for tools
+        # the top-level orchestrator invokes, "sub" for tools the subagent
+        # invokes after an olav_delegate / task call. Tier2 CI can filter
+        # by orch-only to tighten the T2-14 threshold away from the current
+        # loose ≤8 (which had to account for delegate-internal bloat).
+        _DELEGATE_TOOLS = {"olav_delegate", "task"}
+        _delegate_depth = 0
+
         async for event in _graph.astream_events(input_msg, config=config, version="v2"):
             kind = event.get("event", "")
             data = event.get("data", {})
@@ -923,11 +950,16 @@ async def run_single_query(
                 tool_name = event.get("name", "")
                 tool_input = data.get("input", {})
                 _input_preview = str(tool_input)[:60]
-                console.print(f"  🔧 {tool_name}({_input_preview}...)")
+                _origin = "sub" if _delegate_depth > 0 else "orch"
+                console.print(f"  🔧[{_origin}] {tool_name}({_input_preview}...)")
+                if tool_name in _DELEGATE_TOOLS:
+                    _delegate_depth += 1
 
             elif kind == "on_tool_end":
                 tool_name = event.get("name", "")
                 output = data.get("output", "")
+                if tool_name in _DELEGATE_TOOLS and _delegate_depth > 0:
+                    _delegate_depth -= 1
                 _tool_results.append({"name": tool_name, "content": str(output)[:4096]})
 
         final_content = "".join(_chunks)
@@ -1247,7 +1279,8 @@ async def cli_main_impl() -> None:
                     raise SystemExit(1)
                 return
 
-            # System admin commands → legacy admin_handler
+            # LEGACY-KEEP: admin_handler is the pre-v0.15 system admin entry
+            # retained for /admin … subcommands not yet migrated to refresh/skill.
             from olav.cli.admin import admin_handler
 
             result = await admin_handler(f"/admin {cmd_args}")
@@ -1557,6 +1590,24 @@ What tools are available and when should each be used?
         if args.command == "kb":
             from olav.cli.commands.kb import handle_kb_command
             sys.exit(handle_kb_command(args))
+            return
+
+        # Handle catalog command group (data model drill-down, ARCH-12)
+        if args.command == "catalog":
+            from olav.cli.commands.catalog import handle_catalog_command
+            sys.exit(handle_catalog_command(args))
+            return
+
+        # Handle explain — resolve [src: ...] citation tokens (ARCH-11 Round 45)
+        if args.command == "explain":
+            from olav.cli.commands.explain import handle_explain_command
+            sys.exit(handle_explain_command(args))
+            return
+
+        # Handle diff — cross-snapshot diff (ARCH-13 Round 47)
+        if args.command == "diff":
+            from olav.cli.commands.diff import handle_diff_command
+            sys.exit(handle_diff_command(args))
             return
 
         # Activate bypass mode before creating session (sets env var for all gates)

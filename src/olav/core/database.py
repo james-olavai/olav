@@ -8,10 +8,13 @@ file-based CommandRegistry (see olav.core.registry). Command discovery and
 validation is now handled through TextFSM templates rather than database entries.
 """
 
+import logging
 from pathlib import Path
 
 # Thread lock for concurrent database access
 from threading import Lock
+
+logger = logging.getLogger(__name__)
 
 import duckdb
 
@@ -100,8 +103,8 @@ def reset_database() -> None:
     if _db_instance is not None:
         try:
             _db_instance.close()
-        except Exception:  # noqa: S110
-            pass
+        except Exception as e:
+            logger.debug("database close during reset failed: %s", e)
         _db_instance = None
 
 

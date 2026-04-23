@@ -91,7 +91,7 @@ def _parse_profile_yaml(profile_path: str) -> dict:
         )
         raise FileNotFoundError(
             f"Audit profile not found: '{p.name}'. {hint}\n"
-            f"Create it first: olav --agent audit-designer 'Create {p.stem} profile'"
+            f"Create it first: olav --agent audit-auditor 'Create {p.stem} profile'"
         )
     content = p.read_text()
     match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
@@ -138,6 +138,9 @@ def run_map_engine(
     profile_name = profile.get("name", "unnamed")
     max_findings = profile.get("max_findings_per_job", 50)
     persist = profile.get("persist_findings_to_db", False)
+    # ARCH-11 Phase 1: profile opt-in. When true, each finding is decorated
+    # with a `_source` dict and render_report prints a [src: …] tag.
+    emit_sources = bool(profile.get("emit_sources", False))
 
     # ── Resolution: parse snapshot_resolution → minutes (drives anomaly + incident engines)
     raw_resolution = profile.get("snapshot_resolution", "1d")
@@ -168,6 +171,14 @@ def run_map_engine(
                     window=time_window,
                     max_findings=max_findings,
                 )
+                # RAW-05: when a parsed-only SQL job returns nothing but
+                # raw_output_store still has rows for the same command, the
+                # operator would otherwise see a clean bill of health. Emit
+                # raw_only_data sentinels so the gap is visible downstream.
+                if not findings and job.get("raw_fallback"):
+                    findings = _raw_fallback_probe(conn, job.get("query", ""))
+                if emit_sources:
+                    _attach_sql_sources(findings, job.get("query", ""))
             elif job_type == "lancedb":
                 findings = _execute_lancedb_job(
                     job=job,
@@ -182,7 +193,12 @@ def run_map_engine(
                     window=time_window,
                     max_findings=max_findings,
                     resolution_minutes=resolution_minutes,
+                    emit_sources=emit_sources,
                 )
+                if not findings and job.get("raw_fallback"):
+                    findings = _raw_fallback_probe(
+                        conn, job.get("anomaly", {}).get("query", "")
+                    )
             elif job_type == "api_anomaly":
                 # Third-party API path: no raw history in DuckDB.
                 # Observations are fetched via HTTP (job.api.endpoint) or
@@ -342,6 +358,79 @@ def _fetch_api_observations(
     except Exception as exc:
         logger.warning("api_anomaly HTTP fetch failed (%s): %s", endpoint, exc)
         return []
+
+
+def _attach_sql_sources(findings: list[dict], query: str) -> None:
+    """ARCH-11 Phase 1: decorate SQL findings with a ``_source`` dict.
+
+    Extracts the first ``FROM <table>`` token from the query and annotates
+    each finding row with table / snapshot_id / device / row_index so the
+    render layer can emit a ``[src: …]`` citation suffix. Runs in-place.
+    """
+    import re
+
+    m = re.search(r"\bFROM\s+([A-Za-z_][A-Za-z0-9_.]*)", query, re.IGNORECASE)
+    table = m.group(1) if m else "unknown"
+    for i, row in enumerate(findings):
+        row["_source"] = {
+            "type": "sql",
+            "table": table,
+            "snapshot_id": row.get("snapshot_id"),
+            "device": row.get("device_name") or row.get("device"),
+            "row_index": i,
+        }
+
+
+def _raw_fallback_probe(
+    conn: duckdb.DuckDBPyConnection,
+    query: str,
+    max_findings: int = 20,
+) -> list[dict]:
+    """Check ``netops.raw_output_store`` for rows matching the same command
+    pattern as the primary query (RAW-05).
+
+    When a parsed-outputs-only job returns empty findings but raw captures
+    exist for the same ILIKE pattern, emit ``_warning: raw_only_data``
+    sentinels so operators know analysis couldn't actually run on this
+    command — they're not looking at a clean-bill-of-health, they're
+    looking at unparsed data.
+
+    The command pattern is extracted from the query via regex. If no ILIKE
+    clause is detected the probe is a no-op (returns empty list).
+    """
+    import re
+
+    m = re.search(r"command\s+ILIKE\s+'([^']+)'", query, re.IGNORECASE)
+    if not m:
+        return []
+    pattern = m.group(1)
+
+    try:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT device_name, command
+            FROM netops.raw_output_store
+            WHERE command ILIKE ? AND raw_output IS NOT NULL AND raw_output <> ''
+            LIMIT ?
+            """,
+            [pattern, int(max_findings)],
+        ).fetchall()
+    except Exception as exc:
+        logger.debug("raw_fallback_probe failed: %s", exc)
+        return []
+
+    return [
+        {
+            "_warning": "raw_only_data",
+            "device_name": dev,
+            "command": cmd,
+            "note": (
+                "raw output is available but parsed_outputs is empty — "
+                "TextFSM parser may have failed. Analysis skipped."
+            ),
+        }
+        for dev, cmd in rows
+    ]
 
 
 def _execute_sql_job(

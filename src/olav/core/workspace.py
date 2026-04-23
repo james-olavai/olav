@@ -9,11 +9,14 @@ Reference: dev_docs/18. ECOSYSTEM_SPLIT_PLAN.md §1.2
 
 from __future__ import annotations
 
+import logging
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -135,10 +138,11 @@ def get_active_workspace() -> str:
             ws = data.get("active_workspace")
             if ws and str(ws).strip():
                 return str(ws)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:
+            logger.debug("api.json active_workspace read failed: %s", e)
 
-    # Legacy fallback: settings.json (removed in M2, kept for compat)
+    # LEGACY-KEEP: pre-M2 settings.json fallback — removed as the canonical
+    # source but users upgrading from <0.12 may still have the file.
     settings_path = Path(".olav") / "config" / "settings.json"
     if settings_path.exists():
         try:
@@ -146,8 +150,8 @@ def get_active_workspace() -> str:
             ws = data.get("active_workspace")
             if ws and str(ws).strip():
                 return str(ws)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:
+            logger.debug("settings.json active_workspace read failed: %s", e)
     return "core"
 
 

@@ -2,8 +2,8 @@
 ssh.py — SSH 远程执行后端
 
 通过系统 ssh 客户端在远程主机上执行命令。
-用于 ops-lab 场景（ContainerLab 宿主机上的特权操作）和
-ops-probe 场景（在远端节点执行诊断命令）。
+用于 ops/lab 场景（ContainerLab 宿主机上的特权操作）和
+ops/probe 场景（在远端节点执行诊断命令）。
 
 不依赖 paramiko，使用系统 ssh —— 在有 ~/.ssh/config 和密钥的环境中零配置。
 

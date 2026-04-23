@@ -312,7 +312,7 @@ class LanceDBStore:
 
             tbl = self.get_table(table_name)
 
-            now = datetime.now()
+            now = datetime.now(UTC)
             metadata_json = json.dumps(metadata) if metadata else "{}"
 
             # Create record
@@ -656,6 +656,7 @@ class LanceDBStore:
 _store_instance: LanceDBStore | None = None
 _store_db_path: str | Path | None = None
 _store_embedding_dim: int | None = None
+_store_lock = threading.Lock()
 
 
 def _detect_embedding_dim() -> int:
@@ -694,27 +695,28 @@ def get_store(
     if embedding_dim is None:
         embedding_dim = _detect_embedding_dim()
 
-    # Create new instance if path or embedding_dim differs
-    if (
-        _store_instance is None
-        or db_path != _store_db_path
-        or embedding_dim != _store_embedding_dim
-    ):
-        if db_path is not None:
-            _store_db_path = db_path
-        _store_embedding_dim = embedding_dim
-        _store_instance = LanceDBStore(db_path=db_path, embedding_dim=embedding_dim)
+    with _store_lock:
+        if (
+            _store_instance is None
+            or db_path != _store_db_path
+            or embedding_dim != _store_embedding_dim
+        ):
+            if db_path is not None:
+                _store_db_path = db_path
+            _store_embedding_dim = embedding_dim
+            _store_instance = LanceDBStore(db_path=db_path, embedding_dim=embedding_dim)
 
-    return _store_instance
+        return _store_instance
 
 
 def reset_store():
     """Reset the singleton store instance."""
     global _store_instance
 
-    if _store_instance:
-        _store_instance.close()
-        _store_instance = None
+    with _store_lock:
+        if _store_instance:
+            _store_instance.close()
+            _store_instance = None
 
 
 class SemanticCache:
@@ -739,14 +741,39 @@ class SemanticCache:
     _entries: list[tuple[list[float], list[dict], float]] = []
     _lock = threading.Lock()
 
+    # LEGACY-KEEP: ARCH-22 C5 — ``store`` / ``table_name`` kwargs retained
+    # for compat. The cache has been in-memory since v0.14; the kwargs
+    # remain only so that old callers don't hit a TypeError. Round 50
+    # added a ``DeprecationWarning`` when callers pass non-default values
+    # so the next major can drop the kwargs without surprising anyone.
+    _DEFAULT_TABLE_NAME = "query_cache"
+
     def __init__(
         self,
-        store=None,  # kept for API compatibility, no longer used
+        store=None,  # LEGACY-KEEP: no-op since v0.14 (ARCH-22 C5)
         threshold: float = 0.02,
         ttl_hours: int = 24,
         max_entries: int = 500,
-        table_name: str = "query_cache",  # kept for API compatibility, ignored (in-memory)
+        table_name: str = _DEFAULT_TABLE_NAME,  # LEGACY-KEEP: no-op since v0.14 (ARCH-22 C5)
     ) -> None:
+        if store is not None:
+            import warnings
+            warnings.warn(
+                "SemanticCache(store=...) is deprecated and has been ignored "
+                "since v0.14 (cache is process-local). The parameter will be "
+                "removed in the next major release — drop the argument.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        if table_name != self._DEFAULT_TABLE_NAME:
+            import warnings
+            warnings.warn(
+                f"SemanticCache(table_name={table_name!r}) is deprecated — "
+                f"the cache is process-local and does not use a DuckDB table. "
+                f"The parameter will be removed in the next major release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         self._threshold = threshold
         self._ttl_seconds = ttl_hours * 3600
         self._max_entries = max_entries
@@ -937,7 +964,8 @@ def hybrid_search(
         vector_weight: Relative weight for the vector search list (default 0.5).
         text_weight: Relative weight for the BM25 search list (default 0.5).
         use_cache: Enable Tier-0 semantic cache (default True).
-        table_name: Table to search (default MEMORY_TABLE, can be KB_TABLE etc).
+        table_name: Table to search (default ``MEMORY_TABLE`` — the unified
+            memory store; see dev_docs/43 for the design rationale).
 
     Returns:
         Combined and reranked list of results.
