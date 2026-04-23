@@ -365,6 +365,10 @@ class OLAVAgent:
 
         # 插件扣前加载 — 键入 create_deep_agent middleware + callbacks
         from olav.plugins import load_builtin_plugins, load_external_plugins
+        from olav.plugins.middleware._mode import (
+            partition_for_mode,
+            resolve_middleware_mode,
+        )
         from olav.plugins.registry import PluginRegistry
 
         _disabled = []
@@ -375,10 +379,22 @@ class OLAVAgent:
         self.plugin_registry = PluginRegistry(disabled=_disabled)
         load_builtin_plugins(self.plugin_registry)
         load_external_plugins(self.plugin_registry)
+
+        # P3 dual-path: OLAV_MIDDLEWARE_MODE selects whether audit events
+        # flow through the legacy AuditCallbackPlugin or the new
+        # AuditMiddleware.  Both are loaded; the partitioner drops the
+        # opposite path's audit plugin so events aren't recorded twice.
+        # v0.20.1 default is "callback" (zero user-visible change); v0.20.2
+        # flips the default to "middleware" for Phase 6 TUI cutover.
+        self._middleware_mode = resolve_middleware_mode()
+        effective_middleware, effective_callbacks = partition_for_mode(
+            self.plugin_registry, self._middleware_mode
+        )
         logger.info(
-            f"✓ Plugin registry: "
-            f"{len(self.plugin_registry.get_middleware_plugins())} middleware, "
-            f"{len(self.plugin_registry.get_callback_plugins())} callbacks"
+            "✓ Plugin registry: %d middleware, %d callbacks (mode=%s)",
+            len(effective_middleware),
+            len(effective_callbacks),
+            self._middleware_mode,
         )
 
         self.graph = create_deep_agent(
@@ -388,11 +404,12 @@ class OLAVAgent:
             checkpointer=self.checkpointer,
             store=self.store,
             subagents=subagents,
-            middleware=self.plugin_registry.get_middleware_plugins(),
+            middleware=effective_middleware,
         )
         # Store middleware ref for manual invocation — deepagents 0.5.2
         # accepts the `middleware` kwarg but doesn't mount it on the graph.
-        self._olav_middleware = list(self.plugin_registry.get_middleware_plugins())
+        self._olav_middleware = list(effective_middleware)
+        self._olav_callbacks = list(effective_callbacks)
 
     # ------------------------------------------------------------------
     # Tool loading helpers
@@ -647,7 +664,18 @@ class OLAVAgent:
         if isinstance(input_, str):
             input_ = {"messages": [{"role": "user", "content": input_}]}
 
-        config: dict = {"callbacks": self.plugin_registry.get_callback_plugins()}
+        # Use mode-filtered callback list so AuditCallbackPlugin is
+        # dropped when OLAV_MIDDLEWARE_MODE=middleware (otherwise audit
+        # events get recorded twice — once via callback, once via
+        # AuditMiddleware's graph hooks).
+        # Back-compat: tests that bypass __init__ (e.g. via
+        # ``object.__new__(OLAVAgent)``) never set ``_olav_callbacks``
+        # — fall back to the raw registry list so those tests still
+        # work without carrying stale partitioning logic.
+        effective_callbacks = getattr(self, "_olav_callbacks", None)
+        if effective_callbacks is None:
+            effective_callbacks = self.plugin_registry.get_callback_plugins()
+        config: dict = {"callbacks": effective_callbacks}
         if thread_id:
             config["configurable"] = {"thread_id": thread_id}
 
