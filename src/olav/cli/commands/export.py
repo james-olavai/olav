@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shlex
 import shutil
 from pathlib import Path
 from typing import Any
@@ -122,7 +121,9 @@ class ExportCommand(BaseCommand):
         self.workspace_root = Path(".olav") / "workspace"
 
     async def execute(self, args: str = "") -> str:
-        parts = shlex.split(args.strip()) if args.strip() else []
+        from olav.cli.commands._argparse import parse_subcommand_args
+
+        parts = parse_subcommand_args(args)
         if not parts:
             return "export requires a target: claude-skills or claude-plugin"
 
