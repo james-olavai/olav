@@ -26,9 +26,15 @@ See `dev_docs/56. PHASE_B_v0_20_2_CUTOVER.md` §3.1 for design rationale.
 
 from __future__ import annotations
 
+import logging
+import shutil
+import tarfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
+
+logger = logging.getLogger(__name__)
 
 _LEGACY_WORKSPACE_ROOT = Path(".olav") / "workspace"
 """Relative location of the v0.19.x workspace tree under the project
@@ -237,10 +243,138 @@ def plan_migration(root: Path) -> MigrationPlan:
     return plan
 
 
+@dataclass
+class MigrationResult:
+    """Outcome of :func:`apply_migration`.
+
+    Mutable so callers can inspect or log individual operation
+    outcomes before disposing.  Not thread-safe.
+    """
+
+    applied_operations: int = 0
+    """Count of operations that actually ran (``status=="ok"``)."""
+    skipped_operations: int = 0
+    """Count of operations the applier skipped (target already existed,
+    or idempotent no-op)."""
+    backup_path: Path | None = None
+    """Absolute path to the backup tarball, or ``None`` when
+    ``backup=False`` was passed or no legacy tree existed."""
+    operation_results: list[dict[str, str]] = field(default_factory=list)
+    """Per-operation result records with at least ``kind`` and
+    ``status`` keys.  Useful for CLI output and for tests."""
+
+
+def apply_migration(
+    plan: MigrationPlan,
+    *,
+    backup: bool = True,
+) -> MigrationResult:
+    """Execute *plan*'s operations, optionally backing up the legacy
+    tree first.
+
+    The migration is **copy-based**: legacy files are left in place.
+    This lets users fall back to ``OLAV_V0_20_LAYOUT=legacy`` without
+    re-running anything, and P7 can schedule a separate cleanup pass
+    that deletes ``.olav/workspace/`` once confidence is high.
+
+    Args:
+        plan: Produced by :func:`plan_migration`.
+        backup: When ``True`` (default), tar ``.olav/workspace/`` into
+            ``.olav.bak/v0.19-<timestamp>.tar.gz`` before applying any
+            operation.  Skipped automatically when no legacy tree
+            exists (empty plans, already-migrated installs).
+
+    Returns:
+        A :class:`MigrationResult` describing what happened.
+    """
+    result = MigrationResult()
+
+    if not plan.operations:
+        return result
+
+    if backup:
+        backup_path = _create_backup(plan.root)
+        result.backup_path = backup_path
+
+    for op in plan.operations:
+        entry = {"kind": op.kind, "status": "ok", "target": str(op.target)}
+        try:
+            if op.kind == "create_new_agent_dir":
+                op.target.mkdir(parents=True, exist_ok=True)
+            elif op.kind == "rename_agent_md":
+                op.target.parent.mkdir(parents=True, exist_ok=True)
+                _copy_file(op.source, op.target)
+            elif op.kind == "flatten_subagent":
+                op.target.parent.mkdir(parents=True, exist_ok=True)
+                _copy_file(op.source, op.target)
+            elif op.kind == "copy_sibling":
+                # Generic fallback — currently unused by plan_migration
+                # but reserved for future extensions.
+                op.target.parent.mkdir(parents=True, exist_ok=True)
+                if op.source.is_dir():
+                    shutil.copytree(op.source, op.target, dirs_exist_ok=True)
+                else:
+                    _copy_file(op.source, op.target)
+            else:
+                logger.warning("Unknown operation kind %s; skipping", op.kind)
+                entry["status"] = "skipped"
+                result.skipped_operations += 1
+                result.operation_results.append(entry)
+                continue
+            result.applied_operations += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Operation %s failed (source=%s target=%s): %s",
+                op.kind,
+                op.source,
+                op.target,
+                exc,
+            )
+            entry["status"] = "error"
+            entry["error"] = str(exc)
+            result.skipped_operations += 1
+        result.operation_results.append(entry)
+
+    return result
+
+
+def _copy_file(source: Path, target: Path) -> None:
+    """Copy one file preserving content; target-already-exists is a
+    soft no-op (idempotent)."""
+    if target.is_file() and target.read_bytes() == source.read_bytes():
+        return
+    shutil.copy2(source, target)
+
+
+def _create_backup(root: Path) -> Path | None:
+    """Tar ``.olav/workspace/`` into ``.olav.bak/v0.19-<ts>.tar.gz``.
+
+    Returns the tarball path, or ``None`` when there's nothing to
+    back up.
+    """
+    legacy = root / _LEGACY_WORKSPACE_ROOT
+    if not legacy.is_dir():
+        return None
+
+    backup_dir = root / ".olav.bak"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    tar_path = backup_dir / f"v0.19-{ts}.tar.gz"
+
+    with tarfile.open(tar_path, mode="w:gz") as tar:
+        # arcname kept relative so an extraction anywhere reproduces
+        # .olav/workspace/… structure.
+        tar.add(legacy, arcname=str(_LEGACY_WORKSPACE_ROOT))
+
+    return tar_path
+
+
 __all__ = [
     "MigrationPlan",
+    "MigrationResult",
     "Operation",
     "OperationKind",
     "already_migrated",
+    "apply_migration",
     "plan_migration",
 ]
