@@ -279,10 +279,18 @@ def _run_collection(
     reused. Incremental checkpoint writes happen after every successful
     ``_collect_cmd``.
     """
-    # Import inline to avoid langchain decorator at import time
+    # Import inline to avoid langchain decorator at import time.
+    # ``resolve_nornir_config_path`` lives in olav_netops (domain layer);
+    # ``MAIN_DB_PATH`` / ``SNAPSHOTS_DIR`` / ``get_paths_config`` live in
+    # ``olav.core.config`` (platform layer) — keeping the split honours the
+    # ADR-0002 boundary.  A prior refactor merged the import into a single
+    # line against ``olav_netops.core.config_paths`` by mistake; that module
+    # never exported the latter three, so every full collection raised
+    # ``ImportError``.  See DEMO_RUNSHEET Chapter 2 Step 3.
     from nornir import InitNornir
     from nornir_netmiko.tasks import netmiko_send_command
-    from olav_netops.core.config_paths import resolve_nornir_config_path as _resolve_nornir_config_path, MAIN_DB_PATH, SNAPSHOTS_DIR, get_paths_config
+    from olav_netops.core.config_paths import resolve_nornir_config_path as _resolve_nornir_config_path
+    from olav.core.config import MAIN_DB_PATH, SNAPSHOTS_DIR, get_paths_config
     from olav.core.utils import utc_now
     try:
         from .checkpoint import Checkpoint, checkpoint_path, save as save_checkpoint
