@@ -109,19 +109,15 @@ def _discovery_commands_for(platform: str, conn) -> list[str]:
     return cmds
 
 # Platforms that are NOT Cisco IOS-compatible
-_JUNOS_PLATFORMS = {"juniper_junos", "juniper", "junos"}
-
-
 def _normalise_platform(platform: str) -> str:
-    """Map various platform strings to canonical form."""
-    p = (platform or "").replace("-", "_").lower()
-    if p in ("ios", "cisco_ios", "cisco_ios_xe"):
-        return "cisco_ios"
-    if p in ("junos", "juniper_junos", "juniper"):
-        return "juniper_junos"
-    if p in ("nxos", "cisco_nxos"):
-        return "cisco_nxos"
-    return p or "cisco_ios"
+    """Canonicalise a nornir/netmiko platform string.
+
+    Thin wrapper over :func:`olav_netops.core.platform_canonical.canonicalize_platform`
+    (the SSOT) with one safety net — if the input is empty, default to
+    ``cisco_ios`` because that's what nornir emits for unclassified hosts.
+    """
+    from olav_netops.core.platform_canonical import canonicalize_platform
+    return canonicalize_platform(platform) or "cisco_ios"
 
 
 # ── TextFSM helper ────────────────────────────────────────────────────────
@@ -757,11 +753,7 @@ def _populate_devices(db_path, snapshot_id: str) -> int:
     deployments working without a data-wipe.
     """
     import duckdb as _ddb
-
-    _PLATFORM_VENDOR = {
-        "cisco_ios": "Cisco", "cisco_nxos": "Cisco", "cisco_xr": "Cisco",
-        "juniper_junos": "Juniper", "arista_eos": "Arista", "huawei_vrp": "Huawei",
-    }
+    from olav_netops.core.platform_profiles import get_profile
 
     # Load the full hostname → inventory-metadata map once.  Provides
     # role/site/environment/groups/aliases for every host declared in
@@ -874,7 +866,7 @@ def _populate_devices(db_path, snapshot_id: str) -> int:
                     pass
 
             plat = plat or "unknown"
-            vendor = _PLATFORM_VENDOR.get(plat, "")
+            vendor = get_profile(plat).get("vendor", "")
 
             # Pull per-host inventory metadata: role/site/environment go
             # into dedicated columns; groups + aliases + any other
