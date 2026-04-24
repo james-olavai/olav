@@ -1235,11 +1235,29 @@ else
     echo "FAIL (HTTP ${_code}, expected 307)"; FAIL=$((FAIL + 1))
 fi
 
-# Get admin token
-ADMIN_TOKEN=$(cat "${HOME}/.olav/token" 2>/dev/null | tr -d '[:space:]' || echo "")
+# Get admin token — resolution order mirrors olav.core.auth.keyring_store.load_token:
+#   1. $OLAV_TOKEN env var (CI override)
+#   2. per-env file at .olav/databases/.auth_token (new keyring fallback location)
+#   3. legacy ~/.olav/token  (pre-keyring installs)
+#   4. .olav/config/token    (even older)
+#   5. OS keyring via `olav admin rotate-token --show` as last resort
+ADMIN_TOKEN="${OLAV_TOKEN:-}"
 if [ -z "$ADMIN_TOKEN" ]; then
-    # Try reading from .olav/config area
+    ADMIN_TOKEN=$(cat "${TEST_DIR}/.olav/databases/.auth_token" 2>/dev/null | tr -d '[:space:]' || echo "")
+fi
+if [ -z "$ADMIN_TOKEN" ]; then
+    ADMIN_TOKEN=$(cat "${HOME}/.olav/token" 2>/dev/null | tr -d '[:space:]' || echo "")
+fi
+if [ -z "$ADMIN_TOKEN" ]; then
     ADMIN_TOKEN=$(cat "${TEST_DIR}/.olav/config/token" 2>/dev/null | tr -d '[:space:]' || echo "")
+fi
+if [ -z "$ADMIN_TOKEN" ]; then
+    # keyring path — invoke load_token() directly against this test's users.duckdb
+    ADMIN_TOKEN=$("$PYTHON" -c "
+from pathlib import Path
+from olav.core.auth.keyring_store import load_token
+print(load_token(users_db_path=Path('${TEST_DIR}/.olav/databases/users.duckdb')) or '')
+" 2>/dev/null | tr -d '[:space:]' || echo "")
 fi
 
 if [ -n "$ADMIN_TOKEN" ]; then
@@ -1451,7 +1469,67 @@ else
     echo "FAIL (HTTP ${_code})"; FAIL=$((FAIL + 1))
 fi
 
-skip_test "[T1-47]" "CIDR 阻止 192.168 IP (needs non-loopback client — loopback always allowed)"
+# T1-47: CIDR blocks non-allowlisted non-loopback source.
+#
+# Can't test from localhost via HTTP (CIDR middleware always allows loopback
+# by design).  Exercise the middleware in-process with a synthetic Starlette
+# request whose client.host is a non-loopback IP outside the allowlist —
+# same code path, without needing a second machine.
+cat > "${HELPERS}/t1_47_cidr_block.py" << 'EOF'
+import asyncio, json, os, sys
+from pathlib import Path
+os.chdir(Path(sys.argv[1]))
+# Configure allowlist = only 10.0.0.0/8 so a 203.0.113.x source is blocked.
+cfg_path = Path(".olav/config/api.json")
+cfg = json.loads(cfg_path.read_text())
+cfg.setdefault("security", {})["allowed_cidrs"] = ["10.0.0.0/8"]
+cfg_path.write_text(json.dumps(cfg, indent=2))
+
+# Reset the config singleton so the middleware reads our patched value.
+from olav.core.config import ConfigLoader
+ConfigLoader._loaded = False
+ConfigLoader._instance = None
+
+from starlette.requests import Request
+from olav.api.server import cidr_allowlist_middleware
+
+async def _call_next(_req):
+    from starlette.responses import JSONResponse
+    return JSONResponse({"ok": True})
+
+async def main():
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/threads",
+        "headers": [],
+        # 203.0.113.x is TEST-NET-3 (RFC 5737) — non-loopback, not in 10/8.
+        "client": ("203.0.113.42", 12345),
+        "scheme": "http",
+        "http_version": "1.1",
+        "server": ("127.0.0.1", 2280),
+        "query_string": b"",
+        "root_path": "",
+    }
+    req = Request(scope)
+    resp = await cidr_allowlist_middleware(req, _call_next)
+    if resp.status_code != 403:
+        print(f"FAIL (expected 403 for 203.0.113.42 outside 10/8; got {resp.status_code})")
+        sys.exit(1)
+    print("OK")
+    sys.exit(0)
+
+asyncio.run(main())
+EOF
+echo -n "  [T1-47] CIDR 阻止 TEST-NET-3 source (in-process)... "
+if _out=$("$PYTHON" "${HELPERS}/t1_47_cidr_block.py" "${TEST_DIR}" 2>&1) && echo "$_out" | grep -q "^OK$"; then
+    echo "OK"; PASS=$((PASS + 1))
+else
+    echo "FAIL ($_out)"; FAIL=$((FAIL + 1))
+fi
+# Restore CIDR (T1-48+ will re-set it).
+"$PYTHON" "${HELPERS}/set_cidr.py" "${TEST_DIR}" "" >/dev/null 2>&1
+restart_web 3
 
 # T1-48/T1-49: Configure CIDR 10.0.0.0/8 — /health exempt, localhost allowed
 "$PYTHON" "${HELPERS}/set_cidr.py" "${TEST_DIR}" "['10.0.0.0/8']" >/dev/null 2>&1
