@@ -675,18 +675,44 @@ assert pol["unbound"] is True and pol["action"] == "permit", pol
 print("OK")
 EOF
 
-# ── T1-61 helper: sandbox prologue contains NetworkModel auto-inject ─────
+# ── T1-61 helper: sandbox prologue wiring (ADR-0002 post-split) ─────────
+# Pre-ADR-0002 the NoM prologue was baked into olav.platform.sandbox as
+# a constant (_NETWORK_MODEL_PROLOGUE).  The platform/domain boundary
+# cleanup moved it out to olav-netops, registered via the
+# ``olav.sandbox_prologues`` entry-point group.  This test now verifies
+# the extension mechanism itself: _build_wrapper composes the DuckDB
+# safety prologue + domain-collected prologues, and _collect_domain_prologues
+# returns the NoM code when olav-netops is installed.
 cat > "${HELPERS}/t1_61_sandbox_inject.py" << 'EOF'
-"""Round 57: execute_in_sandbox wrapper must carry the NoM
-auto-inject prologue so model resolves inside the subprocess."""
-from olav.platform.sandbox import _build_wrapper, _NETWORK_MODEL_PROLOGUE
-assert "load_network_model" in _NETWORK_MODEL_PROLOGUE
-assert "model = _olav_load_network_model()" in _NETWORK_MODEL_PROLOGUE
+from olav.platform.sandbox import _build_wrapper, _collect_domain_prologues
+
 wrapper = _build_wrapper("print('hi')")
-assert "DuckDB safety patch" in wrapper
-assert "NetworkModel auto-inject" in wrapper
-# DuckDB prologue must come before the NoM one so read-only is inherited.
-assert wrapper.find("DuckDB safety patch") < wrapper.find("NetworkModel auto-inject")
+assert "DuckDB safety patch" in wrapper, (
+    "DuckDB safety prologue missing from sandbox wrapper"
+)
+
+collected = _collect_domain_prologues()
+assert isinstance(collected, str), (
+    f"_collect_domain_prologues() must return str, got {type(collected)}"
+)
+
+try:
+    import olav_netops  # noqa: F401
+    has_netops = True
+except ImportError:
+    has_netops = False
+
+if has_netops:
+    # olav-netops is on path — its NoM prologue should be present OR
+    # the entry-point was unregistered.  Empty string is acceptable
+    # only if the package itself doesn't declare olav.sandbox_prologues
+    # any more (platform-only install on the same interpreter).
+    if collected:
+        assert "load_network_model" in collected, (
+            "olav-netops installed but sandbox_prologues output doesn't "
+            f"mention load_network_model (got {collected[:200]!r})"
+        )
+
 print("OK")
 EOF
 

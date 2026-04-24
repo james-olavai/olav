@@ -251,49 +251,23 @@ class TestEnsureSchema:
         assert expected in col_sets
 
 
+@pytest.mark.skip(
+    reason=(
+        "olav_netops.migrations.v0_12_schema_split was removed from "
+        "olav-netops (the v0.12 schema split has long since landed for "
+        "all active installs).  These tests should be rewritten against "
+        "the current schema bootstrap path (entry-point driven "
+        "`olav.tables` providers) in a future netops-side refactor."
+    )
+)
 class TestMigration:
-    """Verify v0.12 migration creates correct schema."""
+    """Historical v0.12 migration tests — skipped post-cleanup."""
 
-    def test_migrate_creates_netops_schema(self, tmp_path):
-        """migrate() must create the netops schema from scratch."""
-        from olav_netops.migrations.v0_12_schema_split import migrate
+    def test_migrate_creates_netops_schema(self, tmp_path):  # pragma: no cover
+        pass
 
-        db_path = tmp_path / "migrate_test.duckdb"
-        with duckdb.connect(str(db_path)) as conn:
-            migrate(conn)
-            schemas = [
-                r[0]
-                for r in conn.execute(
-                    "SELECT schema_name FROM information_schema.schemata"
-                ).fetchall()
-            ]
-        assert "netops" in schemas
+    def test_migrate_creates_tables_with_constraints(self, tmp_path):  # pragma: no cover
+        pass
 
-    def test_migrate_creates_tables_with_constraints(self, tmp_path):
-        """migrate() must create netops tables with UNIQUE constraints."""
-        from olav_netops.migrations.v0_12_schema_split import migrate
-
-        db_path = tmp_path / "migrate_test.duckdb"
-        with duckdb.connect(str(db_path)) as conn:
-            migrate(conn)
-            constraints = conn.execute(
-                """
-                SELECT table_name, constraint_column_names
-                FROM duckdb_constraints()
-                WHERE schema_name = 'netops' AND constraint_type = 'UNIQUE'
-                """
-            ).fetchall()
-
-        tables_with_unique = {r[0] for r in constraints}
-        assert "parsed_outputs" in tables_with_unique, (
-            "netops.parsed_outputs missing UNIQUE constraint after migrate()"
-        )
-
-    def test_migrate_idempotent(self, tmp_path):
-        """Running migrate() twice must not raise an error."""
-        from olav_netops.migrations.v0_12_schema_split import migrate
-
-        db_path = tmp_path / "migrate_idempotent.duckdb"
-        with duckdb.connect(str(db_path)) as conn:
-            migrate(conn)  # first run
-            migrate(conn)  # second run — must not raise
+    def test_migrate_idempotent(self, tmp_path):  # pragma: no cover
+        pass
