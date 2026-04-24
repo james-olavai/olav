@@ -542,6 +542,21 @@ def _run_collection(
         except Exception as e:
             print(f"  ✗ IngestManager ERROR: {e}")
 
+        # ── Device ETL FIRST so netops.devices is populated ────────────
+        # This MUST run before Topology ETL: ``topology_engine._insert_link``
+        # resolves neighbour hostnames (e.g. ``R4.local``) against
+        # ``netops.devices`` via :mod:`olav_netops.core.hostname_registry`
+        # so bidirectional CDP/LLDP advertisements collapse to one canonical
+        # name per device.  Pre-rc6 the order was reversed — devices was
+        # empty when topology writes happened, so every ``.local``-suffixed
+        # neighbour stayed non-canonical and SQL dedup broke (gitea #16).
+        try:
+            dev_count = _populate_devices(MAIN_DB_PATH, snapshot_id)
+            print(f"  ✓ Device ETL: {dev_count} device(s) registered")
+        except Exception as e:
+            print(f"  ✗ Device ETL ERROR: {e}")
+
+        # ── Topology ETL (uses canonical hostnames from Device ETL above) ──
         try:
             with duckdb.connect(str(MAIN_DB_PATH)) as conn:
                 topo_rows = extract_lldp_topology(conn)
@@ -549,25 +564,39 @@ def _run_collection(
         except Exception as e:
             print(f"  ✗ Topology ETL ERROR: {e}")
 
-        # ── Device ETL: nornir inventory + show version → netops.devices ──
-        try:
-            dev_count = _populate_devices(MAIN_DB_PATH, snapshot_id)
-            print(f"  ✓ Device ETL: {dev_count} device(s) registered")
-        except Exception as e:
-            print(f"  ✗ Device ETL ERROR: {e}")
-
-        # ── ARCH-06: seed view_recipes with hand-curated mappings ──────
+        # ── ARCH-06 / ARCH-28: seed view_recipes then materialise views ──
+        #
+        # Two steps, one connection:
+        #   a) ``load_recipe_seeds`` upserts 9 hand-curated
+        #      ``(concept, command, vendor_hint, field_mappings)`` rows
+        #      covering bgp_neighbors, ospf_adjacencies, topology_l2.
+        #   b) ``build_all_views`` reads every recipe and emits
+        #      ``CREATE OR REPLACE VIEW v_<concept>_auto AS UNION ALL …``
+        #      one per concept, with per-vendor field extraction + state
+        #      normalisation baked in via SQL CASE.
+        #
+        # The build call is what used to be missing (gitea #17): recipes
+        # were seeded but the views were never materialised, so every
+        # agent query asking "BGP neighbours" / "OSPF adjacencies" had
+        # to JSON-extract directly out of ``parsed_outputs``.
         try:
             from olav_netops.core.recipe_seeds import load_recipe_seeds
-            with duckdb.connect(str(MAIN_DB_PATH)) as _seed_conn:
-                seed_stats = load_recipe_seeds(_seed_conn)
+            from olav_netops.core.view_builder import build_all_views
+            with duckdb.connect(str(MAIN_DB_PATH)) as _view_conn:
+                seed_stats = load_recipe_seeds(_view_conn)
+                build_stats = build_all_views(_view_conn)
             print(
-                f"  ✓ view_recipes seeds: {seed_stats['inserted_or_updated']} "
-                f"row(s) upserted"
+                f"  ✓ view_recipes: {seed_stats['inserted_or_updated']} "
+                f"seed row(s) upserted"
             )
-        except Exception as _seed_err:  # noqa: BLE001
-            # Seed load is advisory — LLM discovery still runs.
-            print(f"  ⚠ recipe seeds skipped (non-blocking): {_seed_err}")
+            if build_stats:
+                _built = ", ".join(f"{name}({rows})" for name, rows in build_stats.items())
+                print(f"  ✓ auto views built: {_built}")
+            else:
+                print(f"  ℹ auto views: none built (no recipes returned rows)")
+        except Exception as _view_err:  # noqa: BLE001
+            # Seed + build are advisory — raw parsed_outputs queries still work.
+            print(f"  ⚠ view_recipes / build skipped (non-blocking): {_view_err}")
 
         # ── Stage 3.8: Batfish snapshot export (R74, gitea #15) ────────
         # The exporter reads ``netops.raw_output_store`` and writes a
