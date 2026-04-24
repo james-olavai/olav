@@ -166,7 +166,11 @@ class ThreadCreate(BaseModel):
 
 
 class RunStreamRequest(BaseModel):
-    assistant_id: str = "olav-orchestrator"
+    # Default "core" mirrors ``_DEFAULT_ASSISTANT_ID`` + graph_factory's default.
+    # Pre-rc3 this defaulted to the legacy id "olav-orchestrator", which no
+    # longer maps to any workspace — every request that omitted assistant_id
+    # raised 500 from :func:`get_agent` trying to load a nonexistent AGENT.md.
+    assistant_id: str = "core"
     input: dict[str, Any]
     thread_id: str | None = None
     stream_mode: str = "messages-tuple"
@@ -203,6 +207,22 @@ _DEFAULT_ASSISTANT_ID = "core"
 :data:`olav.server.graph_factory._DEFAULT_ASSISTANT_ID`."""
 
 
+_LEGACY_ASSISTANT_ALIASES: dict[str, str] = {
+    # Pre-v0.20 clients and docs referred to the platform orchestrator as
+    # ``olav-orchestrator``; the workspace was renamed to ``core`` when the
+    # agent registry stopped embedding "olav-" as a prefix.  Map it here so
+    # old WebUI builds, cached langgraph-cli stubs, and the tier3 browser
+    # suite keep working against current installs.
+    "olav-orchestrator": "core",
+}
+
+
+def _resolve_assistant_id(assistant_id: str | None) -> str:
+    """Resolve *assistant_id* to a workspace name, honouring legacy aliases."""
+    key = (assistant_id or "").strip() or _DEFAULT_ASSISTANT_ID
+    return _LEGACY_ASSISTANT_ALIASES.get(key, key)
+
+
 async def get_agent(assistant_id: str | None = None):
     """Return the cached OLAVAgent for *assistant_id* (creating on miss).
 
@@ -222,7 +242,7 @@ async def get_agent(assistant_id: str | None = None):
         cache is process-scoped, so distinct Uvicorn workers each
         warm their own cache on first use.
     """
-    key = (assistant_id or "").strip() or _DEFAULT_ASSISTANT_ID
+    key = _resolve_assistant_id(assistant_id)
     if key not in _agent_cache:
         from olav.agents.agent import create_olav_agent
 
@@ -635,7 +655,12 @@ async def stream_run(
     # v0.21.0-rc2: route on body.assistant_id so the web's agent
     # dropdown actually switches the running graph.  Pre-rc2 this
     # call passed no argument → singleton "core" every time.
-    agent = await get_agent(body.assistant_id)
+    # rc3b: collapse legacy aliases (e.g. "olav-orchestrator" → "core")
+    # *before* routing + audit so caches key on canonical ids and
+    # audit rows don't split a single agent across two names.
+    resolved_assistant_id = _resolve_assistant_id(body.assistant_id)
+    body.assistant_id = resolved_assistant_id
+    agent = await get_agent(resolved_assistant_id)
 
     # Use authenticated identity as user_id (P1)
     effective_user_id = identity.username if hasattr(identity, "username") else body.user_id
