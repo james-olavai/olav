@@ -23,19 +23,23 @@ from olav.core.defaults import DEFAULT_WEB_PORT
 logger = logging.getLogger(__name__)
 
 
-def _find_project_root() -> Path:
-    """Find project root (pyproject.toml location)."""
-    p = Path(__file__).resolve().parent
-    while p != p.parent:
-        if (p / "pyproject.toml").exists():
-            return p
-        p = p.parent
-    return Path.cwd()
+from olav.cli.commands.services._paths import find_workspace_root
 
 
-PROJECT_ROOT = _find_project_root()
-PID_FILE = PROJECT_ROOT / ".olav" / "run" / "web.pid"
-LOG_FILE = PROJECT_ROOT / ".olav" / "logs" / "web.log"
+def _pid_file() -> Path:
+    """Re-resolve the PID file path against the **current** workspace.
+
+    Was a frozen module-level constant pre-rc4 — that masked issue #12
+    (PID file ending up in the dev repo's ``.olav/run/`` instead of the
+    demo's).  Recomputed on every call so cwd changes between calls
+    show up in the file path immediately.
+    """
+    return find_workspace_root() / ".olav" / "run" / "web.pid"
+
+
+def _log_file() -> Path:
+    """See :func:`_pid_file`."""
+    return find_workspace_root() / ".olav" / "logs" / "web.log"
 
 _DEFAULT_HOST = "0.0.0.0"
 _DEFAULT_PORT = DEFAULT_WEB_PORT
@@ -86,25 +90,25 @@ class WebService:
     # ------------------------------------------------------------------
 
     def _is_running(self) -> bool:
-        if not PID_FILE.exists():
+        if not _pid_file().exists():
             return False
         try:
-            pid = int(PID_FILE.read_text().strip())
+            pid = int(_pid_file().read_text().strip())
             os.kill(pid, 0)  # raises ProcessLookupError if PID is gone
             # Guard against PID reuse: verify the process is actually our service
             if not _is_our_process(pid):
                 # Stale PID file — some other process inherited this PID
-                PID_FILE.unlink(missing_ok=True)
+                _pid_file().unlink(missing_ok=True)
                 return False
             return True
         except (ValueError, ProcessLookupError, FileNotFoundError, PermissionError):
             return False
 
     def _get_pid(self) -> int | None:
-        if not PID_FILE.exists():
+        if not _pid_file().exists():
             return None
         try:
-            return int(PID_FILE.read_text().strip())
+            return int(_pid_file().read_text().strip())
         except ValueError:
             return None
 
@@ -127,8 +131,8 @@ class WebService:
         if port:
             self._port = port
 
-        PID_FILE.parent.mkdir(parents=True, exist_ok=True)
-        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _pid_file().parent.mkdir(parents=True, exist_ok=True)
+        _log_file().parent.mkdir(parents=True, exist_ok=True)
 
         # P3: generate server token if auth.mode == 'server'
         _server_token_line = ""
@@ -144,7 +148,12 @@ class WebService:
         except Exception:
             pass
 
-        log_fh = open(LOG_FILE, "a")  # noqa: SIM115 – subprocess needs a real fd
+        log_fh = open(_log_file(), "a")  # noqa: SIM115 – subprocess needs a real fd
+        # Resolve cwd ONCE here so the spawned uvicorn and the PID file
+        # land in the same workspace.  Pre-rc4 the Popen omitted ``cwd=``
+        # entirely, leaving uvicorn to inherit whatever cwd happened to be
+        # set when the parent imported the module.  See gitea #12.
+        workspace_root = find_workspace_root()
         try:
             process = subprocess.Popen(
                 [
@@ -162,13 +171,14 @@ class WebService:
                 stdout=log_fh,
                 stderr=log_fh,
                 start_new_session=True,  # detach cleanly; no event-loop transport GC
+                cwd=str(workspace_root),  # #12: pin uvicorn to this workspace
             )
         except Exception as e:
             log_fh.close()
             return f"[red]Failed to spawn uvicorn: {e}[/red]"
 
         # Write PID immediately (uvicorn doesn't write one itself)
-        PID_FILE.write_text(str(process.pid))
+        _pid_file().write_text(str(process.pid))
 
         # Give it a moment to bind the port
         await asyncio.sleep(1.5)
@@ -183,8 +193,8 @@ class WebService:
             # Probably crashed – grab tail of log
             log_fh.close()
             tail = ""
-            if LOG_FILE.exists():
-                lines = LOG_FILE.read_text().split("\n")
+            if _log_file().exists():
+                lines = _log_file().read_text().split("\n")
                 tail = "\n".join(lines[-6:]).strip()
             return f"[red]Web API failed to start.[/red]\n{tail}"
 
@@ -200,19 +210,19 @@ class WebService:
             os.kill(pid, signal.SIGTERM)
             for _ in range(10):
                 if not self._is_running():
-                    if PID_FILE.exists():
-                        PID_FILE.unlink()
+                    if _pid_file().exists():
+                        _pid_file().unlink()
                     return f"[green]✓[/green] Web API stopped (PID: {pid})"
                 await asyncio.sleep(0.5)
 
             os.kill(pid, signal.SIGKILL)
-            if PID_FILE.exists():
-                PID_FILE.unlink()
+            if _pid_file().exists():
+                _pid_file().unlink()
             return f"[yellow]⚠ Force-killed Web API (PID: {pid})[/yellow]"
 
         except ProcessLookupError:
-            if PID_FILE.exists():
-                PID_FILE.unlink()
+            if _pid_file().exists():
+                _pid_file().unlink()
             return f"[yellow]Process {pid} not found (already stopped?)[/yellow]"
         except Exception as e:
             return f"[red]Error stopping Web API: {e}[/red]"
@@ -237,19 +247,19 @@ class WebService:
             table.add_row("PID", str(pid))
         table.add_row("Endpoint", f"http://{self._host}:{self._port}")
         table.add_row("Health", f"http://{self._host}:{self._port}/health")
-        table.add_row("Log", str(LOG_FILE))
+        table.add_row("Log", str(_log_file()))
 
         self.console.print(table)
         return ""
 
     async def logs(self, tail: int = 50) -> str:
         """Show the last N lines of the server log."""
-        if not LOG_FILE.exists():
+        if not _log_file().exists():
             return "[yellow]No log file yet. Start the API with 'olav service web start'[/yellow]"
 
-        lines = LOG_FILE.read_text().split("\n")
+        lines = _log_file().read_text().split("\n")
         display = lines[-tail:] if len(lines) > tail else lines
-        self.console.print(f"\n[bold]Last {len(display)} log lines ({LOG_FILE}):[/bold]\n")
+        self.console.print(f"\n[bold]Last {len(display)} log lines ({_log_file()}):[/bold]\n")
         for line in display:
             if line.strip():
                 self.console.print(line)

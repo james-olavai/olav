@@ -27,9 +27,30 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_SOCKET_PATH = Path(".olav/run/daemon.sock")
-_PID_FILE = Path(".olav/run/daemon.pid")
-_STATS_FILE = Path(".olav/run/daemon.stats.json")
+def _runtime_dir() -> Path:
+    """Resolve ``.olav/run/`` against the *current* workspace root.
+
+    Pre-rc4 these were module-level ``Path("....")`` constants —
+    relative paths interpreted against whatever cwd the daemon
+    happened to inherit.  When the parent process's cwd diverged
+    from the workspace root (issue #12), the daemon's PID file
+    landed in a different workspace than the CLI was looking in,
+    so ``stop_daemon`` and ``get_daemon_status`` could never see it.
+    """
+    from olav.cli.commands.services._paths import find_workspace_root
+    return find_workspace_root() / ".olav" / "run"
+
+
+def _socket_path() -> Path:
+    return _runtime_dir() / "daemon.sock"
+
+
+def _pid_file() -> Path:
+    return _runtime_dir() / "daemon.pid"
+
+
+def _stats_file() -> Path:
+    return _runtime_dir() / "daemon.stats.json"
 
 
 # ============================================================================
@@ -45,7 +66,7 @@ class DaemonServer:
         self._agent: object | None = None
         self._start_time: float = time.time()
         self._query_count: int = 0
-        self._socket_path: Path = _SOCKET_PATH
+        self._socket_path: Path = _socket_path()
         self._server: asyncio.AbstractServer | None = None
 
     async def _ensure_agent(self) -> object:
@@ -99,7 +120,7 @@ class DaemonServer:
     def _write_stats(self) -> None:
         """Write stats to disk for `olav daemon status`."""
         try:
-            _STATS_FILE.write_text(
+            _stats_file().write_text(
                 json.dumps(
                     {
                         "pid": os.getpid(),
@@ -155,8 +176,8 @@ class DaemonServer:
         )
 
         # Write PID file
-        _PID_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _PID_FILE.write_text(str(os.getpid()))
+        _pid_file().parent.mkdir(parents=True, exist_ok=True)
+        _pid_file().write_text(str(os.getpid()))
         self._write_stats()
 
         logger.info("Daemon started: socket=%s pid=%d", self._socket_path, os.getpid())
@@ -190,10 +211,10 @@ class DaemonServer:
         # Cleanup
         if self._socket_path.exists():
             self._socket_path.unlink()
-        if _PID_FILE.exists():
-            _PID_FILE.unlink()
-        if _STATS_FILE.exists():
-            _STATS_FILE.unlink()
+        if _pid_file().exists():
+            _pid_file().unlink()
+        if _stats_file().exists():
+            _stats_file().unlink()
         logger.info("Daemon stopped.")
 
 
@@ -224,7 +245,7 @@ async def query_daemon(
     Returns:
         Response dict with 'status' and 'response' keys, or None if daemon is unavailable.
     """
-    socket_path = str(_SOCKET_PATH)
+    socket_path = str(_socket_path())
     if not Path(socket_path).exists():
         return None
 
@@ -252,20 +273,20 @@ def get_daemon_status() -> dict[str, object]:
     Returns:
         Dict with 'running', 'pid', 'uptime_seconds', 'query_count' fields.
     """
-    if not _PID_FILE.exists():
+    if not _pid_file().exists():
         return {"running": False}
 
     try:
-        pid = int(_PID_FILE.read_text().strip())
+        pid = int(_pid_file().read_text().strip())
         # Check process is alive
         os.kill(pid, 0)
     except (ValueError, ProcessLookupError, PermissionError):
         return {"running": False}
 
     stats: dict[str, object] = {"running": True, "pid": pid}
-    if _STATS_FILE.exists():
+    if _stats_file().exists():
         try:
-            stats.update(json.loads(_STATS_FILE.read_text()))
+            stats.update(json.loads(_stats_file().read_text()))
         except Exception:
             pass
     return stats
@@ -279,11 +300,17 @@ def spawn_daemon() -> int:
     """
     import subprocess
 
+    from olav.cli.commands.services._paths import find_workspace_root
+
+    # Pin the daemon's cwd so its socket / PID file land in the workspace
+    # the user actually invoked olav from, not whatever cwd the CLI
+    # process happened to inherit.  See gitea #12.
     proc = subprocess.Popen(
         [sys.executable, "-m", "olav.cli.daemon"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
+        cwd=str(find_workspace_root()),
     )
     return proc.pid
 
@@ -294,10 +321,10 @@ def stop_daemon() -> bool:
     Returns:
         True if daemon was running and signal sent, False if not running.
     """
-    if not _PID_FILE.exists():
+    if not _pid_file().exists():
         return False
     try:
-        pid = int(_PID_FILE.read_text().strip())
+        pid = int(_pid_file().read_text().strip())
         os.kill(pid, signal.SIGTERM)
         return True
     except Exception:

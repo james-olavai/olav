@@ -17,17 +17,12 @@ from rich.table import Table
 logger = logging.getLogger(__name__)
 
 
-def _find_project_root() -> Path:
-    p = Path(__file__).resolve().parent
-    while p != p.parent:
-        if (p / "pyproject.toml").exists():
-            return p
-        p = p.parent
-    return Path.cwd()
+from olav.cli.commands.services._paths import find_workspace_root
 
 
-PROJECT_ROOT = _find_project_root()
-LOG_FILE = PROJECT_ROOT / ".olav" / "logs" / "daemon.log"
+def _log_file() -> Path:
+    """Re-resolve daemon log path against current workspace.  See gitea #12."""
+    return find_workspace_root() / ".olav" / "logs" / "daemon.log"
 
 
 class DaemonService:
@@ -90,7 +85,7 @@ class DaemonService:
 
     def status(self) -> str:
         """Print a Rich status table."""
-        from olav.cli.daemon import _SOCKET_PATH, get_daemon_status
+        from olav.cli.daemon import _socket_path, get_daemon_status
 
         info = get_daemon_status()
         is_running = bool(info.get("running"))
@@ -106,22 +101,22 @@ class DaemonService:
             h, m, s = uptime // 3600, (uptime % 3600) // 60, uptime % 60
             table.add_row("Uptime", f"{h:02d}:{m:02d}:{s:02d}")
             table.add_row("Queries Served", str(info.get("query_count", 0)))
-        table.add_row("Socket", str(_SOCKET_PATH))
+        table.add_row("Socket", str(_socket_path()))
 
         self.console.print(table)
         return ""
 
     async def logs(self, tail: int = 50) -> str:
         """Show the last N lines of the daemon log (if redirected)."""
-        if not LOG_FILE.exists():
+        if not _log_file().exists():
             return (
                 "[yellow]No dedicated daemon log found. "
                 "Daemon stdout/stderr go to the terminal that launched it.[/yellow]"
             )
 
-        lines = LOG_FILE.read_text().split("\n")
+        lines = _log_file().read_text().split("\n")
         display = lines[-tail:] if len(lines) > tail else lines
-        self.console.print(f"\n[bold]Last {len(display)} log lines ({LOG_FILE}):[/bold]\n")
+        self.console.print(f"\n[bold]Last {len(display)} log lines ({_log_file()}):[/bold]\n")
         for line in display:
             if line.strip():
                 self.console.print(line)
