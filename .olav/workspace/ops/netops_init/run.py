@@ -481,47 +481,88 @@ def _run_collection(
                     )
                 """)
 
-        # ── Stage 3.5: Auto-learn templates for parse failures ─────────
-        parse_failures = []
-        for row in all_rows:
-            if row.get("parsed_data") is None and row.get("raw_output"):
-                # Lookup platform from nornir inventory
-                host_obj = nr.inventory.hosts.get(row["device_name"])
-                plat = _normalise_platform(host_obj.platform if host_obj else "cisco_ios")
-                parse_failures.append({
-                    "device": row["device_name"],
-                    "platform": plat,
-                    "command": row["command"],
-                    "raw_output": row["raw_output"],
-                })
+        # ── Stage 3.5: Parse-coverage classifier ───────────────────────
+        #
+        # Pre-v0.21.0 this stage called ``auto_learn_failed_parses`` which
+        # looped serially through every parse failure, burned 3-5 LLM
+        # retries per (platform, command), and silently blocked the
+        # pipeline for 10+ minutes on fresh installs (ISSUE-AUTO-LEARN-PERF).
+        # Round 72 (ISSUE-LEARNER-BATCH-CUT) decided batch learning does
+        # not belong in the pipeline — it's a ``/learn_cmd`` user action
+        # backed by the ``command_learner`` skill, not autonomous plumbing.
+        #
+        # What this block does now:
+        #   1. Classify every row into one of three buckets:
+        #        - parsed       → TextFSM / ntc-templates produced data
+        #        - raw_only     → Got CLI output, but no parser matched;
+        #                         agent can still answer via raw fallback
+        #                         (viewer reads ``raw_output_store`` when
+        #                          ``parsed_outputs`` is empty)
+        #        - unsupported  → ``should_learn()`` says this output is
+        #                         an error / empty / backup-cmd dump;
+        #                         a parser won't help, don't bother user
+        #   2. Persist the ``raw_only`` set to ``.olav/config/unsupported.json``
+        #      so the WebUI / CLI can surface an actionable list.
+        #   3. Print a one-screen summary telling the operator exactly
+        #      which ``(platform, command)`` pairs they'd gain structured
+        #      queries for by running ``/learn_cmd``.  No LLM calls, no
+        #      progress bar, ~10 ms on six devices.
+        from olav_netops.core.parse_helpers import should_learn
 
-        if parse_failures:
+        parsed_count = 0
+        raw_only: dict[tuple[str, str], list[str]] = {}   # (platform, cmd) → [devices]
+        unsupported: dict[tuple[str, str], list[str]] = {}
+
+        for row in all_rows:
+            if row.get("parsed_data") is not None:
+                parsed_count += 1
+                continue
+            raw = row.get("raw_output") or ""
+            if not raw:
+                continue
+            host_obj = nr.inventory.hosts.get(row["device_name"])
+            plat = _normalise_platform(host_obj.platform if host_obj else "cisco_ios")
+            key = (plat, row["command"])
+            bucket = raw_only if should_learn(row["command"], raw) else unsupported
+            bucket.setdefault(key, []).append(row["device_name"])
+
+        total_rows = len(all_rows)
+        print(f"\n📊 Stage 3.5: Parse coverage")
+        print(f"  parsed    : {parsed_count} / {total_rows} rows "
+              f"({parsed_count * 100 // max(total_rows, 1)}%)")
+
+        if raw_only:
+            # Write the actionable list so UI/CLI can resurface it later.
             try:
-                from olav_netops.core.auto_learn import auto_learn_failed_parses
-                # Save to .olav/templates/ — shared with take_snapshot and _textfsm_parse
                 from olav.core.config import get_paths_config
-                _olav_base = Path(get_paths_config().agent_dir)
-                custom_template_dir = _olav_base / "templates"
-                print(f"\n🎓 Stage 3.5: Auto-learn ({len(parse_failures)} unparsed commands)")
-                newly_parsed = auto_learn_failed_parses(
-                    parse_failures, custom_template_dir, max_retries=5,
-                )
-                # Patch all_rows with newly parsed data
-                if newly_parsed:
-                    _patch = {}
-                    for item in newly_parsed:
-                        _patch[(item["device"], item["command"])] = json.dumps(item["parsed_data"])
-                    patched = 0
-                    for row in all_rows:
-                        key = (row["device_name"], row["command"])
-                        if key in _patch and row["parsed_data"] is None:
-                            row["parsed_data"] = _patch[key]
-                            patched += 1
-                    print(f"  ✓ Auto-learn: {len(newly_parsed)} commands learned, {patched} rows patched")
-                else:
-                    print(f"  ℹ Auto-learn: no templates learned (LLM unavailable or all false positives)")
-            except Exception as e:
-                print(f"  ⚠ Auto-learn failed (non-blocking): {e}")
+                _config_dir = Path(get_paths_config().agent_dir) / "config"
+                _config_dir.mkdir(parents=True, exist_ok=True)
+                _out = _config_dir / "unsupported.json"
+                _out.write_text(json.dumps(
+                    [
+                        {
+                            "platform": plat,
+                            "command": cmd,
+                            "devices": sorted(set(devs)),
+                        }
+                        for (plat, cmd), devs in sorted(raw_only.items())
+                    ],
+                    indent=2,
+                ))
+                print(f"  raw-only  : {len(raw_only)} unique (platform, command) pairs "
+                      f"→ {_out.relative_to(_config_dir.parent.parent)}")
+            except Exception as exc:   # pragma: no cover
+                print(f"  raw-only  : {len(raw_only)} pairs (warn: could not persist list: {exc})")
+            print(f"")
+            print(f"    ⚡ To enable structured queries for these, run:")
+            for (plat, cmd), _devs in sorted(raw_only.items())[:6]:
+                print(f"        olav --agent ops '/learn_cmd {plat} \"{cmd}\"'")
+            if len(raw_only) > 6:
+                print(f"        …and {len(raw_only) - 6} more (see .olav/config/unsupported.json)")
+
+        if unsupported:
+            print(f"  unsupported: {len(unsupported)} pair(s) — error messages / empty output, "
+                  "no parser would help")
 
         staging_file = SNAPSHOTS_STAGING_JSON / f"{snapshot_id}.staging.json"
         SNAPSHOTS_STAGING_JSON.mkdir(parents=True, exist_ok=True)
