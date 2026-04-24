@@ -98,15 +98,18 @@ _KNOWN_COMMANDS: frozenset[str] = frozenset(
         "service",
         "reset",
         "skills",
+        "skill",   # v0.21.0-rc4 deprecation shim → forwards to `olav agent`.
+                   # See gitea #11; without this entry the dispatcher hits
+                   # the natural-language query path instead of our shim.
         "log",
         "init",
         "refresh",
         "sessions",
         "workspace",
         "export",
-        # "skill" verb removed in v0.20.3 — use `olav agent install`.
-        # SkillCommand class still exists internally for agent_install
-        # back-compat.
+        # "skill" singular: shim re-added v0.21.0-rc4 above; the v0.20.3
+        # deletion stripped the ARG dispatcher but kept the SkillCommand
+        # class for internal use by agent_install.
         "agent",
         "migrate",
         "registry",
