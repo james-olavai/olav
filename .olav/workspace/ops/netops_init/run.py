@@ -218,34 +218,83 @@ def _load_devices() -> list[str]:
 
 
 def _load_host_environments() -> dict[str, str]:
-    """ARCH-08 Phase 2 Item 2 (Round 48): load {hostname → environment}.
+    """{hostname → environment} loader — kept for back-compat with callers
+    that only need the environment field.  Prefer
+    :func:`_load_host_metadata` for new code."""
+    return {
+        h: m.get("environment", "")
+        for h, m in _load_host_metadata().items()
+        if m.get("environment")
+    }
 
-    Reads the Nornir ``hosts.yaml`` and extracts the ``data.environment``
-    tag for each host, skipping devices that don't declare one. Returns an
-    empty dict if the inventory is missing or unparseable — caller treats
-    that as "no env information available; write NULL for every device".
+
+def _load_host_metadata() -> dict[str, dict]:
+    """{hostname → {role, site, environment, groups, aliases}} from nornir inventory.
+
+    Walks ``hosts.yaml`` once and extracts everything that downstream
+    DB writes need.  Rather than hardcoding which fields to pull, any
+    key under ``data.*`` is forwarded to the caller — ``netops.devices``
+    writes ``role/site/environment`` as dedicated columns, and
+    ``groups`` + ``aliases`` + any other ``data.*`` keys land in the
+    ``metadata`` JSON column.
+
+    Return shape per host::
+
+        {
+          "role":        "core" | None,          # data.role (if declared)
+          "site":        "lab"  | None,          # data.site
+          "environment": "lab"  | None,          # data.environment
+          "groups":      ["test", "core_routers"],   # top-level groups
+          "aliases":     ["核心路由器1", "R3"],       # data.aliases
+          "extra":       { ... other data.* keys ... }
+        }
+
+    Missing inventory or unparseable YAML returns ``{}`` — callers then
+    see None/empty everywhere, which is what pre-R77 behaviour produced.
     """
     try:
         from olav_netops.core.config_paths import resolve_nornir_config_path as _resolve_nornir_config_path
         import yaml
-        hosts = _resolve_nornir_config_path().parent / "hosts.yaml"
-        if not hosts.exists():
+        hosts_path = _resolve_nornir_config_path().parent / "hosts.yaml"
+        if not hosts_path.exists():
             return {}
-        with open(hosts) as f:
+        with open(hosts_path) as f:
             data = yaml.safe_load(f) or {}
-        out: dict[str, str] = {}
-        for hostname, spec in data.items():
-            if not isinstance(spec, dict):
-                continue
-            host_data = spec.get("data")
-            if not isinstance(host_data, dict):
-                continue
-            env = host_data.get("environment")
-            if isinstance(env, str) and env.strip():
-                out[hostname] = env.strip()
-        return out
     except Exception:
         return {}
+
+    out: dict[str, dict] = {}
+    for hostname, spec in data.items():
+        if not isinstance(spec, dict):
+            continue
+        host_data = spec.get("data") or {}
+        if not isinstance(host_data, dict):
+            host_data = {}
+        groups = spec.get("groups") or []
+        if not isinstance(groups, list):
+            groups = []
+
+        entry: dict = {
+            "role": host_data.get("role"),
+            "site": host_data.get("site"),
+            "environment": host_data.get("environment"),
+            "groups": [g for g in groups if isinstance(g, str)],
+            "aliases": [a for a in host_data.get("aliases", []) if isinstance(a, str)],
+        }
+        # Any other data.* keys end up in 'extra' so nothing gets silently lost.
+        entry["extra"] = {
+            k: v for k, v in host_data.items()
+            if k not in {"role", "site", "environment", "aliases"}
+        }
+        # Normalise string fields: strip empty → None
+        for fld in ("role", "site", "environment"):
+            val = entry[fld]
+            if isinstance(val, str):
+                entry[fld] = val.strip() or None
+            elif val is not None:
+                entry[fld] = str(val)
+        out[hostname] = entry
+    return out
 
 
 def _run_collection(
@@ -714,9 +763,12 @@ def _populate_devices(db_path, snapshot_id: str) -> int:
         "juniper_junos": "Juniper", "arista_eos": "Arista", "huawei_vrp": "Huawei",
     }
 
-    # Load the hostname → environment map once. Empty dict when inventory
-    # is absent — every device gets NULL environment in that case.
-    host_envs = _load_host_environments()
+    # Load the full hostname → inventory-metadata map once.  Provides
+    # role/site/environment/groups/aliases for every host declared in
+    # hosts.yaml.  Empty dict when the inventory file is missing — in
+    # which case devices get NULL for role/site/metadata (same as
+    # pre-R77 behaviour).  See gitea ISSUE-NORNIR-INVENTORY-METADATA-LOSS.
+    host_meta = _load_host_metadata()
 
     count = 0
     with _ddb.connect(str(db_path)) as conn:
@@ -824,20 +876,41 @@ def _populate_devices(db_path, snapshot_id: str) -> int:
             plat = plat or "unknown"
             vendor = _PLATFORM_VENDOR.get(plat, "")
 
-            env_tag = host_envs.get(device_name)  # ARCH-08 Phase 2 Item 2
+            # Pull per-host inventory metadata: role/site/environment go
+            # into dedicated columns; groups + aliases + any other
+            # data.* keys are packed into the metadata JSON column so
+            # agent queries like "list all core routers" or name-lookup
+            # via Chinese aliases keep working data-driven.
+            meta = host_meta.get(device_name, {})
+            role_tag = meta.get("role")
+            site_tag = meta.get("site")
+            env_tag = meta.get("environment")
+            metadata_json = None
+            groups = meta.get("groups") or []
+            aliases = meta.get("aliases") or []
+            extra = meta.get("extra") or {}
+            if groups or aliases or extra:
+                metadata_json = json.dumps(
+                    {"groups": groups, "aliases": aliases, **extra},
+                    ensure_ascii=False,
+                )
+
             conn.execute("""
                 INSERT INTO netops.devices
                     (hostname, ip_address, platform, site, role, vendor, model, os_version, environment, last_seen, metadata)
-                VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, NOW(), NULL)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)
                 ON CONFLICT (hostname) DO UPDATE SET
                     ip_address=COALESCE(EXCLUDED.ip_address, netops.devices.ip_address),
                     platform=COALESCE(EXCLUDED.platform, netops.devices.platform),
+                    site=COALESCE(EXCLUDED.site, netops.devices.site),
+                    role=COALESCE(EXCLUDED.role, netops.devices.role),
                     vendor=COALESCE(EXCLUDED.vendor, netops.devices.vendor),
                     model=COALESCE(EXCLUDED.model, netops.devices.model),
                     os_version=COALESCE(EXCLUDED.os_version, netops.devices.os_version),
                     environment=COALESCE(EXCLUDED.environment, netops.devices.environment),
+                    metadata=COALESCE(EXCLUDED.metadata, netops.devices.metadata),
                     last_seen=NOW()
-            """, [device_name, mgmt_ip, plat, vendor, model, os_ver, env_tag])
+            """, [device_name, mgmt_ip, plat, site_tag, role_tag, vendor, model, os_ver, env_tag, metadata_json])
             count += 1
     return count
 
