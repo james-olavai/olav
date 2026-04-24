@@ -365,14 +365,24 @@ async def health():
 
 @app.post("/reload")
 async def reload_agent():
-    """Reset agent and config singletons so the next request rebuilds from disk."""
-    global _agent_instance
-    if _agent_instance is not None:
+    """Reset every cached agent and config singleton so the next request rebuilds from disk.
+
+    v0.21.0-rc3: iterate over ``_agent_cache`` instead of a single ``_agent_instance`` —
+    pre-rc3 this handler referenced a symbol removed in rc2, so calling /reload
+    raised ``NameError`` and returned 500.  Best-effort close policy matches
+    :func:`lifespan`: a failing close on one agent must not stop shutdown of the rest
+    or prevent the cache from being cleared.
+    """
+    for agent in list(_agent_cache.values()):
         try:
-            await _agent_instance.close()
-        except Exception:
+            closer = getattr(agent, "close", None)
+            if closer is not None:
+                result = closer()
+                if hasattr(result, "__await__"):
+                    await result
+        except Exception:  # noqa: BLE001
             pass
-    _agent_instance = None
+    _agent_cache.clear()
     # Invalidate ConfigLoader singleton so config changes are picked up
     try:
         from olav.core.config import ConfigLoader
@@ -382,12 +392,11 @@ async def reload_agent():
         pass
     # Reset semantic router so new skills are indexed
     try:
-        from olav.core.router import _router_instance
         import olav.core.router as _router_mod
         _router_mod._router_instance = None
     except Exception:
         pass
-    _logger.info("Agent, config, and router reset — next request will rebuild from workspace")
+    _logger.info("Agent cache, config, and router reset — next request will rebuild from workspace")
     return {"status": "reloaded"}
 
 
@@ -658,21 +667,44 @@ async def stream_run(
     if _user_content:
         recorder.record_message(run_id=run_id, role="user", content=_user_content)
 
-    # Bind the top-level run context to AuditCallbackPlugin so tool events
-    # and LLM responses are linked to this run_id.
-    from olav.plugins.callbacks.audit import AuditCallbackPlugin as _AuditCBPlugin
-    _audit_cbs = [
-        _cb for _cb in (
-            agent.plugin_registry.get_callback_plugins()
-            if hasattr(agent, "plugin_registry") else []
-        )
-        if isinstance(_cb, _AuditCBPlugin)
-    ]
-    for _cb in _audit_cbs:
-        _cb.bind_run(run_id, recorder)
+    # v0.21.0-rc3: wire audit according to the active middleware mode.
+    #
+    # callback mode  — legacy path: bind_run() on AuditCallbackPlugin
+    # middleware mode — new path: attach OlavRunContext to astream_events
+    #
+    # In middleware mode the callback plugin is filtered out of the
+    # registry by partition_for_mode, so bind_run() would be a no-op
+    # and AuditMiddleware needs the context to see the run_id at all.
+    from olav.plugins.middleware._mode import resolve_middleware_mode
+    from olav.plugins.middleware._context import OlavRunContext
+
+    _mode = resolve_middleware_mode()
+
+    _audit_cbs: list = []
+    if _mode == "callback":
+        from olav.plugins.callbacks.audit import AuditCallbackPlugin as _AuditCBPlugin
+        _audit_cbs = [
+            _cb for _cb in (
+                agent.plugin_registry.get_callback_plugins()
+                if hasattr(agent, "plugin_registry") else []
+            )
+            if isinstance(_cb, _AuditCBPlugin)
+        ]
+        for _cb in _audit_cbs:
+            _cb.bind_run(run_id, recorder)
 
     callbacks = (
         agent.plugin_registry.get_callback_plugins() if hasattr(agent, "plugin_registry") else []
+    )
+
+    # Context is always attached — middleware reads it from runtime.context.
+    # Harmless in callback mode: AuditCallbackPlugin ignores it.
+    _run_context = OlavRunContext(
+        run_id=run_id,
+        recorder=recorder,
+        agent_id=body.assistant_id,
+        user_id=effective_user_id,
+        source_channel="api",
     )
 
     async def event_generator():
@@ -685,6 +717,7 @@ async def stream_run(
             async for event in agent.graph.astream_events(
                 body.input,
                 config=config,
+                context=_run_context,
                 version="v2",
                 stream_subgraphs=True,
             ):

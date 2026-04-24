@@ -161,7 +161,7 @@
     <div class="sidebar-footer">
       <a href="/memory/graph" target="_blank" style="display:block;padding:6px 0;font-size:12px;color:var(--accent);text-decoration:none;margin-bottom:6px;">Memory Graph ↗</a>
       <div class="status-row"><span class="dot" id="api-dot"></span><span id="api-status">Checking API…</span></div>
-      <select class="agent-select" id="agent-select">
+      <select class="agent-select" id="agent-select" onchange="onAgentSelectChange()">
         <option value="core">core (default)</option>
       </select>
     </div>
@@ -205,7 +205,36 @@
 // ── State ──────────────────────────────────────────────────────────────────
 let currentThreadId = null;
 let streaming = false;
-const threads = {}; // threadId → {title, messages[]}
+// Each thread: { title, messages[], agentId } — agentId persisted so
+// the dropdown restores the agent the thread was started against.
+const threads = {};
+
+const _LS_KEY = 'olav.webui.state.v1';
+
+function persistState() {
+  try {
+    localStorage.setItem(_LS_KEY, JSON.stringify({
+      currentThreadId,
+      threads,
+    }));
+  } catch (e) { /* private mode / quota — drop silently */ }
+}
+
+function restoreState() {
+  try {
+    const raw = localStorage.getItem(_LS_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data && typeof data === 'object') {
+      if (data.threads && typeof data.threads === 'object') {
+        Object.assign(threads, data.threads);
+      }
+      if (typeof data.currentThreadId === 'string') {
+        currentThreadId = data.currentThreadId;
+      }
+    }
+  } catch (e) { /* corrupt state — start clean */ }
+}
 
 function hideWelcome() {
   const w = document.getElementById('welcome');
@@ -213,8 +242,28 @@ function hideWelcome() {
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
+restoreState();
 checkHealth();
-loadAgents();
+loadAgents().then(() => {
+  // Restore UI from persisted state after agents load (so the dropdown
+  // has options to select).
+  if (currentThreadId && threads[currentThreadId]) {
+    const t = threads[currentThreadId];
+    if (t.agentId) {
+      const sel = document.getElementById('agent-select');
+      if (sel && [...sel.options].some(o => o.value === t.agentId)) {
+        sel.value = t.agentId;
+      }
+    }
+    renderThreadList();
+    renderMessages();
+    hideWelcome();
+    document.getElementById('thread-id-display').textContent =
+      currentThreadId.slice(0, 8) + '…';
+  } else if (Object.keys(threads).length > 0) {
+    renderThreadList();
+  }
+});
 
 
 async function checkHealth() {
@@ -251,7 +300,17 @@ async function newThread() {
   const res = await fetch('/threads', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({}) });
   const data = await res.json();
   currentThreadId = data.thread_id;
-  threads[currentThreadId] = { title: 'Thread ' + currentThreadId.slice(0,8), messages: [] };
+  // Pin the thread to the agent currently selected in the dropdown —
+  // every subsequent message on this thread uses the same agent, so
+  // switching back to the thread after a refresh restores the right
+  // graph in the dropdown too.
+  const agentId = document.getElementById('agent-select').value || 'core';
+  threads[currentThreadId] = {
+    title: 'Thread ' + currentThreadId.slice(0,8),
+    messages: [],
+    agentId,
+  };
+  persistState();
   renderThreadList();
   renderMessages();
   hideWelcome();
@@ -270,8 +329,30 @@ function renderThreadList() {
   });
 }
 
+function onAgentSelectChange() {
+  // Keep the active thread's pinned agent in sync with the dropdown.
+  // If the user deliberately switches agents mid-thread, that choice
+  // should survive a refresh alongside the thread itself.
+  if (currentThreadId && threads[currentThreadId]) {
+    const sel = document.getElementById('agent-select');
+    threads[currentThreadId].agentId = sel.value;
+    persistState();
+  }
+}
+
 async function switchThread(tid) {
   currentThreadId = tid;
+  // Restore the agent the thread was originally created against so
+  // cross-thread swaps don't accidentally send user input to the
+  // wrong graph.
+  const t = threads[tid];
+  if (t && t.agentId) {
+    const sel = document.getElementById('agent-select');
+    if (sel && [...sel.options].some(o => o.value === t.agentId)) {
+      sel.value = t.agentId;
+    }
+  }
+  persistState();
   renderThreadList();
   renderMessages();
   hideWelcome();
@@ -342,6 +423,7 @@ function buildMsgEl(m) {
   if (threads[currentThreadId].messages.length === 1) {
     threads[currentThreadId].title = query.slice(0, 40) + (query.length > 40 ? '…' : '');
   }
+  persistState();
   renderMessages();
 
   // Stream AI response
@@ -431,11 +513,13 @@ function buildMsgEl(m) {
     if (liveBubble) {
       liveBubble.innerHTML = markdownToHtml(aiMsg.content);
     }
+    persistState();
     renderThreadList();
 
   } catch (e) {
     aiMsg.content = '**Error:** ' + e.message;
     if (liveBubble) liveBubble.innerHTML = markdownToHtml(aiMsg.content);
+    persistState();
   } finally {
     streaming = false;
     document.getElementById('send-btn').disabled = false;
