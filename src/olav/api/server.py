@@ -457,6 +457,15 @@ async def list_agents():
             entries.append(
                 {"id": name, "name": display_name, "description": description}
             )
+
+        # v0.21.0-rc4: the core platform agent must always lead the list.
+        # Pre-rc4 the endpoint returned whatever order ``discover_agent_paths``
+        # produced (sorted alphabetically), so installing olav-netops made
+        # ``audit`` (first alphabetically among ops/audit/topology/...)
+        # become the web dropdown's default agent — wrong UX.  Pin ``core``
+        # first so the WebUI "(default)" label and the browser's auto-select
+        # land on the platform agent, not whichever extension sorts earliest.
+        entries.sort(key=lambda e: (0 if e["id"] == _DEFAULT_ASSISTANT_ID else 1, e["id"]))
         return entries or [
             {"id": "core", "name": "core", "description": "Core platform agent"}
         ]
