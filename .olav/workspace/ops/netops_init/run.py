@@ -42,56 +42,71 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _find_project_root()
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
-# ── Platform command mapping ──────────────────────────────────────────────
+# ── Discovery command set (ARCH-27 final, Round 77) ─────────────────────
+#
+# Pre-R77 this file held three hardcoded lists
+# (``DISCOVERY_COMMANDS_UNIVERSAL`` / ``_IOS`` / ``_JUNOS``) mapping
+# each platform to its SSH discovery command set.  A mid-refactor
+# attempt at an "intent filter" replaced them with a different
+# hardcoded list — same anti-pattern, different spelling.
+#
+# Correct design: ``netops.commands`` is the authoritative registry.
+# For each device, look up its nornir ``platform`` string, then ask
+# the DB what commands are available for that platform.  No code-level
+# filtering.
+#
+# The registry itself is populated at Stage 3 start via
+# ``commands_sync.sync_commands()`` from three sources:
+#   * ntc-templates wheel (every shipped ``<platform>_<cmd>.textfsm``)
+#   * ``.olav/templates/<platform>/*.textfsm`` custom / user-learned
+#   * ``.olav/templates/parsers/<platform>/*.py`` PaC parsers
+#   * user overlay YAMLs (mark commands backup_only or blacklisted)
+#
+# If the command set is too wide for a given environment (e.g. 143
+# cisco_ios templates is more than a router needs), the user edits the
+# **blacklist YAML** — still data-driven, still zero Python code change.
+# New vendor support: zero code change (ntc templates + overlays
+# propagate automatically).
 
-# Universal commands (work on most platforms)
-DISCOVERY_COMMANDS_UNIVERSAL = [
-    "show version",
-    "show interfaces",
-]
 
-# Cisco IOS-specific commands
-DISCOVERY_COMMANDS_IOS = [
-    "show ip interface brief",
-    "show cdp neighbors detail",
-    "show lldp neighbors detail",
-    "show bgp summary",
-    "show bgp all summary",
-    "show ip bgp summary",
-    "show ip ospf neighbors",
-    "show ip route",
-    "show ip arp",
-    "show vlan brief",
-    "show spanning-tree",
-    "show running-config",
-]
+def _discovery_commands_for(platform: str, conn) -> list[str]:
+    """Return the full SSH command list for *platform* from ``netops.commands``.
 
-# Juniper JunOS-specific commands (matched to ntc_templates availability)
-DISCOVERY_COMMANDS_JUNOS = [
-    "show interfaces terse",
-    "show lldp neighbors",
-    "show bgp summary",
-    "show ospf neighbor",
-    "show route summary",
-    "show arp no-resolve",
-    "show chassis hardware",
-    "show vlans",
-    "show configuration",
-    # Batfish prefers Junos configs in ``set`` format; captured in addition
-    # to the plain ``show configuration`` above so Stage 3.8 (R74 gitea #15)
-    # can pick the exporter-preferred variant.  Adds ~1 s per Junos device.
-    "show configuration | display set",
-]
+    Non-blacklisted commands only.  Backup-only commands (``show
+    running-config`` etc.) are appended **after** operational commands so
+    they run at the end of each device's collection — keeps the config
+    snapshot aligned with the state snapshot it was captured against.
+    """
+    try:
+        # Operational commands first.
+        op_rows = conn.execute(
+            """
+            SELECT DISTINCT command FROM netops.commands
+            WHERE platform = ?
+              AND COALESCE(blacklisted, FALSE) = FALSE
+              AND COALESCE(backup_only, FALSE) = FALSE
+            ORDER BY command
+            """,
+            [platform],
+        ).fetchall()
+        # Backup commands last.
+        bak_rows = conn.execute(
+            """
+            SELECT DISTINCT command FROM netops.commands
+            WHERE platform = ?
+              AND COALESCE(blacklisted, FALSE) = FALSE
+              AND COALESCE(backup_only, FALSE) = TRUE
+            ORDER BY command
+            """,
+            [platform],
+        ).fetchall()
+    except Exception:
+        return ["show version"]   # table missing entirely; collect the minimum
 
-# Platform → command list mapping
-_PLATFORM_COMMANDS: dict[str, list[str]] = {
-    "cisco_ios": DISCOVERY_COMMANDS_UNIVERSAL + DISCOVERY_COMMANDS_IOS,
-    "cisco_nxos": DISCOVERY_COMMANDS_UNIVERSAL + DISCOVERY_COMMANDS_IOS,
-    "juniper_junos": DISCOVERY_COMMANDS_UNIVERSAL + DISCOVERY_COMMANDS_JUNOS,
-}
-
-# Legacy flat list used when --commands override is passed
-DISCOVERY_COMMANDS = DISCOVERY_COMMANDS_UNIVERSAL + DISCOVERY_COMMANDS_IOS
+    cmds = [r[0] for r in op_rows] + [r[0] for r in bak_rows]
+    if not cmds:
+        return ["show version"]
+    return cmds
 
 # Platforms that are NOT Cisco IOS-compatible
 _JUNOS_PLATFORMS = {"juniper_junos", "juniper", "junos"}
@@ -303,13 +318,33 @@ def _run_collection(
         platform_groups.setdefault(plat, []).append(h)
 
     # If caller supplied explicit commands, use them for all devices
-    # Otherwise, use platform-specific command lists
+    # Otherwise, derive per-platform command lists from netops.commands
+    # (populated by sync_commands from ntc-templates + custom + PaC).
     use_explicit = commands is not None
-    if commands is None:
-        # Collect the union of all platform commands for progress display
+
+    # ARCH-27 (Round 77): populate netops.commands if empty, then query
+    # it for discovery commands per platform.  Opens a single read-write
+    # connection; sync_commands is idempotent and cheap (a few hundred ms).
+    platform_to_cmds: dict[str, list[str]] = {}
+    if not use_explicit:
+        try:
+            from olav_netops.core.commands_sync import sync_commands
+            with duckdb.connect(str(MAIN_DB_PATH)) as _cmds_conn:
+                sync_commands(_cmds_conn)
+                for plat in platform_groups:
+                    platform_to_cmds[plat] = _discovery_commands_for(plat, _cmds_conn)
+        except Exception as exc:  # noqa: BLE001
+            # If sync_commands or the lookup fails, fall back to a
+            # minimal 2-command set per platform so Device ETL still
+            # has ``show version`` to extract vendor/model.
+            print(f"  ⚠ sync_commands / discovery lookup failed ({exc}); "
+                  "falling back to minimal [show version, show interfaces]")
+            for plat in platform_groups:
+                platform_to_cmds[plat] = ["show version", "show interfaces"]
+
         all_cmds_set: set[str] = set()
-        for plat in platform_groups:
-            all_cmds_set.update(_PLATFORM_COMMANDS.get(plat, DISCOVERY_COMMANDS_UNIVERSAL))
+        for cmds in platform_to_cmds.values():
+            all_cmds_set.update(cmds)
         commands_display = sorted(all_cmds_set)
     else:
         commands_display = commands
@@ -363,8 +398,9 @@ def _run_collection(
             print(f"✓ {ok} devices, {fail} failures")
     else:
         # Platform-aware: each platform gets its own command list
+        # (pre-computed above from netops.commands via _discovery_commands_for).
         for plat, plat_devices in platform_groups.items():
-            plat_cmds = _PLATFORM_COMMANDS.get(plat, DISCOVERY_COMMANDS_UNIVERSAL)
+            plat_cmds = platform_to_cmds.get(plat, ["show version", "show interfaces"])
             print(f"  [{plat}] {len(plat_devices)} device(s): {', '.join(plat_devices)}")
             for cmd in plat_cmds:
                 pending = [d for d in plat_devices if (d, cmd) not in completed_set]
