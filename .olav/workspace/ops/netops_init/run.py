@@ -77,6 +77,10 @@ DISCOVERY_COMMANDS_JUNOS = [
     "show chassis hardware",
     "show vlans",
     "show configuration",
+    # Batfish prefers Junos configs in ``set`` format; captured in addition
+    # to the plain ``show configuration`` above so Stage 3.8 (R74 gitea #15)
+    # can pick the exporter-preferred variant.  Adds ~1 s per Junos device.
+    "show configuration | display set",
 ]
 
 # Platform → command list mapping
@@ -564,6 +568,49 @@ def _run_collection(
         except Exception as _seed_err:  # noqa: BLE001
             # Seed load is advisory — LLM discovery still runs.
             print(f"  ⚠ recipe seeds skipped (non-blocking): {_seed_err}")
+
+        # ── Stage 3.8: Batfish snapshot export (R74, gitea #15) ────────
+        # The exporter reads ``netops.raw_output_store`` and writes a
+        # Batfish-compatible layout at
+        # ``exports/snapshots/<YYYY-MM-DD>/batfish/{configs,manifest.json}``.
+        # ``netops_init/run.py`` used to call this stage ad-hoc (R74 note
+        # in dev_docs/00) but the wiring never actually landed; this
+        # block finishes it.  Non-blocking: a failure here must not
+        # prevent a successful IngestManager / Topology / Device ETL
+        # from being reported as "complete".
+        try:
+            from olav_netops.export.batfish import export_configs
+            with duckdb.connect(str(MAIN_DB_PATH), read_only=True) as _bf_conn:
+                _bf = export_configs(_bf_conn, snapshot_id=snapshot_id)
+            if _bf["config_count"]:
+                _out_dir = Path(_bf["output_dir"])
+                try:
+                    _rel = _out_dir.relative_to(Path.cwd())
+                except ValueError:
+                    _rel = _out_dir
+                print(
+                    f"  ✓ Batfish export: {_bf['config_count']} config(s) → {_rel}/"
+                )
+                # Stable ``latest-batfish`` symlink so downstream Batfish
+                # loaders don't need to know today's date.
+                try:
+                    _latest = _out_dir.parent.parent / "latest-batfish"
+                    if _latest.is_symlink() or _latest.exists():
+                        _latest.unlink()
+                    _latest.symlink_to(_out_dir.resolve())
+                except Exception as _sym_err:   # noqa: BLE001
+                    print(f"    ⚠ latest-batfish symlink failed: {_sym_err}")
+                if _bf["devices_missing"]:
+                    print(
+                        f"    ⚠ no config captured for: {', '.join(_bf['devices_missing'])}"
+                    )
+            else:
+                print(
+                    f"  ℹ Batfish export: no config command output found "
+                    f"(expected show running-config / show configuration in raw_output_store)"
+                )
+        except Exception as _bf_err:   # noqa: BLE001
+            print(f"  ⚠ Batfish export skipped (non-blocking): {_bf_err}")
 
     # NETOPS-01: release Netmiko SSH sessions held by Nornir's connection pool
     # to prevent fd/vty leaks in long-running parent processes.
