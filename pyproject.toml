@@ -133,13 +133,20 @@ tui = [
 graph = [
     "networkx>=3.6.1",
 ]
-# Enterprise encryption + LDAP auth (optional). ``netutils`` is used by the
-# enterprise audit-dataset exporter for interface-name normalisation.
-enterprise = [
-    "tink>=1.14.1",
-    "PyJWT>=2.8.0",
-    "netutils>=1.17.1",
-]
+# ``[enterprise]`` extra removed v0.21.0-rc5 (gitea #13).
+#
+# The extras' three deps (tink / PyJWT / netutils) were only imported by
+# ``src/olav/enterprise/*.py``, which is **excluded from the wheel**
+# (see ``[tool.hatch.build.targets.wheel].exclude`` and
+# ``[tool.hatch.build.targets.sdist].exclude`` above).  Installing
+# ``olav[enterprise]`` therefore pulled three packages that never got a
+# chance to load because the modules using them were not shipped.
+#
+# The authoritative home for enterprise features is the ``olav-ent``
+# package, whose ``pyproject.toml`` declares the same deps against the
+# real consumer at ``olav-ent/src/olav/enterprise/``.  Users who want
+# encryption / LDAP / dataset export should ``pip install olav-ent``;
+# the platform ``olav`` package does not vendor anything enterprise.
 ldap = [
     "ldap3>=2.9",
 ]

@@ -108,64 +108,26 @@ def _normalise_platform(platform: str) -> str:
 # ── TextFSM helper ────────────────────────────────────────────────────────
 
 def _textfsm_parse(platform: str, command: str, raw_output: str) -> list[dict] | None:
-    """Parse command output with TextFSM. Custom templates take priority over ntc-templates.
+    """Delegate to :func:`olav_netops.tools.textfsm_parse.parse_output`.
 
-    Search order:
-    1. Custom templates: .olav/workspace/ops/templates/custom/{platform}/{command}.textfsm
-    2. ntc-templates: site-packages/ntc_templates/templates/{platform}_{command}.textfsm
+    v0.21.0-rc5 (gitea #14): this function used to carry its own 3-tier
+    TextFSM lookup inline (custom → ntc-templates, platform-normaliser,
+    command-filename alias map).  That bypassed
+    ``olav_netops.tools.textfsm_parse.parse_output`` — the canonical
+    entry point that *also* runs ``field_normalizer.normalize_fields``
+    on the result and adds a Tier-0 PaC (Python) parser lookup.
+
+    Every row in ``netops.parsed_outputs`` populated by the old inline
+    path had raw vendor-shape field values (``ge-0/0/0``, ``Gi1/0/1``,
+    ``Estab`` vs ``Established``, FQDN-suffixed device names…), which
+    downstream SQL views had to CASE around.  Delegating here finishes
+    R72 ISSUE-INGEST-NORMALIZATION.
+
+    Command-filename aliases (``show ip ospf neighbors`` → ``…_neighbor``
+    etc.) moved to ``textfsm_parse._NTC_FILENAME_ALIASES``.
     """
-    import textfsm
-    from pathlib import Path as _P
-
-    platform_norm = _normalise_platform(platform)
-    cmd_key = command.strip().lower().replace(" ", "_").replace("-", "-")
-
-    # Command → NTC template name overrides (where CLI name ≠ template filename)
-    _CMD_ALIASES: dict[str, str] = {
-        "show ip ospf neighbors":  "show_ip_ospf_neighbor",
-        "show vlan brief":          "show_vlan",
-        "show lldp neighbors":      "show_lldp_neighbors",
-        "show cdp neighbors":       "show_cdp_neighbors",
-        "show bgp summary":         "show_ip_bgp_summary",
-        "show bgp all summary":     "show_ip_bgp_summary",
-    }
-    cmd_stripped = command.strip().lower()
-    ntc_cmd_key = _CMD_ALIASES.get(cmd_stripped, cmd_key)
-
-    # ── 1. Custom templates (auto-learned, priority) ──
-    try:
-        from olav.core.config import get_paths_config
-        _olav_base = _P(get_paths_config().agent_dir)
-        custom_dir = _olav_base / "templates"
-        custom_path = custom_dir / platform_norm / f"{cmd_key}.textfsm"
-        if custom_path.exists():
-            with open(custom_path) as f:
-                fsm = textfsm.TextFSM(f)
-                rows = fsm.ParseText(raw_output)
-            if rows:
-                headers = fsm.header
-                return [dict(zip(headers, row)) for row in rows]
-    except Exception:
-        pass  # custom template failed — fall through to ntc
-
-    # ── 2. ntc-templates (upstream) ──
-    try:
-        import ntc_templates
-        templates_dir = _P(ntc_templates.__file__).parent / "templates"
-        template_path = templates_dir / f"{platform_norm}_{ntc_cmd_key}.textfsm"
-        if not template_path.exists():
-            return None
-
-        with open(template_path) as f:
-            fsm = textfsm.TextFSM(f)
-            rows = fsm.ParseText(raw_output)
-
-        if not rows:
-            return None
-        headers = fsm.header
-        return [dict(zip(headers, row)) for row in rows]
-    except Exception:
-        return None
+    from olav_netops.tools.textfsm_parse import parse_output
+    return parse_output(platform, command, raw_output)
 
 
 # ── Stage helpers ──────────────────────────────────────────────────────────
