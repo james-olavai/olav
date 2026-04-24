@@ -23,22 +23,28 @@ from olav.core.defaults import DEFAULT_LOG_PORT
 logger = logging.getLogger(__name__)
 
 
-def _find_project_root() -> Path:
-    """Find project root (pyproject.toml location)."""
-    p = Path(__file__).resolve().parent
-    while p != p.parent:
-        if (p / "pyproject.toml").exists():
-            return p
-        p = p.parent
-    return Path.cwd()
+from olav.cli.commands.services._paths import find_workspace_root
 
 
-PROJECT_ROOT = _find_project_root()
-# Receiver is a proper src module — invoke via `python -m olav.services.syslog_receiver`
-PID_FILE = PROJECT_ROOT / ".olav" / "run" / "syslog_receiver.pid"
-LOG_FILE = PROJECT_ROOT / ".olav" / "logs" / "syslog_receiver.log"
-CONFIG_FILE = PROJECT_ROOT / ".olav" / "config" / "api.json"
-RUNTIME_FILE = PROJECT_ROOT / ".olav" / "config" / "runtime.json"
+def _project_root() -> Path:
+    """Workspace root for syslog runtime files.  See gitea #12."""
+    return find_workspace_root()
+
+
+def _pid_file() -> Path:
+    return _project_root() / ".olav" / "run" / "syslog_receiver.pid"
+
+
+def _log_file() -> Path:
+    return _project_root() / ".olav" / "logs" / "syslog_receiver.log"
+
+
+def _config_file() -> Path:
+    return _project_root() / ".olav" / "config" / "api.json"
+
+
+def _runtime_file() -> Path:
+    return _project_root() / ".olav" / "config" / "runtime.json"
 
 
 class LogsService:
@@ -61,9 +67,9 @@ class LogsService:
             "auto_start": False,
         }
 
-        if CONFIG_FILE.exists():
+        if _config_file().exists():
             try:
-                full_cfg = json.loads(CONFIG_FILE.read_text())
+                full_cfg = json.loads(_config_file().read_text())
                 return full_cfg.get("syslog_receiver", default_logs)
             except Exception as e:
                 logger.warning(f"Failed to load config: {e}, using defaults")
@@ -72,31 +78,31 @@ class LogsService:
 
     def _save_config(self) -> None:
         """Save logs service configuration into settings.json."""
-        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _config_file().parent.mkdir(parents=True, exist_ok=True)
 
         full_cfg = {}
-        if CONFIG_FILE.exists():
+        if _config_file().exists():
             try:
-                full_cfg = json.loads(CONFIG_FILE.read_text())
+                full_cfg = json.loads(_config_file().read_text())
             except Exception:
                 pass
-        elif RUNTIME_FILE.exists():
+        elif _runtime_file().exists():
             try:
-                full_cfg = json.loads(RUNTIME_FILE.read_text())
+                full_cfg = json.loads(_runtime_file().read_text())
             except Exception:
                 pass
 
         full_cfg["syslog_receiver"] = self._cfg
-        CONFIG_FILE.write_text(json.dumps(full_cfg, indent=2))
-        logger.info(f"Config section updated in {CONFIG_FILE}")
+        _config_file().write_text(json.dumps(full_cfg, indent=2))
+        logger.info(f"Config section updated in {_config_file()}")
 
     def _is_running(self) -> bool:
         """Check if receiver process is running."""
-        if not PID_FILE.exists():
+        if not _pid_file().exists():
             return False
 
         try:
-            pid = int(PID_FILE.read_text().strip())
+            pid = int(_pid_file().read_text().strip())
             # Try to send signal 0 (check if process exists)
             os.kill(pid, 0)
             return True
@@ -105,10 +111,10 @@ class LogsService:
 
     def _get_pid(self) -> int | None:
         """Get receiver process PID."""
-        if not PID_FILE.exists():
+        if not _pid_file().exists():
             return None
         try:
-            return int(PID_FILE.read_text().strip())
+            return int(_pid_file().read_text().strip())
         except ValueError:
             return None
 
@@ -130,11 +136,11 @@ class LogsService:
         flush_interval = self._cfg["flush_interval"]
 
         # Ensure directories exist
-        PID_FILE.parent.mkdir(parents=True, exist_ok=True)
-        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _pid_file().parent.mkdir(parents=True, exist_ok=True)
+        _log_file().parent.mkdir(parents=True, exist_ok=True)
 
         # Start receiver as a detached subprocess using the installed module
-        log_fh = open(LOG_FILE, "a")  # noqa: SIM115
+        log_fh = open(_log_file(), "a")  # noqa: SIM115
         try:
             _process = subprocess.Popen(
                 [
@@ -149,7 +155,7 @@ class LogsService:
                 stdout=log_fh,
                 stderr=log_fh,
                 start_new_session=True,  # detach cleanly
-                cwd=str(PROJECT_ROOT),
+                cwd=str(_project_root()),
             )
         except Exception as e:
             log_fh.close()
@@ -165,8 +171,8 @@ class LogsService:
             # Read tail of log for error clue
             log_fh.close()
             tail = ""
-            if LOG_FILE.exists():
-                lines = LOG_FILE.read_text().split("\n")
+            if _log_file().exists():
+                lines = _log_file().read_text().split("\n")
                 tail = "\n".join(lines[-6:]).strip()
             return f"[red]Failed to start:[/red]\n{tail}"
 
@@ -182,20 +188,20 @@ class LogsService:
             # Wait for graceful shutdown
             for _ in range(10):
                 if not self._is_running():
-                    if PID_FILE.exists():
-                        PID_FILE.unlink()
+                    if _pid_file().exists():
+                        _pid_file().unlink()
                     return f"[green]✓[/green] Syslog receiver stopped (PID: {pid})"
                 await asyncio.sleep(0.5)
 
             # Force kill if needed
             os.kill(pid, signal.SIGKILL)
-            if PID_FILE.exists():
-                PID_FILE.unlink()
+            if _pid_file().exists():
+                _pid_file().unlink()
             return f"[yellow]⚠ Force-killed syslog receiver (PID: {pid})[/yellow]"
 
         except ProcessLookupError:
-            if PID_FILE.exists():
-                PID_FILE.unlink()
+            if _pid_file().exists():
+                _pid_file().unlink()
             return f"[yellow]Process {pid} not found[/yellow]"
         except Exception as e:
             return f"[red]Error stopping receiver: {e}[/red]"
@@ -228,7 +234,7 @@ class LogsService:
         table.add_row("Flush Interval", f"{flush_interval}s")
 
         # Log storage info
-        log_dir = PROJECT_ROOT / ".olav" / "databases" / "logs"
+        log_dir = _project_root() / ".olav" / "databases" / "logs"
         parquet_count = len(list(log_dir.glob("**/*.parquet"))) if log_dir.exists() else 0
         table.add_row("Parquet Files", str(parquet_count))
         table.add_row("Log Directory", str(log_dir))
@@ -236,9 +242,9 @@ class LogsService:
         self.console.print(table)
 
         # Show last log lines if running
-        if is_running and LOG_FILE.exists():
+        if is_running and _log_file().exists():
             self.console.print("\n[bold]Recent Log Output:[/bold]")
-            lines = LOG_FILE.read_text().split("\n")[-5:]
+            lines = _log_file().read_text().split("\n")[-5:]
             for line in lines:
                 if line.strip():
                     self.console.print(f"  {line}")
@@ -249,7 +255,7 @@ class LogsService:
         """Manage configuration."""
         if subcommand == "show":
             self.console.print_json(data=self._cfg)
-            return f"[dim]Config: {CONFIG_FILE}[/dim]"
+            return f"[dim]Config: {_config_file()}[/dim]"
 
         elif subcommand == "set":
             key = kwargs.get("key")
@@ -281,15 +287,15 @@ class LogsService:
 
     async def logs(self, tail: int = 50) -> str:
         """Show receiver logs."""
-        if not LOG_FILE.exists():
+        if not _log_file().exists():
             return "[yellow]No log file yet. Start the receiver with 'olav service logs start'[/yellow]"
 
-        lines = LOG_FILE.read_text().split("\n")
+        lines = _log_file().read_text().split("\n")
 
         # Show last N lines
         display_lines = lines[-tail:] if len(lines) > tail else lines
 
-        self.console.print(f"\n[bold]Last {len(display_lines)} log lines ({LOG_FILE}):[/bold]\n")
+        self.console.print(f"\n[bold]Last {len(display_lines)} log lines ({_log_file()}):[/bold]\n")
         for line in display_lines:
             if line.strip():
                 self.console.print(line)

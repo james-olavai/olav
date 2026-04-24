@@ -314,8 +314,20 @@ def parse_args():
         "args", nargs=argparse.REMAINDER, help="Registry subcommand arguments"
     )
 
-    # `skill` verb removed in v0.20.3 — replaced by `olav agent install`.
-    # SkillCommand class kept for internal use by agent_install.
+    # `skill` verb (singular) — deprecation shim, forwards to `olav agent`.
+    # The full singular-skill dispatcher was deleted in v0.20.3 (P7 cycle 2),
+    # but every dev_docs reference and external doc still uses `olav skill
+    # install <path>` from the v0.19.x era.  Without a shim, users hit the
+    # outer parser's "unknown command" error.  See gitea #11.
+    skill_parser = subparsers.add_parser(
+        "skill",
+        help="DEPRECATED: use `olav agent install` instead.",
+    )
+    skill_parser.add_argument(
+        "args",
+        nargs=argparse.REMAINDER,
+        help="Forwarded verbatim to `olav agent` after a deprecation warning.",
+    )
 
     # v0.20.0 — new `olav agent install` verb (P5 scaffold; full takeover in P1)
     agent_parser = subparsers.add_parser(
@@ -1531,10 +1543,26 @@ async def cli_main_impl() -> None:
                 console.print(result)
             return
 
-        # `skill` verb dispatcher removed in v0.20.3.  `olav skill …`
-        # now falls through to the natural-language query path which
-        # the LLM will either answer or route.  Users wanting the old
-        # install flow should use `olav agent install`.
+        # `skill` verb — deprecation shim added back in v0.21.0-rc4 (gitea
+        # #11).  v0.20.3 deleted the dispatcher entirely, but every
+        # historical demo doc still uses ``olav skill install <path>``.
+        # The earlier behaviour (falling through to the natural-language
+        # query path) silently routed install requests to the LLM, which
+        # then printed "Please run the CLI command directly" without
+        # actually doing anything — confusing and visibly broken on demos.
+        # Now we forward verbatim to the agent dispatcher and warn once.
+        if args.command == "skill":
+            from olav.cli.commands.agent_install import AgentInstallCommand
+
+            console.print(
+                "[yellow]warning:[/yellow] `olav skill` is deprecated; "
+                "use [cyan]`olav agent`[/cyan] instead.  Forwarding…"
+            )
+            agent_cmd = AgentInstallCommand()
+            agent_args = " ".join(args.args) if args.args else ""
+            result = await agent_cmd.execute(agent_args)
+            console.print(result)
+            return
 
         if args.command == "agent":
             # v0.20.0 scaffold: new public verb, dispatches via the
