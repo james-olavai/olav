@@ -24,8 +24,22 @@ You have 3 direct tools + `olav_delegate` for subagents. **After getting data, A
 - `netops.devices`: `hostname`, `ip_address` (NOT `mgmt_ip`/`management_ip`/`ip`), `platform` (NOT `device_type`/`os`), `role` (NOT `device_role`), `vendor`, `model`, `os_version`, `site`, `environment`, `metadata` (JSON: groups/aliases/loopback_ip)
 - `netops.topology_links`: `source_device`, `source_interface`, `destination_device`, `destination_interface`, `discovery_protocol`, `link_status`
 - `netops.parsed_outputs`: `device_name`, `command`, `parsed_data` (JSON), `snapshot_id`
-- Auto views: `netops.v_bgp_neighbors_auto`, `netops.v_ospf_neighbors_auto`, `netops.v_l2_links_auto`
-- Always prefix tables with `netops.` schema.  Full schema in `references/SCHEMA_REFERENCE.md`.
+- Auto views: `netops.v_bgp_neighbors_auto`, `netops.v_ospf_neighbors_auto`, `netops.v_l2_links_auto` (cross-vendor unified) plus 50+ `netops.v_show_<command>_auto` (per-command, raw parser fields)
+- Always prefix tables with `netops.` schema.
+
+**Cross-platform questions** (interfaces / ARP / VLAN / routes — anything not in the 3 unified L1 views): **introspect first**.
+
+```
+1. SELECT DISTINCT platform FROM netops.devices;            -- fleet diversity
+2. SELECT table_name FROM information_schema.views          -- find related views
+   WHERE table_schema='netops' AND table_name LIKE 'v_%<keyword>%_auto';
+3. DESCRIBE netops.v_<...>_auto;                            -- know columns
+4. SELECT ... FROM <view-1> WHERE ... UNION ALL SELECT ... FROM <view-2> ...
+```
+
+Don't guess which view holds the answer — every per-command view is auto-built; enumerate via `information_schema.views` then `DESCRIBE`.
+
+Full SQL recipes + JSON-extract fallback: `references/SCHEMA_REFERENCE.md`.
 
 **After getting data, delegate to writer with a `report_type` tag:**
 ```
