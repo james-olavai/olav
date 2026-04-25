@@ -8,6 +8,7 @@ tools:
 static_context:
   - path: ./references/SKILL_DEVELOPMENT.md
   - path: ./references/REQUIRED_INFO_CHECK.md
+  - path: ./references/SCHEMA_REFERENCE.md
 metadata:
   version: 4.0.0
   type: core

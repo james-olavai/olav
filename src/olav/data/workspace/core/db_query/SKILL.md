@@ -8,6 +8,58 @@ references:
   - path: ./references/RAW_FALLBACK.md
 ---
 
+## Known columns (write SQL directly — do NOT call describe_table first)
+
+These are the stable, frequently-queried columns.  Use them as the
+authoritative reference when composing SQL — calling
+`describe_table` first wastes a tool round-trip.
+
+### `netops.devices` — device inventory (one row per host)
+`hostname`, `ip_address` (mgmt IP from nornir hosts.yaml), `platform`
+(netmiko/ntc-templates name: `cisco_ios` / `juniper_junos` / …),
+`vendor`, `model`, `os_version`, `role`, `site`, `environment`,
+`last_seen`, `metadata` (JSON: `groups`, `aliases`, `loopback_ip`).
+
+> **Common mistakes:** the column is **`ip_address`** (NOT
+> `management_ip`, `mgmt_ip`, or `ip`); **`platform`** (NOT
+> `device_type`, `os`, `vendor_os`); **`role`** (NOT `device_role`).
+
+### `netops.topology_links` — physical connectivity
+`source_device`, `source_interface`, `destination_device`,
+`destination_interface`, `discovery_protocol` (CDP/LLDP),
+`link_status`, `link_type`, `link_speed`, `first_seen`, `last_seen`,
+`snapshot_id`, `platform`.
+
+### `netops.parsed_outputs` — structured per-command output
+`device_name`, `command`, `parsed_data` (JSON array of dicts —
+field names come from the parser, ntc-templates lowercase
+convention: e.g. `interface`, `ip_address`, `state`),
+`raw_output_hash`, `snapshot_id`, `ingested_at`.
+
+### `netops.raw_output_store` — verbatim CLI text
+`device_name`, `command`, `raw_output` (text), `snapshot_id`,
+`updated_at`.  PK: `(device_name, command)` — one row per pair, latest
+wins.
+
+### `netops.commands` — command registry (R73 SSOT)
+`platform`, `command`, `safe_command`, `parser_type`
+(`ntc` / `custom_textfsm` / `pac` / `raw_only`), `parser_path`,
+`blacklisted`, `pipe_allowed`, `backup_only`, `synced_at`.
+
+### Auto views (vendor-normalised, state-canonicalised)
+* `netops.v_bgp_neighbors_auto` — `device`, `neighbor_ip`,
+  `neighbor_as`, `local_as`, `router_id`, `state`, `uptime`,
+  `snapshot_id`
+* `netops.v_ospf_neighbors_auto` — `device`, `neighbor_id`,
+  `neighbor_ip`, `interface`, `area`, `state`, `dead_time`,
+  `snapshot_id`
+* `netops.v_l2_links_auto` — `source_device`, `source_interface`,
+  `destination_device`, `destination_interface`,
+  `discovery_protocol`, `link_status`, `snapshot_id`
+
+> Use `describe_table` only when the user asks about a column not
+> listed above OR a custom table outside `netops.*`.
+
 ## Output Rules
 
 1. When the user asks to **list / enumerate / 列出 / 显示所有**, display **ALL rows** returned — do not summarize, truncate, or show only representative examples.
