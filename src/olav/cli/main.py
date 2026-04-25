@@ -1091,6 +1091,7 @@ async def run_single_query(
         input_msg = {"messages": [{"role": "human", "content": query}]}
         _chunks: list[str] = []
         _tool_results: list[dict] = []  # capture tool outputs for post-processing
+        _pending_tool_args: dict[str, tuple] = {}  # run_id → (tool_name, args), drained by on_tool_end
 
         _graph = agent.graph if hasattr(agent, "graph") else agent
         # WRITER-01 (a) Round 39: tag 🔧 output with origin — "orch" for tools
@@ -1130,13 +1131,23 @@ async def run_single_query(
                 console.print(f"  🔧[{_origin}] {tool_name}({_input_preview}...)")
                 if tool_name in _DELEGATE_TOOLS:
                     _delegate_depth += 1
+                # Pair (args → result) for memory capture: stash by run_id from
+                # event so concurrent calls don't clobber each other.
+                _run_id = event.get("run_id") or event.get("id") or ""
+                _pending_tool_args[_run_id] = (tool_name, tool_input)
 
             elif kind == "on_tool_end":
                 tool_name = event.get("name", "")
                 output = data.get("output", "")
                 if tool_name in _DELEGATE_TOOLS and _delegate_depth > 0:
                     _delegate_depth -= 1
-                _tool_results.append({"name": tool_name, "content": str(output)[:4096]})
+                _run_id = event.get("run_id") or event.get("id") or ""
+                _, _args = _pending_tool_args.pop(_run_id, (tool_name, {}))
+                _tool_results.append({
+                    "name": tool_name,
+                    "args": _args,
+                    "content": str(output)[:4096],
+                })
 
         final_content = "".join(_chunks)
 
@@ -1184,11 +1195,22 @@ async def run_single_query(
 
         # ── OLAV middleware hooks (workaround: deepagents doesn't mount them) ──
         if hasattr(agent, "_olav_middleware"):
+            # Build a synthetic message log middleware can scan.  Tool
+            # messages carry both ``args`` (request payload — e.g. the
+            # SQL string for ``execute_sql``) and ``content`` (response
+            # payload — e.g. the row JSON).  Plugins like
+            # query_pattern_capture pair them by sequence to learn
+            # successful (intent → SQL) tuples.
             _state = {
                 "messages": [
                     {"role": "human", "content": query},
                 ] + [
-                    {"role": "tool", "name": tr["name"], "content": tr["content"]}
+                    {
+                        "role": "tool",
+                        "name": tr["name"],
+                        "args": tr.get("args", {}),
+                        "content": tr["content"],
+                    }
                     for tr in _tool_results
                 ] + [
                     {"role": "assistant", "content": final_content},
