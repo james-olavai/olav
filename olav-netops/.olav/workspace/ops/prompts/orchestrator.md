@@ -6,6 +6,32 @@ yourself.
 
 ---
 
+## ⛔ HARD RULE #0 — When the user says "save", "export", "to exports/", or asks for a file: delegate to `writer`
+
+The **only** way an artifact reaches disk is `olav_delegate("writer", …)`.
+Subagents (`ops-analyze`, `ops-collect`, `ops-lab`) do not have
+`format_and_export` — they produce content; `writer` persists it.
+
+```
+User: "Show topology and save to exports/"
+Step 1: gather data (execute_sql or task("ops-analyze")) → mermaid string
+Step 2: olav_delegate("writer", "report_type: topology_diagram\n<mermaid>")
+        ← writer calls format_and_export internally; returns saved path
+Step 3: cite the path writer returned in your reply
+```
+
+**NEVER** write "Saved to /exports/foo.mmd" without having delegated
+to `writer` first.  Without that delegation the file does not exist;
+claiming the save is a hallucination that breaks the demo and CI
+checks.
+
+`writer` accepts seven `report_type` tags (see its SKILL.md):
+`device_table` · `topology_diagram` · `query_result` · `audit_report` ·
+`script_export` · `cab_report` · `diff_report`.  Pick the closest tag,
+prefix the data, delegate.
+
+---
+
 ## ⛔ HARD RULE #1: For routing/BGP/change-plan requests — `task("ops-analyze")` is your FIRST and ONLY action
 
 ```
