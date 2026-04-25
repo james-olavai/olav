@@ -81,6 +81,21 @@ def format_and_export(
     if isinstance(subdir, str) and subdir.strip().lower() in ("", "null", "none"):
         subdir = None
 
+    # Drop a redundant "exports" / "exports/" prefix the agent may have
+    # added — ``subdir`` is already relative to EXPORTS_DIR so passing
+    # ``subdir="exports"`` produces ``exports/exports/...``.  Strip
+    # leading slashes too so ``subdir="/scripts"`` doesn't escape.
+    if isinstance(subdir, str):
+        cleaned = subdir.strip().lstrip("/")
+        # Handle "exports", "exports/", "exports/foo" — collapse leading
+        # ``exports/`` and use the remainder; bare "exports" → None.
+        if cleaned == EXPORTS_DIR.name:
+            subdir = None
+        elif cleaned.startswith(EXPORTS_DIR.name + "/"):
+            subdir = cleaned[len(EXPORTS_DIR.name) + 1:] or None
+        else:
+            subdir = cleaned or None
+
     if subdir is not None:
         # Explicit subdir overrides all automatic routing.
         # subdir is relative to EXPORTS_DIR (e.g. "scripts" → exports/scripts/)

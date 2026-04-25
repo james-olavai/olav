@@ -164,6 +164,19 @@ def _escape_sql_literal(value: str) -> str:
     return value.replace("'", "''")
 
 
+# Latest-per-(device,command) snapshot filter.  Without this, every
+# auto view returns N×M rows where N = snapshots accumulated since
+# last cleanup — a `/netops_init` retry, repeated `take_snapshot`,
+# or `/learn_cmd` would multiply view rowcount and produce wrong NL
+# answers ("18 BGP neighbors" instead of "6").  Applied to every
+# branch that reads ``netops.parsed_outputs``.
+_LATEST_SNAPSHOT_FILTER = (
+    " AND p.snapshot_id = (SELECT MAX(snapshot_id) "
+    "FROM netops.parsed_outputs s "
+    "WHERE s.device_name = p.device_name AND s.command = p.command) "
+)
+
+
 # ── Per-concept SQL branch generators ────────────────────────────────────
 
 def _bgp_branch(recipe: dict[str, Any]) -> str:
@@ -211,6 +224,7 @@ WHERE p.command = '{command}'
   AND p.parsed_data IS NOT NULL
   AND {neighbor_expr} IS NOT NULL
   AND {neighbor_expr} != ''
+  {_LATEST_SNAPSHOT_FILTER}
   {_vendor_filter_clause(recipe["vendor_hint"])}
 """.strip()
     if recipe.get("filter_expr"):
@@ -253,6 +267,7 @@ WHERE p.command = '{command}'
   AND p.parsed_data IS NOT NULL
   AND {nid_expr} IS NOT NULL
   AND {nid_expr} != ''
+  {_LATEST_SNAPSHOT_FILTER}
   {_vendor_filter_clause(recipe["vendor_hint"])}
 """.strip()
     if recipe.get("filter_expr"):
@@ -312,6 +327,7 @@ FROM netops.parsed_outputs p,
 WHERE p.command = '{command}'
   AND p.parsed_data IS NOT NULL
   {not_null_clause}
+  {_LATEST_SNAPSHOT_FILTER}
   {_vendor_filter_clause(recipe["vendor_hint"])}
 """.strip()
     if recipe.get("filter_expr"):
