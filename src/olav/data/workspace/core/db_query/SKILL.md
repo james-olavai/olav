@@ -108,59 +108,60 @@ Read the raw CLI text yourself and extract the answer by reasoning.
 **Never answer "I cannot parse this command"** — raw is always available.
 
 Details and examples: see `references/RAW_FALLBACK.md`.
-## One-shot introspection (R83.3 — preferred path)
+## Memory-first workflow (R83.4)
 
-For any data question, **start** with a single read of the pre-built
-data dictionary:
+You already have the data dictionary — it's in your `<relevant-memories>`
+block at the top of context, automatically retrieved by AutoRecall:
 
-```sql
-SELECT * FROM netops.introspection_cache;
-```
+* `schema_knowledge` entries describe every `netops.v_*_auto` view's
+  columns, types, sample row, and categorical-value variants.
+* `value_distribution` entries list, for each state-like column, all
+  variants observed across the fleet (so you know whether to write
+  `state='Established'` or `state IN ('Established', 'Estab')`).
+* `query_pattern` entries are SQL templates that worked for similar
+  questions before — imitate when applicable.
 
-This returns one row with four JSON columns:
+**Workflow:**
 
-* `fleet` — every device's hostname / platform / role / site / IP
-* `views` — every per-command auto-view + its column list (with types)
-* `value_distributions` — every low-cardinality categorical column's
-  distinct values + frequency + cluster_id (so you see the variants
-  before writing WHERE)
-* `refreshed_at` — when the cache was last rebuilt
+1. Read `<relevant-memories>` in your context — pick the relevant
+   schema_knowledge + value_distribution entries.
+2. Write **one** data SELECT against the appropriate `v_*_auto` view.
+3. Done.
 
-Reading this once gives you everything you need to compose a precise
-data SELECT — no separate `DESCRIBE`, no `information_schema` walks,
-no `SELECT DISTINCT` value scouting.
-
-**Two-step flow:**
-
-```
-1. SELECT * FROM netops.introspection_cache;
-   → reason over the JSON
-2. SELECT … FROM netops.v_show_<x>_auto WHERE col IN (…);
-```
-
-That's it.
+No `DESCRIBE`, no `information_schema` walks, no `SELECT DISTINCT`
+value scouting — the memory layer pre-pushes everything you need.
 
 ### Worked examples
 
 **"Are all BGP neighbors established?"**
-1. introspection_cache → see `v_show_bgp_summary_auto.state` has
-   values like `['Established'(4), 'Estab'(2), 'Idle'(1)]`.
-2. `SELECT device_name, neighbor_ip, state FROM netops.v_show_bgp_summary_auto WHERE state = 'Idle';`
+1. Memory shows `v_show_bgp_summary_auto.state` variants:
+   `'Established'(4), 'Estab'(2), 'Idle'(1)`.
+2. Write inclusive filter:
+   ```sql
+   SELECT device_name, neighbor_ip, state
+   FROM netops.v_show_bgp_summary_auto
+   WHERE state IN ('Established', 'Estab');
+   ```
+   Then count rows; compare with neighbor count to know if all are up.
 
 **"Which interfaces are down across all devices?"**
-1. introspection_cache → see fleet has cisco_ios + juniper_junos;
-   `v_show_ip_interface_brief_auto.status` variants
-   `['up', 'administratively down']`; `v_show_interfaces_terse_auto.link_state`
-   variants `['up', 'down']`.
-2. UNION ALL across both views, filter on the visible "down" variants.
+1. Memory shows two views relevant to interface state:
+   * `v_show_ip_interface_brief_auto.status` variants
+     `['up', 'administratively down']`
+   * `v_show_interfaces_terse_auto.link_state` variants
+     `['up', 'down']`
+2. UNION ALL across both, filter on the down variants.
 
-### Fallback (introspection_cache empty or stale)
+### Fallback (memory empty / cold start)
 
-If the cache is empty (e.g. `/netops_init` hasn't run yet), fall
-back to the per-table primitives:
+If `<relevant-memories>` is empty, fall back to direct introspection:
 
 ```sql
 SELECT DISTINCT platform FROM netops.devices;
 SELECT table_name FROM information_schema.views WHERE table_schema='netops' AND table_name LIKE 'v_%_auto';
 DESCRIBE netops.v_show_<...>_auto;
 ```
+
+`netops.value_profile` (full categorical profile) and
+`netops.introspection_cache` (single-row JSON bag) remain queryable
+as fallbacks but are no longer the first stop.
