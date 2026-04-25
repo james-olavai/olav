@@ -68,17 +68,20 @@ _MAC_HINT = re.compile(
     r"(?:^|_)(mac|hwaddr|chassis_id|physical_address|mac_address)(?:$|_)",
     re.IGNORECASE,
 )
-# R83.2: state-like fields that should be canonicalised to RFC names.
-# Triggers on ``state`` / ``status`` / ``session_state`` / ``bgp_state``
-# / ``ospf_state`` / ``port_state``.  Combined with value-shape check
-# below to avoid mis-normalising free-form text fields.
+# R83.2 + R83.4-followup: state-like fields canonicalised to RFC/IEEE
+# names.  Triggers on common state field-name tokens — ``state`` /
+# ``status`` cover BGP/OSPF/interface; ``role`` covers STP port role;
+# ``admin`` / ``oper`` cover ifAdminStatus / ifOperStatus columns
+# (e.g. ``v_show_interfaces_terse_auto.admin_state``).  Value-shape
+# gate below filters out free-form messages.
 _STATE_HINT = re.compile(
-    r"(?:^|_)(state|status)(?:$|_)",
+    r"(?:^|_)(state|status|role|admin|oper)(?:$|_)",
     re.IGNORECASE,
 )
-# State values are short enum-like tokens (single word or word/word).
-# Free-form messages ("administratively down by user") fall through.
-_STATE_VALUE_RE = re.compile(r"^[A-Za-z0-9/_+-]{1,40}$")
+# State values are short enum-like tokens.  Allow space (for
+# "administratively down") and trailing whitespace from parser bugs.
+# Free-form messages > 40 chars after strip fall through.
+_STATE_VALUE_RE = re.compile(r"^[A-Za-z0-9/_+\- ]{1,40}$")
 
 # ── Value-format validators ─────────────────────────────────────────────
 # A reasonable looking IPv4/IPv6 (before ipaddress does the authoritative parse)
@@ -143,55 +146,108 @@ def _canonical_mac(val: str) -> str | None:
 # Rules below are *prefix matches on the lowercased value*: e.g.
 # ``Full/DR`` keeps the ``/DR`` suffix because it's RFC-correct OSPF.
 _STATE_RULES: tuple[tuple[str, str], ...] = (
-    # BGP — RFC 4271 section 8 finite-state machine
-    ("establ", "Established"),
-    ("idle", "Idle"),
-    ("active", "Active"),
-    ("connect", "Connect"),
-    ("opensent", "OpenSent"),
+    # ── BGP — RFC 4271 §8 ─────────────────────────────────
+    ("estab",       "Established"),    # ntc-templates truncates to 5 chars
+    ("establ",      "Established"),    # …or 6
+    ("established", "Established"),
+    ("idle",        "Idle"),
+    ("active",      "Active"),
+    ("connect",     "Connect"),        # exact match only — see "connected" below
+    ("opensent",    "OpenSent"),
     ("openconfirm", "OpenConfirm"),
-    # OSPF — RFC 2328 section 10 neighbour state machine
-    ("full", "Full"),       # may be followed by /DR or /BDR — preserved verbatim
-    ("2way", "2-Way"),
-    ("2-way", "2-Way"),
-    ("exstart", "ExStart"),
-    ("exchange", "Exchange"),
-    ("loading", "Loading"),
-    ("init", "Init"),
-    ("attempt", "Attempt"),
-    # generic
-    ("down", "Down"),
-    ("up", "Up"),
+    # ── OSPF neighbour — RFC 2328 §10 ─────────────────────
+    ("full",        "Full"),           # may carry /DR or /BDR suffix (handled by prefix pass)
+    ("2way",        "2-Way"),
+    ("2-way",       "2-Way"),
+    ("exstart",     "ExStart"),
+    ("exchange",    "Exchange"),
+    ("loading",     "Loading"),
+    ("init",        "Init"),
+    ("attempt",     "Attempt"),
+    # ── ifOperStatus / ifAdminStatus — RFC 2863 §3 (lowercase MIB names) ──
+    ("up",                    "up"),
+    ("down",                  "down"),
+    ("connected",             "up"),     # cisco show interfaces status
+    ("notconnect",            "down"),
+    ("notconnected",          "down"),
+    ("disabled",              "admin-down"),
+    ("err-disabled",          "err-disabled"),
+    ("err disabled",          "err-disabled"),
+    ("administratively down", "admin-down"),
+    ("admin down",            "admin-down"),
+    ("admin-down",            "admin-down"),
+    ("testing",               "testing"),
+    ("dormant",               "dormant"),
+    # ── STP port role — IEEE 802.1D ──────────────────────
+    ("desg",       "designated"),
+    ("designated", "designated"),
+    ("root",       "root"),
+    ("altn",       "alternate"),
+    ("alternate",  "alternate"),
+    ("back",       "backup"),
+    ("backup",     "backup"),
+    # ── STP port state — IEEE 802.1D / 802.1w ────────────
+    ("fwd",        "forwarding"),
+    ("forwarding", "forwarding"),
+    ("lrn",        "learning"),
+    ("learning",   "learning"),
+    ("lis",        "listening"),
+    ("listening",  "listening"),
+    ("blk",        "blocking"),
+    ("blocking",   "blocking"),
+    ("dis",        "disabled"),
+    # ── OSPF interface state — RFC 2328 §9 ───────────────
+    ("loop",    "loopback"),
+    ("dr",      "dr"),                  # designated router (lowercase MIB)
+    ("bdr",     "bdr"),
+    ("dother",  "dother"),
+    ("waiting", "waiting"),
+    ("p2p",     "point-to-point"),
+    ("p-2-p",   "point-to-point"),
 )
 
 
 def _canonical_state(val: str) -> str | None:
-    """Map vendor variants to a canonical RFC state.
+    """Map vendor variants to a canonical RFC/IEEE state.
+
+    Two-pass match:
+
+    1. **Exact match** (lowercased, trimmed) — handles the conflict
+       cases like ``connected`` (cisco interfaces status, → ``up``)
+       without the BGP ``connect`` rule swallowing it via prefix.
+    2. **Prefix match** — fires only when the suffix starts with ``/``
+       or ``-`` (OSPF ``Full/DR`` → ``Full/DR``).  Without this guard,
+       prefix matching corrupts unrelated tokens (R83.2 had this bug:
+       ``connected`` was mangled to ``Connect`` because rule order put
+       BGP ``connect`` before any interface-status rule).
 
     Handles:
 
     * ``"Estab"`` / ``"Established"`` / ``"established"`` → ``"Established"``
+    * ``"connected"`` / ``"CONNECTED"``                   → ``"up"``         (cisco)
+    * ``"notconnect"``                                    → ``"down"``       (cisco)
     * ``"FULL"`` / ``"Full"`` / ``"full"``               → ``"Full"``
-    * ``"FULL/DR"``                                       → ``"Full/DR"`` (designated form preserved)
-    * ``"administratively down"``                         → unchanged (free-form text trips the value-shape gate upstream)
-    * Bare numeric (``"0"``) is treated as Established **only** when the
-      key suggests a BGP/peer context — handled by caller's value-format
-      check; here we just pass through bare numerics unchanged.
+    * ``"FULL/DR"``                                       → ``"Full/DR"``    (designated form preserved)
+    * ``"FWD"`` / ``"Forwarding"``                        → ``"forwarding"`` (STP)
+    * ``"administratively down"``                         → ``"admin-down"``
     """
     if not val:
         return None
-    lower = val.strip().lower()
+    s = val.strip()
+    lower = s.lower()
     if not lower:
         return None
-    for prefix, canonical in _STATE_RULES:
-        if lower == prefix:
+    # Pass 1 — exact match (covers most cases including the conflict
+    # ones like "connected" vs "connect")
+    for key, canonical in _STATE_RULES:
+        if lower == key:
             return canonical
-        if lower.startswith(prefix):
-            # Preserve the ``/DR``/``/BDR`` qualifier on Full state etc.
-            suffix = val[len(prefix):]
+    # Pass 2 — prefix match for suffixed states only ("Full/DR" / "Full-BDR")
+    for key, canonical in _STATE_RULES:
+        if lower.startswith(key) and len(lower) > len(key):
+            suffix = s[len(key):]
             if suffix and suffix[0] in "/-":
                 return canonical + suffix
-            return canonical
     return None
 
 
@@ -205,7 +261,20 @@ def _normalize_value(field_name: str, value: Any) -> Any:
 
     name_l = field_name
 
-    # Interface name — check first: names are least ambiguous
+    # State / status / role / admin / oper — checked FIRST when value
+    # matches state-enum shape, because some field names match both
+    # ``_STATE_HINT`` and ``_IFACE_HINT`` (e.g. ``link_state`` contains
+    # both ``link`` and ``state``).  netutils ``canonical_interface_name``
+    # returns short tokens like ``"Up"`` unchanged (truthy), which would
+    # otherwise win and bypass state normalization.  State values are
+    # enum-shaped (≤40 chars, no slash-style interface notation), so
+    # checking state first is safe — falls through to iface if no match.
+    if _STATE_HINT.search(name_l) and _STATE_VALUE_RE.match(s):
+        canon = _canonical_state(s)
+        if canon:
+            return canon
+
+    # Interface name
     if _IFACE_HINT.search(name_l):
         canon = _canonical_interface(s)
         if canon:
@@ -229,14 +298,13 @@ def _normalize_value(field_name: str, value: Any) -> Any:
         if canon:
             return canon
 
-    # State / status — RFC-canonical names (R83.2 P1 — moved here from
-    # view_builder.py SQL CASE expressions when the L1 view_recipes
-    # machinery was retired).
-    if _STATE_HINT.search(name_l) and _STATE_VALUE_RE.match(s):
-        canon = _canonical_state(s)
-        if canon:
-            return canon
-
+    # Universal cleanup: trim trailing/leading whitespace on string
+    # values when no canonical rule matched.  Covers parser bugs like
+    # ``'P2p '`` (trailing space from spanning-tree TextFSM output).
+    # Returning ``s`` instead of ``value`` is safe because we already
+    # short-circuit for free-form sentinels at top of function.
+    if s != value:
+        return s
     return value
 
 
