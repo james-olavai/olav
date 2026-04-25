@@ -256,7 +256,13 @@ def _normalize_value(field_name: str, value: Any) -> Any:
     if not isinstance(value, str):
         return value
     s = value.strip()
-    if not s or s.lower() in {"unassigned", "none", "n/a", "-", "--"}:
+    if not s:
+        # Whitespace-only collapses to empty string (e.g. parser leaves
+        # `' '` from an unfilled column — agents filter on `WHERE col=''`,
+        # not `WHERE col=' '`).  This is the only case where we *replace*
+        # the original; sentinel "none"/"n/a" are preserved verbatim.
+        return ""
+    if s.lower() in {"unassigned", "none", "n/a", "-", "--"}:
         return value
 
     name_l = field_name
