@@ -174,7 +174,14 @@ def _try_ntc_templates(platform: str, command: str, raw_output: str) -> list[dic
 
     if not rows:
         return None
-    headers = fsm.header
+    # R83: lowercase headers to match Tier 1 (custom textfsm) + the
+    # standard ``ntc_templates.parse.parse_output`` Python wrapper
+    # convention.  Without this, Tier 1 produces ``interface`` while
+    # Tier 2 produces ``INTERFACE`` for the same data — which broke
+    # the per-command auto-views (a single ``json_structure`` sample
+    # can't represent both shapes).  All ingest paths now produce
+    # lowercase keys.
+    headers = [h.lower() for h in fsm.header]
     logger.debug("parse_output: ntc-templates served parse for %s/%s", platform, command)
     return [dict(zip(headers, row)) for row in rows]
 
