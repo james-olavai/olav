@@ -220,6 +220,194 @@ def build_per_command_views(con: Any) -> dict[str, int]:
     return results
 
 
+# ── R83.3: Value profile + introspection cache ──────────────────────────
+#
+# Two materialised tables built at the end of every finalise_ingest:
+#
+# * ``netops.value_profile``   — for each per-command auto-view, every
+#   low-cardinality (≤ 30 distinct) string column gets its (value, freq,
+#   fingerprint) triplet.  Fingerprint = OpenRefine-style canonicalisation
+#   (lower → strip punctuation → token-sort → join) — same algorithm the
+#   OpenRefine GUI uses for its "Cluster" feature.  No new dependency;
+#   pure DuckDB SQL.
+#
+# * ``netops.introspection_cache`` — a single-row table aggregating fleet
+#   diversity + view list + per-view typed columns + value distributions
+#   into one JSON bag.  Agent reads it ONCE per NL question and gets the
+#   full data dictionary; subsequent SQL is the actual data fetch.
+#
+# Why: agent NL question previously needed 4-6 SQL round-trips
+# (introspect platforms, list views, DESCRIBE per view, then data SELECT).
+# With the cache, that drops to 2 (introspect, data).  Small models in
+# particular benefit because they don't have to remember to do
+# step-by-step introspection — the cache hands them everything in one
+# read.  See dev_docs/60. THREE_LAYER_INTROSPECTION_CACHE.md for design.
+
+
+def _ensure_value_profile_table(con: Any) -> None:
+    """DDL for ``netops.value_profile``.  Idempotent."""
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS netops.value_profile (
+            view_name    VARCHAR NOT NULL,
+            column_name  VARCHAR NOT NULL,
+            value        VARCHAR,
+            freq         INTEGER NOT NULL,
+            fingerprint  VARCHAR,
+            cluster_id   INTEGER,
+            PRIMARY KEY (view_name, column_name, value)
+        )
+        """
+    )
+
+
+def build_value_profile(con: Any, *, max_cardinality: int = 30) -> dict[str, int]:
+    """Profile every low-cardinality categorical column in the auto-views.
+
+    Iterates ``information_schema.views`` for ``v_%_auto`` views in
+    ``netops``, finds each VARCHAR column whose distinct-count is at
+    most ``max_cardinality``, and writes one row per (view, column,
+    value) into ``netops.value_profile`` along with an OpenRefine-style
+    fingerprint and a cluster id.
+
+    Cluster id is currently per-fingerprint within a (view, column);
+    Levenshtein-merge of similar fingerprints is a Phase-B follow-up
+    (see design doc §3 Phase B).
+    """
+    _ensure_value_profile_table(con)
+    con.execute("DELETE FROM netops.value_profile")  # full refresh per init
+
+    views = con.execute(
+        """
+        SELECT table_name FROM information_schema.views
+         WHERE table_schema='netops' AND table_name LIKE 'v_%_auto'
+        """
+    ).fetchall()
+
+    for (view_name,) in views:
+        try:
+            cols = con.execute(
+                """
+                SELECT column_name FROM information_schema.columns
+                 WHERE table_schema='netops' AND table_name = ?
+                   AND data_type IN ('VARCHAR', 'TEXT')
+                """,
+                [view_name],
+            ).fetchall()
+        except Exception as exc:
+            logger.debug("value_profile: column scan for %s failed: %s", view_name, exc)
+            continue
+
+        for (col,) in cols:
+            try:
+                n = con.execute(
+                    f'SELECT COUNT(DISTINCT "{col}") FROM netops."{view_name}"'
+                ).fetchone()[0]
+            except Exception as exc:
+                logger.debug("value_profile: cardinality probe %s.%s failed: %s",
+                             view_name, col, exc)
+                continue
+            if not n or n > max_cardinality:
+                continue
+            try:
+                con.execute(
+                    f"""
+                    INSERT OR REPLACE INTO netops.value_profile
+                        (view_name, column_name, value, freq, fingerprint, cluster_id)
+                    WITH raw AS (
+                        SELECT "{col}" AS value, COUNT(*) AS freq,
+                               array_to_string(
+                                   list_distinct(list_sort(
+                                       regexp_split_to_array(
+                                           lower(regexp_replace(
+                                               CAST("{col}" AS VARCHAR),
+                                               '[^a-z0-9 ]', '', 'g')),
+                                           '\\s+'))),
+                                   ' ') AS fingerprint
+                        FROM netops."{view_name}"
+                        WHERE "{col}" IS NOT NULL
+                        GROUP BY "{col}"
+                    )
+                    SELECT '{view_name}' AS view_name,
+                           '{col}'      AS column_name,
+                           value, freq, fingerprint,
+                           dense_rank() OVER (ORDER BY fingerprint) AS cluster_id
+                      FROM raw
+                    """
+                )
+            except Exception as exc:
+                logger.debug("value_profile: insert %s.%s failed: %s",
+                             view_name, col, exc)
+
+    rows = con.execute("SELECT COUNT(*) FROM netops.value_profile").fetchone()[0]
+    return {"value_profile_rows": int(rows)}
+
+
+def build_introspection_cache(con: Any) -> dict[str, int]:
+    """Single-row JSON-bag table summarising the fleet + views + values.
+
+    Replaces 4-6 separate introspection queries on every NL question
+    with one ``SELECT * FROM netops.introspection_cache``.
+
+    The JSON columns are intentionally pre-aggregated (not lazy
+    sub-selects) — querying this table is O(1) once it's built.
+    Refreshed on every ``finalise_ingest`` call.
+    """
+    try:
+        con.execute(
+            """
+            CREATE OR REPLACE TABLE netops.introspection_cache AS
+            SELECT
+                (SELECT json_group_array(json_object(
+                            'hostname', hostname,
+                            'platform', platform,
+                            'role',     role,
+                            'site',     site,
+                            'ip',       ip_address))
+                 FROM netops.devices)                                          AS fleet,
+
+                (SELECT json_group_array(json_object('view', view_name, 'cols', cols))
+                 FROM (
+                     -- json_group_array is a MACRO (not an aggregate) so it
+                     -- doesn't accept ORDER BY in DuckDB.  Pre-order the
+                     -- columns in a sub-CTE and aggregate the already-sorted
+                     -- list.
+                     WITH ordered_cols AS (
+                         SELECT v.table_name AS view_name,
+                                c.column_name, c.data_type, c.ordinal_position
+                         FROM information_schema.views v
+                         JOIN information_schema.columns c
+                              ON c.table_schema = v.table_schema
+                             AND c.table_name = v.table_name
+                         WHERE v.table_schema = 'netops'
+                           AND v.table_name LIKE 'v_%_auto'
+                         ORDER BY v.table_name, c.ordinal_position
+                     )
+                     SELECT view_name,
+                            json_group_array(json_object(
+                                'name', column_name,
+                                'type', data_type)) AS cols
+                     FROM ordered_cols
+                     GROUP BY view_name
+                 ))                                                            AS views,
+
+                (SELECT json_group_array(json_object(
+                            'view',    view_name,
+                            'col',     column_name,
+                            'value',   value,
+                            'freq',    freq,
+                            'cluster', cluster_id))
+                 FROM netops.value_profile)                                    AS value_distributions,
+
+                NOW() AS refreshed_at
+            """
+        )
+        return {"introspection_cache_rows": 1}
+    except Exception as exc:
+        logger.warning("build_introspection_cache failed: %s", exc)
+        return {}
+
+
 # ── Finalise-ingest entry point ─────────────────────────────────────────
 
 def finalise_ingest(con: Any) -> dict[str, Any]:
@@ -241,7 +429,7 @@ def finalise_ingest(con: Any) -> dict[str, Any]:
     Failures in either layer log at WARN but don't raise — view
     building is advisory; raw ``parsed_outputs`` queries always work.
     """
-    out: dict[str, Any] = {"l2": {}, "per_command": {}}
+    out: dict[str, Any] = {"l2": {}, "per_command": {}, "value_profile": {}, "introspection": {}}
     try:
         out["l2"] = build_l2_topology_view(con)
     except Exception as exc:
@@ -250,6 +438,18 @@ def finalise_ingest(con: Any) -> dict[str, Any]:
         out["per_command"] = build_per_command_views(con)
     except Exception as exc:
         logger.warning("finalise_ingest: build_per_command_views failed: %s", exc)
+    # R83.3: profile + cache run AFTER per-command views exist (they
+    # scan those views for categorical distributions).  Both depend on
+    # netops.devices being populated — so the caller must run
+    # populate_devices BEFORE finalise_ingest.
+    try:
+        out["value_profile"] = build_value_profile(con)
+    except Exception as exc:
+        logger.warning("finalise_ingest: build_value_profile failed: %s", exc)
+    try:
+        out["introspection"] = build_introspection_cache(con)
+    except Exception as exc:
+        logger.warning("finalise_ingest: build_introspection_cache failed: %s", exc)
     return out
 
 

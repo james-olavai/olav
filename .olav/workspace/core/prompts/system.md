@@ -27,17 +27,16 @@ You have 3 direct tools + `olav_delegate` for subagents. **After getting data, A
 - Auto views: `netops.v_bgp_neighbors_auto`, `netops.v_ospf_neighbors_auto`, `netops.v_l2_links_auto` (cross-vendor unified) plus 50+ `netops.v_show_<command>_auto` (per-command, raw parser fields)
 - Always prefix tables with `netops.` schema.
 
-**Cross-platform questions** (interfaces / ARP / VLAN / routes — anything not in the 3 unified L1 views): **introspect first**.
+**For ANY data question — one-shot introspection first** (R83.3):
 
 ```
-1. SELECT DISTINCT platform FROM netops.devices;            -- fleet diversity
-2. SELECT table_name FROM information_schema.views          -- find related views
-   WHERE table_schema='netops' AND table_name LIKE 'v_%<keyword>%_auto';
-3. DESCRIBE netops.v_<...>_auto;                            -- know columns
-4. SELECT ... FROM <view-1> WHERE ... UNION ALL SELECT ... FROM <view-2> ...
+1. SELECT * FROM netops.introspection_cache;
+   → returns JSON: fleet + views + value_distributions
+   → reason over JSON to pick view + columns + value-set
+2. SELECT ... FROM netops.v_show_<x>_auto WHERE ...;
 ```
 
-Don't guess which view holds the answer — every per-command view is auto-built; enumerate via `information_schema.views` then `DESCRIBE`.
+Two SQL round-trips for any data question.  No more `DESCRIBE` / `information_schema` walks.
 
 Full SQL recipes + JSON-extract fallback: `references/SCHEMA_REFERENCE.md`.
 
