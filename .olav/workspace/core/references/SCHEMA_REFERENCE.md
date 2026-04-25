@@ -1,5 +1,26 @@
 # 📊 Quick SQL Reference & Examples
 
+> ⚠️ **This file is outdated.**  Several tables/views listed below
+> (`bgp_routes`, `routes`, `ospf_neighbors`, `v_ospf_neighbors`,
+> `v_routes_auto`, `v_l2_topology_summary`, `v_device_neighbors_summary`,
+> `schema_catalog`, `mapping_cache`, `yang_leaves`, `mapping_rules`)
+> **do not exist in the current schema**.  The netops domain was
+> substantially restructured in R70-R77; only a small subset survived.
+>
+> **Authoritative schema for netops:** see
+> `.olav/workspace/ops/references/DB_SCHEMA.md`.
+>
+> **Minimum truth for the core agent right now:** only these
+> netops objects exist:
+>   * Tables: `netops.devices`, `netops.parsed_outputs`,
+>     `netops.raw_output_store`, `netops.topology_links`,
+>     `netops.commands`, `netops.oc_outputs`
+>   * Views:  `netops.v_bgp_neighbors_auto`,
+>     `netops.v_ospf_neighbors_auto`, `netops.v_l2_links_auto`
+>
+> Everything else in the table below is stale.  File kept for
+> historical reference / query-pattern examples only.
+>
 > **CRITICAL**: Column names below are authoritative. Never guess column names.
 > If a query fails with "column not found", call `execute_sql(explain_only=True)` immediately.
 
@@ -18,14 +39,14 @@ Examples: `WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM v_bgp_neighbors)`, 
 | **`interfaces`** | TABLE | `device_name`, `interface`, `ip_address`, `status`, `description`, `snapshot_id` |  |
 | **`v_interfaces`** | VIEW | `device_name`, `interface`, `ip_address`, `prefix_length`, `admin_status`, `line_status`, `snapshot_id` | Preferred for interface status queries. `prefix_length` is the CIDR mask bits (e.g. `30` for a /30). For loopback inventory, prefer one primary loopback per device (`Loopback0`/`lo0`/`lo0.0`). |
 | **`bgp_neighbors`** | TABLE | `device_name`, `neighbor_ip`, `neighbor_as`, `state`, `prefixes_received`, `snapshot_id` |  |
-| **`v_bgp_neighbors`** | VIEW | `device_name`, `neighbor_ip`, `neighbor_as`, `state`, `snapshot_id`, `created_at` | Preferred for BGP queries. Alias of `v_bgp_neighbors_auto`. Use `bgp_neighbors` table directly if `prefixes_received` is needed. |
+| **`v_bgp_neighbors`** | VIEW | `device_name`, `neighbor_ip`, `neighbor_as`, `state`, `snapshot_id`, `created_at` | Preferred for BGP queries. Alias of `netops.v_bgp_neighbors_auto`. Use `bgp_neighbors` table directly if `prefixes_received` is needed. |
 | **`ospf_neighbors`** | TABLE | `device_name`, `neighbor_id`, `neighbor_ip`, `interface`, `state`, `priority`, `snapshot_id` |  |
 | **`v_ospf_neighbors`** | VIEW | `device_name`, `neighbor_id`, `neighbor_ip`, `interface`, `state`, `priority`, `dead_time`, `snapshot_id` | Preferred; includes `dead_time`. |
 | **`routes`** | TABLE | `device_name`, `network`, `mask`, `next_hop`, `interface`, `protocol`, `metric`, `snapshot_id` |  |
 | **`v_routes_auto`** | VIEW | `device_name`, `network`, `next_hop`, `protocol`, `metric`, `snapshot_id` |  |
 | **`bgp_routes`** | TABLE | `device_name`, `network`, `mask`, `next_hop`, `as_path`, `local_pref`, `metric`, `weight`, `communities`, `path_type`, `best_path`, `snapshot_id` |  |
 | **`topology_links`** | VIEW | `source_device`, `source_interface`, `destination_device`, `destination_interface`, `discovery_protocol`, `link_type`, `link_status`, `snapshot_id`, `platform` | `source_*` / `destination_*` — NOT `local_*` or `remote_*`. |
-| **`v_topo_links_clean`** | VIEW | `src`, `source_interface`, `dst`, `destination_interface`, `discovery_protocol`, `link_type`, `link_status`, `snapshot_id` | Compact alias: use `src`/`dst` for shorter queries. For L2 topology summaries, normalize device pairs with `LEAST(src,dst)` / `GREATEST(src,dst)` and `SELECT DISTINCT`. |
+| **`netops.v_l2_links_auto`** | VIEW | `src`, `source_interface`, `dst`, `destination_interface`, `discovery_protocol`, `link_type`, `link_status`, `snapshot_id` | Compact alias: use `src`/`dst` for shorter queries. For L2 topology summaries, normalize device pairs with `LEAST(src,dst)` / `GREATEST(src,dst)` and `SELECT DISTINCT`. |
 | **`v_l2_topology_summary`** | VIEW | `endpoint_a`, `endpoint_b`, `discovery_protocol`, `link_status`, `snapshot_id` | Preferred for deterministic L2 topology summaries. |
 | **`v_device_neighbors_summary`** | VIEW | `device_name`, `connected_device`, `discovery_protocol`, `link_status`, `snapshot_id` | Preferred for deterministic per-device neighbor queries. |
 | **`parsed_outputs`** | VIEW | `device_name`, `command`, `parsed_data`, `raw_output`, `snapshot_id` | Column is `parsed_data` NOT `output`; device key is `device_name` NOT `device_id`. Treat this as explicit raw snapshot query path only. Field names are vendor-specific — use `schema_catalog` for OC mapping. |
@@ -141,8 +162,8 @@ ORDER BY endpoint_a, endpoint_b;
 ### 6b. Raw LLDP/CDP links (with interface detail)
 ```sql
 SELECT LEAST(src, dst) AS a, GREATEST(src, dst) AS b, discovery_protocol
-FROM v_topo_links_clean
-WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM v_topo_links_clean)
+FROM netops.v_l2_links_auto
+WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM netops.v_l2_links_auto)
 GROUP BY a, b, discovery_protocol
 ORDER BY a, b;
 ```
