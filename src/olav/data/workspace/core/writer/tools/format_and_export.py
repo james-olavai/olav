@@ -107,30 +107,68 @@ def format_and_export(
     else:
         output_dir = None  # resolved after format detection
 
-    # 2. Parse JSON strings into native Python objects.
+    # 2. Parse JSON / Python-repr strings into native Python objects.
     #    LLM tool calls often pass query_database results as JSON strings.
     #    Converting early ensures _detect_format and _write_csv see list[dict].
+    #    Falls back to ``ast.literal_eval`` for Python single-quoted dict
+    #    repr (R83.4 Chapter 4: writer subagent serialised
+    #    ``{'mermaid': '<text>'}`` as a string with single quotes, which
+    #    ``json.loads`` rejects — the file ended up containing the repr
+    #    text instead of the unwrapped Mermaid).
     if isinstance(data, str):
         stripped = data.strip()
         if stripped.startswith("[") or stripped.startswith("{"):
+            parsed: Any = None
             try:
                 parsed = json.loads(data)
-                if isinstance(parsed, (list, dict)):
-                    data = parsed
             except (json.JSONDecodeError, ValueError):
-                pass
+                # JSON failed — try Python literal (e.g. dict with single
+                # quotes, True/False/None instead of true/false/null).
+                try:
+                    import ast
+                    parsed = ast.literal_eval(data)
+                except (ValueError, SyntaxError):
+                    # Both parsers fail for dict-like strings containing
+                    # un-escaped newline characters in the inner value
+                    # (R83.4 Chapter 4: writer passes Mermaid as
+                    # ``"{'mermaid': 'graph LR\n    R1 --> R2'}"`` where
+                    # ``\n`` is a literal LF, not an escape sequence —
+                    # ``ast.literal_eval`` rejects this as
+                    # "unterminated string literal").  Fall back to a
+                    # narrow regex that extracts the inner value for
+                    # known content keys; bails out cleanly on no match.
+                    parsed = _extract_known_wrapper(data)
+            if isinstance(parsed, (list, dict)):
+                data = parsed
+            elif isinstance(parsed, tuple) and len(parsed) == 2:
+                # _extract_known_wrapper returned (key, value)
+                key, val = parsed
+                data = val
+                if not format and key in ("mermaid", "diagram", "mmd"):
+                    format = "mmd"
 
     # 3. Handle dictionary data that should be extracted
     # If the LLM passes {"content": "..."}, or a single-key dict where either key or value is markdown.
     if isinstance(data, dict) and len(data) == 1:
         key = list(data.keys())[0]
         val = data[key]
-        
-        # Case A: {"content": "# ..."} or similar explicit keys
-        if key in ("content", "report", "text", "markdown", "title", "data"):
-             if isinstance(val, (str, dict, list)):
-                 data = val
-        
+
+        # Case A: explicit content keys — LLM-typical wrappers.
+        # ``mermaid`` / ``diagram`` / ``mmd`` cover R83.4 Chapter 4
+        # bug where writer wrapped Mermaid text as
+        # ``data={'mermaid': '<text>'}`` and the .mmd file ended up
+        # containing the dict's repr.
+        if key in (
+            "content", "report", "text", "markdown", "title", "data",
+            "mermaid", "diagram", "mmd",
+        ):
+            if isinstance(val, (str, dict, list)):
+                data = val
+                # When the wrapper key disambiguates the format, set it
+                # if not already specified — saves an extra detection step.
+                if not format and key in ("mermaid", "diagram", "mmd"):
+                    format = "mmd"
+
         # Re-check data after potential extraction
         if isinstance(data, dict) and len(data) == 1:
             key = list(data.keys())[0]
@@ -143,6 +181,18 @@ def format_and_export(
             # Case C: Value is the content: {"title": "# My Content"}
             elif isinstance(val, str) and (val.strip().startswith("#") or "\n##" in val):
                 data = val
+            # Case D: Value is a Mermaid graph definition — recognised
+            # by the canonical ``graph (TD|LR|BT|RL)`` opener; salvages
+            # arbitrary single-key wrappers like {'foo': 'graph TD\\n...'}.
+            elif isinstance(val, str) and val.lstrip().startswith(
+                ("graph TD", "graph LR", "graph BT", "graph RL",
+                 "graph td", "graph lr", "graph bt", "graph rl",
+                 "flowchart TD", "flowchart LR", "sequenceDiagram",
+                 "stateDiagram", "classDiagram", "erDiagram")
+            ):
+                data = val
+                if not format:
+                    format = "mmd"
 
     # 4. Auto-detect format (if not specified)
     if not format:
@@ -301,9 +351,68 @@ def _write_file(filepath: Path, data: Any, format: str) -> None:  # noqa: ANN401
         # Markdown/Text/其他
         if format == "md" and isinstance(data, dict):
             content = _dict_to_markdown(data)
+        elif format == "mmd" and isinstance(data, list) and all(
+            isinstance(x, str) for x in data
+        ):
+            # R83.4 Chapter 4 quirk: LLMs sometimes serialise Mermaid as
+            # ``data=['line1', 'line2', ...]`` (one element per line).
+            # Join with newlines so the file is renderable Mermaid
+            # rather than ``['line1', 'line2', ...]`` repr.
+            content = "\n".join(data)
         else:
             content = str(data)
+        # ``.mmd`` files render in tools that don't strip Markdown code
+        # fences — the OUTPUT_EXPORT_RULES.md convention is raw Mermaid
+        # (no ``\`\`\`mermaid`` wrapper).  Strip a single enclosing
+        # fence if the agent supplied one.
+        if format == "mmd":
+            content = _strip_mermaid_fences(content)
         filepath.write_text(content, encoding="utf-8")
+
+
+def _extract_known_wrapper(text: str) -> tuple[str, str] | str | None:
+    """Extract ``(key, inner_value)`` from ``{'KEY': '<value>'}`` strings.
+
+    Used when ``json.loads`` and ``ast.literal_eval`` both fail because
+    the inner value contains un-escaped newlines (a common LLM-tool-call
+    serialization quirk for multi-line Mermaid).  Returns ``(key, value)``
+    for recognised content keys so the caller can also disambiguate
+    ``format`` (e.g. mermaid → mmd); ``None`` if no match.
+
+    Backward-compat: signature returns the tuple, but a plain string
+    value also works for callers that only care about the unwrap.
+    """
+    import re
+    pattern = re.compile(
+        r"""^\{\s*['"](?P<key>mermaid|diagram|mmd|content|report|text|markdown)['"]"""
+        r"""\s*:\s*['"](?P<val>.*)['"]\s*\}\s*$""",
+        re.DOTALL,
+    )
+    m = pattern.match(text.strip())
+    if not m:
+        return None
+    return (m.group("key"), m.group("val"))
+
+
+def _strip_mermaid_fences(text: str) -> str:
+    """Remove a single ```mermaid ... ``` wrapper if present.
+
+    Idempotent — content with no fences passes through unchanged.
+    """
+    s = text.strip()
+    if not s.startswith("```"):
+        return text
+    # First line is a fence open (```mermaid or just ```)
+    lines = s.splitlines()
+    if len(lines) < 2:
+        return text
+    first = lines[0].strip().lower()
+    if not (first == "```mermaid" or first == "```"):
+        return text
+    # Find matching closing fence
+    if lines[-1].strip() != "```":
+        return text
+    return "\n".join(lines[1:-1])
 
 
 def _dict_to_markdown(data: dict[str, Any], level: int = 1) -> str:

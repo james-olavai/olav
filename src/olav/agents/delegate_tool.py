@@ -50,6 +50,78 @@ def _resolve_subagent_cap() -> int:
         return _SUBAGENT_RETURN_FALLBACK
 
 
+# Cross-workspace semantic aliases — used when the LLM picks a
+# top-level agent name (e.g. ``topology``, registered globally as
+# ``.olav/workspace/topology/``) for a request that actually belongs to
+# a sub-agent of the current orchestrator.  The map is keyed by the
+# *requested* name; resolution checks each candidate target against the
+# orchestrator's actual ``_compiled_runnables`` and returns the first
+# present.  Order = preference.  Add aliases here, NOT in prompts —
+# the prompt is unreliable as a routing mechanism for small models.
+_SEMANTIC_ALIASES: dict[str, tuple[str, ...]] = {
+    "topology": ("ops-analyze", "analyze", "writer"),
+    "topology-viz": ("ops-analyze", "analyze"),
+    "topology_viz": ("ops-analyze", "analyze"),
+    "diagram": ("writer", "ops-analyze"),
+    "mermaid": ("writer", "ops-analyze"),
+    "simulation": ("ops-analyze", "analyze"),
+    "sim": ("ops-analyze", "analyze"),
+    "drift": ("ops-analyze", "analyze"),
+    "diff": ("ops-analyze", "analyze"),
+    "analysis": ("ops-analyze", "analyze"),
+    "analyse": ("ops-analyze", "analyze"),
+    "analyze": ("ops-analyze",),  # plain "analyze" → ops-analyze
+}
+
+
+def _resolve_alias(
+    requested_name: str, available: dict[str, Any]
+) -> str | None:
+    """Return the first registered alias target, or ``None``.
+
+    Lookup is case-insensitive.  ``available`` is the live runnables
+    dict — only candidates that are actually present resolve.
+    """
+    targets = _SEMANTIC_ALIASES.get(requested_name.lower())
+    if not targets:
+        return None
+    for t in targets:
+        if t in available:
+            return t
+    return None
+
+
+def _best_match(requested: str, available: list[str]) -> str | None:
+    """Cheap "did you mean" — substring or prefix overlap on lowercase.
+
+    Returns the highest-scoring match, or ``None`` if nothing reasonable.
+    Avoids importing difflib for a 30-char ranking task.
+    """
+    if not available:
+        return None
+    req = requested.lower()
+    scored: list[tuple[int, str]] = []
+    for name in available:
+        n = name.lower()
+        score = 0
+        if req == n:
+            score = 100
+        elif req in n or n in req:
+            score = 50 + min(len(req), len(n))
+        else:
+            # token-overlap heuristic
+            req_tokens = set(req.replace("-", "_").split("_"))
+            n_tokens = set(n.replace("-", "_").split("_"))
+            common = req_tokens & n_tokens
+            score = sum(len(t) for t in common)
+        if score > 0:
+            scored.append((score, name))
+    if not scored:
+        return None
+    scored.sort(reverse=True)
+    return scored[0][1]
+
+
 def _truncate(content: str, cap: int) -> str:
     """Truncate ``content`` to ``cap`` chars with a visible suffix.
 
@@ -94,11 +166,35 @@ def build_delegate_tool(
         """
         runnable = subagent_runnables.get(subagent_name)
         if runnable is None:
-            available = sorted(subagent_runnables.keys())
-            return (
-                f"Subagent '{subagent_name}' not found. "
-                f"Available subagents: {available}"
-            )
+            # Auto-route on known semantic aliases first — covers the
+            # cross-workspace name collision case where the LLM picks a
+            # top-level agent name (e.g. 'topology') for a request that
+            # actually belongs to a sub-agent of the current orchestrator
+            # (e.g. ops-analyze, which owns topology visualisation).
+            # Without auto-route the LLM tends to fall back to ad-hoc SQL
+            # and hallucinate the save step (R83.4 Chapter 4 bug).
+            redirected = _resolve_alias(subagent_name, subagent_runnables)
+            if redirected:
+                logger.info(
+                    "olav_delegate: alias '%s' → '%s'",
+                    subagent_name, redirected,
+                )
+                runnable = subagent_runnables[redirected]
+                subagent_name = redirected  # so the result attribution is accurate
+            else:
+                available = sorted(subagent_runnables.keys())
+                # Suggest the closest match by simple substring/prefix
+                # heuristic — small models follow "Did you mean X?" hints
+                # more reliably than a flat list.
+                suggestion = _best_match(subagent_name, available)
+                hint = (
+                    f" Did you mean '{suggestion}'? Retry with that name."
+                    if suggestion else ""
+                )
+                return (
+                    f"Subagent '{subagent_name}' not found.{hint} "
+                    f"Available subagents: {available}"
+                )
 
         try:
             result = runnable.invoke(
