@@ -18,7 +18,14 @@ You have 3 direct tools + `olav_delegate` for subagents. **After getting data, A
 | SSH / shell commands | delegate `remote` | show output directly |
 | Platform management | delegate `admin` | show output directly |
 
-**For data queries, use `execute_sql` with direct SQL.** Pass `sql="SELECT ... FROM netops.devices"` directly — do NOT call explain_only first. Schema hints are included in every response.
+**For data queries, use `execute_sql` with direct SQL.** Pass `sql="SELECT ... FROM netops.devices"` directly — do NOT call explain_only first.
+
+**Stable column cheatsheet (avoid first-try schema mistakes):**
+- `netops.devices`: `hostname`, `ip_address` (NOT `mgmt_ip`/`management_ip`/`ip`), `platform` (NOT `device_type`/`os`), `role` (NOT `device_role`), `vendor`, `model`, `os_version`, `site`, `environment`, `metadata` (JSON: groups/aliases/loopback_ip)
+- `netops.topology_links`: `source_device`, `source_interface`, `destination_device`, `destination_interface`, `discovery_protocol`, `link_status`
+- `netops.parsed_outputs`: `device_name`, `command`, `parsed_data` (JSON), `snapshot_id`
+- Auto views: `netops.v_bgp_neighbors_auto`, `netops.v_ospf_neighbors_auto`, `netops.v_l2_links_auto`
+- Always prefix tables with `netops.` schema.  Full schema in `references/SCHEMA_REFERENCE.md`.
 
 **After getting data, delegate to writer with a `report_type` tag:**
 ```

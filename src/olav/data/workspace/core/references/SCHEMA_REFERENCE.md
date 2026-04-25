@@ -1,236 +1,135 @@
-# 📊 Quick SQL Reference & Examples
+# 📊 Quick SQL Reference & Examples (R82)
 
-> **CRITICAL**: Column names below are authoritative. Never guess column names.
-> If a query fails with "column not found", call `execute_sql(explain_only=True)` immediately.
+> **CRITICAL**: Column names below are authoritative.  Pre-R82 versions
+> of this file referenced columns / views that **no longer exist**
+> (`mgmt_ip`, `device_type`, `device_role`, `is_active`,
+> `v_interfaces`, `v_topo_links_clean`, `v_device_neighbors_summary`,
+> `v_l2_topology_summary`, `v_routes_auto`).  All listed below match
+> current production schema.
 
-**Latest Snapshot Filter**: Each table/view has its own snapshot timeline. Always use `snapshot_id = (SELECT MAX(snapshot_id) FROM <same_table>)`.
-Examples: `WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM v_bgp_neighbors)`, `WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM v_interfaces)`.
-**NEVER** cross-reference `parsed_outputs` snapshot IDs when filtering other tables — they may differ.
-**Never use** `sync_metadata` for snapshot filtering — it tracks sync jobs, not data snapshots.
+**Latest snapshot filter**: Each table has its own snapshot timeline.
+Always use `snapshot_id = (SELECT MAX(snapshot_id) FROM <same_table>)`.
 
 ---
 
-## 🗄️ Core Table & View Schema
+## 🗄️ netops.* Tables (the data plane)
 
-| Object | Type | Key Columns | Notes |
-| :--- | :--- | :--- | :--- |
-| **`devices`** | VIEW | `name`, `hostname`, `platform`, `mgmt_ip`, `device_type`, `device_role`, `site`, `vendor`, `model`, `is_active` | `name` = display name. `mgmt_ip` = management IP (not `ip`, not `management_ip`). |
-| **`interfaces`** | TABLE | `device_name`, `interface`, `ip_address`, `status`, `description`, `snapshot_id` |  |
-| **`v_interfaces`** | VIEW | `device_name`, `interface`, `ip_address`, `prefix_length`, `admin_status`, `line_status`, `snapshot_id` | Preferred for interface status queries. `prefix_length` is the CIDR mask bits (e.g. `30` for a /30). For loopback inventory, prefer one primary loopback per device (`Loopback0`/`lo0`/`lo0.0`). |
-| **`bgp_neighbors`** | TABLE | `device_name`, `neighbor_ip`, `neighbor_as`, `state`, `prefixes_received`, `snapshot_id` |  |
-| **`v_bgp_neighbors`** | VIEW | `device_name`, `neighbor_ip`, `neighbor_as`, `state`, `snapshot_id`, `created_at` | Preferred for BGP queries. Alias of `v_bgp_neighbors_auto`. Use `bgp_neighbors` table directly if `prefixes_received` is needed. |
-| **`ospf_neighbors`** | TABLE | `device_name`, `neighbor_id`, `neighbor_ip`, `interface`, `state`, `priority`, `snapshot_id` |  |
-| **`v_ospf_neighbors`** | VIEW | `device_name`, `neighbor_id`, `neighbor_ip`, `interface`, `state`, `priority`, `dead_time`, `snapshot_id` | Preferred; includes `dead_time`. |
-| **`routes`** | TABLE | `device_name`, `network`, `mask`, `next_hop`, `interface`, `protocol`, `metric`, `snapshot_id` |  |
-| **`v_routes_auto`** | VIEW | `device_name`, `network`, `next_hop`, `protocol`, `metric`, `snapshot_id` |  |
-| **`bgp_routes`** | TABLE | `device_name`, `network`, `mask`, `next_hop`, `as_path`, `local_pref`, `metric`, `weight`, `communities`, `path_type`, `best_path`, `snapshot_id` |  |
-| **`topology_links`** | VIEW | `source_device`, `source_interface`, `destination_device`, `destination_interface`, `discovery_protocol`, `link_type`, `link_status`, `snapshot_id`, `platform` | `source_*` / `destination_*` — NOT `local_*` or `remote_*`. |
-| **`v_topo_links_clean`** | VIEW | `src`, `source_interface`, `dst`, `destination_interface`, `discovery_protocol`, `link_type`, `link_status`, `snapshot_id` | Compact alias: use `src`/`dst` for shorter queries. For L2 topology summaries, normalize device pairs with `LEAST(src,dst)` / `GREATEST(src,dst)` and `SELECT DISTINCT`. |
-| **`v_l2_topology_summary`** | VIEW | `endpoint_a`, `endpoint_b`, `discovery_protocol`, `link_status`, `snapshot_id` | Preferred for deterministic L2 topology summaries. |
-| **`v_device_neighbors_summary`** | VIEW | `device_name`, `connected_device`, `discovery_protocol`, `link_status`, `snapshot_id` | Preferred for deterministic per-device neighbor queries. |
-| **`parsed_outputs`** | VIEW | `device_name`, `command`, `parsed_data`, `raw_output`, `snapshot_id` | Column is `parsed_data` NOT `output`; device key is `device_name` NOT `device_id`. Treat this as explicit raw snapshot query path only. Field names are vendor-specific — use `schema_catalog` for OC mapping. |
-| **`schema_catalog`** | TABLE | `platform`, `source_name`, `source_type`, `fields` | **S3 SSOT**: OpenConfig mapping authority. `fields` is a JSON array of `{name, openconfig_path, mapping_confidence, mapping_source}`. Pipeline Stage 5 writes validated mappings here. |
-| **`mapping_cache`** | TABLE | `platform`, `src_field`, `oc_path`, `confidence`, `stage`, `hit_count`, `validated` | Stage 2 lookup cache. Seeded from `mapping_rules`, updated by pipeline. Use for fast deterministic OC path lookup. |
-| **`mapping_candidates`** | TABLE | `platform`, `src_field`, `oc_path`, `confidence`, `stage`, `needs_review` | Medium-confidence (0.55-0.70) LLM decisions. Audit Agent reviews and promotes valid entries to `schema_catalog`. |
-| **`yang_leaves`** | TABLE | `yang_path`, `leaf_name`, `leaf_type`, `description`, `module` | OpenConfig YANG leaf registry (806 rows, 31 modules). Ground truth for all OC paths. Modules: interfaces, bgp, ospfv2, system, platform, lldp, network-instance, vlan, acl, qos, spanning-tree, isis, mpls, lacp, probes, segment-routing, macsec, optical-amplifier, terminal-device, etc. |
-| **`mapping_rules`** | COMPAT TABLE | `vendor`, `command`, `src_field`, `oc_path`, `confidence` | **Derived compatibility shim — do NOT query directly.** Read from `schema_catalog` or `mapping_cache` instead. Serves as seed data source for pipeline. |
-
-### Contract Priority (Phase 1)
-
-1. Query semantic views first (`v_interfaces`, `v_bgp_neighbors`, `v_l2_topology_summary`, `v_device_neighbors_summary`).
-2. Use `schema_catalog` to find OpenConfig mapping for a field: `SELECT fields FROM schema_catalog WHERE platform='...' AND source_name='...'`.
-3. Use `parsed_outputs` only when raw snapshot inspection is explicitly required.
-4. Do NOT use `mapping_rules` as primary analytical query source (legacy compat shim).
-
-### OpenConfig YANG Module Prefixes
-
-`openconfig_path` values in `schema_catalog` and `yang_leaves` use these module prefixes:
-
-| Module prefix | Domain | Example path |
+| Table | Key Columns | Notes |
 |---|---|---|
-| `openconfig-interfaces:` | Interface config/state | `openconfig-interfaces:interfaces/interface/config/name` |
-| `openconfig-bgp:` | BGP global, peers, policy | `openconfig-bgp:bgp/neighbors/neighbor/config/peer-as` |
-| `openconfig-network-instance:` | VRFs, L3 protocols | `openconfig-network-instance:network-instances/network-instance/protocols/protocol/bgp/...` |
-| `openconfig-ospf:` / `openconfig-ospfv2:` | OSPF adjacency/areas | `openconfig-ospfv2:...` |
-| `openconfig-lldp:` | LLDP neighbors | `openconfig-lldp:lldp/interfaces/interface/neighbors/neighbor/state/system-name` |
+| **`netops.devices`** | `hostname`, `ip_address`, `platform`, `vendor`, `model`, `os_version`, `role`, `site`, `environment`, `last_seen`, `metadata` | `ip_address` = mgmt IP (NOT `mgmt_ip`/`management_ip`/`ip`); `platform` = netmiko driver name (`cisco_ios`/`juniper_junos`/…) (NOT `device_type`/`os`); `role` (NOT `device_role`); `metadata` = JSON with `groups`, `aliases`, `loopback_ip` |
+| **`netops.parsed_outputs`** | `device_name`, `command`, `parsed_data` (JSON array), `raw_output_hash`, `snapshot_id`, `ingested_at` | Field names inside `parsed_data` follow ntc-templates lowercase convention. Interface / IP / ASN / MAC are auto-canonicalised at ingest (R72). |
+| **`netops.raw_output_store`** | `device_name`, `command`, `raw_output`, `snapshot_id`, `updated_at` | One row per `(device, command)`, latest wins. Use as Tier-3 fallback when `parsed_data` is NULL. |
+| **`netops.topology_links`** | `source_device`, `source_interface`, `destination_device`, `destination_interface`, `discovery_protocol`, `link_status`, `link_type`, `link_speed`, `first_seen`, `last_seen`, `snapshot_id`, `platform` | Use `source_*`/`destination_*` (NOT `local_*`/`remote_*`). |
+| **`netops.commands`** | `platform`, `command`, `safe_command`, `parser_type`, `parser_path`, `blacklisted`, `pipe_allowed`, `backup_only`, `synced_at` | R73 SSOT — populated by `commands_sync` from ntc-templates + custom + PaC + YAML overlays. |
 
-Paths without a module prefix are also valid (module implied by context). To look up exact paths:
-```sql
-SELECT yang_path, leaf_name, module FROM yang_leaves WHERE module LIKE 'openconfig-%' AND leaf_name = 'peer-as';
-SELECT openconfig_path FROM schema_catalog sc, json_each(sc.fields) f WHERE f.value->>'name' = 'neighbor_ip';
-```
+## 🗄️ netops.* Auto Views (vendor-normalised, state-canonicalised)
+
+| View | Key Columns |
+|---|---|
+| **`netops.v_bgp_neighbors_auto`** | `device`, `neighbor_ip`, `neighbor_as`, `local_as`, `router_id`, `state`, `uptime`, `snapshot_id` |
+| **`netops.v_ospf_neighbors_auto`** | `device`, `neighbor_id`, `neighbor_ip`, `interface`, `area`, `state`, `dead_time`, `snapshot_id` |
+| **`netops.v_l2_links_auto`** | `source_device`, `source_interface`, `destination_device`, `destination_interface`, `discovery_protocol`, `link_status`, `snapshot_id` |
+
+> **No view for interfaces / ARP / routes / VLANs.**  JSON-extract from
+> `netops.parsed_outputs.parsed_data` for the matching command.  The
+> agent then reads + reasons over the structured rows.
 
 ---
 
-## 💡 Verified SQL Examples
+## 💡 Verified SQL Examples (R82 — all run against current schema)
 
-### 1. List all devices with IP and platform
+### 1. List all devices with IP, platform, role
 ```sql
-SELECT name, mgmt_ip, platform, device_role
-FROM devices
-WHERE is_active = true;
+SELECT hostname, ip_address, platform, role, site
+FROM netops.devices
+ORDER BY hostname;
 ```
 
-### 2. List down interfaces on a specific device
+### 2. Find devices by alias / group (Chinese alias supported)
 ```sql
-SELECT device_name, interface, admin_status, line_status
-FROM v_interfaces
-WHERE device_name = 'SW1'
-  AND (admin_status != 'up' OR line_status != 'up')
-  AND snapshot_id = (SELECT MAX(snapshot_id) FROM v_interfaces);
+SELECT hostname, ip_address
+FROM netops.devices
+WHERE metadata LIKE '%核心路由器%';
+-- or by group:
+SELECT hostname FROM netops.devices WHERE metadata LIKE '%"groups":%"core_routers"%';
 ```
 
-### 3. Find device by IP address
+### 3. BGP neighbor state across the fleet
 ```sql
-SELECT device_name, interface, ip_address
-FROM interfaces
-WHERE ip_address = '10.1.1.1'
-  AND snapshot_id = (SELECT MAX(snapshot_id) FROM interfaces);
+SELECT device, neighbor_ip, neighbor_as, state
+FROM netops.v_bgp_neighbors_auto
+WHERE state != 'Established'
+ORDER BY device;
 ```
 
-### 4. BGP neighbors in Established state
+### 4. OSPF adjacencies by area
 ```sql
-SELECT device_name, neighbor_ip, neighbor_as, state
-FROM v_bgp_neighbors
-WHERE state = 'Established'
-  AND snapshot_id = (SELECT MAX(snapshot_id) FROM v_bgp_neighbors);
+SELECT area, device, neighbor_id, state
+FROM netops.v_ospf_neighbors_auto
+ORDER BY area, device;
 ```
 
-### 4a. Primary loopback inventory
+### 5. L2 topology (deduplicated — one row per physical link)
 ```sql
-WITH ranked AS (
-    SELECT device_name, interface, ip_address,
-           row_number() OVER (
-               PARTITION BY device_name
-               ORDER BY CASE
-                   WHEN lower(interface) IN ('loopback0', 'lo0', 'lo0.0') THEN 0
-                   WHEN lower(interface) LIKE '%loopback0%' THEN 1
-                   WHEN lower(interface) LIKE '%loop%' THEN 2
-                   ELSE 3
-               END,
-               snapshot_id DESC
-           ) AS rn
-    FROM v_interfaces
-    WHERE ip_address IS NOT NULL
-      AND lower(interface) LIKE '%loop%'
-      AND snapshot_id = (SELECT MAX(snapshot_id) FROM v_interfaces)
-)
-SELECT device_name, interface, ip_address
-FROM ranked
-WHERE rn = 1
-ORDER BY device_name;
+SELECT source_device, source_interface, destination_device, destination_interface,
+       discovery_protocol
+FROM netops.v_l2_links_auto
+ORDER BY source_device, source_interface;
 ```
 
-### 5. OSPF neighbors for a device
+### 6. Latest snapshot per device
 ```sql
-SELECT device_name, neighbor_id, neighbor_ip, interface, state
-FROM v_ospf_neighbors
-WHERE device_name = 'R1'
-  AND snapshot_id = (SELECT MAX(snapshot_id) FROM v_ospf_neighbors);
+SELECT device_name, MAX(snapshot_id) AS latest
+FROM netops.parsed_outputs
+GROUP BY 1
+ORDER BY 1;
 ```
 
-### 6. Network topology links
-```sql
-SELECT endpoint_a, endpoint_b, discovery_protocol
-FROM v_l2_topology_summary
-WHERE discovery_protocol IN ('LLDP', 'CDP')
-  AND snapshot_id = (SELECT MAX(snapshot_id) FROM v_l2_topology_summary)
-ORDER BY endpoint_a, endpoint_b;
-```
-
-### 6b. Raw LLDP/CDP links (with interface detail)
-```sql
-SELECT LEAST(src, dst) AS a, GREATEST(src, dst) AS b, discovery_protocol
-FROM v_topo_links_clean
-WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM v_topo_links_clean)
-GROUP BY a, b, discovery_protocol
-ORDER BY a, b;
-```
-
-### 6a. Device neighbor summary
-```sql
-SELECT connected_device, discovery_protocol
-FROM v_device_neighbors_summary
-WHERE device_name = 'R2'
-  AND snapshot_id = (SELECT MAX(snapshot_id) FROM v_device_neighbors_summary)
-ORDER BY connected_device, discovery_protocol;
-```
-
-### 7. Routing table for a device
-```sql
-SELECT device_name, network, next_hop, protocol, metric
-FROM v_routes_auto
-WHERE device_name = 'R3'
-  AND snapshot_id = (SELECT MAX(snapshot_id) FROM v_routes_auto);
-```
-
-### 8. Extract fields from parsed JSON output
+### 7. JSON-extract interface IPs (no `v_interfaces_auto` view exists)
 ```sql
 SELECT device_name,
-       json_extract_string(item, '$.interface') AS iface,
-       json_extract_string(item, '$.status') AS status
-FROM parsed_outputs,
-     UNNEST(json_extract(parsed_data, '$[*]')::JSON[]) AS t(item)
-WHERE command LIKE '%interface%'
-  AND snapshot_id = (SELECT MAX(snapshot_id) FROM parsed_outputs);
+       json_extract(parsed_data, '$[*].INTERFACE') AS ifaces,
+       json_extract(parsed_data, '$[*].IP_ADDRESS') AS ips
+FROM netops.parsed_outputs
+WHERE command = 'show ip interface brief'
+  AND device_name = 'R3';
 ```
 
-### 8. Find OpenConfig mapping for a field
+### 8. Raw fallback when no parser ran
 ```sql
--- Get all OC mappings for a platform's "show interface" command
-SELECT json_extract_string(field, '$.name') AS field_name,
-       json_extract_string(field, '$.openconfig_path') AS oc_path,
-       json_extract(field, '$.mapping_confidence') AS confidence
-FROM schema_catalog,
-     UNNEST(json_extract(fields, '$[*]')::JSON[]) AS t(field)
-WHERE platform = 'cisco_ios'
-  AND source_name = 'show interface'
-  AND json_extract_string(field, '$.openconfig_path') IS NOT NULL;
-```
-
-### 9. Check mapping_cache for a field
-```sql
--- Fast lookup: what OC path does "mtu" map to on cisco_ios?
-SELECT oc_path, confidence, stage, hit_count
-FROM mapping_cache
-WHERE platform = 'cisco_ios'
-  AND src_field = 'mtu';
-```
-
-### 10. Review mapping_candidates pending audit
-```sql
--- See medium-confidence decisions awaiting review
-SELECT platform, src_field, oc_path, confidence
-FROM mapping_candidates
-WHERE needs_review = TRUE
-ORDER BY confidence DESC
-LIMIT 20;
+SELECT device_name, command, raw_output
+FROM netops.raw_output_store
+WHERE command = 'show vlan brief'
+  AND device_name = 'SW1';
 ```
 
 ---
 
-## 🚫 Common Mistakes to Avoid
+## ⛔ Common SQL mistakes (and the right form)
 
-| DO NOT USE | USE INSTEAD | Reason |
-| :--- | :--- | :--- |
-| `devices.ip` | `devices.mgmt_ip` | Column is named `mgmt_ip` |
-| `devices.management_ip` | `devices.mgmt_ip` | Column is named `mgmt_ip` |
-| `topology_links.local_device` | `topology_links.source_device` | Correct column name |
-| `topology_links.local_port` | `topology_links.source_interface` | Correct column name |
-| `topology_links.remote_device` | `topology_links.destination_device` | Correct column name |
-| `topology_links.remote_port` | `topology_links.destination_interface` | Correct column name |
-| `topology_links.hostname_a` | `topology_links.source_device` | `hostname_a` does not exist |
-| `parsed_outputs.output` | `parsed_outputs.parsed_data` | Column is `parsed_data` |
-| `parsed_outputs.device_id` | `parsed_outputs.device_name` | Column is `device_name` |
-| `interfaces.device_id` | `interfaces.device_name` | Column is `device_name` |
-| `sync_metadata` for snapshot | `(SELECT MAX(snapshot_id) FROM <same_table>)` | `sync_metadata` has no snapshot_id |
-| `v_bgp_neighbors_enriched` | `v_bgp_neighbors` | Enriched view does not exist |
-| `v_routes_enriched` | `v_routes_auto` | Enriched view does not exist |
+| ❌ Wrong | ✅ Right |
+|---|---|
+| `SELECT mgmt_ip FROM devices` | `SELECT ip_address FROM netops.devices` |
+| `SELECT management_ip FROM devices` | `SELECT ip_address FROM netops.devices` |
+| `SELECT device_type FROM devices` | `SELECT platform FROM netops.devices` |
+| `SELECT device_role FROM devices` | `SELECT role FROM netops.devices` |
+| `SELECT * FROM devices WHERE is_active = true` | (no `is_active`) `SELECT * FROM netops.devices` |
+| `SELECT * FROM v_interfaces` (deleted) | JSON-extract from `netops.parsed_outputs WHERE command='show ip interface brief'` |
+| `SELECT * FROM v_topo_links_clean` (deleted) | `SELECT * FROM netops.v_l2_links_auto` |
+| `SELECT * FROM v_device_neighbors_summary` (deleted) | `SELECT * FROM netops.v_l2_links_auto` |
+| `SELECT * FROM bgp_sessions` (deleted in R70) | `SELECT * FROM netops.v_bgp_neighbors_auto` |
+| `SELECT * FROM ospf_adjacencies` (deleted in R70) | `SELECT * FROM netops.v_ospf_neighbors_auto` |
+| `FROM devices` (no schema prefix) | `FROM netops.devices` (always prefix) |
 
 ---
 
-## 🛠️ Schema Validation Rule
-On any `Binder Error: Referenced column "X" not found`:
-1. call `execute_sql(explain_only=True)` to fetch live schema
-2. regenerate SQL with exact column names
-3. rerun query without switching to other tables as implicit fallback
+## What's *not* in the schema anymore
+
+R70 deleted these in favour of declarative `view_recipes`:
+* `netops.bgp_sessions` / `netops.ospf_adjacencies` (materialised L3 tables)
+* `v_interfaces` / `v_topology_l2` / `v_topo_links_clean` / `v_arp` / `v_routes_enriched`
+* `v_device_neighbors_summary` / `v_l2_topology_summary`
+* `view_recipes_seed.yaml` monolith (split into per-protocol files)
+
+R72 deleted `auto_learn.py` batch learner; use `/learn_cmd` for
+interactive parser learning.
