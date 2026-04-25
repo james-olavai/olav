@@ -22,7 +22,11 @@ Always use `snapshot_id = (SELECT MAX(snapshot_id) FROM <same_table>)`.
 | **`netops.topology_links`** | `source_device`, `source_interface`, `destination_device`, `destination_interface`, `discovery_protocol`, `link_status`, `link_type`, `link_speed`, `first_seen`, `last_seen`, `snapshot_id`, `platform` | Use `source_*`/`destination_*` (NOT `local_*`/`remote_*`). |
 | **`netops.commands`** | `platform`, `command`, `safe_command`, `parser_type`, `parser_path`, `blacklisted`, `pipe_allowed`, `backup_only`, `synced_at` | R73 SSOT — populated by `commands_sync` from ntc-templates + custom + PaC + YAML overlays. |
 
-## 🗄️ netops.* Auto Views (vendor-normalised, state-canonicalised)
+## 🗄️ netops.* Auto Views — two layers
+
+### Layer 1: Cross-vendor semantic views (manual recipes)
+
+For BGP / OSPF / L2 — vendor-normalised, state-canonicalised:
 
 | View | Key Columns |
 |---|---|
@@ -30,9 +34,30 @@ Always use `snapshot_id = (SELECT MAX(snapshot_id) FROM <same_table>)`.
 | **`netops.v_ospf_neighbors_auto`** | `device`, `neighbor_id`, `neighbor_ip`, `interface`, `area`, `state`, `dead_time`, `snapshot_id` |
 | **`netops.v_l2_links_auto`** | `source_device`, `source_interface`, `destination_device`, `destination_interface`, `discovery_protocol`, `link_status`, `snapshot_id` |
 
-> **No view for interfaces / ARP / routes / VLANs.**  JSON-extract from
-> `netops.parsed_outputs.parsed_data` for the matching command.  The
-> agent then reads + reasons over the structured rows.
+These views handle Junos `Estab` vs IOS `Established` etc. via SQL CASE.
+
+### Layer 2: Per-command zero-ETL views (auto-generated, R83)
+
+**For every command in ``netops.parsed_outputs``**, `/netops_init` creates
+a typed view ``netops.v_<safe_command>_auto`` via DuckDB's
+``unnest(from_json(parsed_data, …), recursive := true)``.  No field
+mappings, no recipes — columns are exactly what the parser emitted.
+
+Examples:
+
+| Command | Auto-view |
+|---|---|
+| `show ip interface brief` | `netops.v_show_ip_interface_brief_auto` (cols: `device_name`, `snapshot_id`, `INTERFACE`, `IP_ADDRESS`, `STATUS`, `PROTO`) |
+| `show ip arp` | `netops.v_show_ip_arp_auto` (cols: `PROTOCOL`, `IP_ADDRESS`, `MAC_ADDRESS`, `INTERFACE`, …) |
+| `show interfaces description` | `netops.v_show_interfaces_description_auto` (cols: `PORT`, `STATUS`, `PROTOCOL`, `DESCRIPTION`) |
+| `show interfaces terse` (Junos) | `netops.v_show_interfaces_terse_auto` (cols: `interface`, `admin_state`, `link_state`, `proto`, `ip_address`) |
+
+**Discover columns**: `DESCRIBE netops.v_show_ip_interface_brief_auto`.
+The view auto-filters to the latest snapshot per (device, command);
+just `SELECT * FROM <view> WHERE <column> ...`.
+
+> **List all available views**: `SHOW TABLES` or
+> `SELECT table_name FROM information_schema.views WHERE table_schema='netops' AND table_name LIKE 'v_%_auto'`.
 
 ---
 
@@ -109,109 +134,56 @@ WHERE command = 'show vlan brief'
 
 ---
 
-## 🧰 parsed_data JSON-extract cookbook
+## 🧰 Querying parsed_data — preferred flow
 
-When no `v_*_auto` view covers the concept (interfaces, ARP, VLAN, routes,
-…) extract per-row fields from `parsed_outputs.parsed_data` using
-**`LATERAL json_each(...)` + `json_extract_string`**.  Always pin to
-the latest snapshot per (device, command).
+```
+1. List available views:
+   SELECT table_name FROM information_schema.views
+   WHERE table_schema='netops' AND table_name LIKE 'v_%_auto'
+   ORDER BY 1;
 
-**Field names come from ntc-templates** and are **UPPERCASE** for
-cisco_ios commands (`INTERFACE`, `IP_ADDRESS`, `STATUS`, `PROTO`,
-`MAC_ADDRESS`, …).  Junos parsers tend to emit lowercase. When in
-doubt, run `SELECT json_extract_string(parsed_data, '$[0]') ...` on
-one row to inspect keys.
+2. Inspect a view's columns:
+   DESCRIBE netops.v_show_ip_interface_brief_auto;
 
-### Recipe — down interfaces across the fleet
+3. Query directly (latest-snapshot filter is built in):
+   SELECT device_name, INTERFACE, STATUS
+   FROM netops.v_show_ip_interface_brief_auto
+   WHERE STATUS LIKE '%down%';
+```
+
+That's the whole flow.  No `LATERAL`, no `json_each`, no
+`json_extract_string` —  DuckDB unnests + types the JSON at view
+creation time.
+
+### Field-name conventions
+
+* **cisco_ios** parsers (ntc-templates) emit **UPPERCASE** keys:
+  `INTERFACE`, `IP_ADDRESS`, `STATUS`, `PROTO`, `MAC_ADDRESS`,
+  `DESCRIPTION`, …
+* **juniper_junos** seed parsers tend to emit **lowercase**:
+  `interface`, `admin_state`, `link_state`, `proto`, `ip_address`.
+
+Always run `DESCRIBE` first if unsure.
+
+### Fallback — when no auto-view exists yet
+
+If a command was just collected but `/netops_init` hasn't rebuilt
+views, or the command's parsed_data isn't a list of objects, you can
+still extract directly:
 
 ```sql
 SELECT p.device_name,
        json_extract_string(t.entry, '$.INTERFACE') AS interface,
-       json_extract_string(t.entry, '$.IP_ADDRESS') AS ip_address,
-       json_extract_string(t.entry, '$.STATUS') AS status,
-       json_extract_string(t.entry, '$.PROTO') AS proto
+       json_extract_string(t.entry, '$.STATUS') AS status
 FROM netops.parsed_outputs p,
      LATERAL (SELECT value AS entry FROM json_each(p.parsed_data)) t
 WHERE p.command = 'show ip interface brief'
   AND p.snapshot_id = (SELECT MAX(snapshot_id) FROM netops.parsed_outputs s
-                       WHERE s.device_name = p.device_name
-                         AND s.command = p.command)
-  AND (lower(json_extract_string(t.entry, '$.STATUS')) LIKE '%down%'
-       OR lower(json_extract_string(t.entry, '$.PROTO')) = 'down');
+                       WHERE s.device_name = p.device_name AND s.command = p.command);
 ```
 
-Returns rows like `('R2', 'GigabitEthernet3', 'unassigned', 'administratively down', 'down')`.
-
-### Recipe — ARP table for a device
-
-```sql
-SELECT json_extract_string(t.entry, '$.IP_ADDRESS') AS ip,
-       json_extract_string(t.entry, '$.MAC_ADDRESS') AS mac,
-       json_extract_string(t.entry, '$.INTERFACE') AS interface,
-       json_extract_string(t.entry, '$.AGE') AS age_min
-FROM netops.parsed_outputs p,
-     LATERAL (SELECT value AS entry FROM json_each(p.parsed_data)) t
-WHERE p.command = 'show ip arp'
-  AND p.device_name = 'R3'
-  AND p.snapshot_id = (SELECT MAX(snapshot_id) FROM netops.parsed_outputs s
-                       WHERE s.device_name = p.device_name
-                         AND s.command = p.command);
-```
-
-### Recipe — interfaces by description (find a port by purpose)
-
-```sql
-SELECT p.device_name,
-       json_extract_string(t.entry, '$.PORT') AS interface,
-       json_extract_string(t.entry, '$.STATUS') AS status,
-       json_extract_string(t.entry, '$.DESCRIPTION') AS description
-FROM netops.parsed_outputs p,
-     LATERAL (SELECT value AS entry FROM json_each(p.parsed_data)) t
-WHERE p.command = 'show interfaces description'
-  AND p.snapshot_id = (SELECT MAX(snapshot_id) FROM netops.parsed_outputs s
-                       WHERE s.device_name = p.device_name
-                         AND s.command = p.command)
-  AND lower(json_extract_string(t.entry, '$.DESCRIPTION')) LIKE '%uplink%';
-```
-
-### Recipe — Junos interfaces (custom seed parser, keys differ)
-
-Junos `show interfaces terse` ships its own seed TextFSM (see
-`olav-netops/.olav/workspace/ops/netops_init/seed_templates/juniper_junos/`)
-which emits **lowercase** keys (`interface`, `admin_state`,
-`link_state`, `proto`, `ip_address`):
-
-```sql
-SELECT p.device_name,
-       json_extract_string(t.entry, '$.interface') AS interface,
-       json_extract_string(t.entry, '$.admin_state') AS admin_state,
-       json_extract_string(t.entry, '$.link_state') AS link_state,
-       json_extract_string(t.entry, '$.ip_address') AS ip_address
-FROM netops.parsed_outputs p,
-     LATERAL (SELECT value AS entry FROM json_each(p.parsed_data)) t
-WHERE p.command = 'show interfaces terse'
-  AND p.device_name = 'R1'
-  AND p.snapshot_id = (SELECT MAX(snapshot_id) FROM netops.parsed_outputs s
-                       WHERE s.device_name = p.device_name
-                         AND s.command = p.command)
-  AND json_extract_string(t.entry, '$.admin_state') = 'down';
-```
-
-### Discovering keys for a command
-
-```sql
--- Show the JSON keys that any parser produced for this command across
--- the fleet — useful when you don't know whether to query INTERFACE
--- or interface, STATUS or status, etc.
-SELECT DISTINCT json_keys(parsed_data->0) AS keys, device_name
-FROM netops.parsed_outputs
-WHERE command = 'show ip interface brief'
-LIMIT 5;
-```
-
-> ⚠️ Always include the per-(device, command) snapshot filter in any
-> cookbook query — without it, every `/netops_init` rerun multiplies
-> rowcount, and per-row filters silently match across stale snapshots.
+The fallback always works but is slower to compose and easier to get
+wrong; prefer the auto-view path.
 
 ---
 

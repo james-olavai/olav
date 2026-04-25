@@ -670,19 +670,32 @@ def _run_collection(
         # to JSON-extract directly out of ``parsed_outputs``.
         try:
             from olav_netops.core.recipe_seeds import load_recipe_seeds
-            from olav_netops.core.view_builder import build_all_views
+            from olav_netops.core.view_builder import (
+                build_all_views, build_per_command_views,
+            )
             with duckdb.connect(str(MAIN_DB_PATH)) as _view_conn:
                 seed_stats = load_recipe_seeds(_view_conn)
                 build_stats = build_all_views(_view_conn)
+                # R83: per-command zero-ETL views — every command in
+                # parsed_outputs becomes ``v_<safe_command>_auto`` with
+                # typed columns via DuckDB's ``unnest(from_json(...),
+                # recursive := true)``.  Replaces the LATERAL+json_each
+                # cookbook agents had to memorise (R82 ISSUE-AGENT-PARSED-JSON-NAV).
+                per_cmd_stats = build_per_command_views(_view_conn)
             print(
                 f"  ✓ view_recipes: {seed_stats['inserted_or_updated']} "
                 f"seed row(s) upserted"
             )
             if build_stats:
                 _built = ", ".join(f"{name}({rows})" for name, rows in build_stats.items())
-                print(f"  ✓ auto views built: {_built}")
+                print(f"  ✓ semantic views (cross-vendor): {_built}")
             else:
-                print(f"  ℹ auto views: none built (no recipes returned rows)")
+                print(f"  ℹ semantic views: none built (no recipes returned rows)")
+            if per_cmd_stats:
+                print(
+                    f"  ✓ per-command auto views: {len(per_cmd_stats)} "
+                    f"(e.g. v_show_ip_interface_brief_auto, …)"
+                )
         except Exception as _view_err:  # noqa: BLE001
             # Seed + build are advisory — raw parsed_outputs queries still work.
             print(f"  ⚠ view_recipes / build skipped (non-blocking): {_view_err}")
