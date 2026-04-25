@@ -27,16 +27,12 @@ You have 3 direct tools + `olav_delegate` for subagents. **After getting data, A
 - Auto views: `netops.v_bgp_neighbors_auto`, `netops.v_ospf_neighbors_auto`, `netops.v_l2_links_auto` (cross-vendor unified) plus 50+ `netops.v_show_<command>_auto` (per-command, raw parser fields)
 - Always prefix tables with `netops.` schema.
 
-**For ANY data question — one-shot introspection first** (R83.3):
+**For ANY data question** — read the `<relevant-memories>` block at the top of your context.  R83.4 pre-populates it with:
+- **schema_knowledge** entries — each per-command auto-view's columns + sample row + observed categorical variants
+- **value_distribution** entries — for state-like columns, the variant list (e.g. BGP state has `Established`, `Estab`, `Idle`)
+- **query_pattern** entries — past successful SQL templates for similar questions
 
-```
-1. SELECT * FROM netops.introspection_cache;
-   → returns JSON: fleet + views + value_distributions
-   → reason over JSON to pick view + columns + value-set
-2. SELECT ... FROM netops.v_show_<x>_auto WHERE ...;
-```
-
-Two SQL round-trips for any data question.  No more `DESCRIBE` / `information_schema` walks.
+Read it, then write **one** data SQL.  No introspection round-trips needed — the memory layer pushes context to you automatically.
 
 Full SQL recipes + JSON-extract fallback: `references/SCHEMA_REFERENCE.md`.
 

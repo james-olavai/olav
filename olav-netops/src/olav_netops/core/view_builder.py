@@ -505,6 +505,15 @@ def finalise_ingest(con: Any) -> dict[str, Any]:
         out["introspection"] = build_introspection_cache(con)
     except Exception as exc:
         logger.warning("finalise_ingest: build_introspection_cache failed: %s", exc)
+    # R83.4: prime LanceDB memory with schema + value-distribution entries.
+    # AutoRecallMiddleware then injects them on every NL query via
+    # ``<relevant-memories>`` — agent doesn't have to know to call
+    # introspection_cache or DESCRIBE first.
+    try:
+        from olav_netops.core.memory_primer import prime_memory_at_ingest
+        out["memory_primer"] = prime_memory_at_ingest(con)
+    except Exception as exc:
+        logger.warning("finalise_ingest: prime_memory_at_ingest failed: %s", exc)
     return out
 
 
