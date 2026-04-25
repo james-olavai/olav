@@ -47,10 +47,44 @@ ERROR_PATTERNS = [
     "% invalid", "% unknown", "syntax error", "not found",
     "command not recognized", "% incomplete", "permission denied",
     "access denied", "% authorization", "% ambiguous",
+    "invalid input detected",  # cisco IOS "% Invalid input detected at '^' marker"
+    "unknown command",         # junos "unknown command."
+    "missing argument",        # junos "missing argument."
 ]
 """Common device-error prefixes.  Conservative list — false positives
 here are harmless (we'd just skip learning a parse); false negatives
 waste LLM tokens on garbage input, which is much worse."""
+
+
+def is_cli_error(raw_output: str, *, min_len: int = 30) -> bool:
+    """Whether raw CLI output is a device error response, not real data.
+
+    Used at ingest time to keep error responses out of
+    ``netops.raw_output_store`` and ``netops.parsed_outputs`` — error
+    text in the DB pollutes parse-coverage stats and tricks downstream
+    parsers into reporting "State Error" / failed-template noise.
+
+    A response is treated as an error when:
+
+    * it is shorter than *min_len* non-whitespace characters, OR
+    * any of the first 5 lines (lower-cased) contains a known
+      :data:`ERROR_PATTERNS` marker.
+
+    Args:
+        raw_output: The raw text the device returned.
+        min_len:    Minimum length (after strip) to accept as a real
+            response.  Default 30 — shorter than this almost always
+            means "device printed an error and a prompt".
+
+    Returns:
+        ``True`` when the output should be rejected; ``False`` when it
+        looks like real CLI data.
+    """
+    text = raw_output.strip()
+    if len(text) < min_len:
+        return True
+    head = "\n".join(text.split("\n")[:5]).lower()
+    return any(pat in head for pat in ERROR_PATTERNS)
 
 
 def should_learn(command: str, raw_output: str) -> bool:
@@ -138,4 +172,5 @@ def _estimate_data_rows(raw_output: str, command: str) -> int:
     return data_lines
 
 
-__all__ = ["BACKUP_COMMANDS", "ERROR_PATTERNS", "should_learn", "_estimate_data_rows"]
+__all__ = ["BACKUP_COMMANDS", "ERROR_PATTERNS", "is_cli_error",
+           "should_learn", "_estimate_data_rows"]
