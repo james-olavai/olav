@@ -417,6 +417,135 @@ def build_all_views(con: Any) -> dict[str, int]:
     return results
 
 
+# ── DuckDB-native zero-ETL: per-command auto-views ──────────────────────
+#
+# For every (command) present in ``netops.parsed_outputs``, materialise
+# (as a VIEW, so no storage cost) a typed table where each column
+# corresponds to a key in the parser's JSON output.
+#
+# Pattern (DuckDB-native, no field mappings, no recipes):
+#
+#   CREATE OR REPLACE VIEW netops.v_<safe_command>_auto AS
+#   SELECT p.device_name, p.snapshot_id,
+#          unnest(from_json(p.parsed_data, '<inferred-structure>'),
+#                 recursive := true)
+#   FROM netops.parsed_outputs p
+#   WHERE p.command = '<command>'
+#     AND p.snapshot_id = (SELECT MAX(snapshot_id) FROM netops.parsed_outputs s
+#                          WHERE s.device_name = p.device_name AND s.command = p.command)
+#
+# ``json_structure`` infers the JSON shape from a sample row; the
+# resulting view has typed columns and DESCRIBE works natively.  Agent
+# can ``SELECT col FROM v_show_ip_interface_brief_auto WHERE STATUS LIKE '%down%'``
+# without any LATERAL+json_each gymnastics.
+#
+# Distinct from the ARCH-29 ``view_recipes`` machine: that one builds
+# *cross-vendor semantic* views (``v_bgp_neighbors_auto``) with field
+# normalisation; this one builds *per-command syntactic* views with raw
+# parser fields.  Both layers coexist — recipes give canonical
+# semantics, this gives universal access.
+
+import re as _re
+
+_VIEW_NAME_RE = _re.compile(r"[^a-zA-Z0-9_]+")
+
+
+def _safe_view_name(command: str) -> str:
+    """Turn a CLI command into a safe view-name suffix.
+
+    ``"show ip interface brief"`` → ``"show_ip_interface_brief"``;
+    ``"show bgp summary | display set"`` → ``"show_bgp_summary_display_set"``.
+    Strips leading/trailing underscores; lower-cases.
+    """
+    return _VIEW_NAME_RE.sub("_", command.strip().lower()).strip("_")
+
+
+def build_per_command_views(con: Any) -> dict[str, int]:
+    """Auto-create ``v_<safe_command>_auto`` views from parsed_outputs.
+
+    Iterates every distinct command that has at least one parsed row,
+    detects the JSON structure with ``json_structure(parsed_data)``,
+    and CREATE OR REPLACE VIEW with ``unnest(from_json(...), recursive
+    := true)`` — DuckDB exposes typed columns identical to the
+    parser's output schema.
+
+    Per-(device, command) latest-snapshot filter is applied inside the
+    view so consumers don't need to know about snapshots.
+
+    Idempotent; safe to re-run on every ``/netops_init`` and after any
+    new parser is learned.
+
+    Returns ``{view_name: row_count}`` for each successfully-created
+    view; commands whose JSON structure couldn't be inferred (empty
+    arrays, scalars, etc.) are silently skipped.
+    """
+    results: dict[str, int] = {}
+    try:
+        # Pick the most-recent non-empty parsed row per command and
+        # ask DuckDB for its JSON structure.  ``json_structure``
+        # returns a string like ``'[{"INTERFACE":"VARCHAR",...}]'``
+        # which becomes the constant we bake into the view DDL.
+        rows = con.execute(
+            """
+            WITH ranked AS (
+                SELECT command, parsed_data,
+                       ROW_NUMBER() OVER (PARTITION BY command ORDER BY ingested_at DESC NULLS LAST) AS rn
+                FROM netops.parsed_outputs
+                WHERE parsed_data IS NOT NULL
+                  AND parsed_data::VARCHAR NOT IN ('[]', 'null')
+            )
+            SELECT command, json_structure(parsed_data)::VARCHAR AS struct
+            FROM ranked
+            WHERE rn = 1
+            """
+        ).fetchall()
+    except Exception as exc:
+        logger.warning("build_per_command_views: parsed_outputs scan failed: %s", exc)
+        return results
+
+    for command, structure in rows:
+        if not command or not structure:
+            continue
+        # Only object-list shapes work — scalar / mixed shapes can't be
+        # unnested into named columns.  Skip silently.
+        if not structure.startswith("[{"):
+            continue
+
+        view_suffix = _safe_view_name(command)
+        if not view_suffix:
+            continue
+        view_name = f"v_{view_suffix}_auto"
+
+        cmd_lit = command.replace("'", "''")
+        struct_lit = structure.replace("'", "''")
+
+        ddl = f"""
+            CREATE OR REPLACE VIEW netops.{view_name} AS
+            SELECT p.device_name,
+                   p.snapshot_id,
+                   unnest(from_json(p.parsed_data, '{struct_lit}'), recursive := true)
+            FROM netops.parsed_outputs p
+            WHERE p.command = '{cmd_lit}'
+              AND p.parsed_data IS NOT NULL
+              AND p.snapshot_id = (
+                  SELECT MAX(snapshot_id)
+                  FROM netops.parsed_outputs s
+                  WHERE s.device_name = p.device_name
+                    AND s.command = p.command
+              )
+        """
+        try:
+            con.execute(ddl)
+            count = con.execute(f"SELECT COUNT(*) FROM netops.{view_name}").fetchone()[0]
+            results[view_name] = int(count)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "build_per_command_views: skipping %s (cmd=%r): %s",
+                view_name, command, exc,
+            )
+    return results
+
+
 # ── Post-snapshot incremental rebuild (take_snapshot hook) ───────────────
 
 def rebuild_views_for_command(

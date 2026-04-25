@@ -46,19 +46,28 @@ wins.
 (`ntc` / `custom_textfsm` / `pac` / `raw_only`), `parser_path`,
 `blacklisted`, `pipe_allowed`, `backup_only`, `synced_at`.
 
-### Auto views (vendor-normalised, state-canonicalised)
-* `netops.v_bgp_neighbors_auto` — `device`, `neighbor_ip`,
-  `neighbor_as`, `local_as`, `router_id`, `state`, `uptime`,
-  `snapshot_id`
-* `netops.v_ospf_neighbors_auto` — `device`, `neighbor_id`,
-  `neighbor_ip`, `interface`, `area`, `state`, `dead_time`,
-  `snapshot_id`
-* `netops.v_l2_links_auto` — `source_device`, `source_interface`,
-  `destination_device`, `destination_interface`,
-  `discovery_protocol`, `link_status`, `snapshot_id`
+### Auto views (two layers)
 
-> Use `describe_table` only when the user asks about a column not
-> listed above OR a custom table outside `netops.*`.
+**Cross-vendor semantic** (state-canonicalised):
+
+* `netops.v_bgp_neighbors_auto`, `netops.v_ospf_neighbors_auto`,
+  `netops.v_l2_links_auto` — see SCHEMA_REFERENCE for columns.
+
+**Per-command (R83 zero-ETL)** — every command in `parsed_outputs`
+becomes `netops.v_<safe_command>_auto` automatically.  Examples:
+`v_show_ip_interface_brief_auto`, `v_show_ip_arp_auto`,
+`v_show_interfaces_description_auto`, `v_show_interfaces_terse_auto`.
+
+**Don't write LATERAL+json_each — use the auto-view + DESCRIBE.**
+
+```
+1. List:  SELECT table_name FROM information_schema.views
+          WHERE table_schema='netops' AND table_name LIKE 'v_%_auto';
+2. Cols:  DESCRIBE netops.v_show_ip_interface_brief_auto
+3. Query: SELECT * FROM netops.v_show_ip_interface_brief_auto WHERE STATUS LIKE '%down%';
+```
+
+Latest-snapshot filter is built into the view; no need to add it.
 
 ## Output Rules
 
