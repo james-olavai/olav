@@ -18,6 +18,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import signal
 import sys
 import uuid as _uuid_mod
@@ -1138,6 +1139,38 @@ async def run_single_query(
                 _tool_results.append({"name": tool_name, "content": str(output)[:4096]})
 
         final_content = "".join(_chunks)
+
+        # NL-CLI-SILENT-FINAL (R82): some models (small ones especially)
+        # finish a run with only tool calls — they consider the work
+        # "delegated and done" and emit no final assistant text.  The
+        # user then sees only `🔧` indicators with no result.  Surface
+        # the most recent informative tool result(s) as a fallback so
+        # the CLI never goes silent after running tools.
+        if not final_content and _tool_results:
+            _SILENT_DELEGATE = {"olav_delegate", "task"}
+            _PATH_KEYS = ("path", "absolute_path", "saved_to", "file")
+            _fallback_lines: list[str] = []
+            for tr in _tool_results:
+                name = tr["name"]
+                if name in _SILENT_DELEGATE:
+                    continue  # the inner subagent's tools are what produced output
+                content = tr["content"]
+                # Try to extract a file path / saved-to indicator from the
+                # tool's structured output (format_and_export, render_report,
+                # take_snapshot all return path-bearing dicts).
+                preview = content
+                for key in _PATH_KEYS:
+                    m = re.search(rf"['\"]?{key}['\"]?\s*[:=]\s*['\"]([^'\"]+)['\"]", content)
+                    if m:
+                        preview = f"{key}: {m.group(1)}"
+                        break
+                _fallback_lines.append(f"📁 {name} → {preview[:200]}")
+            if _fallback_lines:
+                console.print("")
+                for line in _fallback_lines:
+                    console.print(line)
+                final_content = "\n".join(_fallback_lines)
+
         recorder.record(
             event_type="assistant_output_final",
             run_id=run_id,

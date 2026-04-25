@@ -66,17 +66,29 @@ def format_and_export(
         ...                   format="json", subdir="scripts")
         {"path": "exports/scripts/changeset-netbox-2026-04-08.json", "size": 512}
     """
-    # 1. Determine output directory based on format
-    from olav.core.config import EXPORTS_DIR as REPORTS_DIR
+    # 1. Determine output directory based on format.
+    # WRITER-WRONG-PATH (R82): the previous import was
+    # ``from olav.core.config import EXPORTS_DIR as REPORTS_DIR`` and the
+    # csv/json branches used ``REPORTS_DIR.parent`` — that's the project
+    # root, not exports/.  Fresh-demo verification ended up writing
+    # ``devices.csv`` straight to ``~/olav-demo/``.  Fixed: data files
+    # land under ``exports/`` directly; narrative reports under
+    # ``exports/reports/``.
+    from olav.core.config import EXPORTS_DIR
+
+    # Coerce LLM-serialised "null" / "None" / "" subdir back to Python None
+    # — small models often pass these as literal strings via JSON tool args.
+    if isinstance(subdir, str) and subdir.strip().lower() in ("", "null", "none"):
+        subdir = None
 
     if subdir is not None:
         # Explicit subdir overrides all automatic routing.
         # subdir is relative to EXPORTS_DIR (e.g. "scripts" → exports/scripts/)
-        output_dir = REPORTS_DIR / subdir
+        output_dir = EXPORTS_DIR / subdir
     elif format and format.lower() in ("csv", "json", "yaml", "yml"):
-        output_dir = REPORTS_DIR.parent  # exports/
+        output_dir = EXPORTS_DIR  # exports/<file>.csv
     elif format and format.lower() in ("md", "txt", "mmd"):
-        output_dir = REPORTS_DIR  # exports/reports/
+        output_dir = EXPORTS_DIR / "reports"  # exports/reports/<file>.md
     else:
         output_dir = None  # resolved after format detection
 
@@ -123,13 +135,16 @@ def format_and_export(
 
     # 4. Resolve output_dir if not yet determined (only when subdir=None and format was auto-detected)
     if output_dir is None:
-        from olav.core.config import EXPORTS_DIR as _REPORTS_DIR
         if format in ("csv", "json", "yaml", "yml", "sh"):
-            output_dir = _REPORTS_DIR.parent  # exports/
+            output_dir = EXPORTS_DIR  # exports/<file>.csv
         else:
-            output_dir = _REPORTS_DIR  # exports/reports/
+            output_dir = EXPORTS_DIR / "reports"  # exports/reports/<file>.md
 
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Coerce LLM-serialised "null" / "None" filename to Python None too.
+    if isinstance(filename, str) and filename.strip().lower() in ("", "null", "none"):
+        filename = None
 
     # 5. Auto-generate filename (if not specified)
     if not filename:
