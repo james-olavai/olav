@@ -587,52 +587,36 @@ def _run_collection(
         except Exception as e:
             print(f"  ✗ Topology ETL ERROR: {e}")
 
-        # ── ARCH-06 / ARCH-28: seed view_recipes then materialise views ──
+        # ── R83.2 (P1): single zero-ETL entry point ───────────────────
         #
-        # Two steps, one connection:
-        #   a) ``load_recipe_seeds`` upserts 9 hand-curated
-        #      ``(concept, command, vendor_hint, field_mappings)`` rows
-        #      covering bgp_neighbors, ospf_adjacencies, topology_l2.
-        #   b) ``build_all_views`` reads every recipe and emits
-        #      ``CREATE OR REPLACE VIEW v_<concept>_auto AS UNION ALL …``
-        #      one per concept, with per-vendor field extraction + state
-        #      normalisation baked in via SQL CASE.
-        #
-        # The build call is what used to be missing (gitea #17): recipes
-        # were seeded but the views were never materialised, so every
-        # agent query asking "BGP neighbours" / "OSPF adjacencies" had
-        # to JSON-extract directly out of ``parsed_outputs``.
+        # No more ``view_recipes`` seeding — the L1 recipe-driven views
+        # (``v_bgp_neighbors_auto`` / ``v_ospf_neighbors_auto``) were
+        # the same hardcoded ``(concept, command, vendor) → fields``
+        # mapping R78 deleted from Python, just re-spelled in YAML.
+        # State canonicalisation (``Estab`` → ``Established``) moved to
+        # ingest-time ``field_normalizer.normalize_fields``;
+        # ``parsed_outputs.parsed_data`` already holds RFC-canonical
+        # state by the time any view reads it.  Per-command views
+        # built via DuckDB ``json_structure`` + ``unnest(from_json(...))``
+        # — no recipes, no field maps.  ``v_l2_links_auto`` is a thin
+        # column-rename projection of ``netops.topology_links``.
         try:
-            from olav_netops.core.recipe_seeds import load_recipe_seeds
-            from olav_netops.core.view_builder import (
-                build_all_views, build_per_command_views,
-            )
+            from olav_netops.core.view_builder import finalise_ingest
             with duckdb.connect(str(MAIN_DB_PATH)) as _view_conn:
-                seed_stats = load_recipe_seeds(_view_conn)
-                build_stats = build_all_views(_view_conn)
-                # R83: per-command zero-ETL views — every command in
-                # parsed_outputs becomes ``v_<safe_command>_auto`` with
-                # typed columns via DuckDB's ``unnest(from_json(...),
-                # recursive := true)``.  Replaces the LATERAL+json_each
-                # cookbook agents had to memorise (R82 ISSUE-AGENT-PARSED-JSON-NAV).
-                per_cmd_stats = build_per_command_views(_view_conn)
-            print(
-                f"  ✓ view_recipes: {seed_stats['inserted_or_updated']} "
-                f"seed row(s) upserted"
-            )
-            if build_stats:
-                _built = ", ".join(f"{name}({rows})" for name, rows in build_stats.items())
-                print(f"  ✓ semantic views (cross-vendor): {_built}")
-            else:
-                print(f"  ℹ semantic views: none built (no recipes returned rows)")
+                view_stats = finalise_ingest(_view_conn)
+            l2_stats = view_stats.get("l2") or {}
+            per_cmd_stats = view_stats.get("per_command") or {}
+            if l2_stats:
+                _l2 = ", ".join(f"{n}({r})" for n, r in l2_stats.items())
+                print(f"  ✓ topology view: {_l2}")
             if per_cmd_stats:
                 print(
                     f"  ✓ per-command auto views: {len(per_cmd_stats)} "
                     f"(e.g. v_show_ip_interface_brief_auto, …)"
                 )
         except Exception as _view_err:  # noqa: BLE001
-            # Seed + build are advisory — raw parsed_outputs queries still work.
-            print(f"  ⚠ view_recipes / build skipped (non-blocking): {_view_err}")
+            # Build is advisory — raw parsed_outputs queries still work.
+            print(f"  ⚠ view build skipped (non-blocking): {_view_err}")
 
         # ── Stage 3.8: Batfish snapshot export (R74, gitea #15) ────────
         # The exporter reads ``netops.raw_output_store`` and writes a
