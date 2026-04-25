@@ -470,12 +470,13 @@ def take_snapshot(
                 from olav_netops.core.view_builder import finalise_ingest
                 from olav_netops.core.device_etl import populate_devices
                 import duckdb
+                # R83.3 ordering: populate_devices BEFORE finalise_ingest so
+                # the new introspection_cache (built inside finalise_ingest)
+                # sees current snapshot's device list, not stale state.
+                populate_devices(MAIN_DB_PATH, snapshot_id)
                 with duckdb.connect(str(MAIN_DB_PATH)) as _conn:
                     extract_lldp_topology(_conn)
                     finalise_ingest(_conn)
-                # populate_devices opens its own connection (it needs to UPSERT
-                # outside the read-mostly view rebuild context).
-                populate_devices(MAIN_DB_PATH, snapshot_id)
             except Exception as exc:
                 logger.warning("post-ingest hooks (views/Device ETL) failed: %s", exc)
         except Exception as _ingest_err:

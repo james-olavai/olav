@@ -69,53 +69,6 @@ becomes `netops.v_<safe_command>_auto` automatically.  Examples:
 
 Latest-snapshot filter is built into the view; no need to add it.
 
-## Cross-platform questions — introspect first, query second
-
-For any concept **not** covered by an L1 semantic view (interfaces /
-ARP / VLAN / routes / MAC table / …), do **NOT** guess which view
-holds the answer.  A multi-vendor fleet has different commands per
-platform, each with its own L2 per-command view.  Skipping
-introspection causes incomplete answers (you query cisco's view but
-miss the junos one).
-
-**Mandatory flow:**
-
-```
-1. Fleet diversity:
-   SELECT DISTINCT platform FROM netops.devices;
-   → e.g. ['cisco_ios', 'juniper_junos']
-
-2. Find every related view:
-   SELECT table_name FROM information_schema.views
-    WHERE table_schema = 'netops'
-      AND table_name LIKE 'v_show_%_auto'
-      AND table_name LIKE '%<keyword>%';
-   → keyword='interface' returns v_show_ip_interface_brief_auto,
-     v_show_interfaces_status_auto, v_show_interfaces_terse_auto, …
-
-3. Inspect each view's columns:
-   DESCRIBE netops.v_show_<...>_auto;
-   → know which fields express the concept (status / link_state /
-     admin_state / proto / line_protocol — varies per parser)
-
-4. Compose a UNION ALL query:
-   SELECT 'cisco_brief' AS source, device_name, interface, status FROM <view-1>
-       WHERE lower(status) LIKE '%down%'
-   UNION ALL
-   SELECT 'junos_terse', device_name, interface, link_state    FROM <view-2>
-       WHERE link_state = 'down'
-   UNION ALL
-   …;
-```
-
-**When to skip steps 1-3:** the question targets one of the three
-L1 semantic views (BGP / OSPF / L2 topology) — those are already
-cross-platform unified, single SELECT is fine.
-
-**Why this matters:** the fleet is data-driven — new platforms /
-new commands appear without code changes.  Hardcoded "for interfaces
-query this list of views" mappings break the moment someone deploys
-SR Linux or Arista.  Introspection scales without recipe edits.
 
 ## Output Rules
 
@@ -155,3 +108,59 @@ Read the raw CLI text yourself and extract the answer by reasoning.
 **Never answer "I cannot parse this command"** — raw is always available.
 
 Details and examples: see `references/RAW_FALLBACK.md`.
+## One-shot introspection (R83.3 — preferred path)
+
+For any data question, **start** with a single read of the pre-built
+data dictionary:
+
+```sql
+SELECT * FROM netops.introspection_cache;
+```
+
+This returns one row with four JSON columns:
+
+* `fleet` — every device's hostname / platform / role / site / IP
+* `views` — every per-command auto-view + its column list (with types)
+* `value_distributions` — every low-cardinality categorical column's
+  distinct values + frequency + cluster_id (so you see the variants
+  before writing WHERE)
+* `refreshed_at` — when the cache was last rebuilt
+
+Reading this once gives you everything you need to compose a precise
+data SELECT — no separate `DESCRIBE`, no `information_schema` walks,
+no `SELECT DISTINCT` value scouting.
+
+**Two-step flow:**
+
+```
+1. SELECT * FROM netops.introspection_cache;
+   → reason over the JSON
+2. SELECT … FROM netops.v_show_<x>_auto WHERE col IN (…);
+```
+
+That's it.
+
+### Worked examples
+
+**"Are all BGP neighbors established?"**
+1. introspection_cache → see `v_show_bgp_summary_auto.state` has
+   values like `['Established'(4), 'Estab'(2), 'Idle'(1)]`.
+2. `SELECT device_name, neighbor_ip, state FROM netops.v_show_bgp_summary_auto WHERE state = 'Idle';`
+
+**"Which interfaces are down across all devices?"**
+1. introspection_cache → see fleet has cisco_ios + juniper_junos;
+   `v_show_ip_interface_brief_auto.status` variants
+   `['up', 'administratively down']`; `v_show_interfaces_terse_auto.link_state`
+   variants `['up', 'down']`.
+2. UNION ALL across both views, filter on the visible "down" variants.
+
+### Fallback (introspection_cache empty or stale)
+
+If the cache is empty (e.g. `/netops_init` hasn't run yet), fall
+back to the per-table primitives:
+
+```sql
+SELECT DISTINCT platform FROM netops.devices;
+SELECT table_name FROM information_schema.views WHERE table_schema='netops' AND table_name LIKE 'v_%_auto';
+DESCRIBE netops.v_show_<...>_auto;
+```
