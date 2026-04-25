@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -73,6 +74,65 @@ def load_discovery_protocols(force_reload: bool = False) -> dict[str, dict[str, 
         return _PROTOCOLS_CACHE
     _PROTOCOLS_CACHE = protos
     return _PROTOCOLS_CACHE
+
+
+_NUMERIC_RE = re.compile(r"^\d+$")
+
+
+def _canonicalise_interface(name: str) -> tuple[str, bool]:
+    """Normalise an interface-name token; reject obviously-bad values.
+
+    Two failure modes seen in fresh-demo verification get cleaned at
+    insert time so they never reach ``netops.topology_links``:
+
+    1. **Format variants** of the same physical port (``Gi1`` vs
+       ``GigabitEthernet1``, ``Eth0/1`` vs ``Ethernet0/1``) end up with
+       different ``link_id`` hashes and bypass ``INSERT OR IGNORE``
+       dedup.  Pass them through ``netutils.canonical_interface_name``
+       (already a declared dependency) so all variants collapse to one
+       canonical form.
+    2. **Garbage values** from broken upstream parsers / LLDP TLV format
+       mismatches:
+
+       * ``"Uni Eth 0/1"`` from ntc-templates ``cisco_ios_show_cdp_neighbors.textfsm``
+         column-misalignment when Platform = ``"Linux Universal"``.
+         Real interface names never contain a literal space.
+       * Pure-numeric values like ``"512"`` from Junos LLDP
+         port-id-subtype 7 (locally assigned = SNMP ifIndex), which
+         ``netutils`` won't normalise but also can't be a real port
+         identifier we can join on.
+
+    Returns ``(name, ok)`` — when ``ok`` is False the caller drops the
+    whole row.
+
+    The function is deliberately lenient on shapes it doesn't know
+    about (Junos ``ge-0/0/0``, Arista ``Ethernet1/1.0``, Nokia SR Linux
+    ``ethernet-1/1``, system loopbacks, etc.) — those pass through
+    unchanged because ``netutils`` doesn't have rules for them and
+    they're already canonical for the device that emits them.
+    """
+    if not name:
+        return "", False
+    raw = name.strip()
+    if not raw:
+        return "", False
+    if " " in raw:
+        # No real interface name has a space.  Only parser column-
+        # misalignment produces these (e.g. CDP brief "Uni Eth 0/1").
+        return raw, False
+    if _NUMERIC_RE.match(raw):
+        # LLDP port-id-subtype=7 (locally assigned ifIndex) — can't be
+        # joined on, drop the row and let the cleaner source command win.
+        return raw, False
+    try:
+        from netutils.interface import canonical_interface_name
+        return canonical_interface_name(raw), True
+    except Exception as exc:  # noqa: BLE001
+        # netutils has no rule for this vendor/format — pass through.
+        # Common for Junos (ge-0/0/0), SR Linux (ethernet-1/1), etc.
+        logger.debug("topology_engine: canonical_interface_name passthrough %r: %s",
+                     raw, exc)
+        return raw, True
 
 
 def _make_link_id(src_dev: str, src_intf: str, dst_dev: str, dst_intf: str) -> str:
@@ -153,6 +213,25 @@ def _insert_link(
         # self-loop after canonicalisation — e.g. an LLDP receive loop
         # on a management interface; drop rather than write a useless
         # A→A row that will always sort-alphabetical-dedupe to nothing.
+        return False
+
+    # ── R82: port-name canonicalisation + bad-data reject ───────────
+    # Two failure modes seen in fresh-demo verification:
+    #   * Same physical link recorded twice with different port-name
+    #     formats: `Eth0/1` vs `Ethernet0/1`, `Gi1` vs `GigabitEthernet1`.
+    #     Fixable via netutils canonicalization (a declared dependency).
+    #   * Garbage values from broken upstream parsers / LLDP TLV format
+    #     mismatches: `Uni Eth 0/1` (ntc-templates `show cdp neighbors`
+    #     brief column-misalignment), `512` (Junos LLDP port-id-subtype
+    #     locally-assigned = SNMP ifIndex).  These can't be reconciled
+    #     with the canonical form — drop the row and let the cleaner
+    #     source command win.
+    src_intf, src_ok = _canonicalise_interface(src_intf)
+    dst_intf, dst_ok = _canonicalise_interface(dst_intf)
+    if not (src_ok and dst_ok):
+        logger.debug("topology_engine: rejected bad port-id "
+                     "src=%r/%r dst=%r/%r protocol=%s",
+                     src_dev, src_intf, dst_dev, dst_intf, protocol)
         return False
 
     link_id = _make_link_id(src_dev, src_intf, dst_dev, dst_intf)
