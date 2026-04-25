@@ -237,6 +237,7 @@ def _load_host_metadata() -> dict[str, dict]:
     Return shape per host::
 
         {
+          "mgmt_ip":     "192.168.100.101" | None, # nornir's `hostname` (SSH target)
           "role":        "core" | None,          # data.role (if declared)
           "site":        "lab"  | None,          # data.site
           "environment": "lab"  | None,          # data.environment
@@ -244,6 +245,12 @@ def _load_host_metadata() -> dict[str, dict]:
           "aliases":     ["核心路由器1", "R3"],       # data.aliases
           "extra":       { ... other data.* keys ... }
         }
+
+    ``mgmt_ip`` is taken verbatim from the nornir ``hostname`` field —
+    that's the SSH target the orchestrator already uses, so it's the
+    authoritative answer to "what IP do I reach this device at".  CLI
+    parsing (loopback / mgmt0) is only a fallback for hosts that
+    weren't in nornir.
 
     Missing inventory or unparseable YAML returns ``{}`` — callers then
     see None/empty everywhere, which is what pre-R77 behaviour produced.
@@ -271,6 +278,7 @@ def _load_host_metadata() -> dict[str, dict]:
             groups = []
 
         entry: dict = {
+            "mgmt_ip": spec.get("hostname"),  # nornir SSH target — IP or DNS name
             "role": host_data.get("role"),
             "site": host_data.get("site"),
             "environment": host_data.get("environment"),
@@ -779,7 +787,15 @@ def _populate_devices(db_path, snapshot_id: str) -> int:
         ).fetchall()
 
         for (device_name,) in devices:
-            model = os_ver = plat = mgmt_ip = None
+            model = os_ver = plat = None
+
+            # Mgmt IP comes from nornir inventory (the SSH target) — that
+            # is the authoritative answer to "what IP do I reach this
+            # device at".  CLI-derived loopback / mgmt0 attempts run only
+            # as a fallback when the host isn't in inventory at all.
+            inv_meta = host_meta.get(device_name) or {}
+            mgmt_ip = inv_meta.get("mgmt_ip")
+            loopback_ip = None  # captured below for metadata enrichment
 
             # ── show version → platform, model, os_version ───────────────
             try:
@@ -803,7 +819,11 @@ def _populate_devices(db_path, snapshot_id: str) -> int:
             except Exception:
                 pass
 
-            # ── show ip interface brief → management IP (IOS) ────────────
+            # ── show ip interface brief → loopback IP enrichment (IOS) ──
+            # Inventory mgmt_ip is authoritative; CLI extraction only
+            # captures the loopback so it can be surfaced in metadata
+            # (and used as a last-resort fallback when nornir doesn't
+            # know about the host at all).
             try:
                 row = conn.execute(
                     "SELECT parsed_data::VARCHAR FROM netops.parsed_outputs "
@@ -814,56 +834,41 @@ def _populate_devices(db_path, snapshot_id: str) -> int:
                 if row and row[0]:
                     ifaces = json.loads(row[0])
                     if ifaces and isinstance(ifaces, list):
-                        # Prefer: Loopback0 > management interface > highest non-link-local IP
                         for iface in ifaces:
                             name = (iface.get("INTF") or iface.get("INTERFACE") or "").lower()
                             ip = iface.get("IPADDR") or iface.get("IP_ADDRESS") or ""
                             status = (iface.get("STATUS") or "").lower()
-                            if ip and ip != "unassigned" and "up" in status:
-                                if "loopback" in name:
-                                    mgmt_ip = ip
-                                    break
-                                if not mgmt_ip and not ip.startswith("10."):
-                                    mgmt_ip = ip
-                        # Fallback: any up interface with an IP
-                        if not mgmt_ip:
-                            for iface in ifaces:
-                                ip = iface.get("IPADDR") or iface.get("IP_ADDRESS") or ""
-                                if ip and ip != "unassigned":
-                                    mgmt_ip = ip
-                                    break
+                            if "loopback" in name and ip and ip != "unassigned" and "up" in status:
+                                loopback_ip = ip
+                                break
             except Exception:
                 pass
 
-            # ── show interfaces terse → management IP (Junos) ────────────
-            # ntc_templates has no template for this command; parse raw output directly
-            if not mgmt_ip:
-                try:
-                    import re
-                    row = conn.execute(
-                        "SELECT raw_output FROM netops.raw_output_store "
-                        "WHERE device_name=? AND command='show interfaces terse' "
-                        "ORDER BY snapshot_id DESC LIMIT 1",
-                        [device_name],
-                    ).fetchone()
-                    if row and row[0]:
-                        # Junos format: "fxp0.0  up  up  inet  192.168.100.101/24"
-                        for line in row[0].splitlines():
-                            parts = line.split()
-                            if len(parts) >= 4:
-                                iface_name = parts[0].lower()
-                                for p in parts:
-                                    m = re.match(r"(\d+\.\d+\.\d+\.\d+)(?:/\d+)?$", p)
-                                    if m and ("fxp0" in iface_name or "em0" in iface_name
-                                              or "me0" in iface_name):
-                                        mgmt_ip = m.group(1)
-                                        break
-                                    if m and "lo0" in iface_name:
-                                        mgmt_ip = mgmt_ip or m.group(1)
-                                if mgmt_ip and "fxp" in iface_name:
-                                    break  # fxp0 is preferred management interface
-                except Exception:
-                    pass
+            # ── show interfaces terse → loopback / fallback mgmt (Junos) ─
+            try:
+                row = conn.execute(
+                    "SELECT parsed_data::VARCHAR FROM netops.parsed_outputs "
+                    "WHERE device_name=? AND command='show interfaces terse' "
+                    "ORDER BY snapshot_id DESC LIMIT 1",
+                    [device_name],
+                ).fetchone()
+                if row and row[0]:
+                    ifaces = json.loads(row[0])
+                    if ifaces and isinstance(ifaces, list):
+                        for iface in ifaces:
+                            name = (iface.get("INTERFACE") or "").lower()
+                            ip = (iface.get("IP_ADDRESS") or "").split("/")[0]
+                            if "lo0" in name and ip:
+                                loopback_ip = ip
+                                break
+            except Exception:
+                pass
+
+            # If inventory didn't supply mgmt_ip, fall back to whatever
+            # CLI parsing found (preserves pre-fix behaviour for hosts
+            # that aren't in nornir at all).
+            if not mgmt_ip and loopback_ip:
+                mgmt_ip = loopback_ip
 
             plat = plat or "unknown"
             vendor = get_profile(plat).get("vendor", "")
@@ -881,11 +886,16 @@ def _populate_devices(db_path, snapshot_id: str) -> int:
             groups = meta.get("groups") or []
             aliases = meta.get("aliases") or []
             extra = meta.get("extra") or {}
-            if groups or aliases or extra:
-                metadata_json = json.dumps(
-                    {"groups": groups, "aliases": aliases, **extra},
-                    ensure_ascii=False,
-                )
+            md: dict = {}
+            if groups:
+                md["groups"] = groups
+            if aliases:
+                md["aliases"] = aliases
+            if loopback_ip and loopback_ip != mgmt_ip:
+                md["loopback_ip"] = loopback_ip
+            md.update(extra)
+            if md:
+                metadata_json = json.dumps(md, ensure_ascii=False)
 
             conn.execute("""
                 INSERT INTO netops.devices
@@ -916,6 +926,7 @@ def _collect_cmd(nr, target, cmd, devices, snapshot_id, snapshot_date,
     otherwise mark every device as failed when a subset succeeded.
     """
     from nornir_netmiko.tasks import netmiko_send_command
+    from olav_netops.core.parse_helpers import is_cli_error
     result = target.run(task=netmiko_send_command, command_string=cmd)
     for host, multi in result.items():
         if multi.failed:
@@ -929,6 +940,17 @@ def _collect_cmd(nr, target, cmd, devices, snapshot_id, snapshot_date,
         # `cmd\x00` can't escape raw_dir via path traversal.
         safe_cmd = re.sub(r"[^a-zA-Z0-9_-]", "_", cmd)[:60]
         (raw_dir / f"{safe_cmd}.txt").write_text(raw_output)
+
+        # Reject device CLI error responses ("% Invalid input detected
+        # at '^' marker", "unknown command.", empty / near-empty
+        # output) at the ingest boundary — those should never reach
+        # raw_output_store / parsed_outputs.  The on-disk dump above
+        # is kept for forensic debugging.
+        if is_cli_error(raw_output):
+            results_summary.append({"device": host, "command": cmd,
+                                    "status": "rejected",
+                                    "reason": "device CLI error / unsupported"})
+            continue
 
         parsed_data = None
         parsed_rows = 0
