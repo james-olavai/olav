@@ -42,130 +42,107 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _find_project_root()
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
-# ── Platform command mapping ──────────────────────────────────────────────
+# ── Discovery command set (ARCH-27 final, Round 77) ─────────────────────
+#
+# Pre-R77 this file held three hardcoded lists
+# (``DISCOVERY_COMMANDS_UNIVERSAL`` / ``_IOS`` / ``_JUNOS``) mapping
+# each platform to its SSH discovery command set.  A mid-refactor
+# attempt at an "intent filter" replaced them with a different
+# hardcoded list — same anti-pattern, different spelling.
+#
+# Correct design: ``netops.commands`` is the authoritative registry.
+# For each device, look up its nornir ``platform`` string, then ask
+# the DB what commands are available for that platform.  No code-level
+# filtering.
+#
+# The registry itself is populated at Stage 3 start via
+# ``commands_sync.sync_commands()`` from three sources:
+#   * ntc-templates wheel (every shipped ``<platform>_<cmd>.textfsm``)
+#   * ``.olav/templates/<platform>/*.textfsm`` custom / user-learned
+#   * ``.olav/templates/parsers/<platform>/*.py`` PaC parsers
+#   * user overlay YAMLs (mark commands backup_only or blacklisted)
+#
+# If the command set is too wide for a given environment (e.g. 143
+# cisco_ios templates is more than a router needs), the user edits the
+# **blacklist YAML** — still data-driven, still zero Python code change.
+# New vendor support: zero code change (ntc templates + overlays
+# propagate automatically).
 
-# Universal commands (work on most platforms)
-DISCOVERY_COMMANDS_UNIVERSAL = [
-    "show version",
-    "show interfaces",
-]
 
-# Cisco IOS-specific commands
-DISCOVERY_COMMANDS_IOS = [
-    "show ip interface brief",
-    "show cdp neighbors detail",
-    "show lldp neighbors detail",
-    "show bgp summary",
-    "show bgp all summary",
-    "show ip bgp summary",
-    "show ip ospf neighbors",
-    "show ip route",
-    "show ip arp",
-    "show vlan brief",
-    "show spanning-tree",
-    "show running-config",
-]
+def _discovery_commands_for(platform: str, conn) -> list[str]:
+    """Return the full SSH command list for *platform* from ``netops.commands``.
 
-# Juniper JunOS-specific commands (matched to ntc_templates availability)
-DISCOVERY_COMMANDS_JUNOS = [
-    "show interfaces terse",
-    "show lldp neighbors",
-    "show bgp summary",
-    "show ospf neighbor",
-    "show route summary",
-    "show arp no-resolve",
-    "show chassis hardware",
-    "show vlans",
-    "show configuration",
-]
+    Non-blacklisted commands only.  Backup-only commands (``show
+    running-config`` etc.) are appended **after** operational commands so
+    they run at the end of each device's collection — keeps the config
+    snapshot aligned with the state snapshot it was captured against.
+    """
+    try:
+        # Operational commands first.
+        op_rows = conn.execute(
+            """
+            SELECT DISTINCT command FROM netops.commands
+            WHERE platform = ?
+              AND COALESCE(blacklisted, FALSE) = FALSE
+              AND COALESCE(backup_only, FALSE) = FALSE
+            ORDER BY command
+            """,
+            [platform],
+        ).fetchall()
+        # Backup commands last.
+        bak_rows = conn.execute(
+            """
+            SELECT DISTINCT command FROM netops.commands
+            WHERE platform = ?
+              AND COALESCE(blacklisted, FALSE) = FALSE
+              AND COALESCE(backup_only, FALSE) = TRUE
+            ORDER BY command
+            """,
+            [platform],
+        ).fetchall()
+    except Exception:
+        return ["show version"]   # table missing entirely; collect the minimum
 
-# Platform → command list mapping
-_PLATFORM_COMMANDS: dict[str, list[str]] = {
-    "cisco_ios": DISCOVERY_COMMANDS_UNIVERSAL + DISCOVERY_COMMANDS_IOS,
-    "cisco_nxos": DISCOVERY_COMMANDS_UNIVERSAL + DISCOVERY_COMMANDS_IOS,
-    "juniper_junos": DISCOVERY_COMMANDS_UNIVERSAL + DISCOVERY_COMMANDS_JUNOS,
-}
-
-# Legacy flat list used when --commands override is passed
-DISCOVERY_COMMANDS = DISCOVERY_COMMANDS_UNIVERSAL + DISCOVERY_COMMANDS_IOS
+    cmds = [r[0] for r in op_rows] + [r[0] for r in bak_rows]
+    if not cmds:
+        return ["show version"]
+    return cmds
 
 # Platforms that are NOT Cisco IOS-compatible
-_JUNOS_PLATFORMS = {"juniper_junos", "juniper", "junos"}
-
-
 def _normalise_platform(platform: str) -> str:
-    """Map various platform strings to canonical form."""
-    p = (platform or "").replace("-", "_").lower()
-    if p in ("ios", "cisco_ios", "cisco_ios_xe"):
-        return "cisco_ios"
-    if p in ("junos", "juniper_junos", "juniper"):
-        return "juniper_junos"
-    if p in ("nxos", "cisco_nxos"):
-        return "cisco_nxos"
-    return p or "cisco_ios"
+    """Canonicalise a nornir/netmiko platform string.
+
+    Thin wrapper over :func:`olav_netops.core.platform_canonical.canonicalize_platform`
+    (the SSOT) with one safety net — if the input is empty, default to
+    ``cisco_ios`` because that's what nornir emits for unclassified hosts.
+    """
+    from olav_netops.core.platform_canonical import canonicalize_platform
+    return canonicalize_platform(platform) or "cisco_ios"
 
 
 # ── TextFSM helper ────────────────────────────────────────────────────────
 
 def _textfsm_parse(platform: str, command: str, raw_output: str) -> list[dict] | None:
-    """Parse command output with TextFSM. Custom templates take priority over ntc-templates.
+    """Delegate to :func:`olav_netops.tools.textfsm_parse.parse_output`.
 
-    Search order:
-    1. Custom templates: .olav/workspace/ops/templates/custom/{platform}/{command}.textfsm
-    2. ntc-templates: site-packages/ntc_templates/templates/{platform}_{command}.textfsm
+    v0.21.0-rc5 (gitea #14): this function used to carry its own 3-tier
+    TextFSM lookup inline (custom → ntc-templates, platform-normaliser,
+    command-filename alias map).  That bypassed
+    ``olav_netops.tools.textfsm_parse.parse_output`` — the canonical
+    entry point that *also* runs ``field_normalizer.normalize_fields``
+    on the result and adds a Tier-0 PaC (Python) parser lookup.
+
+    Every row in ``netops.parsed_outputs`` populated by the old inline
+    path had raw vendor-shape field values (``ge-0/0/0``, ``Gi1/0/1``,
+    ``Estab`` vs ``Established``, FQDN-suffixed device names…), which
+    downstream SQL views had to CASE around.  Delegating here finishes
+    R72 ISSUE-INGEST-NORMALIZATION.
+
+    Command-filename aliases (``show ip ospf neighbors`` → ``…_neighbor``
+    etc.) moved to ``textfsm_parse._NTC_FILENAME_ALIASES``.
     """
-    import textfsm
-    from pathlib import Path as _P
-
-    platform_norm = _normalise_platform(platform)
-    cmd_key = command.strip().lower().replace(" ", "_").replace("-", "-")
-
-    # Command → NTC template name overrides (where CLI name ≠ template filename)
-    _CMD_ALIASES: dict[str, str] = {
-        "show ip ospf neighbors":  "show_ip_ospf_neighbor",
-        "show vlan brief":          "show_vlan",
-        "show lldp neighbors":      "show_lldp_neighbors",
-        "show cdp neighbors":       "show_cdp_neighbors",
-        "show bgp summary":         "show_ip_bgp_summary",
-        "show bgp all summary":     "show_ip_bgp_summary",
-    }
-    cmd_stripped = command.strip().lower()
-    ntc_cmd_key = _CMD_ALIASES.get(cmd_stripped, cmd_key)
-
-    # ── 1. Custom templates (auto-learned, priority) ──
-    try:
-        from olav.core.config import get_paths_config
-        _olav_base = _P(get_paths_config().agent_dir)
-        custom_dir = _olav_base / "templates"
-        custom_path = custom_dir / platform_norm / f"{cmd_key}.textfsm"
-        if custom_path.exists():
-            with open(custom_path) as f:
-                fsm = textfsm.TextFSM(f)
-                rows = fsm.ParseText(raw_output)
-            if rows:
-                headers = fsm.header
-                return [dict(zip(headers, row)) for row in rows]
-    except Exception:
-        pass  # custom template failed — fall through to ntc
-
-    # ── 2. ntc-templates (upstream) ──
-    try:
-        import ntc_templates
-        templates_dir = _P(ntc_templates.__file__).parent / "templates"
-        template_path = templates_dir / f"{platform_norm}_{ntc_cmd_key}.textfsm"
-        if not template_path.exists():
-            return None
-
-        with open(template_path) as f:
-            fsm = textfsm.TextFSM(f)
-            rows = fsm.ParseText(raw_output)
-
-        if not rows:
-            return None
-        headers = fsm.header
-        return [dict(zip(headers, row)) for row in rows]
-    except Exception:
-        return None
+    from olav_netops.tools.textfsm_parse import parse_output
+    return parse_output(platform, command, raw_output)
 
 
 # ── Stage helpers ──────────────────────────────────────────────────────────
@@ -237,34 +214,83 @@ def _load_devices() -> list[str]:
 
 
 def _load_host_environments() -> dict[str, str]:
-    """ARCH-08 Phase 2 Item 2 (Round 48): load {hostname → environment}.
+    """{hostname → environment} loader — kept for back-compat with callers
+    that only need the environment field.  Prefer
+    :func:`_load_host_metadata` for new code."""
+    return {
+        h: m.get("environment", "")
+        for h, m in _load_host_metadata().items()
+        if m.get("environment")
+    }
 
-    Reads the Nornir ``hosts.yaml`` and extracts the ``data.environment``
-    tag for each host, skipping devices that don't declare one. Returns an
-    empty dict if the inventory is missing or unparseable — caller treats
-    that as "no env information available; write NULL for every device".
+
+def _load_host_metadata() -> dict[str, dict]:
+    """{hostname → {role, site, environment, groups, aliases}} from nornir inventory.
+
+    Walks ``hosts.yaml`` once and extracts everything that downstream
+    DB writes need.  Rather than hardcoding which fields to pull, any
+    key under ``data.*`` is forwarded to the caller — ``netops.devices``
+    writes ``role/site/environment`` as dedicated columns, and
+    ``groups`` + ``aliases`` + any other ``data.*`` keys land in the
+    ``metadata`` JSON column.
+
+    Return shape per host::
+
+        {
+          "role":        "core" | None,          # data.role (if declared)
+          "site":        "lab"  | None,          # data.site
+          "environment": "lab"  | None,          # data.environment
+          "groups":      ["test", "core_routers"],   # top-level groups
+          "aliases":     ["核心路由器1", "R3"],       # data.aliases
+          "extra":       { ... other data.* keys ... }
+        }
+
+    Missing inventory or unparseable YAML returns ``{}`` — callers then
+    see None/empty everywhere, which is what pre-R77 behaviour produced.
     """
     try:
         from olav_netops.core.config_paths import resolve_nornir_config_path as _resolve_nornir_config_path
         import yaml
-        hosts = _resolve_nornir_config_path().parent / "hosts.yaml"
-        if not hosts.exists():
+        hosts_path = _resolve_nornir_config_path().parent / "hosts.yaml"
+        if not hosts_path.exists():
             return {}
-        with open(hosts) as f:
+        with open(hosts_path) as f:
             data = yaml.safe_load(f) or {}
-        out: dict[str, str] = {}
-        for hostname, spec in data.items():
-            if not isinstance(spec, dict):
-                continue
-            host_data = spec.get("data")
-            if not isinstance(host_data, dict):
-                continue
-            env = host_data.get("environment")
-            if isinstance(env, str) and env.strip():
-                out[hostname] = env.strip()
-        return out
     except Exception:
         return {}
+
+    out: dict[str, dict] = {}
+    for hostname, spec in data.items():
+        if not isinstance(spec, dict):
+            continue
+        host_data = spec.get("data") or {}
+        if not isinstance(host_data, dict):
+            host_data = {}
+        groups = spec.get("groups") or []
+        if not isinstance(groups, list):
+            groups = []
+
+        entry: dict = {
+            "role": host_data.get("role"),
+            "site": host_data.get("site"),
+            "environment": host_data.get("environment"),
+            "groups": [g for g in groups if isinstance(g, str)],
+            "aliases": [a for a in host_data.get("aliases", []) if isinstance(a, str)],
+        }
+        # Any other data.* keys end up in 'extra' so nothing gets silently lost.
+        entry["extra"] = {
+            k: v for k, v in host_data.items()
+            if k not in {"role", "site", "environment", "aliases"}
+        }
+        # Normalise string fields: strip empty → None
+        for fld in ("role", "site", "environment"):
+            val = entry[fld]
+            if isinstance(val, str):
+                entry[fld] = val.strip() or None
+            elif val is not None:
+                entry[fld] = str(val)
+        out[hostname] = entry
+    return out
 
 
 def _run_collection(
@@ -337,13 +363,33 @@ def _run_collection(
         platform_groups.setdefault(plat, []).append(h)
 
     # If caller supplied explicit commands, use them for all devices
-    # Otherwise, use platform-specific command lists
+    # Otherwise, derive per-platform command lists from netops.commands
+    # (populated by sync_commands from ntc-templates + custom + PaC).
     use_explicit = commands is not None
-    if commands is None:
-        # Collect the union of all platform commands for progress display
+
+    # ARCH-27 (Round 77): populate netops.commands if empty, then query
+    # it for discovery commands per platform.  Opens a single read-write
+    # connection; sync_commands is idempotent and cheap (a few hundred ms).
+    platform_to_cmds: dict[str, list[str]] = {}
+    if not use_explicit:
+        try:
+            from olav_netops.core.commands_sync import sync_commands
+            with duckdb.connect(str(MAIN_DB_PATH)) as _cmds_conn:
+                sync_commands(_cmds_conn)
+                for plat in platform_groups:
+                    platform_to_cmds[plat] = _discovery_commands_for(plat, _cmds_conn)
+        except Exception as exc:  # noqa: BLE001
+            # If sync_commands or the lookup fails, fall back to a
+            # minimal 2-command set per platform so Device ETL still
+            # has ``show version`` to extract vendor/model.
+            print(f"  ⚠ sync_commands / discovery lookup failed ({exc}); "
+                  "falling back to minimal [show version, show interfaces]")
+            for plat in platform_groups:
+                platform_to_cmds[plat] = ["show version", "show interfaces"]
+
         all_cmds_set: set[str] = set()
-        for plat in platform_groups:
-            all_cmds_set.update(_PLATFORM_COMMANDS.get(plat, DISCOVERY_COMMANDS_UNIVERSAL))
+        for cmds in platform_to_cmds.values():
+            all_cmds_set.update(cmds)
         commands_display = sorted(all_cmds_set)
     else:
         commands_display = commands
@@ -397,8 +443,9 @@ def _run_collection(
             print(f"✓ {ok} devices, {fail} failures")
     else:
         # Platform-aware: each platform gets its own command list
+        # (pre-computed above from netops.commands via _discovery_commands_for).
         for plat, plat_devices in platform_groups.items():
-            plat_cmds = _PLATFORM_COMMANDS.get(plat, DISCOVERY_COMMANDS_UNIVERSAL)
+            plat_cmds = platform_to_cmds.get(plat, ["show version", "show interfaces"])
             print(f"  [{plat}] {len(plat_devices)} device(s): {', '.join(plat_devices)}")
             for cmd in plat_cmds:
                 pending = [d for d in plat_devices if (d, cmd) not in completed_set]
@@ -481,47 +528,88 @@ def _run_collection(
                     )
                 """)
 
-        # ── Stage 3.5: Auto-learn templates for parse failures ─────────
-        parse_failures = []
-        for row in all_rows:
-            if row.get("parsed_data") is None and row.get("raw_output"):
-                # Lookup platform from nornir inventory
-                host_obj = nr.inventory.hosts.get(row["device_name"])
-                plat = _normalise_platform(host_obj.platform if host_obj else "cisco_ios")
-                parse_failures.append({
-                    "device": row["device_name"],
-                    "platform": plat,
-                    "command": row["command"],
-                    "raw_output": row["raw_output"],
-                })
+        # ── Stage 3.5: Parse-coverage classifier ───────────────────────
+        #
+        # Pre-v0.21.0 this stage called ``auto_learn_failed_parses`` which
+        # looped serially through every parse failure, burned 3-5 LLM
+        # retries per (platform, command), and silently blocked the
+        # pipeline for 10+ minutes on fresh installs (ISSUE-AUTO-LEARN-PERF).
+        # Round 72 (ISSUE-LEARNER-BATCH-CUT) decided batch learning does
+        # not belong in the pipeline — it's a ``/learn_cmd`` user action
+        # backed by the ``command_learner`` skill, not autonomous plumbing.
+        #
+        # What this block does now:
+        #   1. Classify every row into one of three buckets:
+        #        - parsed       → TextFSM / ntc-templates produced data
+        #        - raw_only     → Got CLI output, but no parser matched;
+        #                         agent can still answer via raw fallback
+        #                         (viewer reads ``raw_output_store`` when
+        #                          ``parsed_outputs`` is empty)
+        #        - unsupported  → ``should_learn()`` says this output is
+        #                         an error / empty / backup-cmd dump;
+        #                         a parser won't help, don't bother user
+        #   2. Persist the ``raw_only`` set to ``.olav/config/unsupported.json``
+        #      so the WebUI / CLI can surface an actionable list.
+        #   3. Print a one-screen summary telling the operator exactly
+        #      which ``(platform, command)`` pairs they'd gain structured
+        #      queries for by running ``/learn_cmd``.  No LLM calls, no
+        #      progress bar, ~10 ms on six devices.
+        from olav_netops.core.parse_helpers import should_learn
 
-        if parse_failures:
+        parsed_count = 0
+        raw_only: dict[tuple[str, str], list[str]] = {}   # (platform, cmd) → [devices]
+        unsupported: dict[tuple[str, str], list[str]] = {}
+
+        for row in all_rows:
+            if row.get("parsed_data") is not None:
+                parsed_count += 1
+                continue
+            raw = row.get("raw_output") or ""
+            if not raw:
+                continue
+            host_obj = nr.inventory.hosts.get(row["device_name"])
+            plat = _normalise_platform(host_obj.platform if host_obj else "cisco_ios")
+            key = (plat, row["command"])
+            bucket = raw_only if should_learn(row["command"], raw) else unsupported
+            bucket.setdefault(key, []).append(row["device_name"])
+
+        total_rows = len(all_rows)
+        print(f"\n📊 Stage 3.5: Parse coverage")
+        print(f"  parsed    : {parsed_count} / {total_rows} rows "
+              f"({parsed_count * 100 // max(total_rows, 1)}%)")
+
+        if raw_only:
+            # Write the actionable list so UI/CLI can resurface it later.
             try:
-                from olav_netops.core.auto_learn import auto_learn_failed_parses
-                # Save to .olav/templates/ — shared with take_snapshot and _textfsm_parse
                 from olav.core.config import get_paths_config
-                _olav_base = Path(get_paths_config().agent_dir)
-                custom_template_dir = _olav_base / "templates"
-                print(f"\n🎓 Stage 3.5: Auto-learn ({len(parse_failures)} unparsed commands)")
-                newly_parsed = auto_learn_failed_parses(
-                    parse_failures, custom_template_dir, max_retries=5,
-                )
-                # Patch all_rows with newly parsed data
-                if newly_parsed:
-                    _patch = {}
-                    for item in newly_parsed:
-                        _patch[(item["device"], item["command"])] = json.dumps(item["parsed_data"])
-                    patched = 0
-                    for row in all_rows:
-                        key = (row["device_name"], row["command"])
-                        if key in _patch and row["parsed_data"] is None:
-                            row["parsed_data"] = _patch[key]
-                            patched += 1
-                    print(f"  ✓ Auto-learn: {len(newly_parsed)} commands learned, {patched} rows patched")
-                else:
-                    print(f"  ℹ Auto-learn: no templates learned (LLM unavailable or all false positives)")
-            except Exception as e:
-                print(f"  ⚠ Auto-learn failed (non-blocking): {e}")
+                _config_dir = Path(get_paths_config().agent_dir) / "config"
+                _config_dir.mkdir(parents=True, exist_ok=True)
+                _out = _config_dir / "unsupported.json"
+                _out.write_text(json.dumps(
+                    [
+                        {
+                            "platform": plat,
+                            "command": cmd,
+                            "devices": sorted(set(devs)),
+                        }
+                        for (plat, cmd), devs in sorted(raw_only.items())
+                    ],
+                    indent=2,
+                ))
+                print(f"  raw-only  : {len(raw_only)} unique (platform, command) pairs "
+                      f"→ {_out.relative_to(_config_dir.parent.parent)}")
+            except Exception as exc:   # pragma: no cover
+                print(f"  raw-only  : {len(raw_only)} pairs (warn: could not persist list: {exc})")
+            print(f"")
+            print(f"    ⚡ To enable structured queries for these, run:")
+            for (plat, cmd), _devs in sorted(raw_only.items())[:6]:
+                print(f"        olav --agent ops '/learn_cmd {plat} \"{cmd}\"'")
+            if len(raw_only) > 6:
+                print(f"        …and {len(raw_only) - 6} more (see .olav/config/unsupported.json)")
+
+        if unsupported:
+            print(f"  unsupported: {len(unsupported)} pair(s) — error messages / empty output, "
+                  "no parser would help")
 
         staging_file = SNAPSHOTS_STAGING_JSON / f"{snapshot_id}.staging.json"
         SNAPSHOTS_STAGING_JSON.mkdir(parents=True, exist_ok=True)
@@ -535,6 +623,21 @@ def _run_collection(
         except Exception as e:
             print(f"  ✗ IngestManager ERROR: {e}")
 
+        # ── Device ETL FIRST so netops.devices is populated ────────────
+        # This MUST run before Topology ETL: ``topology_engine._insert_link``
+        # resolves neighbour hostnames (e.g. ``R4.local``) against
+        # ``netops.devices`` via :mod:`olav_netops.core.hostname_registry`
+        # so bidirectional CDP/LLDP advertisements collapse to one canonical
+        # name per device.  Pre-rc6 the order was reversed — devices was
+        # empty when topology writes happened, so every ``.local``-suffixed
+        # neighbour stayed non-canonical and SQL dedup broke (gitea #16).
+        try:
+            dev_count = _populate_devices(MAIN_DB_PATH, snapshot_id)
+            print(f"  ✓ Device ETL: {dev_count} device(s) registered")
+        except Exception as e:
+            print(f"  ✗ Device ETL ERROR: {e}")
+
+        # ── Topology ETL (uses canonical hostnames from Device ETL above) ──
         try:
             with duckdb.connect(str(MAIN_DB_PATH)) as conn:
                 topo_rows = extract_lldp_topology(conn)
@@ -542,25 +645,82 @@ def _run_collection(
         except Exception as e:
             print(f"  ✗ Topology ETL ERROR: {e}")
 
-        # ── Device ETL: nornir inventory + show version → netops.devices ──
-        try:
-            dev_count = _populate_devices(MAIN_DB_PATH, snapshot_id)
-            print(f"  ✓ Device ETL: {dev_count} device(s) registered")
-        except Exception as e:
-            print(f"  ✗ Device ETL ERROR: {e}")
-
-        # ── ARCH-06: seed view_recipes with hand-curated mappings ──────
+        # ── ARCH-06 / ARCH-28: seed view_recipes then materialise views ──
+        #
+        # Two steps, one connection:
+        #   a) ``load_recipe_seeds`` upserts 9 hand-curated
+        #      ``(concept, command, vendor_hint, field_mappings)`` rows
+        #      covering bgp_neighbors, ospf_adjacencies, topology_l2.
+        #   b) ``build_all_views`` reads every recipe and emits
+        #      ``CREATE OR REPLACE VIEW v_<concept>_auto AS UNION ALL …``
+        #      one per concept, with per-vendor field extraction + state
+        #      normalisation baked in via SQL CASE.
+        #
+        # The build call is what used to be missing (gitea #17): recipes
+        # were seeded but the views were never materialised, so every
+        # agent query asking "BGP neighbours" / "OSPF adjacencies" had
+        # to JSON-extract directly out of ``parsed_outputs``.
         try:
             from olav_netops.core.recipe_seeds import load_recipe_seeds
-            with duckdb.connect(str(MAIN_DB_PATH)) as _seed_conn:
-                seed_stats = load_recipe_seeds(_seed_conn)
+            from olav_netops.core.view_builder import build_all_views
+            with duckdb.connect(str(MAIN_DB_PATH)) as _view_conn:
+                seed_stats = load_recipe_seeds(_view_conn)
+                build_stats = build_all_views(_view_conn)
             print(
-                f"  ✓ view_recipes seeds: {seed_stats['inserted_or_updated']} "
-                f"row(s) upserted"
+                f"  ✓ view_recipes: {seed_stats['inserted_or_updated']} "
+                f"seed row(s) upserted"
             )
-        except Exception as _seed_err:  # noqa: BLE001
-            # Seed load is advisory — LLM discovery still runs.
-            print(f"  ⚠ recipe seeds skipped (non-blocking): {_seed_err}")
+            if build_stats:
+                _built = ", ".join(f"{name}({rows})" for name, rows in build_stats.items())
+                print(f"  ✓ auto views built: {_built}")
+            else:
+                print(f"  ℹ auto views: none built (no recipes returned rows)")
+        except Exception as _view_err:  # noqa: BLE001
+            # Seed + build are advisory — raw parsed_outputs queries still work.
+            print(f"  ⚠ view_recipes / build skipped (non-blocking): {_view_err}")
+
+        # ── Stage 3.8: Batfish snapshot export (R74, gitea #15) ────────
+        # The exporter reads ``netops.raw_output_store`` and writes a
+        # Batfish-compatible layout at
+        # ``exports/snapshots/<YYYY-MM-DD>/batfish/{configs,manifest.json}``.
+        # ``netops_init/run.py`` used to call this stage ad-hoc (R74 note
+        # in dev_docs/00) but the wiring never actually landed; this
+        # block finishes it.  Non-blocking: a failure here must not
+        # prevent a successful IngestManager / Topology / Device ETL
+        # from being reported as "complete".
+        try:
+            from olav_netops.export.batfish import export_configs
+            with duckdb.connect(str(MAIN_DB_PATH), read_only=True) as _bf_conn:
+                _bf = export_configs(_bf_conn, snapshot_id=snapshot_id)
+            if _bf["config_count"]:
+                _out_dir = Path(_bf["output_dir"])
+                try:
+                    _rel = _out_dir.relative_to(Path.cwd())
+                except ValueError:
+                    _rel = _out_dir
+                print(
+                    f"  ✓ Batfish export: {_bf['config_count']} config(s) → {_rel}/"
+                )
+                # Stable ``latest-batfish`` symlink so downstream Batfish
+                # loaders don't need to know today's date.
+                try:
+                    _latest = _out_dir.parent.parent / "latest-batfish"
+                    if _latest.is_symlink() or _latest.exists():
+                        _latest.unlink()
+                    _latest.symlink_to(_out_dir.resolve())
+                except Exception as _sym_err:   # noqa: BLE001
+                    print(f"    ⚠ latest-batfish symlink failed: {_sym_err}")
+                if _bf["devices_missing"]:
+                    print(
+                        f"    ⚠ no config captured for: {', '.join(_bf['devices_missing'])}"
+                    )
+            else:
+                print(
+                    f"  ℹ Batfish export: no config command output found "
+                    f"(expected show running-config / show configuration in raw_output_store)"
+                )
+        except Exception as _bf_err:   # noqa: BLE001
+            print(f"  ⚠ Batfish export skipped (non-blocking): {_bf_err}")
 
     # NETOPS-01: release Netmiko SSH sessions held by Nornir's connection pool
     # to prevent fd/vty leaks in long-running parent processes.
@@ -593,15 +753,14 @@ def _populate_devices(db_path, snapshot_id: str) -> int:
     deployments working without a data-wipe.
     """
     import duckdb as _ddb
+    from olav_netops.core.platform_profiles import get_profile
 
-    _PLATFORM_VENDOR = {
-        "cisco_ios": "Cisco", "cisco_nxos": "Cisco", "cisco_xr": "Cisco",
-        "juniper_junos": "Juniper", "arista_eos": "Arista", "huawei_vrp": "Huawei",
-    }
-
-    # Load the hostname → environment map once. Empty dict when inventory
-    # is absent — every device gets NULL environment in that case.
-    host_envs = _load_host_environments()
+    # Load the full hostname → inventory-metadata map once.  Provides
+    # role/site/environment/groups/aliases for every host declared in
+    # hosts.yaml.  Empty dict when the inventory file is missing — in
+    # which case devices get NULL for role/site/metadata (same as
+    # pre-R77 behaviour).  See gitea ISSUE-NORNIR-INVENTORY-METADATA-LOSS.
+    host_meta = _load_host_metadata()
 
     count = 0
     with _ddb.connect(str(db_path)) as conn:
@@ -707,22 +866,43 @@ def _populate_devices(db_path, snapshot_id: str) -> int:
                     pass
 
             plat = plat or "unknown"
-            vendor = _PLATFORM_VENDOR.get(plat, "")
+            vendor = get_profile(plat).get("vendor", "")
 
-            env_tag = host_envs.get(device_name)  # ARCH-08 Phase 2 Item 2
+            # Pull per-host inventory metadata: role/site/environment go
+            # into dedicated columns; groups + aliases + any other
+            # data.* keys are packed into the metadata JSON column so
+            # agent queries like "list all core routers" or name-lookup
+            # via Chinese aliases keep working data-driven.
+            meta = host_meta.get(device_name, {})
+            role_tag = meta.get("role")
+            site_tag = meta.get("site")
+            env_tag = meta.get("environment")
+            metadata_json = None
+            groups = meta.get("groups") or []
+            aliases = meta.get("aliases") or []
+            extra = meta.get("extra") or {}
+            if groups or aliases or extra:
+                metadata_json = json.dumps(
+                    {"groups": groups, "aliases": aliases, **extra},
+                    ensure_ascii=False,
+                )
+
             conn.execute("""
                 INSERT INTO netops.devices
                     (hostname, ip_address, platform, site, role, vendor, model, os_version, environment, last_seen, metadata)
-                VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, NOW(), NULL)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)
                 ON CONFLICT (hostname) DO UPDATE SET
                     ip_address=COALESCE(EXCLUDED.ip_address, netops.devices.ip_address),
                     platform=COALESCE(EXCLUDED.platform, netops.devices.platform),
+                    site=COALESCE(EXCLUDED.site, netops.devices.site),
+                    role=COALESCE(EXCLUDED.role, netops.devices.role),
                     vendor=COALESCE(EXCLUDED.vendor, netops.devices.vendor),
                     model=COALESCE(EXCLUDED.model, netops.devices.model),
                     os_version=COALESCE(EXCLUDED.os_version, netops.devices.os_version),
                     environment=COALESCE(EXCLUDED.environment, netops.devices.environment),
+                    metadata=COALESCE(EXCLUDED.metadata, netops.devices.metadata),
                     last_seen=NOW()
-            """, [device_name, mgmt_ip, plat, vendor, model, os_ver, env_tag])
+            """, [device_name, mgmt_ip, plat, site_tag, role_tag, vendor, model, os_ver, env_tag, metadata_json])
             count += 1
     return count
 
