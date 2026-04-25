@@ -548,6 +548,36 @@ def build_per_command_views(con: Any) -> dict[str, int]:
 
 # ── Post-snapshot incremental rebuild (take_snapshot hook) ───────────────
 
+def finalise_ingest(con: Any) -> dict[str, Any]:
+    """Rebuild every view consumers query, in the right order.
+
+    Called after any code path that writes to ``netops.parsed_outputs``
+    (``/netops_init`` Stage 3.7 and ``take_snapshot`` post-ingest).
+    Idempotent — safe to call repeatedly; CREATE OR REPLACE handles
+    schema drift in either direction.
+
+    Returns a stat dict::
+
+        {
+          "semantic": {<v_bgp_neighbors_auto>: N, ...},   # Layer 1 recipes
+          "per_command": {<v_show_..._auto>: N, ...},     # Layer 2 zero-ETL
+        }
+
+    Failures in either layer log at WARN but don't raise — view
+    building is advisory; raw ``parsed_outputs`` queries always work.
+    """
+    out: dict[str, Any] = {"semantic": {}, "per_command": {}}
+    try:
+        out["semantic"] = build_all_views(con)
+    except Exception as exc:
+        logger.warning("finalise_ingest: build_all_views failed: %s", exc)
+    try:
+        out["per_command"] = build_per_command_views(con)
+    except Exception as exc:
+        logger.warning("finalise_ingest: build_per_command_views failed: %s", exc)
+    return out
+
+
 def rebuild_views_for_command(
     con: Any,
     command: str,
