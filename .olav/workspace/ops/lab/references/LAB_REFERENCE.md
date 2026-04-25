@@ -227,6 +227,32 @@ show version
 - **topology.yml directory bug** — REST API creates a directory instead of a file; `fix_srl_topology` patches it via nsenter
 - **veth pairs not created** — `create_srl_links` injects veth pairs between node network namespaces
 
+## Verified Working Patterns
+
+Canonical patterns exercised end-to-end against real CLAB deployments:
+
+- **Fixed SRL image** — always deploy with `ghcr.io/nokia/srlinux:24.10.1`.  Older tags drop the YANG models the config-push relies on; newer tags have not been regression-tested against the topology recipe.
+- **cEOS ZTP disable** — the first `deploy_lab` step writes a startup-config shim that disables ZTP, otherwise the container hangs for ~3 minutes on boot.
+- **CLAB REST API ≤ 0.74.1 topology.yml bug** — workaround via nsenter + privileged helper container, handled by `fix_srl_topology` (see section above).
+
+## Multi-Node Topology Adaptation
+
+The lab skill adapts to the node count in the topology recipe — 2 / 4 / 6 / 8-node variants share the same tool surface but differ in:
+
+- **veth pair allocation** — cEOS requires the management-network BGP workaround when > 2 nodes (single mgmt net can't carry all eBGP sessions).
+- **`CLAB_LABEL_CLAB_NODE_NAME`** — mandatory in every multi-node scenario; `deploy_lab` exports it automatically before the config push.
+- **Convergence wait** — scales linearly with node count (~15 s per cEOS node, ~30 s per SRL node).  The `verify` step in `deploy_lab` honours this.
+
+## Sandbox Network Policy
+
+`network_isolation=False` — the lab sandbox **requires** external network access because `push_node_config` / `exec_on_node` push to the ContainerLab exec API via httpx.
+
+```python
+execute_in_sandbox(code, network_isolation=False)  # lab agent always uses this
+```
+
+Do NOT set `network_isolation=True` for lab sandbox tasks — every httpx call will fail with *Connection refused*.
+
 ---
 
 ## Config Push via push_node_config
