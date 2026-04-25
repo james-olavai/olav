@@ -11,15 +11,15 @@
 | `netops.parsed_outputs` | `device_name`, `command`, `parsed_data` (JSON array), `snapshot_id` |
 | `netops.raw_output_store` | `device_name`, `command`, `raw_output` (text), `snapshot_id` |
 
-**Views (no prefix):**
+**Views (all in `netops.` schema):**
 
 | View | Key Columns |
 |---|---|
-| `v_interfaces_auto` | `device_name`, `interface`, `ip_address`, `prefix_length`, `admin_status` |
-| `v_bgp_neighbors_auto` | `device_name`, `neighbor_ip`, `neighbor_as`, `state`, `snapshot_id`, `created_at` |
-| `v_ospf_neighbors_auto` | `device_name`, `neighbor_id`, `neighbor_ip`, `interface`, `state` |
-| `v_topo_links_clean` | `src`, `source_interface`, `dst`, `destination_interface`, `discovery_protocol` |
-| `v_device_neighbors_summary` | `device_name`, `connected_device`, `discovery_protocol`, `link_status` |
+| `netops.v_bgp_neighbors_auto` | `device`, `neighbor_ip`, `neighbor_as`, `local_as`, `router_id`, `state`, `uptime`, `snapshot_id` |
+| `netops.v_ospf_neighbors_auto` | `device`, `neighbor_id`, `neighbor_ip`, `interface`, `area`, `state`, `dead_time`, `snapshot_id` |
+| `netops.v_l2_links_auto` | `source_device`, `source_interface`, `destination_device`, `destination_interface`, `discovery_protocol`, `link_status`, `snapshot_id` |
+
+⚠️ Interface / ARP / route data — no dedicated view.  JSON-extract from `netops.parsed_outputs.parsed_data` for the matching command.
 
 **Config extraction priority per device:**
 1. `netops.raw_output_store WHERE command = 'show running-config'` — full running config (best)
