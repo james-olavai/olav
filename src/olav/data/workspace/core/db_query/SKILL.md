@@ -64,10 +64,58 @@ becomes `netops.v_<safe_command>_auto` automatically.  Examples:
 1. List:  SELECT table_name FROM information_schema.views
           WHERE table_schema='netops' AND table_name LIKE 'v_%_auto';
 2. Cols:  DESCRIBE netops.v_show_ip_interface_brief_auto
-3. Query: SELECT * FROM netops.v_show_ip_interface_brief_auto WHERE STATUS LIKE '%down%';
+3. Query: SELECT * FROM netops.v_show_ip_interface_brief_auto WHERE status LIKE '%down%';
 ```
 
 Latest-snapshot filter is built into the view; no need to add it.
+
+## Cross-platform questions — introspect first, query second
+
+For any concept **not** covered by an L1 semantic view (interfaces /
+ARP / VLAN / routes / MAC table / …), do **NOT** guess which view
+holds the answer.  A multi-vendor fleet has different commands per
+platform, each with its own L2 per-command view.  Skipping
+introspection causes incomplete answers (you query cisco's view but
+miss the junos one).
+
+**Mandatory flow:**
+
+```
+1. Fleet diversity:
+   SELECT DISTINCT platform FROM netops.devices;
+   → e.g. ['cisco_ios', 'juniper_junos']
+
+2. Find every related view:
+   SELECT table_name FROM information_schema.views
+    WHERE table_schema = 'netops'
+      AND table_name LIKE 'v_show_%_auto'
+      AND table_name LIKE '%<keyword>%';
+   → keyword='interface' returns v_show_ip_interface_brief_auto,
+     v_show_interfaces_status_auto, v_show_interfaces_terse_auto, …
+
+3. Inspect each view's columns:
+   DESCRIBE netops.v_show_<...>_auto;
+   → know which fields express the concept (status / link_state /
+     admin_state / proto / line_protocol — varies per parser)
+
+4. Compose a UNION ALL query:
+   SELECT 'cisco_brief' AS source, device_name, interface, status FROM <view-1>
+       WHERE lower(status) LIKE '%down%'
+   UNION ALL
+   SELECT 'junos_terse', device_name, interface, link_state    FROM <view-2>
+       WHERE link_state = 'down'
+   UNION ALL
+   …;
+```
+
+**When to skip steps 1-3:** the question targets one of the three
+L1 semantic views (BGP / OSPF / L2 topology) — those are already
+cross-platform unified, single SELECT is fine.
+
+**Why this matters:** the fleet is data-driven — new platforms /
+new commands appear without code changes.  Hardcoded "for interfaces
+query this list of views" mappings break the moment someone deploys
+SR Linux or Arista.  Introspection scales without recipe edits.
 
 ## Output Rules
 
