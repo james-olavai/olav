@@ -2760,15 +2760,6 @@ wheels = [
 ]
 
 [[package]]
-name = "netutils"
-version = "1.17.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/9f/7f/e9e2415f9539c07a12c8ea5e59244b2912b1ebcf04f166f1bdab95fcfe88/netutils-1.17.1.tar.gz", hash = "sha256:354faa6ed9baa144e82dd1dadd7d2146070deb645fe4d79587f44cd1a6cb37be", size = 520861, upload-time = "2026-02-04T17:23:52.707Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/c1/02da7e8c147ff95c67fa981651e7b532b8e3a2ace83ee70927c89c9e428e/netutils-1.17.1-py3-none-any.whl", hash = "sha256:7aea3c1e3881e92e3d0aa8776ecec74008c944cc25ff33a42c2557a7b9a7adb2", size = 535761, upload-time = "2026-02-04T17:23:51.083Z" },
-]
-
-[[package]]
 name = "networkx"
 version = "3.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3065,11 +3056,6 @@ dev = [
     { name = "pytest-timeout" },
     { name = "ruff" },
 ]
-enterprise = [
-    { name = "netutils" },
-    { name = "pyjwt" },
-    { name = "tink" },
-]
 graph = [
     { name = "networkx" },
 ]
@@ -3121,14 +3107,12 @@ requires-dist = [
     { name = "ldap3", marker = "extra == 'ldap'", specifier = ">=2.9" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.5.0" },
     { name = "nest-asyncio", specifier = ">=1.5.0" },
-    { name = "netutils", marker = "extra == 'enterprise'", specifier = ">=1.17.1" },
     { name = "networkx", marker = "extra == 'graph'", specifier = ">=3.6.1" },
     { name = "numpy", specifier = ">=2.4.1" },
     { name = "pandas", specifier = ">=3.0.1" },
     { name = "prompt-toolkit", specifier = ">=3.0.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
-    { name = "pyjwt", marker = "extra == 'enterprise'", specifier = ">=2.8.0" },
     { name = "pyjwt", marker = "extra == 'tui'", specifier = ">=2.12.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
@@ -3145,11 +3129,10 @@ requires-dist = [
     { name = "sentence-transformers", specifier = ">=5.2.3" },
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "tenacity", specifier = ">=8.0" },
-    { name = "tink", marker = "extra == 'enterprise'", specifier = ">=1.14.1" },
     { name = "typer", specifier = ">=0.9.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27.0" },
 ]
-provides-extras = ["dev", "tui", "graph", "enterprise", "ldap"]
+provides-extras = ["dev", "tui", "graph", "ldap"]
 
 [package.metadata.requires-dev]
 dev = [

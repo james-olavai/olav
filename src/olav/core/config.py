@@ -71,7 +71,13 @@ TIER_DEFAULTS: dict[str, dict[str, Any]] = {
         "summarization_trigger_pct": 0.65,
     },
     "large": {
-        "recall_top_k": 3,
+        # R83.4 follow-up: bumped 3 → 8 because the prime_memory_at_ingest
+        # pipeline now writes ~90 schema/value entries per snapshot — Q3
+        # needs entries from BOTH cisco_ios AND juniper_junos views to
+        # answer cross-platform questions, and 3 hybrid-search hits
+        # consistently dropped the Junos one.  Each entry ~300 chars
+        # → 8 entries ~2.4KB, <0.5% of typical large-tier 200K window.
+        "recall_top_k": 8,
         "return_compact_chars": 10000,
         "static_context_mode": "always",
         "context_budget": 200000,

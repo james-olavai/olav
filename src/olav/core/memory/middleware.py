@@ -151,6 +151,167 @@ class AutoRecallMiddleware:
 
         return embed_text(text)
 
+    # Per-category hard caps — entries beyond the cap are dropped.
+    # ``query_pattern`` is the noisy category: repeat-asked questions
+    # accumulate near-duplicate entries that all rank near the top of
+    # hybrid search; capping at 1 keeps the best representative.
+    _CATEGORY_CAPS = {"query_pattern": 1}
+
+    # Per-category fetch budget for the curated-category path.
+    # ``_gather_candidates`` issues a vector-search per category to
+    # guarantee coverage independent of cross-category RRF biases.
+    # Numbers are tuned for a small fleet (≤10 platforms) — schemas
+    # and value distributions are 6-8 entries on the interface concept
+    # alone, so 6 per category catches the cross-platform variants.
+    _CATEGORY_FETCH = {
+        "schema_knowledge": 6,
+        "value_distribution": 6,
+        "query_pattern": 3,
+    }
+
+    # Per-category minimum quotas — reserves slots so a cross-platform
+    # fleet (cisco + junos) gets schema/value entries from BOTH platforms,
+    # even when vector search prefers entries from the larger platform.
+    # Quotas are filled from the over-fetched ranking by category, then
+    # the remainder is filled by global rank.  ``memory_primer`` writes
+    # ``schema_knowledge`` (per auto-view) and ``value_distribution``
+    # (per state-like column) entries that are critical for SQL accuracy.
+    #
+    # 5 slots each is the empirical floor for a cisco+junos mixed fleet:
+    # in hybrid (vector+BM25) ranking the platform-specific view
+    # (e.g. ``v_show_interfaces_terse_auto`` for Junos) routinely lands
+    # at rank 4-5 within its category, so smaller quotas leave the
+    # cross-platform answer incomplete.  Each entry is ~300 chars, so
+    # 5 schemas + 5 values + ~3 fact/query = ~4 KB context — well under
+    # 1% of a 200 K large-tier window.
+    _CATEGORY_QUOTAS = {"schema_knowledge": 5, "value_distribution": 5}
+
+    def _gather_candidates(
+        self,
+        query_text: str,
+        query_vector: list[float] | None,
+        scope: str | None,
+        top_k: int,
+    ) -> list[dict]:
+        """Gather candidates with explicit per-category coverage.
+
+        Issues one vector-search per curated category (so the curated
+        ``schema_knowledge`` / ``value_distribution`` / ``query_pattern``
+        entries from ``memory_primer`` always have a fair shot), then
+        runs a regular hybrid search to cover the long-tail categories
+        (``fact``, ``decision``, ``preference``, ``audit``).  Returns a
+        ranked list with curated entries first (in their per-category
+        order) followed by the hybrid results, deduped by id.
+        """
+        out: list[dict] = []
+        seen: set = set()
+
+        def _add(items: list[dict]) -> None:
+            for m in items:
+                mid = m.get("id")
+                if not mid or mid in seen:
+                    continue
+                out.append(m)
+                seen.add(mid)
+
+        # Curated per-category fetch — vector only, since BM25 against
+        # a generic question doesn't help for short structural entries.
+        if query_vector:
+            for cat, n in self._CATEGORY_FETCH.items():
+                try:
+                    rows = self._store.search_by_vector(
+                        query_vector=query_vector,
+                        limit=n,
+                        category=cat,
+                        scope=scope,
+                    )
+                    _add(rows)
+                except Exception as e:
+                    logger.debug("curated fetch %s failed: %s", cat, e)
+
+        # Long-tail hybrid pass — covers fact/decision/preference/audit
+        # plus picks up any high-relevance entry the curated pass missed.
+        try:
+            if query_vector:
+                hybrid = hybrid_search(
+                    store=self._store,
+                    query=query_text,
+                    query_vector=query_vector,
+                    limit=top_k * 2,
+                    scope=scope,
+                )
+            else:
+                hybrid = self._store.search_by_text(
+                    query=query_text,
+                    limit=top_k * 2,
+                    scope=scope,
+                )
+            _add(hybrid)
+        except Exception as e:
+            logger.debug("long-tail hybrid fetch failed: %s", e)
+
+        return out
+
+    def _diversify_by_category(
+        self, memories: list[dict], limit: int
+    ) -> list[dict]:
+        """Apply per-category caps + quotas to a ranked memory list.
+
+        1. Drop entries whose category has hit its cap.
+        2. Reserve up to ``_CATEGORY_QUOTAS[c]`` slots for each quota
+           category — fill from the highest-ranked entries of that
+           category present in ``memories``.
+        3. Fill remaining slots from the leftover global ranking.
+        4. Preserve overall rank order in the final output so the
+           agent sees most-relevant first.
+        """
+        if not memories:
+            return memories
+
+        # Pass 1: filter caps + index by category.
+        kept: list[dict] = []
+        per_cat: dict[str, list[dict]] = {}
+        cap_counts: dict[str, int] = {}
+        for m in memories:
+            cat = m.get("category") or "fact"
+            cap = self._CATEGORY_CAPS.get(cat)
+            if cap is not None and cap_counts.get(cat, 0) >= cap:
+                continue
+            kept.append(m)
+            per_cat.setdefault(cat, []).append(m)
+            cap_counts[cat] = cap_counts.get(cat, 0) + 1
+
+        # Pass 2: reserve quota slots for each quota category.
+        chosen_ids: set = set()
+        chosen: list[dict] = []
+        for cat, quota in self._CATEGORY_QUOTAS.items():
+            for m in per_cat.get(cat, [])[:quota]:
+                mid = m.get("id")
+                if mid in chosen_ids:
+                    continue
+                chosen.append(m)
+                chosen_ids.add(mid)
+                if len(chosen) >= limit:
+                    break
+            if len(chosen) >= limit:
+                break
+
+        # Pass 3: fill remaining slots from the global ranking.
+        for m in kept:
+            if len(chosen) >= limit:
+                break
+            mid = m.get("id")
+            if mid in chosen_ids:
+                continue
+            chosen.append(m)
+            chosen_ids.add(mid)
+
+        # Pass 4: sort back to global rank order so highest-relevance
+        # entries appear first in the prompt block.
+        rank_index = {id(m): i for i, m in enumerate(memories)}
+        chosen.sort(key=lambda m: rank_index.get(id(m), 1_000_000))
+        return chosen
+
     def _format_memory_block(self, memories: list[dict]) -> str:
         """Format recalled memories as an XML context block."""
         if not memories:
@@ -232,24 +393,24 @@ class AutoRecallMiddleware:
             except Exception:
                 return input_
 
-            # Hybrid search: vector + text
+            # R83.4-followup: per-category fetch + diversifier.
+            #
+            # A single hybrid_search with limit=top_k consistently
+            # downranked ``schema_knowledge`` entries (RRF-fused vector +
+            # BM25 promoted near-duplicate ``query_pattern`` rows from
+            # repeat-asked questions, leaving only 1 of 6 schemas in the
+            # top-24).  We instead fetch each curated category
+            # explicitly and merge with a hybrid pass for the long-tail
+            # categories (fact, decision, preference, audit), so the
+            # agent always sees cross-platform schema + value entries
+            # primed by ``memory_primer``.
             query_vector = self._embed(query_text)
             effective_top_k = self._resolve_top_k()
 
-            if query_vector:
-                memories = hybrid_search(
-                    store=self._store,
-                    query=query_text,
-                    query_vector=query_vector,
-                    limit=effective_top_k,
-                    scope=scope,
-                )
-            else:
-                memories = self._store.search_by_text(
-                    query=query_text,
-                    limit=effective_top_k,
-                    scope=scope,
-                )
+            raw_memories = self._gather_candidates(
+                query_text, query_vector, scope, effective_top_k,
+            )
+            memories = self._diversify_by_category(raw_memories, effective_top_k)
 
             if not memories:
                 return input_
