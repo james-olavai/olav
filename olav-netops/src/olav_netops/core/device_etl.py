@@ -88,6 +88,7 @@ def load_host_metadata() -> dict[str, dict]:
 
         entry: dict = {
             "mgmt_ip": spec.get("hostname"),
+            "platform": spec.get("platform"),
             "role": host_data.get("role"),
             "site": host_data.get("site"),
             "environment": host_data.get("environment"),
@@ -138,6 +139,32 @@ def populate_devices(db_path: Any, snapshot_id: str = "") -> int:
 
     host_meta = load_host_metadata()
 
+    def _ci(d: dict, *keys: str):
+        """Case-insensitive dict.get over multiple key names.
+
+        R83 normalised parser output to lowercase, but device_etl was
+        previously written against UPPERCASE ntc-templates field names
+        (``HARDWARE`` / ``VERSION`` / …).  This helper accepts either
+        case so populate_devices keeps working before AND after the
+        normalisation rolls out across snapshots.
+        """
+        if not d:
+            return None
+        for k in keys:
+            for cand in (k, k.lower(), k.upper()):
+                if cand in d:
+                    val = d[cand]
+                    # Reject empty / falsy values so the OR-chain in
+                    # callers continues searching the next key.  Lists
+                    # are common from textfsm `Value List ...` lines —
+                    # treat ``[]`` as missing.
+                    if val in (None, ""):
+                        continue
+                    if isinstance(val, list) and not val:
+                        continue
+                    return val
+        return None
+
     count = 0
     with _ddb.connect(str(db_path)) as conn:
         # ARCH-08 Phase 2: ensure environment column exists for pre-R48
@@ -158,6 +185,12 @@ def populate_devices(db_path: Any, snapshot_id: str = "") -> int:
 
             inv_meta = host_meta.get(device_name) or {}
             mgmt_ip = inv_meta.get("mgmt_ip")
+            # Nornir inventory's ``platform`` is the SSH driver name —
+            # also the netmiko / ntc-templates / scrapli identifier — so
+            # it's authoritative for ``netops.devices.platform``.  CLI
+            # ``show version`` parsing is only a fallback for hosts
+            # missing from inventory.
+            plat = inv_meta.get("platform")
             loopback_ip = None
 
             # show version → platform, model, os_version
@@ -172,13 +205,17 @@ def populate_devices(db_path: Any, snapshot_id: str = "") -> int:
                     entries = json.loads(row[0])
                     if entries and isinstance(entries, list):
                         v = entries[0]
-                        if v.get("JUNOS_VERSION"):
-                            plat = "juniper_junos"
-                        elif v.get("HARDWARE") or v.get("VERSION"):
-                            plat = "cisco_ios"
-                        model = v.get("MODEL") or (v.get("HARDWARE", [None]) or [None])[0]
-                        os_ver = (v.get("JUNOS_VERSION") or v.get("VERSION")
-                                  or v.get("ROMMON") or v.get("SOFTWARE_IMAGE") or "")
+                        # Inventory wins; CLI fallback only fires for
+                        # hosts not in nornir.
+                        if not plat:
+                            if _ci(v, "JUNOS_VERSION"):
+                                plat = "juniper_junos"
+                            elif _ci(v, "HARDWARE", "VERSION"):
+                                plat = "cisco_ios"
+                        hw = _ci(v, "HARDWARE")
+                        model = _ci(v, "MODEL") or (hw[0] if isinstance(hw, list) and hw else hw)
+                        os_ver = (_ci(v, "JUNOS_VERSION") or _ci(v, "VERSION")
+                                  or _ci(v, "ROMMON") or _ci(v, "SOFTWARE_IMAGE") or "")
             except Exception:
                 pass
 
@@ -194,9 +231,9 @@ def populate_devices(db_path: Any, snapshot_id: str = "") -> int:
                     ifaces = json.loads(row[0])
                     if ifaces and isinstance(ifaces, list):
                         for iface in ifaces:
-                            name = (iface.get("INTF") or iface.get("INTERFACE") or "").lower()
-                            ip = iface.get("IPADDR") or iface.get("IP_ADDRESS") or ""
-                            status = (iface.get("STATUS") or "").lower()
+                            name = (_ci(iface, "INTF", "INTERFACE") or "").lower()
+                            ip = _ci(iface, "IPADDR", "IP_ADDRESS") or ""
+                            status = (_ci(iface, "STATUS") or "").lower()
                             if "loopback" in name and ip and ip != "unassigned" and "up" in status:
                                 loopback_ip = ip
                                 break
@@ -215,8 +252,8 @@ def populate_devices(db_path: Any, snapshot_id: str = "") -> int:
                     ifaces = json.loads(row[0])
                     if ifaces and isinstance(ifaces, list):
                         for iface in ifaces:
-                            name = (iface.get("INTERFACE") or "").lower()
-                            ip = (iface.get("IP_ADDRESS") or "").split("/")[0]
+                            name = (_ci(iface, "INTERFACE") or "").lower()
+                            ip = (_ci(iface, "IP_ADDRESS") or "").split("/")[0]
                             if "lo0" in name and ip:
                                 loopback_ip = ip
                                 break
