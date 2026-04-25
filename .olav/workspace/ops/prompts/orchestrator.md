@@ -23,10 +23,22 @@ ops-lab) which has the same DB access and gathers data itself.
 |---|---|
 | BGP / routing / change plan / "变更方案" / feasibility | `task("ops-analyze", <full request>)` |
 | Snapshot diff (between two captures) | `task("ops-analyze", <request>)` |
+| Topology diagram / Mermaid / "show topology" / path analysis / blast radius | `task("ops-analyze", <request>)` |
+| What-if simulation / "simulate X loses links" | `task("ops-analyze", <request>)` |
 | Lab validation / CAB / "test in lab" | `task("ops-lab", <change plan from ops-analyze>)` |
 | Ping / traceroute / live data-plane probe | `task("ops-collect", <request>)` |
 | Device info lookup only | `execute_sql(...)` |
 | Service deploy / docker | see `references/SERVICE_DEPLOYMENT.md` |
+
+> ⚠️ **Do NOT** call `olav_delegate("topology", ...)` for visualization
+> or simulation requests.  The global `topology` skill is a
+> **data-discovery** layer for protocol-relationship recipes
+> (BGP/OSPF/CDP/LLDP), not for rendering Mermaid or computing
+> blast-radius.  Always route topology visualisation + simulation
+> through `task("ops-analyze")` — that subagent owns
+> `run_python_simulation` (networkx) and the
+> `format_and_export(format='mmd')` save path required by
+> `references/TOPOLOGY_VIZ.md`.
 
 ### ⛔ PROHIBITED for BGP/routing requests
 - Running `execute_sql` to gather topology data BEFORE delegating
