@@ -83,10 +83,21 @@ _PATH_RE = re.compile(
 )
 
 # ── Tool calls that count as "actually saved" ───────────────────────
-_SAVE_TOOLS = {"format_and_export"}
+# Add new save-tools here as agents grow (each tool's existence is
+# evidence the model intended a real write).
+_SAVE_TOOLS = {
+    "format_and_export",   # core/writer
+    "render_report",       # audit/auditor — emits .md to exports/audit_reports/
+    "save_lab_config",     # ops/lab — writes .clab.yaml configs
+    "save_profile",        # audit/auditor — writes profile YAML
+}
 # Subagent names that internally save (their own tool calls are not
 # visible at the orchestrator level, but their delegation IS)
-_SAVE_DELEGATIONS = {"writer"}
+_SAVE_DELEGATIONS = {
+    "writer",        # core/writer (format_and_export)
+    "audit-auditor", # audit subagent (render_report)
+    "ops-lab",       # lab subagent (save_lab_config)
+}
 
 # ── Mermaid extraction — block tagged ```mermaid``` or graph-syntax ─
 _MERMAID_BLOCK_RE = re.compile(
@@ -200,30 +211,102 @@ def _extract_mermaid(content: str) -> str | None:
     return parts[0].strip() if parts else rest.strip()
 
 
-def _attempt_recovery(content: str) -> tuple[str, str] | None:
-    """Try to deterministically save what the agent claimed it saved.
+# Markdown "report-shaped" detection — content must look like a real
+# report (multiple headings, bullets, or a table) before we treat it
+# as recoverable.  A one-line reply is NOT a report.
+_MARKDOWN_REPORT_INDICATORS = (
+    re.compile(r"^#{1,3}\s+\S", re.MULTILINE),     # heading
+    re.compile(r"^\s*[-*]\s+\S", re.MULTILINE),    # bullet
+    re.compile(r"^\|.+\|.+\|", re.MULTILINE),      # table row
+)
 
-    Currently handles Mermaid only.  Returns ``(recovered_path, kind)``
-    on success, or ``None`` if no recoverable artifact found.
+
+def _is_report_shaped_markdown(content: str) -> bool:
+    """True iff the assistant content has at least 2 distinct markdown
+    structural elements AND is long enough to be a report.
+
+    Cuts noise: short replies "Saved to /exports/foo.md" alone don't
+    qualify; a real report has headings + bullets/table content.
     """
-    mermaid = _extract_mermaid(content)
-    if not mermaid:
-        return None
+    if not content or len(content) < 200:
+        return False
+    hits = sum(
+        1 for pat in _MARKDOWN_REPORT_INDICATORS if pat.search(content)
+    )
+    return hits >= 2
+
+
+# Path-extension detection for the warning path — when content claims
+# a save with a recognised extension but no recoverable artifact in
+# chat, tell the user exactly what type wasn't recovered.
+_PATH_KIND_RE = re.compile(
+    r"\.(?P<ext>mmd|md|csv|json|yaml|yml|sh|py|tsv|html|svg)\b",
+    re.IGNORECASE,
+)
+
+# Extensions handled by sibling middleware — skip our warning path so
+# users don't see two messages about the same missing file.
+# ``OutputFormatterPlugin._auto_export_script`` writes ``.sh`` / ``.py``
+# scripts to ``exports/scripts/`` directly when content has script
+# markers; our warning would be redundant and contradictory.
+_DEFERRED_TO_OUTPUT_FORMATTER = {"sh", "py"}
+
+
+def _claimed_extension(content: str) -> str | None:
+    """First file extension mentioned in a save-claim path."""
+    m = _PATH_KIND_RE.search(content)
+    return m.group("ext").lower() if m else None
+
+
+def _write_recovery(out_dir_name: str, ext: str, payload: str) -> str | None:
+    """Common write path for recovery handlers — returns absolute path."""
     try:
         from olav.core.config import EXPORTS_DIR
-        out_dir = EXPORTS_DIR / "diagrams"
+        out_dir = EXPORTS_DIR / out_dir_name
         out_dir.mkdir(parents=True, exist_ok=True)
-        # Stable filename pattern matching format_and_export's
-        # auto-naming so downstream consumers (T2-25, demos) can
-        # locate the file without coordination.
         from datetime import datetime
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out = out_dir / f"recovered_{stamp}.mmd"
-        out.write_text(mermaid, encoding="utf-8")
-        return (str(out), "mermaid")
+        out = out_dir / f"recovered_{stamp}.{ext}"
+        out.write_text(payload, encoding="utf-8")
+        return str(out)
     except Exception as e:  # noqa: BLE001
-        logger.debug("save_assertion: mermaid recovery failed: %s", e)
+        logger.debug("save_assertion: recovery write %s failed: %s", ext, e)
         return None
+
+
+def _attempt_recovery(content: str) -> tuple[str, str] | None:
+    """Deterministically save what the agent claimed it saved.
+
+    Dispatch table — order = priority.  Each handler returns either
+    ``(path, kind)`` on success or ``None`` to fall through to the
+    next.  Currently handles:
+
+    * **Mermaid** (``.mmd``) — fenced ``​```mermaid`` block or bare
+      ``graph TD/LR/...`` syntax → ``exports/diagrams/``.
+    * **Markdown report** (``.md``) — assistant content with multiple
+      headings/bullets/tables (≥200 chars) → ``exports/reports/``.
+      Saves the entire chat content; downstream tooling can split.
+
+    Recovery is conservative — when the agent claims save of a
+    binary or structured-data type (``.csv`` / ``.json`` / ``.clab.yaml``)
+    we deliberately do NOT attempt extraction from prose: the parsing
+    is fragile and partial recovery is worse than no recovery (a
+    partial config could break a lab).  Caller appends warning instead.
+    """
+    # Handler 1: Mermaid (highest priority — explicit syntax)
+    mermaid = _extract_mermaid(content)
+    if mermaid:
+        path = _write_recovery("diagrams", "mmd", mermaid)
+        if path:
+            return (path, "mermaid")
+
+    # Handler 2: Markdown report (catch hallucinated audit / sim / drift saves)
+    if _is_report_shaped_markdown(content):
+        path = _write_recovery("reports", "md", content.strip())
+        if path:
+            return (path, "markdown report")
+
+    return None
 
 
 class SaveAssertionMiddleware(OLAVMiddlewarePlugin):
@@ -280,18 +363,39 @@ class SaveAssertionMiddleware(OLAVMiddlewarePlugin):
         # Hallucinated claim — try to recover
         recovery = _attempt_recovery(assistant_content)
         if recovery is None:
-            logger.warning(
-                "save_assertion: claim detected with no tool evidence "
-                "and no recoverable artifact in content"
+            ext = _claimed_extension(assistant_content)
+            # ``.sh`` / ``.py`` are handled by OutputFormatterPlugin's
+            # ``_auto_export_script`` — skip our warning to avoid the
+            # confusing "two complaints about the same file" UX.
+            # OutputFormatterPlugin runs first (alphabetical
+            # ``output_formatter.py`` < ``save_assertion.py``) and
+            # writes a script when it detects code blocks.
+            if ext in _DEFERRED_TO_OUTPUT_FORMATTER:
+                logger.debug(
+                    "save_assertion: deferring .%s to OutputFormatterPlugin",
+                    ext,
+                )
+                return None
+            ext_hint = (
+                f"a `.{ext}` file" if ext else "a file"
             )
-            # Append a warning note so the user knows the path is bogus
+            recoverable_kinds_hint = (
+                "Recovery only handles `.mmd` (Mermaid) and `.md` "
+                "(report-shaped Markdown).  Structured types like "
+                "`.csv` / `.json` / `.yaml` are not recoverable from "
+                "prose — re-run with explicit `format_and_export(...)`."
+            )
+            logger.warning(
+                "save_assertion: claim detected (%s) with no tool "
+                "evidence and no recoverable artifact",
+                ext_hint,
+            )
             note = (
-                "\n\n⚠️  **Save assertion warning**: the response above "
-                "claims a file save, but no `format_and_export` tool call "
-                "was found in this run and no save-recoverable content "
-                "was extractable.  The cited path likely does not exist. "
-                "Re-run with an explicit step like "
-                "`call format_and_export(...)` to actually save."
+                f"\n\n⚠️  **Save assertion warning**: response claims "
+                f"saving {ext_hint}, but no `format_and_export` /  "
+                f"`olav_delegate('writer', ...)` tool call was found "
+                f"in this run, and the cited path is not on disk.\n\n"
+                f"{recoverable_kinds_hint}"
             )
             supplements = state.get("_output_supplements") or []
             supplements.append(note)
