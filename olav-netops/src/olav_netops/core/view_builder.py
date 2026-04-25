@@ -261,6 +261,45 @@ def _ensure_value_profile_table(con: Any) -> None:
     )
 
 
+# R83.3 Phase A.5: split column scope into "categorical" (worth profiling)
+# vs "state-like" (worth surfacing in the introspection_cache JSON).
+#
+# Identity / dimensional columns add noise to the cache without giving the
+# agent useful equivalence-class info — exclude from value_profile entirely.
+# Things like device_name, snapshot_id, ip_address, mac_address are
+# already addressable via netops.devices / dimensional joins and don't
+# benefit from fingerprint clustering.
+
+_VALUE_PROFILE_SKIP_COLS = frozenset({
+    "device_name", "hostname", "snapshot_id",
+    "ip_address", "address", "neighbor_ip", "router_id",
+    "mac_address", "hardware_address", "physical_address",
+    "interface", "local_interface", "neighbor_interface",  # interface NAMES
+    "port",                              # interface short name
+    "name", "neighbor_name", "platform_id", "platform",
+    "vlan_id", "neighbor_id",
+    "prefix", "network", "next_hop",
+})
+
+# Columns whose distinct values are worth surfacing in
+# introspection_cache.value_distributions JSON (i.e. concepts the agent
+# should consider when writing WHERE clauses).  Pattern-matched
+# substring against column name (case-insensitive).
+import re as _re_mod
+_STATE_COL_PATTERN = _re_mod.compile(
+    r"(state|status|proto|protocol|line_protocol|admin|oper)$",
+    _re_mod.IGNORECASE,
+)
+
+
+def _is_state_like_col(name: str) -> bool:
+    """Heuristic: column name suggests a finite-state concept worth canonicalising."""
+    n = (name or "").strip().lower()
+    if not n:
+        return False
+    return bool(_STATE_COL_PATTERN.search(n))
+
+
 def build_value_profile(con: Any, *, max_cardinality: int = 30) -> dict[str, int]:
     """Profile every low-cardinality categorical column in the auto-views.
 
@@ -269,6 +308,10 @@ def build_value_profile(con: Any, *, max_cardinality: int = 30) -> dict[str, int
     most ``max_cardinality``, and writes one row per (view, column,
     value) into ``netops.value_profile`` along with an OpenRefine-style
     fingerprint and a cluster id.
+
+    Skips identity / dimensional columns (``_VALUE_PROFILE_SKIP_COLS``)
+    so the table holds only categorical/state-like data worth
+    fingerprint clustering.
 
     Cluster id is currently per-fingerprint within a (view, column);
     Levenshtein-merge of similar fingerprints is a Phase-B follow-up
@@ -299,6 +342,9 @@ def build_value_profile(con: Any, *, max_cardinality: int = 30) -> dict[str, int
             continue
 
         for (col,) in cols:
+            # Identity / dimensional columns — skip (no clustering value).
+            if col.lower() in _VALUE_PROFILE_SKIP_COLS:
+                continue
             try:
                 n = con.execute(
                     f'SELECT COUNT(DISTINCT "{col}") FROM netops."{view_name}"'
@@ -391,13 +437,22 @@ def build_introspection_cache(con: Any) -> dict[str, int]:
                      GROUP BY view_name
                  ))                                                            AS views,
 
+                -- R83.3 Phase A.5: only state-like columns make it into
+                -- the cache JSON.  Full categorical profile remains
+                -- queryable via ``SELECT * FROM netops.value_profile``
+                -- when the agent needs interface lists, MAC tables, etc.
+                -- This keeps the JSON bag tight (≤ a few KB on a small
+                -- fleet) so small models can parse it reliably.
                 (SELECT json_group_array(json_object(
                             'view',    view_name,
                             'col',     column_name,
                             'value',   value,
                             'freq',    freq,
                             'cluster', cluster_id))
-                 FROM netops.value_profile)                                    AS value_distributions,
+                 FROM netops.value_profile
+                 WHERE regexp_matches(lower(column_name),
+                                       '(state|status|proto|protocol|admin|oper)$'))
+                                                                              AS value_distributions,
 
                 NOW() AS refreshed_at
             """
