@@ -5,6 +5,11 @@ tools:
   - execute_sql
   - recall_memory
   - web_search
+  # R85 (dev_docs/62 § "R85 inline-save"): format_and_export promoted
+  # from writer-only to shared core capability so any agent that
+  # produces report data can save it directly.  Writer keeps it via
+  # the same inheritance path and remains the polish/edit subagent.
+  - format_and_export
 static_context:
   - path: ./references/SKILL_DEVELOPMENT.md
   - path: ./references/REQUIRED_INFO_CHECK.md

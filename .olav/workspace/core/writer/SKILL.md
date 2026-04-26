@@ -2,7 +2,9 @@
 name: writer
 description: "Report engine — formats data as tables, charts, reports, scripts. Reads report_type tag to select format reference."
 tools:
-  - format_and_export
+  # R85 — format_and_export now lives at core/tools/ and every
+  # subagent inherits it.  Writer keeps read_file (specific to its
+  # polish/edit role: read existing markdown to revise).
   - read_file
 agent_type: api
 static_context:
