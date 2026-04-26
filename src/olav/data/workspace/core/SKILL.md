@@ -10,6 +10,10 @@ tools:
   # produces report data can save it directly.  Writer keeps it via
   # the same inheritance path and remains the polish/edit subagent.
   - format_and_export
+  # R86 follow-up: read_file promoted same way.  Any agent (orch,
+  # ops-lab consuming a CAB spec, audit consuming a profile) needs
+  # to load text files from disk.  Lives at core/tools/read_file.py.
+  - read_file
 static_context:
   - path: ./references/SKILL_DEVELOPMENT.md
   - path: ./references/REQUIRED_INFO_CHECK.md
