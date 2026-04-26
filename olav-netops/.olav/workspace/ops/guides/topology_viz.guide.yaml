@@ -23,16 +23,20 @@ body: |
      "src_intf ↔ dst_intf<br/>protocol".  Optional classDef colours
      by role (border/core/access).
 
-  3. **Persist via writer subagent — REQUIRED**:
-     olav_delegate("writer", "report_type: topology_diagram\n<json>")
-     Writer auto-saves to exports/diagrams/.
+  3. **Save the diagram inline** (R85 — format_and_export is now a
+     core-shared tool; no cross-agent delegation needed):
+       format_and_export(
+           data=<mermaid_text_string>,
+           format='mmd',
+           subdir='diagrams',
+           filename='topology'
+       )
+     Returns ``{"path": "exports/diagrams/topology.mmd", "size": N}``.
 
-  4. Cite the path that writer returned, verbatim.
+  4. Cite ``result["path"]`` verbatim in the final reply.
 
-  ⚠️ Do NOT print Mermaid in chat without delegating to writer —
-  the file won't exist on disk.  Saying "Saved to /exports/foo.mmd"
-  without calling the save tool is a hallucination; SaveAssertion
-  will catch it but is best-effort recovery.
+  See the ``format_topology_diagram`` memory entry (auto-recalled
+  on this query) for the precise Mermaid layout rules.
 
 related:
   - intent: simulation_what_if

@@ -35,12 +35,19 @@ body: |
   4. Do NOT run run_python_simulation for plain drift queries —
      that tool is for what-if analysis, not snapshot comparison.
 
-  5. If saving the drift report is requested, delegate to writer
-     with report_type=diff_report:
-     olav_delegate("writer", "report_type: diff_report\n<json>")
+  5. If saving the drift report is requested (R85 — inline-save):
+       format_and_export(
+           data=<markdown_drift_report>,
+           format='md',
+           subdir='reports',
+           filename='drift_<snap_a>_vs_<snap_b>'
+       )
+     ops-analyze inherits format_and_export from core; no
+     delegation to writer needed.  See ``format_diff_report``
+     memory for the report-shape conventions.
 
 related:
   - intent: simulation_what_if
     note: "if user asks 'what would change if R3 fails' that's simulation, not drift"
   - intent: save_artifact
-    note: "drift report saving goes through writer subagent"
+    note: "use format_and_export directly (R85); see format_diff_report memory"
