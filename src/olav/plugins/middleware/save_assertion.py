@@ -92,9 +92,13 @@ _SAVE_TOOLS = {
     "save_profile",        # audit/auditor — writes profile YAML
 }
 # Subagent names that internally save (their own tool calls are not
-# visible at the orchestrator level, but their delegation IS)
+# visible at the orchestrator level, but their delegation IS).
+# R85 (dev_docs/62 § "R85 inline-save"): writer is no longer
+# delegated for saves — every agent inherits format_and_export from
+# core and calls it directly.  The ``_delegated_to_writer`` /
+# ``_SAVE_DELEGATIONS`` rules now only cover audit-auditor + ops-lab,
+# which still have their own internal save semantics.
 _SAVE_DELEGATIONS = {
-    "writer",        # core/writer (format_and_export)
     "audit-auditor", # audit subagent (render_report)
     "ops-lab",       # lab subagent (save_lab_config)
 }
