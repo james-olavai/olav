@@ -146,6 +146,8 @@ def _write_platform_md(workspace_root: Path, agents: list[dict[str, Any]]) -> No
         "当工具返回错误时，**分析错误信息并重试**，不要直接报错给用户。",
         "",
         "- execute_sql 返回 \"column not found, candidates: X\" → 用 candidate 列名重写 SQL",
+        "- execute_sql 返回 \"Catalog Error: Table X does not exist! Did you mean Y?\" → 立即用 Y 重试，**不要**改用其它没列出的 view 名（这是 ops/topology 死循环根因）",
+        "- execute_sql 同一查询连续 2 次 \"does not exist\" → 用 `SELECT table_name FROM information_schema.views WHERE table_schema='netops' AND table_name LIKE 'v_%_auto'` 列出真实 view 名，从中挑选",
         "- execute_cli 返回 \"command not recognized\" → 检查平台（Juniper vs Cisco）后重试",
         "- api_request 返回 404 → 检查 path 拼写或 `load_reference` 确认 API schema",
         "- format_and_export 返回 \"directory not found\" → 创建目录后重试",
