@@ -28,6 +28,12 @@ tools:
   - destroy_lab            # Tear down CLAB lab — always call on completion or failure
 static_context:
   - path: ./references/LAB_REFERENCE.md
+# R86 — on_intent (~4K tokens, largest reference of all).
+# LAB_REFERENCE only matters for CAB / lab-deploy flows; baking it
+# on EVERY ops-orchestrator invocation that happens to route to
+# ops-lab is wasteful.  Lazy-loaded; agent fetches via
+# get_static_context when the workflow actually starts a lab.
+static_context_mode: on_intent
 ---
 
 ## Flow

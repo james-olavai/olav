@@ -38,6 +38,13 @@ allowed_tables:
   - view_recipes
 static_context:
   - path: ./references/ROUTING_EXPERT_GUIDE.md
+# R86 — on_intent (~3.3K tokens).  ROUTING_EXPERT_GUIDE is the
+# largest static reference in any agent; baking it on every
+# ops-analyze invocation is wasteful when most queries (drift,
+# topology) don't need routing expertise.  Loaded only when the
+# query keyword-matches; agent can fetch via get_static_context
+# explicitly when needed.
+static_context_mode: on_intent
 system: $ref:./prompts/system.md
 ---
 

@@ -14,6 +14,13 @@ static_context:
   - path: ./references/SKILL_DEVELOPMENT.md
   - path: ./references/REQUIRED_INFO_CHECK.md
   - path: ./references/SCHEMA_REFERENCE.md
+# R86 (dev_docs/62 § "R86"): on_intent — references load only when the
+# model's first turn keyword-matches.  SCHEMA_REFERENCE.md (~2.3K
+# tokens) was always-baked even when the query didn't need DB schema
+# detail; the agent already gets schema_knowledge memory entries
+# auto-injected by the recall middleware so the static reference is
+# now a backstop, not a primary source.
+static_context_mode: on_intent
 metadata:
   version: 4.0.0
   type: core
