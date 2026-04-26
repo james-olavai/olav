@@ -36,23 +36,30 @@ Read it, then write **one** data SQL.  No introspection round-trips needed — t
 
 Full SQL recipes + JSON-extract fallback: `references/SCHEMA_REFERENCE.md`.
 
-**After getting data, delegate to writer with a `report_type` tag:**
+**After getting data, save inline via `format_and_export`** (R85 —
+shared core tool, no cross-agent delegation):
+
 ```
-olav_delegate(subagent_name="writer", task_description="report_type: device_table\n{paste the SQL result JSON here}")
+format_and_export(data=<json_array_or_text>, format='csv',
+                  filename='devices')
 ```
 
-**Report type tags:**
-- `device_table` — device list queries
-- `topology_diagram` — topology / link queries
-- `query_result` — any other SQL result
-- `audit_report` — audit findings or report file path
-- `script_export` — generated scripts
-- `cab_report` — CAB validation evidence
-- `diff_report` — snapshot drift results
+The matched ``format_*`` memory entry surfaces with the precise
+call shape (subdir, filename conventions, format flag).  Tags
+covered:
+- `device_table` — device list queries → CSV
+- `topology_diagram` — topology / link queries → MMD
+- `query_result` — any other SQL result → CSV
+- `audit_report` — audit findings or report file → MD in `reports/`
+- `script_export` — generated scripts → SH/PY in `scripts/`
+- `cab_report` — CAB validation evidence → MD in `cab/`
+- `diff_report` — snapshot drift results → MD in `reports/`
 
 ## Subagents
 
-- **writer** — format tables, charts, reports, scripts. **Always use for presenting data to user.**
+- **writer** — polish/edit existing markdown files (NOT a save
+  bottleneck after R85).  Invoke only when user explicitly says
+  "polish/edit this report".
 - **db_query** — complex multi-step database workflows
 - **api_query** — HTTP requests to registered API services (NetBox, Grafana, etc.) + health checks
 - **remote** — SSH to remote hosts + local shell commands
