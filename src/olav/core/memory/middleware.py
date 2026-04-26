@@ -206,7 +206,12 @@ class AutoRecallMiddleware:
         # the agent re-discovered SQL strategies every session
         # instead of using its own captures.  4+4+2+3=13 keeps the
         # token budget unchanged.
-        "schema_knowledge": 4,
+        # R85 δ2 (dev_docs/62 § "R85 inline-save"): schema_knowledge
+        # 4→3 to make room for format_guide:1 — the writer-reference
+        # content moved to memory so any agent can know "here's the
+        # format_and_export call for this output shape" without
+        # cross-agent delegation to writer.  Total 3+4+2+3+1=13 unchanged.
+        "schema_knowledge": 3,
         "value_distribution": 4,
         "query_pattern": 2,
         # Phase 1 (dev_docs/61) — reserve slots for procedural guides
@@ -214,6 +219,10 @@ class AutoRecallMiddleware:
         # 3 fits the current YAML guide count (topology / simulation /
         # drift / save).
         "usage_guide": 3,
+        # R85 δ2 — format references (mermaid layout, CSV layout, ...)
+        # primed from *.format.yaml.  Top-1 most-relevant format hits
+        # the prompt; the agent uses it for the format_and_export call.
+        "format_guide": 1,
     }
 
     # Per-category L2 distance thresholds — drop hits with distance

@@ -155,6 +155,31 @@ def cmd_import_guides(args) -> int:
     return 0
 
 
+def cmd_import_formats(args) -> int:
+    """Scan a directory for ``*.format.yaml`` files and prime each as a
+    ``format_guide`` memory entry.
+
+    R85 sibling to ``cmd_import_guides``: format guides describe how
+    the agent should call ``format_and_export`` for a given output
+    shape (mermaid diagram, query result CSV, audit report, ...).
+    """
+    workspace_root = Path(args.dir)
+    if not workspace_root.exists():
+        print(f"Error: directory not found: {workspace_root}", file=sys.stderr)
+        return 1
+
+    from olav.core.memory.format_kb import prime_formats_from_dir
+    store = _get_store()
+    result = prime_formats_from_dir(workspace_root, store=store)
+
+    n = result["format_entries"]
+    skipped = result["skipped"]
+    print(f"Imported {n} format(s) from {workspace_root} ({skipped} skipped)")
+    if skipped == -1:
+        return 1
+    return 0
+
+
 def cmd_graph(args) -> int:
     """Generate vis.js HTML knowledge graph."""
     store = _get_store()
@@ -382,6 +407,19 @@ def build_kb_parser(parent_subparsers) -> argparse.ArgumentParser:
         help="Workspace root (default: .olav/workspace)",
     )
 
+    # import-formats — prime *.format.yaml under a workspace as format_guide rows (R85)
+    imp_f = kb_sub.add_parser(
+        "import-formats",
+        help="Scan a directory for *.format.yaml and prime them as "
+             "format_guide memory rows (R85 inline-save)",
+    )
+    imp_f.add_argument(
+        "dir",
+        nargs="?",
+        default=".olav/workspace",
+        help="Workspace root (default: .olav/workspace)",
+    )
+
     # graph
     grp = kb_sub.add_parser("graph", help="Generate vis.js HTML knowledge graph")
     grp.add_argument("--output", default=None, help="Output HTML file (default: .olav/knowledge/_graph.html)")
@@ -419,6 +457,8 @@ def handle_kb_command(args) -> int:
         return cmd_import(args)
     elif kb_cmd == "import-guides":
         return cmd_import_guides(args)
+    elif kb_cmd == "import-formats":
+        return cmd_import_formats(args)
     elif kb_cmd == "graph":
         return cmd_graph(args)
     elif kb_cmd == "migrate":

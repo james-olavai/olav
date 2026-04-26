@@ -57,14 +57,17 @@ def test_diversifier_total_slots_unchanged():
 
 
 def test_diversifier_quota_distribution():
-    """Exact post-CC-1c quota distribution."""
+    """Exact post-R85 δ2 quota distribution: schema_knowledge 4→3 to
+    make room for format_guide:1.  Total still 13.
+    """
     from olav.core.memory.middleware import AutoRecallMiddleware
 
     q = AutoRecallMiddleware._CATEGORY_QUOTAS
-    assert q["schema_knowledge"] == 4
+    assert q["schema_knowledge"] == 3
     assert q["value_distribution"] == 4
     assert q["query_pattern"] == 2
     assert q["usage_guide"] == 3
+    assert q["format_guide"] == 1
 
 
 def test_diversifier_cap_allows_two_query_patterns():
