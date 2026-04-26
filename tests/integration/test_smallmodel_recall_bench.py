@@ -297,7 +297,11 @@ def measure(
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", required=True, help="Run tag — appears in filename")
-    ap.add_argument("--runs", type=int, default=3, help="Runs per query (default 3)")
+    ap.add_argument(
+        "--runs", type=int, default=5,
+        help="Runs per query (default 5; N≥5 keeps Q4 std ≤±3 — see "
+             "dev_docs/62 Phase 1.5 N=5 retest for why N=3 was insufficient).",
+    )
     ap.add_argument(
         "--demo-dir",
         default=os.environ.get("OLAV_DEMO_DIR", str(Path.home() / "olav-demo6")),
