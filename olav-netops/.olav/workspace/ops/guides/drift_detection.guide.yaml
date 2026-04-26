@@ -1,0 +1,46 @@
+schema_version: 1
+intent: drift_detection
+agent: ops
+keywords:
+  - drift
+  - diff
+  - compare
+  - changed
+  - difference
+  - delta
+  - 漂移
+  - 对比
+  - between snapshots
+  - last two snapshots
+  - what changed
+  - snapshot comparison
+body: |
+  Snapshot diff / drift / "what changed between snapshots" requests:
+
+  1. Delegate to ops-analyze — it owns the four diff_* tools
+     (diff_sql_state, diff_topology_drift, diff_routing_drift,
+     diff_configs):
+     olav_delegate("ops-analyze", <full request>)
+
+  2. Default snapshot pair when user doesn't specify: latest two,
+     i.e. SELECT MAX(snapshot_id) and the one before from
+     netops.parsed_outputs (or netops.snapshots).
+
+  3. Output structure:
+     - Summary one-liner: "X tables compared, N changes"
+     - Details: per-table change list as a Markdown table
+     - Impact: which protocols / topology / config are affected
+     - Cap at 20 most significant changes; mention overflow
+
+  4. Do NOT run run_python_simulation for plain drift queries —
+     that tool is for what-if analysis, not snapshot comparison.
+
+  5. If saving the drift report is requested, delegate to writer
+     with report_type=diff_report:
+     olav_delegate("writer", "report_type: diff_report\n<json>")
+
+related:
+  - intent: simulation_what_if
+    note: "if user asks 'what would change if R3 fails' that's simulation, not drift"
+  - intent: save_artifact
+    note: "drift report saving goes through writer subagent"

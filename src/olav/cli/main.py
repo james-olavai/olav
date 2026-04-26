@@ -156,6 +156,7 @@ def parse_args():
         "--sandbox-id",
         "--sandbox-setup",
         "--session",
+        "--repeat",
     }
 
     raw_argv = sys.argv[1:]
@@ -205,6 +206,15 @@ def parse_args():
             action="store_true",
             help="Unlock API write operations (POST/PUT/PATCH/DELETE). Writes still require dry-run + approval.",
         )
+        pre.add_argument(
+            "--repeat",
+            dest="repeat",
+            type=int,
+            default=1,
+            help="Run the same query N times in one process (default 1). "
+                 "Used to measure SemanticCache amortisation in bench harnesses; "
+                 "each iteration emits ``=== run K/N elapsed Xs ===`` markers.",
+        )
 
         pre_args, query_tokens = pre.parse_known_args()
         query = " ".join(query_tokens).strip()
@@ -240,6 +250,7 @@ def parse_args():
             session=pre_args.session,
             no_splash=pre_args.no_splash,
             verbose=pre_args.verbose,
+            repeat=pre_args.repeat,
         )
 
     # ── Normal subcommand / interactive path ──────────────────────────────
@@ -1925,11 +1936,29 @@ What tools are available and when should each be used?
         )
 
         _workspace = getattr(args, "workspace", None)
+        _repeat = max(1, int(getattr(args, "repeat", 1) or 1))
         if args.query:
-            # Single query mode
-            await run_single_query(
-                args.query, args.agent, session_id=args.session, workspace=_workspace
-            )
+            # Single query mode.  When ``--repeat N`` is set, run the
+            # query N times in this same Python process — the
+            # ``SemanticCache._entries`` list is class-level so cache
+            # state persists across run_single_query calls.  This is
+            # how the bench harness measures cache amortisation
+            # (per dev_docs/62 Phase 1.5 step b).  Each iteration
+            # prints ``=== run K/N elapsed Xs ===`` markers that the
+            # harness greps for timing extraction.
+            import time as _time
+            for _i in range(1, _repeat + 1):
+                if _repeat > 1:
+                    console.print(f"\n=== run {_i}/{_repeat} ===")
+                _start = _time.time()
+                await run_single_query(
+                    args.query, args.agent, session_id=args.session,
+                    workspace=_workspace,
+                )
+                if _repeat > 1:
+                    console.print(
+                        f"=== run {_i} elapsed {_time.time() - _start:.1f}s ==="
+                    )
         else:
             # Interactive mode
             await run_interactive(
