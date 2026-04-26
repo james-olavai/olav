@@ -1,12 +1,10 @@
 ---
 name: writer
 description: "Polish/edit subagent — improve grammar, structure, and clarity of an existing markdown file in exports/.  No longer a save-bottleneck (R85)."
-tools:
-  # R85 — format_and_export now lives at core/tools/ and every
-  # subagent inherits it directly.  Writer's polish/edit role only
-  # needs read_file (to read the file it's editing) — and the
-  # inherited format_and_export to write the polished version back.
-  - read_file
+tools: []
+# R85 + R86 follow-up — both format_and_export and read_file now live
+# at core/tools/ and every subagent inherits them.  Writer adds no
+# tools of its own; its polish/edit role uses the inherited toolset.
 agent_type: api
 static_context: []
 ---

@@ -23,16 +23,31 @@ def read_file(path: str) -> str:
     """
     p = Path(path)
 
-    # Try relative to workspace root if not absolute
-    if not p.is_absolute():
-        from olav.core.workspace import resolve_workspace_root
-        try:
-            ws_root = resolve_workspace_root()
-            candidates = [ws_root.parent / path, Path.cwd() / path, p]
-        except Exception:
-            candidates = [Path.cwd() / path, p]
+    # Build a list of candidate locations to try.
+    # Small models often pass paths like ``/exports/foo.md`` (a leading
+    # slash they think looks "right" but is actually absolute and
+    # won't resolve under the real fs root).  Treat such paths as
+    # cwd-relative if they reference well-known workspace top-dirs.
+    _WORKSPACE_PREFIXES = ("/exports/", "/.olav/")
+
+    candidates: list[Path] = []
+    if p.is_absolute():
+        candidates.append(p)
+        # Relativize "/exports/..." → "exports/..." and try under cwd
+        for prefix in _WORKSPACE_PREFIXES:
+            if path.startswith(prefix):
+                rel = path.lstrip("/")
+                candidates.append(Path.cwd() / rel)
+                break
     else:
-        candidates = [p]
+        try:
+            from olav.core.workspace import resolve_workspace_root
+            ws_root = resolve_workspace_root()
+            candidates.append(ws_root.parent / path)
+        except Exception:  # noqa: BLE001
+            pass
+        candidates.append(Path.cwd() / path)
+        candidates.append(p)
 
     for candidate in candidates:
         if candidate.exists() and candidate.is_file():

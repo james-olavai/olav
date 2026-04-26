@@ -37,13 +37,17 @@ ADMIN_TOOLS = WORKSPACE / "core" / "admin" / "tools"
 WRITER_TOOLS = WORKSPACE / "core" / "writer" / "tools"
 
 
-# R85 (post-R65/ARCH-23): 4 cross-domain tools stay on the core
-# orchestrator — including format_and_export (was writer-only).
+# R85 (post-R65/ARCH-23): cross-domain tools stay on the core
+# orchestrator.  R85 promoted format_and_export from writer-only;
+# R86 follow-up promoted read_file the same way (any agent that
+# needs to consume a previously-saved spec / report needs to read
+# files from EXPORTS_DIR).
 _EXPECTED_CAPABILITIES: tuple[str, ...] = (
     "execute_sql",
     "recall_memory",
     "web_search",
     "format_and_export",
+    "read_file",
 )
 
 
@@ -74,27 +78,27 @@ def _skill_frontmatter() -> dict:
 # ── Advertised capability surface (post-R65 ARCH-23) ───────────────────────
 
 
-def test_core_skill_tools_list_has_four_entries():
-    """R85 (dev_docs/62 § "R85 inline-save"): core surface is 4 tools
-    — the original ARCH-23 trio + format_and_export (promoted from
-    writer-only).  Test name was 'seven' (ADR-0006 vintage), then
-    'three' (post-R65 ARCH-23); now 'four' for R85.
+def test_core_skill_tools_list_has_five_entries():
+    """R86 follow-up: core surface is 5 tools — R85's 4 + read_file
+    (promoted from writer-only same as format_and_export).  Test
+    name lineage: 'seven' (ADR-0006), 'three' (post-R65 ARCH-23),
+    'four' (R85), now 'five' (R86 follow-up).
     """
     meta = _skill_frontmatter()
     tools = meta.get("tools") or []
-    assert len(tools) == 4, (
-        f"core/SKILL.md advertises {len(tools)} tools; R85 requires "
-        f"4 cross-domain tools (execute_sql, recall_memory, web_search, "
-        f"format_and_export)"
+    assert len(tools) == 5, (
+        f"core/SKILL.md advertises {len(tools)} tools; R86 follow-up "
+        f"requires 5 cross-domain tools (execute_sql, recall_memory, "
+        f"web_search, format_and_export, read_file)"
     )
 
 
-def test_core_skill_tools_are_the_expected_four():
-    """R85: expected set is the 4 cross-domain tools."""
+def test_core_skill_tools_are_the_expected_five():
+    """R86 follow-up: expected set is the 5 cross-domain tools."""
     meta = _skill_frontmatter()
     tools = meta.get("tools") or []
     assert set(tools) == set(_EXPECTED_CAPABILITIES), (
-        f"core/SKILL.md tools drift from R85 expected set. "
+        f"core/SKILL.md tools drift from R86-follow-up expected set. "
         f"Expected {sorted(_EXPECTED_CAPABILITIES)}, got {sorted(tools)}"
     )
 
