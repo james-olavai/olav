@@ -1,0 +1,34 @@
+schema_version: 1
+tag: audit_report
+keywords:
+  - audit
+  - report
+  - markdown
+  - findings
+  - 审计报告
+  - simulation report
+  - what-if
+body: |
+  Narrative Markdown report — audit findings, what-if simulation
+  output, drift analysis writeup.
+
+  Structure (recommended):
+  - ``# <Title>`` (H1)
+  - ``## Summary`` (1-3 sentence executive view)
+  - ``## Findings`` / ``## Components`` / ``## Affected Pairs``
+    (sections specific to the report kind)
+  - ``## Recommendations`` or ``## Risk Classification`` (LOW/MED/HIGH)
+
+  Save with format_and_export:
+      format_and_export(
+          data=<markdown_string>,
+          format='md',
+          subdir='reports',
+          filename='<descriptive_name>'  # e.g. 'r2_failure_simulation'
+      )
+
+  Markdown auto-detection (``data starts with #``) lands in
+  ``exports/reports/`` by default — explicit ``subdir`` only needed
+  when you want a different folder.
+
+  Returns ``{"path": "exports/reports/<name>.md", ...}``.

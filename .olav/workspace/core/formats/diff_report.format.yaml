@@ -1,0 +1,33 @@
+schema_version: 1
+tag: diff_report
+keywords:
+  - diff
+  - drift
+  - compare
+  - changed
+  - delta
+  - snapshot comparison
+  - 漂移
+  - 对比
+body: |
+  Snapshot-comparison Markdown report.
+
+  Structure:
+  - ``# Snapshot Diff: <snap_a> → <snap_b>``
+  - ``## Summary`` (one-line: "X tables compared, N changes total")
+  - ``## Per-table Changes`` (Markdown tables, one per affected
+    netops view; cap at 20 most significant rows per table)
+  - ``## Impact`` (which protocols / topology / config affected)
+
+  Save:
+      format_and_export(
+          data=<markdown_string>,
+          format='md',
+          subdir='reports',
+          filename='drift_<snap_a>_vs_<snap_b>'
+      )
+
+  For tabular-only output (no narrative), use
+  ``query_result`` (CSV) instead.
+
+  Returns ``{"path": "exports/reports/drift_*.md", ...}``.

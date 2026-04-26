@@ -1,0 +1,35 @@
+schema_version: 1
+tag: topology_diagram
+keywords:
+  - mermaid
+  - topology
+  - diagram
+  - graph
+  - 拓扑
+  - mmd
+  - visualization
+body: |
+  Mermaid topology diagram format.
+
+  Build the diagram body:
+  - ``graph TD`` (or ``LR``) with one node per device
+  - Node format: ``R1[R1<br>juniper_junos]`` — name + platform
+  - Edges: ``R1 -->|src_intf ↔ dst_intf<br>protocol| R3``
+  - Solid lines for CDP, dashed (``-.->``) for LLDP
+
+  Save with format_and_export:
+      format_and_export(
+          data=<mermaid_text_string>,
+          format='mmd',
+          subdir='diagrams',
+          filename='topology'  # optional
+      )
+
+  The function returns ``{"path": "exports/diagrams/topology.mmd",
+  "size": N}``.  Cite ``result["path"]`` verbatim in your final
+  reply.
+
+  ⚠️  Do NOT print Mermaid in chat without calling
+  ``format_and_export`` — saying "Saved to /exports/foo.mmd"
+  without the tool call is a hallucination; SaveAssertion
+  catches it but recovery is best-effort.
