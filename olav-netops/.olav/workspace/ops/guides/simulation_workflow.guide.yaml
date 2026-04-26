@@ -39,8 +39,15 @@ body: |
      - Protocol Impact (BGP/OSPF adjacencies broken)
      - Risk Classification (LOW / MEDIUM / HIGH)
 
-  4. If saving the report is requested, delegate to writer:
-     olav_delegate("writer", "report_type: audit_report\n<json>")
+  4. If saving the report is requested (R85 — inline-save):
+       format_and_export(
+           data=<markdown_report>,
+           format='md',
+           subdir='reports',
+           filename='<scenario>_simulation'  # e.g. 'r2_failure'
+       )
+     ops-analyze inherits format_and_export from core, so it can
+     save directly within its own context.  No delegation to writer.
 
   Do NOT generate change plans (set/no commands) yourself — that is
   the orchestrator's job after ops-analyze produces the analysis.
@@ -49,4 +56,4 @@ related:
   - intent: topology_visualization
     note: "include a Mermaid diagram of the post-mutation topology if user asks for visual"
   - intent: save_artifact
-    note: "report saving always goes through writer subagent"
+    note: "use format_and_export directly (R85); see format_audit_report memory"
