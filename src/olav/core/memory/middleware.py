@@ -154,8 +154,13 @@ class AutoRecallMiddleware:
     # Per-category hard caps — entries beyond the cap are dropped.
     # ``query_pattern`` is the noisy category: repeat-asked questions
     # accumulate near-duplicate entries that all rank near the top of
-    # hybrid search; capping at 1 keeps the best representative.
-    _CATEGORY_CAPS = {"query_pattern": 1}
+    # hybrid search.  CC-1c (dev_docs/62 § "CC-1c"): cap raised 1 → 2.
+    # The original cap=1 paired with an empty quota meant captured SQL
+    # never reached the agent for queries with ≥1 captured pattern;
+    # cap=2 + quota=2 (below) gives the agent a reliable foothold of
+    # "the 2 best historical answers" without re-introducing the
+    # poisoning floor (cap protects against runaway accumulation).
+    _CATEGORY_CAPS = {"query_pattern": 2}
 
     # Per-category fetch budget for the curated-category path.
     # ``_gather_candidates`` issues a vector-search per category to
@@ -193,12 +198,21 @@ class AutoRecallMiddleware:
     # 5 schemas + 5 values + ~3 fact/query = ~4 KB context — well under
     # 1% of a 200 K large-tier window.
     _CATEGORY_QUOTAS = {
-        "schema_knowledge": 5,
-        "value_distribution": 5,
+        # CC-1c (dev_docs/62): rebalanced from 5/5/-/3 to 4/4/2/3.
+        # The pre-CC-1c layout reserved 5+5+3=13 slots — exactly
+        # filling recall_top_k=13 — leaving zero room for
+        # query_pattern hits.  Probe of Q3 with 5 captured Q3
+        # patterns showed 0 query_pattern in the diversifier output;
+        # the agent re-discovered SQL strategies every session
+        # instead of using its own captures.  4+4+2+3=13 keeps the
+        # token budget unchanged.
+        "schema_knowledge": 4,
+        "value_distribution": 4,
+        "query_pattern": 2,
         # Phase 1 (dev_docs/61) — reserve slots for procedural guides
         # so they survive past schema/value when both are present.
         # 3 fits the current YAML guide count (topology / simulation /
-        # save) with room for one more before needing a quota bump.
+        # drift / save).
         "usage_guide": 3,
     }
 
