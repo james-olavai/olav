@@ -515,15 +515,28 @@ def finalise_ingest(con: Any) -> dict[str, Any]:
     except Exception as exc:
         logger.warning("finalise_ingest: prime_memory_at_ingest failed: %s", exc)
 
-    # Phase 1 (dev_docs/61 MEMORY_DRIVEN_USAGE_GUIDES): also bridge
-    # procedural ``*.guide.yaml`` files into the LanceDB ``usage_guide``
-    # category.  Same retrieval path (AutoRecallMiddleware) — guides
-    # surface alongside schema/value entries when intent matches.
+    # Phase 1 (dev_docs/61 MEMORY_DRIVEN_USAGE_GUIDES) — bridge
+    # procedural ``*.guide.yaml`` files into LanceDB ``usage_guide``.
+    # The platform owns the upsert path (``olav.core.memory.guide_kb``);
+    # netops just hands it the runtime workspace root.  Same retrieval
+    # path (AutoRecallMiddleware) — guides surface alongside schema +
+    # value entries when intent matches.
     try:
-        from olav_netops.core.memory_primer import prime_usage_guides
-        out["usage_guides"] = prime_usage_guides(con)
+        from pathlib import Path
+        from olav.core.memory.guide_kb import prime_guides_from_dir
+        workspace_root = Path.cwd() / ".olav" / "workspace"
+        if not workspace_root.exists():
+            try:
+                from olav.core.config import get_paths_config
+                workspace_root = get_paths_config().olav_dir / "workspace"
+            except Exception:  # noqa: BLE001
+                workspace_root = None
+        if workspace_root is not None and workspace_root.exists():
+            out["usage_guides"] = prime_guides_from_dir(workspace_root)
+        else:
+            out["usage_guides"] = {"guide_entries": 0, "skipped": 0}
     except Exception as exc:
-        logger.warning("finalise_ingest: prime_usage_guides failed: %s", exc)
+        logger.warning("finalise_ingest: prime_guides_from_dir failed: %s", exc)
     return out
 
 

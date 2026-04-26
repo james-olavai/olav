@@ -168,7 +168,9 @@ class AutoRecallMiddleware:
         "value_distribution": 6,
         "query_pattern": 3,
         # Phase 1 (dev_docs/61 MEMORY_DRIVEN_USAGE_GUIDES) — procedural
-        # guides primed from ``*.guide.yaml`` by ``prime_usage_guides``.
+        # guides primed from ``*.guide.yaml`` via
+        # ``olav.core.memory.guide_kb.prime_guides_from_dir`` (CLI:
+        # ``olav kb import-guides``).
         # Quota of 4 reserves prompt slots for the most relevant
         # workflow / save / topology guidance without crowding out
         # schema entries.
