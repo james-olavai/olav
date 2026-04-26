@@ -207,6 +207,8 @@ def measure(
     runs_per_query: int,
     tag: str,
     repeat_cache: int = 0,
+    *,
+    reset_state: bool = True,
 ) -> BenchReport:
     olav_bin = demo_dir / ".venv" / "bin" / "olav"
     if not olav_bin.is_file():
@@ -219,6 +221,29 @@ def measure(
         demo_dir=str(demo_dir),
         runs_per_query=runs_per_query,
     )
+
+    # CC-1 (dev_docs/62): drop accumulated query_pattern rows before
+    # measurement so consecutive bench runs are comparable.  Without
+    # this, day-over-day numbers drift purely from agent-captured SQL
+    # templates accumulating in the diversifier's top-13.  Preserves
+    # usage_guide / schema_knowledge / value_distribution.
+    if reset_state:
+        try:
+            db_path = demo_dir / ".olav" / "databases" / "memory.lance"
+            if db_path.exists():
+                from olav.core.memory import LanceDBStore
+                from olav.core.memory.bench_reset import reset_volatile_categories
+                store = LanceDBStore(db_path=str(db_path))
+                result = reset_volatile_categories(store)
+                cleared = result.get("cleared", {})
+                if any(cleared.values()):
+                    print(
+                        f"[reset] cleared {cleared} (preserved "
+                        f"{result.get('preserved', {})})",
+                        flush=True,
+                    )
+        except Exception as exc:  # noqa: BLE001
+            print(f"[reset] skipped — {exc}", flush=True)
 
     # When --repeat-cache N is set, the bench harness asks the olav CLI
     # to run the query N times in one process (via --repeat N), sharing
@@ -327,11 +352,21 @@ def main() -> None:
              "amortisation between 1st and 2nd+ calls.  Per-iteration timings "
              "show up in JSON output as per_run_elapsed.",
     )
+    ap.add_argument(
+        "--no-reset-state",
+        action="store_false",
+        dest="reset_state",
+        default=True,
+        help="Skip the CC-1 query_pattern reset step.  Use when "
+             "intentionally measuring contaminated state.",
+    )
     args = ap.parse_args()
 
     demo_dir = Path(args.demo_dir).expanduser().resolve()
     report = measure(
-        demo_dir, args.runs, args.tag, repeat_cache=args.repeat_cache,
+        demo_dir, args.runs, args.tag,
+        repeat_cache=args.repeat_cache,
+        reset_state=args.reset_state,
     )
 
     out_path = Path(
