@@ -96,12 +96,21 @@ def test_claim_with_format_and_export_tool_message_trusted():
     assert out is None  # trusted, no supplements added
 
 
-def test_claim_with_writer_delegation_and_path_result_trusted():
-    """olav_delegate('writer', ...) counts as save evidence ONLY when
-    the corresponding ToolMessage result contains a path-shape — bare
-    delegation alone is no longer trusted (24778df: small models drop
-    the tool call inside writer ~40% of the time, leaving no actual
-    file behind).  Path-shaped result confirms the writer did save.
+def test_writer_delegation_no_longer_save_evidence():
+    """R85 (dev_docs/62 § "R85 inline-save"): writer is demoted from
+    save-bottleneck to optional polish/edit subagent.  After R85 every
+    agent inherits format_and_export from core and calls it directly;
+    olav_delegate('writer', ...) is NO LONGER a save signal.
+
+    If an agent still delegates to writer AND claims a save AND no
+    direct format_and_export tool call happened, SaveAssertion treats
+    that as a hallucination — runs the recovery path (auto-saves
+    mermaid/markdown) or attaches a warning.
+
+    The previous behaviour ("writer delegation = trust" — added in
+    R83.4 Chapter 4 and tightened in 24778df to require path-result)
+    was specific to the writer-as-save-bottleneck era; R85 removes
+    that role entirely.
     """
     from olav.plugins.middleware.save_assertion import SaveAssertionMiddleware
 
@@ -127,7 +136,11 @@ def test_claim_with_writer_delegation_and_path_result_trusted():
         ]
     }
     out = _run(mw.aafter_agent(state, runtime=None))
-    assert out is None  # delegation result has path → trusted
+    # Not None — supplements should include a warning since writer
+    # is no longer a save delegation.
+    assert out is not None
+    sups = out.get("_output_supplements") or []
+    assert any("warning" in s.lower() for s in sups)
 
 
 def test_render_report_tool_trusted():
