@@ -379,10 +379,22 @@ def prime_usage_guides(con: Any | None = None, store: Any | None = None) -> dict
         # tags: searchable on read, contains agent + intent + all
         # keywords so a tag-FTS index (Phase 1.5) lights up cleanly.
         tag_list = [guide.intent, guide.agent] + list(guide.keywords)
+        # Phase 1.5b (dev_docs/62 P0a): append keyword tokens into the
+        # stored ``text`` so the existing BM25 FTS index on ``text``
+        # picks them up.  LanceDB doesn't support multi-column FTS, so
+        # this is the cheapest path to keyword-anchored retrieval —
+        # vector still does fuzzy semantic, BM25 now hits exact tokens.
+        # Empirically: ``"对比两个快照"`` → vector dist 1.42 (borderline),
+        # but BM25 catches the literal ``"对比"`` token in the
+        # appended Keywords line for a precise match.
+        text_with_keywords = (
+            f"{guide.body}\n\n"
+            f"Keywords: {', '.join(guide.keywords)}"
+        )
         try:
             store.add_memory(
                 id=mem_id,
-                text=guide.body,
+                text=text_with_keywords,
                 vector=vec,
                 category="usage_guide",
                 scope="global",
