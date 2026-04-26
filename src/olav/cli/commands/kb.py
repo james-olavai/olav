@@ -130,6 +130,31 @@ def cmd_import(args) -> int:
         return 1
 
 
+def cmd_import_guides(args) -> int:
+    """Scan a directory for ``*.guide.yaml`` files and prime each as a
+    ``usage_guide`` memory entry.
+
+    Sibling to ``cmd_import``: ``import`` chunks markdown documents into
+    many memory rows, ``import-guides`` writes one whole-body row per
+    guide (no chunking) keyed by ``guide_<agent>_<intent>``.
+    """
+    workspace_root = Path(args.dir)
+    if not workspace_root.exists():
+        print(f"Error: directory not found: {workspace_root}", file=sys.stderr)
+        return 1
+
+    from olav.core.memory.guide_kb import prime_guides_from_dir
+    store = _get_store()
+    result = prime_guides_from_dir(workspace_root, store=store)
+
+    n = result["guide_entries"]
+    skipped = result["skipped"]
+    print(f"Imported {n} guide(s) from {workspace_root} ({skipped} skipped)")
+    if skipped == -1:
+        return 1
+    return 0
+
+
 def cmd_graph(args) -> int:
     """Generate vis.js HTML knowledge graph."""
     store = _get_store()
@@ -344,6 +369,19 @@ def build_kb_parser(parent_subparsers) -> argparse.ArgumentParser:
     imp.add_argument("--origin", default="document", help="Origin tag (default: document)")
     imp.add_argument("--chunk-size", type=int, default=1500, dest="chunk_size")
 
+    # import-guides — prime *.guide.yaml under a workspace as usage_guide rows
+    imp_g = kb_sub.add_parser(
+        "import-guides",
+        help="Scan a directory for *.guide.yaml and prime them as "
+             "usage_guide memory rows (1 file = 1 row, idempotent)",
+    )
+    imp_g.add_argument(
+        "dir",
+        nargs="?",
+        default=".olav/workspace",
+        help="Workspace root (default: .olav/workspace)",
+    )
+
     # graph
     grp = kb_sub.add_parser("graph", help="Generate vis.js HTML knowledge graph")
     grp.add_argument("--output", default=None, help="Output HTML file (default: .olav/knowledge/_graph.html)")
@@ -379,6 +417,8 @@ def handle_kb_command(args) -> int:
         return cmd_sync(args)
     elif kb_cmd == "import":
         return cmd_import(args)
+    elif kb_cmd == "import-guides":
+        return cmd_import_guides(args)
     elif kb_cmd == "graph":
         return cmd_graph(args)
     elif kb_cmd == "migrate":
