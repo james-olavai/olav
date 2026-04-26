@@ -1,0 +1,39 @@
+schema_version: 1
+intent: topology_visualization
+agent: ops
+keywords:
+  - topology
+  - mermaid
+  - diagram
+  - graph
+  - visualize
+  - 拓扑
+  - 网络图
+  - blast radius
+  - draw
+body: |
+  When user asks for network topology / Mermaid / diagram / graph:
+
+  1. Pull L2 links (latest snapshot is built into the view):
+     SELECT * FROM netops.v_l2_links_auto;
+     For richer data join with netops.devices on hostname.
+
+  2. Build Mermaid `graph TD` (or `LR`) with one node per device,
+     one edge per link.  Annotate edges with
+     "src_intf ↔ dst_intf<br/>protocol".  Optional classDef colours
+     by role (border/core/access).
+
+  3. **Persist via writer subagent — REQUIRED**:
+     olav_delegate("writer", "report_type: topology_diagram\n<json>")
+     Writer auto-saves to exports/diagrams/.
+
+  4. Cite the path that writer returned, verbatim.
+
+  ⚠️ Do NOT print Mermaid in chat without delegating to writer —
+  the file won't exist on disk.  Saying "Saved to /exports/foo.mmd"
+  without calling the save tool is a hallucination; SaveAssertion
+  will catch it but is best-effort recovery.
+
+related:
+  - intent: simulation_what_if
+    note: "for what-if blast-radius questions, prefer ops-analyze with run_python_simulation"

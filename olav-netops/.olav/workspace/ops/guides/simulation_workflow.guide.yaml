@@ -1,0 +1,52 @@
+schema_version: 1
+intent: simulation_what_if
+agent: ops
+keywords:
+  - simulate
+  - simulation
+  - what-if
+  - what happens
+  - blast radius
+  - lose
+  - fail
+  - down
+  - decommission
+  - 模拟
+  - 故障
+  - 影响
+body: |
+  What-if / failure simulation requests ("simulate X loses all
+  links", "what happens if R3 is decommissioned", "blast radius of Y"):
+
+  1. Delegate to ops-analyze — it owns ``run_python_simulation``
+     (NetworkX sandbox, network_isolation=True, db read-only):
+     olav_delegate("ops-analyze", <full request>)
+
+  2. ops-analyze workflow inside the sandbox:
+     a. Load topology: SELECT * FROM netops.topology_links + devices
+     b. Build NetworkX graph, identify pre-state components +
+        protocol adjacencies (BGP / OSPF from the v_*_neighbors_auto
+        views)
+     c. Apply the failure mutation (remove edges / nodes)
+     d. Compute post-state components, lost reachability pairs,
+        protocol impact
+
+  3. Output a Markdown report with sections:
+     - Current State (devices + links + protocols)
+     - Mutation Applied (which nodes/edges removed)
+     - Components Before/After
+     - Affected Reachability (pair list)
+     - Protocol Impact (BGP/OSPF adjacencies broken)
+     - Risk Classification (LOW / MEDIUM / HIGH)
+
+  4. If saving the report is requested, delegate to writer:
+     olav_delegate("writer", "report_type: audit_report\n<json>")
+
+  Do NOT generate change plans (set/no commands) yourself — that is
+  the orchestrator's job after ops-analyze produces the analysis.
+
+related:
+  - intent: topology_visualization
+    note: "include a Mermaid diagram of the post-mutation topology if user asks for visual"
+  - intent: save_artifact
+    note: "report saving always goes through writer subagent"

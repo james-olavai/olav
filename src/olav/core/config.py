@@ -75,9 +75,14 @@ TIER_DEFAULTS: dict[str, dict[str, Any]] = {
         # pipeline now writes ~90 schema/value entries per snapshot — Q3
         # needs entries from BOTH cisco_ios AND juniper_junos views to
         # answer cross-platform questions, and 3 hybrid-search hits
-        # consistently dropped the Junos one.  Each entry ~300 chars
-        # → 8 entries ~2.4KB, <0.5% of typical large-tier 200K window.
-        "recall_top_k": 8,
+        # consistently dropped the Junos one.
+        #
+        # Phase 1 (dev_docs/61): bumped 8 → 13 to fit
+        # _CATEGORY_QUOTAS = {schema:5, value:5, usage_guide:3}.
+        # Without the bump usage_guide quota gets 0 slots after schema+value
+        # consume the first 8.  13 entries ≈ 4KB context, still <0.5% of
+        # the 200K large-tier window.
+        "recall_top_k": 13,
         "return_compact_chars": 10000,
         "static_context_mode": "always",
         "context_budget": 200000,

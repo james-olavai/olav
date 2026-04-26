@@ -514,6 +514,16 @@ def finalise_ingest(con: Any) -> dict[str, Any]:
         out["memory_primer"] = prime_memory_at_ingest(con)
     except Exception as exc:
         logger.warning("finalise_ingest: prime_memory_at_ingest failed: %s", exc)
+
+    # Phase 1 (dev_docs/61 MEMORY_DRIVEN_USAGE_GUIDES): also bridge
+    # procedural ``*.guide.yaml`` files into the LanceDB ``usage_guide``
+    # category.  Same retrieval path (AutoRecallMiddleware) — guides
+    # surface alongside schema/value entries when intent matches.
+    try:
+        from olav_netops.core.memory_primer import prime_usage_guides
+        out["usage_guides"] = prime_usage_guides(con)
+    except Exception as exc:
+        logger.warning("finalise_ingest: prime_usage_guides failed: %s", exc)
     return out
 
 
