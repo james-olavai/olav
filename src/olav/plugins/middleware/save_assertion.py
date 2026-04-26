@@ -122,16 +122,59 @@ def _looks_like_save_claim(content: str) -> bool:
     return bool(_SAVE_CLAIM_RE.search(content))
 
 
+# Path-shape regex used to inspect a writer-delegation's result for
+# evidence the subagent actually produced a file.  Looser than _PATH_RE
+# (no /exports/ requirement) because writer returns whatever
+# ``format_and_export`` returned — typically ``"path": "exports/..."``
+# or ``Saved to exports/...``.
+_DELEGATION_RESULT_PATH_RE = re.compile(
+    r"""[\w./_-]*?
+        exports/[\w./_-]+?
+        \.(?:mmd|md|csv|json|yaml|yml|sh|py|tsv|html|svg|png)\b""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _delegation_result_has_path(messages: list, delegation_id: str) -> bool:
+    """Return True iff the ToolMessage matching ``olav_delegate``'s
+    ``tool_call_id`` contains a path-shaped string.  Writer returns the
+    save-tool's dict (``{"path": "exports/..."}``) in its final text;
+    if no path appears, the subagent skipped the save tool entirely
+    (the failure mode this middleware exists to catch).
+    """
+    if not delegation_id:
+        return False
+    for msg in messages:
+        tc_id = (
+            msg.get("tool_call_id") if isinstance(msg, dict)
+            else getattr(msg, "tool_call_id", None)
+        )
+        if tc_id != delegation_id:
+            continue
+        content = (
+            msg.get("content") if isinstance(msg, dict)
+            else getattr(msg, "content", None)
+        ) or ""
+        if not isinstance(content, str):
+            content = str(content)
+        return bool(_DELEGATION_RESULT_PATH_RE.search(content))
+    return False
+
+
 def _save_evidence_in_history(messages: list) -> bool:
     """Walk message history looking for actual save evidence.
 
     Counts as evidence:
-    * any ``ToolMessage`` for the ``format_and_export`` tool;
-    * any ``AIMessage`` whose ``tool_calls`` include
-      ``format_and_export``;
-    * any ``olav_delegate(subagent_name='writer', ...)`` invocation
-      (writer's internal save is invisible here, but the delegation
-      itself is the contract).
+    * any ``ToolMessage`` for a tool in :data:`_SAVE_TOOLS`;
+    * any ``AIMessage.tool_calls`` containing such a tool;
+    * any ``olav_delegate(subagent_name=<writer-like>)`` invocation
+      **whose ToolMessage result contains a path-shaped string** —
+      writer's internal save isn't visible at this level, but if it
+      saved, the format_and_export return dict (``{"path": ...}``)
+      bubbles up in writer's final text.  Bare delegation alone is
+      NOT trusted: small models routinely drop the tool call and
+      return text only, which is exactly the regression this
+      middleware exists to catch.
     """
     for msg in messages:
         # ToolMessage path — successful save returns a result
@@ -151,6 +194,34 @@ def _save_evidence_in_history(messages: list) -> bool:
             tc_name = tc.get("name") if isinstance(tc, dict) else None
             if tc_name in _SAVE_TOOLS:
                 return True
+            if tc_name == "olav_delegate":
+                args = tc.get("args") or {}
+                if args.get("subagent_name") in _SAVE_DELEGATIONS:
+                    tc_id = (
+                        tc.get("id") if isinstance(tc, dict)
+                        else getattr(tc, "id", None)
+                    )
+                    if _delegation_result_has_path(messages, tc_id):
+                        return True
+                    # Delegation happened but result has no path —
+                    # writer skipped the save tool.  Fall through:
+                    # don't return True, let the recovery path run.
+    return False
+
+
+def _delegated_to_writer(messages: list) -> bool:
+    """True iff the orchestrator delegated to a save-owning subagent
+    in this run.  Used as a secondary trigger condition — when writer
+    was called but no save-claim phrase appears, we still want to run
+    the recovery path to catch the silent-skip case.
+    """
+    for msg in messages:
+        tcs = (
+            msg.get("tool_calls") if isinstance(msg, dict)
+            else getattr(msg, "tool_calls", None)
+        ) or []
+        for tc in tcs:
+            tc_name = tc.get("name") if isinstance(tc, dict) else None
             if tc_name == "olav_delegate":
                 args = tc.get("args") or {}
                 if args.get("subagent_name") in _SAVE_DELEGATIONS:
@@ -350,11 +421,26 @@ class SaveAssertionMiddleware(OLAVMiddlewarePlugin):
                 )
                 break
 
-        # Cheap pre-filter — most replies don't claim a save
-        if not _looks_like_save_claim(assistant_content):
+        # Cheap pre-filter — most replies don't need inspection.
+        # Trigger when EITHER:
+        #   (a) the assistant claims to have saved something, OR
+        #   (b) the orchestrator delegated to a save-owning subagent
+        #       (writer / audit-auditor / ops-lab) AND the final
+        #       content has a recoverable artifact (Mermaid block /
+        #       report-shaped Markdown).  This catches the silent-skip
+        #       case where writer is delegated to but its small-model
+        #       LLM responds with the diagram as text instead of
+        #       calling format_and_export.  R84 dev_docs/62.
+        claim = _looks_like_save_claim(assistant_content)
+        delegated = _delegated_to_writer(messages)
+        recoverable = (
+            _extract_mermaid(assistant_content) is not None
+            or _is_report_shaped_markdown(assistant_content)
+        )
+        if not claim and not (delegated and recoverable):
             return None
 
-        # Save claimed — verify with two checks (either passes)
+        # Save expected (claimed or delegated) — verify with two checks
         if _save_evidence_in_history(messages):
             return None  # tool was called, trust the agent
         if _path_exists_on_disk(assistant_content):
@@ -407,7 +493,16 @@ class SaveAssertionMiddleware(OLAVMiddlewarePlugin):
             "save_assertion: %s claim hallucinated — auto-recovered to %s",
             kind, recovered_path,
         )
-        note = f"\n\n📁 Auto-recovered {kind} → `{recovered_path}` (model claimed save but didn't call the save tool)"
+        # Note phrasing: "claimed save" fits orchestrator-claim path;
+        # "subagent skipped tool call" fits the delegate-to-writer path.
+        # Pick based on whether the orchestrator actually claimed.
+        if claim:
+            why = "model claimed save but didn't call the save tool"
+        else:
+            why = "writer was delegated but didn't call format_and_export"
+        note = (
+            f"\n\n📁 Auto-recovered {kind} → `{recovered_path}` ({why})"
+        )
         supplements = state.get("_output_supplements") or []
         supplements.append(note)
         state["_output_supplements"] = supplements
