@@ -200,24 +200,19 @@ class AutoRecallMiddleware:
         "usage_guide": 3,
     }
 
-    # Per-category score (L2 distance) thresholds — drop hits with
-    # distance ABOVE this value as too weak to inject.
-    # Phase 1.5b (dev_docs/62) — calibrated empirically from
-    # tests/integration/test_recall_hit_rate.py.  Distance distribution:
-    #   * English positives  (correct intent)  max ≈ 1.35
-    #   * Chinese positives  (semantic embedding weaker on CN)
-    #                                          max ≈ 1.52
-    #   * English negatives  (no relevant guide) min ≈ 1.45
-    #   * Strong negatives   (totally off-topic) min ≈ 1.72
-    # No clean cut between Chinese positives and English negatives.
-    # Threshold 1.6 keeps all positives at the cost of leaking ~25%
-    # of negatives — partial fix; full solution is Tags FTS index
-    # (P0a) which uses exact keyword match (BM25) instead of fuzzy
-    # vector similarity.  Without ANY threshold, 100% of negatives
-    # pull 3 unrelated guides — drove the Q1 +33% N=5 regression.
-    _CATEGORY_DISTANCE_THRESHOLD: dict[str, float] = {
-        "usage_guide": 1.6,
-    }
+    # Per-category L2 distance thresholds — drop hits with distance
+    # ABOVE this value as too weak to inject.  Empty until we have
+    # confidence the gating doesn't side-effect agent behaviour.
+    #
+    # Phase 1.5b experiment (dev_docs/62): set ``usage_guide: 1.6`` to
+    # filter Chinese-positive vs English-negative overlap (probe data
+    # at tests/integration/test_recall_hit_rate.py).  N=5 bench then
+    # showed C4-topo correctness flipped 100% → 0% — but a follow-up
+    # bisect against pristine Phase 1.5 code reproduced the 0% even
+    # WITHOUT the threshold, so the regression is environmental
+    # (writer subagent path).  Threshold infra retained for future
+    # Tags-FTS-driven gating; dict left empty so it's a no-op.
+    _CATEGORY_DISTANCE_THRESHOLD: dict[str, float] = {}
 
     @staticmethod
     def _row_distance(row: dict) -> float | None:
@@ -276,25 +271,6 @@ class AutoRecallMiddleware:
                         category=cat,
                         scope=scope,
                     )
-                    # Phase 1.5b (dev_docs/62): drop hits whose
-                    # cosine/L2 distance exceeds the per-category
-                    # threshold.  Empirically calibrated to remove
-                    # the "every query pulls 3 unrelated guides"
-                    # noise that drove the Q1 regression at N=5.
-                    threshold = self._CATEGORY_DISTANCE_THRESHOLD.get(cat)
-                    if threshold is not None:
-                        before = len(rows)
-                        rows = [
-                            r for r in rows
-                            if self._row_distance(r) is None
-                            or self._row_distance(r) <= threshold
-                        ]
-                        dropped = before - len(rows)
-                        if dropped:
-                            logger.debug(
-                                "curated fetch %s: dropped %d/%d above "
-                                "distance %.2f", cat, dropped, before, threshold,
-                            )
                     _add(rows)
                 except Exception as e:
                     logger.debug("curated fetch %s failed: %s", cat, e)
@@ -316,23 +292,7 @@ class AutoRecallMiddleware:
                     limit=top_k * 2,
                     scope=scope,
                 )
-            # Phase 1.5b: also apply per-category distance threshold to
-            # the long-tail hybrid pass, otherwise hybrid sneaks weak
-            # guide hits through (e.g. "What is R1's IP address?" pulled
-            # simulation_what_if via BM25 word overlap).  Per-category
-            # filter so we only gate categories that have a threshold.
-            filtered = []
-            for r in hybrid:
-                threshold = self._CATEGORY_DISTANCE_THRESHOLD.get(
-                    r.get("category", ""),
-                )
-                if threshold is None:
-                    filtered.append(r)
-                    continue
-                d = self._row_distance(r)
-                if d is None or d <= threshold:
-                    filtered.append(r)
-            _add(filtered)
+            _add(hybrid)
         except Exception as e:
             logger.debug("long-tail hybrid fetch failed: %s", e)
 
