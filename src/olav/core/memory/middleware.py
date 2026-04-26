@@ -167,6 +167,12 @@ class AutoRecallMiddleware:
         "schema_knowledge": 6,
         "value_distribution": 6,
         "query_pattern": 3,
+        # Phase 1 (dev_docs/61 MEMORY_DRIVEN_USAGE_GUIDES) — procedural
+        # guides primed from ``*.guide.yaml`` by ``prime_usage_guides``.
+        # Quota of 4 reserves prompt slots for the most relevant
+        # workflow / save / topology guidance without crowding out
+        # schema entries.
+        "usage_guide": 4,
     }
 
     # Per-category minimum quotas — reserves slots so a cross-platform
@@ -184,7 +190,15 @@ class AutoRecallMiddleware:
     # cross-platform answer incomplete.  Each entry is ~300 chars, so
     # 5 schemas + 5 values + ~3 fact/query = ~4 KB context — well under
     # 1% of a 200 K large-tier window.
-    _CATEGORY_QUOTAS = {"schema_knowledge": 5, "value_distribution": 5}
+    _CATEGORY_QUOTAS = {
+        "schema_knowledge": 5,
+        "value_distribution": 5,
+        # Phase 1 (dev_docs/61) — reserve slots for procedural guides
+        # so they survive past schema/value when both are present.
+        # 3 fits the current YAML guide count (topology / simulation /
+        # save) with room for one more before needing a quota bump.
+        "usage_guide": 3,
+    }
 
     def _gather_candidates(
         self,

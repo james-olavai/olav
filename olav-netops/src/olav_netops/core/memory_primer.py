@@ -294,4 +294,118 @@ def prime_memory_at_ingest(con: Any, store: Any | None = None) -> dict[str, int]
     }
 
 
-__all__ = ["prime_memory_at_ingest"]
+def prime_usage_guides(con: Any | None = None, store: Any | None = None) -> dict[str, int]:
+    """Bridge usage-guide YAML files into the LanceDB ``usage_guide`` category.
+
+    Phase 1 of dev_docs/61 MEMORY_DRIVEN_USAGE_GUIDES — discover
+    ``*.guide.yaml`` files under ``.olav/workspace/<agent>/guides/``,
+    embed each one's ``intent + keywords + body``, and upsert as a
+    ``usage_guide`` memory entry with deterministic id
+    ``guide_<agent>_<intent>``.
+
+    Mirrors :func:`prime_memory_at_ingest`'s contract: returns counts,
+    no-ops when memory store is unavailable, never raises.  Called
+    from :func:`olav_netops.core.view_builder.finalise_ingest` after
+    schema/value priming so memory is fully populated by the time
+    ``AutoRecallMiddleware`` first runs.
+
+    The ``con`` argument is unused (signature parity with the other
+    primer fns); usage guides are loaded straight from disk YAML, not
+    from any DuckDB table.
+
+    Returns ``{"guide_entries": N, "skipped": K}``.
+    """
+    del con  # unused — kept for signature parity
+    if store is None:
+        try:
+            from olav.core.memory import get_store
+            store = get_store()
+        except Exception as exc:
+            logger.info("usage_guide primer: store unavailable, skipping: %s", exc)
+            return {"guide_entries": 0, "skipped": -1}
+    if store is None:
+        return {"guide_entries": 0, "skipped": -1}
+
+    try:
+        from olav_netops.core.usage_guide import discover_guides
+    except Exception as exc:
+        logger.warning("usage_guide primer: import failed: %s", exc)
+        return {"guide_entries": 0, "skipped": -1}
+
+    # Resolve workspace root — same convention as other primers.  We
+    # prefer the runtime workspace (``$cwd/.olav/workspace``) over the
+    # platform's installed copy because user installs may have added
+    # local guides via ``olav skill install``.
+    from pathlib import Path
+    workspace_root = Path.cwd() / ".olav" / "workspace"
+    if not workspace_root.exists():
+        # fall back to platform-installed location via olav.core.config
+        try:
+            from olav.core.config import get_paths_config
+            workspace_root = get_paths_config().olav_dir / "workspace"
+        except Exception:
+            logger.debug("usage_guide primer: no workspace dir found")
+            return {"guide_entries": 0, "skipped": 0}
+
+    guides = discover_guides(workspace_root)
+    if not guides:
+        return {"guide_entries": 0, "skipped": 0}
+
+    count = 0
+    skipped = 0
+    for guide in guides:
+        # Embed intent + keywords + body as a single string so that
+        # short keyword-anchored queries (e.g. "show topology mermaid")
+        # match high on the body's vector even when the body's prose
+        # doesn't repeat the keywords verbatim.  Phase 1.5 (per
+        # dev_docs/61) will add an FTS index on tags so BM25 can
+        # contribute too — for now vector is the primary signal.
+        embed_input = (
+            f"{guide.intent}\n"
+            f"keywords: {', '.join(guide.keywords)}\n\n"
+            f"{guide.body}"
+        )
+        vec = _embed(embed_input)
+        if not vec:
+            skipped += 1
+            continue
+
+        mem_id = guide.memory_id
+        try:
+            store.delete_memory(id=mem_id)  # idempotent upsert
+        except Exception:
+            pass
+
+        # tags: searchable on read, contains agent + intent + all
+        # keywords so a tag-FTS index (Phase 1.5) lights up cleanly.
+        tag_list = [guide.intent, guide.agent] + list(guide.keywords)
+        try:
+            store.add_memory(
+                id=mem_id,
+                text=guide.body,
+                vector=vec,
+                category="usage_guide",
+                scope="global",
+                metadata={
+                    "intent": guide.intent,
+                    "agent": guide.agent,
+                    "schema_version": guide.schema_version,
+                    "n_keywords": len(guide.keywords),
+                },
+                origin="config",
+                confidence=1.0,
+                tags=json.dumps(tag_list, ensure_ascii=False),
+            )
+            count += 1
+        except Exception as exc:
+            logger.debug("usage_guide primer: %s failed: %s", mem_id, exc)
+            skipped += 1
+
+    logger.info(
+        "usage_guide primer: %d entries from %s (%d skipped)",
+        count, workspace_root, skipped,
+    )
+    return {"guide_entries": count, "skipped": skipped}
+
+
+__all__ = ["prime_memory_at_ingest", "prime_usage_guides"]
