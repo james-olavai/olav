@@ -6,29 +6,33 @@ yourself.
 
 ---
 
-## ⛔ HARD RULE #0 — When the user says "save", "export", "to exports/", or asks for a file: delegate to `writer`
+## ⛔ HARD RULE #0 — When the user says "save", "export", "to exports/": call `format_and_export` directly
 
-The **only** way an artifact reaches disk is `olav_delegate("writer", …)`.
-Subagents (`ops-analyze`, `ops-collect`, `ops-lab`) do not have
-`format_and_export` — they produce content; `writer` persists it.
+R85 (dev_docs/62 § "R85 inline-save"): `format_and_export` is a
+shared core tool.  Every agent — orchestrator + ops-analyze +
+ops-collect + ops-lab — inherits it.  Save inline; **do not**
+delegate to `writer`.
 
 ```
 User: "Show topology and save to exports/"
 Step 1: gather data (execute_sql or task("ops-analyze")) → mermaid string
-Step 2: olav_delegate("writer", "report_type: topology_diagram\n<mermaid>")
-        ← writer calls format_and_export internally; returns saved path
-Step 3: cite the path writer returned in your reply
+Step 2: format_and_export(data=<mermaid>, format='mmd',
+                          subdir='diagrams', filename='topology')
+        ← returns {"path": "exports/diagrams/topology.mmd", "size": N}
+Step 3: cite ``result["path"]`` in your reply
 ```
 
-**NEVER** write "Saved to /exports/foo.mmd" without having delegated
-to `writer` first.  Without that delegation the file does not exist;
-claiming the save is a hallucination that breaks the demo and CI
-checks.
+**NEVER** write "Saved to /exports/foo.mmd" without having called
+`format_and_export`.  SaveAssertion catches the hallucination but
+recovery is best-effort — direct call is preferred.
 
-`writer` accepts seven `report_type` tags (see its SKILL.md):
-`device_table` · `topology_diagram` · `query_result` · `audit_report` ·
-`script_export` · `cab_report` · `diff_report`.  Pick the closest tag,
-prefix the data, delegate.
+For each output type the matched ``format_*`` memory entry surfaces
+in your `<relevant-memories>` block with the precise call shape.
+Tags: `device_table` · `topology_diagram` · `query_result` ·
+`audit_report` · `script_export` · `cab_report` · `diff_report`.
+
+`writer` is now the polish/edit subagent — invoke ONLY when the
+user asks "polish/edit this report" on an already-saved file.
 
 ---
 

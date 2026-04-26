@@ -1,0 +1,31 @@
+schema_version: 1
+tag: script_export
+keywords:
+  - script
+  - bash
+  - python
+  - ansible
+  - automation
+  - 脚本
+body: |
+  Bash / Python / YAML script export.
+
+  Detect type from content:
+  - Starts with ``#!/bin/bash`` or ``set -euo`` → format='sh'
+  - Starts with ``#!/usr/bin/env python`` or has ``import `` → format='py'
+  - YAML with ``hosts:`` / ``tasks:`` → format='yml'
+
+  Save with format_and_export, always under ``scripts/``:
+
+      format_and_export(
+          data=<script_text_string>,
+          format='sh',          # or 'py' / 'yml'
+          subdir='scripts',
+          filename='<purpose>'  # e.g. 'backup_configs', 'reload_router'
+      )
+
+  After saving, reply with the saved path + 3-line usage example
+  (chmod, dry-run, execute).  Never just display the script in chat
+  without saving.
+
+  Returns ``{"path": "exports/scripts/<name>.<ext>", "size": N}``.
