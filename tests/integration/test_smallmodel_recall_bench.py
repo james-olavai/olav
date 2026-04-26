@@ -190,7 +190,15 @@ def run_one(
         return proc.returncode, proc.stdout + proc.stderr, elapsed
     except subprocess.TimeoutExpired as exc:
         elapsed = time.time() - start
-        out = (exc.stdout or "") + (exc.stderr or "")
+        # subprocess returns the partial buffers as bytes on TimeoutExpired
+        # even when text=True was set on Popen — decode defensively.
+        def _to_str(buf: object) -> str:
+            if buf is None:
+                return ""
+            if isinstance(buf, bytes):
+                return buf.decode("utf-8", errors="replace")
+            return str(buf)
+        out = _to_str(exc.stdout) + _to_str(exc.stderr)
         return 124, out + f"\n[TIMEOUT after {timeout_s}s]", elapsed
 
 
@@ -224,7 +232,9 @@ def measure(
             print(f"[{qid}] run {r}/{runs_per_query} via --agent={agent}{extra} ...", flush=True)
             # Topology / drift queries can be slow on first invocation;
             # bump timeout when repeat-cache amplifies.
-            t = 360 + 180 * (cli_repeat - 1)
+            # Q4 (simulation) periodically runs >300s on a cold cache —
+            # 600s baseline gives headroom without masking real loops.
+            t = 600 + 180 * (cli_repeat - 1)
             exit_code, out, elapsed = run_one(
                 olav_bin, demo_dir, agent, query, timeout_s=t,
                 repeat=cli_repeat,
