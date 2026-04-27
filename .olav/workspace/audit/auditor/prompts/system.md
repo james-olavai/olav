@@ -51,10 +51,11 @@ The reference covers:
 
 - Hard constraints (no filesystem search, immediate
   `database_introspection`)
-- Authoring tool-call workflow: `[python] database_introspection` →
-  `[python] preview_map_query` → `save_profile` (MCP). Per ADR-0007
-  (R91 CUT 1), the four authoring helpers are now Python in
-  `olav.core.auditor` — call them inside `run_python_simulation`.
+- Authoring tool-call workflow: `[skill] database_introspection.py` →
+  `[skill] preview_map_query.py` → `save_profile` (MCP). Per ADR-0008
+  (R92.3), the four authoring helpers are skill scripts under
+  `audit/auditor/scripts/`. Invoke via
+  `execute_skill_script(skill_name="auditor", script_name="<name>.py", args={...})`.
 - Three sub-modes:
   - Mode 1 — Intelligent Threshold Suggestion
   - Mode 2 — Dynamic Threshold Tuning
