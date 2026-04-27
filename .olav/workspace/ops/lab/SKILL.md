@@ -27,6 +27,7 @@ tools:
   - exec_on_node           # Verify node state after config push
   - create_srl_links       # Build SR Linux link definitions from topology
   - fix_srl_topology       # Patch CLAB topology YAML for SR Linux constraints
+  - append_validation_footer # F3: append PASS/FAIL footer to original spec — call AFTER format_and_export, BEFORE destroy_lab
   - destroy_lab            # Tear down CLAB lab — always call on completion or failure
 static_context:
   - path: ./references/LAB_REFERENCE.md
