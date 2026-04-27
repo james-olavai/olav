@@ -14,6 +14,27 @@ because the LLM's training data is overwhelmingly Cisco where
 ``active`` means "trying".  In SRL, ``active`` means **TCP failed**.
 A ``bgp_state_decoder_srl.expert.yaml`` entry corrects this prior.
 
+**What belongs in expert_knowledge vs SKILL.md** (R92.7 / ADR-0008
+follow-up; see ``dev_docs/00 § ISSUE-SKILL-MEMORY-DUPLICATE-CONTRACT``):
+
+* SKILL.md / references/ = the **author's contract** — workflow steps,
+  mandatory tool sequence, safety rails. Always reachable via
+  ``static_context``; with R92.6 SkillsMiddleware via progressive
+  disclosure.
+* expert_knowledge memory = the **user's wisdom** — vendor quirks,
+  cross-skill patterns, project preferences, ``trace_learner`` output.
+  Surfaced via semantic recall when keywords match.
+
+Decision rule before writing ``*.expert.yaml``:
+
+1. Is it a踩坑 lesson ("v1 hit X bug, identify by Y, fix is Z")? → memory
+2. A cross-skill pattern ("when ops-lab FAILs, ops-analyze can run X")? → memory
+3. A user / project preference? → memory
+4. Output of ``trace_learner``? → memory
+5. **Just paraphrasing SKILL.md / references workflow?** → **NO** — put it
+   in SKILL.md instead. Duplicating content here causes drift +
+   double-injection at recall time.
+
 **Per-agent scoping** — each ``*.expert.yaml`` declares its own
 ``scope`` (``global`` OR ``<agent_name>``).  Recall middleware
 filters: an agent only sees expert entries scoped to itself or
