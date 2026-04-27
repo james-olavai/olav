@@ -135,6 +135,7 @@ fails in lab, output ❌ FAIL + feedback for Sim.
 | `tcf_load_for_lab` | R90 Phase 3 — read + validate the TCF spec, derive R88/R89 args + post_check + tvt schedule. **First tool to call** when given a TCF spec path. Replaces markdown spec parsing. |
 | `generate_clab_topology` | Build deploy-ready CLAB YAML from `netops.v_l2_links_auto` — call with `r88_args` from tcf_load_for_lab. |
 | `generate_srl_lab_config` | R89 — deterministic prod→SRL CLI translator. Call with `r89_args` from tcf_load_for_lab; returns `{lab_node: 22-line srl_cli}`. Pass `configs[lab_node].splitlines()` to save_lab_config. |
+| `generate_srl_rollback_config` | R90 Phase 6 — deterministic SRL rollback (`delete /` CLI). Same args as R89. Returns `{lab_node: 7-line delete cli}`. Call after apply post-check PASSes to validate rollback cleans up; push via push_node_config and verify reversion via exec_on_node. |
 | `tcf_record_lab_run` | R90 Phase 3 — write verdict + journal + per-test actuals back to the TCF. Call AFTER format_and_export, BEFORE destroy_lab. Replaces append_validation_footer. MANDATORY for every lab run regardless of PASS/FAIL. |
 | `save_lab_config` | Save SRL configs to temp file for each node — call AFTER generate_srl_lab_config, BEFORE deploy_and_push_lab |
 | `deploy_and_push_lab` | Deploy lab + auto-load saved configs — call after save_lab_config for all nodes.  Safe to call again if lab exists — skips redeploy, only pushes config |
