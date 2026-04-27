@@ -91,6 +91,7 @@ class AutoRecallMiddleware:
         top_k: int | None = None,
         min_score_threshold: float = 0.0,
         budget_monitor: Any = None,
+        current_agent: str | None = None,
     ) -> None:
         self._store = store
         # ARCH-18 #3: top_k defaults to the tier-appropriate value from
@@ -106,6 +107,12 @@ class AutoRecallMiddleware:
         # goal is keeping the smallest-tier run from burning its last 1-2K
         # tokens on historical hints instead of the live task.
         self._budget_monitor = budget_monitor
+        # R87 Phase 1.5 (dev_docs/63): the active agent's name (e.g.
+        # ``ops-lab``).  When set, expert_knowledge entries are filtered
+        # by ``scope IN (current_agent, shared:<domain>, org)`` — so
+        # SRL lab knowledge stays out of writer / core / audit recalls.
+        # ``None`` falls back to Phase 1 behaviour (vector relevance only).
+        self._current_agent = current_agent
 
     def _resolve_top_k(self) -> int:
         if self._top_k is not None:
@@ -160,7 +167,16 @@ class AutoRecallMiddleware:
     # cap=2 + quota=2 (below) gives the agent a reliable foothold of
     # "the 2 best historical answers" without re-introducing the
     # poisoning floor (cap protects against runaway accumulation).
-    _CATEGORY_CAPS = {"query_pattern": 2}
+    _CATEGORY_CAPS = {
+        "query_pattern": 2,
+        # R87 Phase 1.5: cap matches the quota so sub-quota tiers
+        # (1 agent + 1 shared + 1 org) act as hard slots.  Without
+        # the cap, the diversifier's leftover-fill pass would let
+        # extra expert_knowledge entries past the quota — defeating
+        # the "users always get 1 org slot" guarantee when many
+        # agent-scope entries are present.
+        "expert_knowledge": 3,
+    }
 
     # Per-category fetch budget for the curated-category path.
     # ``_gather_candidates`` issues a vector-search per category to
@@ -222,7 +238,12 @@ class AutoRecallMiddleware:
         # via the recall scope filter below.  Total 2+4+2+3+1+1=13
         # unchanged.
         "schema_knowledge": 2,
-        "value_distribution": 4,
+        # R87 Phase 1.5: 4 → 2 to fund expert_knowledge: 1 → 3.
+        # Empirical: in CC-1c bench the third+fourth value_distribution
+        # slot was usually a near-duplicate of the first two
+        # (cisco vs junos vs ios — same column, different platform);
+        # the cross-platform answer was already complete at top-2.
+        "value_distribution": 2,
         "query_pattern": 2,
         # Phase 1 (dev_docs/61) — reserve slots for procedural guides
         # so they survive past schema/value when both are present.
@@ -233,12 +254,28 @@ class AutoRecallMiddleware:
         # primed from *.format.yaml.  Top-1 most-relevant format hits
         # the prompt; the agent uses it for the format_and_export call.
         "format_guide": 1,
-        # R87 Phase 1 — vendor / platform-specific expert knowledge.
-        # Per-agent scoped — each entry's ``scope`` field gates which
-        # agent surfaces it.  Top-1 hits is enough for a typical
-        # workflow (one platform context per query).
-        "expert_knowledge": 1,
+        # R87 Phase 1 → 1.5 (dev_docs/63) — vendor / platform-specific
+        # expert knowledge.  Per-agent scoped via the YAML's ``scope``
+        # field.  Phase 1.5 grants 3 slots (was 1) so the diversifier
+        # can reserve one slot for each scope tier:
+        #   * 1 × agent-scope  (own-agent expertise)
+        #   * 1 × shared:domain (cross-agent within the domain)
+        #   * 1 × org           (user-injected universal — must always
+        #                        get a slot when present, per the
+        #                        business-model promise that users own
+        #                        their workflow)
+        # Empty tiers fall back to vector ranking; no slot wasted.
+        # value_distribution dropped 4 → 2 to fund this; total
+        # 2+2+2+3+1+3=13 unchanged.
+        "expert_knowledge": 3,
     }
+
+    # Phase 1.5 — sub-quota per scope tier within expert_knowledge.
+    # Caps the agent / shared / org buckets so a flood of own-agent
+    # entries can't crowd out user-injected ``org`` knowledge.  Used
+    # by ``_diversify_by_category`` only when the category is
+    # ``expert_knowledge``.
+    _EXPERT_SUBQUOTAS = {"agent": 1, "shared": 1, "org": 1}
 
     # Per-category L2 distance thresholds — drop hits with distance
     # ABOVE this value as too weak to inject.  Empty until we have
@@ -253,6 +290,25 @@ class AutoRecallMiddleware:
     # (writer subagent path).  Threshold infra retained for future
     # Tags-FTS-driven gating; dict left empty so it's a no-op.
     _CATEGORY_DISTANCE_THRESHOLD: dict[str, float] = {}
+
+    def _allowed_expert_scopes(self) -> set[str] | None:
+        """Phase 1.5 scope filter set for ``expert_knowledge``.
+
+        Returns a set of allowed scope strings:
+          - ``current_agent``        — own-agent expertise
+          - ``shared:<domain>``      — domain-shared expertise
+          - ``org``                  — user-injected universal
+
+        Domain is inferred as the part of ``current_agent`` before the
+        first ``-`` (``ops-lab`` → ``ops``).
+
+        ``None`` when ``current_agent`` is unset — caller falls back to
+        no filtering (Phase 1 behaviour).
+        """
+        if not self._current_agent:
+            return None
+        domain = self._current_agent.split("-", 1)[0]
+        return {self._current_agent, f"shared:{domain}", "org"}
 
     @staticmethod
     def _row_distance(row: dict) -> float | None:
@@ -303,28 +359,34 @@ class AutoRecallMiddleware:
         # Curated per-category fetch — vector only, since BM25 against
         # a generic question doesn't help for short structural entries.
         if query_vector:
+            allowed_expert_scopes = self._allowed_expert_scopes()
             for cat, n in self._CATEGORY_FETCH.items():
-                # R87 Phase 1: ``expert_knowledge`` entries are scoped
-                # per-agent in the YAML (``scope: ops-lab`` etc).  We
-                # don't yet have a runtime channel to know which agent
-                # is currently invoking the recall middleware, so for
-                # Phase 1 we fetch expert entries with NO scope filter
-                # (catches both ``global`` AND any agent-scoped entry).
-                # Vector relevance + keyword tags do the
-                # agent-context filtering naturally — an SRL BGP entry
-                # only surfaces for queries that mention SRL/BGP terms.
-                # Phase 1.5 (if Phase 1 bench validates) will wire
-                # agent_name through MemoryRecallPlugin → enrich() →
-                # _gather_candidates() and apply hard
-                # ``scope IN ('global', current_agent)`` filter.
+                # R87 Phase 1.5 (dev_docs/63): ``expert_knowledge`` is
+                # filtered by ``scope IN (current_agent, shared:<domain>,
+                # org)`` when ``current_agent`` is known.  The store API
+                # takes a single scope string, so we over-fetch with no
+                # scope filter and apply the IN-set filter in Python.
+                # When ``current_agent`` is unset (legacy callers),
+                # fall back to Phase 1 behaviour: no filter, rely on
+                # vector relevance + tags for separation.
                 fetch_scope = None if cat == "expert_knowledge" else scope
+                fetch_limit = n
+                if cat == "expert_knowledge" and allowed_expert_scopes:
+                    # Over-fetch so that after the Python-side scope
+                    # filter we still have ≥ ``n`` candidates ready.
+                    fetch_limit = n * 4
                 try:
                     rows = self._store.search_by_vector(
                         query_vector=query_vector,
-                        limit=n,
+                        limit=fetch_limit,
                         category=cat,
                         scope=fetch_scope,
                     )
+                    if cat == "expert_knowledge" and allowed_expert_scopes:
+                        rows = [
+                            r for r in rows
+                            if r.get("scope") in allowed_expert_scopes
+                        ][:n]
                     _add(rows)
                 except Exception as e:
                     logger.debug("curated fetch %s failed: %s", cat, e)
@@ -369,13 +431,21 @@ class AutoRecallMiddleware:
             return memories
 
         # Pass 1: filter caps + index by category.
+        # NOTE: expert_knowledge skips the Pass-1 cap so the Pass-2
+        # sub-quota selector can see ALL candidates (one of each
+        # scope tier). The cap is then enforced in Pass 3 leftover
+        # fill so the final output still respects ``_CATEGORY_CAPS``.
         kept: list[dict] = []
         per_cat: dict[str, list[dict]] = {}
         cap_counts: dict[str, int] = {}
         for m in memories:
             cat = m.get("category") or "fact"
             cap = self._CATEGORY_CAPS.get(cat)
-            if cap is not None and cap_counts.get(cat, 0) >= cap:
+            if (
+                cap is not None
+                and cat != "expert_knowledge"
+                and cap_counts.get(cat, 0) >= cap
+            ):
                 continue
             kept.append(m)
             per_cat.setdefault(cat, []).append(m)
@@ -384,8 +454,58 @@ class AutoRecallMiddleware:
         # Pass 2: reserve quota slots for each quota category.
         chosen_ids: set = set()
         chosen: list[dict] = []
+
+        def _scope_tier(memory: dict) -> str:
+            """Phase 1.5: classify an expert_knowledge entry's scope
+            into one of the sub-quota tiers."""
+            scope = (memory.get("scope") or "").strip()
+            if scope == "org":
+                return "org"
+            if scope.startswith("shared:"):
+                return "shared"
+            return "agent"
+
         for cat, quota in self._CATEGORY_QUOTAS.items():
-            for m in per_cat.get(cat, [])[:quota]:
+            cat_entries = per_cat.get(cat, [])
+            if cat == "expert_knowledge":
+                # Phase 1.5: pick at most ``_EXPERT_SUBQUOTAS[tier]``
+                # entries from each scope tier (preserving rank order
+                # within each tier), then if any of the 3 quota slots
+                # is left over (because a tier is absent), fill it
+                # with the next-best expert_knowledge entry regardless
+                # of tier.
+                tier_counts: dict[str, int] = {}
+                tier_picks: list[dict] = []
+                for m in cat_entries:
+                    if len(tier_picks) >= quota:
+                        break
+                    tier = _scope_tier(m)
+                    if tier_counts.get(tier, 0) >= self._EXPERT_SUBQUOTAS.get(tier, 0):
+                        continue
+                    tier_picks.append(m)
+                    tier_counts[tier] = tier_counts.get(tier, 0) + 1
+                # Top up unused slots from leftover entries
+                if len(tier_picks) < quota:
+                    picked_ids = {p.get("id") for p in tier_picks}
+                    for m in cat_entries:
+                        if len(tier_picks) >= quota:
+                            break
+                        if m.get("id") in picked_ids:
+                            continue
+                        tier_picks.append(m)
+                # Note: we deliberately don't reorder by source=user here —
+                # the quota slot for ``org`` already guarantees a
+                # user-injected entry is present when one exists; the
+                # final Pass 4 sort by global rank then puts entries in
+                # vector-relevance order across categories. If a future
+                # bench shows the LLM ignores user content buried mid-block
+                # we can revisit (e.g. front-load user-source within the
+                # expert_knowledge group post-Pass-4).
+                cat_entries_to_add = tier_picks
+            else:
+                cat_entries_to_add = cat_entries[:quota]
+
+            for m in cat_entries_to_add:
                 mid = m.get("id")
                 if mid in chosen_ids:
                     continue
@@ -396,15 +516,27 @@ class AutoRecallMiddleware:
             if len(chosen) >= limit:
                 break
 
-        # Pass 3: fill remaining slots from the global ranking.
+        # Pass 3: fill remaining slots from the global ranking — but
+        # respect per-category caps so e.g. expert_knowledge stays at
+        # its 3-slot Phase 1.5 cap even when many candidates are
+        # available.  Track post-quota counts per category.
+        post_quota_counts: dict[str, int] = {}
+        for m in chosen:
+            c = m.get("category") or "fact"
+            post_quota_counts[c] = post_quota_counts.get(c, 0) + 1
         for m in kept:
             if len(chosen) >= limit:
                 break
             mid = m.get("id")
             if mid in chosen_ids:
                 continue
+            cat = m.get("category") or "fact"
+            cap = self._CATEGORY_CAPS.get(cat)
+            if cap is not None and post_quota_counts.get(cat, 0) >= cap:
+                continue
             chosen.append(m)
             chosen_ids.add(mid)
+            post_quota_counts[cat] = post_quota_counts.get(cat, 0) + 1
 
         # Pass 4: sort back to global rank order so highest-relevance
         # entries appear first in the prompt block.

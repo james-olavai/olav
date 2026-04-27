@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -59,6 +60,39 @@ from typing import Any
 import yaml
 
 logger = logging.getLogger(__name__)
+
+
+# ---- Phase 1.5 scope vocabulary -------------------------------------------
+
+# Three valid scope forms (see dev_docs/63):
+#   - "<agent_name>"          e.g. "ops-lab", "ops-analyze"
+#   - "shared:<domain>"       e.g. "shared:ops", "shared:audit"
+#   - "org"                   user-injected universal knowledge
+_AGENT_SCOPE_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*$")
+_SHARED_SCOPE_PATTERN = re.compile(r"^shared:[a-z][a-z0-9_-]*$")
+_ORG_SCOPE = "org"
+
+
+def _validate_scope(scope: str, *, source_hint: str = "") -> None:
+    """Raise ValueError if ``scope`` is not one of the three valid forms.
+
+    The error message names the file (when ``source_hint`` is provided)
+    so YAML authors can find the offending entry quickly.
+    """
+    if scope == _ORG_SCOPE:
+        return
+    if _SHARED_SCOPE_PATTERN.match(scope):
+        return
+    if _AGENT_SCOPE_PATTERN.match(scope):
+        return
+    where = f"{source_hint}: " if source_hint else ""
+    raise ValueError(
+        f"{where}scope {scope!r} is invalid. Must be one of: "
+        f"<agent_name> (e.g. 'ops-lab'), "
+        f"'shared:<domain>' (e.g. 'shared:ops'), "
+        f"or 'org' (user-injected, universal). "
+        f"See dev_docs/63 § Phase 1.5."
+    )
 
 
 @dataclass
@@ -73,11 +107,17 @@ class ExpertKnowledge:
     vendor: str | None = None
     platform_family: str | None = None
     source_path: Path | None = None
+    # Phase 1.5: who authored this — auto-populated by discover_experts
+    # based on which directory the file was found in. ``shipped`` =
+    # came with a plugin; ``user`` = added via ~/.olav/expertise/ or
+    # <project>/.olav/expertise/. NOT authored in the YAML.
+    source: str = "shipped"
 
     @classmethod
     def from_yaml(cls, path: Path) -> "ExpertKnowledge":
         """Load + validate one file.  Raises ``KeyError`` for missing
-        required fields, ``ValueError`` for type mismatches.
+        required fields, ``ValueError`` for type mismatches or invalid
+        ``scope`` form (Phase 1.5 — see ``_validate_scope``).
         """
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         for required in ("topic", "scope", "keywords", "body"):
@@ -90,9 +130,11 @@ class ExpertKnowledge:
             isinstance(k, str) for k in keywords
         ):
             raise ValueError(f"{path}: 'keywords' must be a list of strings")
+        scope = str(data["scope"])
+        _validate_scope(scope, source_hint=str(path))
         return cls(
             topic=str(data["topic"]),
-            scope=str(data["scope"]),
+            scope=scope,
             keywords=[str(k) for k in keywords],
             body=str(data["body"]).strip(),
             schema_version=int(data.get("schema_version", 1)),
@@ -115,24 +157,172 @@ class ExpertKnowledge:
         return f"expert_{self.scope}_{self.topic}"
 
 
-def discover_experts(workspace_root: Path) -> list[ExpertKnowledge]:
-    """Glob every ``*.expert.yaml`` under
-    ``workspace_root/<agent>/expertise/``.
+def _infer_scope_from_path(path: Path, workspace_root: Path) -> str | None:
+    """Infer scope from a file's path under ``workspace_root``.
+
+    The inference adapts to whether ``workspace_root`` points at a
+    plugin-level directory (containing skills) or at a single skill
+    (containing subagents). The skill name comes either from
+    ``rel_parts[0]`` (plugin-level root) or from ``workspace_root.name``
+    (skill-level root).
+
+    Recognised relative layouts under ``workspace_root``:
+
+    Plugin-level root (``rel_parts`` includes the skill name):
+      - ``shared/<domain>/expertise/...``       → ``shared:<domain>``
+      - ``<skill>/shared/expertise/...``        → ``shared:<skill>``
+      - ``<skill>/<subagent>/expertise/...``    → ``<skill>-<subagent>``
+      - ``<skill>/expertise/...``               → ``<skill>``
+
+    Skill-level root (``workspace_root.name`` is the skill):
+      - ``shared/expertise/...``                → ``shared:<workspace_root.name>``
+      - ``<subagent>/expertise/...``            → ``<workspace_root.name>-<subagent>``
+      - ``expertise/...``                       → ``<workspace_root.name>``
+
+    User-injection layouts:
+      - ``expertise/...`` directly under user's ``~/.olav/`` or
+        ``<project>/.olav/``                    → ``org``
+
+    The YAML's explicit ``scope`` field is authoritative; this
+    inference is used to (a) sanity-check the YAML, (b) auto-default
+    when the YAML doesn't declare scope.
+
+    Returns ``None`` when no pattern matches.
+    """
+    try:
+        rel_parts = path.relative_to(workspace_root).parts
+    except ValueError:
+        return None
+    if not rel_parts:
+        return None
+    skill = workspace_root.name  # may be empty for root-level
+
+    # Skill-level root: rel_parts starts with subagent / "shared" / "expertise"
+    # We can't always tell which form we're in; try both, prefer the
+    # one that produces a valid scope.
+
+    # Form: shared/<domain>/expertise/...       (plugin-level root)
+    if (
+        len(rel_parts) >= 4
+        and rel_parts[0] == "shared"
+        and rel_parts[2] == "expertise"
+    ):
+        return f"shared:{rel_parts[1]}"
+
+    # Form: <skill>/shared/expertise/...        (plugin-level root)
+    if (
+        len(rel_parts) >= 4
+        and rel_parts[1] == "shared"
+        and rel_parts[2] == "expertise"
+    ):
+        return f"shared:{rel_parts[0]}"
+
+    # Form: <skill>/<subagent>/expertise/...    (plugin-level root)
+    if (
+        len(rel_parts) >= 4
+        and rel_parts[2] == "expertise"
+        and rel_parts[0] != "shared"
+        and rel_parts[1] != "shared"
+    ):
+        return f"{rel_parts[0]}-{rel_parts[1]}"
+
+    # Form: shared/expertise/...                (skill-level root)
+    if (
+        len(rel_parts) >= 3
+        and rel_parts[0] == "shared"
+        and rel_parts[1] == "expertise"
+        and skill
+    ):
+        return f"shared:{skill}"
+
+    # Form: <subagent>/expertise/...            (skill-level root)
+    if (
+        len(rel_parts) >= 3
+        and rel_parts[1] == "expertise"
+        and rel_parts[0] != "shared"
+        and skill
+    ):
+        return f"{skill}-{rel_parts[0]}"
+
+    # Form: expertise/...                       (root-level)
+    if rel_parts[0] == "expertise":
+        # If we're under a skill-named root, treat as skill-scope; else org
+        return skill if skill and skill != ".olav" else _ORG_SCOPE
+
+    return None
+
+
+def discover_experts(
+    workspace_root: Path,
+    *,
+    user_dirs: list[Path] | None = None,
+) -> list[ExpertKnowledge]:
+    """Glob every ``*.expert.yaml`` under known expertise layouts.
+
+    Layouts scanned under ``workspace_root`` (treated as ``shipped``):
+      - ``<root>/<agent>/expertise/*.expert.yaml``
+      - ``<root>/shared/<domain>/expertise/*.expert.yaml``
+
+    User-injection paths (treated as ``source=user``) — scanned when
+    they exist on disk:
+      - ``~/.olav/expertise/*.expert.yaml``
+      - ``<project>/.olav/expertise/*.expert.yaml``
+
+    The YAML's explicit ``scope`` field is authoritative. When it
+    matches the path-inferred scope, both agree (sanity confirmed).
+    When the YAML omits scope, the inferred value populates it.
 
     Skips invalid files with a warning rather than aborting.
     """
     experts: list[ExpertKnowledge] = []
-    if not workspace_root.exists():
-        logger.debug(
-            "expert_kb: workspace_root %s missing — no experts loaded",
-            workspace_root,
-        )
-        return experts
-    for path in sorted(workspace_root.rglob("expertise/*.expert.yaml")):
+
+    def _load(path: Path, source: str, root_for_inference: Path) -> None:
         try:
-            experts.append(ExpertKnowledge.from_yaml(path))
+            expert = ExpertKnowledge.from_yaml(path)
+            expert.source = source
+            # Sanity: YAML scope vs path-inferred — log a warning when
+            # they disagree (often indicates a misplaced YAML).
+            inferred = _infer_scope_from_path(path, root_for_inference)
+            if inferred and inferred != expert.scope:
+                logger.warning(
+                    "expert_kb: %s declares scope=%r but its path "
+                    "implies scope=%r — using YAML's value, but "
+                    "consider moving the file or fixing the field",
+                    path, expert.scope, inferred,
+                )
+            experts.append(expert)
         except (KeyError, ValueError, yaml.YAMLError) as exc:
             logger.warning("expert_kb: failed to load %s — %s", path, exc)
+
+    # ── shipped paths under workspace_root ────────────────────────────
+    if workspace_root.exists():
+        for path in sorted(workspace_root.rglob("expertise/*.expert.yaml")):
+            _load(path, source="shipped", root_for_inference=workspace_root)
+    else:
+        logger.debug(
+            "expert_kb: workspace_root %s missing — skipping shipped scan",
+            workspace_root,
+        )
+
+    # ── user-injection paths ──────────────────────────────────────────
+    candidate_dirs: list[Path] = []
+    if user_dirs is not None:
+        candidate_dirs.extend(user_dirs)
+    else:
+        # Default user dirs: ~/.olav/expertise + <cwd>/.olav/expertise
+        home = Path.home() / ".olav" / "expertise"
+        proj = Path.cwd() / ".olav" / "expertise"
+        for d in (home, proj):
+            if d.exists() and d.is_dir() and d not in candidate_dirs:
+                candidate_dirs.append(d)
+
+    for udir in candidate_dirs:
+        if not udir.exists():
+            continue
+        # User dirs are flat: every *.expert.yaml is org-scope by default
+        for path in sorted(udir.rglob("*.expert.yaml")):
+            _load(path, source="user", root_for_inference=udir.parent)
+
     return experts
 
 
@@ -203,6 +393,7 @@ def prime_experts_from_dir(
         metadata = {
             "topic": expert.topic,
             "scope": expert.scope,
+            "source": expert.source,
             "schema_version": expert.schema_version,
             "n_keywords": len(expert.keywords),
         }
