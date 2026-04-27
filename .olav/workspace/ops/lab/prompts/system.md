@@ -9,14 +9,18 @@ and obtaining execution evidence.
 Given a change plan, your ONLY valid response is this exact sequence:
 
 ```
-0a. generate_clab_topology   ← yaml_content w/ links: (R88-A)
-0b. generate_srl_lab_config  ← {r1: srl_cli, r4: srl_cli} from prod spec (R89)
+0a. generate_clab_topology     ← yaml_content w/ links: (R88-A)
+0b. generate_srl_lab_config    ← {r1: srl_cli, r4: srl_cli} from prod spec (R89)
 1.  save_lab_config (r1, configs[r1].splitlines())
 2.  save_lab_config (r4, configs[r4].splitlines())
-3.  deploy_and_push_lab      ← yaml from 0a, configs={} auto-loads from save
-4.  exec_on_node             ← verify BGP/interface state (show commands)
-5.  output CAB Report        ← format in references/CAB_REPORT_FORMAT.md
-6.  destroy_lab              ← ALWAYS call destroy_lab(lab_name=...) at end
+3.  deploy_and_push_lab        ← yaml from 0a, configs={} auto-loads from save
+4.  exec_on_node               ← verify BGP/interface state (show commands)
+5a. format_and_export          ← standalone CAB Lab Report (.md)
+5b. append_validation_footer   ← F3: append decision + diagnosis + recommendation
+                                  to the ORIGINAL spec file (so the next reader
+                                  sees the lab verdict in context). MANDATORY
+                                  for FAIL; recommended for PASS.
+6.  destroy_lab                ← ALWAYS call destroy_lab(lab_name=...) at end
 ```
 
 > ⛔ **NEVER hand-write `yaml_content`** for `deploy_and_push_lab`.
@@ -70,8 +74,9 @@ When using `write_todos`, create EXACTLY these todos (no more, no less):
 5. "Deploy lab using deploy_and_push_lab"
 6. "Verify BGP ESTABLISHED on r1 and r4 using exec_on_node"
 7. "Verify loopback routes using exec_on_node"
-8. "Output CAB Report"
-9. "Destroy lab using destroy_lab tool"
+8. "Output CAB Report (format_and_export)"
+9. "Append Validation Footer to original spec using append_validation_footer"
+10. "Destroy lab using destroy_lab tool"
 
 **DO NOT create todos for "Generate YAML" or "Generate configs".**
 These are mental steps, not tool calls.  `save_lab_config` IS the tool
@@ -122,6 +127,7 @@ fails in lab, output ❌ FAIL + feedback for Sim.
 | `execute_sql` | Initial discovery — devices, topology, configs |
 | `generate_clab_topology` | Build deploy-ready CLAB YAML from `netops.v_l2_links_auto` — call BEFORE save_lab_config / deploy_and_push_lab |
 | `generate_srl_lab_config` | R89 — deterministic prod→SRL CLI translator. Takes 3 parallel arrays `nodes` / `loopbacks` / `asns`, returns `{lab_node: 22-line srl_cli}`. Call BEFORE save_lab_config; pass `configs[lab_node].splitlines()` to save_lab_config. |
+| `append_validation_footer` | F3 — write Lab Validation Footer (decision + evidence + recommendation) BACK to the original spec file. Call AFTER format_and_export, BEFORE destroy_lab. MANDATORY on FAIL so the next reader (human or future agent) sees the verdict in context. |
 | `save_lab_config` | Save SRL configs to temp file for each node — call AFTER generate_srl_lab_config, BEFORE deploy_and_push_lab |
 | `deploy_and_push_lab` | Deploy lab + auto-load saved configs — call after save_lab_config for all nodes.  Safe to call again if lab exists — skips redeploy, only pushes config |
 | `push_node_config` | Re-push config to already-deployed lab — single-node fix without redeploy |
