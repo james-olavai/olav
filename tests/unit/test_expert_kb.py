@@ -274,3 +274,259 @@ def test_prime_experts_metadata_preserves_vendor(tmp_path):
     assert md["scope"] == "ops-lab"
     assert md["vendor"] == "srl"
     assert md["platform_family"] == "nokia"
+
+
+# ── Phase 1.5: scope vocabulary ────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "scope",
+    ["ops-lab", "audit-orchestrator", "core", "shared:ops", "shared:audit", "org"],
+)
+def test_phase15_scope_validation_accepts_valid_forms(tmp_path, scope):
+    from olav.core.memory.expert_kb import ExpertKnowledge
+
+    yaml_text = f"""
+schema_version: 1
+topic: x
+scope: {scope}
+keywords: [a]
+body: ok
+"""
+    p = tmp_path / "x.expert.yaml"
+    p.write_text(yaml_text, encoding="utf-8")
+    e = ExpertKnowledge.from_yaml(p)
+    assert e.scope == scope
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [
+        "OPS-LAB",        # uppercase
+        "shared:",        # missing domain
+        ":ops",           # missing prefix
+        "shared:Ops",     # uppercase domain
+        # NOTE: "global" (Phase 1 legacy) shape-matches the agent-name
+        # pattern; treated as agent="global" silently rather than
+        # rejected. If a real "global" agent ever exists this works;
+        # if it's a Phase 1 leftover the scope filter just won't include
+        # it for any current agent. Both are acceptable.
+        "agent.with.dot",
+        "shared:ops:extra",  # too many colons
+    ],
+)
+def test_phase15_scope_validation_rejects_invalid_forms(tmp_path, scope):
+    from olav.core.memory.expert_kb import ExpertKnowledge
+
+    # Quote the scope value so YAML doesn't parse colons as mapping
+    yaml_text = f'''
+schema_version: 1
+topic: x
+scope: "{scope}"
+keywords: [a]
+body: ok
+'''
+    p = tmp_path / "x.expert.yaml"
+    p.write_text(yaml_text, encoding="utf-8")
+    with pytest.raises(ValueError) as exc:
+        ExpertKnowledge.from_yaml(p)
+    assert "scope" in str(exc.value).lower()
+
+
+# ── Phase 1.5: discover_experts scans shared/ and user dirs ────────
+
+
+def _write_shared(workspace_root: Path, domain: str, name: str, body: str) -> Path:
+    p = workspace_root / "shared" / domain / "expertise" / f"{name}.expert.yaml"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(body, encoding="utf-8")
+    return p
+
+
+def _write_user(user_dir: Path, name: str, body: str) -> Path:
+    user_dir.mkdir(parents=True, exist_ok=True)
+    p = user_dir / f"{name}.expert.yaml"
+    p.write_text(body, encoding="utf-8")
+    return p
+
+
+SHARED_OPS_YAML = """
+schema_version: 1
+topic: spec_rules
+scope: shared:ops
+keywords: [spec, rules]
+body: |
+  Cross-agent spec rules.
+"""
+
+ORG_YAML = """
+schema_version: 1
+topic: company_as_policy
+scope: org
+keywords: [as, prod]
+body: |
+  Production AS allocation 65000-65535; lab 64500-64599.
+"""
+
+
+def test_phase15_discover_finds_shared_layout(tmp_path):
+    from olav.core.memory.expert_kb import discover_experts
+
+    _write_expert(tmp_path, "ops-lab", "srl_bgp", VALID_EXPERT_YAML)
+    _write_shared(tmp_path, "ops", "spec_rules", SHARED_OPS_YAML)
+
+    experts = discover_experts(tmp_path)
+    by_scope = {e.scope for e in experts}
+    assert by_scope == {"ops-lab", "shared:ops"}
+    assert all(e.source == "shipped" for e in experts)
+
+
+def test_phase15_discover_user_dir_marks_source(tmp_path):
+    from olav.core.memory.expert_kb import discover_experts
+
+    _write_expert(tmp_path, "ops-lab", "srl_bgp", VALID_EXPERT_YAML)
+    user_dir = tmp_path / "user_expertise"
+    _write_user(user_dir, "company_as", ORG_YAML)
+
+    experts = discover_experts(tmp_path, user_dirs=[user_dir])
+    by_topic = {e.topic: e for e in experts}
+    assert by_topic["bgp_state_decoder_srl"].source == "shipped"
+    assert by_topic["company_as_policy"].source == "user"
+    assert by_topic["company_as_policy"].scope == "org"
+
+
+def test_phase15_prime_writes_source_to_metadata(tmp_path):
+    from olav.core.memory.expert_kb import prime_experts_from_dir
+
+    _write_expert(tmp_path, "ops-lab", "srl_bgp", VALID_EXPERT_YAML)
+    user_dir = tmp_path / "user_expertise"
+    _write_user(user_dir, "company_as", ORG_YAML)
+    store = _make_store(tmp_path)
+
+    with patch("olav.core.memory.expert_kb._embed", side_effect=_embed_stub):
+        # Pass user_dirs explicitly so the test is hermetic
+        from olav.core.memory.expert_kb import discover_experts
+        experts = discover_experts(tmp_path, user_dirs=[user_dir])
+        assert any(e.source == "user" for e in experts)
+
+    # Re-prime by direct API to assert metadata
+    with patch("olav.core.memory.expert_kb._embed", side_effect=_embed_stub):
+        # prime_experts_from_dir doesn't accept user_dirs yet — verify
+        # only the shipped path here
+        prime_experts_from_dir(tmp_path, store=store)
+    memories = store.get_memories(limit=10)
+    [m] = memories
+    md = m["metadata"]
+    if isinstance(md, str):
+        md = json.loads(md)
+    assert md.get("source") == "shipped"
+
+
+# ── Phase 1.5: recall middleware scope filter ──────────────────────
+
+
+def test_phase15_allowed_expert_scopes_for_ops_lab():
+    from olav.core.memory import LanceDBStore
+    from olav.core.memory.middleware import AutoRecallMiddleware
+
+    store = LanceDBStore(db_path=":memory:", embedding_dim=DIM)
+    mw = AutoRecallMiddleware(store=store, current_agent="ops-lab")
+    assert mw._allowed_expert_scopes() == {"ops-lab", "shared:ops", "org"}
+
+
+def test_phase15_allowed_scopes_none_when_no_agent():
+    from olav.core.memory import LanceDBStore
+    from olav.core.memory.middleware import AutoRecallMiddleware
+
+    store = LanceDBStore(db_path=":memory:", embedding_dim=DIM)
+    mw = AutoRecallMiddleware(store=store, current_agent=None)
+    assert mw._allowed_expert_scopes() is None
+
+
+def test_phase15_allowed_scopes_compound_agent():
+    """audit-orchestrator → domain 'audit'."""
+    from olav.core.memory import LanceDBStore
+    from olav.core.memory.middleware import AutoRecallMiddleware
+
+    store = LanceDBStore(db_path=":memory:", embedding_dim=DIM)
+    mw = AutoRecallMiddleware(store=store, current_agent="audit-orchestrator")
+    assert mw._allowed_expert_scopes() == {
+        "audit-orchestrator",
+        "shared:audit",
+        "org",
+    }
+
+
+# ── Phase 1.5: three-slot expert_knowledge sub-quota ────────────────
+
+
+def test_phase15_diversifier_picks_one_per_scope_tier():
+    """When agent + shared + org are all present, take one of each."""
+    from olav.core.memory import LanceDBStore
+    from olav.core.memory.middleware import AutoRecallMiddleware
+
+    store = LanceDBStore(db_path=":memory:", embedding_dim=DIM)
+    mw = AutoRecallMiddleware(store=store, current_agent="ops-lab")
+
+    memories = [
+        {"id": f"a{i}", "category": "expert_knowledge", "scope": "ops-lab"}
+        for i in range(3)
+    ] + [
+        {"id": f"s{i}", "category": "expert_knowledge", "scope": "shared:ops"}
+        for i in range(3)
+    ] + [
+        {"id": f"o{i}", "category": "expert_knowledge", "scope": "org",
+         "metadata": {"source": "user"}}
+        for i in range(3)
+    ]
+    out = mw._diversify_by_category(memories, limit=13)
+    chosen_ek = [m for m in out if m["category"] == "expert_knowledge"]
+    assert len(chosen_ek) == 3
+    scopes = sorted({m["scope"] for m in chosen_ek})
+    assert scopes == ["ops-lab", "org", "shared:ops"]
+
+
+def test_phase15_diversifier_includes_user_source_when_present():
+    """The org slot guarantees user-injected content is included
+    whenever it exists — this is the core "users own their workflow"
+    promise (relative ordering is left to vector rank, since the slot
+    presence alone is the contract).
+    """
+    from olav.core.memory import LanceDBStore
+    from olav.core.memory.middleware import AutoRecallMiddleware
+
+    store = LanceDBStore(db_path=":memory:", embedding_dim=DIM)
+    mw = AutoRecallMiddleware(store=store, current_agent="ops-lab")
+
+    memories = [
+        {"id": "a", "category": "expert_knowledge", "scope": "ops-lab"},
+        {"id": "s", "category": "expert_knowledge", "scope": "shared:ops"},
+        {"id": "o", "category": "expert_knowledge", "scope": "org",
+         "metadata": {"source": "user"}},
+    ]
+    out = mw._diversify_by_category(memories, limit=13)
+    user_ids = {
+        m["id"] for m in out
+        if (m.get("metadata") or {}).get("source") == "user"
+    }
+    assert "o" in user_ids
+
+
+def test_phase15_diversifier_falls_back_when_tier_absent():
+    """When only agent-scope entries exist, all 3 slots fill from
+    agent (no slot wasted on absent tiers).
+    """
+    from olav.core.memory import LanceDBStore
+    from olav.core.memory.middleware import AutoRecallMiddleware
+
+    store = LanceDBStore(db_path=":memory:", embedding_dim=DIM)
+    mw = AutoRecallMiddleware(store=store, current_agent="ops-lab")
+
+    memories = [
+        {"id": f"a{i}", "category": "expert_knowledge", "scope": "ops-lab"}
+        for i in range(5)
+    ]
+    out = mw._diversify_by_category(memories, limit=13)
+    chosen_ek = [m for m in out if m["category"] == "expert_knowledge"]
+    assert len(chosen_ek) == 3
+    assert all(m["scope"] == "ops-lab" for m in chosen_ek)
