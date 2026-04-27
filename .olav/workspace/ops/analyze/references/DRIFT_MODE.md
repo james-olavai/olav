@@ -33,7 +33,7 @@ Mode ad-hoc graph algorithms).
 execute_skill_script(
     skill_name="analyze",
     script_name="diff_sql_state.py",
-    script_args={
+    args={
         "table_name": "ospf_neighbors",
         "snapshot_id_1": "20260226_100000",
         "snapshot_id_2": "20260226_120000",
@@ -44,7 +44,7 @@ execute_skill_script(
 execute_skill_script(
     skill_name="analyze",
     script_name="diff_topology_drift.py",
-    script_args={
+    args={
         "snapshot_id_1": "20260226_100000",
         "snapshot_id_2": "20260226_120000",
     },
@@ -54,7 +54,7 @@ execute_skill_script(
 execute_skill_script(
     skill_name="analyze",
     script_name="diff_routing_drift.py",
-    script_args={
+    args={
         "snapshot_id_1": "20260226_100000",
         "snapshot_id_2": "20260226_120000",
         "device_name": "R1",
@@ -65,7 +65,7 @@ execute_skill_script(
 execute_skill_script(
     skill_name="analyze",
     script_name="diff_configs.py",
-    script_args={
+    args={
         "device": "R1",
         "command": "show running-config",
         "snapshot_id_1": "latest",
