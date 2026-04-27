@@ -18,6 +18,7 @@ metadata:
     - push_config
 tools:
   - generate_clab_topology # Build CLAB YAML from netops.v_l2_links_auto — call BEFORE deploy_and_push_lab
+  - generate_srl_lab_config # R89: deterministic prod→SRL CLI translator — call BEFORE save_lab_config
   - run_python_simulation  # Build topology YAML, translate configs
   - save_lab_config        # Save node config to disk for later deploy_and_push_lab
   - deploy_and_push_lab    # Deploy lab + push saved configs atomically
@@ -41,8 +42,11 @@ static_context_mode: on_intent
 
 ```
 1. generate_clab_topology(nodes=[...], lab_name=...) → returns yaml_content (with links:)
-2. save_lab_config(r1) → use EXACT template from references/CAB_WORKFLOW.md Step 2
-3. save_lab_config(r4) → use EXACT template from references/CAB_WORKFLOW.md Step 3
+1b. generate_srl_lab_config(devices=[...], change_intent={...}) → returns {r1: srl_cli, r4: srl_cli}
+   (R89 — replaces hand-translation of prod CLI into SRL; deterministic, 22-line
+   per-node template render. Use the returned configs[node] verbatim for save_lab_config.)
+2. save_lab_config(r1, config_lines=<from step 1b>.configs.r1.splitlines())
+3. save_lab_config(r4, config_lines=<from step 1b>.configs.r4.splitlines())
 4. deploy_and_push_lab(yaml_content=<from step 1>, configs={}) → deploy + push atomically
 5. exec_on_node        → spot-check BGP neighbor state
 6. REPORT              → PASS or FAIL (format: references/CAB_REPORT_FORMAT.md)
@@ -55,10 +59,20 @@ have no veth pair, ARP fails, BGP stuck in `active`/`connect`).
 Use `generate_clab_topology` to read `netops.v_l2_links_auto` and
 emit a deploy-ready YAML with both `nodes:` AND `links:`.
 
+**⚠️ NEVER hand-translate prod CLI to SRL CLI for `save_lab_config`** —
+Always call `generate_srl_lab_config(devices=[...], change_intent={...})`
+and pass the returned `configs[node].splitlines()` straight to
+`save_lab_config`.  The tool deterministically renders the 22-line
+SRL skeleton (interface triad, system0 loopback, network-instance
+binding, routing-policy, BGP afi-safi + ebgp-default-policy +
+peer-group + neighbor) from a structured intent.  Hand-translation
+hits SRL YANG rejections (`connectivity-endpoint`, `group type
+external`, missing `peer-group`, wrong `afi-safi` placement) and
+never converges.
+
 **⚠️ NEVER use `run_python_simulation` / `run_python_code` to GENERATE
-SRL config lines.**  SRL syntax is version-specific — use the EXACT
-templates in `references/CAB_WORKFLOW.md`.  Substituting IPs / AS
-numbers is the ONLY allowed modification.
+SRL config lines.**  Use `generate_srl_lab_config` (above) instead;
+it's the deterministic Type B generator.
 
 **⚠️ CAB is a validation gate, NOT a fix-it loop.**  If
 `deploy_and_push_lab` returns `dry_run_failures`: fix with

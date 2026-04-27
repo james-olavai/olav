@@ -9,13 +9,14 @@ and obtaining execution evidence.
 Given a change plan, your ONLY valid response is this exact sequence:
 
 ```
-0. generate_clab_topology  ← read netops.v_l2_links_auto, get yaml_content w/ links:
-1. save_lab_config (r1)    ← EXACT template from CAB_WORKFLOW.md Step 2
-2. save_lab_config (r4)    ← EXACT template from CAB_WORKFLOW.md Step 3
-3. deploy_and_push_lab     ← yaml_content from step 0, configs={} auto-loads
-4. exec_on_node            ← verify BGP/interface state (show commands)
-5. output CAB Report       ← format in references/CAB_REPORT_FORMAT.md
-6. destroy_lab             ← ALWAYS call destroy_lab(lab_name=...) at end
+0a. generate_clab_topology   ← yaml_content w/ links: (R88-A)
+0b. generate_srl_lab_config  ← {r1: srl_cli, r4: srl_cli} from prod spec (R89)
+1.  save_lab_config (r1, configs[r1].splitlines())
+2.  save_lab_config (r4, configs[r4].splitlines())
+3.  deploy_and_push_lab      ← yaml from 0a, configs={} auto-loads from save
+4.  exec_on_node             ← verify BGP/interface state (show commands)
+5.  output CAB Report        ← format in references/CAB_REPORT_FORMAT.md
+6.  destroy_lab              ← ALWAYS call destroy_lab(lab_name=...) at end
 ```
 
 > ⛔ **NEVER hand-write `yaml_content`** for `deploy_and_push_lab`.
@@ -35,24 +36,33 @@ Given a change plan, your ONLY valid response is this exact sequence:
 > ``docker inspect``) and produces silent ARP-empty / BGP-active
 > failures.
 
+> ⛔ **NEVER hand-translate prod CLI to SRL CLI.**  Always call
+> `generate_srl_lab_config(devices=[...], change_intent={...})`
+> and use the returned `configs[node]` verbatim for `save_lab_config`.
+> The tool deterministically renders the 22-line SRL skeleton
+> (interface triad, system0 loopback, network-instance binding,
+> routing-policy, BGP afi-safi + ebgp-default-policy + peer-group
+> + neighbor) from a structured intent.  Hand-translation hits SRL
+> YANG rejections (`connectivity-endpoint`, `group type external`,
+> missing `peer-group`, wrong `afi-safi` placement) and never converges.
+
 > ⛔ **DO NOT call `run_python_simulation` or `run_python_code` to
-> generate SRL config lines.**  SRL syntax is version-specific.  The
-> templates in `references/CAB_WORKFLOW.md` are the ONLY correct
-> source.  If the plan requires values (IPs, ASNs) not in the
-> template, substitute them — do NOT regenerate the structure.
+> generate SRL config lines.**  Use `generate_srl_lab_config` —
+> it's the deterministic Type B generator, no LLM synthesis needed.
 
 ## ⛔ MANDATORY TODO LIST FORMAT — No Exceptions
 
 When using `write_todos`, create EXACTLY these todos (no more, no less):
 
 1. "Generate topology YAML using generate_clab_topology"
-2. "Save R1 config using save_lab_config"
-3. "Save R4 config using save_lab_config"
-4. "Deploy lab r1-r4-ebgp-direct using deploy_and_push_lab"
-5. "Verify BGP ESTABLISHED on R1 and R4 using exec_on_node"
-6. "Verify loopback routes using exec_on_node"
-7. "Output CAB Report"
-8. "Destroy lab using destroy_lab tool"
+2. "Generate SRL configs using generate_srl_lab_config"
+3. "Save R1 config using save_lab_config"
+4. "Save R4 config using save_lab_config"
+5. "Deploy lab using deploy_and_push_lab"
+6. "Verify BGP ESTABLISHED on r1 and r4 using exec_on_node"
+7. "Verify loopback routes using exec_on_node"
+8. "Output CAB Report"
+9. "Destroy lab using destroy_lab tool"
 
 **DO NOT create todos for "Generate YAML" or "Generate configs".**
 These are mental steps, not tool calls.  `save_lab_config` IS the tool
@@ -102,7 +112,8 @@ fails in lab, output ❌ FAIL + feedback for Sim.
 |---|---|
 | `execute_sql` | Initial discovery — devices, topology, configs |
 | `generate_clab_topology` | Build deploy-ready CLAB YAML from `netops.v_l2_links_auto` — call BEFORE save_lab_config / deploy_and_push_lab |
-| `save_lab_config` | Save SRL configs to temp file for each node — call before deploy_and_push_lab |
+| `generate_srl_lab_config` | R89 — deterministic prod→SRL CLI translator. Takes (devices, change_intent), returns `{node: 22-line srl_cli}`. Call BEFORE save_lab_config; pass `configs[node].splitlines()` to save_lab_config. |
+| `save_lab_config` | Save SRL configs to temp file for each node — call AFTER generate_srl_lab_config, BEFORE deploy_and_push_lab |
 | `deploy_and_push_lab` | Deploy lab + auto-load saved configs — call after save_lab_config for all nodes.  Safe to call again if lab exists — skips redeploy, only pushes config |
 | `push_node_config` | Re-push config to already-deployed lab — single-node fix without redeploy |
 | `exec_on_node` | Verify node state (show commands) |
