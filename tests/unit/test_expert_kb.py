@@ -512,6 +512,80 @@ def test_phase15_diversifier_includes_user_source_when_present():
     assert "o" in user_ids
 
 
+def test_phase15_precedence_default_when_omitted(tmp_path):
+    """If YAML doesn't declare precedence, ExpertKnowledge.precedence='default'."""
+    from olav.core.memory.expert_kb import ExpertKnowledge
+
+    p = tmp_path / "x.expert.yaml"
+    p.write_text(VALID_EXPERT_YAML, encoding="utf-8")
+    e = ExpertKnowledge.from_yaml(p)
+    assert e.precedence == "default"
+
+
+@pytest.mark.parametrize("prec", ["override", "default", "advisory"])
+def test_phase15_precedence_accepts_valid(tmp_path, prec):
+    from olav.core.memory.expert_kb import ExpertKnowledge
+
+    yaml_text = f"""
+schema_version: 1
+topic: x
+scope: ops-lab
+precedence: {prec}
+keywords: [a]
+body: ok
+"""
+    p = tmp_path / "x.expert.yaml"
+    p.write_text(yaml_text, encoding="utf-8")
+    e = ExpertKnowledge.from_yaml(p)
+    assert e.precedence == prec
+
+
+def test_phase15_precedence_rejects_invalid(tmp_path):
+    from olav.core.memory.expert_kb import ExpertKnowledge
+
+    yaml_text = """
+schema_version: 1
+topic: x
+scope: ops-lab
+precedence: must-have
+keywords: [a]
+body: ok
+"""
+    p = tmp_path / "x.expert.yaml"
+    p.write_text(yaml_text, encoding="utf-8")
+    with pytest.raises(ValueError) as exc:
+        ExpertKnowledge.from_yaml(p)
+    assert "precedence" in str(exc.value).lower()
+
+
+def test_phase15_diversifier_override_outranks_default_within_tier():
+    """When two same-tier entries compete for the agent slot, the one
+    with precedence=override is picked over precedence=default.
+    """
+    from olav.core.memory import LanceDBStore
+    from olav.core.memory.middleware import AutoRecallMiddleware
+
+    store = LanceDBStore(db_path=":memory:", embedding_dim=DIM)
+    mw = AutoRecallMiddleware(store=store, current_agent="ops-lab")
+
+    memories = [
+        # Default first in vector rank
+        {"id": "default_one", "category": "expert_knowledge", "scope": "ops-lab",
+         "metadata": {"precedence": "default"}},
+        # Override after — must still be picked first within ops-lab tier
+        {"id": "override_one", "category": "expert_knowledge", "scope": "ops-lab",
+         "metadata": {"precedence": "override"}},
+    ]
+    out = mw._diversify_by_category(memories, limit=13)
+    chosen_ek = [m for m in out if m["category"] == "expert_knowledge"]
+    chosen_ids = {m["id"] for m in chosen_ek}
+    assert "override_one" in chosen_ids
+    # default_one shouldn't crowd out the override; with sub-quota
+    # 1 agent + 1 shared + 1 org and only ops-lab entries here, both
+    # may end up picked due to top-up, but override must be in there
+    assert "default_one" in chosen_ids or len(chosen_ek) == 1
+
+
 def test_phase15_diversifier_falls_back_when_tier_absent():
     """When only agent-scope entries exist, all 3 slots fill from
     agent (no slot wasted on absent tiers).

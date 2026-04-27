@@ -1,6 +1,6 @@
 schema_version: 1
 topic: srl_spec_generation_rules
-scope: ops-analyze
+scope: shared:ops
 vendor: srl
 platform_family: nokia
 keywords:

@@ -1,6 +1,6 @@
 schema_version: 1
 topic: junos_vs_ios_bgp_translation
-scope: ops-analyze
+scope: shared:ops
 vendor: multi
 platform_family: cross-vendor
 keywords:

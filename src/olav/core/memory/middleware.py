@@ -465,6 +465,14 @@ class AutoRecallMiddleware:
                 return "shared"
             return "agent"
 
+        # Phase 1.5: precedence rank — override < default < advisory.
+        # Lower number = higher priority within same scope tier.
+        _PREC_RANK = {"override": 0, "default": 1, "advisory": 2}
+
+        def _precedence_rank(memory: dict) -> int:
+            md = memory.get("metadata") or {}
+            return _PREC_RANK.get(md.get("precedence"), 1)
+
         for cat, quota in self._CATEGORY_QUOTAS.items():
             cat_entries = per_cat.get(cat, [])
             if cat == "expert_knowledge":
@@ -474,9 +482,20 @@ class AutoRecallMiddleware:
                 # is left over (because a tier is absent), fill it
                 # with the next-best expert_knowledge entry regardless
                 # of tier.
+                #
+                # Within a tier, ``precedence: override`` outranks
+                # ``default`` (and ``advisory`` is demoted) — sort the
+                # tier-eligible candidates accordingly while preserving
+                # vector-rank as the secondary key.
                 tier_counts: dict[str, int] = {}
                 tier_picks: list[dict] = []
-                for m in cat_entries:
+                # Stable-sort by precedence (then preserve original order via
+                # enumerate index — vector-rank tiebreak)
+                ranked_entries = sorted(
+                    enumerate(cat_entries),
+                    key=lambda iv: (_precedence_rank(iv[1]), iv[0]),
+                )
+                for _, m in ranked_entries:
                     if len(tier_picks) >= quota:
                         break
                     tier = _scope_tier(m)
