@@ -99,8 +99,10 @@ dependencies = [
     # Knowledge Base & Embedding
     "lancedb>=0.29.2",
     "sentence-transformers>=5.2.3",
-    # Web search (required by web_search tool via langchain DuckDuckGoSearchRun)
-    "duckduckgo-search>=3.0.0",
+    # Web search (required by web_search tool via langchain DuckDuckGoSearchRun).
+    # langchain-community 0.4+ migrated from `duckduckgo-search` → `ddgs`;
+    # both names refer to the same library, ddgs is current.
+    "ddgs>=9.0",
     # Data export (CSV/JSON formatting)
     "numpy>=2.4.1",
     "pandas>=3.0.1",
