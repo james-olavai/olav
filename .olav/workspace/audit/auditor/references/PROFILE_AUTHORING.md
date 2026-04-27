@@ -29,12 +29,12 @@ write-side helpers (``save_profile``, ``append_jobs``) remain MCP.
 ```
 1. execute_skill_script(
        skill_name="auditor", script_name="database_introspection.py",
-       args={"db_type": "duckdb"})
+       script_args={"db_type": "duckdb"})
    → Learn real table and column names. Never guess.
 
 2. execute_skill_script(
        skill_name="auditor", script_name="preview_map_query.py",
-       args={"job_type": "sql", "query": "<SQL with :window>",
+       script_args={"job_type": "sql", "query": "<SQL with :window>",
              "params": {"window": "1h"}})
    → Validate SQL syntax for each job. Zero rows is fine; errors are not.
 
@@ -43,17 +43,17 @@ write-side helpers (``save_profile``, ``append_jobs``) remain MCP.
 ```
 
 For data-driven thresholds, call
-``execute_skill_script(skill_name="auditor", script_name="analyze_thresholds.py", args={...})``
+``execute_skill_script(skill_name="auditor", script_name="analyze_thresholds.py", script_args={...})``
 between steps 2 and 3. For extending an existing profile, call
 ``execute_skill_script(skill_name="auditor", script_name="read_profile.py",
-args={"action":"read", "name":"<profile>"})`` then ``append_jobs`` (MCP)
+script_args={"action":"read", "name":"<profile>"})`` then ``append_jobs`` (MCP)
 instead of ``save_profile``.
 
 ## The three authoring sub-modes
 
 All entries below tagged ``[skill]`` are skill scripts under
 ``audit/auditor/scripts/`` invoked via
-``execute_skill_script(skill_name="auditor", script_name="<name>.py", args={...})``.
+``execute_skill_script(skill_name="auditor", script_name="<name>.py", script_args={...})``.
 Plain entries are still MCP tools.
 
 | Sub-mode | When to use | Key tools |
@@ -67,12 +67,12 @@ Plain entries are still MCP tools.
 ```
 1. execute_skill_script(
        skill_name="auditor", script_name="database_introspection.py",
-       args={"db_type": "duckdb"})
+       script_args={"db_type": "duckdb"})
    # → Confirm tables and columns available for the metric.
 
 2. execute_skill_script(
        skill_name="auditor", script_name="analyze_thresholds.py",
-       args={"metric_query": "SELECT <numeric_column> AS value FROM <table> WHERE ...",
+       script_args={"metric_query": "SELECT <numeric_column> AS value FROM <table> WHERE ...",
              "metric_name": "<MetricName>",
              "higher_is_worse": True,
              "unit": "%"})
@@ -95,16 +95,16 @@ Rules:
 
 ```
 1. execute_skill_script(skill_name="auditor", script_name="read_profile.py",
-                        args={"action": "list"})
+                        script_args={"action": "list"})
    → list available profiles
 
 2. execute_skill_script(skill_name="auditor", script_name="read_profile.py",
-                        args={"action": "read", "name": "<profile>"})
+                        script_args={"action": "read", "name": "<profile>"})
    → current jobs + thresholds
 
 3. For each numeric job:
    execute_skill_script(skill_name="auditor", script_name="analyze_thresholds.py",
-                        args={"metric_query": ..., ...})
+                        script_args={"metric_query": ..., ...})
 
 4. Present diff table → user confirms → save_profile (MCP, full overwrite).
 ```
@@ -120,19 +120,19 @@ Rules:
 
 ```
 1. execute_skill_script(skill_name="auditor", script_name="read_profile.py",
-                        args={"action": "read", "name": "<profile>"})
+                        script_args={"action": "read", "name": "<profile>"})
    → existing names → avoid duplicates
 
 2. execute_skill_script(skill_name="auditor", script_name="database_introspection.py",
-                        args={"db_type": "duckdb"})
+                        script_args={"db_type": "duckdb"})
    → verify columns
 
 3. execute_skill_script(skill_name="auditor", script_name="preview_map_query.py",
-                        args={"job_type": "sql", "query": "..."})
+                        script_args={"job_type": "sql", "query": "..."})
    → validate SQL
 
 4. (optional) execute_skill_script(skill_name="auditor",
-                                   script_name="analyze_thresholds.py", args={...})
+                                   script_name="analyze_thresholds.py", script_args={...})
    → data-driven thresholds if requested
 
 5. append_jobs(profile_name=..., new_jobs=[...])             [MCP]

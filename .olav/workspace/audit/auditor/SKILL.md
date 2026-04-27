@@ -80,12 +80,12 @@ designer workflow below instead of Steps 1–4 above.
 ```
 1. execute_skill_script(
        skill_name="auditor", script_name="database_introspection.py",
-       args={"db_type": "duckdb"})
+       script_args={"db_type": "duckdb"})
    → Learn real table / column names. Never guess.
 
 2. execute_skill_script(
        skill_name="auditor", script_name="preview_map_query.py",
-       args={"job_type": "sql", "query": "<SQL with :window>",
+       script_args={"job_type": "sql", "query": "<SQL with :window>",
              "params": {"window": "1h"}})
    → Validate SQL syntax for each job. Zero rows is fine; errors are not.
 
@@ -94,9 +94,9 @@ designer workflow below instead of Steps 1–4 above.
 ```
 
 For data-driven thresholds, call
-``execute_skill_script(skill_name="auditor", script_name="analyze_thresholds.py", args={...})``
+``execute_skill_script(skill_name="auditor", script_name="analyze_thresholds.py", script_args={...})``
 between steps 2 and 3. For extending an existing profile, call
-``execute_skill_script(skill_name="auditor", script_name="read_profile.py", args={"action":"read", "name":"<profile>"})``
+``execute_skill_script(skill_name="auditor", script_name="read_profile.py", script_args={"action":"read", "name":"<profile>"})``
 then ``append_jobs`` (MCP) instead of ``save_profile``.
 
 ### Authoring rules

@@ -45,7 +45,7 @@ from olav.core.skill_runner import execute_skill_script as _impl
 def execute_skill_script(
     skill_name: str,
     script_name: str,
-    args: dict[str, Any] | None = None,
+    script_args: dict[str, Any] | None = None,
     timeout: int = 120,
 ) -> dict[str, Any]:
     """Run a Python script registered with a skill.
@@ -63,9 +63,11 @@ def execute_skill_script(
         script_name: Filename of the script to run, including
             ``.py`` extension. Must be a bare filename (no path
             components).
-        args: Optional structured args. Serialised to JSON and sent
-            on stdin. Use ``None`` or ``{}`` for argument-less
-            scripts.
+        script_args: Optional structured args (dict). Serialised to JSON
+            and sent on stdin. Use ``None`` or ``{}`` for argument-less
+            scripts. (Named ``script_args`` rather than ``args`` to
+            avoid collision with LangChain's tool-schema ``args``
+            reserved key.)
         timeout: Subprocess wall-clock seconds (capped at 600).
 
     Returns:
@@ -78,12 +80,12 @@ def execute_skill_script(
         >>> execute_skill_script(
         ...     skill_name="lab",
         ...     script_name="generate_clab_topology.py",
-        ...     args={"nodes": ["R1", "R4"], "lab_name": "cab_demo"},
+        ...     script_args={"nodes": ["R1", "R4"], "lab_name": "cab_demo"},
         ... )
     """
     return _impl(
         skill_name=skill_name,
         script_name=script_name,
-        args=args,
+        args=script_args,
         timeout=timeout,
     )

@@ -19,7 +19,7 @@ metadata:
 tools:
   # Per ADR-0008 rev1 (R92.6): all deterministic + REST/SSH-callable
   # ops live as skill scripts under ./scripts/. Invoke via
-  # execute_skill_script(skill_name="lab", script_name="<name>.py", args={...}).
+  # execute_skill_script(skill_name="lab", script_name="<name>.py", script_args={...}).
   # The agent's @tool surface for ops/lab is just 1 tool (real-time
   # streaming) — everything else is a skill script.
   - execute_skill_script   # Inherited from core/tools/. Drives all ./scripts/ entries.
@@ -46,28 +46,28 @@ parsed dict.
 ```
 0.  execute_skill_script(
         skill_name="lab", script_name="tcf_load_for_lab.py",
-        args={"spec_path": "<path>"})
+        script_args={"spec_path": "<path>"})
     # stdout → {status, change_id, r88_args, r89_args, post_check, tvt, ...}
 
 1.  execute_skill_script(
         skill_name="lab", script_name="generate_clab_topology.py",
-        args=out["stdout"]["r88_args"])
+        script_args=out["stdout"]["r88_args"])
     # stdout → {status, yaml}
 
 2.  execute_skill_script(
         skill_name="lab", script_name="generate_srl_lab_config.py",
-        args=out["stdout"]["r89_args"])
+        script_args=out["stdout"]["r89_args"])
     # stdout (parsed) → {status, configs: {lab_node: 22-line srl_cli}}
 
 3.  execute_skill_script(
         skill_name="lab", script_name="save_lab_config.py",
-        args={"lab_name": ..., "node": <lab_node>,
+        script_args={"lab_name": ..., "node": <lab_node>,
               "config_lines": configs[lab_node].splitlines()})
     [one call per node — writes to deploy contract path]
 
 4.  execute_skill_script(
         skill_name="lab", script_name="deploy_and_push_lab.py",
-        args={"lab_name": ..., "yaml_content": <step 1 yaml>, "configs": {}})
+        script_args={"lab_name": ..., "yaml_content": <step 1 yaml>, "configs": {}})
 
 5.  exec_on_node — run each post_check.command, compare to expected_pattern
     (stays as @tool — real-time streaming for interactive show commands)
@@ -75,24 +75,24 @@ parsed dict.
 5b. ROLLBACK VALIDATION — only when apply tests PASSED:
     a. execute_skill_script(
            skill_name="lab", script_name="generate_srl_rollback_config.py",
-           args=r89_args)
+           script_args=r89_args)
        # stdout → {status, configs: {lab_node: 7-line delete CLI}}
     b. execute_skill_script(
            skill_name="lab", script_name="push_node_config.py",
-           args={"lab_name": ..., "node": <lab_node>,
+           script_args={"lab_name": ..., "node": <lab_node>,
                  "config_lines": rollback_configs[lab_node]})
     c. exec_on_node — verify reversion (BGP gone, no IPv4 on subif).
 
 6.  format_and_export — standalone CAB Lab Report (.md)
 7.  execute_skill_script(
         skill_name="lab", script_name="tcf_record_lab_run.py",
-        args={"spec_path": ..., "verdict": ..., "lab_name": ...,
+        script_args={"spec_path": ..., "verdict": ..., "lab_name": ...,
               "tvt_test_ids": [...], "tvt_actual_lab": [...],
               "tvt_status": [...], "journal": [...]})
     # writes verdict + journal + per-test actuals back to TCF
 8.  execute_skill_script(
         skill_name="lab", script_name="destroy_lab.py",
-        args={"lab_name": ...})
+        script_args={"lab_name": ...})
     — ALWAYS run, even on failure
 ```
 

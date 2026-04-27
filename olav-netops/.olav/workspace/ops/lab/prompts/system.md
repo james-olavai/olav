@@ -9,25 +9,25 @@ and obtaining execution evidence.
 Given a change plan, your ONLY valid response is this exact sequence.
 Per ADR-0008, the deterministic generators are **skill scripts**
 under ``ops/lab/scripts/``. Invoke them with
-``execute_skill_script(skill_name="lab", script_name="<name>.py", args={...})``.
+``execute_skill_script(skill_name="lab", script_name="<name>.py", script_args={...})``.
 The script's ``stdout`` is parsed as JSON and returned in the
 ``stdout`` field of the result dict.
 
 ```
 0.  execute_skill_script(
         skill_name="lab", script_name="tcf_load_for_lab.py",
-        args={"spec_path": "<spec_path>"})
+        script_args={"spec_path": "<spec_path>"})
     # result["stdout"] → {status, change_id, r88_args, r89_args,
     #                     post_check, tvt, required_tests, ...}
 
 1.  execute_skill_script(
         skill_name="lab", script_name="generate_clab_topology.py",
-        args=stdout["r88_args"])
+        script_args=stdout["r88_args"])
     # result["stdout"] → {status: "ok", yaml: "<full clab yaml>"}
 
 2.  execute_skill_script(
         skill_name="lab", script_name="generate_srl_lab_config.py",
-        args=stdout["r89_args"])
+        script_args=stdout["r89_args"])
     # result["stdout"] → {status: "ok", configs: {lab_node: 22-line cli}}
 
 3.  save_lab_config (per node; pass configs[node].splitlines())
@@ -41,7 +41,7 @@ The script's ``stdout`` is parsed as JSON and returned in the
 
 7.  execute_skill_script(
         skill_name="lab", script_name="tcf_record_lab_run.py",
-        args={"spec_path": ..., "verdict": ..., "lab_name": ...,
+        script_args={"spec_path": ..., "verdict": ..., "lab_name": ...,
               "snapshot_id": ..., "tvt_test_ids": [...],
               "tvt_actual_lab": [...], "tvt_status": [...],
               "journal": [...], "diagnosis": ..., "recommendation": [...]})
@@ -69,7 +69,7 @@ The script's ``stdout`` is parsed as JSON and returned in the
 > execute_skill_script(
 >     skill_name="lab",
 >     script_name="generate_srl_lab_config.py",
->     args={
+>     script_args={
 >         "nodes": ["R1", "R4"],               # prod device names
 >         "loopbacks": ["1.1.1.1", "4.4.4.4"], # same order as nodes
 >         "asns": [65000, 65001],              # same order as nodes
