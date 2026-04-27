@@ -70,7 +70,7 @@ def _resolve_recall_limit(explicit: int | None) -> int:
 def recall_memory(
     query: str,
     category: str | None = None,
-    scope: str = "global",
+    scope: str | None = None,
     limit: int | None = None,
 ) -> str:
     """Query long-term memory for past experiences, decisions, and network events.
@@ -95,11 +95,16 @@ def recall_memory(
                     - "fact"       — Network facts and observed states
                     - "decision"   — Past decisions and their rationale
                     - "preference" — Learned preferences and constraints
+                    - "expert_knowledge" — Curated vendor/platform expertise (R87)
+                    - "usage_guide" / "format_guide" — Curated procedural rules
                     - "audit"      — Failure records and action audits
                   Leave None to search across all categories.
-        scope:    Memory scope to search (default "global").
-                  Use the specific agent name (e.g. "ops", "config") to restrict
-                  to that agent's private memory, or "global" for all shared memory.
+        scope:    Optional memory scope filter. Default ``None`` searches
+                  across all scopes — recommended; let vector relevance
+                  pick the most relevant memory regardless of which agent
+                  authored it. Pass an explicit scope (e.g. ``"ops-lab"``,
+                  ``"shared:ops"``, ``"org"``, or a legacy ``"global"``)
+                  only when you need to restrict.
         limit:    Max results to return. Omit to use the model-tier default
                   (small=1, medium=2, large=3 per ``TIER_DEFAULTS.recall_top_k``,
                   ARCH-16). Hard ceiling is 10 regardless of tier.
