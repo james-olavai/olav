@@ -86,28 +86,57 @@ Phase 3  Cutover        (remove old paths)
 
 ## Output
 
-For simulations / change plans, produce a Markdown report via
-`format_and_export` that includes:
+For simulations / change plans, produce a structured **TCF** (Test
+Case File) via ``tcf_emit_from_sim`` — not free-form markdown.
+The TCF is the contract ops-lab consumes.  Markdown narrative is
+rendered by the writer agent on demand; do NOT attempt to write
+markdown spec yourself.
 
-1. Current State
-2. Simulation Scope (tables cloned, mutations applied)
-3. Feasibility Check Results
-4. Impact Analysis (blast radius, affected protocols)
-5. Change Plan (phased)
-6. **CAB Implementation Spec** — exact format in
-   `references/CAB_SPEC_FORMAT.md`.  ops-lab implements this section
-   literally; format must be precise.  The spec is prod-aligned —
-   each device gets CLI in its own platform's syntax (Junos for a
-   Junos box, IOS for IOS, etc.).  Do NOT write SRL CLI here;
-   ops-lab does its own prod→SRL translation for the digital twin.
-7. Verification Commands
-8. Risk Classification (LOW / MEDIUM / HIGH with justification)
+The TCF emitter takes structured args (parallel arrays for devices,
+JSON-string args for nested lists).  The output lands at
+``exports/cab/<change_id>/spec.tcf.yaml`` — Pydantic-validated,
+ready for ops-lab.  Required content for a CAB:
 
-### Format gotcha
+1. **change_id, title, intent_type** — top-level metadata.
+   ``intent_type`` is free-form (e.g. ``ebgp_direct``,
+   ``acl_update``, ``vlan_add``); ops-lab dispatches on it.
+2. **devices** (parallel arrays: device_names / device_platforms /
+   device_loopbacks / device_asns; optional device_intfs) —
+   prod-aligned facts from your DB queries.  Each device's
+   ``platform`` carries its own CLI syntax in the implementation
+   block; do NOT write SRL CLI here.
+3. **implementation_json** — JSON-encoded list of CLI blocks.
+   Each block is ``{"device":"R1","phase":1,"cli":["set ...", ...]}``.
+   Use prod CLI in the device's native syntax (Junos for Junos,
+   IOS for IOS).
+4. **rollback_json** — same shape, undo CLI per device.  Lab
+   validates rollback alongside apply (R90 future).
+5. **post_check_json** — verification assertions: per-device
+   command + expected pattern.
+6. **tvt_json** — Test Verification Tracker rows (test_id /
+   description / expected / severity).  Lab fills in actuals.
+7. **required_test_ids** — which test IDs MUST pass for prod
+   approval.
 
-Pass the spec markdown as a **STRING** to ``format_and_export``
-(``data="# CAB Spec\n..."``).  Passing a dict produces ugly
-``**header**:`` rows — a known small-model bug.
+The risk classification (``risk_class`` arg) and lab subnet
+(``lab_subnet``, default ``172.16.99.0/30``) round out the call.
+
+ops-lab will read this file and call deterministic generators
+(R88-A topology, R89 SRL CLI translator) — you do NOT write SRL
+CLI in the spec; lab generates SRL from your prod-aligned
+implementation_json + device facts.
+
+### Why TCF replaces format_and_export for specs
+
+* Pydantic validation prevents missing fields
+* Cross-FK validator catches device-name typos at write time
+* ops-lab consumes structured data, no LLM-extract-from-markdown
+* Same TCF supports apply + rollback + tvt + journal in one file
+* Markdown is a render output, not the contract
+
+If a human asks for a markdown CAB doc, the orchestrator delegates
+to the writer agent — writer reads the TCF and LLM-renders to
+whatever layout the user needs.
 
 For topology diagrams: always `format_and_export` to `.mmd`; never
 print without saving.  Filename / Mermaid format rules in
