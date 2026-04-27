@@ -214,41 +214,56 @@ from langchain_core.tools import tool
 
 @tool
 def generate_srl_lab_config(
-    devices: list[dict],
-    change_intent: dict,
+    nodes: list[str],
+    loopbacks: list[str],
+    asns: list[int],
+    intent_type: str = "ebgp_direct",
+    lab_subnet: str = "172.16.99.0/30",
 ) -> str:
-    """Generate SRL CLI configs for each lab node from a structured description.
+    """Generate SRL CLI configs for each lab node, deterministic.
 
-    Use this BEFORE ``save_lab_config`` when validating a prod CAB spec
-    in an SRL digital twin.  Replaces the LLM-driven prod→SRL
-    translation with a deterministic 23-line per-node template render
-    — the agent doesn't have to reproduce SRL YANG syntax in free-form
-    text, which is unreliable for small models.
+    Use this BEFORE ``save_lab_config`` when validating a prod CAB
+    spec in an SRL digital twin.  Replaces the LLM-driven prod→SRL
+    translation with a deterministic 22-line per-node template render
+    — the agent doesn't have to reproduce SRL YANG syntax in
+    free-form text (unreliable for small models).
+
+    Schema is **3 parallel arrays** (small models handle this much
+    better than ``list[dict]``):
+
+        nodes      = ["R1", "R4"]       # prod device names
+        loopbacks  = ["1.1.1.1", "4.4.4.4"]   # bare host or "/32"
+        asns       = [65000, 65001]     # local AS per node, same order
 
     Args:
-        devices: Each dict = ``{"name": "R1", "loopback": "1.1.1.1/32",
-            "asn": 65000}``. ``loopback`` may be bare host or with
-            ``/32``; ``asn`` is the local AS for that device.
-            Number of devices must match the intent (2 for
-            ``ebgp_direct``).
-        change_intent: ``{"type": "ebgp_direct", "lab_subnet": "172.16.99.0/30"}``.
-            ``type`` selects the SRL template (currently only
-            ``ebgp_direct`` is supported). ``lab_subnet`` is the /30 to
-            allocate for the lab link (default 172.16.99.0/30).
+        nodes: Prod device names. Lab nodes are auto-lowercased
+            (R1 → r1) to match CLAB convention. ``len(nodes)`` must
+            match the intent (2 for ``ebgp_direct``).
+        loopbacks: Loopback IPs in the same order as ``nodes``. Each
+            may be bare (``"1.1.1.1"``) or with mask (``"1.1.1.1/32"``);
+            tool normalises to /32. Used as the SRL ``router-id`` and
+            ``system0`` IP for that node.
+        asns: Local AS numbers in the same order as ``nodes``. For
+            eBGP intents these must differ (different AS per node).
+        intent_type: Which SRL template to render. Currently only
+            ``ebgp_direct`` (2 nodes, single /30 link, mutual eBGP)
+            is supported.
+        lab_subnet: /30 (or shorter) to allocate for the lab link.
+            Default ``172.16.99.0/30``. Hosts are assigned in
+            ``nodes`` order: ``nodes[0]`` gets the first host, etc.
 
     Returns:
         JSON string with ``configs`` (dict mapping lab node → SRL CLI
-        block of 23 lines), ``warnings`` (list of strings), and
+        block of 22 lines), ``warnings`` (list of strings), and
         ``intent_type`` (echo of the intent used). Pass
-        ``configs[lab_node]`` to ``save_lab_config`` for each node.
+        ``configs[lab_node].splitlines()`` to ``save_lab_config`` for
+        each node.
 
     Example:
         >>> result = generate_srl_lab_config(
-        ...     devices=[
-        ...         {"name": "R1", "loopback": "1.1.1.1/32", "asn": 65000},
-        ...         {"name": "R4", "loopback": "4.4.4.4/32", "asn": 65001},
-        ...     ],
-        ...     change_intent={"type": "ebgp_direct", "lab_subnet": "172.16.99.0/30"},
+        ...     nodes=["R1", "R4"],
+        ...     loopbacks=["1.1.1.1", "4.4.4.4"],
+        ...     asns=[65000, 65001],
         ... )
         >>> data = json.loads(result)
         >>> save_lab_config(node="r1", config_lines=data["configs"]["r1"].splitlines())
@@ -256,17 +271,30 @@ def generate_srl_lab_config(
     """
     warnings: list[str] = []
 
-    if not isinstance(devices, list) or not devices:
+    if not isinstance(nodes, list) or not nodes:
         return json.dumps({
             "status": "error",
-            "error": "devices must be a non-empty list",
+            "error": "nodes must be a non-empty list of device names",
         })
-    if not isinstance(change_intent, dict):
+    if not isinstance(loopbacks, list) or len(loopbacks) != len(nodes):
         return json.dumps({
             "status": "error",
-            "error": "change_intent must be a dict with 'type' field",
+            "error": (
+                f"loopbacks must be a list of the same length as nodes "
+                f"(got {len(loopbacks) if isinstance(loopbacks, list) else type(loopbacks).__name__} "
+                f"vs {len(nodes)} nodes)"
+            ),
         })
-    intent_type = change_intent.get("type")
+    if not isinstance(asns, list) or len(asns) != len(nodes):
+        return json.dumps({
+            "status": "error",
+            "error": (
+                f"asns must be a list of the same length as nodes "
+                f"(got {len(asns) if isinstance(asns, list) else type(asns).__name__} "
+                f"vs {len(nodes)} nodes)"
+            ),
+        })
+
     if intent_type not in _SUPPORTED_INTENTS:
         return json.dumps({
             "status": "error",
@@ -276,25 +304,24 @@ def generate_srl_lab_config(
             ),
         })
 
-    # Validate device shape
-    for i, d in enumerate(devices):
-        if not isinstance(d, dict):
-            return json.dumps({
-                "status": "error",
-                "error": f"devices[{i}] must be a dict; got {type(d).__name__}",
-            })
-        for key in ("name", "loopback", "asn"):
-            if key not in d:
-                return json.dumps({
-                    "status": "error",
-                    "error": f"devices[{i}] missing required field {key!r}",
-                })
+    # Build the structured devices list internally
+    try:
+        effective_devices = [
+            {"name": n, "loopback": str(lb), "asn": int(a)}
+            for n, lb, a in zip(nodes, loopbacks, asns, strict=True)
+        ]
+    except (TypeError, ValueError) as e:
+        return json.dumps({
+            "status": "error",
+            "error": f"failed to zip nodes/loopbacks/asns: {e}",
+        })
+
+    effective_intent = {"type": intent_type, "lab_subnet": lab_subnet}
 
     try:
         if intent_type == "ebgp_direct":
-            configs = _generate_ebgp_direct(devices, change_intent, warnings)
+            configs = _generate_ebgp_direct(effective_devices, effective_intent, warnings)
         else:
-            # Defensive — _SUPPORTED_INTENTS should match dispatch
             return json.dumps({
                 "status": "error",
                 "error": f"no handler for intent {intent_type!r}",

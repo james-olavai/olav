@@ -37,14 +37,23 @@ Given a change plan, your ONLY valid response is this exact sequence:
 > failures.
 
 > ⛔ **NEVER hand-translate prod CLI to SRL CLI.**  Always call
-> `generate_srl_lab_config(devices=[...], change_intent={...})`
-> and use the returned `configs[node]` verbatim for `save_lab_config`.
+> `generate_srl_lab_config` with 3 parallel arrays and use the
+> returned `configs[lab_node]` verbatim for `save_lab_config`:
+>
+> ```
+> generate_srl_lab_config(
+>     nodes=["R1", "R4"],            # prod device names
+>     loopbacks=["1.1.1.1", "4.4.4.4"],  # same order as nodes
+>     asns=[65000, 65001],           # same order as nodes
+> )
+> ```
+>
 > The tool deterministically renders the 22-line SRL skeleton
 > (interface triad, system0 loopback, network-instance binding,
 > routing-policy, BGP afi-safi + ebgp-default-policy + peer-group
-> + neighbor) from a structured intent.  Hand-translation hits SRL
-> YANG rejections (`connectivity-endpoint`, `group type external`,
-> missing `peer-group`, wrong `afi-safi` placement) and never converges.
+> + neighbor).  Hand-translation hits SRL YANG rejections
+> (`connectivity-endpoint`, `group type external`, missing
+> `peer-group`, wrong `afi-safi` placement) and never converges.
 
 > ⛔ **DO NOT call `run_python_simulation` or `run_python_code` to
 > generate SRL config lines.**  Use `generate_srl_lab_config` —
@@ -112,7 +121,7 @@ fails in lab, output ❌ FAIL + feedback for Sim.
 |---|---|
 | `execute_sql` | Initial discovery — devices, topology, configs |
 | `generate_clab_topology` | Build deploy-ready CLAB YAML from `netops.v_l2_links_auto` — call BEFORE save_lab_config / deploy_and_push_lab |
-| `generate_srl_lab_config` | R89 — deterministic prod→SRL CLI translator. Takes (devices, change_intent), returns `{node: 22-line srl_cli}`. Call BEFORE save_lab_config; pass `configs[node].splitlines()` to save_lab_config. |
+| `generate_srl_lab_config` | R89 — deterministic prod→SRL CLI translator. Takes 3 parallel arrays `nodes` / `loopbacks` / `asns`, returns `{lab_node: 22-line srl_cli}`. Call BEFORE save_lab_config; pass `configs[lab_node].splitlines()` to save_lab_config. |
 | `save_lab_config` | Save SRL configs to temp file for each node — call AFTER generate_srl_lab_config, BEFORE deploy_and_push_lab |
 | `deploy_and_push_lab` | Deploy lab + auto-load saved configs — call after save_lab_config for all nodes.  Safe to call again if lab exists — skips redeploy, only pushes config |
 | `push_node_config` | Re-push config to already-deployed lab — single-node fix without redeploy |

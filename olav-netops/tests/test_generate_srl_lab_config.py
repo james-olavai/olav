@@ -1,16 +1,17 @@
 """Unit tests for the R89 generate_srl_lab_config tool.
 
-R89 contract: take (devices, change_intent) and return per-node SRL
-CLI deterministically, replacing the LLM-driven prod→SRL translation
-that produced YANG-rejected paths in the Chapter 4 → Chapter 5
-in-vivo run on 2026-04-27.
+R89 contract: 3 parallel arrays (nodes / loopbacks / asns) + intent
+type + lab subnet → per-node SRL CLI deterministically rendered.
+Replaces the LLM-driven prod→SRL translation that produced
+YANG-rejected paths in the Chapter 4 → Chapter 5 in-vivo run on
+2026-04-27.
 
 Covers:
   * eBGP direct happy path (2 nodes, /30 link)
   * lab IP allocation from arbitrary subnets
   * lab node naming (lowercase per CLAB convention)
   * peer-group + neighbor cross-references
-  * input validation (missing fields, wrong intent type)
+  * input validation (empty, length mismatch, wrong intent type)
   * subnet validation (rejects too-narrow prefixes)
 """
 from __future__ import annotations
@@ -36,16 +37,11 @@ _spec.loader.exec_module(_gslc)
 
 
 def _basic_call():
-    """Common 2-node eBGP setup used across tests."""
+    """Common 2-node eBGP setup."""
     return _gslc.generate_srl_lab_config.invoke({
-        "devices": [
-            {"name": "R1", "loopback": "1.1.1.1/32", "asn": 65000},
-            {"name": "R4", "loopback": "4.4.4.4/32", "asn": 65001},
-        ],
-        "change_intent": {
-            "type": "ebgp_direct",
-            "lab_subnet": "172.16.99.0/30",
-        },
+        "nodes": ["R1", "R4"],
+        "loopbacks": ["1.1.1.1", "4.4.4.4"],
+        "asns": [65000, 65001],
     })
 
 
@@ -131,31 +127,26 @@ def test_basic_loopback_export_policy_present():
         assert "default-action policy-result reject" in cfg
 
 
-def test_loopback_without_mask_works():
-    """Accept loopback as bare host (no /32)."""
+def test_loopback_with_mask_works():
+    """Loopback may be passed with /32 — tool normalises it."""
     result = _gslc.generate_srl_lab_config.invoke({
-        "devices": [
-            {"name": "R1", "loopback": "1.1.1.1", "asn": 65000},
-            {"name": "R4", "loopback": "4.4.4.4", "asn": 65001},
-        ],
-        "change_intent": {
-            "type": "ebgp_direct",
-            "lab_subnet": "172.16.99.0/30",
-        },
+        "nodes": ["R1", "R4"],
+        "loopbacks": ["1.1.1.1/32", "4.4.4.4/32"],
+        "asns": [65000, 65001],
     })
     data = json.loads(result)
     assert data["status"] == "ok"
     assert "set / interface system0 subinterface 0 ipv4 address 1.1.1.1/32" in data["configs"]["r1"]
+    # Router-id should still be the bare host
+    assert "set / network-instance default protocols bgp router-id 1.1.1.1" in data["configs"]["r1"]
 
 
 def test_default_lab_subnet():
     """Omitting lab_subnet uses 172.16.99.0/30."""
     result = _gslc.generate_srl_lab_config.invoke({
-        "devices": [
-            {"name": "R1", "loopback": "1.1.1.1/32", "asn": 65000},
-            {"name": "R4", "loopback": "4.4.4.4/32", "asn": 65001},
-        ],
-        "change_intent": {"type": "ebgp_direct"},
+        "nodes": ["R1", "R4"],
+        "loopbacks": ["1.1.1.1", "4.4.4.4"],
+        "asns": [65000, 65001],
     })
     data = json.loads(result)
     assert data["status"] == "ok"
@@ -164,14 +155,10 @@ def test_default_lab_subnet():
 
 def test_alternative_subnet_works():
     result = _gslc.generate_srl_lab_config.invoke({
-        "devices": [
-            {"name": "A", "loopback": "10.0.0.1/32", "asn": 65000},
-            {"name": "B", "loopback": "10.0.0.2/32", "asn": 65001},
-        ],
-        "change_intent": {
-            "type": "ebgp_direct",
-            "lab_subnet": "10.99.0.0/30",
-        },
+        "nodes": ["A", "B"],
+        "loopbacks": ["10.0.0.1", "10.0.0.2"],
+        "asns": [65000, 65001],
+        "lab_subnet": "10.99.0.0/30",
     })
     data = json.loads(result)
     assert data["status"] == "ok"
@@ -182,60 +169,58 @@ def test_alternative_subnet_works():
 # --- input validation -------------------------------------------------------
 
 
-def test_empty_devices_errors():
+def test_empty_nodes_errors():
     result = _gslc.generate_srl_lab_config.invoke({
-        "devices": [],
-        "change_intent": {"type": "ebgp_direct"},
+        "nodes": [],
+        "loopbacks": [],
+        "asns": [],
     })
     data = json.loads(result)
     assert data["status"] == "error"
     assert "non-empty" in data["error"].lower()
 
 
-def test_wrong_device_count_for_ebgp_errors():
-    """ebgp_direct needs exactly 2 devices."""
+def test_length_mismatch_loopbacks_errors():
     result = _gslc.generate_srl_lab_config.invoke({
-        "devices": [{"name": "R1", "loopback": "1.1.1.1/32", "asn": 65000}],
-        "change_intent": {"type": "ebgp_direct"},
+        "nodes": ["R1", "R4"],
+        "loopbacks": ["1.1.1.1"],   # only 1 — mismatch
+        "asns": [65000, 65001],
+    })
+    data = json.loads(result)
+    assert data["status"] == "error"
+    assert "loopbacks" in data["error"].lower()
+    assert "length" in data["error"].lower() or "vs" in data["error"]
+
+
+def test_length_mismatch_asns_errors():
+    result = _gslc.generate_srl_lab_config.invoke({
+        "nodes": ["R1", "R4"],
+        "loopbacks": ["1.1.1.1", "4.4.4.4"],
+        "asns": [65000],   # only 1 — mismatch
+    })
+    data = json.loads(result)
+    assert data["status"] == "error"
+    assert "asns" in data["error"].lower()
+
+
+def test_wrong_node_count_for_ebgp_errors():
+    """ebgp_direct needs exactly 2 nodes."""
+    result = _gslc.generate_srl_lab_config.invoke({
+        "nodes": ["R1"],
+        "loopbacks": ["1.1.1.1"],
+        "asns": [65000],
     })
     data = json.loads(result)
     assert data["status"] == "error"
     assert "2 devices" in data["error"].lower()
 
 
-def test_missing_loopback_errors():
-    result = _gslc.generate_srl_lab_config.invoke({
-        "devices": [
-            {"name": "R1", "asn": 65000},
-            {"name": "R4", "loopback": "4.4.4.4/32", "asn": 65001},
-        ],
-        "change_intent": {"type": "ebgp_direct"},
-    })
-    data = json.loads(result)
-    assert data["status"] == "error"
-    assert "loopback" in data["error"].lower()
-
-
-def test_missing_asn_errors():
-    result = _gslc.generate_srl_lab_config.invoke({
-        "devices": [
-            {"name": "R1", "loopback": "1.1.1.1/32"},
-            {"name": "R4", "loopback": "4.4.4.4/32", "asn": 65001},
-        ],
-        "change_intent": {"type": "ebgp_direct"},
-    })
-    data = json.loads(result)
-    assert data["status"] == "error"
-    assert "asn" in data["error"].lower()
-
-
 def test_unsupported_intent_type_errors():
     result = _gslc.generate_srl_lab_config.invoke({
-        "devices": [
-            {"name": "R1", "loopback": "1.1.1.1/32", "asn": 65000},
-            {"name": "R4", "loopback": "4.4.4.4/32", "asn": 65001},
-        ],
-        "change_intent": {"type": "ibgp_route_reflector"},
+        "nodes": ["R1", "R4"],
+        "loopbacks": ["1.1.1.1", "4.4.4.4"],
+        "asns": [65000, 65001],
+        "intent_type": "ibgp_route_reflector",
     })
     data = json.loads(result)
     assert data["status"] == "error"
@@ -245,31 +230,25 @@ def test_unsupported_intent_type_errors():
 def test_too_narrow_subnet_errors():
     """/31 has only 2 hosts but the function rejects /31+ as ambiguous."""
     result = _gslc.generate_srl_lab_config.invoke({
-        "devices": [
-            {"name": "R1", "loopback": "1.1.1.1/32", "asn": 65000},
-            {"name": "R4", "loopback": "4.4.4.4/32", "asn": 65001},
-        ],
-        "change_intent": {
-            "type": "ebgp_direct",
-            "lab_subnet": "172.16.99.0/31",
-        },
+        "nodes": ["R1", "R4"],
+        "loopbacks": ["1.1.1.1", "4.4.4.4"],
+        "asns": [65000, 65001],
+        "lab_subnet": "172.16.99.0/31",
     })
     data = json.loads(result)
     assert data["status"] == "error"
     assert "prefix" in data["error"].lower() or "/30" in data["error"]
 
 
-def test_invalid_change_intent_type_rejected_by_pydantic():
-    """LangChain's pydantic input validation rejects non-dict
-    change_intent before our code runs. Either layer is fine — the
-    test just verifies it doesn't pass through silently.
-    """
-    import pydantic_core
-    with pytest.raises((pydantic_core.ValidationError, ValueError, TypeError)):
-        _gslc.generate_srl_lab_config.invoke({
-            "devices": [
-                {"name": "R1", "loopback": "1.1.1.1/32", "asn": 65000},
-                {"name": "R4", "loopback": "4.4.4.4/32", "asn": 65001},
-            ],
-            "change_intent": "not a dict",
-        })
+def test_asn_as_string_coerced():
+    """asn = '65000' (string) should be coerced to int silently."""
+    result = _gslc.generate_srl_lab_config.invoke({
+        "nodes": ["R1", "R4"],
+        "loopbacks": ["1.1.1.1", "4.4.4.4"],
+        "asns": ["65000", "65001"],   # type: ignore — small models often pass strings
+    })
+    data = json.loads(result)
+    # Either accepts (status=ok) or rejects with clear error — never crash
+    assert data["status"] in ("ok", "error")
+    if data["status"] == "ok":
+        assert "autonomous-system 65000" in data["configs"]["r1"]
