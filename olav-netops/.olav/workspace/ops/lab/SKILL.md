@@ -17,6 +17,7 @@ metadata:
     - destroy_lab
     - push_config
 tools:
+  - generate_clab_topology # Build CLAB YAML from netops.v_l2_links_auto — call BEFORE deploy_and_push_lab
   - run_python_simulation  # Build topology YAML, translate configs
   - save_lab_config        # Save node config to disk for later deploy_and_push_lab
   - deploy_and_push_lab    # Deploy lab + push saved configs atomically
@@ -39,14 +40,20 @@ static_context_mode: on_intent
 ## Flow
 
 ```
-1. [SKIP DB query — change plan provides all needed IPs/ASNs directly]
+1. generate_clab_topology(nodes=[...], lab_name=...) → returns yaml_content (with links:)
 2. save_lab_config(r1) → use EXACT template from references/CAB_WORKFLOW.md Step 2
 3. save_lab_config(r4) → use EXACT template from references/CAB_WORKFLOW.md Step 3
-4. deploy_and_push_lab → deploy lab + push configs atomically (configs={} auto-loads saved files)
+4. deploy_and_push_lab(yaml_content=<from step 1>, configs={}) → deploy + push atomically
 5. exec_on_node        → spot-check BGP neighbor state
 6. REPORT              → PASS or FAIL (format: references/CAB_REPORT_FORMAT.md)
 7. destroy_lab         → ALWAYS call destroy_lab(lab_name=...) — cleanup, even on failure
 ```
+
+**⚠️ NEVER hand-write `yaml_content`** — small models routinely
+omit the `links:` section, which silently breaks BGP (containers
+have no veth pair, ARP fails, BGP stuck in `active`/`connect`).
+Use `generate_clab_topology` to read `netops.v_l2_links_auto` and
+emit a deploy-ready YAML with both `nodes:` AND `links:`.
 
 **⚠️ NEVER use `run_python_simulation` / `run_python_code` to GENERATE
 SRL config lines.**  SRL syntax is version-specific — use the EXACT

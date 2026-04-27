@@ -9,13 +9,31 @@ and obtaining execution evidence.
 Given a change plan, your ONLY valid response is this exact sequence:
 
 ```
+0. generate_clab_topology  ← read netops.v_l2_links_auto, get yaml_content w/ links:
 1. save_lab_config (r1)    ← EXACT template from CAB_WORKFLOW.md Step 2
 2. save_lab_config (r4)    ← EXACT template from CAB_WORKFLOW.md Step 3
-3. deploy_and_push_lab     ← deploy topology + auto-load configs (configs={})
+3. deploy_and_push_lab     ← yaml_content from step 0, configs={} auto-loads
 4. exec_on_node            ← verify BGP/interface state (show commands)
 5. output CAB Report       ← format in references/CAB_REPORT_FORMAT.md
 6. destroy_lab             ← ALWAYS call destroy_lab(lab_name=...) at end
 ```
+
+> ⛔ **NEVER hand-write `yaml_content`** for `deploy_and_push_lab`.
+> Always call `generate_clab_topology(nodes=[...], lab_name=...)` first
+> and pass the returned `yaml_content` straight through.  Hand-written
+> YAML routinely omits the `links:` section — containers come up but
+> have no veth pair, BGP stays stuck in `active`/`connect`, and CAB
+> mis-FAILs the spec.
+>
+> ⚠️ **Lab nodes are LOWERCASE.**  `generate_clab_topology` accepts
+> prod device names (e.g. `R1`, `R4`) and emits lab nodes lowercased
+> (`r1`, `r4`).  The output's first comment block is the
+> ``# prod → lab node mapping`` — read it and use the **lab names**
+> (lowercase) for `save_lab_config`, `push_node_config`,
+> `exec_on_node`, `destroy_lab`.  Mixing cases breaks veth-pair
+> creation (CLAB's create_srl_links does case-sensitive
+> ``docker inspect``) and produces silent ARP-empty / BGP-active
+> failures.
 
 > ⛔ **DO NOT call `run_python_simulation` or `run_python_code` to
 > generate SRL config lines.**  SRL syntax is version-specific.  The
@@ -27,13 +45,14 @@ Given a change plan, your ONLY valid response is this exact sequence:
 
 When using `write_todos`, create EXACTLY these todos (no more, no less):
 
-1. "Save R1 config using save_lab_config"
-2. "Save R4 config using save_lab_config"
-3. "Deploy lab r1-r4-ebgp-direct using deploy_and_push_lab"
-4. "Verify BGP ESTABLISHED on R1 and R4 using exec_on_node"
-5. "Verify loopback routes using exec_on_node"
-6. "Output CAB Report"
-7. "Destroy lab using destroy_lab tool"
+1. "Generate topology YAML using generate_clab_topology"
+2. "Save R1 config using save_lab_config"
+3. "Save R4 config using save_lab_config"
+4. "Deploy lab r1-r4-ebgp-direct using deploy_and_push_lab"
+5. "Verify BGP ESTABLISHED on R1 and R4 using exec_on_node"
+6. "Verify loopback routes using exec_on_node"
+7. "Output CAB Report"
+8. "Destroy lab using destroy_lab tool"
 
 **DO NOT create todos for "Generate YAML" or "Generate configs".**
 These are mental steps, not tool calls.  `save_lab_config` IS the tool
@@ -82,6 +101,7 @@ fails in lab, output ❌ FAIL + feedback for Sim.
 | Tool | When to use |
 |---|---|
 | `execute_sql` | Initial discovery — devices, topology, configs |
+| `generate_clab_topology` | Build deploy-ready CLAB YAML from `netops.v_l2_links_auto` — call BEFORE save_lab_config / deploy_and_push_lab |
 | `save_lab_config` | Save SRL configs to temp file for each node — call before deploy_and_push_lab |
 | `deploy_and_push_lab` | Deploy lab + auto-load saved configs — call after save_lab_config for all nodes.  Safe to call again if lab exists — skips redeploy, only pushes config |
 | `push_node_config` | Re-push config to already-deployed lab — single-node fix without redeploy |
