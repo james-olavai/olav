@@ -21,47 +21,66 @@ user turn is either running or authoring, never both.
 
 ## Authoring tool-call workflow (strict order)
 
+Per ADR-0007 (R91 CUT 1), the four authoring helpers
+(`database_introspection`, `preview_map_query`, `read_profile`,
+`analyze_thresholds`) are now Python in `olav.core.auditor` —
+**call them inside `run_python_simulation`**, not as MCP tools.
+The write-side helpers (`save_profile`, `append_jobs`) are still MCP.
+
 ```
-1. database_introspection(db_type="duckdb")      ← FIRST — run immediately
+1. run_python_simulation:                                   [PYTHON]
+       from olav.core.auditor import database_introspection
+       schema = database_introspection(db_type="duckdb")
    → Learn real table and column names. Never guess.
 
-2. test_map_query(job_type="sql", query=..., params={"window": "1h"})
+2. run_python_simulation:                                   [PYTHON]
+       from olav.core.auditor import preview_map_query
+       rows = preview_map_query(job_type="sql", query="...",
+                                params={"window": "1h"})
    → Validate SQL syntax for each job. Zero rows is fine; errors are not.
 
-3. save_profile(name=..., yaml_jobs=[...], markdown_body=...)
+3. save_profile(name=..., yaml_jobs=[...], markdown_body=...)   [MCP]
    → Write to profiles/<name>.md after schema validation passes.
 ```
 
-For data-driven thresholds, call `analyze_thresholds` between steps 2
-and 3.  For extending an existing profile, use `read_profile` +
-`append_jobs` instead of `save_profile`.
+For data-driven thresholds, call ``analyze_thresholds`` (Python in
+the sandbox) between steps 2 and 3. For extending an existing
+profile, call ``read_profile`` (Python) then ``append_jobs`` (MCP)
+instead of ``save_profile``.
 
 ## The three authoring sub-modes
 
+All entries below in `[python]` brackets run inside
+`run_python_simulation` (`from olav.core.auditor import ...`).
+Plain entries are still MCP tools.
+
 | Sub-mode | When to use | Key tools |
 |---|---|---|
-| **Intelligent Threshold** | Fresh profile with "smart" thresholds from past observations | `database_introspection` → `analyze_thresholds` → `save_profile` |
-| **Dynamic Retuning** | Existing profile produces too many false positives / misses known incidents | `read_profile` → `analyze_thresholds` → `save_profile` (overwrite) |
-| **Append Jobs** | Add new jobs to an existing profile without touching old ones | `read_profile` → compose new jobs → `append_jobs` |
+| **Intelligent Threshold** | Fresh profile with "smart" thresholds from past observations | `[python] database_introspection` → `[python] analyze_thresholds` → `save_profile` |
+| **Dynamic Retuning** | Existing profile produces too many false positives / misses known incidents | `[python] read_profile` → `[python] analyze_thresholds` → `save_profile` (overwrite) |
+| **Append Jobs** | Add new jobs to an existing profile without touching old ones | `[python] read_profile` → compose new jobs → `append_jobs` |
 
 ### Mode 1: Intelligent Threshold Suggestion
 
 ```
-1. database_introspection(db_type="duckdb")
-   → Confirm which tables and columns are available for the metric.
+1. run_python_simulation:                                   [PYTHON]
+       from olav.core.auditor import database_introspection, analyze_thresholds
+       schema = database_introspection(db_type="duckdb")
+       # → Confirm tables and columns available for the metric.
 
-2. analyze_thresholds(
-       metric_query="SELECT <numeric_column> AS value FROM <table> WHERE ...",
-       metric_name="<MetricName>",
-       higher_is_worse=True/False,
-       unit="%"
-   )
+2. run_python_simulation (same script):                     [PYTHON]
+       rec = analyze_thresholds(
+           metric_query="SELECT <numeric_column> AS value FROM <table> WHERE ...",
+           metric_name="<MetricName>",
+           higher_is_worse=True,
+           unit="%",
+       )
    → Obtain P50/P90/P95/P99 distribution + recommended thresholds.
 
 3. Present results to the user and wait for confirmation:
    "Suggested Warning = XX%, Critical = YY%. Proceed?"
 
-4. After user confirms (or adjusts), call save_profile.
+4. After user confirms (or adjusts), call save_profile (MCP).
 ```
 
 Rules:
@@ -74,10 +93,12 @@ Rules:
 ### Mode 2: Dynamic Threshold Tuning
 
 ```
-1. list_profiles()           → Show available profiles.
-2. read_profile(name=...)    → Retrieve current jobs and thresholds.
-3. analyze_thresholds(...)   → Compute latest P90/P95 for each numeric job.
-4. Present diff table → user confirms → save_profile (full overwrite).
+1. run_python_simulation:                                   [PYTHON]
+       from olav.core.auditor import list_profiles, read_profile, analyze_thresholds
+       avail = list_profiles()                # show available profiles
+       cur   = read_profile(name=...)         # current jobs + thresholds
+       new   = [analyze_thresholds(...) for each job]   # latest P90/P95
+2. Present diff table → user confirms → save_profile (MCP, full overwrite).
 ```
 
 Rules:
@@ -90,11 +111,17 @@ Rules:
 ### Mode 3: Appending Check Items
 
 ```
-1. read_profile(name=...)          → Confirm existing job names (avoid duplicates).
-2. database_introspection(...)     → Verify table/column names for new job.
-3. test_map_query(query=...)       → Validate new job SQL.
-4. analyze_thresholds(...) [opt]   → Data-driven thresholds if requested.
-5. append_jobs(profile_name=..., new_jobs=[...])
+1. run_python_simulation:                                   [PYTHON]
+       from olav.core.auditor import (
+           read_profile, database_introspection,
+           preview_map_query, analyze_thresholds,
+       )
+       cur    = read_profile(name=...)               # existing names → avoid dup
+       schema = database_introspection(db_type="duckdb")  # verify columns
+       rows   = preview_map_query(job_type="sql", query="...")  # validate SQL
+       rec    = analyze_thresholds(...)              # optional, data-driven
+
+2. append_jobs(profile_name=..., new_jobs=[...])             [MCP]
    → Atomic append without touching existing jobs.
 ```
 
@@ -139,5 +166,5 @@ Each job must include:
 After completion, report in the user's language:
 
 1. Verified table/column names used
-2. `test_map_query` result for each job (valid / error)
+2. `preview_map_query` result for each job (valid / error)
 3. Profile file save path

@@ -308,10 +308,8 @@ def _wrap_with_comments(
     return "\n".join(header) + "\n" + yaml_content
 
 
-from langchain_core.tools import tool
 
 
-@tool
 def generate_clab_topology(
     nodes: list[str],
     lab_name: str,

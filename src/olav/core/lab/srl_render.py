@@ -209,10 +209,8 @@ def _generate_ebgp_direct(
 _SUPPORTED_INTENTS = {"ebgp_direct"}
 
 
-from langchain_core.tools import tool
 
 
-@tool
 def generate_srl_lab_config(
     nodes: list[str],
     loopbacks: list[str],

@@ -96,10 +96,8 @@ def _generate_ebgp_direct(devices: list[dict]) -> dict[str, str]:
     return out
 
 
-from langchain_core.tools import tool
 
 
-@tool
 def generate_srl_rollback_config(
     nodes: list[str],
     loopbacks: list[str],
