@@ -78,7 +78,7 @@ Per ADR-0008 R92.3, the four diff helpers are skill scripts under
 execute_skill_script(
     skill_name="analyze",
     script_name="diff_sql_state.py",
-    args={"table_name": "ospf_neighbors", "snapshot_id_1": "t1", "snapshot_id_2": "t2"},
+    script_args={"table_name": "ospf_neighbors", "snapshot_id_1": "t1", "snapshot_id_2": "t2"},
 )
 ```
 
@@ -142,7 +142,7 @@ NOT assume or invent values.
    execute_skill_script(
        skill_name="analyze",
        script_name="diff_sql_state.py",   # or diff_topology_drift / diff_routing_drift / diff_configs
-       args={"table_name": "ospf_neighbors", "snapshot_id_1": "t1", "snapshot_id_2": "t2"},
+       script_args={"table_name": "ospf_neighbors", "snapshot_id_1": "t1", "snapshot_id_2": "t2"},
    )
    ```
    Pick the script by dimension:

@@ -55,7 +55,7 @@ The reference covers:
   `[skill] preview_map_query.py` → `save_profile` (MCP). Per ADR-0008
   (R92.3), the four authoring helpers are skill scripts under
   `audit/auditor/scripts/`. Invoke via
-  `execute_skill_script(skill_name="auditor", script_name="<name>.py", args={...})`.
+  `execute_skill_script(skill_name="auditor", script_name="<name>.py", script_args={...})`.
 - Three sub-modes:
   - Mode 1 — Intelligent Threshold Suggestion
   - Mode 2 — Dynamic Threshold Tuning

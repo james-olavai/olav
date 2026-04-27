@@ -17,20 +17,13 @@ metadata:
     - destroy_lab
     - push_config
 tools:
-  - tcf_load_for_lab       # R90 Phase 3: read TCF spec, derive R88/R89 args + tvt schedule
-  - generate_clab_topology # Build CLAB YAML from netops.v_l2_links_auto — call BEFORE deploy_and_push_lab
-  - generate_srl_lab_config # R89: deterministic prod→SRL CLI translator — call BEFORE save_lab_config
-  - generate_srl_rollback_config # R90 Phase 6: deterministic SRL rollback CLI (delete /...) — call AFTER post-check PASS to validate rollback can revert cleanly
-  - run_python_simulation  # Build topology YAML, translate configs
-  - save_lab_config        # Save node config to disk for later deploy_and_push_lab
-  - deploy_and_push_lab    # Deploy lab + push saved configs atomically
-  - deploy_lab             # POST CLAB YAML → auto fix_srl_topology + create_srl_links
-  - push_node_config       # Push SRL CLI config to a node (REMOTE CLAB — NOT docker exec)
-  - exec_on_node           # Verify node state after config push
-  - create_srl_links       # Build SR Linux link definitions from topology
-  - fix_srl_topology       # Patch CLAB topology YAML for SR Linux constraints
-  - tcf_record_lab_run     # R90 Phase 3: write verdict + journal + tvt actuals back to TCF (replaces append_validation_footer)
-  - destroy_lab            # Tear down CLAB lab — always call on completion or failure
+  # Per ADR-0008 rev1 (R92.6): all deterministic + REST/SSH-callable
+  # ops live as skill scripts under ./scripts/. Invoke via
+  # execute_skill_script(skill_name="lab", script_name="<name>.py", script_args={...}).
+  # The agent's @tool surface for ops/lab is just 1 tool (real-time
+  # streaming) — everything else is a skill script.
+  - execute_skill_script   # Inherited from core/tools/. Drives all ./scripts/ entries.
+  - exec_on_node           # @tool kept: real-time streaming for show commands during verification
 static_context:
   - path: ./references/LAB_REFERENCE.md
 # R86 — on_intent (~4K tokens, largest reference of all).
@@ -41,60 +34,77 @@ static_context:
 static_context_mode: on_intent
 ---
 
-## Flow (TCF-native, R90 Phase 3+)
+## Flow (TCF-native, R92 SkillsMiddleware-first per ADR-0008)
+
+The deterministic generators are **skill scripts** under
+``./scripts/``. The agent calls them via ``execute_skill_script``
+(inherited from ``core/tools/``). The script imports the relevant
+``olav.core.cab`` / ``olav.core.lab`` Python helper, parses JSON
+args from stdin, and emits JSON on stdout — the tool returns the
+parsed dict.
 
 ```
-0.  tcf_load_for_lab(spec_path=...)
-       → derives r88_args + r89_args + post_check + tvt schedule
-       (replaces markdown spec parsing — Pydantic validates the
-        spec; FK errors surface here, not deep in deploy)
-1.  generate_clab_topology(**r88_args) → yaml_content w/ links:
-2.  generate_srl_lab_config(**r89_args) → {lab_node: 22-line srl_cli}
-3.  save_lab_config(node=<lab_node>, config_lines=configs[lab_node].splitlines())
-    [one call per node]
-4.  deploy_and_push_lab(yaml_content=<step 1>, configs={})
+0.  execute_skill_script(
+        skill_name="lab", script_name="tcf_load_for_lab.py",
+        script_args={"spec_path": "<path>"})
+    # stdout → {status, change_id, r88_args, r89_args, post_check, tvt, ...}
+
+1.  execute_skill_script(
+        skill_name="lab", script_name="generate_clab_topology.py",
+        script_args=out["stdout"]["r88_args"])
+    # stdout → {status, yaml}
+
+2.  execute_skill_script(
+        skill_name="lab", script_name="generate_srl_lab_config.py",
+        script_args=out["stdout"]["r89_args"])
+    # stdout (parsed) → {status, configs: {lab_node: 22-line srl_cli}}
+
+3.  execute_skill_script(
+        skill_name="lab", script_name="save_lab_config.py",
+        script_args={"lab_name": ..., "node": <lab_node>,
+              "config_lines": configs[lab_node].splitlines()})
+    [one call per node — writes to deploy contract path]
+
+4.  execute_skill_script(
+        skill_name="lab", script_name="deploy_and_push_lab.py",
+        script_args={"lab_name": ..., "yaml_content": <step 1 yaml>, "configs": {}})
+
 5.  exec_on_node — run each post_check.command, compare to expected_pattern
-    [collect actuals into TVT actuals list]
+    (stays as @tool — real-time streaming for interactive show commands)
 
-5b. ROLLBACK VALIDATION (R90 Phase 6) — only when apply tests PASSED:
-    a. generate_srl_rollback_config(**r89_args)
-         → {lab_node: 7-line delete CLI}
-    b. push_node_config(node=<lab_node>, config=rollback_configs[lab_node])
-       [one call per node]
-    c. exec_on_node — verify reversion:
-         - show network-instance default protocols bgp neighbor → empty
-         - show interface ethernet-1/N detail → no IPv4 address on subif 0
-       Add a TVT row T_rollback_clean (severity blocker if rollback
-       is part of the contract) with status PASS/FAIL.
+5b. ROLLBACK VALIDATION — only when apply tests PASSED:
+    a. execute_skill_script(
+           skill_name="lab", script_name="generate_srl_rollback_config.py",
+           script_args=r89_args)
+       # stdout → {status, configs: {lab_node: 7-line delete CLI}}
+    b. execute_skill_script(
+           skill_name="lab", script_name="push_node_config.py",
+           script_args={"lab_name": ..., "node": <lab_node>,
+                 "config_lines": rollback_configs[lab_node]})
+    c. exec_on_node — verify reversion (BGP gone, no IPv4 on subif).
 
-6.  format_and_export — standalone CAB Lab Report (.md, human readable)
-7.  tcf_record_lab_run(spec_path=..., verdict=..., tvt_test_ids=[...],
-        tvt_actual_lab=[...], tvt_status=[...], journal_json=..., ...)
-       → writes verdict + journal + per-test actuals back to the TCF
-       (replaces append_validation_footer — structured, not markdown)
-8.  destroy_lab — ALWAYS, even on failure
+6.  format_and_export — standalone CAB Lab Report (.md)
+7.  execute_skill_script(
+        skill_name="lab", script_name="tcf_record_lab_run.py",
+        script_args={"spec_path": ..., "verdict": ..., "lab_name": ...,
+              "tvt_test_ids": [...], "tvt_actual_lab": [...],
+              "tvt_status": [...], "journal": [...]})
+    # writes verdict + journal + per-test actuals back to TCF
+8.  execute_skill_script(
+        skill_name="lab", script_name="destroy_lab.py",
+        script_args={"lab_name": ...})
+    — ALWAYS run, even on failure
 ```
 
-**⚠️ NEVER hand-write `yaml_content`** — small models routinely
-omit the `links:` section, which silently breaks BGP (containers
-have no veth pair, ARP fails, BGP stuck in `active`/`connect`).
-Use `generate_clab_topology` to read `netops.v_l2_links_auto` and
-emit a deploy-ready YAML with both `nodes:` AND `links:`.
+**⚠️ NEVER hand-write `yaml_content`** — small models omit
+`links:` and silently break BGP. Always invoke the
+``generate_clab_topology.py`` skill script.
 
-**⚠️ NEVER hand-translate prod CLI to SRL CLI for `save_lab_config`** —
-Always call `generate_srl_lab_config(devices=[...], change_intent={...})`
-and pass the returned `configs[node].splitlines()` straight to
-`save_lab_config`.  The tool deterministically renders the 22-line
-SRL skeleton (interface triad, system0 loopback, network-instance
-binding, routing-policy, BGP afi-safi + ebgp-default-policy +
-peer-group + neighbor) from a structured intent.  Hand-translation
-hits SRL YANG rejections (`connectivity-endpoint`, `group type
-external`, missing `peer-group`, wrong `afi-safi` placement) and
-never converges.
-
-**⚠️ NEVER use `run_python_simulation` / `run_python_code` to GENERATE
-SRL config lines.**  Use `generate_srl_lab_config` (above) instead;
-it's the deterministic Type B generator.
+**⚠️ NEVER hand-translate prod CLI to SRL CLI** — always invoke
+the ``generate_srl_lab_config.py`` skill script. It
+deterministically renders the 22-line SRL skeleton; hand-translation
+hits SRL YANG rejections (``connectivity-endpoint``, missing
+``peer-group``, etc.) and never converges.
 
 **⚠️ CAB is a validation gate, NOT a fix-it loop.**  If
 `deploy_and_push_lab` returns `dry_run_failures`: fix with
