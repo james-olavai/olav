@@ -586,6 +586,65 @@ def test_phase15_diversifier_override_outranks_default_within_tier():
     assert "default_one" in chosen_ids or len(chosen_ek) == 1
 
 
+def test_phase15_diversifier_handles_json_string_metadata():
+    """Regression for AutoRecall.enrich crashing on `'str' object has no
+    attribute 'get'` — LanceDB stores ``metadata`` as a JSON string in
+    many rows, but ``_precedence_rank`` originally assumed it was a
+    dict. The crash silently disabled the entire recall block,
+    leaving agents without their curated expert_knowledge during the
+    R87 Phase 1.5 in-vivo Chapter 4 → Chapter 5 closed-loop run.
+    """
+    import json as _json
+
+    from olav.core.memory import LanceDBStore
+    from olav.core.memory.middleware import AutoRecallMiddleware
+
+    store = LanceDBStore(db_path=":memory:", embedding_dim=DIM)
+    mw = AutoRecallMiddleware(store=store, current_agent="ops-lab")
+
+    # Metadata as JSON string (matches what LanceDB returns from disk)
+    memories = [
+        {
+            "id": "a1",
+            "category": "expert_knowledge",
+            "scope": "ops-lab",
+            "metadata": _json.dumps({"precedence": "override"}),
+        },
+        {
+            "id": "a2",
+            "category": "expert_knowledge",
+            "scope": "ops-lab",
+            "metadata": _json.dumps({"precedence": "default"}),
+        },
+    ]
+    # Should not raise
+    out = mw._diversify_by_category(memories, limit=13)
+    assert any(m["id"] == "a1" for m in out)
+
+
+def test_phase15_diversifier_handles_unparseable_metadata():
+    """Defensive: malformed metadata strings shouldn't take the
+    diversifier down either.
+    """
+    from olav.core.memory import LanceDBStore
+    from olav.core.memory.middleware import AutoRecallMiddleware
+
+    store = LanceDBStore(db_path=":memory:", embedding_dim=DIM)
+    mw = AutoRecallMiddleware(store=store, current_agent="ops-lab")
+
+    memories = [
+        {
+            "id": "a1",
+            "category": "expert_knowledge",
+            "scope": "ops-lab",
+            "metadata": "not even close to JSON",
+        },
+    ]
+    out = mw._diversify_by_category(memories, limit=13)
+    # falls back to default precedence; entry still picked
+    assert any(m["id"] == "a1" for m in out)
+
+
 def test_phase15_diversifier_falls_back_when_tier_absent():
     """When only agent-scope entries exist, all 3 slots fill from
     agent (no slot wasted on absent tiers).

@@ -470,7 +470,17 @@ class AutoRecallMiddleware:
         _PREC_RANK = {"override": 0, "default": 1, "advisory": 2}
 
         def _precedence_rank(memory: dict) -> int:
+            # LanceDB stores ``metadata`` as a JSON string in many rows.
+            # Decode if necessary; treat non-dict / unparseable as empty
+            # (precedence falls back to "default" via the dict get default).
             md = memory.get("metadata") or {}
+            if isinstance(md, str):
+                try:
+                    md = json.loads(md)
+                except (TypeError, ValueError):
+                    md = {}
+            if not isinstance(md, dict):
+                md = {}
             return _PREC_RANK.get(md.get("precedence"), 1)
 
         for cat, quota in self._CATEGORY_QUOTAS.items():
