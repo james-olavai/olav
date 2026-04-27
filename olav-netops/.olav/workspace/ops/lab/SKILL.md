@@ -17,14 +17,16 @@ metadata:
     - destroy_lab
     - push_config
 tools:
-  - run_python_simulation  # SANDBOX — call olav.core.cab + olav.core.lab Python API: tcf_load_for_lab, generate_clab_topology, generate_srl_lab_config, generate_srl_rollback_config, tcf_record_lab_run (per ADR-0007)
+  # Deterministic helpers run as skill scripts (per ADR-0008):
+  # call execute_skill_script(skill_name="lab", script_name="<name>.py", args={...})
+  # — this single tool replaces 6 former MCP wrappers + the run_python_simulation sandbox.
+  - execute_skill_script   # Inherited from core/tools/. Runs scripts/ entries in this skill.
+  # Privileged operations (sandbox-external; stay as MCP):
   - save_lab_config        # Save node config to disk for later deploy_and_push_lab
-  - deploy_and_push_lab    # Deploy lab + push saved configs atomically
+  - deploy_and_push_lab    # Deploy lab + push saved configs atomically (auto-invokes create_srl_links + fix_srl_topology internally)
   - deploy_lab             # POST CLAB YAML → auto fix_srl_topology + create_srl_links
   - push_node_config       # Push SRL CLI config to a node (REMOTE CLAB — NOT docker exec)
   - exec_on_node           # Verify node state after config push
-  - create_srl_links       # Build SR Linux link definitions from topology
-  - fix_srl_topology       # Patch CLAB topology YAML for SR Linux constraints
   - destroy_lab            # Tear down CLAB lab — always call on completion or failure
 static_context:
   - path: ./references/LAB_REFERENCE.md
@@ -36,63 +38,64 @@ static_context:
 static_context_mode: on_intent
 ---
 
-## Flow (TCF-native, R91 Python-first per ADR-0007)
+## Flow (TCF-native, R92 SkillsMiddleware-first per ADR-0008)
 
-The deterministic generators (`tcf_load_for_lab`,
-`generate_clab_topology`, `generate_srl_lab_config`,
-`generate_srl_rollback_config`, `tcf_record_lab_run`) are Python
-functions in `olav.core.cab` / `olav.core.lab`. **Call them via
-`run_python_simulation`**, not as MCP tools — they're not in the
-agent's tool list anymore.
+The deterministic generators are **skill scripts** under
+``./scripts/``. The agent calls them via ``execute_skill_script``
+(inherited from ``core/tools/``). The script imports the relevant
+``olav.core.cab`` / ``olav.core.lab`` Python helper, parses JSON
+args from stdin, and emits JSON on stdout — the tool returns the
+parsed dict.
 
 ```
-0.  run_python_simulation:
-        from olav.core.cab import tcf_load_for_lab
-        out = tcf_load_for_lab("<spec_path>")
-        # → r88_args + r89_args + post_check + tvt schedule
-        #   (Pydantic validates; FK errors surface here)
+0.  execute_skill_script(
+        skill_name="lab", script_name="tcf_load_for_lab.py",
+        args={"spec_path": "<path>"})
+    # stdout → {status, change_id, r88_args, r89_args, post_check, tvt, ...}
 
-1.  run_python_simulation:
-        from olav.core.lab import generate_clab_topology
-        yaml_content = generate_clab_topology(**out["r88_args"])
+1.  execute_skill_script(
+        skill_name="lab", script_name="generate_clab_topology.py",
+        args=out["stdout"]["r88_args"])
+    # stdout → {status, yaml}
 
-2.  run_python_simulation:
-        from olav.core.lab import generate_srl_lab_config
-        cfg = json.loads(generate_srl_lab_config(**out["r89_args"]))
-        # cfg["configs"] = {lab_node: 22-line srl_cli}
+2.  execute_skill_script(
+        skill_name="lab", script_name="generate_srl_lab_config.py",
+        args=out["stdout"]["r89_args"])
+    # stdout (parsed) → {status, configs: {lab_node: 22-line srl_cli}}
 
-3.  save_lab_config(node=<lab_node>, config_lines=cfg["configs"][lab_node].splitlines())
+3.  save_lab_config(node=<lab_node>, config_lines=configs[lab_node].splitlines())
     [one call per node — MCP, writes to deploy contract path]
 
-4.  deploy_and_push_lab(yaml_content=<step 1>, configs={})
+4.  deploy_and_push_lab(yaml_content=<step 1 yaml>, configs={})
 5.  exec_on_node — run each post_check.command, compare to expected_pattern
 
 5b. ROLLBACK VALIDATION — only when apply tests PASSED:
-    a. run_python_simulation:
-           from olav.core.lab import generate_srl_rollback_config
-           rb = json.loads(generate_srl_rollback_config(**out["r89_args"]))
-    b. push_node_config(node=<lab_node>, config=rb["configs"][lab_node])
+    a. execute_skill_script(
+           skill_name="lab", script_name="generate_srl_rollback_config.py",
+           args=r89_args)
+       # stdout → {status, configs: {lab_node: 7-line delete CLI}}
+    b. push_node_config(node=<lab_node>, config=rollback_configs[lab_node])
     c. exec_on_node — verify reversion (BGP gone, no IPv4 on subif).
 
 6.  format_and_export — standalone CAB Lab Report (.md)
-7.  run_python_simulation:
-        from olav.core.cab import tcf_record_lab_run
-        tcf_record_lab_run("<spec_path>", verdict=..., lab_name=...,
-            tvt_test_ids=[...], tvt_actual_lab=[...], tvt_status=[...],
-            journal=[...])
-        # writes verdict + journal + per-test actuals back to TCF
+7.  execute_skill_script(
+        skill_name="lab", script_name="tcf_record_lab_run.py",
+        args={"spec_path": ..., "verdict": ..., "lab_name": ...,
+              "tvt_test_ids": [...], "tvt_actual_lab": [...],
+              "tvt_status": [...], "journal": [...]})
+    # writes verdict + journal + per-test actuals back to TCF
 8.  destroy_lab — ALWAYS, even on failure
 ```
 
 **⚠️ NEVER hand-write `yaml_content`** — small models omit
-`links:` and silently break BGP. Always import + call
-`olav.core.lab.generate_clab_topology` from the sandbox.
+`links:` and silently break BGP. Always invoke the
+``generate_clab_topology.py`` skill script.
 
-**⚠️ NEVER hand-translate prod CLI to SRL CLI** — always import
-+ call `olav.core.lab.generate_srl_lab_config`. It deterministically
-renders the 22-line SRL skeleton; hand-translation hits SRL YANG
-rejections (`connectivity-endpoint`, missing `peer-group`, etc.)
-and never converges.
+**⚠️ NEVER hand-translate prod CLI to SRL CLI** — always invoke
+the ``generate_srl_lab_config.py`` skill script. It
+deterministically renders the 22-line SRL skeleton; hand-translation
+hits SRL YANG rejections (``connectivity-endpoint``, missing
+``peer-group``, etc.) and never converges.
 
 **⚠️ CAB is a validation gate, NOT a fix-it loop.**  If
 `deploy_and_push_lab` returns `dry_run_failures`: fix with
