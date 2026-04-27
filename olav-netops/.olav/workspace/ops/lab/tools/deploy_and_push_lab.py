@@ -79,6 +79,7 @@ def deploy_and_push_lab(
     yaml_content: str,
     configs: dict,
     wait_seconds: int = 40,
+    post_commit_wait_seconds: int = 30,
 ) -> str:
     """Deploy ContainerLab topology AND push SR Linux configuration in one atomic call.
 
@@ -86,6 +87,10 @@ def deploy_and_push_lab(
     1. Checks if lab already exists — if yes, SKIPS deploy and only pushes config
     2. If lab does not exist, deploys via deploy_lab (includes mgmt network, fix_srl_topology, links)
     3. Pushes all node configs atomically via sr_cli
+    4. Waits ``post_commit_wait_seconds`` after the last commit so callers
+       can verify protocol state immediately on return (BGP/OSPF
+       convergence on a small lab is typically 15-25s; 30s is safe
+       margin).  Set to 0 to skip if you only configured static state.
 
     This means it is SAFE to call repeatedly for config fixes — it will NOT redeploy if lab is running.
 
@@ -314,13 +319,32 @@ def deploy_and_push_lab(
     except Exception:
         pass
 
+    # ── Post-commit convergence wait ────────────────────────────────────
+    # SRL config commit returns immediately, but the data plane needs
+    # extra time before BGP/OSPF reach Established/Full:
+    #   * sr_device_mgr restart (from create_srl_links) finishing
+    #   * ARP resolution via the new veth pair
+    #   * BGP TCP connect + open + keepalive handshake
+    # Without this wait, the caller's next exec_on_node sees BGP "active"
+    # / OSPF "init" and mis-reports CAB FAIL on a spec that would in fact
+    # converge a few seconds later (R88-B v3 → v4).
+    converged_wait = max(0, int(post_commit_wait_seconds))
+    if converged_wait > 0 and node_results:
+        time.sleep(converged_wait)
+
     return json.dumps({
         "deployed": True,
         "committed": True,
         "lab_reused": lab_already_running,
         "nodes": node_results,
         "lab_name": lab_name,
-        "message": f"Lab '{lab_name}' {'ALREADY RUNNING — DO NOT redeploy. Config pushed' if lab_already_running else 'deployed and configured'} — {len(node_results)} nodes committed successfully.",
+        "post_commit_wait_seconds": converged_wait,
+        "message": (
+            f"Lab '{lab_name}' "
+            f"{'ALREADY RUNNING — DO NOT redeploy. Config pushed' if lab_already_running else 'deployed and configured'} "
+            f"— {len(node_results)} nodes committed successfully"
+            f"{f'; waited {converged_wait}s for BGP/OSPF convergence' if converged_wait else ''}."
+        ),
     })
 
 
