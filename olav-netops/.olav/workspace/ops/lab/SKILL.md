@@ -17,17 +17,13 @@ metadata:
     - destroy_lab
     - push_config
 tools:
-  # Deterministic helpers run as skill scripts (per ADR-0008):
-  # call execute_skill_script(skill_name="lab", script_name="<name>.py", args={...})
-  # — this single tool replaces 6 former MCP wrappers + the run_python_simulation sandbox.
-  - execute_skill_script   # Inherited from core/tools/. Runs scripts/ entries in this skill.
-  # Privileged operations (sandbox-external; stay as MCP):
-  - save_lab_config        # Save node config to disk for later deploy_and_push_lab
-  - deploy_and_push_lab    # Deploy lab + push saved configs atomically (auto-invokes create_srl_links + fix_srl_topology internally)
-  - deploy_lab             # POST CLAB YAML → auto fix_srl_topology + create_srl_links
-  - push_node_config       # Push SRL CLI config to a node (REMOTE CLAB — NOT docker exec)
-  - exec_on_node           # Verify node state after config push
-  - destroy_lab            # Tear down CLAB lab — always call on completion or failure
+  # Per ADR-0008 rev1 (R92.6): all deterministic + REST/SSH-callable
+  # ops live as skill scripts under ./scripts/. Invoke via
+  # execute_skill_script(skill_name="lab", script_name="<name>.py", args={...}).
+  # The agent's @tool surface for ops/lab is just 1 tool (real-time
+  # streaming) — everything else is a skill script.
+  - execute_skill_script   # Inherited from core/tools/. Drives all ./scripts/ entries.
+  - exec_on_node           # @tool kept: real-time streaming for show commands during verification
 static_context:
   - path: ./references/LAB_REFERENCE.md
 # R86 — on_intent (~4K tokens, largest reference of all).
@@ -63,18 +59,28 @@ parsed dict.
         args=out["stdout"]["r89_args"])
     # stdout (parsed) → {status, configs: {lab_node: 22-line srl_cli}}
 
-3.  save_lab_config(node=<lab_node>, config_lines=configs[lab_node].splitlines())
-    [one call per node — MCP, writes to deploy contract path]
+3.  execute_skill_script(
+        skill_name="lab", script_name="save_lab_config.py",
+        args={"lab_name": ..., "node": <lab_node>,
+              "config_lines": configs[lab_node].splitlines()})
+    [one call per node — writes to deploy contract path]
 
-4.  deploy_and_push_lab(yaml_content=<step 1 yaml>, configs={})
+4.  execute_skill_script(
+        skill_name="lab", script_name="deploy_and_push_lab.py",
+        args={"lab_name": ..., "yaml_content": <step 1 yaml>, "configs": {}})
+
 5.  exec_on_node — run each post_check.command, compare to expected_pattern
+    (stays as @tool — real-time streaming for interactive show commands)
 
 5b. ROLLBACK VALIDATION — only when apply tests PASSED:
     a. execute_skill_script(
            skill_name="lab", script_name="generate_srl_rollback_config.py",
            args=r89_args)
        # stdout → {status, configs: {lab_node: 7-line delete CLI}}
-    b. push_node_config(node=<lab_node>, config=rollback_configs[lab_node])
+    b. execute_skill_script(
+           skill_name="lab", script_name="push_node_config.py",
+           args={"lab_name": ..., "node": <lab_node>,
+                 "config_lines": rollback_configs[lab_node]})
     c. exec_on_node — verify reversion (BGP gone, no IPv4 on subif).
 
 6.  format_and_export — standalone CAB Lab Report (.md)
@@ -84,7 +90,10 @@ parsed dict.
               "tvt_test_ids": [...], "tvt_actual_lab": [...],
               "tvt_status": [...], "journal": [...]})
     # writes verdict + journal + per-test actuals back to TCF
-8.  destroy_lab — ALWAYS, even on failure
+8.  execute_skill_script(
+        skill_name="lab", script_name="destroy_lab.py",
+        args={"lab_name": ...})
+    — ALWAYS run, even on failure
 ```
 
 **⚠️ NEVER hand-write `yaml_content`** — small models omit

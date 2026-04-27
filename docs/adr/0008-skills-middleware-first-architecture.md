@@ -92,21 +92,31 @@ no longer needs `run_python_simulation` for these helpers.
 
 **4. The MCP-escalation rule (ADR-0007 §"Decision") remains valid
 but updated.** Operations escalate to MCP `@tool` only when:
-* **Sandbox-external privilege.** CLAB REST API auth, prod SSH
-  (scrapli), privileged docker. Subprocess scripts can't do
-  these without exposing credentials.
-* **Cross-call shared in-process state.** A handle, connection,
-  or cache that must persist across multiple invocations within
-  a single agent turn. Subprocess scripts can't share heap.
-* **Critical audit row.** Every invocation must produce a row in
-  `audit.duckdb.audit_tool_calls` — the controlled
-  `execute_skill_script` already audits, so this category
-  shrinks to "needs *named* audit rows, not generic ones".
-* **Real-time streaming output to the agent.** Subprocess output
-  is captured and returned at completion; tools that need to
-  stream tokens to the agent mid-execution stay MCP.
+* **Cross-call shared in-process state.** A Python-heap object
+  (SSH session, DB connection, cache) that must persist across
+  multiple invocations within a single agent turn. Subprocess
+  scripts can't share heap. **OLAV currently has none** — scrapli
+  sessions are created per-call, CLAB REST is stateless,
+  workspace writes are atomic.
+* **Critical audit row.** Every invocation must produce a *named*
+  row in `audit.duckdb.audit_tool_calls` — the controlled
+  `execute_skill_script` already audits generic invocations, so
+  this category shrinks to "needs structured fields beyond
+  `(skill_name, script_name, returncode)`".
+* **Real-time streaming output to the agent.** Subprocess
+  ``run`` returns at completion; tools that need to stream tokens
+  to the agent mid-execution stay MCP. (Mitigated by extending
+  `execute_skill_script` with `stream=True`; deferred to a
+  later round.)
 
-The 4-condition test from ADR-0007 still applies — but condition
+(See ADR-0008-rev1 in §"Revision History" below for the original
+"Sandbox-external privilege" condition that was removed in R92.6.
+We previously thought subprocess scripts couldn't access credentials
+or privileged operations — actually they inherit env, read config
+files, and call REST APIs / SSH the same way @tool wrappers do.)
+
+The original 4-condition test from ADR-0007 — minus the privilege
+condition — still applies; condition
 (2) "sandbox-external write target" is removed because skill scripts
 write within the workspace freely.
 
@@ -124,6 +134,24 @@ write within the workspace freely.
   redesign-deferral from R91 dissolves under the new pattern).
 * R92.4: ops/analyze, audit/curator.
 * R92.5: orchestrators (ops, core) — these are smaller; tail.
+* R92.6 (R92.6 rev1 — added 2026-04-27): aggressive privileged-tool
+  fold per ISSUE-AGGRESSIVE-SKILL-FOLD. Move 5 of 6 ops/lab privileged
+  @tool wrappers (save_lab_config / destroy_lab / deploy_lab /
+  deploy_and_push_lab / push_node_config) into skill scripts. Keep
+  exec_on_node as @tool until execute_skill_script gains streaming.
+  Wire SkillsMiddleware so SKILL.md loads metadata-only into base
+  prompt. Estimated additional savings: ~4,600 tokens / agent
+  invocation.
+
+## Revision History
+
+* **rev0 (2026-04-27)**: ADR accepted with 4 escalation conditions
+  including "Sandbox-external privilege".
+* **rev1 (2026-04-27, R92.6)**: removed "Sandbox-external privilege"
+  condition. Subprocess scripts can read env / config / call REST
+  APIs / SSH the same way @tool wrappers do — the perceived privilege
+  difference was illusory. Real condition is "cross-call in-process
+  state" which OLAV doesn't have. See ISSUE-AGGRESSIVE-SKILL-FOLD.
 
 ## Consequences
 

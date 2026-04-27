@@ -44,14 +44,25 @@ import sys
 import time
 from pathlib import Path
 
-_TOOLS_DIR = Path(__file__).parent
-_OLAV_SRC = Path(__file__).parents[5] / "src"
-if str(_OLAV_SRC) not in sys.path:
-    sys.path.insert(0, str(_OLAV_SRC))
-if str(_TOOLS_DIR) not in sys.path:
-    sys.path.insert(0, str(_TOOLS_DIR))
+_WS_TOOLS_DIR = (
+    Path(__file__).resolve().parents[4]
+    / ".olav" / "workspace" / "ops" / "lab" / "tools"
+)
+_CONFIG_PATH = (
+    Path(__file__).resolve().parents[4]
+    / ".olav" / "workspace" / "ops" / "lab" / "config" / "config.json"
+)
 
-_CONFIG_PATH = Path(__file__).parent.parent / "config" / "config.json"
+
+def _load_ws_module(name: str):
+    """Load a workspace tools/ helper by spec (avoids polluting sys.path)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, _WS_TOOLS_DIR / f"{name}.py")
+    if spec is None or spec.loader is None:
+        raise ImportError(f"workspace helper {name} not found at {_WS_TOOLS_DIR}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def _load_cfg() -> dict:
@@ -70,17 +81,13 @@ def _get_token(cfg: dict) -> str:
     return r.json()["token"]
 
 
-from langchain_core.tools import tool
-
-
-@tool
 def deploy_and_push_lab(
     lab_name: str,
     yaml_content: str,
     configs: dict,
     wait_seconds: int = 40,
     post_commit_wait_seconds: int = 30,
-) -> str:
+) -> dict:
     """Deploy ContainerLab topology AND push SR Linux configuration in one atomic call.
 
     This tool handles the complete deploy + configure lifecycle:
@@ -144,7 +151,7 @@ def deploy_and_push_lab(
         if loaded:
             configs = loaded
         else:
-            return json.dumps({
+            return {
                 "deployed": False,
                 "committed": False,
                 "error": (
@@ -165,14 +172,14 @@ def deploy_and_push_lab(
                         ]
                     }
                 }
-            })
+            }
 
     # ── Step 1: Check if lab already exists — skip deploy if so ────────────────
     cfg = _load_cfg()
     try:
         token = _get_token(cfg)
     except Exception as e:
-        return json.dumps({"deployed": False, "committed": False, "error": f"Auth failed: {e}", "stage": "auth"})
+        return {"deployed": False, "committed": False, "error": f"Auth failed: {e}", "stage": "auth"}
 
     headers = {"Authorization": f"Bearer {token}"}
     base_url = cfg["base_url"].rstrip("/")
@@ -188,45 +195,32 @@ def deploy_and_push_lab(
         pass
 
     if not lab_already_running:
-        # ── Deploy via deploy_lab (handles mgmt network, fix_srl_topology, links) ──
-        try:
-            _deploy_mod = importlib.import_module("deploy_lab")
-        except ImportError:
-            _deploy_mod = importlib.util.spec_from_file_location(
-                "deploy_lab", _TOOLS_DIR / "deploy_lab.py"
-            )
-            _m = importlib.util.module_from_spec(_deploy_mod)
-            _deploy_mod.loader.exec_module(_m)
-            _deploy_mod = _m
-
-        deploy_result_str = _deploy_mod.deploy_lab.invoke({
-            "yaml_content": yaml_content,
-            "wait_seconds": wait_seconds,
-        })
-        try:
-            deploy_result = json.loads(deploy_result_str)
-        except Exception:
-            deploy_result = {"status": "unknown", "raw": str(deploy_result_str)[:300]}
+        # ── Deploy via olav.core.lab.deploy_lab (sibling Python helper) ──
+        from olav.core.lab.deploy_lab import deploy_lab as _deploy_lab
+        deploy_result = _deploy_lab(
+            yaml_content=yaml_content,
+            wait_seconds=wait_seconds,
+        )
 
         if deploy_result.get("status") == "error":
-            return json.dumps({
+            return {
                 "deployed": False,
                 "committed": False,
                 "error": deploy_result.get("error", "deploy_lab failed"),
                 "stage": "deploy",
                 "deploy_detail": deploy_result,
-            })
+            }
 
         # Refresh token after deploy wait
         try:
             token = _get_token(cfg)
         except Exception as e:
-            return json.dumps({
+            return {
                 "deployed": True,
                 "committed": False,
                 "error": f"Auth refresh failed after deploy: {e}",
                 "stage": "auth",
-            })
+            }
         headers = {"Authorization": f"Bearer {token}"}
     # else: lab already running — skip deploy, reuse existing token
 
@@ -280,7 +274,7 @@ def deploy_and_push_lab(
             push_errors[node] = str(e)
 
     if dry_run_failures:
-        return json.dumps({
+        return {
             "deployed": True,
             "committed": False,
             "stage": "dry_run",
@@ -288,16 +282,16 @@ def deploy_and_push_lab(
             "dry_run_failures": dry_run_failures,
             "errors": push_errors,
             "hint": "SRL YANG validation rejected config for listed nodes. Fix the commands and retry with push_node_config.",
-        })
+        }
 
     if push_errors:
-        return json.dumps({
+        return {
             "deployed": True,
             "committed": False,
             "nodes": node_results,
             "errors": push_errors,
             "lab_name": lab_name,
-        })
+        }
 
     # ── Cleanup config drop-box (R86 location + legacy /tmp) ──────────────
     try:
@@ -332,7 +326,7 @@ def deploy_and_push_lab(
     if converged_wait > 0 and node_results:
         time.sleep(converged_wait)
 
-    return json.dumps({
+    return {
         "deployed": True,
         "committed": True,
         "lab_reused": lab_already_running,
@@ -345,25 +339,6 @@ def deploy_and_push_lab(
             f"— {len(node_results)} nodes committed successfully"
             f"{f'; waited {converged_wait}s for BGP/OSPF convergence' if converged_wait else ''}."
         ),
-    })
+    }
 
 
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--lab", required=True)
-    parser.add_argument("--yaml", required=True, help="Path to topology YAML file")
-    parser.add_argument("--configs", required=True, help="JSON dict of {node: [commands]}")
-    parser.add_argument("--wait", type=int, default=20)
-    args = parser.parse_args()
-
-    yaml_content = Path(args.yaml).read_text()
-    configs = json.loads(args.configs)
-    result = deploy_and_push_lab.invoke({
-        "lab_name": args.lab,
-        "yaml_content": yaml_content,
-        "configs": configs,
-        "wait_seconds": args.wait,
-    })
-    print(result)
