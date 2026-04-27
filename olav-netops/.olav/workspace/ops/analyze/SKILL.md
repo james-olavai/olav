@@ -19,12 +19,13 @@ metadata:
     - topology_visualization
     - state_comparison_drift_detection
 tools:
-  - run_python_simulation  # Analysis Mode: sandbox (db + sim + networkx + netutils)
-  - tcf_emit_from_sim      # R90 Phase 4: emit structured TCF (use INSTEAD of format_and_export for CAB Implementation Specs)
-  - diff_sql_state         # Drift Mode:    Compare any table between snapshots
-  - diff_topology_drift    # Drift Mode:    Physical link state changes
-  - diff_routing_drift     # Drift Mode:    Routing path shifts, BGP prefix loss
-  - diff_configs           # Drift Mode:    Raw config file comparison
+  - run_python_simulation  # SANDBOX — call olav.core.cab.tcf_emit_from_sim and olav_netops.core.diff.* (per ADR-0007 R91 Step 3)
+# Folded to Python (call inside run_python_simulation):
+#   - tcf_emit_from_sim       → olav.core.cab.tcf_emit_from_sim
+#   - diff_sql_state          → olav_netops.core.diff.diff_sql_state
+#   - diff_topology_drift     → olav_netops.core.diff.diff_topology_drift
+#   - diff_routing_drift      → olav_netops.core.diff.diff_routing_drift
+#   - diff_configs            → olav_netops.core.diff.diff_configs
 allowed_tables:
   - netops.v_bgp_neighbors_auto
   - netops.v_ospf_neighbors_auto
@@ -69,6 +70,14 @@ Use when the task contains: `simulate`, `what-if`, `change plan`, `BGP/OSPF/路�
 ### Drift Mode (was `ops-diff` v1.0.0)
 
 Retrospective comparison — what changed between two snapshots?
+Per ADR-0007 R91 Step 3, all four diff helpers are now Python in
+``olav_netops.core.diff`` and called from ``run_python_simulation``:
+
+```python
+from olav_netops.core.diff import (
+    diff_sql_state, diff_topology_drift, diff_routing_drift, diff_configs,
+)
+```
 
 1. **State Comparison** — any operational table (`diff_sql_state`)
 2. **Topology Drift** — physical link up/down changes (`diff_topology_drift`)
@@ -87,8 +96,9 @@ tasks and analysis-keyword tasks to this single sub-agent. Within this sub-agent
   design" → Analysis; "compare / diff / what changed" → Drift.
 - In Analysis Mode, the only tool is `run_python_simulation` (the sandbox covers
   all needs via `db`, `sim`, `nx`, `netutils`).
-- In Drift Mode, pick the specific `diff_*` tool by dimension (state / topology
-  / routing / configs).
+- In Drift Mode, ALSO use `run_python_simulation` and import the relevant
+  helper from `olav_netops.core.diff` (state / topology / routing / configs).
+  The 4 ``diff_*`` MCP tools were folded into Python per ADR-0007 R91 Step 3.
 
 A single request can invoke both modes sequentially (e.g. "compare yesterday's
 snapshot, then simulate fixing the broken links").
@@ -123,7 +133,14 @@ NOT assume or invent values.
 ## Drift Mode — Workflow
 
 1. **Select Snapshots**: Choose two `snapshot_id` values (T1=before, T2=after)
-2. **Choose Analysis Type**:
+2. **Run via `run_python_simulation`**:
+   ```python
+   from olav_netops.core.diff import (
+       diff_sql_state, diff_topology_drift, diff_routing_drift, diff_configs,
+   )
+   out = diff_sql_state(table_name="ospf_neighbors", snapshot_id_1="t1", snapshot_id_2="t2")
+   ```
+   Pick the helper by dimension:
    - `diff_sql_state` — any table (ospf_neighbors, interfaces, etc.)
    - `diff_topology_drift` — `topology_links` changes
    - `diff_routing_drift` — `routes`/`bgp_routes` changes

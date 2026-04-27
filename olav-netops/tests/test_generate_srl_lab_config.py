@@ -16,21 +16,12 @@ Covers:
 """
 from __future__ import annotations
 
-import importlib.util
 import json
-from pathlib import Path
 
 import pytest
 
 
-_TOOL_PATH = (
-    Path(__file__).resolve().parents[1]
-    / ".olav" / "workspace" / "ops" / "lab" / "tools"
-    / "generate_srl_lab_config.py"
-)
-_spec = importlib.util.spec_from_file_location("_gslc", _TOOL_PATH)
-_gslc = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_gslc)
+import olav.core.lab.srl_render as _gslc
 
 
 # --- happy path -------------------------------------------------------------
@@ -38,7 +29,7 @@ _spec.loader.exec_module(_gslc)
 
 def _basic_call():
     """Common 2-node eBGP setup."""
-    return _gslc.generate_srl_lab_config.invoke({
+    return _gslc.generate_srl_lab_config(**{
         "nodes": ["R1", "R4"],
         "loopbacks": ["1.1.1.1", "4.4.4.4"],
         "asns": [65000, 65001],
@@ -129,7 +120,7 @@ def test_basic_loopback_export_policy_present():
 
 def test_loopback_with_mask_works():
     """Loopback may be passed with /32 — tool normalises it."""
-    result = _gslc.generate_srl_lab_config.invoke({
+    result = _gslc.generate_srl_lab_config(**{
         "nodes": ["R1", "R4"],
         "loopbacks": ["1.1.1.1/32", "4.4.4.4/32"],
         "asns": [65000, 65001],
@@ -143,7 +134,7 @@ def test_loopback_with_mask_works():
 
 def test_default_lab_subnet():
     """Omitting lab_subnet uses 172.16.99.0/30."""
-    result = _gslc.generate_srl_lab_config.invoke({
+    result = _gslc.generate_srl_lab_config(**{
         "nodes": ["R1", "R4"],
         "loopbacks": ["1.1.1.1", "4.4.4.4"],
         "asns": [65000, 65001],
@@ -154,7 +145,7 @@ def test_default_lab_subnet():
 
 
 def test_alternative_subnet_works():
-    result = _gslc.generate_srl_lab_config.invoke({
+    result = _gslc.generate_srl_lab_config(**{
         "nodes": ["A", "B"],
         "loopbacks": ["10.0.0.1", "10.0.0.2"],
         "asns": [65000, 65001],
@@ -170,7 +161,7 @@ def test_alternative_subnet_works():
 
 
 def test_empty_nodes_errors():
-    result = _gslc.generate_srl_lab_config.invoke({
+    result = _gslc.generate_srl_lab_config(**{
         "nodes": [],
         "loopbacks": [],
         "asns": [],
@@ -181,7 +172,7 @@ def test_empty_nodes_errors():
 
 
 def test_length_mismatch_loopbacks_errors():
-    result = _gslc.generate_srl_lab_config.invoke({
+    result = _gslc.generate_srl_lab_config(**{
         "nodes": ["R1", "R4"],
         "loopbacks": ["1.1.1.1"],   # only 1 — mismatch
         "asns": [65000, 65001],
@@ -193,7 +184,7 @@ def test_length_mismatch_loopbacks_errors():
 
 
 def test_length_mismatch_asns_errors():
-    result = _gslc.generate_srl_lab_config.invoke({
+    result = _gslc.generate_srl_lab_config(**{
         "nodes": ["R1", "R4"],
         "loopbacks": ["1.1.1.1", "4.4.4.4"],
         "asns": [65000],   # only 1 — mismatch
@@ -205,7 +196,7 @@ def test_length_mismatch_asns_errors():
 
 def test_wrong_node_count_for_ebgp_errors():
     """ebgp_direct needs exactly 2 nodes."""
-    result = _gslc.generate_srl_lab_config.invoke({
+    result = _gslc.generate_srl_lab_config(**{
         "nodes": ["R1"],
         "loopbacks": ["1.1.1.1"],
         "asns": [65000],
@@ -216,7 +207,7 @@ def test_wrong_node_count_for_ebgp_errors():
 
 
 def test_unsupported_intent_type_errors():
-    result = _gslc.generate_srl_lab_config.invoke({
+    result = _gslc.generate_srl_lab_config(**{
         "nodes": ["R1", "R4"],
         "loopbacks": ["1.1.1.1", "4.4.4.4"],
         "asns": [65000, 65001],
@@ -229,7 +220,7 @@ def test_unsupported_intent_type_errors():
 
 def test_too_narrow_subnet_errors():
     """/31 has only 2 hosts but the function rejects /31+ as ambiguous."""
-    result = _gslc.generate_srl_lab_config.invoke({
+    result = _gslc.generate_srl_lab_config(**{
         "nodes": ["R1", "R4"],
         "loopbacks": ["1.1.1.1", "4.4.4.4"],
         "asns": [65000, 65001],
@@ -242,7 +233,7 @@ def test_too_narrow_subnet_errors():
 
 def test_asn_as_string_coerced():
     """asn = '65000' (string) should be coerced to int silently."""
-    result = _gslc.generate_srl_lab_config.invoke({
+    result = _gslc.generate_srl_lab_config(**{
         "nodes": ["R1", "R4"],
         "loopbacks": ["1.1.1.1", "4.4.4.4"],
         "asns": ["65000", "65001"],   # type: ignore — small models often pass strings

@@ -20,6 +20,7 @@ from .tcf_diff import (
     tcf_diff_spec_vs_lab,
 )
 from .tcf_io import tcf_emit, tcf_load
+from .tcf_lab import tcf_load_for_lab, tcf_record_lab_run
 from .tcf_schema import (
     CabTcf,
     CliBlock,
@@ -30,6 +31,7 @@ from .tcf_schema import (
     PostCheck,
     TvtRow,
 )
+from .tcf_sim import tcf_emit_from_sim
 
 __all__ = [
     "CabTcf",
@@ -45,7 +47,10 @@ __all__ = [
     "TvtRow",
     "tcf_diff_spec_vs_lab",
     "tcf_emit",
+    "tcf_emit_from_sim",
     "tcf_load",
+    "tcf_load_for_lab",
+    "tcf_record_lab_run",
     "tcf_to_r88_args",
     "tcf_to_r89_args",
     "tcf_to_r90_args",

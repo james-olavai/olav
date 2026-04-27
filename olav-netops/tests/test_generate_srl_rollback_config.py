@@ -18,36 +18,17 @@ Covers:
 """
 from __future__ import annotations
 
-import importlib.util
 import json
-from pathlib import Path
 
 import pytest
 
 
-_TOOL_PATH = (
-    Path(__file__).resolve().parents[1]
-    / ".olav" / "workspace" / "ops" / "lab" / "tools"
-    / "generate_srl_rollback_config.py"
-)
-_spec = importlib.util.spec_from_file_location("_grc", _TOOL_PATH)
-_grc = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_grc)
-
-
-# Also load R89 to validate symmetry
-_R89_PATH = (
-    Path(__file__).resolve().parents[1]
-    / ".olav" / "workspace" / "ops" / "lab" / "tools"
-    / "generate_srl_lab_config.py"
-)
-_r89_spec = importlib.util.spec_from_file_location("_r89", _R89_PATH)
-_r89 = importlib.util.module_from_spec(_r89_spec)
-_r89_spec.loader.exec_module(_r89)
+import olav.core.lab.srl_rollback as _grc
+import olav.core.lab.srl_render as _r89
 
 
 def _basic_call():
-    return _grc.generate_srl_rollback_config.invoke({
+    return _grc.generate_srl_rollback_config(**{
         "nodes": ["R1", "R4"],
         "loopbacks": ["1.1.1.1", "4.4.4.4"],
         "asns": [65000, 65001],
@@ -55,7 +36,7 @@ def _basic_call():
 
 
 def _basic_apply_call():
-    return _r89.generate_srl_lab_config.invoke({
+    return _r89.generate_srl_lab_config(**{
         "nodes": ["R1", "R4"],
         "loopbacks": ["1.1.1.1", "4.4.4.4"],
         "asns": [65000, 65001],
@@ -139,12 +120,12 @@ def test_rollback_value_independent():
     """Rollback CLI shouldn't include specific AS numbers or IPs —
     ``delete / network-instance default protocols bgp`` removes them
     all wholesale. Different inputs should produce identical CLI."""
-    a = json.loads(_grc.generate_srl_rollback_config.invoke({
+    a = json.loads(_grc.generate_srl_rollback_config(**{
         "nodes": ["R1", "R4"],
         "loopbacks": ["1.1.1.1", "4.4.4.4"],
         "asns": [65000, 65001],
     }))
-    b = json.loads(_grc.generate_srl_rollback_config.invoke({
+    b = json.loads(_grc.generate_srl_rollback_config(**{
         "nodes": ["R1", "R4"],
         "loopbacks": ["9.9.9.9", "8.8.8.8"],   # different
         "asns": [12345, 67890],                # different
@@ -205,14 +186,14 @@ def test_rollback_undoes_every_r89_set_destination():
 
 
 def test_empty_nodes_errors():
-    result = _grc.generate_srl_rollback_config.invoke({
+    result = _grc.generate_srl_rollback_config(**{
         "nodes": [], "loopbacks": [], "asns": [],
     })
     assert json.loads(result)["status"] == "error"
 
 
 def test_length_mismatch_errors():
-    result = _grc.generate_srl_rollback_config.invoke({
+    result = _grc.generate_srl_rollback_config(**{
         "nodes": ["R1", "R4"],
         "loopbacks": ["1.1.1.1"],   # only 1
         "asns": [65000, 65001],
@@ -223,7 +204,7 @@ def test_length_mismatch_errors():
 
 
 def test_unsupported_intent_errors():
-    result = _grc.generate_srl_rollback_config.invoke({
+    result = _grc.generate_srl_rollback_config(**{
         "nodes": ["R1", "R4"],
         "loopbacks": ["1.1.1.1", "4.4.4.4"],
         "asns": [65000, 65001],
@@ -235,7 +216,7 @@ def test_unsupported_intent_errors():
 
 
 def test_wrong_node_count_for_ebgp_errors():
-    result = _grc.generate_srl_rollback_config.invoke({
+    result = _grc.generate_srl_rollback_config(**{
         "nodes": ["R1"],
         "loopbacks": ["1.1.1.1"],
         "asns": [65000],
@@ -247,7 +228,7 @@ def test_wrong_node_count_for_ebgp_errors():
 
 def test_too_narrow_subnet_errors():
     """Same /30 validation as R89."""
-    result = _grc.generate_srl_rollback_config.invoke({
+    result = _grc.generate_srl_rollback_config(**{
         "nodes": ["R1", "R4"],
         "loopbacks": ["1.1.1.1", "4.4.4.4"],
         "asns": [65000, 65001],

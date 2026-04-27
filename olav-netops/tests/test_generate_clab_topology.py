@@ -19,21 +19,12 @@ Covers:
 """
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
 
 import duckdb
 import pytest
 
 
-_TOOL_PATH = (
-    Path(__file__).resolve().parents[1]
-    / ".olav" / "workspace" / "ops" / "lab" / "tools"
-    / "generate_clab_topology.py"
-)
-_spec = importlib.util.spec_from_file_location("_gct", _TOOL_PATH)
-_gct = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_gct)
+import olav.core.lab.topology as _gct
 
 
 # --- _validate_iface --------------------------------------------------------
@@ -262,7 +253,7 @@ def test_e2e_returns_raw_yaml_not_json(db_with_links):
     JSON-stringify bug from R88-B v1.
     """
     import yaml as _yaml
-    result = _gct.generate_clab_topology.invoke({
+    result = _gct.generate_clab_topology(**{
         "nodes": ["R1", "R4"],
         "lab_name": "cab_r1_r4",
     })
@@ -281,7 +272,7 @@ def test_e2e_returns_raw_yaml_not_json(db_with_links):
 
 
 def test_e2e_two_node_lab_uses_sequential_ports(db_with_links):
-    result = _gct.generate_clab_topology.invoke({
+    result = _gct.generate_clab_topology(**{
         "nodes": ["R1", "R4"],
         "lab_name": "cab_r1_r4",
     })
@@ -295,7 +286,7 @@ def test_e2e_two_node_lab_uses_sequential_ports(db_with_links):
 
 
 def test_e2e_filters_links_outside_node_set(db_with_links):
-    result = _gct.generate_clab_topology.invoke({
+    result = _gct.generate_clab_topology(**{
         "nodes": ["R1", "R4"],
         "lab_name": "cab_r1_r4",
     })
@@ -311,7 +302,7 @@ def test_e2e_filters_links_outside_node_set(db_with_links):
 
 
 def test_e2e_empty_node_list_returns_error_comment(db_with_links):
-    result = _gct.generate_clab_topology.invoke({
+    result = _gct.generate_clab_topology(**{
         "nodes": [],
         "lab_name": "cab_test",
     })
@@ -320,7 +311,7 @@ def test_e2e_empty_node_list_returns_error_comment(db_with_links):
 
 
 def test_e2e_no_matching_links_emits_empty_section(db_with_links):
-    result = _gct.generate_clab_topology.invoke({
+    result = _gct.generate_clab_topology(**{
         "nodes": ["LonelyA", "LonelyB"],
         "lab_name": "cab_lonely",
     })

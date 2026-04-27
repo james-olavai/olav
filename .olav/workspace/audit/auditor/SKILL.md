@@ -7,12 +7,13 @@ tools:
   - path: ./tools/anomaly_engine.py
   - path: ./tools/baseline_engine.py
   - path: ./tools/incident_engine.py
-  - path: ./tools/database_introspection.py
-  - path: ./tools/test_map_query.py
   - path: ./tools/save_profile.py
-  - path: ./tools/analyze_thresholds.py
-  - path: ./tools/read_profile.py
   - path: ./tools/append_jobs.py
+  - path: ./tools/run_python_simulation.py
+# Authoring helpers (database_introspection, preview_map_query,
+# read_profile, list_profiles, analyze_thresholds) live in
+# olav.core.auditor — import them inside run_python_simulation
+# (per ADR-0007 R91 CUT 1).
 ---
 
 ## Role
@@ -75,19 +76,26 @@ designer workflow below instead of Steps 1–4 above.
 ### Authoring workflow
 
 ```
-1. database_introspection(db_type="duckdb")
+1. run_python_simulation:
+       from olav.core.auditor import database_introspection
+       schema = database_introspection(db_type="duckdb")
    → Learn real table/column names. Never guess.
 
-2. test_map_query(job_type="sql", query=..., params={"window": "1h"})
+2. run_python_simulation:
+       from olav.core.auditor import preview_map_query
+       rows = preview_map_query(job_type="sql", query="...",
+                             params={"window": "1h"})
    → Validate SQL syntax for each job. Zero rows is fine; errors are not.
 
-3. save_profile(name=..., yaml_jobs=[...], markdown_body=...)
+3. save_profile(name=..., yaml_jobs=[...], markdown_body=...)   [MCP]
    → Validate + write profiles/<name>.md after schema validation passes.
 ```
 
-For data-driven thresholds, call `analyze_thresholds` between steps 2 and 3.
-For extending an existing profile, use `read_profile` + `append_jobs` instead
-of `save_profile`.
+For data-driven thresholds, call ``analyze_thresholds`` (in the
+sandbox, ``from olav.core.auditor import analyze_thresholds``) between
+steps 2 and 3. For extending an existing profile, call
+``read_profile`` (sandbox) + ``append_jobs`` (MCP) instead of
+``save_profile``.
 
 ### Authoring rules
 
