@@ -20,6 +20,7 @@ tools:
   - tcf_load_for_lab       # R90 Phase 3: read TCF spec, derive R88/R89 args + tvt schedule
   - generate_clab_topology # Build CLAB YAML from netops.v_l2_links_auto — call BEFORE deploy_and_push_lab
   - generate_srl_lab_config # R89: deterministic prod→SRL CLI translator — call BEFORE save_lab_config
+  - generate_srl_rollback_config # R90 Phase 6: deterministic SRL rollback CLI (delete /...) — call AFTER post-check PASS to validate rollback can revert cleanly
   - run_python_simulation  # Build topology YAML, translate configs
   - save_lab_config        # Save node config to disk for later deploy_and_push_lab
   - deploy_and_push_lab    # Deploy lab + push saved configs atomically
@@ -53,6 +54,19 @@ static_context_mode: on_intent
     [one call per node]
 4.  deploy_and_push_lab(yaml_content=<step 1>, configs={})
 5.  exec_on_node — run each post_check.command, compare to expected_pattern
+    [collect actuals into TVT actuals list]
+
+5b. ROLLBACK VALIDATION (R90 Phase 6) — only when apply tests PASSED:
+    a. generate_srl_rollback_config(**r89_args)
+         → {lab_node: 7-line delete CLI}
+    b. push_node_config(node=<lab_node>, config=rollback_configs[lab_node])
+       [one call per node]
+    c. exec_on_node — verify reversion:
+         - show network-instance default protocols bgp neighbor → empty
+         - show interface ethernet-1/N detail → no IPv4 address on subif 0
+       Add a TVT row T_rollback_clean (severity blocker if rollback
+       is part of the contract) with status PASS/FAIL.
+
 6.  format_and_export — standalone CAB Lab Report (.md, human readable)
 7.  tcf_record_lab_run(spec_path=..., verdict=..., tvt_test_ids=[...],
         tvt_actual_lab=[...], tvt_status=[...], journal_json=..., ...)
