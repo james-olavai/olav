@@ -17,6 +17,7 @@ metadata:
     - destroy_lab
     - push_config
 tools:
+  - tcf_load_for_lab       # R90 Phase 3: read TCF spec, derive R88/R89 args + tvt schedule
   - generate_clab_topology # Build CLAB YAML from netops.v_l2_links_auto — call BEFORE deploy_and_push_lab
   - generate_srl_lab_config # R89: deterministic prod→SRL CLI translator — call BEFORE save_lab_config
   - run_python_simulation  # Build topology YAML, translate configs
@@ -27,7 +28,7 @@ tools:
   - exec_on_node           # Verify node state after config push
   - create_srl_links       # Build SR Linux link definitions from topology
   - fix_srl_topology       # Patch CLAB topology YAML for SR Linux constraints
-  - append_validation_footer # F3: append PASS/FAIL footer to original spec — call AFTER format_and_export, BEFORE destroy_lab
+  - tcf_record_lab_run     # R90 Phase 3: write verdict + journal + tvt actuals back to TCF (replaces append_validation_footer)
   - destroy_lab            # Tear down CLAB lab — always call on completion or failure
 static_context:
   - path: ./references/LAB_REFERENCE.md
@@ -39,19 +40,25 @@ static_context:
 static_context_mode: on_intent
 ---
 
-## Flow
+## Flow (TCF-native, R90 Phase 3+)
 
 ```
-1. generate_clab_topology(nodes=[...], lab_name=...) → returns yaml_content (with links:)
-1b. generate_srl_lab_config(devices=[...], change_intent={...}) → returns {r1: srl_cli, r4: srl_cli}
-   (R89 — replaces hand-translation of prod CLI into SRL; deterministic, 22-line
-   per-node template render. Use the returned configs[node] verbatim for save_lab_config.)
-2. save_lab_config(r1, config_lines=<from step 1b>.configs.r1.splitlines())
-3. save_lab_config(r4, config_lines=<from step 1b>.configs.r4.splitlines())
-4. deploy_and_push_lab(yaml_content=<from step 1>, configs={}) → deploy + push atomically
-5. exec_on_node        → spot-check BGP neighbor state
-6. REPORT              → PASS or FAIL (format: references/CAB_REPORT_FORMAT.md)
-7. destroy_lab         → ALWAYS call destroy_lab(lab_name=...) — cleanup, even on failure
+0.  tcf_load_for_lab(spec_path=...)
+       → derives r88_args + r89_args + post_check + tvt schedule
+       (replaces markdown spec parsing — Pydantic validates the
+        spec; FK errors surface here, not deep in deploy)
+1.  generate_clab_topology(**r88_args) → yaml_content w/ links:
+2.  generate_srl_lab_config(**r89_args) → {lab_node: 22-line srl_cli}
+3.  save_lab_config(node=<lab_node>, config_lines=configs[lab_node].splitlines())
+    [one call per node]
+4.  deploy_and_push_lab(yaml_content=<step 1>, configs={})
+5.  exec_on_node — run each post_check.command, compare to expected_pattern
+6.  format_and_export — standalone CAB Lab Report (.md, human readable)
+7.  tcf_record_lab_run(spec_path=..., verdict=..., tvt_test_ids=[...],
+        tvt_actual_lab=[...], tvt_status=[...], journal_json=..., ...)
+       → writes verdict + journal + per-test actuals back to the TCF
+       (replaces append_validation_footer — structured, not markdown)
+8.  destroy_lab — ALWAYS, even on failure
 ```
 
 **⚠️ NEVER hand-write `yaml_content`** — small models routinely
