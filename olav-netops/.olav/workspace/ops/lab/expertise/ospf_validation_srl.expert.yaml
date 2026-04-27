@@ -1,0 +1,116 @@
+schema_version: 1
+topic: ospf_validation_srl
+scope: ops-lab
+vendor: srl
+platform_family: nokia
+keywords:
+  - srl
+  - sr-linux
+  - ospf
+  - ospfv2
+  - cab
+  - validation
+  - adjacency
+  - lsdb
+  - area
+body: |
+  # SRL-specific OSPF validation (NOT Cisco / Junos)
+
+  Sibling to ``bgp_validation_srl`` — same structure, different
+  protocol.  Use this when validating OSPF in SRL containers via
+  CAB lab.
+
+  ## Adjacency state decoder (SRL semantics)
+
+  | state    | meaning                              | likely cause if not Full   |
+  |----------|--------------------------------------|----------------------------|
+  | `down`   | no hellos seen                       | interface admin-state, MTU |
+  | `init`   | hello seen but not bidirectional     | RouterID conflict, ACL     |
+  | `2way`   | hello-bi but DR/BDR not elected      | DR priority mismatch (rare in P2P) |
+  | `exstart` | DR/BDR done, MTU negotiation        | **MTU mismatch** ← most common |
+  | `exchange` | DD packet exchange                 | LSDB sync glitch           |
+  | `loading` | LSR/LSU in flight                   | rare; transient            |
+  | `Full`   | adjacency complete                   | next: check LSDB sync      |
+
+  Cisco / Junos use the same names; SRL does too.  But SRL has a
+  **stricter MTU enforcement** by default — adjacency stuck at
+  `exstart` is almost always MTU mismatch in SRL (Cisco may
+  tolerate small mismatches in some IOS versions).
+
+  ## SRL OSPF gotchas (NOT Cisco-equivalent)
+
+  1. **`network-instance default protocols ospf instance <name>`** —
+     SRL OSPF runs as a named instance INSIDE a network-instance.
+     Cisco's `router ospf <id>` is a global process; SRL's instance
+     is per-VRF.  `<name>` is required.
+
+  2. **Area must be declared at the instance level** —
+     ``set / network-instance default protocols ospf instance default
+     area 0.0.0.0`` — and interfaces are then bound to the area
+     via ``area 0.0.0.0 interface <intf>.0``.
+
+  3. **Interface MTU = OSPF MTU** in SRL (no separate `ip ospf mtu`
+     knob like Cisco).  If you want adjacency to form between an
+     SRL container and a Cisco neighbor with mismatched MTU, set
+     SRL `interface ... mtu` to match — there's no equivalent of
+     `ip ospf mtu-ignore`.
+
+  4. **router-id**: SRL uses the network-instance's `router-id`,
+     NOT a separate OSPF router-id like Cisco.  Set it on the
+     network-instance (typically same as BGP router-id).
+
+  5. **Reference-bandwidth (cost calculation)** — SRL uses
+     1 Gbps reference by default vs Cisco's 100 Mbps.  Cost
+     comparison spec ↔ lab will mismatch unless reference-bandwidth
+     is set explicitly.
+
+  ## Verification Sequence
+
+  ```
+  exec_on_node: bash -c 'sr_cli show interface ethernet-1/N 2>&1'
+    → confirm up + IPv4 + MTU matches peer
+
+  exec_on_node: bash -c 'sr_cli show network-instance default protocols ospf neighbor 2>&1'
+    → confirm state == Full
+
+  exec_on_node: bash -c 'sr_cli show network-instance default protocols ospf interfaces 2>&1'
+    → confirm interface admin-state + area + MTU + cost
+
+  exec_on_node: bash -c 'sr_cli show network-instance default protocols ospf database 2>&1'
+    → confirm LSDB has Router LSAs from peer (synchronized)
+
+  exec_on_node: bash -c 'sr_cli show network-instance default route-table ipv4-unicast 2>&1'
+    → confirm OSPF-learned routes (not just connected/static)
+  ```
+
+  ## CAB Pass Criteria (ALL must hold)
+
+  1. neighbor state == `Full` (literal string)
+  2. LSDB synchronized (peer's Router LSA visible)
+  3. ≥1 OSPF-learned route (peer subnet) in route-table
+  4. interface MTU consistent with peer
+  5. no `dry_run_failures` on config push
+
+  ## Failure-mode → diagnosis examples
+
+  * `state=exstart` for >30s → **MTU mismatch** between
+    interfaces.  Check `show interface` MTU on both sides.
+    Solution: align MTU in spec OR set `mtu-ignore` (NOT available
+    in SRL — only in Cisco).
+  * `state=2way` on P2P link → DR election issue, but P2P
+    shouldn't elect DR.  Check OSPF interface network-type
+    (point-to-point vs broadcast); SRL defaults to broadcast.
+    Spec should set `network-type point-to-point` for P2P.
+  * `state=Full` + 0 routes received → likely OSPF area type
+    mismatch (one side stub, other not) OR cost calculation
+    wrong OR distribute-list (rare in SRL — usually policy).
+  * `state=down` immediately → no hellos.  Check interface
+    `subinterface 0 admin-state enable`, OSPF instance enable,
+    `area X interface Y.0` binding, and link physical state.
+
+  ## CAB-as-gate rule
+
+  Same as BGP: any criterion fails → CAB FAIL with the specific
+  failing exec_on_node line + diagnostic from above.  Don't
+  iterate-and-fix — spec needs revision in ops-analyze if it
+  doesn't validate.
