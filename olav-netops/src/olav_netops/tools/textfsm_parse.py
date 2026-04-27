@@ -129,13 +129,17 @@ def _try_custom_textfsm(platform: str, command: str, raw_output: str) -> list[di
 # ── Tier 2: ntc-templates built-in ───────────────────────────────────────
 
 # ntc-templates filename aliases: some CLI commands don't map 1:1 to the
-# template filename convention.  Example: Cisco IOS prints
-# ``show ip ospf neighbors`` (plural) but ntc ships the template as
-# ``show_ip_ospf_neighbor`` (singular).  Previously each caller kept its
-# own alias map (``netops_init/run.py`` had its own 6-entry dict); this
-# one is the SSOT.  Add entries here rather than at call sites.
+# template filename convention. Example: ``show vlan brief`` (the
+# command operators actually run) maps to the ``show_vlan`` template
+# (which ntc-templates ships under the shorter name). Previously each
+# caller kept its own alias map; this one is the SSOT — add entries
+# here rather than at call sites.
+#
+# (Removed: ``show ip ospf neighbors`` → ``show_ip_ospf_neighbor`` —
+# stale entry from before ISSUE-NETOPS-COLLECT-OSPF-CMD was fixed.
+# The collect path now sends the singular form ``show ip ospf neighbor``
+# which matches the template name directly, so no alias needed.)
 _NTC_FILENAME_ALIASES: dict[str, str] = {
-    "show ip ospf neighbors":  "show_ip_ospf_neighbor",
     "show vlan brief":         "show_vlan",
     "show bgp summary":        "show_ip_bgp_summary",
     "show bgp all summary":    "show_ip_bgp_summary",
