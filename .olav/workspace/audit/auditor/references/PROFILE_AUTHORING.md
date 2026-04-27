@@ -21,31 +21,32 @@ user turn is either running or authoring, never both.
 
 ## Authoring tool-call workflow (strict order)
 
-Per ADR-0007 (R91 CUT 1), the four authoring helpers
-(`database_introspection`, `preview_map_query`, `read_profile`,
-`analyze_thresholds`) are now Python in `olav.core.auditor` —
-**call them inside `run_python_simulation`**, not as MCP tools.
-The write-side helpers (`save_profile`, `append_jobs`) are still MCP.
+Per ADR-0008 (R92.3), the four authoring helpers are **skill
+scripts** under ``audit/auditor/scripts/``. Invoke them via
+``execute_skill_script`` (inherited from ``core/tools/``). The
+write-side helpers (``save_profile``, ``append_jobs``) remain MCP.
 
 ```
-1. run_python_simulation:                                   [PYTHON]
-       from olav.core.auditor import database_introspection
-       schema = database_introspection(db_type="duckdb")
+1. execute_skill_script(
+       skill_name="auditor", script_name="database_introspection.py",
+       args={"db_type": "duckdb"})
    → Learn real table and column names. Never guess.
 
-2. run_python_simulation:                                   [PYTHON]
-       from olav.core.auditor import preview_map_query
-       rows = preview_map_query(job_type="sql", query="...",
-                                params={"window": "1h"})
+2. execute_skill_script(
+       skill_name="auditor", script_name="preview_map_query.py",
+       args={"job_type": "sql", "query": "<SQL with :window>",
+             "params": {"window": "1h"}})
    → Validate SQL syntax for each job. Zero rows is fine; errors are not.
 
 3. save_profile(name=..., yaml_jobs=[...], markdown_body=...)   [MCP]
    → Write to profiles/<name>.md after schema validation passes.
 ```
 
-For data-driven thresholds, call ``analyze_thresholds`` (Python in
-the sandbox) between steps 2 and 3. For extending an existing
-profile, call ``read_profile`` (Python) then ``append_jobs`` (MCP)
+For data-driven thresholds, call
+``execute_skill_script(skill_name="auditor", script_name="analyze_thresholds.py", args={...})``
+between steps 2 and 3. For extending an existing profile, call
+``execute_skill_script(skill_name="auditor", script_name="read_profile.py",
+args={"action":"read", "name":"<profile>"})`` then ``append_jobs`` (MCP)
 instead of ``save_profile``.
 
 ## The three authoring sub-modes
