@@ -95,10 +95,20 @@ For simulations / change plans, produce a Markdown report via
 4. Impact Analysis (blast radius, affected protocols)
 5. Change Plan (phased)
 6. **CAB Implementation Spec** — exact format in
-   `references/CAB_SPEC_FORMAT.md`.  ops-lab implements this section
-   literally; format must be precise.
+   `references/CAB_SPEC_FORMAT.md` (load via `read_file` before
+   producing the spec; format must be precise, ops-lab implements
+   verbatim).  Spec MUST include BOTH a prod-platform CLI section
+   AND a SRL Lab Substitution Table + SRL CLI ``config_lines`` for
+   each device — see CAB_SPEC_FORMAT.md for the 23-line per-node
+   SRL skeleton.
 7. Verification Commands
 8. Risk Classification (LOW / MEDIUM / HIGH with justification)
+
+### Format gotcha
+
+Pass the spec markdown as a **STRING** to ``format_and_export``
+(``data="# CAB Spec\n..."``).  Passing a dict produces ugly
+``**header**:`` rows — a known small-model bug.
 
 For topology diagrams: always `format_and_export` to `.mmd`; never
 print without saving.  Filename / Mermaid format rules in
