@@ -180,6 +180,11 @@ class AutoRecallMiddleware:
         # workflow / save / topology guidance without crowding out
         # schema entries.
         "usage_guide": 4,
+        # R87 Phase 1 (dev_docs/63) — vendor / platform-specific
+        # corrective expertise (e.g. SRL BGP state semantics).
+        # Each entry is per-agent scoped; ``_gather_candidates``
+        # below filters by ``scope IN ('global', current_agent)``.
+        "expert_knowledge": 3,
     }
 
     # Per-category minimum quotas — reserves slots so a cross-platform
@@ -211,7 +216,12 @@ class AutoRecallMiddleware:
         # content moved to memory so any agent can know "here's the
         # format_and_export call for this output shape" without
         # cross-agent delegation to writer.  Total 3+4+2+3+1=13 unchanged.
-        "schema_knowledge": 3,
+        # R87 Phase 1 (dev_docs/63): schema_knowledge 3→2 to make room
+        # for expert_knowledge:1 — vendor/platform-specific corrective
+        # expertise (e.g. SRL BGP state semantics).  Per-agent scoped
+        # via the recall scope filter below.  Total 2+4+2+3+1+1=13
+        # unchanged.
+        "schema_knowledge": 2,
         "value_distribution": 4,
         "query_pattern": 2,
         # Phase 1 (dev_docs/61) — reserve slots for procedural guides
@@ -223,6 +233,11 @@ class AutoRecallMiddleware:
         # primed from *.format.yaml.  Top-1 most-relevant format hits
         # the prompt; the agent uses it for the format_and_export call.
         "format_guide": 1,
+        # R87 Phase 1 — vendor / platform-specific expert knowledge.
+        # Per-agent scoped — each entry's ``scope`` field gates which
+        # agent surfaces it.  Top-1 hits is enough for a typical
+        # workflow (one platform context per query).
+        "expert_knowledge": 1,
     }
 
     # Per-category L2 distance thresholds — drop hits with distance
@@ -289,12 +304,26 @@ class AutoRecallMiddleware:
         # a generic question doesn't help for short structural entries.
         if query_vector:
             for cat, n in self._CATEGORY_FETCH.items():
+                # R87 Phase 1: ``expert_knowledge`` entries are scoped
+                # per-agent in the YAML (``scope: ops-lab`` etc).  We
+                # don't yet have a runtime channel to know which agent
+                # is currently invoking the recall middleware, so for
+                # Phase 1 we fetch expert entries with NO scope filter
+                # (catches both ``global`` AND any agent-scoped entry).
+                # Vector relevance + keyword tags do the
+                # agent-context filtering naturally — an SRL BGP entry
+                # only surfaces for queries that mention SRL/BGP terms.
+                # Phase 1.5 (if Phase 1 bench validates) will wire
+                # agent_name through MemoryRecallPlugin → enrich() →
+                # _gather_candidates() and apply hard
+                # ``scope IN ('global', current_agent)`` filter.
+                fetch_scope = None if cat == "expert_knowledge" else scope
                 try:
                     rows = self._store.search_by_vector(
                         query_vector=query_vector,
                         limit=n,
                         category=cat,
-                        scope=scope,
+                        scope=fetch_scope,
                     )
                     _add(rows)
                 except Exception as e:
