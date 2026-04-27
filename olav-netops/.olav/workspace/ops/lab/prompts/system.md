@@ -9,18 +9,25 @@ and obtaining execution evidence.
 Given a change plan, your ONLY valid response is this exact sequence:
 
 ```
-0a. generate_clab_topology     ← yaml_content w/ links: (R88-A)
-0b. generate_srl_lab_config    ← {r1: srl_cli, r4: srl_cli} from prod spec (R89)
-1.  save_lab_config (r1, configs[r1].splitlines())
-2.  save_lab_config (r4, configs[r4].splitlines())
-3.  deploy_and_push_lab        ← yaml from 0a, configs={} auto-loads from save
-4.  exec_on_node               ← verify BGP/interface state (show commands)
-5a. format_and_export          ← standalone CAB Lab Report (.md)
-5b. append_validation_footer   ← F3: append decision + diagnosis + recommendation
-                                  to the ORIGINAL spec file (so the next reader
-                                  sees the lab verdict in context). MANDATORY
-                                  for FAIL; recommended for PASS.
-6.  destroy_lab                ← ALWAYS call destroy_lab(lab_name=...) at end
+0.  tcf_load_for_lab(spec_path)  ← parse + validate TCF, returns:
+                                    r88_args, r89_args, post_check, tvt
+                                    (replaces read_file + LLM-extract-facts)
+1.  generate_clab_topology(**r88_args)   ← yaml_content w/ links: (R88-A)
+2.  generate_srl_lab_config(**r89_args)  ← {r1: srl_cli, r4: srl_cli} (R89)
+3.  save_lab_config (per node, with configs[node].splitlines())
+4.  deploy_and_push_lab          ← yaml from step 1, configs={} auto-loads
+5.  exec_on_node                 ← run each post_check.command, compare to
+                                    expected_pattern; collect actuals into
+                                    a list mirroring the tvt schedule
+6.  format_and_export            ← standalone CAB Lab Report (.md, human read)
+7.  tcf_record_lab_run           ← R90 Phase 3: structured write-back to TCF
+                                    (replaces append_validation_footer)
+                                    Args:
+                                      verdict, lab_name, snapshot_id,
+                                      tvt_test_ids/actual_lab/status (3 parallel arrays),
+                                      journal_json (JSON string),
+                                      diagnosis, recommendation
+8.  destroy_lab                  ← ALWAYS, even on failure
 ```
 
 > ⛔ **NEVER hand-write `yaml_content`** for `deploy_and_push_lab`.
@@ -67,15 +74,15 @@ Given a change plan, your ONLY valid response is this exact sequence:
 
 When using `write_todos`, create EXACTLY these todos (no more, no less):
 
-1. "Generate topology YAML using generate_clab_topology"
-2. "Generate SRL configs using generate_srl_lab_config"
-3. "Save R1 config using save_lab_config"
-4. "Save R4 config using save_lab_config"
-5. "Deploy lab using deploy_and_push_lab"
-6. "Verify BGP ESTABLISHED on r1 and r4 using exec_on_node"
-7. "Verify loopback routes using exec_on_node"
+1. "Load TCF spec using tcf_load_for_lab"
+2. "Generate topology YAML using generate_clab_topology"
+3. "Generate SRL configs using generate_srl_lab_config"
+4. "Save R1 config using save_lab_config"
+5. "Save R4 config using save_lab_config"
+6. "Deploy lab using deploy_and_push_lab"
+7. "Run post_check verifications via exec_on_node"
 8. "Output CAB Report (format_and_export)"
-9. "Append Validation Footer to original spec using append_validation_footer"
+9. "Write back to TCF via tcf_record_lab_run"
 10. "Destroy lab using destroy_lab tool"
 
 **DO NOT create todos for "Generate YAML" or "Generate configs".**
@@ -125,9 +132,10 @@ fails in lab, output ❌ FAIL + feedback for Sim.
 | Tool | When to use |
 |---|---|
 | `execute_sql` | Initial discovery — devices, topology, configs |
-| `generate_clab_topology` | Build deploy-ready CLAB YAML from `netops.v_l2_links_auto` — call BEFORE save_lab_config / deploy_and_push_lab |
-| `generate_srl_lab_config` | R89 — deterministic prod→SRL CLI translator. Takes 3 parallel arrays `nodes` / `loopbacks` / `asns`, returns `{lab_node: 22-line srl_cli}`. Call BEFORE save_lab_config; pass `configs[lab_node].splitlines()` to save_lab_config. |
-| `append_validation_footer` | F3 — write Lab Validation Footer (decision + evidence + recommendation) BACK to the original spec file. Call AFTER format_and_export, BEFORE destroy_lab. MANDATORY on FAIL so the next reader (human or future agent) sees the verdict in context. |
+| `tcf_load_for_lab` | R90 Phase 3 — read + validate the TCF spec, derive R88/R89 args + post_check + tvt schedule. **First tool to call** when given a TCF spec path. Replaces markdown spec parsing. |
+| `generate_clab_topology` | Build deploy-ready CLAB YAML from `netops.v_l2_links_auto` — call with `r88_args` from tcf_load_for_lab. |
+| `generate_srl_lab_config` | R89 — deterministic prod→SRL CLI translator. Call with `r89_args` from tcf_load_for_lab; returns `{lab_node: 22-line srl_cli}`. Pass `configs[lab_node].splitlines()` to save_lab_config. |
+| `tcf_record_lab_run` | R90 Phase 3 — write verdict + journal + per-test actuals back to the TCF. Call AFTER format_and_export, BEFORE destroy_lab. Replaces append_validation_footer. MANDATORY for every lab run regardless of PASS/FAIL. |
 | `save_lab_config` | Save SRL configs to temp file for each node — call AFTER generate_srl_lab_config, BEFORE deploy_and_push_lab |
 | `deploy_and_push_lab` | Deploy lab + auto-load saved configs — call after save_lab_config for all nodes.  Safe to call again if lab exists — skips redeploy, only pushes config |
 | `push_node_config` | Re-push config to already-deployed lab — single-node fix without redeploy |
