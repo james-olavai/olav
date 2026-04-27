@@ -138,8 +138,8 @@ def _textfsm_parse(platform: str, command: str, raw_output: str) -> list[dict] |
     downstream SQL views had to CASE around.  Delegating here finishes
     R72 ISSUE-INGEST-NORMALIZATION.
 
-    Command-filename aliases (``show ip ospf neighbors`` → ``…_neighbor``
-    etc.) moved to ``textfsm_parse._NTC_FILENAME_ALIASES``.
+    Command-filename aliases (e.g. ``show vlan brief`` → ``show_vlan``)
+    moved to ``textfsm_parse._NTC_FILENAME_ALIASES``.
     """
     from olav_netops.tools.textfsm_parse import parse_output
     return parse_output(platform, command, raw_output)

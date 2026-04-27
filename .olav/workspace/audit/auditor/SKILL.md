@@ -2,20 +2,21 @@
 name: audit-auditor
 description: "Audit Executor + Profile Author — runs Profiles, renders reports, and drafts/extends Profile files"
 tools:
-  # Run-mode tools (deterministic 2-call sequence; CUT 2 #222 will fold these):
+  # Run-mode @tool (the deterministic 2-call sequence — CUT 2 #222 will fold these to skill scripts):
   - path: ./tools/map_engine.py
   - path: ./tools/render_report.py
-  - path: ./tools/anomaly_engine.py
-  - path: ./tools/baseline_engine.py
-  - path: ./tools/incident_engine.py
-  # Privileged write tools (stay as MCP):
+  # Internal engines map_engine calls (no @tool registration; not exposed to LLM):
+  #   anomaly_engine.py / baseline_engine.py / incident_engine.py / render_report_linter.py
+  # Privileged write @tool (stay as @tool for audit-row guarantees):
   - path: ./tools/save_profile.py
   - path: ./tools/append_jobs.py
-  # Authoring helpers — call as skill scripts via execute_skill_script
-  # (inherited from core/tools/, per ADR-0008 R92.3):
+  # R92.3 folded — call as skill scripts via execute_skill_script
+  # (inherited from core/tools/):
   #   skill_name="auditor", script_name=
-  #     {database_introspection.py, preview_map_query.py,
+  #     {database_introspection.py, test_map_query.py,
   #      read_profile.py, analyze_thresholds.py}
+references:
+  - path: ./references/PROFILE_AUTHORING.md
 ---
 
 ## Role
@@ -69,45 +70,13 @@ Present `report_path` and the report summary to the user as the completed report
 
 ---
 
-## Profile Authoring (merged from v0.18.0 audit-designer — v0.18.1 Sprint 3 Step B)
+## Profile Authoring Mode
 
-The auditor agent also drafts and extends Audit Profiles. When the user asks
-to *create / extend / retune* a profile (rather than *run* one), follow the
-designer workflow below instead of Steps 1–4 above.
+The auditor also **drafts and extends** Audit Profiles. When the user
+asks to *create / extend / retune* a profile (rather than *run* one),
+DO NOT follow Steps 1–4 above — load `references/PROFILE_AUTHORING.md`
+and follow the authoring workflow documented there.
 
-### Authoring workflow
-
-```
-1. execute_skill_script(
-       skill_name="auditor", script_name="database_introspection.py",
-       script_args={"db_type": "duckdb"})
-   → Learn real table / column names. Never guess.
-
-2. execute_skill_script(
-       skill_name="auditor", script_name="preview_map_query.py",
-       script_args={"job_type": "sql", "query": "<SQL with :window>",
-             "params": {"window": "1h"}})
-   → Validate SQL syntax for each job. Zero rows is fine; errors are not.
-
-3. save_profile(name=..., yaml_jobs=[...], markdown_body=...)   [MCP]
-   → Validate + write profiles/<name>.md after schema validation passes.
-```
-
-For data-driven thresholds, call
-``execute_skill_script(skill_name="auditor", script_name="analyze_thresholds.py", script_args={...})``
-between steps 2 and 3. For extending an existing profile, call
-``execute_skill_script(skill_name="auditor", script_name="read_profile.py", script_args={"action":"read", "name":"<profile>"})``
-then ``append_jobs`` (MCP) instead of ``save_profile``.
-
-### Authoring rules
-
-- Skill infrastructure (SKILL.md, tool code, YAML keys, SQL) is always in English.
-- Conversational output and generated `section_prompt` values must be written in
-  the same language as the user's request.
-- Never write a Profile without first calling `database_introspection`.
-- Always use `INTERVAL :window` in SQL queries (engine handles parameterization).
-- Use `analyze_thresholds` when the user requests data-driven thresholds.
-- Use `read_profile` + `append_jobs` when extending an existing profile.
-
-See `prompts/system.md` "Profile Authoring Mode" section for the full three-mode
-(Intelligent Threshold / Dynamic Retuning / Append Jobs) reference.
+Trigger keywords: `create profile`, `new profile`, `extend profile`,
+`add jobs to`, `retune thresholds`, `draft a profile`, `dynamic threshold`,
+`smart threshold`, `新建 profile`, `扩展 profile`.
