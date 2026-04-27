@@ -13,6 +13,12 @@ Subordinate models (re-exported for typing):
 """
 
 from .tcf_args import tcf_to_r88_args, tcf_to_r89_args, tcf_to_r90_args
+from .tcf_diff import (
+    SilentOverride,
+    TcfDiffResult,
+    TvtDiff,
+    tcf_diff_spec_vs_lab,
+)
 from .tcf_io import tcf_emit, tcf_load
 from .tcf_schema import (
     CabTcf,
@@ -33,7 +39,11 @@ __all__ = [
     "Intent",
     "JournalEntry",
     "PostCheck",
+    "SilentOverride",
+    "TcfDiffResult",
+    "TvtDiff",
     "TvtRow",
+    "tcf_diff_spec_vs_lab",
     "tcf_emit",
     "tcf_load",
     "tcf_to_r88_args",
