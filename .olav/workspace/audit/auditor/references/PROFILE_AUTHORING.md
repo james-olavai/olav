@@ -51,31 +51,31 @@ instead of ``save_profile``.
 
 ## The three authoring sub-modes
 
-All entries below in `[python]` brackets run inside
-`run_python_simulation` (`from olav.core.auditor import ...`).
+All entries below tagged ``[skill]`` are skill scripts under
+``audit/auditor/scripts/`` invoked via
+``execute_skill_script(skill_name="auditor", script_name="<name>.py", args={...})``.
 Plain entries are still MCP tools.
 
 | Sub-mode | When to use | Key tools |
 |---|---|---|
-| **Intelligent Threshold** | Fresh profile with "smart" thresholds from past observations | `[python] database_introspection` → `[python] analyze_thresholds` → `save_profile` |
-| **Dynamic Retuning** | Existing profile produces too many false positives / misses known incidents | `[python] read_profile` → `[python] analyze_thresholds` → `save_profile` (overwrite) |
-| **Append Jobs** | Add new jobs to an existing profile without touching old ones | `[python] read_profile` → compose new jobs → `append_jobs` |
+| **Intelligent Threshold** | Fresh profile with "smart" thresholds from past observations | `[skill] database_introspection.py` → `[skill] analyze_thresholds.py` → `save_profile` |
+| **Dynamic Retuning** | Existing profile produces too many false positives / misses known incidents | `[skill] read_profile.py` → `[skill] analyze_thresholds.py` → `save_profile` (overwrite) |
+| **Append Jobs** | Add new jobs to an existing profile without touching old ones | `[skill] read_profile.py` → compose new jobs → `append_jobs` |
 
 ### Mode 1: Intelligent Threshold Suggestion
 
 ```
-1. run_python_simulation:                                   [PYTHON]
-       from olav.core.auditor import database_introspection, analyze_thresholds
-       schema = database_introspection(db_type="duckdb")
-       # → Confirm tables and columns available for the metric.
+1. execute_skill_script(
+       skill_name="auditor", script_name="database_introspection.py",
+       args={"db_type": "duckdb"})
+   # → Confirm tables and columns available for the metric.
 
-2. run_python_simulation (same script):                     [PYTHON]
-       rec = analyze_thresholds(
-           metric_query="SELECT <numeric_column> AS value FROM <table> WHERE ...",
-           metric_name="<MetricName>",
-           higher_is_worse=True,
-           unit="%",
-       )
+2. execute_skill_script(
+       skill_name="auditor", script_name="analyze_thresholds.py",
+       args={"metric_query": "SELECT <numeric_column> AS value FROM <table> WHERE ...",
+             "metric_name": "<MetricName>",
+             "higher_is_worse": True,
+             "unit": "%"})
    → Obtain P50/P90/P95/P99 distribution + recommended thresholds.
 
 3. Present results to the user and wait for confirmation:
@@ -88,18 +88,25 @@ Rules:
 - `metric_query` must return a single column named `value` (numeric).
 - If sample count < 10, lower confidence and inform the user of
   insufficient data.
-- Call `analyze_thresholds` once per metric; batch results before
+- Call `analyze_thresholds.py` once per metric; batch results before
   confirming with user.
 
 ### Mode 2: Dynamic Threshold Tuning
 
 ```
-1. run_python_simulation:                                   [PYTHON]
-       from olav.core.auditor import list_profiles, read_profile, analyze_thresholds
-       avail = list_profiles()                # show available profiles
-       cur   = read_profile(name=...)         # current jobs + thresholds
-       new   = [analyze_thresholds(...) for each job]   # latest P90/P95
-2. Present diff table → user confirms → save_profile (MCP, full overwrite).
+1. execute_skill_script(skill_name="auditor", script_name="read_profile.py",
+                        args={"action": "list"})
+   → list available profiles
+
+2. execute_skill_script(skill_name="auditor", script_name="read_profile.py",
+                        args={"action": "read", "name": "<profile>"})
+   → current jobs + thresholds
+
+3. For each numeric job:
+   execute_skill_script(skill_name="auditor", script_name="analyze_thresholds.py",
+                        args={"metric_query": ..., ...})
+
+4. Present diff table → user confirms → save_profile (MCP, full overwrite).
 ```
 
 Rules:
@@ -112,17 +119,23 @@ Rules:
 ### Mode 3: Appending Check Items
 
 ```
-1. run_python_simulation:                                   [PYTHON]
-       from olav.core.auditor import (
-           read_profile, database_introspection,
-           preview_map_query, analyze_thresholds,
-       )
-       cur    = read_profile(name=...)               # existing names → avoid dup
-       schema = database_introspection(db_type="duckdb")  # verify columns
-       rows   = preview_map_query(job_type="sql", query="...")  # validate SQL
-       rec    = analyze_thresholds(...)              # optional, data-driven
+1. execute_skill_script(skill_name="auditor", script_name="read_profile.py",
+                        args={"action": "read", "name": "<profile>"})
+   → existing names → avoid duplicates
 
-2. append_jobs(profile_name=..., new_jobs=[...])             [MCP]
+2. execute_skill_script(skill_name="auditor", script_name="database_introspection.py",
+                        args={"db_type": "duckdb"})
+   → verify columns
+
+3. execute_skill_script(skill_name="auditor", script_name="preview_map_query.py",
+                        args={"job_type": "sql", "query": "..."})
+   → validate SQL
+
+4. (optional) execute_skill_script(skill_name="auditor",
+                                   script_name="analyze_thresholds.py", args={...})
+   → data-driven thresholds if requested
+
+5. append_jobs(profile_name=..., new_jobs=[...])             [MCP]
    → Atomic append without touching existing jobs.
 ```
 
