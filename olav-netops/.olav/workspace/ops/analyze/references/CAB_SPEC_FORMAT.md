@@ -1,7 +1,10 @@
 # CAB Implementation Spec — output format
 
 Load when shaping the final report from a routing-change analysis.
-ops-lab implements this section literally, so format must be exact.
+The spec describes the change in **production** terms — platform-
+specific CLI for each prod device. ops-lab takes this prod spec
+and adapts it to the SRL digital twin internally; ops-analyze does
+NOT need to write SRL CLI.
 
 ## Required report sections
 
@@ -20,16 +23,11 @@ A complete simulation report exports via `format_and_export` with:
 
 ## CAB Implementation Spec format (exact)
 
-The spec has TWO mandatory sub-sections:
-
-1. **Prod implementation** — platform-specific CLI for each prod
-   device (Junos / IOS / IOS-XR), what production engineers apply.
-2. **SRL Lab Substitution** — a self-contained mapping plus SRL CLI
-   commands so ops-lab can deploy and validate verbatim. **Always
-   include this section, even if the user prompt didn't mention
-   SRL or lab — ops-lab is the validation gate by convention.**
-
-### Section 1 — Prod implementation
+The spec is **prod-aligned** — exactly the CLI a production
+engineer applies to the real R1 (Junos) / R4 (IOS) / etc. ops-lab
+reads this spec, queries the prod DB for platform info, and
+generates the SRL equivalent on its own (R88-A `generate_clab_topology`
++ R89 `generate_srl_lab_config`). Don't write SRL here.
 
 ```markdown
 ## CAB Implementation Spec
@@ -45,89 +43,50 @@ The spec has TWO mandatory sub-sections:
 **Config:**
 - set protocols bgp group ebgp-r4 type external
 - set protocols bgp group ebgp-r4 neighbor 172.16.99.2 peer-as 65001
-- ...
+- set protocols bgp group ebgp-r4 family inet unicast
+- set interfaces ge-0/0/2 unit 0 family inet address 172.16.99.1/30
 **Expected outcome:** BGP session ESTABLISHED with peer 172.16.99.2 AS65001
-**Rollback:** delete protocols bgp group ebgp-r4
+**Rollback:** delete protocols bgp group ebgp-r4 ; delete interfaces ge-0/0/2 unit 0
 
 ### Device: R4 (platform: ios)
 **Phase:** 1
 **Action:** add
 **Protocol:** bgp
 **Config:**
+- interface Ethernet0/0
+-  ip address 172.16.99.2 255.255.255.252
 - router bgp 65001
-- neighbor 172.16.99.1 remote-as 65000
-- ...
-**Expected outcome:** ...
-**Rollback:** ...
+-  address-family ipv4
+-   neighbor 172.16.99.1 remote-as 65000
+-   neighbor 172.16.99.1 activate
+**Expected outcome:** BGP session Established with peer 172.16.99.1 AS65000
+**Rollback:** no router bgp 65001 ; no interface Ethernet0/0 (or revert to prior IP)
 ```
 
-### Section 2 — SRL Lab Substitution (always include)
-
-```markdown
-## SRL Lab Substitution Table
-
-| Prod Device | Prod Intf      | Prod Lo0   | Lab Node | Lab Link Intf  | Lab Lo0  | Lab Link IPs   |
-|-------------|----------------|------------|----------|----------------|----------|----------------|
-| R1          | ge-0/0/2       | 1.1.1.1/32 | r1       | ethernet-1/1   | system0  | 172.16.99.1/30 |
-| R4          | Ethernet0/0    | 4.4.4.4/32 | r4       | ethernet-1/1   | system0  | 172.16.99.2/30 |
-
-## Config Lines — node r1 (SRL CLI)
-
-set / interface ethernet-1/1 admin-state enable
-set / interface ethernet-1/1 subinterface 0 admin-state enable
-set / interface ethernet-1/1 subinterface 0 ipv4 admin-state enable
-set / interface ethernet-1/1 subinterface 0 ipv4 address 172.16.99.1/30
-set / interface system0 admin-state enable
-set / interface system0 subinterface 0 admin-state enable
-set / interface system0 subinterface 0 ipv4 admin-state enable
-set / interface system0 subinterface 0 ipv4 address 1.1.1.1/32
-set / network-instance default interface ethernet-1/1.0
-set / network-instance default interface system0.0
-set / routing-policy prefix-set loopbacks prefix 1.1.1.1/32 mask-length-range exact
-set / routing-policy policy export-bgp statement 10 match prefix-set loopbacks
-set / routing-policy policy export-bgp statement 10 action policy-result accept
-set / routing-policy policy export-bgp default-action policy-result reject
-set / network-instance default protocols bgp admin-state enable
-set / network-instance default protocols bgp autonomous-system 65000
-set / network-instance default protocols bgp router-id 1.1.1.1
-set / network-instance default protocols bgp afi-safi ipv4-unicast admin-state enable
-set / network-instance default protocols bgp ebgp-default-policy import-reject-all false
-set / network-instance default protocols bgp group ebgp-r4 peer-as 65001
-set / network-instance default protocols bgp group ebgp-r4 export-policy [ export-bgp ]
-set / network-instance default protocols bgp neighbor 172.16.99.2 peer-group ebgp-r4
-
-## Config Lines — node r4 (SRL CLI)
-
-set / interface ethernet-1/1 admin-state enable
-... (same shape, swap IPs / AS / loopback / group name)
-```
-
-### Lab node naming + interface conventions
-
-* Lab node names ALWAYS lowercase (CLAB convention; matches
-  `generate_clab_topology` output)
-* Lab interfaces ALWAYS sequential `ethernet-1/1`, `ethernet-1/2`
-  starting at 1 (NOT preserving prod port numbers)
-* Lab loopback ALWAYS `system0` (SRL convention)
-* Lab link IPs from a NEW /30 reserved for the lab (not prod IPs)
-
-### Required content overall
+### Required content
 
 The spec must include:
 
 * **Exact** IP addresses and AS numbers (from DB, never generic
   placeholders like `<X>`)
-* **Platform-specific** prod CLI syntax (Junos `set protocols bgp ...`
-  vs. IOS `router bgp <AS>; neighbor ...`)
-* **SRL Lab Substitution Table + SRL CLI for r1/r4** — required even
-  when prompt doesn't mention lab. ops-lab validates this section
-  verbatim. SRL syntax reference: the shared:ops expert
-  `srl_spec_generation_rules` (will surface in your recall block).
+* **Platform-specific** prod CLI for each device, in the device's
+  native syntax (Junos `set protocols bgp ...`, IOS
+  `router bgp <AS>; neighbor ...`, IOS-XR `router bgp; address-family
+  ipv4 unicast; neighbor ...`)
 * **Expected convergence outcome** (what "PASS" looks like —
   ESTABLISHED state, FULL adjacency, etc.)
 * **Rollback steps** (what to revert on FAIL)
 
-Anything ambiguous here — and especially a missing SRL section —
-will cause ops-lab to FAIL the validation with an
-"underspecified plan" error or worse, trip on YANG-rejection
-during translation.
+Anything ambiguous here — wrong CLI for the platform, missing IPs,
+no rollback — causes ops-lab to FAIL the validation with an
+"underspecified plan" error.
+
+### What ops-lab does with this spec
+
+ops-lab takes the prod spec, queries the netops DB for each
+device's platform / interfaces / loopback / ASN, and generates
+SRL-equivalent CLI for the digital twin internally (R89
+`generate_srl_lab_config`, planned). The agent doesn't have to
+guess SRL syntax; the generator tool produces it deterministically
+from a 23-line per-node template. ops-analyze writes prod CLI
+only; lab translates.
