@@ -19,13 +19,14 @@ metadata:
     - topology_visualization
     - state_comparison_drift_detection
 tools:
-  - run_python_simulation  # SANDBOX — call olav.core.cab.tcf_emit_from_sim and olav_netops.core.diff.* (per ADR-0007 R91 Step 3)
-# Folded to Python (call inside run_python_simulation):
-#   - tcf_emit_from_sim       → olav.core.cab.tcf_emit_from_sim
-#   - diff_sql_state          → olav_netops.core.diff.diff_sql_state
-#   - diff_topology_drift     → olav_netops.core.diff.diff_topology_drift
-#   - diff_routing_drift      → olav_netops.core.diff.diff_routing_drift
-#   - diff_configs            → olav_netops.core.diff.diff_configs
+  - run_python_simulation  # Analysis Mode SANDBOX (ad-hoc networkx/netutils what-if;
+                           # NOT used for the 5 deterministic helpers below — those
+                           # are skill scripts via execute_skill_script per ADR-0008)
+# Drift Mode + CAB emit — call as skill scripts via execute_skill_script
+# (inherited from core/tools/, per ADR-0008 R92.3):
+#   skill_name="analyze", script_name=
+#     {tcf_emit_from_sim.py, diff_sql_state.py, diff_topology_drift.py,
+#      diff_routing_drift.py, diff_configs.py}
 allowed_tables:
   - netops.v_bgp_neighbors_auto
   - netops.v_ospf_neighbors_auto
@@ -70,19 +71,21 @@ Use when the task contains: `simulate`, `what-if`, `change plan`, `BGP/OSPF/路�
 ### Drift Mode (was `ops-diff` v1.0.0)
 
 Retrospective comparison — what changed between two snapshots?
-Per ADR-0007 R91 Step 3, all four diff helpers are now Python in
-``olav_netops.core.diff`` and called from ``run_python_simulation``:
+Per ADR-0008 R92.3, the four diff helpers are skill scripts under
+``ops/analyze/scripts/``. Invoke via ``execute_skill_script``:
 
 ```python
-from olav_netops.core.diff import (
-    diff_sql_state, diff_topology_drift, diff_routing_drift, diff_configs,
+execute_skill_script(
+    skill_name="analyze",
+    script_name="diff_sql_state.py",
+    args={"table_name": "ospf_neighbors", "snapshot_id_1": "t1", "snapshot_id_2": "t2"},
 )
 ```
 
-1. **State Comparison** — any operational table (`diff_sql_state`)
-2. **Topology Drift** — physical link up/down changes (`diff_topology_drift`)
-3. **Routing Drift** — prefix loss / next-hop shift / AS-PATH changes (`diff_routing_drift`)
-4. **Config Diff** — raw config file comparison (`diff_configs`)
+1. **State Comparison** — any operational table (`diff_sql_state.py`)
+2. **Topology Drift** — physical link up/down changes (`diff_topology_drift.py`)
+3. **Routing Drift** — prefix loss / next-hop shift / AS-PATH changes (`diff_routing_drift.py`)
+4. **Config Diff** — raw config file comparison (`diff_configs.py`)
 
 Use when the task contains: `drift`, `compare`, `what changed`, `delta`,
 `snapshot T1 vs T2`, `before/after`, `漂移`, `变更检测`.
@@ -96,9 +99,10 @@ tasks and analysis-keyword tasks to this single sub-agent. Within this sub-agent
   design" → Analysis; "compare / diff / what changed" → Drift.
 - In Analysis Mode, the only tool is `run_python_simulation` (the sandbox covers
   all needs via `db`, `sim`, `nx`, `netutils`).
-- In Drift Mode, ALSO use `run_python_simulation` and import the relevant
-  helper from `olav_netops.core.diff` (state / topology / routing / configs).
-  The 4 ``diff_*`` MCP tools were folded into Python per ADR-0007 R91 Step 3.
+- In Drift Mode, use `execute_skill_script(skill_name="analyze", ...)` with
+  the relevant ``diff_*.py`` script. R92.3 (ADR-0008) put the 4 helpers as
+  skill scripts under ``ops/analyze/scripts/``. ``run_python_simulation``
+  is reserved for Analysis-Mode ad-hoc work (graph algorithms / what-if).
 
 A single request can invoke both modes sequentially (e.g. "compare yesterday's
 snapshot, then simulate fixing the broken links").
@@ -133,19 +137,21 @@ NOT assume or invent values.
 ## Drift Mode — Workflow
 
 1. **Select Snapshots**: Choose two `snapshot_id` values (T1=before, T2=after)
-2. **Run via `run_python_simulation`**:
+2. **Invoke the appropriate skill script**:
    ```python
-   from olav_netops.core.diff import (
-       diff_sql_state, diff_topology_drift, diff_routing_drift, diff_configs,
+   execute_skill_script(
+       skill_name="analyze",
+       script_name="diff_sql_state.py",   # or diff_topology_drift / diff_routing_drift / diff_configs
+       args={"table_name": "ospf_neighbors", "snapshot_id_1": "t1", "snapshot_id_2": "t2"},
    )
-   out = diff_sql_state(table_name="ospf_neighbors", snapshot_id_1="t1", snapshot_id_2="t2")
    ```
-   Pick the helper by dimension:
-   - `diff_sql_state` — any table (ospf_neighbors, interfaces, etc.)
-   - `diff_topology_drift` — `topology_links` changes
-   - `diff_routing_drift` — `routes`/`bgp_routes` changes
-   - `diff_configs` — raw config files
-3. **Analyze Results**: Review delta (`missing_in_t2`, `new_in_t2`)
+   Pick the script by dimension:
+   - `diff_sql_state.py` — any table (ospf_neighbors, interfaces, etc.)
+   - `diff_topology_drift.py` — `topology_links` changes
+   - `diff_routing_drift.py` — `routes` / `bgp_routes` changes
+   - `diff_configs.py` — raw config files
+3. **Analyze Results**: Review delta (`missing_in_t2`, `new_in_t2` — inside the
+   `stdout` dict the script returned)
 4. **Report**: Findings with root cause analysis
 
 ## Sandbox Network Policy

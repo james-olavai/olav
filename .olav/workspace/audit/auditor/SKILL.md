@@ -2,18 +2,20 @@
 name: audit-auditor
 description: "Audit Executor + Profile Author — runs Profiles, renders reports, and drafts/extends Profile files"
 tools:
+  # Run-mode tools (deterministic 2-call sequence; CUT 2 #222 will fold these):
   - path: ./tools/map_engine.py
   - path: ./tools/render_report.py
   - path: ./tools/anomaly_engine.py
   - path: ./tools/baseline_engine.py
   - path: ./tools/incident_engine.py
+  # Privileged write tools (stay as MCP):
   - path: ./tools/save_profile.py
   - path: ./tools/append_jobs.py
-  - path: ./tools/run_python_simulation.py
-# Authoring helpers (database_introspection, preview_map_query,
-# read_profile, list_profiles, analyze_thresholds) live in
-# olav.core.auditor — import them inside run_python_simulation
-# (per ADR-0007 R91 CUT 1).
+  # Authoring helpers — call as skill scripts via execute_skill_script
+  # (inherited from core/tools/, per ADR-0008 R92.3):
+  #   skill_name="auditor", script_name=
+  #     {database_introspection.py, preview_map_query.py,
+  #      read_profile.py, analyze_thresholds.py}
 ---
 
 ## Role
@@ -76,26 +78,26 @@ designer workflow below instead of Steps 1–4 above.
 ### Authoring workflow
 
 ```
-1. run_python_simulation:
-       from olav.core.auditor import database_introspection
-       schema = database_introspection(db_type="duckdb")
-   → Learn real table/column names. Never guess.
+1. execute_skill_script(
+       skill_name="auditor", script_name="database_introspection.py",
+       args={"db_type": "duckdb"})
+   → Learn real table / column names. Never guess.
 
-2. run_python_simulation:
-       from olav.core.auditor import preview_map_query
-       rows = preview_map_query(job_type="sql", query="...",
-                             params={"window": "1h"})
+2. execute_skill_script(
+       skill_name="auditor", script_name="preview_map_query.py",
+       args={"job_type": "sql", "query": "<SQL with :window>",
+             "params": {"window": "1h"}})
    → Validate SQL syntax for each job. Zero rows is fine; errors are not.
 
 3. save_profile(name=..., yaml_jobs=[...], markdown_body=...)   [MCP]
    → Validate + write profiles/<name>.md after schema validation passes.
 ```
 
-For data-driven thresholds, call ``analyze_thresholds`` (in the
-sandbox, ``from olav.core.auditor import analyze_thresholds``) between
-steps 2 and 3. For extending an existing profile, call
-``read_profile`` (sandbox) + ``append_jobs`` (MCP) instead of
-``save_profile``.
+For data-driven thresholds, call
+``execute_skill_script(skill_name="auditor", script_name="analyze_thresholds.py", args={...})``
+between steps 2 and 3. For extending an existing profile, call
+``execute_skill_script(skill_name="auditor", script_name="read_profile.py", args={"action":"read", "name":"<profile>"})``
+then ``append_jobs`` (MCP) instead of ``save_profile``.
 
 ### Authoring rules
 
