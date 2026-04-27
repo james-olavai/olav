@@ -206,6 +206,64 @@ def cmd_import_experts(args) -> int:
     return 0
 
 
+def cmd_list_experts(args) -> int:
+    """List ``expert_knowledge`` entries with optional scope/source filters.
+
+    R87 Phase 1.5 audit surface — lets the user (and operators) see
+    what's primed, separate shipped from user-injected content, and
+    inspect precedence flags.
+    """
+    import json as _json
+
+    store = _get_store()
+    if store is None:
+        print("Error: knowledge store unavailable", file=sys.stderr)
+        return 1
+
+    rows = store.get_memories(category="expert_knowledge", limit=1000)
+    if not rows:
+        print("No expert_knowledge entries found.")
+        return 0
+
+    source_filter = getattr(args, "source", None)
+    scope_filter = getattr(args, "scope", None)
+
+    def _meta(row: dict) -> dict:
+        md = row.get("metadata") or {}
+        if isinstance(md, str):
+            try:
+                md = _json.loads(md)
+            except Exception:
+                md = {}
+        return md
+
+    filtered = []
+    for r in rows:
+        md = _meta(r)
+        if source_filter and md.get("source") != source_filter:
+            continue
+        if scope_filter and r.get("scope") != scope_filter:
+            continue
+        filtered.append((r, md))
+
+    if not filtered:
+        print("No entries match the filters.")
+        return 0
+
+    # Header — column widths sized to current data; truncates long topics
+    print(f"{'ID':52s}  {'SCOPE':18s}  {'SOURCE':8s}  {'PREC':9s}  TOPIC")
+    print(f"{'-' * 52}  {'-' * 18}  {'-' * 8}  {'-' * 9}  {'-' * 32}")
+    for r, md in filtered:
+        rid = (r.get("id") or "")[:52]
+        scope = r.get("scope") or "?"
+        source = (md.get("source") or "?")
+        prec = (md.get("precedence") or "default")
+        topic = md.get("topic") or ""
+        print(f"{rid:52s}  {scope:18s}  {source:8s}  {prec:9s}  {topic}")
+    print(f"\n{len(filtered)} entr{'y' if len(filtered) == 1 else 'ies'}")
+    return 0
+
+
 def cmd_graph(args) -> int:
     """Generate vis.js HTML knowledge graph."""
     store = _get_store()
@@ -460,6 +518,22 @@ def build_kb_parser(parent_subparsers) -> argparse.ArgumentParser:
         help="Workspace root (default: .olav/workspace)",
     )
 
+    # list-experts — audit + filter expert_knowledge entries (R87 Phase 1.5)
+    list_e = kb_sub.add_parser(
+        "list-experts",
+        help="List expert_knowledge entries (R87 Phase 1.5) with optional "
+             "--source / --scope filters",
+    )
+    list_e.add_argument(
+        "--source",
+        choices=["shipped", "user"],
+        help="Show only entries from this source (default: all)",
+    )
+    list_e.add_argument(
+        "--scope",
+        help="Show only entries with this scope (e.g. ops-lab, shared:ops, org)",
+    )
+
     # graph
     grp = kb_sub.add_parser("graph", help="Generate vis.js HTML knowledge graph")
     grp.add_argument("--output", default=None, help="Output HTML file (default: .olav/knowledge/_graph.html)")
@@ -501,6 +575,8 @@ def handle_kb_command(args) -> int:
         return cmd_import_formats(args)
     elif kb_cmd == "import-experts":
         return cmd_import_experts(args)
+    elif kb_cmd == "list-experts":
+        return cmd_list_experts(args)
     elif kb_cmd == "graph":
         return cmd_graph(args)
     elif kb_cmd == "migrate":

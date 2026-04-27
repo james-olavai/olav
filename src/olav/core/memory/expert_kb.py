@@ -72,6 +72,14 @@ _AGENT_SCOPE_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*$")
 _SHARED_SCOPE_PATTERN = re.compile(r"^shared:[a-z][a-z0-9_-]*$")
 _ORG_SCOPE = "org"
 
+# Phase 1.5: precedence vocabulary — controls ordering when multiple
+# expert entries with the same scope tier compete for a quota slot.
+# ``override`` wins over ``default`` (the implicit value); ``advisory``
+# loses to ``default``. Surfaces as ``metadata.precedence`` for the
+# diversifier to read.
+_PRECEDENCE_VALUES = {"override", "default", "advisory"}
+_PRECEDENCE_RANK = {"override": 0, "default": 1, "advisory": 2}
+
 
 def _validate_scope(scope: str, *, source_hint: str = "") -> None:
     """Raise ValueError if ``scope`` is not one of the three valid forms.
@@ -112,6 +120,12 @@ class ExpertKnowledge:
     # came with a plugin; ``user`` = added via ~/.olav/expertise/ or
     # <project>/.olav/expertise/. NOT authored in the YAML.
     source: str = "shipped"
+    # Phase 1.5: explicit ordering preference within the same scope
+    # tier. Authored in the YAML as ``precedence: override|default|advisory``.
+    # ``override`` wins over ``default``; ``advisory`` loses. Default is
+    # ``default``. Used for cases where a user's `org` knowledge needs
+    # to clearly outrank shipped `shared` knowledge on the same topic.
+    precedence: str = "default"
 
     @classmethod
     def from_yaml(cls, path: Path) -> "ExpertKnowledge":
@@ -132,6 +146,12 @@ class ExpertKnowledge:
             raise ValueError(f"{path}: 'keywords' must be a list of strings")
         scope = str(data["scope"])
         _validate_scope(scope, source_hint=str(path))
+        precedence = str(data.get("precedence", "default")).strip() or "default"
+        if precedence not in _PRECEDENCE_VALUES:
+            raise ValueError(
+                f"{path}: precedence {precedence!r} is invalid. "
+                f"Must be one of: {sorted(_PRECEDENCE_VALUES)}."
+            )
         return cls(
             topic=str(data["topic"]),
             scope=scope,
@@ -147,6 +167,7 @@ class ExpertKnowledge:
                 else None
             ),
             source_path=path,
+            precedence=precedence,
         )
 
     @property
@@ -394,6 +415,7 @@ def prime_experts_from_dir(
             "topic": expert.topic,
             "scope": expert.scope,
             "source": expert.source,
+            "precedence": expert.precedence,
             "schema_version": expert.schema_version,
             "n_keywords": len(expert.keywords),
         }
