@@ -22,6 +22,10 @@ both modules together in the sandbox: ``tcf_load(spec_path)`` →
 ``tcf_to_r88_args(tcf)`` → ``generate_clab_topology(**args)`` etc.
 """
 
+from .deploy_and_push import deploy_and_push_lab
+from .deploy_io import destroy_lab, save_lab_config
+from .deploy_lab import deploy_lab
+from .push_node_config import push_node_config
 from .spec_footer import append_validation_footer
 from .srl_render import generate_srl_lab_config
 from .srl_rollback import generate_srl_rollback_config
@@ -29,7 +33,12 @@ from .topology import generate_clab_topology
 
 __all__ = [
     "append_validation_footer",
+    "deploy_and_push_lab",
+    "deploy_lab",
+    "destroy_lab",
     "generate_clab_topology",
     "generate_srl_lab_config",
     "generate_srl_rollback_config",
+    "push_node_config",
+    "save_lab_config",
 ]
