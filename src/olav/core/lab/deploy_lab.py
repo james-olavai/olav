@@ -27,10 +27,8 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
-_CONFIG_PATH = (
-    Path(__file__).resolve().parents[4]
-    / ".olav" / "workspace" / "ops" / "lab" / "config" / "config.json"
-)
+from ._paths import lab_config_path, lab_workspace_tools_dir
+
 _CLAB_HOST = os.environ.get("OLAV_CLAB_HOST", "192.168.100.12")
 
 
@@ -39,7 +37,7 @@ def _bootstrap_clab_env() -> None:
     if os.environ.get("CLAB_USERNAME") and os.environ.get("CLAB_PASSWORD"):
         return
     try:
-        cfg = json.loads(_CONFIG_PATH.read_text())
+        cfg = json.loads(lab_config_path().read_text())
         os.environ.setdefault("CLAB_USERNAME", cfg.get("username", "admin"))
         os.environ.setdefault("CLAB_PASSWORD", cfg.get("password", "clab"))
     except Exception:
@@ -69,7 +67,7 @@ def _get_mgmt_subnet(lab_name: str = "") -> str:
         third_octet = 32 + (h % 32)  # 172.21.32.0 – 172.21.63.0
         return f"172.21.{third_octet}.0/24"
     try:
-        cfg = json.loads(_CONFIG_PATH.read_text())
+        cfg = json.loads(lab_config_path().read_text())
         return cfg.get("mgmt_subnet", "172.20.50.0/24")
     except Exception:
         return "172.20.50.0/24"
@@ -256,10 +254,7 @@ def deploy_lab(
     # These helpers live in the workspace tools dir (not yet folded —
     # deferred to a later round); load via spec to keep src/olav clean.
     import importlib.util
-    _ws_tools_dir = (
-        Path(__file__).resolve().parents[4]
-        / ".olav" / "workspace" / "ops" / "lab" / "tools"
-    )
+    _ws_tools_dir = lab_workspace_tools_dir()
 
     def _load_ws_module(name: str):
         spec = importlib.util.spec_from_file_location(name, _ws_tools_dir / f"{name}.py")
