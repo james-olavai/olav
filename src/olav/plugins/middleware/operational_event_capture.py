@@ -68,6 +68,9 @@ _WRITE_VERB_ROOTS = frozenset({
     "write",      # write_workspace_file
     "record",     # tcf_record_lab_run, record_network_event
     "emit",       # tcf_emit_from_sim
+    "export",     # format_and_export (writes file artefacts)
+    "ingest",     # bulk_ingest, *_ingest
+    "stop",       # stop_service (state change)
     "create",     # create_*
     "update",     # update_*
     "delete",     # delete_*
