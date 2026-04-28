@@ -122,7 +122,12 @@ class LLMFactory:
             elif "llama.cpp" in base_hint or ":8080" in base_hint:
                 mkw.setdefault("cache_prompt", True)
             elif "ollama" in base_hint or ":11434" in base_hint:
-                mkw.setdefault("keep_alive", "5m")
+                # Ollama-specific knobs go in extra_body (sent via JSON
+                # body, not as Python kwargs to openai.Completions.create —
+                # the latter raises TypeError on unknown args in recent
+                # langchain-openai versions).
+                extra = mkw.setdefault("extra_body", {})
+                extra.setdefault("keep_alive", "5m")
 
         # Log identification for debugging
         model = params.get("model", "unknown")
