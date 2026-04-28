@@ -114,7 +114,94 @@ class LanceDBStore:
         if self._db is None:
             self._db = lancedb.connect(str(self._db_path))
             logger.info(f"Connected to LanceDB at {self._db_path}")
+            # Auto-migrate existing tables with mismatched embedding
+            # dimension. Without this, switching embedding backend (e.g.
+            # OpenRouter 1536-dim → Ollama nomic-v2 768-dim) leaves a
+            # stale 1536-dim schema that silently rejects every memory
+            # write with a cryptic FixedSizeList cast error.
+            self._check_and_migrate_vector_dim()
         return self._db  # type: ignore[returnValue]
+
+    @staticmethod
+    def _extract_table_names(raw: Any) -> list[str]:
+        """Coerce a lancedb list-tables response (flat list / paginated
+        dict / list-of-tuples) into ``list[str]`` of real table names.
+
+        Filters out non-string entries (page tokens, etc) so callers
+        never feed garbage to ``open_table()``.
+        """
+        if raw is None:
+            return []
+        if isinstance(raw, dict):
+            tables = raw.get("tables") or []
+            return [t for t in tables if isinstance(t, str)]
+        try:
+            seq = list(raw)
+        except Exception:
+            return []
+        # Some versions yield 2-tuples like ``('tables', ['memory'])``,
+        # ``('page_token', None)``. Walk the items and keep only the
+        # actual table-name list contents.
+        if seq and isinstance(seq[0], tuple):
+            for k, v in seq:
+                if k == "tables" and isinstance(v, (list, tuple)):
+                    return [t for t in v if isinstance(t, str)]
+            return []
+        # Flat list — keep only strings.
+        return [t for t in seq if isinstance(t, str)]
+
+    def _check_and_migrate_vector_dim(self) -> None:
+        """Scan every table for a vector field whose ``list_size`` doesn't
+        match the current embedder's dimension. On mismatch, drop and
+        recreate the table — preserves nothing, but the alternative is
+        silent write failures forever.
+
+        Logs a clear warning so users know data was discarded.
+        """
+        if self._db is None:
+            return
+        # lancedb shipped multiple list-table APIs across versions:
+        #   * ``table_names()`` (deprecated): some versions return
+        #     a flat ``list[str]``, others return a paginated dict
+        #     ``{"tables": [...], "page_token": ...}`` cast to list of
+        #     2-tuples
+        #   * ``list_tables()`` (current): same dual behaviour
+        # In either case we want only string table names; tuples like
+        # ``('page_token', None)`` blow up downstream
+        # ``open_table()`` with a Rust panic on InvalidTableName.
+        table_names: list[str] = []
+        for accessor in (
+            getattr(self._db, "table_names", None),
+            getattr(self._db, "list_tables", None),
+        ):
+            if accessor is None:
+                continue
+            try:
+                raw = accessor()
+            except Exception:
+                continue
+            extracted = self._extract_table_names(raw)
+            if extracted:
+                table_names = extracted
+                break
+        for tname in table_names:
+            try:
+                tbl = self._db.open_table(tname)
+                for field in tbl.schema:
+                    if field.name == "vector" and hasattr(field.type, "list_size"):
+                        if field.type.list_size != self._embedding_dim:
+                            logger.warning(
+                                "Embedding dim mismatch on table %r "
+                                "(stored=%d, embedder=%d). Dropping and "
+                                "recreating — existing rows will be lost. "
+                                "This usually means the embedding backend "
+                                "was switched (e.g. cloud → local Ollama).",
+                                tname, field.type.list_size, self._embedding_dim,
+                            )
+                            self._db.drop_table(tname)
+                        break
+            except Exception as exc:
+                logger.debug("dim-check skipped for %r: %s", tname, exc)
 
     def close(self):
         """Close database connection."""

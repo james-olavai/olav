@@ -15,8 +15,11 @@ default since v0.15, but offline deployments still need it — keep it.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import logging
+import os
+from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +29,55 @@ _local_embedder = None
 # ── API-mode OpenAI client singleton ─────────────────────────────────────────
 _api_client = None
 _api_model: str | None = None
+
+# ── In-process embedding cache (LRU, sha256-keyed) ──────────────────────────
+# Same text → same vector; multi-step agent flows often re-embed identical
+# user messages 5-7× per chapter (orchestrator + sub-agents + tool decisions
+# all run AutoRecallMiddleware.abefore_model). The cache turns those
+# repeats into 1 real API call + N memory hits.
+#
+# Cap controlled by ``OLAV_EMBED_CACHE_SIZE`` env var (default 1024 entries
+# ≈ ~6 MB at 1536-dim float32). Set to 0 to disable.
+_EMBED_CACHE_MAX = int(os.environ.get("OLAV_EMBED_CACHE_SIZE", "1024"))
+_embed_cache: "OrderedDict[str, list[float]]" = OrderedDict()
+_embed_cache_stats = {"hits": 0, "misses": 0}
+
+
+def _cache_get(text: str) -> "list[float] | None":
+    """Return cached vector for ``text`` or ``None``. LRU bump on hit."""
+    if _EMBED_CACHE_MAX <= 0:
+        return None
+    key = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    vec = _embed_cache.get(key)
+    if vec is not None:
+        _embed_cache.move_to_end(key)
+        _embed_cache_stats["hits"] += 1
+        return vec
+    _embed_cache_stats["misses"] += 1
+    return None
+
+
+def _cache_put(text: str, vec: "list[float]") -> None:
+    """Store ``text → vec`` in LRU; evict oldest if at capacity."""
+    if _EMBED_CACHE_MAX <= 0:
+        return
+    key = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    _embed_cache[key] = vec
+    _embed_cache.move_to_end(key)
+    while len(_embed_cache) > _EMBED_CACHE_MAX:
+        _embed_cache.popitem(last=False)
+
+
+def get_embed_cache_stats() -> dict[str, int]:
+    """Return current cache hit/miss counters + size. For diagnostics."""
+    return {**_embed_cache_stats, "size": len(_embed_cache)}
+
+
+def clear_embed_cache() -> None:
+    """Reset cache + stats. Useful in tests or after config switch."""
+    _embed_cache.clear()
+    _embed_cache_stats["hits"] = 0
+    _embed_cache_stats["misses"] = 0
 
 
 def get_embedder(model: str | None = None):
@@ -155,7 +207,18 @@ def embed_text(text: str) -> "list[float] | None":
     In api mode, reuses the process-wide OpenAI-compatible client singleton.
     In local mode, delegates to the shared SentenceTransformer singleton.
     Returns None on any failure so callers degrade gracefully.
+
+    Process-wide LRU cache (configurable via ``OLAV_EMBED_CACHE_SIZE``,
+    default 1024 entries) deduplicates identical text — typical multi-
+    step agent flows re-embed the same user message 5-7× per chapter,
+    so the cache typically converts those into 1 real API call + N
+    memory hits without changing semantics.
     """
+    if not text:
+        return None
+    cached = _cache_get(text)
+    if cached is not None:
+        return cached
     try:
         from olav.core.config import get_embedding_config
 
@@ -163,12 +226,14 @@ def embed_text(text: str) -> "list[float] | None":
         if cfg.mode == "api":
             client, model = _get_api_client()
             resp = client.embeddings.create(input=text, model=model)
-            return resp.data[0].embedding
+            vec = resp.data[0].embedding
         else:
             embedder = get_embedder()
             if embedder is None:
                 return None
-            return embedder.encode(text, normalize_embeddings=True).tolist()
+            vec = embedder.encode(text, normalize_embeddings=True).tolist()
+        _cache_put(text, vec)
+        return vec
     except Exception as exc:
         logger.warning("embed_text failed: %s", exc)
         return None
