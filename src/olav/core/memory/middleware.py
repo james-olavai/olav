@@ -158,6 +158,89 @@ class AutoRecallMiddleware:
 
         return embed_text(text)
 
+    _reranker_instance: Any = None  # lazy-cached, _CACHE_SENTINEL = "init not tried"
+    _reranker_init_attempted: bool = False
+
+    def _get_reranker(self):
+        """Return a configured Reranker instance, or None if disabled.
+
+        Reads ``reranker`` block from ``.olav/config/api.json``:
+
+            "reranker": {
+              "enabled": true,
+              "model": "bbjson/bge-reranker-base",
+              "base_url": "http://192.168.100.12:11434"
+            }
+
+        Disable via env: ``OLAV_RERANKER_DISABLE=1``. Failed init →
+        returns None (logs at debug); falls back to current diversifier
+        path with no behaviour change.
+        """
+        if self._reranker_init_attempted:
+            return self._reranker_instance
+        self._reranker_init_attempted = True
+
+        import os
+        if os.environ.get("OLAV_RERANKER_DISABLE"):
+            return None
+
+        cfg: dict = {}
+        try:
+            import json
+            from pathlib import Path
+            api_path = Path(".olav/config/api.json")
+            if not api_path.exists():
+                # Search upward for the config dir
+                for p in [Path.cwd(), *Path.cwd().parents]:
+                    cand = p / ".olav" / "config" / "api.json"
+                    if cand.exists():
+                        api_path = cand
+                        break
+            if api_path.exists():
+                cfg = (json.loads(api_path.read_text()) or {}).get("reranker") or {}
+        except Exception:
+            cfg = {}
+        if not cfg.get("enabled"):
+            return None
+        try:
+            from olav.core.memory.reranker import OllamaEmbeddingReranker
+            self._reranker_instance = OllamaEmbeddingReranker(
+                model_name=cfg.get("model", "bbjson/bge-reranker-base"),
+                base_url=cfg.get("base_url", "http://localhost:11434"),
+                column="text",
+            )
+            logger.info(
+                "AutoRecall reranker enabled: model=%s base=%s",
+                cfg.get("model"), cfg.get("base_url"),
+            )
+        except Exception as exc:
+            logger.debug("AutoRecall reranker init failed: %s", exc)
+            self._reranker_instance = None
+        return self._reranker_instance
+
+    def _rerank_memories(
+        self, reranker, query: str, memories: list[dict],
+    ) -> list[dict]:
+        """Run reranker over the candidate list and return reordered list.
+
+        Converts dict list → arrow table → reranker.rerank_vector →
+        sorted dict list. Failures are silent — return original order.
+        """
+        if not memories:
+            return memories
+        try:
+            import pyarrow as pa
+            # Build a minimal arrow table — only the column the reranker
+            # needs ("text") and an opaque index column for join-back.
+            texts = [m.get("text") or "" for m in memories]
+            table = pa.table({"text": texts, "_idx": list(range(len(memories)))})
+            ranked = reranker.rerank_vector(query, table)
+            new_order = ranked.column("_idx").to_pylist()
+            return [memories[i] for i in new_order]
+        except Exception as exc:
+            logger.debug("AutoRecall rerank failed (non-fatal): %s", exc)
+            return memories
+
     # Per-category hard caps — entries beyond the cap are dropped.
     # ``query_pattern`` is the noisy category: repeat-asked questions
     # accumulate near-duplicate entries that all rank near the top of
@@ -671,7 +754,22 @@ class AutoRecallMiddleware:
             raw_memories = self._gather_candidates(
                 query_text, query_vector, scope, effective_top_k,
             )
-            memories = self._diversify_by_category(raw_memories, effective_top_k)
+            # R99 Tier 1: optional second-stage rerank.
+            # When enabled, the reranker fully owns ordering — the
+            # downstream `_diversify_by_category` is skipped so its
+            # per-category quotas don't override the cross-encoder's
+            # global relevance judgment. Without this skip, the
+            # diversifier still hands 2 slots to query_patterns
+            # regardless of how the reranker scored them. (Ch8 #6
+            # debug 2026-04-28 surfaced this.)
+            reranker = self._get_reranker()
+            if reranker is not None and raw_memories:
+                raw_memories = self._rerank_memories(
+                    reranker, query_text, raw_memories
+                )
+                memories = raw_memories[:effective_top_k]
+            else:
+                memories = self._diversify_by_category(raw_memories, effective_top_k)
 
             if not memories:
                 return input_
