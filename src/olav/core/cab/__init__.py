@@ -12,6 +12,14 @@ Subordinate models (re-exported for typing):
       JournalEntry, ExecutionRecord
 """
 
+from .prod_cli import (
+    derive_prod_cli_from_tcf,
+    generate_ios_ebgp_config,
+    generate_ios_ebgp_rollback,
+    generate_junos_ebgp_config,
+    generate_junos_ebgp_rollback,
+)
+from .semantic_review import review_cli_pair, review_paired_blocks
 from .tcf_args import tcf_to_r88_args, tcf_to_r89_args, tcf_to_r90_args
 from .tcf_diff import (
     SilentOverride,
@@ -29,6 +37,7 @@ from .tcf_schema import (
     Intent,
     JournalEntry,
     PostCheck,
+    StepVerdict,
     TvtRow,
 )
 from .tcf_sim import tcf_emit_from_sim
@@ -42,9 +51,17 @@ __all__ = [
     "JournalEntry",
     "PostCheck",
     "SilentOverride",
+    "StepVerdict",
     "TcfDiffResult",
     "TvtDiff",
     "TvtRow",
+    "derive_prod_cli_from_tcf",
+    "generate_ios_ebgp_config",
+    "generate_ios_ebgp_rollback",
+    "generate_junos_ebgp_config",
+    "generate_junos_ebgp_rollback",
+    "review_cli_pair",
+    "review_paired_blocks",
     "tcf_diff_spec_vs_lab",
     "tcf_emit",
     "tcf_emit_from_sim",

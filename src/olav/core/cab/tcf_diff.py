@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any  # noqa: F401  (Any used in helper signatures)
 
-from .tcf_schema import CabTcf
+from .tcf_schema import CabTcf, StepVerdict
 
 
 @dataclass
@@ -58,6 +58,7 @@ class TcfDiffResult:
     tvt_diffs: list[TvtDiff] = field(default_factory=list)
     required_test_compliance: dict[str, bool] = field(default_factory=dict)
     silent_overrides: list[SilentOverride] = field(default_factory=list)
+    step_verdicts: list[StepVerdict] = field(default_factory=list)
 
     @property
     def all_required_pass(self) -> bool:
@@ -111,8 +112,31 @@ class TcfDiffResult:
                 )
             lines.append("")
 
-        if not self.tvt_diffs and not self.silent_overrides:
-            lines.append("(no TVT rows or overrides recorded)")
+        if self.step_verdicts:
+            lines.append("### Step Verdicts (sim ↔ lab cross-verification)")
+            lines.append("")
+            lines.append("| Spec ref | Lab ref | Verdict | Reason |")
+            lines.append("|---|---|---|---|")
+            for v in self.step_verdicts:
+                v_icon = {
+                    "approved": "✅",
+                    "rejected": "❌",
+                    "missing": "⚠️",
+                    "extra": "➕",
+                    "info": "ℹ️",
+                }.get(v.verdict, "•")
+                lines.append(
+                    f"| `{v.spec_ref or '—'}` | `{v.lab_ref or '—'}` | "
+                    f"{v_icon} {v.verdict} | {v.reason} |"
+                )
+            lines.append("")
+
+        if (
+            not self.tvt_diffs
+            and not self.silent_overrides
+            and not self.step_verdicts
+        ):
+            lines.append("(no TVT rows, step verdicts, or overrides recorded)")
             lines.append("")
 
         return "\n".join(lines)
@@ -244,6 +268,212 @@ def _detect_silent_overrides(tcf: CabTcf) -> list[SilentOverride]:
 
 
 # ---------------------------------------------------------------------------
+# Step-level verdicts (R94)
+# ---------------------------------------------------------------------------
+
+
+def _diff_cli_blocks(
+    spec_blocks: list[Any],
+    lab_blocks: list[Any],
+    *,
+    spec_kind: str,
+    lab_kind: str,
+) -> list[StepVerdict]:
+    """Structural-only diff for sim vs lab CLI blocks.
+
+    **Policy (R94.2)**: this function emits verdicts ONLY for structural
+    gaps — ``missing`` (spec has a block for a device, lab didn't push
+    one) and ``extra`` (lab pushed a block for a device that's not in
+    spec). It deliberately does **not** emit ``approved`` when the two
+    sides happen to share a device name, because device-name pairing is
+    not a semantic judgement — Junos / IOS prod CLI vs SRL lab CLI can
+    differ in ASN, neighbor IP, policy, or even change type while
+    sharing the same node name.
+
+    Semantic verdicts (``approved`` / ``rejected`` / ``info``) for
+    paired blocks must come from the agent reading the TCF and writing
+    back via ``tcf_record_lab_run(step_verdicts=...)``. The agent has
+    sandbox file tools (Read) and the full bilateral payload is on
+    disk; trying to fake semantic judgement in Python here would just
+    ship false positives to CAB.
+    """
+    out: list[StepVerdict] = []
+
+    spec_by_dev: dict[str, list[tuple[int, Any]]] = {}
+    for i, block in enumerate(spec_blocks):
+        spec_by_dev.setdefault(block.device.lower(), []).append((i, block))
+
+    lab_by_dev: dict[str, list[tuple[int, Any]]] = {}
+    for i, block in enumerate(lab_blocks):
+        lab_by_dev.setdefault(block.device.lower(), []).append((i, block))
+
+    for dev, spec_items in spec_by_dev.items():
+        if lab_by_dev.get(dev):
+            # Paired structurally — semantic verdict deferred to agent.
+            continue
+        for spec_idx, spec_block in spec_items:
+            out.append(StepVerdict(
+                spec_ref=f"{spec_kind}[{spec_idx}]",
+                lab_ref=None,
+                verdict="missing",
+                reason=(
+                    f"spec has {spec_kind} block for device "
+                    f"{spec_block.device!r} but lab didn't record any "
+                    f"{lab_kind} for it"
+                ),
+            ))
+
+    spec_devs = set(spec_by_dev.keys())
+    for dev, lab_items in lab_by_dev.items():
+        if dev in spec_devs:
+            continue
+        for lab_idx, lab_block in lab_items:
+            out.append(StepVerdict(
+                spec_ref=None,
+                lab_ref=f"{lab_kind}[{lab_idx}]",
+                verdict="extra",
+                reason=(
+                    f"lab ran {lab_kind} on device {lab_block.device!r} "
+                    f"that's not in the spec {spec_kind} list"
+                ),
+            ))
+
+    return out
+
+
+def _diff_post_checks(tcf: CabTcf) -> list[StepVerdict]:
+    """Match each spec post_check to a lab post_check_lab entry by
+    (lower-case device, check_id-prefix).
+
+    The lab translates the spec's prod-form command (``show bgp summary``
+    on Junos) into the lab-form (``sr_cli show network-instance default
+    protocols bgp neighbor``) so the verdict is informational by default
+    when both sides exist — the operator confirms semantic equivalence.
+    """
+    out: list[StepVerdict] = []
+
+    spec_by_key: dict[tuple[str, str], tuple[int, Any]] = {}
+    for i, c in enumerate(tcf.post_check):
+        spec_by_key[(c.device.lower(), c.check_id)] = (i, c)
+
+    lab_by_dev: dict[str, list[tuple[int, Any]]] = {}
+    for i, c in enumerate(tcf.lab.post_check_lab):
+        lab_by_dev.setdefault(c.device.lower(), []).append((i, c))
+
+    used_lab_idx: set[tuple[str, int]] = set()
+    for (dev, check_id), (spec_idx, spec_check) in spec_by_key.items():
+        match: tuple[int, Any] | None = None
+        for lab_idx, lab_check in lab_by_dev.get(dev, []):
+            if (dev, lab_idx) in used_lab_idx:
+                continue
+            if lab_check.check_id == check_id or lab_check.check_id.startswith(
+                check_id
+            ):
+                match = (lab_idx, lab_check)
+                used_lab_idx.add((dev, lab_idx))
+                break
+        if match is None:
+            for lab_idx, lab_check in lab_by_dev.get(dev, []):
+                if (dev, lab_idx) in used_lab_idx:
+                    continue
+                match = (lab_idx, lab_check)
+                used_lab_idx.add((dev, lab_idx))
+                break
+        if match is not None:
+            lab_idx, lab_check = match
+            same_cmd = lab_check.command.strip() == spec_check.command.strip()
+            verdict = "approved" if same_cmd else "info"
+            reason = (
+                "command identical"
+                if same_cmd
+                else (
+                    f"lab translated command form: spec="
+                    f"{spec_check.command!r}, lab={lab_check.command!r}"
+                )
+            )
+            out.append(StepVerdict(
+                spec_ref=f"post_check[{check_id}]",
+                lab_ref=f"post_check_lab[{lab_idx}]",
+                verdict=verdict,
+                reason=reason,
+            ))
+        else:
+            out.append(StepVerdict(
+                spec_ref=f"post_check[{check_id}]",
+                lab_ref=None,
+                verdict="missing",
+                reason=(
+                    f"spec post_check {check_id!r} on {spec_check.device!r} "
+                    f"has no lab counterpart"
+                ),
+            ))
+
+    spec_keys_by_dev: dict[str, set[str]] = {}
+    for (dev, check_id), _ in spec_by_key.items():
+        spec_keys_by_dev.setdefault(dev, set()).add(check_id)
+    for dev, lab_items in lab_by_dev.items():
+        for lab_idx, lab_check in lab_items:
+            if (dev, lab_idx) in used_lab_idx:
+                continue
+            out.append(StepVerdict(
+                spec_ref=None,
+                lab_ref=f"post_check_lab[{lab_idx}]",
+                verdict="extra",
+                reason=(
+                    f"lab post_check_lab on {lab_check.device!r} "
+                    f"({lab_check.check_id!r}) has no spec counterpart"
+                ),
+            ))
+
+    return out
+
+
+def _diff_tvt_rows(tvt_diffs: list[TvtDiff]) -> list[StepVerdict]:
+    """One StepVerdict per TVT row, derived from the existing TvtDiff."""
+    out: list[StepVerdict] = []
+    for d in tvt_diffs:
+        if d.matches and d.status == "PASS":
+            verdict = "approved"
+            reason = f"actual {d.actual_lab!r} matches expected {d.expected!r}"
+        elif d.matches:
+            verdict = "info"
+            reason = f"pattern matched but status={d.status}"
+        else:
+            verdict = "rejected"
+            reason = (
+                f"actual {d.actual_lab!r} does not match expected "
+                f"{d.expected!r} (severity {d.severity})"
+            )
+        out.append(StepVerdict(
+            spec_ref=f"tvt[{d.test_id}]",
+            lab_ref=f"tvt[{d.test_id}].actual_lab",
+            verdict=verdict,
+            reason=reason,
+        ))
+    return out
+
+
+def _compute_step_verdicts(tcf: CabTcf, tvt_diffs: list[TvtDiff]) -> list[StepVerdict]:
+    """Build the full per-step approve/reject ledger for the lab run."""
+    verdicts: list[StepVerdict] = []
+    verdicts.extend(_diff_cli_blocks(
+        list(tcf.implementation),
+        list(tcf.lab.implementation_lab),
+        spec_kind="implementation",
+        lab_kind="implementation_lab",
+    ))
+    verdicts.extend(_diff_cli_blocks(
+        list(tcf.rollback),
+        list(tcf.lab.rollback_lab),
+        spec_kind="rollback",
+        lab_kind="rollback_lab",
+    ))
+    verdicts.extend(_diff_post_checks(tcf))
+    verdicts.extend(_diff_tvt_rows(tvt_diffs))
+    return verdicts
+
+
+# ---------------------------------------------------------------------------
 # Top-level diff
 # ---------------------------------------------------------------------------
 
@@ -301,6 +531,7 @@ def tcf_diff_spec_vs_lab(tcf: CabTcf) -> TcfDiffResult:
         overall = "PASS"
 
     overrides = _detect_silent_overrides(tcf)
+    step_verdicts = _compute_step_verdicts(tcf, tvt_diffs)
 
     return TcfDiffResult(
         change_id=tcf.change_id,
@@ -309,6 +540,7 @@ def tcf_diff_spec_vs_lab(tcf: CabTcf) -> TcfDiffResult:
         tvt_diffs=tvt_diffs,
         required_test_compliance=required_compliance,
         silent_overrides=overrides,
+        step_verdicts=step_verdicts,
     )
 
 
@@ -317,4 +549,5 @@ __all__ = [
     "TcfDiffResult",
     "TvtDiff",
     "SilentOverride",
+    "StepVerdict",
 ]
