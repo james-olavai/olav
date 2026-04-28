@@ -211,6 +211,62 @@ class JournalEntry(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Cross-verification step verdict (R94)
+# ---------------------------------------------------------------------------
+
+
+class StepVerdict(BaseModel):
+    """Per-step approve / reject result from cross-verifying spec.* vs
+    lab.*_lab fields.
+
+    Produced by ``tcf_diff_spec_vs_lab`` when comparing what sim wrote
+    in the contract (e.g. ``implementation[0]`` = "set protocols bgp
+    group ebgp-r4 ..." on Junos R1) against what the lab pushed as
+    digital-twin evidence (e.g. ``lab.implementation_lab[0]`` =
+    "set / network-instance default protocols bgp group ebgp-r4 ..."
+    on SRL r1). The verdict + reason go to the CAB approver /
+    sim-author for review.
+
+    Naming convention: ``implementation_lab`` / ``rollback_lab`` /
+    ``post_check_lab`` make the role explicit — sim writes the
+    *real* prod-form CLI in the top-level lists; lab writes the
+    *SRL twin* CLI as evidence. Production deployment uses sim's
+    commands; lab's role is to provide twin-side proof per command,
+    not a substitute deploy plan.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    spec_ref: str | None = None
+    """Reference to the spec-side step being verified. Examples:
+    ``"implementation[0]"``, ``"rollback[1]"``, ``"tvt[T1]"``,
+    ``"post_check[bgp_up]"``. ``None`` when the verdict applies to a
+    lab-only entry without a spec counterpart (verdict ``"extra"``)."""
+
+    lab_ref: str | None = None
+    """Reference to the corresponding lab-side entry. Examples:
+    ``"implementation_lab[0]"``, ``"rollback_lab[1]"``,
+    ``"post_check_lab[0]"``. ``None`` when the spec step has no lab
+    counterpart (verdict ``"missing"``)."""
+
+    verdict: str
+    """Free-form verdict — convention:
+    ``"approved"`` — lab covered the same intent
+    ``"rejected"`` — semantic mismatch; sim or lab needs revision
+    ``"missing"`` — spec has step, lab didn't execute it
+    ``"extra"`` — lab did something not in spec
+    ``"info"`` — informational note (broader / narrower / silent
+    override). Tools dispatch on convention; unknown values render
+    as-is."""
+
+    reason: str = ""
+    """Free-form text explaining the verdict. For ``approved``: usually
+    short ("R89 skeleton covers all intent fields"). For
+    ``rejected``: must explain what was wrong ("lab over-rolled —
+    delete entire BGP vs sim's group-only delete")."""
+
+
+# ---------------------------------------------------------------------------
 # Execution record — lab side or prod side
 # ---------------------------------------------------------------------------
 
@@ -227,6 +283,14 @@ class ExecutionRecord(BaseModel):
     ``verdict`` is a string (not Literal) — convention is
     ``PENDING`` / ``PASS`` / ``FAIL`` / ``BLOCKED`` but tools that
     consume this should accept anything sensibly.
+
+    R94 added the four ``*_lab`` parallel structures. Sim writes the
+    prod-form contract (``implementation[]`` / ``rollback[]`` /
+    ``post_check[]`` at top level — the *real* commands ops will run
+    on prod); lab fills the SRL twin blocks here as evidence. The
+    ``step_verdicts`` array is the cross-verification ledger linking
+    each spec command to its lab-side proof. All four lab arrays
+    default to empty for backward compatibility.
     """
 
     verdict: str = "PENDING"
@@ -236,6 +300,38 @@ class ExecutionRecord(BaseModel):
     journal: list[JournalEntry] = Field(default_factory=list)
     diagnosis: str = ""
     recommendation: list[str] = Field(default_factory=list)
+
+    # ── R94: lab-side digital-twin artefacts ────────────────────────
+    implementation_lab: list["CliBlock"] = Field(default_factory=list)
+    """Lab-side SRL CLI per node — the digital-twin evidence that
+    sim's prod-form ``implementation[]`` was validated. Lab is
+    expected to derive this *from* spec.implementation (translate
+    Junos / IOS → SRL preserving semantic intent), not synthesize
+    independently from intent. Production deployment uses sim's
+    prod-form CLI; this field exists to prove the plan works on the
+    twin per-command.
+    """
+
+    rollback_lab: list["CliBlock"] = Field(default_factory=list)
+    """Lab-side SRL ``delete /`` CLI per node — twin-side evidence
+    that sim's ``rollback[]`` plan reverses the change cleanly.
+    Used to surface silent over-rollback (lab deleted more than
+    sim's prod rollback would have).
+    """
+
+    post_check_lab: list["PostCheck"] = Field(default_factory=list)
+    """Lab-side post-check commands actually run + observed pattern.
+    Sim writes prod-form (e.g. ``show bgp summary`` on Junos); lab
+    translates to ``sr_cli show network-instance default protocols
+    bgp neighbor`` and records what it actually ran. Allows
+    cross-verification that the translation preserved verification
+    intent.
+    """
+
+    step_verdicts: list[StepVerdict] = Field(default_factory=list)
+    """Cross-verification output: per-step approve / reject + reason.
+    Produced by ``tcf_diff_spec_vs_lab`` when both sim contract and
+    lab evidence are populated."""
 
 
 # ---------------------------------------------------------------------------

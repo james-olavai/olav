@@ -283,3 +283,154 @@ def test_to_markdown_handles_empty_tcf():
     tcf = _ebgp_tcf()  # no tvt, no overrides
     md = tcf_diff_spec_vs_lab(tcf).to_markdown()
     assert "no TVT rows" in md
+
+
+# --- R94 step verdicts ------------------------------------------------------
+
+
+def _ebgp_tcf_with_lab_evidence(
+    *,
+    impl_lab: list[CliBlock] | None = None,
+    rb_lab: list[CliBlock] | None = None,
+    pc_lab: list[PostCheck] | None = None,
+    tvt: list[TvtRow] | None = None,
+) -> CabTcf:
+    """Build a TCF with both spec lists and lab.*_lab fields populated."""
+    return CabTcf(
+        change_id="cab_step_verdict_test",
+        title="step verdict",
+        created_by="ops-analyze",
+        created_at=datetime.now(UTC),
+        intent=Intent(type="ebgp_direct"),
+        devices=[
+            Device(name="R1", platform="juniper_junos", prod_asn=65000),
+            Device(name="R4", platform="cisco_ios", prod_asn=65001),
+        ],
+        implementation=[
+            CliBlock(device="R1", phase=1, cli=["set ... R1 cmd"]),
+            CliBlock(device="R4", phase=1, cli=["set ... R4 cmd"]),
+        ],
+        rollback=[
+            CliBlock(device="R1", phase="rb1", cli=["delete ... R1"]),
+            CliBlock(device="R4", phase="rb1", cli=["delete ... R4"]),
+        ],
+        post_check=[
+            PostCheck(device="R1", check_id="bgp_up", description="BGP up",
+                      command="show bgp summary", expected_pattern="Established"),
+        ],
+        tvt=tvt or [
+            TvtRow(test_id="T1", description="BGP", expected="Established",
+                   severity="blocker", actual_lab="Established", status="PASS"),
+        ],
+        lab=ExecutionRecord(
+            verdict="PASS",
+            implementation_lab=impl_lab or [],
+            rollback_lab=rb_lab or [],
+            post_check_lab=pc_lab or [],
+        ),
+    )
+
+
+def test_step_verdicts_paired_blocks_emit_no_verdict():
+    """R94.2 policy: structurally-paired implementation / rollback blocks
+    emit NO verdict — semantic judgement is the agent's job. Only TVT
+    (real pattern match) and post_check (real string equality / form
+    diff) get verdicts from the deterministic layer."""
+    tcf = _ebgp_tcf_with_lab_evidence(
+        impl_lab=[
+            CliBlock(device="r1", phase=1, cli=["set / ..."]),
+            CliBlock(device="r4", phase=1, cli=["set / ..."]),
+        ],
+        rb_lab=[
+            CliBlock(device="r1", phase="rb1", cli=["delete / ..."]),
+            CliBlock(device="r4", phase="rb1", cli=["delete / ..."]),
+        ],
+        pc_lab=[
+            PostCheck(device="r1", check_id="bgp_up", description="lab",
+                      command="sr_cli show ...", expected_pattern="established"),
+        ],
+    )
+    res = tcf_diff_spec_vs_lab(tcf)
+    by_verdict: dict[str, int] = {}
+    for v in res.step_verdicts:
+        by_verdict[v.verdict] = by_verdict.get(v.verdict, 0) + 1
+    # No "approved" from impl/rollback pairing — those are deferred to agent.
+    impl_rb_verdicts = [
+        v for v in res.step_verdicts
+        if v.spec_ref and (
+            v.spec_ref.startswith("implementation[")
+            or v.spec_ref.startswith("rollback[")
+        )
+    ]
+    assert impl_rb_verdicts == []
+    # post_check: command form differs → 1 info
+    assert by_verdict.get("info", 0) == 1
+    # tvt: pattern matches → 1 approved
+    assert by_verdict.get("approved", 0) == 1
+    assert "missing" not in by_verdict
+    assert "extra" not in by_verdict
+
+
+def test_step_verdicts_missing_rollback_flagged():
+    tcf = _ebgp_tcf_with_lab_evidence(
+        impl_lab=[
+            CliBlock(device="r1", phase=1, cli=["set"]),
+            CliBlock(device="r4", phase=1, cli=["set"]),
+        ],
+        rb_lab=[
+            CliBlock(device="r1", phase="rb1", cli=["delete"]),
+            # R4 rollback intentionally missing
+        ],
+    )
+    res = tcf_diff_spec_vs_lab(tcf)
+    missing = [v for v in res.step_verdicts if v.verdict == "missing"]
+    rb_missing = [
+        v for v in missing
+        if v.spec_ref and v.spec_ref.startswith("rollback[")
+    ]
+    assert len(rb_missing) == 1
+    assert "r4" in rb_missing[0].reason.lower()
+
+
+def test_step_verdicts_extra_lab_block_flagged():
+    tcf = _ebgp_tcf_with_lab_evidence(
+        impl_lab=[
+            CliBlock(device="r1", phase=1, cli=["set"]),
+            CliBlock(device="r4", phase=1, cli=["set"]),
+            CliBlock(device="r99", phase=1, cli=["set"]),  # not in spec
+        ],
+    )
+    res = tcf_diff_spec_vs_lab(tcf)
+    extras = [v for v in res.step_verdicts if v.verdict == "extra"]
+    assert any(
+        e.lab_ref and e.lab_ref.startswith("implementation_lab[")
+        for e in extras
+    )
+
+
+def test_step_verdicts_tvt_rejected_when_pattern_mismatch():
+    tcf = _ebgp_tcf_with_lab_evidence(
+        tvt=[
+            TvtRow(test_id="T1", description="BGP", expected="Established",
+                   severity="blocker", actual_lab="Idle", status="FAIL"),
+        ],
+    )
+    res = tcf_diff_spec_vs_lab(tcf)
+    tvt_v = [v for v in res.step_verdicts if v.spec_ref == "tvt[T1]"]
+    assert len(tvt_v) == 1
+    assert tvt_v[0].verdict == "rejected"
+
+
+def test_step_verdicts_render_in_markdown():
+    """Markdown render shows step verdicts when present. With the
+    R94.2 policy (paired impl/rollback emit no verdict), this test
+    builds a scenario where R4 has no lab counterpart → emits missing
+    for implementation[1] / rollback[1]."""
+    tcf = _ebgp_tcf_with_lab_evidence(
+        impl_lab=[CliBlock(device="r1", phase=1, cli=["set"])],
+    )
+    md = tcf_diff_spec_vs_lab(tcf).to_markdown()
+    assert "Step Verdicts" in md
+    # R4 has no impl_lab counterpart → missing verdict referencing it
+    assert "implementation[1]" in md
+    assert "missing" in md.lower()

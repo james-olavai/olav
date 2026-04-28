@@ -20,7 +20,7 @@ from typing import Any
 
 from .tcf_args import tcf_to_r88_args, tcf_to_r89_args
 from .tcf_io import tcf_emit, tcf_load
-from .tcf_schema import JournalEntry
+from .tcf_schema import CliBlock, JournalEntry, PostCheck, StepVerdict
 
 
 def tcf_load_for_lab(spec_path: str | Path) -> dict[str, Any]:
@@ -89,6 +89,10 @@ def tcf_record_lab_run(
     tvt_actual_lab: list[str] | None = None,
     tvt_status: list[str] | None = None,
     journal: list[dict[str, Any]] | str | None = None,
+    implementation_lab: list[dict[str, Any]] | str | None = None,
+    rollback_lab: list[dict[str, Any]] | str | None = None,
+    post_check_lab: list[dict[str, Any]] | str | None = None,
+    step_verdicts: list[dict[str, Any]] | str | None = None,
 ) -> dict[str, Any]:
     """Atomically write lab results back into a TCF spec.
 
@@ -98,6 +102,19 @@ def tcf_record_lab_run(
 
     ``journal`` accepts either a list of dicts (preferred) or a JSON
     string (for sandbox callers that build it as text).
+
+    R94 lab-side fields (``implementation_lab``, ``rollback_lab``,
+    ``post_check_lab``, ``step_verdicts``) each accept a list of dicts
+    or a JSON string and land in the matching ``ExecutionRecord``
+    field. Each list element is validated against its Pydantic model
+    (``CliBlock`` / ``PostCheck`` / ``StepVerdict``); errors are
+    returned as structured envelopes so sandbox callers see exactly
+    which row failed.
+
+    The ``*_lab`` fields are SRL twin evidence — sim writes the real
+    prod-form CLI in the top-level ``implementation[]`` /
+    ``rollback[]`` / ``post_check[]`` lists; lab writes the SRL
+    translation here as proof the plan works on the digital twin.
     """
     try:
         tcf = tcf_load(spec_path)
@@ -172,6 +189,21 @@ def tcf_record_lab_run(
             row.status = status
             updated_count += 1
 
+    impl_parse = _parse_model_list(
+        implementation_lab, CliBlock, "implementation_lab"
+    )
+    if "error" in impl_parse:
+        return impl_parse
+    rb_parse = _parse_model_list(rollback_lab, CliBlock, "rollback_lab")
+    if "error" in rb_parse:
+        return rb_parse
+    pc_parse = _parse_model_list(post_check_lab, PostCheck, "post_check_lab")
+    if "error" in pc_parse:
+        return pc_parse
+    sv_parse = _parse_model_list(step_verdicts, StepVerdict, "step_verdicts")
+    if "error" in sv_parse:
+        return sv_parse
+
     tcf.lab.verdict = verdict
     tcf.lab.lab_name = lab_name or None
     tcf.lab.snapshot_id = snapshot_id or None
@@ -179,6 +211,10 @@ def tcf_record_lab_run(
     tcf.lab.journal = journal_entries
     tcf.lab.diagnosis = diagnosis
     tcf.lab.recommendation = list(recommendation or [])
+    tcf.lab.implementation_lab = impl_parse["items"]
+    tcf.lab.rollback_lab = rb_parse["items"]
+    tcf.lab.post_check_lab = pc_parse["items"]
+    tcf.lab.step_verdicts = sv_parse["items"]
 
     try:
         out = tcf_emit(tcf, spec_path)
@@ -195,4 +231,63 @@ def tcf_record_lab_run(
         "updated_tvt": updated_count,
         "journal_entries": len(journal_entries),
         "lab_name": lab_name,
+        "implementation_lab_blocks": len(impl_parse["items"]),
+        "rollback_lab_blocks": len(rb_parse["items"]),
+        "post_check_lab_entries": len(pc_parse["items"]),
+        "step_verdicts": len(sv_parse["items"]),
     }
+
+
+def _parse_model_list(
+    raw: list[dict[str, Any]] | str | None,
+    model_cls: type,
+    field_name: str,
+) -> dict[str, Any]:
+    """Parse a list of dicts (or JSON string) into Pydantic instances.
+
+    Returns ``{"items": list}`` on success or ``{"status": "error",
+    "error": str}`` on failure. Mirrors the journal parsing flow so
+    sandbox callers see consistent error envelopes.
+    """
+    if raw is None:
+        return {"items": []}
+    if isinstance(raw, str):
+        if not raw:
+            return {"items": []}
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            return {
+                "status": "error",
+                "error": f"{field_name} is not valid JSON: {exc}",
+            }
+    if not isinstance(raw, list):
+        return {
+            "status": "error",
+            "error": (
+                f"{field_name} must be a list; got {type(raw).__name__}"
+            ),
+        }
+    items: list[Any] = []
+    for i, entry in enumerate(raw):
+        if isinstance(entry, model_cls):
+            items.append(entry)
+            continue
+        if not isinstance(entry, dict):
+            return {
+                "status": "error",
+                "error": (
+                    f"{field_name}[{i}] must be an object; "
+                    f"got {type(entry).__name__}"
+                ),
+            }
+        try:
+            items.append(model_cls(**entry))
+        except Exception as exc:
+            return {
+                "status": "error",
+                "error": (
+                    f"{field_name}[{i}] invalid: {type(exc).__name__}: {exc}"
+                ),
+            }
+    return {"items": items}
