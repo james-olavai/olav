@@ -38,6 +38,12 @@ def api_request(
     from olav.platform.services.client import service_call
 
     try:
+        # ISSUE-API-REQUEST-PAGE-SIZE-DROPPED: service_call() does NOT
+        # accept ``page_size`` — passing it raises TypeError which the
+        # 27B agent reads and gives up with ``[]`` as final response.
+        # Pagination is handled locally below via _COMPACT_LIST_CAP.
+        # If auto-follow page_size=-1 is wanted, implement it as a
+        # paginate loop here, NOT by forwarding to service_call.
         result = service_call(
             service,
             method=method,
@@ -45,7 +51,6 @@ def api_request(
             params=params,
             body=body,
             confirmed=confirmed,
-            page_size=page_size,
         )
     except KeyError:
         from olav.platform.services.registry import ServiceRegistry

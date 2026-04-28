@@ -128,8 +128,10 @@ class InitCommand(BaseCommand):
         # Platform databases
         db_status = self._init_databases(base_dir / "databases")
 
-        # Core workspace
-        core_status = self._deploy_core_workspace(base_dir / "workspace" / "core")
+        # Platform workspaces (core, services, ...) — every dir under
+        # ``src/olav/data/workspace/`` ships in the wheel and gets deployed
+        # to ``.olav/workspace/<name>/`` on init.
+        core_status = self._deploy_platform_workspaces(base_dir / "workspace")
 
         # Pre-download embedding model so first query doesn't hit HF Hub
         embedder_status = self._ensure_embedding_model()
@@ -359,38 +361,60 @@ class InitCommand(BaseCommand):
         except Exception as exc:  # noqa: BLE001
             return f"⚠ skipped ({exc})"
 
-    def _deploy_core_workspace(self, core_dir: Path) -> str:
-        """Deploy .olav/workspace/core/ from bundled package data.
+    def _deploy_platform_workspaces(self, workspace_root: Path) -> str:
+        """Deploy every platform agent workspace from bundled package data.
 
-        Copies the full core workspace (AGENT.md, MANIFEST.yaml, SKILL.md,
-        tools/, prompts/, references/) from ``olav/data/workspace/core/``.
-        Existing files are never overwritten so user customisations survive
-        repeated ``olav init`` calls.
+        Walks ``olav.data.workspace.*``  (every top-level dir under
+        ``src/olav/data/workspace/``) and copies each into
+        ``.olav/workspace/<name>/``. Existing files are never
+        overwritten so user customisations survive repeated
+        ``olav init`` calls.
+
+        Replaces the earlier hard-coded ``_deploy_core_workspace``
+        which only deployed ``core`` — services / future platform
+        agents were silently dropped on fresh installs (see
+        ``ISSUE-SERVICES-AGENT-NOT-PACKAGED``).
         """
         import shutil
 
         try:
             from importlib.resources import files as _pkg_files
-            bundled = _pkg_files("olav.data.workspace") / "core"
-            bundled_path = Path(str(bundled))
+            bundled_root = _pkg_files("olav.data.workspace")
+            bundled_root_path = Path(str(bundled_root))
         except Exception:  # noqa: BLE001
-            bundled_path = None
+            bundled_root_path = None
 
         try:
+            workspace_root.mkdir(parents=True, exist_ok=True)
+
+            if bundled_root_path and bundled_root_path.is_dir():
+                deployed: list[str] = []
+                # Iterate top-level subdirs only — each is an agent workspace.
+                # Skip __pycache__ / dot-files / __init__.py.
+                for agent_src in sorted(bundled_root_path.iterdir()):
+                    if not agent_src.is_dir():
+                        continue
+                    if agent_src.name.startswith((".", "_")):
+                        continue
+                    agent_dst = workspace_root / agent_src.name
+                    agent_dst.mkdir(parents=True, exist_ok=True)
+                    for src in agent_src.rglob("*"):
+                        rel = src.relative_to(agent_src)
+                        if any(p.startswith("__pycache__") for p in rel.parts):
+                            continue
+                        dst = agent_dst / rel
+                        if src.is_dir():
+                            dst.mkdir(parents=True, exist_ok=True)
+                        elif not dst.exists():
+                            dst.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(src, dst)
+                    deployed.append(agent_src.name)
+                if deployed:
+                    return f"✓ platform workspaces deployed: {', '.join(deployed)}"
+
+            # Fallback: bundle missing → write minimal core stubs only
+            core_dir = workspace_root / "core"
             core_dir.mkdir(parents=True, exist_ok=True)
-
-            if bundled_path and bundled_path.is_dir():
-                for src in bundled_path.rglob("*"):
-                    rel = src.relative_to(bundled_path)
-                    dst = core_dir / rel
-                    if src.is_dir():
-                        dst.mkdir(parents=True, exist_ok=True)
-                    elif not dst.exists():
-                        dst.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(src, dst)
-                return "✓ core workspace deployed"
-
-            # Fallback: write minimal stubs if package data is unavailable
             try:
                 from olav.core.version import __version__ as ver
             except Exception:  # noqa: BLE001
@@ -408,6 +432,10 @@ class InitCommand(BaseCommand):
             return "✓ core workspace deployed (stubs only — package data missing)"
         except Exception as exc:  # noqa: BLE001
             return f"⚠ skipped ({exc})"
+
+    # Back-compat alias — older code paths may still reference this name.
+    def _deploy_core_workspace(self, core_dir: Path) -> str:
+        return self._deploy_platform_workspaces(core_dir.parent)
 
     async def _check_llm(self) -> str:
         """Test LLM connectivity. Never raises — returns a human-readable status string."""

@@ -1,45 +1,57 @@
 ---
 name: core
 kind: Agent
-description: "Core platform agent — data queries, API services, remote execution, platform management"
-version: "0.4.0"
+description: "OLAV core agent — unified entry point for queries, CLI, KB search, and platform operations (v0.15+)"
+version: "3.2.0"
 system_prompt_file: prompts/system.md
 subagents:
-  - path: ./db_query/SKILL.md
-  - path: ./api_query/SKILL.md
-  - path: ./remote/SKILL.md
-  - path: ./admin/SKILL.md
   - path: ./writer/SKILL.md
-route_keywords:
-  - help version status workspace platform health check
-  - database SQL query select table column list count how many
-  - 列出 查询 多少 数据库 设备列表 统计
-  - API service health status grafana jira gitlab monitoring
-  - server host disk memory cpu process remote command
-  - memory knowledge recall search document import export
-  - cron schedule job docker compose deploy
+  - path: ./admin/SKILL.md
+  - path: ./api_query/SKILL.md
+  - path: ./db_query/SKILL.md
+  - path: ./remote/SKILL.md
 static_context:
   - path: ./references/SKILL_DEVELOPMENT.md
+  - path: ./references/REQUIRED_INFO_CHECK.md
+# ARCH-17: lazy-load — SKILL_DEVELOPMENT (~3K) + REQUIRED_INFO_CHECK (~2K) only
+# get injected when router intent-matches; saves ~5K tokens on plain queries.
+static_context_mode: on_intent
 ---
 
-# Core Workspace
+# Core Workspace (v0.15+)
 
-Platform-level agent providing built-in capabilities.
+Unified platform agent — the default entry point for all `olav "<question>"` queries.
+
 Always present; cannot be uninstalled.
 
-This agent helps users build and operate the OLAV platform itself — developing new skills,
-registering external service APIs, and running arbitrary code to explore integrations.
+## Capabilities (v0.18.1, post ADR-0006)
 
-## Orchestrator Tools (direct)
+Per [ADR-0006](../../../docs/adr/0006-core-seven-cross-domain-tools.md),
+core advertises **7 cross-domain tools** (`run_python_code`, `execute_sql`,
+`recall_memory`, `search_knowledge_lancedb`, `web_search`,
+`format_and_export`, `manage_cron`). Domain-specific tools live in the
+matching top-level agent or `core/*` sub-agent — see SKILL.md for the
+full capability-scoping table.
 
-- `execute_sql` — DuckDB database queries
-- `recall_memory` — Semantic memory recall (LanceDB)
-- `web_search` — DuckDuckGo web search
-- `format_and_export` — Output formatting and file export
+### Direct Handling (no --agent needed)
+- **Cross-domain computation & data** — `run_python_code`, `execute_sql`
+- **Memory & KB** — `recall_memory`, `search_knowledge_lancedb`, `web_search`
+- **Output** — `format_and_export`
+- **Scheduling** — `manage_cron` (list / add / remove / apply)
+- **Document writing** — polish/edit markdown → escalates to `core/writer/` sub-agent
 
-## Subagents (via olav_delegate)
+### Escalation Hints
+When a query requires domain-specific tools, core routes via sub-agents or suggests:
+- Network CLI / BGP / OSPF / config diff / snapshot → `--agent ops` (or orchestrator `task("ops-analyze"/"ops-collect", ...)`)
+- Compliance reports / audit profiles → `--agent audit`
+- Lab / CAB simulations → `--agent ops "<CAB task>"` (ops orchestrator delegates to `ops/lab/` sub-agent)
+- Service registration / API integrations → `--agent services`
+- File writes / shell commands → handled internally via `core/admin/` + `core/remote/` sub-agents
 
-- `db_query` — Database queries, knowledge base, web search, export
-- `api_query` — API service requests, health checks, web search, export
-- `remote` — SSH to servers, local shell commands
-- `admin` — Platform management, deployment, cron, data ingestion
+## Sub-agents
+
+- `core/writer/` — Document editing and polishing specialist
+- `core/admin/` — Platform administration (`write_workspace_file`, `deploy_service`, `stop_service`, `manage_cron`)
+- `core/remote/` — Shell execution (`run_shell`)
+- `core/db_query/` — DB + memory + KB + export helpers (symlinks to core/tools/ canonical)
+- `core/api_query/` — API integration helpers (`api_request` symlink, web search, export)
