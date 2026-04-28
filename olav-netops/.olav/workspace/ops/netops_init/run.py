@@ -419,11 +419,19 @@ def _run_collection(
 
         # Register olav-netops tables and ensure ALL schemas exist in DB
         try:
-            from olav_netops.core.tables import _register_all
+            from olav_netops.core.tables import _register_all, drop_legacy_tables
             from olav.platform.ingest_base import TableRegistry
             _register_all()
             with duckdb.connect(str(MAIN_DB_PATH)) as _setup_conn:
                 TableRegistry.ensure_all_schemas(_setup_conn)
+                # ISSUE-DEAD-SCHEMA-R83-LEFTOVER: drop pre-R83 ETL tables that
+                # no longer have any code writing to them. Their continued
+                # existence misleads database_introspection (the audit profile
+                # author selected the empty bgp_neighbors table over the live
+                # v_bgp_neighbors_auto view in demo7 Ch6).
+                _dropped = drop_legacy_tables(_setup_conn)
+                if _dropped:
+                    logger.info("dropped legacy dead tables: %s", _dropped)
         except ImportError:
             # Fallback DDL for skill-only installs (no pip install olav-netops)
             with duckdb.connect(str(MAIN_DB_PATH)) as _setup_conn:
