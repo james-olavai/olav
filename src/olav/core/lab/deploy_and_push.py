@@ -44,29 +44,22 @@ import sys
 import time
 from pathlib import Path
 
-_WS_TOOLS_DIR = (
-    Path(__file__).resolve().parents[4]
-    / ".olav" / "workspace" / "ops" / "lab" / "tools"
-)
-_CONFIG_PATH = (
-    Path(__file__).resolve().parents[4]
-    / ".olav" / "workspace" / "ops" / "lab" / "config" / "config.json"
-)
+from ._paths import lab_config_path, lab_workspace_tools_dir
 
 
 def _load_ws_module(name: str):
     """Load a workspace tools/ helper by spec (avoids polluting sys.path)."""
     import importlib.util
-    spec = importlib.util.spec_from_file_location(name, _WS_TOOLS_DIR / f"{name}.py")
+    spec = importlib.util.spec_from_file_location(name, lab_workspace_tools_dir() / f"{name}.py")
     if spec is None or spec.loader is None:
-        raise ImportError(f"workspace helper {name} not found at {_WS_TOOLS_DIR}")
+        raise ImportError(f"workspace helper {name} not found at {lab_workspace_tools_dir()}")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
 
 
 def _load_cfg() -> dict:
-    return json.loads(_CONFIG_PATH.read_text())
+    return json.loads(lab_config_path().read_text())
 
 
 def _get_token(cfg: dict) -> str:

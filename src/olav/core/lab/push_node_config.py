@@ -37,17 +37,14 @@ import os
 import sys
 from pathlib import Path
 
-_CONFIG_PATH = (
-    Path(__file__).resolve().parents[4]
-    / ".olav" / "workspace" / "ops" / "lab" / "config" / "config.json"
-)
+from ._paths import lab_config_path
 
 
 def _bootstrap_clab_env() -> None:
     if os.environ.get("CLAB_USERNAME") and os.environ.get("CLAB_PASSWORD"):
         return
     try:
-        cfg = json.loads(_CONFIG_PATH.read_text())
+        cfg = json.loads(lab_config_path().read_text())
         os.environ.setdefault("CLAB_USERNAME", cfg.get("username", "admin"))
         os.environ.setdefault("CLAB_PASSWORD", cfg.get("password", "clab"))
     except Exception:

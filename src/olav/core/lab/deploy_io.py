@@ -20,6 +20,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from ._paths import lab_config_path
+
 
 def save_lab_config(
     lab_name: str,
@@ -96,9 +98,7 @@ def destroy_lab(
     can override.
     """
     cfg = (
-        Path(config_path)
-        if config_path
-        else Path(__file__).resolve().parents[4] / ".olav" / "workspace" / "ops" / "lab" / "config" / "config.json"
+        Path(config_path) if config_path else lab_config_path()
     )
     _bootstrap_clab_env(cfg)
 
