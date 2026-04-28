@@ -29,12 +29,20 @@ Capture criteria (all must hold):
 
 Stored memory shape::
 
-    text: "Question: {user_query}\nWorking SQL: {sql}"
+    text: "Working SQL for queries about: {keywords}\n{sql}"
     category: "query_pattern"
     tags: extracted keywords from user_query
-    metadata.intent: user_query
+    metadata.intent: user_query  (kept verbatim for L2 distillation)
     metadata.sql: the actual SQL
     metadata.tool_count: number of execute_sql calls in the chain
+
+R99/S1 (2026-04-28) — text is anchored on KEYWORDS + SQL, NOT the
+verbatim user_query.  Earlier shape ``"Q: {user_query}\\nWorking SQL: ..."``
+caused query_pattern rows to self-match future similar queries at
+~0.88-0.95 cosine, drowning out directive guides and operational
+precedents in AutoRecall.  Verbatim query is preserved in
+``metadata.intent`` so L2 pattern_extractor still has the full
+context.  See ``dev_docs/67`` for the A/B evidence.
 """
 from __future__ import annotations
 
@@ -220,17 +228,21 @@ class QueryPatternCapturePlugin(OLAVMiddlewarePlugin):
         if winner is None or _score(winner) == 0:
             return None
 
-        # 5. write memory entry (deterministic, no LLM)
+        # 5. write memory entry (deterministic, no LLM).  R99/S1: text is
+        # anchored on keywords + SQL, NOT the verbatim user_query, so the
+        # row's embedding doesn't self-match future similar queries and
+        # crowd out directive / expert_knowledge entries in AutoRecall.
         try:
             store = self._get_store()
+            tags = _extract_keywords(user_query)
+            keyword_str = ", ".join(tags) if tags else "(no keywords)"
             text = (
-                f"Q: {user_query}\n"
-                f"Working SQL: {winner['sql']}"
+                f"Working SQL for queries about: {keyword_str}\n"
+                f"{winner['sql']}"
             )
             vec = self._embed(text)
             if not vec:
                 return None
-            tags = _extract_keywords(user_query)
             mem_id = f"qp_{_uuid.uuid4().hex[:12]}"
             import json as _json
             store.add_memory(
