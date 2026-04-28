@@ -1,0 +1,18 @@
+name: services
+version: "1.0.0"
+kind: agent
+description: "Service integrations — register / deploy / call / stop"
+route_keywords:
+  - deploy service
+  - stop service
+  - register service
+  - api request
+  - service registry
+  - services.yaml
+  - netbox
+  - influxdb
+  - gitea
+  - containerlab
+owner: olav
+requires:
+  olav-platform: ">=0.18"
