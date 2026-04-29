@@ -202,16 +202,63 @@ class AutoRecallMiddleware:
             cfg = {}
         if not cfg.get("enabled"):
             return None
-        try:
-            from olav.core.memory.reranker import OllamaEmbeddingReranker
-            self._reranker_instance = OllamaEmbeddingReranker(
-                model_name=cfg.get("model", "bbjson/bge-reranker-base"),
-                base_url=cfg.get("base_url", "http://localhost:11434"),
-                column="text",
+
+        # Strict mode (R99/S2): every required field must be explicit in
+        # api.json.  Silent fallback to the Ollama-as-bi-encoder path
+        # (which doesn't yield true cross-encoder semantics — see
+        # dev_docs/67) caused the "looks running but actually broken"
+        # trap we hit twice.  No defaults; missing fields → log + skip.
+        kind = cfg.get("kind")
+        base_url = cfg.get("base_url")
+        if not kind:
+            logger.warning(
+                "AutoRecall reranker enabled but 'kind' is not set in "
+                "api.json reranker block; disabling.  Set kind to "
+                "'llama_cpp' (recommended) or 'ollama' (legacy)."
             )
+            return None
+        if not base_url:
+            logger.warning(
+                "AutoRecall reranker enabled but 'base_url' is not set; "
+                "disabling."
+            )
+            return None
+        kind = kind.lower()
+
+        try:
+            if kind in ("llama_cpp", "llamacpp", "llama"):
+                # llama-server with --reranking flag.  Preserves the
+                # BERT cross-encoder rerank head → real relevance
+                # scores via POST /rerank (NOT /v1/embeddings).
+                from olav.core.memory.reranker import LlamaCppReranker
+                self._reranker_instance = LlamaCppReranker(
+                    base_url=base_url, column="text",
+                )
+            elif kind == "ollama":
+                # Legacy: Ollama-served reranker model used as
+                # bi-encoder over /api/embeddings.  Does NOT yield true
+                # cross-encoder semantics — see dev_docs/67.  Requires
+                # 'model' field.
+                model_name = cfg.get("model")
+                if not model_name:
+                    logger.warning(
+                        "reranker kind=ollama requires 'model' field; "
+                        "disabling.",
+                    )
+                    return None
+                from olav.core.memory.reranker import OllamaEmbeddingReranker
+                self._reranker_instance = OllamaEmbeddingReranker(
+                    model_name=model_name, base_url=base_url, column="text",
+                )
+            else:
+                logger.warning(
+                    "Unknown reranker kind=%r; expected 'llama_cpp' or "
+                    "'ollama'.  Disabling.", kind,
+                )
+                return None
             logger.info(
-                "AutoRecall reranker enabled: model=%s base=%s",
-                cfg.get("model"), cfg.get("base_url"),
+                "AutoRecall reranker enabled: kind=%s model=%s base=%s",
+                kind, cfg.get("model"), base_url,
             )
         except Exception as exc:
             logger.debug("AutoRecall reranker init failed: %s", exc)
