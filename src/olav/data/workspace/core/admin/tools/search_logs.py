@@ -99,6 +99,25 @@ def search_logs(
     if not log_dir.exists():
         return "No log records found. (log directory does not exist)"
 
+    # R100/S5 (2026-04-29 demo7 Ch10 v3): strip leading/trailing literal
+    # quotes that small models bake into short string-typed args via
+    # their JSON-construction heuristic.  qwen3.6:27b empirically passes
+    # severity='"warning"' instead of severity='warning' for OpenAI tool
+    # calls, breaking the _SEVERITY_LEVELS enum membership check.  Same
+    # defensive coercion as format_and_export (see R100/S2 commit
+    # c2ce4f2 _strip_quote_leak).
+    def _strip_quotes(s):
+        if not isinstance(s, str):
+            return s
+        s = s.strip()
+        if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
+            s = s[1:-1].strip()
+        return s
+
+    severity = _strip_quotes(severity)
+    host = _strip_quotes(host)
+    query = _strip_quotes(query)
+
     # Glob all parquet files recursively
     parquet_files = list(log_dir.rglob("*.parquet"))
     if not parquet_files:
@@ -111,7 +130,11 @@ def search_logs(
     if severity:
         sev = severity.lower()
         if sev in _SEVERITY_LEVELS:
-            where_parts.append(f"severity = '{sev}'")
+            # R100/S5 (2026-04-29): case-insensitive match — Parquet
+            # stores "CRITICAL" (uppercase from syslog_receiver), but
+            # _SEVERITY_LEVELS is lowercased.  Compare in lowercase so
+            # both forms match.
+            where_parts.append(f"LOWER(severity) = '{sev}'")
         else:
             return (
                 f"Invalid severity '{severity}'. "
