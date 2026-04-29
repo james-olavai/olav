@@ -216,6 +216,33 @@ def embed_text(text: str) -> "list[float] | None":
     """
     if not text:
         return None
+
+    # R100/S3 (2026-04-29): cap input length to protect against
+    # llama-server's per-request batch_size ceiling.  When OLAV
+    # AutoCapture embeds a growing conversation (system prompt + tool
+    # outputs + thinking traces), the input length grows past the
+    # embed server's ``--batch-size`` setting and llama-server returns
+    # 500 ``input (N tokens) is too large to process``.  Demo7 Ch8
+    # observed 5791 → 8650 → 11507 token inputs failing the
+    # batch=4096 / 8192 server caps respectively.  Truncating to
+    # ~6000 chars (≈ 1500-2000 tokens for English / SQL / mermaid
+    # mixed content) is a safe upper bound that fits the typical
+    # embed-server batch_size.  Override via env
+    # ``OLAV_EMBED_MAX_CHARS`` (0 = no cap).
+    _max_chars_env = os.environ.get("OLAV_EMBED_MAX_CHARS")
+    try:
+        _max_chars = int(_max_chars_env) if _max_chars_env else 6000
+    except ValueError:
+        _max_chars = 6000
+    if _max_chars > 0 and len(text) > _max_chars:
+        original_len = len(text)
+        text = text[:_max_chars]
+        logger.debug(
+            "embed_text input truncated: %d → %d chars (cap=%d, set "
+            "OLAV_EMBED_MAX_CHARS=0 to disable)",
+            original_len, _max_chars, _max_chars,
+        )
+
     cached = _cache_get(text)
     if cached is not None:
         return cached
