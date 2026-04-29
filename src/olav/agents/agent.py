@@ -12,6 +12,7 @@ Architecture:
 
 import asyncio
 import logging
+import os
 from pathlib import Path
 
 from langchain_community.cache import SQLiteCache
@@ -397,7 +398,50 @@ class OLAVAgent:
             self._middleware_mode,
         )
 
-        self.graph = create_deep_agent(
+        # R100/S4 (2026-04-29): deny deepagents' default write_file /
+        # edit_file (which operate on a LangGraph state["files"] virtual
+        # FS that is NOT real disk).  When the LLM was given an open-
+        # ended "save to exports/" prompt, it sometimes picked the
+        # virtual write_file (looks simpler — just file_path + content)
+        # over OLAV's format_and_export, got a deceptive success, then
+        # spent N turns trying to chmod a non-existent file.  Demo7
+        # Ch8 v8 (canonical "Write a bash script to backup running-
+        # config") looped for 20 minutes on this.
+        #
+        # Denying write redirects the model to format_and_export (the
+        # only OLAV-registered write-class tool) on the next attempt.
+        # Reads are still allowed so cross-turn data passing via state
+        # files keeps working.
+        #
+        # Override via env: OLAV_ALLOW_VIRTUAL_FS_WRITES=1 to disable
+        # this restriction (debug only — prefer real-disk tools).
+        #
+        # Optional dep: deepagents.middleware.permissions exists in
+        # deepagents >= 0.5.3.  Older versions silently skip the feature.
+        _fs_permissions = None
+        if not os.environ.get("OLAV_ALLOW_VIRTUAL_FS_WRITES"):
+            try:
+                from deepagents.middleware.permissions import (
+                    FilesystemPermission,
+                )
+                _fs_permissions = [
+                    FilesystemPermission(
+                        operations=["write"], paths=["/**"], mode="deny",
+                    ),
+                ]
+                logger.info(
+                    "✓ deepagents virtual-FS writes denied "
+                    "(OLAV_ALLOW_VIRTUAL_FS_WRITES=1 to disable)"
+                )
+            except ImportError:
+                logger.debug(
+                    "deepagents.middleware.permissions not available "
+                    "(need >= 0.5.3); virtual-FS writes will silently "
+                    "succeed and may deceive the agent on open-ended "
+                    "save tasks"
+                )
+
+        _create_kwargs: dict = dict(
             model=self.llm,
             tools=orchestrator_tools,
             system_prompt=self._get_orchestrator_prompt(olav_config),
@@ -406,6 +450,10 @@ class OLAVAgent:
             subagents=subagents,
             middleware=effective_middleware,
         )
+        if _fs_permissions is not None:
+            _create_kwargs["permissions"] = _fs_permissions
+
+        self.graph = create_deep_agent(**_create_kwargs)
         # Store middleware ref for manual invocation — deepagents 0.5.2
         # accepts the `middleware` kwarg but doesn't mount it on the graph.
         self._olav_middleware = list(effective_middleware)
