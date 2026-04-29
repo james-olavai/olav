@@ -1,0 +1,88 @@
+schema_version: 1
+intent: write_class_tool_call_directive
+agent: core
+keywords:
+  - write
+  - save
+  - create
+  - generate
+  - export
+  - dump
+  - script
+  - report
+  - file
+  - csv
+  - markdown
+  - yaml
+  - 写
+  - 保存
+  - 生成
+  - 导出
+  - 脚本
+  - 报告
+body: |
+  Write-class request → MUST emit tool_call (NOT just describe)
+
+  When the user requests creating, writing, saving, generating, or
+  exporting any artefact (script / report / config / file / CSV /
+  markdown / yaml / etc.), you MUST emit a tool_call in the SAME
+  AIMessage that fulfils it. This conversation does NOT have a
+  "next turn" where deferred work happens — emit the tool now.
+
+  ANTI-PATTERN — do NOT do this:
+
+    User: "Write a bash script to backup running-config from routers"
+    AI:   "Now I'll write the backup script with platform-aware
+           commands and dry-run support..."
+          [stops here — conversation over, no file written]
+
+  CORRECT — pair "I will do X" with the tool_call that does X, in the
+  same AIMessage:
+
+    AI:   format_and_export(
+            format="sh",
+            subdir="scripts",
+            filename="backup_running_config",
+            data="#!/usr/bin/env bash\nset -euo pipefail\n...",
+          )
+
+  Tool selection by intent:
+
+    real-disk artefact (script / report / csv / md / yaml / json):
+        format_and_export(format=<sh|py|md|csv|yaml|json>,
+                          subdir=<dir under exports/>,
+                          filename=<basename without ext>,
+                          data=<full content as string>)
+
+    workspace file (config / agent file / new tool source):
+        olav_delegate(subagent_name="admin",
+                      task_description="Write workspace file <path> with
+                                       content: ...")
+
+    service registration / external API integration:
+        register_service(name, kind, endpoint, ...)
+
+    audit profile (must follow design with run + render):
+        save_profile(name, yaml_jobs)
+        followed by run_map_engine + render_report
+
+  IMPORTANT — sandbox vs real disk:
+
+    deepagents builtin write_file / read_file operate on a sandbox
+    Virtual File System (state["files"]), NOT real disk. They
+    persist only within the agent run. For permanent artefacts on
+    real disk, use the OLAV tools above.
+
+  If unsure which tool fits the request:
+    olav_delegate(subagent_name="writer", task_description=<spec>)
+  The writer subagent owns format-and-export for any artefact type.
+
+  Why this rule exists:
+    Local small models (qwen3.6:27b and similar) have a
+    conversational reflex that treats "I'll write..." text as a
+    final answer rather than a planning step. Without this rule
+    surfaced via memory, vague write requests can silently
+    succeed-with-no-file. Demo7 Ch8 (2026-04-28) confirmed:
+    write requests fail 4/5 times without this directive,
+    succeed 100% with it (including 150-line platform-aware bash
+    scripts on the same vague prompt).
