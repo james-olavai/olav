@@ -1,0 +1,131 @@
+schema_version: 1
+intent: take_snapshot_when_db_stale_and_targeted
+agent: core
+keywords:
+  - take_snapshot
+  - snapshot
+  - fresh
+  - current
+  - latest
+  - real-time
+  - real time
+  - stale
+  - outdated
+  - mismatch
+  - contradicts
+  - investigate
+  - troubleshoot
+  - debug
+  - flap
+  - flapping
+  - 快照
+  - 当前
+  - 最新
+  - 实时
+  - 过期
+  - 不一致
+  - 排查
+  - 诊断
+body: |
+  When DB state contradicts observation → `take_snapshot` ONLY the
+  suspected device(s).
+
+  ──────────────────────────────────────────────────────────────
+  When to reach for it
+
+  Reach for `take_snapshot` whenever:
+
+    * `execute_sql` results contradict your hypothesis or the user's
+      observation ("BGP keeps flapping" but DB shows all peers
+      Established → DB is stale, snapshot is from before the flap).
+    * `search_logs` shows recent events the DB doesn't reflect.
+    * The user says "right now", "currently", "still", "live" — they
+      want truth-as-of-now, not the most recent snapshot.
+    * You've run 3+ `execute_sql` queries against the same table and
+      seen the same stale numbers — re-querying won't help; the data
+      hasn't been re-collected.
+
+  ──────────────────────────────────────────────────────────────
+  CRITICAL — target the SUSPECTED device(s), NOT the whole fleet
+
+  Wrong (expensive + unnecessary):
+
+      take_snapshot(
+          devices=["R1", "R2", "R3", "R4", "SW1", "SW2"],   # ❌ entire fleet
+          commands=["show ip bgp summary", "show interfaces", ...],  # ❌ all commands
+      )
+
+  This is a 6-device parallel SSH burst (~30-60s wall) when the user
+  asked about ONE flapping peer.  Wastes time, wastes audit log
+  noise, generates 100+ rows of irrelevant parsed output.
+
+  Right (focused, fast):
+
+      # User says "R1's BGP is flapping" — snapshot R1 only
+      take_snapshot(
+          devices=["R1"],
+          commands=["show bgp summary"],   # only the relevant command
+      )
+      # → 1 device × 1 command, ~3s wall, 1 row of parsed_outputs
+
+      # If R1 is Juniper and you need its log buffer, add it:
+      take_snapshot(
+          devices=["R1"],
+          commands=["show bgp summary", "show log messages | last 50"],
+      )
+
+      # Investigating a link between R1 and R2?  Both endpoints, but
+      # only the link-relevant commands:
+      take_snapshot(
+          devices=["R1", "R2"],
+          commands=["show interfaces ge-0/0/1", "show lldp neighbors"],
+      )
+
+  Pick the **smallest** set that answers your question.  You can
+  always run another targeted snapshot if you need wider coverage.
+
+  ──────────────────────────────────────────────────────────────
+  Diagnostic flow (BGP flap example)
+
+    1. `execute_sql` SELECT FROM netops.v_bgp_neighbors_auto WHERE
+       device_name='R1'   # quick check from the latest snapshot
+    2. If the result shows all peers Established but the user reports
+       flapping → DB is stale.
+    3. `search_logs(host="R1", query="BGP", hours=1)`  # live syslog
+       confirms recent events
+    4. `take_snapshot(devices=["R1"], commands=["show bgp summary"])`
+       # ← TARGETED; gets the truth-as-of-now without burning the
+       fleet
+    5. Re-`execute_sql` against v_bgp_neighbors_auto — now it
+       reflects post-snapshot reality.
+    6. `diff_configs(R1, last_known_good)` if you suspect config
+       drift caused the flap.
+
+  ──────────────────────────────────────────────────────────────
+  Tool signature reminder
+
+      take_snapshot(
+          devices:    list[str],          # device names from netops.devices.hostname
+          commands:   list[str],          # CLI commands (vendor-aware via search_commands)
+          timeout:    int = 30,           # per-command timeout
+          max_workers: int = 6,           # parallel SSH workers (cap for wide fleets)
+          environment: str | None = None, # 'lab' / 'prod' / None
+      ) -> dict
+
+  After `take_snapshot` returns, the data is in
+  ``netops.parsed_outputs`` and ``netops.raw_output_store``
+  immediately.  Re-run your `execute_sql` query and you'll get
+  fresh values.
+
+  ──────────────────────────────────────────────────────────────
+  When NOT to use take_snapshot
+
+    * For a one-off "is this device pingable / SSH up" check —
+      prefer `execute_cli(device='R1', command='show clock')`
+      (single-command, no parsed_outputs persistence).
+    * For network-wide audit reports that must reflect a single
+      consistent point in time — that's the audit agent's job
+      via its `record_*` flow, not ad-hoc snapshots.
+    * When the DB IS up-to-date — re-snapshotting just creates
+      duplicate rows.  Check `netops.parsed_outputs.snapshot_id`
+      max(updated_at) first if you're not sure.
