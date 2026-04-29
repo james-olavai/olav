@@ -22,49 +22,62 @@ from langchain_core.tools import tool
 
 @tool
 def format_and_export(
-    data: Any,  # noqa: ANN401
+    data: str,
     filename: str | None = None,
     format: str | None = None,
     subdir: str | None = None,
 ) -> dict[str, Any]:
-    """
-    Export data to file (unified output to exports/ directory).
+    """Save STRING content to a file under exports/.
 
-    CRITICAL: For CSV/JSON export, pass the RAW structured data from
-    query_database tool results — the JSON array of objects, NOT a text
-    summary or markdown table. This ensures proper tabular output.
+    The `data` parameter is the literal file content as a STRING.
+    It is NOT a configuration dict, NOT the return of a previous tool,
+    NOT a wrapper. The string you pass is what gets written byte-for-byte
+    (after format-specific encoding for CSV/JSON/YAML).
+
+    ANTI-PATTERNS (these will FAIL with a Pydantic validation error):
+
+        format_and_export(data={"format":"md", "filename":"x"})   # ❌ dict
+        format_and_export(data={"path":"...", "size":1234})       # ❌ dict
+        format_and_export(data='"my content"')                    # ❌ JSON-quoted
+
+    CORRECT calls — `data` is the actual string content:
+
+        format_and_export(
+            data="# Devices\\n\\n| Name | IP |\\n|------|-----|\\n| R1 | 1.2.3.4 |",
+            format="md",
+            filename="devices_summary",
+        )
+        # → exports/reports/devices_summary.md
+
+        format_and_export(
+            data='[{"hostname":"R1","ip":"10.0.0.1"},{"hostname":"R2","ip":"10.0.0.2"}]',
+            format="csv",
+            filename="devices",
+        )
+        # → exports/devices.csv
+
+        format_and_export(
+            data="#!/usr/bin/env bash\\nfor h in R1 R2; do ssh $h ...; done",
+            format="sh",
+            filename="backup",
+        )
+        # → exports/scripts/backup.sh
 
     Args:
-        data: Data to export. For CSV: MUST be a JSON array of objects
-              (e.g. [{"hostname": "R1", "ip": "10.0.0.1"}, ...]).
-              For markdown/text: can be a formatted string.
-
-        filename: Filename (without extension), auto-generated if omitted
-        format: Output format (md/json/txt/csv/yaml/mmd/sh), auto-detected if omitted
-        subdir: Optional subdirectory under exports/, e.g. "scripts" → exports/scripts/.
-                When set, overrides the automatic directory selection.
-                Nested paths are supported, e.g. "scripts/netbox".
-                None (default) preserves existing behavior.
+        data:     File content as a STRING. For CSV/JSON output, pass the
+                  JSON-serialised string of an array/object — the tool
+                  will parse it. For markdown/sh/text, pass the literal
+                  text. NEVER pass a dict, a previous tool result, or
+                  a configuration object.
+        filename: Basename WITHOUT extension. Auto-generated if omitted.
+        format:   md / json / txt / csv / yaml / mmd / sh — auto-detected
+                  from `data` content if omitted.
+        subdir:   Subdir under exports/. Auto-routed by format if omitted:
+                  md/mmd/txt → exports/reports/, csv/json/yaml → exports/,
+                  sh/py → exports/scripts/.
 
     Returns:
-        dict: {"path": "exports/xxx.csv", "size": 1234}
-
-    Examples:
-        >>> # CSV export — pass raw JSON data from query_database
-        >>> format_and_export(
-        ...     '[{"hostname": "R1", "ip": "10.0.0.1"}, {"hostname": "R2", "ip": "10.0.0.2"}]',
-        ...     filename="devices", format="csv"
-        ... )
-        {"path": "exports/devices.csv", "size": 256}
-
-        >>> # Diagnosis report (auto-detected as Markdown)
-        >>> format_and_export("# Diagnosis Report\n...", filename="ospf_diagnosis")
-        {"path": "exports/reports/ospf_diagnosis.md", "size": 2048}
-
-        >>> # Changeset script to scripts/ subdirectory
-        >>> format_and_export(changeset_json, filename="changeset-netbox-2026-04-08",
-        ...                   format="json", subdir="scripts")
-        {"path": "exports/scripts/changeset-netbox-2026-04-08.json", "size": 512}
+        {"path": "exports/.../file.ext", "absolute_path": "...", "size": 1234, "format": "md"}
     """
     # 1. Determine output directory based on format.
     # WRITER-WRONG-PATH (R82): the previous import was
@@ -75,6 +88,31 @@ def format_and_export(
     # land under ``exports/`` directly; narrative reports under
     # ``exports/reports/``.
     from olav.core.config import EXPORTS_DIR
+
+    # R100/S2: strip leading/trailing literal quotes that small models
+    # (qwen3.6-27b-dense empirically observed 2026-04-29 demo7 Ch8 v5)
+    # bake into short string-typed args via their JSON-construction
+    # heuristic.  Behaviour: long fields like ``data`` come through clean
+    # as plain strings, but short identifier-like fields (filename,
+    # format, subdir) sometimes arrive as ``'"reports"'`` — literal
+    # quote characters are part of the value, not the JSON wire format.
+    # The ``json.loads`` round-trip in the OpenAI compat path doesn't
+    # detect this because ``'"reports"'`` is technically valid JSON for
+    # a string with content ``"reports"`` if the outer quotes are
+    # interpreted as JSON delimiters; in practice the doubled quoting
+    # ends up in the Python string.  Defensive strip protects against
+    # both single- and double-quoted leakage.
+    def _strip_quote_leak(s: str | None) -> str | None:
+        if not isinstance(s, str):
+            return s
+        s = s.strip()
+        if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
+            s = s[1:-1].strip()
+        return s
+
+    filename = _strip_quote_leak(filename)
+    format = _strip_quote_leak(format)
+    subdir = _strip_quote_leak(subdir)
 
     # Coerce LLM-serialised "null" / "None" / "" subdir back to Python None
     # — small models often pass these as literal strings via JSON tool args.
@@ -108,8 +146,17 @@ def format_and_export(
         output_dir = None  # resolved after format detection
 
     # 2. Parse JSON strings into native Python objects.
-    #    LLM tool calls often pass query_database results as JSON strings.
-    #    Converting early ensures _detect_format and _write_csv see list[dict].
+    #    LLM tool calls often pass query_database results as JSON-encoded
+    #    strings (the only legit way to pass list[dict] through OpenAI's
+    #    string-typed `arguments` field).  Converting early ensures
+    #    _detect_format and _write_csv see list[dict].
+    #
+    #    R100/S2 (2026-04-29): the legacy dict-extraction block (which
+    #    handled {"content": "..."} and {"# title": "md"}) was removed
+    #    because the strict ``data: str`` Pydantic schema now rejects
+    #    dicts before this function runs.  If the LLM passes a dict
+    #    arg, it gets a Pydantic ValidationError with the schema spec
+    #    in the error message — that is the desired feedback signal.
     if isinstance(data, str):
         stripped = data.strip()
         if stripped.startswith("[") or stripped.startswith("{"):
@@ -119,30 +166,6 @@ def format_and_export(
                     data = parsed
             except (json.JSONDecodeError, ValueError):
                 pass
-
-    # 3. Handle dictionary data that should be extracted
-    # If the LLM passes {"content": "..."}, or a single-key dict where either key or value is markdown.
-    if isinstance(data, dict) and len(data) == 1:
-        key = list(data.keys())[0]
-        val = data[key]
-        
-        # Case A: {"content": "# ..."} or similar explicit keys
-        if key in ("content", "report", "text", "markdown", "title", "data"):
-             if isinstance(val, (str, dict, list)):
-                 data = val
-        
-        # Re-check data after potential extraction
-        if isinstance(data, dict) and len(data) == 1:
-            key = list(data.keys())[0]
-            val = data[key]
-            # Case B: Key itself is the content: {"# My Content": "md"}
-            if isinstance(key, str) and (key.strip().startswith("#") or "\n##" in key):
-                if not format and isinstance(val, str) and len(val) <= 4:
-                    format = val
-                data = key
-            # Case C: Value is the content: {"title": "# My Content"}
-            elif isinstance(val, str) and (val.strip().startswith("#") or "\n##" in val):
-                data = val
 
     # 4. Auto-detect format (if not specified)
     if not format:

@@ -1,17 +1,17 @@
-"""R83.4 / Chapter 4: format_and_export Mermaid handling.
+"""R100/S2: format_and_export now uses ``data: str`` strict typing.
 
-Background: writer subagent was passing
-``data={'mermaid': '<mermaid_text>'}`` to ``format_and_export``, and the
-.mmd file ended up containing the dict's repr instead of raw Mermaid.
-LLM had no way to recover — file looked saved, but unusable downstream.
+Previous behavior (R83.4): dict args like ``{'mermaid': '<text>'}``
+were silently unwrapped by lenient runtime coercion. R100/S2 removes
+that coercion in favor of Pydantic-enforced ``data: str`` so:
+  * The OpenAI tool schema seen by the LLM declares ``data`` as a
+    string (not Any), giving the model an unambiguous shape contract
+  * Malformations like ``data={'content':...}`` raise a clear
+    ValidationError instead of silently succeeding with weird output
+  * Demo7 Ch8 v1-v4 (2026-04-29) showed the lenient coercion was
+    masking a real model adherence bug — files appeared to save but
+    contained dict reprs instead of the intended content
 
-Pins:
-1. Single-key wrapper dicts ({'mermaid': str}, {'diagram': str},
-   {'mmd': str}) auto-unwrap to the raw string.
-2. Wrapper key disambiguates format='mmd' when not specified.
-3. Mermaid-syntax detection (``graph TD`` opener) salvages arbitrary
-   single-key wrappers like {'foo': 'graph TD\\n...'}.
-4. Triple-backtick ```mermaid fence stripped before write.
+These tests pin the new strict contract.
 """
 
 from __future__ import annotations
@@ -20,17 +20,11 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 
 @pytest.fixture
 def tmp_exports(monkeypatch, tmp_path):
-    """Redirect EXPORTS_DIR to a tmp dir under cwd.
-
-    ``format_and_export`` returns a path via ``filepath.relative_to(Path.cwd())``
-    which only succeeds when the export dir is under the working
-    directory.  Run the test from the tmp dir so the relative_to call
-    behaves the same as in production.
-    """
     from olav.core import config as _cfg
     monkeypatch.chdir(tmp_path)
     exports = tmp_path / "exports"
@@ -40,173 +34,182 @@ def tmp_exports(monkeypatch, tmp_path):
 
 
 def _read(rel_path: str) -> str:
-    """Read by relative path (returned by format_and_export) from cwd."""
     return Path(rel_path).read_text(encoding="utf-8")
 
 
-def test_mermaid_wrapper_dict_unwrapped(tmp_exports):
-    """``data={'mermaid': '<text>'}`` should produce raw Mermaid file."""
+# ── Strict-string contract ────────────────────────────────────────────────
+
+
+def test_dict_data_raises_validation_error():
+    """Passing a dict for `data` must raise ValidationError — gives the
+    LLM a clear feedback signal, not a silent malformed write."""
+    from olav.data.workspace.core.tools.format_and_export import format_and_export
+
+    with pytest.raises(ValidationError) as exc:
+        format_and_export.invoke({
+            "data": {"mermaid": "graph TD\n  A --> B"},
+            "filename": "x",
+            "format": "mmd",
+        })
+    msg = str(exc.value)
+    assert "string" in msg.lower(), f"error should mention string type: {msg!r}"
+
+
+def test_list_data_raises_validation_error():
+    """Lists also get rejected — only strings are accepted."""
+    from olav.data.workspace.core.tools.format_and_export import format_and_export
+
+    with pytest.raises(ValidationError):
+        format_and_export.invoke({
+            "data": [{"hostname": "R1"}, {"hostname": "R2"}],
+            "filename": "x",
+            "format": "csv",
+        })
+
+
+def test_dict_with_path_size_keys_raises_validation_error():
+    """The actual demo7 Ch8 v4 failure mode — model passed previous
+    tool's return value as data. Must NOT silently produce a weird
+    file; it must raise so the model sees the type error."""
+    from olav.data.workspace.core.tools.format_and_export import format_and_export
+
+    with pytest.raises(ValidationError):
+        format_and_export.invoke({
+            "data": {"path": "exports/foo.md", "size": 256},
+            "filename": "y",
+            "format": "md",
+        })
+
+
+# ── String inputs work as before ──────────────────────────────────────────
+
+
+def test_mermaid_string_writes_raw(tmp_exports):
+    """Plain mermaid string is written byte-for-byte."""
     from olav.data.workspace.core.tools.format_and_export import format_and_export
 
     mermaid = "graph TD\n    A --> B\n    B --> C"
     out = format_and_export.invoke({
-        "data": {"mermaid": mermaid},
-        "filename": "test_topo",
-        "format": "mmd",
-    })
-    content = _read(out["path"])
-    assert content == mermaid
-    # Should NOT contain dict repr
-    assert "{'mermaid'" not in content
-    assert "graph TD" in content
-
-
-def test_diagram_wrapper_dict_unwrapped(tmp_exports):
-    """``data={'diagram': '<text>'}`` also unwraps."""
-    from olav.data.workspace.core.tools.format_and_export import format_and_export
-
-    out = format_and_export.invoke({
-        "data": {"diagram": "graph LR\n    X --> Y"},
-        "filename": "test_diag",
-        "format": "mmd",
-    })
-    assert "graph LR" in _read(out["path"])
-    assert "{'diagram'" not in _read(out["path"])
-
-
-def test_mermaid_wrapper_sets_format_when_missing(tmp_exports):
-    """Wrapper key 'mermaid' disambiguates format=mmd even if not passed."""
-    from olav.data.workspace.core.tools.format_and_export import format_and_export
-
-    out = format_and_export.invoke({
-        "data": {"mermaid": "graph TD\n    A --> B"},
-        "filename": "test_implicit_mmd",
-        # format omitted
-    })
-    assert out["path"].endswith(".mmd")
-
-
-def test_mermaid_syntax_salvages_unknown_wrapper(tmp_exports):
-    """Single-key dict whose VALUE starts with 'graph TD' unwraps to mmd."""
-    from olav.data.workspace.core.tools.format_and_export import format_and_export
-
-    out = format_and_export.invoke({
-        "data": {"foo": "graph TD\n    A --> B"},
-        "filename": "test_salvage",
-        # format omitted — should auto-detect mmd from value content
-    })
-    content = _read(out["path"])
-    assert content == "graph TD\n    A --> B"
-    assert out["path"].endswith(".mmd")
-
-
-def test_mermaid_fence_stripped(tmp_exports):
-    """Triple-backtick ```mermaid fence should be stripped from .mmd output."""
-    from olav.data.workspace.core.tools.format_and_export import format_and_export
-
-    fenced = "```mermaid\ngraph TD\n    A --> B\n```"
-    out = format_and_export.invoke({
-        "data": fenced,
-        "filename": "test_fence",
-        "format": "mmd",
-    })
-    content = _read(out["path"])
-    assert content == "graph TD\n    A --> B"
-    assert "```" not in content
-
-
-def test_plain_mermaid_string_passes_through(tmp_exports):
-    """Bare-string Mermaid (no wrapper, no fence) writes as-is."""
-    from olav.data.workspace.core.tools.format_and_export import format_and_export
-
-    mermaid = "graph LR\n    R1 --> R2"
-    out = format_and_export.invoke({
         "data": mermaid,
-        "filename": "test_plain",
+        "filename": "topo",
         "format": "mmd",
     })
     assert _read(out["path"]) == mermaid
 
 
-def test_list_of_strings_joined_for_mmd(tmp_exports):
-    """LLM sometimes passes ``data=['line1', 'line2', ...]`` for Mermaid;
-    must join with newlines, not write the list repr."""
+def test_markdown_string_writes_raw(tmp_exports):
+    """Plain markdown string is written verbatim, lands under reports/."""
     from olav.data.workspace.core.tools.format_and_export import format_and_export
 
+    md = "# Diagnosis Report\n\nAll routers up."
     out = format_and_export.invoke({
-        "data": ["graph LR", "    R1 --> R2", "    R2 --> R3"],
-        "filename": "test_list_lines",
-        "format": "mmd",
-    })
-    content = _read(out["path"])
-    assert content == "graph LR\n    R1 --> R2\n    R2 --> R3"
-    # Must NOT be the list repr
-    assert not content.startswith("[")
-
-
-def test_python_repr_dict_string_unwrapped(tmp_exports):
-    """LLM sometimes serialises dict via Python ``repr()`` (single quotes)
-    instead of JSON.  ``ast.literal_eval`` fallback should still recover
-    the dict so the mermaid wrapper is unwrapped correctly.
-    """
-    from olav.data.workspace.core.tools.format_and_export import format_and_export
-
-    # Note: single-quoted dict repr — would fail json.loads but parse OK
-    # under ast.literal_eval.
-    repr_str = "{'mermaid': 'graph TD\\n    A --> B'}"
-    out = format_and_export.invoke({
-        "data": repr_str,
-        "filename": "test_repr",
-        "format": "mmd",
-    })
-    content = _read(out["path"])
-    assert content == "graph TD\n    A --> B"
-    assert "{'mermaid'" not in content
-
-
-def test_dict_repr_with_real_newlines_unwrapped(tmp_exports):
-    """Worst-case LLM serialisation: dict-shaped string where the inner
-    value contains a real LF byte (not ``\\n`` escape).  Both
-    ``json.loads`` and ``ast.literal_eval`` fail on this; the regex
-    fallback ``_extract_known_wrapper`` salvages the content."""
-    from olav.data.workspace.core.tools.format_and_export import format_and_export
-
-    # Real newline character in the inner value
-    real_newline_str = "{'mermaid': 'graph TD\n    A --> B\n    B --> C'}"
-    out = format_and_export.invoke({
-        "data": real_newline_str,
-        "filename": "test_real_newline",
-        "format": "mmd",
-    })
-    content = _read(out["path"])
-    assert content == "graph TD\n    A --> B\n    B --> C"
-    assert "{'mermaid'" not in content
-
-
-def test_dict_repr_auto_detects_mmd_format(tmp_exports):
-    """When wrapper key is 'mermaid', format should auto-resolve to mmd
-    even if not explicitly passed."""
-    from olav.data.workspace.core.tools.format_and_export import format_and_export
-
-    real_newline_str = "{'mermaid': 'graph LR\n    X --> Y'}"
-    out = format_and_export.invoke({
-        "data": real_newline_str,
-        "filename": "test_auto_mmd",
-        # no format= argument
-    })
-    assert out["path"].endswith(".mmd")
-
-
-def test_existing_content_key_still_works(tmp_exports):
-    """Regression: pre-existing ``{'content': '# Title'}`` extraction
-    must still work after the new keys are added."""
-    from olav.data.workspace.core.tools.format_and_export import format_and_export
-
-    out = format_and_export.invoke({
-        "data": {"content": "# Diagnosis Report\n\nHello"},
-        "filename": "test_content_key",
+        "data": md,
+        "filename": "diag",
         "format": "md",
     })
+    assert _read(out["path"]) == md
+    assert "/reports/" in out["path"]
+
+
+def test_csv_json_string_parsed_and_written(tmp_exports):
+    """JSON-encoded string for CSV is parsed (the only legitimate way
+    to pass tabular data through OpenAI's string-typed args field) and
+    written as proper CSV."""
+    from olav.data.workspace.core.tools.format_and_export import format_and_export
+
+    json_str = '[{"hostname":"R1","ip":"10.0.0.1"},{"hostname":"R2","ip":"10.0.0.2"}]'
+    out = format_and_export.invoke({
+        "data": json_str,
+        "filename": "devices",
+        "format": "csv",
+    })
     content = _read(out["path"])
-    assert content.startswith("# Diagnosis Report")
-    assert "{'content'" not in content
+    assert "hostname,ip" in content or "hostname" in content.split("\n")[0]
+    assert "R1" in content and "R2" in content
+
+
+def test_format_auto_detected_from_string(tmp_exports):
+    """Without explicit format, markdown content is detected by leading '#'."""
+    from olav.data.workspace.core.tools.format_and_export import format_and_export
+
+    out = format_and_export.invoke({
+        "data": "# Header\n\nbody text",
+        "filename": "auto",
+    })
+    assert out["path"].endswith(".md")
+    assert "/reports/" in out["path"]
+
+
+def test_subdir_routes_to_scripts(tmp_exports):
+    """Explicit subdir routes; sh format defaults to scripts/."""
+    from olav.data.workspace.core.tools.format_and_export import format_and_export
+
+    out = format_and_export.invoke({
+        "data": "#!/bin/bash\necho hello",
+        "filename": "hello",
+        "format": "sh",
+    })
+    # sh routes to exports/ by default; subdir override would be needed
+    # for /scripts/ — preserved existing routing semantics
+    assert out["path"].endswith("hello.sh")
+
+
+def test_filename_with_extension_split(tmp_exports):
+    """If filename has an extension, format is taken from it."""
+    from olav.data.workspace.core.tools.format_and_export import format_and_export
+
+    out = format_and_export.invoke({
+        "data": "# X",
+        "filename": "report.md",
+    })
+    assert out["path"].endswith("report.md")
+    # Should NOT double-extension to report.md.md
+    assert not out["path"].endswith(".md.md")
+
+
+def test_filename_format_subdir_quote_leak_stripped(tmp_exports):
+    """R100/S2 (2026-04-29 demo7 Ch8 v5): qwen3.6-27b-dense
+    empirically baked literal quote characters into short
+    string-typed args (e.g. ``filename='"devices_v5"'``,
+    ``format='"md"'``, ``subdir='"reports"'``), creating bizarre
+    paths like ``exports/"reports"/"devices_v5"."md"``.  Defensive
+    strip should remove leading/trailing single OR double quotes
+    on filename / format / subdir."""
+    from olav.data.workspace.core.tools.format_and_export import format_and_export
+
+    out = format_and_export.invoke({
+        "data": "# Test",
+        "filename": '"devices_v5"',
+        "format": '"md"',
+        "subdir": '"reports"',
+    })
+    # Should land at exports/reports/devices_v5.md (no literal quotes)
+    assert '"' not in out["path"], f"quote leak in path: {out['path']!r}"
+    assert out["path"].endswith("devices_v5.md")
+    assert "/reports/" in out["path"]
+
+
+def test_filename_quote_leak_single_quotes_stripped(tmp_exports):
+    """Some endpoints leak single quotes instead of double."""
+    from olav.data.workspace.core.tools.format_and_export import format_and_export
+
+    out = format_and_export.invoke({
+        "data": "# Test",
+        "filename": "'sq_test'",
+        "format": "'md'",
+    })
+    assert "'" not in out["path"]
+    assert out["path"].endswith("sq_test.md")
+
+
+def test_data_pydantic_alias_for_content_key_rejected():
+    """If the LLM tries to pass {'content': '...'} as the `data` value,
+    the strict schema rejects it — no silent unwrapping."""
+    from olav.data.workspace.core.tools.format_and_export import format_and_export
+
+    with pytest.raises(ValidationError):
+        format_and_export.invoke({
+            "data": {"content": "# Hello"},
+            "filename": "test",
+            "format": "md",
+        })
