@@ -225,7 +225,15 @@ def embed_text(text: str) -> "list[float] | None":
         cfg = get_embedding_config()
         if cfg.mode == "api":
             client, model = _get_api_client()
-            resp = client.embeddings.create(input=text, model=model)
+            # encoding_format="float" — the openai SDK defaults to "base64"
+            # when not specified, which some OpenAI-compatible proxies
+            # don't honour (they return plain float arrays anyway, but
+            # pydantic validation in the SDK then drops the response as
+            # malformed → "No embedding data received").  Forcing "float"
+            # is the standards-compliant request and the cheapest fix.
+            resp = client.embeddings.create(
+                input=text, model=model, encoding_format="float",
+            )
             vec = resp.data[0].embedding
         else:
             embedder = get_embedder()
