@@ -129,6 +129,42 @@ class LLMFactory:
                 extra = mkw.setdefault("extra_body", {})
                 extra.setdefault("keep_alive", "5m")
 
+        # ── R100/S1: qwen3 thinking-mode toggle (chat_template_kwargs) ───
+        # Qwen3-class models (qwen3.6:27b dense, qwen3.6-35B-A3B, …) by
+        # default emit a ``<think>...</think>`` block before the answer.
+        # Disabling thinking saves 30-50% of tokens per turn (verified
+        # 2026-04-29 demo7: "2+2?" → 152 → 8 tokens, 95% saving).
+        #
+        # BUT — empirically thinking is load-bearing for ReAct/tool-call
+        # adherence on qwen3.6:27b-dense.  Demo7 Ch8 v3 (2026-04-29):
+        # with thinking OFF the agent regressed from "tries
+        # format_and_export" to "outputs a fake JSON dump of recalled
+        # memory entries as its final answer".  The internal reasoning
+        # was what powered tool selection + arg construction; without
+        # it the model short-circuits to "echo retrieved context".
+        #
+        # Default is therefore THINKING ENABLED (env var unset, or "0"
+        # to be explicit).  Set ``OLAV_DISABLE_THINKING=1`` to suppress
+        # — only useful for non-agent text-generation tasks where the
+        # latency saving is worth the quality loss.
+        #
+        # The qwen3 chat template accepts an ``enable_thinking`` kwarg
+        # (Hugging Face transformers convention).  llama-server forwards
+        # ``chat_template_kwargs`` from the OpenAI-compat request body
+        # to the template renderer; OpenAI itself silently ignores
+        # unknown body keys so this is safe to send unconditionally
+        # when set.
+        if os.environ.get("OLAV_DISABLE_THINKING") == "1":
+            mkw = params.setdefault("model_kwargs", {})
+            extra = mkw.setdefault("extra_body", {})
+            ctk = extra.setdefault("chat_template_kwargs", {})
+            ctk.setdefault("enable_thinking", False)
+            # Also try the OpenAI-style reasoning_effort knob for
+            # endpoints that honour it (e.g. some OpenRouter/proxy
+            # passthroughs to o1-class models).  Unknown keys are
+            # ignored by OpenAI-compat servers.
+            extra.setdefault("reasoning_effort", "minimal")
+
         # Log identification for debugging
         model = params.get("model", "unknown")
         base_url = params.get("base_url", "")
