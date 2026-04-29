@@ -55,12 +55,15 @@ class OllamaEmbeddingReranker(Reranker):
 
     def __init__(
         self,
-        model_name: str = "bbjson/bge-reranker-base",
-        base_url: str = "http://localhost:11434",
+        model_name: str,
+        base_url: str,
         column: str = "text",
         cache_size: int = 1024,
         return_score: str = "relevance",
     ):
+        # Strict (R99/S2): model_name + base_url are required.  No
+        # defaults — silent fallback to a known-broken model name +
+        # localhost URL is the wrong failure mode.
         super().__init__(return_score=return_score)
         self.model_name = model_name
         self.base_url = base_url.rstrip("/")
@@ -162,6 +165,109 @@ class OllamaEmbeddingReranker(Reranker):
         query: str,
         vector_results: pa.Table,
         fts_results: pa.Table,
+    ) -> pa.Table:
+        merged = self.merge_results(vector_results, fts_results)
+        return self._score_table(query, merged)
+
+
+class LlamaCppReranker(Reranker):
+    """Rerank via llama.cpp's native ``--reranking`` server endpoint.
+
+    Unlike :class:`OllamaEmbeddingReranker` (which abuses the embedding
+    endpoint as a bi-encoder ensemble — Ollama doesn't expose the
+    cross-encoder rerank head), this reranker hits ``llama-server``
+    started with ``--reranking`` flag, which preserves the BERT-class
+    rerank head end-to-end and returns true cross-encoder relevance
+    floats.
+
+    Endpoint: ``POST {base_url}/rerank`` with body
+    ``{"query": str, "documents": [str, ...]}``.  Response:
+    ``{"results": [{"index": int, "relevance_score": float}, ...]}``.
+
+    This is the ONLY local-OSS path that delivers real cross-encoder
+    rerank semantics — see ``dev_docs/67`` for the long story of why
+    Ollama-served bge-reranker / Qwen3-Reranker fail and why this
+    works.
+
+    Args:
+        base_url: llama-server base URL, e.g.
+            ``"http://192.168.100.12:11433"`` (no ``/v1`` suffix; the
+            ``/rerank`` endpoint is server-native, not OpenAI-compat).
+            REQUIRED — no default; this server is deployment-specific.
+        column: Name of the text column in candidate rows.
+        timeout: HTTP timeout for the rerank batch call.
+        return_score: Per LanceDB convention.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        column: str = "text",
+        timeout: float = 30.0,
+        return_score: str = "relevance",
+    ):
+        # Strict (R99/S2): base_url required.  Default 'localhost:11433'
+        # is wrong for typical OLAV deployments where the GPU host is a
+        # separate box.
+        super().__init__(return_score=return_score)
+        self.base_url = base_url.rstrip("/")
+        self.column = column
+        self._timeout = timeout
+        self._http = None
+
+    def _get_http(self):
+        if self._http is None:
+            import httpx
+            self._http = httpx.Client(timeout=self._timeout)
+        return self._http
+
+    def _score_table(self, query: str, table: pa.Table) -> pa.Table:
+        if table.num_rows == 0:
+            return table.append_column(
+                "_relevance_score", pa.array([], type=pa.float32())
+            )
+        if self.column not in table.column_names:
+            logger.warning(
+                "LlamaCppReranker: column %r missing; NaN scores", self.column,
+            )
+            scores = pa.array([float("nan")] * table.num_rows, type=pa.float32())
+            return table.append_column("_relevance_score", scores)
+
+        texts = [str(t) if t is not None else "" for t in
+                 table.column(self.column).to_pylist()]
+        try:
+            resp = self._get_http().post(
+                f"{self.base_url}/rerank",
+                json={"query": query, "documents": texts},
+            )
+            resp.raise_for_status()
+            results = resp.json().get("results", [])
+            # Build aligned score array — index i carries doc texts[i] score
+            score_by_idx = {r["index"]: float(r["relevance_score"])
+                            for r in results}
+            scores = [score_by_idx.get(i, float("nan"))
+                      for i in range(table.num_rows)]
+        except Exception as exc:
+            logger.debug("LlamaCppReranker request failed: %s", exc)
+            scores = [float("nan")] * table.num_rows
+
+        if "_relevance_score" in table.column_names:
+            table = table.drop_columns(["_relevance_score"])
+        result = table.append_column(
+            "_relevance_score", pa.array(scores, type=pa.float32())
+        )
+        order = np.argsort(scores, kind="stable")[::-1].tolist()
+        return result.take(order)
+
+    def rerank_vector(self, query: str, vector_results: pa.Table) -> pa.Table:
+        return self._score_table(query, vector_results)
+
+    def rerank_fts(self, query: str, fts_results: pa.Table) -> pa.Table:
+        return self._score_table(query, fts_results)
+
+    def rerank_hybrid(
+        self, query: str,
+        vector_results: pa.Table, fts_results: pa.Table,
     ) -> pa.Table:
         merged = self.merge_results(vector_results, fts_results)
         return self._score_table(query, merged)
