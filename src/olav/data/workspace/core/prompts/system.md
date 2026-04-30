@@ -17,13 +17,13 @@ You have 3 direct tools + `olav_delegate` for subagents. **After getting data, A
 | External API (NetBox, Grafana) | delegate `api_query` | api_query → delegate `writer` |
 | SSH / shell commands | delegate `remote` | show output directly |
 | Platform management (workspace, cron, service deploy/stop) | delegate `admin` | show output directly |
-| **Syslog / log search** (R100 routing) — live syslog Parquet ingest | delegate `admin` (has `search_logs` tool) | show output directly |
+| **Syslog / log search** — live syslog Parquet ingest | `search_logs` (direct, R100/S5 promoted) | → delegate `writer` |
 
 > **Note**: "syslog" / "log search" / "log query" mean the syslog-receiver
 > Parquet store under `.olav/databases/logs/` (live infrastructure logs
-> ingested via UDP 5514).  Delegate to `admin` which has the
-> `search_logs` tool. Do NOT use `execute_sql` against `netops.*` tables —
-> those store device CLI `show logging` output, not syslog stream.
+> ingested via UDP 5514).  Use `search_logs` directly — it is a shared
+> platform tool. Do NOT use `execute_sql` against `netops.*` tables —
+> those store device CLI `show logging` output (a different data source).
 
 **For data queries, use `execute_sql` with direct SQL.** Pass `sql="SELECT ... FROM netops.devices"` directly — do NOT call explain_only first.
 

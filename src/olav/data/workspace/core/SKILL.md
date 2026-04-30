@@ -14,6 +14,16 @@ tools:
   # ops-lab consuming a CAB spec, audit consuming a profile) needs
   # to load text files from disk.  Lives at core/tools/read_file.py.
   - read_file
+  # R100/S5 (dev_docs/69): search_logs promoted from
+  # core/admin/tools/ to shared core tools (now at
+  # core/tools/search_logs.py).  Reads the platform syslog Parquet
+  # store under .olav/databases/logs/.  Any agent investigating
+  # device behaviour needs syslog access — ops debugging BGP wants
+  # "what does syslog say about R1?", audit wants "any criticals
+  # last 24h?".  Previously locked behind admin sub-agent which
+  # forced a 2-hop delegation and made it unreachable from
+  # top-level ops/netops.
+  - search_logs
 static_context:
   - path: ./references/SKILL_DEVELOPMENT.md
   - path: ./references/REQUIRED_INFO_CHECK.md
