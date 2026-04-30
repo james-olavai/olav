@@ -50,33 +50,22 @@ keywords:
   - 接口
   - 物理
 body: |
-  Layered troubleshooting — go bottom-up.  Don't dive into BGP /
-  OSPF attributes until L1-L4 are clean.
+  ACTION: when user reports a stuck protocol session, FIRST emit a
+  tool_call to gather L1 evidence (do NOT inline-recite procedures).
 
-  3-step checklist on any "session won't come up":
-    1. L1 — interface up?  ``execute_sql FROM netops.v_show_interfaces_terse_auto`` or ``v_show_ip_interface_brief_auto``
-    2. L3 — reach peer IP?  ``execute_cli ping <peer> source <local>``
-    3. L4 — TCP/UDP forming?  ``execute_cli show system connections`` (Junos) / ``show tcp brief`` (IOS)
-  Only if all 3 pass → protocol attribute analysis.
+  State → tool to call FIRST:
 
-  State-to-layer map (jump straight to the most-likely layer):
+  | State | First tool call |
+  |---|---|
+  | BGP ``Idle`` | ``execute_sql SELECT * FROM netops.v_show_interfaces_terse_auto WHERE device_name='<host>'`` |
+  | BGP ``Active`` | ``execute_sql SELECT * FROM netops.v_show_ip_route_auto WHERE device_name='<host>' AND destination LIKE '<peer>%'`` |
+  | BGP ``Connect`` | ``execute_cli device='<host>' command='show system connections | match :179'`` |
+  | BGP ``OpenSent`` | ``execute_cli device='<host>' command='show ip bgp neighbors <peer> | include reset'`` |
+  | OSPF ``Init`` / ``ExStart`` | ``execute_sql SELECT * FROM netops.v_show_interfaces_terse_auto WHERE device_name='<host>'`` (then check MTU + area) |
+  | BFD ``Down`` | ``execute_sql SELECT * FROM netops.v_show_interfaces_terse_auto`` for both endpoints |
 
-  | State | Likely layer | First check |
-  |---|---|---|
-  | BGP ``Idle``     | L1 / L3 | interface up + ping peer |
-  | BGP ``Active``   | L3 (wrong peer-IP / no route / ACL) | ``show route <peer>``, syslog ``acl`` |
-  | BGP ``Connect``  | L4 (TCP 179 not completing) | ``show system connections | match :179`` |
-  | BGP ``OpenSent`` | L7 (AS / hold-time / MD5) | ``show ip bgp neighbors | include reset`` |
-  | OSPF ``Init``    | L3 hello rcv, reply not | area / network-type / MTU |
-  | OSPF ``ExStart`` | L3 MTU mismatch | ``show interfaces | match mtu`` |
-  | OSPF ``2-WAY``   | L7 expected (non-DR/BDR) | normal |
-  | LDP no session   | L4 TCP/UDP 646 | check ACL / hello sent |
-  | BFD ``Down``     | L1/L2 / asymmetric routing | check both endpoints |
+  After SQL, if interface is ``up``, then move to L3 (route to peer)
+  / L4 (TCP/UDP).  Only descend to L7 protocol attributes after L1-L4 clean.
 
-  Useful OLAV moves per layer:
-    L1: ``search_logs(host=X, query="link", hours=2)`` for ``LOSS_OF_LIGHT`` / ``link state changed``
-    L2: ``execute_sql netops.v_l2_links_auto``; ``search_logs query="STP|MTU"``
-    L3: ``execute_sql netops.v_show_ip_route_auto``; ``search_logs query="acl"``
-    L4: ``execute_cli`` for fresh ``Last reset reason`` / ``show system connections``
-    L7: see ``bgp_path_selection_and_state_machine`` guide; full BGP detail
+  Deeper detail: ``bgp_path_selection_and_state_machine`` guide.
         in ``ops/analyze/references/ROUTING_EXPERT_GUIDE.md``.
