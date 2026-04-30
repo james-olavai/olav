@@ -194,7 +194,30 @@ def compute_summarization_trigger(tier: str | None) -> tuple[str, int] | None:
         return None
     try:
         from olav.core.config import TIER_DEFAULTS, tier_default
-        budget = int(TIER_DEFAULTS.get(tier, {}).get("context_budget") or 0)
+        # Per-deployment override: api.json `llm.context_budget` or
+        # OLAV_LLM_CONTEXT_BUDGET env wins over the tier default.
+        # Critical for local-llama.cpp deployments where the actual ctx
+        # is far below the tier's nominal max (e.g. qwen3.6-27b at 64K
+        # is "large" by name but 200K tier default would defer
+        # summarization until 160K — we'd hit the 64K wall first).
+        budget = 0
+        try:
+            import os
+            if env_budget := os.environ.get("OLAV_LLM_CONTEXT_BUDGET"):
+                budget = int(env_budget)
+        except Exception:
+            pass
+        if budget <= 0:
+            try:
+                from olav.core.config import get_llm_config
+                cfg = get_llm_config()
+                cfg_budget = getattr(cfg, "context_budget", None)
+                if isinstance(cfg_budget, int) and cfg_budget > 0:
+                    budget = cfg_budget
+            except Exception:
+                pass
+        if budget <= 0:
+            budget = int(TIER_DEFAULTS.get(tier, {}).get("context_budget") or 0)
         if budget <= 0:
             return None
         pct = float(tier_default(tier, "summarization_trigger_pct", 0.0) or 0.0)

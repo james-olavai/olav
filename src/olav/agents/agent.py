@@ -398,6 +398,43 @@ class OLAVAgent:
             self._middleware_mode,
         )
 
+        # ISSUE-CTX-PROMPT-INFLATION fix (2026-04-30):
+        # deepagents' built-in summarization (graph.py:449) calls
+        # ``compute_summarization_defaults`` which falls back to
+        # ``trigger=("tokens", 170000)`` when ``model.profile`` lacks
+        # ``max_input_tokens`` — i.e. for any local llama.cpp / vLLM
+        # endpoint, summarization never fires before the 64K ctx wall.
+        # Fix: set ``profile.max_input_tokens`` from ``llm.context_budget``
+        # (api.json) or fallback to TIER_DEFAULTS so deepagents picks the
+        # fraction-based path (default 0.85 × budget) automatically.
+        # Adding a second SummarizationMiddleware errors out with
+        # "duplicate middleware instances" — patching the model is
+        # the only clean route.
+        try:
+            from olav.core.config import TIER_DEFAULTS, get_llm_config
+            _llm_cfg = get_llm_config()
+            _budget = _llm_cfg.context_budget  # api.json llm.context_budget
+            if _budget is None or _budget <= 0:
+                _budget = int(TIER_DEFAULTS.get(_llm_cfg.model_tier, {}).get("context_budget") or 0)
+            if _budget > 0:
+                # langchain models expose .profile as a dict-like attr.
+                # Prime it so compute_summarization_defaults picks the
+                # fraction path (0.85 × budget trigger, 0.10 × budget keep).
+                if not hasattr(self.llm, "profile") or self.llm.profile is None:
+                    try:
+                        self.llm.profile = {}  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                if isinstance(getattr(self.llm, "profile", None), dict):
+                    self.llm.profile.setdefault("max_input_tokens", _budget)  # type: ignore[union-attr]
+                    logger.info(
+                        "✓ Model profile.max_input_tokens=%d (summarization "
+                        "trigger ≈ %d tok at 0.85 fraction)",
+                        _budget, int(_budget * 0.85),
+                    )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Summarization budget priming skipped: %s", exc)
+
         # R100/S4 (2026-04-29): deny deepagents' default write_file /
         # edit_file (which operate on a LangGraph state["files"] virtual
         # FS that is NOT real disk).  When the LLM was given an open-
