@@ -96,6 +96,15 @@ class InitCommand(BaseCommand):
                         },
                         "llm": {
                             "provider": "openai",
+                            # model_provider is required by LangChain
+                            # init_chat_model when the ``model`` name doesn't
+                            # match a known provider prefix.  Default to
+                            # "openai" since most OpenAI-compatible servers
+                            # (llama.cpp, OpenRouter, Together, ...) speak
+                            # the OpenAI Chat Completions API.  Override
+                            # only when targeting a non-OpenAI dialect
+                            # (anthropic / cohere / google_genai / ...).
+                            "model_provider": "openai",
                             "model": "gpt-4o",
                         },
                         "embedding": {

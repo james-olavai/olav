@@ -90,6 +90,14 @@ class LLMFactory:
                 params["model_provider"] = "deepseek"
             elif "perplexity" in _url:
                 params["model_provider"] = "perplexity"
+            elif _url:
+                # Unknown base_url with custom model name (e.g. local
+                # llama.cpp at 192.168.x.x:11433 serving "qwen3.6-27b-dense").
+                # OpenAI Chat Completions is the de-facto standard for
+                # OpenAI-compatible servers — default to it so init_chat_model
+                # doesn't raise.  Override via api.json llm.model_provider
+                # when targeting a non-OpenAI dialect.
+                params["model_provider"] = "openai"
 
         # Disable streaming for DeepAgents async compatibility
         params["streaming"] = False
