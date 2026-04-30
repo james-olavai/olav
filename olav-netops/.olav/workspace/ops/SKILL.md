@@ -1,6 +1,6 @@
 ---
 name: ops-orchestrator
-description: "Operations orchestrator — network ops, service deployment (deploy/install/set up any container service), SQL queries, device CLI, snapshots"
+description: "Operations orchestrator — network ops, service deployment, SQL queries, device CLI, snapshots"
 tools:
   - execute_cli
   - search_commands
@@ -8,13 +8,7 @@ tools:
   - diff_configs
   - record_network_event
   - register_service
-  # R100/S5 (dev_docs/69): syslog Parquet search.  ops investigations
-  # routinely need "what does live syslog say about R1?" or "any
-  # critical messages from BGP in the last hour?" — the platform
-  # syslog receiver writes to .olav/databases/logs/ and search_logs
-  # queries that store with severity / host / time-window filters.
-  # Source: src/olav/data/workspace/core/tools/search_logs.py
-  # (shared platform tool — same path used by core orchestrator).
+  # R100/S5: syslog Parquet search — shared platform tool
   - search_logs
 static_context:
   - path: ../core/references/REQUIRED_INFO_CHECK.md
@@ -33,33 +27,31 @@ metadata:
       - device_list_confirmed
 ---
 
-# Ops Orchestrator Tools
+# Ops orchestrator — direct tools
 
-Direct tools available to the orchestrator (not delegated to subagents):
-
-| Task intent | Tool(s) |
+| Task intent | Tool |
 |---|---|
-| **"Deploy / install / set up / stand up [any service]"** | `write_workspace_file` (files first) → `deploy_service` (start + health) |
-| Ad-hoc docker/shell commands, check logs | `run_shell` |
-| Register service API schema, generate tools | `register_service` |
-| Query network DB (devices, interfaces, BGP, OSPF) | `execute_sql` |
-| Run live CLI on network devices | `execute_cli` |
-| `search_commands` | Find available CLI commands by platform/keyword |
-| `search_knowledge_lancedb` | Semantic search of KB documents |
-| `recall_memory` | Recall relevant past decisions and context |
-| `record_network_event` | Persist network events to memory |
-| `take_snapshot` | Capture live device state snapshot into DB |
-| `format_and_export` | Write markdown reports to exports/ |
-| `web_search` | Search the web for documentation or known issues |
+| Deploy / install service | `write_workspace_file` → `deploy_service` |
+| Ad-hoc docker / shell / logs | `run_shell` |
+| Register service API + generate tools | `register_service` |
+| Query network DB | `execute_sql` |
+| Live CLI on devices | `execute_cli` |
+| Find CLI commands by platform/keyword | `search_commands` |
+| KB document search | `search_knowledge_lancedb` |
+| Recall past decisions | `recall_memory` |
+| Persist network events | `record_network_event` |
+| Capture device state | `take_snapshot` |
+| Write markdown to exports/ | `format_and_export` |
+| Web search | `web_search` |
 
-## References
+## References (load on demand — do NOT preload)
 
-Load on demand — do not preload:
+* `references/DB_SCHEMA.md` — `netops.*` tables + `v_*_auto` views + raw fallback
+* `references/OUTPUT_EXPORT_RULES.md` — when/where to call `format_and_export`
+* `references/TOOL_PARTITIONING.md` — orchestrator vs sub-agent intent map
+* `references/SERVICE_DEPLOYMENT.md` — service deploy pattern
 
-- `references/DB_SCHEMA.md` — `netops.*` tables + `v_*_auto` views + common query patterns + raw fallback
-- `references/OUTPUT_EXPORT_RULES.md` — when/where to call `format_and_export` on subagent output
-- `references/TOOL_PARTITIONING.md` — which agent handles which intent (orchestrator vs. analyze/lab subagents)
-- `references/SERVICE_DEPLOYMENT.md` — `write_workspace_file` + `deploy_service` pattern for container services
-
-> **Never** call `execute_sql` just to discover table names.  Read
-> `references/DB_SCHEMA.md` and write the query directly.
+NEVER call `execute_sql` just to discover table names — read
+`references/DB_SCHEMA.md` and write the query directly.  When the
+column shape is unclear, use `describe_table('netops.<view>')`
+instead of guessing.
