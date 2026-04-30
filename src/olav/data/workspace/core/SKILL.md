@@ -5,6 +5,13 @@ tools:
   - execute_sql
   - recall_memory
   - web_search
+  # ISSUE-SCHEMA-PUSH-VS-PULL (dev_docs/00, 2026-04-30): describe_table
+  # promoted to core orchestrator so the agent can introspect schema
+  # on demand without 2-hop delegation through db_query.  Pairs with
+  # the `prime_memory_at_ingest` schema_knowledge push being disabled
+  # by default — agent now uses pull-mode introspection (Q2 in-vivo
+  # showed 27B-dense already does this naturally).
+  - describe_table
   # R85 (dev_docs/62 § "R85 inline-save"): format_and_export promoted
   # from writer-only to shared core capability so any agent that
   # produces report data can save it directly.  Writer keeps it via
