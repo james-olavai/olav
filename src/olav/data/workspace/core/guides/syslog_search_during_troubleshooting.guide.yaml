@@ -26,83 +26,32 @@ keywords:
   - 严重
   - 告警
 body: |
-  When to call `search_logs`
+  ``search_logs`` — live syslog Parquet (UDP 5514 ingest) under
+  ``.olav/databases/logs/``.  NOT the same as ``netops.parsed_outputs``
+  which holds device ``show logging`` snapshots.
 
-  Reach for `search_logs` whenever the user asks about:
-    * Recent infrastructure events ("any criticals in the last hour?")
-    * A specific device's behaviour over time ("what happened to R1
-      this morning?")
-    * Severity-scoped investigation ("show me warnings from the last
-      24h")
-    * Pattern hunting across devices ("BGP flap messages from any
-      device")
-    * Cross-checking suspected faults: pair `execute_sql` (which
-      tells you the *current state* from snapshots) with
-      `search_logs` (which tells you *what just happened* from the
-      live syslog stream).
+  Reach for it: "any criticals last hour?" / "what happened to R1
+  this morning?" / pair with ``execute_sql`` (current state) to
+  cross-check "what just happened" vs "what is now".
 
-  ──────────────────────────────────────────────────────────────
-  IMPORTANT — two different "logs" data sources, do NOT confuse:
+  Tool shape:
+      search_logs(query="BGP", host="R1", hours=24, severity="critical")
+      # severity ∈ emergency|alert|critical|error|warning|notice|info|debug
+      # host = substring match; query = "" for no keyword filter
 
-    * **`search_logs`** — live syslog Parquet store under
-      `.olav/databases/logs/`.  Real-time infrastructure feed
-      (devices, Linux servers, UPS, firewalls all send syslog
-      to OLAV's UDP 5514 receiver).  Severity enum, host filter,
-      hours window.
-    * **`execute_sql` against `netops.parsed_outputs`** — device
-      CLI `show logging` output captured during `take_snapshot`.
-      Point-in-time, only when you explicitly snapshotted.  Use
-      this to cross-reference a syslog event against the device's
-      own log buffer at that moment.
-
-  Diagnostic flow (BGP flap example):
-    1. `execute_sql` → confirm current BGP state from latest snapshot
-    2. `search_logs(query="BGP", severity="critical", hours=24)`
-       → see when neighbour went down in real syslog stream
-    3. `search_logs(query="<device>", hours=2)` → narrow to the
-       affected host, recent events
-    4. correlate: the flap timestamps from step 2/3 vs the snapshot
-       times from step 1 → did the flap happen between snapshots?
-    5. (optional) `take_snapshot` of `show ip bgp summary` on the
-       affected device → fresh capture for write-up
-
-  ──────────────────────────────────────────────────────────────
-  Tool signature reminder:
-
-      search_logs(
-          query: str,                           # message keyword (case-insensitive). Empty string for no keyword.
-          hours: int = 24,                      # time window
-          severity: str | None = None,          # emergency | alert | critical | error | warning | notice | info | debug
-          host: str | None = None,              # hostname substring match
-          limit: int | None = None,             # default by tier; ceiling 500
-      ) -> str  # formatted table, newest first
-
-  Pass plain strings — DO NOT wrap values in extra quotes
-  (`severity="critical"`, NOT `severity='"critical"'`).  The
-  defensive coercion at the tool boundary will strip them, but
-  it's easier to read clean output if you don't generate the
-  literal-quote form in the first place.
-
-  ──────────────────────────────────────────────────────────────
   Common patterns:
+      search_logs(query="", hours=1, severity="critical")  # alarm sweep
+      search_logs(query="BGP", host="R1", hours=24)         # device-scoped
+      search_logs(query="duplicate-mac", hours=4)           # fleet pattern
+      search_logs(query="", host="SW2", hours=1)            # liveness
 
-      # Last-hour critical wake-up call
-      search_logs(query="", hours=1, severity="critical")
+  Flow (BGP flap):
+    1. ``execute_sql`` → current state from snapshot
+    2. ``search_logs(query="BGP", severity="critical", hours=24)`` —
+       when neighbour went down
+    3. correlate flap timestamps vs snapshot times
+    4. optional ``take_snapshot`` for fresh capture
 
-      # All BGP-related warnings or worse from one device, last 24h
-      search_logs(query="BGP", host="R1", hours=24)
-
-      # Pattern hunt across the fleet — "anyone seeing this string?"
-      search_logs(query="duplicate-mac", hours=4)
-
-      # Recent any-severity activity for a host (sanity check it's alive)
-      search_logs(query="", host="SW2", hours=1)
-
-  When `search_logs` returns "No log records found":
-    * 99% of the time the time window is too narrow OR the host
-      clock is skewed vs the syslog ingest timestamps.  Try
-      `hours=24` or `hours=168` to widen the search.
-    * Confirm the syslog receiver is running:
-      `olav service logs` should show "Status: Running".
-    * If still empty, no one is sending syslog to UDP 5514 yet
-      (configure devices first).
+  "No log records found" → window too narrow / host clock skew.  Try
+  ``hours=168``.  Verify ``olav service logs`` is Running.  If still
+  empty: no devices configured to send syslog yet.

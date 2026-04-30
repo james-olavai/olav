@@ -28,84 +28,45 @@ keywords:
   - 路由
   - 选路
 body: |
-  BGP — quick state-machine + path-selection reference.
+  BGP — orchestrator-level state + path summary.  Use after L1-L4
+  ruled out (see ``troubleshoot_layered_l1_to_l4``).  Full algorithm
+  + analyser code: ``ops/analyze/references/ROUTING_EXPERT_GUIDE.md``.
 
-  Use alongside `troubleshoot_layered_l1_to_l4` (which says "go
-  bottom-up first") and `take_snapshot_when_db_stale` (which says
-  "get fresh data when DB is stale").  This guide is the
-  protocol-specific deep dive ONCE you've ruled out L1-L4.
+  States (>30s in Idle/Active = below BGP layer):
+    Idle        — not started OR no route to peer (L1/L3)
+    Active      — TCP 179 failing — wrong peer-IP / ACL / no route (L3)
+    Connect     — TCP SYN sent, awaiting SYN-ACK (firewall?)
+    OpenSent    — Open sent — check AS#, hold-time, caps (L7)
+    OpenConfirm — Open exchanged — transient
+    Established — ✅ healthy
 
-  ──────────────────────────────────────────────────────────────
-  BGP state machine (most common states)
+  Last-reset reasons (most useful single command):
+    Junos: ``show bgp neighbor <peer> | match "Last error"``
+    IOS:   ``show ip bgp neighbors <peer> | include Last reset``
+    "Hold timer expired" → keepalives lost (L1/L2 jitter)
+    "Bad authentication" → MD5 mismatch
+    "Capability mismatch" → 4-byte AS / AF negotiation
+    "Notification: cease" → peer admin cleared
+    "Link bandwidth changed" → interface flapped
 
-  | State | Meaning | First diagnostic step |
-  |---|---|---|
-  | `Idle` | BGP not started OR no route to peer | check interface up + `ping <peer>` (L1/L3) |
-  | `Active` | TCP 179 not establishing — usually wrong peer-IP, ACL, or route absent | `show route <peer>` + `search_logs` for ACL |
-  | `Connect` | TCP SYN sent, awaiting SYN-ACK | firewall / stateful inspection blocking |
-  | `OpenSent` | TCP up, BGP Open sent, awaiting peer Open | check AS#, hold-time, capabilities |
-  | `OpenConfirm` | Open exchanged, awaiting Keepalive | near-up; transient |
-  | `Established` | Peering up, exchanging prefixes | ✅ healthy |
+  Path selection (first DIFFERING attribute wins):
+    1. Weight (Cisco-only, local) — highest wins
+    2. Local Pref — highest (default 100)
+    3. Locally originated > learned
+    4. AS-path length — shortest
+    5. Origin — IGP > EGP > Incomplete
+    6. MED — lowest (same-AS only unless ``always-compare-med``)
+    7. eBGP > iBGP
+    8. IGP metric to next-hop
+    9. Oldest path
+    10. Lowest router-ID
 
-  When you see `Idle` or `Active` for >30s, the issue is almost
-  always BELOW the BGP layer.  Don't dig into AS attributes.
+  Inspect best path: Junos ``show route <prefix> detail`` (Active tag) /
+  IOS ``show ip bgp <prefix>`` (``>`` marks best).
 
-  ──────────────────────────────────────────────────────────────
-  Last-reset reasons (the most useful single command)
-
-  Junos:  `show bgp neighbor <peer> | match "Last error"`
-  IOS:    `show ip bgp neighbors <peer> | include Last reset`
-
-  Common reasons + interpretation:
-    "Hold timer expired"         → keepalives lost, check L1/L2 jitter
-    "Bad authentication"         → MD5 password mismatch
-    "Capability mismatch"        → 4-byte AS or address-family negotiation
-    "Configuration changed"      → admin clear / config commit
-    "Notification: cease"        → peer admin cleared the session
-    "Link bandwidth changed"     → underlying interface flapped
-
-  ──────────────────────────────────────────────────────────────
-  Path-selection priority order (when multiple paths to a prefix)
-
-  Best path = first attribute that DIFFERS, in this order:
-
-    1. Weight (Cisco-only, local-only)        — highest wins
-    2. Local Preference                        — highest wins (default 100)
-    3. Locally originated                      — prefer local (network/redistribute)
-    4. AS-path length                          — shortest wins
-    5. Origin                                  — IGP > EGP > Incomplete
-    6. MED (Multi-Exit Discriminator)          — lowest wins (same-AS only)
-    7. eBGP > iBGP                             — prefer external
-    8. IGP metric to next-hop                  — lowest IGP cost
-    9. Oldest path                             — eBGP stability
-   10. Lowest router-ID                        — final tiebreaker
-
-  Diagnostic command: see active best-path attribute on a prefix.
-
-  Junos:  `show route <prefix> detail`            ← shows "Active" tag
-  IOS:    `show ip bgp <prefix>`                  ← `>` marks best path
-
-  ──────────────────────────────────────────────────────────────
-  Common gotchas
-
-  * **AS-path prepending** — peer "added 3× their own AS to MAKE it
-    look longer" to discourage you from using their path.  Look for
-    repeated AS numbers in the AS-path.
-  * **iBGP next-hop unreachable** — iBGP doesn't change next-hop
-    by default.  If next-hop isn't in your IGP, the path is hidden.
-    Junos: `show route hidden`. IOS: `show ip bgp | include next-hop`.
-  * **MED only compared within same AS** — comparing MED across
-    different upstream ASes silently does nothing unless `bgp
-    always-compare-med` is set.
-  * **Hold-timer mismatch** doesn't prevent session formation but
-    causes flaps every (lower hold-timer) seconds.
-
-  ──────────────────────────────────────────────────────────────
-  Where the deep algorithm lives
-
-  For the full Python implementation of `bgp_best_path()` and the
-  exhaustive analyser code, see
-  `ops/analyze/references/ROUTING_EXPERT_GUIDE.md` (loaded as
-  static_context for the analyze sub-agent on intent match).
-  This guide is the orchestrator-level summary; analyze has the
-  algorithm.
+  Gotchas:
+    * AS-path prepending — peer artificially lengthens to deflect
+    * iBGP next-hop unreachable — Junos ``show route hidden``;
+      IOS ``show ip bgp | include next-hop``
+    * MED only compares within same AS by default
+    * Hold-timer mismatch → flaps every (lower) hold-timer seconds

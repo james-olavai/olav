@@ -23,109 +23,39 @@ keywords:
   - 流程图
   - 可视化
 body: |
-  Diagram format — pick the right one, save via format_and_export.
+  Pick the right diagram format, save via ``format_and_export``.
 
-  OLAV supports 4 diagram outputs.  Pick by intent + downstream tool:
+  Decision matrix:
 
-  ──────────────────────────────────────────────────────────────
-  Mermaid (.mmd) — DEFAULT for most diagrams
+  | User says | Format | Why |
+  |---|---|---|
+  | "topology" / "diagram" / "draw the network" | mermaid (.mmd) | default; renders in markdown / GitHub |
+  | "edit it later" / "open in diagrams.net" | drawio (.xml) | editable XML |
+  | "presentation deck" / "Cisco stencils" / "PlantUML" | plantuml (.puml) | vendor stencils |
+  | "score card" / "dashboard" / "KPI summary" | infographic (.yaml) | tabular metrics, NOT topology |
+  | "BGP path tree" / "routing tree" | mermaid flowchart | most expressive |
 
-  When: any topology / flow / sequence / state / ER diagram, when
-  the user just wants something readable in markdown/git/docs.
-
-  Pros: text format, version-controllable, GitHub renders natively,
-  smallest output, easy for LLM to generate.
-
-  Minimal topology example:
+  Mermaid example (default, smallest):
 
       flowchart LR
         R1[R1\nAS 65001] -->|10.0.0.1/30| R2[R2\nAS 65002]
         R2 --> SW1[(SW1)]
-        R2 --> SW2[(SW2)]
 
-  Save:
-      format_and_export(data="<mermaid above>", format="mmd",
-                        filename="topology")
-      → exports/reports/topology.mmd
-
-  ──────────────────────────────────────────────────────────────
-  draw.io XML — when the diagram needs to be EDITABLE downstream
-
-  When: user wants to open in draw.io / diagrams.net to manually
-  refine, share with non-CLI engineers, or merge with a visual
-  template they have.
-
-  Skeleton:
-
-      <mxGraphModel>
-        <root>
-          <mxCell id="0"/>
-          <mxCell id="1" parent="0"/>
-          <mxCell id="R1" value="R1&#xa;AS 65001"
-            style="shape=mxgraph.cisco.routers.router;..."
-            vertex="1" parent="1">
-            <mxGeometry x="80" y="160" width="68" height="48"
-              as="geometry"/>
-          </mxCell>
-        </root>
-      </mxGraphModel>
-
-  Save with format="xml" filename="topology" subdir="reports".
-
-  ──────────────────────────────────────────────────────────────
-  PlantUML (.puml) — for professional Cisco/Juniper stencil
-  diagrams or sequence diagrams with networking icons
-
-  When: user explicitly asks for "PlantUML" or wants the polished
-  vendor-stencil look for a presentation deck.
-
-  Minimal:
-
-      @startuml
-      !include <cisco/routers/router>
-      !include <cisco/switches/workgroup_switch>
-      ROUTER(R1, "R1\nAS 65001")
-      ROUTER(R2, "R2\nAS 65002")
-      WORKGROUP_SWITCH(SW1, "SW1")
-      R1 -down- R2
-      R2 -down- SW1
-      @enduml
-
-  ──────────────────────────────────────────────────────────────
-  Infographic / scorecard YAML — for KPI dashboards, audit
-  summary cards, score-style reports (NOT for topology)
-
-  When: user wants a "summary card" / "dashboard" / "scorecard" of
-  numerical KPIs rather than a network diagram.
-
-  Format:
+  Infographic YAML shape:
 
       type: scorecard
-      title: "Network Health Summary"
-      generated_at: "2026-04-30"
+      title: "Network Health"
       kpis:
         - name: "BGP Convergence"
           value: "98.7%"
           status: "ok"
           target: "≥ 99%"
 
-  ──────────────────────────────────────────────────────────────
-  Quick decision matrix
+  Save:
+      format_and_export(data="<diagram>", format="mmd",
+                        filename="topology")
+      # auto-routes: .mmd/.xml/.puml → exports/reports/
+      #              .yaml → exports/
 
-  | User says | Pick | Why |
-  |---|---|---|
-  | "draw the topology", "show me the network", "diagram" | mermaid | default; renders in markdown |
-  | "I want to edit it later" / "open in diagrams.net" | drawio | editable XML |
-  | "presentation deck", "polished diagram", "Cisco stencils" | plantuml | vendor icons |
-  | "score card", "dashboard", "KPI summary", "health summary" | infographic YAML | tabular metrics |
-  | "BGP path graph" / "routing tree" | mermaid (flowchart) | most expressive without external rendering |
-
-  Always save via `format_and_export` — it auto-routes:
-    .mmd → exports/reports/  (treated as md/text)
-    .xml → exports/reports/
-    .puml → exports/reports/
-    .yaml → exports/         (data-format default)
-
-  Don't write the diagram inline in the chat unless the user
-  explicitly asks for it as text — exports/ landing is the
-  expected behaviour per the write-class-tool-call directive.
+  Don't paste the diagram inline — always go to disk via
+  ``format_and_export`` (see ``write_class_tool_call`` directive).
