@@ -90,6 +90,13 @@ class LLMFactory:
                 params["model_provider"] = "deepseek"
             elif "perplexity" in _url:
                 params["model_provider"] = "perplexity"
+            elif "ollama" in _url or ":11434" in _url:
+                # Ollama on its own native /api/chat — use langchain-ollama
+                # so the `reasoning` field works (qwen3 thinking toggle).
+                # OpenAI-compat /v1 also exists but doesn't surface
+                # native Ollama-only flags.  Detect by port 11434 (default)
+                # or "ollama" in URL.
+                params["model_provider"] = "ollama"
             elif _url:
                 # Unknown base_url with custom model name (e.g. local
                 # llama.cpp at 192.168.x.x:11433 serving "qwen3.6-27b-dense").
@@ -163,15 +170,25 @@ class LLMFactory:
         # unknown body keys so this is safe to send unconditionally
         # when set.
         if os.environ.get("OLAV_DISABLE_THINKING") == "1":
-            mkw = params.setdefault("model_kwargs", {})
-            extra = mkw.setdefault("extra_body", {})
-            ctk = extra.setdefault("chat_template_kwargs", {})
-            ctk.setdefault("enable_thinking", False)
-            # Also try the OpenAI-style reasoning_effort knob for
-            # endpoints that honour it (e.g. some OpenRouter/proxy
-            # passthroughs to o1-class models).  Unknown keys are
-            # ignored by OpenAI-compat servers.
-            extra.setdefault("reasoning_effort", "minimal")
+            # Provider-specific thinking-off mechanism:
+            # * Ollama (langchain-ollama) — native ``reasoning`` field on
+            #   ChatOllama.  Set False to disable thinking entirely.
+            # * llama.cpp / vLLM / OpenAI-compat — pass
+            #   ``chat_template_kwargs.enable_thinking=false`` via
+            #   extra_body.  llama-server forwards to the template
+            #   renderer; unknown keys ignored elsewhere.
+            if params.get("model_provider") == "ollama":
+                params["reasoning"] = False
+            else:
+                mkw = params.setdefault("model_kwargs", {})
+                extra = mkw.setdefault("extra_body", {})
+                ctk = extra.setdefault("chat_template_kwargs", {})
+                ctk.setdefault("enable_thinking", False)
+                # Also try the OpenAI-style reasoning_effort knob for
+                # endpoints that honour it (e.g. some OpenRouter/proxy
+                # passthroughs to o1-class models).  Unknown keys are
+                # ignored by OpenAI-compat servers.
+                extra.setdefault("reasoning_effort", "minimal")
 
         # Log identification for debugging
         model = params.get("model", "unknown")
