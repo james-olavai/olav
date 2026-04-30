@@ -294,14 +294,4 @@ def prime_memory_at_ingest(con: Any, store: Any | None = None) -> dict[str, int]
     }
 
 
-# NOTE: ``prime_usage_guides`` was hosted in this module during R84
-# Phase 1 (dev_docs/61).  After the R84 platform-KB refactor
-# (dev_docs/62) the upsert path moved to
-# ``olav.core.memory.guide_kb.prime_guides_from_dir`` so any skill —
-# not just netops — can ship ``*.guide.yaml`` files and reach LanceDB
-# through the user-facing ``olav kb import-guides`` CLI.  Callers
-# should import the platform helper directly; ``view_builder.finalise_ingest``
-# already does so.
-
-
 __all__ = ["prime_memory_at_ingest"]

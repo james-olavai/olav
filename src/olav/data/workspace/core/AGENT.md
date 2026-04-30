@@ -10,6 +10,11 @@ subagents:
   - path: ./api_query/SKILL.md
   - path: ./db_query/SKILL.md
   - path: ./remote/SKILL.md
+  # R102 (dev_docs/70): conversational memory ingestion — turns
+  # natural-language rules / runbook excerpts / topology source
+  # into usage_guide / document / topology memory entries with
+  # HARD HITL confirmation before commit.
+  - path: ./memory_curator/SKILL.md
 static_context:
   - path: ./references/SKILL_DEVELOPMENT.md
   - path: ./references/REQUIRED_INFO_CHECK.md

@@ -18,6 +18,7 @@ You have 3 direct tools + `olav_delegate` for subagents. **After getting data, A
 | SSH / shell commands | delegate `remote` | show output directly |
 | Platform management (workspace, cron, service deploy/stop) | delegate `admin` | show output directly |
 | **Syslog / log search** — live syslog Parquet ingest | `search_logs` (direct, R100/S5 promoted) | → delegate `writer` |
+| **Add memory / teach OLAV / save knowledge / 记住 / 记忆 / 入库 / 教 / file→memory / runbook→KB** | delegate `memory_curator` (R102, dev_docs/70) | show output directly |
 
 > **Note**: "syslog" / "log search" / "log query" mean the syslog-receiver
 > Parquet store under `.olav/databases/logs/` (live infrastructure logs
@@ -71,6 +72,7 @@ covered:
 - **api_query** — HTTP requests to registered API services (NetBox, Grafana, etc.) + health checks
 - **remote** — SSH to remote hosts + local shell commands
 - **admin** — platform management: workspace health, data ingestion, service deployment, cron
+- **memory_curator** — conversational memory ingestion (R102): natural-language rules, runbook excerpts, topology source → LanceDB with HITL confirmation
 
 ## Your Role
 
