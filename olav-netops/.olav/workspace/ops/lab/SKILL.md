@@ -17,132 +17,77 @@ metadata:
     - destroy_lab
     - push_config
 tools:
-  # Per ADR-0008 rev1 (R92.6): all deterministic + REST/SSH-callable
-  # ops live as skill scripts under ./scripts/. Invoke via
-  # execute_skill_script(skill_name="lab", script_name="<name>.py", script_args={...}).
-  # The agent's @tool surface for ops/lab is just 1 tool (real-time
-  # streaming) — everything else is a skill script.
-  - execute_skill_script   # Inherited from core/tools/. Drives all ./scripts/ entries.
-  - exec_on_node           # @tool kept: real-time streaming for show commands during verification
+  # All deterministic ops are skill scripts under ./scripts/ (ADR-0008
+  # rev1 / R92.6).  Invoke via execute_skill_script(skill_name="lab",
+  # script_name="<x>.py", script_args={...}).  Only @tool surface kept
+  # is exec_on_node for real-time show-command streaming.
+  - execute_skill_script
+  - exec_on_node
 static_context:
   - path: ./references/LAB_REFERENCE.md
-# R86 — on_intent (~4K tokens, largest reference of all).
-# LAB_REFERENCE only matters for CAB / lab-deploy flows; baking it
-# on EVERY ops-orchestrator invocation that happens to route to
-# ops-lab is wasteful.  Lazy-loaded; agent fetches via
-# get_static_context when the workflow actually starts a lab.
 static_context_mode: on_intent
 ---
 
-## Flow (TCF-native, R92 SkillsMiddleware-first per ADR-0008)
+## Flow (TCF-native, R92 SkillsMiddleware-first)
 
-The deterministic generators are **skill scripts** under
-``./scripts/``. The agent calls them via ``execute_skill_script``
-(inherited from ``core/tools/``). The script imports the relevant
-``olav.core.cab`` / ``olav.core.lab`` Python helper, parses JSON
-args from stdin, and emits JSON on stdout — the tool returns the
-parsed dict.
+Each step is `execute_skill_script(skill_name="lab", script_name="<x>.py", ...)`.
+For exact `script_args` shape, read the script's docstring or
+`references/LAB_REFERENCE.md`.
 
 ```
-0.  execute_skill_script(
-        skill_name="lab", script_name="tcf_load_for_lab.py",
-        script_args={"spec_path": "<path>"})
-    # stdout → {status, change_id, r88_args, r89_args, post_check, tvt, ...}
+0. tcf_load_for_lab.py              → r88_args, r89_args, post_check, tvt
+1. generate_clab_topology.py        → yaml (NEVER hand-write — small models
+                                      omit links: and break BGP)
+2. generate_srl_lab_config.py       → 22-line SRL CLI per node (NEVER
+                                      hand-translate prod CLI to SRL —
+                                      hits YANG rejections)
+3. save_lab_config.py               → writes deploy contract path (one call/node)
+4. deploy_and_push_lab.py           → boots CLAB + pushes configs
+5. exec_on_node                     → run each post_check.command, compare to
+                                      expected_pattern (real-time streaming)
 
-1.  execute_skill_script(
-        skill_name="lab", script_name="generate_clab_topology.py",
-        script_args=out["stdout"]["r88_args"])
-    # stdout → {status, yaml}
+5b. ROLLBACK VALIDATION (only when 5 passed):
+   generate_srl_rollback_config.py  → 7-line delete CLI per node
+   push_node_config.py              → applies rollback
+   exec_on_node                     → verify reversion
 
-2.  execute_skill_script(
-        skill_name="lab", script_name="generate_srl_lab_config.py",
-        script_args=out["stdout"]["r89_args"])
-    # stdout (parsed) → {status, configs: {lab_node: 22-line srl_cli}}
-
-3.  execute_skill_script(
-        skill_name="lab", script_name="save_lab_config.py",
-        script_args={"lab_name": ..., "node": <lab_node>,
-              "config_lines": configs[lab_node].splitlines()})
-    [one call per node — writes to deploy contract path]
-
-4.  execute_skill_script(
-        skill_name="lab", script_name="deploy_and_push_lab.py",
-        script_args={"lab_name": ..., "yaml_content": <step 1 yaml>, "configs": {}})
-
-5.  exec_on_node — run each post_check.command, compare to expected_pattern
-    (stays as @tool — real-time streaming for interactive show commands)
-
-5b. ROLLBACK VALIDATION — only when apply tests PASSED:
-    a. execute_skill_script(
-           skill_name="lab", script_name="generate_srl_rollback_config.py",
-           script_args=r89_args)
-       # stdout → {status, configs: {lab_node: 7-line delete CLI}}
-    b. execute_skill_script(
-           skill_name="lab", script_name="push_node_config.py",
-           script_args={"lab_name": ..., "node": <lab_node>,
-                 "config_lines": rollback_configs[lab_node]})
-    c. exec_on_node — verify reversion (BGP gone, no IPv4 on subif).
-
-6.  format_and_export — standalone CAB Lab Report (.md)
-7.  execute_skill_script(
-        skill_name="lab", script_name="tcf_record_lab_run.py",
-        script_args={"spec_path": ..., "verdict": ..., "lab_name": ...,
-              "tvt_test_ids": [...], "tvt_actual_lab": [...],
-              "tvt_status": [...], "journal": [...]})
-    # writes verdict + journal + per-test actuals back to TCF
-8.  execute_skill_script(
-        skill_name="lab", script_name="destroy_lab.py",
-        script_args={"lab_name": ...})
-    — ALWAYS run, even on failure
+6. format_and_export                → standalone CAB Lab Report (.md)
+7. tcf_record_lab_run.py            → writes verdict + journal + per-test
+                                      actuals back to TCF
+8. destroy_lab.py                   → ALWAYS run, even on failure
 ```
 
-**⚠️ NEVER hand-write `yaml_content`** — small models omit
-`links:` and silently break BGP. Always invoke the
-``generate_clab_topology.py`` skill script.
+## CAB is a validation gate, NOT a fix-it loop
 
-**⚠️ NEVER hand-translate prod CLI to SRL CLI** — always invoke
-the ``generate_srl_lab_config.py`` skill script. It
-deterministically renders the 22-line SRL skeleton; hand-translation
-hits SRL YANG rejections (``connectivity-endpoint``, missing
-``peer-group``, etc.) and never converges.
+If `deploy_and_push_lab` returns `dry_run_failures`: fix with
+`push_node_config` **ONCE** per CAB_WORKFLOW template, then report
+FAIL if still failing.  Step 6 is REPORT, not "iterate and fix."
 
-**⚠️ CAB is a validation gate, NOT a fix-it loop.**  If
-`deploy_and_push_lab` returns `dry_run_failures`: fix with
-`push_node_config` **ONCE** using the CAB_WORKFLOW template, then
-report FAIL if still failing.  Step 6 is REPORT, not "iterate and fix."
+## Decision rules
 
-## CAB Decision Rules (summary)
-
-**✅ PASS** — all checks converge.  Output evidence + Design Commentary
-(🟠/🔵 items allowed even on pass).
-
-**❌ FAIL** — any check fails.  Output evidence + classification
-(🔴 BLOCKER / 🟡 PREREQ / 🟠 SYNTAX) + revision instructions for Sim,
-then `destroy_lab`.
-
-Full rubric and classification rules:
-**`references/CAB_REPORT_FORMAT.md`**.
+* **✅ PASS** — all checks converge.  Output evidence + Design
+  Commentary (🟠/🔵 allowed even on pass).
+* **❌ FAIL** — any check fails.  Output evidence + classification
+  (🔴 BLOCKER / 🟡 PREREQ / 🟠 SYNTAX) + revision instructions for
+  Sim, then `destroy_lab.py`.
 
 On FAIL: do NOT try alternatives to make it work.  Report → stop →
-destroy lab.
+destroy lab.  Full rubric: `../references/CAB_REPORT_FORMAT.md`.
 
-## Key Rules
+## Key rules
 
-- **The change plan is the contract** — implement exactly what it says
-- **All production data comes from snapshot DB** — never access
-  production devices
-- Config push always uses `discard now` + base64 pipe + `2>&1` — see
-  `references/LAB_REFERENCE.md` § Config Push
-- Show commands: use `exec_on_node` with `"bash -c 'sr_cli ... 2>&1'"`
-- `deploy_lab` handles CLAB REST API bugs automatically
-- Never destroy a lab without confirming the lab name
-- Every session must clean up — if cleanup fails mid-way, still
+* **Change plan is the contract** — implement exactly what it says
+* All production data comes from snapshot DB — NEVER access
+  production devices from the lab agent
+* Config push always uses `discard now` + base64 pipe + `2>&1`
+  (LAB_REFERENCE § Config Push)
+* Show commands: `exec_on_node` with `"bash -c 'sr_cli ... 2>&1'"`
+* Never destroy a lab without confirming the lab name
+* Every session must clean up; if cleanup fails mid-way, still
   attempt it before reporting failure
 
-## References (load on demand)
+## References (on_intent)
 
-- `references/LAB_REFERENCE.md` — schema, CLAB API, SRL CLI (interface / BGP / OSPF), verified patterns, multi-node adaptation, sandbox policy
-- `prompts/system.md` — full workflow rules and mandatory tool sequence
-- See also `../references/CAB_WORKFLOW.md` and
-  `../references/CAB_REPORT_FORMAT.md` (referenced by system.md at the
-  relevant workflow steps)
+* `references/LAB_REFERENCE.md` — CLAB API + SRL CLI + verified patterns
+* `prompts/system.md` — full workflow rules
+* `../references/CAB_WORKFLOW.md`, `CAB_REPORT_FORMAT.md`
