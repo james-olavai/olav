@@ -465,6 +465,24 @@ class OLAVAgent:
                     FilesystemPermission(
                         operations=["write"], paths=["/**"], mode="deny",
                     ),
+                    # 2026-05-01 Ch9 fix — deny virtual-FS read/list ops
+                    # too.  When user asks "list profiles" / "what reports
+                    # exist", small models (gemma4:31b) reach for
+                    # ls/glob/grep on the deepagents in-memory virtual
+                    # FS instead of delegating to a sub-agent or running
+                    # a skill script.  Result: empty list, false-negative
+                    # answer.  Denying virtual-FS read pushes the model
+                    # to use real-disk paths (read_file core tool, or
+                    # task() delegation, or execute_skill_script).
+                    # Override with OLAV_ALLOW_VIRTUAL_FS_READS=1.
+                    *([] if os.environ.get("OLAV_ALLOW_VIRTUAL_FS_READS") else [
+                        FilesystemPermission(
+                            operations=["read"], paths=["/**"], mode="deny",
+                        ),
+                        FilesystemPermission(
+                            operations=["list"], paths=["/**"], mode="deny",
+                        ),
+                    ]),
                 ]
                 logger.info(
                     "✓ deepagents virtual-FS writes denied "
