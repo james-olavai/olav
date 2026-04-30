@@ -1,9 +1,6 @@
 ---
 name: ops-lab
-description: >
-  ContainerLab digital twin validation. Deploy SR Linux containers from snapshot DB,
-  push production-equivalent config, verify protocol convergence, tear down labs.
-  Use for Change Advisory Board (CAB) gate validation before production deployment.
+description: "CAB lab validation — deploys ContainerLab digital twin, pushes config, verifies convergence, reports PASS/FAIL."
 metadata:
   version: 5.0.0
   type: agent

@@ -1,6 +1,6 @@
 ---
 name: memory_curator
-description: "Conversational memory ingestion — turn natural-language rules, runbook excerpts, and topology source into LanceDB memory entries with HITL confirmation before commit."
+description: "Conversational memory ingestion (R102). Turn user-stated rules / pasted runbook / topology source into LanceDB rows with HITL."
 tools:
   - propose_memory_draft   # Turn-1 of HITL: write draft to fs + return preview
   - commit_to_memory       # Turn-2: commit (with from_draft=True) or single-shot

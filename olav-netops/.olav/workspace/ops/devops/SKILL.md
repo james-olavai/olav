@@ -1,9 +1,6 @@
 ---
 name: devops
-description: >
-  Environment-aware DevOps automation agent. Writes production-quality scripts
-  (bash, python, ansible) tailored to the user's actual devices, services, and
-  topology. Reads environment from OLAV database and service registry.
+description: "Generate production-grade scripts (bash / python / ansible) using real device + service data from OLAV DB."
 tools: []
 metadata:
   version: 0.2.0

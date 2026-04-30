@@ -1,6 +1,6 @@
 ---
 name: writer
-description: "Polish/edit subagent — improve grammar, structure, and clarity of an existing markdown file in exports/.  No longer a save-bottleneck (R85)."
+description: "Polish / edit existing markdown file in exports/. Invoked only when user explicitly says 'polish this report'."
 tools: []
 # R85 + R86 follow-up — both format_and_export and read_file now live
 # at core/tools/ and every subagent inherits them.  Writer adds no
