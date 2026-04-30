@@ -314,22 +314,16 @@ class AutoRecallMiddleware:
     # Numbers are tuned for a small fleet (≤10 platforms) — schemas
     # and value distributions are 6-8 entries on the interface concept
     # alone, so 6 per category catches the cross-platform variants.
+    # ISSUE-SCHEMA-PUSH-VS-PULL (dev_docs/00, 2026-04-30):
+    # ``schema_knowledge`` and ``value_distribution`` removed —
+    # ``prime_memory_at_ingest`` no longer writes them by default;
+    # agent uses ``describe_table`` tool to introspect on demand.
+    # ``usage_guide`` over-fetch kept at 4 (matched old budget) —
+    # bumping to 6 would inflate total prompt because guide bodies
+    # are 3-6 KB each.  Smaller K, smaller injection.
     _CATEGORY_FETCH = {
-        "schema_knowledge": 6,
-        "value_distribution": 6,
         "query_pattern": 3,
-        # Phase 1 (dev_docs/61 MEMORY_DRIVEN_USAGE_GUIDES) — procedural
-        # guides primed from ``*.guide.yaml`` via
-        # ``olav.core.memory.guide_kb.prime_guides_from_dir`` (CLI:
-        # ``olav kb import-guides``).
-        # Quota of 4 reserves prompt slots for the most relevant
-        # workflow / save / topology guidance without crowding out
-        # schema entries.
         "usage_guide": 4,
-        # R87 Phase 1 (dev_docs/63) — vendor / platform-specific
-        # corrective expertise (e.g. SRL BGP state semantics).
-        # Each entry is per-agent scoped; ``_gather_candidates``
-        # below filters by ``scope IN ('global', current_agent)``.
         "expert_knowledge": 3,
     }
 
@@ -349,36 +343,14 @@ class AutoRecallMiddleware:
     # 5 schemas + 5 values + ~3 fact/query = ~4 KB context — well under
     # 1% of a 200 K large-tier window.
     _CATEGORY_QUOTAS = {
-        # CC-1c (dev_docs/62): rebalanced from 5/5/-/3 to 4/4/2/3.
-        # The pre-CC-1c layout reserved 5+5+3=13 slots — exactly
-        # filling recall_top_k=13 — leaving zero room for
-        # query_pattern hits.  Probe of Q3 with 5 captured Q3
-        # patterns showed 0 query_pattern in the diversifier output;
-        # the agent re-discovered SQL strategies every session
-        # instead of using its own captures.  4+4+2+3=13 keeps the
-        # token budget unchanged.
-        # R85 δ2 (dev_docs/62 § "R85 inline-save"): schema_knowledge
-        # 4→3 to make room for format_guide:1 — the writer-reference
-        # content moved to memory so any agent can know "here's the
-        # format_and_export call for this output shape" without
-        # cross-agent delegation to writer.  Total 3+4+2+3+1=13 unchanged.
-        # R87 Phase 1 (dev_docs/63): schema_knowledge 3→2 to make room
-        # for expert_knowledge:1 — vendor/platform-specific corrective
-        # expertise (e.g. SRL BGP state semantics).  Per-agent scoped
-        # via the recall scope filter below.  Total 2+4+2+3+1+1=13
-        # unchanged.
-        "schema_knowledge": 2,
-        # R87 Phase 1.5: 4 → 2 to fund expert_knowledge: 1 → 3.
-        # Empirical: in CC-1c bench the third+fourth value_distribution
-        # slot was usually a near-duplicate of the first two
-        # (cisco vs junos vs ios — same column, different platform);
-        # the cross-platform answer was already complete at top-2.
-        "value_distribution": 2,
+        # ISSUE-SCHEMA-PUSH-VS-PULL (dev_docs/00, 2026-04-30):
+        # schema_knowledge + value_distribution removed.  Slots:
+        # was 2+2+2+3+1+3=13 → now 0+0+2+5+1+3=11 (≈18% drop in
+        # recall_top_k effective load + bigger usage_guide budget).
         "query_pattern": 2,
-        # Phase 1 (dev_docs/61) — reserve slots for procedural guides
-        # so they survive past schema/value when both are present.
-        # 3 fits the current YAML guide count (topology / simulation /
-        # drift / save).
+        # ISSUE-SCHEMA-PUSH-VS-PULL: keep at 3.  Each guide body is
+        # 3-6 KB so quota=5 injects 15-25 KB by itself.  Goal of the
+        # whole refactor was less prompt, not redistributed slots.
         "usage_guide": 3,
         # R85 δ2 — format references (mermaid layout, CSV layout, ...)
         # primed from *.format.yaml.  Top-1 most-relevant format hits

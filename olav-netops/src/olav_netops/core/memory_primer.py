@@ -104,12 +104,29 @@ def _embed(text: str):
 def prime_memory_at_ingest(con: Any, store: Any | None = None) -> dict[str, int]:
     """Refresh ``schema_knowledge`` and ``value_distribution`` memory entries.
 
-    Called by ``view_builder.finalise_ingest`` after value_profile
-    has been built.  Store argument may be ``None`` to skip
-    (e.g. when memory infrastructure isn't bootstrapped).
+    DISABLED BY DEFAULT (2026-04-30, dev_docs/00 § ISSUE-SCHEMA-PUSH-VS-PULL).
+
+    The push model — pre-priming 50+ schema entries into LanceDB — was
+    empirically negative ROI on small models: 27B-dense ignores cached
+    schema_knowledge and introspects via ``information_schema`` /
+    ``describe_table`` on demand anyway, so pushing the data costs DB
+    rows + AutoRecall slot competition without changing behaviour.
+
+    Set ``OLAV_LEGACY_SCHEMA_PRIME=1`` to opt back in for parity testing
+    or large-model deployments where the push hint is still worth its
+    prompt cost.
 
     Returns ``{"schema_entries": N, "value_entries": M, "skipped": K}``.
     """
+    import os
+    if os.environ.get("OLAV_LEGACY_SCHEMA_PRIME", "").strip().lower() not in {"1", "true", "yes"}:
+        logger.info(
+            "memory_primer: schema_knowledge / value_distribution push DISABLED "
+            "(default 2026-04-30+).  Agent uses describe_table tool on demand.  "
+            "Set OLAV_LEGACY_SCHEMA_PRIME=1 to re-enable."
+        )
+        return {"schema_entries": 0, "value_entries": 0, "skipped": 0}
+
     if store is None:
         try:
             from olav.core.memory import get_store
