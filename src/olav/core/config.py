@@ -307,6 +307,31 @@ class LLMConfig:
         return self._data.get("custom_headers", {})
 
     @property
+    def context_budget(self) -> int | None:
+        """Per-deployment override for max input tokens.
+
+        Resolution order:
+        1. ``OLAV_LLM_CONTEXT_BUDGET`` env var
+        2. Explicit ``llm.context_budget`` in api.json
+        3. ``None`` — caller falls back to ``TIER_DEFAULTS[tier].context_budget``
+
+        Critical for local llama.cpp deployments where the model's
+        nominal "tier" (by parameter count) doesn't match the actual
+        runtime ctx (e.g. qwen3.6-27b at 64K hardware ctx is "large"
+        by name but only has 64K, not 200K).  Setting this lets
+        summarization fire at the right threshold.
+        """
+        explicit = self._loader._env_override(
+            "llm", "context_budget", self._data.get("context_budget")
+        )
+        if explicit is None:
+            return None
+        try:
+            return int(explicit)
+        except (TypeError, ValueError):
+            return None
+
+    @property
     def model_tier(self) -> str:
         """Return ``"small"`` | ``"medium"`` | ``"large"`` (Sprint 0b).
 
