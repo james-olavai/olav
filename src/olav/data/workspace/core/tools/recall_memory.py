@@ -31,8 +31,6 @@ from olav.core.memory import get_store, hybrid_search, MEMORY_TABLE
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_EMBEDDING_DIM = 768
-
 
 def _embed_query(text: str) -> "list[float] | None":
     """Embed a query string using the same embedder as kb_import (olav.core.embedder.embed_text)."""
@@ -144,7 +142,11 @@ def _recall_memory_inner(
 ) -> str:
     """Core memory search logic — called inside a thread by recall_memory."""
     try:
-        store = get_store(embedding_dim=DEFAULT_EMBEDDING_DIM)
+        # Let get_store auto-detect embedding_dim from the configured embedder
+        # (was hardcoded 768 — broke against 2048-dim tables and tripped the
+        # P0 dim-safety guard.  See dev_docs/00 §
+        # ISSUE-EMBEDDING-FALLBACK-DIM-MISMATCH-DESTROYS-DATA).
+        store = get_store()
 
         if not store.table_exists(MEMORY_TABLE):
             return "No long-term memories stored yet."

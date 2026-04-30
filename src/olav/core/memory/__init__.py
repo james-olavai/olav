@@ -33,6 +33,36 @@ DEFAULT_MEMORY_DB = ".olav/databases/memory.lance"
 MEMORY_TABLE = "memory"
 
 
+class EmbeddingDimMismatchError(RuntimeError):
+    """Raised when an existing LanceDB table's vector dim doesn't match
+    the configured embedder.
+
+    Earlier OLAV versions silently dropped + recreated the table, wiping
+    user-curated memory rows.  We now raise instead.  Operator must:
+
+    1. Fix the embedder so its dim matches the stored data, OR
+    2. Migrate the data explicitly (re-embed every row), OR
+    3. Set ``OLAV_ALLOW_DESTRUCTIVE_DIM_MIGRATION=1`` to opt back in to
+       the destructive drop (debug only — destroys ALL rows in the table).
+
+    See ``dev_docs/00 § ISSUE-EMBEDDING-FALLBACK-DIM-MISMATCH-DESTROYS-DATA``.
+    """
+
+    def __init__(self, *, table: str, stored_dim: int, embedder_dim: int):
+        self.table = table
+        self.stored_dim = stored_dim
+        self.embedder_dim = embedder_dim
+        super().__init__(
+            f"Embedding dim mismatch on table {table!r}: "
+            f"stored={stored_dim}, embedder={embedder_dim}.  Refusing to "
+            f"start to avoid silent data loss.  Fix the embedder config "
+            f"(check api.json embedding.fallback) or set "
+            f"OLAV_ALLOW_DESTRUCTIVE_DIM_MIGRATION=1 to opt in to the "
+            f"old drop-and-recreate behaviour (destroys ALL rows in "
+            f"{table!r})."
+        )
+
+
 # Memory categories
 class MemoryCategory:
     FACT = "fact"
@@ -72,6 +102,12 @@ class LanceDBStore:
         self._fts_dirty: dict[str, int] = {}
         self._fts_rebuild_threshold: int = self._load_fts_threshold()
         self._ensure_database()
+        # Eager connect so dim mismatch is caught at construction time
+        # (fail-fast).  Lazy connect made the check fire only when the
+        # first query landed — by then the agent had been making
+        # decisions on stale memory.  See dev_docs/00 §
+        # ISSUE-EMBEDDING-FALLBACK-DIM-MISMATCH-DESTROYS-DATA.
+        self.connect()
 
     @staticmethod
     def _load_fts_threshold() -> int:
@@ -152,11 +188,19 @@ class LanceDBStore:
 
     def _check_and_migrate_vector_dim(self) -> None:
         """Scan every table for a vector field whose ``list_size`` doesn't
-        match the current embedder's dimension. On mismatch, drop and
-        recreate the table — preserves nothing, but the alternative is
-        silent write failures forever.
+        match the current embedder's dimension.
 
-        Logs a clear warning so users know data was discarded.
+        On mismatch: REFUSE to start (raise ``EmbeddingDimMismatchError``).
+
+        Earlier versions silently dropped + recreated the table here, which
+        wiped user-curated memory rows whenever the embedding backend
+        flapped (e.g. API → local fallback with different dim).  See
+        ``dev_docs/00 § ISSUE-EMBEDDING-FALLBACK-DIM-MISMATCH-DESTROYS-DATA``
+        — the fix is to never destroy data implicitly.  Operator decides:
+        explicit migration, drop, or fix the embedder.
+
+        Set ``OLAV_ALLOW_DESTRUCTIVE_DIM_MIGRATION=1`` to opt in to the
+        old drop-and-recreate behaviour (debug only, NOT recommended).
         """
         if self._db is None:
             return
@@ -184,22 +228,37 @@ class LanceDBStore:
             if extracted:
                 table_names = extracted
                 break
+        import os
+        allow_destructive = os.environ.get(
+            "OLAV_ALLOW_DESTRUCTIVE_DIM_MIGRATION", ""
+        ).strip().lower() in {"1", "true", "yes"}
+
         for tname in table_names:
             try:
                 tbl = self._db.open_table(tname)
                 for field in tbl.schema:
                     if field.name == "vector" and hasattr(field.type, "list_size"):
                         if field.type.list_size != self._embedding_dim:
-                            logger.warning(
-                                "Embedding dim mismatch on table %r "
-                                "(stored=%d, embedder=%d). Dropping and "
-                                "recreating — existing rows will be lost. "
-                                "This usually means the embedding backend "
-                                "was switched (e.g. cloud → local Ollama).",
-                                tname, field.type.list_size, self._embedding_dim,
-                            )
-                            self._db.drop_table(tname)
+                            stored_dim = field.type.list_size
+                            if allow_destructive:
+                                logger.warning(
+                                    "Embedding dim mismatch on table %r "
+                                    "(stored=%d, embedder=%d).  "
+                                    "OLAV_ALLOW_DESTRUCTIVE_DIM_MIGRATION=1 — "
+                                    "dropping and recreating; existing rows "
+                                    "WILL BE LOST.",
+                                    tname, stored_dim, self._embedding_dim,
+                                )
+                                self._db.drop_table(tname)
+                            else:
+                                raise EmbeddingDimMismatchError(
+                                    table=tname,
+                                    stored_dim=stored_dim,
+                                    embedder_dim=self._embedding_dim,
+                                )
                         break
+            except EmbeddingDimMismatchError:
+                raise
             except Exception as exc:
                 logger.debug("dim-check skipped for %r: %s", tname, exc)
 
@@ -378,6 +437,26 @@ class LanceDBStore:
         Returns:
             Dict with status and message
         """
+        # Vector dim guard — refuse rather than write a malformed row.
+        # Earlier code paths trusted callers; a transient embedder
+        # fallback (api → local) could feed a wrong-dim vector, then
+        # _check_and_migrate_vector_dim would silently drop the table on
+        # next start.  Reject upfront — the caller decides how to recover.
+        if vector is not None and len(vector) != self._embedding_dim:
+            logger.warning(
+                "add_memory: rejecting wrong-dim vector for id=%r "
+                "(got %d, expected %d).  Caller should fix embedder.",
+                id, len(vector), self._embedding_dim,
+            )
+            return {
+                "status": "error",
+                "reason": (
+                    f"vector dim {len(vector)} != store embedding_dim "
+                    f"{self._embedding_dim}; refusing write to avoid "
+                    f"corrupting the table"
+                ),
+            }
+
         # Injection scan — reject hostile content before writing to memory
         is_clean, match = _scan_content(text)
         if not is_clean:
