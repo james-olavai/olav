@@ -1,10 +1,6 @@
 ---
 name: ops-analyze
-description: >
-  Network analysis + drift detection sub-agent. Routing analysis,
-  deterministic simulation, topology visualization, snapshot diff.
-  Reads production DB; runs Python sims via ``run_python_simulation``
-  and diff via four ``diff_*`` skill scripts. Does not access live devices.
+description: "Routing analysis + deterministic simulation + topology viz + snapshot drift. Reads DB only; no live device access."
 metadata:
   version: 1.0.0
   replaces: [ops-analysis v1.1.0, ops-diff v1.0.0]
@@ -33,8 +29,11 @@ allowed_tables:
   - netops.commands
   - schema_catalog
   - view_recipes
-static_context:
-  - path: ./references/ROUTING_EXPERT_GUIDE.md
+# ROUTING_EXPERT_GUIDE used to be on_intent here (~3.2K chars).
+# Removed from auto-load — agent calls `get_static_context` /
+# `read_file('references/ROUTING_EXPERT_GUIDE.md')` when actually
+# investigating BGP attributes.  See dev_docs/00 § ISSUE-CTX-PROMPT-INFLATION.
+# static_context: []
 static_context_mode: on_intent
 system: $ref:./prompts/system.md
 ---

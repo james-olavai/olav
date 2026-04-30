@@ -2,14 +2,15 @@
 name: ops-orchestrator
 description: "Operations orchestrator — network ops, service deployment, SQL queries, device CLI, snapshots"
 tools:
-  - execute_cli
-  - search_commands
-  - take_snapshot
-  - diff_configs
-  - record_network_event
-  - register_service
-  # R100/S5: syslog Parquet search — shared platform tool
-  - search_logs
+  # Orchestrator-direct tools — keep minimal (B-round slim 2026-04-30):
+  # delegate to sub-agents for everything else.
+  - execute_cli         # live CLI (orchestrator-direct for quick liveness)
+  - take_snapshot       # fresh capture (when DB stale)
+  - search_logs         # syslog Parquet (R100/S5 shared platform tool)
+  # Folded — invoke via olav_delegate or core/services agents:
+  #   register_service / record_network_event → services agent
+  #   search_commands → ops/collect when needed
+  #   diff_configs → ops-analyze owns it as skill script (R92.3)
 static_context:
   - path: ../core/references/REQUIRED_INFO_CHECK.md
 metadata:
@@ -31,18 +32,19 @@ metadata:
 
 | Task intent | Tool |
 |---|---|
-| Deploy / install service | `write_workspace_file` → `deploy_service` |
-| Ad-hoc docker / shell / logs | `run_shell` |
-| Register service API + generate tools | `register_service` |
 | Query network DB | `execute_sql` |
 | Live CLI on devices | `execute_cli` |
-| Find CLI commands by platform/keyword | `search_commands` |
+| Capture device state | `take_snapshot` |
+| Syslog search | `search_logs` |
 | KB document search | `search_knowledge_lancedb` |
 | Recall past decisions | `recall_memory` |
-| Persist network events | `record_network_event` |
-| Capture device state | `take_snapshot` |
-| Write markdown to exports/ | `format_and_export` |
+| Schema introspection | `describe_table('netops.<view>')` |
 | Web search | `web_search` |
+| Save markdown to exports/ | `format_and_export` |
+| Read existing file | `read_file` |
+| Service deploy / install | delegate via `olav_delegate` to services |
+| Register service API | delegate to services agent |
+| Find CLI cmd by platform/keyword | delegate to ops-collect |
 
 ## References (load on demand — do NOT preload)
 
