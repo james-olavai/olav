@@ -187,6 +187,36 @@ def materialize_graph(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# build_graph — convenience entry point (uses default store)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_graph(
+    similarity_threshold: float = 0.5,
+    max_similar_edges: int = 3,
+    table_name: str | None = None,
+) -> dict:
+    """Build the knowledge graph from the default store.
+
+    Convenience wrapper used by ``GET /memory/graph`` and other entry
+    points that don't need to manage a store handle themselves.  Resolves
+    the platform's default ``LanceDBStore`` via ``get_store()`` and
+    delegates to :func:`materialize_graph`.
+
+    Returns the same shape as ``materialize_graph``:
+    ``{"nodes": [...], "edges": [...], "entities": {tag: [id,...]}}``.
+    """
+    from olav.core.memory import get_store
+
+    store = get_store()
+    return materialize_graph(
+        store,
+        similarity_threshold=similarity_threshold,
+        max_similar_edges=max_similar_edges,
+        table_name=table_name,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # export_obsidian
 # ─────────────────────────────────────────────────────────────────────────────
 
