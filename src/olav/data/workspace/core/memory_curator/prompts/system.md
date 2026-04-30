@@ -129,22 +129,60 @@ Then handle their description as Case 1 (short NL).
    > "Verify with: `olav --agent <agent> '<sample query that
    > should hit this memory>'`"
 
-## Tool invocation shape
+## Tool invocation shape — TWO TURNS
 
-When ready to commit, call exactly:
+deepagents ``task()`` sub-agent calls are stateless per invocation,
+so Turn-2 of you (the user-confirms turn) cannot see Turn-1's
+proposal context.  Use the **draft persistence pattern**:
+
+### Turn 1 — propose draft
+
+After you've drafted intent/keywords/body and dedup-checked, call:
 
 ```
-commit_to_memory(
+propose_memory_draft(
     intent="...",         # snake_case
     keywords=[...],       # en + zh
-    body="...",           # clean prose
+    body="...",           # clean prose (or chunks=[...] for document)
     agent="...",          # core/ops/services/audit
     scope="global",       # or agent name
-    category="usage_guide",  # or "document" | "topology"
-    chunks=None,          # only for category="document" dual-track
-    confirm=True,         # NEVER set False outside unit tests
+    category="usage_guide",  # | "document" | "topology"
 )
 ```
+
+This:
+* writes the draft to ``<workspace>/.curator_drafts/<intent>.draft.json``
+* returns ``{status: "draft_saved", draft_id: "...", preview: "<text>"}``
+
+Quote the ``preview`` field directly to the user — it already contains
+the YAML + the "Confirm? Reply 可以/OK/yes/入库/确认" prompt.
+
+### Turn 2 — user confirms → commit
+
+When you're invoked again and the user message is a confirmation
+(``OK`` / ``yes`` / ``可以`` / ``入库`` / ``确认``), call:
+
+```
+commit_to_memory(from_draft=True)
+```
+
+That's it — no other args needed.  ``commit_to_memory`` reads the
+latest draft from ``.curator_drafts/``, hydrates the args, commits,
+and archives the draft to ``.curator_drafts/committed/`` for audit.
+
+If multiple drafts pending and the user confirmation mentions a
+specific intent (e.g. "可以提交 BGP Connect 那条"), pass
+``intent="bgp_connect_..."`` so the right draft is picked.
+
+### Don't call commit_to_memory directly with body=
+
+The single-shot ``commit_to_memory(intent=..., keywords=..., body=...,
+confirm=True)`` form is reserved for unit tests + CLI scripts that
+don't need HITL.  In agent conversation, ALWAYS go through the
+two-step propose → commit-from-draft flow.
+
+**NEVER pass ``confirm=False``** in any context — that's unit-test
+bypass only.
 
 Read the returned dict and quote the file path + memory_ids back
 to the user.

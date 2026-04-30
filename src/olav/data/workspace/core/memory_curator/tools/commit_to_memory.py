@@ -30,6 +30,7 @@ import hashlib
 import json
 import logging
 import sys
+import time
 from pathlib import Path
 
 import yaml
@@ -279,16 +280,67 @@ def _commit_topology(
     }
 
 
+def _drafts_dir() -> Path:
+    """Where curator drafts live (mirrors propose_memory_draft.py)."""
+    import os
+    if env := os.environ.get("OLAV_WORKSPACE_ROOT"):
+        ws = Path(env)
+    else:
+        cwd_workspace = Path.cwd() / ".olav" / "workspace"
+        ws = cwd_workspace if cwd_workspace.exists() else _find_project_root() / "src" / "olav" / "data" / "workspace"
+    d = ws / ".curator_drafts"
+    return d
+
+
+def _load_draft(intent: str | None) -> dict | None:
+    """Load a draft by intent, or pick the latest if intent not given.
+
+    Returns None if no draft found.  Used by ``commit_to_memory`` when
+    ``from_draft=True`` — Turn-2 of the multi-turn HITL flow can't see
+    Turn-1's proposal context, so it reads the persisted draft.
+    """
+    drafts = _drafts_dir()
+    if not drafts.exists():
+        return None
+    candidates = list(drafts.glob("*.draft.json"))
+    if not candidates:
+        return None
+    if intent:
+        path = drafts / f"{intent}.draft.json"
+        if not path.exists():
+            return None
+    else:
+        # latest by mtime
+        path = max(candidates, key=lambda p: p.stat().st_mtime)
+    try:
+        return json.loads(path.read_text(encoding="utf-8")) | {"_path": str(path)}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("commit_to_memory: failed to load draft %s: %s", path, exc)
+        return None
+
+
+def _archive_draft(draft_path: str) -> None:
+    """Move a committed draft to .curator_drafts/committed/ for audit."""
+    p = Path(draft_path)
+    if not p.exists():
+        return
+    archive = p.parent / "committed"
+    archive.mkdir(parents=True, exist_ok=True)
+    target = archive / f"{p.stem}_{int(time.time())}.json"
+    p.rename(target)
+
+
 @tool
 def commit_to_memory(
-    intent: str,
-    keywords: list[str],
+    intent: str = "",
+    keywords: list[str] | None = None,
     body: str = "",
     agent: str = "core",
     scope: str = "global",
     category: str = "usage_guide",
     chunks: list[str] | None = None,
     confirm: bool = True,
+    from_draft: bool = False,
 ) -> dict:
     """Commit a curated memory entry to the unified LanceDB store.
 
@@ -330,6 +382,33 @@ def commit_to_memory(
             "this MUST NOT happen in production conversations."
         )
 
+    # ── from_draft mode ────────────────────────────────────────────────
+    # Turn-2 of multi-turn HITL: user said "可以/yes/入库", agent reads
+    # the draft from .curator_drafts/ and seals it.  The agent does NOT
+    # need to remember the original args — they're in the draft file.
+    draft_path: str | None = None
+    if from_draft:
+        draft = _load_draft(intent if intent else None)
+        if draft is None:
+            return {
+                "status": "error",
+                "message": (
+                    "from_draft=True but no draft found in "
+                    ".curator_drafts/.  Run propose_memory_draft(...) first "
+                    "OR provide intent / keywords / body inline."
+                ),
+            }
+        # Hydrate args from draft (caller-supplied args take precedence)
+        intent = intent or draft["intent"]
+        keywords = keywords or draft.get("keywords", [])
+        body = body or draft.get("body", "")
+        agent = agent if agent != "core" else draft.get("agent", "core")
+        scope = scope if scope != "global" else draft.get("scope", "global")
+        category = category if category != "usage_guide" else draft.get("category", "usage_guide")
+        chunks = chunks or draft.get("chunks")
+        draft_path = draft.get("_path")
+        logger.info("commit_to_memory: hydrated from draft %s", draft_path)
+
     if not intent or not isinstance(intent, str):
         return {"status": "error", "message": "intent (snake_case str) is required"}
     if not keywords or not isinstance(keywords, list):
@@ -353,27 +432,41 @@ def commit_to_memory(
                 "status": "error",
                 "message": "category='document' requires a non-empty chunks list",
             }
-        return _commit_document_chunks(
+        result = _commit_document_chunks(
             intent=intent, keywords=keywords, chunks=chunks,
             agent=agent, scope=scope,
         )
-
-    if not body or not isinstance(body, str):
-        return {
-            "status": "error",
-            "message": f"category={category!r} requires a non-empty body string",
-        }
-
-    if category == "usage_guide":
-        return _commit_usage_guide(
+    elif category == "usage_guide":
+        if not body or not isinstance(body, str):
+            return {
+                "status": "error",
+                "message": f"category={category!r} requires a non-empty body string",
+            }
+        result = _commit_usage_guide(
             intent=intent, keywords=keywords, body=body,
             agent=agent, scope=scope,
         )
-    # category == "topology"
-    return _commit_topology(
-        intent=intent, keywords=keywords, body=body,
-        agent=agent, scope=scope,
-    )
+    elif category == "topology":
+        if not body or not isinstance(body, str):
+            return {
+                "status": "error",
+                "message": f"category={category!r} requires a non-empty body string",
+            }
+        result = _commit_topology(
+            intent=intent, keywords=keywords, body=body,
+            agent=agent, scope=scope,
+        )
+    else:
+        return {"status": "error", "message": f"unhandled category: {category}"}
+
+    # Archive the consumed draft (audit trail for "who confirmed what when")
+    if draft_path and result.get("status") == "success":
+        try:
+            _archive_draft(draft_path)
+            result["draft_archived"] = True
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("draft archive failed: %s", exc)
+    return result
 
 
 if __name__ == "__main__":
