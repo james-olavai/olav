@@ -8,6 +8,14 @@ tools:
   - diff_configs
   - record_network_event
   - register_service
+  # R100/S5 (dev_docs/69): syslog Parquet search.  ops investigations
+  # routinely need "what does live syslog say about R1?" or "any
+  # critical messages from BGP in the last hour?" — the platform
+  # syslog receiver writes to .olav/databases/logs/ and search_logs
+  # queries that store with severity / host / time-window filters.
+  # Source: src/olav/data/workspace/core/tools/search_logs.py
+  # (shared platform tool — same path used by core orchestrator).
+  - search_logs
 static_context:
   - path: ../core/references/REQUIRED_INFO_CHECK.md
 metadata:
