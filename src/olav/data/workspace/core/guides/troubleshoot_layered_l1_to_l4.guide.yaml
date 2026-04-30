@@ -50,158 +50,33 @@ keywords:
   - 接口
   - 物理
 body: |
-  Layered troubleshooting — go bottom-up before you go protocol-deep.
+  Layered troubleshooting — go bottom-up.  Don't dive into BGP /
+  OSPF attributes until L1-L4 are clean.
 
-  Whenever a protocol session is misbehaving (BGP `Idle`/`Active`,
-  OSPF stuck in `2-WAY`, BFD `Down`, LDP not establishing, etc.),
-  the root cause is usually at a LOWER layer than the protocol
-  itself.  Walk the OSI stack from the bottom — each layer up
-  *depends* on the one below.  Don't dive into BGP attribute
-  analysis if `ge-0/0/0` is `down`.
+  3-step checklist on any "session won't come up":
+    1. L1 — interface up?  ``execute_sql FROM netops.v_show_interfaces_terse_auto`` or ``v_show_ip_interface_brief_auto``
+    2. L3 — reach peer IP?  ``execute_cli ping <peer> source <local>``
+    3. L4 — TCP/UDP forming?  ``execute_cli show system connections`` (Junos) / ``show tcp brief`` (IOS)
+  Only if all 3 pass → protocol attribute analysis.
 
-  This guide is intentionally protocol-agnostic.  Use the same
-  layered loop for any session that "won't come up."
+  State-to-layer map (jump straight to the most-likely layer):
 
-  ──────────────────────────────────────────────────────────────
-  L1 — Physical / Optical (the link itself)
-
-  Look first.  An L1 problem cascades up and breaks everything
-  built on it.
-
-  Symptoms:
-    * Interface admin/link/proto = `down/down`
-    * `Last flap`/`Last change` < session age — recent toggle
-    * Optical RX power abnormally low / high (DOM / DDM)
-    * CRC / FCS / runts / giants counters climbing
-    * Port LED off / amber on the device
-
-  Tools / queries:
-    * Junos: `show interfaces terse <iface>` /
-             `show interfaces extensive <iface>` /
-             `show interfaces diagnostics optics <iface>`
-    * IOS:   `show interfaces <iface>` /
-             `show interfaces transceiver detail`
-    * In OLAV:
-        - `take_snapshot(devices=["<host>"], commands=["show interfaces terse"])`
-        - `search_logs(host="<host>", query="link", hours=2)`
-          → look for `IFL ifd ... down`, `link state changed`, `LOSS_OF_LIGHT`
-
-  If L1 is broken, fix it (or wait for the cable/transceiver/
-  optic) — every higher layer is a downstream symptom.
-
-  ──────────────────────────────────────────────────────────────
-  L2 — Data Link (VLAN, STP, MAC, ARP, MTU)
-
-  Even with link up, framing can be wrong.
-
-  Symptoms:
-    * Interface up but ARP table missing the peer's MAC
-    * STP blocking the port (root-bridge change, BPDU guard)
-    * Native-VLAN mismatch (CDP/LLDP NATIVE_VLAN_MISMATCH)
-    * MAC flapping between ports
-    * MTU mismatch (peer drops large packets, control plane works
-      but data plane fails)
-    * LACP / port-channel one-leg-down, no agreement
-
-  Tools / queries:
-    * Junos: `show ethernet-switching table | match <mac>` /
-             `show lldp neighbors <iface>` /
-             `show interfaces <iface> media`
-    * IOS:   `show mac address-table dynamic interface <iface>` /
-             `show cdp neighbors <iface>` / `show vlan brief`
-    * In OLAV:
-        - `execute_sql` against `netops.v_l2_links_auto` to confirm
-          the topology view sees the link
-        - `search_logs(query="STP", hours=4)` /
-          `search_logs(query="MTU", hours=4)`
-
-  ──────────────────────────────────────────────────────────────
-  L3 — Network (IP, routing, MTU path, ACL)
-
-  L1+L2 fine but the peer's IP is unreachable.
-
-  Symptoms:
-    * `ping <peer-ip>` fails or has loss
-    * Route to peer missing or via unexpected next-hop
-    * Path MTU lower than session's MTU (TCP MSS clamping needed)
-    * ACL/firewall on path drops the relevant protocol/port
-    * VRF / routing-instance mismatch
-
-  Tools / queries:
-    * Junos: `show route <peer-ip>` / `ping <peer-ip> source <local>` /
-             `traceroute <peer-ip>`
-    * IOS:   `show ip route <peer-ip>` / `ping <peer-ip>` /
-             `traceroute <peer-ip>`
-    * In OLAV:
-        - `execute_sql FROM netops.v_show_ip_route_auto WHERE ...`
-        - `execute_cli` for fresh `ping` / `traceroute`
-        - `search_logs(query="acl", host="<host>", hours=2)` if you
-          suspect ACL deny
-
-  Common L3-but-looks-like-protocol failure: peer IP wrong in
-  config (e.g. neighbour 10.1.12.99 instead of 10.1.12.2) → BGP
-  goes `Active` retrying TCP, but the issue is L3 reachability.
-
-  ──────────────────────────────────────────────────────────────
-  L4 — Transport (TCP/UDP, ports, MD5/auth)
-
-  L3 reach OK but the TCP/UDP session won't form.
-
-  Symptoms:
-    * BGP stuck `Active` or `Connect` (TCP 179 not establishing)
-    * BFD packets lost (UDP)
-    * Auth/MD5 mismatch (Junos says `bad authentication`)
-    * Port already used by another session
-    * Stateful firewall dropping new SYN
-
-  Tools / queries:
-    * Junos: `show system connections | match :179` /
-             `show route protocol bgp received-prefix-count`
-    * IOS:   `show tcp brief | include 179` /
-             `show ip bgp neighbors <peer> | include Last reset reason`
-    * In OLAV:
-        - `execute_cli` to capture `Last reset reason` from BGP
-        - `search_logs(query="auth", host="<host>", hours=2)` if you
-          suspect MD5 mismatch
-
-  ──────────────────────────────────────────────────────────────
-  L7 — Protocol-specific (BGP/OSPF/etc.) — last, not first
-
-  Only descend into protocol attributes once L1-L4 are clean.
-
-  Symptoms:
-    * BGP: AS mismatch, hold-time, capability mismatch, RIB-out
-      filter dropping prefixes
-    * OSPF: area mismatch, hello/dead-timer mismatch, MTU on
-      neighbour command
-    * BFD: detect-multiplier / interval mismatch
-
-  Reference: `ROUTING_EXPERT_GUIDE.md` (in ops/analyze/references)
-  has the BGP state machine + path-selection algorithm.
-
-  ──────────────────────────────────────────────────────────────
-  Diagnostic checklist (3-line summary)
-
-    1. Interface up?       L1 — `show interfaces terse <iface>`
-    2. Reach peer IP?      L3 — `ping <peer-ip> source <local>`
-    3. TCP/UDP forming?    L4 — `show system connections`
-                                or session-specific `Last reset reason`
-    Only if all 3 pass: protocol-layer attribute analysis.
-
-  ──────────────────────────────────────────────────────────────
-  State-to-layer map for common protocols
-
-  | Protocol state | Most-likely layer | First check |
+  | State | Likely layer | First check |
   |---|---|---|
-  | BGP `Idle`     | L1 / L3 reachability | `show interfaces terse`, `ping peer` |
-  | BGP `Active`   | L3 (peer-IP wrong / route absent / ACL) | `show route <peer>`, syslog `acl` |
-  | BGP `Connect`  | L4 (TCP 179 not completing) | `show system connections \| match :179` |
-  | BGP `OpenSent` | L7 (AS mismatch / hold-time / MD5) | `show ip bgp neighbors \| include reset` |
-  | OSPF `Init`    | L3 hello received but reply not | OSPF area / network-type / MTU |
-  | OSPF `2-WAY`   | L7 DR/BDR (multi-access expected) | normal for non-DR/BDR |
-  | OSPF `ExStart` | L3 MTU mismatch | `show interfaces \| match mtu` |
-  | LDP no session | L4 TCP 646 / hello UDP 646 | check ACL / hello sent |
-  | BFD `Down`     | L1/L2 link or asymmetric routing | check both endpoints' interface |
+  | BGP ``Idle``     | L1 / L3 | interface up + ping peer |
+  | BGP ``Active``   | L3 (wrong peer-IP / no route / ACL) | ``show route <peer>``, syslog ``acl`` |
+  | BGP ``Connect``  | L4 (TCP 179 not completing) | ``show system connections | match :179`` |
+  | BGP ``OpenSent`` | L7 (AS / hold-time / MD5) | ``show ip bgp neighbors | include reset`` |
+  | OSPF ``Init``    | L3 hello rcv, reply not | area / network-type / MTU |
+  | OSPF ``ExStart`` | L3 MTU mismatch | ``show interfaces | match mtu`` |
+  | OSPF ``2-WAY``   | L7 expected (non-DR/BDR) | normal |
+  | LDP no session   | L4 TCP/UDP 646 | check ACL / hello sent |
+  | BFD ``Down``     | L1/L2 / asymmetric routing | check both endpoints |
 
-  When you see a "stuck" state, jump straight to the most-likely
-  layer for that protocol's state — don't stay on L7.
+  Useful OLAV moves per layer:
+    L1: ``search_logs(host=X, query="link", hours=2)`` for ``LOSS_OF_LIGHT`` / ``link state changed``
+    L2: ``execute_sql netops.v_l2_links_auto``; ``search_logs query="STP|MTU"``
+    L3: ``execute_sql netops.v_show_ip_route_auto``; ``search_logs query="acl"``
+    L4: ``execute_cli`` for fresh ``Last reset reason`` / ``show system connections``
+    L7: see ``bgp_path_selection_and_state_machine`` guide; full BGP detail
+        in ``ops/analyze/references/ROUTING_EXPERT_GUIDE.md``.
