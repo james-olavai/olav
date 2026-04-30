@@ -14,7 +14,8 @@ tools:
   # (inherited from core/tools/):
   #   skill_name="auditor", script_name=
   #     {database_introspection.py, test_map_query.py,
-  #      read_profile.py, analyze_thresholds.py}
+  #      read_profile.py, analyze_thresholds.py,
+  #      list_profiles.py}    ← Ch9 fix 2026-05-01: enumerate profiles
 references:
   - path: ./references/PROFILE_AUTHORING.md
 ---
@@ -66,6 +67,18 @@ produce a complete Markdown health report in **exactly two tool calls**.
 * ALWAYS run Step 3 + Step 4 — final report must be pure Markdown,
   never a Python repr or JSON string
 * Step 4: output Executive Summary content, not just the path
+
+## Listing available profiles
+
+When user asks "list profiles" / "what profiles are available" / "show
+audit profiles" — call the ``list_profiles.py`` skill script:
+
+```
+execute_skill_script(skill_name="auditor", script_name="list_profiles.py")
+```
+
+Returns ``{count, profiles: [{name, filename, title, size_bytes}]}``.
+Render as a markdown table for the user.
 
 ## Profile Authoring Mode
 
