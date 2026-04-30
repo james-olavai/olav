@@ -6,10 +6,7 @@ lab, ent, …) that wants to ship procedural guides drops files under
 ``<workspace>/<agent>/guides/`` — they're discovered by ``rglob`` here
 and primed into the ``usage_guide`` memory category.
 
-This module replaces the per-skill plumbing in
-``olav-netops/src/olav_netops/core/usage_guide.py`` and
-``olav-netops/src/olav_netops/core/memory_primer.py:prime_usage_guides``.
-The contract is preserved bit-for-bit:
+Contract:
 
 * Memory ID:          ``guide_<agent>_<intent>`` (idempotent upsert)
 * Category:           ``usage_guide``
@@ -19,8 +16,10 @@ The contract is preserved bit-for-bit:
 * Origin:             ``config``
 * Confidence:         ``1.0``
 
-User-facing surface: ``olav kb import-guides <dir>`` — see
-``src/olav/cli/commands/kb.py:cmd_import_guides``.
+User-facing surfaces:
+* ``olav kb import-guides <dir>`` (declarative — see
+  ``src/olav/cli/commands/kb.py:cmd_import_guides``)
+* ``memory_curator`` sub-agent (conversational — R102, dev_docs/70)
 
 YAML schema (one guide per file)::
 

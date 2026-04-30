@@ -1,0 +1,81 @@
+schema_version: 1
+intent: memory_ingestion_routing_to_memory_curator
+agent: core
+keywords:
+  # English
+  - remember
+  - memorize
+  - memory
+  - knowledge base
+  - kb
+  - runbook
+  - sop
+  - ingest
+  - ingestion
+  - teach
+  - learn
+  - save knowledge
+  - add to memory
+  - file to memory
+  - file→memory
+  - usage guide
+  - guide
+  - convention
+  - rule
+  - team rule
+  - operational wisdom
+  # Chinese
+  - 记忆
+  - 记住
+  - 教
+  - 学
+  - 加进记忆
+  - 入库
+  - 加入知识
+  - 添加规则
+  - 团队规则
+  - 规则
+  - 规范
+  - 约定
+  - 守则
+  - 知识库
+  - 把这条记下来
+  - 把...入库
+body: |
+  Routing — when user wants to teach OLAV something, delegate to
+  memory_curator (R102, dev_docs/70).
+
+  This is the conversational ingestion path.  It complements:
+    * `olav kb import-guides` (declarative YAML, version-controlled)
+    * `OperationalEventCapturePlugin` (L1, automatic capture of
+      successful tool calls)
+
+  Memory_curator handles four input shapes:
+    1. Short natural-language rule (≤ 500 tokens) → one usage_guide
+    2. File path (long doc) → dual-track: 1× summary usage_guide
+       + N× document chunks
+    3. Mermaid / DOT / SVG-XML pasted in chat → topology category
+    4. Image / PNG → roadmap message (R100 Tier 2, dev_docs/68)
+
+  Trigger the route when the user's message includes any of:
+    * "remember that ..." / "记住 ..." / "记一下"
+    * "add this to memory / KB / knowledge base"
+    * "save this rule" / "教 OLAV 这个" / "学一下"
+    * "ingest this runbook / SOP" / "把 ... 加进记忆"
+    * a file path explicitly meant to be ingested (`/path/to/x.md`)
+    * pasted Mermaid / DOT / SVG (long unprompted topology source)
+
+  Do NOT route to memory_curator for:
+    * `recall_memory` queries — that's READING memory, not writing
+    * `execute_sql` / `search_logs` — these are operational reads
+    * the user just chatting about a rule (no save intent)
+
+  Worked example flow (NetBox sync rules):
+
+    User: 帮我加一条记忆 — NetBox sync 时 tenant 永远是 acme-network-ops
+    Core: 🔧 olav_delegate(subagent_name='memory_curator', ...)
+    memory_curator: 🔧 recall_memory(query='netbox sync tenant')
+    memory_curator → user: <proposed YAML preview, await confirmation>
+    User: y
+    memory_curator: 🔧 commit_to_memory(intent='netbox_device_sync_team_acme', ...)
+    memory_curator → user: ✓ Stored.  Test with: olav --agent services "Sync R1"

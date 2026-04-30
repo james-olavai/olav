@@ -1,9 +1,9 @@
-"""Phase 1 (dev_docs/61): UsageGuide YAML loader contract.
+"""UsageGuide YAML loader contract.
 
 Pin the schema parsing + glob discovery so future changes don't
-silently break ``prime_usage_guides``.  Mirrors
-``test_autorecall_diversifier.py`` style — focused unit tests, no
-external dependencies (no LanceDB, no embedding).
+silently break the upsert path.  Focused unit tests — no external
+dependencies (no LanceDB, no embedding).  The in-LanceDB upsert path
+is covered by ``tests/unit/test_guide_kb.py``.
 """
 
 from __future__ import annotations
@@ -13,10 +13,6 @@ from pathlib import Path
 import pytest
 
 
-# Platform-side guide schema lives in olav.core.memory.guide_kb after
-# the R84 platform-KB refactor (dev_docs/62).  This test pins
-# UsageGuide / discover_guides; the in-LanceDB upsert path is covered
-# separately by tests/unit/test_guide_kb.py.
 pytest.importorskip("olav.core.memory.guide_kb")
 
 
