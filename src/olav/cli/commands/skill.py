@@ -253,6 +253,26 @@ class SkillCommand(BaseCommand):
         if warnings:
             warn_str = "\n  ⚠ " + "\n  ⚠ ".join(warnings)
 
+        # Prime the newly-installed skill's *.guide.yaml files into LanceDB
+        # so AutoRecall surfaces them without needing a separate
+        # ``olav kb import-guides`` run.  Whole workspace_root is scanned
+        # (idempotent on memory_id), so re-installs and previously-primed
+        # core/services guides stay consistent.
+        # See dev_docs/00 § ISSUE-WORKSPACE-GUIDES-NOT-AUTO-PRIMED-AT-INIT.
+        try:
+            from olav.core.memory.guide_kb import prime_workspace_guides
+
+            # allow_dim_swap=True: skill install is a legitimate context
+            # for embedder-dim changes — user just re-configured api.json
+            # between `olav init` (BGE-512 default) and now, so the
+            # platform guides primed at init are derivative and re-primable.
+            guides_msg = prime_workspace_guides(
+                workspace_root, allow_dim_swap=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("prime_workspace_guides failed: %s", exc)
+            guides_msg = f"⚠ guides not primed ({exc})"
+
         # Rebuild global agent registry so routing table reflects the new agent(s)
         try:
             from olav.cli.commands.refresh import refresh_workspace
@@ -275,10 +295,15 @@ class SkillCommand(BaseCommand):
             names_str = ", ".join(installed_names)
             return (
                 f"installed {decl.name} v{decl.version} "
-                f"({len(installed_names)} workspaces: {names_str})"
+                f"({len(installed_names)} workspaces: {names_str})\n"
+                f"  {guides_msg}"
                 f"{warn_str}"
             )
-        return f"installed {decl.name} v{decl.version} → .olav/workspace/{decl.name}/{warn_str}"
+        return (
+            f"installed {decl.name} v{decl.version} → "
+            f".olav/workspace/{decl.name}/\n"
+            f"  {guides_msg}{warn_str}"
+        )
 
     # ── list / status ───────────────────────────────────────────────────────
 

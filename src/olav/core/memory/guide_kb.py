@@ -146,8 +146,13 @@ def prime_guides_from_dir(
     """
     if store is None:
         try:
-            from olav.core.memory import get_store
+            from olav.core.memory import EmbeddingDimMismatchError, get_store
             store = get_store()
+        except EmbeddingDimMismatchError:
+            # Let the caller (prime_workspace_guides) decide whether the
+            # dim mismatch is recoverable (skill-install dim swap) or
+            # must surface (init / kb import-guides without --force).
+            raise
         except Exception as exc:  # noqa: BLE001
             logger.info("guide_kb: store unavailable, skipping: %s", exc)
             return {"guide_entries": 0, "skipped": -1}
@@ -212,4 +217,87 @@ def prime_guides_from_dir(
     return {"guide_entries": count, "skipped": skipped}
 
 
-__all__ = ["UsageGuide", "discover_guides", "prime_guides_from_dir"]
+def prime_workspace_guides(
+    workspace_root: Path | str,
+    *,
+    allow_dim_swap: bool = False,
+) -> str:
+    """Prime every ``*.guide.yaml`` under ``workspace_root`` and return
+    a one-line human-readable status string.
+
+    Thin wrapper around :func:`prime_guides_from_dir` with exception
+    swallowing — designed for ``olav init`` and ``olav agent install``
+    so a memory backend hiccup (LanceDB lock, embedder timeout) doesn't
+    break workspace deployment.  The guides remain on disk; user can
+    re-run ``olav kb import-guides`` to retry.
+
+    ``allow_dim_swap=True`` (skill install path): if the existing
+    memory table's vector dim doesn't match the embedder, drop +
+    recreate it.  Legitimate when re-priming derivative platform
+    guides after user changed the embedder config; would be unsafe if
+    the table held user-curated rows, but at skill-install time only
+    fresh-platform guides exist.
+
+    ``allow_dim_swap=False`` (init path, default): dim mismatch
+    surfaces as ``⚠ guides not primed (...)`` — operator must run
+    ``olav kb import-guides`` manually after fixing config.
+
+    Returns a status line like ``✓ guides primed: 12`` ready for
+    printing.
+    """
+    import os
+
+    def _run() -> dict:
+        return prime_guides_from_dir(Path(workspace_root))
+
+    try:
+        result = _run()
+    except Exception as exc:  # noqa: BLE001
+        # Catch the dim-mismatch error from LanceDBStore.__init__ and
+        # retry with the destructive opt-in env var when caller allows.
+        cls_name = type(exc).__name__
+        if allow_dim_swap and cls_name == "EmbeddingDimMismatchError":
+            logger.info(
+                "prime_workspace_guides: dim swap detected (%s); "
+                "dropping memory table and re-priming", exc,
+            )
+            prev = os.environ.get("OLAV_ALLOW_DESTRUCTIVE_DIM_MIGRATION")
+            os.environ["OLAV_ALLOW_DESTRUCTIVE_DIM_MIGRATION"] = "1"
+            # Reset the cached store singleton so it picks up the new
+            # dim on next get_store() call.
+            try:
+                from olav.core.memory import reset_store
+                reset_store()
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                result = _run()
+                n = result.get("guide_entries", 0)
+                k = result.get("skipped", 0)
+                return (
+                    f"✓ guides primed: {n} (memory table re-created "
+                    f"after embedder dim change)"
+                )
+            finally:
+                if prev is None:
+                    os.environ.pop("OLAV_ALLOW_DESTRUCTIVE_DIM_MIGRATION", None)
+                else:
+                    os.environ["OLAV_ALLOW_DESTRUCTIVE_DIM_MIGRATION"] = prev
+        logger.warning("prime_workspace_guides failed: %s", exc)
+        return f"⚠ guides not primed ({exc})"
+
+    n = result.get("guide_entries", 0)
+    k = result.get("skipped", 0)
+    if n == 0 and k == 0:
+        return "✓ guides primed: 0 (no *.guide.yaml found)"
+    if k > 0:
+        return f"✓ guides primed: {n} ({k} skipped)"
+    return f"✓ guides primed: {n}"
+
+
+__all__ = [
+    "UsageGuide",
+    "discover_guides",
+    "prime_guides_from_dir",
+    "prime_workspace_guides",
+]

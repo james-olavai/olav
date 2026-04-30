@@ -23,6 +23,7 @@ import pwd
 from pathlib import Path
 
 from olav.cli.commands.base import BaseCommand
+from olav.core.memory.guide_kb import prime_workspace_guides
 
 _SERVICES_YAML_TEMPLATE = """\
 # services.yaml — External service registry
@@ -139,6 +140,14 @@ class InitCommand(BaseCommand):
         # Pre-warm semantic router + LanceDB memory table to eliminate first-query penalty
         index_status = self._warmup_indexes()
 
+        # Prime every ``*.guide.yaml`` under the just-deployed workspace into
+        # LanceDB ``usage_guide`` memory rows so AutoRecall surfaces them on
+        # the first agent call.  Without this, core's routing / format /
+        # diagnostic guides only land in memory after a separate
+        # ``olav kb import-guides`` or as a side-effect of ``/netops_init``.
+        # See dev_docs/00 § ISSUE-WORKSPACE-GUIDES-NOT-AUTO-PRIMED-AT-INIT.
+        guides_status = prime_workspace_guides(base_dir / "workspace")
+
         # LLM connectivity check
         llm_status = await self._check_llm()
 
@@ -160,6 +169,7 @@ class InitCommand(BaseCommand):
             f"workspace: {core_status}\n"
             f"embedder: {embedder_status}\n"
             f"indexes: {index_status}\n"
+            f"guides: {guides_status}\n"
             f"auth: {user_status}\n"
             f"registry: {refresh_status}"
         )
