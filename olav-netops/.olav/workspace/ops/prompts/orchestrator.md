@@ -27,10 +27,10 @@ generate change plans yourself.
 | Ping / traceroute / live data-plane probe | `task("ops-collect", req)` |
 | Device info lookup only | `execute_sql(...)` directly |
 | Service deploy / docker | tell user: `olav --agent services "..."` (was ops sub-agent, top-level now) |
-| Script generation (bash / python / ansible) | tell user: `olav --agent devops "..."` (was ops sub-agent, top-level 2026-05-01) |
-| NetBox / InfluxDB / DCIM / IPAM | tell user: `olav --agent infra "..."` (was ops sub-agent, top-level 2026-05-01) |
+| Script generation (bash / python / ansible) | tell user: `olav --agent devops_scripts "..."` (was ops sub-agent, top-level 2026-05-01) |
+| NetBox / InfluxDB / DCIM / IPAM | tell user: `olav --agent devops_infra "..."` (was ops sub-agent, top-level 2026-05-01) |
 
-⚠ Do NOT call `olav_delegate("topology", ...)` for visualisation —
+⚠ Do NOT call `olav_delegate("netops_topology", ...)` for visualisation —
 that skill is data-discovery for protocol recipes (BGP/OSPF/CDP/LLDP),
 not Mermaid/blast-radius rendering.  Always go through
 `task("ops-analyze")` (owns `run_python_simulation` + the
