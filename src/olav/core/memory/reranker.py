@@ -171,29 +171,31 @@ class OllamaEmbeddingReranker(Reranker):
 
 
 class LlamaCppReranker(Reranker):
-    """Rerank via llama.cpp's native ``--reranking`` server endpoint.
+    """Rerank via an OpenAI-compat ``/rerank`` endpoint.
 
-    Unlike :class:`OllamaEmbeddingReranker` (which abuses the embedding
-    endpoint as a bi-encoder ensemble — Ollama doesn't expose the
-    cross-encoder rerank head), this reranker hits ``llama-server``
-    started with ``--reranking`` flag, which preserves the BERT-class
-    rerank head end-to-end and returns true cross-encoder relevance
-    floats.
+    Originally designed for llama.cpp's native ``--reranking`` server
+    (which preserves the BERT-class cross-encoder rerank head and returns
+    true relevance floats), the same body shape is now implemented by
+    OpenRouter, Cohere v2, Together, and other cloud providers — so the
+    same class drives both deployments.
 
     Endpoint: ``POST {base_url}/rerank`` with body
-    ``{"query": str, "documents": [str, ...]}``.  Response:
+    ``{"query": str, "documents": [str, ...], "model"?: str}``.  Response:
     ``{"results": [{"index": int, "relevance_score": float}, ...]}``.
 
-    This is the ONLY local-OSS path that delivers real cross-encoder
-    rerank semantics — see ``dev_docs/67`` for the long story of why
-    Ollama-served bge-reranker / Qwen3-Reranker fail and why this
-    works.
-
     Args:
-        base_url: llama-server base URL, e.g.
-            ``"http://192.168.100.12:11433"`` (no ``/v1`` suffix; the
-            ``/rerank`` endpoint is server-native, not OpenAI-compat).
-            REQUIRED — no default; this server is deployment-specific.
+        base_url: Server base URL.  For local llama-server use
+            ``"http://192.168.100.12:11433"`` (no ``/v1``; ``/rerank``
+            is server-native).  For OpenRouter use
+            ``"https://openrouter.ai/api/v1"`` (``/rerank`` is appended
+            so the path becomes ``/api/v1/rerank``).
+            REQUIRED — no default; deployment-specific.
+        model: Optional model id (e.g. ``"cohere/rerank-4-fast"``).
+            Required by cloud providers, omitted for local single-model
+            llama-server.  When set, sent as ``model`` in body.
+        api_key: Optional bearer token.  Sent as
+            ``Authorization: Bearer <key>``.  Required by cloud
+            providers; local llama-server ignores it.
         column: Name of the text column in candidate rows.
         timeout: HTTP timeout for the rerank batch call.
         return_score: Per LanceDB convention.
@@ -205,20 +207,25 @@ class LlamaCppReranker(Reranker):
         column: str = "text",
         timeout: float = 30.0,
         return_score: str = "relevance",
+        model: str | None = None,
+        api_key: str | None = None,
     ):
-        # Strict (R99/S2): base_url required.  Default 'localhost:11433'
-        # is wrong for typical OLAV deployments where the GPU host is a
-        # separate box.
         super().__init__(return_score=return_score)
         self.base_url = base_url.rstrip("/")
         self.column = column
         self._timeout = timeout
         self._http = None
+        self._model = model
+        self._api_key = api_key
 
     def _get_http(self):
         if self._http is None:
             import httpx
-            self._http = httpx.Client(timeout=self._timeout)
+            headers = (
+                {"Authorization": f"Bearer {self._api_key}"}
+                if self._api_key else None
+            )
+            self._http = httpx.Client(timeout=self._timeout, headers=headers)
         return self._http
 
     def _score_table(self, query: str, table: pa.Table) -> pa.Table:
@@ -236,13 +243,14 @@ class LlamaCppReranker(Reranker):
         texts = [str(t) if t is not None else "" for t in
                  table.column(self.column).to_pylist()]
         try:
+            payload: dict = {"query": query, "documents": texts}
+            if self._model:
+                payload["model"] = self._model
             resp = self._get_http().post(
-                f"{self.base_url}/rerank",
-                json={"query": query, "documents": texts},
+                f"{self.base_url}/rerank", json=payload,
             )
             resp.raise_for_status()
             results = resp.json().get("results", [])
-            # Build aligned score array — index i carries doc texts[i] score
             score_by_idx = {r["index"]: float(r["relevance_score"])
                             for r in results}
             scores = [score_by_idx.get(i, float("nan"))
