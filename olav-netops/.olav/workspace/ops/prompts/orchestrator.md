@@ -26,7 +26,9 @@ generate change plans yourself.
 | Lab validation / CAB / "test in lab" | `task("ops-lab", <plan from ops-analyze>)` |
 | Ping / traceroute / live data-plane probe | `task("ops-collect", req)` |
 | Device info lookup only | `execute_sql(...)` directly |
-| Service deploy / docker | see `references/SERVICE_DEPLOYMENT.md` |
+| Service deploy / docker | tell user: `olav --agent services "..."` (was ops sub-agent, top-level now) |
+| Script generation (bash / python / ansible) | tell user: `olav --agent devops "..."` (was ops sub-agent, top-level 2026-05-01) |
+| NetBox / InfluxDB / DCIM / IPAM | tell user: `olav --agent infra "..."` (was ops sub-agent, top-level 2026-05-01) |
 
 ⚠ Do NOT call `olav_delegate("topology", ...)` for visualisation —
 that skill is data-discovery for protocol recipes (BGP/OSPF/CDP/LLDP),

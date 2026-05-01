@@ -16,11 +16,10 @@ subagents:
   - path: ./analyze/SKILL.md
   - path: ./collect/SKILL.md
   - path: ./lab/SKILL.md
-  - path: ./devops/SKILL.md
-  - path: ./infra/SKILL.md
-  # Cross-workspace platform sub-agent — owns format_and_export for
-  # save / visualization paths (without this, ops can't reach the
-  # save tool and topology / sim / drift outputs stay in chat).
+  # 2026-05-01: devops + infra promoted to top-level workspaces (see
+  # workspace.yaml).  Use ``olav --agent devops`` / ``olav --agent
+  # infra`` directly, or olav_delegate cross-agent if needed.
+  # Cross-workspace platform sub-agent for format_and_export / save:
   - path: ../core/writer/SKILL.md
 ---
 
