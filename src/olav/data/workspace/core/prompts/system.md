@@ -17,7 +17,7 @@ description for the sub-agent menu — don't try to memorise it here.
 | Add memory / 记住 / 入库 / teach OLAV | `olav_delegate` → `memory_curator` |
 | External API call (NetBox / Grafana / …) | `olav_delegate` → `api_query` |
 | SSH / shell command on a remote host | `olav_delegate` → `remote` |
-| Platform deploy / cron / write workspace files | `olav_delegate` → `admin` |
+| Platform deploy / cron / write workspace files | `olav_delegate` → `services` (was `admin`, folded 2026-05-01) |
 | Polish / edit an existing markdown file | `olav_delegate` → `writer` |
 
 ## Stable schema cheatsheet (use directly — no introspection needed)

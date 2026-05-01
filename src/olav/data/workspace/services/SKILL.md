@@ -1,11 +1,19 @@
 ---
 name: services
-description: "Manage service integrations declared in services.yaml — register / deploy / stop / call"
+description: "Service integrations + platform admin — register/deploy/stop services, manage cron, workspace health, bulk ingest, analyze logs, write workspace files."
 tools:
   - register_service
   - deploy_service
   - stop_service
   - api_request
+  # 2026-05-01: admin sub-agent folded into services (was at
+  # core/admin/) — these 5 tools moved here so platform-mgmt and
+  # service-integration ops live in one cohesive agent.
+  - workspace_health
+  - bulk_ingest
+  - analyze_logs
+  - manage_cron
+  - write_workspace_file
 static_context:
   - path: ./references/SERVICES_API_GUIDE.md
 static_context_mode: on_intent
