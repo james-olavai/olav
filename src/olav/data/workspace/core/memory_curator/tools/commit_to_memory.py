@@ -40,7 +40,16 @@ logger = logging.getLogger(__name__)
 
 
 _VALID_CATEGORIES = {"usage_guide", "document", "topology"}
-_VALID_AGENTS = {"core", "ops", "services", "audit", "topology"}
+_VALID_AGENTS = {
+    "core", "services", "audit",
+    # 2026-05-01: domain-prefix rename — accept both legacy + new
+    # names so memory entries authored before/after the rename
+    # both validate.  Resolver normalizes legacy → new at write time
+    # (commit_to_memory writes the new name into the row).
+    "ops", "topology",  # legacy
+    "netops_ops", "netops_topology", "netops_learner",
+    "devops_scripts", "devops_infra",
+}
 _TOPOLOGY_MEDIA_HEADERS = {
     "graph TD": "mermaid",
     "graph LR": "mermaid",

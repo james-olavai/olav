@@ -1,5 +1,5 @@
 ---
-name: ops-orchestrator
+name: netops_ops
 description: "Network Operations — SSH collection, BGP/OSPF analysis, topology simulation, drift detection, ContainerLab digital twin, script generation, service queries"
 system_prompt_file: prompts/orchestrator.md
 route_keywords:
@@ -17,8 +17,9 @@ subagents:
   - path: ./collect/SKILL.md
   - path: ./lab/SKILL.md
   # 2026-05-01: devops + infra promoted to top-level workspaces (see
-  # workspace.yaml).  Use ``olav --agent devops`` / ``olav --agent
-  # infra`` directly, or olav_delegate cross-agent if needed.
+  # workspace.yaml).  Use ``olav --agent devops_scripts`` /
+  # ``olav --agent devops_infra`` directly, or olav_delegate
+  # cross-agent if needed.
   # Cross-workspace platform sub-agent for format_and_export / save:
   - path: ../core/writer/SKILL.md
 ---

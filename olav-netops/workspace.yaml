@@ -21,18 +21,23 @@ inject_into_core:
     - tools/take_snapshot.py
 
 workspaces:
-  - name: ops
+  # 2026-05-01: domain-prefix naming standardization.  Platform-level
+  # agents (audit) stay unprefixed; netops-domain agents get
+  # ``netops_`` prefix; devops-domain agents get ``devops_`` prefix.
+  # CLI usage: ``olav --agent netops_ops "..."`` /
+  # ``olav --agent devops_scripts "..."``.
+  - name: netops_ops
     source: .olav/workspace/ops
   - name: audit
     source: .olav/workspace/audit
-  - name: topology
+  - name: netops_topology
     source: .olav/workspace/topology
-  - name: command_learner
+  - name: netops_learner
     source: .olav/workspace/command_learner
-  # 2026-05-01: spun out from ops sub-agent tree to lighten ops
+  # devops + infra: spun out from ops sub-agent tree to lighten ops
   # orchestrator prompt (ops 6 → 3 sub-agents).  See dev_docs/00 §
   # ISSUE-CTX-PROMPT-INFLATION mitigation.
-  - name: devops
+  - name: devops_scripts
     source: .olav/workspace/devops
-  - name: infra
+  - name: devops_infra
     source: .olav/workspace/infra

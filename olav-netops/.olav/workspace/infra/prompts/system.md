@@ -58,8 +58,8 @@ updated = api_request(service="netbox", path="/api/dcim/devices/42/")
 Same 6 steps but: read all → summarize diff → single approval → batch execute → batch verify.
 
 ### Large operations (50+ items)
-Suggest the user use the **devops agent** instead:
-`"This involves 200+ changes. Recommend: olav --agent devops 'generate update script' for offline review."`
+Suggest the user use the **devops_scripts agent** instead:
+`"This involves 200+ changes. Recommend: olav --agent devops_scripts 'generate update script' for offline review."`
 
 ---
 

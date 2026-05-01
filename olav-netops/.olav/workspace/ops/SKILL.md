@@ -1,5 +1,5 @@
 ---
-name: ops-orchestrator
+name: netops_ops
 description: "Operations orchestrator — network ops, service deployment, SQL queries, device CLI, snapshots"
 tools:
   # Orchestrator-direct tools — keep minimal (B-round slim 2026-04-30):

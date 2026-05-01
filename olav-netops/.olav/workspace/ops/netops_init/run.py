@@ -9,8 +9,8 @@ Stages:
   4. Report (summary per device, parse rate, topology hint)
 
 Usage:
-  olav --agent ops "/netops_init"             # Full collection
-  olav --agent ops "/netops_init --dry-run"   # Env check only, no SSH
+  olav --agent netops_ops "/netops_init"             # Full collection
+  olav --agent netops_ops "/netops_init --dry-run"   # Env check only, no SSH
 """
 
 from __future__ import annotations
@@ -553,7 +553,7 @@ def _run_collection(
             print(f"")
             print(f"    ⚡ To enable structured queries for these, run:")
             for (plat, cmd), _devs in sorted(raw_only.items())[:6]:
-                print(f"        olav --agent ops '/learn_cmd {plat} \"{cmd}\"'")
+                print(f"        olav --agent netops_ops '/learn_cmd {plat} \"{cmd}\"'")
             if len(raw_only) > 6:
                 print(f"        …and {len(raw_only) - 6} more (see .olav/config/unsupported.json)")
 

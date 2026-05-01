@@ -1,5 +1,5 @@
 ---
-name: devops
+name: devops_scripts
 kind: Agent
 description: "DevOps automation — production-grade scripts (bash/python/ansible) using real device + service data from OLAV DB. Spun out from ops sub-agent → top-level (2026-05-01) to lighten ops orchestrator prompt."
 version: "1.0.0"

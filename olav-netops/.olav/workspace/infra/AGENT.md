@@ -1,5 +1,5 @@
 ---
-name: infra
+name: devops_infra
 kind: Agent
 description: "Infrastructure integrations — query NetBox (DCIM/IPAM), InfluxDB (metrics), generate bulk change scripts. Spun out from ops sub-agent → top-level (2026-05-01)."
 version: "1.0.0"
