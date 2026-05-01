@@ -6,7 +6,11 @@ version: "3.2.0"
 system_prompt_file: prompts/system.md
 subagents:
   - path: ./writer/SKILL.md
-  - path: ./admin/SKILL.md
+  # 2026-05-01: admin sub-agent removed; its 5 platform-mgmt tools
+  # (workspace_health / bulk_ingest / analyze_logs / manage_cron /
+  # write_workspace_file) moved to top-level ``services`` agent so
+  # service-integration + platform-admin live in one cohesive scope.
+  # Use ``olav --agent services "..."`` for those workflows.
   - path: ./api_query/SKILL.md
   - path: ./db_query/SKILL.md
   - path: ./remote/SKILL.md
