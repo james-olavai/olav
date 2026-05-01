@@ -267,10 +267,18 @@ class LLMConfig:
 
     @property
     def api_key(self) -> str:
-        shared = getattr(self._loader, "_shared", {})
-        key = shared.get("api_key", "")
+        # Precedence (per-section first, shared second, env third):
+        #   1. llm.api_key from api.json (or OLAV_LLM_API_KEY env override)
+        #   2. shared.api_key (global default for homogeneous setups)
+        #   3. OPENAI_API_KEY / ANTHROPIC_API_KEY env
+        #
+        # Per-section beats shared so heterogeneous configs (e.g. LLM on
+        # OpenRouter, embedding on Perplexity) work without a service-
+        # specific shared key clobbering the per-service key.
+        key = self._loader._env_override("llm", "api_key", self._data.get("api_key", ""))
         if not key:
-            key = self._loader._env_override("llm", "api_key", self._data.get("api_key", ""))
+            shared = getattr(self._loader, "_shared", {})
+            key = shared.get("api_key", "")
         if not key:
             key = os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or ""
         return key
@@ -385,11 +393,14 @@ class EmbeddingConfig:
 
     @property
     def openai_api_key(self) -> str:
-        shared = getattr(self._loader, "_shared", {})
-        key = shared.get("api_key", "")
+        # Precedence (per-section first, shared second, env third) —
+        # mirrors LLMConfig.api_key.  See its docstring for the
+        # heterogeneous-multi-provider rationale.
+        api = self._data.get("api", {})
+        key = self._loader._env_override("embedding", "api_key", api.get("api_key", ""))
         if not key:
-            api = self._data.get("api", {})
-            key = self._loader._env_override("embedding", "api_key", api.get("api_key", ""))
+            shared = getattr(self._loader, "_shared", {})
+            key = shared.get("api_key", "")
         if not key:
             key = os.getenv("OPENAI_API_KEY") or ""
         return key

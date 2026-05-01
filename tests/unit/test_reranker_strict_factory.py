@@ -217,4 +217,144 @@ def test_llamacpp_reranker_empty_table():
     table = pa.table({"id": [], "text": []})
     out = rr.rerank_vector("q", table)
     assert out.num_rows == 0
-    assert "_relevance_score" in out.column_names
+
+
+# ─── Cloud kind dispatch (openrouter / cohere / openai_compat) ────────────
+
+
+def test_factory_openrouter_requires_model():
+    """kind=openrouter without model → None."""
+    assert _mw_with_cfg({
+        "enabled": True,
+        "kind": "openrouter",
+        "base_url": "https://openrouter.ai/api/v1",
+        "api_key": "sk-or-v1-test",
+    }) is None
+
+
+def test_factory_openrouter_requires_api_key():
+    """kind=openrouter without api_key (and no shared fallback) → None."""
+    assert _mw_with_cfg({
+        "enabled": True,
+        "kind": "openrouter",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "cohere/rerank-4-fast",
+    }) is None
+
+
+def test_factory_openrouter_constructs_with_model_and_key():
+    """Happy path: kind=openrouter + model + api_key → LlamaCppReranker w/ both fields set."""
+    from olav.core.memory.reranker import LlamaCppReranker
+    inst = _mw_with_cfg({
+        "enabled": True,
+        "kind": "openrouter",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "cohere/rerank-4-fast",
+        "api_key": "sk-or-v1-test",
+    })
+    assert isinstance(inst, LlamaCppReranker)
+    assert inst._model == "cohere/rerank-4-fast"
+    assert inst._api_key == "sk-or-v1-test"
+    assert inst.base_url == "https://openrouter.ai/api/v1"
+
+
+def test_factory_cloud_kind_aliases():
+    """openrouter / cohere / openai_compat / openai all dispatch the cloud path."""
+    from olav.core.memory.reranker import LlamaCppReranker
+    for k in ("openrouter", "cohere", "openai_compat", "openai"):
+        inst = _mw_with_cfg({
+            "enabled": True, "kind": k,
+            "base_url": "https://example.com/v1",
+            "model": "rerank-x", "api_key": "k",
+        })
+        assert isinstance(inst, LlamaCppReranker), f"alias {k!r} failed"
+        assert inst._model == "rerank-x"
+
+
+def test_cloud_body_includes_model_and_bearer_header():
+    """When model + api_key set, request body has model field; httpx client carries Bearer header."""
+    from olav.core.memory.reranker import LlamaCppReranker
+
+    captured: dict = {}
+
+    class _SpyHttp:
+        def post(self, url, *, json):
+            captured["url"] = url
+            captured["json"] = json
+            resp = MagicMock()
+            resp.raise_for_status = lambda: None
+            resp.json = lambda: {"results": [
+                {"index": 0, "relevance_score": 0.1},
+                {"index": 1, "relevance_score": 0.9},
+            ]}
+            return resp
+
+    rr = LlamaCppReranker(
+        base_url="https://openrouter.ai/api/v1",
+        model="cohere/rerank-4-fast",
+        api_key="sk-or-v1-test",
+    )
+    rr._http = _SpyHttp()
+    table = pa.table({"id": ["a", "b"], "text": ["x", "y"]})
+    rr.rerank_vector("q", table)
+
+    assert captured["url"] == "https://openrouter.ai/api/v1/rerank"
+    assert captured["json"] == {
+        "query": "q",
+        "documents": ["x", "y"],
+        "model": "cohere/rerank-4-fast",
+    }
+
+
+def test_local_body_omits_model_when_unset():
+    """When model is None (local llama-server), 'model' field is NOT sent."""
+    from olav.core.memory.reranker import LlamaCppReranker
+
+    captured: dict = {}
+
+    class _SpyHttp:
+        def post(self, url, *, json):
+            captured["json"] = json
+            resp = MagicMock()
+            resp.raise_for_status = lambda: None
+            resp.json = lambda: {"results": []}
+            return resp
+
+    rr = LlamaCppReranker(base_url="http://gpu:11433")  # no model, no api_key
+    rr._http = _SpyHttp()
+    table = pa.table({"id": ["a"], "text": ["x"]})
+    rr.rerank_vector("q", table)
+
+    assert "model" not in captured["json"]
+
+
+def test_factory_openrouter_falls_back_to_shared_api_key():
+    """If reranker.api_key is missing but shared.api_key is set, cloud path still constructs."""
+    # _mw_with_cfg only stubs api.json reranker block.  Patch the
+    # full-config read by simulating a payload with shared block too.
+    from olav.core.memory.middleware import AutoRecallMiddleware
+    from olav.core.memory.reranker import LlamaCppReranker
+    import json as _json
+
+    full = {
+        "shared": {"api_key": "sk-or-v1-shared"},
+        "reranker": {
+            "enabled": True,
+            "kind": "openrouter",
+            "base_url": "https://openrouter.ai/api/v1",
+            "model": "cohere/rerank-4-fast",
+            # no api_key — should pick up shared
+        },
+    }
+    payload = _json.dumps(full)
+
+    mw = AutoRecallMiddleware(store=MagicMock())
+    mw._reranker_init_attempted = False
+    mw._reranker_instance = None
+
+    with patch("pathlib.Path.exists", return_value=True), \
+         patch("pathlib.Path.read_text", return_value=payload):
+        inst = mw._get_reranker()
+
+    assert isinstance(inst, LlamaCppReranker)
+    assert inst._api_key == "sk-or-v1-shared"

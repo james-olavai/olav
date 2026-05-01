@@ -160,6 +160,20 @@ class AutoRecallMiddleware:
 
     _reranker_instance: Any = None  # lazy-cached, _CACHE_SENTINEL = "init not tried"
     _reranker_init_attempted: bool = False
+    _loaded_full_cfg: dict = None  # populated by _get_reranker for fallback lookups
+
+    def _fallback_api_key(self) -> str:
+        """Return shared.api_key (or env override) as reranker fallback.
+
+        Cloud reranker kinds (openrouter / cohere) accept an explicit
+        ``reranker.api_key``; when absent, fall back to ``shared.api_key``
+        — this keeps single-key OpenRouter setups (LLM + reranker on the
+        same provider) from having to duplicate the key.
+        """
+        import os
+        full = self._loaded_full_cfg or {}
+        shared = full.get("shared") or {}
+        return shared.get("api_key") or os.environ.get("OPENROUTER_API_KEY") or ""
 
     def _get_reranker(self):
         """Return a configured Reranker instance, or None if disabled.
@@ -185,6 +199,7 @@ class AutoRecallMiddleware:
             return None
 
         cfg: dict = {}
+        full_cfg: dict = {}
         try:
             import json
             from pathlib import Path
@@ -197,9 +212,13 @@ class AutoRecallMiddleware:
                         api_path = cand
                         break
             if api_path.exists():
-                cfg = (json.loads(api_path.read_text()) or {}).get("reranker") or {}
+                full_cfg = json.loads(api_path.read_text()) or {}
+                cfg = full_cfg.get("reranker") or {}
         except Exception:
             cfg = {}
+            full_cfg = {}
+        # Stash for _fallback_api_key (cloud kinds)
+        self._loaded_full_cfg = full_cfg
         if not cfg.get("enabled"):
             return None
 
@@ -234,6 +253,33 @@ class AutoRecallMiddleware:
                 self._reranker_instance = LlamaCppReranker(
                     base_url=base_url, column="text",
                 )
+            elif kind in ("openrouter", "cohere", "openai_compat", "openai"):
+                # Cloud OpenAI-compat /rerank endpoint (OpenRouter,
+                # Cohere v2, Together, etc.).  Same body shape as
+                # llama-server but adds ``model`` selector + Bearer
+                # auth.  Endpoint resolves to ``{base_url}/rerank`` —
+                # callers must include any version prefix in base_url
+                # (e.g. ``https://openrouter.ai/api/v1`` →
+                # ``/api/v1/rerank``).
+                model_name = cfg.get("model")
+                api_key = cfg.get("api_key") or self._fallback_api_key()
+                if not model_name:
+                    logger.warning(
+                        "reranker kind=%s requires 'model' field; "
+                        "disabling.", kind,
+                    )
+                    return None
+                if not api_key:
+                    logger.warning(
+                        "reranker kind=%s requires 'api_key' field "
+                        "(or shared.api_key fallback); disabling.", kind,
+                    )
+                    return None
+                from olav.core.memory.reranker import LlamaCppReranker
+                self._reranker_instance = LlamaCppReranker(
+                    base_url=base_url, column="text",
+                    model=model_name, api_key=api_key,
+                )
             elif kind == "ollama":
                 # Legacy: Ollama-served reranker model used as
                 # bi-encoder over /api/embeddings.  Does NOT yield true
@@ -252,8 +298,9 @@ class AutoRecallMiddleware:
                 )
             else:
                 logger.warning(
-                    "Unknown reranker kind=%r; expected 'llama_cpp' or "
-                    "'ollama'.  Disabling.", kind,
+                    "Unknown reranker kind=%r; expected 'llama_cpp', "
+                    "'openrouter'/'cohere'/'openai_compat', or 'ollama'. "
+                    "Disabling.", kind,
                 )
                 return None
             logger.info(
