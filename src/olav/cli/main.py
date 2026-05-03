@@ -1098,7 +1098,16 @@ async def run_single_query(
 
     try:
         # Stream agent execution using native langgraph API
-        config = {"configurable": {"thread_id": session_id or run_id}, "recursion_limit": 75}
+        # recursion_limit: deepagents stacks 5+ middleware (AutoRecall +
+        # Skills + SubAgent + Filesystem + Summarization + TodoList) each
+        # of which is its own graph node, so a single agent turn that
+        # makes 1 tool call can consume 6-8 recursion units.  75 was the
+        # langgraph default and proved tight for layered diagnostic flows
+        # that exceed ~10 tool calls.  Default raised to 200; override
+        # with ``OLAV_RECURSION_LIMIT`` env for unusually deep tasks
+        # (e.g. multi-stage TCF lab validation).
+        _rec_limit = int(os.environ.get("OLAV_RECURSION_LIMIT", "200"))
+        config = {"configurable": {"thread_id": session_id or run_id}, "recursion_limit": _rec_limit}
         input_msg = {"messages": [{"role": "human", "content": query}]}
         _chunks: list[str] = []
         _tool_results: list[dict] = []  # capture tool outputs for post-processing
