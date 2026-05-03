@@ -182,6 +182,11 @@ def _commit_document_chunks(
             vec = embed_text(chunk)
         except Exception as exc:  # noqa: BLE001
             logger.debug("commit_to_memory: embed failed for chunk %d: %s", idx, exc)
+            vec = None
+        # embed_text returns None (vs raises) when mode='none' or backend
+        # is unreachable.  Substitute zero-vector so the row still lands;
+        # FTS/BM25 keeps the text searchable even without semantic recall.
+        if vec is None:
             vec = [0.0] * store.embedding_dim
         try:
             store.delete_memory(id=mem_id)
@@ -254,6 +259,9 @@ def _commit_topology(
         vec = embed_text(embed_input)
     except Exception as exc:  # noqa: BLE001
         logger.debug("commit_to_memory: embed failed for topology: %s", exc)
+        vec = None
+    if vec is None:
+        # mode='none' / backend down — keep the row writable on FTS only.
         vec = [0.0] * store.embedding_dim
 
     try:
