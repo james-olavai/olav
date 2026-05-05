@@ -41,18 +41,22 @@ Full column lists + extraction recipes →
 
 ---
 
-## Modes
+## Single dispatch — `run_python_simulation`
 
-| Mode | When to use | First reference to load |
+All four flavours of analysis run inside the same sandbox call:
+
+| Flavour | Trigger | Sandbox primitive |
 |---|---|---|
-| 1 — Routing analysis | Questions about current BGP/OSPF/route state | none (direct SQL on the views above) |
-| 2 — Simulation (What-If) | "what happens if…", "predict impact", "simulate…" | `references/SIMULATION_WORKFLOW.md` |
-| 3 — Topology viz | Diagrams, path analysis, loop detection | `references/TOPOLOGY_VIZ.md` |
-| 4 — Drift | "compare", "diff", "what changed", "T1 vs T2", "漂移" | `references/DRIFT_MODE.md` |
+| Routing analysis | "current BGP/OSPF state", "show me…" | `db.query(sql)` on the views above |
+| Simulation (What-If) | "what happens if…", "predict impact" | `sim.clone(...)` + `sim.execute(...)` + `nx` |
+| Topology viz | Diagrams, path analysis, loop detection | `db.query` topology + `nx` graph algos + `format_and_export` save |
+| Drift / compare | "T1 vs T2", "漂移", "what changed" | `diff_sql_state(...)` / `diff_topology_drift(...)` / `diff_routing_drift(...)` / `diff_configs(...)` |
 
-For Mode 1 use `db.query(sql)` inside `run_python_simulation` to
-read the views; export with `format_and_export` (CSV / Markdown).
-For BGP best-path nuance see `references/ROUTING_EXPERT_GUIDE.md`.
+No mode-selection step.  Pick the right primitive, write Python.
+For BGP best-path nuance see `references/ROUTING_EXPERT_GUIDE.md`;
+for drift conventions see `references/DRIFT_MODE.md`; for sim
+patterns see `references/SIMULATION_WORKFLOW.md`; for topology viz
+rules see `references/TOPOLOGY_VIZ.md` (load on demand).
 
 You're a pure-compute agent (`network_isolation=True`).  If live
 data is missing, recommend the orchestrator run `ops-collect` first
@@ -143,8 +147,9 @@ print without saving.  Filename / Mermaid format rules in
 `references/TOPOLOGY_VIZ.md`.
 
 For drift: always Summary → Details (table) → Impact; cap at the
-20 most significant changes.  Follow-up "what-if" questions hand off
-to Mode 2.
+20 most significant changes.  Follow-up "what-if" questions chain
+into the same `run_python_simulation` call (sim.clone the affected
+table, mutate, re-run analysis on `sim_*`).
 
 ---
 
