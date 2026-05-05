@@ -14,9 +14,15 @@ metadata:
     - topology_visualization
     - state_comparison_drift_detection
 tools:
-  - run_python_simulation  # ad-hoc networkx/netutils what-if (Analysis Mode);
-                           # diff_* + tcf_emit_from_sim are skill scripts via
-                           # execute_skill_script, NOT this tool (ADR-0008 R92.3)
+  - run_python_simulation  # unified compute path (R102.UNIFIED_SANDBOX
+                           # 2026-05-05): What-If sim + drift diff +
+                           # TCF emission all run inside this one
+                           # sandbox.  diff_sql_state / diff_topology_drift
+                           # / diff_routing_drift / diff_configs /
+                           # tcf_emit_from_sim are pre-imported globals
+                           # in the sandbox prologue — agent calls them
+                           # like regular functions, not via
+                           # execute_skill_script.
 allowed_tables:
   - netops.v_bgp_neighbors_auto
   - netops.v_ospf_neighbors_auto
@@ -38,39 +44,51 @@ static_context_mode: on_intent
 system: $ref:./prompts/system.md
 ---
 
-## Two modes (dispatched by request verbs)
+## Single dispatch — everything runs in `run_python_simulation`
 
-* **Analysis** — proactive (simulate / what-if / change plan / 变更方案 /
-  topology / path / loop).  Tool: `run_python_simulation` (sandbox
-  with `db` read-only proxy, `sim` writable clone, `nx` networkx,
-  `netutils`; `network_isolation=True`).
-* **Drift** — retrospective (drift / compare / what changed / delta /
-  snapshot T1 vs T2 / 漂移).  Tool: `execute_skill_script(skill_name="analyze", ...)`.
-
-A single request can invoke both sequentially.
-
-### Drift skill scripts (skill_name="analyze")
-
-| Script | Use for |
-|---|---|
-| `diff_sql_state.py` | any operational table (ospf_neighbors, interfaces, …) |
-| `diff_topology_drift.py` | `topology_links` up/down changes |
-| `diff_routing_drift.py` | prefix loss / next-hop / AS-PATH delta |
-| `diff_configs.py` | raw config file comparison |
-
-`tcf_emit_from_sim.py` (Analysis Mode helper) — emits TCF JSON from
-a sim result for the CAB workflow.
-
-Call shape:
+Analysis (what-if / sim / topology) and Drift (T1 vs T2 / 漂移) and
+CAB TCF emission all share the same sandbox.  Write Python that
+imports/uses the pre-loaded primitives — no mode selection, no
+skill-script dispatch, no two-level naming:
 
 ```python
-execute_skill_script(
-    skill_name="analyze",
-    script_name="diff_sql_state.py",
-    script_args={"table_name": "ospf_neighbors",
-                 "snapshot_id_1": "t1", "snapshot_id_2": "t2"},
-)
+run_python_simulation(experiment_code='''
+# Drift: compare snapshots
+drift = diff_sql_state("ospf_neighbors", "t1", "t2")
+
+# Analysis: simulate impact of newly-down devices
+affected = [r["device_name"] for r in drift["missing_in_t2"]]
+sim.clone(["topology_links"])
+for d in affected:
+    sim.execute("UPDATE sim_topology_links SET link_status='down' WHERE source_device=?", [d])
+
+# Graph reachability
+links = sim.execute("SELECT source_device, destination_device FROM sim_topology_links WHERE link_status='active'").fetchall()
+g = nx.DiGraph(); g.add_edges_from(links)
+blast = list(nx.weakly_connected_components(g))
+
+# Optional CAB emission
+# tcf = tcf_emit_from_sim(...)
+
+_result = {"affected": affected, "blast_components": blast}
+''')
 ```
+
+Pre-loaded sandbox globals (no `import` needed):
+
+| Global | Use |
+|---|---|
+| `db` | read-only prod DB proxy — `db.query(sql)` |
+| `sim` | writable in-memory DuckDB clone — `sim.clone([...])` / `sim.execute(...)` |
+| `nx` | networkx — graphs, paths, components |
+| `netutils` | IP / interface / ASN normalization |
+| `diff_sql_state(table, t1, t2)` | drift any operational table |
+| `diff_topology_drift(t1, t2)` | topology_links up/down changes |
+| `diff_routing_drift(t1, t2)` | prefix / next-hop / AS-PATH delta |
+| `diff_configs(device, t1, t2)` | raw config text diff |
+| `tcf_emit_from_sim(...)` | structured TCF for ops-lab consumption |
+
+Composite analyses run in **one** sandbox call instead of N tool turns.
 
 ## Sandbox SQL rule
 
@@ -95,10 +113,12 @@ sim.execute(_sql)  # NOT: sim.execute("CREATE TABLE ...")
 If ANY blocker is found → state explicitly as Phase 0 prerequisite.
 NEVER assume / invent values.
 
-## Drift workflow
+## Drift workflow (now one call)
 
 1. Pick two `snapshot_id` values (T1 before, T2 after)
-2. Invoke `execute_skill_script(skill_name="analyze", script_name=...)` —
-   pick by dimension (table above)
-3. Inspect `stdout.missing_in_t2` / `stdout.new_in_t2`
+2. Inside `run_python_simulation`, call the right diff primitive
+   (`diff_sql_state` / `diff_topology_drift` / `diff_routing_drift`
+   / `diff_configs`) — pick by dimension
+3. Read `result["missing_in_t2"]` / `result["new_in_t2"]` directly
+   from the dict you assigned to `_result`
 4. Report findings with root-cause analysis
