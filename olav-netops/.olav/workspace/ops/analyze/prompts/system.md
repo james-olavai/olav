@@ -93,10 +93,38 @@ Phase 3  Cutover        (remove old paths)
 For simulations / change plans, produce a structured **TCF** (Test
 Case File) via the **`emit_tcf` @tool** — not free-form markdown.
 
-`emit_tcf` is a top-level tool with a Pydantic schema (see your tool
-list).  It is **NOT** in the sandbox; do NOT wrap it in
-`run_python_simulation` and do NOT glob/ls/grep for the emitter on
-disk.  Call it directly:
+### CRITICAL: emit FIRST, refine LATER
+
+Change-plan requests have a strong failure mode: agent gathers
+device facts forever and never calls emit_tcf.  **Do not do this.**
+
+The minimum viable invocation needs ONLY these from your DB:
+
+* `device_names` — from `netops.devices` (1 SQL)
+* `device_platforms` — same row
+* `device_loopbacks` — same row, `metadata.loopback_ip` JSON or
+  fallback to `ip_address`
+* `device_asns` — query BGP view; if missing, ask user once OR
+  use placeholder integer (e.g. 65001/65003) and note in title
+* `implementation_json` — write CLI based on prod platform (Junos
+  `set ...` / IOS `router bgp ...`); 2-4 lines per device is
+  enough for a first emit
+* `change_id`, `title`, `intent_type` — agent-decided
+
+`rollback_json` / `post_check_json` / `tvt_json` default to `"[]"`
+on first emit — fill them in a follow-up emit_tcf call if the user
+asks.
+
+**Decision rule**: as soon as you have `device_names + platforms +
+loopbacks + ASNs + initial CLI`, STOP investigating and emit_tcf.
+Do NOT do further `execute_sql` exploration, do NOT `ls /lab`, do
+NOT `recall_memory("tcf format")`, do NOT `glob`.  The Pydantic
+schema is in your tool list; call the tool.
+
+`emit_tcf` is a top-level @tool, NOT in the sandbox; do NOT wrap it
+in `run_python_simulation`.
+
+### Minimum-viable example
 
 ```python
 emit_tcf(
@@ -108,14 +136,15 @@ emit_tcf(
     device_loopbacks=["10.0.0.1", "10.0.0.3"],
     device_asns=[65001, 65003],
     implementation_json='[{"device":"R1","phase":1,"cli":["set protocols bgp group EBGP-R3 type external","set protocols bgp group EBGP-R3 peer-as 65003"]},{"device":"R3","phase":1,"cli":["router bgp 65003"," neighbor 10.1.13.1 remote-as 65001"]}]',
-    rollback_json='[{"device":"R1","phase":1,"cli":["delete protocols bgp group EBGP-R3"]}]',
     output_dir="exports/cab",
 )
 ```
 
-Result envelope: `{"status": "success", "spec_path": "exports/cab/<change_id>/spec.tcf.yaml", ...}`.
-The tool writes the YAML directly — **no follow-up
-`format_and_export`** needed for the spec itself.
+That's it.  No rollback, no post_check, no tvt — those are optional
+on first emit and can be added in a follow-up call.
+
+Result: `{"status": "success", "spec_path": "exports/cab/r1-r3-ebgp/spec.tcf.yaml", ...}`.
+The tool writes the YAML directly — **no follow-up `format_and_export`** needed.
 
 The TCF is the contract ops-lab consumes.  Markdown narrative is
 rendered by the writer agent on demand; do NOT attempt to write

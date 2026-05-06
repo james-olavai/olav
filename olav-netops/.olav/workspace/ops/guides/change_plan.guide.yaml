@@ -1,0 +1,82 @@
+schema_version: 1
+intent: change_plan_emit_tcf
+agent: ops
+keywords:
+  - change plan
+  - emit TCF
+  - TCF spec
+  - CAB
+  - CAB spec
+  - add eBGP
+  - add iBGP
+  - add OSPF
+  - add VLAN
+  - add ACL
+  - 变更方案
+  - 变更计划
+  - 添加 BGP
+  - 添加邻居
+  - emit_tcf
+  - r1-r3-ebgp
+body: |
+  Change plan / TCF emission requests ("plan a change", "add eBGP
+  between R1 and R3", "emit TCF for X", "变更方案"):
+
+  1. orchestrator's FIRST tool call MUST be:
+       task("ops-analyze", "<paraphrase of user request>")
+
+     Do NOT do execute_sql / glob / ls / recall_memory at the
+     orchestrator level before this delegation.  The sub-agent
+     owns emit_tcf and produces the spec.
+
+  2. ops-analyze sub-agent workflow (after delegation):
+
+     a. Gather the FIVE required pieces from netops DB (≤ 5 SQLs):
+        - device_names: SELECT hostname FROM netops.devices
+          WHERE hostname IN (...)
+        - device_platforms: same row's platform column
+        - device_loopbacks: metadata->>'loopback_ip' if present,
+          else ip_address as fallback
+        - device_asns: SELECT local_as FROM
+          v_show_ip_bgp_summary_auto WHERE device_name=... LIMIT 1
+          (if missing, use placeholder 65001/65003 and note in title)
+        - existing CLI: 1-2 execute_cli per device for prod-aligned
+          BGP syntax samples
+
+     b. STOP investigating.  Call emit_tcf with the data you have.
+        Optional fields (rollback_json / post_check_json / tvt_json)
+        default to "[]" — fill them in a SECOND emit_tcf if needed.
+
+  3. emit_tcf is a top-level @tool (Pydantic schema in your tool
+     list).  It is NOT in the run_python_simulation sandbox.
+     Do NOT wrap it in run_python_simulation.
+     Do NOT glob '**/lab/**' looking for the emitter.
+     Do NOT recall_memory("tcf format") expecting docs.
+
+  4. Minimum-viable invocation (always works):
+       emit_tcf(
+           change_id="r1-r3-ebgp",
+           title="Add eBGP direct between R1 and R3",
+           intent_type="ebgp_direct",
+           device_names=["R1", "R3"],
+           device_platforms=["juniper_junos", "cisco_ios"],
+           device_loopbacks=["10.0.0.1", "10.0.0.3"],
+           device_asns=[65001, 65003],
+           implementation_json='[{"device":"R1","phase":1,"cli":["set protocols bgp group EBGP-R3 type external","set protocols bgp group EBGP-R3 peer-as 65003"]},{"device":"R3","phase":1,"cli":["router bgp 65003"," neighbor 10.1.13.1 remote-as 65001"]}]',
+           output_dir="exports/cab",
+       )
+
+  5. Result: {"status": "success", "spec_path": "exports/cab/<id>/spec.tcf.yaml", ...}.
+     Tool writes the file directly — no follow-up format_and_export.
+
+  Failure mode to avoid (observed 2026-05-06 T1e/T1f):
+  agent gathers BGP/interface/route data forever, eventually goes
+  glob-hunting for "the emitter" in /lab/, never invokes emit_tcf.
+  As soon as you have ASNs + loopbacks + platforms + initial CLI →
+  STOP → emit.
+
+related:
+  - intent: simulation_what_if
+    note: "blast-radius / what-if questions before the plan: use run_python_simulation"
+  - intent: lab_validation
+    note: "after emit_tcf produces spec.tcf.yaml: task('ops-lab', '<spec_path>')"
