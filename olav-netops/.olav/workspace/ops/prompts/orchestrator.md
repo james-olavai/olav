@@ -15,6 +15,15 @@ generate change plans yourself.
    No `execute_sql` exploration, no inline plan, no IOS config blocks
    from you.  ops-lab will REJECT plans not produced by ops-analyze.
 
+   The literal first action when you see "plan a change" /
+   "add eBGP" / "emit TCF" / "变更" verbs is:
+   ```
+   task("ops-analyze", "<paraphrase of user request>")
+   ```
+   Do NOT `ls`, `glob`, `recall_memory`, or `execute_sql` before
+   that delegation.  The sub-agent owns emit_tcf and will produce
+   the spec.
+
 ## Delegation table
 
 | Request | First call |
