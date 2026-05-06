@@ -14,15 +14,16 @@ metadata:
     - topology_visualization
     - state_comparison_drift_detection
 tools:
-  - run_python_simulation  # unified compute path (R102.UNIFIED_SANDBOX
-                           # 2026-05-05): What-If sim + drift diff +
-                           # TCF emission all run inside this one
-                           # sandbox.  diff_sql_state / diff_topology_drift
-                           # / diff_routing_drift / diff_configs /
-                           # tcf_emit_from_sim are pre-imported globals
-                           # in the sandbox prologue — agent calls them
-                           # like regular functions, not via
-                           # execute_skill_script.
+  - run_python_simulation  # pure-compute sandbox (R102.UNIFIED_SANDBOX
+                           # 2026-05-05): What-If sim + drift diff
+                           # share one sandbox.  diff_sql_state /
+                           # diff_topology_drift / diff_routing_drift /
+                           # diff_configs are pre-imported globals
+                           # inside the sandbox prologue.
+  - emit_tcf               # CAB TCF emission @tool (Patch D 2026-05-06).
+                           # Writes exports/cab/<change_id>/spec.tcf.yaml.
+                           # Sandbox-external write target per ADR-0008
+                           # condition #2 — NOT in the sandbox prologue.
 allowed_tables:
   - netops.v_bgp_neighbors_auto
   - netops.v_ospf_neighbors_auto
@@ -67,9 +68,6 @@ links = sim.execute("SELECT source_device, destination_device FROM sim_topology_
 g = nx.DiGraph(); g.add_edges_from(links)
 blast = list(nx.weakly_connected_components(g))
 
-# Optional CAB emission
-# tcf = tcf_emit_from_sim(...)
-
 _result = {"affected": affected, "blast_components": blast}
 ''')
 ```
@@ -86,9 +84,36 @@ Pre-loaded sandbox globals (no `import` needed):
 | `diff_topology_drift(t1, t2)` | topology_links up/down changes |
 | `diff_routing_drift(t1, t2)` | prefix / next-hop / AS-PATH delta |
 | `diff_configs(device, t1, t2)` | raw config text diff |
-| `tcf_emit_from_sim(...)` | structured TCF for ops-lab consumption |
-
 Composite analyses run in **one** sandbox call instead of N tool turns.
+
+## TCF emission (CAB workflow) — direct @tool, NOT sandbox
+
+Change plans MUST be emitted as a TCF via the **`emit_tcf` @tool**
+(see SKILL.md `tools:` list).  This is a top-level tool, not a
+sandbox global — TCF writes a YAML spec to disk
+(`exports/cab/<change_id>/spec.tcf.yaml`), so per ADR-0008 condition
+#2 (sandbox-external write target) it lives at the @tool layer.
+
+Call shape (Pydantic schema validates each field on the tool side):
+
+```python
+emit_tcf(
+    change_id="r1-r3-ebgp",
+    title="Add eBGP direct between R1 and R3",
+    intent_type="ebgp_direct",
+    device_names=["R1", "R3"],
+    device_platforms=["juniper_junos", "cisco_ios"],
+    device_loopbacks=["10.0.0.1", "10.0.0.3"],
+    device_asns=[65001, 65003],
+    implementation_json='[{"device":"R1","phase":1,"cli":["set protocols bgp group EBGP-R3 type external","set protocols bgp group EBGP-R3 peer-as 65003"]},{"device":"R3","phase":1,"cli":["router bgp 65003"," neighbor 10.1.13.1 remote-as 65001"]}]',
+    rollback_json='[{"device":"R1","phase":1,"cli":["delete protocols bgp group EBGP-R3"]}]',
+    output_dir="exports/cab",
+)
+```
+
+Returns: `{"status": "success", "spec_path": "exports/cab/<change_id>/spec.tcf.yaml", ...}`
+on success; `{"status": "error", "error": "<reason>"}` on validation
+failure (no file written).  Lab agent consumes that path.
 
 ## Sandbox SQL rule
 

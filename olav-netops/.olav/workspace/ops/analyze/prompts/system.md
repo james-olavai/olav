@@ -91,7 +91,32 @@ Phase 3  Cutover        (remove old paths)
 ## Output
 
 For simulations / change plans, produce a structured **TCF** (Test
-Case File) via ``tcf_emit_from_sim`` — not free-form markdown.
+Case File) via the **`emit_tcf` @tool** — not free-form markdown.
+
+`emit_tcf` is a top-level tool with a Pydantic schema (see your tool
+list).  It is **NOT** in the sandbox; do NOT wrap it in
+`run_python_simulation` and do NOT glob/ls/grep for the emitter on
+disk.  Call it directly:
+
+```python
+emit_tcf(
+    change_id="r1-r3-ebgp",
+    title="Add eBGP direct between R1 and R3",
+    intent_type="ebgp_direct",
+    device_names=["R1", "R3"],
+    device_platforms=["juniper_junos", "cisco_ios"],
+    device_loopbacks=["10.0.0.1", "10.0.0.3"],
+    device_asns=[65001, 65003],
+    implementation_json='[{"device":"R1","phase":1,"cli":["set protocols bgp group EBGP-R3 type external","set protocols bgp group EBGP-R3 peer-as 65003"]},{"device":"R3","phase":1,"cli":["router bgp 65003"," neighbor 10.1.13.1 remote-as 65001"]}]',
+    rollback_json='[{"device":"R1","phase":1,"cli":["delete protocols bgp group EBGP-R3"]}]',
+    output_dir="exports/cab",
+)
+```
+
+Result envelope: `{"status": "success", "spec_path": "exports/cab/<change_id>/spec.tcf.yaml", ...}`.
+The tool writes the YAML directly — **no follow-up
+`format_and_export`** needed for the spec itself.
+
 The TCF is the contract ops-lab consumes.  Markdown narrative is
 rendered by the writer agent on demand; do NOT attempt to write
 markdown spec yourself.
