@@ -1,24 +1,69 @@
 """emit_tcf — produce a Test Case File (TCF) for ops-lab consumption.
 
 Patch D / R102.UNIFIED_SANDBOX (2026-05-06): brought back to a real @tool.
+Patch F (2026-05-06): forgiving signature — auto-coerce common LLM args mistakes.
 
 Architectural rationale (ADR-0008 condition #2):
 ``tcf_emit_from_sim`` writes ``exports/cab/<change_id>/spec.tcf.yaml`` to
-disk — a sandbox-external write target.  Validation on 2026-05-05
-(T1 × 4 attempts) showed agents reliably disk-hunt for "TCF emitter" via
-glob/ls/recall_memory when this primitive lives only in the sandbox
-prologue, never invoking ``tcf_emit_from_sim`` itself.  Promoting back
-to @tool gives the agent a typed Pydantic schema + named callable that
-matches its mental model of "dispatch a structured operation".
+disk — a sandbox-external write target.
 
-Thin wrapper around ``olav.core.cab.tcf_emit_from_sim``.  No new logic;
-just a schema-validated dispatch surface.
+Patch F input coercion (validated by T1g failure modes 2026-05-06):
+1. ``implementation_json`` accepted as **list[dict] OR str** — list is
+   json.dumps'd automatically (LLMs commonly forget the str-encode step).
+2. CLI block ``cli`` field accepted as ``str`` — wrapped in ``[str]``
+   (Pydantic schema requires list[str] but LLMs sometimes pass plain str).
+3. CLI block ``phase`` defaults to 1 if missing (LLMs sometimes omit it
+   when there's only one phase).
+4. Same coercion applies to rollback_json / post_check_json / tvt_json.
+
+These reduce common-failure-mode count from 3 to 0 in offline tests.
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from langchain_core.tools import tool
+
+
+def _coerce_blocks_json(label: str, value: Any) -> str:
+    """Accept either a JSON-encoded string or a Python list/dict.
+
+    Returns a JSON-encoded string that ``tcf_emit_from_sim`` can parse,
+    after fixing common LLM mistakes:
+    * ``cli`` field that's a plain string → wrapped in ``[str]``
+    * Missing ``phase`` field on a CliBlock → defaulted to 1
+    """
+    if value is None or value == "":
+        return "[]"
+    # If LLM passed a Python list instead of JSON string, json.dumps it
+    if isinstance(value, list):
+        normalised = value
+    elif isinstance(value, str):
+        try:
+            normalised = json.loads(value)
+        except json.JSONDecodeError:
+            return value  # leave it; downstream will surface the error
+    else:
+        return json.dumps(value)
+
+    if not isinstance(normalised, list):
+        return json.dumps(normalised)
+
+    # Normalise each block: cli to list, phase to 1
+    fixed: list[dict] = []
+    for entry in normalised:
+        if not isinstance(entry, dict):
+            fixed.append(entry)
+            continue
+        block = dict(entry)
+        cli = block.get("cli")
+        if isinstance(cli, str):
+            block["cli"] = [cli]
+        if "phase" not in block and label in {"implementation_json", "rollback_json"}:
+            block["phase"] = 1
+        fixed.append(block)
+    return json.dumps(fixed)
 
 
 @tool
@@ -30,11 +75,11 @@ def emit_tcf(
     device_platforms: list[str],
     device_loopbacks: list[str],
     device_asns: list[int],
-    implementation_json: str,
+    implementation_json: str | list[dict[str, Any]],
     device_intfs: list[str] | None = None,
-    rollback_json: str = "[]",
-    post_check_json: str = "[]",
-    tvt_json: str = "[]",
+    rollback_json: str | list[dict[str, Any]] = "[]",
+    post_check_json: str | list[dict[str, Any]] = "[]",
+    tvt_json: str | list[dict[str, Any]] = "[]",
     required_test_ids: list[str] | None = None,
     optional_test_ids: list[str] | None = None,
     lab_subnet: str = "172.16.99.0/30",
@@ -100,6 +145,33 @@ def emit_tcf(
     """
     from olav.core.cab import tcf_emit_from_sim
 
+    # Patch F: coerce common LLM mistakes (list-not-str, str-cli, missing-phase)
+    # before passing to the strict Pydantic schema.
+    impl_clean = _coerce_blocks_json("implementation_json", implementation_json)
+    rollback_clean = _coerce_blocks_json("rollback_json", rollback_json)
+    post_check_clean = _coerce_blocks_json("post_check_json", post_check_json)
+    tvt_clean = _coerce_blocks_json("tvt_json", tvt_json)
+
+    # Coerce ASNs to int if they came as strings (LLMs often quote integers)
+    coerced_asns: list[int] = []
+    for asn in device_asns:
+        try:
+            coerced_asns.append(int(asn))
+        except (TypeError, ValueError):
+            return {
+                "status": "error",
+                "error": f"device_asns must be integers; got non-numeric value {asn!r}",
+            }
+
+    # Strip trailing change_id from output_dir if agent included it
+    # (T1j observed: agent passes output_dir="exports/cab/r1-r3-ebgp/" and
+    # then emit_tcf appends another change_id, producing double-nested path).
+    import os as _os
+    od = output_dir.rstrip("/")
+    od_parts = od.split("/")
+    if od_parts and od_parts[-1] == change_id:
+        output_dir = "/".join(od_parts[:-1]) or "."
+
     return tcf_emit_from_sim(
         change_id=change_id,
         title=title,
@@ -107,12 +179,12 @@ def emit_tcf(
         device_names=device_names,
         device_platforms=device_platforms,
         device_loopbacks=device_loopbacks,
-        device_asns=device_asns,
-        implementation_json=implementation_json,
+        device_asns=coerced_asns,
+        implementation_json=impl_clean,
         device_intfs=device_intfs,
-        rollback_json=rollback_json,
-        post_check_json=post_check_json,
-        tvt_json=tvt_json,
+        rollback_json=rollback_clean,
+        post_check_json=post_check_clean,
+        tvt_json=tvt_clean,
         required_test_ids=required_test_ids,
         optional_test_ids=optional_test_ids,
         lab_subnet=lab_subnet,
