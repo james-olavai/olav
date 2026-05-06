@@ -130,10 +130,9 @@ try:
 except ImportError:
     netutils = None
 
-# Drift + CAB primitives (R102.UNIFIED_SANDBOX 2026-05-05).  Replaces
-# the old execute_skill_script(skill_name="analyze", script_name=...)
-# two-level dispatch.  Agent now writes natural Python that imports
-# these as functions; one tool call composes drift + sim + emit.
+# Drift primitives (R102.UNIFIED_SANDBOX 2026-05-05).  Pure compute,
+# no disk write — fit naturally in the sandbox.  Agent calls them
+# like regular Python functions inside experiment_code.
 try:
     from olav_netops.core.diff import (
         diff_sql_state,
@@ -147,10 +146,15 @@ except ImportError:
     diff_routing_drift = None
     diff_configs = None
 
-try:
-    from olav.core.cab import tcf_emit_from_sim
-except ImportError:
-    tcf_emit_from_sim = None
+# tcf_emit_from_sim was briefly part of the sandbox prologue (2026-05-05)
+# but reverted to @tool on 2026-05-06 (Patch D, see ../analyze/tools/emit_tcf.py).
+# Validation T1 × 4 attempts (2026-05-05) showed agents reliably disk-hunt
+# (glob/ls/recall_memory) for a "TCF emitter" rather than invoke a
+# sandbox-internal global, even with prompt teaching.  Per ADR-0008
+# condition #2 (sandbox-external write target — writes
+# exports/cab/<change_id>/spec.tcf.yaml), TCF emission belongs at the
+# @tool layer.  The function still lives at olav.core.cab.tcf_emit_from_sim;
+# emit_tcf() is the named-callable Pydantic-typed wrapper.
 
 # ── End globals preamble ──────────────────────────────────────────────────────
 
@@ -167,7 +171,8 @@ class RunPythonSimulationInput(BaseModel):
             "Must set `_result` to a JSON-serialisable dict. "
             "Available globals: db, sim, nx, netutils, "
             "diff_sql_state, diff_topology_drift, diff_routing_drift, diff_configs, "
-            "tcf_emit_from_sim, json, math, itertools, collections."
+            "json, math, itertools, collections. "
+            "(For TCF emission, call the emit_tcf @tool directly — not via this sandbox.)"
         ),
     )
     experiment_name: str = Field(
@@ -270,8 +275,8 @@ def run_python_simulation(
     network_isolation: bool = True,
 ) -> dict[str, Any]:
     """
-    Execute deterministic Python code in an isolated sandbox for What-If analysis,
-    drift comparison, and TCF emission — the unified compute path for ops-analyze.
+    Execute deterministic Python code in an isolated sandbox for What-If analysis
+    and drift comparison — the unified pure-compute path for ops-analyze.
 
     The sandbox exposes:
       - `db`       — read-only production DB proxy: db.query(sql) -> list[dict]
@@ -280,14 +285,17 @@ def run_python_simulation(
                        sim.execute(sql, params=None)
       - `nx`       — networkx for graph path / reachability analysis
       - `netutils` — IP math, interface name normalization, prefix overlap
-      - **drift primitives** (replace old execute_skill_script path):
+      - **drift primitives** (pure compute, return dicts):
           - `diff_sql_state(table_name, snapshot_id_1, snapshot_id_2, row_limit=50)`
           - `diff_topology_drift(snapshot_id_1, snapshot_id_2)`
           - `diff_routing_drift(snapshot_id_1, snapshot_id_2)`
           - `diff_configs(device_name, snapshot_id_1, snapshot_id_2)`
-      - **CAB / TCF emitter**:
-          - `tcf_emit_from_sim(...)` — produces structured TCF for ops-lab
       - `json`, `math`, `itertools`, `collections` — standard library
+
+    For TCF emission (CAB workflow), use the **`emit_tcf` @tool directly** —
+    NOT this sandbox.  TCF writes a YAML spec to disk (sandbox-external
+    write target per ADR-0008 condition #2), so it lives at the @tool
+    layer with a Pydantic schema.
 
     IMPORTANT: Your code MUST assign a JSON-serialisable dict to `_result` before finishing.
 
