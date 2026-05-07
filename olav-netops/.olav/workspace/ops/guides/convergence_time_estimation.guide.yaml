@@ -1,0 +1,66 @@
+schema_version: 1
+intent: convergence_time_estimation
+agent: ops
+keywords:
+  - convergence time
+  - convergence estimate
+  - failover time
+  - reconvergence
+  - link failure recovery time
+  - BFD convergence
+  - hello timer convergence
+  - SPF convergence
+  - 收敛时间
+  - 切换时间
+  - 故障切换
+body: |
+  Convergence time estimation for OSPF/BGP after failures.
+
+  Component breakdown (typical):
+
+  | Event | Typical Time |
+  |-------|-------------|
+  | Link down detection (BFD) | 50–300 ms |
+  | Link down detection (hello timer) | 10–40 s (dead interval) |
+  | SPF computation | <1 ms (modern hardware) |
+  | LSA flooding | 50–200 ms |
+  | RIB/FIB update | 100 ms – 1 s |
+  | BGP scan interval | 60 s (default) |
+  | BGP graceful restart | up to 120 s |
+
+  Estimator inside run_python_simulation:
+
+  ```python
+  scenario = {
+      "failed_node": "R2",
+      "detection_method": "hello_timer",  # or "bfd"
+      "ospf_dead_interval": 40,
+      "spf_delay": 0.05,
+      "lsa_flood_time": 0.15,
+      "fib_update": 0.5,
+  }
+  detect_time = 0.3 if scenario["detection_method"] == "bfd" \
+                  else scenario["ospf_dead_interval"]
+  total = (detect_time + scenario["spf_delay"]
+           + scenario["lsa_flood_time"] + scenario["fib_update"])
+  _result = {
+      "scenario": f"{scenario['failed_node']} failure",
+      "detection_s": detect_time,
+      "total_convergence_s": round(total, 2),
+      "packets_lost_at_1kpps": int(total * 1000),
+  }
+  ```
+
+  Detection method dominates total time:
+    * BFD-protected link → sub-second total convergence
+    * hello-timer-only → 10-40s gap = thousands of dropped packets
+      at typical line rates
+
+  For BGP-driven prefix shifts: add `scan_interval` (default 60s)
+  unless `bgp scan-time 5` or event-driven announcements configured.
+
+related:
+  - intent: ospf_shortest_path_dijkstra
+    note: "compute alternate paths to predict reconverged topology"
+  - intent: bgp_path_selection_and_state_machine
+    note: "BGP convergence shifts depend on alternative best-path availability"
