@@ -273,6 +273,17 @@ class SkillCommand(BaseCommand):
             logger.warning("prime_workspace_guides failed: %s", exc)
             guides_msg = f"⚠ guides not primed ({exc})"
 
+        # Fix #2 (2026-05-07): auto-prime services.yaml from any
+        # ``<agent>/lab/config/config.json`` shipped by the installed
+        # workspace.  Without this, fresh demo7 box must manually edit
+        # services.yaml before any lab deploy works (validated 2026-05-07
+        # by hitting `Service 'containerlab' not found` on first deploy).
+        try:
+            services_msg = _prime_lab_services_from_config(workspace_root)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("prime_lab_services failed: %s", exc)
+            services_msg = ""
+
         # Rebuild global agent registry so routing table reflects the new agent(s)
         try:
             from olav.cli.commands.refresh import refresh_workspace
@@ -291,18 +302,20 @@ class SkillCommand(BaseCommand):
         except Exception:
             pass  # web not running — user will restart manually
 
+        services_line = f"\n{services_msg}" if services_msg else ""
         if decl.workspaces:
             names_str = ", ".join(installed_names)
             return (
                 f"installed {decl.name} v{decl.version} "
                 f"({len(installed_names)} workspaces: {names_str})\n"
                 f"  {guides_msg}"
+                f"{services_line}"
                 f"{warn_str}"
             )
         return (
             f"installed {decl.name} v{decl.version} → "
             f".olav/workspace/{decl.name}/\n"
-            f"  {guides_msg}{warn_str}"
+            f"  {guides_msg}{services_line}{warn_str}"
         )
 
     # ── list / status ───────────────────────────────────────────────────────
@@ -541,6 +554,87 @@ def _update_platform_md(workspace_root: Path, agent_name: str) -> None:
         new_text += "\n" + body
     platform_md.write_text(new_text, encoding="utf-8")
     logger.info("PLATFORM.md updated: agents=%s", new_agents)
+
+
+def _prime_lab_services_from_config(workspace_root: Path) -> str:
+    """Auto-prime services.yaml with a containerlab entry derived from
+    any ``<agent>/lab/config/config.json`` shipped by the workspace.
+
+    Idempotent: skips if a service named ``containerlab`` already exists
+    in services.yaml.  Non-destructive: only adds a new entry; never
+    rewrites or removes existing entries.
+
+    Fix #2 (2026-05-07): without this, fresh demo7 hits
+    ``Service 'containerlab' not found`` on first lab deploy and the
+    user must hand-write services.yaml + figure out the schema (dict-
+    of-dicts, not list-of-dicts).
+
+    Returns a one-line status string suitable for the install summary,
+    or empty string when nothing was done (no lab/config found).
+    """
+    import json as _json_svc
+    import yaml as _yaml_svc
+
+    # Locate any *.olav/workspace/<agent>/lab/config/config.json
+    matches = sorted(workspace_root.glob("*/lab/config/config.json"))
+    if not matches:
+        return ""
+
+    services_path = Path(".olav") / "config" / "services.yaml"
+    if not services_path.exists():
+        # init.py creates services.yaml as a stub; if missing,
+        # caller probably skipped init — don't try to repair the
+        # broader install state.
+        return ""
+
+    try:
+        existing_doc = _yaml_svc.safe_load(services_path.read_text()) or {}
+    except _yaml_svc.YAMLError as exc:
+        return f"⚠ services.yaml unparseable ({exc}); manual review needed"
+
+    # Tolerate the legacy list-of-dicts shape — convert to dict if seen
+    services = existing_doc.get("services") or {}
+    if isinstance(services, list):
+        services = {entry.get("name", f"unnamed_{i}"): entry
+                    for i, entry in enumerate(services) if isinstance(entry, dict)}
+
+    if "containerlab" in services:
+        return "  ⓘ services.yaml already has containerlab entry; skip prime"
+
+    try:
+        cfg = _json_svc.loads(matches[0].read_text())
+    except (OSError, ValueError) as exc:
+        return f"⚠ {matches[0]} read failed ({exc}); services.yaml not primed"
+
+    base_url = cfg.get("base_url")
+    if not base_url:
+        return ""
+
+    services["containerlab"] = {
+        "display_name": "ContainerLab API",
+        "description": (
+            "ContainerLab API server for lab digital twin (auto-primed "
+            "from lab/config/config.json — Fix #2)"
+        ),
+        "endpoint": base_url,
+        "auth": {
+            "type": cfg.get("auth_type", "jwt"),
+            "login_path": cfg.get("auth_login_path", "/login"),
+            "username_env": "OLAV_CLAB_USERNAME",
+            "password_env": "OLAV_CLAB_PASSWORD",
+            "header_name": "Authorization",
+        },
+    }
+
+    new_doc = dict(existing_doc)
+    new_doc["services"] = services
+    services_path.write_text(_yaml_svc.safe_dump(new_doc, default_flow_style=False))
+
+    return (
+        "  ✓ services.yaml: auto-primed containerlab entry from "
+        f"{matches[0]}; set OLAV_CLAB_USERNAME / OLAV_CLAB_PASSWORD "
+        f"in your shell"
+    )
 
 
 def _update_active_workspace(name: str) -> None:
