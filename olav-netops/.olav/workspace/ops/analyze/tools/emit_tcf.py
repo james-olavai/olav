@@ -2,21 +2,22 @@
 
 Patch D / R102.UNIFIED_SANDBOX (2026-05-06): brought back to a real @tool.
 Patch F (2026-05-06): forgiving signature — auto-coerce common LLM args mistakes.
+Patch G (2026-05-06): silent-degrade malformed post_check/tvt blocks.
+Patch K (2026-05-07): content-correctness — DB-side ASN cross-check + sim_passed gate.
 
 Architectural rationale (ADR-0008 condition #2):
 ``tcf_emit_from_sim`` writes ``exports/cab/<change_id>/spec.tcf.yaml`` to
 disk — a sandbox-external write target.
 
-Patch F input coercion (validated by T1g failure modes 2026-05-06):
-1. ``implementation_json`` accepted as **list[dict] OR str** — list is
-   json.dumps'd automatically (LLMs commonly forget the str-encode step).
-2. CLI block ``cli`` field accepted as ``str`` — wrapped in ``[str]``
-   (Pydantic schema requires list[str] but LLMs sometimes pass plain str).
-3. CLI block ``phase`` defaults to 1 if missing (LLMs sometimes omit it
-   when there's only one phase).
-4. Same coercion applies to rollback_json / post_check_json / tvt_json.
-
-These reduce common-failure-mode count from 3 to 0 in offline tests.
+Patch K guarantees:
+1. ``device_asns`` cross-checked against
+   ``netops.v_show_ip_bgp_summary_auto.local_as`` for the named devices.
+   Mismatch → ``result["warnings"]`` shows actual prod ASN; spec still
+   writes (don't block on data gaps).
+2. ``sim_passed: bool | None`` optional kwarg signals whether the agent
+   ran a feasibility-check simulation before emitting.  ``False`` →
+   prominent warning so the agent (and the user reviewing the spec)
+   know this skipped the validation step.
 """
 from __future__ import annotations
 
@@ -29,6 +30,74 @@ from langchain_core.tools import tool
 _CLIBLOCK_REQUIRED = {"device", "phase", "cli"}
 _POSTCHECK_REQUIRED = {"device", "check_id", "description", "command", "expected_pattern"}
 _TVTROW_REQUIRED = {"test_id", "description", "expected"}
+
+
+def _check_asns_against_db(
+    device_names: list[str], device_asns: list[int],
+) -> str | None:
+    """Cross-check supplied ASNs against actual prod data in
+    netops.v_show_ip_bgp_summary_auto.
+
+    Returns a warning string when ASNs disagree (or DB unreachable);
+    None when every supplied ASN matches.  Best-effort: if the view
+    is missing, the table is empty, or DB is unavailable, return a
+    soft note rather than block emission.
+    """
+    if not device_names or not device_asns:
+        return None
+    try:
+        import duckdb
+        from olav.core.config import MAIN_DB_PATH
+        con = duckdb.connect(str(MAIN_DB_PATH), read_only=True)
+        try:
+            placeholders = ",".join("?" for _ in device_names)
+            rows = con.execute(
+                f"SELECT device_name, local_as FROM "
+                f"netops.v_show_ip_bgp_summary_auto "
+                f"WHERE device_name IN ({placeholders}) "
+                f"  AND local_as IS NOT NULL",
+                device_names,
+            ).fetchall()
+        finally:
+            con.close()
+    except Exception as exc:  # noqa: BLE001
+        return (
+            "ASN cross-check skipped: could not query "
+            f"netops.v_show_ip_bgp_summary_auto ({type(exc).__name__}: "
+            f"{str(exc)[:80]}). Spec proceeds with the supplied ASNs."
+        )
+
+    if not rows:
+        return (
+            "ASN cross-check inconclusive: no rows in "
+            "netops.v_show_ip_bgp_summary_auto for the supplied "
+            f"devices {device_names}. If these devices haven't been "
+            "snapshotted yet, ASNs in the spec are author-supplied "
+            "(treat as placeholders until lab validation)."
+        )
+
+    # Coerce DB values to int (some platforms emit local_as as string)
+    db_asns: dict[str, int] = {}
+    for d, a in rows:
+        try:
+            db_asns[d] = int(a)
+        except (TypeError, ValueError):
+            continue
+
+    mismatches = []
+    for name, supplied in zip(device_names, device_asns):
+        actual = db_asns.get(name)
+        if actual is not None and actual != supplied:
+            mismatches.append(f"{name}: spec={supplied} prod={actual}")
+
+    if mismatches:
+        return (
+            "ASN mismatch vs prod data — review before lab/prod apply: "
+            + "; ".join(mismatches)
+            + ". Either (a) update device_asns to match prod or "
+            "(b) confirm the spec is intentionally introducing a new ASN."
+        )
+    return None
 
 
 def _coerce_blocks_json(label: str, value: Any) -> tuple[str, str | None]:
@@ -133,6 +202,7 @@ def emit_tcf(
     lab_subnet: str = "172.16.99.0/30",
     risk_class: str = "medium",
     output_dir: str = "exports/cab",
+    sim_passed: bool | None = None,
 ) -> dict[str, Any]:
     """
     Atomically emit a Test Case File (TCF) for a single CAB change.
@@ -171,6 +241,14 @@ def emit_tcf(
         output_dir: Where to write the spec
             (default ``"exports/cab"``); the function appends
             ``<change_id>/spec.tcf.yaml``.
+        sim_passed: Optional flag from a feasibility-check simulation.
+            ``True``  = run_python_simulation produced
+                ``feasibility_issues=[]`` (the canonical pre-check).
+            ``False`` = sim ran and found blockers — emit anyway, but
+                produces a prominent warning in the result.
+            ``None``  = sim was not run (default).  Result includes
+                a soft warning recommending the agent run a sim
+                before lab validation.
 
     Returns:
         ``{"status": "success", "spec_path": "<path>", ...}`` on success;
@@ -227,6 +305,32 @@ def emit_tcf(
     od_parts = od.split("/")
     if od_parts and od_parts[-1] == change_id:
         output_dir = "/".join(od_parts[:-1]) or "."
+
+    # Patch K: cross-check device_asns against actual prod data.
+    # Soft check — never blocks emission, just appends a warning so the
+    # agent (and the human reviewing the spec) know the spec was built
+    # with placeholder ASNs.
+    asn_warning = _check_asns_against_db(device_names, coerced_asns)
+    if asn_warning:
+        warnings.append(asn_warning)
+
+    # Patch K: sim_passed gate.  If the agent didn't run a feasibility
+    # simulation (or ran one and it found blockers), surface that
+    # prominently in the result envelope.
+    if sim_passed is None:
+        warnings.append(
+            "sim_passed=None — no feasibility simulation was run before "
+            "this emit. Recommend: run_python_simulation with the "
+            "DESIGN_FEASIBILITY_CHECK pattern to validate phase ordering "
+            "and blockers, then re-emit with sim_passed=True."
+        )
+    elif sim_passed is False:
+        warnings.append(
+            "⚠ sim_passed=False — the feasibility simulation found "
+            "blockers but you emitted anyway. ops-lab may FAIL fast on "
+            "missing prerequisites (Phase 0 IGP / loopback reachability). "
+            "Review feasibility_issues from the sim and re-emit after fixes."
+        )
 
     result = tcf_emit_from_sim(
         change_id=change_id,
