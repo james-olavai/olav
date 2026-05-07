@@ -8,9 +8,12 @@ Python lib dir, not the project root).
 Resolution order for ``olav_root()``:
 
   1. ``OLAV_HOME`` env var — explicit caller override (highest priority)
-  2. Walk upward from ``Path.cwd()`` for a dir containing
-     ``.olav/workspace/ops/lab/config/config.json`` — works for any
-     install style as long as the user runs from inside their workspace
+  2. Walk upward from ``Path.cwd()`` for a dir containing a
+     ``.olav/workspace/<agent>/lab/config/config.json`` — works for
+     any install style as long as the user runs from inside their
+     workspace.  The ``<agent>`` segment is a glob so the
+     resolver works under any agent naming (``ops``,
+     ``netops_ops``, future renames).
   3. Walk upward from this file's ``__file__`` looking for the same
      marker — catches editable / source-tree installs even when cwd is
      elsewhere
@@ -18,10 +21,15 @@ Resolution order for ``olav_root()``:
      subsequent file ops, which is a clearer failure mode than wrong
      path
 
-The marker file is ``.olav/workspace/ops/lab/config/config.json``
-specifically because that's the one this module's callers always need;
-its presence is a strong signal that the surrounding ``.olav/`` tree
-is the "real" workspace, not a stale or partial copy.
+Anything matching ``.olav/workspace/*/lab/config/config.json`` is a
+strong-enough signal that the surrounding ``.olav/`` tree is the
+"real" workspace, not a stale or partial copy.
+
+History (Fix #1, 2026-05-07): the original ``_MARKER`` hard-coded
+``ops/lab/config/config.json`` and broke after the agent rename
+(commit ``b3c7da5``) that moved the workspace from ``ops/`` to
+``netops_ops/``.  Switched to a glob so any future rename keeps
+working.
 """
 
 from __future__ import annotations
@@ -29,19 +37,31 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-# Marker file used to identify the .olav workspace root. Chosen because
-# ops-lab is what this module serves and config.json must exist for
-# CLAB deploy to work — so its presence is a strong-enough signal.
-_MARKER = Path(".olav") / "workspace" / "ops" / "lab" / "config" / "config.json"
+# Glob pattern for marker file.  Matches under any agent dir so
+# rename-of-agent doesn't break path resolution.
+_MARKER_GLOB = ".olav/workspace/*/lab/config/config.json"
+
+
+def _has_marker(candidate: Path) -> bool:
+    """True iff ``candidate`` contains a file matching _MARKER_GLOB.
+
+    Uses ``Path.glob`` (single-level) since the pattern has only one
+    wildcard; cheaper than rglob and avoids descending into other
+    repos that happen to live under the candidate root.
+    """
+    try:
+        return any(candidate.glob(_MARKER_GLOB))
+    except OSError:
+        return False
 
 
 def _ascend_until_marker(start: Path) -> Path | None:
-    """Walk upward from ``start`` (inclusive) for a dir containing _MARKER.
-    Returns the matching dir, or None if no parent has the marker."""
+    """Walk upward from ``start`` (inclusive) for a dir whose subtree
+    contains _MARKER_GLOB.  Returns the matching dir, or None on miss.
+    """
     start = start.resolve()
-    candidates = [start, *start.parents]
-    for cand in candidates:
-        if (cand / _MARKER).exists():
+    for cand in [start, *start.parents]:
+        if _has_marker(cand):
             return cand
     return None
 
@@ -69,19 +89,37 @@ def olav_root() -> Path:
     return Path.cwd().resolve()
 
 
+def _lab_workspace_dir() -> Path:
+    """Return the actual ``.olav/workspace/<agent>/lab/`` dir for the
+    workspace rooted at :func:`olav_root`.
+
+    Picks the first match if multiple agent dirs ship a lab subtree;
+    real OLAV deployments only ever have one (per ADR-0002 lab is a
+    network-domain concern owned by one agent at a time).
+    """
+    root = olav_root()
+    matches = sorted(root.glob(".olav/workspace/*/lab"))
+    if matches:
+        return matches[0]
+    # Last-resort default — keeps callers from breaking if marker
+    # exists but the lab dir was deleted between calls.
+    return root / ".olav" / "workspace" / "ops" / "lab"
+
+
 def lab_config_path() -> Path:
-    """Path to ``.olav/workspace/ops/lab/config/config.json``.
+    """Path to the active workspace's
+    ``.olav/workspace/<agent>/lab/config/config.json``.
 
     Existence not guaranteed — caller handles ``FileNotFoundError``.
     """
-    return olav_root() / ".olav" / "workspace" / "ops" / "lab" / "config" / "config.json"
+    return _lab_workspace_dir() / "config" / "config.json"
 
 
 def lab_workspace_tools_dir() -> Path:
-    """Path to ``.olav/workspace/ops/lab/tools/`` — vendored helper
+    """Path to ``.olav/workspace/<agent>/lab/tools/`` — vendored helper
     modules loaded via ``importlib.util.spec_from_file_location``.
 
     Returns the dir even when not present so callers can format clear
     error messages.
     """
-    return olav_root() / ".olav" / "workspace" / "ops" / "lab" / "tools"
+    return _lab_workspace_dir() / "tools"
