@@ -243,6 +243,13 @@ def deploy_and_push_lab(
 
     for node, config_lines in configs.items():
         try:
+            # Fix #4 (2026-05-07): be defensive — accept either list[str]
+            # (the documented contract) or str (what generate_srl_lab_config
+            # returned pre-fix).  If it's a str, splitlines first to avoid
+            # iterating per-character which produces a script whose line 2
+            # is the bare char "s" → SRL YANG parser rejects.
+            if isinstance(config_lines, str):
+                config_lines = config_lines.splitlines()
             config_body = "\n".join(str(l) for l in config_lines)
 
             # Phase 1: commit validate (YANG validation — SRL v24.10.1: use "commit validate" NOT "commit dry-run")

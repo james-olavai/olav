@@ -330,10 +330,24 @@ def generate_srl_lab_config(
             "error": f"{type(e).__name__}: {e}",
         })
 
+    # Fix #4 (2026-05-07): downstream consumers (save_lab_config,
+    # deploy_and_push_lab) expect dict[str, list[str]] per the
+    # public API.  _render_*_node functions return a single
+    # newline-joined str, which iterates char-by-char when fed to
+    # ``"\n".join(str(l) for l in config_lines)`` in
+    # deploy_and_push.py:246 — producing a script whose line 2 is
+    # the bare char "s" (first char of "set"), which SRL YANG
+    # parser correctly rejects.  Split before returning so the
+    # contract matches the docstring + caller expectations.
+    configs_as_lines: dict[str, list[str]] = {
+        node: cfg.splitlines() if isinstance(cfg, str) else list(cfg)
+        for node, cfg in configs.items()
+    }
+
     return json.dumps({
         "status": "ok",
         "intent_type": intent_type,
-        "configs": configs,
+        "configs": configs_as_lines,
         "warnings": warnings,
     })
 
