@@ -29,6 +29,7 @@ from .tcf_diff import (
 )
 from .tcf_io import tcf_emit, tcf_load
 from .tcf_lab import tcf_load_for_lab, tcf_record_lab_run
+from .tcf_validate import validate_tcf_in_lab
 from .tcf_schema import (
     CabTcf,
     CliBlock,
@@ -68,6 +69,7 @@ __all__ = [
     "tcf_load",
     "tcf_load_for_lab",
     "tcf_record_lab_run",
+    "validate_tcf_in_lab",
     "tcf_to_r88_args",
     "tcf_to_r89_args",
     "tcf_to_r90_args",
