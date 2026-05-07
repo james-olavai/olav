@@ -26,44 +26,92 @@ from typing import Any
 from langchain_core.tools import tool
 
 
-def _coerce_blocks_json(label: str, value: Any) -> str:
+_CLIBLOCK_REQUIRED = {"device", "phase", "cli"}
+_POSTCHECK_REQUIRED = {"device", "check_id", "description", "command", "expected_pattern"}
+_TVTROW_REQUIRED = {"test_id", "description", "expected"}
+
+
+def _coerce_blocks_json(label: str, value: Any) -> tuple[str, str | None]:
     """Accept either a JSON-encoded string or a Python list/dict.
 
-    Returns a JSON-encoded string that ``tcf_emit_from_sim`` can parse,
-    after fixing common LLM mistakes:
-    * ``cli`` field that's a plain string → wrapped in ``[str]``
-    * Missing ``phase`` field on a CliBlock → defaulted to 1
+    Returns ``(json_str, warning_or_None)``.  Fixes common LLM mistakes:
+
+    * ``implementation_json`` / ``rollback_json`` (CliBlock shape):
+        - ``cli`` field that's a plain string → wrapped in ``[str]``
+        - Missing ``phase`` field → defaulted to 1
+    * ``post_check_json`` / ``tvt_json``: silent-degrade to ``"[]"`` if
+        agent supplied wrong-shape blocks (e.g. CliBlock shape on
+        post_check) — return a warning string in the second tuple slot
+        so the agent learns what to fix on the next emit.
     """
     if value is None or value == "":
-        return "[]"
-    # If LLM passed a Python list instead of JSON string, json.dumps it
+        return "[]", None
+
+    # If LLM passed a Python list instead of JSON string, accept it
     if isinstance(value, list):
         normalised = value
     elif isinstance(value, str):
         try:
             normalised = json.loads(value)
         except json.JSONDecodeError:
-            return value  # leave it; downstream will surface the error
+            # Leave it; downstream will surface the error
+            return value, None
     else:
-        return json.dumps(value)
+        return json.dumps(value), None
 
     if not isinstance(normalised, list):
-        return json.dumps(normalised)
+        return json.dumps(normalised), None
 
-    # Normalise each block: cli to list, phase to 1
+    # Decide the expected required-key set per label
+    required: set[str] | None
+    if label in {"implementation_json", "rollback_json"}:
+        required = _CLIBLOCK_REQUIRED
+    elif label == "post_check_json":
+        required = _POSTCHECK_REQUIRED
+    elif label == "tvt_json":
+        required = _TVTROW_REQUIRED
+    else:
+        required = None
+
     fixed: list[dict] = []
+    malformed: list[str] = []
     for entry in normalised:
         if not isinstance(entry, dict):
             fixed.append(entry)
             continue
         block = dict(entry)
-        cli = block.get("cli")
-        if isinstance(cli, str):
-            block["cli"] = [cli]
-        if "phase" not in block and label in {"implementation_json", "rollback_json"}:
-            block["phase"] = 1
+
+        if label in {"implementation_json", "rollback_json"}:
+            cli = block.get("cli")
+            if isinstance(cli, str):
+                block["cli"] = [cli]
+            if "phase" not in block:
+                block["phase"] = 1
+
+        # Shape check — if optional fields (post_check/tvt) are wrong shape,
+        # silently degrade rather than fail the whole emit.
+        if required is not None:
+            missing = required - set(block.keys())
+            if missing and label in {"post_check_json", "tvt_json"}:
+                malformed.append(
+                    f"block missing {sorted(missing)} (got keys {sorted(block.keys())})"
+                )
+                continue  # drop this block; the rest may still be valid
+
         fixed.append(block)
-    return json.dumps(fixed)
+
+    warning = None
+    if malformed and label in {"post_check_json", "tvt_json"}:
+        warning = (
+            f"{label}: dropped {len(malformed)} malformed block(s); "
+            f"fix by supplying the required fields and re-emit. "
+            f"Examples: {malformed[:2]}"
+        )
+        # If after pruning we have NOTHING left, default to []
+        if not fixed:
+            return "[]", warning
+
+    return json.dumps(fixed), warning
 
 
 @tool
@@ -145,12 +193,20 @@ def emit_tcf(
     """
     from olav.core.cab import tcf_emit_from_sim
 
-    # Patch F: coerce common LLM mistakes (list-not-str, str-cli, missing-phase)
-    # before passing to the strict Pydantic schema.
-    impl_clean = _coerce_blocks_json("implementation_json", implementation_json)
-    rollback_clean = _coerce_blocks_json("rollback_json", rollback_json)
-    post_check_clean = _coerce_blocks_json("post_check_json", post_check_json)
-    tvt_clean = _coerce_blocks_json("tvt_json", tvt_json)
+    # Patch F+G: coerce common LLM mistakes before strict Pydantic.
+    # post_check_json / tvt_json silently degrade to "[]" if blocks are
+    # malformed — agent gets a warning in the result envelope so it can
+    # refine on a follow-up emit_tcf call rather than failing the whole
+    # spec write.
+    warnings: list[str] = []
+    impl_clean, w = _coerce_blocks_json("implementation_json", implementation_json)
+    if w: warnings.append(w)
+    rollback_clean, w = _coerce_blocks_json("rollback_json", rollback_json)
+    if w: warnings.append(w)
+    post_check_clean, w = _coerce_blocks_json("post_check_json", post_check_json)
+    if w: warnings.append(w)
+    tvt_clean, w = _coerce_blocks_json("tvt_json", tvt_json)
+    if w: warnings.append(w)
 
     # Coerce ASNs to int if they came as strings (LLMs often quote integers)
     coerced_asns: list[int] = []
@@ -172,7 +228,7 @@ def emit_tcf(
     if od_parts and od_parts[-1] == change_id:
         output_dir = "/".join(od_parts[:-1]) or "."
 
-    return tcf_emit_from_sim(
+    result = tcf_emit_from_sim(
         change_id=change_id,
         title=title,
         intent_type=intent_type,
@@ -192,3 +248,11 @@ def emit_tcf(
         output_dir=output_dir,
         created_by="ops-analyze",
     )
+
+    if warnings:
+        # Fold coercion warnings into the result so the agent learns what
+        # to fix without failing the spec write.
+        existing = result.get("warnings", []) if isinstance(result, dict) else []
+        if isinstance(result, dict):
+            result["warnings"] = list(existing) + warnings
+    return result
