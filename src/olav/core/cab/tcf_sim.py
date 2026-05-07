@@ -126,6 +126,12 @@ def tcf_emit_from_sim(
             "error": f"TCF construction failed: {type(exc).__name__}: {exc}",
         }
 
+    # Patch O'-B: stamp first-emission metadata (revision_count stays 0;
+    # subsequent writes by record_lab_run / patch_block increment).
+    from datetime import UTC as _UTC, datetime as _dt
+    tcf.last_revised_at = _dt.now(_UTC)
+    tcf.last_revised_by = "ops-analyze"
+
     out_path = Path(output_dir) / change_id / "spec.tcf.yaml"
     try:
         written = tcf_emit(tcf, out_path)

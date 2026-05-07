@@ -272,6 +272,42 @@ class StepVerdict(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Prod-CLI review findings (Patch O'-A)
+# ---------------------------------------------------------------------------
+
+
+class ProdReviewFinding(BaseModel):
+    """One gap or assumption observed by lab when reviewing
+    spec.implementation as deployable production CLI.
+
+    These are advisory — lab does not block the validation pipeline
+    on findings.  CAB approver reads them to decide:
+      * Fix the spec (sim emit revision)
+      * Mark as baseline assumption (operator updates spec metadata)
+      * Accept and proceed (operator's call)
+
+    ``severity`` convention:
+      * ``blocker``  — config will not commit / session will not come up
+      * ``warn``     — likely missing but might be baseline-assumed
+      * ``info``     — observation worth noting (style, redundancy, etc.)
+
+    ``category`` convention:
+      * ``missing_command`` — required CLI line absent
+      * ``assumes_baseline`` — present but only works if X already configured
+      * ``ip_plan_mismatch`` — prod IP differs from lab IP plan
+      * ``syntax_warning`` — deprecated / version-fragile syntax
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    severity: str
+    device: str
+    category: str
+    description: str
+    suggested_fix: str = ""
+
+
+# ---------------------------------------------------------------------------
 # Execution record — lab side or prod side
 # ---------------------------------------------------------------------------
 
@@ -338,6 +374,13 @@ class ExecutionRecord(BaseModel):
     Produced by ``tcf_diff_spec_vs_lab`` when both sim contract and
     lab evidence are populated."""
 
+    prod_review_findings: list["ProdReviewFinding"] = Field(default_factory=list)
+    """Patch O'-A — gaps lab found in spec.implementation when read as
+    prod-deployable CLI.  Advisory: each finding is a hint to a CAB
+    approver about what's missing or needs baseline confirmation.
+    Default empty for backward compatibility; populated by
+    ``olav.core.cab.tcf_review.review_prod_cli``."""
+
 
 # ---------------------------------------------------------------------------
 # Top-level TCF — the contract artifact
@@ -375,6 +418,17 @@ class CabTcf(BaseModel):
 
     lab: ExecutionRecord = Field(default_factory=ExecutionRecord)
     prod: ExecutionRecord = Field(default_factory=ExecutionRecord)
+
+    # Patch O'-B — minimal revision audit (no convergence semantics)
+    revision_count: int = 0
+    """How many times this TCF has been written since first emit.
+    Incremented by ``tcf_emit`` / ``tcf_patch_block`` / ``tcf_record_lab_run``.
+    """
+    last_revised_at: datetime | None = None
+    last_revised_by: str = ""
+    """Free-form actor name — convention: ``"ops-analyze"``,
+    ``"ops-lab"``, ``"operator"``.  Audit-only; not used for any
+    convergence decision."""
 
     @model_validator(mode="after")
     def _check_device_fks(self) -> "CabTcf":
