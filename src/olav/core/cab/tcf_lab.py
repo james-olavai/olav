@@ -93,6 +93,7 @@ def tcf_record_lab_run(
     rollback_lab: list[dict[str, Any]] | str | None = None,
     post_check_lab: list[dict[str, Any]] | str | None = None,
     step_verdicts: list[dict[str, Any]] | str | None = None,
+    prod_review_findings: list[dict[str, Any]] | str | None = None,
 ) -> dict[str, Any]:
     """Atomically write lab results back into a TCF spec.
 
@@ -204,6 +205,13 @@ def tcf_record_lab_run(
     if "error" in sv_parse:
         return sv_parse
 
+    from .tcf_schema import ProdReviewFinding
+    fnd_parse = _parse_model_list(
+        prod_review_findings, ProdReviewFinding, "prod_review_findings"
+    )
+    if "error" in fnd_parse:
+        return fnd_parse
+
     tcf.lab.verdict = verdict
     tcf.lab.lab_name = lab_name or None
     tcf.lab.snapshot_id = snapshot_id or None
@@ -215,6 +223,12 @@ def tcf_record_lab_run(
     tcf.lab.rollback_lab = rb_parse["items"]
     tcf.lab.post_check_lab = pc_parse["items"]
     tcf.lab.step_verdicts = sv_parse["items"]
+    tcf.lab.prod_review_findings = fnd_parse["items"]
+
+    # Patch O'-B: bump revision metadata (audit only)
+    tcf.revision_count += 1
+    tcf.last_revised_at = datetime.now(UTC)
+    tcf.last_revised_by = "ops-lab"
 
     try:
         out = tcf_emit(tcf, spec_path)
@@ -235,6 +249,8 @@ def tcf_record_lab_run(
         "rollback_lab_blocks": len(rb_parse["items"]),
         "post_check_lab_entries": len(pc_parse["items"]),
         "step_verdicts": len(sv_parse["items"]),
+        "prod_review_findings": len(fnd_parse["items"]),
+        "revision_count": tcf.revision_count,
     }
 
 

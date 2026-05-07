@@ -204,6 +204,21 @@ def validate_tcf_in_lab(
              {"spec_path": str(spec_path)},
              {"change_id": loaded["change_id"], "lab_name": lab_name})
 
+    # ── Phase 0.5: Patch O'-A — review prod implementation CLI ───────
+    # Advisory: writes findings into TCF on phase 6 record. Doesn't
+    # block the pipeline — even with blocker findings the lab continues
+    # because the SRL twin is reconstructed from intent (not from the
+    # spec's prod CLI), so missing-AS in Junos doesn't stop SRL config.
+    from .tcf_review import review_prod_cli
+    prod_review_findings = review_prod_cli(tcf_full)
+    _journal("review_prod_cli", "review",
+             {"devices": [d.name for d in tcf_full.devices]},
+             {"findings": len(prod_review_findings),
+              "blockers": sum(1 for f in prod_review_findings
+                              if f.severity == "blocker"),
+              "warns": sum(1 for f in prod_review_findings
+                           if f.severity == "warn")})
+
     if r89_args is None:
         msg = loaded.get("r89_error", "intent not supported by R89")
         return {
@@ -491,6 +506,7 @@ def validate_tcf_in_lab(
             journal=journal,
             diagnosis=diagnosis,
             step_verdicts=step_verdicts,
+            prod_review_findings=[f.model_dump() for f in prod_review_findings],
         )
         tcf_recorded = rec.get("status") == "ok"
         if not tcf_recorded:
@@ -509,6 +525,7 @@ def validate_tcf_in_lab(
         "lab_name": lab_name,
         "post_check_results": post_check_results,
         "tvt_results": tvt_results,
+        "prod_review_findings": [f.model_dump() for f in prod_review_findings],
         "journal": journal,
         "tcf_recorded": tcf_recorded,
         "lab_destroyed": lab_destroyed,
