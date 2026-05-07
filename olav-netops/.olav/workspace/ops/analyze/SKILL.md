@@ -24,6 +24,13 @@ tools:
                            # Writes exports/cab/<change_id>/spec.tcf.yaml.
                            # Sandbox-external write target per ADR-0008
                            # condition #2 — NOT in the sandbox prologue.
+                           # Refuses to overwrite a spec with accumulated
+                           # state (Patch O'-B guard) — use execute_skill_script
+                           # tcf_patch_block.py for revisions.
+  - execute_skill_script   # for tcf_patch_block.py (Patch O'-B 2026-05-07):
+                           # surgical add/remove on one CliBlock when
+                           # operator asks for targeted revision after
+                           # lab findings.  See guides/cab_revise.guide.yaml.
 allowed_tables:
   - netops.v_bgp_neighbors_auto
   - netops.v_ospf_neighbors_auto

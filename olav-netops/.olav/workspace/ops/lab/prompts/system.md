@@ -15,20 +15,38 @@ execute_skill_script(
     script_args={"spec_path": "<spec_path>"})
 # result["stdout"] → {status, verdict (PASS|FAIL), lab_name,
 #                     post_check_results[], tvt_results[],
+#                     prod_review_findings[],   # Patch O'-A
 #                     journal[], tcf_recorded, lab_destroyed, errors[]}
 ```
 
 This single call runs the complete pipeline server-side:
-load TCF → R88-A topology → R89 SRL render → save_lab_config × N
-→ deploy_and_push → exec each post_check → record back to TCF →
-destroy lab.  **Do not** orchestrate the steps yourself — that flow
-is what caused the 12-minute investigation loop on small models
+**Phase 0.5** review prod CLI (deterministic Junos/IOS rule check
+→ writes ``lab.prod_review_findings``) → load TCF → R88-A topology
+→ R89 SRL render → save_lab_config × N → deploy_and_push →
+exec each post_check → record back to TCF → destroy lab.  **Do
+not** orchestrate the steps yourself — that flow is what caused
+the 12-minute investigation loop on small models
 (ISSUE-CAB-AGENT-DRIVEN-LAB-VALIDATION-LOOPS).
 
-After the call returns:
-* If ``verdict == "PASS"`` → step 6 (format the CAB report).
-* If ``verdict == "FAIL"`` → step 6 (CAB report with the failed
-  ``post_check_results``) + advise sim revision.
+**Findings are advisory, not blocking** (Patch O'-A 2026-05-07):
+the composite still runs all phases even when blocker findings
+exist (SRL twin is built from intent, not from prod CLI).  Findings
+end up in ``lab.prod_review_findings`` for the CAB approver to see.
+
+After the call returns, REPORT to user:
+* `verdict` (PASS / FAIL) + per-check pass count
+* `prod_review_findings` summary by severity — surface blockers
+  prominently, list warns as "review-recommended"
+* `revision_count` so user knows which TCF version they're seeing
+* Did NOT auto-trigger sim revision — that's the operator's call.
+
+Specific exit modes:
+* If ``verdict == "PASS"`` AND no blocker findings → ready for CAB
+  approver review (operator decides on warns).
+* If ``verdict == "PASS"`` BUT blocker findings present → spec
+  works in lab BUT will fail on prod commit; surface that prominently.
+* If ``verdict == "FAIL"`` → report failed checks + advise operator
+  to consider sim revision via tcf_patch_block (do NOT auto-call).
 * If ``status == "error"`` → report the ``phase`` + ``error`` to
   the user; the script already attempted ``destroy_lab``.
 
