@@ -1,0 +1,72 @@
+schema_version: 1
+intent: bgp_best_path_python_algorithm
+agent: ops
+keywords:
+  - BGP best path computation
+  - simulate BGP best path
+  - BGP path selection code
+  - BGP best path algorithm
+  - which route wins
+  - best path simulation
+  - tie-break BGP routes
+  - what would BGP pick
+  - 最优路径
+  - 最佳路径
+  - BGP 选路计算
+body: |
+  Deterministic Python implementation of BGP best-path selection
+  for run_python_simulation.  Use when simulating "what would BGP
+  pick if X changes?" — the rules summary is in the
+  `bgp_path_selection_and_state_machine` memory guide.
+
+  ```python
+  def bgp_best_path(routes):
+      """Pick the best route from a list of dicts.
+      Each dict needs: prefix, next_hop, weight, local_pref,
+      as_path (list), origin, med, route_type (eBGP/iBGP),
+      igp_metric, router_id."""
+      if not routes:
+          return None
+
+      def sort_key(r):
+          origin_map = {"igp": 0, "i": 0, "egp": 1, "e": 1,
+                        "incomplete": 2, "?": 2}
+          return (
+              -r.get("weight", 0),                          # 1
+              -r.get("local_pref", 100),                    # 2
+              # 3 (locally originated) — caller annotates if applicable
+              len(r.get("as_path", [])),                    # 4
+              origin_map.get(r.get("origin", "?").lower(), 2),  # 5
+              r.get("med", 0),                              # 6
+              0 if r.get("route_type") == "eBGP" else 1,    # 7
+              r.get("igp_metric", 0),                       # 8
+              # 9 (oldest) — caller annotates if needed
+              r.get("router_id", "255.255.255.255"),        # 10
+          )
+      return sorted(routes, key=sort_key)[0]
+  ```
+
+  Wire to live data:
+
+  ```python
+  routes = db.query("""
+      SELECT device_name, neighbor_ip, prefix, local_pref, weight,
+             as_path, origin, med, route_type, igp_metric, router_id
+      FROM netops.v_bgp_neighbors_auto
+      WHERE prefix = %(target_prefix)s
+  """, {"target_prefix": "10.0.0.0/24"})
+  best = bgp_best_path(routes)
+  _result = {"best_route": best, "candidate_count": len(routes)}
+  ```
+
+  Note step 3 (locally-originated > learned) and step 9
+  (oldest path) are not encoded in `sort_key` — both require
+  data the per-prefix view doesn't carry by default.  Annotate
+  routes with `_local: True` and an `_age_ts` field if you need
+  them for an exact match.
+
+related:
+  - intent: bgp_path_selection_and_state_machine
+    note: "summary of the 10-step priority rule + state machine"
+  - intent: ecmp_detection
+    note: "use when bgp_best_path returns ties at every column"

@@ -1,0 +1,57 @@
+schema_version: 1
+intent: ecmp_detection
+agent: ops
+keywords:
+  - ECMP
+  - equal-cost multipath
+  - equal-cost paths
+  - load balance paths
+  - load-balancing
+  - multi-path detection
+  - parallel paths
+  - 等价多径
+  - 多路径
+body: |
+  ECMP (Equal-Cost Multi-Path) detection inside run_python_simulation.
+
+  Conditions for ECMP existence:
+    * OSPF: same total cost, same area, same path type
+      (intra > inter > external)
+    * BGP: identical local_pref + weight + AS-path length + origin
+      + MED + IGP metric to next-hop
+    * Static: multiple entries with same admin distance and metric
+
+  Per-pair sweep (assumes G already built — see
+  `ospf_dijkstra_shortest_path` for graph construction):
+
+  ```python
+  ecmp_pairs = {}
+  for src in G.nodes():
+      for dst in G.nodes():
+          if src == dst:
+              continue
+          try:
+              paths = list(nx.all_shortest_paths(G, src, dst, weight="weight"))
+              if len(paths) > 1:
+                  ecmp_pairs[(src, dst)] = {
+                      "paths": paths,
+                      "count": len(paths),
+                      "cost": nx.dijkstra_path_length(G, src, dst, weight="weight"),
+                  }
+          except nx.NetworkXNoPath:
+              pass
+  _result = {
+      "ecmp_pairs": {f"{s}→{d}": v for (s,d), v in ecmp_pairs.items()},
+      "total_ecmp_paths": len(ecmp_pairs),
+  }
+  ```
+
+  For BGP ECMP specifically: query all `v_bgp_neighbors_auto` rows
+  for a given prefix, group by (local_pref, weight, as_path_length,
+  origin, med); a tie at every column = ECMP.
+
+related:
+  - intent: ospf_shortest_path_dijkstra
+    note: "build the OSPF-weighted graph first"
+  - intent: bgp_path_selection_and_state_machine
+    note: "BGP best-path criteria for grouping ECMP candidates"
