@@ -389,8 +389,16 @@ def validate_tcf_in_lab(
             "actual": actual,
             "passed": passed,
         })
-    verdict = "PASS" if (post_check_results and
-                         all(r["passed"] for r in post_check_results)) else "FAIL"
+    # Verdict semantics:
+    #   * "PASS"        — at least one check ran AND all passed
+    #   * "FAIL"        — at least one check ran AND some failed
+    #   * "NO_CHECKS"   — spec has no post_check; can't form opinion
+    if not post_check_results:
+        verdict = "NO_CHECKS"
+    elif all(r["passed"] for r in post_check_results):
+        verdict = "PASS"
+    else:
+        verdict = "FAIL"
     _journal("verify_post_check", "verify",
              {"checks": len(post_check_results)},
              {"verdict": verdict,
