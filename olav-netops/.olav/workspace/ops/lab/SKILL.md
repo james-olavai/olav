@@ -25,11 +25,38 @@ static_context:
 static_context_mode: on_intent
 ---
 
-## Flow (TCF-native, R92 SkillsMiddleware-first)
+## Flow — DEFAULT: one atomic call (Patch L, 2026-05-07)
 
-Each step is `execute_skill_script(skill_name="lab", script_name="<x>.py", ...)`.
-For exact `script_args` shape, read the script's docstring or
-`references/LAB_REFERENCE.md`.
+For the standard CAB validation path (TCF spec → PASS/FAIL verdict)
+make ONE call:
+
+```
+execute_skill_script(skill_name="lab",
+                     script_name="validate_tcf_in_lab.py",
+                     script_args={"spec_path": "<path>"})
+```
+
+Returned envelope: ``verdict`` (PASS/FAIL), ``post_check_results``,
+``tvt_results``, ``journal``, ``lab_name``, ``tcf_recorded``,
+``lab_destroyed``, ``errors``. The script runs the full pipeline
+server-side (load → topology → srl render → save × N → deploy +
+push → verify each post_check → record back to TCF → destroy).
+
+After this returns, write the CAB report straight from
+``post_check_results`` + ``journal``. No further skill_script calls
+needed for the happy path.
+
+### Optional flags
+* ``destroy_on_finish: false`` — leave lab running for ad-hoc inspection
+* ``skip_record: true`` — dry-run without touching the TCF spec
+* ``deploy_wait_seconds`` / ``post_commit_wait_seconds`` /
+  ``convergence_wait_seconds`` — tune the BGP/OSPF settle time
+
+### Manual flow (only when validate_tcf_in_lab is not enough)
+
+If you need to deviate (e.g. fix-and-retry on a YAML error, run
+rollback validation, exec ad-hoc show commands), fall back to the
+individual skill scripts:
 
 ```
 0. tcf_load_for_lab.py              → r88_args, r89_args, post_check, tvt
