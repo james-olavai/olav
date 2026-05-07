@@ -249,6 +249,43 @@ def _build_yaml(
     for n in nodes:
         parts.append(f"#   {n} → {_to_lab_name(n)}")
     parts.append(f"name: {lab_name}")
+
+    # Fix #3 (2026-05-07): read mgmt_subnet from lab/config/config.json
+    # and emit an explicit ``mgmt:`` block so CLAB doesn't auto-pick a
+    # subnet that clashes with existing docker networks (172.21.x is
+    # commonly used by llama_default and other dev-machine containers).
+    # Network name is derived from lab_name to keep multiple labs
+    # distinguishable in `docker network ls`.
+    try:
+        from ._paths import lab_config_path
+        import json as _json_cfg
+        cfg = _json_cfg.loads(lab_config_path().read_text())
+        mgmt_subnet = cfg.get("mgmt_subnet")
+        if mgmt_subnet:
+            net_name = f"olav-mgmt-{lab_name}".replace("_", "-")
+            # Truncate to docker's 64-char network-name limit if needed
+            if len(net_name) > 60:
+                net_name = net_name[:60]
+            parts.append("mgmt:")
+            parts.append(f"  network: {net_name}")
+            parts.append(f"  ipv4-subnet: {mgmt_subnet}")
+        else:
+            warnings.append(
+                "lab/config/config.json missing 'mgmt_subnet' — CLAB will "
+                "auto-select; subnet collisions with existing docker networks "
+                "are possible (e.g. llama_default 172.21.0.0/16)."
+            )
+    except FileNotFoundError:
+        warnings.append(
+            "lab/config/config.json not found — CLAB mgmt subnet will "
+            "be auto-selected by CLAB.  Subnet collisions possible."
+        )
+    except (OSError, ValueError) as exc:
+        warnings.append(
+            f"lab/config/config.json read failed ({type(exc).__name__}: "
+            f"{exc}); falling back to CLAB auto-select."
+        )
+
     parts.append("topology:")
     parts.append("  nodes:")
     for n in nodes:
