@@ -182,6 +182,11 @@ class TvtRow(BaseModel):
     actual_lab: str | None = None
     actual_prod: str | None = None
     status: str = "PENDING"
+    evidence_check_ids: list[str] = Field(default_factory=list)
+    """Optional explicit link to ``post_check.check_id`` entries that
+    prove this test row.  Sim populates this when emitting; lab
+    consumes it deterministically (Patch N tier 1).  Backward-compatible
+    default ``[]`` so old specs still parse."""
 
 
 # ---------------------------------------------------------------------------
