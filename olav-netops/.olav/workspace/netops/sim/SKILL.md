@@ -1,14 +1,14 @@
 ---
 name: sim
-description: "Simulation + change planning. Designs changes (eBGP / iBGP / VLAN / etc.), runs what-if simulations against the digital twin, outputs a Markdown CHANGE PLAN ending with a ``## Change Summary`` YAML block. Does NOT compose TCF YAML directly — a deterministic Python writer (`render_tcf` skill-script) handles that."
+description: "Simulation + change planning. Designs network changes (eBGP / iBGP / VLAN / etc.), runs what-if simulations against the digital twin, and submits the plan via a structured tool call. Free-form prose analysis lives inside the tool's rationale + steps fields; schema-constrained metadata (intent, devices) drives deterministic TCF rendering on the Python side."
 tools:
   - run_python_simulation
-  - execute_skill_script
+  - submit_change_plan
   - format_and_export
 static_context_mode: on_intent
 system: $ref:./prompts/system.md
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   type: agent
   network_isolation: "true"
   category: network-operations
@@ -21,76 +21,92 @@ metadata:
 
 ## Sim — write-side analysis
 
-R-AGENT-HIERARCHY Phase B+C (2026-05-09): split out from
-`analyze` (which keeps drift / topology Q&A / read-side investigation).
-`sim` owns forward-looking analysis: simulating proposed changes,
-checking feasibility, and writing the **change plan** in prose.
+R-AGENT-HIERARCHY Phase B+C+D (2026-05-09).  Split out from `analyze`
+(which kept the read-side: drift / topology Q&A / Mermaid).  Sim
+owns forward-looking analysis: simulating proposed changes, checking
+feasibility, and submitting the change plan via `submit_change_plan`.
 
-## Workflow
+## Workflow (3 steps, ends with tool call)
 
-1. **Understand the request** — what change is the user asking for?
-2. **Query DB to verify feasibility** (via `run_python_simulation`):
-   * Devices exist?
-   * For ebgp_direct: are ASNs different?  (Same-AS → blocker.)
-   * For multihop eBGP: is there an IGP carrying loopbacks?
-   * For VLAN add: is there an L2 path between target devices?
-3. **Optional: run a what-if simulation** to predict impact
-   (link-down blast radius, routing changes, convergence time).
-4. **Write the change plan** as Markdown.  End with a fenced
-   ``## Change Summary`` YAML block:
+1. **Feasibility check** (ONE sandbox call):
 
-       ## Change Summary
-       ```yaml
-       change_id: r2-r3-ebgp
-       title: Add eBGP between R2 and R3
-       intent_type: ebgp_direct
-       devices: [R2, R3]
-       feasibility: OK             # or BLOCKED with feasibility_reason
-       ```
+       run_python_simulation(experiment_code='''
+       asns = db.query("""
+         SELECT device_name, local_as
+         FROM netops.v_show_ip_bgp_summary_auto
+         WHERE device_name IN ('R1','R3')
+       """)
+       _result = {"asns": asns}
+       ''')
 
-5. **Render TCF** by invoking the `render_tcf` skill-script:
+   Don't loop on this — ONE call is enough for the basic yes/no.
 
-       execute_skill_script("render_tcf.py", script_args={
-           "plan_text": <the entire markdown plan from step 4>,
-           "output_dir": "exports/cab",
-       })
+2. **Decide feasibility** based on the data.  For ebgp_direct:
+   if both devices in same AS → BLOCKED; else OK.
 
-   The script parses the Summary block, queries the DB for
-   ASN / loopback / platform per device, renders deterministic
-   CLI from intent + platform templates, and writes the TCF YAML.
-   Returns: `{"status": "ok", "spec_path": "...", "facts": {...}}`
-   or `{"status": "error", "error": "...", "blockers": [...]}`.
+3. **Submit** via the structured tool call.  This ENDS your loop:
 
-6. **Report** spec_path + facts to user.  Mention any DB gaps
-   (None values in `facts`) so they're aware before lab apply.
+       submit_change_plan(
+           intent="ebgp_direct",
+           devices=["R2", "R3"],
+           summary="Add eBGP between R2 and R3",
+           rationale=(
+               "R2 (AS 65001) and R3 (AS 65000) currently rely on "
+               "transit through R4 for reachability.  Direct eBGP "
+               "gives a redundant path."
+           ),
+           steps=(
+               "Phase 1: configure both devices simultaneously.\n"
+               "Phase 2: verify session reaches Established within 60s.\n"
+               "Phase 3: confirm both devices learn each other's loopback."
+           ),
+           feasibility="OK",
+       )
 
-## HARD RULES — what you DO NOT do
+   The tool returns `{plan_md_path, spec_path, facts, warnings}` on
+   success or `{error, blockers}` on failure.
 
-* You do NOT compose TCF YAML or call any TCF-emitter tool yourself.
-  The deterministic writer handles ASN / loopback / platform / CLI.
-* You do NOT pass ASN / loopback / CLI to the writer.  Only pass
-  the prose plan with the Summary block.  Facts come from the DB.
-* You do NOT construct nested implementation_json / rollback_json /
-  post_check_json strings.  Those don't exist here.
-* If the writer returns `status=error` with `blockers`, surface
-  them to the user.  Do NOT retry with fabricated "fix" arguments.
+## What you DO NOT pass
 
-## Supported intents (in `render_tcf`)
+- `device_platforms` / `device_loopbacks` / `device_asns` — these
+  come from the DB; the writer queries them itself.
+- `implementation_json` / `rollback_json` / `post_check_json` — the
+  writer renders CLI from per-platform templates.
+- `change_id` — auto-generated from devices + intent.
 
-| intent_type    | Description |
-|----------------|---|
-| `ebgp_direct`  | Direct eBGP session between 2 devices, different ASNs |
+## Rationale + steps are FREE-FORM
 
-For other intents, write the prose plan but skip step 5 — escalate
-to a human operator (`render_tcf` will return an "unsupported intent"
-error if you try anyway).
+These fields are Markdown.  Multi-paragraph.  Multi-section.  They
+become the human-readable change-plan artifact for HITL review.
+Write them well — they're the user's primary review surface.
 
-## Sandbox SQL rule (inherited from analyze)
+## What sim DOES NOT do (read-side stays with analyze)
 
-`sim.execute()` with literal SQL starting with `CREATE` / `INSERT` etc.
-MUST use a variable (sandbox_guard pattern):
+- Drift detection between snapshots → `task("ops-analyze", ...)`
+- BGP attribute investigation / AS_PATH walks → analyze
+- Topology Q&A / Mermaid rendering → analyze
+- Blast-radius reachability → analyze
+
+If the user's request is investigative (not a forward-looking
+change), redirect them.
+
+## Sandbox SQL rule (inherited)
+
+`sim.execute()` with literal SQL starting with `CREATE` / `INSERT`
+etc. MUST use a variable (sandbox_guard pattern):
 
 ```python
 _sql = "CREATE TABLE sim_x (col VARCHAR)"
 sim.execute(_sql)  # NOT: sim.execute("CREATE TABLE ...")
 ```
+
+## Supported intents
+
+| intent_type   | What it does |
+|---|---|
+| `ebgp_direct` | Direct eBGP session, 2 devices, different ASNs |
+| `ibgp_direct` | iBGP session, 2 devices, same AS (placeholder) |
+| `vlan_add`    | Add VLAN trunk between 2 switches (placeholder) |
+
+For unsupported intents, the tool returns an explicit error;
+escalate to a human operator.
