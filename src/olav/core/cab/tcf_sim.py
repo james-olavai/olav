@@ -51,23 +51,12 @@ def tcf_emit_from_sim(
     risk_class: str = "medium",
     output_dir: str | Path = "exports/cab",
     created_by: str = "ops-analyze",
-    overwrite_existing: bool = False,
 ) -> dict[str, Any]:
     """Build + atomically write a TCF for a single CAB change.
 
     Returns a dict envelope with ``status``, ``spec_path``, and basic
     counts. On validation error returns ``status="error"`` and writes
     no file.
-
-    **Existing-file protection (Patch O'-B follow-up)**: if a spec
-    already exists at the target path AND that spec carries any
-    accumulated state (lab.verdict != PENDING, prod_review_findings,
-    revision_count > 0), refuses to overwrite by default — surfaces
-    an error pointing at ``tcf_patch_block`` for surgical edits.
-    Pass ``overwrite_existing=True`` to bypass (rare; intended for
-    "start over from scratch" cases).  Without this guard, a sim
-    re-emit blows away lab section + operator manual edits, breaking
-    the human-in-the-loop contract.
     """
     n = len(device_names)
     if not (len(device_platforms) == len(device_loopbacks) == len(device_asns) == n):
@@ -137,46 +126,7 @@ def tcf_emit_from_sim(
             "error": f"TCF construction failed: {type(exc).__name__}: {exc}",
         }
 
-    # Patch O'-B: stamp first-emission metadata (revision_count stays 0;
-    # subsequent writes by record_lab_run / patch_block increment).
-    from datetime import UTC as _UTC, datetime as _dt
-    tcf.last_revised_at = _dt.now(_UTC)
-    tcf.last_revised_by = "ops-analyze"
-
     out_path = Path(output_dir) / change_id / "spec.tcf.yaml"
-
-    # Existing-file protection: refuse to clobber accumulated state
-    # (lab section / findings / operator edits).  Bypass with
-    # overwrite_existing=True.
-    if out_path.exists() and not overwrite_existing:
-        try:
-            from .tcf_io import tcf_load as _load
-            existing = _load(out_path)
-            has_state = (
-                existing.revision_count > 0
-                or existing.lab.verdict not in ("", "PENDING")
-                or len(existing.lab.prod_review_findings) > 0
-                or len(existing.lab.journal) > 0
-            )
-        except Exception:
-            has_state = True  # unreadable → assume something's there
-        if has_state:
-            return {
-                "status": "error",
-                "error": (
-                    f"Spec already exists at {out_path} with accumulated "
-                    f"state (revision_count={existing.revision_count}, "
-                    f"lab.verdict={existing.lab.verdict}, "
-                    f"findings={len(existing.lab.prod_review_findings)}). "
-                    f"Use tcf_patch_block to make surgical edits, or "
-                    f"pass overwrite_existing=True to start over."
-                ),
-                "spec_path": str(out_path),
-                "existing_revision_count": existing.revision_count,
-                "existing_lab_verdict": existing.lab.verdict,
-                "hint": "tcf_patch_block(spec_path, device, add_lines=[...])",
-            }
-
     try:
         written = tcf_emit(tcf, out_path)
     except Exception as exc:
