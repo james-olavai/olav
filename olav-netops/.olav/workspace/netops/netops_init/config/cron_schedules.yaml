@@ -1,0 +1,23 @@
+# Cron schedule configuration for olav scheduled tasks.
+# Apply with: olav --agent config --auto-approve "apply cron schedules"
+#
+# All jobs call: olav --agent <agent> --auto-approve "<instruction>"
+
+schedules:
+  snapshot:
+    cron: "0 2 * * *"
+    agent: config
+    instruction: "take snapshot"
+    description: "Daily network snapshot — SSH collect + parse + diff all devices"
+
+  trace_learner:
+    cron: "0 3 * * *"
+    agent: config
+    instruction: "run trace learner"
+    description: "Learn from network traces and update command template registry"
+
+  audit_weekly:
+    cron: "0 6 * * 1"
+    agent: audit
+    instruction: "generate weekly compliance report"
+    description: "Weekly audit — BGP health, config drift, compliance check"

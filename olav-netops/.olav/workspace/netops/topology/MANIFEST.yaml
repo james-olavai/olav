@@ -1,0 +1,19 @@
+kind: Agent
+name: topology
+version: "1.0.0"
+description: "Network topology queries + LLM-assisted recipe discovery (BGP/OSPF/CDP-LLDP/L2 built-in, extensible via user recipe YAMLs)"
+route_keywords:
+  - topology
+  - network topology
+  - BGP neighbors
+  - BGP sessions
+  - OSPF adjacency
+  - OSPF neighbors
+  - CDP neighbors
+  - LLDP neighbors
+  - L2 links
+  - network relationships
+  - 拓扑
+  - 邻居关系
+  - query topology
+  - list recipes

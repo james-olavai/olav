@@ -1,0 +1,9 @@
+Value Required INTERFACE (\S+)
+Value ADMIN_STATE (Enabled|Disabled)
+Value LINK_STATE (Up|Down)
+
+Start
+  # Physical interface header — one record per physical interface
+  ^Physical interface:\s+${INTERFACE},\s+${ADMIN_STATE},\s+Physical link is\s+${LINK_STATE} -> Record
+  # Ignore everything else
+  ^. -> Continue

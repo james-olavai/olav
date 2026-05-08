@@ -1,0 +1,14 @@
+Value Required PEER (\S+)
+Value PEER_AS (\d+)
+Value INPKT (\d+)
+Value OUTPKT (\d+)
+Value OUTQ (\d+)
+Value FLAPS (\d+)
+Value UPTIME (\S+\s+\S+)
+Value STATE (\S+)
+
+Start
+  # Main peer line — 8 fields: peer, AS, inpkt, outpkt, outq, flaps, uptime(with space), state
+  ^${PEER}\s+${PEER_AS}\s+${INPKT}\s+${OUTPKT}\s+${OUTQ}\s+${FLAPS}\s+${UPTIME}\s+${STATE}\s* -> Record
+  # Ignore everything else (headers, table stats, per-table peer sub-lines)
+  ^. -> Continue

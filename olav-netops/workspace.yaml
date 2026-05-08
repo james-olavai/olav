@@ -20,24 +20,18 @@ inject_into_core:
     - tools/diff_configs.py
     - tools/take_snapshot.py
 
+# R-AGENT-HIERARCHY Phase A (2026-05-09): consolidated 6→3
+# user-facing orchestrators per dev_docs/73.  topology + learner
+# pulled back into netops/{topology,learner}; devops_scripts +
+# devops_infra merged under devops orchestrator with scripts/
+# + infra/ sub-agents.  Patch D' Steps 1-5 (2026-05-08) decoupled
+# tool registration scope from impl sharing — removed the
+# 2026-05-01 reason to keep agents at top level.  CLI:
+# ``olav --agent netops "..."`` / ``olav --agent devops "..."``.
 workspaces:
-  # 2026-05-01: domain-prefix naming standardization.  Platform-level
-  # agents (audit) stay unprefixed; netops-domain agents get
-  # ``netops_`` prefix; devops-domain agents get ``devops_`` prefix.
-  # CLI usage: ``olav --agent netops_ops "..."`` /
-  # ``olav --agent devops_scripts "..."``.
-  - name: netops_ops
-    source: .olav/workspace/ops
+  - name: netops
+    source: .olav/workspace/netops
   - name: audit
     source: .olav/workspace/audit
-  - name: netops_topology
-    source: .olav/workspace/topology
-  - name: netops_learner
-    source: .olav/workspace/command_learner
-  # devops + infra: spun out from ops sub-agent tree to lighten ops
-  # orchestrator prompt (ops 6 → 3 sub-agents).  See dev_docs/00 §
-  # ISSUE-CTX-PROMPT-INFLATION mitigation.
-  - name: devops_scripts
+  - name: devops
     source: .olav/workspace/devops
-  - name: devops_infra
-    source: .olav/workspace/infra

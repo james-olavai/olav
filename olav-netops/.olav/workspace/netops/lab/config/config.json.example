@@ -1,0 +1,6 @@
+{
+  "base_url": "http://YOUR_CLAB_HOST:8080",
+  "username": "admin",
+  "password": "CHANGE_ME",
+  "mgmt_subnet": "172.20.50.0/24"
+}

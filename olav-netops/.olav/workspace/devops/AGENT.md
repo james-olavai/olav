@@ -1,52 +1,45 @@
 ---
-name: devops_scripts
-kind: Agent
-description: "DevOps automation — production-grade scripts (bash/python/ansible) using real device + service data from OLAV DB. Spun out from ops sub-agent → top-level (2026-05-01) to lighten ops orchestrator prompt."
-version: "1.0.0"
-system_prompt_file: prompts/system.md
+name: devops
+description: "DevOps & Infrastructure orchestrator — automation script generation (bash/python/ansible) + infrastructure integrations (NetBox DCIM/IPAM, InfluxDB metrics) + bulk change scripts. Pure delegation; sub-agents own all write/query work."
+system_prompt_file: prompts/orchestrator.md
 route_keywords:
-  - script
-  - bash
-  - python
-  - ansible
-  - automation
-  - backup
-  - bulk operation
-  - migrate
-  - generate code
-  - 脚本
-  - 自动化
-  - 备份
-  - 批量
-static_context:
-  - path: ./references/BASELINE_SCHEMA.md
-  - path: ./references/OLAV_PLATFORM_HEALTH.md
-  - path: ./references/schema_discovery_patterns.md
-  - path: ./references/system_health_patterns.md
-static_context_mode: on_intent
+  - script bash python ansible automation backup bulk operation migrate generate code
+  - 脚本 自动化 备份 批量
+  - netbox dcim ipam influxdb metrics inventory bulk change
+  - 网管 资源 库存
+# Patch D' Step 2.5 (2026-05-08) pattern: orchestrator is pure
+# delegation. No direct execute_sql, no write-class tools.
+# Whitelist 2 low-risk reads only; everything else delegates.
+tools:
+  - recall_memory
+  - web_search
+subagents:
+  - path: ./scripts/SKILL.md
+  - path: ./infra/SKILL.md
 ---
 
-# DevOps Automation Agent
+# DevOps Orchestrator
 
-Top-level agent (was `ops/devops/` sub-agent, promoted 2026-05-01 per
-conversation re-org).
+R-AGENT-HIERARCHY Phase A (2026-05-09): merged from former
+top-level `devops_scripts` + `devops_infra` agents.  Both were
+spun out from the netops `ops` orchestrator on 2026-05-01 to
+lighten that orchestrator's prompt; Patch D' (2026-05-08)
+removed the prompt-bloat reason, so they're now nested under
+this single domain orchestrator.
 
-## Capabilities
+## Delegation table
 
-* Generate bash / python / ansible scripts using real device + service
-  data from OLAV DB (no placeholder `10.0.0.1` / `CHANGEME`).
-* Backup / restore / migration script templates.
-* Bulk-ops scripts (multi-device parallel execution).
-* Monitoring setup snippets.
+| Request | First call |
+|---|---|
+| Bash / Python / Ansible script generation | `task("scripts", req)` |
+| Backup / restore / migration / monitoring scripts | `task("scripts", req)` |
+| Bulk multi-device operation script | `task("scripts", req)` |
+| NetBox DCIM device / interface / circuit query | `task("infra", req)` |
+| NetBox IPAM prefix / IP query | `task("infra", req)` |
+| InfluxDB metric query (latency / health timeseries) | `task("infra", req)` |
+| Bulk-change CSV / changeset generation from infra data | `task("infra", req)` |
 
-## Workflow
+## Boundary
 
-See `prompts/system.md` for the full mandatory environment-discovery
-flow before any script gets written.
-
-## Cross-agent dependencies
-
-* For service registry / API tokens: delegate to `services` agent
-  via `olav_delegate(subagent_name="services", ...)`.
-* For network topology data: read `netops.topology_links` directly
-  via `execute_sql` (inherited core tool).
+* For `services/` deploy/stop/auth: tell user `olav --agent services "..."`
+* For network device CLI / topology queries: tell user `olav --agent netops "..."`

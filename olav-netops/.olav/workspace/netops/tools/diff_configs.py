@@ -1,0 +1,60 @@
+"""diff_configs — thin MCP wrapper around the Python helper.
+
+The actual implementation lives in
+``olav_netops.core.diff.configs.diff_configs`` (per ADR-0007 R91
+Step 3). This file exists ONLY to keep the ops orchestrator's MCP
+tool surface unchanged — that agent does not have
+``run_python_simulation`` today and so still calls this as a tool.
+
+Once the ops orchestrator gains sandbox access, this wrapper can
+be deleted and the orchestrator told to import the Python helper
+directly.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from typing import Any
+
+
+def _find_project_root() -> Path:
+    p = Path(__file__).resolve().parent
+    while p != p.parent:
+        if (p / "pyproject.toml").exists():
+            return p
+        p = p.parent
+    return Path.cwd()
+
+
+sys.path.insert(0, str(_find_project_root() / "src"))
+
+from langchain_core.tools import tool
+
+from olav_netops.core.diff.configs import diff_configs as _diff_configs_impl
+
+
+@tool
+def diff_configs(
+    device: str,
+    command: str,
+    snapshot_id_1: str | None = None,
+    snapshot_id_2: str | None = None,
+    sections: list[str] | None = None,
+    context_lines: int = 3,
+    full: bool = False,
+) -> dict[str, Any]:
+    """Unified diff of raw CLI output between two snapshot_ids.
+
+    Reads exports/snapshots/{snapshot_id}/raw/{device}/{cmd-slug}.txt
+    and emits a unified diff; compact mode caps shown lines.
+    """
+    return _diff_configs_impl(
+        device=device,
+        command=command,
+        snapshot_id_1=snapshot_id_1,
+        snapshot_id_2=snapshot_id_2,
+        sections=sections,
+        context_lines=context_lines,
+        full=full,
+    )
