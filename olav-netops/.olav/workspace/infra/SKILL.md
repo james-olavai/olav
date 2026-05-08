@@ -1,7 +1,10 @@
 ---
 name: infra
 description: "Query registered services (NetBox DCIM/IPAM, InfluxDB, etc.) + generate bulk change scripts."
-tools: []
+# Patch D' Step 5 (2026-05-08): infra produces changeset CSVs +
+# bulk-change scripts — needs format_and_export.
+tools:
+  - format_and_export
 static_context:
   - path: ./references/netbox_dcim_api.md
   - path: ./references/netbox_ipam_api.md
