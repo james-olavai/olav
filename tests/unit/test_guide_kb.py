@@ -248,3 +248,70 @@ def test_prime_guides_tags_contain_keywords(tmp_path):
     assert "mermaid" in tags
     assert "ops" in tags
     assert "topology_visualization" in tags
+
+
+# ── Patch C1 (2026-05-08): orphan-prune on prime ─────────────────────
+
+
+def test_prime_guides_prunes_orphan_when_source_deleted(tmp_path):
+    """If a guide YAML is deleted from source, its memory entry must
+    be removed on next prime — prevents AutoRecall ghost entries
+    (regression: cab_revise.guide leak broke emit_tcf ranking 2026-05-07).
+    """
+    from olav.core.memory.guide_kb import prime_guides_from_dir
+
+    p1 = _write_guide(tmp_path, "ops", "topology_viz", VALID_GUIDE_YAML)
+    p2 = _write_guide(tmp_path, "ops", "drift_detection", VALID_GUIDE_YAML_2)
+    store = _make_store(tmp_path)
+
+    # First prime: 2 guides land in memory
+    with patch("olav.core.memory.guide_kb._embed", side_effect=_embed_stub):
+        result1 = prime_guides_from_dir(tmp_path, store=store)
+    assert result1["guide_entries"] == 2
+    assert result1["pruned"] == 0
+
+    # Delete one source file
+    p2.unlink()
+
+    # Second prime: 1 guide remains, the other is pruned
+    with patch("olav.core.memory.guide_kb._embed", side_effect=_embed_stub):
+        result2 = prime_guides_from_dir(tmp_path, store=store)
+    assert result2["guide_entries"] == 1
+    assert result2["pruned"] == 1
+
+    # Confirm the orphan memory entry is gone
+    remaining_ids = [m["id"] for m in store.get_memories(category="usage_guide", limit=10)]
+    assert "guide_ops_topology_visualization" in remaining_ids
+    assert "guide_ops_drift_detection" not in remaining_ids
+
+
+def test_prime_guides_prune_skips_non_config_origin(tmp_path):
+    """Manually-curated memories (origin != config) must NOT be pruned
+    even if their id starts with guide_."""
+    from olav.core.memory.guide_kb import prime_guides_from_dir
+
+    _write_guide(tmp_path, "ops", "topology_viz", VALID_GUIDE_YAML)
+    store = _make_store(tmp_path)
+
+    # Inject a user-authored memory with guide_-style id
+    store.add_memory(
+        id="guide_user_custom_pattern",
+        text="User-curated content",
+        vector=_embed_stub("user content"),
+        category="usage_guide",
+        scope="global",
+        metadata={"intent": "user", "agent": "ops"},
+        origin="user",  # <-- not config
+        confidence=1.0,
+        tags="[]",
+    )
+
+    with patch("olav.core.memory.guide_kb._embed", side_effect=_embed_stub):
+        result = prime_guides_from_dir(tmp_path, store=store)
+
+    # User entry survives even though its source isnt in workspace
+    assert result["guide_entries"] == 1
+    assert result["pruned"] == 0
+    remaining_ids = [m["id"] for m in store.get_memories(category="usage_guide", limit=10)]
+    assert "guide_user_custom_pattern" in remaining_ids
+

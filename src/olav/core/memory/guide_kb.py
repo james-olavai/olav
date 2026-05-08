@@ -210,11 +210,42 @@ def prime_guides_from_dir(
             logger.debug("guide_kb: %s upsert failed: %s", mem_id, exc)
             skipped += 1
 
+    # ── Prune orphans (Patch C1, 2026-05-08) ────────────────────────────
+    # When a guide YAML is deleted from source, its memory entry must
+    # also be removed.  Without this, AutoRecall keeps surfacing the
+    # ghost entry forever and may outrank live guides (regression
+    # observed 2026-05-07: cab_revise.guide leaked, broke emit_tcf
+    # ranking — see ISSUE-AUTORECALL-GUIDE-COMPETITION).  We compare
+    # ``guide_*`` memory IDs vs the IDs the source set just produced
+    # and delete the diff.
+    pruned = 0
+    try:
+        present_ids = {g.memory_id for g in guides}
+        all_mem = store.get_memories(category="usage_guide", limit=10_000)
+        for mem in all_mem:
+            mid = mem.get("id", "")
+            if not mid.startswith("guide_"):
+                continue
+            if mid in present_ids:
+                continue
+            origin = mem.get("origin") or (mem.get("metadata") or {}).get("origin")
+            if origin != "config":
+                # only auto-prune entries we ourselves primed
+                continue
+            try:
+                store.delete_memory(mid)
+                pruned += 1
+                logger.info("guide_kb: pruned orphan %s", mid)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("guide_kb: prune %s failed: %s", mid, exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("guide_kb: prune phase skipped: %s", exc)
+
     logger.info(
-        "guide_kb: %d entries from %s (%d skipped)",
-        count, workspace_root, skipped,
+        "guide_kb: %d entries from %s (%d skipped, %d pruned)",
+        count, workspace_root, skipped, pruned,
     )
-    return {"guide_entries": count, "skipped": skipped}
+    return {"guide_entries": count, "skipped": skipped, "pruned": pruned}
 
 
 def prime_workspace_guides(
@@ -288,11 +319,17 @@ def prime_workspace_guides(
 
     n = result.get("guide_entries", 0)
     k = result.get("skipped", 0)
-    if n == 0 and k == 0:
+    p = result.get("pruned", 0)
+    if n == 0 and k == 0 and p == 0:
         return "✓ guides primed: 0 (no *.guide.yaml found)"
+    parts = [f"✓ guides primed: {n}"]
     if k > 0:
-        return f"✓ guides primed: {n} ({k} skipped)"
-    return f"✓ guides primed: {n}"
+        parts.append(f"{k} skipped")
+    if p > 0:
+        parts.append(f"{p} orphan(s) pruned")
+    if len(parts) == 1:
+        return parts[0]
+    return f"{parts[0]} ({', '.join(parts[1:])})"
 
 
 __all__ = [
