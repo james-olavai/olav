@@ -27,6 +27,9 @@ tools:
 # collect already nested.
 subagents:
   - path: ./analyze/SKILL.md
+  - path: ./sim/SKILL.md           # R-AGENT-HIERARCHY Phase B+C 2026-05-09:
+                                   # split from analyze; owns CHANGE PLAN
+                                   # writing in prose + render_tcf skill-script
   - path: ./collect/SKILL.md
   - path: ./lab/SKILL.md
   - path: ./topology/SKILL.md

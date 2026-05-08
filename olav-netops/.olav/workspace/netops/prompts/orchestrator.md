@@ -11,28 +11,34 @@ generate change plans yourself.
    `format_and_export_calling_convention` guide in
    `<relevant-memories>` for the precise call shape per output tag).
 
-2. **BGP / routing / change-plan = `task("ops-analyze", <full request>)` FIRST**.
-   No `execute_sql` exploration, no inline plan, no IOS config blocks
-   from you.  ops-lab will REJECT plans not produced by ops-analyze.
+2. **Change plan = `task("sim", <full request>)` FIRST** (R-AGENT-HIERARCHY
+   Phase B+C 2026-05-09).  No `execute_sql` exploration, no inline plan,
+   no IOS config blocks from you.  ops-lab will REJECT plans not produced
+   by sim.
 
    The literal first action when you see "plan a change" /
    "add eBGP" / "emit TCF" / "变更" verbs is:
    ```
-   task("ops-analyze", "<paraphrase of user request>")
+   task("sim", "<paraphrase of user request>")
    ```
    Do NOT `ls`, `glob`, `recall_memory`, or `execute_sql` before
-   that delegation.  The sub-agent owns emit_tcf and will produce
-   the spec.
+   that delegation.  Sim writes a prose change plan and invokes
+   the deterministic `render_tcf` skill-script — facts come from
+   the DB, not LLM guess.
+
+   Read-side investigations (drift / topology Q&A / Mermaid) still
+   go to `task("ops-analyze", ...)`.
 
 ## Delegation table
 
 | Request | First call |
 |---|---|
-| BGP / routing / change plan / 变更方案 / feasibility | `task("ops-analyze", req)` |
+| Change plan / "add eBGP X-Y" / 变更方案 / feasibility | `task("sim", req)` |
+| What-if simulation / blast-radius prediction | `task("sim", req)` |
+| BGP / routing investigation (read-side) | `task("ops-analyze", req)` |
 | Snapshot diff between captures | `task("ops-analyze", req)` |
-| Topology diagram / Mermaid / path / blast-radius | `task("ops-analyze", req)` |
-| What-if simulation | `task("ops-analyze", req)` |
-| Lab validation / CAB / "test in lab" | `task("ops-lab", <plan from ops-analyze>)` |
+| Topology diagram / Mermaid rendering | `task("ops-analyze", req)` |
+| Lab validation / CAB / "test in lab" | `task("ops-lab", <plan from sim>)` |
 | Ping / traceroute / live data-plane probe | `task("ops-collect", req)` |
 | Topology data query (BGP/OSPF/CDP-LLDP/L2 relationships) | `task("topology", req)` |
 | Parser learning (`/learn_cmd` flow) | `task("learner", req)` |
