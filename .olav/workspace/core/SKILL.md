@@ -5,14 +5,16 @@ tools:
   - execute_sql
   - recall_memory
   - web_search
-  # R85 (dev_docs/62 § "R85 inline-save"): format_and_export promoted
-  # from writer-only to shared core capability so any agent that
-  # produces report data can save it directly.  Writer keeps it via
-  # the same inheritance path and remains the polish/edit subagent.
-  - format_and_export
-  # R86 follow-up: read_file promoted same way.  Any agent (orch,
-  # ops-lab consuming a CAB spec, audit consuming a profile) needs
-  # to load text files from disk.  Lives at core/tools/read_file.py.
+  # Patch D' Step 4 (2026-05-08): format_and_export removed from
+  # the universal-availability list.  R85 promoted it for inline
+  # convenience but the side effect was every agent's prompt carried
+  # its 150-token schema and weak local LLMs picked it as a substitute
+  # for missing tools (gemma4 nothink → format_and_export instead of
+  # task("ops-analyze") for emit_tcf).  Writer's SKILL.md now declares
+  # it explicitly; agents that need it can do the same.  This restores
+  # progressive-disclosure for the write-class tool surface.
+  # read_file is kept as global — read-only, low blast-radius, used by
+  # multiple sub-agents loading specs / profiles.
   - read_file
 static_context:
   - path: ./references/SKILL_DEVELOPMENT.md
