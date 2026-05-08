@@ -574,15 +574,34 @@ class OLAVAgent:
                     tools.append(t)
                     seen_names.add(t.name)
 
-        # ① Always load core workspace tools (global availability)
+        # Patch D' (2026-05-08): cross-directory tool resolution.
+        # If the agent's own SKILL.md declares a ``tools:`` list, that
+        # list applies to BOTH core/tools/ and the agent's own tools/
+        # — i.e., the agent positively states what it wants from the
+        # combined pool.  Without this, declaring ``tools:
+        # [execute_skill_script, exec_on_node]`` in lab/SKILL.md
+        # wouldn't pull execute_skill_script (which lives in
+        # core/tools/, not lab/tools/).
+        skill_path = self._agent_dir / "SKILL.md"
+        own_filter: set[str] | None = None
+        if skill_path.exists():
+            own_filter = self._read_tools_filter(skill_path)
+        else:
+            # AGENT.md may carry a tools field instead (orchestrators)
+            agent_md = self._agent_dir / "AGENT.md"
+            if agent_md.exists():
+                own_filter = self._read_tools_filter(agent_md)
+
+        # ① Load core workspace tools, filtered by this agent's
+        # declared list.  When no filter is declared, current behaviour
+        # is preserved (all core tools auto-load — backward compat).
         core_skill = self.olav_base_path / "workspace" / "core" / "SKILL.md"
         if core_skill.exists():
-            _add(self._load_tools_from_skill(core_skill))
+            _add(self._load_tools_from_skill(core_skill, whitelist=own_filter))
 
-        # ② Load this agent's own tools
-        skill_path = self._agent_dir / "SKILL.md"
+        # ② Load this agent's own tools, filtered by the same list
         if skill_path.exists():
-            _add(self._load_tools_from_skill(skill_path))
+            _add(self._load_tools_from_skill(skill_path, whitelist=own_filter))
         elif not core_skill.exists():
             logger.info("No SKILL.md found, using subagents only")
 
@@ -598,19 +617,85 @@ class OLAVAgent:
 
         return tools
 
-    def _load_tools_from_skill(self, skill_path: Path) -> list:
-        """Load tools from a SKILL.md file."""
+    def _load_tools_from_skill(
+        self,
+        skill_path: Path,
+        whitelist: set[str] | None = None,
+    ) -> list:
+        """Load tools from a SKILL.md file's adjacent ``tools/`` directory.
+
+        Patch D' (2026-05-08): registration is now decoupled from
+        implementation sharing.  SKILL.md / AGENT.md may declare a
+        ``tools:`` list; when present, the loader returns ONLY tools
+        whose name is in that list.  This stops every agent from
+        auto-inheriting every .py file in ``tools/`` regardless of
+        whether it's relevant — the source of the prompt-bloat +
+        wrong-tool-pick issues local LLMs hit on multi-step tasks.
+
+        The function reads the skill's own ``tools:`` field as the
+        default filter; callers may pass an explicit ``whitelist``
+        when filtering by a different agent's declaration (used by
+        ``_build_tools`` to filter core/tools/ by the calling agent's
+        declared list — see Patch D' rationale).
+
+        Backward compatibility: if neither the SKILL.md nor the
+        explicit whitelist provides a filter, all .py files in the
+        adjacent ``tools/`` directory are returned (current behaviour).
+        """
         try:
             with open(skill_path, encoding="utf-8") as f:
-                _frontmatter.load(f)
+                post = _frontmatter.load(f)
         except Exception as e:
             logger.warning(f"Failed to parse SKILL.md {skill_path}: {e}")
             return []
 
         tools_dir = skill_path.parent / "tools"
-        if tools_dir.is_dir():
-            return discover_tools(tools_dir)
-        return []
+        if not tools_dir.is_dir():
+            return []
+        all_tools = discover_tools(tools_dir)
+
+        # Determine the filter (whitelist).  Explicit caller arg wins;
+        # else fall back to this SKILL.md's own ``tools:`` field.
+        effective_filter = whitelist
+        if effective_filter is None:
+            tools_field = (post.metadata or {}).get("tools")
+            if isinstance(tools_field, list):
+                # Strict mode: list present (even empty) → use as filter
+                effective_filter = {
+                    t for t in tools_field if isinstance(t, str)
+                }
+
+        if effective_filter is None:
+            return all_tools  # backward-compat: no filter declared
+
+        filtered = [t for t in all_tools if t.name in effective_filter]
+        # Surface drops in debug logs (helps spot SKILL.md typos quickly)
+        dropped = {t.name for t in all_tools} - {t.name for t in filtered}
+        if dropped:
+            logger.debug(
+                "SKILL.md %s: filtered out %d unsubscribed tool(s): %s",
+                skill_path, len(dropped), sorted(dropped),
+            )
+        return filtered
+
+    def _read_tools_filter(self, skill_path: Path) -> set[str] | None:
+        """Read the ``tools:`` list from a SKILL.md / AGENT.md
+        frontmatter and return it as a name set, or ``None`` when the
+        field is absent.
+
+        Used by ``_build_tools`` to apply this agent's declared filter
+        when loading core tools (cross-directory resolution: agent
+        declares ``execute_skill_script``; impl lives in core/tools/).
+        """
+        try:
+            with open(skill_path, encoding="utf-8") as f:
+                post = _frontmatter.load(f)
+        except Exception:
+            return None
+        tools_field = (post.metadata or {}).get("tools")
+        if isinstance(tools_field, list):
+            return {t for t in tools_field if isinstance(t, str)}
+        return None
 
     # ------------------------------------------------------------------
     # SubAgent construction
@@ -654,20 +739,32 @@ class OLAVAgent:
             name = metadata.get("name", sa_name)
             description = metadata.get("description", f"SubAgent: {sa_name}")
 
+            # Patch D' (2026-05-08): apply sub-agent's declared tools
+            # filter to BOTH its own tools/ and inherited core/tools/.
+            # Sub-agent's SKILL.md is authoritative for what it sees.
+            sa_filter = self._read_tools_filter(skill_md)
+
             tools_dir = sa_dir / "tools"
             tools = []
             if tools_dir.is_dir():
-                tools = discover_tools(tools_dir)
+                discovered = discover_tools(tools_dir)
+                if sa_filter is not None:
+                    tools = [t for t in discovered if t.name in sa_filter]
+                else:
+                    tools = discovered
 
-            # Prepend core workspace tools so every subagent inherits platform
-            # capabilities (execute_sql, web_search, deploy_service, run_shell, etc.)
-            # without needing local copies in each subagent's tools/ directory.
+            # Prepend core workspace tools — filtered by the sub-agent's
+            # declared list when present, so e.g. lab declaring
+            # ``tools: [execute_skill_script, exec_on_node]`` pulls
+            # execute_skill_script from core/tools/ but no other core tool.
             core_skill = None
             _base = getattr(self, "olav_base_path", None)
             if _base is not None:
                 core_skill = _base / "workspace" / "core" / "SKILL.md"
             if core_skill is not None and core_skill.exists():
-                core_tools = self._load_tools_from_skill(core_skill)
+                core_tools = self._load_tools_from_skill(
+                    core_skill, whitelist=sa_filter,
+                )
                 existing_names = {t.name for t in tools}
                 # Prepend core tools; subagent-local tools take precedence on name clash
                 tools = [t for t in core_tools if t.name not in existing_names] + tools
