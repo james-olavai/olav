@@ -1,6 +1,6 @@
 ---
 name: writer
-description: "Polish/edit subagent — improve grammar, structure, and clarity of an existing markdown file in exports/.  No longer a save-bottleneck (R85)."
+description: "Polish / edit / re-format an EXISTING markdown report in exports/. NOT for creating new specs, configs, or YAML — those go to the producing agent (ops-analyze for TCF, devops for scripts, infra for changesets)."
 # Patch D' Step 4 (2026-05-08): writer reclaims format_and_export
 # as its primary tool.  R85 promoted it to core/SKILL.md so any
 # agent could inline-save, but that leaked write-class options to
