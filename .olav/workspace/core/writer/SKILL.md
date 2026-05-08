@@ -1,10 +1,17 @@
 ---
 name: writer
 description: "Polish/edit subagent — improve grammar, structure, and clarity of an existing markdown file in exports/.  No longer a save-bottleneck (R85)."
-tools: []
-# R85 + R86 follow-up — both format_and_export and read_file now live
-# at core/tools/ and every subagent inherits them.  Writer adds no
-# tools of its own; its polish/edit role uses the inherited toolset.
+# Patch D' Step 4 (2026-05-08): writer reclaims format_and_export
+# as its primary tool.  R85 promoted it to core/SKILL.md so any
+# agent could inline-save, but that leaked write-class options to
+# every orchestrator's prompt and weak local LLMs picked it
+# wrongly (gemma4 nothink → format_and_export instead of
+# task("ops-analyze") for emit_tcf).  Now writer declares it
+# explicitly; agents needing inline save can opt-in by declaring
+# format_and_export in their own tools list.  read_file stays as a
+# core inherited capability (read-only, low risk of wrong-tool pick).
+tools:
+  - format_and_export
 agent_type: api
 static_context: []
 ---
