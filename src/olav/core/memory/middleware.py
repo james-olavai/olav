@@ -24,6 +24,7 @@ Implements Phase 2 of the LANCEDB_MEMORY_SYSTEM_INTEGRATION plan:
 import json
 import logging
 import math
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -563,6 +564,69 @@ class AutoRecallMiddleware:
 
         return out
 
+    # Patch C2 (2026-05-08): keyword-exact-match boost
+    _SNAKE_CASE_TOKEN = re.compile(r"\b[a-z][a-z0-9_]{4,}\b")
+
+    def _extract_query_keywords(self, query_text: str) -> set[str]:
+        """Pull snake_case multi-word identifiers out of the query.
+
+        Conservative: only tokens with at least one underscore (so we
+        match ``emit_tcf`` but not ``select`` or ``hostname``).  Common
+        SQL keywords are stripped to avoid noise.
+        """
+        if not query_text:
+            return set()
+        tokens = set(self._SNAKE_CASE_TOKEN.findall(query_text.lower()))
+        # Keep only multi-word identifiers
+        tokens = {t for t in tokens if "_" in t}
+        # Strip a small SQL-keyword stoplist that occasionally trips
+        # the underscore filter (none classic, but watch for trends).
+        stoplist = {
+            "select_from", "order_by", "group_by",
+        }
+        tokens -= stoplist
+        return tokens
+
+    def _boost_keyword_exact_match(
+        self, memories: list[dict], query_text: str,
+    ) -> list[dict]:
+        """Promote memories whose ``text`` or ``tags`` contain any
+        snake_case identifier from the query, preserving relative
+        order within the boosted set vs the rest.
+
+        Why exact substring (not BM25): BM25 already ran in the hybrid
+        pass; the issue is that vector similarity dominates in
+        ``_gather_candidates`` and a generic guide can outrank a
+        task-specific one.  An explicit identifier match (e.g.
+        ``emit_tcf``) is a strong signal that should override vector
+        cosine — so we move matched entries to the top wholesale.
+        """
+        kws = self._extract_query_keywords(query_text)
+        if not kws or not memories:
+            return memories
+
+        boosted: list[dict] = []
+        rest: list[dict] = []
+        for m in memories:
+            haystack = (m.get("text") or "").lower()
+            tags = m.get("tags") or ""
+            if isinstance(tags, list):
+                tags_str = " ".join(str(t) for t in tags).lower()
+            else:
+                tags_str = str(tags).lower()
+            if any(k in haystack or k in tags_str for k in kws):
+                boosted.append(m)
+            else:
+                rest.append(m)
+        if not boosted:
+            return memories
+        logger.debug(
+            "AutoRecall: keyword-boost moved %d/%d memories to top "
+            "(matched: %s)",
+            len(boosted), len(memories), sorted(kws),
+        )
+        return boosted + rest
+
     def _diversify_by_category(
         self, memories: list[dict], limit: int
     ) -> list[dict]:
@@ -820,6 +884,22 @@ class AutoRecallMiddleware:
             raw_memories = self._gather_candidates(
                 query_text, query_vector, scope, effective_top_k,
             )
+
+            # Patch C2 (2026-05-08): exact-keyword-match boost.
+            # When the user prompt contains snake_case identifiers
+            # (typical for tool / skill-script names: ``emit_tcf``,
+            # ``validate_tcf_in_lab``, ``tcf_patch_block``), promote
+            # candidate memories whose text or tags contain the same
+            # verbatim token to the top of the list.  This stops
+            # generic-but-loosely-related guides from outranking
+            # task-specific ones in vector similarity (regression
+            # observed 2026-05-07: change_plan_emit_tcf at rank #4
+            # for an "emit_tcf ..." prompt; cab_revise.guide leak +
+            # vector noise pushed it out of top-3).
+            raw_memories = self._boost_keyword_exact_match(
+                raw_memories, query_text,
+            )
+
             # R99 Tier 1: optional second-stage rerank.
             # When enabled, the reranker fully owns ordering — the
             # downstream `_diversify_by_category` is skipped so its
