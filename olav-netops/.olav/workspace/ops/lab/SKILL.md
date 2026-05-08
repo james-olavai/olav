@@ -20,6 +20,9 @@ tools:
   # is exec_on_node for real-time show-command streaming.
   - execute_skill_script
   - exec_on_node
+  - format_and_export   # Patch D' Step 5 (2026-05-08): lab needs it
+                        # to write the standalone CAB Lab Report (.md,
+                        # human read) per system.md step 6.
 static_context:
   - path: ./references/LAB_REFERENCE.md
 static_context_mode: on_intent

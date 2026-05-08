@@ -24,6 +24,11 @@ tools:
                            # Writes exports/cab/<change_id>/spec.tcf.yaml.
                            # Sandbox-external write target per ADR-0008
                            # condition #2 — NOT in the sandbox prologue.
+  - format_and_export      # Patch D' Step 5 (2026-05-08): explicit
+                           # opt-in.  R85 made this universal but Step 4
+                           # restricted to writer only; analyze re-claims
+                           # it for diagram saves (Mermaid topology) +
+                           # drift report inline writes per its prompt.
 allowed_tables:
   - netops.v_bgp_neighbors_auto
   - netops.v_ospf_neighbors_auto

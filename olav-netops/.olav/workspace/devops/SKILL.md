@@ -1,7 +1,12 @@
 ---
 name: devops
 description: "Generate production-grade scripts (bash / python / ansible) using real device + service data from OLAV DB."
-tools: []
+# Patch D' Step 5 (2026-05-08): devops_scripts is a script-writing
+# agent — needs format_and_export to save bash/python/ansible scripts.
+# Pre-Step-4 it inherited via core; now explicit per writer-only
+# convention.
+tools:
+  - format_and_export
 metadata:
   version: 0.2.0
   type: agent
