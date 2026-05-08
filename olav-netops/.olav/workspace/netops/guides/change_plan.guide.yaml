@@ -16,18 +16,19 @@ keywords:
   - 变更计划
   - 添加 BGP
   - 添加邻居
+  - submit_change_plan
   - sim agent
-  - render_tcf
   - r1-r3-ebgp
 body: |
   Change plan requests ("plan a change", "add eBGP between R1 and R3",
-  "变更方案") use a TWO-STAGE workflow that decouples LLM (semantic
-  reasoning) from format (deterministic Python):
+  "变更方案") use the `sim` sub-agent + `submit_change_plan` tool.
+  R-AGENT-HIERARCHY Phase D (2026-05-09): structured-output via
+  LangChain tool-call channel — schema enforced at LLM decode time,
+  no Markdown gentleman's agreement.
 
-  ## Stage 1 — orchestrator delegates to `sim` (NOT analyze)
+  ## Stage 1 — orchestrator delegates to `sim`
 
-  As of R-AGENT-HIERARCHY Phase B+C (2026-05-09), change planning
-  lives in the `sim` sub-agent.  Orchestrator's FIRST call:
+  Orchestrator's FIRST call:
 
       task("sim", "<user's request paraphrased>")
 
@@ -35,68 +36,75 @@ body: |
   NOT delegate to `ops-analyze` for change plans (analyze is
   read-side: drift / topology Q&A / Mermaid only).
 
-  ## Stage 2 — sim writes prose plan + invokes render_tcf
+  ## Stage 2 — sim's 3-step workflow ending in submit_change_plan
 
   Inside the sim sub-agent:
 
   a. ONE feasibility-check sandbox call (run_python_simulation)
-     to verify ASNs, IGP between peers, etc.
+     to verify ASNs / topology / IGP — whatever the intent needs.
 
-  b. Write a Markdown change plan ending with:
+  b. Decide feasibility based on the data.
 
-         ## Change Summary
-         ```yaml
-         change_id: r2-r3-ebgp
-         title: Add eBGP between R2 and R3
-         intent_type: ebgp_direct
-         devices: [R2, R3]
-         feasibility: OK
-         ```
+  c. Call `submit_change_plan(...)` with structured fields:
 
-     If feasibility check found a blocker:
-         feasibility: BLOCKED
-         feasibility_reason: "<one-line>"
+         submit_change_plan(
+             intent="ebgp_direct",          # enum-constrained
+             devices=["R2", "R3"],          # typed list
+             summary="Add eBGP between R2 and R3",
+             rationale=(
+                 "<multi-paragraph free-form Markdown WHY>"
+             ),
+             steps=(
+                 "Phase 1: ...\n"
+                 "Phase 2: ...\n"
+             ),
+             feasibility="OK",              # or "BLOCKED" + reason
+         )
 
-  c. Call render_tcf skill-script with the FULL plan text:
+     The tool internally:
+       1. Composes the Markdown change plan from your fields
+       2. Saves it to `exports/change_plans/<change_id>.md`
+       3. Queries DB for ASN / loopback / platform per device
+       4. Renders deterministic CLI from intent + platform templates
+       5. Writes TCF YAML to `exports/cab/<change_id>/spec.tcf.yaml`
 
-         execute_skill_script("render_tcf.py", script_args={
-             "plan_text": "<the entire markdown plan>",
-         })
+  ## Why this shape
 
-     The script extracts the Summary block, queries the DB for
-     ASN / loopback / platform per device, renders deterministic
-     CLI from intent + platform templates, and writes the TCF YAML.
+  Phase D moves from "Markdown YAML block parser" (Phase B+C) to
+  "tool-call structured output" — the LLM's grammar-constrained
+  decode channel.  Same Pydantic schema the LangChain tool decorator
+  generates is what the LLM sees as a JSON schema and is constrained
+  to fill.
 
-  ## Why this shape (background)
+  The free-form `rationale` + `steps` fields prevent the
+  investigation-loop failure mode (earlier "thin emit_tcf" experiment
+  hung 18min because no analytical container existed in the args).
 
-  Three CAB experiments on gemma4:31b nothink (2026-05-09) showed
-  every "give the LLM more help with TCF args" attempt made things
-  worse — thin tool, plan template, more guides all caused the
-  agent to investigate forever or hallucinate facts to satisfy the
-  schema.  Diagnosis: TCF is the wrong shape for an LLM to author.
+  See dev_docs/73 § Phase D.
 
-  Fix: LLM outputs prose; deterministic Python composes TCF.
-  See dev_docs/73 § Phase C.
+  ## What sim DOES NOT pass
 
-  ## What sim DOES NOT do
-
-  - Compose `implementation_json` / `rollback_json` / `post_check_json`
-  - Pass ASN / loopback / CLI to render_tcf — facts come from DB
-  - Call `emit_tcf` directly (deprecated for sim path)
-  - Retry render_tcf with "fixed" args after a BLOCKED response
+  - Device platforms / loopbacks / ASNs — DB-derived
+  - implementation_json / rollback_json / post_check_json — template-generated
+  - Any CLI fragments — the writer renders complete Junos / IOS configs
 
   ## Result envelope (what sim reports back to orchestrator)
 
-  On success: `{"status": "ok", "spec_path": "exports/cab/<id>/spec.tcf.yaml",
-                "facts": {<device>: {...}}, "warnings": [...]}`.
-  Sim reports the spec_path + facts dict + any warnings.  Orchestrator
-  passes the spec_path to lab via `task("ops-lab", spec_path)`.
+  On success:
+    `{"status": "ok",
+      "plan_md_path": "exports/change_plans/<id>.md",
+      "spec_path":    "exports/cab/<id>/spec.tcf.yaml",
+      "facts":        {<device>: {...}},
+      "warnings":     [...]}`
+
+  Sim reports plan_md_path (HITL artifact) + spec_path (lab input)
+  + facts.  The orchestrator passes spec_path to lab for validation.
 
   On error: `{"status": "error", "error": "...", "blockers": [...]}`.
-  Surface the blockers to the user; do NOT retry with fabricated args.
+  Surface the blockers to the user.  Do NOT retry with fabricated args.
 
 related:
   - intent: simulation_what_if
     note: "blast-radius / what-if questions before the plan: also lives in sim"
   - intent: lab_validation
-    note: "after render_tcf produces spec.tcf.yaml: task('ops-lab', '<spec_path>')"
+    note: "after submit_change_plan returns spec_path: task('ops-lab', '<spec_path>')"
