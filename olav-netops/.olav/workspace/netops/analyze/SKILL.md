@@ -1,6 +1,6 @@
 ---
 name: ops-analyze
-description: "TCF emission (emit_tcf) for change plans / CAB. Routing analysis. Deterministic simulation. Topology viz. Snapshot drift. Reads DB only; no live device access. Owns the change-plan emit path — orchestrator should delegate here for any 'plan a change' / 'emit TCF' / 'eBGP between X and Y' request."
+description: "READ-SIDE network analysis ONLY: BGP / OSPF investigation, snapshot drift detection, topology Q&A, Mermaid diagram rendering, blast-radius reachability. Reads DB only; no live device access. Does NOT own change planning — for 'plan a change' / 'add eBGP X-Y' / 'emit TCF' / 'CAB' / '变更方案' the orchestrator MUST delegate to `task('sim', ...)` instead (R-AGENT-HIERARCHY Phase B+C+D 2026-05-09)."
 metadata:
   version: 1.0.0
   replaces: [ops-analysis v1.1.0, ops-diff v1.0.0]
