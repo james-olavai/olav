@@ -12,6 +12,20 @@ route_keywords:
   - simulate what-if failure blast-radius decommission
   - script backup devops automation netbox influxdb
   - 路由 拓扑 接口 采集 快照 故障 漂移 模拟
+# Patch D' Step 2 (2026-05-08): explicit tools whitelist.  Without
+# this, orchestrator auto-loaded all 7-8 core/tools/ .py files,
+# giving weak local LLMs wrong-tool options (gemma4 nothink picked
+# format_and_export instead of task("ops-analyze") for emit_tcf).
+# Orchestrator only legitimately needs single-step DB queries +
+# memory recall + occasional web search.  All write/read-file ops
+# delegate to sub-agents.
+tools:
+  - execute_sql       # Single-row device info lookup, no investigation
+  - recall_memory     # Explicit memory query (AutoRecall middleware
+                      # uses this implicitly too — keeping it as @tool
+                      # lets the agent re-query if the auto-injection
+                      # missed something)
+  - web_search        # Verification of unknown terms while routing
 subagents:
   - path: ./analyze/SKILL.md
   - path: ./collect/SKILL.md
