@@ -1,0 +1,32 @@
+kind: Agent
+name: ops
+version: "0.11.0"
+description: "Operations Agent — Deep network troubleshooting with topology analysis, routing simulation, lab validation, and probing"
+route_keywords:
+  - troubleshoot
+  - topology
+  - bgp
+  - ospf
+  - routing
+  - probe
+  - ping
+  - traceroute
+  - lab
+  - containerlab
+  - diff
+  - snapshot
+  - neighbor
+  - interface
+  - vlan
+  - firewall
+  - netbox
+requires:
+  - olav-platform>=0.11
+
+slash_commands:
+  - name: /netops_init
+    kind: shell
+    script: .olav/workspace/ops/netops_init/run.py
+    description: "Full network discovery — SSH all devices, run discovery commands, populate DB"
+    cwd_policy: project_root
+    timeout: 600

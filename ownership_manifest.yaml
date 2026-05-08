@@ -443,7 +443,11 @@ rules:
     enforced: false
     git: ignore
 
-  - pattern: .olav/workspace/ops/**
+  # R-AGENT-HIERARCHY Phase A (2026-05-09): workspace consolidation
+  # 6→3 user-facing orchestrators.  netops/ contains former ops/,
+  # topology/, command_learner/, and ops-lab/ as sub-agents.
+  # devops/ contains former devops/ + infra/ as sub-agents.
+  - pattern: .olav/workspace/netops/**
     owner: olav-netops
     class: netops
     status: transitional
@@ -452,12 +456,12 @@ rules:
     enforced: true
     git: ignore
 
-  - pattern: .olav/workspace/ops-lab/**
+  - pattern: .olav/workspace/devops/**
     owner: olav-netops
     class: netops
     status: transitional
     target_repo: olav-netops
-    reason: vendored-netops-lab-workspace-asset-still-shipped-from-root-runtime
+    reason: dev-mirror-of-olav-netops-devops-workspace
     enforced: false
     git: ignore
 

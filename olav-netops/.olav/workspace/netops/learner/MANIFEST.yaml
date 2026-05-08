@@ -1,0 +1,20 @@
+kind: Agent
+name: command_learner
+version: 1.0.0
+description: >
+  Parser-layer learning for CLI output — unified entry point for batch
+  (netops_init Stage 3.5) and interactive (/learn_cmd). Replaces the
+  R70-era auto_learn + pac_learn two-stage cascade.
+route_keywords:
+  - learn command
+  - teach parser
+  - generate textfsm
+  - parser learning
+  - unparseable output
+  - custom template
+  - learn cli
+  - 学习命令
+  - 生成解析器
+requires:
+  - olav-platform>=0.19
+  - olav-netops>=0.19
