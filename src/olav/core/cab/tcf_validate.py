@@ -34,6 +34,51 @@ from .tcf_io import tcf_load
 from .tcf_lab import tcf_load_for_lab, tcf_record_lab_run
 
 
+def _resolve_spec_path(spec_path: str | Path) -> Path:
+    """Best-effort resolve a TCF spec path that may have been mangled
+    by a weak LLM agent.
+
+    Patch D' Step 6 (2026-05-08): gemma4 nothink reliably turns a
+    relative ``exports/cab/<id>/spec.tcf.yaml`` into an absolute
+    ``/exports/cab/<id>/spec.tcf.yaml`` in tool args.  The caller's
+    intent is the file under cwd, but the mangled absolute path
+    doesn't exist.  Resolve by trying multiple candidates:
+
+      1. As-given (Path constructor)
+      2. If absolute and missing, strip the leading ``/`` and re-resolve
+         relative to cwd
+      3. If still missing, try relative to ``OLAV_HOME`` env var
+
+    Returns the FIRST candidate that exists; otherwise returns
+    Path(spec_path) (caller surfaces FileNotFoundError as before so
+    error envelope stays informative).
+    """
+    p = Path(spec_path)
+    if p.exists():
+        return p
+
+    # LLM-mangling fallback: absolute path with leading /, missing on disk
+    sp = str(spec_path)
+    if sp.startswith("/"):
+        rel = Path(sp.lstrip("/"))
+        if rel.exists():
+            return rel
+        # Also try cwd-relative
+        cwd_rel = Path.cwd() / sp.lstrip("/")
+        if cwd_rel.exists():
+            return cwd_rel
+
+    # OLAV_HOME-rooted fallback for fully-relative paths
+    import os
+    olav_home = os.environ.get("OLAV_HOME")
+    if olav_home:
+        rooted = Path(olav_home) / sp.lstrip("/")
+        if rooted.exists():
+            return rooted
+
+    return p
+
+
 _REGEX_METACHAR_HINT = re.compile(r"\\[sdwbDSW]|\.\*|\.\+|\[\^?")
 
 
@@ -151,7 +196,7 @@ def validate_tcf_in_lab(
         ``journal`` (list of phase records), ``tcf_recorded``,
         ``lab_destroyed``, ``errors`` (cumulative non-fatal warnings).
     """
-    spec_path = Path(spec_path)
+    spec_path = _resolve_spec_path(spec_path)
     journal: list[dict[str, Any]] = []
     errors: list[str] = []
     lab_name = ""

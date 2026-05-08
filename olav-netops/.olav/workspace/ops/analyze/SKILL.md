@@ -1,6 +1,6 @@
 ---
 name: ops-analyze
-description: "Routing analysis + deterministic simulation + topology viz + snapshot drift. Reads DB only; no live device access."
+description: "TCF emission (emit_tcf) for change plans / CAB. Routing analysis. Deterministic simulation. Topology viz. Snapshot drift. Reads DB only; no live device access. Owns the change-plan emit path — orchestrator should delegate here for any 'plan a change' / 'emit TCF' / 'eBGP between X and Y' request."
 metadata:
   version: 1.0.0
   replaces: [ops-analysis v1.1.0, ops-diff v1.0.0]
