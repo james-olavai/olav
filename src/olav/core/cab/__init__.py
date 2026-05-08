@@ -42,6 +42,7 @@ from .tcf_schema import (
     TvtRow,
 )
 from .tcf_sim import tcf_emit_from_sim
+from .tcf_writer import render_tcf_from_change_plan
 
 __all__ = [
     "CabTcf",
@@ -69,6 +70,7 @@ __all__ = [
     "tcf_load",
     "tcf_load_for_lab",
     "tcf_record_lab_run",
+    "render_tcf_from_change_plan",
     "validate_tcf_in_lab",
     "tcf_to_r88_args",
     "tcf_to_r89_args",
