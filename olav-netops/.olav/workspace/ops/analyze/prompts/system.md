@@ -67,26 +67,15 @@ Phase 3  Cutover        (remove old paths)
 
 ## Output
 
-* **Change plans / CAB** — two distinct flows:
-  - **Fresh emit** (revision 0, no spec exists) — use `emit_tcf` @tool.
-    Full call shape, required vs optional fields, decision rule
-    ("emit FIRST, refine LATER"), and minimum-viable example are
-    in the `change_plan_emit_tcf` memory guide which AutoRecall
-    surfaces on every change-plan intent.  Invariants: `emit_tcf`
-    is a top-level @tool (NOT inside `run_python_simulation`); do
-    NOT free-form Markdown a spec; the Pydantic schema is in your
-    tool list.
-  - **Revision** (spec exists, operator asked for targeted changes
-    or wants lab findings addressed) — use
-    `execute_skill_script(skill_name="analyze",
-    script_name="tcf_patch_block.py", ...)` for surgical add/remove
-    on one CliBlock.  **Never** call `emit_tcf` against an existing
-    spec — the platform guard refuses with status=error.  Read
-    `tcf.lab.prod_review_findings` first, decide per-finding (fix
-    blocker / accept warn as baseline / pass info), then patch.
-    Full workflow in `cab_revise` memory guide (AutoRecall surfaces
-    it when the user mentions "fix lab findings" / "address findings"
-    / "修复 spec").
+* **Change plans / CAB** — emit a structured **TCF** via the
+  **`emit_tcf` @tool**.  Full call shape, required vs optional
+  fields, decision rule ("emit FIRST, refine LATER"), and
+  minimum-viable example are in the `change_plan_emit_tcf` memory
+  guide which AutoRecall surfaces on every change-plan intent.
+  Key invariants only: `emit_tcf` is a top-level @tool (NOT
+  inside `run_python_simulation`); do NOT free-form Markdown a
+  spec; do NOT glob/ls/recall_memory looking for a "TCF emitter"
+  on disk; the Pydantic schema is in your tool list.
 
 * **Topology diagrams** — `format_and_export` to `.mmd`; never
   print without saving.  Filename / Mermaid rules in
