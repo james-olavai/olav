@@ -296,11 +296,14 @@ def _write_raw_file(device: str, command: str, raw: str, snapshot_date: str) -> 
 def _write_staging_json(
     device: str, command: str, parsed: list[dict] | None, snapshot_id: str,
     raw_output: str = "",
+    platform: str | None = None,
 ) -> None:
     """Write parsed JSON to staging directory for IngestManager bulk ingestion.
 
     Output format matches IngestManager expectations: a JSON array with fields
-    ``device_name``, ``command``, ``raw_output``, ``parsed_data``, ``snapshot_id``.
+    ``device_name``, ``command``, ``raw_output``, ``parsed_data``,
+    ``snapshot_id``, ``platform``.
+
     Filename uses ``*.staging.json`` pattern so ``bulk_load()`` picks it up.
     """
     staging_dir = Path(SNAPSHOTS_STAGING_JSON)
@@ -314,6 +317,10 @@ def _write_staging_json(
         "raw_output": raw_output,
         "parsed_data": json.dumps(parsed) if parsed else None,
         "snapshot_id": snapshot_id,
+        # R-VERTICAL-SLICE 2026-05-09 (dev_docs/74): denormalise platform
+        # at write time so downstream cross-vendor views don't have to
+        # JOIN to netops.devices.
+        "platform": platform,
     }
 
     # Append to existing staging file (multiple commands per snapshot)
@@ -414,7 +421,8 @@ def take_snapshot(
             parsed = r.get("parsed")
             try:
                 # Write staging JSON (IngestManager-compatible format)
-                _write_staging_json(r["device"], r["command"], parsed, snapshot_id, raw_output=raw)
+                _write_staging_json(r["device"], r["command"], parsed, snapshot_id,
+                                    raw_output=raw, platform=platform_map.get(r["device"]))
                 # Write raw file
                 _write_raw_file(r["device"], r["command"], raw, snapshot_date)
 
