@@ -766,6 +766,21 @@ class OLAVAgent:
                 else:
                     tools = discovered
 
+            # R-VERTICAL-SLICE 2026-05-09 (dev_docs/74): also discover
+            # tools from the parent orchestrator's tools/ dir, filtered
+            # by the sub-agent's whitelist.  This lets sub-agents share
+            # a domain-level tool library (e.g. netops/tools/inspect_*.py
+            # used by both ``analyze`` and ``sim``) without duplicating
+            # files.  Whitelist is mandatory: without one, parent tools
+            # are skipped to keep the implicit blast radius small.
+            parent_tools_dir = self._agent_dir / "tools"
+            if parent_tools_dir.is_dir() and sa_filter is not None:
+                parent_discovered = discover_tools(parent_tools_dir)
+                existing_names = {t.name for t in tools}
+                for t in parent_discovered:
+                    if t.name in sa_filter and t.name not in existing_names:
+                        tools.append(t)
+
             # Prepend core workspace tools — filtered by the sub-agent's
             # declared list when present, so e.g. lab declaring
             # ``tools: [execute_skill_script, exec_on_node]`` pulls
