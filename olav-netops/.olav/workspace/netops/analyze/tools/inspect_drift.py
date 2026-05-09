@@ -30,6 +30,37 @@ from olav_netops.core.diff.routing_drift import diff_routing_drift
 from olav_netops.core.diff.configs import diff_configs
 
 
+# In-process dedup budget — boundary test 1 saw 43 inspect_drift_sql
+# calls with the same snapshot pair iterating through tables.  When
+# snapshot pair returns empty for one table it usually returns empty
+# for adjacent tables too.  Cap at 2 identical calls.
+import threading as _threading
+_drift_lock = _threading.Lock()
+_drift_call_counts: dict[tuple, int] = {}
+_DRIFT_DUP_LIMIT = 2
+
+
+def _drift_budget_check(args_key: tuple) -> dict | None:
+    with _drift_lock:
+        n = _drift_call_counts.get(args_key, 0)
+        _drift_call_counts[args_key] = n + 1
+    if n + 1 > _DRIFT_DUP_LIMIT:
+        return {
+            "status": "error",
+            "error_kind": "duplicate_call_budget",
+            "message": (
+                f"This drift query has been called {n+1} times "
+                f"with identical args in this session.  The result "
+                f"won't change.  Stop iterating tables — if all you've "
+                f"tried so far returned empty, the snapshot pair "
+                f"is likely partial / broken.  Validate snapshots "
+                f"first, OR accept that nothing has drifted."
+            ),
+            "args_key": list(args_key),
+        }
+    return None
+
+
 def _list_snapshots(table: str = "netops.parsed_outputs") -> list[str]:
     """Return snapshot_ids known to a given table, newest-first lexical."""
     try:
@@ -112,6 +143,9 @@ def inspect_drift_sql(
                        new_in_t2: [...], total_missing, total_new}``.
         On error:   ``{status: error, error_kind, message, ...}``.
     """
+    budget = _drift_budget_check(("sql", table_name, snapshot_1, snapshot_2))
+    if budget is not None:
+        return budget
     err = _validate_snapshots([snapshot_1, snapshot_2])
     if err:
         return err
@@ -145,6 +179,9 @@ def inspect_drift_topology(
                        total_changes}``.
         On error:   ``{status: error, error_kind, message, ...}``.
     """
+    budget = _drift_budget_check(("topology", snapshot_1, snapshot_2))
+    if budget is not None:
+        return budget
     err = _validate_snapshots([snapshot_1, snapshot_2],
                               table="netops.topology_links")
     if err:
@@ -182,6 +219,9 @@ def inspect_drift_routing(
                        as_path_changes, ...}``.
         On error:   ``{status: error, error_kind, message, ...}``.
     """
+    budget = _drift_budget_check(("routing", snapshot_1, snapshot_2))
+    if budget is not None:
+        return budget
     err = _validate_snapshots([snapshot_1, snapshot_2])
     if err:
         return err
@@ -218,6 +258,9 @@ def inspect_drift_configs(
                        lines_removed, ...}``.
         On error:   ``{status: error, error_kind, message, ...}``.
     """
+    budget = _drift_budget_check(("configs", device, command, snapshot_1, snapshot_2))
+    if budget is not None:
+        return budget
     snaps_to_validate = [s for s in (snapshot_1, snapshot_2) if s is not None]
     if snaps_to_validate:
         err = _validate_snapshots(snaps_to_validate)

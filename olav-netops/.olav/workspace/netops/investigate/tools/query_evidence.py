@@ -32,6 +32,36 @@ from olav.core.config import MAIN_DB_PATH
 _LOG_GLOB = ".olav/databases/logs/*/syslog-*.parquet"
 
 
+# In-process call dedup — boundary test 2 saw 16 query_evidence calls
+# trying pattern variations.  The hint message in empty results steers
+# the LLM, but for repeat-identical-args this is the hard backstop.
+import threading as _threading
+_call_lock = _threading.Lock()
+_call_counts: dict[tuple, int] = {}
+_DUP_LIMIT = 2  # third identical call returns cached "stop trying"
+
+
+def _budget_check(args_key: tuple) -> dict | None:
+    with _call_lock:
+        n = _call_counts.get(args_key, 0)
+        _call_counts[args_key] = n + 1
+    if n + 1 > _DUP_LIMIT:
+        return {
+            "status": "error",
+            "error_kind": "duplicate_call_budget",
+            "message": (
+                f"This (source, pattern, device, time_range, snapshot) "
+                f"combination has already been queried {n+1} times in "
+                f"this session.  The result is the same.  Move on — "
+                f"either pivot to a different source/pattern, or accept "
+                f"the result you already have.  Repeated identical "
+                f"queries waste context budget."
+            ),
+            "args_key": list(args_key),
+        }
+    return None
+
+
 def _query_syslog(
     device: str | None,
     pattern: str,
@@ -210,6 +240,12 @@ def query_evidence(
              "facility": "local7", "message": "BGP-3-NOTIFICATION ..."},
             ...], "total": 12, "truncated": False}
     """
+    # Per-args dedup budget: 3rd identical call returns a fast-fail.
+    args_key = (source, pattern, device, time_range, snapshot)
+    budget = _budget_check(args_key)
+    if budget is not None:
+        return budget
+
     LIMIT = 50
     # Reject empty / whitespace pattern up front — would dump the
     # entire syslog parquet (~14k rows) or full command output table
@@ -241,10 +277,27 @@ def query_evidence(
                        f"syslog / command_output / config",
             "source": source,
         }
-    return {
+    result = {
         "status": "success",
         "source": source,
         "matches": rows,
         "total": len(rows),
         "truncated": len(rows) >= LIMIT,
     }
+    if not rows:
+        # Empty results trigger pattern-variation rambling on small
+        # models — boundary test 2 saw 16 query_evidence calls trying
+        # synonyms.  Steer the LLM away from that loop.
+        result["hint"] = (
+            "Empty result. DO NOT try synonyms or near-variants of "
+            "this pattern (e.g. don't go 'BGP' → 'bgp' → 'b.g.p' → "
+            "'border gateway' → 'denied' → 'filter' → ...).  Either "
+            "the data genuinely doesn't contain it, or the right "
+            "pattern is in a DIFFERENT source (try source=command_output "
+            "or source=config), or this device wasn't probed for "
+            "this command.  After 2 empty calls accept the null "
+            "result and move on; cite 'no recorded evidence' to the "
+            "user — that's a real answer, not a problem to keep "
+            "drilling on."
+        )
+    return result
