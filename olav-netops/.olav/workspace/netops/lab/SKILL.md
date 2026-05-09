@@ -1,5 +1,8 @@
 ---
 name: ops-lab
+# R-VERTICAL-SLICE 2026-05-09: sub-agent uses no-think for
+# fast tool execution; orchestrator handles planning.
+thinking_mode: disabled
 description: "CAB lab validation — deploys ContainerLab digital twin, pushes config, verifies convergence, reports PASS/FAIL."
 metadata:
   version: 5.0.0
