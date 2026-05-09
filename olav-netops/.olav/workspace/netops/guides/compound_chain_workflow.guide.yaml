@@ -1,0 +1,47 @@
+schema_version: 1
+intent: compound_chain_workflow
+agent: netops
+keywords:
+  - then plan
+  - first ... then
+  - and plan
+  - and fix
+  - diagnose then
+  - diagnose and
+  - investigate then
+  - check and plan
+  - and emit
+  - 然后规划
+  - 再修复
+  - 同时
+body: |
+  Compound prompts where the user says "X then Y" or "first A and then B"
+  must invoke EVERY verb's sub-agent in turn.  Do NOT stop after the
+  first sub-agent.
+
+  | User pattern | Required sequence |
+  |---|---|
+  | "diagnose X then plan a fix" / "investigate X and emit CAB" | task("analyze") → task("sim", "<plan from findings>") |
+  | "find logs for X then design rollback" | task("investigate") → task("sim") |
+  | "check state then refresh" | task("analyze") → task("collect") |
+  | "drift between snaps then plan correction" | task("analyze") drift → task("sim") plan |
+
+  ## Even if diagnosis is incomplete, proceed to the next verb.
+
+  sim can write a plan with PARTIAL findings — that's the whole point
+  of CAB review (HITL approves before deploy).  Do NOT stop at
+  "I cannot fully diagnose, please provide more data".  Hand whatever
+  you have to ``task("sim", "<symptoms + likely causes>")`` and let
+  sim emit a candidate plan with explicit assumption notes.
+
+  ## Anti-pattern: stopping after the first task()
+
+  Failure mode observed in gemma4:31b boundary tests: orchestrator
+  delegated to analyze, got "session up but 0 prefixes", then asked
+  the user "would you like me to plan?" — breaking the autonomous
+  flow.  When the prompt has a "then" / "and", you already have
+  user authorization for the second step.
+
+related:
+  - intent: change_plan_emit_tcf
+    note: "the second verb of compound prompts often lands here"
