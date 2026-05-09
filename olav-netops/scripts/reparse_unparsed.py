@@ -119,6 +119,7 @@ def insert_parsed(
     snapshot_id: str,
     raw_output: str,
     parsed: list[dict],
+    platform: str | None,
 ) -> None:
     """INSERT into parsed_outputs.  Uses ON CONFLICT DO NOTHING because
     UNIQUE(device, command, snapshot_id) is the table constraint."""
@@ -128,12 +129,12 @@ def insert_parsed(
         """
         INSERT INTO netops.parsed_outputs
             (device_name, command, parsed_data, snapshot_id,
-             raw_output, raw_output_hash, ingested_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+             raw_output, raw_output_hash, ingested_at, platform)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT DO NOTHING
         """,
         [device, command, json.dumps(parsed), snapshot_id,
-         raw_output, raw_hash, datetime.now()],
+         raw_output, raw_hash, datetime.now(), platform],
     )
 
 
@@ -175,7 +176,7 @@ def main() -> int:
                         device, command, len(parsed), str(preview))
             if write_conn is not None:
                 insert_parsed(write_conn, device, command, snapshot_id,
-                              raw_output, parsed)
+                              raw_output, parsed, platform)
         else:
             n_failed += 1
             logger.info("  ✗ %-12s %-30s → still 0 rows (parser miss)",

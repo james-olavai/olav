@@ -163,26 +163,35 @@ class IngestManager:
                     _store_tbl.ensure_schema(conn)
 
                 # Step 1: Upsert raw_output_store — latest data wins per (device, command)
+                # R-VERTICAL-SLICE 2026-05-09: ``platform`` denormalised at
+                # write time (writers include it in staging records).
                 conn.execute(f"""
-                    INSERT INTO {store_table} (device_name, command, raw_output, snapshot_id, updated_at)
-                    SELECT device_name, command, raw_output, snapshot_id, NOW()
+                    INSERT INTO {store_table}
+                        (device_name, command, raw_output, snapshot_id, updated_at, platform)
+                    SELECT device_name, command, raw_output, snapshot_id, NOW(),
+                           platform
                     FROM read_json_auto('{staging_pattern}', format='array', ignore_errors=true)
                     WHERE raw_output IS NOT NULL AND raw_output != ''
                     ON CONFLICT (device_name, command)
                     DO UPDATE SET
                         raw_output  = EXCLUDED.raw_output,
                         snapshot_id = EXCLUDED.snapshot_id,
-                        updated_at  = NOW()
+                        updated_at  = NOW(),
+                        platform    = EXCLUDED.platform
                 """)
 
                 # Step 2: Upsert parsed_outputs (no inline raw_output)
                 conn.execute(f"""
-                    INSERT INTO {target_table} (device_name, command, parsed_data, snapshot_id)
-                    SELECT device_name, command, parsed_data::JSON, snapshot_id
+                    INSERT INTO {target_table}
+                        (device_name, command, parsed_data, snapshot_id, platform)
+                    SELECT device_name, command, parsed_data::JSON, snapshot_id,
+                           platform
                     FROM read_json_auto('{staging_pattern}', format='array', ignore_errors=true)
                     WHERE parsed_data IS NOT NULL
                     ON CONFLICT (device_name, command, snapshot_id)
-                    DO UPDATE SET parsed_data = EXCLUDED.parsed_data
+                    DO UPDATE SET
+                        parsed_data = EXCLUDED.parsed_data,
+                        platform    = EXCLUDED.platform
                 """)
 
                 rows_inserted = conn.execute(

@@ -1,0 +1,251 @@
+"""NETOPS-ONLY DuckDB table declarations.
+
+Registered via pyproject.toml entry-points so that the platform
+``IngestManager`` can discover and create these tables at runtime::
+
+    [project.entry-points."olav.ingest_tables"]
+    parsed_outputs = "olav_netops.core.tables:ParsedOutputsTable"
+    devices        = "olav_netops.core.tables:DevicesTable"
+    topology_links = "olav_netops.core.tables:TopologyLinksTable"
+
+All tables live in the ``netops`` DuckDB schema.
+"""
+
+from typing import Any
+
+from olav.platform.ingest_base import BaseIngestTable, ColumnDef, TableRegistry
+
+
+class ParsedOutputsTable(BaseIngestTable):
+    """Stores parsed CLI output from network devices.
+
+    raw_output is no longer stored inline — it is deduplicated in
+    RawOutputStoreTable and referenced via raw_output_hash.
+    The raw_output column is kept for backward compatibility but is
+    nulled out during ingest migration.
+    """
+
+    schema_name = "netops"
+    table_name = "parsed_outputs"
+    columns = [
+        ColumnDef("device_name", "VARCHAR", nullable=False),
+        ColumnDef("command", "VARCHAR", nullable=False),
+        ColumnDef("parsed_data", "JSON"),
+        ColumnDef("snapshot_id", "VARCHAR"),
+        ColumnDef("raw_output", "TEXT"),       # legacy — kept for compat, will be NULL
+        ColumnDef("raw_output_hash", "VARCHAR"),  # FK → raw_output_store.content_hash
+        ColumnDef("ingested_at", "TIMESTAMP"),
+        # R-VERTICAL-SLICE 2026-05-09 (dev_docs/74): denormalised platform
+        # tag.  Resolved at write time from Nornir host.platform; copied
+        # here to avoid downstream JOINs to netops.devices for every
+        # cross-vendor view / inspector.  Historical rows preserve the
+        # platform AT capture time even if the device is later
+        # re-platformed in inventory.
+        ColumnDef("platform", "VARCHAR"),
+    ]
+    conflict_key = ["device_name", "command", "snapshot_id"]
+
+
+class RawOutputStoreTable(BaseIngestTable):
+    """Latest raw CLI output per device per command.
+
+    Always keeps the most recent snapshot's raw output — no history,
+    no dedup complexity. One row per (device_name, command).
+    """
+
+    schema_name = "netops"
+    table_name = "raw_output_store"
+    columns = [
+        ColumnDef("device_name",  "VARCHAR",   nullable=False),
+        ColumnDef("command",      "VARCHAR",   nullable=False),
+        ColumnDef("raw_output",   "TEXT",      nullable=False),
+        ColumnDef("snapshot_id",  "VARCHAR"),
+        ColumnDef("updated_at",   "TIMESTAMP"),
+        # See ParsedOutputsTable.platform — same rationale.
+        ColumnDef("platform",     "VARCHAR"),
+    ]
+    conflict_key = ["device_name", "command"]
+
+
+class DevicesTable(BaseIngestTable):
+    """Network device inventory.
+
+    ARCH-08 Phase 2 Item 2 (Round 48): ``environment`` column carries the
+    Nornir inventory ``data.environment`` tag (``lab`` / ``prod`` /
+    ``staging`` / ``dev``) so queries and reports can filter or flag
+    cross-environment hostname collisions. Nullable for backward-compat —
+    a device without an inventory entry (e.g. discovered via LLDP) keeps
+    NULL.
+    """
+
+    schema_name = "netops"
+    table_name = "devices"
+    columns = [
+        ColumnDef("hostname", "VARCHAR", nullable=False),
+        ColumnDef("ip_address", "VARCHAR"),
+        ColumnDef("platform", "VARCHAR"),
+        ColumnDef("site", "VARCHAR"),
+        ColumnDef("role", "VARCHAR"),
+        ColumnDef("vendor", "VARCHAR"),
+        ColumnDef("model", "VARCHAR"),
+        ColumnDef("os_version", "VARCHAR"),
+        ColumnDef("environment", "VARCHAR"),  # ARCH-08 Phase 2 Item 2
+        ColumnDef("last_seen", "TIMESTAMP"),
+        ColumnDef("metadata", "JSON"),
+    ]
+    conflict_key = ["hostname"]
+
+
+class TopologyLinksTable(BaseIngestTable):
+    """CDP/LLDP/OSPF-derived network topology links.
+
+    Schema matches the operational schema used by ``_discover_topology_from_db``
+    in sync_tools.py — uses ``link_id`` as primary key.
+    """
+
+    schema_name = "netops"
+    table_name = "topology_links"
+    columns = [
+        ColumnDef("link_id",               "VARCHAR",   nullable=False),
+        ColumnDef("source_device",         "VARCHAR",   nullable=False),
+        ColumnDef("source_interface",      "VARCHAR",   nullable=False),
+        ColumnDef("destination_device",    "VARCHAR",   nullable=False),
+        ColumnDef("destination_interface", "VARCHAR",   nullable=False),
+        ColumnDef("discovery_protocol",    "VARCHAR"),
+        ColumnDef("link_type",             "VARCHAR"),
+        ColumnDef("link_status",           "VARCHAR"),
+        ColumnDef("link_speed",            "VARCHAR"),
+        ColumnDef("first_seen",            "TIMESTAMP", nullable=False),
+        ColumnDef("last_seen",             "TIMESTAMP", nullable=False),
+        ColumnDef("last_verified",         "TIMESTAMP"),
+        ColumnDef("status_changes",        "INTEGER"),
+        ColumnDef("snapshot_id",           "VARCHAR",   nullable=False),
+        ColumnDef("platform",             "VARCHAR"),
+    ]
+    conflict_key = ["link_id"]
+
+
+class OcOutputsTable(BaseIngestTable):
+    """Strict OpenConfig JSON per device per snapshot per OC module."""
+
+    schema_name = "netops"
+    table_name = "oc_outputs"
+    columns = [
+        ColumnDef("device_name", "VARCHAR", nullable=False),
+        ColumnDef("snapshot_id", "VARCHAR", nullable=False),
+        ColumnDef("oc_module",   "VARCHAR", nullable=False),
+        ColumnDef("oc_data",     "JSON",    nullable=False),
+        ColumnDef("source_cmd",  "VARCHAR"),
+    ]
+    conflict_key = ["device_name", "snapshot_id", "oc_module"]
+
+
+class CommandsTable(BaseIngestTable):
+    """Command whitelist — R73 SSOT derived from ntc-templates + custom + PaC.
+
+    Populated by :func:`olav_netops.core.commands_sync.sync_commands` at
+    `/netops_init` Stage 0. Consumed by:
+      * netops_init SSH collection(discovery list)
+      * `execute_cli._validate_command`(agent CLI whitelist)
+      * `search_commands` agent tool
+    """
+
+    schema_name = "netops"
+    table_name = "commands"
+    columns = [
+        ColumnDef("platform",      "VARCHAR", nullable=False),
+        ColumnDef("command",       "VARCHAR", nullable=False),
+        ColumnDef("safe_command",  "VARCHAR", nullable=False),
+        ColumnDef("parser_type",   "VARCHAR"),
+        ColumnDef("parser_path",   "VARCHAR"),
+        ColumnDef("blacklisted",   "BOOLEAN", nullable=False),
+        ColumnDef("pipe_allowed",  "BOOLEAN", nullable=False),
+        ColumnDef("backup_only",   "BOOLEAN", nullable=False),
+        ColumnDef("synced_at",     "TIMESTAMP"),
+    ]
+    conflict_key = ["platform", "command"]
+
+
+# ARCH-24 removed (Round 70): BgpSessionsTable / OspfAdjacenciesTable
+# were materialized by the now-deleted L3 ETL. Their data is now exposed
+# through ``netops.v_bgp_neighbors_auto`` / ``netops.v_ospf_neighbors_auto``
+# views created at Stage 3.7 by ``view_builder.build_all_views`` from
+# ``view_recipes`` + ``netops.parsed_outputs``.
+
+
+def _register_all() -> None:
+    """Register all olav-netops tables into the TableRegistry.
+
+    Called explicitly by the platform entry-point / plugin loader so that
+    ``import olav_netops.core.tables`` alone does NOT trigger file-system reads
+    or global state mutations — keeping the module side-effect free and
+    making unit tests easier to isolate.
+    """
+    TableRegistry.register(ParsedOutputsTable())
+    TableRegistry.register(RawOutputStoreTable())
+    TableRegistry.register(DevicesTable())
+    TableRegistry.register(TopologyLinksTable())
+    TableRegistry.register(OcOutputsTable())
+    TableRegistry.register(CommandsTable())
+
+
+# Tables that existed in pre-R83 ETL designs but are no longer written to
+# by any code path. R70 / R83 introduced ``v_*_auto`` views as the
+# authoritative source; the underlying base tables were never DROP'd in
+# the migration. Leaving them in the schema misleads ``database_introspection``
+# and tools that pick tables by name (the audit profile-author bug surfaced
+# in demo7 Chapter 6 — `bgp_neighbors` table was 0 rows but auditor still
+# reported "✅ Healthy").
+#
+# The corresponding live source for each:
+#   interfaces      → JSON-extract from parsed_outputs (no view yet)
+#   bgp_neighbors   → v_bgp_neighbors_auto
+#   bgp_routes      → JSON-extract from parsed_outputs
+#   ospf_neighbors  → v_ospf_neighbors_auto
+#   routes          → v_routes_auto
+_LEGACY_DEAD_TABLES = (
+    "interfaces",
+    "bgp_neighbors",
+    "bgp_routes",
+    "ospf_neighbors",
+    "routes",
+)
+
+
+def drop_legacy_tables(
+    con: Any,
+    schemas: tuple[str, ...] = ("netops", "main"),
+) -> list[str]:
+    """Drop pre-R83 dead tables across the relevant schemas.
+
+    Sweeps both ``netops`` (where live tables live) and ``main``
+    (DuckDB's default schema) — demo7 inspection in 2026-04-28 showed
+    the 5 dead tables actually landed in ``main`` from earlier R70-era
+    DDL, not ``netops``. The fix should clean both regardless of which
+    schema migration accidentally created them.
+
+    Idempotent — ``DROP TABLE IF EXISTS``. Returns ``"schema.table"``
+    strings for everything actually dropped (best-effort;
+    ``information_schema`` lookup so we can report what was cleaned).
+
+    Run from netops_init Stage 3 right after ``ensure_all_schemas``.
+    """
+    dropped: list[str] = []
+    for schema in schemas:
+        for tbl in _LEGACY_DEAD_TABLES:
+            try:
+                existed = con.execute(
+                    "SELECT 1 FROM information_schema.tables "
+                    "WHERE table_schema = ? AND table_name = ?",
+                    [schema, tbl],
+                ).fetchone()
+            except Exception:
+                existed = None
+            try:
+                con.execute(f"DROP TABLE IF EXISTS {schema}.{tbl}")
+                if existed:
+                    dropped.append(f"{schema}.{tbl}")
+            except Exception:
+                # Don't fail the bootstrap on one stuck table — log via return
+                pass
+    return dropped

@@ -26,10 +26,14 @@
 --     state is already a name like "Established" or "Idle".
 CREATE OR REPLACE VIEW netops.v_bgp_neighbors_auto AS
 
--- Cisco-family
+-- Cisco-family.  After the platform-column denormalisation
+-- (R-VERTICAL-SLICE 2026-05-09, migrate_add_platform_column.py),
+-- the vendor filter is a direct WHERE on parsed_outputs.platform,
+-- not a JOIN/EXISTS to netops.devices.
 SELECT
     p.device_name,
     p.snapshot_id,
+    p.platform,
     CAST(json_extract_string(elem, '$.bgp_neighbor') AS VARCHAR)
         AS neighbor_ip,
     CAST(json_extract_string(elem, '$.neighbor_as') AS UBIGINT)
@@ -57,11 +61,12 @@ FROM netops.parsed_outputs p,
              CAST(p.parsed_data AS JSON[])
          ) AS elem
      )
-WHERE p.command IN (
-    'show ip bgp summary',
-    'show bgp summary vrf all',
-    'show bgp instance all summary'
-)
+WHERE p.platform LIKE 'cisco%'
+  AND p.command IN (
+      'show ip bgp summary',
+      'show bgp summary vrf all',
+      'show bgp instance all summary'
+  )
   AND p.parsed_data IS NOT NULL
 
 UNION ALL
@@ -70,6 +75,7 @@ UNION ALL
 SELECT
     p.device_name,
     p.snapshot_id,
+    p.platform,
     CAST(json_extract_string(elem, '$.peer') AS VARCHAR)        AS neighbor_ip,
     CAST(json_extract_string(elem, '$.peer_as') AS UBIGINT)     AS neighbor_as,
     CAST(json_extract_string(elem, '$.state') AS VARCHAR)       AS state,
@@ -82,10 +88,7 @@ FROM netops.parsed_outputs p,
              CAST(p.parsed_data AS JSON[])
          ) AS elem
      )
-WHERE p.command = 'show bgp summary'
+WHERE p.platform LIKE '%junos%'
+  AND p.command = 'show bgp summary'
   AND p.parsed_data IS NOT NULL
-  AND EXISTS (
-      SELECT 1 FROM netops.devices d
-      WHERE d.hostname = p.device_name AND d.platform LIKE '%junos%'
-  )
 ;
