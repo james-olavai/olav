@@ -24,6 +24,13 @@ def inspect_blast_radius(
     isolated nodes.  Use this for "what happens if X fails" or
     "blast radius of removing Y" questions.
 
+    **Validation**: if any requested device or link is NOT in the
+    current graph, the tool returns ``validation_warnings`` listing
+    the unknown items.  A "no impact" result with non-empty
+    ``validation_warnings`` is NOT proof of safety — it means the
+    failure scenario could not even be simulated.  Re-check device
+    names / link existence first.
+
     Args:
         remove_devices: List of hostnames to remove from the graph.
             E.g. ``["R3"]`` simulates R3 hard failure.  Optional.
@@ -34,22 +41,34 @@ def inspect_blast_radius(
 
     Returns:
         ``{
-            "removed_devices": [...],
-            "removed_links": [...],
-            "components": [[...], [...]],   # disconnected groups
-            "isolated_nodes": [...],         # nodes with no edges
-            "connectivity_loss": {...}       # pre vs post component count
+            "removed_devices": [...],          # only those actually in graph
+            "removed_links": [...],            # only those actually present
+            "components": [[...], [...]],      # post-failure components
+            "isolated_nodes": [...],
+            "connectivity_loss": {pre_components, post_components},
+            "validation_warnings": [...],      # human-readable, e.g.
+              # "device 'Rfoo' is not in the topology graph",
+              # "link ['R2','R3'] is not present in the topology graph"
          }``
 
-    Example:
+    Example (valid):
         >>> inspect_blast_radius(remove_devices=["R3"])
-        {
-          "removed_devices": ["R3"],
-          "removed_links": [],
-          "components": [["R1"], ["R2", "R4", "WAN"], ["SW1"], ["SW2", "Switch"]],
-          "isolated_nodes": ["R1", "SW1"],
-          "connectivity_loss": {"pre_components": 1, "post_components": 4},
-        }
+        {"removed_devices": ["R3"], "removed_links": [],
+         "components": [["R1"], ["R2", "R4"], ["SW1"]],
+         "isolated_nodes": ["R1", "SW1"],
+         "connectivity_loss": {"pre_components": 1, "post_components": 3},
+         "validation_warnings": []}
+
+    Example (invalid — surfaces the mistake instead of silent OK):
+        >>> inspect_blast_radius(remove_links=[["R2", "R3"]])
+        # R2-R3 has no direct link → simulation impossible
+        {"removed_devices": [], "removed_links": [],
+         "components": [...same as no-op...],
+         "isolated_nodes": [],
+         "connectivity_loss": {"pre_components": 1, "post_components": 1},
+         "validation_warnings": [
+           "link ['R2', 'R3'] is not present in the topology graph"
+         ]}
     """
     import networkx as nx
     model = load_network_model()
@@ -57,20 +76,51 @@ def inspect_blast_radius(
     g = model.graph.copy()
     pre_components = nx.number_weakly_connected_components(g)
 
-    removed_devices = remove_devices or []
-    removed_links = remove_links or []
+    requested_devices = list(remove_devices or [])
+    requested_links = list(remove_links or [])
 
-    for d in removed_devices:
+    actually_removed_devices: list[str] = []
+    actually_removed_links: list[list[str]] = []
+    warnings: list[str] = []
+
+    # Validate + remove devices
+    for d in requested_devices:
         if d in g.nodes:
             g.remove_node(d)
-    for pair in removed_links:
+            actually_removed_devices.append(d)
+        else:
+            warnings.append(
+                f"device {d!r} is not in the topology graph "
+                f"(known devices: {sorted(model.graph.nodes)})"
+            )
+
+    # Validate + remove links — must be a 2-element pair AND have an edge
+    # in either direction in the *original* graph (after device removal,
+    # endpoints may already be gone, which we report distinctly).
+    original = model.graph
+    for pair in requested_links:
         if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            warnings.append(f"link {pair!r} is not a valid 2-element pair")
             continue
         u, v = pair
+        if u not in original.nodes or v not in original.nodes:
+            missing = [x for x in (u, v) if x not in original.nodes]
+            warnings.append(
+                f"link {pair!r}: endpoint(s) {missing} not in topology graph"
+            )
+            continue
+        if not (original.has_edge(u, v) or original.has_edge(v, u)):
+            warnings.append(
+                f"link {pair!r} is not present in the topology graph "
+                f"(no direct edge between {u} and {v})"
+            )
+            continue
+        # Apply removal in both directions on the working copy
         if g.has_edge(u, v):
             g.remove_edge(u, v)
         if g.has_edge(v, u):
             g.remove_edge(v, u)
+        actually_removed_links.append([u, v])
 
     components = sorted(
         [sorted(c) for c in nx.weakly_connected_components(g)],
@@ -79,12 +129,13 @@ def inspect_blast_radius(
     isolated = sorted(n for n in g.nodes if g.degree(n) == 0)
 
     return {
-        "removed_devices": removed_devices,
-        "removed_links": removed_links,
+        "removed_devices": actually_removed_devices,
+        "removed_links": actually_removed_links,
         "components": components,
         "isolated_nodes": isolated,
         "connectivity_loss": {
             "pre_components": pre_components,
             "post_components": len(components),
         },
+        "validation_warnings": warnings,
     }
