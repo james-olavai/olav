@@ -60,9 +60,12 @@ def inspect_topology(devices: list[str], depth: int = 1) -> dict[str, Any]:
     if depth > 3:
         depth = 3  # cap to keep return size sane for small models
 
+    # Discovery mode — empty list = enumerate every device in the graph.
+    target_devices: list[str] = list(devices) if devices else sorted(g.nodes)
+
     neighbors: dict[str, list[dict[str, Any]]] = {}
     unknown_devices: list[str] = []
-    for device in devices:
+    for device in target_devices:
         if device not in g.nodes:
             unknown_devices.append(device)
             continue
