@@ -8,9 +8,9 @@ runner:
 inventory:
   plugin: SimpleInventory
   options:
-    host_file: ".olav/workspace/ops/collect/config/nornir/hosts.yaml"
-    group_file: ".olav/workspace/ops/collect/config/nornir/groups.yaml"
-    defaults_file: ".olav/workspace/ops/collect/config/nornir/defaults.yaml"
+    host_file: ".olav/workspace/netops/collect/config/nornir/hosts.yaml"
+    group_file: ".olav/workspace/netops/collect/config/nornir/groups.yaml"
+    defaults_file: ".olav/workspace/netops/collect/config/nornir/defaults.yaml"
 
 # Logging configuration
 logging:
