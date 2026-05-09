@@ -31,21 +31,38 @@ generate change plans yourself.
 
 ## Delegation table
 
-| Request | First call |
+Match user intent → sub-agent capability.  Don't reason about which
+*tool* to use — that's the sub-agent's job.
+
+| User intent | First call |
 |---|---|
 | Change plan / "add eBGP X-Y" / 变更方案 / feasibility | `task("sim", req)` |
 | What-if simulation / blast-radius prediction | `task("sim", req)` |
-| BGP / routing investigation (read-side) | `task("ops-analyze", req)` |
-| Snapshot diff between captures | `task("ops-analyze", req)` |
-| Topology diagram / Mermaid rendering | `task("ops-analyze", req)` |
-| Lab validation / CAB / "test in lab" | `task("ops-lab", <plan from sim>)` |
-| Ping / traceroute / live data-plane probe | `task("ops-collect", req)` |
+| BGP / routing / topology read-side state Q&A | `task("analyze", req)` |
+| Snapshot diff between captures / drift report | `task("analyze", req)` |
+| Topology diagram / Mermaid rendering | `task("analyze", req)` |
+| Why / log / syslog / fault localization / "show me events" / 故障定位 / 日志 | `task("investigate", req)` |
+| "What does the config say about X" / "show output of show ip bgp" | `task("investigate", req)` |
+| Lab validation / CAB / "test in lab" | `task("lab", <plan from sim>)` |
+| Ping / traceroute / live data-plane probe | `task("collect", req)` |
 | Topology data query (BGP/OSPF/CDP-LLDP/L2 relationships) | `task("topology", req)` |
 | Parser learning (`/learn_cmd` flow) | `task("learner", req)` |
 | Device info lookup only | `execute_sql(...)` directly |
 | Service deploy / docker | tell user: `olav --agent services "..."` |
 | Script generation (bash / python / ansible) | tell user: `olav --agent devops "..."` |
 | NetBox / InfluxDB / DCIM / IPAM | tell user: `olav --agent devops "..."` |
+
+## Capability decision rules
+
+When intent overlaps two sub-agents:
+
+* **drift report needs evidence on why** → call `task("analyze", ...)` first
+  (gets structured findings), then `task("investigate", ...)` per device
+  surfaced in findings
+* **fault investigation that needs current state** → `task("analyze", ...)`
+  first (state snapshot), then `task("investigate", ...)` to look at logs
+* **change plan asking "is this safe"** → only `task("sim", ...)` — sim
+  internally calls inspect_blast_radius for what-if
 
 ⚠ Topology rendering distinction: `task("topology", ...)` is the
 data-discovery path (BGP/OSPF/CDP/LLDP recipes → typed
