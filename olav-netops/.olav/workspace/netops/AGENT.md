@@ -20,12 +20,15 @@ route_keywords:
   - log syslog event error warning 日志 为什么 故障定位 evidence why
 # Patch D' Step 2 (2026-05-08): explicit tools whitelist.  Without
 # this, orchestrator auto-loaded all 7-8 core/tools/ .py files,
-# giving weak local LLMs wrong-tool options.  Orchestrator only
-# legitimately needs single-step DB queries + memory recall +
-# occasional web search.  All write/read-file ops delegate to
-# sub-agents.
+# giving weak local LLMs wrong-tool options.
+#
+# R-VERTICAL-SLICE 2026-05-09 (dev_docs/74): execute_sql REMOVED from
+# orchestrator level.  In hybrid thinking tests both gemma4:31b and
+# qwen3.6:27b ignored the dispatch table and ran 12-21 direct SQL
+# queries (many duplicates) instead of delegating to task("analyze").
+# Removing the tool forces the architectural separation: orchestrator
+# routes intent → sub-agent does data work.
 tools:
-  - execute_sql
   - recall_memory
   - web_search
 # R-AGENT-HIERARCHY Phase A (2026-05-09): topology + learner pulled
