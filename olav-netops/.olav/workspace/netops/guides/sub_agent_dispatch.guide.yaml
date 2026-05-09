@@ -1,0 +1,67 @@
+schema_version: 1
+intent: sub_agent_dispatch
+agent: netops
+keywords:
+  - delegate
+  - sub-agent
+  - subagent
+  - which agent
+  - olav_delegate
+  - task tool
+  - capability routing
+  - hand off
+body: |
+  The ONLY way to delegate to a sub-agent is:
+
+      task("<sub-agent-name>", "<request>")
+
+  ## Valid sub-agent names (use these EXACTLY)
+
+  - ``analyze`` — read-side state / topology / drift inspection
+  - ``sim`` — change planning, owns submit_change_plan
+  - ``investigate`` — log/syslog/config-text drilldown
+  - ``collect`` — data-plane probes, fresh take_snapshot
+  - ``lab`` — ContainerLab digital twin validation
+  - ``topology`` — discovery (BGP/OSPF/CDP/LLDP recipes)
+  - ``learner`` — parser learning (/learn_cmd flow)
+
+  ## Hallucinations to NEVER use
+
+  These tool names DO NOT EXIST and will fail:
+
+  - ❌ `olav_delegate(...)` — never existed
+  - ❌ `delegate_to(...)` — never existed
+  - ❌ `sub_agent(...)` — never existed
+  - ❌ `task("ops-analyze", ...)` — old name, renamed to ``analyze``
+  - ❌ `task("ops-collect", ...)` — old name, renamed to ``collect``
+  - ❌ `task("config-discovery", ...)` — never existed
+  - ❌ `task("quick-query", ...)` — never existed
+
+  ## What to do when task() returns "sub-agent not found"
+
+  The second arg was wrong.  Pick from the valid list above; do NOT
+  retry with another made-up name.  If genuinely uncertain whether
+  a capability exists, say so honestly to the user.
+
+  ## Capability-level routing
+
+  Don't reason about which TOOL to call — that's the sub-agent's
+  job.  Match user intent to capability:
+
+  | User intent | First call |
+  |---|---|
+  | Change plan / "add eBGP X-Y" / 变更方案 | task("sim", req) |
+  | What-if / blast-radius prediction | task("sim", req) |
+  | BGP / routing read-side state Q&A | task("analyze", req) |
+  | Snapshot diff / drift report | task("analyze", req) |
+  | Topology diagram / Mermaid | task("analyze", req) |
+  | Why / log / syslog / 故障定位 / 日志 | task("investigate", req) |
+  | "What does config say" / "show output of X" | task("investigate", req) |
+  | Lab validation / CAB / "test in lab" | task("lab", <plan from sim>) |
+  | Ping / traceroute / live data-plane | task("collect", req) |
+  | Topology data discovery (LLDP/CDP) | task("topology", req) |
+  | Parser learning (/learn_cmd) | task("learner", req) |
+
+related:
+  - intent: compound_chain_workflow
+    note: "compound prompts may need MULTIPLE task() calls in sequence"
