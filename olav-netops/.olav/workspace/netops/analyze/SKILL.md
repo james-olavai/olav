@@ -1,120 +1,123 @@
 ---
 name: ops-analyze
-description: "READ-SIDE network analysis ONLY: BGP / OSPF investigation, snapshot drift detection, topology Q&A, Mermaid diagram rendering, blast-radius reachability. Reads DB only; no live device access. Does NOT own change planning — for 'plan a change' / 'add eBGP X-Y' / 'emit TCF' / 'CAB' / '变更方案' the orchestrator MUST delegate to `task('sim', ...)` instead (R-AGENT-HIERARCHY Phase B+C+D 2026-05-09)."
+description: "READ-SIDE network analysis: BGP / OSPF investigation, snapshot drift detection, topology Q&A, blast-radius reachability, Mermaid diagram. Inspector @tools wrap NetworkX queries; LLM never writes graph code. Reads DB only; no live device access. Does NOT own change planning — for 'plan a change' / 'add eBGP X-Y' / 'CAB' the orchestrator delegates to `task('sim', ...)` instead."
 metadata:
-  version: 1.0.0
+  version: 2.0.0
   replaces: [ops-analysis v1.1.0, ops-diff v1.0.0]
   type: agent
   network_isolation: "true"
   category: network-operations
   intents:
     - routing_analysis
-    - change_simulation
     - topology_analysis
     - topology_visualization
     - state_comparison_drift_detection
+    - blast_radius_analysis
 tools:
-  - run_python_simulation  # pure-compute sandbox (R102.UNIFIED_SANDBOX):
-                           # What-If sim + drift diff share one sandbox.
-                           # diff_sql_state / diff_topology_drift /
-                           # diff_routing_drift / diff_configs are
-                           # pre-imported globals inside the prologue.
-  - format_and_export      # diagram saves (Mermaid topology) + drift
-                           # report inline writes per Patch D' Step 5.
-                           # Change-plan path lives in `sim` sub-agent
-                           # (R-AGENT-HIERARCHY 2026-05-09) — analyze
-                           # is read-side only.
+  # Topology / state inspectors (shared with sim via netops/tools/)
+  - inspect_devices         # facts: platform / AS / loopback / role
+  - inspect_topology        # L2 adjacencies (LLDP/CDP), depth-N BFS
+  - inspect_routing         # BGP / OSPF session state per device
+  - inspect_blast_radius    # what-if: remove devices/links → components
+  # Drift inspectors (NEW 2026-05-09 — wrap diff_* helpers as @tools)
+  - inspect_drift_sql       # any table, t1 vs t2
+  - inspect_drift_topology  # L2 link up/down/added/removed
+  - inspect_drift_routing   # prefix / next-hop / AS-PATH delta
+  - inspect_drift_configs   # raw config text diff per device
+  # Output
+  - format_and_export       # Markdown reports + Mermaid diagrams
 allowed_tables:
-  - netops.v_bgp_neighbors_auto
-  - netops.v_ospf_neighbors_auto
-  - netops.v_l2_links_auto
-  - netops.topology_links
   - netops.devices
+  - netops.topology_links
   - netops.parsed_outputs
-  - netops.oc_outputs
-  - netops.raw_output_store
+  - netops.v_show_ip_bgp_summary_auto
+  - netops.v_show_ip_ospf_neighbor_auto
+  - netops.v_show_ospf_neighbor_auto
+  - netops.v_show_ip_route_auto
+  - netops.v_l2_links_auto
   - netops.commands
   - schema_catalog
-  - view_recipes
-# ROUTING_EXPERT_GUIDE used to be on_intent here (~3.2K chars).
-# Removed from auto-load — agent calls `get_static_context` /
-# `read_file('references/ROUTING_EXPERT_GUIDE.md')` when actually
-# investigating BGP attributes.  See dev_docs/00 § ISSUE-CTX-PROMPT-INFLATION.
-# static_context: []
 static_context_mode: on_intent
 system: $ref:./prompts/system.md
 ---
 
-## Single dispatch — everything runs in `run_python_simulation`
+## Analyze — read-side network analysis (inspector pattern)
 
-Analysis (what-if / sim / topology) and Drift (T1 vs T2 / 漂移) and
-CAB TCF emission all share the same sandbox.  Write Python that
-imports/uses the pre-loaded primitives — no mode selection, no
-skill-script dispatch, no two-level naming:
+R-AGENT-HIERARCHY 2026-05-09: dropped sandbox + `run_python_simulation`
+in favour of typed inspector @tools.  Same rationale as sim: small
+models can't reliably compose multi-line NetworkX Python; typed tool
+calls with grammar-constrained args fit gemma4:31b nothink.
 
-```python
-run_python_simulation(experiment_code='''
-# Drift: compare snapshots
-drift = diff_sql_state("ospf_neighbors", "t1", "t2")
+OLAV is committed to local small models (R100 milestone, dev_docs/200).
+The sandbox path was a cloud-LLM-era affordance; analyze now mirrors
+sim's inspector-driven approach.
 
-# Analysis: simulate impact of newly-down devices
-affected = [r["device_name"] for r in drift["missing_in_t2"]]
-sim.clone(["topology_links"])
-for d in affected:
-    sim.execute("UPDATE sim_topology_links SET link_status='down' WHERE source_device=?", [d])
+## Available inspectors
 
-# Graph reachability
-links = sim.execute("SELECT source_device, destination_device FROM sim_topology_links WHERE link_status='active'").fetchall()
-g = nx.DiGraph(); g.add_edges_from(links)
-blast = list(nx.weakly_connected_components(g))
-
-_result = {"affected": affected, "blast_components": blast}
-''')
-```
-
-Pre-loaded sandbox globals (no `import` needed):
-
-| Global | Use |
+| Tool | Returns |
 |---|---|
-| `db` | read-only prod DB proxy — `db.query(sql)` |
-| `sim` | writable in-memory DuckDB clone — `sim.clone([...])` / `sim.execute(...)` |
-| `nx` | networkx — graphs, paths, components |
-| `netutils` | IP / interface / ASN normalization |
-| `diff_sql_state(table, t1, t2)` | drift any operational table |
-| `diff_topology_drift(t1, t2)` | topology_links up/down changes |
-| `diff_routing_drift(t1, t2)` | prefix / next-hop / AS-PATH delta |
-| `diff_configs(device, t1, t2)` | raw config text diff |
-Composite analyses run in **one** sandbox call instead of N tool turns.
+| `inspect_devices(devices=[...])` | platform / AS / loopback / mgmt_ip / role per device |
+| `inspect_topology(devices=[...], depth=1)` | L2 neighbors with interface + status, up to N hops |
+| `inspect_routing(devices=[...], protocol="bgp"|"ospf"|"both")` | BGP/OSPF session state |
+| `inspect_blast_radius(remove_devices=[...] OR remove_links=[[A,B]])` | Components + isolated nodes after the proposed failure |
+| `inspect_drift_sql(table_name, snap1, snap2)` | Rows missing / new between snapshots |
+| `inspect_drift_topology(snap1, snap2)` | Links removed / added / status changed |
+| `inspect_drift_routing(snap1, snap2)` | Prefixes + next-hop + AS-PATH delta |
+| `inspect_drift_configs(device, command, snap1, snap2)` | Raw command-output line diff |
 
-## Sandbox SQL rule
+## Workflow shapes
 
-`sim.execute()` with literal SQL starting with `CREATE` / `INSERT` etc.
-MUST use a variable (sandbox_guard pattern):
+### Drift / change detection ("what changed between snapshots?")
 
-```python
-_sql = "CREATE TABLE sim_x (col VARCHAR)"
-sim.execute(_sql)  # NOT: sim.execute("CREATE TABLE ...")
-```
+1. Identify two snapshot_ids (user gives them, or via prompt context).
+2. Call `inspect_drift_*` for the relevant dimension:
+   - Devices/inventory drift → `inspect_drift_sql("devices", t1, t2)`
+   - L2 topology drift → `inspect_drift_topology(t1, t2)`
+   - Routing drift → `inspect_drift_routing(t1, t2)`
+   - Per-device config drift → `inspect_drift_configs(device, cmd, t1, t2)`
+3. Read the typed result.  Surface anomalies (rows missing, new
+   prefixes, status flips).
+4. Optionally call `inspect_blast_radius` if a topology change has
+   downstream impact you want to quantify.
+5. Write a Markdown drift report via `format_and_export`.
 
-## Design feasibility — query, don't assume
+### Topology Q&A ("how is R1 connected? what's R3's BGP state?")
 
-| Required info | DB source | BLOCKER? |
-|---|---|---|
-| Peer AS | `netops.v_bgp_neighbors_auto.neighbor_as` | Yes — can't design session type |
-| BGP link IP | JSON from `parsed_outputs WHERE command LIKE 'show%ip interface%'`; fallback `v_l2_links_auto` | Yes — Phase 0 IP assign |
-| Direct physical link | `v_l2_links_auto WHERE src=X AND dst=Y` | Warning |
-| IGP between peers | `v_ospf_neighbors_auto` | Blocker for iBGP |
-| Route to loopback | JSON from `parsed_outputs WHERE command='show ip route'` | Blocker for multihop eBGP |
+1. `inspect_devices([dev])` for facts.
+2. `inspect_topology([dev])` for L2 neighbors.
+3. `inspect_routing([dev])` for session state.
+4. Reply directly to user — no `format_and_export` needed for
+   simple Q&A (only for diagrams / drift reports).
 
-If ANY blocker is found → state explicitly as Phase 0 prerequisite.
-NEVER assume / invent values.
+### Blast-radius / what-if ("what if R3 fails?")
 
-## Drift workflow (now one call)
+1. `inspect_blast_radius(remove_devices=["R3"])`
+2. Reply with components + isolated nodes from the result.
 
-1. Pick two `snapshot_id` values (T1 before, T2 after)
-2. Inside `run_python_simulation`, call the right diff primitive
-   (`diff_sql_state` / `diff_topology_drift` / `diff_routing_drift`
-   / `diff_configs`) — pick by dimension
-3. Read `result["missing_in_t2"]` / `result["new_in_t2"]` directly
-   from the dict you assigned to `_result`
-4. Report findings with root-cause analysis
+### Mermaid topology diagram
+
+1. `inspect_topology(<all devices>)` to get full L2 adjacency.
+2. Compose Mermaid syntax from the result.
+3. `format_and_export(data=mermaid_text, filename="topology",
+                      format="mmd", subdir="diagrams")`.
+
+## Hard rules
+
+1. **No sandbox**.  You don't have `run_python_simulation`.  Don't
+   try to import networkx — the inspectors already use it under
+   the hood with typed args.
+2. **Inspector first**.  Every graph or drift question goes through
+   one of the 8 inspectors.  Don't query DuckDB directly for these
+   patterns — the inspectors are faster and structured.
+3. **Don't compose change plans**.  If the user asks for a change
+   plan or "add eBGP" or "CAB" → redirect: that's `sim`'s job.
+4. **Drift reports go via `format_and_export`** to
+   `exports/drift_reports/<id>.md` (or `exports/diagrams/` for
+   Mermaid).
+
+## Anti-patterns (do NOT do these)
+
+* Writing 30 lines of `nx.DiGraph(); for src, dst, ...: G.add_edge(...)`
+  — the inspectors already built the enriched graph.
+* Querying ASN / loopback via SQL — call `inspect_devices`.
+* Re-implementing diff_sql_state by hand — call `inspect_drift_sql`.
