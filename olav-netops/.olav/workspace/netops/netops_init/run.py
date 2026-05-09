@@ -166,7 +166,7 @@ def _check_environment() -> tuple[bool, list[str]]:
         if not hosts.exists():
             issues.append(
                 f"hosts.yaml not found at {hosts}. "
-                f"Copy from: .olav/workspace/ops/collect/config/nornir/hosts.yaml.example"
+                f"Copy from: .olav/workspace/netops/collect/config/nornir/hosts.yaml.example"
             )
         else:
             # Count devices
