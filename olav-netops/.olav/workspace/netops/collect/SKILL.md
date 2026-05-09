@@ -1,5 +1,8 @@
 ---
 name: ops-collect
+# R-VERTICAL-SLICE 2026-05-09: sub-agent uses no-think for
+# fast tool execution; orchestrator handles planning.
+thinking_mode: disabled
 description: "Live data collection — parallel CLI / Nornir, liveness + latency probing, fresh snapshots."
 metadata:
   version: 2.0.0

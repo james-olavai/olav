@@ -1,5 +1,8 @@
 ---
 name: ops-analyze
+# R-VERTICAL-SLICE 2026-05-09: sub-agent uses no-think for
+# fast tool execution; orchestrator handles planning.
+thinking_mode: disabled
 description: "READ-SIDE network analysis: BGP / OSPF investigation, snapshot drift detection, topology Q&A, blast-radius reachability, Mermaid diagram. Inspector @tools wrap NetworkX queries; LLM never writes graph code. Reads DB only; no live device access. Does NOT own change planning — for 'plan a change' / 'add eBGP X-Y' / 'CAB' the orchestrator delegates to `task('sim', ...)` instead."
 metadata:
   version: 2.0.0

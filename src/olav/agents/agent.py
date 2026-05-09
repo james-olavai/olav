@@ -249,15 +249,28 @@ class OLAVAgent:
         self.session_id = session_id
         self.workspace = workspace
 
+        # Pre-load AGENT.md frontmatter so we can read ``thinking_mode``
+        # *before* LLM construction (R-VERTICAL-SLICE 2026-05-09,
+        # dev_docs/74).  Cached on self to avoid double-loading later.
+        try:
+            self._preloaded_olav_config = self._load_olav_config()
+        except Exception as _e:
+            logger.debug("AGENT.md preload failed (non-fatal): %s", _e)
+            self._preloaded_olav_config = {}
+
+        _orchestrator_thinking = self._preloaded_olav_config.get("thinking_mode")
+
         # LLM via LLMFactory
         self.llm = LLMFactory.get_chat_model(
             model_name=self.model_name,
             temperature=self.temperature,
             agent_id=self.agent_id,
+            thinking_mode=_orchestrator_thinking,
         )
         logger.info(
             f"OLAV Orchestrator v3.4 initialized: "
-            f"model={self.model_name}, temperature={self.temperature}, agent={self.agent_id}"
+            f"model={self.model_name}, temperature={self.temperature}, "
+            f"agent={self.agent_id}, thinking={_orchestrator_thinking or 'default'}"
         )
 
         # Fire session.start hook (non-blocking)
@@ -313,8 +326,8 @@ class OLAVAgent:
             logger.warning(f"LanceDBStore init failed: {e}. Long-term memory disabled.")
             self.store = None
 
-        # Build agent graph
-        olav_config = self._load_olav_config()
+        # Build agent graph (reuse the preloaded config from above)
+        olav_config = self._preloaded_olav_config or self._load_olav_config()
 
         # MANIFEST injection: discover workspace-declared Skills/Agents and
         # merge any that target this agent_id into olav_config before building
@@ -778,6 +791,32 @@ class OLAVAgent:
             # Inject static_context references declared in SKILL.md
             prompt = _inject_static_context(prompt, sa_dir, metadata)
 
+            # R-VERTICAL-SLICE 2026-05-09 (dev_docs/74): per-sub-agent
+            # ``thinking_mode`` overrides the orchestrator's setting.  When
+            # the sub-agent's mode differs from what ``self.llm`` was
+            # constructed with, build a dedicated LLM for this sub-agent.
+            sa_thinking = metadata.get("thinking_mode")
+            sa_llm = self.llm
+            _orch_thinking = (self._preloaded_olav_config or {}).get("thinking_mode")
+            if sa_thinking is not None and sa_thinking != _orch_thinking:
+                try:
+                    sa_llm = LLMFactory.get_chat_model(
+                        model_name=self.model_name,
+                        temperature=self.temperature,
+                        agent_id=name,
+                        thinking_mode=sa_thinking,
+                    )
+                    logger.info(
+                        f"  → sub-agent '{name}' uses dedicated LLM "
+                        f"(thinking_mode={sa_thinking})"
+                    )
+                except Exception as _e:
+                    logger.warning(
+                        f"  ! per-agent LLM init failed for '{name}' "
+                        f"({_e}); falling back to orchestrator LLM"
+                    )
+                    sa_llm = self.llm
+
             logger.info(f"✓ SubAgent '{name}' ({len(tools)} tools): {[t.name for t in tools]}")
 
             # Always compile subagents as CompiledSubAgent (runnable) so deepagents
@@ -804,7 +843,7 @@ class OLAVAgent:
                 _middleware.append(AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"))
 
             runnable = create_agent(
-                self.llm,
+                sa_llm,
                 system_prompt=prompt,
                 tools=tools,  # may be empty list — still prevents FilesystemMiddleware
                 middleware=_middleware,

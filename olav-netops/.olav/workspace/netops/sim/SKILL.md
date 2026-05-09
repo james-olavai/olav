@@ -1,5 +1,8 @@
 ---
 name: sim
+# R-VERTICAL-SLICE 2026-05-09: sub-agent uses no-think for
+# fast tool execution; orchestrator handles planning.
+thinking_mode: disabled
 description: "Routing simulation + change planning. Inspector tools (inspect_devices / inspect_topology / inspect_routing / inspect_blast_radius) wrap NetworkX graph queries; LLM never writes graph code. Final deliverable via submit_change_plan structured tool. Reads DB only; no live device access."
 tools:
   - inspect_devices

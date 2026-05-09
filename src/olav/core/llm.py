@@ -28,6 +28,7 @@ class LLMFactory:
         temperature: float | None = None,
         model_name: str | None = None,
         agent_id: str | None = None,
+        thinking_mode: str | None = None,
         **kwargs: Any,
     ) -> BaseChatModel:
         """Create a chat model instance using init_chat_model.
@@ -169,7 +170,21 @@ class LLMFactory:
         # to the template renderer; OpenAI itself silently ignores
         # unknown body keys so this is safe to send unconditionally
         # when set.
-        if os.environ.get("OLAV_DISABLE_THINKING") == "1":
+        # Per-agent thinking_mode override beats global env var.  R-VERTICAL-
+        # SLICE Phase 0 (2026-05-09, dev_docs/74): hybrid thinking — orchestrator
+        # gets reasoning ON for planning, sub-agents OFF for fast tool calls.
+        # ``thinking_mode`` precedence:
+        #   "enabled"  → reasoning ON  (overrides env var)
+        #   "disabled" → reasoning OFF (overrides env var)
+        #   None       → respect OLAV_DISABLE_THINKING env var (current default)
+        _disable_thinking = (
+            thinking_mode == "disabled"
+            if thinking_mode is not None
+            else os.environ.get("OLAV_DISABLE_THINKING") == "1"
+        )
+        _enable_thinking_explicit = thinking_mode == "enabled"
+
+        if _disable_thinking:
             # Provider-specific thinking-off mechanism:
             # * Ollama (langchain-ollama) — native ``reasoning`` field on
             #   ChatOllama.  Set False to disable thinking entirely.
@@ -189,6 +204,16 @@ class LLMFactory:
                 # passthroughs to o1-class models).  Unknown keys are
                 # ignored by OpenAI-compat servers.
                 extra.setdefault("reasoning_effort", "minimal")
+        elif _enable_thinking_explicit:
+            # Explicit ON: force reasoning=True so it isn't masked by an
+            # upstream default or model preset.
+            if params.get("model_provider") == "ollama":
+                params["reasoning"] = True
+            else:
+                mkw = params.setdefault("model_kwargs", {})
+                extra = mkw.setdefault("extra_body", {})
+                ctk = extra.setdefault("chat_template_kwargs", {})
+                ctk.setdefault("enable_thinking", True)
 
         # Log identification for debugging
         model = params.get("model", "unknown")

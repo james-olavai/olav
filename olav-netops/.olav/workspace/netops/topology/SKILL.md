@@ -1,5 +1,8 @@
 ---
 name: topology
+# R-VERTICAL-SLICE 2026-05-09: sub-agent uses no-think for
+# fast tool execution; orchestrator handles planning.
+thinking_mode: disabled
 description: >
   Network topology queries + LLM-assisted recipe discovery. Built-in: BGP /
   OSPF / CDP-LLDP / L2. Extension path: declare new protocols in

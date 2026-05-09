@@ -2,6 +2,11 @@
 name: netops
 description: "Network Operations — SSH collection, BGP/OSPF analysis, topology queries, simulation, drift detection, ContainerLab digital twin, parser learning"
 system_prompt_file: prompts/orchestrator.md
+# R-VERTICAL-SLICE 2026-05-09 (dev_docs/74): hybrid thinking — orchestrator
+# uses reasoning ON for multi-step planning + capability dispatch; each
+# sub-agent declares thinking_mode: disabled so its tool calls execute
+# fast.  Verified gemma4:31b clean tool calls in both modes.
+thinking_mode: enabled
 route_keywords:
   - network device router switch firewall CLI SSH show
   - BGP OSPF EIGRP routing neighbor adjacency protocol session

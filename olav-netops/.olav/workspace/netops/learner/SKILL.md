@@ -1,5 +1,8 @@
 ---
 name: learner
+# R-VERTICAL-SLICE 2026-05-09: sub-agent uses no-think for
+# fast tool execution; orchestrator handles planning.
+thinking_mode: disabled
 description: >
   Parser-layer learning for CLI output. Takes raw device output the
   stock ntc-templates can't parse and produces a persistent parser
