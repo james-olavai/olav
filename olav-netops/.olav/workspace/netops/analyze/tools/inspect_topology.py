@@ -20,26 +20,36 @@ def inspect_topology(devices: list[str], depth: int = 1) -> dict[str, Any]:
     answer "what is X connected to" or "is there a direct link
     between X and Y" before designing a change.
 
+    **Validation**: devices not in the topology graph are returned in
+    ``unknown_devices`` rather than silently dropped.  An empty
+    neighbor list means "no neighbors found" — distinct from "device
+    not in graph at all".
+
     Args:
         devices: List of hostnames.
         depth: How many hops outward to expand.  ``1`` (default) returns
             only direct neighbors; ``2`` adds neighbors-of-neighbors.
 
     Returns:
-        ``{hostname: [{neighbor, local_intf, remote_intf, protocol,
-                       link_status}, ...]}``.
+        ``{
+            "neighbors": {hostname: [{from, neighbor, hop, local_intf,
+                                      remote_intf, protocol,
+                                      link_status}, ...]},
+            "unknown_devices": [hostname, ...],
+        }``.
 
     Example:
-        >>> inspect_topology(["R2"])
+        >>> inspect_topology(["R2", "Rfoo"])
         {
-          "R2": [
-            {"neighbor": "R4", "local_intf": "GigabitEthernet2",
-             "remote_intf": "Ethernet0/0", "protocol": "CDP",
-             "link_status": "up"},
-            {"neighbor": "WAN", "local_intf": "GigabitEthernet1",
-             "remote_intf": "Ethernet0/1", "protocol": "CDP",
-             "link_status": "up"},
-          ]
+          "neighbors": {
+            "R2": [
+              {"from": "R2", "neighbor": "R4", "hop": 1,
+               "local_intf": "GigabitEthernet2",
+               "remote_intf": "Ethernet0/0",
+               "protocol": "CDP", "link_status": "up"},
+            ]
+          },
+          "unknown_devices": ["Rfoo"]
         }
     """
     model = load_network_model()
@@ -50,9 +60,11 @@ def inspect_topology(devices: list[str], depth: int = 1) -> dict[str, Any]:
     if depth > 3:
         depth = 3  # cap to keep return size sane for small models
 
-    result: dict[str, list[dict[str, Any]]] = {}
+    neighbors: dict[str, list[dict[str, Any]]] = {}
+    unknown_devices: list[str] = []
     for device in devices:
         if device not in g.nodes:
+            unknown_devices.append(device)
             continue
         # BFS up to `depth` hops
         seen: set[str] = {device}
@@ -77,5 +89,9 @@ def inspect_topology(devices: list[str], depth: int = 1) -> dict[str, Any]:
                         "link_status": edge.get("link_status"),
                     })
             frontier = next_frontier
-        result[device] = device_neighbors
-    return result
+        neighbors[device] = device_neighbors
+
+    return {
+        "neighbors": neighbors,
+        "unknown_devices": unknown_devices,
+    }
