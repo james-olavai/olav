@@ -6,14 +6,16 @@ calls.  Same small-model rationale as the inspect_* family in
 R-AGENT-HIERARCHY post-Phase-D (2026-05-09): typed args + typed
 return, no LLM-side Python composition.
 
-Used primarily by the ``analyze`` sub-agent for drift detection
-between two snapshots; ``sim`` may also use these for change-impact
-context if needed.
+R-VERTICAL-SLICE follow-on (dev_docs/74): wrappers add uniform
+input validation + normalized error envelope so the LLM gets a
+consistent ``{status: error, error_kind, message, ...}`` shape
+regardless of which underlying helper failed and how.
 """
 from __future__ import annotations
 
 from typing import Any
 
+import duckdb
 from langchain_core.tools import tool
 
 # Eager imports — lazy imports inside @tool bodies caused
@@ -21,10 +23,65 @@ from langchain_core.tools import tool
 # parallel via asyncio.gather (two threads racing the same import
 # chain). Top-level import happens once, single-threaded, at agent
 # registration time.
+from olav.core.config import MAIN_DB_PATH
 from olav_netops.core.diff.sql_state import diff_sql_state
 from olav_netops.core.diff.topology_drift import diff_topology_drift
 from olav_netops.core.diff.routing_drift import diff_routing_drift
 from olav_netops.core.diff.configs import diff_configs
+
+
+def _list_snapshots(table: str = "netops.parsed_outputs") -> list[str]:
+    """Return snapshot_ids known to a given table, newest-first lexical."""
+    try:
+        with duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
+            rows = conn.execute(
+                f"SELECT DISTINCT snapshot_id FROM {table} "
+                "ORDER BY snapshot_id DESC"
+            ).fetchall()
+            return [r[0] for r in rows if r[0]]
+    except Exception:
+        return []
+
+
+def _validate_snapshots(
+    snapshots: list[str],
+    *,
+    table: str = "netops.parsed_outputs",
+) -> dict[str, Any] | None:
+    """Return error envelope if any snapshot is unknown; else None."""
+    available = _list_snapshots(table)
+    available_set = set(available)
+    missing = [s for s in snapshots if s not in available_set]
+    if not missing:
+        return None
+    return {
+        "status": "error",
+        "error_kind": "snapshot_not_found",
+        "missing_snapshots": missing,
+        "available_snapshots": available[:10],
+        "message": (
+            f"Snapshot(s) {missing} not found in {table}. "
+            f"Recent available: {available[:5]}.  "
+            f"Re-call with one of the available snapshot IDs."
+        ),
+    }
+
+
+def _normalize_error(
+    raw: dict[str, Any],
+    *,
+    tool_name: str,
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    """Convert helper's ad-hoc error shape into a uniform envelope."""
+    msg = raw.get("error") or raw.get("message") or "(no error message)"
+    return {
+        "status": "error",
+        "error_kind": "diff_helper_failed",
+        "message": str(msg),
+        "tool": tool_name,
+        "args": args,
+    }
 
 
 @tool
@@ -41,6 +98,9 @@ def inspect_drift_sql(
     this for any table-level drift analysis (devices, parsed_outputs,
     raw_output_store, etc.).
 
+    Validates both snapshots exist before running; returns a clean
+    ``snapshot_not_found`` error envelope (with available IDs) if not.
+
     Args:
         table_name: ``netops.<table>`` qualified name OR bare table
             name.  E.g. ``"devices"`` or ``"netops.parsed_outputs"``.
@@ -48,16 +108,20 @@ def inspect_drift_sql(
         snapshot_2: Later snapshot_id.
 
     Returns:
-        ``{"missing_in_t2": [...], "new_in_t2": [...],
-           "table_name": "...", "snapshot_1": "...", "snapshot_2": "..."}``.
-
-    Example:
-        >>> inspect_drift_sql("devices", "snap_pre", "snap_post")
-        {"missing_in_t2": [{"hostname": "R5", ...}],   # R5 disappeared
-         "new_in_t2":     [{"hostname": "R6", ...}],   # R6 appeared
-         ...}
+        On success: ``{status: success, table, missing_in_t2: [...],
+                       new_in_t2: [...], total_missing, total_new}``.
+        On error:   ``{status: error, error_kind, message, ...}``.
     """
-    return diff_sql_state(table_name, snapshot_1, snapshot_2, row_limit=50)
+    err = _validate_snapshots([snapshot_1, snapshot_2])
+    if err:
+        return err
+    result = diff_sql_state(table_name, snapshot_1, snapshot_2, row_limit=50)
+    if result.get("status") == "error":
+        return _normalize_error(result, tool_name="inspect_drift_sql",
+                                args={"table_name": table_name,
+                                      "snapshot_1": snapshot_1,
+                                      "snapshot_2": snapshot_2})
+    return result
 
 
 @tool
@@ -69,18 +133,28 @@ def inspect_drift_topology(
     Diff L2 topology (LLDP/CDP links) between two snapshots.
 
     Returns links that went away, new links discovered, and links
-    that changed status (up→down, down→up).  Use for "what links
-    changed between yesterday and today?".
+    that changed status (up→down, down→up).
 
     Args:
         snapshot_1: Earlier snapshot_id.
         snapshot_2: Later snapshot_id.
 
     Returns:
-        ``{"removed_links": [...], "added_links": [...],
-           "status_changed": [...]}``.
+        On success: ``{status: success, links_down: [...],
+                       links_up: [...], status_changes: [...],
+                       total_changes}``.
+        On error:   ``{status: error, error_kind, message, ...}``.
     """
-    return diff_topology_drift(snapshot_1, snapshot_2)
+    err = _validate_snapshots([snapshot_1, snapshot_2],
+                              table="netops.topology_links")
+    if err:
+        return err
+    result = diff_topology_drift(snapshot_1, snapshot_2)
+    if result.get("status") == "error":
+        return _normalize_error(result, tool_name="inspect_drift_topology",
+                                args={"snapshot_1": snapshot_1,
+                                      "snapshot_2": snapshot_2})
+    return result
 
 
 @tool
@@ -91,19 +165,32 @@ def inspect_drift_routing(
     """
     Diff routing-table state (BGP / OSPF / static) between snapshots.
 
-    Returns prefixes that disappeared, new prefixes, and entries
-    where next-hop / AS-PATH / metric changed.  Use for "what
-    routes flapped overnight?".
+    NOTE: this helper depends on a ``routes`` table that may not exist
+    in all deployments (R-VERTICAL-SLICE 2026-05-09 finding: demo7
+    DBs don't materialise it).  When unavailable, the error envelope
+    returned will say ``Table with name routes does not exist`` —
+    fall back to ``inspect_drift_sql("v_show_ip_route_auto", ...)``
+    or ``inspect_drift_configs(device, "show ip route", ...)`` for
+    the same insight.
 
     Args:
         snapshot_1: Earlier snapshot_id.
         snapshot_2: Later snapshot_id.
 
     Returns:
-        ``{"prefix_diff": {...}, "next_hop_changes": [...],
-           "as_path_changes": [...], ...}``.
+        On success: ``{status: success, prefix_diff, next_hop_changes,
+                       as_path_changes, ...}``.
+        On error:   ``{status: error, error_kind, message, ...}``.
     """
-    return diff_routing_drift(snapshot_1, snapshot_2)
+    err = _validate_snapshots([snapshot_1, snapshot_2])
+    if err:
+        return err
+    result = diff_routing_drift(snapshot_1, snapshot_2)
+    if result.get("status") == "error":
+        return _normalize_error(result, tool_name="inspect_drift_routing",
+                                args={"snapshot_1": snapshot_1,
+                                      "snapshot_2": snapshot_2})
+    return result
 
 
 @tool
@@ -127,7 +214,19 @@ def inspect_drift_configs(
         snapshot_2: Later snapshot_id.  ``None`` → newest.
 
     Returns:
-        ``{"device": "...", "command": "...",
-           "lines_added": [...], "lines_removed": [...]}``.
+        On success: ``{status: success, device, command, lines_added,
+                       lines_removed, ...}``.
+        On error:   ``{status: error, error_kind, message, ...}``.
     """
-    return diff_configs(device, command, snapshot_1, snapshot_2)
+    snaps_to_validate = [s for s in (snapshot_1, snapshot_2) if s is not None]
+    if snaps_to_validate:
+        err = _validate_snapshots(snaps_to_validate)
+        if err:
+            return err
+    result = diff_configs(device, command, snapshot_1, snapshot_2)
+    if result.get("status") == "error":
+        return _normalize_error(result, tool_name="inspect_drift_configs",
+                                args={"device": device, "command": command,
+                                      "snapshot_1": snapshot_1,
+                                      "snapshot_2": snapshot_2})
+    return result
