@@ -12,6 +12,7 @@ route_keywords:
   - simulate what-if failure blast-radius decommission
   - learn parser textfsm command unparseable
   - 路由 拓扑 接口 采集 快照 故障 漂移 模拟 学习
+  - log syslog event error warning 日志 为什么 故障定位 evidence why
 # Patch D' Step 2 (2026-05-08): explicit tools whitelist.  Without
 # this, orchestrator auto-loaded all 7-8 core/tools/ .py files,
 # giving weak local LLMs wrong-tool options.  Orchestrator only
@@ -30,6 +31,9 @@ subagents:
   - path: ./sim/SKILL.md           # R-AGENT-HIERARCHY Phase B+C 2026-05-09:
                                    # split from analyze; owns CHANGE PLAN
                                    # writing in prose + render_tcf skill-script
+  - path: ./investigate/SKILL.md   # R-VERTICAL-SLICE Step 1 (2026-05-09,
+                                   # dev_docs/74): evidence drilldown — syslog,
+                                   # command output, config text
   - path: ./collect/SKILL.md
   - path: ./lab/SKILL.md
   - path: ./topology/SKILL.md
