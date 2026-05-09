@@ -102,47 +102,38 @@ def inspect_routing(
         resolved_ips_by_device[device] = resolved_ips
 
     # Step 2: raw BGP fallback — surface neighbors the graph couldn't
-    # resolve.  Only do this when BGP is asked for.
+    # resolve.  Reads ``v_bgp_neighbors_auto`` which UNIONs Cisco
+    # (``show ip bgp summary``) + Junos (``show bgp summary``) sources
+    # with already-decoded ``state`` + ``prefixes_received`` columns.
     if protocol in ("bgp", "both") and result:
         try:
             with duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
                 placeholders = ",".join(["?"] * len(result))
                 rows = conn.execute(
                     f"""
-                    SELECT device_name, bgp_neighbor, neighbor_as,
-                           state_or_prefixes_received
-                    FROM netops.v_show_ip_bgp_summary_auto
+                    SELECT device_name, neighbor_ip, neighbor_as,
+                           state, prefixes_received
+                    FROM netops.v_bgp_neighbors_auto
                     WHERE device_name IN ({placeholders})
-                      AND bgp_neighbor IS NOT NULL
+                      AND neighbor_ip IS NOT NULL
                     """,
                     list(result.keys()),
                 ).fetchall()
         except Exception:
             rows = []
-        for device, peer_ip, peer_as, raw_state in rows:
+        for device, peer_ip, peer_as, state, prefixes_received in rows:
             if device not in result:
                 continue
             if str(peer_ip) in resolved_ips_by_device.get(device, set()):
                 continue  # already covered by the graph overlay
-            # Cisco/IOS-XE convention: ``state_or_prefixes_received``
-            # holds a NUMBER when the session is Established (the count
-            # of prefixes received) and a TEXT state name otherwise
-            # (Idle / Active / Connect / OpenSent / OpenConfirm).
-            # Decode so the LLM doesn't misread "0" as "Idle".
-            state = "Unknown"
-            prefixes_received = None
-            if raw_state is not None:
-                s = str(raw_state).strip()
-                try:
-                    prefixes_received = int(s)
-                    state = "Established"
-                except ValueError:
-                    state = s or "Unknown"
             result[device]["unresolved_bgp"].append({
                 "neighbor_ip": str(peer_ip),
                 "neighbor_as": int(peer_as) if peer_as is not None else None,
-                "state": state,
-                "prefixes_received": prefixes_received,
+                "state": state or "Unknown",
+                "prefixes_received": (
+                    int(prefixes_received)
+                    if prefixes_received is not None else None
+                ),
             })
 
     return result
