@@ -37,8 +37,14 @@ def inspect_devices(devices: list[str]) -> dict[str, Any]:
     Use this BEFORE any change plan to see what platform / AS /
     loopback each device has.
 
+    **Discovery mode**: pass an empty list ``[]`` to enumerate facts
+    for EVERY device known to the model.  Useful when the agent
+    needs to scope a network-wide question (e.g. "look at all BGP
+    sessions") and doesn't yet know the device list.
+
     Args:
         devices: List of hostnames to look up.  E.g. ``["R1", "R3"]``.
+            Pass ``[]`` for discovery mode (returns all devices).
 
     Returns:
         ``{
@@ -69,11 +75,14 @@ def inspect_devices(devices: list[str]) -> dict[str, Any]:
     model = load_network_model()
     facts = model.facts
 
+    # Discovery mode — empty input means "enumerate every device".
+    target_devices: list[str] = list(devices) if devices else sorted(facts.keys())
+
     found: dict[str, dict[str, Any]] = {}
     unknown_facts: dict[str, list[str]] = {}
     unknown_devices: list[str] = []
 
-    for d in devices:
+    for d in target_devices:
         record = facts.get(d)
         if record is None:
             unknown_devices.append(d)

@@ -33,33 +33,35 @@ def inspect_routing(
 
     Returns:
         ``{hostname: {
-            bgp: [{neighbor, neighbor_as, state}, ...],
-            unresolved_bgp: [{neighbor_ip, neighbor_as, state,
-                              prefixes_received}, ...],
+            bgp: [{neighbor, neighbor_ip, neighbor_as, state,
+                   prefixes_received, resolved}, ...],
             ospf: [{neighbor, state}, ...]
         }}``.
 
-        ``bgp`` lists sessions where the neighbor IP was resolved to
-        a known hostname.  ``unresolved_bgp`` lists sessions whose
-        neighbor IP did not match any device's loopback in the
-        topology — the BGP session is real (raw view confirms) but
-        the topology graph could not surface it.  Treat unresolved
-        entries as evidence of either a peer outside the inventory
-        OR a missing-loopback fact in the inventory.
+        ``bgp`` is one merged list — every session whether or not the
+        neighbor IP could be mapped to a known hostname.  Each row has:
 
-        ``state`` is normalised: "Established" when the underlying
-        Cisco field is numeric (and ``prefixes_received`` carries the
-        count); otherwise the literal state name (Idle / Active / etc).
+        * ``neighbor`` — hostname (resolved) or ``null``
+        * ``neighbor_ip`` — peer IP (always present)
+        * ``neighbor_as`` — peer AS
+        * ``state`` — "Established" / "Idle" / "Active" / etc.  Numeric
+          Cisco state field is decoded to "Established" automatically.
+        * ``prefixes_received`` — INTEGER, only set when state =
+          Established and the source carries a count
+        * ``resolved`` — bool: ``true`` if the IP mapped to a hostname
+          via the topology graph, ``false`` if only raw view data
+          (peer outside inventory OR missing-loopback fact)
+
+        Treat ``resolved=false`` as evidence of inventory gap, not
+        as "no BGP".  An "empty bgp list" only means ``len(bgp)==0``.
 
     Example:
         >>> inspect_routing(["R3"], "bgp")
         {
           "R3": {
-            "bgp": [],
-            "unresolved_bgp": [{"neighbor_ip": "1.1.1.1",
-                                "neighbor_as": 65000,
-                                "state": "Established",
-                                "prefixes_received": 0}],
+            "bgp": [{"neighbor": null, "neighbor_ip": "1.1.1.1",
+                     "neighbor_as": 65000, "state": "Established",
+                     "prefixes_received": 0, "resolved": false}],
             "ospf": []
           }
         }
@@ -67,10 +69,13 @@ def inspect_routing(
     model = load_network_model()
     g = model.graph
 
-    # Step 1: graph-resolved sessions (same as before)
+    # Discovery mode — empty list = enumerate every device in the graph.
+    target_devices: list[str] = list(devices) if devices else sorted(g.nodes)
+
+    # Step 1: graph-resolved sessions
     result: dict[str, dict[str, list[dict[str, Any]]]] = {}
     resolved_ips_by_device: dict[str, set[str]] = {}
-    for device in devices:
+    for device in target_devices:
         if device not in g.nodes:
             continue
         bgp_list: list[dict[str, Any]] = []
@@ -79,14 +84,15 @@ def inspect_routing(
         for neighbor in g.successors(device):
             edge = g[device][neighbor]
             if protocol in ("bgp", "both") and edge.get("bgp_session"):
+                peer_ip = edge.get("bgp_neighbor_ip")
                 bgp_list.append({
                     "neighbor": neighbor,
+                    "neighbor_ip": str(peer_ip) if peer_ip else None,
                     "neighbor_as": edge.get("bgp_neighbor_as"),
                     "state": edge.get("bgp_session_state"),
+                    "prefixes_received": edge.get("bgp_prefixes_received"),
+                    "resolved": True,
                 })
-                # Track the peer IP recorded on the edge to dedupe
-                # against the raw BGP view fallback below.
-                peer_ip = edge.get("bgp_neighbor_ip")
                 if peer_ip:
                     resolved_ips.add(str(peer_ip))
             if protocol in ("ospf", "both") and edge.get("ospf_state"):
@@ -96,15 +102,13 @@ def inspect_routing(
                 })
         result[device] = {
             "bgp": bgp_list,
-            "unresolved_bgp": [],
             "ospf": ospf_list,
         }
         resolved_ips_by_device[device] = resolved_ips
 
-    # Step 2: raw BGP fallback — surface neighbors the graph couldn't
-    # resolve.  Reads ``v_bgp_neighbors_auto`` which UNIONs Cisco
-    # (``show ip bgp summary``) + Junos (``show bgp summary``) sources
-    # with already-decoded ``state`` + ``prefixes_received`` columns.
+    # Step 2: append unresolved (raw-only) sessions — same merged list
+    # as resolved ones, just resolved=false.  v_bgp_neighbors_auto
+    # already UNIONs Cisco + Junos with decoded state + prefixes.
     if protocol in ("bgp", "both") and result:
         try:
             with duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
@@ -126,7 +130,8 @@ def inspect_routing(
                 continue
             if str(peer_ip) in resolved_ips_by_device.get(device, set()):
                 continue  # already covered by the graph overlay
-            result[device]["unresolved_bgp"].append({
+            result[device]["bgp"].append({
+                "neighbor": None,
                 "neighbor_ip": str(peer_ip),
                 "neighbor_as": int(peer_as) if peer_as is not None else None,
                 "state": state or "Unknown",
@@ -134,6 +139,7 @@ def inspect_routing(
                     int(prefixes_received)
                     if prefixes_received is not None else None
                 ),
+                "resolved": False,
             })
 
     return result
