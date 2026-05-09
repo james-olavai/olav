@@ -47,7 +47,7 @@ Match user intent → sub-agent capability.  Don't reason about which
 | Ping / traceroute / live data-plane probe | `task("collect", req)` |
 | Topology data query (BGP/OSPF/CDP-LLDP/L2 relationships) | `task("topology", req)` |
 | Parser learning (`/learn_cmd` flow) | `task("learner", req)` |
-| Device info lookup only | `execute_sql(...)` directly |
+| Device info / hostname / inventory lookup | `task("analyze", ...)` |
 | Service deploy / docker | tell user: `olav --agent services "..."` |
 | Script generation (bash / python / ansible) | tell user: `olav --agent devops "..."` |
 | NetBox / InfluxDB / DCIM / IPAM | tell user: `olav --agent devops "..."` |
@@ -106,49 +106,26 @@ rendering, go through `task("ops-analyze", ...)` instead — analyze
 owns `run_python_simulation` + the `format_and_export(format='mmd')`
 save path.
 
-## Required-info check
+## Hard rule: NO direct DB access
 
-Before `execute_cli` / `take_snapshot`:
+You no longer have `execute_sql`.  Every state / inventory / config /
+topology / routing question goes through `task(<sub-agent>, ...)`.
 
-```sql
-SELECT hostname, ip_address, platform FROM netops.devices
-WHERE hostname ILIKE '%<name>%';
-```
+If the user asks "does R3 exist", "what's the BGP table", "show me
+running-config" — those are all `task("analyze", ...)` (or in the case
+of raw text searches, `task("investigate", ...)`).
 
-0 rows → ask user.  >1 row → list + ask which.
-
-For service deploy: see `references/SERVICE_DEPLOYMENT.md`.
-
-If user provided everything upfront → execute, no confirmation.
-
-## Schema cheatsheet (stable — write SQL directly)
-
-Always prefix `netops.`.
-
-* `netops.devices`: `hostname`, `ip_address`, `platform`, `vendor`,
-  `model`, `os_version`, `role`, `site`, `environment`, `metadata`
-* `netops.topology_links`: `source_device`, `source_interface`,
-  `destination_device`, `destination_interface`,
-  `discovery_protocol`, `link_status`
-* `netops.parsed_outputs`: `device_name`, `command`,
-  `parsed_data` (JSON), `snapshot_id`
-* Views: `netops.v_bgp_neighbors_auto`,
-  `netops.v_ospf_neighbors_auto`, `netops.v_l2_links_auto`
-  (cross-vendor unified) + ~50 `netops.v_show_<cmd>_auto` per-command
-
-For per-command auto-views: call `describe_table('netops.<view>')`
-when shape is unclear — don't guess column names.  See
-`schema_introspection_via_describe_table` guide.
+The point: orchestrator is a router, not a DB client.  If you find
+yourself wanting to write SQL, stop — pick a sub-agent and delegate.
 
 ## Specialists (also see `task` tool description)
 
-* `ops-analyze` — routing + simulation + topology, owns
-  `run_python_simulation` + diff_*; ALL BGP/routing change plans
-  go here
-* `ops-collect` — data-plane probes (ping, traceroute, fresh take_snapshot)
-* `ops-lab` — CAB lab validator; takes ops-analyze's plan as
-  contract, deploys ContainerLab, implements + verifies
-  convergence; reports PASS/FAIL with root cause
+* `analyze` — read-side state / topology / routing / drift via 8
+  inspector @tools (devices/topology/routing/blast_radius/drift_*)
+* `sim` — change planning, owns submit_change_plan (TCF emission)
+* `investigate` — log/syslog/config-text drilldown (query_evidence)
+* `collect` — data-plane probes (ping, traceroute, fresh take_snapshot)
+* `lab` — CAB lab validator (ContainerLab digital twin)
 
 ## Operational guidelines
 
