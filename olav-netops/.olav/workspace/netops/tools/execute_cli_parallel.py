@@ -108,21 +108,87 @@ def _get_nornir():
     return _nornir_instance
 
 
+# R-VERTICAL-SLICE 2026-05-09 (dev_docs/74): circuit breaker on
+# unreachable devices.  In-vivo test showed LLM retrying the SAME
+# unreachable device 3+ times in a row, each costing one full SSH
+# timeout (~30s).  Cache recent connection failures so subsequent
+# attempts within the TTL fast-fail.
+import time as _time
+
+_CIRCUIT_TTL_S = 60.0
+_recent_failures: dict[str, tuple[float, str]] = {}
+
+# Substrings that indicate a transport-level failure (not a syntax /
+# privilege error).  Only these trip the breaker — a command-not-found
+# error on one command shouldn't stop other commands from being tried.
+_CONN_FAILURE_HINTS = (
+    "tcp connection",
+    "connection refused",
+    "no route to host",
+    "timed out",
+    "operation timed out",
+    "name or service not known",
+    "no such device",
+    "could not connect",
+    "authentication failed",
+    "unable to connect",
+)
+
+
+def _is_connection_failure(err: str) -> bool:
+    e = (err or "").lower()
+    return any(h in e for h in _CONN_FAILURE_HINTS)
+
+
+def _check_circuit(device: str) -> dict | None:
+    """Return fast-fail dict if device is in the cool-down window."""
+    rec = _recent_failures.get(device)
+    if rec is None:
+        return None
+    ts, last_err = rec
+    age = _time.time() - ts
+    if age >= _CIRCUIT_TTL_S:
+        _recent_failures.pop(device, None)
+        return None
+    return {
+        "device": device,
+        "status": "error",
+        "error_kind": "circuit_open",
+        "error": (
+            f"Device {device!r} is in connection cool-down "
+            f"({age:.0f}s ago: {last_err}).  Do not retry the same "
+            f"command for at least {_CIRCUIT_TTL_S - age:.0f}s — "
+            f"the device is genuinely unreachable, not a transient "
+            f"issue.  Treat this as definitive."
+        ),
+    }
+
+
 def _run_on_device(device: str, command: str, timeout: int) -> dict:
     """Execute command on a single device; returns per-device result dict."""
+    breaker = _check_circuit(device)
+    if breaker is not None:
+        return breaker
     try:
         from nornir_netmiko.tasks import netmiko_send_command
         nr = _get_nornir()
         target = nr.filter(name=device)
         if not target.inventory.hosts:
-            return {"device": device, "status": "error", "error": f"Device '{device}' not found in inventory"}
+            return {"device": device, "status": "error",
+                    "error": f"Device '{device}' not found in inventory"}
         result = target.run(task=netmiko_send_command, command_string=command, read_timeout=timeout)
         host_result = result[device]
         if host_result.failed:
-            return {"device": device, "status": "error", "error": str(host_result.exception or "Command failed")}
+            err = str(host_result.exception or "Command failed")
+            if _is_connection_failure(err):
+                _recent_failures[device] = (_time.time(), err)
+            return {"device": device, "status": "error", "error": err}
         return {"device": device, "status": "success", "output": host_result.result}
     except Exception as e:
-        return {"device": device, "status": "error", "error": str(e)}
+        err = str(e)
+        if _is_connection_failure(err):
+            _recent_failures[device] = (_time.time(), err)
+        return {"device": device, "status": "error", "error": err}
 
 
 # ── Tool ──────────────────────────────────────────────────────────────────────
