@@ -67,15 +67,12 @@ Phase 3  Cutover        (remove old paths)
 
 ## Output
 
-* **Change plans / CAB** — emit a structured **TCF** via the
-  **`emit_tcf` @tool**.  Full call shape, required vs optional
-  fields, decision rule ("emit FIRST, refine LATER"), and
-  minimum-viable example are in the `change_plan_emit_tcf` memory
-  guide which AutoRecall surfaces on every change-plan intent.
-  Key invariants only: `emit_tcf` is a top-level @tool (NOT
-  inside `run_python_simulation`); do NOT free-form Markdown a
-  spec; do NOT glob/ls/recall_memory looking for a "TCF emitter"
-  on disk; the Pydantic schema is in your tool list.
+* **Change plans / CAB** — analyze does NOT emit change plans.
+  R-AGENT-HIERARCHY 2026-05-09: change planning lives in the
+  `sim` sub-agent via the `submit_change_plan` structured-output
+  tool.  If the user request is a change plan, the orchestrator
+  routes to `task("sim", ...)` instead of analyze.  Analyze is
+  read-side only.
 
 * **Topology diagrams** — `format_and_export` to `.mmd`; never
   print without saving.  Filename / Mermaid rules in
