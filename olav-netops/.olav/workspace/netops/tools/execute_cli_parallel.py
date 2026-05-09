@@ -223,6 +223,22 @@ def execute_cli_parallel(
     """
     timeout = min(max(timeout, 5), 120)
 
+    # Reject empty devices list up front — LLMs sometimes hallucinate
+    # a "scan everything" call by passing devices=[]; that's not what
+    # this tool does (it's targeted CLI execution).  Returning a clean
+    # error is cheaper than a stack trace from ThreadPoolExecutor.
+    if not devices:
+        return {
+            "status": "error",
+            "error_kind": "empty_devices",
+            "message": (
+                "execute_cli_parallel requires at least one device "
+                "hostname.  This tool runs a CLI command on named "
+                "devices; it does not auto-discover."
+            ),
+            "total": 0, "successful": 0, "failed": 0, "results": [],
+        }
+
     # Validate command once (shared across all devices)
     cmd_check = _validate_command(command)
     if not cmd_check["ok"]:
@@ -245,11 +261,15 @@ def execute_cli_parallel(
         else:
             valid_devices.append(d)
 
-    # Execute in parallel
-    with ThreadPoolExecutor(max_workers=min(len(valid_devices), 20)) as pool:
-        futures = {pool.submit(_run_on_device, d, command, timeout): d for d in valid_devices}
-        for future in as_completed(futures):
-            results.append(future.result())
+    # Execute in parallel — but skip pool entirely when there is
+    # nothing to run.  ThreadPoolExecutor(max_workers=0) raises
+    # ValueError; this happened when an LLM called the tool with an
+    # empty / all-invalid devices list.
+    if valid_devices:
+        with ThreadPoolExecutor(max_workers=min(len(valid_devices), 20)) as pool:
+            futures = {pool.submit(_run_on_device, d, command, timeout): d for d in valid_devices}
+            for future in as_completed(futures):
+                results.append(future.result())
 
     # Sort by device name for deterministic output
     results.sort(key=lambda r: r["device"])
