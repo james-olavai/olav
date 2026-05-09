@@ -106,6 +106,15 @@ def inspect_routing(
         }
         resolved_ips_by_device[device] = resolved_ips
 
+    # Build the set of "every loopback known to facts" so we can
+    # dedupe raw rows whose neighbor_ip points at a hostname already
+    # surfaced as a resolved session.
+    known_loopback_ips = {
+        str(f.get("loopback"))
+        for f in model.facts.values()
+        if f.get("loopback")
+    }
+
     # Step 2: append unresolved (raw-only) sessions — same merged list
     # as resolved ones, just resolved=false.  v_bgp_neighbors_auto
     # already UNIONs Cisco + Junos with decoded state + prefixes.
@@ -130,6 +139,32 @@ def inspect_routing(
                 continue
             if str(peer_ip) in resolved_ips_by_device.get(device, set()):
                 continue  # already covered by the graph overlay
+            if str(peer_ip) in known_loopback_ips:
+                # The IP IS a known device loopback — fact-level
+                # resolution exists even though the graph overlay
+                # didn't carry the IP.  Find the matching resolved
+                # row and merge the raw view's richer fields
+                # (prefixes_received, decoded state) into it instead
+                # of emitting a duplicate.
+                target_hostname = next(
+                    (h for h, f in model.facts.items()
+                     if str(f.get("loopback")) == str(peer_ip)),
+                    None,
+                )
+                if target_hostname is not None:
+                    for row in result[device]["bgp"]:
+                        if row.get("neighbor") == target_hostname:
+                            if row.get("neighbor_ip") is None:
+                                row["neighbor_ip"] = str(peer_ip)
+                            if (row.get("prefixes_received") is None
+                                    and prefixes_received is not None):
+                                row["prefixes_received"] = int(prefixes_received)
+                            if state and (
+                                row.get("state") in (None, "Unknown")
+                            ):
+                                row["state"] = state
+                            break
+                continue
             result[device]["bgp"].append({
                 "neighbor": None,
                 "neighbor_ip": str(peer_ip),
