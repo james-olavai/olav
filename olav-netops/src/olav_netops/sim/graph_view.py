@@ -123,6 +123,56 @@ def build_device_facts(
         except Exception:
             pass
 
+        # 2.5 Raw-text regex fallback for devices STILL missing
+        # loopback or local_as.  Junos doesn't appear in
+        # ``v_show_ip_bgp_summary_auto`` (Cisco-only view) so for
+        # Junos hosts we read raw command output directly.  Regex
+        # matches both vendor formats:
+        #   Cisco: "Router ID: 1.1.1.1"
+        #   Junos: "Router ID: 1.1.1.1" (also "router id" lower-case)
+        #   Junos: "Autonomous system number: 65000"
+        #   Cisco: "BGP router identifier 1.1.1.1, local AS number 65000"
+        try:
+            import re as _re
+            _ROUTER_ID_RE = _re.compile(
+                r"(?:Router\s*ID|router\s*identifier)\s*[:=]?\s*"
+                r"(\d+\.\d+\.\d+\.\d+)",
+                _re.IGNORECASE,
+            )
+            _AS_RE = _re.compile(
+                r"(?:Autonomous\s+system\s+number|local\s+AS\s+number)"
+                r"\s*[:=]?\s*(\d+)",
+                _re.IGNORECASE,
+            )
+            for hostname, f in facts.items():
+                if f.get("loopback") is not None and f.get("local_as") is not None:
+                    continue
+                row = con.execute(
+                    "SELECT raw_output FROM netops.raw_output_store "
+                    "WHERE device_name = ? "
+                    "  AND command IN ('show route summary', "
+                    "                   'show ip bgp summary', "
+                    "                   'show bgp summary') "
+                    "ORDER BY updated_at DESC LIMIT 1",
+                    [hostname],
+                ).fetchone()
+                if not row or not row[0]:
+                    continue
+                raw = row[0]
+                if f.get("loopback") is None:
+                    m = _ROUTER_ID_RE.search(raw)
+                    if m:
+                        f["loopback"] = m.group(1)
+                if f.get("local_as") is None:
+                    m = _AS_RE.search(raw)
+                    if m:
+                        try:
+                            f["local_as"] = int(m.group(1))
+                        except ValueError:
+                            pass
+        except Exception:
+            pass
+
         # 3. Cross-resolve: a device with no BGP row may appear as a
         #    peer's bgp_neighbor IP.  Match by loopback IP to fill in
         #    Junos devices that don't show in the Cisco-style summary view.

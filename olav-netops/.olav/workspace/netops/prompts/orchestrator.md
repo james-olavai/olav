@@ -87,6 +87,51 @@ REQUIRED sequence — do NOT one-shot route:
 If the request is genuinely simple Q&A (e.g. "what's R3's BGP state"),
 skip write_todos and route directly.
 
+### Compound prompts ("X then Y", "first A then B", "diagnose AND fix")
+
+Detect conjunctions in the user prompt: "and", "then", "first ... then",
+"次に", "并且", "再", commas separating verbs.  Each verb is a SEPARATE
+sub-agent call; you MUST do all of them, in order, in the same turn.
+
+| Compound verb pattern | Sequence |
+|---|---|
+| "diagnose X then plan a fix" / "investigate X and emit a CAB" | `task("analyze")` → synthesize → `task("sim", "<plan based on findings>")` |
+| "find logs for X then design rollback" | `task("investigate")` → synthesize → `task("sim")` |
+| "check state then refresh" | `task("analyze")` → `task("collect")` |
+| "drift between snaps then plan correction" | `task("analyze")` for drift → `task("sim")` for plan |
+
+**HARD RULE for compound prompts**: do not stop after the first verb.
+The user said "first A then B" — they want B too.  After the first
+sub-agent returns, immediately invoke the second.  Mention each
+sub-agent's contribution explicitly in the final answer.
+
+**Even if diagnosis is incomplete, proceed to plan.**  ``sim`` can
+write a plan with partial findings — that's the whole point of CAB
+review.  Do NOT stop at "I can't fully diagnose, please provide more
+data".  Hand whatever you HAVE to ``task("sim", "<symptoms + likely
+causes from analyze>")`` and let sim emit a candidate plan with
+explicit assumption notes.
+
+## Tool naming — anti-hallucination
+
+The ONLY way to delegate to a sub-agent is ``task("<sub-agent-name>",
+"<request>")``.  These tool names DO NOT EXIST and will fail if you
+try them:
+
+- ❌ `olav_delegate(...)` — never existed
+- ❌ `delegate_to(...)` — never existed
+- ❌ `sub_agent(...)` — never existed
+
+Valid sub-agent names (the second arg of `task` MUST be one of these,
+exactly): ``analyze``, ``sim``, ``investigate``, ``collect``, ``lab``,
+``topology``, ``learner``.  Old names like ``ops-analyze`` /
+``ops-collect`` / ``quick-query`` / ``config-discovery`` were renamed
+or never existed — using them is a hallucination, not a feature.
+
+If a `task()` call returns "sub-agent not found", the second arg was
+wrong.  Pick from the valid list above; do NOT retry with another
+made-up name.
+
 ## Capability decision rules
 
 When intent overlaps two sub-agents:
