@@ -215,4 +215,31 @@ def submit_change_plan(
     # Always include the .md path so the agent can report HITL artifact
     if isinstance(result, dict):
         result["plan_md_path"] = str(plan_md_path)
+        # P1 (2026-05-10, dev_docs/74 follow-on): emit a structured
+        # next_step hint so the orchestrator knows what to chain to.
+        # Soft enforcement — the orchestrator's compound-chain guide
+        # references this field; hard enforcement can come later via
+        # middleware.
+        if result.get("status") in ("ok", "success") and feasibility == "OK":
+            result["next_step"] = {
+                "action": "lab_validate",
+                "sub_agent": "lab",
+                "args": {"spec_path": result.get("spec_path")},
+                "hint": (
+                    "Plan emitted feasibility=OK.  If user requested "
+                    "validation in lab (keywords: 'validate', 'verify', "
+                    "'test', '验证', 'CAB'), follow up with "
+                    f"task('lab', '{result.get('spec_path')}').  "
+                    "Otherwise present the spec_path for HITL approval."
+                ),
+            }
+        elif feasibility != "OK":
+            result["next_step"] = {
+                "action": "report_blocked",
+                "hint": (
+                    f"Plan emitted feasibility={feasibility!r}.  Do NOT "
+                    "validate in lab — surface the blocker to the user "
+                    "and ask for a revised request."
+                ),
+            }
     return result

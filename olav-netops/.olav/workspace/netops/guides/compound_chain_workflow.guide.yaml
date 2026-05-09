@@ -25,6 +25,30 @@ body: |
   | "find logs for X then design rollback" | task("investigate") → task("sim") |
   | "check state then refresh" | task("analyze") → task("collect") |
   | "drift between snaps then plan correction" | task("analyze") drift → task("sim") plan |
+  | "plan AND validate in lab" / "plan and test" / "CAB this" | task("sim") → READ next_step → task("lab", spec_path) |
+  | "diagnose then plan AND validate" (3-step) | task("analyze") → task("sim") → task("lab", spec_path) |
+
+  ## sim → lab handoff via next_step (P1, 2026-05-10)
+
+  ``submit_change_plan`` returns a structured ``next_step`` field
+  exactly so the orchestrator doesn't have to remember:
+
+      result = task("sim", ...)
+      # result["next_step"] is one of:
+      #   {"action": "lab_validate",
+      #    "sub_agent": "lab",
+      #    "args": {"spec_path": "exports/cab/<id>/spec.tcf.yaml"},
+      #    "hint": "..."}
+      #   {"action": "report_blocked", "hint": "..."}
+
+  When you see ``next_step.action == "lab_validate"`` AND the user
+  prompt contains validation intent (validate / verify / test /
+  CAB / 验证), invoke ``task("lab", "<spec_path>")`` immediately.
+  Do NOT ask the user "would you like me to validate?" — they
+  already said yes when they wrote "and validate" in the prompt.
+
+  When ``next_step.action == "report_blocked"``, do NOT invoke
+  lab — the plan is infeasible, surface the blocker.
 
   ## Even if diagnosis is incomplete, proceed to the next verb.
 
