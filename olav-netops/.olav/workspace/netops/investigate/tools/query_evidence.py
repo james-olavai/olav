@@ -211,6 +211,22 @@ def query_evidence(
             ...], "total": 12, "truncated": False}
     """
     LIMIT = 50
+    # Reject empty / whitespace pattern up front — would dump the
+    # entire syslog parquet (~14k rows) or full command output table
+    # without bound, busting the LLM's context.
+    if not pattern or not pattern.strip():
+        return {
+            "status": "error",
+            "error_kind": "invalid_pattern",
+            "message": (
+                "pattern must be a non-empty substring.  Use a real "
+                "filter like 'BGP' / 'OSPF dead' / 'NATIVE_VLAN' — "
+                "an empty pattern would return tens of thousands of "
+                "rows."
+            ),
+            "source": source,
+        }
+
     if source == "syslog":
         rows = _query_syslog(device, pattern, time_range, LIMIT)
     elif source == "command_output":
@@ -219,13 +235,14 @@ def query_evidence(
         rows = _query_config(device, pattern, snapshot, LIMIT)
     else:
         return {
+            "status": "error",
+            "error_kind": "unknown_source",
+            "message": f"unknown source {source!r}; pick from "
+                       f"syslog / command_output / config",
             "source": source,
-            "matches": [],
-            "total": 0,
-            "truncated": False,
-            "error": f"unknown source: {source}",
         }
     return {
+        "status": "success",
         "source": source,
         "matches": rows,
         "total": len(rows),
