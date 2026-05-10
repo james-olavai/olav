@@ -240,6 +240,7 @@ def validate_tcf_in_lab(
     r88_args = loaded["r88_args"]
     r89_args = loaded["r89_args"]
     lab_name = r88_args["lab_name"]
+    pre_check_specs = loaded.get("pre_check", [])
     post_check_specs = loaded["post_check"]
     tvt_specs = loaded["tvt"]
     # Patch M needs the full CabTcf for prod→lab IP map (implementation
@@ -390,6 +391,54 @@ def validate_tcf_in_lab(
     _journal("translate_post_checks", "verify",
              {"prod_ip_count": len(ip_map)},
              {"ip_map": ip_map, "phase": "verify-prep"})
+
+    # ── Phase 4.5: pre_check evaluation (ARCH-34) ─────────────────────
+    # Lab semantics for pre_check: informational. The lab is freshly
+    # deployed so most pre_check assertions ("subnet not routed",
+    # "interface unconfigured") trivially hold AFTER deploy too — sim's
+    # configs add the routes/interfaces the pre_check asserts absent.
+    # Running pre_check here therefore checks whether sim's pre_check
+    # COMMANDS execute cleanly + their patterns match expected polarity.
+    # Failure here = malformed pre_check spec, NOT a deploy blocker.
+    # Production-side runner will execute pre_check BEFORE pushing
+    # implementation; that's the actual gate.
+    pre_check_results: list[dict[str, Any]] = []
+    for spec in pre_check_specs:
+        device = spec["device"]
+        lab_node = device.lower()
+        translated = translate_post_check(spec, ip_map)
+        cmd_for_exec = translated["command_translated"]
+        pattern_for_match = translated["expected_pattern_translated"]
+        must_match = bool(spec.get("must_match", True))
+        try:
+            r = _exec_check(
+                lab_name, lab_node, cmd_for_exec, timeout=exec_timeout
+            )
+            actual = r.get("stdout", "")
+        except Exception as exc:  # noqa: BLE001
+            actual = f"<exec error: {type(exc).__name__}: {exc}>"
+            errors.append(f"exec pre_check {spec['check_id']} on {lab_node}: {exc}")
+        # Flip polarity per must_match: True = pattern present; False = absent
+        match = _match_pattern(actual, pattern_for_match)
+        passed = match if must_match else (not match)
+        pre_check_results.append({
+            "check_id": spec["check_id"],
+            "device": device,
+            "lab_node": lab_node,
+            "command": spec["command"],
+            "command_executed": cmd_for_exec,
+            "expected_pattern": spec["expected_pattern"],
+            "expected_pattern_matched": pattern_for_match,
+            "must_match": must_match,
+            "translation_notes": translated["translation_notes"],
+            "actual": actual,
+            "passed": passed,
+        })
+    _journal("verify_pre_check", "verify",
+             {"checks": len(pre_check_results)},
+             {"passed": sum(1 for r in pre_check_results if r["passed"]),
+              "failed": sum(1 for r in pre_check_results if not r["passed"]),
+              "informational": True})
 
     post_check_results: list[dict[str, Any]] = []
     for spec in post_check_specs:
@@ -560,6 +609,7 @@ def validate_tcf_in_lab(
         "verdict": verdict,
         "spec_path": str(spec_path),
         "lab_name": lab_name,
+        "pre_check_results": pre_check_results,
         "post_check_results": post_check_results,
         "tvt_results": tvt_results,
         "journal": journal,
