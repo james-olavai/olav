@@ -6,7 +6,7 @@ functions — read fields off the model, validate basic compat with
 the intent type, raise clear errors when something's missing.
 
 Why these are separate from the tools themselves: the tools live in
-``olav-netops/.olav/workspace/ops/lab/tools/`` (MCP tools, language-
+``olav-netops/.olav/workspace/netops/lab/tools/`` (MCP tools, language-
 agnostic args). The helpers live in ``src/olav/core/cab/`` so any
 caller (lab agent, tests, CLI) can derive args without touching the
 tool surface.

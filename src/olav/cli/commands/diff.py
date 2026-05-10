@@ -1,7 +1,7 @@
 """``olav diff`` — cross-snapshot diff CLI wrapper.
 
 ARCH-13 last mile. Wraps the workspace-vendored
-``.olav/workspace/ops/tools/diff_snapshots.py`` aggregator so operators
+``.olav/workspace/netops/tools/diff_snapshots.py`` aggregator so operators
 can compare two snapshots without composing SQL or dropping into the
 agent shell.
 
@@ -103,7 +103,7 @@ def build_diff_parser(subparsers: argparse._SubParsersAction) -> argparse.Argume
         help="Diff two snapshots across parsed_outputs / topology_links / raw_output_store / oc_outputs",
         description=(
             "Cross-table snapshot diff — wraps the workspace "
-            ".olav/workspace/ops/tools/diff_snapshots.py aggregator. "
+            ".olav/workspace/netops/tools/diff_snapshots.py aggregator. "
             "Read-only; returns added/removed row counts per table and "
             "up to --max-rows example rows per side."
         ),
@@ -148,7 +148,7 @@ def handle_diff_command(args) -> int:
     if diff_snapshots is None:
         print(
             "error: could not load diff_snapshots from "
-            ".olav/workspace/ops/tools/diff_snapshots.py — run from the repo root.",
+            ".olav/workspace/netops/tools/diff_snapshots.py — run from the repo root.",
             file=sys.stderr,
         )
         return 1

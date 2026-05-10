@@ -59,18 +59,30 @@ def _resolve_subagent_cap() -> int:
 # present.  Order = preference.  Add aliases here, NOT in prompts —
 # the prompt is unreliable as a routing mechanism for small models.
 _SEMANTIC_ALIASES: dict[str, tuple[str, ...]] = {
+    # Cross-workspace name collisions: ``topology`` is also a top-level
+    # workspace, but inside netops the Mermaid / blast-radius rendering
+    # belongs to ops-analyze (it owns format_and_export(format='mmd')).
     "topology": ("ops-analyze", "analyze", "writer"),
     "topology-viz": ("ops-analyze", "analyze"),
     "topology_viz": ("ops-analyze", "analyze"),
     "diagram": ("writer", "ops-analyze"),
     "mermaid": ("writer", "ops-analyze"),
-    "simulation": ("ops-analyze", "analyze"),
-    "sim": ("ops-analyze", "analyze"),
+    # ``simulation`` / ``drift`` / ``diff`` / ``analysis`` are read-side
+    # capabilities that map to the analyze sub-agent.
+    "simulation": ("sim", "ops-analyze", "analyze"),
     "drift": ("ops-analyze", "analyze"),
     "diff": ("ops-analyze", "analyze"),
     "analysis": ("ops-analyze", "analyze"),
     "analyse": ("ops-analyze", "analyze"),
-    "analyze": ("ops-analyze",),  # plain "analyze" → ops-analyze
+    # Plain "analyze" → registered as ops-analyze.
+    "analyze": ("ops-analyze",),
+    # ARCH-30 (2026-05-10): ``sim`` is its own sub-agent post-Phase B+C
+    # (R-AGENT-HIERARCHY).  The legacy alias mapping ``sim`` → ops-analyze
+    # was correct before the split; it now hides the dedicated sim agent.
+    # Resolver checks exact match first, so this entry only matters for
+    # workspaces that don't have a sim sub-agent registered (then it
+    # falls back to analyze).
+    "sim": ("sim", "ops-analyze", "analyze"),
 }
 
 
