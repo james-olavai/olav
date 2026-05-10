@@ -1,0 +1,116 @@
+schema_version: 1
+intent: change_plan_freeform_cli
+agent: netops
+keywords:
+  - static route
+  - add static route
+  - route to
+  - 静态路由
+  - ip route
+  - OSPF area
+  - OSPF cost
+  - VLAN add
+  - access-list
+  - ACL apply
+  - MTU
+  - interface description
+  - shutdown
+  - no shutdown
+  - route-map
+  - prefix-list
+  - non-eBGP change
+body: |
+  Use ``submit_change_plan(intent="freeform_cli", ...)`` for any
+  change that is NOT a direct eBGP neighbor between two devices in
+  different ASNs.  ebgp_direct is the ONLY intent with auto-CLI
+  generation; everything else needs freeform_cli where you provide
+  CLI lines directly via typed slots.
+
+  ## Required slots for freeform_cli
+
+  When ``intent='freeform_cli'`` and ``feasibility='OK'``:
+
+  - ``cli_per_device``: dict ``{device_name: [CLI line, ...]}``
+    Every device in ``devices`` must have an entry.
+    Example: ``{"R3": ["configure terminal",
+                       "ip route 192.0.2.0 255.255.255.0 10.0.13.1",
+                       "end", "write memory"]}``
+
+  - ``rollback_per_device``: same shape; CLI to undo the change.
+    Example: ``{"R3": ["configure terminal",
+                       "no ip route 192.0.2.0 255.255.255.0 10.0.13.1",
+                       "end", "write memory"]}``
+
+  - ``post_checks``: list of dicts ``{device, command,
+    expected_pattern, description}``.  At least one required.
+    Example: ``[{"device": "R3",
+                 "command": "show ip route 192.0.2.0",
+                 "expected_pattern": "192.0.2.0/24",
+                 "description": "Static route installed in RIB"}]``
+
+  - ``pre_checks``: optional ``{device, command, expected_pattern,
+    must_match, description}`` list.  Useful to verify the change
+    does not collide with existing config (e.g. confirm route does
+    not already exist).
+
+  ## Grounding CLI in inspector data
+
+  Every IP / interface name / next-hop in your CLI MUST come from
+  an inspect_* tool result.  Tools that surface the data you need:
+
+  - ``inspect_devices(devices)``: platform / loopback / local_as / role
+  - ``inspect_topology(devices, depth)``: L2 adjacencies, link interfaces
+  - ``inspect_interfaces(devices)``: per-interface IP / status / proto
+    — call this for next-hop IPs, ACL interface targets, etc.
+  - ``inspect_routing(devices, protocol)``: BGP / OSPF state
+
+  ## STOP — when to BLOCKED rather than loop
+
+  If after **at most 4 inspector calls** you still cannot find the
+  data you need (e.g. the next-hop IP isn't in any inspector result),
+  STOP and submit ``feasibility='BLOCKED'`` with a clear reason —
+  do NOT keep calling inspectors hoping the data appears.
+
+  Example BLOCKED submission::
+
+      submit_change_plan(
+          intent="freeform_cli",
+          devices=["R3"],
+          summary="Add static route on R3",
+          feasibility="BLOCKED",
+          feasibility_reason=(
+              "next-hop IP for route 192.0.2.0/24 cannot be "
+              "determined: inspect_interfaces shows R1 has no "
+              "interface in the same subnet as R3.Ethernet0/0"
+          ),
+      )
+
+  HITL reviewers can fix the data gap and re-issue the prompt.
+
+  ## Anti-patterns
+
+  ❌ Looping inspect_devices / inspect_topology / inspect_routing on
+     the same devices with no new question — if 3 distinct inspector
+     calls didn't surface the IP, the 7th won't either.
+
+  ❌ Fabricating an IP because "10.0.X.Y" looks plausible — inspector
+     data must back every IP.  No data = BLOCKED.
+
+  ❌ Falling back to textbook examples (192.168.1.x router-with-3-
+     subnets) — those are training-prior memories, not real data.
+
+  ## End-to-end flow
+
+  1. ``inspect_devices(devices)``         — platform per device
+  2. ``inspect_topology(devices)``        — confirm direct L2 link
+  3. ``inspect_interfaces(devices)``      — find link IP per side
+  4. (optional) ``inspect_routing(...)``  — confirm protocol state
+  5. ``submit_change_plan(intent='freeform_cli', cli_per_device=...,
+     rollback_per_device=..., post_checks=..., feasibility='OK')``
+  6. Orchestrator dispatches to lab — sim's loop ends here.
+
+related:
+  - intent: change_plan
+    note: "ebgp direct between different-ASN devices uses ebgp_direct intent (auto-CLI from templates), not freeform_cli"
+  - intent: tcf_patch_block
+    note: "for revising an existing change plan, use tcf_patch_block — not a fresh submit_change_plan"
