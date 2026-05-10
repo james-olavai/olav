@@ -282,6 +282,9 @@ def derive_prod_cli_from_tcf(
             rb_cli = generate_ios_ebgp_rollback(
                 local_asn=int(d.prod_asn or 0),
                 prod_intf=d.prod_intf or "Ethernet0/0",
+                neighbor_ip=peer_ip,
+                neighbor_asn=int(peer.prod_asn or 0),
+                prod_loopback=d.prod_loopback or "0.0.0.0",
             )
         else:
             raise ValueError(

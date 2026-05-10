@@ -29,6 +29,7 @@ from typing import Any
 
 import yaml
 
+from .intf_picker import pick_free_interfaces
 from .lab_subnet_pool import allocate_lab_subnet
 from .prod_cli import (
     ebgp_subnet_assignments,
@@ -241,8 +242,18 @@ def _render_ebgp_direct(
     a_ip_cidr, b_ip_cidr = intf_ips[a], intf_ips[b]
     a_ip = a_ip_cidr.split("/", 1)[0]
     b_ip = b_ip_cidr.split("/", 1)[0]
-    a_intf = "ge-0/0/1" if "junos" in plat_a else "GigabitEthernet0/1"
-    b_intf = "ge-0/0/1" if "junos" in plat_b else "GigabitEthernet0/1"
+
+    # ARCH-32: discover free interface per device from netops.topology_links
+    # instead of hardcoding GigabitEthernet0/1 / ge-0/0/1 (which is
+    # almost always already in use in real prod). Falls back to the
+    # legacy hardcoded names ONLY when the DB has no topology data
+    # (fresh deployment), with a warning surfaced to the caller.
+    picked = pick_free_interfaces(
+        [a, b],
+        {a: fa.get("platform"), b: fb.get("platform")},
+    )
+    a_intf = picked.get(a) or ("ge-0/0/1" if "junos" in plat_a else "GigabitEthernet0/1")
+    b_intf = picked.get(b) or ("ge-0/0/1" if "junos" in plat_b else "GigabitEthernet0/1")
 
     impl: list[dict[str, Any]] = []
     rollback: list[dict[str, Any]] = []
