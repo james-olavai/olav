@@ -208,7 +208,11 @@ devices: [R1, R3]
 ```
 """
     with patch("olav.core.cab.tcf_writer._db_facts", return_value=fake_facts):
-        r = render_tcf_from_change_plan(plan, output_dir=tmp_path)
+        # Pass lab_subnet explicitly to keep the assertion stable.
+        # When omitted, ARCH-36 pool allocator picks 192.0.2.x — also valid.
+        r = render_tcf_from_change_plan(
+            plan, output_dir=tmp_path, lab_subnet="172.16.99.0/30",
+        )
 
     assert r["status"] == "ok"
     spec_path = Path(r["spec_path"])
