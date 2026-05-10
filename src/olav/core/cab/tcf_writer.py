@@ -279,6 +279,9 @@ def _render_ebgp_direct(
             rb = generate_ios_ebgp_rollback(
                 local_asn=int(local_as),
                 prod_intf=self_intf,
+                neighbor_ip=peer_ip,
+                neighbor_asn=int(peer_as),
+                prod_loopback=str(loop),
             )
         return cli, rb
 

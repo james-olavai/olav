@@ -138,14 +138,35 @@ def generate_ios_ebgp_rollback(
     *,
     local_asn: int,
     prod_intf: str,
+    neighbor_ip: str,
+    neighbor_asn: int,
+    prod_loopback: str,
 ) -> list[str]:
-    """Cisco IOS rollback — drop the BGP process and the interface IP.
+    """Cisco IOS rollback — surgically remove ONLY this peering.
 
-    Same conservative scope as the Junos rollback: doesn't touch the
-    loopback or unrelated config.
+    Production-safety fix (2026-05-10, dev_docs/74 audit): the previous
+    ``no router bgp <asn>`` rollback removed the ENTIRE BGP process,
+    destroying any other neighbors / network statements / address-
+    families that were already configured.  That's safe in lab (clean
+    slate) but catastrophic in prod (would silently drop unrelated
+    BGP sessions).
+
+    New rollback removes only:
+      1. The neighbor X.X.X.X statements added by this change
+      2. The network statement we added for our loopback
+      3. The interface IP added on prod_intf
+
+    All other BGP state is preserved.
     """
     return [
-        f"no router bgp {local_asn}",
+        f"router bgp {local_asn}",
+        f" address-family ipv4",
+        f"  no network {prod_loopback} mask 255.255.255.255",
+        f"  no neighbor {neighbor_ip} activate",
+        f" exit-address-family",
+        f" no neighbor {neighbor_ip} update-source Loopback0",
+        f" no neighbor {neighbor_ip} remote-as {neighbor_asn}",
+        f"exit",
         f"interface {prod_intf}",
         " no ip address",
     ]
