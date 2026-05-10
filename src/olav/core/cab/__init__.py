@@ -20,6 +20,11 @@ from .prod_cli import (
     generate_junos_ebgp_rollback,
 )
 from .semantic_review import review_cli_pair, review_paired_blocks
+from .pre_check_runner import (
+    ProdExecutor,
+    make_dry_run_executor,
+    run_prod_pre_check,
+)
 from .tcf_args import (
     tcf_to_clab_topology_args,
     tcf_to_prod_cli_args,
@@ -85,4 +90,8 @@ __all__ = [
     "tcf_to_clab_topology_args",
     "tcf_to_srl_render_args",
     "tcf_to_prod_cli_args",
+    # Prod pre_check gate (ARCH-34 prod side)
+    "ProdExecutor",
+    "make_dry_run_executor",
+    "run_prod_pre_check",
 ]
