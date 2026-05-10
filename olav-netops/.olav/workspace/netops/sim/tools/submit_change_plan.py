@@ -55,6 +55,10 @@ def _compose_plan_md(
     feasibility_reason: str,
     change_id: str,
     facts_cited: list[str],
+    freeform_cli_per_device: dict[str, list[str]] | None = None,
+    freeform_rollback_per_device: dict[str, list[str]] | None = None,
+    freeform_pre_checks: list[dict[str, Any]] | None = None,
+    freeform_post_checks: list[dict[str, Any]] | None = None,
 ) -> str:
     """Build the Markdown plan body from structured + prose fields.
 
@@ -94,13 +98,27 @@ def _compose_plan_md(
     ])
     if feasibility_reason:
         parts.append(f'feasibility_reason: "{feasibility_reason}"')
+    # Freeform CLI / checks payload (only present when intent=freeform_cli)
+    if intent == "freeform_cli":
+        import yaml as _yaml
+        ff_payload = {
+            "cli_per_device": freeform_cli_per_device or {},
+            "rollback_per_device": freeform_rollback_per_device or {},
+            "pre_checks": freeform_pre_checks or [],
+            "post_checks": freeform_post_checks or [],
+        }
+        ff_yaml = _yaml.safe_dump(
+            ff_payload, sort_keys=False, default_flow_style=False
+        )
+        # Embed each top-level key inline in the YAML block
+        parts.append(ff_yaml.rstrip())
     parts.extend(["```", ""])
     return "\n".join(parts)
 
 
 @tool
 def submit_change_plan(
-    intent: Literal["ebgp_direct", "ibgp_direct", "vlan_add"],
+    intent: Literal["ebgp_direct", "freeform_cli"],
     devices: list[str],
     summary: str,
     rationale: str = "",
@@ -110,6 +128,10 @@ def submit_change_plan(
     change_id: str = "",
     facts_cited: list[str] | None = None,
     output_root: str = "exports",
+    cli_per_device: dict[str, list[str]] | None = None,
+    rollback_per_device: dict[str, list[str]] | None = None,
+    pre_checks: list[dict[str, Any]] | None = None,
+    post_checks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     Submit your change plan.  This is sim's deliverable — calling
@@ -128,10 +150,19 @@ def submit_change_plan(
     before lab validation.
 
     Args:
-        intent: What kind of change.  ``ebgp_direct`` = direct eBGP
-            session between 2 devices in different ASNs.
-            ``ibgp_direct`` = iBGP between 2 devices in the same AS.
-            ``vlan_add`` = add a VLAN trunk between 2 switches.
+        intent: What kind of change.
+
+            ``ebgp_direct`` — direct eBGP session between 2 devices
+                in different ASNs.  Python composes CLI from DB facts
+                + per-platform templates.  No CLI args needed.
+
+            ``freeform_cli`` — any other change type (static route,
+                OSPF, VLAN, ACL, MTU, interface description, ...).
+                You provide CLI directly via ``cli_per_device`` /
+                ``rollback_per_device`` and check intents via
+                ``pre_checks`` / ``post_checks``.  CLI must be
+                grounded in inspector outputs (e.g. interface IP from
+                inspect_devices, neighbor IP from inspect_topology).
         devices: List of device hostnames (1-4).  Must match
             ``netops.devices.hostname`` values.
         summary: One-line title for the change.  Becomes the TCF
@@ -162,6 +193,56 @@ def submit_change_plan(
             see ADR-0010).
         output_root: Where ``change_plans/`` and ``cab/`` go.
             Default ``"exports"``.
+        cli_per_device: REQUIRED for ``intent='freeform_cli'``; ignored
+            otherwise.  Dict mapping device hostname → list of CLI
+            command strings to apply.  Must cover every device in
+            ``devices``.  Lines are concatenated with newlines into
+            the TCF ``implementation`` block.  Example::
+
+                {"R3": [
+                    "configure terminal",
+                    "ip route 192.0.2.0 255.255.255.0 10.0.13.1",
+                    "end",
+                    "write memory",
+                ]}
+
+            The IP ``10.0.13.1`` MUST come from an inspect_* call; do
+            not invent it.
+        rollback_per_device: REQUIRED for ``freeform_cli``.  Same
+            shape as ``cli_per_device``; CLI to undo the change if
+            post_check fails.  Example::
+
+                {"R3": [
+                    "configure terminal",
+                    "no ip route 192.0.2.0 255.255.255.0 10.0.13.1",
+                    "end",
+                    "write memory",
+                ]}
+
+        pre_checks: Optional for freeform_cli.  Each entry is a dict
+            with keys: ``device`` (must be in devices list),
+            ``command`` (show command to run), ``expected_pattern``
+            (substring to look for in output), ``must_match`` (bool —
+            True = pattern presence is OK, False = pattern absence is
+            OK), ``description`` (human-readable purpose).  Used to
+            gate implementation: any pre_check failure blocks the
+            change.  Example::
+
+                [{"device": "R3",
+                  "command": "show ip route 192.0.2.0",
+                  "expected_pattern": "Network not in table",
+                  "must_match": True,
+                  "description": "Confirm route doesn't exist before adding"}]
+
+        post_checks: REQUIRED for freeform_cli (TVT needs evidence to
+            reference).  Same dict shape as pre_checks but no
+            ``must_match`` (always True).  Used to verify the change
+            took effect.  Example::
+
+                [{"device": "R3",
+                  "command": "show ip route 192.0.2.0",
+                  "expected_pattern": "192.0.2.0/24",
+                  "description": "Static route installed in RIB"}]
 
     Returns:
         On feasibility=OK:
@@ -232,6 +313,36 @@ def submit_change_plan(
                     f"'inspect_devices: R3.local_as=65000'."
                 )
 
+    # Validate freeform_cli prerequisites before YAML composition
+    if intent == "freeform_cli" and feasibility == "OK":
+        if not cli_per_device:
+            return {
+                "status": "error",
+                "error": (
+                    "intent='freeform_cli' with feasibility=OK requires "
+                    "cli_per_device (device → CLI lines) — sim must "
+                    "provide CLI grounded in inspect_* outputs"
+                ),
+            }
+        if not rollback_per_device:
+            return {
+                "status": "error",
+                "error": (
+                    "intent='freeform_cli' with feasibility=OK requires "
+                    "rollback_per_device — every change must have a "
+                    "rollback path"
+                ),
+            }
+        if not post_checks:
+            return {
+                "status": "error",
+                "error": (
+                    "intent='freeform_cli' with feasibility=OK requires "
+                    "at least one post_check — TVT needs verification "
+                    "evidence to reference"
+                ),
+            }
+
     # Compose the prose plan + trailing Summary block (block is for the
     # deterministic renderer; never seen by the LLM).
     plan_md = _compose_plan_md(
@@ -244,6 +355,10 @@ def submit_change_plan(
         feasibility_reason=feasibility_reason,
         change_id=change_id,
         facts_cited=facts_cited_list,
+        freeform_cli_per_device=cli_per_device,
+        freeform_rollback_per_device=rollback_per_device,
+        freeform_pre_checks=pre_checks,
+        freeform_post_checks=post_checks,
     )
 
     # Save the human-readable .md artifact for HITL review

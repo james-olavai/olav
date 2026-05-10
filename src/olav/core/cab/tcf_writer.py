@@ -413,8 +413,140 @@ def _render_ebgp_direct(
 # ────────────────────────────────────────────────────────────────────
 
 
+def _render_freeform_cli(
+    devices: list[str],
+    facts: dict[str, dict[str, Any]],
+    lab_subnet: str,
+    summary: dict[str, Any],
+) -> dict[str, Any]:
+    """Build TCF blocks from sim-supplied CLI lines + checks.
+
+    Unlike ebgp_direct, this renderer does not synthesize CLI from
+    DB facts and per-platform templates — sim provides the CLI
+    directly via typed slots in submit_change_plan, grounded in
+    inspector-tool outputs.  The renderer wraps these into the TCF
+    block structure (auto-assigning check_ids and standard
+    phase/action fields), preserving pre_check/rollback/post_check
+    gates.
+
+    Required summary keys (from sim's submit_change_plan call):
+        cli_per_device:      dict[device_name, list[str]]
+        rollback_per_device: dict[device_name, list[str]]
+        pre_checks:          list[{device, command, expected_pattern,
+                                   must_match, description}]
+        post_checks:         list[{device, command, expected_pattern,
+                                   description}]
+
+    The lab_subnet param is unused for freeform_cli (sim's CLI is
+    expected to encode any IP/subnet plumbing it needs) but accepted
+    for renderer-signature compatibility with ebgp_direct.
+    """
+    _ = lab_subnet  # accepted but unused
+    _ = facts       # facts available for sanity but not consumed
+
+    cli_per_device = summary.get("cli_per_device") or {}
+    rollback_per_device = summary.get("rollback_per_device") or {}
+    pre_checks_in = summary.get("pre_checks") or []
+    post_checks_in = summary.get("post_checks") or []
+
+    if not isinstance(cli_per_device, dict) or not cli_per_device:
+        raise ValueError(
+            "freeform_cli requires non-empty cli_per_device "
+            "dict (device → CLI lines)"
+        )
+    if not isinstance(rollback_per_device, dict) or not rollback_per_device:
+        raise ValueError(
+            "freeform_cli requires non-empty rollback_per_device "
+            "dict — every change must have a rollback path"
+        )
+    if not isinstance(post_checks_in, list) or not post_checks_in:
+        raise ValueError(
+            "freeform_cli requires at least one post_check — TVT "
+            "needs evidence to reference"
+        )
+
+    impl: list[dict[str, Any]] = []
+    rollback: list[dict[str, Any]] = []
+    for d in devices:
+        d_cli = cli_per_device.get(d)
+        d_rb = rollback_per_device.get(d)
+        if not d_cli:
+            raise ValueError(
+                f"freeform_cli: cli_per_device missing entry for "
+                f"device {d!r}"
+            )
+        if not d_rb:
+            raise ValueError(
+                f"freeform_cli: rollback_per_device missing entry "
+                f"for device {d!r}"
+            )
+        # CliBlock.cli is list[str] — preserve list form; if sim sent
+        # a single string, split on newlines.
+        d_cli_list = d_cli if isinstance(d_cli, list) else str(d_cli).splitlines()
+        d_rb_list = d_rb if isinstance(d_rb, list) else str(d_rb).splitlines()
+        impl.append({"device": d, "phase": 1, "action": "configure", "cli": d_cli_list})
+        rollback.append({"device": d, "phase": 1, "action": "configure", "cli": d_rb_list})
+
+    pre_check: list[dict[str, Any]] = []
+    for i, pc in enumerate(pre_checks_in, start=1):
+        if not isinstance(pc, dict):
+            continue
+        dev = pc.get("device")
+        if dev not in devices:
+            continue
+        pre_check.append({
+            "device": dev,
+            "check_id": pc.get("check_id") or f"PR-{dev}-{i:02d}",
+            "description": pc.get("description") or "(no description)",
+            "command": pc["command"],
+            "expected_pattern": pc.get("expected_pattern", ""),
+            "must_match": bool(pc.get("must_match", True)),
+        })
+
+    post_check: list[dict[str, Any]] = []
+    for i, pc in enumerate(post_checks_in, start=1):
+        if not isinstance(pc, dict):
+            continue
+        dev = pc.get("device")
+        if dev not in devices:
+            continue
+        post_check.append({
+            "device": dev,
+            "check_id": pc.get("check_id") or f"PC-{dev}-{i:02d}",
+            "description": pc.get("description") or "(no description)",
+            "command": pc["command"],
+            "expected_pattern": pc.get("expected_pattern", ""),
+        })
+
+    if not post_check:
+        raise ValueError(
+            "freeform_cli: post_checks did not match any provided "
+            "device — every device named in post_checks must be in "
+            "the devices list"
+        )
+
+    tvt = [{
+        "test_id": "TC-freeform-verify",
+        "description": (
+            f"All post_check evidence must match expected patterns "
+            f"({len(post_check)} check{'s' if len(post_check) != 1 else ''})"
+        ),
+        "expected": "all-post-checks-pass",
+        "evidence_check_ids": [pc["check_id"] for pc in post_check],
+    }]
+
+    return {
+        "implementation": impl,
+        "rollback": rollback,
+        "pre_check": pre_check,
+        "post_check": post_check,
+        "tvt": tvt,
+    }
+
+
 _INTENT_RENDERERS = {
     "ebgp_direct": _render_ebgp_direct,
+    "freeform_cli": _render_freeform_cli,
 }
 
 
@@ -535,9 +667,15 @@ def render_tcf_from_change_plan(
                 "facts": facts,
             }
 
-    # Render per-intent CLI blocks
+    # Render per-intent CLI blocks.  freeform_cli takes the parsed
+    # summary dict so it can read sim-supplied cli_per_device etc.;
+    # ebgp_direct's renderer doesn't need it.
+    renderer = _INTENT_RENDERERS[intent_type]
     try:
-        rendered = _INTENT_RENDERERS[intent_type](devices, facts, lab_subnet)
+        if intent_type == "freeform_cli":
+            rendered = renderer(devices, facts, lab_subnet, summary)
+        else:
+            rendered = renderer(devices, facts, lab_subnet)
     except Exception as exc:  # noqa: BLE001
         return {
             "status": "error",
