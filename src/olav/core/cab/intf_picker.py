@@ -30,13 +30,59 @@ from typing import Iterable
 # (Gi0/N) — we only ever pick port within module 0 to keep behavior
 # predictable; for chassis with multiple modules sim should pass an
 # explicit override.
-_PLATFORM_TEMPLATES = {
-    "cisco_ios":     {"re": re.compile(r"^(?:Gi|GigabitEthernet)0/(\d+)$",  re.I),  "tmpl": "GigabitEthernet0/{n}",  "max_n": 48},
-    "cisco_iosxe":   {"re": re.compile(r"^(?:Gi|GigabitEthernet)0/(\d+)$",  re.I),  "tmpl": "GigabitEthernet0/{n}",  "max_n": 48},
-    "cisco_nxos":    {"re": re.compile(r"^Ethernet1/(\d+)$",                re.I),  "tmpl": "Ethernet1/{n}",         "max_n": 48},
-    "juniper_junos": {"re": re.compile(r"^ge-0/0/(\d+)$",                   re.I),  "tmpl": "ge-0/0/{n}",            "max_n": 48},
-    "arista_eos":    {"re": re.compile(r"^Ethernet(\d+)$",                  re.I),  "tmpl": "Ethernet{n}",           "max_n": 48},
+# Cisco IOS unifies the slot/port for any common interface family on
+# module 0 (Gi0/N, Et0/N, Fa0/N) — IOL boxes use Ethernet0/N,
+# router platforms use GigabitEthernet0/N, but the slot/port number
+# space is the same. We match ANY recognised family so that a port
+# occupied as Et0/0 isn't picked as Gi0/0 (real-data bug surfaced on
+# demo7 — IOL Ethernet0/0 occupied, picker returned Gi0/1 collision).
+# When picking, follow the convention dominant on the device's
+# occupied set (fall back to GigabitEthernet0/N when no precedent).
+_CISCO_IOS_RE = re.compile(
+    r"^(?:Gi|GigabitEthernet|Et|Ethernet|Fa|FastEthernet)0/(\d+)$",
+    re.I,
+)
+_CISCO_IOS_FAMILY_RE = re.compile(
+    r"^(Gi|GigabitEthernet|Et|Ethernet|Fa|FastEthernet)0/\d+$",
+    re.I,
+)
+_CISCO_IOS_FAMILY_NORMALISED = {
+    "gi": "GigabitEthernet",
+    "gigabitethernet": "GigabitEthernet",
+    "et": "Ethernet",
+    "ethernet": "Ethernet",
+    "fa": "FastEthernet",
+    "fastethernet": "FastEthernet",
 }
+
+_PLATFORM_TEMPLATES = {
+    "cisco_ios":     {"re": _CISCO_IOS_RE, "tmpl": "GigabitEthernet0/{n}", "max_n": 48,
+                      "family_aware": True},
+    "cisco_iosxe":   {"re": _CISCO_IOS_RE, "tmpl": "GigabitEthernet0/{n}", "max_n": 48,
+                      "family_aware": True},
+    "cisco_nxos":    {"re": re.compile(r"^Ethernet1/(\d+)$",  re.I), "tmpl": "Ethernet1/{n}", "max_n": 48},
+    "juniper_junos": {"re": re.compile(r"^ge-0/0/(\d+)$",     re.I), "tmpl": "ge-0/0/{n}",    "max_n": 48},
+    "arista_eos":    {"re": re.compile(r"^Ethernet(\d+)$",    re.I), "tmpl": "Ethernet{n}",   "max_n": 48},
+}
+
+
+def _dominant_cisco_family(occupied: set[str]) -> str | None:
+    """For a Cisco IOS device, pick the interface family already
+    dominant on the occupied set (e.g., ``Ethernet`` on IOL boxes,
+    ``GigabitEthernet`` on routers). Returns the canonical family
+    name suitable for templating, or ``None`` if no occupied
+    interface matches the family pattern."""
+    counts: dict[str, int] = {}
+    for intf in occupied:
+        m = _CISCO_IOS_FAMILY_RE.match(intf)
+        if m:
+            family = _CISCO_IOS_FAMILY_NORMALISED.get(
+                m.group(1).lower(), m.group(1)
+            )
+            counts[family] = counts.get(family, 0) + 1
+    if not counts:
+        return None
+    return max(counts, key=counts.get)
 
 
 def _occupied_interfaces(device_names: Iterable[str]) -> dict[str, set[str]]:
@@ -123,11 +169,20 @@ def pick_free_interfaces(
                     used_n.add(int(m.group(1)))
                 except ValueError:
                     pass
+        # Choose template — for Cisco IOS, follow the dominant interface
+        # family on the device (IOL boxes use Ethernet0/N; routers use
+        # GigabitEthernet0/N). Prevents picking Gi0/2 when Et0/0 + Et0/1
+        # are occupied (real-data demo7 collision).
+        tmpl = spec["tmpl"]
+        if spec.get("family_aware"):
+            dominant = _dominant_cisco_family(used)
+            if dominant is not None:
+                tmpl = dominant + "0/{n}"
         # Pick lowest n in [1, max_n] not in used_n
         chosen: str | None = None
         for n in range(1, spec["max_n"] + 1):
             if n not in used_n:
-                chosen = spec["tmpl"].format(n=n)
+                chosen = tmpl.format(n=n)
                 break
         result[d] = chosen
     return result

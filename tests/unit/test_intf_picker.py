@@ -73,6 +73,47 @@ def test_short_form_intf_names_match():
     assert out == {"R1": "GigabitEthernet0/3"}
 
 
+def test_cisco_ios_iol_ethernet_family_recognised():
+    """Demo7 IOL boxes use Ethernet0/N naming (not GigabitEthernet0/N).
+    Picker must recognise these as occupied and follow the dominant
+    family when picking — ARCH-32 in-vivo bug surfaced 2026-05-10.
+    """
+    with _mock_occupied({"R3": {"Ethernet0/0", "Ethernet0/1"}}):
+        out = pick_free_interfaces(["R3"], {"R3": "cisco_ios"})
+    # Must pick Ethernet0/2 (next free in dominant family),
+    # NOT GigabitEthernet0/1 (collides on IOL where Gi0/1 == Et0/1)
+    assert out == {"R3": "Ethernet0/2"}
+
+
+def test_cisco_ios_falls_back_to_gigabit_when_no_precedent():
+    """No occupied interface matches any family → use the default
+    template (GigabitEthernet0/N for cisco_ios)."""
+    with _mock_occupied({"R1": set()}):
+        out = pick_free_interfaces(["R1"], {"R1": "cisco_ios"})
+    assert out == {"R1": "GigabitEthernet0/1"}
+
+
+def test_cisco_ios_mixed_family_picks_dominant():
+    """Device with multiple families uses whichever is more numerous."""
+    with _mock_occupied({"R1": {"Ethernet0/0", "Ethernet0/1",
+                                  "GigabitEthernet0/2"}}):
+        out = pick_free_interfaces(["R1"], {"R1": "cisco_ios"})
+    # Ethernet (2) beats GigabitEthernet (1) → pick Et0/2 (next free
+    # in either family — port 0/0/1 are used by Et, 0/2 by Gi)
+    # Numbers used: {0, 1, 2}. First free n=3 → "Ethernet0/3"
+    assert out == {"R1": "Ethernet0/3"}
+
+
+def test_cisco_ios_short_and_long_form_count_same_family():
+    """'Gi0/1' shorthand and 'GigabitEthernet0/1' must both count for
+    the GigabitEthernet family in dominance computation."""
+    with _mock_occupied({"R1": {"Gi0/1", "GigabitEthernet0/2"}}):
+        out = pick_free_interfaces(["R1"], {"R1": "cisco_ios"})
+    # Both belong to GigabitEthernet family; n={1,2} occupied → pick
+    # GigabitEthernet0/3 (canonical long form)
+    assert out == {"R1": "GigabitEthernet0/3"}
+
+
 def test_two_devices_independent():
     """Each device's occupancy is independent — R1's Gi0/1 occupation
     doesn't affect R2's pick."""
