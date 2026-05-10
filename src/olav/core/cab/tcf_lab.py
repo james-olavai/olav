@@ -70,6 +70,7 @@ def tcf_load_for_lab(spec_path: str | Path) -> dict[str, Any]:
         "r88_args": r88_args,
         "r89_args": r89_args,
         "r89_error": r89_error,
+        "pre_check": [c.model_dump() for c in tcf.pre_check],
         "post_check": [c.model_dump() for c in tcf.post_check],
         "tvt": [t.model_dump() for t in tcf.tvt],
         "required_tests": tcf.required_tests,
