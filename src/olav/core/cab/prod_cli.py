@@ -188,10 +188,16 @@ def _other_device(devices: list[Any], self_name: str) -> Any:
     return others[0]
 
 
-def _ebgp_subnet_assignments(lab_subnet: str, device_names: list[str]) -> dict[str, str]:
-    """For a /30 subnet, assign first usable host to first device, second
-    usable host to second device. Mirrors R89's address logic so prod
-    and lab plans align by construction."""
+def ebgp_subnet_assignments(lab_subnet: str, device_names: list[str]) -> dict[str, str]:
+    """Assign first/second usable host of ``lab_subnet`` to the two devices.
+
+    Returns ``{device_name: "ip/prefixlen"}`` — prefixlen comes from
+    the input ``lab_subnet``, NOT a hardcoded /30. Single source of
+    truth for both ``derive_prod_cli_from_tcf`` and ``tcf_writer``
+    so the prod CLI mask matches whatever subnet sim picked.
+
+    Mirrors R89's address logic so prod and lab plans align by
+    construction."""
     net = ipaddress.IPv4Network(lab_subnet, strict=False)
     hosts = list(net.hosts())
     if len(hosts) < 2:
@@ -237,7 +243,7 @@ def derive_prod_cli_from_tcf(
         )
 
     names = [d.name for d in tcf.devices]
-    intf_ips = _ebgp_subnet_assignments(lab_subnet, names)
+    intf_ips = ebgp_subnet_assignments(lab_subnet, names)
 
     impl: list[dict[str, Any]] = []
     rb: list[dict[str, Any]] = []
@@ -302,6 +308,7 @@ def derive_prod_cli_from_tcf(
 
 __all__ = [
     "derive_prod_cli_from_tcf",
+    "ebgp_subnet_assignments",
     "generate_ios_ebgp_config",
     "generate_ios_ebgp_rollback",
     "generate_junos_ebgp_config",

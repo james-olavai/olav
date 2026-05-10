@@ -29,7 +29,9 @@ from typing import Any
 
 import yaml
 
+from .lab_subnet_pool import allocate_lab_subnet
 from .prod_cli import (
+    ebgp_subnet_assignments,
     generate_ios_ebgp_config,
     generate_ios_ebgp_rollback,
     generate_junos_ebgp_config,
@@ -231,14 +233,14 @@ def _render_ebgp_direct(
     loop_a = fa.get("loopback")
     loop_b = fb.get("loopback")
 
-    # /30 subnet from lab_subnet — assign .1 / .2
-    # (prod_cli helpers expect explicit IP/mask args)
-    base = lab_subnet.rsplit("/", 1)[0]
-    octets = base.split(".")
-    if len(octets) != 4:
-        raise ValueError(f"lab_subnet {lab_subnet!r} not in dotted form")
-    a_ip = ".".join(octets[:3] + [str(int(octets[3]) + 1)])
-    b_ip = ".".join(octets[:3] + [str(int(octets[3]) + 2)])
+    # IP allocation via shared helper — prefixlen flows from lab_subnet,
+    # not hardcoded /30 (ARCH-37). For /30 the helper gives the same
+    # ".1 / .2" result as the previous string arithmetic, but for /29
+    # /28 etc. it stays internally consistent.
+    intf_ips = ebgp_subnet_assignments(lab_subnet, [a, b])
+    a_ip_cidr, b_ip_cidr = intf_ips[a], intf_ips[b]
+    a_ip = a_ip_cidr.split("/", 1)[0]
+    b_ip = b_ip_cidr.split("/", 1)[0]
     a_intf = "ge-0/0/1" if "junos" in plat_a else "GigabitEthernet0/1"
     b_intf = "ge-0/0/1" if "junos" in plat_b else "GigabitEthernet0/1"
 
@@ -246,7 +248,7 @@ def _render_ebgp_direct(
     rollback: list[dict[str, Any]] = []
 
     def _cli_for(self_name, self_facts, peer_name, peer_facts,
-                 self_intf, self_ip, peer_ip):
+                 self_intf, self_ip_cidr, peer_ip):
         plat = (self_facts.get("platform") or "").lower()
         loop = self_facts.get("loopback") or "0.0.0.0"
         peer_loop = peer_facts.get("loopback") or "0.0.0.0"
@@ -256,7 +258,7 @@ def _render_ebgp_direct(
         if "junos" in plat:
             cli = generate_junos_ebgp_config(
                 prod_intf=self_intf,
-                prod_intf_ip=f"{self_ip}/30",
+                prod_intf_ip=self_ip_cidr,
                 prod_loopback=str(loop),
                 local_asn=int(local_as),
                 neighbor_ip=peer_ip,
@@ -270,7 +272,7 @@ def _render_ebgp_direct(
         else:
             cli = generate_ios_ebgp_config(
                 prod_intf=self_intf,
-                prod_intf_ip=f"{self_ip}/30",
+                prod_intf_ip=self_ip_cidr,
                 prod_loopback=str(loop),
                 local_asn=int(local_as),
                 neighbor_ip=peer_ip,
@@ -285,8 +287,8 @@ def _render_ebgp_direct(
             )
         return cli, rb
 
-    cli_a, rb_a = _cli_for(a, fa, b, fb, a_intf, a_ip, b_ip)
-    cli_b, rb_b = _cli_for(b, fb, a, fa, b_intf, b_ip, a_ip)
+    cli_a, rb_a = _cli_for(a, fa, b, fb, a_intf, a_ip_cidr, b_ip)
+    cli_b, rb_b = _cli_for(b, fb, a, fa, b_intf, b_ip_cidr, a_ip)
     impl = [
         {"device": a, "phase": 1, "action": "configure", "cli": cli_a},
         {"device": b, "phase": 1, "action": "configure", "cli": cli_b},
@@ -343,7 +345,7 @@ def render_tcf_from_change_plan(
     plan_text: str,
     output_dir: str | Path = "exports/cab",
     *,
-    lab_subnet: str = "172.16.99.0/30",
+    lab_subnet: str | None = None,
     risk_class: str = "medium",
     created_by: str = "sim",
 ) -> dict[str, Any]:
@@ -386,6 +388,12 @@ def render_tcf_from_change_plan(
             "error": f"Change Summary missing required fields: {sorted(missing)}",
             "got_fields": sorted(summary.keys()),
         }
+
+    # ARCH-36: allocate from RFC 5737 pool, idempotent on change_id.
+    # Prevents concurrent CABs from colliding on the legacy default
+    # 172.16.99.0/30 and prevents overlap with real prod RFC 1918 space.
+    if lab_subnet is None:
+        lab_subnet = allocate_lab_subnet(summary["change_id"])
 
     intent_type = summary["intent_type"]
     if intent_type not in _INTENT_RENDERERS:
