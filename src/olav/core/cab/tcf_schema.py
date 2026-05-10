@@ -128,7 +128,7 @@ class CliBlock(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Post-check — verification commands per device
+# Pre/Post-check — verification commands per device
 # ---------------------------------------------------------------------------
 
 
@@ -150,6 +150,30 @@ class PostCheck(BaseModel):
     description: str
     command: str
     expected_pattern: str
+
+
+class PreCheck(BaseModel):
+    """One precondition assertion the lab/prod runner verifies BEFORE
+    pushing implementation config (ARCH-34).
+
+    Same shape as PostCheck. Distinguished only by:
+      * ``must_match: bool`` — True (default) means expected_pattern
+        must be present in command output; False means it must be ABSENT
+        (for "interface is unconfigured" / "subnet has no route" checks
+        where the *absence* of a pattern is what proves freeness).
+
+    Failure semantics: any pre_check failing => implementation MUST NOT
+    push config.  HITL must intervene.  This is the structural fix for
+    interface-collision and AS-collision incidents that were previously
+    only catchable by reading the spec carefully.
+    """
+
+    device: str
+    check_id: str
+    description: str
+    command: str
+    expected_pattern: str
+    must_match: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +389,7 @@ class CabTcf(BaseModel):
 
     intent: Intent
     devices: list[Device]
+    pre_check: list[PreCheck] = Field(default_factory=list)
     implementation: list[CliBlock] = Field(default_factory=list)
     rollback: list[CliBlock] = Field(default_factory=list)
     post_check: list[PostCheck] = Field(default_factory=list)
@@ -397,6 +422,12 @@ class CabTcf(BaseModel):
                 offenders.append(
                     f"rollback block phase={block.phase!r} "
                     f"references unknown device {block.device!r}"
+                )
+        for check in self.pre_check:
+            if check.device not in names:
+                offenders.append(
+                    f"pre_check {check.check_id!r} "
+                    f"references unknown device {check.device!r}"
                 )
         for check in self.post_check:
             if check.device not in names:
