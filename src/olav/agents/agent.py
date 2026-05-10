@@ -527,6 +527,85 @@ class OLAVAgent:
         self._olav_middleware = list(effective_middleware)
         self._olav_callbacks = list(effective_callbacks)
 
+        # 2026-05-10 INVIVO-ORCH-FILESYSTEM-LEAK fix: deepagents auto-
+        # injects FilesystemMiddleware tools (glob, grep, ls, read_file,
+        # write_file, edit_file) and TodoListMiddleware (write_todos)
+        # into the orchestrator's tool registry. The FilesystemPermission
+        # deny rules silently fail to match relative glob patterns
+        # (paths=["/**"] doesn't match "**/r3-r4-ebgp*"), so the LLM
+        # successfully calls glob to search files instead of dispatching
+        # to a sub-agent.
+        #
+        # T15 in-vivo failure: prompt "fix wrong interface in r3-r4-ebgp"
+        # → orchestrator called glob("**/r3-r4-ebgp*") + glob(
+        # "/exports/**/*.tcf.yaml"), never reached task("sim").
+        #
+        # Surgical fix: prune the offending tools from the compiled
+        # graph's tool registry. Orchestrators that declare a `tools:`
+        # whitelist in SKILL.md should ONLY have those tools (plus
+        # olav_delegate/task for sub-agent dispatch).
+        self._prune_orchestrator_tools(olav_config)
+
+    def _prune_orchestrator_tools(self, olav_config: dict) -> None:
+        """Strip auto-injected filesystem / todo tools from the compiled
+        orchestrator graph (post-create_deep_agent fixup).
+
+        Why this is post-compile rather than pre: deepagents'
+        ``create_deep_agent`` appends FilesystemMiddleware tools to
+        whatever ``tools=`` we pass, and there is no public API to
+        opt out of the base middleware stack. The simplest path is
+        to mutate the compiled tool registry on the ``tools`` node
+        afterward.
+
+        Tools removed by default: ``glob``, ``grep``, ``ls``,
+        ``read_file``, ``write_file``, ``edit_file``, ``execute``,
+        ``write_todos``. Sub-agent dispatch tools (``task``,
+        ``olav_delegate``) and OLAV-declared tools are preserved.
+        Override via ``OLAV_KEEP_BUILTIN_TOOLS=1`` if a debug session
+        needs the unfiltered set.
+        """
+        if os.environ.get("OLAV_KEEP_BUILTIN_TOOLS"):
+            logger.info(
+                "Orchestrator tool prune SKIPPED — OLAV_KEEP_BUILTIN_TOOLS=1"
+            )
+            return
+
+        # Tools we strip from orchestrator-class agents. Sub-agents
+        # may legitimately need these (e.g., a write-class skill
+        # script may want write_file); orchestrators should only
+        # dispatch.
+        _UNWANTED = {
+            "glob", "grep", "ls",
+            "read_file", "write_file", "edit_file",
+            "execute",
+            "write_todos",
+        }
+
+        try:
+            tools_node = self.graph.nodes.get("tools")
+            if tools_node is None or not hasattr(tools_node, "bound"):
+                return
+            bound = tools_node.bound
+            tools_by_name = getattr(bound, "_tools_by_name", None)
+            if not isinstance(tools_by_name, dict):
+                return
+            removed = []
+            for name in list(tools_by_name.keys()):
+                if name in _UNWANTED:
+                    del tools_by_name[name]
+                    removed.append(name)
+            if removed:
+                logger.info(
+                    f"✓ Pruned {len(removed)} auto-injected tools from "
+                    f"orchestrator '{self.agent_id}': {sorted(removed)} "
+                    f"(retain={sorted(tools_by_name)})"
+                )
+        except Exception as exc:  # noqa: BLE001 — best-effort; never break startup
+            logger.warning(
+                f"Orchestrator tool prune failed (non-fatal): "
+                f"{type(exc).__name__}: {exc}"
+            )
+
     # ------------------------------------------------------------------
     # Tool loading helpers
     # ------------------------------------------------------------------
