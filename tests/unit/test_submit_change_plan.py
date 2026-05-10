@@ -60,6 +60,7 @@ def test_compose_plan_md_includes_required_sections():
         feasibility="OK",
         feasibility_reason="",
         change_id="r2-r3-ebgp",
+        facts_cited=[],
     )
     assert "# Change Plan: Add eBGP between R2 and R3" in md
     assert "**Intent**: `ebgp_direct`" in md
@@ -82,6 +83,7 @@ def test_compose_plan_md_blocked_feasibility():
         feasibility="BLOCKED",
         feasibility_reason="same AS 65000",
         change_id="r1-r3-ebgp",
+        facts_cited=[],
     )
     assert "Feasibility**: BLOCKED" in md
     assert "Feasibility reason**: same AS 65000" in md
@@ -179,6 +181,105 @@ def test_submit_auto_generates_change_id(tmp_path):
     assert r["status"] == "ok"
     # Auto-generated change_id should include device names + intent
     assert "r2-r3-ebgp" in Path(r["plan_md_path"]).name
+
+
+# --- ARCH-35 facts_cited tests ----------------------------------------------
+
+
+def test_facts_cited_renders_into_plan_md(tmp_path):
+    """facts_cited entries appear under '## Facts cited' in the .md."""
+    fake_facts = {
+        "R2": {"platform": "cisco_ios", "loopback": "2.2.2.2", "local_as": 65001},
+        "R3": {"platform": "cisco_ios", "loopback": "3.3.3.3", "local_as": 65000},
+    }
+    with patch("olav.core.cab.tcf_writer._db_facts", return_value=fake_facts):
+        r = _M.submit_change_plan.invoke({
+            "intent": "ebgp_direct",
+            "devices": ["R2", "R3"],
+            "summary": "x",
+            "rationale": "y",
+            "facts_cited": [
+                "inspect_devices: R2.local_as=65001, R3.local_as=65000",
+                "inspect_topology: R2-R3 directly connected on Gi0/2",
+                "inspect_blast_radius: removing R3 isolates SW2",
+            ],
+            "output_root": str(tmp_path),
+        })
+    assert r["status"] == "ok"
+    assert r.get("facts_cited_count") == 3
+    md = Path(r["plan_md_path"]).read_text()
+    assert "## Facts cited" in md
+    assert "inspect_devices: R2.local_as=65001" in md
+    assert "inspect_topology" in md
+    assert "inspect_blast_radius" in md
+
+
+def test_facts_cited_empty_warns_but_passes(tmp_path):
+    """Empty facts_cited + feasibility=OK → warning, but call succeeds."""
+    fake_facts = {
+        "R2": {"platform": "cisco_ios", "loopback": "2.2.2.2", "local_as": 65001},
+        "R3": {"platform": "cisco_ios", "loopback": "3.3.3.3", "local_as": 65000},
+    }
+    with patch("olav.core.cab.tcf_writer._db_facts", return_value=fake_facts):
+        r = _M.submit_change_plan.invoke({
+            "intent": "ebgp_direct",
+            "devices": ["R2", "R3"],
+            "summary": "x",
+            "output_root": str(tmp_path),
+        })
+    assert r["status"] == "ok"  # soft enforcement
+    warnings = r.get("warnings") or []
+    assert any("facts_cited is empty" in w for w in warnings), (
+        f"expected facts_cited-empty warning; got {warnings!r}"
+    )
+
+
+def test_facts_cited_entry_without_inspect_warns(tmp_path):
+    """Entry that doesn't name an inspect_* tool earns a per-entry warn."""
+    fake_facts = {
+        "R2": {"platform": "cisco_ios", "loopback": "2.2.2.2", "local_as": 65001},
+        "R3": {"platform": "cisco_ios", "loopback": "3.3.3.3", "local_as": 65000},
+    }
+    with patch("olav.core.cab.tcf_writer._db_facts", return_value=fake_facts):
+        r = _M.submit_change_plan.invoke({
+            "intent": "ebgp_direct",
+            "devices": ["R2", "R3"],
+            "summary": "x",
+            "facts_cited": [
+                "inspect_devices: R2.local_as=65001",  # ✓ valid
+                "I just thought about it",             # ✗ no inspect_* token
+            ],
+            "output_root": str(tmp_path),
+        })
+    assert r["status"] == "ok"
+    warnings = r.get("warnings") or []
+    assert any(
+        "does not name an inspect_*" in w for w in warnings
+    ), f"expected non-inspect warning; got {warnings!r}"
+
+
+def test_facts_cited_blocked_change_does_not_warn(tmp_path):
+    """When feasibility=BLOCKED, missing facts_cited shouldn't warn —
+    blocked changes don't deploy, so the audit trail is moot."""
+    fake_facts = {
+        "R2": {"platform": "cisco_ios", "loopback": "2.2.2.2", "local_as": 65001},
+        "R3": {"platform": "cisco_ios", "loopback": "3.3.3.3", "local_as": 65000},
+    }
+    with patch("olav.core.cab.tcf_writer._db_facts", return_value=fake_facts):
+        r = _M.submit_change_plan.invoke({
+            "intent": "ebgp_direct",
+            "devices": ["R2", "R3"],
+            "summary": "x",
+            "feasibility": "BLOCKED",
+            "feasibility_reason": "AS conflict",
+            "output_root": str(tmp_path),
+        })
+    # Blocked is treated as error by render_tcf, but our facts_cited
+    # check should NOT trigger
+    warnings = r.get("warnings") or []
+    assert not any(
+        "facts_cited is empty" in w for w in warnings
+    ), f"facts_cited check fired on BLOCKED change; got {warnings!r}"
 
 
 def test_submit_tool_args_schema_loaded():

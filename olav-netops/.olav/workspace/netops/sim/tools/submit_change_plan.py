@@ -41,6 +41,9 @@ def _slugify(s: str) -> str:
     return s[:60] or "change"
 
 
+_INSPECT_CITE_RE = re.compile(r"\binspect_[a-z_]+\b")
+
+
 def _compose_plan_md(
     *,
     intent: str,
@@ -51,6 +54,7 @@ def _compose_plan_md(
     feasibility: str,
     feasibility_reason: str,
     change_id: str,
+    facts_cited: list[str],
 ) -> str:
     """Build the Markdown plan body from structured + prose fields.
 
@@ -68,6 +72,13 @@ def _compose_plan_md(
     parts.append("")
     if rationale.strip():
         parts.extend(["## Rationale", "", rationale.strip(), ""])
+    if facts_cited:
+        # ARCH-35: HITL audit trail — every change must cite the
+        # inspect_* tool outputs that grounded its decisions.
+        parts.extend(["## Facts cited", ""])
+        for fc in facts_cited:
+            parts.append(f"- {fc}")
+        parts.append("")
     if steps.strip():
         parts.extend(["## Steps", "", steps.strip(), ""])
     # Trailing summary block — for the deterministic renderer.
@@ -97,6 +108,7 @@ def submit_change_plan(
     feasibility: Literal["OK", "BLOCKED"] = "OK",
     feasibility_reason: str = "",
     change_id: str = "",
+    facts_cited: list[str] | None = None,
     output_root: str = "exports",
 ) -> dict[str, Any]:
     """
@@ -137,6 +149,17 @@ def submit_change_plan(
         feasibility_reason: One-line reason if feasibility=BLOCKED.
         change_id: Optional explicit change ID; auto-generated from
             devices + intent if empty.
+        facts_cited: List of strings citing the inspect_* tool outputs
+            you used to ground this plan.  Each entry should NAME the
+            inspect_* tool and the fact it provided, e.g.
+            ``"inspect_devices: R3.local_as=65000, R4.local_as=65001"``,
+            ``"inspect_topology: R3-R4 directly connected on Gi0/2 ↔ Gi0/2"``,
+            ``"inspect_blast_radius: removing R4 isolates SW1; this
+              change adds redundant path"``.
+            HITL reviewers use this list to verify the plan is grounded
+            in real data, not hallucination.  Empty list earns a warning
+            but doesn't block (soft enforcement until fine-tuning lands;
+            see ADR-0010).
         output_root: Where ``change_plans/`` and ``cab/`` go.
             Default ``"exports"``.
 
@@ -185,6 +208,30 @@ def submit_change_plan(
     if not change_id:
         change_id = _slugify(f"{'-'.join(devices)}-{intent.split('_')[0]}")
 
+    # ARCH-35: validate facts_cited — soft enforcement on initial roll-out.
+    # Each citation should reference at least one inspect_* tool output;
+    # an empty list when feasibility=OK earns a warning but doesn't block.
+    # Once fine-tuning lands (ADR-0010 graduation), this becomes a hard
+    # requirement.
+    facts_cited_list = list(facts_cited or [])
+    fc_warnings: list[str] = []
+    if feasibility == "OK" and not facts_cited_list:
+        fc_warnings.append(
+            "facts_cited is empty — HITL reviewers cannot trace which "
+            "inspect_* outputs grounded this plan.  Recommended: cite at "
+            "least inspect_devices, inspect_topology, and (for change "
+            "planning) inspect_blast_radius."
+        )
+    else:
+        for entry in facts_cited_list:
+            if not _INSPECT_CITE_RE.search(entry):
+                fc_warnings.append(
+                    f"facts_cited entry {entry!r} does not name an "
+                    f"inspect_* tool — entries should reference the tool "
+                    f"that produced the fact, e.g. "
+                    f"'inspect_devices: R3.local_as=65000'."
+                )
+
     # Compose the prose plan + trailing Summary block (block is for the
     # deterministic renderer; never seen by the LLM).
     plan_md = _compose_plan_md(
@@ -196,6 +243,7 @@ def submit_change_plan(
         feasibility=feasibility,
         feasibility_reason=feasibility_reason,
         change_id=change_id,
+        facts_cited=facts_cited_list,
     )
 
     # Save the human-readable .md artifact for HITL review
@@ -215,6 +263,17 @@ def submit_change_plan(
     # Always include the .md path so the agent can report HITL artifact
     if isinstance(result, dict):
         result["plan_md_path"] = str(plan_md_path)
+        # ARCH-35: surface facts_cited warnings to the LLM so it can
+        # patch up the plan in the next iteration if needed.  Don't
+        # block — soft enforcement until fine-tune graduation.
+        if fc_warnings:
+            existing = result.get("warnings") or []
+            result["warnings"] = (
+                list(existing) + fc_warnings
+                if isinstance(existing, list)
+                else fc_warnings
+            )
+        result["facts_cited_count"] = len(facts_cited_list)
         # P1 (2026-05-10, dev_docs/74 follow-on): emit a structured
         # next_step hint so the orchestrator knows what to chain to.
         # Soft enforcement — the orchestrator's compound-chain guide
