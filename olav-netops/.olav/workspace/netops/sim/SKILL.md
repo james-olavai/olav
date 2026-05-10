@@ -2,7 +2,7 @@
 name: sim
 # R-VERTICAL-SLICE 2026-05-09: sub-agent uses no-think for
 # fast tool execution; orchestrator handles planning.
-thinking_mode: disabled
+thinking_mode: disabled  # hybrid thinking default — sub-agent fast path. 2026-05-10 INVIVO-T15 experiment (think-mode 3-run): same 67% strict PASS rate as nothink, 3-7× slower, AND a new failure mode where the model fabricated IPs (10.3.4.0/30) when uncertain instead of bailing out — silent correctness regression. Reverted; T15 non-determinism stays L4 (fine-tune case).
 description: "Routing simulation + change planning. Inspector tools (inspect_devices / inspect_topology / inspect_routing / inspect_blast_radius) wrap NetworkX graph queries; LLM never writes graph code. Final deliverable via submit_change_plan structured tool. Reads DB only; no live device access."
 tools:
   - inspect_devices
