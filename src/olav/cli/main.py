@@ -1266,17 +1266,38 @@ async def run_single_query(
             except Exception:
                 pass
         if _cached_content:
-            try:
-                from olav.core.memory import SemanticCache, get_store
-                from olav.core.embedder import embed_text as _embed
-                _cstore = get_store()
-                if _cstore:
-                    _sc = SemanticCache(_cstore)
-                    _qv = _embed(query)
-                    if _qv:
-                        _sc.put(_qv, [{"query": query, "answer": _cached_content[:2000]}])
-            except Exception:
-                pass
+            # 2026-05-10 INVIVO-T15-NON-DETERMINISTIC root cause:
+            # gemma4 nothink occasionally produces an empty response
+            # (just "[]" — no content, no tool result fallback). If
+            # that empty answer gets cached, every subsequent identical
+            # prompt returns the cached "[]" in ~10s instead of running
+            # the model — turning a 1/3 flaky failure into a 100%
+            # deterministic failure. Filter junk responses before cache
+            # write: empty, just punctuation, or shorter than ~30
+            # chars without any letters.
+            _stripped = _cached_content.strip()
+            _has_real = (
+                len(_stripped) >= 30
+                and any(c.isalnum() for c in _stripped)
+                and _stripped not in ("[]", "{}", "()", "null", "None")
+            )
+            if not _has_real:
+                logging.debug(
+                    "Semantic cache: skip put — content looks empty/junk: %r",
+                    _stripped[:60],
+                )
+            else:
+                try:
+                    from olav.core.memory import SemanticCache, get_store
+                    from olav.core.embedder import embed_text as _embed
+                    _cstore = get_store()
+                    if _cstore:
+                        _sc = SemanticCache(_cstore)
+                        _qv = _embed(query)
+                        if _qv:
+                            _sc.put(_qv, [{"query": query, "answer": _cached_content[:2000]}])
+                except Exception:
+                    pass
     except KeyboardInterrupt:
         recorder.record(
             event_type="run_cancelled",
