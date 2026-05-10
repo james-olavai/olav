@@ -2,8 +2,8 @@
 
 Returns a structured dict of table names → column lists so the
 auditor agent can write correct SQL without hallucinating column
-names. Per ADR-0007, called from the sandbox via
-``run_python_simulation``; not registered as an MCP tool.
+names. Per ADR-0007 + ADR-0008, called from auditor skill
+scripts; not registered as an MCP tool.
 """
 
 from __future__ import annotations

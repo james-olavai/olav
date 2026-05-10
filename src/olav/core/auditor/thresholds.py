@@ -2,8 +2,8 @@
 
 Runs percentile distribution analysis on any numeric metric
 extracted via SQL. Returns P50/P75/P90/P95/P99 statistics plus
-evidence-based threshold suggestions. Per ADR-0007, called from
-the sandbox via ``run_python_simulation``.
+evidence-based threshold suggestions. Per ADR-0007 + ADR-0008,
+called from auditor skill scripts.
 """
 
 from __future__ import annotations

@@ -1,7 +1,11 @@
-"""Sim-side TCF construction (Python helper for ops-analyze).
+"""Sim-side TCF construction (Python helper).
 
-Per ADR-0007 (R91 Step 3), the agent imports this from
-``run_python_simulation`` instead of calling an MCP wrapper.
+Per ADR-0007 + ADR-0008, this is the deterministic core that
+``render_tcf_from_change_plan`` calls. Post R-VERTICAL-SLICE the
+sim sub-agent does NOT invoke this directly — it goes through
+``submit_change_plan`` which routes through ``render_tcf_from_change_plan``
+to produce the spec.tcf.yaml. ``tcf_emit_from_sim`` remains exported
+as a low-level entry point for tests + tooling, not for agents.
 
 Small-model friendly shape: top-level scalars + parallel arrays for
 devices, JSON-string args for nested lists. Same pattern that made
@@ -151,7 +155,7 @@ def tcf_emit_from_sim(
         "post_check_count": len(post_check),
         "tvt_count": len(tvt),
         "next_step": (
-            f"Validate in lab: ops-lab run_python_simulation → "
-            f"olav.core.cab.tcf_load_for_lab({str(written)!r})"
+            f"Validate in lab: task('lab', '{str(written)}') → "
+            f"validate_tcf_in_lab skill script"
         ),
     }

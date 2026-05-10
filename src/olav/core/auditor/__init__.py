@@ -3,12 +3,11 @@
 These were previously MCP tools in
 ``.olav/workspace/audit/auditor/tools/`` (CUT 1 of the audit/auditor
 governance refactor). They are now plain Python functions; the
-auditor agent imports them inside ``run_python_simulation``.
+auditor agent imports them from skill scripts (per ADR-0008, R92.3).
 
 CUT 2 (next session) folds the heavier tools — ``map_engine``,
 ``render_report``, and the three engines (anomaly / baseline /
-incident) — and adds ``run_python_simulation`` to the auditor's
-tool surface.
+incident) — into the same skill-script surface.
 """
 
 from .introspect import database_introspection

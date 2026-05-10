@@ -7,10 +7,10 @@ This tool combines the full deployment sequence into a single call:
 2. fix_srl_topology (fix topology.yml directory bug)
 3. create_srl_links (inject inter-node veth pairs)
 
-Use this IMMEDIATELY after run_python_simulation returns the topology YAML.
+Use this IMMEDIATELY after the lab skill script renders topology YAML.
 
 Args (JSON):
-    yaml_content:  str  — topology YAML string (from run_python_simulation _result["yaml"])
+    yaml_content:  str  — topology YAML string (from generate_clab_topology / R88)
     ssh_host:      str  — SSH host for create_srl_links (resolved from containerlab endpoint if omitted)
     wait_seconds:  int  — seconds to wait after fix_srl_topology (default: 40)
 
@@ -145,11 +145,11 @@ def deploy_lab(
 ) -> dict:
     """Deploy a ContainerLab topology and run mandatory post-deploy workarounds.
 
-    Use this IMMEDIATELY after run_python_simulation returns the topology YAML.
+    Use this IMMEDIATELY after the lab skill script renders topology YAML.
     This tool combines: POST /api/v1/labs + fix_srl_topology + create_srl_links.
 
     Args:
-        yaml_content: Topology YAML string from run_python_simulation _result["yaml"].
+        yaml_content: Topology YAML string from generate_clab_topology (R88).
         ssh_host: Docker host for veth pair injection. Resolved from containerlab
                   service endpoint if not provided.
         wait_seconds: Seconds to wait after topology fix (default: 40).

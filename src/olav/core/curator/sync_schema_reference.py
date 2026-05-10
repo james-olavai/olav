@@ -2,7 +2,7 @@
 
 Regenerates the 'Core Table & View Schema' section by querying
 ``information_schema.columns``; preserves human-written sections.
-Per ADR-0007, called from the sandbox via ``run_python_simulation``;
+Per ADR-0007 + ADR-0008, called from curator skill scripts;
 not registered as an MCP tool.
 
 Returns ``{"status": "updated"|"up_to_date"|"error", "message": ...}``.

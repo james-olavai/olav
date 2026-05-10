@@ -1,8 +1,8 @@
 """Lab-side TCF orchestration helpers.
 
-Per ADR-0007 (Python-first tool architecture), these helpers are
-the Python core that the ops-lab agent calls from
-``run_python_simulation`` — replacing the MCP wrappers
+Per ADR-0007 (Python-first tool architecture) + ADR-0008 (skill
+scripts), these helpers are the Python core that the lab sub-agent
+calls from skill scripts — replacing the MCP wrappers
 ``tcf_load_for_lab`` and ``tcf_record_lab_run`` that previously
 lived in ``olav-netops/.olav/workspace/netops/lab/tools/``.
 
