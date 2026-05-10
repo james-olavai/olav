@@ -10,6 +10,7 @@ tools:
   - inspect_routing
   - inspect_blast_radius
   - submit_change_plan
+  - tcf_patch_block      # 2026-05-10: lab→sim revision loop
   - format_and_export
 static_context_mode: on_intent
 system: $ref:./prompts/system.md
