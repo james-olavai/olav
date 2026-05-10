@@ -622,9 +622,10 @@ def render_tcf_from_change_plan(
             "error": f"`devices` must be a non-empty list; got {devices!r}",
         }
 
-    # Honour explicit feasibility flag
+    # Honour explicit feasibility flag.  OK and OK_HITL_ONLY both
+    # render the spec; only BLOCKED stops emission (per ADR-0011 §5).
     feasibility = str(summary.get("feasibility", "OK")).upper()
-    if feasibility != "OK":
+    if feasibility not in ("OK", "OK_HITL_ONLY"):
         return {
             "status": "error",
             "error": (
