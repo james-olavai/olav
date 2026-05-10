@@ -3,7 +3,7 @@
 The auditor agent uses this to validate SQL / LanceDB queries before
 committing them to a Profile. Always uses parameterized binding —
 never interpolates the window value into the SQL string. Per
-ADR-0007, called from the sandbox via ``run_python_simulation``.
+ADR-0007 + ADR-0008, called from auditor skill scripts.
 """
 
 from __future__ import annotations

@@ -3,7 +3,7 @@
 These were previously MCP tools in
 ``.olav/workspace/audit/curator/tools/`` (R91 Step 4 fold). They
 are now plain Python functions; the curator agent imports them
-inside ``run_python_simulation``.
+from skill scripts (per ADR-0008, R92.3).
 
 Public entry points:
     * ``discover_view_schemas`` — LLM + DB schema mapping

@@ -15,7 +15,7 @@ Why this is a Python helper, not middleware:
 
 Why this is NOT a new agent:
 * Curator agent already exists for cross-cutting memory work; this
-  is simply a callable it can spin up via ``run_python_simulation``
+  is simply a callable it can spin up from a skill script (ADR-0008)
   or the CLI can invoke directly
 * No new agent registry entry, no new SKILL.md, no new prompts —
   just a one-shot Python entry point

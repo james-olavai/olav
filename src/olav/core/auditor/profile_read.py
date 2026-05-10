@@ -1,6 +1,6 @@
 """Load and parse an existing audit Profile (Python helper).
 
-Per ADR-0007, called from the sandbox via ``run_python_simulation``.
+Per ADR-0007 + ADR-0008, called from auditor skill scripts.
 
 Two entry points:
   ``list_profiles()`` → all ``.md`` files in the profiles directory

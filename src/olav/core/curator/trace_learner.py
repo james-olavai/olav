@@ -2,8 +2,8 @@
 
 Reads recent failed runs from audit.duckdb, extracts failure
 constraints via an LLM, and writes them to LanceDB memory for
-future guardrail injection. Per ADR-0007, called from the sandbox
-via ``run_python_simulation``; not registered as an MCP tool.
+future guardrail injection. Per ADR-0007 + ADR-0008, called from
+curator skill scripts; not registered as an MCP tool.
 
 Functions:
   _analyze_failures(hours, limit, db_path)          → failure report dict
