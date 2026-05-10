@@ -150,8 +150,25 @@ def tcf_to_r90_args(tcf: CabTcf) -> dict[str, Any]:
     return base
 
 
+# ARCH-39 (2026-05-10): the public API names ``tcf_to_r88_args`` etc. are
+# keyed by historical OLAV design revision numbers (R88, R89, R90 — three
+# milestones during the deterministic-generator refactor). The numbers
+# carry no semantic meaning to readers unfamiliar with that history.
+# Below are descriptive aliases that NEW code should use; the legacy
+# names stay exported for backwards compatibility with downstream
+# callers / tests.
+tcf_to_clab_topology_args = tcf_to_r88_args
+tcf_to_srl_render_args = tcf_to_r89_args
+tcf_to_prod_cli_args = tcf_to_r90_args
+
+
 __all__ = [
+    # Legacy (r88/r89/r90 = OLAV design revision numbers; kept for compat)
     "tcf_to_r88_args",
     "tcf_to_r89_args",
     "tcf_to_r90_args",
+    # ARCH-39 descriptive aliases — preferred for new code
+    "tcf_to_clab_topology_args",
+    "tcf_to_srl_render_args",
+    "tcf_to_prod_cli_args",
 ]

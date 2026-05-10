@@ -20,7 +20,14 @@ from .prod_cli import (
     generate_junos_ebgp_rollback,
 )
 from .semantic_review import review_cli_pair, review_paired_blocks
-from .tcf_args import tcf_to_r88_args, tcf_to_r89_args, tcf_to_r90_args
+from .tcf_args import (
+    tcf_to_clab_topology_args,
+    tcf_to_prod_cli_args,
+    tcf_to_r88_args,
+    tcf_to_r89_args,
+    tcf_to_r90_args,
+    tcf_to_srl_render_args,
+)
 from .tcf_diff import (
     SilentOverride,
     TcfDiffResult,
@@ -75,4 +82,7 @@ __all__ = [
     "tcf_to_r88_args",
     "tcf_to_r89_args",
     "tcf_to_r90_args",
+    "tcf_to_clab_topology_args",
+    "tcf_to_srl_render_args",
+    "tcf_to_prod_cli_args",
 ]
