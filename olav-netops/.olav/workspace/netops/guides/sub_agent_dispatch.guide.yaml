@@ -11,37 +11,43 @@ keywords:
   - capability routing
   - hand off
 body: |
-  The ONLY way to delegate to a sub-agent is:
+  Delegation tool — preferred: ``task("<sub-agent-name>", "<request>")``.
 
-      task("<sub-agent-name>", "<request>")
+  ``olav_delegate(subagent_name=..., task_description=...)`` is a real
+  alternate path with the same semantics — use either. The runtime
+  resolver accepts both registered names AND short aliases (e.g.
+  ``analyze`` resolves to ``ops-analyze``), so a few naming variants
+  Just Work.
 
-  ## Valid sub-agent names (use these EXACTLY)
+  ## Valid sub-agent names
 
-  - ``analyze`` — read-side state / topology / drift inspection
-  - ``sim`` — change planning, owns submit_change_plan
+  Both short and ``ops-`` prefixed names accepted (R-AGENT-HIERARCHY
+  Phase A in flux — both styles registered for now):
+
+  - ``analyze`` / ``ops-analyze`` — read-side state / topology / drift
+  - ``sim`` — change planning, owns ``submit_change_plan`` + ``tcf_patch_block``
   - ``investigate`` — log/syslog/config-text drilldown
-  - ``collect`` — data-plane probes, fresh take_snapshot
-  - ``lab`` — ContainerLab digital twin validation
+  - ``collect`` / ``ops-collect`` — data-plane probes, ``take_snapshot``
+  - ``lab`` / ``ops-lab`` — ContainerLab digital twin validation
   - ``topology`` — discovery (BGP/OSPF/CDP/LLDP recipes)
   - ``learner`` — parser learning (/learn_cmd flow)
 
-  ## Hallucinations to NEVER use
+  ## True hallucinations — these will fail
 
-  These tool names DO NOT EXIST and will fail:
+  Names that have NEVER existed in this codebase:
 
-  - ❌ `olav_delegate(...)` — never existed
-  - ❌ `delegate_to(...)` — never existed
-  - ❌ `sub_agent(...)` — never existed
-  - ❌ `task("ops-analyze", ...)` — old name, renamed to ``analyze``
-  - ❌ `task("ops-collect", ...)` — old name, renamed to ``collect``
-  - ❌ `task("config-discovery", ...)` — never existed
-  - ❌ `task("quick-query", ...)` — never existed
+  - ❌ ``delegate_to(...)``
+  - ❌ ``sub_agent(...)``
+  - ❌ ``task("config-discovery", ...)``
+  - ❌ ``task("quick-query", ...)``
 
   ## What to do when task() returns "sub-agent not found"
 
   The second arg was wrong.  Pick from the valid list above; do NOT
-  retry with another made-up name.  If genuinely uncertain whether
-  a capability exists, say so honestly to the user.
+  retry with another made-up name.  If task() complains about the
+  name, try ``olav_delegate`` as the alternate path — same semantics,
+  different resolver.  If both fail, the capability genuinely
+  doesn't exist; say so to the user.
 
   ## Capability-level routing
 
