@@ -309,6 +309,71 @@ def _render_ebgp_direct(
         {"device": b, "phase": 1, "action": "configure", "cli": rb_b},
     ]
 
+    # ARCH-34: pre_check verifies preconditions BEFORE implementation
+    # pushes config.  Two checks per device:
+    #   1. Lab subnet not already routed (catches subnet collision)
+    #   2. Picked interface not already configured with an IP (catches
+    #      stale topology DB, race with another change)
+    # Failure semantics: any pre_check failure => HITL must intervene,
+    # implementation is BLOCKED.
+    def _pre_check_rows(self_name, peer_ip_str, self_intf, plat):
+        is_junos = "junos" in plat
+        # Subnet-not-routed check: cross-platform "show ip route" works
+        # on Cisco IOS; Junos uses "show route".
+        subnet_cmd = (
+            f"show route {lab_subnet}" if is_junos
+            else f"show ip route {lab_subnet}"
+        )
+        # IOS prints "% Network not in table" / "% Subnet not in table"
+        # for absent routes.  Junos prints no `inet.0` entry => the
+        # default Junos response has no specific match line.
+        # must_match=False with an empty pattern is unwieldy; instead
+        # we look for a pattern that's ONLY present when a route EXISTS
+        # ("via" appears in any active route line) and require its
+        # absence.
+        subnet_absent_pattern = "via "
+        # Interface-IP-empty check: cross-platform "show ip interface
+        # brief" on Cisco; Junos "show interfaces terse".
+        intf_cmd = (
+            f"show interfaces {self_intf} terse" if is_junos
+            else f"show ip interface brief {self_intf}"
+        )
+        # IOS "unassigned" appears when the interface has no IP.
+        # Junos terse line shows the interface but no inet column when
+        # unconfigured; "inet" presence indicates configured.
+        intf_free_pattern = "unassigned" if not is_junos else "inet"
+        intf_must_match = not is_junos  # IOS: pattern present; Junos: absent
+
+        return [
+            {
+                "device": self_name,
+                "check_id": f"PR-{self_name}-subnet-clear",
+                "description": (
+                    f"Lab subnet {lab_subnet} must not be present in "
+                    f"the routing table before deploy"
+                ),
+                "command": subnet_cmd,
+                "expected_pattern": subnet_absent_pattern,
+                "must_match": False,  # absence proves the subnet is free
+            },
+            {
+                "device": self_name,
+                "check_id": f"PR-{self_name}-intf-free",
+                "description": (
+                    f"Interface {self_intf} must not have an IP "
+                    f"configured before deploy"
+                ),
+                "command": intf_cmd,
+                "expected_pattern": intf_free_pattern,
+                "must_match": intf_must_match,
+            },
+        ]
+
+    pre_check = (
+        _pre_check_rows(a, b_ip, a_intf, plat_a)
+        + _pre_check_rows(b, a_ip, b_intf, plat_b)
+    )
+
     post_check = [
         {
             "device": a, "check_id": f"PC-{a}-bgp",
@@ -336,6 +401,7 @@ def _render_ebgp_direct(
     return {
         "implementation": impl,
         "rollback": rollback,
+        "pre_check": pre_check,
         "post_check": post_check,
         "tvt": tvt,
         "lab_ips": {a: a_ip, b: b_ip},
@@ -490,6 +556,7 @@ def render_tcf_from_change_plan(
         device_asns=[facts[d]["local_as"] or 0 for d in devices],
         implementation_json=json.dumps(rendered["implementation"]),
         rollback_json=json.dumps(rendered["rollback"]),
+        pre_check_json=json.dumps(rendered.get("pre_check", [])),
         post_check_json=json.dumps(rendered["post_check"]),
         tvt_json=json.dumps(rendered["tvt"]),
         required_test_ids=[r["test_id"] for r in rendered["tvt"]],

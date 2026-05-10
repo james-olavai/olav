@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .tcf_io import tcf_emit
-from .tcf_schema import CabTcf, CliBlock, Device, Intent, PostCheck, TvtRow
+from .tcf_schema import CabTcf, CliBlock, Device, Intent, PostCheck, PreCheck, TvtRow
 
 
 def _parse_json_list(label: str, raw: str) -> list:
@@ -43,6 +43,7 @@ def tcf_emit_from_sim(
     implementation_json: str,
     device_intfs: list[str] | None = None,
     rollback_json: str = "[]",
+    pre_check_json: str = "[]",
     post_check_json: str = "[]",
     tvt_json: str = "[]",
     required_test_ids: list[str] | None = None,
@@ -80,6 +81,7 @@ def tcf_emit_from_sim(
     try:
         impl_raw = _parse_json_list("implementation_json", implementation_json)
         rollback_raw = _parse_json_list("rollback_json", rollback_json)
+        pre_check_raw = _parse_json_list("pre_check_json", pre_check_json)
         post_check_raw = _parse_json_list("post_check_json", post_check_json)
         tvt_raw = _parse_json_list("tvt_json", tvt_json)
     except ValueError as exc:
@@ -102,6 +104,7 @@ def tcf_emit_from_sim(
 
         implementation = [CliBlock(**raw) for raw in impl_raw]
         rollback = [CliBlock(**raw) for raw in rollback_raw]
+        pre_check = [PreCheck(**raw) for raw in pre_check_raw]
         post_check = [PostCheck(**raw) for raw in post_check_raw]
         tvt = [TvtRow(**raw) for raw in tvt_raw]
 
@@ -115,6 +118,7 @@ def tcf_emit_from_sim(
             devices=devices,
             implementation=implementation,
             rollback=rollback,
+            pre_check=pre_check,
             post_check=post_check,
             tvt=tvt,
             required_tests=list(required_test_ids or []),
@@ -143,6 +147,7 @@ def tcf_emit_from_sim(
         "device_count": len(devices),
         "implementation_blocks": len(implementation),
         "rollback_blocks": len(rollback),
+        "pre_check_count": len(pre_check),
         "post_check_count": len(post_check),
         "tvt_count": len(tvt),
         "next_step": (
