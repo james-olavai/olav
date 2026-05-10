@@ -58,8 +58,8 @@ def build_graph(assistant_id: str | None = None) -> Any:
 
     Args:
         assistant_id: Which top-level agent to build — typically
-            ``core`` / ``ops`` / ``audit`` / ``topology`` /
-            ``command_learner`` depending on what's installed.  When
+            ``core`` / ``netops`` / ``audit`` / ``devops`` (post
+            R-AGENT-HIERARCHY Phase A 2026-05-09).  When
             ``None`` or an empty string, falls back to the
             ``DEEPAGENTS_CLI_SERVER_ASSISTANT_ID`` env var, then to
             ``"core"``.
@@ -126,7 +126,7 @@ def _validate_workspace(name: str) -> None:
         raise ValueError(
             f"No workspace found for agent {name!r}. "
             f"Set {_ENV_ASSISTANT_ID} to one of the installed agents "
-            "(typically: core, ops, audit, topology, command_learner)."
+            "(typically: core, netops, audit, devops)."
         )
 
 

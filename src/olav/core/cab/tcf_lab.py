@@ -4,7 +4,7 @@ Per ADR-0007 (Python-first tool architecture), these helpers are
 the Python core that the ops-lab agent calls from
 ``run_python_simulation`` — replacing the MCP wrappers
 ``tcf_load_for_lab`` and ``tcf_record_lab_run`` that previously
-lived in ``olav-netops/.olav/workspace/ops/lab/tools/``.
+lived in ``olav-netops/.olav/workspace/netops/lab/tools/``.
 
 Return ``dict`` envelopes (not JSON strings) so callers in a
 sandbox can use them directly. Sandbox callers can still

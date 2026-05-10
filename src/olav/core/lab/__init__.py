@@ -2,7 +2,7 @@
 
 Per ADR-0007 (Python-first tool architecture), these used to be MCP
 ``@tool``-decorated wrappers in
-``olav-netops/.olav/workspace/ops/lab/tools/``. The MCP layer was
+``olav-netops/.olav/workspace/netops/lab/tools/``. The MCP layer was
 prompt-bloat with no real benefit — the deterministic core is Python
 in this module, and agents call it via ``run_python_simulation``
 guided by the ``cab_validation_workflow`` expert/usage YAML.

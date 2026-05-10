@@ -13,7 +13,7 @@ Resolution order for ``olav_root()``:
      any install style as long as the user runs from inside their
      workspace.  The ``<agent>`` segment is a glob so the
      resolver works under any agent naming (``ops``,
-     ``netops_ops``, future renames).
+     ``netops``, future renames).
   3. Walk upward from this file's ``__file__`` looking for the same
      marker — catches editable / source-tree installs even when cwd is
      elsewhere
@@ -28,8 +28,9 @@ strong-enough signal that the surrounding ``.olav/`` tree is the
 History (Fix #1, 2026-05-07): the original ``_MARKER`` hard-coded
 ``ops/lab/config/config.json`` and broke after the agent rename
 (commit ``b3c7da5``) that moved the workspace from ``ops/`` to
-``netops_ops/``.  Switched to a glob so any future rename keeps
-working.
+``netops_ops/``, then again on R-AGENT-HIERARCHY Phase A which
+collapsed the dir to ``netops/``.  Switched to a glob so any
+future rename keeps working.
 """
 
 from __future__ import annotations

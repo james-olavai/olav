@@ -41,12 +41,17 @@ logger = logging.getLogger(__name__)
 
 _VALID_CATEGORIES = {"usage_guide", "document", "topology"}
 _VALID_AGENTS = {
+    # Platform agents
     "core", "services", "audit",
-    # 2026-05-01: domain-prefix rename — accept both legacy + new
-    # names so memory entries authored before/after the rename
-    # both validate.  Resolver normalizes legacy → new at write time
-    # (commit_to_memory writes the new name into the row).
-    "ops", "topology",  # legacy
+    # User-facing orchestrators (R-AGENT-HIERARCHY Phase A, 2026-05-09):
+    # 7 scattered top-level agents → 3 user-facing orchestrators.
+    "netops", "devops",
+    # Pre-Phase-A names — kept so memory entries authored before the
+    # consolidation still validate.  ARCH-30 (2026-05-10): also keeps
+    # legacy memory keyed by old names readable; full purge happens
+    # alongside ARCH-31 SKILL.md rename during fine-tune training-data
+    # assembly.
+    "ops", "topology",
     "netops_ops", "netops_topology", "netops_learner",
     "devops_scripts", "devops_infra",
 }
