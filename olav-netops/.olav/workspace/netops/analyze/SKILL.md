@@ -24,6 +24,7 @@ tools:
   - inspect_blast_radius    # what-if: remove devices/links → components
   - inspect_path            # P2 2026-05-10: src→dst path + ECMP
   - inspect_critical_nodes  # P3 2026-05-10: articulation + betweenness
+  - inspect_interfaces      # 2026-05-11: per-interface IP/status
   # Drift inspectors (NEW 2026-05-09 — wrap diff_* helpers as @tools)
   - inspect_drift_sql       # any table, t1 vs t2
   - inspect_drift_topology  # L2 link up/down/added/removed

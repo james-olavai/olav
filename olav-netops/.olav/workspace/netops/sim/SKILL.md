@@ -9,6 +9,7 @@ tools:
   - inspect_topology
   - inspect_routing
   - inspect_blast_radius
+  - inspect_interfaces    # 2026-05-11: per-interface IP for non-eBGP changes
   - submit_change_plan
   - tcf_patch_block      # 2026-05-10: lab→sim revision loop
   - format_and_export
