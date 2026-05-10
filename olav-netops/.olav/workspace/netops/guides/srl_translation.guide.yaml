@@ -1,0 +1,148 @@
+schema_version: 1
+intent: srl_translation_for_lab_digital_twin
+agent: netops
+keywords:
+  - SRL
+  - SR Linux
+  - srlinux
+  - lab digital twin
+  - lab CLI
+  - translate to SRL
+  - convert to SRL
+  - lab apply
+  - sr_cli
+body: |
+  The OLAV CAB lab digital twin uses **Nokia SR Linux** containers
+  (image: ``ghcr.io/nokia/srlinux:24.10.1``).  Production CLI
+  emitted by sim (Cisco IOS / Juniper Junos / Arista EOS dialects)
+  must be translated to SR Linux syntax before lab apply.
+
+  Memory-guided translation is the **larger-model path** (≥200B
+  cloud models like Claude Sonnet/Opus 4.x, GPT-4-class, DeepSeek
+  V3/V4).  Small local models (gemma4:31b nothink and similar)
+  cannot reliably translate platform-specific CLI — they hallucinate
+  syntax.  When using a small backend, freeform_cli changes go
+  through ``feasibility='OK_HITL_ONLY'`` (ADR-0011 §5) instead.
+
+  ## When this guide applies
+
+  - You are sim or lab and need to populate ``cli_per_device`` for
+    a lab node where lab nodes are SRL containers
+  - Or you are translating a prod TCF spec into SRL configuration
+    lines for ``deploy_and_push_lab``
+
+  ## Core SR Linux syntax conventions
+
+  - Hierarchy: ``set / interface ethernet-1/1 ...``,
+    ``set / network-instance default ...`` (no flat IOS-style)
+  - Interface naming: ``ethernet-1/1`` (slot 1, port 1) — not
+    ``Ethernet0/1`` or ``ge-0/0/1``
+  - Address family: ``ipv4`` / ``ipv6`` always namespaced under
+    ``subinterface 0``
+  - Routing instances: ``network-instance <name>`` (default name
+    ``default``)
+  - Commit semantics: SRL uses candidate config; commit with
+    ``commit save`` after ``set`` lines (Patch #4 fix added this)
+
+  ## Mapping table — common operations
+
+  ### Static route
+
+  IOS: ``ip route 192.0.2.0 255.255.255.0 10.1.13.1``
+  Junos: ``set routing-options static route 192.0.2.0/24 next-hop 10.1.13.1``
+
+  SRL::
+
+      enter candidate
+      set / network-instance default static-routes route 192.0.2.0/24 next-hop-group static-grp
+      set / network-instance default next-hop-groups group static-grp nexthop 1 ip-address 10.1.13.1
+      commit save
+
+  ### Interface IP
+
+  IOS: ``interface Ethernet0/0`` + ``ip address 10.1.13.3 255.255.255.0``
+  Junos: ``set interfaces ge-0/0/2 unit 0 family inet address 10.1.13.1/24``
+
+  SRL::
+
+      enter candidate
+      set / interface ethernet-1/1 admin-state enable
+      set / interface ethernet-1/1 subinterface 0 admin-state enable
+      set / interface ethernet-1/1 subinterface 0 ipv4 admin-state enable
+      set / interface ethernet-1/1 subinterface 0 ipv4 address 10.1.13.3/24
+      set / network-instance default interface ethernet-1/1.0
+      commit save
+
+  ### eBGP neighbor
+
+  IOS: ``router bgp 65000`` + ``neighbor 10.1.13.1 remote-as 65001``
+  Junos: ``set protocols bgp group EBGP-R3 neighbor 10.1.13.3 peer-as 65000``
+
+  SRL::
+
+      enter candidate
+      set / network-instance default protocols bgp autonomous-system 65000
+      set / network-instance default protocols bgp router-id 3.3.3.3
+      set / network-instance default protocols bgp group EBGP-R1 peer-as 65001
+      set / network-instance default protocols bgp neighbor 10.1.13.1 peer-group EBGP-R1
+      commit save
+
+  ### OSPF area
+
+  IOS: ``router ospf 1`` + ``network 10.1.13.0 0.0.0.255 area 0``
+
+  SRL::
+
+      enter candidate
+      set / network-instance default protocols ospf instance 1 admin-state enable
+      set / network-instance default protocols ospf instance 1 area 0.0.0.0 interface ethernet-1/1.0 admin-state enable
+      commit save
+
+  ### Show / verify commands
+
+  Patch M (commit `269`) regex translator handles these
+  deterministically — you do NOT need to translate show commands
+  in cli_per_device; ``post_check.command`` accepts prod form and
+  the lab side translates::
+
+      show ip route          → sr_cli "show network-instance default route-table ipv4-unicast"
+      show ip bgp summary    → sr_cli "show network-instance default protocols bgp neighbor"
+      show ip ospf neighbor  → sr_cli "show network-instance default protocols ospf neighbor"
+      show interfaces        → sr_cli "show interface"
+
+  ## Interface naming substitution
+
+  Lab node interfaces are renamed to ``ethernet-1/N`` based on R88
+  topology (CLAB nodes get sequential SRL interfaces).  When the
+  prod CLI references ``Ethernet0/0`` / ``ge-0/0/2`` / ``GigabitEthernet0/1``,
+  use the corresponding ``ethernet-1/N`` lab interface.  R89
+  computes this mapping for ebgp_direct; for freeform_cli, ground
+  it from inspect_interfaces output (the interface name in lab is
+  positional — ethernet-1/1 = first non-mgmt interface).
+
+  ## When you cannot translate confidently
+
+  If the prod CLI uses a feature with no clear SRL equivalent
+  (e.g. vendor-proprietary route-map syntax, IOS-only ACL forms,
+  Junos commit-script-driven config), **prefer ``feasibility=
+  'OK_HITL_ONLY'``** over fabricating SRL.  Per ADR-0011 §5:
+  spec.tcf.yaml + plan.md are still emitted for HITL.
+
+  ## Anti-patterns
+
+  ❌ Inventing SRL syntax: "set interface Ethernet0/0 ip ..." (this
+     is IOS-flavored, not SRL — SRL uses ``ethernet-1/N`` and
+     ``subinterface 0 ipv4 address``)
+
+  ❌ Using ``configure terminal`` / ``end`` / ``write memory`` (these
+     are IOS-only — SRL uses ``enter candidate`` and ``commit save``)
+
+  ❌ Translating a feature you don't recognize.  If the IOS line
+     uses an obscure command and you cannot map it confidently to
+     SRL, return ``feasibility='OK_HITL_ONLY'`` and explain.
+
+related:
+  - intent: change_plan_freeform_cli
+    note: "freeform_cli changes that need lab validation go through this guide; small models without translation confidence should use OK_HITL_ONLY"
+  - intent: change_plan
+    note: "ebgp_direct uses Python R89 templates (deterministic); only freeform_cli needs LLM translation"

@@ -123,7 +123,7 @@ def submit_change_plan(
     summary: str,
     rationale: str = "",
     steps: str = "",
-    feasibility: Literal["OK", "BLOCKED"] = "OK",
+    feasibility: Literal["OK", "OK_HITL_ONLY", "BLOCKED"] = "OK",
     feasibility_reason: str = "",
     change_id: str = "",
     facts_cited: list[str] | None = None,
@@ -175,8 +175,15 @@ def submit_change_plan(
             generates the actual CLI from templates; your `steps`
             text is for human reviewers.)
         feasibility: ``OK`` if you verified the change is feasible
-            (e.g. ASNs differ for ebgp_direct).  ``BLOCKED`` if your
-            feasibility check found a hard blocker.
+            AND the lab digital twin can validate it (currently means
+            ``intent='ebgp_direct'`` only — R89 SRL renderer scope).
+            ``OK_HITL_ONLY`` if the change is feasible BUT the lab
+            digital twin cannot deterministically validate it (typical
+            for ``intent='freeform_cli'`` — sim emits valid prod CLI
+            but R89 has no SRL translator). TCF spec + plan.md are
+            still written; lab validation is skipped and HITL takes
+            over (per ADR-0011 §5). ``BLOCKED`` if you found a hard
+            blocker (same-AS for eBGP, missing inspector data, …).
         feasibility_reason: One-line reason if feasibility=BLOCKED.
         change_id: Optional explicit change ID; auto-generated from
             devices + intent if empty.
@@ -313,8 +320,11 @@ def submit_change_plan(
                     f"'inspect_devices: R3.local_as=65000'."
                 )
 
-    # Validate freeform_cli prerequisites before YAML composition
-    if intent == "freeform_cli" and feasibility == "OK":
+    # Validate freeform_cli prerequisites before YAML composition.
+    # OK_HITL_ONLY uses the same slot requirements as OK because the
+    # spec.tcf.yaml + plan.md still have to render — only the
+    # downstream lab dispatch differs (per ADR-0011 §5).
+    if intent == "freeform_cli" and feasibility in ("OK", "OK_HITL_ONLY"):
         if not cli_per_device:
             return {
                 "status": "error",
@@ -405,6 +415,26 @@ def submit_change_plan(
                     "'test', '验证', 'CAB'), follow up with "
                     f"task('lab', '{result.get('spec_path')}').  "
                     "Otherwise present the spec_path for HITL approval."
+                ),
+            }
+        elif feasibility == "OK_HITL_ONLY":
+            # ADR-0011 §5: lab digital twin can't deterministically
+            # validate this change type.  Spec + plan are emitted for
+            # HITL but lab dispatch is skipped.
+            result["next_step"] = {
+                "action": "hitl_review",
+                "args": {
+                    "spec_path": result.get("spec_path"),
+                    "plan_md_path": result.get("plan_md_path"),
+                },
+                "hint": (
+                    f"Plan emitted feasibility=OK_HITL_ONLY ({feasibility_reason!r}).  "
+                    "Sim verified the change is feasible, but the lab "
+                    "digital twin cannot deterministically validate this "
+                    "intent (typical for freeform_cli — R89 SRL renderer "
+                    "scope).  Do NOT call task('lab', ...).  Surface the "
+                    "spec_path + plan_md_path to the user for manual "
+                    "review and prod application."
                 ),
             }
         elif feasibility != "OK":
