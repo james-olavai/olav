@@ -1,0 +1,27 @@
+job_type: sql
+description: "Execute a DuckDB SQL query against netops.* tables and return rows as findings."
+version: '1.0'
+
+# Args carried in each Profile YAML's jobs[] entry. The Profile authoring
+# tool (save_profile / create_profile_atomic) validates these via Pydantic,
+# but the runtime dispatch reads them from here so that adding new args
+# never requires editing map_engine.py.
+args:
+  query:
+    type: string
+    required: true
+    description: "DuckDB SQL. Must return columns: device, metric_value, metric_name, severity_hint. Use INTERVAL :window for time filtering — engine substitutes $cutoff."
+  max_findings:
+    type: integer
+    required: false
+    default: 50
+    description: "Per-job row cap to keep reports bounded. Default 50."
+
+# Executor: dotted path of the Python callable that takes (args, db_conn)
+# and returns list[dict]. Each dict is a normalised finding.
+executor: "olav.core.auditor.executors:execute_sql_job"
+
+# What columns the executor MUST return per finding row. The renderer
+# uses these to build per-section tables consistently.
+finding_shape:
+  required_columns: [device, metric_value, metric_name, severity_hint]

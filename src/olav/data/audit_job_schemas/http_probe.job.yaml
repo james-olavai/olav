@@ -1,0 +1,31 @@
+job_type: http_probe
+description: "HTTP endpoint liveness probe — issues a GET, returns one finding per probed URL with response status and latency."
+version: '1.0'
+
+# Demonstration of zero-edit Phase F-Audit add: this YAML + a new
+# executor function are the ONLY additions needed to surface a brand-
+# new audit job type. No map_engine elif edit, no ProfileJob.type
+# Literal enum bump for the runtime path (the Pydantic-side enum
+# expansion is a separate piece — for now author Pydantic still rejects
+# unknown type strings; runtime-only execution works with these schemas
+# already).
+args:
+  urls:
+    type: list
+    required: true
+    description: "List of URLs to probe (one finding produced per URL)."
+  timeout_s:
+    type: integer
+    required: false
+    default: 5
+    description: "Per-request timeout in seconds."
+  expected_status:
+    type: integer
+    required: false
+    default: 200
+    description: "HTTP status considered healthy. Anything else → Critical severity."
+
+executor: "olav.core.auditor.executors:execute_http_probe"
+
+finding_shape:
+  required_columns: [device, metric_value, metric_name, severity_hint]
