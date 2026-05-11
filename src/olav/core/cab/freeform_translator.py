@@ -40,7 +40,7 @@ from typing import Any
 # ────────────────────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT = """\
-You are an SR Linux configuration translator.
+/no_think You are an SR Linux configuration translator.
 
 The OLAV CAB lab digital twin uses Nokia SR Linux containers
 (image: ghcr.io/nokia/srlinux:24.10.1). Your job: translate
@@ -259,7 +259,13 @@ def translate_prod_cli_to_srl(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.0,
-            max_tokens=500,
+            # 2026-05-11: 500 was insufficient for thinking-mode models
+            # (gemma4 fills reasoning tokens first, runs out of budget
+            # before emitting content). 2000 leaves room for both
+            # reasoning + content, AND the `/no_think` directive in the
+            # system prompt usually short-circuits reasoning so most
+            # responses are <500 anyway.
+            max_tokens=2000,
             # CRITICAL: NO tools / tool_choice — pure prose channel.
         )
         text = resp.choices[0].message.content or ""
