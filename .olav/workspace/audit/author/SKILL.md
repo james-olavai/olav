@@ -48,7 +48,7 @@ will later execute) can normalise findings. Time filter uses
 ## Supporting skill scripts (via execute_skill_script)
 
 ```
-execute_skill_script(skill_name="audit-author", script_name="<X>.py", script_args={...})
+execute_skill_script(skill_name="author", script_name="<X>.py", script_args={...})
 ```
 
 | Script | Purpose |

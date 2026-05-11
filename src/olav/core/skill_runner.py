@@ -62,23 +62,65 @@ def _resolve_workspace_root() -> Path:
 
 
 def _resolve_skill_dir(workspace_root: Path, skill_name: str) -> Path | None:
-    """Locate ``<workspace_root>/<skill_name>`` or one level deeper.
+    """Locate a skill directory by name.
 
-    OLAV's layout has both ``<workspace>/ops/`` (parent skill) and
-    ``<workspace>/ops/lab/`` (sub-skill). Match either.
+    Accepts several name shapes so small LLMs that misremember the
+    canonical form still hit the right target:
+
+      * ``<workspace>/<skill_name>`` — direct dir match
+      * ``<workspace>/<parent>/<skill_name>`` — one level deep
+        (parent / sub-skill layout, e.g. ``ops/lab``)
+      * ``<workspace>/<parent>/<skill_name>`` where the SKILL.md
+        ``name:`` frontmatter field matches ``skill_name`` (handles
+        ``audit-author`` → ``author/`` after rev 259 Run/Author split)
+      * ``<skill_name>`` as the last hyphen-separated token of a
+        SKILL.md name (e.g. ``audit-runner`` → ``runner/``)
+
+    Returns the first match or ``None``.
     """
+    # 1. Direct directory match (legacy behaviour).
     direct = workspace_root / skill_name
     if (direct / "SKILL.md").exists():
         return direct
 
+    # Build an alias map by scanning all SKILL.md files once.
+    # Key = candidate skill_name. Value = resolved directory.
+    aliases: dict[str, Path] = {}
     for parent in workspace_root.iterdir():
-        if not parent.is_dir():
+        if not parent.is_dir() or parent.name.startswith("_"):
+            # Skip `_legacy_*` / `_experiment_*` backup trees so retired
+            # sub-agents aren't accidentally resolvable.
             continue
-        nested = parent / skill_name
-        if (nested / "SKILL.md").exists():
-            return nested
+        # 2a. Direct nested layout (legacy).
+        if (parent / skill_name / "SKILL.md").exists():
+            return parent / skill_name
+        # 2b. Scan SKILL.md frontmatter for `name:` aliases.
+        for skill_md in parent.rglob("SKILL.md"):
+            if any(seg.startswith("_") for seg in skill_md.relative_to(parent).parts):
+                continue
+            try:
+                text = skill_md.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            if not text.startswith("---"):
+                continue
+            # Cheap name extraction; full YAML parse not worth the
+            # dependency in this hot path.
+            for line in text.split("\n", 30):
+                s = line.strip()
+                if s.startswith("name:"):
+                    name_val = s.split(":", 1)[1].strip().strip('"\'')
+                    if name_val:
+                        aliases.setdefault(name_val, skill_md.parent)
+                        # Also register the last hyphen-token (e.g.
+                        # ``audit-author`` → ``author``) so a small
+                        # LLM passing the bare role name still hits.
+                        if "-" in name_val:
+                            tail = name_val.rsplit("-", 1)[-1]
+                            aliases.setdefault(tail, skill_md.parent)
+                    break
 
-    return None
+    return aliases.get(skill_name)
 
 
 def execute_skill_script(
