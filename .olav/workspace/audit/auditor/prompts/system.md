@@ -118,15 +118,21 @@ Rules:
 
 ## Profile Job Field Specification
 
-Each job must include:
-- `name`: Unique identifier — UPPER_SNAKE_CASE
-- `duckdb_query`: DuckDB SQL. Must return columns: device, metric_value, metric_name, severity_hint
-- `warning_threshold`: Numeric warning level
-- `critical_threshold`: Numeric critical level
-- `operator`: `>` for high-is-bad, `<` for low-is-bad
-- `unit`: Unit suffix (e.g. `%`, `ms`) or empty string
-- `description`: What this job monitors
-- `remediation`: Recommended remediation steps (markdown)
+The `save_profile` and `append_jobs` tools are LangChain StructuredTools
+backed by Pydantic. **The Pydantic schema is the authoritative field
+specification** — it is grammar-constrained at the LLM tool-calling
+channel, so you cannot accidentally omit or misname a field.
+
+Required (enforced by schema): `name`, `type` (`sql`|`lancedb`),
+`severity` (`Critical`|`Warning`|`Info`), `section_prompt`.
+Branch invariant: `type: sql` → `query`; `type: lancedb` →
+`semantic_query` (+ optional `threshold`).
+
+SQL queries should return columns `device, metric_value, metric_name,
+severity_hint` so `map_engine` can normalise them into the standard
+finding shape — this is the only constraint Pydantic itself cannot
+express. Time window filter goes through `INTERVAL :window` (the engine
+parameterises it as `$cutoff` at execution time).
 
 ## Known Database Schema (reference only — always confirm via database_introspection)
 
