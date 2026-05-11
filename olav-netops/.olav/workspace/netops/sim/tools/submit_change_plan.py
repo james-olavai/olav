@@ -175,15 +175,23 @@ def submit_change_plan(
             generates the actual CLI from templates; your `steps`
             text is for human reviewers.)
         feasibility: ``OK`` if you verified the change is feasible
-            AND the lab digital twin can validate it (currently means
-            ``intent='ebgp_direct'`` only — R89 SRL renderer scope).
-            ``OK_HITL_ONLY`` if the change is feasible BUT the lab
-            digital twin cannot deterministically validate it (typical
-            for ``intent='freeform_cli'`` — sim emits valid prod CLI
-            but R89 has no SRL translator). TCF spec + plan.md are
-            still written; lab validation is skipped and HITL takes
-            over (per ADR-0011 §5). ``BLOCKED`` if you found a hard
-            blocker (same-AS for eBGP, missing inspector data, …).
+            and lab validation should proceed. **For ``freeform_cli``
+            intent, use OK** — the lab pipeline now has a prose-mode
+            LLM translator that produces SRL CLI from your prod CLI
+            (commit `0af7953` + `01d4a64`), so freeform changes can
+            be validated automatically.
+
+            ``OK_HITL_ONLY`` is reserved for the rare case where sim
+            verified feasibility but knows the change requires human-
+            only review (e.g., touches credentials, security policies,
+            or contains commands beyond the SRL translator's known
+            patterns). When in doubt, prefer ``OK`` and let lab
+            validation surface any translation/verification issue
+            via its FAIL verdict — that is more informative than
+            preemptive HITL.
+
+            ``BLOCKED`` if you found a hard blocker (same-AS for
+            eBGP, missing inspector data, infeasible topology, etc.).
         feasibility_reason: One-line reason if feasibility=BLOCKED.
         change_id: Optional explicit change ID; auto-generated from
             devices + intent if empty.
