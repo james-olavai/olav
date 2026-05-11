@@ -41,8 +41,29 @@ _PROD_TO_SRL_RULES: list[tuple[re.Pattern[str], str]] = [
         'sr_cli "show network-instance default protocols bgp neighbor"',
     ),
     (
+        # 2026-05-11: SRL 24.10 needs a parametrized prefix.
+        # Specific prefix form: `show ip route <PREFIX>` /
+        # `show route <PREFIX>` — translate to ``prefix <PREFIX>``.
+        # The prefix may be bare (``192.0.2.0``) or in CIDR
+        # (``192.0.2.0/24``); SRL accepts both.
+        re.compile(
+            r"\bshow\s+(?:ip\s+)?route\s+"
+            r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?:/\d{1,2})?)",
+            re.I,
+        ),
+        # SRL ipv4-prefix YANG pattern requires CIDR. If the prod
+        # command uses bare IP, default to /32 so the command parses
+        # — it returns "no match" which the post_check pattern test
+        # handles correctly.
+        lambda m: (
+            'sr_cli "show network-instance default route-table '
+            f'ipv4-unicast prefix {m.group(1) if "/" in m.group(1) else m.group(1) + "/32"}"'
+        ),
+    ),
+    (
+        # Bare ``show ip route`` (no prefix) — full summary view.
         re.compile(r"\bshow\s+(ip\s+)?route\b", re.I),
-        'sr_cli "show network-instance default route-table ipv4-unicast"',
+        'sr_cli "show network-instance default route-table ipv4-unicast summary"',
     ),
     (
         re.compile(r"\bshow\s+(ip\s+)?ospf\s+neighbors?\b", re.I),
@@ -74,7 +95,12 @@ def translate_command_prod_to_srl(command: str) -> tuple[str, bool]:
     if cmd.lower().startswith("sr_cli") or cmd.startswith("bash -c"):
         return cmd, False
     for pat, replacement in _PROD_TO_SRL_RULES:
-        if pat.search(cmd):
+        m = pat.search(cmd)
+        if m:
+            # Support callable replacements that need captured groups
+            # (e.g. show ip route <PREFIX> → prefix <PREFIX>).
+            if callable(replacement):
+                return replacement(m), True
             return replacement, True
     return cmd, False
 
