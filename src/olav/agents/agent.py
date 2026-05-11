@@ -786,7 +786,23 @@ class OLAVAgent:
             return None
         tools_field = (post.metadata or {}).get("tools")
         if isinstance(tools_field, list):
-            return {t for t in tools_field if isinstance(t, str)}
+            names: set[str] = set()
+            dropped_dicts = 0
+            for t in tools_field:
+                if isinstance(t, str):
+                    names.add(t)
+                elif isinstance(t, dict):
+                    dropped_dicts += 1
+            if dropped_dicts:
+                logger.warning(
+                    "SKILL.md %s declares %d tools as dict entries "
+                    "(e.g. `- path: ./tools/X.py`); strict whitelist "
+                    "requires bare-string tool names. Dropped entries "
+                    "result in 0 tools loaded for this agent — convert "
+                    "to bare-string format.",
+                    skill_path, dropped_dicts,
+                )
+            return names
         return None
 
     # ------------------------------------------------------------------
