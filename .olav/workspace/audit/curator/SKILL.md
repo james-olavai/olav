@@ -1,6 +1,7 @@
 ---
 name: curator
 description: "Audit curator — schema discovery, TextFSM learning, trace analysis, pattern curation for the audit subsystem. Renamed from learner per ADR-0003 B.2 + ADR-0005 (Round 34)."
+agent_type: api  # skip TodoListMiddleware — curator is task-completion (one or two tool calls, no plan-loop)
 metadata:
   version: 2.0.0
   replaces: [learner v1.0.0]

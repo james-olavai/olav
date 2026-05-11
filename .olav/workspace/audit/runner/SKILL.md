@@ -1,6 +1,7 @@
 ---
 name: audit-runner
 description: "Audit Run — executes an existing Profile against the DB and produces a Markdown health report. Two tool calls, deterministic."
+agent_type: api  # skip TodoListMiddleware — runner is task-completion, not plan-and-iterate
 tools:
   - run_map_engine
   - render_report

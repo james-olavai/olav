@@ -1,9 +1,11 @@
 ---
 name: audit-author
 description: "Audit Profile Author — creates, extends, or retunes Profile files via Pydantic-typed structured-output tools. Merged from the v0.18.0 designer sub-agent (Round 17)."
+agent_type: api  # skip TodoListMiddleware — author is task-completion (save_profile or append_jobs ends the flow)
 tools:
   - save_profile
   - append_jobs
+  - list_profiles
   - execute_skill_script
   - recall_memory
 references:
