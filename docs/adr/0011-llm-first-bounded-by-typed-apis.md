@@ -129,24 +129,42 @@ will route to one of:
   residual cases inside the supported scope)
 - HITL escape hatch (see §5)
 
-### 5. `feasibility = OK_HITL_ONLY` makes the lab boundary explicit
+### 5. Feasibility states — `OK` is the path for all model-validatable changes
 
-`submit_change_plan` accepts a third feasibility value beyond `OK`
-and `BLOCKED`:
+**Update 2026-05-11 (rev 250)**: the original §5 framing positioned
+`OK_HITL_ONLY` as the default route for `intent='freeform_cli'`
+because R89 had no SRL translator. That assumption was invalidated
+when the prose-mode LLM translator (`src/olav/core/cab/freeform_translator.py`)
+was added: lab can now translate prod CLI → SRL automatically for
+any intent the LLM can map (validated in-vivo on both DeepSeek V4
+Flash and gemma4:31b nothink). The architecture is single-path.
 
-- `OK`: sim verified the change is feasible AND the lab digital twin
-  can validate it deterministically (e.g. `intent='ebgp_direct'`
-  reaches lab via R89 SRL renderer)
-- `OK_HITL_ONLY`: sim verified the change is feasible but the lab
-  digital twin cannot deterministically validate it (e.g.
-  `intent='freeform_cli'` — sim emits valid prod CLI but R89 has no
-  SRL translator). The TCF spec is still written, the human-readable
-  plan is still emitted, but `next_step.action = 'hitl_review'` and
-  the orchestrator surfaces the spec for manual prod application.
-  This is **not a failure**; it is honest scope marking.
+`submit_change_plan` accepts three feasibility values:
+
+- `OK`: sim verified the change is feasible and lab validation should
+  proceed. Use this for **all freeform_cli changes by default** —
+  the translator handles SRL mapping, the lab pipeline runs end-to-
+  end, and the FAIL verdict (if any) is more informative than
+  preemptive HITL.
+
+- `OK_HITL_ONLY`: reserved for the rare case where sim has reason to
+  believe lab cannot validate even with the translator (e.g., commands
+  that touch credentials, security policies, vendor-specific features
+  with no SRL equivalent and no clean mapping in the translator's
+  system prompt). The TCF spec + human-readable plan are still
+  emitted; lab dispatch is skipped; the orchestrator surfaces the
+  artifacts for manual prod application. **Not the default — use OK
+  first.**
+
 - `BLOCKED`: sim found a hard blocker (same-AS for eBGP, missing
-  inspector data after 4 calls, infeasible topology, …). No spec
+  inspector data after 4 calls, infeasible topology, etc.). No spec
   emitted.
+
+**Translator failure path**: if `freeform_translator` returns
+`status=error` (model produced empty or invalid SRL), `validate_tcf_in_lab`
+returns `phase=translate` error and the orchestrator surfaces it.
+This is graceful degradation, not a feasibility state — sim
+shouldn't preemptively predict translator failure.
 
 ## Consequences
 
