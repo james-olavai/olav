@@ -1,8 +1,13 @@
 ---
 name: infra
 description: "Query registered services (NetBox DCIM/IPAM, InfluxDB, etc.) + generate bulk change scripts. Sub-agent of devops orchestrator."
+agent_type: api  # rev 266: skip TodoListMiddleware
 tools:
   - format_and_export
+  - api_request           # hit NetBox / InfluxDB / other registered services
+  - service_health        # check connectivity to a service before querying it
+  - execute_sql           # cross-reference with OLAV local cache when needed
+  - recall_memory         # prior endpoint / payload decisions
 static_context:
   - path: ./references/netbox_dcim_api.md
   - path: ./references/netbox_ipam_api.md

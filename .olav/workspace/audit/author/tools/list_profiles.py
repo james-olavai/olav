@@ -43,6 +43,24 @@ def _first_header(path: Path) -> str:
     return ""
 
 
+def _is_deprecated(path: Path) -> bool:
+    """Cheap check for `deprecated: true` in YAML frontmatter — no full YAML parse."""
+    try:
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()[:30]
+        for i, line in enumerate(lines):
+            s = line.strip()
+            if i > 0 and s == "---":
+                break  # end of frontmatter
+            if s.startswith("deprecated:"):
+                val = s.split(":", 1)[1].split("#", 1)[0].strip().lower()
+                if val in ("true", "yes", "1"):
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 @tool
 def list_profiles() -> dict:
     """List every available audit Profile in the project's profiles directory.
@@ -75,17 +93,24 @@ def list_profiles() -> dict:
         }
 
     profiles: list[dict] = []
+    deprecated_names: list[str] = []
     for p in sorted(profiles_dir.glob("*.md")):
+        is_dep = _is_deprecated(p)
         profiles.append({
             "name": p.stem,
             "filename": p.name,
             "title": _first_header(p),
             "size_bytes": p.stat().st_size,
+            "deprecated": is_dep,
         })
+        if is_dep:
+            deprecated_names.append(p.stem)
 
     return {
         "status": "success",
         "profiles_dir": str(profiles_dir),
         "count": len(profiles),
+        "deprecated_count": len(deprecated_names),
+        "deprecated_names": deprecated_names,
         "profiles": profiles,
     }

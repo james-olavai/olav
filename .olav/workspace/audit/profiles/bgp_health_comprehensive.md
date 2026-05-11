@@ -2,6 +2,7 @@
 name: bgp_health_comprehensive
 version: '4.0'
 persist_findings_to_db: false
+deprecated: true   # rev 266: variant of bgp_health.md with stale SQL (FROM v_bgp_neighbors_auto unqualified, MAX(created_at) on view that has no created_at column). Use bgp_health.md for canonical BGP health audit.
 max_findings_per_job: 50
 jobs:
 - name: BGP_DOWN_SESSIONS
