@@ -95,12 +95,16 @@ intent_type: ebgp_direct
 
 
 def test_render_unknown_intent(tmp_path):
+    # Use an intent that's neither in _INTENT_RENDERERS nor has a YAML
+    # schema under src/olav/data/intent_schemas/. (vlan_add was used here
+    # before rev 271; now that vlan_add.intent.yaml exists it's a valid
+    # routed intent.)
     plan = """
 ## Change Summary
 ```yaml
 change_id: x1
 title: T
-intent_type: vlan_add
+intent_type: completely_nonexistent_intent_xyz
 devices: [A, B]
 ```
 """
@@ -231,6 +235,80 @@ devices: [R1, R3]
     # Post_check + tvt populated
     assert "PC-R1-bgp" in yaml_text
     assert "TC-bgp-R1-R3" in yaml_text
+
+
+def test_render_via_yaml_schema_static_route_add(tmp_path):
+    """Rev 271 Phase F integration: when the intent has a matching
+    ``src/olav/data/intent_schemas/<intent>.intent.yaml``, dispatch
+    routes through generic_intent_handler (no hand-coded Python
+    needed in _INTENT_RENDERERS).
+    """
+    fake_facts = {
+        "R3": {"platform": "cisco_ios", "loopback": "3.3.3.3", "local_as": 65000},
+    }
+
+    # generic_intent_handler opens its own duckdb conn via MAIN_DB_PATH.
+    # We patch duckdb.connect to return a stub that serves the
+    # static_route_add fact_lookups query.
+    class _StubCursor:
+        def __init__(self, row): self._row = row
+        def fetchone(self): return self._row
+    class _StubDB:
+        def execute(self, sql, args=()):
+            if "FROM netops.devices" in sql and "platform" in sql:
+                return _StubCursor(("cisco_ios",))
+            return _StubCursor(None)
+        def close(self): pass
+
+    plan = """
+## Change Summary
+```yaml
+change_id: r3-static-rt-01
+title: Add static route 192.0.2.0/24 via 10.0.13.1 on R3
+intent_type: static_route_add
+devices: [R3]
+intent_args:
+  src_device: R3
+  dst_prefix: 192.0.2.0/24
+  next_hop_ip: 10.0.13.1
+```
+"""
+    with patch("olav.core.cab.tcf_writer._db_facts", return_value=fake_facts), \
+         patch("duckdb.connect", return_value=_StubDB()):
+        r = render_tcf_from_change_plan(
+            plan, output_dir=tmp_path, lab_subnet="172.16.99.0/30",
+        )
+
+    assert r["status"] == "ok", f"render failed: {r}"
+    spec_path = Path(r["spec_path"])
+    assert spec_path.exists()
+    yaml_text = spec_path.read_text()
+    # Cisco IOS static-route CLI from the YAML schema's Jinja templates
+    assert "ip route 192.0.2.0 255.255.255.0 10.0.13.1" in yaml_text
+    assert "no ip route 192.0.2.0 255.255.255.0 10.0.13.1" in yaml_text
+    # Post-check command + expected pattern
+    assert "show ip route 192.0.2.0/24" in yaml_text
+    assert "expected_pattern: 10.0.13.1" in yaml_text
+
+
+def test_render_via_yaml_schema_missing_intent_args(tmp_path):
+    """YAML-schema-routed intents need an `intent_args:` block."""
+    fake_facts = {
+        "R3": {"platform": "cisco_ios", "loopback": "3.3.3.3", "local_as": 65000},
+    }
+    plan = """
+## Change Summary
+```yaml
+change_id: r3-static-rt-no-args
+title: Missing intent_args
+intent_type: static_route_add
+devices: [R3]
+```
+"""
+    with patch("olav.core.cab.tcf_writer._db_facts", return_value=fake_facts):
+        r = render_tcf_from_change_plan(plan, output_dir=tmp_path)
+    assert r["status"] == "error"
+    assert "intent_args" in r["error"]
 
 
 def test_render_warns_on_db_gaps(tmp_path):

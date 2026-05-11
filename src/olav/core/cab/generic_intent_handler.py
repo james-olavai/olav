@@ -323,11 +323,31 @@ def render_intent_to_tcf_blocks(
             "description": desc,
         })
 
+    # 7. pre_check + tvt — tcf_writer expects both keys; YAML schemas
+    #    don't currently declare pre_checks (rare for L3 changes), but
+    #    we expose an empty list so the caller doesn't crash. tvt is
+    #    auto-derived from post_check IDs so the deterministic verifier
+    #    has something to match against.
+    pre_check: list[dict[str, Any]] = []
+    tvt: list[dict[str, Any]] = []
+    if post_check:
+        tvt.append({
+            "test_id": f"TC-{intent}-verify",
+            "description": (
+                f"All post_check evidence must match expected patterns "
+                f"({len(post_check)} check{'s' if len(post_check) != 1 else ''})"
+            ),
+            "expected": "all-post-checks-pass",
+            "evidence_check_ids": [pc["check_id"] for pc in post_check],
+        })
+
     return {
         "intent": intent,
         "implementation": implementation,
         "rollback": rollback,
+        "pre_check": pre_check,
         "post_check": post_check,
+        "tvt": tvt,
         "facts_used": all_facts,
         "platform": platform_key,
     }

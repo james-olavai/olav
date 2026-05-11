@@ -605,12 +605,31 @@ def render_tcf_from_change_plan(
         lab_subnet = allocate_lab_subnet(summary["change_id"])
 
     intent_type = summary["intent_type"]
-    if intent_type not in _INTENT_RENDERERS:
+
+    # rev 271 Phase F integration: when an `intent_schemas/<intent>.intent.yaml`
+    # exists, route through the generic config-driven handler. Hand-coded
+    # entries in _INTENT_RENDERERS remain canonical for intents not yet ported
+    # (currently ebgp_direct, freeform_cli) — schema lookup is checked first.
+    try:
+        from olav.core.cab.generic_intent_handler import _schemas_dir as _gh_schemas_dir
+        _yaml_schema_exists = (_gh_schemas_dir() / f"{intent_type}.intent.yaml").exists()
+    except Exception:
+        _yaml_schema_exists = False
+
+    if intent_type not in _INTENT_RENDERERS and not _yaml_schema_exists:
+        available = sorted(_INTENT_RENDERERS.keys())
+        try:
+            from olav.core.cab.generic_intent_handler import list_intents as _gh_list
+            schema_intents = _gh_list()
+            if schema_intents:
+                available = sorted({*available, *schema_intents})
+        except Exception:
+            pass
         return {
             "status": "error",
             "error": (
                 f"intent_type {intent_type!r} not supported by tcf_writer. "
-                f"Supported: {sorted(_INTENT_RENDERERS.keys())}.  "
+                f"Supported: {available}.  "
                 "Either add a renderer or have sim escalate to a human."
             ),
         }
@@ -668,14 +687,52 @@ def render_tcf_from_change_plan(
                 "facts": facts,
             }
 
-    # Render per-intent CLI blocks.  freeform_cli takes the parsed
-    # summary dict so it can read sim-supplied cli_per_device etc.;
-    # ebgp_direct's renderer doesn't need it.
-    renderer = _INTENT_RENDERERS[intent_type]
+    # Render per-intent CLI blocks. Three dispatch paths:
+    #   (a) YAML schema match (rev 271 Phase F): config-driven via
+    #       generic_intent_handler — preferred for new intents.
+    #   (b) freeform_cli: hand-coded, takes parsed summary (sim
+    #       supplies cli_per_device etc.).
+    #   (c) Other hand-coded entries (ebgp_direct): take only
+    #       devices / facts / lab_subnet.
     try:
-        if intent_type == "freeform_cli":
+        if _yaml_schema_exists:
+            from olav.core.cab.generic_intent_handler import (
+                render_intent_to_tcf_blocks as _gh_render,
+            )
+            import duckdb
+            try:
+                from olav.core.config import MAIN_DB_PATH
+                _db_conn = duckdb.connect(str(MAIN_DB_PATH), read_only=True)
+            except Exception as _db_exc:
+                return {
+                    "status": "error",
+                    "error": f"generic_intent_handler: DB open failed: {_db_exc}",
+                    "facts": facts,
+                }
+            try:
+                intent_args = summary.get("intent_args") or {}
+                if not intent_args:
+                    return {
+                        "status": "error",
+                        "error": (
+                            f"intent {intent_type!r} uses YAML schema; "
+                            "summary YAML must include `intent_args:` block "
+                            "with per-intent fields. See "
+                            "src/olav/data/intent_schemas/<intent>.intent.yaml "
+                            "for required args."
+                        ),
+                    }
+                rendered = _gh_render(intent_type, intent_args, _db_conn)
+            finally:
+                try:
+                    _db_conn.close()
+                except Exception:
+                    pass
+        elif intent_type == "freeform_cli":
+            renderer = _INTENT_RENDERERS[intent_type]
             rendered = renderer(devices, facts, lab_subnet, summary)
         else:
+            renderer = _INTENT_RENDERERS[intent_type]
             rendered = renderer(devices, facts, lab_subnet)
     except Exception as exc:  # noqa: BLE001
         return {
