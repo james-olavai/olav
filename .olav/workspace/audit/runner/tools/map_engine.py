@@ -213,47 +213,37 @@ def run_map_engine(
                             severity = "Warning"
                 if emit_sources:
                     _attach_sql_sources(findings, job.get("query", ""))
-            elif job_type == "lancedb":
-                findings = _execute_lancedb_job(
-                    job=job,
-                    time_window=time_window,
-                    max_findings=max_findings,
-                )
-            elif job_type == "anomaly":
-                from anomaly_engine import run_anomaly_job
-                findings = run_anomaly_job(
-                    conn=conn,
-                    job=job,
-                    window=time_window,
-                    max_findings=max_findings,
-                    resolution_minutes=resolution_minutes,
-                    emit_sources=emit_sources,
-                )
-                if not findings and job.get("raw_fallback"):
-                    findings = _raw_fallback_probe(
-                        conn, job.get("anomaly", {}).get("query", "")
-                    )
-            elif job_type == "api_anomaly":
-                # Third-party API path: no raw history in DuckDB.
-                # Observations are fetched via HTTP (job.api.endpoint) or
-                # pre-staged in DuckDB table `api_metrics`.
-                # baseline_engine maintains a Welford rolling stats table
-                # (anomaly_baselines) so Z-scores work after min_samples polls.
-                from baseline_engine import run_baseline_job
-                api_cfg = job.get("api", {})
-                observations = _fetch_api_observations(api_cfg, conn, time_window)
-                findings = run_baseline_job(
-                    conn=conn,
-                    observations=observations,
-                    metric_cols=api_cfg.get("metric_cols", []),
-                    threshold=api_cfg.get("threshold", 2.5),
-                    device_col=api_cfg.get("device_col", "device_name"),
-                    max_findings=max_findings,
-                    resolution_minutes=resolution_minutes,
-                )
             else:
-                logger.warning("Unknown job type %r for job %r — skipping", job_type, job_name)
-                findings = []
+                # Rev 274 (2026-05-12): audit collapses to a single
+                # `type: sql` after the collect/audit boundary review.
+                # Previously map_engine accepted `lancedb` /  `anomaly`
+                # / `api_anomaly` job types — those violated the
+                # contract that audit only reads from the collected
+                # netops.* tables. HTTP probing, third-party API
+                # polling, and Z-score baseline updates all belong in
+                # the collect pipeline (netops_collect writes to
+                # parsed_outputs / a dedicated stats table), and audit
+                # then SELECTs anomalies via SQL CTEs.
+                #
+                # Existing profiles that still declare non-sql types
+                # surface as an explicit finding so the operator sees
+                # the drift rather than a silently-empty section.
+                logger.warning(
+                    "Job %r type=%r is no longer supported (rev 274 "
+                    "audit collapsed to single sql type). Rewrite the "
+                    "job using `type: sql` with a CTE expressing the "
+                    "anomaly logic.",
+                    job_name, job_type,
+                )
+                findings = [{
+                    "device": "(map_engine)",
+                    "metric_value": 0,
+                    "metric_name": (
+                        f"Job type {job_type!r} is deprecated (rev 274). "
+                        f"Rewrite as `type: sql` with appropriate CTE."
+                    ),
+                    "severity_hint": "Warning",
+                }]
 
             jobs_output[job_name] = {
                 "severity": severity,
@@ -311,87 +301,6 @@ def run_map_engine(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-
-def _fetch_api_observations(
-    api_cfg: dict,
-    conn: duckdb.DuckDBPyConnection,
-    time_window: str,
-) -> list[dict]:
-    """Fetch observations for an api_anomaly job.
-
-    Two strategies, selected by api_cfg keys:
-
-    1. DuckDB query (api.query)  — reads from a pre-staged api_metrics table or
-       any DuckDB-accessible source.  Use this when a collector script already
-       writes API results to DuckDB via IngestManager.
-
-    2. HTTP GET/POST (api.endpoint) — calls the third-party URL directly and
-       extracts observations from the JSON response body.
-       Supports:
-         api:
-           endpoint: "https://nms.example.com/api/v2/metrics"
-           method: GET            # GET (default) or POST
-           headers: {"X-APIKey": "secret"}
-           params: {"window": "7d", "format": "json"}
-           observations_key: "data.devices"   # dot-path into the response JSON
-           device_col: device_name
-           metric_cols: [cpu_5min, mem_used_pct]
-           threshold: 2.5
-    """
-    # ── Strategy 1: DuckDB-backed staging table ────────────────────────────
-    if "query" in api_cfg:
-        try:
-            # Use parameterized binding — NEVER interpolate time_window directly into SQL.
-            # The query template uses INTERVAL :window; we bind the safe interval string.
-            interval_str = _window_to_interval_str(time_window)
-            df = conn.execute(api_cfg["query"], {"window": interval_str}).fetchdf()
-            return df.to_dict(orient="records")
-        except Exception as exc:
-            logger.warning("api_anomaly DuckDB query failed: %s", exc)
-            return []
-
-    # ── Strategy 2: HTTP fetch ─────────────────────────────────────────────
-    endpoint = api_cfg.get("endpoint", "")
-    if not endpoint:
-        logger.warning("api_anomaly job has no 'query' or 'endpoint' — returning empty")
-        return []
-
-    try:
-        import json as _json
-        import urllib.parse
-        import urllib.request
-
-        method = api_cfg.get("method", "GET").upper()
-        headers = api_cfg.get("headers", {})
-        params = api_cfg.get("params", {})
-
-        if method == "GET" and params:
-            endpoint = endpoint + "?" + urllib.parse.urlencode(params)
-        req = urllib.request.Request(endpoint, headers=headers, method=method)
-        if method == "POST" and params:
-            req.data = _json.dumps(params).encode()
-            req.add_header("Content-Type", "application/json")
-
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = _json.loads(resp.read())
-
-        # Navigate dot-path into response, e.g. "data.devices"
-        obs_key = api_cfg.get("observations_key", "")
-        for part in obs_key.split("."):
-            if part and isinstance(body, dict):
-                body = body.get(part, body)
-
-        if isinstance(body, list):
-            return body
-        if isinstance(body, dict):
-            # Wrap single-device response
-            return [body]
-        logger.warning("api_anomaly: unexpected response structure from %s", endpoint)
-        return []
-    except Exception as exc:
-        logger.warning("api_anomaly HTTP fetch failed (%s): %s", endpoint, exc)
-        return []
 
 
 def _extract_first_table(query: str) -> str | None:
@@ -594,81 +503,6 @@ def _execute_sql_job(
     columns = [desc[0] for desc in result.description]
     rows = result.fetchall()
     return [dict(zip(columns, row, strict=False)) for row in rows]
-
-
-def _execute_lancedb_job(
-    job: dict,
-    time_window: str,
-    max_findings: int,
-) -> list[dict]:
-    """Run a LanceDB semantic query with time filtering.
-
-    Time filter is computed as an absolute Python datetime — NOT a template string.
-    """
-    try:
-        import lancedb  # type: ignore
-    except ImportError:
-        logger.warning("lancedb not installed — skipping LanceDB job %r", job.get("name"))
-        return []
-
-    # ISSUE-005: knowledge_db_dir may be None on minimal configs — fallback to default
-    try:
-        from olav.core.config import get_paths_config
-        lancedb_path = get_paths_config().knowledge_db_dir
-        if not lancedb_path:
-            raise ValueError("knowledge_db_dir is None")
-    except Exception:
-        lancedb_path = None
-
-    if lancedb_path is None:
-        default = Path(".olav/databases/knowledge")
-        if default.exists():
-            lancedb_path = default
-        else:
-            logger.warning("Cannot resolve LanceDB path — skipping job %r", job.get("name"))
-            return []
-
-    cutoff = _parse_window_to_cutoff(time_window)
-    semantic_query = job.get("semantic_query", "")
-    threshold = job.get("similarity_threshold", 0.8)
-
-    try:
-        db = lancedb.connect(str(lancedb_path))
-        table = db.open_table("syslog_vectors")
-        results = (
-            table.search(semantic_query)
-            .metric("cosine")
-            .limit(max_findings * 2)  # over-fetch, then filter by time + threshold
-            .to_pandas()
-        )
-
-        # Filter by time and similarity
-        if "_distance" in results.columns:
-            results = results[1 - results["_distance"] >= threshold]
-        if "timestamp" in results.columns:
-            results = results[results["timestamp"] >= cutoff]
-
-        return results.head(max_findings).to_dict(orient="records")
-
-    except Exception as exc:
-        logger.warning("LanceDB query failed for job %r: %s", job.get("name"), exc)
-        return []
-
-
-def _window_to_interval_str(window: str) -> str:
-    """Convert a short window string to a DuckDB-compatible INTERVAL value string.
-
-    Used for parameterized binding — the returned string is bound as a value,
-    never interpolated into SQL source.
-    """
-    w = window.strip().lower()
-    if w.endswith("h"):
-        return f"{w[:-1]} hours"
-    if w.endswith("m"):
-        return f"{w[:-1]} minutes"
-    if w.endswith("d"):
-        return f"{w[:-1]} days"
-    return "1 hours"
 
 
 def _parse_window_to_cutoff(window: str) -> datetime:
