@@ -112,6 +112,13 @@ def read_profile(name: str, profiles_dir: str | None = None) -> dict:
         "jobs": jobs,
         "raw_yaml": frontmatter_text,
         "body_preview": body[:300] if body else "",
+        # Full markdown body — needed by append_jobs to preserve narrative on rewrite
+        "body": body or "",
+        # Top-level profile flags surfaced from frontmatter — needed when
+        # rewriting (e.g. append_jobs preserves the existing persistence
+        # + max_findings choice)
+        "persist_findings_to_db": bool(metadata.get("persist_findings_to_db", False)),
+        "max_findings_per_job": int(metadata.get("max_findings_per_job", 50)),
     }
 
 
