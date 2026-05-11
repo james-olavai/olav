@@ -3,8 +3,9 @@ name: audit-author
 description: "Audit Profile Author — creates, extends, or retunes Profile files via Pydantic-typed structured-output tools. Merged from the v0.18.0 designer sub-agent (Round 17)."
 agent_type: api  # skip TodoListMiddleware — author is task-completion (save_profile or append_jobs ends the flow)
 tools:
-  - save_profile
-  - append_jobs
+  - create_profile_atomic   # one-call create (preferred for Mode 1)
+  - save_profile            # retune/overwrite path (Mode 2)
+  - append_jobs             # extend existing (Mode 3)
   - list_profiles
   - execute_skill_script
   - recall_memory
@@ -19,7 +20,7 @@ Profile file under `.olav/workspace/audit/profiles/`. Three sub-modes:
 
 | Sub-mode | When | Key tools |
 |---|---|---|
-| **Create** | User asks for a fresh profile | database_introspection → test_map_query → [analyze_thresholds] → save_profile |
+| **Create** | User asks for a fresh profile | **one call: `create_profile_atomic(name, jobs=[ProfileJob, ...])`** (server-side does introspection + per-SQL validation + write) |
 | **Retune** | Existing profile thresholds need updating | list_profiles → read_profile → analyze_thresholds → save_profile (overwrite) |
 | **Append** | Add new jobs to an existing profile | read_profile → database_introspection → test_map_query → append_jobs |
 
