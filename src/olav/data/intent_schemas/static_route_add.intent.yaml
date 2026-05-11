@@ -1,0 +1,77 @@
+intent: static_route_add
+description: "Add a static route on a device pointing to a next-hop IP."
+version: '1.0'
+applies_to_platforms: [cisco_ios, juniper_junos]
+
+# LLM-supplied args from submit_change_plan (Pydantic schema can be
+# generated from this block dynamically; for now sim still hand-codes
+# the Pydantic but the contract is centralised here).
+args:
+  src_device:
+    type: string
+    required: true
+    description: "Device hostname where the static route will be installed (must match netops.devices.hostname)."
+  dst_prefix:
+    type: string
+    required: true
+    description: "Destination network in CIDR notation, e.g. 192.0.2.0/24."
+  next_hop_ip:
+    type: string
+    required: true
+    description: "Next-hop IPv4 address. Must be reachable from src_device; LLM should derive from inspect_topology."
+  admin_distance:
+    type: integer
+    required: false
+    default: 1
+    description: "Administrative distance (1-255). Optional, default 1."
+
+# Server-side fact lookups against netops.* tables.
+# args_template entries are rendered with the merged args+previous-facts context.
+fact_lookups:
+  - var: src_platform
+    sql: "SELECT platform FROM netops.devices WHERE hostname = ?"
+    args_template: ["{{ src_device }}"]
+    return: scalar
+    on_missing: error    # raise if no row — sim must have inspected the device first
+
+# Computed facts (pure Python expressions, restricted globals).
+# Useful for CIDR → netmask / network / prefixlen conversions, etc.
+fact_computed:
+  - var: dst_network
+    expr: "str(ipaddress.ip_network('{{ dst_prefix }}', strict=False).network_address)"
+  - var: dst_mask
+    expr: "str(ipaddress.ip_network('{{ dst_prefix }}', strict=False).netmask)"
+
+# Per-platform CLI templates (Jinja2). Each platform key matches against
+# the lowercased fact value of src_platform.
+cli_templates:
+  cisco_ios:
+    setup:
+      - "configure terminal"
+      - "ip route {{ dst_network }} {{ dst_mask }} {{ next_hop_ip }}{% if admin_distance and admin_distance != 1 %} {{ admin_distance }}{% endif %}"
+      - "end"
+      - "write memory"
+    rollback:
+      - "configure terminal"
+      - "no ip route {{ dst_network }} {{ dst_mask }} {{ next_hop_ip }}"
+      - "end"
+      - "write memory"
+  juniper_junos:
+    setup:
+      - "configure"
+      - "set routing-options static route {{ dst_prefix }} next-hop {{ next_hop_ip }}"
+      - "commit and-quit"
+    rollback:
+      - "configure"
+      - "delete routing-options static route {{ dst_prefix }} next-hop {{ next_hop_ip }}"
+      - "commit and-quit"
+
+# Post-check templates. One block per check; command varies by platform.
+post_checks:
+  - device_var: src_device
+    description: "Static route {{ dst_prefix }} via {{ next_hop_ip }} is installed in the RIB"
+    command_templates:
+      cisco_ios: "show ip route {{ dst_prefix }}"
+      juniper_junos: "show route {{ dst_prefix }}"
+    expected_pattern: "{{ next_hop_ip }}"
+    must_match: true
