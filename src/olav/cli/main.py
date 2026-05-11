@@ -65,11 +65,46 @@ def _mark_run_interrupted() -> None:
 
 
 def _sigterm_handler(signum: int, frame: object) -> None:
+    """Cancel active asyncio tasks + mark run interrupted + exit non-zero.
+
+    Rev 268: closes ISSUE-CLI-TIMEOUT-NO-PROCESS-KILL (P2, rev 242). The
+    previous handler called `sys.exit(0)` from the main thread, but
+    when OLAV was inside an `await self.graph.ainvoke(...)` the asyncio
+    loop and ThreadPoolExecutor kept running in their own contexts and
+    ignored the SystemExit — so `bash timeout` would SIGTERM the wrapper
+    but the Python child stayed alive minutes longer (rev 242 A5: 22-min
+    drag).
+
+    Fix: explicitly walk every asyncio task and call `.cancel()`, then
+    exit with code 130 (standard "killed by SIGINT/SIGTERM" convention)
+    so callers see a clear non-zero status instead of a misleading 0.
+    """
+    import asyncio
     _mark_run_interrupted()
-    sys.exit(0)
+    try:
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None and loop.is_running():
+            for task in asyncio.all_tasks(loop):
+                task.cancel()
+    except Exception:
+        pass
+    # Use code 130 (128 + SIGINT/SIGTERM) so wrappers can detect a
+    # terminate vs a real exit. bash's `timeout` itself returns 124
+    # / 137; this lets us distinguish the timeout sender from the
+    # signal recipient.
+    sys.exit(130)
+
+
+def _sigint_handler(signum: int, frame: object) -> None:
+    """Handle Ctrl-C identically — same cancellation path."""
+    _sigterm_handler(signum, frame)
 
 
 signal.signal(signal.SIGTERM, _sigterm_handler)
+signal.signal(signal.SIGINT, _sigint_handler)
 
 _GENERIC_DOMAIN_PROMPT = "You are an AI Operations Assistant."
 
