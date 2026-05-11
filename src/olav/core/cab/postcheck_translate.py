@@ -52,12 +52,17 @@ _PROD_TO_SRL_RULES: list[tuple[re.Pattern[str], str]] = [
             re.I,
         ),
         # SRL ipv4-prefix YANG pattern requires CIDR. If the prod
-        # command uses bare IP, default to /32 so the command parses
-        # — it returns "no match" which the post_check pattern test
-        # handles correctly.
+        # command uses bare IP (IOS "show ip route X" form), fall
+        # back to ``summary`` which lists ALL routes — pattern
+        # matching against the expected_pattern (e.g. "192.0.2.0/24")
+        # then works as a simple substring check across the dump.
+        # This is more reliable than guessing the right prefix length.
         lambda m: (
             'sr_cli "show network-instance default route-table '
-            f'ipv4-unicast prefix {m.group(1) if "/" in m.group(1) else m.group(1) + "/32"}"'
+            f'ipv4-unicast prefix {m.group(1)}"'
+            if "/" in m.group(1)
+            else 'sr_cli "show network-instance default route-table '
+                 'ipv4-unicast summary"'
         ),
     ),
     (

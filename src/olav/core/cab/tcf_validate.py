@@ -296,6 +296,184 @@ def validate_tcf_in_lab(
     configs: dict[str, list[str]] = {}
     if use_freeform_translator:
         from olav.core.cab.freeform_translator import translate_prod_cli_to_srl
+        from olav.core.cab.postcheck_translate import build_prod_to_lab_ip_map
+
+        # Build prod→lab IP map for freeform_cli (mimics what Patch M
+        # does for ebgp_direct via r89_args). Synthesise the required
+        # args from r88 + intent so the existing helper can run.
+        # 2026-05-11 (rev 252): fixes ISSUE-CAB-FREEFORM-PROD-IP-LEAK —
+        # prod IPs (10.1.13.x) referenced in sim's CLI must be substituted
+        # for the device's actual lab IP (e.g. 192.0.2.61) before the SRL
+        # config is pushed, otherwise next-hops are unreachable in lab.
+        intent_extras = tcf_full.intent.model_dump()
+        lab_subnet_for_map = (
+            intent_extras.get("lab_subnet")
+            or r88_args.get("lab_subnet")
+            or "172.16.99.0/30"
+        )
+
+        # Compute lab IPs per node from lab_subnet (mimics R89 allocation).
+        import ipaddress as _ipaddr
+        import re as _re
+        try:
+            _net = _ipaddr.ip_network(lab_subnet_for_map, strict=False)
+            _hosts = [str(h) for h in _net.hosts()]
+        except Exception:
+            _hosts = []
+        _device_names = [d.name for d in tcf_full.devices]
+        lab_ip_by_node: dict[str, str] = {}
+        for idx, name in enumerate(_device_names):
+            if idx < len(_hosts):
+                lab_ip_by_node[name] = _hosts[idx]
+
+        # Loopbacks survive verbatim (R89/SRL reuses prod loopback as system0)
+        loopbacks: set[str] = set()
+        for d in tcf_full.devices:
+            if getattr(d, "prod_loopback", None):
+                loopbacks.add(str(d.prod_loopback))
+
+        # Scan each device's CLI for IPv4 literals in NEXT-HOP /
+        # NEIGHBOR / INTERFACE-ADDRESS context only. Destination
+        # prefixes (e.g. `route 192.0.2.0/24`) are NOT mapped — the
+        # destination network stays the same in prod and lab.
+        # Patterns matched (IP captured as group 1):
+        #   IOS:    "ip address <IP> <MASK>"
+        #   IOS:    "ip route <PFX> <MASK> <NEXTHOP>"
+        #   IOS:    "neighbor <IP> remote-as ..."
+        #   Junos:  "next-hop <IP>"
+        #   Junos:  "address <IP>/<MASK>"
+        #   Junos:  "peer-address <IP>"
+        _IPCTX_PATTERNS = [
+            # IOS "ip route X Y NEXTHOP" — captures NEXTHOP only
+            _re.compile(
+                r"\bip\s+route\s+\d+\.\d+\.\d+\.\d+\s+\d+\.\d+\.\d+\.\d+\s+"
+                r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b"
+            ),
+            # IOS "neighbor X remote-as Y"
+            _re.compile(
+                r"\bneighbor\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b"
+            ),
+            # Junos / SRL "next-hop X"
+            _re.compile(
+                r"\bnext-hop\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b"
+            ),
+            # Junos / SRL "peer-address X" / "peer X"
+            _re.compile(
+                r"\b(?:peer-address|peer)\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b"
+            ),
+            # "ip address X Y" (IOS interface)
+            _re.compile(
+                r"\bip\s+address\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+\d+\.\d+\.\d+\.\d+"
+            ),
+            # Junos "address X/MASK"
+            _re.compile(
+                r"\baddress\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/\d{1,2}\b"
+            ),
+        ]
+        freeform_ip_map: dict[str, str] = {}
+        impl_by_device: dict[str, list[str]] = {}
+        for impl in tcf_full.implementation:
+            impl_by_device.setdefault(impl.device, []).extend(
+                impl.cli if isinstance(impl.cli, list) else [impl.cli]
+            )
+
+        if len(_device_names) == 2 and len(lab_ip_by_node) == 2:
+            a, b = _device_names[0], _device_names[1]
+            peer_lab = {a: lab_ip_by_node[b], b: lab_ip_by_node[a]}
+            for name in _device_names:
+                for ln in impl_by_device.get(name, []):
+                    if not isinstance(ln, str):
+                        continue
+                    # Collect IPs only from next-hop/neighbor/address
+                    # contexts (skip destination prefixes).
+                    for pat in _IPCTX_PATTERNS:
+                        for ip in pat.findall(ln):
+                            if ip in loopbacks:
+                                continue
+                            if ip in freeform_ip_map:
+                                continue
+                            try:
+                                obj = _ipaddr.IPv4Address(ip)
+                                if obj.is_multicast or obj.is_unspecified or obj.is_reserved:
+                                    continue
+                            except ValueError:
+                                continue
+                            freeform_ip_map[ip] = peer_lab[name]
+        # For 1-device or >2-device specs, fall back to the
+        # interface-aware Patch M helper (handles ip-address /
+        # subinterface-style CLI better).
+        elif len(_device_names) >= 1:
+            try:
+                freeform_ip_map = build_prod_to_lab_ip_map(
+                    tcf_full,
+                    {"nodes": _device_names, "lab_subnet": lab_subnet_for_map},
+                )
+            except Exception:  # noqa: BLE001
+                freeform_ip_map = {}
+
+        def _substitute_ips(lines: list[str]) -> list[str]:
+            if not freeform_ip_map:
+                return lines
+            out: list[str] = []
+            for ln in lines:
+                if not isinstance(ln, str):
+                    out.append(ln)
+                    continue
+                replaced = ln
+                # Replace longest IPs first to avoid prefix collisions.
+                for prod_ip in sorted(freeform_ip_map, key=len, reverse=True):
+                    if prod_ip in replaced:
+                        replaced = replaced.replace(prod_ip, freeform_ip_map[prod_ip])
+                out.append(replaced)
+            return out
+
+        # Compute lab subnet prefix-length for base interface config.
+        _net_for_mask = _ipaddr.ip_network(lab_subnet_for_map, strict=False)
+        _prefixlen = _net_for_mask.prefixlen
+
+        def _base_srl_lines(node_name: str) -> list[str]:
+            """Base SRL config a freeform_cli change relies on: link
+            interface with the device's lab IP + system0 loopback +
+            interface placed in default network-instance. Mirrors what
+            R89 builds for ebgp_direct so static routes / OSPF
+            adjacencies on top of it actually resolve in lab.
+
+            2026-05-11 (rev 252 follow-up): R88 only sets up empty
+            SRL containers with L2 links; without this base block
+            the translator's CLI (e.g. static route next-hop) has
+            no IP-layer foundation and the route fails to install.
+            """
+            lab_ip = lab_ip_by_node.get(node_name)
+            if not lab_ip:
+                return []
+            lo = ""
+            for d in tcf_full.devices:
+                if d.name == node_name and getattr(d, "prod_loopback", None):
+                    lo = str(d.prod_loopback)
+                    break
+            lines = [
+                "enter candidate",
+                "set / interface ethernet-1/1 admin-state enable",
+                "set / interface ethernet-1/1 subinterface 0 admin-state enable",
+                "set / interface ethernet-1/1 subinterface 0 ipv4 admin-state enable",
+                f"set / interface ethernet-1/1 subinterface 0 ipv4 address {lab_ip}/{_prefixlen}",
+            ]
+            if lo:
+                lines += [
+                    "set / interface system0 admin-state enable",
+                    "set / interface system0 subinterface 0 admin-state enable",
+                    "set / interface system0 subinterface 0 ipv4 admin-state enable",
+                    f"set / interface system0 subinterface 0 ipv4 address {lo}/32",
+                ]
+            lines += [
+                "set / network-instance default type default",
+                "set / network-instance default interface ethernet-1/1.0",
+            ]
+            if lo:
+                lines.append("set / network-instance default interface system0.0")
+            lines.append("commit save")
+            return lines
+
         translation_summaries: dict[str, dict] = {}
         for dev in tcf_full.devices:
             # Find implementation CLI for this device
@@ -312,7 +490,9 @@ def validate_tcf_in_lab(
                     "journal": journal, "errors": errors,
                     "tcf_recorded": False, "lab_destroyed": lab_destroyed,
                 }
-            result = translate_prod_cli_to_srl(dev_cli, dev.platform or "unknown")
+            # Substitute prod IPs → lab IPs BEFORE handing to LLM
+            dev_cli_lab = _substitute_ips(dev_cli)
+            result = translate_prod_cli_to_srl(dev_cli_lab, dev.platform or "unknown")
             translation_summaries[dev.name] = {
                 "status": result["status"],
                 "elapsed_s": result.get("elapsed_s"),
@@ -333,7 +513,20 @@ def validate_tcf_in_lab(
                     "translation_summaries": translation_summaries,
                 }
             # Lab node name = lowercased prod hostname
-            configs[dev.name.lower()] = result["srl_lines"]
+            # Prepend base config (interface IPs + loopback + network-
+            # instance attach) so the translator's change CLI has
+            # IP-layer foundation to operate on.
+            base = _base_srl_lines(dev.name)
+            srl_change = result["srl_lines"]
+            # Strip the change block's leading "enter candidate" /
+            # trailing "commit save" if base already wraps it — keep
+            # only one commit at the end.
+            srl_change_inner = [
+                ln for ln in srl_change
+                if ln.strip().lower() not in ("enter candidate", "commit save")
+            ]
+            combined = base[:-1] + srl_change_inner + ["commit save"] if base else srl_change
+            configs[dev.name.lower()] = combined
         _journal("freeform_translator", "translate",
                  {"devices": [d.name for d in tcf_full.devices]},
                  {"summaries": translation_summaries,
@@ -441,11 +634,18 @@ def validate_tcf_in_lab(
         translate_post_check,
     )
 
-    # For freeform_cli (r89_args is None), Patch M's prod→lab IP map
-    # uses an empty map — there's no R89 lab_subnet to map onto, and
-    # the freeform translator placed prod IPs verbatim into SRL config
-    # so post_check patterns referencing prod IPs match directly.
-    ip_map = build_prod_to_lab_ip_map(tcf_full, r89_args) if r89_args else {}
+    # For freeform_cli (r89_args is None), reuse the same prod→lab IP
+    # map we built earlier in the freeform translator branch so
+    # post_check patterns referencing prod IPs (e.g. "next-hop 10.1.13.1")
+    # are translated to the lab equivalent. Patch M handles this for
+    # ebgp_direct via r89_args; freeform branch builds it from
+    # tcf_full.intent.lab_subnet + device list.
+    if r89_args:
+        ip_map = build_prod_to_lab_ip_map(tcf_full, r89_args)
+    elif use_freeform_translator:
+        ip_map = locals().get("freeform_ip_map", {})
+    else:
+        ip_map = {}
     _journal("translate_post_checks", "verify",
              {"prod_ip_count": len(ip_map)},
              {"ip_map": ip_map, "phase": "verify-prep"})
