@@ -1,8 +1,13 @@
 ---
 name: scripts
 description: "Generate production-grade scripts (bash / python / ansible) using real device + service data from OLAV DB. Sub-agent of devops orchestrator."
+agent_type: api  # rev 266: skip TodoListMiddleware — scripts is task-completion (one final artifact)
 tools:
   - format_and_export
+  - execute_sql           # read real device/service data from OLAV DB to ground scripts
+  - read_file             # inspect existing scripts / configs before generating new
+  - recall_memory         # check prior scripting decisions / patterns
+  - execute_skill_script  # invoke shared netops helpers when relevant
 metadata:
   version: 0.3.0
   type: agent

@@ -8,6 +8,7 @@ description: >
   Covers: CPU, Memory, Interface, BGP, OSPF, STP, Syslog, drift, config changes.
   Total: 15 jobs + post-processing incident clustering.
 persist_findings_to_db: true
+deprecated: true   # rev 266: SQL references pre-netops-schema-migration tables (FROM parsed_outputs unqualified, etc.); needs full rewrite per current netops.* schema. 15-job profile is structurally rich but not runnable as-is. Use bgp_health.md as a working canonical example.
 max_findings_per_job: 100
 run_incident_clustering: true
 snapshot_resolution: 1d
