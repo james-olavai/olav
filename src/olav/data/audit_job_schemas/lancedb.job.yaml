@@ -1,0 +1,23 @@
+job_type: lancedb
+description: "Semantic search over the LanceDB memory store; returns matched entries as findings."
+version: '1.0'
+
+args:
+  semantic_query:
+    type: string
+    required: true
+    description: "Natural-language search string in English (e.g., 'critical error alert failure')."
+  threshold:
+    type: number
+    required: false
+    default: 0.75
+    description: "Cosine-similarity threshold 0-1; entries below are dropped. Recommended 0.75-0.85."
+  max_findings:
+    type: integer
+    required: false
+    default: 50
+
+executor: "olav.core.auditor.executors:execute_lancedb_job"
+
+finding_shape:
+  required_columns: [device, metric_value, metric_name, severity_hint]
