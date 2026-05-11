@@ -290,12 +290,16 @@ def test_submit_tool_args_schema_loaded():
     props = schema["properties"]
     # intent is a string with enum constraint
     assert "intent" in props
-    assert props["intent"]["enum"] == ["ebgp_direct", "ibgp_direct", "vlan_add"]
+    # Rev 254 freeform_cli became the second supported intent (replaces
+    # the older ibgp_direct / vlan_add placeholders); future intents
+    # land via YAML schemas (rev 271 Phase F) rather than expanding
+    # this Literal[].
+    assert props["intent"]["enum"] == ["ebgp_direct", "freeform_cli"]
     # devices is a typed list
     assert props["devices"]["type"] == "array"
     assert props["devices"]["items"]["type"] == "string"
-    # feasibility is enum
-    assert props["feasibility"]["enum"] == ["OK", "BLOCKED"]
+    # feasibility is enum (rev 251 added OK_HITL_ONLY for ADR-0011 §5)
+    assert set(props["feasibility"]["enum"]) >= {"OK", "BLOCKED"}
     # required vs optional
     required = set(schema.get("required", []))
     assert "intent" in required
