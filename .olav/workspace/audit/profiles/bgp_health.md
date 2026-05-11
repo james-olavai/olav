@@ -15,7 +15,7 @@ jobs:
   query: "SELECT \n  d.hostname AS device,\n  COALESCE(b.cnt, 0) AS metric_value,\n\
     \  'BGP Neighbor Count' AS metric_name,\n  CASE \n    WHEN COALESCE(b.cnt, 0)\
     \ = 0 THEN 'Critical'\n    ELSE 'Info' \n  END AS severity_hint\nFROM netops.devices\
-    \ d\nLEFT JOIN (\n  SELECT device_name, COUNT(*) AS cnt\n  FROM v_bgp_neighbors_auto\
+    \ d\nLEFT JOIN (\n  SELECT device_name, COUNT(*) AS cnt\n  FROM netops.v_bgp_neighbors_auto\
     \ \n  GROUP BY device_name\n)\
     \ b ON d.hostname = b.device_name"
 - name: BGP_SESSION_STATE
@@ -30,7 +30,7 @@ jobs:
   query: "SELECT\n  device_name AS device,\n  neighbor_ip,\n  neighbor_as,\n  COALESCE(state,\
     \ 'Unknown') AS state,\n  CASE\n    WHEN state = 'Established' THEN 'Info'\n \
     \   WHEN state IS NULL OR state = '0' OR TRIM(state) = '' THEN 'High'\n    ELSE\
-    \ 'Critical'\n  END AS severity_hint,\n  MAX(created_at) AS last_seen\nFROM v_bgp_neighbors_auto\n\
+    \ 'Critical'\n  END AS severity_hint,\n  MAX(created_at) AS last_seen\nFROM netops.v_bgp_neighbors_auto\n\
     GROUP BY device_name, neighbor_ip, neighbor_as, state\nORDER BY\n  CASE WHEN\
     \ state = 'Established' THEN 1 ELSE 0 END ASC,\n  device_name,\n  neighbor_ip"
 - name: BGP_DATA_FRESHNESS
@@ -46,7 +46,7 @@ jobs:
     \ THEN 'Medium'\n    ELSE 'High'\n  END AS severity_hint,\n  CASE\n    WHEN MAX(created_at)\
     \ >= NOW() - INTERVAL '24 hours' THEN 'Fresh'\n    ELSE 'STALE (>' || CAST(CAST((NOW()\
     \ - MAX(created_at)) AS INTERVAL) AS VARCHAR) || ' old)'\n  END AS freshness_status\n\
-    FROM v_bgp_neighbors_auto\nGROUP BY device_name\nORDER BY last_collected ASC"
+    FROM netops.v_bgp_neighbors_auto\nGROUP BY device_name\nORDER BY last_collected ASC"
 ---
 
 # BGP Health Audit Profile
