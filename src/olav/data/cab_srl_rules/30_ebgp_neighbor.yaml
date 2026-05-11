@@ -1,0 +1,25 @@
+name: ebgp_neighbor
+priority: 30
+description: "eBGP neighbor (different ASNs) — IOS/Junos → SRL bgp group + neighbor"
+body: |
+  ## eBGP neighbor
+
+  IOS:
+
+    router bgp <LOCAL_AS>
+    neighbor <NEIGHBOR_IP> remote-as <NEIGHBOR_AS>
+
+  Junos:
+
+    set protocols bgp group EBGP-<peer> type external
+    set protocols bgp group EBGP-<peer> peer-as <NEIGHBOR_AS>
+    set protocols bgp group EBGP-<peer> neighbor <NEIGHBOR_IP>
+
+  SRL output (use the source device's prod loopback as `router-id`):
+
+    enter candidate
+    set / network-instance default protocols bgp autonomous-system <LOCAL_AS>
+    set / network-instance default protocols bgp router-id <ROUTER_ID>
+    set / network-instance default protocols bgp group EBGP-<peer> peer-as <NEIGHBOR_AS>
+    set / network-instance default protocols bgp neighbor <NEIGHBOR_IP> peer-group EBGP-<peer>
+    commit save

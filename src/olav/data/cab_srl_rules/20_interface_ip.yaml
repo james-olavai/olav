@@ -1,0 +1,26 @@
+name: interface_ip
+priority: 20
+description: "Interface IP address — IOS/Junos → SRL subinterface ipv4"
+body: |
+  ## Interface IP
+
+  IOS:
+
+    interface <INTF>
+    ip address <IP> <MASK>
+
+  Junos:
+
+    set interfaces <INTF> unit 0 family inet address <IP>/<PREFIXLEN>
+
+  SRL output (use `ethernet-1/N` where N is the position of the
+  interface in the lab topology, starting at 1 for the first non-
+  mgmt interface):
+
+    enter candidate
+    set / interface ethernet-1/1 admin-state enable
+    set / interface ethernet-1/1 subinterface 0 admin-state enable
+    set / interface ethernet-1/1 subinterface 0 ipv4 admin-state enable
+    set / interface ethernet-1/1 subinterface 0 ipv4 address <IP>/<PREFIXLEN>
+    set / network-instance default interface ethernet-1/1.0
+    commit save

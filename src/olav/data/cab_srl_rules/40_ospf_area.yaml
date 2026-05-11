@@ -1,0 +1,24 @@
+name: ospf_area
+priority: 40
+description: "OSPF area interface — IOS/Junos → SRL ospf instance + area"
+body: |
+  ## OSPF area
+
+  IOS:
+
+    router ospf 1
+    network <PREFIX> <WILDCARD> area <AREA>
+
+  Junos:
+
+    set protocols ospf area <AREA> interface <INTF>
+
+  SRL output (area is an IPv4-style ID; use `0.0.0.0` for area 0):
+
+    enter candidate
+    set / network-instance default protocols ospf instance 1 admin-state enable
+    set / network-instance default protocols ospf instance 1 router-id <ROUTER_ID>
+    set / network-instance default protocols ospf instance 1 area <AREA_AS_IPV4> interface ethernet-1/1.0 admin-state enable
+    commit save
+
+  Convert numeric area to IPv4 form: `0` → `0.0.0.0`, `10` → `0.0.0.10`.

@@ -492,7 +492,27 @@ def validate_tcf_in_lab(
                 }
             # Substitute prod IPs → lab IPs BEFORE handing to LLM
             dev_cli_lab = _substitute_ips(dev_cli)
-            result = translate_prod_cli_to_srl(dev_cli_lab, dev.platform or "unknown")
+            # Pass loopback IP + peer loopbacks as extra context so the
+            # translator can resolve placeholder slots (e.g. iBGP rule's
+            # <LOCAL_LOOPBACK>, <ROUTER_ID>) when the source CLI only
+            # mentions them by interface name (`update-source Loopback0`).
+            extra_ctx_lines: list[str] = []
+            own_lo = getattr(dev, "prod_loopback", None)
+            if own_lo:
+                extra_ctx_lines.append(
+                    f"This device's loopback IP (use as <LOCAL_LOOPBACK> "
+                    f"or <ROUTER_ID>): {own_lo}"
+                )
+            for other in tcf_full.devices:
+                if other.name != dev.name and getattr(other, "prod_loopback", None):
+                    extra_ctx_lines.append(
+                        f"Peer device {other.name}'s loopback IP: {other.prod_loopback}"
+                    )
+            extra_ctx = "\n".join(extra_ctx_lines)
+            result = translate_prod_cli_to_srl(
+                dev_cli_lab, dev.platform or "unknown",
+                extra_context=extra_ctx,
+            )
             translation_summaries[dev.name] = {
                 "status": result["status"],
                 "elapsed_s": result.get("elapsed_s"),

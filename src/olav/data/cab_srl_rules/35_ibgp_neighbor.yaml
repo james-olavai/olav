@@ -1,0 +1,32 @@
+name: ibgp_neighbor
+priority: 35
+description: "iBGP neighbor (same AS, often loopback-sourced) — IOS/Junos → SRL"
+body: |
+  ## iBGP neighbor
+
+  iBGP differs from eBGP in two ways: peer-as equals local-as (same
+  AS), and sessions typically peer on loopback addresses with
+  `update-source` / `local-address` set.
+
+  IOS:
+
+    router bgp <AS>
+    neighbor <NEIGHBOR_LOOPBACK> remote-as <AS>
+    neighbor <NEIGHBOR_LOOPBACK> update-source Loopback0
+
+  Junos:
+
+    set protocols bgp group iBGP-<peer> type internal
+    set protocols bgp group iBGP-<peer> local-address <LOCAL_LOOPBACK>
+    set protocols bgp group iBGP-<peer> neighbor <NEIGHBOR_LOOPBACK> peer-as <AS>
+
+  SRL output (transport-address is the SRL equivalent of
+  `update-source` / `local-address`):
+
+    enter candidate
+    set / network-instance default protocols bgp autonomous-system <AS>
+    set / network-instance default protocols bgp router-id <LOCAL_LOOPBACK>
+    set / network-instance default protocols bgp group iBGP-<peer> peer-as <AS>
+    set / network-instance default protocols bgp group iBGP-<peer> transport local-address <LOCAL_LOOPBACK>
+    set / network-instance default protocols bgp neighbor <NEIGHBOR_LOOPBACK> peer-group iBGP-<peer>
+    commit save
