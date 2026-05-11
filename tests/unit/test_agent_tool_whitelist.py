@@ -96,6 +96,39 @@ def test_read_tools_filter_missing_returns_none(tmp_path):
     assert runner._read_tools_filter(skill) is None
 
 
+def test_read_tools_filter_warns_on_dict_entries(tmp_path, caplog):
+    """``- path: ./tools/X.py`` dict entries silently produced an
+    empty whitelist (ISSUE-AUDIT-AUDITOR-PATH-DICT-FORMAT, 2026-05-10).
+
+    The filter must now emit a logger.warning naming the SKILL.md
+    path + count so future regressions surface during agent build.
+    """
+    import logging
+
+    skill = tmp_path / "SKILL.md"
+    skill.parent.mkdir(parents=True, exist_ok=True)
+    skill.write_text(
+        """---
+name: test
+description: "test"
+tools:
+  - path: ./tools/map_engine.py
+  - path: ./tools/render_report.py
+---
+""",
+        encoding="utf-8",
+    )
+    runner = _make_agent_for_dir(tmp_path)
+    with caplog.at_level(logging.WARNING):
+        f = runner._read_tools_filter(skill)
+    # Dict entries → dropped → empty set (strict-zero, same as `tools: []`)
+    assert f == set()
+    # But the user gets told why
+    msg = "\n".join(r.getMessage() for r in caplog.records)
+    assert "dict entries" in msg
+    assert "bare-string" in msg
+
+
 # ── _load_tools_from_skill with whitelist ───────────────────────────
 
 
