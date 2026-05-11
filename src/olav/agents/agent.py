@@ -1063,6 +1063,18 @@ class OLAVAgent:
         if thread_id:
             config["configurable"] = {"thread_id": thread_id}
 
+        # Rev 267: cap langgraph recursion to prevent small-LLM post-reply
+        # hallucination loops (rev 264 observed: gemma4 31B nothink streams
+        # spurious traceback text after final reply → langgraph re-enters
+        # LLM → no-op → re-enters → wall-clock timeout). 30 leaves plenty
+        # of headroom for legitimate multi-tool flows (audit Run = 2 calls,
+        # Author Mode 3 ≤ 5 calls, sim/lab ≤ 10) while capping the worst-case
+        # loop at ~10× the longest legit path. Override via env if a flow
+        # genuinely needs more.
+        config["recursion_limit"] = int(
+            os.environ.get("OLAV_LANGGRAPH_RECURSION_LIMIT", "30")
+        )
+
         try:
             result = await self.graph.ainvoke(input_, config=config, **kwargs)
         except asyncio.CancelledError as e:
