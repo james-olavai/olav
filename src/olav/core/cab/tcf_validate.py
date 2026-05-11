@@ -250,7 +250,15 @@ def validate_tcf_in_lab(
              {"spec_path": str(spec_path)},
              {"change_id": loaded["change_id"], "lab_name": lab_name})
 
-    if r89_args is None:
+    # freeform_cli: skip R89, use prose-mode LLM translator instead
+    # (2026-05-11, post rev 247 — see freeform_translator.py for the
+    # empirical motivation: tool-calling channel cannot produce raw
+    # SRL text; isolated single-turn prose call can).
+    use_freeform_translator = (
+        r89_args is None
+        and tcf_full.intent.type == "freeform_cli"
+    )
+    if r89_args is None and not use_freeform_translator:
         msg = loaded.get("r89_error", "intent not supported by R89")
         return {
             "status": "error", "phase": "load", "error": msg,
@@ -284,33 +292,79 @@ def validate_tcf_in_lab(
     _journal("generate_clab_topology", "topology", r88_args,
              {"yaml_lines": len(yaml_content.splitlines())})
 
-    # ── Phase 2: SRL render (R89) ─────────────────────────────────────
-    try:
-        from olav.core.lab.srl_render import generate_srl_lab_config
-        srl_raw = generate_srl_lab_config(**r89_args)
-        srl_result = json.loads(srl_raw)
-    except Exception as exc:  # noqa: BLE001
-        _attempt_destroy()
-        return {
-            "status": "error", "phase": "srl",
-            "error": f"generate_srl_lab_config failed: {exc}",
-            "spec_path": str(spec_path), "lab_name": lab_name,
-            "journal": journal, "errors": errors,
-            "tcf_recorded": False, "lab_destroyed": lab_destroyed,
-        }
-    if srl_result.get("status") != "ok":
-        _attempt_destroy()
-        return {
-            "status": "error", "phase": "srl",
-            "error": srl_result.get("error", "SRL render failed"),
-            "spec_path": str(spec_path), "lab_name": lab_name,
-            "journal": journal, "errors": errors,
-            "tcf_recorded": False, "lab_destroyed": lab_destroyed,
-        }
-    configs = srl_result["configs"]  # dict[lab_node, list[str]]
-    _journal("generate_srl_lab_config", "srl", r89_args,
-             {"nodes": list(configs.keys()),
-              "lines_per_node": {n: len(c) for n, c in configs.items()}})
+    # ── Phase 2: SRL render — R89 (ebgp_direct) OR prose translator (freeform_cli) ──
+    configs: dict[str, list[str]] = {}
+    if use_freeform_translator:
+        from olav.core.cab.freeform_translator import translate_prod_cli_to_srl
+        translation_summaries: dict[str, dict] = {}
+        for dev in tcf_full.devices:
+            # Find implementation CLI for this device
+            dev_cli: list[str] = []
+            for impl in tcf_full.implementation:
+                if impl.device == dev.name:
+                    dev_cli.extend(impl.cli if isinstance(impl.cli, list) else [impl.cli])
+            if not dev_cli:
+                _attempt_destroy()
+                return {
+                    "status": "error", "phase": "translate",
+                    "error": f"no implementation CLI for device {dev.name!r}",
+                    "spec_path": str(spec_path), "lab_name": lab_name,
+                    "journal": journal, "errors": errors,
+                    "tcf_recorded": False, "lab_destroyed": lab_destroyed,
+                }
+            result = translate_prod_cli_to_srl(dev_cli, dev.platform or "unknown")
+            translation_summaries[dev.name] = {
+                "status": result["status"],
+                "elapsed_s": result.get("elapsed_s"),
+                "model": result.get("model"),
+                "validation_reason": result.get("validation_reason"),
+            }
+            if result["status"] != "ok":
+                _attempt_destroy()
+                return {
+                    "status": "error", "phase": "translate",
+                    "error": (
+                        f"freeform_cli translation failed for {dev.name!r}: "
+                        f"{result.get('error')} ({result.get('validation_reason', '')})"
+                    ),
+                    "spec_path": str(spec_path), "lab_name": lab_name,
+                    "journal": journal, "errors": errors,
+                    "tcf_recorded": False, "lab_destroyed": lab_destroyed,
+                    "translation_summaries": translation_summaries,
+                }
+            # Lab node name = lowercased prod hostname
+            configs[dev.name.lower()] = result["srl_lines"]
+        _journal("freeform_translator", "translate",
+                 {"devices": [d.name for d in tcf_full.devices]},
+                 {"summaries": translation_summaries,
+                  "lines_per_node": {n: len(c) for n, c in configs.items()}})
+    else:
+        try:
+            from olav.core.lab.srl_render import generate_srl_lab_config
+            srl_raw = generate_srl_lab_config(**r89_args)
+            srl_result = json.loads(srl_raw)
+        except Exception as exc:  # noqa: BLE001
+            _attempt_destroy()
+            return {
+                "status": "error", "phase": "srl",
+                "error": f"generate_srl_lab_config failed: {exc}",
+                "spec_path": str(spec_path), "lab_name": lab_name,
+                "journal": journal, "errors": errors,
+                "tcf_recorded": False, "lab_destroyed": lab_destroyed,
+            }
+        if srl_result.get("status") != "ok":
+            _attempt_destroy()
+            return {
+                "status": "error", "phase": "srl",
+                "error": srl_result.get("error", "SRL render failed"),
+                "spec_path": str(spec_path), "lab_name": lab_name,
+                "journal": journal, "errors": errors,
+                "tcf_recorded": False, "lab_destroyed": lab_destroyed,
+            }
+        configs = srl_result["configs"]  # dict[lab_node, list[str]]
+        _journal("generate_srl_lab_config", "srl", r89_args,
+                 {"nodes": list(configs.keys()),
+                  "lines_per_node": {n: len(c) for n, c in configs.items()}})
 
     # ── Phase 3: save_lab_config per node ─────────────────────────────
     try:
@@ -387,7 +441,11 @@ def validate_tcf_in_lab(
         translate_post_check,
     )
 
-    ip_map = build_prod_to_lab_ip_map(tcf_full, r89_args)
+    # For freeform_cli (r89_args is None), Patch M's prod→lab IP map
+    # uses an empty map — there's no R89 lab_subnet to map onto, and
+    # the freeform translator placed prod IPs verbatim into SRL config
+    # so post_check patterns referencing prod IPs match directly.
+    ip_map = build_prod_to_lab_ip_map(tcf_full, r89_args) if r89_args else {}
     _journal("translate_post_checks", "verify",
              {"prod_ip_count": len(ip_map)},
              {"ip_map": ip_map, "phase": "verify-prep"})
