@@ -48,6 +48,67 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+# ── Deepagents auto-injection: tools to strip from compiled graphs ──
+# deepagents' create_agent always appends FilesystemMiddleware (glob,
+# grep, ls, read_file, write_file, edit_file, execute) + TodoListMiddleware
+# (write_todos) to whatever tools we pass. We can opt out of
+# TodoListMiddleware via the `middleware=[]` kwarg (rev 261's
+# agent_type:api flag), but FilesystemMiddleware has no opt-out and
+# must be pruned post-compile.
+#
+# Rev 264 (2026-05-11): pruning extended from orchestrator-only (rev 281)
+# to also include sub-agent runnables, because A1 / C1 timeout traces on
+# gemma4 showed sub-agents triggering FilesystemMiddleware's read_file
+# AFTER the business task completed, to "verify" their own output paths.
+_DEEPAGENTS_INJECT_TOOLS = frozenset({
+    "glob", "grep", "ls",
+    "read_file", "write_file", "edit_file",
+    "execute",
+    "write_todos",
+})
+
+
+def _prune_graph_tools(graph, unwanted: frozenset[str], label: str) -> None:
+    """Strip auto-injected tools from a compiled langgraph.
+
+    ``graph`` is the runnable returned by ``create_agent`` (or
+    ``create_deep_agent``). The compiled graph has a ``tools`` node
+    whose ``bound._tools_by_name`` dict is the registry the LLM
+    sees; mutating it removes the unwanted tools without rebuilding
+    the graph.
+
+    Best-effort: any structural mismatch (deepagents version change,
+    middleware reorder) is swallowed with a warning — never block
+    agent startup.
+    """
+    if os.environ.get("OLAV_KEEP_BUILTIN_TOOLS"):
+        return
+    try:
+        tools_node = getattr(graph, "nodes", {}).get("tools")
+        if tools_node is None or not hasattr(tools_node, "bound"):
+            return
+        bound = tools_node.bound
+        tools_by_name = getattr(bound, "_tools_by_name", None)
+        if not isinstance(tools_by_name, dict):
+            return
+        removed = []
+        for name in list(tools_by_name.keys()):
+            if name in unwanted:
+                del tools_by_name[name]
+                removed.append(name)
+        if removed:
+            logger.info(
+                f"✓ Pruned {len(removed)} auto-injected tools from "
+                f"{label}: {sorted(removed)} "
+                f"(retain={sorted(tools_by_name)})"
+            )
+    except Exception as exc:  # noqa: BLE001 — never block startup
+        logger.warning(
+            f"Tool prune failed for {label} (non-fatal): "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+
 def _read_prompt_file(path: Path) -> str | None:
     """Read a prompt file, returning None if missing or unreadable."""
     if path.exists():
@@ -570,41 +631,7 @@ class OLAVAgent:
             )
             return
 
-        # Tools we strip from orchestrator-class agents. Sub-agents
-        # may legitimately need these (e.g., a write-class skill
-        # script may want write_file); orchestrators should only
-        # dispatch.
-        _UNWANTED = {
-            "glob", "grep", "ls",
-            "read_file", "write_file", "edit_file",
-            "execute",
-            "write_todos",
-        }
-
-        try:
-            tools_node = self.graph.nodes.get("tools")
-            if tools_node is None or not hasattr(tools_node, "bound"):
-                return
-            bound = tools_node.bound
-            tools_by_name = getattr(bound, "_tools_by_name", None)
-            if not isinstance(tools_by_name, dict):
-                return
-            removed = []
-            for name in list(tools_by_name.keys()):
-                if name in _UNWANTED:
-                    del tools_by_name[name]
-                    removed.append(name)
-            if removed:
-                logger.info(
-                    f"✓ Pruned {len(removed)} auto-injected tools from "
-                    f"orchestrator '{self.agent_id}': {sorted(removed)} "
-                    f"(retain={sorted(tools_by_name)})"
-                )
-        except Exception as exc:  # noqa: BLE001 — best-effort; never break startup
-            logger.warning(
-                f"Orchestrator tool prune failed (non-fatal): "
-                f"{type(exc).__name__}: {exc}"
-            )
+        _prune_graph_tools(self.graph, _DEEPAGENTS_INJECT_TOOLS, f"orchestrator '{self.agent_id}'")
 
     # ------------------------------------------------------------------
     # Tool loading helpers
@@ -959,6 +986,14 @@ class OLAVAgent:
                 middleware=_middleware,
                 name=name,
             )
+            # Rev 264: sub-agent runnable also gets deepagents
+            # FilesystemMiddleware injection (glob/grep/ls/read_file/
+            # write_file/edit_file). Even with the SKILL.md whitelist
+            # filtering OLAV's own tools, deepagents adds these on
+            # top. gemma4 was triggering read_file post-task to
+            # "verify" its own output — pruning here stops that
+            # plan-loop tail. write_todos handled via agent_type:api.
+            _prune_graph_tools(runnable, _DEEPAGENTS_INJECT_TOOLS, f"sub-agent '{name}'")
             subagents.append(
                 {
                     "name": name,
