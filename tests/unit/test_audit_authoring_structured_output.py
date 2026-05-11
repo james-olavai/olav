@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 
 WORKSPACE = Path(
-    "olav-netops/.olav/workspace/audit/auditor/tools"
+    "olav-netops/.olav/workspace/audit/author/tools"
 )
 
 
@@ -59,8 +59,8 @@ def append_jobs_mod(monkeypatch):
     # scripts/ in the platform mirror — locate whichever exists.
     repo_root = Path.cwd()
     candidates = [
-        repo_root / "olav-netops/.olav/workspace/audit/auditor/tools/read_profile.py",
-        repo_root / ".olav/workspace/audit/auditor/scripts/read_profile.py",
+        repo_root / "olav-netops/.olav/workspace/audit/author/tools/read_profile.py",
+        repo_root / ".olav/workspace/audit/author/tools/read_profile.py",
     ]
     rp_path = next((p for p in candidates if p.exists()), None)
     if rp_path is None:

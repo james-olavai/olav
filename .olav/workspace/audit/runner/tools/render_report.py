@@ -97,7 +97,24 @@ def render_report(
 
     # 3. Load segmented JSON and Profile
     audit_json = json.loads(Path(json_path).read_text())
-    profile_cfg = _parse_profile_md(Path(profile_path))
+    # Reuse map_engine's path sanitisation to handle the same LLM
+    # hallucinations (leading slash / missing .olav prefix / bare names)
+    try:
+        from .map_engine import _sanitize_path  # type: ignore[import-not-found]
+        profile_path_resolved = _sanitize_path(profile_path)
+    except Exception:
+        # Workspace import path varies between dev tree and installed copy;
+        # fall back to direct file resolution if relative import fails.
+        import importlib.util as _ilu
+        _here = Path(__file__).parent
+        _spec = _ilu.spec_from_file_location("_map_engine", _here / "map_engine.py")
+        if _spec and _spec.loader:
+            _me = _ilu.module_from_spec(_spec)
+            _spec.loader.exec_module(_me)
+            profile_path_resolved = _me._sanitize_path(profile_path)
+        else:
+            profile_path_resolved = profile_path
+    profile_cfg = _parse_profile_md(Path(profile_path_resolved))
 
     # Detect report language once — drives ALL LLM calls and placeholders
     lang = _detect_report_language(profile_cfg)

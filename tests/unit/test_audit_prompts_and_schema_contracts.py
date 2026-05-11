@@ -51,10 +51,16 @@ PLATFORM_AUDIT = REPO_ROOT / ".olav/workspace/audit"
 MIRRORED_PROMPT_PATHS = [
     "prompts/orchestrator.md",
     "prompts/system.md",
-    "auditor/prompts/system.md",
-    "auditor/SKILL.md",
-    "curator/SKILL.md",
     "AGENT.md",
+    # rev 259: Run/Author/Curator split — three sub-agent SKILL.md +
+    # their system prompts. The retired `auditor/` directory is no
+    # longer a sub-agent and is kept only as `_legacy_auditor/` in
+    # olav-netops (backup, not mirrored).
+    "runner/SKILL.md",
+    "runner/prompts/system.md",
+    "author/SKILL.md",
+    "author/prompts/system.md",
+    "curator/SKILL.md",
 ]
 
 
@@ -116,17 +122,21 @@ _BROKEN_JOB_FIELDS = (
 
 
 @pytest.mark.parametrize("root", [NETOPS_AUDIT, PLATFORM_AUDIT])
-def test_auditor_system_prompt_does_not_teach_broken_schema(root):
-    p = root / "auditor/prompts/system.md"
+@pytest.mark.parametrize("rel", ["author/prompts/system.md", "author/SKILL.md"])
+def test_author_prompts_do_not_teach_broken_schema(root, rel):
+    """rev 259 Run/Author split: the author sub-agent owns Profile
+    authoring. Its system prompt + SKILL.md must not regurgitate the
+    historical broken field set."""
+    p = root / rel
     if not p.exists():
         pytest.skip(f"{p} not present in this tree")
     text = p.read_text(encoding="utf-8")
     leaked = [f for f in _BROKEN_JOB_FIELDS if f in text]
     assert not leaked, (
         f"{p} still mentions broken Job fields {leaked!r}. "
-        f"The canonical schema is name/type/severity/section_prompt/"
-        f"query (see save_profile.ProfileJob). Drop the field-spec "
-        f"block — the Pydantic schema is the authoritative spec."
+        f"Canonical schema = name/type/severity/section_prompt/query "
+        f"(see save_profile.ProfileJob). The Pydantic schema is the "
+        f"authoritative spec; drop the field list."
     )
 
 
@@ -166,7 +176,7 @@ def test_map_engine_reads_only_declared_pydantic_fields():
     findings."""
     sp = _load_module(
         "_sp_contract",
-        NETOPS_AUDIT / "auditor/tools/save_profile.py",
+        NETOPS_AUDIT / "author/tools/save_profile.py",
     )
     declared = set(sp.ProfileJob.model_fields.keys())
     missing = _MAP_ENGINE_READS - declared
@@ -185,11 +195,11 @@ def test_append_profile_job_field_set_mirrors_save_profile_job():
     mirror invariant."""
     sp = _load_module(
         "_sp_contract2",
-        NETOPS_AUDIT / "auditor/tools/save_profile.py",
+        NETOPS_AUDIT / "author/tools/save_profile.py",
     )
     aj = _load_module(
         "_aj_contract2",
-        NETOPS_AUDIT / "auditor/tools/append_jobs.py",
+        NETOPS_AUDIT / "author/tools/append_jobs.py",
     )
     sf = set(sp.ProfileJob.model_fields.keys())
     af = set(aj.AppendProfileJob.model_fields.keys())
