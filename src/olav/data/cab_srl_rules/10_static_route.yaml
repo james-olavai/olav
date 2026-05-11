@@ -1,0 +1,27 @@
+name: static_route
+priority: 10
+description: "Static route translation — IOS/Junos → SRL static-routes"
+body: |
+  ## Static route
+
+  IOS:
+
+    configure terminal
+    ip route <PREFIX> <MASK> <NEXT_HOP>
+    end
+    write memory
+
+  Junos:
+
+    set routing-options static route <PREFIX>/<PREFIXLEN> next-hop <NEXT_HOP>
+
+  SRL output:
+
+    enter candidate
+    set / network-instance default next-hop-groups group <slug> nexthop 1 ip-address <NEXT_HOP>
+    set / network-instance default static-routes route <PREFIX>/<PREFIXLEN> next-hop-group <slug>
+    commit save
+
+  Where `<slug>` = `static_<prefix-with-underscores>`. Example:
+  192.0.2.0/24 → `static_192_0_2_0`. Convert dotted mask
+  (255.255.255.0) to prefix-length (/24).

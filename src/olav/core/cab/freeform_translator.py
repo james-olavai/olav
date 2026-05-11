@@ -29,87 +29,119 @@ returns empty strings on this task.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from pathlib import Path
 from typing import Any
 
+import yaml
+
+
+logger = logging.getLogger(__name__)
+
 
 # ────────────────────────────────────────────────────────────────────
-# System prompt — the SRL translation rules
+# System prompt — loaded from data/cab_srl_rules/*.yaml at import time
+#
+# Plan C (rev 254, 2026-05-11): the per-intent translation rules used
+# to live in this file as a 60-line string. They now live as separate
+# YAML files under ``src/olav/data/cab_srl_rules/``. Each file has:
+#
+#     name: <intent_name>
+#     priority: <int — sort key, lower first>
+#     description: "<one-liner>"
+#     body: |
+#       <markdown fragment that goes verbatim into the system prompt>
+#
+# Reasons (compared to the previous hardcoded string):
+#  * Each translation case is one editable file — easier to extend
+#    without redeploying the python module (rebuild wheel only).
+#  * Aligned with OLAV's memory/guide file pattern, but kept out of
+#    the AutoRecall index because they are tooling content, not
+#    agent-facing memory (intentionally NOT named *.guide.yaml).
+#  * Build-time eager concat means the LLM still sees all rules every
+#    call (same prose behaviour we proved works in rev 252) — no
+#    runtime retrieval miss risk.
 # ────────────────────────────────────────────────────────────────────
 
-_SYSTEM_PROMPT = """\
+
+_HEADER = """\
 /no_think You are an SR Linux configuration translator.
 
 The OLAV CAB lab digital twin uses Nokia SR Linux containers
 (image: ghcr.io/nokia/srlinux:24.10.1). Your job: translate
 production CLI (Cisco IOS or Juniper Junos) into the equivalent
 SR Linux CLI.
-
-# Output format
-
-Reply with ONLY the SRL CLI lines, one per line, no markdown, no
-prose explanation, no code fences. Start with `enter candidate`
-and end with `commit save`.
-
-# Translation rules
-
-## Static route
-IOS:
-  configure terminal
-  ip route <PREFIX> <MASK> <NEXT_HOP>
-  end
-  write memory
-
-SRL output:
-  enter candidate
-  set / network-instance default next-hop-groups group <slug> nexthop 1 ip-address <NEXT_HOP>
-  set / network-instance default static-routes route <PREFIX>/<PREFIXLEN> next-hop-group <slug>
-  commit save
-
-Where <slug> is `static_<prefix-with-underscores>`. Example: 192.0.2.0/24 → static_192_0_2_0.
-Convert dotted mask (255.255.255.0) to prefix-length (/24).
-
-## Interface IP
-IOS:
-  interface <INTF>
-  ip address <IP> <MASK>
-
-Junos:
-  set interfaces <INTF> unit 0 family inet address <IP>/<PREFIXLEN>
-
-SRL output (use ethernet-1/N where N is the position in the lab topology):
-  enter candidate
-  set / interface ethernet-1/1 admin-state enable
-  set / interface ethernet-1/1 subinterface 0 admin-state enable
-  set / interface ethernet-1/1 subinterface 0 ipv4 admin-state enable
-  set / interface ethernet-1/1 subinterface 0 ipv4 address <IP>/<PREFIXLEN>
-  set / network-instance default interface ethernet-1/1.0
-  commit save
-
-## eBGP neighbor
-IOS:
-  router bgp <LOCAL_AS>
-  neighbor <NEIGHBOR_IP> remote-as <NEIGHBOR_AS>
-
-SRL output:
-  enter candidate
-  set / network-instance default protocols bgp autonomous-system <LOCAL_AS>
-  set / network-instance default protocols bgp router-id <ROUTER_ID>
-  set / network-instance default protocols bgp group EBGP-<peer> peer-as <NEIGHBOR_AS>
-  set / network-instance default protocols bgp neighbor <NEIGHBOR_IP> peer-group EBGP-<peer>
-  commit save
-
-## Hard rules
-
-- Never include `configure terminal`, `end`, `write memory` (IOS only)
-- Never include bare `commit` without `save` (SRL needs `commit save`)
-- Never use IOS-style interface names (Ethernet0/0, GigabitEthernet0/1)
-  in the SRL output — always `ethernet-1/N`
-- If you cannot translate the input confidently, output a single line:
-  ERROR_UNTRANSLATABLE: <one-line reason>
 """
+
+
+def _rules_dir() -> Path:
+    """Locate the bundled SRL translation rule directory."""
+    here = Path(__file__).resolve().parent
+    # src/olav/core/cab/freeform_translator.py → src/olav/data/cab_srl_rules
+    return here.parent.parent / "data" / "cab_srl_rules"
+
+
+def _load_system_prompt() -> str:
+    """Concatenate _HEADER + all loaded rule bodies (sorted by priority).
+
+    Returns the hardcoded fallback header alone if the rules directory
+    is missing or unreadable — should not happen in a normal install
+    but keeps the translator functional with degraded coverage.
+    """
+    parts: list[str] = [_HEADER]
+    try:
+        rules_dir = _rules_dir()
+        if not rules_dir.is_dir():
+            logger.warning(
+                "freeform_translator: rules dir not found at %s; "
+                "using header-only prompt (translation coverage limited)",
+                rules_dir,
+            )
+            return _HEADER
+
+        loaded: list[tuple[int, str, str]] = []
+        for path in sorted(rules_dir.glob("*.yaml")):
+            try:
+                data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "freeform_translator: skip %s (parse error: %s)",
+                    path.name, exc,
+                )
+                continue
+            if not isinstance(data, dict):
+                continue
+            body = data.get("body")
+            if not isinstance(body, str) or not body.strip():
+                continue
+            priority = int(data.get("priority", 99))
+            name = str(data.get("name") or path.stem)
+            loaded.append((priority, name, body.rstrip()))
+
+        loaded.sort(key=lambda t: (t[0], t[1]))
+        if loaded:
+            # The base rule (priority 0) provides format / hard rules;
+            # everything else is a per-intent example block.
+            parts.append("# Translation rules\n")
+            for _, _, body in loaded:
+                parts.append(body)
+        logger.info(
+            "freeform_translator: loaded %d SRL translation rule files",
+            len(loaded),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "freeform_translator: rule load failed (%s); "
+            "using header-only prompt", exc,
+        )
+        return _HEADER
+
+    return "\n\n".join(parts)
+
+
+_SYSTEM_PROMPT = _load_system_prompt()
 
 
 # ────────────────────────────────────────────────────────────────────

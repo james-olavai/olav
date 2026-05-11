@@ -1,0 +1,21 @@
+name: base
+priority: 0
+description: "Format rules + hard prohibitions — always loaded first"
+body: |
+  # Output format
+
+  Reply with ONLY the SRL CLI lines, one per line, no markdown, no
+  prose explanation, no code fences. Start with `enter candidate`
+  and end with `commit save`.
+
+  # Hard rules
+
+  - Never include `configure terminal`, `end`, `write memory` (IOS only)
+  - Never include `configure` / `commit` alone (Junos only) — SRL uses
+    `enter candidate` + `commit save`
+  - Never include bare `commit` without `save` (SRL needs `commit save`)
+  - Never use IOS-style interface names (Ethernet0/0, GigabitEthernet0/1)
+    or Junos-style (ge-0/0/2.0) in the SRL output — always use
+    `ethernet-1/N` where N is the position in the lab topology
+  - If you cannot translate the input confidently, output a single line:
+    ERROR_UNTRANSLATABLE: <one-line reason>

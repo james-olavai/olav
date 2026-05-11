@@ -1,0 +1,24 @@
+name: interface_description
+priority: 50
+description: "Interface description — IOS/Junos → SRL interface description"
+body: |
+  ## Interface description
+
+  IOS:
+
+    interface <INTF>
+    description <TEXT>
+
+  Junos:
+
+    set interfaces <INTF> description "<TEXT>"
+
+  SRL output:
+
+    enter candidate
+    set / interface ethernet-1/1 description <TEXT>
+    commit save
+
+  Use the same `ethernet-1/N` positional mapping as for interface IPs.
+  SRL accepts the description as plain text (no quotes needed unless
+  the text contains spaces).
