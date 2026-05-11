@@ -84,7 +84,7 @@ def _get_standard_sample(platform: str, command: str) -> dict | None:
                 FROM netops.parsed_outputs p
                 JOIN netops.devices d ON p.device_name = d.hostname
                 WHERE d.platform = ? AND p.command = ?
-                ORDER BY p.created_at DESC
+                ORDER BY p.ingested_at DESC
                 LIMIT 1
             """
             result = conn.execute(sql, [platform, command]).fetchone()
