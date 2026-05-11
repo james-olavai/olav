@@ -99,7 +99,9 @@ _SAVE_TOOLS = {
 # ``_SAVE_DELEGATIONS`` rules now only cover audit-auditor + ops-lab,
 # which still have their own internal save semantics.
 _SAVE_DELEGATIONS = {
-    "audit-auditor", # audit subagent (render_report)
+    "audit-runner",  # audit Run sub-agent (render_report) — rev 259 split
+    "audit-author",  # audit Author sub-agent (save_profile / append_jobs)
+    "audit-auditor", # historical name (pre-rev-259) kept for backward compatibility
     "ops-lab",       # lab subagent (save_lab_config)
 }
 

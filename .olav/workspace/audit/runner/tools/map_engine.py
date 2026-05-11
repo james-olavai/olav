@@ -45,21 +45,39 @@ _PROFILES_DIR = ".olav/workspace/audit/profiles"
 
 
 def _sanitize_path(path_str: str) -> str:
-    """Strip leading '/' from LLM-supplied paths and resolve bare profile names.
+    """Coerce LLM-supplied paths into the workspace-relative form.
 
-    ISSUE-004: If given a bare name like 'health_full_drift' (no directory, no .md),
-    look up the file under _PROFILES_DIR so the LLM can pass short names.
+    Handles four common LLM hallucinations:
+      1. Leading ``/`` but absolute path doesn't exist on disk
+         → strip the slash
+      2. Bare name without directory or extension
+         (``"bgp_health"``) → resolve under ``_PROFILES_DIR``
+      3. Bare filename with extension (``"bgp_health.md"``)
+         → resolve under ``_PROFILES_DIR``
+      4. Path missing the ``.olav/`` prefix
+         (``"workspace/audit/profiles/bgp_health.md"``)
+         → prepend ``.olav/`` if that yields an existing file
+
+    Returns the path as-is if nothing matches; ``_parse_profile_yaml``
+    will then raise a clear FileNotFoundError with discovery hints.
     """
     if not path_str:
         return path_str
-    # Strip leading slash if the absolute path doesn't actually exist on disk
+    # 1. Leading-slash that doesn't exist absolutely → strip it
     if path_str.startswith("/") and not Path(path_str).exists():
         path_str = path_str.lstrip("/")
-    # Resolve bare profile name (no directory separator)
+    # 2/3. Bare name (no '/') → look up under _PROFILES_DIR
     p = Path(path_str)
     if not p.exists() and "/" not in path_str:
         for suffix in ("", ".md"):
             candidate = Path(_PROFILES_DIR) / (path_str + suffix)
+            if candidate.exists():
+                return str(candidate)
+    # 4. Path missing `.olav/` prefix (e.g. "workspace/audit/profiles/...")
+    #    or missing both `.olav/` AND `workspace/` (e.g. "audit/profiles/...")
+    if not p.exists():
+        for prefix in (".olav", ".olav/workspace"):
+            candidate = Path(prefix) / path_str
             if candidate.exists():
                 return str(candidate)
     return path_str
@@ -177,6 +195,22 @@ def run_map_engine(
                 # raw_only_data sentinels so the gap is visible downstream.
                 if not findings and job.get("raw_fallback"):
                     findings = _raw_fallback_probe(conn, job.get("query", ""))
+                # ISSUE-AUDIT-FALSE-GREEN-EMPTY-RESULTSET: when findings is
+                # still empty AND raw_fallback also produced nothing, check
+                # whether the source table/view actually has data. Dead
+                # tables and stale-window scenarios both look like "healthy"
+                # to the renderer otherwise — promote to explicit warning.
+                if not findings:
+                    sufficiency = _check_data_sufficiency(
+                        conn, job.get("query", ""), job_name
+                    )
+                    if sufficiency is not None:
+                        findings = [sufficiency]
+                        # Promote job severity so render_report can't ignore it
+                        if sufficiency.get("severity_hint") == "Critical":
+                            severity = "Critical"
+                        elif severity in ("info", "Info"):
+                            severity = "Warning"
                 if emit_sources:
                     _attach_sql_sources(findings, job.get("query", ""))
             elif job_type == "lancedb":
@@ -358,6 +392,88 @@ def _fetch_api_observations(
     except Exception as exc:
         logger.warning("api_anomaly HTTP fetch failed (%s): %s", endpoint, exc)
         return []
+
+
+def _extract_first_table(query: str) -> str | None:
+    """Pull the first ``FROM <table>`` token out of a SQL query.
+    Returns None if the regex doesn't match (e.g. CTE-only / empty)."""
+    import re
+    m = re.search(r"\bFROM\s+([A-Za-z_][A-Za-z0-9_.]*)", query, re.IGNORECASE)
+    return m.group(1) if m else None
+
+
+def _check_data_sufficiency(
+    conn: duckdb.DuckDBPyConnection,
+    query: str,
+    job_name: str,
+) -> dict | None:
+    """When a SQL job returns no findings, decide whether the underlying
+    data source is empty (data-sufficiency problem) or whether the
+    filters legitimately matched nothing (real "all healthy" signal).
+
+    Returns a synthetic finding dict when the source is empty / window
+    is stale; ``None`` when 0 rows is a legitimate "no anomalies"
+    answer.
+
+    Three branches:
+
+      1. **Empty source** (table has 0 rows total) → **Critical**
+         ``empty_source`` finding. Most likely: dead/legacy table or
+         discovery hasn't run. Always fires regardless of query shape.
+
+      2. **Empty window** (table has rows; query uses ``:window``
+         placeholder; 0 rows matched) → **Warning** ``empty_window``
+         finding. Stale data — extend window or re-collect.
+
+      3. **Legitimate empty** (table has rows; query has no
+         ``:window``) → return ``None``. The job legitimately found
+         no anomalies; an "all healthy" signal that should NOT be
+         promoted to a warning.
+    """
+    table = _extract_first_table(query)
+    if table is None:
+        return None
+    try:
+        total = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+    except Exception:
+        # Can't introspect — silent skip; don't fail the audit
+        return None
+
+    if total == 0:
+        return {
+            "device": "(no data)",
+            "metric_value": 0,
+            "metric_name": "Insufficient Data",
+            "severity_hint": "Critical",
+            "_warning": "empty_source",
+            "_source": {"type": "sql", "table": table, "row_count_total": 0},
+            "reason": (
+                f"Job {job_name!r} queried {table!r} but the source has "
+                f"0 rows total — empty table/view. Verify discovery has "
+                f"run, or the audit profile may be referencing a deprecated "
+                f"table (R83 zero-ETL moved BGP/OSPF/routes data to "
+                f"v_*_auto views; raw tables are leftover schema)."
+            ),
+        }
+
+    # Only flag empty-window when the query actually uses :window.
+    # No :window placeholder + 0 rows = legitimate "all healthy" signal.
+    if ":window" not in query.lower():
+        return None
+
+    return {
+        "device": "(no data in window)",
+        "metric_value": 0,
+        "metric_name": "Insufficient Data",
+        "severity_hint": "Warning",
+        "_warning": "empty_window",
+        "_source": {"type": "sql", "table": table, "row_count_total": int(total)},
+        "reason": (
+            f"Job {job_name!r}: {table!r} has {total} rows total but the "
+            f"audit's time window matched 0. Either extend the time window "
+            f"or re-collect; current data is older than the audit window."
+        ),
+    }
 
 
 def _attach_sql_sources(findings: list[dict], query: str) -> None:

@@ -47,23 +47,32 @@ def _load_parse_src_token():
     except Exception:
         repo_root = Path.cwd()
 
-    candidate = (
-        repo_root / ".olav" / "workspace" / "audit" / "auditor" / "tools"
-        / "render_report.py"
+    # rev 259 Run/Author split: render_report.py moved auditor/ → runner/.
+    # Probe both locations for backwards compatibility.
+    _LAYOUTS = (
+        (".olav", "workspace", "audit", "runner", "tools", "render_report.py"),
+        (".olav", "workspace", "audit", "auditor", "tools", "render_report.py"),
     )
-    if not candidate.exists():
+    candidate = None
+    for layout in _LAYOUTS:
+        c = repo_root.joinpath(*layout)
+        if c.exists():
+            candidate = c
+            break
+    if candidate is None:
         # Fallback: walk up from this file until we find .olav/workspace.
         here = Path(__file__).resolve()
         for anc in here.parents:
-            alt = (
-                anc / ".olav" / "workspace" / "audit" / "auditor" / "tools"
-                / "render_report.py"
-            )
-            if alt.exists():
-                candidate = alt
+            for layout in _LAYOUTS:
+                alt = anc.joinpath(*layout)
+                if alt.exists():
+                    candidate = alt
+                    break
+            if candidate is not None:
                 break
-        else:
-            return None
+    if candidate is None:
+        # Neither new nor legacy layout found anywhere — bail out.
+        return None
     spec = importlib.util.spec_from_file_location(
         "_olav_explain_render_report", candidate
     )
