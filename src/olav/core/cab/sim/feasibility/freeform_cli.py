@@ -85,6 +85,43 @@ def check(draft: DraftChangePlan) -> FeasibilityVerdict:
             ),
             evidence={"post_checks_count": 0},
         ))
+    else:
+        # Per-entry shape check — every post_check must name a `device`
+        # that's in scope. Found in-vivo (2026-05-12): without this,
+        # malformed entries pass feasibility and only blow up at the
+        # render stage with a generic `render_failed: post_checks did
+        # not match any provided device` message that's hard for an
+        # LLM to recover from. Catch it here with a specific code so
+        # the analyzer's revision retry has actionable info.
+        scope_set = set(scope)
+        bad = []
+        for i, pc in enumerate(post_checks):
+            if not isinstance(pc, dict):
+                bad.append({"index": i, "reason": "not a dict", "value": repr(pc)})
+                continue
+            dev = pc.get("device")
+            if not dev:
+                bad.append({"index": i, "reason": "missing 'device' field",
+                            "keys": sorted(pc.keys())})
+            elif dev not in scope_set:
+                bad.append({"index": i, "reason": "device not in scope",
+                            "device": dev, "scope": list(scope_set)})
+        if bad:
+            blockers.append(Blocker(
+                code="post_check_shape",
+                message=(
+                    f"post_checks has {len(bad)} malformed entries. "
+                    f"Every post_check must be a dict with at least "
+                    f"`device` (in devices_in_scope) + `command` + "
+                    f"`expected_pattern` + `description`."
+                ),
+                evidence={"bad_entries": bad,
+                          "expected_shape": {
+                              "device": "<one of devices_in_scope>",
+                              "command": "<show command>",
+                              "expected_pattern": "<substring to match>",
+                              "description": "<purpose>"}},
+            ))
 
     return FeasibilityVerdict(
         chosen_intent="freeform_cli",
