@@ -19,9 +19,11 @@ keywords:
   - 已有变更
 body: |
   When the user wants to MODIFY an EXISTING change spec (rather than
-  author a new one), the orchestrator MUST delegate to the `sim`
-  sub-agent and instruct it to use ``tcf_patch_block`` instead of
-  ``submit_change_plan``.
+  author a new one), the orchestrator MUST delegate to the `analyzer`
+  sub-agent (renamed from `sim` on 2026-05-12 per dev_docs/75) and
+  instruct it to use ``tcf_patch_block`` instead of ``submit_draft``.
+  tcf_patch_block lives in the analyzer tools dir and atomically
+  patches the existing ``exports/cab/<change_id>/spec.tcf.yaml``.
 
   ## When this guide applies
 
@@ -34,7 +36,7 @@ body: |
   - 修改/修复/更新 <id>
 
   Distinguishing from new-plan ("add eBGP between R3 and R4"):
-  - "add", "create", "plan a new" → new plan → ``submit_change_plan``
+  - "add", "create", "plan a new" → new plan → ``submit_draft``
   - "fix", "revise", "modify", "the existing", "change <id>'s X to Y" →
     revise → ``tcf_patch_block``
 
@@ -42,15 +44,15 @@ body: |
 
   ONE call:
 
-      task("sim", "Revise existing change <change_id>: apply
+      task("analyzer", "Revise existing change <change_id>: apply
                    <op> to <block> for <device> — <details>.
-                   Use tcf_patch_block (not submit_change_plan).")
+                   Use tcf_patch_block (not submit_draft).")
 
   Do NOT:
   - Try to read the existing spec yourself with ``glob`` /
     ``read_file`` (those tools are deliberately not in the
     orchestrator's toolset — see ARCH-30 / INVIVO-ORCH-FILESYSTEM-LEAK).
-  - Call ``submit_change_plan`` (would emit a NEW spec, losing the
+  - Call ``submit_draft`` (would emit a NEW spec, losing the
     existing one's revision history + journal).
 
   ## What sim does
@@ -81,7 +83,7 @@ body: |
 
   ``devices`` (top-level), ``intent``, ``change_id`` are immutable
   post-emission. Cannot be patched — would require re-emit via
-  ``submit_change_plan`` with a new ``change_id``.
+  ``submit_draft`` with a new ``change_id``.
 
   ## Example dispatch
 
@@ -89,7 +91,7 @@ body: |
         change R3 to use Ethernet0/3"
 
   Orchestrator:
-      task("sim", "Revise existing change r3-r4-ebgp: in the
+      task("analyzer", "Revise existing change r3-r4-ebgp: in the
                    implementation block for R3, replace the
                    interface from current value to Ethernet0/3.
                    Use tcf_patch_block(change_id='r3-r4-ebgp',
