@@ -163,6 +163,23 @@ def render_report(
         else:
             prompt = _assemble_prompt(system_envelope, section_prompt, findings_list, lang)
             section_content = llm.invoke(prompt).content
+            # ISSUE-AUDIT-FINDINGS-CAP-SILENT-TRUNCATION (P1, 2026-05-12):
+            # surface the truncation header BEFORE the LLM-rendered section
+            # so the operator sees "X of Y" before reading any findings.
+            if job_data.get("truncated"):
+                shown = job_data.get("shown_count", len(findings_list))
+                total = job_data.get("total_count", "?")
+                if lang == "zh":
+                    trunc_note = (
+                        f"> ⚠️ **结果截断**：仅显示前 {shown} 条 finding（共 {total} 条）。"
+                        f" 调高 profile 的 `max_findings_per_job` 以查看更多。\n\n"
+                    )
+                else:
+                    trunc_note = (
+                        f"> ⚠️ **Results truncated**: showing {shown} of {total} findings. "
+                        f"Raise the profile's `max_findings_per_job` to see more.\n\n"
+                    )
+                _append_to_file(report_path, trunc_note)
             _append_to_file(report_path, section_content)
 
     # 6. Phase 3 — Global Correlation Pass
@@ -187,9 +204,47 @@ def render_report(
             + "\n```"
         )
 
-    summary_prompt = lang_directive + "\n\n" + corr_template + "\n\n---\n\n" + full_report + cluster_context
+    # ISSUE-AUDIT-FRESHNESS-GATE-MISSING (P1): tell the LLM about stale
+    # data so the executive summary can't write "✅ Healthy" on snapshots
+    # that are 11 days old.
+    freshness_warning = audit_json.get("freshness_warning")
+    freshness_directive = ""
+    if isinstance(freshness_warning, dict) and freshness_warning.get("message"):
+        freshness_directive = (
+            "\n\n**⚠️ STALE DATA — HARD CONSTRAINT**: "
+            + freshness_warning["message"]
+            + " The verdict line at the END of your Executive Summary MUST NOT "
+              "be `✅ Healthy`. Use `⚠️ At Risk (stale data)` or `🔴 Critical "
+              "(unverified)` depending on findings. Action item #1 MUST be "
+              "'restore data collection / re-run snapshot'."
+        )
+
+    summary_prompt = lang_directive + freshness_directive + "\n\n" + corr_template + "\n\n---\n\n" + full_report + cluster_context
     summary = llm.invoke(summary_prompt).content
-    _prepend_to_file(report_path, summary + "\n\n")
+
+    # ── ISSUE-AUDIT-FRESHNESS-GATE-MISSING (P1, 2026-05-12) ─────────────
+    # If map_engine flagged stale data, prepend a deterministic banner
+    # ABOVE the LLM-written summary. The banner is non-LLM, so it cannot
+    # be hallucinated away or rephrased into "everything looks healthy".
+    freshness_warning = audit_json.get("freshness_warning")
+    freshness_banner = ""
+    if isinstance(freshness_warning, dict) and freshness_warning.get("message"):
+        if lang == "zh":
+            freshness_banner = (
+                "> 🔴 **数据陈旧警告**：" + freshness_warning["message"]
+                .replace("Newest data is", "最新数据已 ")
+                .replace("h old", "h（小时）")
+                .replace("threshold:", "阈值:")
+                .replace("All findings below reflect that snapshot — they DO NOT prove current network state.",
+                         "下方所有发现仅反映该快照状态，**无法证明当前网络的实际状态**。")
+                .replace("Re-collect before treating any '✅ Healthy' finding as authoritative.",
+                         "在视任何 '✅ Healthy' 发现为权威之前，请重新采集数据。")
+                + "\n\n"
+            )
+        else:
+            freshness_banner = "> 🔴 **Stale Data Warning**: " + freshness_warning["message"] + "\n\n"
+
+    _prepend_to_file(report_path, freshness_banner + summary + "\n\n")
 
     # 7. Phase 4 — Closed-Loop Post-Check Playbook (deterministic, no LLM call)
     playbook = _generate_postcheck_playbook(audit_json, lang=lang)
@@ -220,8 +275,9 @@ def render_report(
 
     logger.info("render_report: final report at %s", report_path)
 
-    # Extract Executive Summary for immediate display (avoids LLM max_tokens truncation)
+    # Extract Executive Summary + freshness banner for immediate display.
     executive_summary = ""
+    stale_banner = ""
     try:
         report_text = report_path.read_text(encoding="utf-8")
         import re as _re
@@ -231,15 +287,24 @@ def render_report(
         )
         if _match:
             executive_summary = _match.group(1).strip()
+        # ISSUE-AUDIT-FRESHNESS-GATE-MISSING (P1, 2026-05-12): extract the
+        # blockquote banner prepended above the summary so the CLI surface
+        # can show it before the (possibly misleading) summary text.
+        _banner = _re.search(
+            r'^(>\s+(?:🔴|⚠️)\s*\*\*[^*]+\*\*[^\n]*)',
+            report_text, _re.MULTILINE,
+        )
+        if _banner:
+            stale_banner = _banner.group(1).strip()
     except Exception:
         pass
 
-    return (
-        f"Report saved: {report_path}\n\n"
-        f"## Executive Summary\n\n{executive_summary}"
-        if executive_summary
-        else str(report_path)
-    )
+    if not executive_summary:
+        return str(report_path)
+    _summary_block = f"## Executive Summary\n\n{executive_summary}"
+    if stale_banner:
+        _summary_block = stale_banner + "\n\n" + _summary_block
+    return f"Report saved: {report_path}\n\n{_summary_block}"
 
 
 # ---------------------------------------------------------------------------
@@ -803,4 +868,13 @@ _DEFAULT_CORR_TEMPLATE = (
     "(3) a one-sentence overall health verdict (🔴 Critical / ⚠️ Warning / ✅ Healthy)."
 )
 
-_render_report_tool = StructuredTool.from_function(render_report)
+_render_report_tool = StructuredTool.from_function(
+    render_report,
+    # Terminal tool: the return string IS the final user-facing reply
+    # (report path + executive summary). With return_direct=True langgraph
+    # exits the agent loop after this tool call instead of doing a second
+    # LLM round-trip to "format the response" — which on small models
+    # (gemma4) reliably caused 2-3× paraphrase duplication of the same
+    # executive summary. See dev_docs/00 (verbatim-passthrough fix, 2026-05-12).
+    return_direct=True,
+)

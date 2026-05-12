@@ -19,6 +19,15 @@ route_keywords:
 # small models (gemma4 31b nothink) have fewer simultaneous decision
 # points to track.
 # Orchestrator stays pure delegation; whitelist 2 low-risk reads only.
+# task_return_direct: every sub-agent (runner/author/curator) returns a
+# complete user-facing artifact (markdown report / profile path / schema
+# discovery output). With this flag set, `_patched_build_task_tool` (in
+# src/olav/agents/agent.py) marks the deepagents `task` tool as terminal
+# at compile time, so the orchestrator exits after a sub-agent reply
+# rather than doing a second LLM round-trip to "format" it. This kills
+# the orchestrator-layer paraphrase that duplicated render_report's
+# executive summary on small models (gemma4) — see 2026-05-12 fix.
+task_return_direct: true
 tools:
   - recall_memory   # Check prior audit runs / profile decisions
   - web_search      # Verify unknown audit-domain terms

@@ -1206,6 +1206,63 @@ async def run_single_query(
 
         final_content = "".join(_chunks)
 
+        # NL-CLI-TERMINAL-TOOL (2026-05-12): if any tool returned a
+        # "Report saved: <path>" payload (render_report and friends —
+        # tools marked return_direct=True so the orchestrator exits
+        # without a "format the response" LLM turn), surface that line
+        # at the end. Without this the user sees streamed per-section
+        # content from render_report's internal LLM calls but loses the
+        # report path + executive summary the tool returned.
+        _terminal_tool_lines: list[str] = []
+        for tr in _tool_results:
+            content = tr.get("content") or ""
+            # Tool result strings carry payloads in two shapes:
+            #   (a) raw return string from a `@tool`-decorated function
+            #   (b) `str(ToolMessage(content='...', name='...', ...))` —
+            #       newlines inside the content appear as the literal
+            #       two-char sequence `\n` (backslash-n).
+            # Normalise (b) → (a) so a single regex covers both.
+            if content.startswith("content='") or "ToolMessage(content='" in content:
+                _inner = re.search(r"content='(.*?)'\s+name=", content, re.DOTALL)
+                if _inner:
+                    payload = _inner.group(1).replace("\\n", "\n")
+                else:
+                    payload = content
+            else:
+                payload = content
+            # Path: stop at whitespace/newline — never crosses lines.
+            m = re.search(r"Report saved:\s+([^\s]+)", payload)
+            if not m:
+                continue
+            _path_line = f"Report saved: {m.group(1)}"
+            if _path_line in final_content:
+                continue  # already in stream
+            # ISSUE-AUDIT-FRESHNESS-GATE-MISSING (P1, 2026-05-12): if a
+            # deterministic warning banner (`> 🔴 **...**: ...`) is in
+            # the payload, surface it FIRST so the qualifier is seen
+            # before the path / summary.
+            _banner_m = re.search(
+                r"^(>\s+(?:🔴|⚠️)\s*\*\*[^*]+\*\*[^\n]*)",
+                payload, re.MULTILINE,
+            )
+            if _banner_m and _banner_m.group(1) not in final_content:
+                _terminal_tool_lines.append("\n" + _banner_m.group(1))
+            _terminal_tool_lines.append(f"\n📄 {_path_line}")
+            # Executive summary: between heading and next heading / EOF.
+            _exec_m = re.search(
+                r"##\s*Executive\s+Summary\s*\n+(.*?)(?=\n##|\Z)",
+                payload, re.DOTALL | re.IGNORECASE,
+            )
+            if _exec_m and "## Executive Summary" not in final_content:
+                _terminal_tool_lines.append(
+                    "\n## Executive Summary\n" + _exec_m.group(1).rstrip()
+                )
+            break  # surface only the first terminal tool result
+        if _terminal_tool_lines:
+            for line in _terminal_tool_lines:
+                console.print(line)
+            final_content = final_content + "\n" + "\n".join(_terminal_tool_lines)
+
         # NL-CLI-SILENT-FINAL (R82): some models (small ones especially)
         # finish a run with only tool calls — they consider the work
         # "delegated and done" and emit no final assistant text.  The

@@ -35,6 +35,24 @@ When the user's request is ambiguous (e.g. "check BGP"):
 - After writing a Profile, show the full `profiles/` path
 - After generating a report, show the executive summary returned inline by `render_report` (do not re-read the file)
 
+## Sub-agent reply passthrough (HARD RULE)
+
+When a sub-agent's reply already contains a complete user-facing artifact —
+specifically:
+
+* **runner** returning a string starting with `Report saved: …` followed
+  by `## Executive Summary …` — this string IS the final answer
+* **author** returning a `Profile saved: …` line followed by YAML preview
+
+**Forward it to the user UNCHANGED.** No "The X has been executed",
+no "Here is your report", no re-formatting, no second `## Executive Summary`
+heading. The single delegation line ("Delegating to runner…") plus the
+sub-agent's raw reply is the entire response.
+
+Why: each LLM layer that paraphrases a tool result duplicates the same
+content (observed: 2-3× executive summary on small models). Passthrough
+breaks the duplication chain at the orchestrator boundary.
+
 ## Historical context (for reader orientation only — do not act on this)
 
 The author sub-agent was the Designer sub-agent through v0.18.0, then

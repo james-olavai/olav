@@ -244,3 +244,247 @@ def test_audit_workspace_mirrors_stay_in_sync(rel_path):
         f"Run: cp {netops_path} {root_path}\n"
         f"(olav-netops is the source-of-truth per workspace.yaml)."
     )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Contract 5: render_report is a TERMINAL tool (return_direct=True)
+#
+# Root cause being pinned (2026-05-12): on small models (gemma4 31b) the
+# audit-runner flow produced the executive summary 2-3× in the user-facing
+# reply. Each LLM layer (runner → orchestrator) paraphrased the previous
+# layer's "verbatim echo" of render_report's return string.
+#
+# Fix: StructuredTool.from_function(render_report, return_direct=True) makes
+# langgraph exit the agent loop right after the tool call — no second
+# "format the response" LLM round-trip. If a future refactor drops this
+# flag, the duplication regression returns silently.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def _load_render_report_module():
+    """Load render_report.py without going through workspace tool discovery."""
+    path = NETOPS_AUDIT / "runner" / "tools" / "render_report.py"
+    assert path.exists(), f"render_report.py missing at {path}"
+    spec = importlib.util.spec_from_file_location("_rr_contract_test", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_render_report_is_terminal_tool():
+    """render_report's StructuredTool MUST have return_direct=True so
+    langgraph exits the runner sub-agent loop after the call, preventing
+    the small-model paraphrase-duplication regression."""
+    mod = _load_render_report_module()
+    tool = getattr(mod, "_render_report_tool", None)
+    assert tool is not None, "_render_report_tool symbol disappeared"
+    assert tool.return_direct is True, (
+        "render_report lost return_direct=True — gemma4-class models will "
+        "regress to 2-3× executive summary duplication. See "
+        "dev_docs/00 (verbatim-passthrough fix, 2026-05-12)."
+    )
+
+
+def test_orchestrator_prompt_has_passthrough_rule():
+    """Audit orchestrator must explicitly tell the LLM to forward
+    sub-agent replies unchanged when they already contain a final
+    artifact (Report saved: ... / Profile saved: ...)."""
+    for tree in (NETOPS_AUDIT, PLATFORM_AUDIT):
+        text = (tree / "prompts" / "orchestrator.md").read_text(encoding="utf-8")
+        assert "passthrough" in text.lower(), (
+            f"orchestrator.md in {tree} lost the passthrough rule — "
+            "orchestrator will resume paraphrasing sub-agent replies."
+        )
+        assert "Report saved" in text and "Forward it to the user UNCHANGED" in text, (
+            f"orchestrator.md in {tree} passthrough rule weakened — "
+            "must name the artifact ('Report saved:') and the action "
+            "('Forward it to the user UNCHANGED')."
+        )
+
+
+def test_audit_agent_md_declares_task_return_direct():
+    """Audit orchestrator AGENT.md MUST set `task_return_direct: true`.
+
+    Background: the prompt-level passthrough rule was not enough on small
+    models (gemma4 31b kept paraphrasing sub-agent replies). The reliable
+    fix is to mark the deepagents `task(...)` tool as terminal at compile
+    time — done by reading this flag from AGENT.md frontmatter and setting
+    a contextvars.ContextVar that the monkey-patched `_build_task_tool`
+    consults. If the flag is dropped, orchestrator-layer paraphrase
+    duplication of executive summaries returns silently."""
+    for tree in (NETOPS_AUDIT, PLATFORM_AUDIT):
+        text = (tree / "AGENT.md").read_text(encoding="utf-8")
+        assert "task_return_direct: true" in text, (
+            f"AGENT.md in {tree} lost `task_return_direct: true` — audit "
+            "orchestrator will resume the second-LLM-round-trip paraphrase "
+            "of sub-agent replies (executive summary duplicated on small "
+            "models). See 2026-05-12 verbatim-passthrough fix."
+        )
+
+
+def test_agent_py_has_task_return_direct_monkeypatch():
+    """The orchestrator-level `task_return_direct` flag is implemented by
+    monkey-patching deepagents `_build_task_tool` at module import time
+    in `src/olav/agents/agent.py`. If that patch disappears, AGENT.md's
+    flag becomes a no-op and the gemma4 paraphrase duplication regresses."""
+    agent_py = REPO_ROOT / "src" / "olav" / "agents" / "agent.py"
+    src = agent_py.read_text(encoding="utf-8")
+    assert "_TASK_RETURN_DIRECT" in src, (
+        "Lost _TASK_RETURN_DIRECT contextvar in agent.py — the AGENT.md "
+        "`task_return_direct: true` flag is now a no-op."
+    )
+    assert "_patched_build_task_tool" in src, (
+        "Lost monkey-patch on deepagents._build_task_tool — task tool "
+        "will be built with return_direct=False regardless of AGENT.md flag."
+    )
+    assert 'olav_config.get("task_return_direct")' in src, (
+        "Lost the AGENT.md → contextvar bridge — flag won't propagate "
+        "to the patched _build_task_tool."
+    )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Contract 6: CLI surfaces terminal-tool return values
+#
+# Without this, render_report's `return_direct=True` (Contract 5) is a
+# regression — the report path + executive summary are captured in
+# `_tool_results` but never reach the user terminal because the CLI's
+# `on_chat_model_end` handler short-circuits once any streamed content
+# lands in `_chunks`. Background: streaming=False on LLMFactory + a
+# few intermediate LLM calls that DO emit `on_chat_model_stream` events
+# leaves the final tool's return string stranded.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_cli_surfaces_terminal_tool_return_string():
+    """The CLI streaming loop must extract `Report saved: <path>` from
+    captured tool results and print it at end of run, even when other
+    content was streamed earlier. Otherwise users running audit profiles
+    on small models would see streamed per-section content but lose the
+    report path + executive summary."""
+    main_py = REPO_ROOT / "src" / "olav" / "cli" / "main.py"
+    src = main_py.read_text(encoding="utf-8")
+    assert "NL-CLI-TERMINAL-TOOL" in src, (
+        "CLI's terminal-tool surfacing block disappeared — render_report's "
+        "return string will not reach the user terminal when streaming "
+        "captured intermediate content."
+    )
+    assert "Report saved:" in src and "_terminal_tool_lines" in src, (
+        "CLI's terminal-tool block lost the path-extraction logic."
+    )
+    assert "📄" in src, (
+        "CLI's terminal-tool surface lost its visual marker (📄) — "
+        "users need a clear delimiter between streamed mid-run content "
+        "and the final report path."
+    )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Contracts 7-9 (2026-05-12): production-readiness audit hardening.
+# Three P1 fixes for the gaps surfaced after the in-vivo gemma4 audit-
+# profile expansion: LLM evidence fabrication, missing freshness gate,
+# silent finding-cap truncation. See dev_docs/00. issues.md:
+#   * ISSUE-AUDIT-LLM-EVIDENCE-FABRICATION
+#   * ISSUE-AUDIT-FRESHNESS-GATE-MISSING
+#   * ISSUE-AUDIT-FINDINGS-CAP-SILENT-TRUNCATION
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_correlation_pass_has_evidence_only_rules():
+    """correlation_pass.md prompt MUST include the evidence-only hard
+    rule block. Without it, gemma4 fabricates topology inferences
+    ('shared physical path') from unrelated findings (e.g. multiple
+    devices with Ethernet0/3 errors)."""
+    for tree in (NETOPS_AUDIT, PLATFORM_AUDIT):
+        text = (tree / "runner" / "prompts" / "correlation_pass.md").read_text(encoding="utf-8")
+        assert "EVIDENCE-ONLY MODE" in text, (
+            f"correlation_pass.md in {tree} lost EVIDENCE-ONLY MODE section — "
+            "LLM will resume fabricating causal claims unsupported by SQL findings."
+        )
+        assert "FORBIDDEN" in text, (
+            f"correlation_pass.md in {tree} lost the FORBIDDEN block listing "
+            "specific hallucination patterns (causal claims, topology inferences)."
+        )
+        assert "shared physical path" in text or "shared infrastructure" in text, (
+            f"correlation_pass.md in {tree} lost the explicit counter-example "
+            "warning about 'shared physical path' fabrication — gemma4 made "
+            "this exact mistake on interface_health prior to 2026-05-12 fix."
+        )
+
+
+def test_map_engine_has_freshness_gate():
+    """map_engine MUST run the global freshness gate before returning audit
+    JSON. Otherwise profiles without per-job freshness checks (e.g.
+    ospf_health) silently report '✅ Healthy' on 11-day-old data."""
+    me_py = NETOPS_AUDIT / "runner" / "tools" / "map_engine.py"
+    src = me_py.read_text(encoding="utf-8")
+    assert "freshness_warning" in src, (
+        "map_engine lost freshness_warning field — global freshness gate "
+        "is no longer emitted in audit JSON."
+    )
+    assert "freshness_threshold_hours" in src, (
+        "map_engine lost freshness_threshold_hours profile knob — operators "
+        "cannot override the 24h default."
+    )
+    assert "MAX(EXTRACT(EPOCH FROM (NOW() - last_seen))" in src, (
+        "map_engine lost the SQL that computes max staleness from "
+        "netops.devices.last_seen."
+    )
+
+
+def test_render_report_surfaces_freshness_and_truncation():
+    """render_report MUST consume freshness_warning AND truncation flags
+    from audit JSON. Two separate failure modes:
+      (1) freshness: deterministic banner + LLM directive prevent
+          '✅ Healthy' verdict on stale data.
+      (2) truncation: section header warning when SQL produced more
+          rows than max_findings allowed.
+    """
+    rr_py = NETOPS_AUDIT / "runner" / "tools" / "render_report.py"
+    src = rr_py.read_text(encoding="utf-8")
+    # P1.2 — freshness
+    assert "freshness_warning" in src, (
+        "render_report doesn't consume freshness_warning — stale-data "
+        "banner won't be surfaced."
+    )
+    assert "STALE DATA — HARD CONSTRAINT" in src or "Stale Data Warning" in src, (
+        "render_report freshness LLM directive lost — LLM can resume "
+        "writing '✅ Healthy' on stale snapshots."
+    )
+    # P1.3 — truncation
+    assert "truncated" in src and "shown_count" in src and "total_count" in src, (
+        "render_report doesn't read truncation flags — silent 50-row "
+        "cap regression returns."
+    )
+    assert "Results truncated" in src or "结果截断" in src, (
+        "render_report lost the truncation header text — operators "
+        "won't see 'showing N of TOTAL findings' warning."
+    )
+
+
+def test_execute_sql_job_returns_total_count_tuple():
+    """_execute_sql_job MUST return (findings, total_count) tuple so the
+    caller can detect + surface truncation. If this regresses to a flat
+    list return, the silent-truncation regression returns."""
+    import duckdb as _duckdb
+    me_path = NETOPS_AUDIT / "runner" / "tools" / "map_engine.py"
+    spec = importlib.util.spec_from_file_location("_me_contract_test", me_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    con = _duckdb.connect(":memory:")
+    try:
+        con.execute("CREATE TABLE t (x INT)")
+        con.executemany("INSERT INTO t VALUES (?)", [(i,) for i in range(20)])
+        result = mod._execute_sql_job(
+            conn=con, query="SELECT x FROM t", window="1h", max_findings=5,
+        )
+        assert isinstance(result, tuple) and len(result) == 2, (
+            "_execute_sql_job MUST return (findings, total) tuple. "
+            "If it regresses to flat list, callers can no longer detect "
+            "truncation and the silent-cap regression returns."
+        )
+        findings, total = result
+        assert len(findings) == 5
+        assert total == 20
+    finally:
+        con.close()
