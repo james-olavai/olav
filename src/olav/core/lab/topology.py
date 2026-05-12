@@ -172,10 +172,32 @@ def _dedupe_bidirectional(
 
     Canonical form: (src_dev, src_iface, dst_dev, dst_iface) where
     src_dev <= dst_dev lexicographically.
+
+    LLDP-description guard (2026-05-13, in-vivo R1-R3 finding): when
+    a device's neighbour reports a port DESCRIPTION (e.g.
+    ``"to_R1_Gi2"`` set on the remote port) instead of a port NAME,
+    the local LLDP table records that description in the
+    ``remote_interface`` slot. Without a guard, the dedupe sees
+    ``(R1, ge-0/0/2, R3, to_R1_Gi2)`` and ``(R3, Ethernet0/0,
+    R1, ge-0/0/2)`` as two distinct links and emits a parallel
+    ``e1-1`` + ``e1-2`` topology — which then desyncs from any
+    other tool that maps prod → lab interface by encounter order
+    of the canonical (`ge-0/0/2`, `Ethernet0/0`) rows.
+
+    Strategy: drop rows whose dst (dst_dev, dst_iface) doesn't
+    appear as the src of SOME row — those are descriptive-string
+    artifacts, not real port names. If filtering leaves nothing
+    (e.g. only one side of the link is in the snapshot), fall
+    back to the un-filtered rows so we don't silently lose links.
     """
+    real_src: set[tuple[str, str]] = {(d, i) for d, i, _, _ in rows}
+    filtered = [r for r in rows if (r[2], r[3]) in real_src]
+    if not filtered:
+        filtered = list(rows)
+
     seen: set[tuple[str, str, str, str]] = set()
     out: list[tuple[str, str, str, str]] = []
-    for src_d, src_i, dst_d, dst_i in rows:
+    for src_d, src_i, dst_d, dst_i in filtered:
         if (src_d, src_i) <= (dst_d, dst_i):
             key = (src_d, src_i, dst_d, dst_i)
         else:
@@ -430,6 +452,69 @@ def generate_clab_topology(
         # topologies. For our typical 2-node case it's fine.
         emitted = sum(counters.values()) // 2 if counters else 0
         return _wrap_with_comments(yaml_content, snap, emitted, warnings)
+    finally:
+        con.close()
+
+
+def build_prod_to_lab_intf_map(
+    nodes: list[str],
+    snapshot_id: str | None = None,
+) -> dict[str, dict[str, str]]:
+    """Build {device: {prod_intf: lab_srl_intf}} matching generate_clab_topology.
+
+    The lab YAML generator assigns SRL container interface names in
+    link-encounter order (1st link gets ``e1-1``, 2nd ``e1-2``, ...)
+    — see ``_build_yaml`` lines 306-324. The freeform translator
+    historically guessed lab names from prod names (``ge-0/0/2`` →
+    ``ethernet-1/2``) which DESYNCS with the topology generator's
+    encounter-order allocation. This helper computes the actual
+    mapping so callers can pass it as ground truth into the translator.
+
+    Found 2026-05-12 in-vivo (R1-R3 OSPF e2e): R1.ge-0/0/2 ↔ R3.Eth0/0
+    is the only link → both ends get ``ethernet-1/1``, but the LLM
+    translator emitted ``ethernet-1/2`` for R1's OSPF interface
+    because it pattern-matched the trailing /2 from ``ge-0/0/2``.
+    OSPF activated on an interface with no IP; adjacency never formed.
+
+    Returns the empty dict when the snapshot has no links — caller
+    should pass the empty extra_context in that case (no SRL config
+    will reference an interface name anyway).
+    """
+    import duckdb
+    from olav.core.config import MAIN_DB_PATH
+
+    if not nodes:
+        return {}
+
+    try:
+        con = duckdb.connect(str(MAIN_DB_PATH), read_only=True)
+    except Exception:
+        return {}
+
+    try:
+        snap, rows, _ = _resolve_snapshot_with_links(con, nodes, snapshot_id)
+        if snap is None:
+            return {}
+        unique = _dedupe_bidirectional(rows)
+        # Mirror _build_yaml's port_counter allocation exactly.
+        port_counter: dict[str, int] = {}
+        intf_map: dict[str, dict[str, str]] = {n: {} for n in nodes}
+        for src_d, src_i, dst_d, dst_i in unique:
+            # Same validation as _build_yaml: skip malformed iface names.
+            if _validate_iface(src_i) or _validate_iface(dst_i):
+                continue
+            src_port = port_counter.get(src_d, 0) + 1
+            dst_port = port_counter.get(dst_d, 0) + 1
+            port_counter[src_d] = src_port
+            port_counter[dst_d] = dst_port
+            # SRL subinterface form (.0) is what OSPF / iBGP / etc.
+            # actually bind to; the bare ``ethernet-1/N`` is the
+            # parent. Provide both so the translator can pick.
+            if src_d in intf_map:
+                intf_map[src_d][src_i] = f"ethernet-1/{src_port}"
+            if dst_d in intf_map:
+                intf_map[dst_d][dst_i] = f"ethernet-1/{dst_port}"
+        return {d: m for d, m in intf_map.items() if m}
     finally:
         con.close()
 

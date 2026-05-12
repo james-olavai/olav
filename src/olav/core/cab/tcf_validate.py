@@ -508,6 +508,29 @@ def validate_tcf_in_lab(
                     extra_ctx_lines.append(
                         f"Peer device {other.name}'s loopback IP: {other.prod_loopback}"
                     )
+            # Interface name mapping (2026-05-13): the topology generator
+            # assigns SRL container ports in link-encounter order
+            # (1st link = ethernet-1/1, …). Without this map the LLM
+            # used to guess lab names from prod patterns (`ge-0/0/2`
+            # → `ethernet-1/2`) and desync with where the IPs/links
+            # actually landed — OSPF / BGP would bind to an interface
+            # with no IP and never form adjacency.
+            try:
+                from olav.core.lab.topology import build_prod_to_lab_intf_map
+                intf_map_all = build_prod_to_lab_intf_map(
+                    [d.name for d in tcf_full.devices]
+                )
+            except Exception:
+                intf_map_all = {}
+            this_dev_map = intf_map_all.get(dev.name, {})
+            if this_dev_map:
+                extra_ctx_lines.append(
+                    "INTERFACE NAME MAPPING (prod → lab). YOU MUST USE THE LAB "
+                    "NAME VERBATIM in your SRL output — do NOT derive names "
+                    "by stripping digits from the prod interface:"
+                )
+                for prod_i, lab_i in sorted(this_dev_map.items()):
+                    extra_ctx_lines.append(f"  {prod_i} → {lab_i}")
             extra_ctx = "\n".join(extra_ctx_lines)
             result = translate_prod_cli_to_srl(
                 dev_cli_lab, dev.platform or "unknown",
