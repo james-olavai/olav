@@ -260,6 +260,35 @@ def finalize_tcf_from_draft(draft_path: str | Path) -> dict[str, Any]:
         }
 
     spec_path = result.get("spec_path")
+
+    # Post-render augmentation: copy the analyzer's collected topology
+    # edges into the spec so lab doesn't re-query the DB. Keeps the
+    # deterministic-from-input chain intact: facts in the draft drive
+    # both sim's render and lab's deploy. (R-CAB-THREE-STAGE follow-up,
+    # 2026-05-13 — found by R1-R3 OSPF e2e where lab's independent
+    # query of v_l2_links_auto desynced with the analyzer's view.)
+    if spec_path and draft.facts_collected.topology_edges:
+        try:
+            spec_p = Path(spec_path)
+            spec = yaml.safe_load(spec_p.read_text(encoding="utf-8"))
+            if isinstance(spec, dict) and not spec.get("topology_links"):
+                spec["topology_links"] = [
+                    {
+                        "source_device": e.source_device,
+                        "source_interface": e.source_interface,
+                        "destination_device": e.destination_device,
+                        "destination_interface": e.destination_interface,
+                        "discovery_protocol": e.discovery_protocol,
+                    }
+                    for e in draft.facts_collected.topology_edges
+                ]
+                spec_p.write_text(
+                    yaml.safe_dump(spec, sort_keys=False),
+                    encoding="utf-8",
+                )
+        except Exception:  # NEVER raise — degrade gracefully
+            pass
+
     return {
         "status": "ok",
         "change_id": change_id,
