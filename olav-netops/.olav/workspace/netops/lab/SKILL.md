@@ -1,5 +1,6 @@
 ---
 name: ops-lab
+agent_type: api  # skip TodoListMiddleware (NETOPS sub-agents are tool-execution, not plan-and-iterate)
 # R-VERTICAL-SLICE 2026-05-09: sub-agent uses no-think for
 # fast tool execution; orchestrator handles planning.
 thinking_mode: disabled
