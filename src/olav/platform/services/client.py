@@ -23,16 +23,18 @@ logger = logging.getLogger(__name__)
 # HTTP methods that modify external service state — always require approval
 _WRITE_METHODS: frozenset[str] = frozenset({"DELETE", "POST", "PUT", "PATCH"})
 
-# Process-wide HTTP client singleton — connection pool reused across all service_call() invocations.
-# Per-request timeouts are passed via httpx.Timeout at call time.
-_http_client: httpx.Client | None = None
+# Process-wide HTTP client pool — keyed by verify_ssl so services with
+# self-signed certs (e.g. an in-house ContainerLab) get a relaxed-TLS
+# client while production services keep strict verification.
+_http_clients: dict[bool, httpx.Client] = {}
 
 
-def _get_http_client() -> httpx.Client:
-    global _http_client
-    if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.Client()
-    return _http_client
+def _get_http_client(verify_ssl: bool = True) -> httpx.Client:
+    c = _http_clients.get(verify_ssl)
+    if c is None or c.is_closed:
+        c = httpx.Client(verify=verify_ssl)
+        _http_clients[verify_ssl] = c
+    return c
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +52,7 @@ def _jwt_login(svc: ServiceConfig) -> str:
 
     username, password = svc.get_credentials()
     url = svc.endpoint.rstrip("/") + svc.auth.login_path
-    client = _get_http_client()
+    client = _get_http_client(svc.verify_ssl)
     resp = client.post(url, json={"username": username, "password": password}, timeout=15.0)
     resp.raise_for_status()
     body = resp.json()
@@ -184,7 +186,7 @@ def service_call(
 
     logger.debug("service_call: %s %s → %s", method.upper(), service_name, url)
 
-    client = _get_http_client()
+    client = _get_http_client(svc.verify_ssl)
     resp = client.request(
         method.upper(),
         url,

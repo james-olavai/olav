@@ -84,6 +84,11 @@ class ServiceConfig:
     endpoint: str = ""
     schema_url: str = ""
     readonly_only: bool = True   # When True, tool_generator only imports GET ops
+    #: Verify TLS certificates on HTTP calls to this service. Set False
+    #: in services.yaml for endpoints with self-signed certs (e.g. an
+    #: in-house ContainerLab API server). Default True keeps prod-grade
+    #: services strict.
+    verify_ssl: bool = True
     # POST paths that are semantically read-only (e.g. InfluxDB /query, GraphQL /graphql)
     # These are included even when readonly_only=True
     readonly_post_paths: list[str] = field(default_factory=list)
@@ -235,6 +240,7 @@ def _parse_service(name: str, raw: dict) -> ServiceConfig:
         schema_url=raw.get("schema_url", ""),
         readonly_only=bool(raw.get("readonly_only", True)),
         readonly_post_paths=list(raw.get("readonly_post_paths", [])),
+        verify_ssl=bool(raw.get("verify_ssl", True)),
         auth=_parse_auth(raw.get("auth", {})),
         execution=_parse_execution(raw.get("execution", {})),
         lifecycle=_parse_lifecycle(raw.get("lifecycle", {})),
