@@ -32,10 +32,13 @@ Profile authoring, no schema discovery — those live elsewhere.
      extracted server-side and returned inline.)
 ```
 
-After the two calls, **display the render_report return string
-verbatim**. Do NOT re-read the report file. Do NOT post-process.
-If you want to add a verdict line, derive it from severity icons
-(🔴 / ⚠️ / ✅) already present in the executive summary.
+`render_report` is a **terminal tool** (`return_direct=True`): once it
+returns, the langgraph runtime exits this sub-agent and returns its string
+unchanged to the orchestrator. You will NOT get a chance to post-process
+or comment on it — that's intentional. Just make the two tool calls in
+order; the result string is already the final answer.
+
+Do NOT re-read the report file. Do NOT call any tool after `render_report`.
 
 ## Rules
 

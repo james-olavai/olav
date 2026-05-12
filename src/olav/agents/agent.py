@@ -11,6 +11,7 @@ Architecture:
 """
 
 import asyncio
+import contextvars
 import logging
 import os
 from pathlib import Path
@@ -66,6 +67,46 @@ _DEEPAGENTS_INJECT_TOOLS = frozenset({
     "execute",
     "write_todos",
 })
+
+
+# ── Pre-compile `task` tool return_direct injection ─────────────────────
+# Background: deepagents `SubAgentMiddleware` builds the `task` delegation
+# tool via `_build_task_tool(...)` inside its __init__, then passes it to
+# `create_agent`. langgraph factory.py:1436 inspects all tools' return_direct
+# at COMPILE time to decide whether to wire an exit_node destination into
+# the branch map. Mutating `return_direct` after the graph compiles is
+# silently accepted at the attribute level but breaks routing at runtime
+# (KeyError in _branch._finish) — see feedback memory 2026-05-12.
+#
+# To make pure-delegation orchestrators (audit) have a terminal `task`
+# tool we monkey-patch `_build_task_tool` to set return_direct=True on the
+# returned tool, gated by a contextvars.ContextVar that the OLAVAgent
+# constructor sets right before calling create_deep_agent. This way the
+# patch is per-agent opt-in and doesn't leak across orchestrators.
+_TASK_RETURN_DIRECT: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "OLAV_TASK_RETURN_DIRECT", default=False,
+)
+
+try:
+    import deepagents.middleware.subagents as _ds_subagents
+    _ORIGINAL_BUILD_TASK_TOOL = _ds_subagents._build_task_tool
+
+    def _patched_build_task_tool(*args, **kwargs):
+        tool = _ORIGINAL_BUILD_TASK_TOOL(*args, **kwargs)
+        if _TASK_RETURN_DIRECT.get():
+            tool.return_direct = True
+            logger.info(
+                "✓ Built `task` tool with return_direct=True (pure-delegation orchestrator)"
+            )
+        return tool
+
+    _ds_subagents._build_task_tool = _patched_build_task_tool
+except (ImportError, AttributeError) as _exc:
+    logger.warning(
+        "Could not patch deepagents `_build_task_tool` (task_return_direct "
+        "AGENT.md flag will be a no-op): %s: %s",
+        type(_exc).__name__, _exc,
+    )
 
 
 def _prune_graph_tools(graph, unwanted: frozenset[str], label: str) -> None:
@@ -582,7 +623,17 @@ class OLAVAgent:
         if _fs_permissions is not None:
             _create_kwargs["permissions"] = _fs_permissions
 
-        self.graph = create_deep_agent(**_create_kwargs)
+        # Per-orchestrator opt-in for terminal `task` tool. The contextvar
+        # is read by `_patched_build_task_tool` during create_deep_agent →
+        # SubAgentMiddleware → _build_task_tool. Setting return_direct=True
+        # at this point lets langgraph wire the exit_node into the compiled
+        # branch map (post-compile mutation does not work; see memory
+        # feedback_return_direct_post_compile.md).
+        _task_rd_token = _TASK_RETURN_DIRECT.set(bool(olav_config.get("task_return_direct")))
+        try:
+            self.graph = create_deep_agent(**_create_kwargs)
+        finally:
+            _TASK_RETURN_DIRECT.reset(_task_rd_token)
         # Store middleware ref for manual invocation — deepagents 0.5.2
         # accepts the `middleware` kwarg but doesn't mount it on the graph.
         self._olav_middleware = list(effective_middleware)

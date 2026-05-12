@@ -183,7 +183,7 @@ def run_map_engine(
             severity = job.get("severity", "info")
 
             if job_type == "sql":
-                findings = _execute_sql_job(
+                findings, total_count = _execute_sql_job(
                     conn=conn,
                     query=job["query"],
                     window=time_window,
@@ -195,6 +195,7 @@ def run_map_engine(
                 # raw_only_data sentinels so the gap is visible downstream.
                 if not findings and job.get("raw_fallback"):
                     findings = _raw_fallback_probe(conn, job.get("query", ""))
+                    total_count = len(findings)
                 # ISSUE-AUDIT-FALSE-GREEN-EMPTY-RESULTSET: when findings is
                 # still empty AND raw_fallback also produced nothing, check
                 # whether the source table/view actually has data. Dead
@@ -244,12 +245,28 @@ def run_map_engine(
                     ),
                     "severity_hint": "Warning",
                 }]
+                total_count = len(findings)
 
-            jobs_output[job_name] = {
+            # ── ISSUE-AUDIT-FINDINGS-CAP-SILENT-TRUNCATION (P1, 2026-05-12) ─
+            # If the SQL produced more rows than max_findings let, surface
+            # the truncation explicitly: render_report uses these fields to
+            # print a "⚠️ showing N of TOTAL findings" warning at section
+            # head. Without this, a 100-finding job silently degrades to
+            # the first 50 rows and operators miss half the picture.
+            _job_output: dict = {
                 "severity": severity,
                 "count": len(findings),
                 "findings": findings,
             }
+            if total_count > len(findings):
+                _job_output["truncated"] = True
+                _job_output["total_count"] = total_count
+                _job_output["shown_count"] = len(findings)
+                logger.warning(
+                    "map_engine: job %r truncated to %d findings (total: %d)",
+                    job_name, len(findings), total_count,
+                )
+            jobs_output[job_name] = _job_output
 
     # ── Incident clustering (post-processing, optional) ──────────────────────
     incident_clusters: list[dict] = []
@@ -273,12 +290,59 @@ def run_map_engine(
         except Exception as exc:
             logger.warning("map_engine: incident clustering failed: %s", exc)
 
+    # ── ISSUE-AUDIT-FRESHNESS-GATE-MISSING (P1, 2026-05-12) ─────────────
+    # Global freshness gate: even if a profile has no per-job freshness
+    # check, surface device staleness at the top of the audit JSON. Every
+    # downstream finding in this run is qualified by this banner —
+    # otherwise small profiles like ospf_health report "✅ Healthy" on
+    # 11-day-old snapshots.
+    freshness_threshold_hours = float(profile.get("freshness_threshold_hours", 24))
+    freshness_warning: dict | None = None
+    try:
+        with duckdb.connect(str(db_path)) as _fr_conn:
+            row = _fr_conn.execute(
+                "SELECT MAX(EXTRACT(EPOCH FROM (NOW() - last_seen)) / 3600.0) "
+                "FROM netops.devices WHERE last_seen IS NOT NULL"
+            ).fetchone()
+            max_hours = row[0] if row and row[0] is not None else None
+            null_row = _fr_conn.execute(
+                "SELECT COUNT(*) FROM netops.devices WHERE last_seen IS NULL"
+            ).fetchone()
+            null_count = null_row[0] if null_row else 0
+        if max_hours is not None and max_hours > freshness_threshold_hours:
+            freshness_warning = {
+                "type": "stale_data",
+                "max_hours_since_last_seen": round(float(max_hours), 1),
+                "threshold_hours": freshness_threshold_hours,
+                "devices_with_null_last_seen": int(null_count),
+                "message": (
+                    f"Newest data is {round(float(max_hours), 1)}h old "
+                    f"(threshold: {freshness_threshold_hours}h). All findings "
+                    f"below reflect that snapshot — they DO NOT prove current "
+                    f"network state. Re-collect before treating any '✅ Healthy' "
+                    f"finding as authoritative."
+                ),
+            }
+        elif null_count > 0:
+            freshness_warning = {
+                "type": "missing_last_seen",
+                "devices_with_null_last_seen": int(null_count),
+                "threshold_hours": freshness_threshold_hours,
+                "message": (
+                    f"{null_count} device(s) have NULL last_seen — "
+                    f"freshness cannot be verified for those devices."
+                ),
+            }
+    except Exception as exc:
+        logger.warning("map_engine: freshness gate check failed: %s", exc)
+
     output = {
         "profile": profile_name,
         "window": time_window,
         "snapshot_resolution": raw_resolution,
         "resolution_minutes": resolution_minutes,
         "generated_at": generated_at,
+        "freshness_warning": freshness_warning,
         "jobs": jobs_output,
         "incident_clusters": incident_clusters,
     }
@@ -463,8 +527,8 @@ def _execute_sql_job(
     query: str,
     window: str,
     max_findings: int,
-) -> list[dict]:
-    """Run a parameterized DuckDB query.
+) -> tuple[list[dict], int]:
+    """Run a parameterized DuckDB query and return (findings, total_count).
 
     Profile SQL uses `INTERVAL :window` as a documentation-friendly convention.
     DuckDB cannot bind INTERVAL values as parameters, so the engine translates:
@@ -473,6 +537,13 @@ def _execute_sql_job(
       3. Binds the cutoff datetime as a named DuckDB parameter
 
     The window VALUE is never concatenated into the SQL string.
+
+    Returns:
+        (findings_capped_at_max_findings, total_row_count_before_cap)
+
+    The total count lets the caller surface a `truncated` warning when
+    the query produced more rows than `max_findings`. Without this, a
+    100-finding job silently degrades to a 50-finding report.
     """
     import re
 
@@ -489,10 +560,11 @@ def _execute_sql_job(
     # Also handle any remaining standalone :window references
     duckdb_query = re.sub(r":window", "$cutoff", duckdb_query, flags=re.IGNORECASE)
 
+    inner_query = duckdb_query.rstrip().rstrip(";")
     # Apply LIMIT via outer CTE — integer literal, NOT a user-supplied value
     capped_query = (
-        f"SELECT * FROM ({duckdb_query.rstrip().rstrip(';')}) __q "
-        f"LIMIT {int(max_findings)}"
+        f"SELECT * FROM ({inner_query}) __q "
+        f"LIMIT {int(max_findings) + 1}"  # +1 lets us detect "more than max"
     )
 
     # $cutoff is a Python datetime — DuckDB binds it as TIMESTAMPTZ automatically.
@@ -502,7 +574,24 @@ def _execute_sql_job(
     result = conn.execute(capped_query, params)
     columns = [desc[0] for desc in result.description]
     rows = result.fetchall()
-    return [dict(zip(columns, row, strict=False)) for row in rows]
+
+    findings = [dict(zip(columns, row, strict=False)) for row in rows]
+    if len(findings) <= max_findings:
+        # No truncation — return findings as-is, total == len(findings)
+        return findings, len(findings)
+
+    # Truncation detected — find the exact total via a COUNT query so the
+    # warning carries an accurate denominator. Cheap because the inner
+    # query is materialised by DuckDB once.
+    try:
+        count_query = f"SELECT COUNT(*) FROM ({inner_query}) __q"
+        total = conn.execute(count_query, params).fetchone()[0]
+    except Exception as exc:
+        logger.warning(
+            "map_engine: truncation count query failed (using max+1 as floor): %s", exc,
+        )
+        total = max_findings + 1
+    return findings[:max_findings], int(total)
 
 
 def _parse_window_to_cutoff(window: str) -> datetime:

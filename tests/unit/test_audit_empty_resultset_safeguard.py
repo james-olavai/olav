@@ -136,3 +136,55 @@ def test_check_data_sufficiency_finding_has_required_shape(map_engine, db):
                 "_warning", "_source", "reason"):
         assert key in finding, f"missing required key: {key}"
     assert finding["metric_name"] == "Insufficient Data"
+
+
+# ── ISSUE-AUDIT-FINDINGS-CAP-SILENT-TRUNCATION (P1, 2026-05-12) ────────
+
+
+def test_execute_sql_job_returns_tuple_with_total(map_engine, db):
+    """_execute_sql_job MUST return (findings, total_count). Total
+    equals len(findings) when not truncated."""
+    db.execute("CREATE TABLE t (x INT)")
+    db.execute("INSERT INTO t VALUES (1), (2), (3)")
+    findings, total = map_engine._execute_sql_job(
+        conn=db,
+        query="SELECT x FROM t",
+        window="1h",
+        max_findings=10,
+    )
+    assert len(findings) == 3
+    assert total == 3
+
+
+def test_execute_sql_job_surfaces_truncation_total(map_engine, db):
+    """When SQL produces > max_findings rows, return (truncated_findings,
+    EXACT total). Without exact total the operator cannot tell whether
+    they lost 5 findings or 5000."""
+    db.execute("CREATE TABLE t (x INT)")
+    db.executemany("INSERT INTO t VALUES (?)", [(i,) for i in range(100)])
+    findings, total = map_engine._execute_sql_job(
+        conn=db,
+        query="SELECT x FROM t",
+        window="1h",
+        max_findings=10,
+    )
+    assert len(findings) == 10, "findings list must be capped at max_findings"
+    assert total == 100, (
+        "truncation must surface the EXACT total row count; "
+        "without it the operator cannot judge severity of the cut"
+    )
+
+
+def test_execute_sql_job_no_truncation_at_exact_cap(map_engine, db):
+    """Findings exactly at max_findings → no truncation flag (total == len).
+    Tests the boundary condition: cap=5, rows=5 must NOT trigger truncation."""
+    db.execute("CREATE TABLE t (x INT)")
+    db.executemany("INSERT INTO t VALUES (?)", [(i,) for i in range(5)])
+    findings, total = map_engine._execute_sql_job(
+        conn=db,
+        query="SELECT x FROM t",
+        window="1h",
+        max_findings=5,
+    )
+    assert len(findings) == 5
+    assert total == 5, "boundary: exactly max_findings rows means no truncation"
