@@ -82,6 +82,24 @@ _PROD_TO_SRL_RULES: list[tuple[re.Pattern[str], str]] = [
         re.compile(r"\bshow\s+version\b", re.I),
         'sr_cli "show version"',
     ),
+    # ISSUE-CAB-FREEFORM-POSTCHECK-DESCRIPTION-FORMAT (P3, 2026-05-12):
+    # `show running-config` (full) and `show running-config interface <X>`
+    # → SRL `info`. The `info` output is YAML and contains description
+    # strings, neighbor IPs, prefix lists, etc. verbatim, so the
+    # post_check's `expected_pattern` substring check (e.g.
+    # 'cab-test-link') resolves the same way as it would on IOS/Junos.
+    # We don't try to translate the interface name (Eth0/0 → ethernet-1/1)
+    # because the freeform_translator already renamed the interface in
+    # the SRL config; `info` without an interface filter returns the
+    # whole config including all interface descriptions.
+    (
+        re.compile(r"\bshow\s+running-config\s+interface\b", re.I),
+        'sr_cli "info / interface"',
+    ),
+    (
+        re.compile(r"\bshow\s+running-config\b", re.I),
+        'sr_cli "info"',
+    ),
 ]
 
 
