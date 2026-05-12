@@ -25,7 +25,12 @@ body: |
   Phase A in flux — both styles registered for now):
 
   - ``analyze`` / ``ops-analyze`` — read-side state / topology / drift
-  - ``sim`` — change planning, owns ``submit_change_plan`` + ``tcf_patch_block``
+  - ``analyzer`` — change-plan ANALYST (LLM): facts → DraftChangePlan via
+    ``submit_draft``; revision via ``receive_rejection`` (R-CAB-THREE-STAGE
+    Day 2, 2026-05-12, dev_docs/75; renamed from ``sim``)
+  - ``sim`` — change-plan FINALIZER (Python skill-script): one tool
+    ``finalize_tcf(draft_path)``; renders TCF or writes rejection_sim.yaml
+    deterministically; no LLM in the loop (R-CAB-THREE-STAGE Day 4)
   - ``investigate`` — log/syslog/config-text drilldown
   - ``collect`` / ``ops-collect`` — data-plane probes, ``take_snapshot``
   - ``lab`` / ``ops-lab`` — ContainerLab digital twin validation

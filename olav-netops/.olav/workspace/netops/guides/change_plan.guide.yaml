@@ -16,95 +16,133 @@ keywords:
   - 变更计划
   - 添加 BGP
   - 添加邻居
-  - submit_change_plan
+  - submit_draft
+  - analyzer agent
   - sim agent
+  - finalize_tcf
   - r1-r3-ebgp
 body: |
-  Change plan requests ("plan a change", "add eBGP between R1 and R3",
-  "变更方案") use the `sim` sub-agent + `submit_change_plan` tool.
-  R-AGENT-HIERARCHY Phase D (2026-05-09): structured-output via
-  LangChain tool-call channel — schema enforced at LLM decode time,
-  no Markdown gentleman's agreement.
+  ## R-CAB-THREE-STAGE (2026-05-12, dev_docs/75)
 
-  ## Stage 1 — orchestrator delegates to `sim`
+  Change-plan requests flow through THREE sub-agents now, not one:
 
-  Orchestrator's FIRST call:
+      USER → analyzer (LLM, drafts) → sim (Python, finalizes) → lab
 
-      task("sim", "<user's request paraphrased>")
+  Each stage has a typed envelope persisted to disk under
+  ``exports/cab/<change_id>/``:
+    * ``draft.yaml``        — analyzer's proposal (DraftChangePlan)
+    * ``spec.tcf.yaml``     — sim's rendered TCF (on OK)
+    * ``rejection_sim.yaml``— sim's structured rejection (on BLOCKED)
 
-  Do NOT do execute_sql / glob / ls at the orchestrator level.  Do
-  NOT delegate to `ops-analyze` for change plans (analyze is
-  read-side: drift / topology Q&A / Mermaid only).
+  The orchestrator dispatches mechanically on the ``next_step.action``
+  every stage returns. See ``compound_chain_workflow`` guide for the
+  full routing table.
 
-  ## Stage 2 — sim's 3-step workflow ending in submit_change_plan
+  ## Stage 1 — orchestrator delegates to `analyzer`
 
-  Inside the sim sub-agent:
+  Orchestrator's FIRST call for any change request:
 
-  a. ONE feasibility-check sandbox call (run_python_simulation)
-     to verify ASNs / topology / IGP — whatever the intent needs.
+      task("analyzer", "<user's request paraphrased>")
 
-  b. Decide feasibility based on the data.
+  Do NOT use ``ops-analyze`` for change plans — analyze is read-side
+  (drift / topology Q&A / Mermaid). The change-planning analyzer is
+  ``analyzer`` (renamed from sim on 2026-05-12 per dev_docs/75 Day-2).
 
-  c. Call `submit_change_plan(...)` with structured fields:
+  ## Stage 2 — analyzer's workflow ending in submit_draft
 
-         submit_change_plan(
-             intent="ebgp_direct",          # enum-constrained
-             devices=["R2", "R3"],          # typed list
-             summary="Add eBGP between R2 and R3",
-             rationale=(
-                 "<multi-paragraph free-form Markdown WHY>"
-             ),
-             steps=(
-                 "Phase 1: ...\n"
-                 "Phase 2: ...\n"
-             ),
-             feasibility="OK",              # or "BLOCKED" + reason
+  Inside the analyzer sub-agent:
+
+  a. Call inspect_* tools (devices / topology / routing / interfaces /
+     blast_radius) to gather facts. Minimum: inspect_devices on every
+     device in scope.
+
+  b. Pick an intent from SupportedIntent:
+       ebgp_direct / ibgp_direct / static_route_add / vlan_add /
+       freeform_cli.
+
+  c. Call `submit_draft(...)` with the inspector results as
+     `facts_collected`:
+
+         submit_draft(
+             user_prompt="<verbatim user ask>",
+             devices_in_scope=["R2", "R3"],
+             proposed_intent="ebgp_direct",
+             intent_args={},
+             rationale="<WHY based on inspector outputs>",
+             facts_collected=<the FactsEnvelope dict you observed>,
          )
 
-     The tool internally:
-       1. Composes the Markdown change plan from your fields
-       2. Saves it to `exports/change_plans/<change_id>.md`
-       3. Queries DB for ASN / loopback / platform per device
-       4. Renders deterministic CLI from intent + platform templates
-       5. Writes TCF YAML to `exports/cab/<change_id>/spec.tcf.yaml`
+     The tool:
+       1. Validates against the DraftChangePlan Pydantic schema —
+          empty facts_collected or unknown intent are refused.
+       2. Writes the draft to ``exports/cab/<change_id>/draft.yaml``.
+       3. Returns ``{"status": "ok", "change_id": ..., "draft_path": ...,
+                      "next_step": {"action": "sim_finalize",
+                                     "sub_agent": "sim",
+                                     "args": {"draft_path": ...}}}``
+
+  ## Stage 3 — sim renders the TCF
+
+  Orchestrator follows the ``next_step``:
+
+      task("sim", "finalize the draft", draft_path=<path>)
+
+  Sim's single tool ``finalize_tcf(draft_path)`` is a Python
+  skill-script (no LLM in the loop):
+
+       1. Load + Pydantic-validate the draft.
+       2. Per-intent feasibility check (same_asn / not_directly_connected
+          / missing_facts / invalid_cidr / ...). On BLOCKED: writes
+          ``rejection_sim.yaml`` with structured Blocker codes and
+          suggested_alternatives.
+       3. networkx simulation pass — isolation / loop invariants.
+       4. Render TCF deterministically (DB-grounded facts, template CLI).
+       5. Returns one of:
+            {"status": "ok",       "spec_path": ..., "next_step":
+                                    {"action": "lab_validate", ...}}
+            {"status": "rejected", "rejection_path": ..., "next_step":
+                                    {"action": "analyzer_revise", ...}}
+            {"status": "hard_blocked", "next_step":
+                                    {"action": "user_review", ...}}
 
   ## Why this shape
 
-  Phase D moves from "Markdown YAML block parser" (Phase B+C) to
-  "tool-call structured output" — the LLM's grammar-constrained
-  decode channel.  Same Pydantic schema the LangChain tool decorator
-  generates is what the LLM sees as a JSON schema and is constrained
-  to fill.
+  Splitting the old single-stage submit_change_plan into Analyzer +
+  Sim gives the LLM ONE job (gather facts, propose intent) and the
+  Python side ONE job (judge feasibility, render). Every guardrail
+  that used to bolt on as a F.X patch (facts_cited hard-error, F.2
+  prod CLI completeness lint, ARCH-40 require_two_devices) now lives
+  in its natural home — the DraftChangePlan Pydantic schema or the
+  per-intent feasibility rule under ``olav.core.cab.sim.feasibility``.
 
-  The free-form `rationale` + `steps` fields prevent the
-  investigation-loop failure mode (earlier "thin emit_tcf" experiment
-  hung 18min because no analytical container existed in the args).
+  See dev_docs/75 for the full design + hardcoding-removal inventory.
 
-  See dev_docs/73 § Phase D.
+  ## What analyzer DOES NOT do
 
-  ## What sim DOES NOT pass
+  - Author CLI commands directly (sim's render layer composes them
+    from intent + DB facts + per-platform templates)
+  - Declare a change "feasible" in any final sense (sim does the
+    deterministic check)
+  - Allocate lab subnets (sim's render layer, idempotent on change_id)
 
-  - Device platforms / loopbacks / ASNs — DB-derived
-  - implementation_json / rollback_json / post_check_json — template-generated
-  - Any CLI fragments — the writer renders complete Junos / IOS configs
+  ## On rejection — call receive_rejection FIRST
 
-  ## Result envelope (what sim reports back to orchestrator)
+  When the orchestrator routes you back via
+  ``next_step.action=="analyzer_revise"``:
 
-  On success:
-    `{"status": "ok",
-      "plan_md_path": "exports/change_plans/<id>.md",
-      "spec_path":    "exports/cab/<id>/spec.tcf.yaml",
-      "facts":        {<device>: {...}},
-      "warnings":     [...]}`
+      receive_rejection(change_id="<id>")
+      # → returns blockers + suggested_alternatives +
+      #   next_revision_round
 
-  Sim reports plan_md_path (HITL artifact) + spec_path (lab input)
-  + facts.  The orchestrator passes spec_path to lab for validation.
-
-  On error: `{"status": "error", "error": "...", "blockers": [...]}`.
-  Surface the blockers to the user.  Do NOT retry with fabricated args.
+  Then call submit_draft with revision_round=<bumped> and
+  previous_blockers=[blocker codes from the rejection]. A blind
+  re-submit ignores Sim's hint and burns a retry. After 3 rejections,
+  Sim sets hard_blocked=True and the orchestrator surfaces to user.
 
 related:
+  - intent: compound_chain_workflow
+    note: "the mechanical next_step routing table the orchestrator dispatches on"
   - intent: simulation_what_if
-    note: "blast-radius / what-if questions before the plan: also lives in sim"
+    note: "blast-radius / what-if questions: ops-analyze, not analyzer"
   - intent: lab_validation
-    note: "after submit_change_plan returns spec_path: task('ops-lab', '<spec_path>')"
+    note: "after sim returns spec_path: task('lab', 'validate', spec_path=...)"

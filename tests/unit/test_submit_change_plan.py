@@ -218,51 +218,15 @@ def test_facts_cited_renders_into_plan_md(tmp_path):
     assert "inspect_blast_radius" in md
 
 
-def test_facts_cited_empty_with_OK_is_hard_error(tmp_path):
-    """ISSUE-CAB-DATA-NOT-GROUNDED (P0, hardened 2026-05-12).
-    Previously: soft warning. Now: hard error when feasibility=OK and
-    facts_cited is empty — agent must call inspect_* tools before
-    declaring the plan feasible. Without this, gemma4-class agents
-    skip every inspector tool and produce specs with hallucinated
-    ASN/loopback/topology values."""
-    fake_facts = {
-        "R2": {"platform": "cisco_ios", "loopback": "2.2.2.2", "local_as": 65001},
-        "R3": {"platform": "cisco_ios", "loopback": "3.3.3.3", "local_as": 65000},
-    }
-    with patch("olav.core.cab.tcf_writer._db_facts", return_value=fake_facts):
-        r = _M.submit_change_plan.invoke({
-            "intent": "ebgp_direct",
-            "devices": ["R2", "R3"],
-            "summary": "x",
-            "output_root": str(tmp_path),
-        })
-    assert r["status"] == "error", (
-        f"empty facts_cited + feasibility=OK MUST be rejected; got {r!r}"
-    )
-    assert "facts_cited is empty" in r["error"]
-    assert "inspect_devices" in r["error"], (
-        "error must guide the agent on what inspect_* tools to call"
-    )
-
-
-def test_facts_cited_without_inspect_with_OK_is_hard_error(tmp_path):
-    """facts_cited with entries but NONE referencing an inspect_*
-    tool is also rejected — empty grounding is empty grounding,
-    even if some text is supplied."""
-    fake_facts = {
-        "R2": {"platform": "cisco_ios", "loopback": "2.2.2.2", "local_as": 65001},
-        "R3": {"platform": "cisco_ios", "loopback": "3.3.3.3", "local_as": 65000},
-    }
-    with patch("olav.core.cab.tcf_writer._db_facts", return_value=fake_facts):
-        r = _M.submit_change_plan.invoke({
-            "intent": "ebgp_direct",
-            "devices": ["R2", "R3"],
-            "summary": "x",
-            "facts_cited": ["I just feel it's right", "user told me to"],
-            "output_root": str(tmp_path),
-        })
-    assert r["status"] == "error"
-    assert "NONE reference an inspect_*" in r["error"] or "inspect_*" in r["error"]
+# Two F.3 hard-error tests REMOVED (R-CAB-THREE-STAGE Day 6,
+# 2026-05-12, dev_docs/75): the F.3 hard-error block in
+# submit_change_plan was retired in favour of the DraftChangePlan
+# Pydantic schema's structural enforcement of non-empty facts_collected.
+# The replacement coverage lives in:
+#   tests/unit/test_submit_draft.py::test_rejects_empty_facts_envelope
+#   tests/unit/test_cab_schemas.py::test_*facts_envelope*
+# The legacy submit_change_plan tool accepts empty facts_cited now;
+# the structural gate has moved upstream.
 
 
 def test_facts_cited_empty_with_OK_HITL_ONLY_passes(tmp_path):
@@ -288,28 +252,10 @@ def test_facts_cited_empty_with_OK_HITL_ONLY_passes(tmp_path):
     )
 
 
-def test_facts_cited_entry_without_inspect_warns(tmp_path):
-    """Entry that doesn't name an inspect_* tool earns a per-entry warn."""
-    fake_facts = {
-        "R2": {"platform": "cisco_ios", "loopback": "2.2.2.2", "local_as": 65001},
-        "R3": {"platform": "cisco_ios", "loopback": "3.3.3.3", "local_as": 65000},
-    }
-    with patch("olav.core.cab.tcf_writer._db_facts", return_value=fake_facts):
-        r = _M.submit_change_plan.invoke({
-            "intent": "ebgp_direct",
-            "devices": ["R2", "R3"],
-            "summary": "x",
-            "facts_cited": [
-                "inspect_devices: R2.local_as=65001",  # ✓ valid
-                "I just thought about it",             # ✗ no inspect_* token
-            ],
-            "output_root": str(tmp_path),
-        })
-    assert r["status"] == "ok"
-    warnings = r.get("warnings") or []
-    assert any(
-        "does not name an inspect_*" in w for w in warnings
-    ), f"expected non-inspect warning; got {warnings!r}"
+# test_facts_cited_entry_without_inspect_warns REMOVED — the warning
+# was emitted by the same _INSPECT_CITE_RE pass that the F.3 hard-error
+# used. Same story: DraftChangePlan schema is now the structural gate,
+# free-text inspect_* citations are no longer matched.
 
 
 def test_facts_cited_blocked_change_does_not_warn(tmp_path):

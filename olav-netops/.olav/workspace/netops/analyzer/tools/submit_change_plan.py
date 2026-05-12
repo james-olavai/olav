@@ -41,7 +41,11 @@ def _slugify(s: str) -> str:
     return s[:60] or "change"
 
 
-_INSPECT_CITE_RE = re.compile(r"\binspect_[a-z_]+\b")
+# _INSPECT_CITE_RE REMOVED (R-CAB-THREE-STAGE Day 6, 2026-05-12,
+# dev_docs/75). The regex matched free-text references to inspect_*
+# tool names in facts_cited entries — superseded by the DraftChangePlan
+# schema's typed FactsEnvelope where every fact is structured data,
+# not a prose citation.
 
 
 def _compose_plan_md(
@@ -340,58 +344,15 @@ def submit_change_plan(
     if not change_id:
         change_id = _slugify(f"{'-'.join(devices)}-{intent.split('_')[0]}")
 
-    # ISSUE-CAB-DATA-NOT-GROUNDED (P0, hardened 2026-05-12).
-    # Previous: soft warning when facts_cited was empty.
-    # New: hard error — empty facts_cited with feasibility=OK is a
-    # refusal to ground the plan in DB facts. The agent must either
-    # (a) cite at least one inspect_* tool output, or
-    # (b) explicitly mark feasibility=OK_HITL_ONLY (for the rare cases
-    #     where DB grounding doesn't apply, with the trade-off of
-    #     mandatory human review).
-    # The previous soft warning let gemma4-class agents skip every
-    # inspector tool and still get spec.tcf.yaml written with
-    # hallucinated values.
+    # F.3 facts_cited hard-error block REMOVED (R-CAB-THREE-STAGE Day 6,
+    # 2026-05-12, dev_docs/75). The DraftChangePlan schema's
+    # `facts_collected: FactsEnvelope` requirement is the structural
+    # replacement — empty facts are now refused at construct time by
+    # the Pydantic validator, not by free-text regex matching against
+    # facts_cited strings. The legacy facts_cited list is accepted for
+    # callsite compatibility but no longer gated on.
     facts_cited_list = list(facts_cited or [])
     fc_warnings: list[str] = []
-    if feasibility == "OK":
-        if not facts_cited_list:
-            return {
-                "status": "error",
-                "error": (
-                    "facts_cited is empty with feasibility=OK. "
-                    "Every plan must trace facts to inspect_* tool outputs. "
-                    "REQUIRED steps before re-calling submit_change_plan: "
-                    "(1) call inspect_devices to verify device ASNs / "
-                    "loopbacks / platforms; (2) call inspect_topology to "
-                    "verify L2/L3 adjacencies; (3) optionally call "
-                    "inspect_blast_radius for impact analysis. Then re-call "
-                    "with facts_cited=['inspect_devices: <evidence>', "
-                    "'inspect_topology: <evidence>', ...]. "
-                    "If DB grounding genuinely does not apply to this "
-                    "change, mark feasibility=OK_HITL_ONLY instead."
-                ),
-            }
-        if not any(_INSPECT_CITE_RE.search(e) for e in facts_cited_list):
-            return {
-                "status": "error",
-                "error": (
-                    "facts_cited has entries but NONE reference an "
-                    "inspect_* tool. Each citation must name the tool "
-                    "that produced the fact, e.g. "
-                    "'inspect_devices: R3.local_as=65000'. Re-call "
-                    "submit_change_plan after running the inspectors."
-                ),
-            }
-        # Soft warning for the entries that don't name inspect_*; not a
-        # hard block once at least one cite is grounded.
-        for entry in facts_cited_list:
-            if not _INSPECT_CITE_RE.search(entry):
-                fc_warnings.append(
-                    f"facts_cited entry {entry!r} does not name an "
-                    f"inspect_* tool — entries should reference the tool "
-                    f"that produced the fact, e.g. "
-                    f"'inspect_devices: R3.local_as=65000'."
-                )
 
     # Validate freeform_cli prerequisites before YAML composition.
     # OK_HITL_ONLY uses the same slot requirements as OK because the
