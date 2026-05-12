@@ -77,7 +77,15 @@ user's message — proceed directly.
 * Touching platform Python code — only workspace files and tools
 * Pre-loading schemas via `recall_memory` when `describe_table` does
   it on demand (see schema introspection guide in
-  `<relevant-memories>` when SQL fails with column / table errors)
+  `<relevant-memories>` when SQL fails with column / token errors)
+* **NEVER use `execute_sql` for syslog / log queries.** Live syslog
+  lives in Parquet (`.olav/databases/logs/`), NOT in DuckDB tables.
+  Queries like "criticals last hour" / "what happened to R1" / "BGP
+  flap timestamps" → `search_logs(query=..., host=..., hours=..., severity=...)`.
+  `netops.parsed_outputs` / `v_show_logging_auto` only hold device-side
+  `show logging` snapshots (point-in-time, parsed CLI), not the
+  receiver's live ingest stream. Confusing the two costs the user 9
+  pointless SQL calls before the right tool gets used.
 
 ## Available agents
 
