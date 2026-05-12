@@ -157,6 +157,7 @@ _KNOWN_COMMANDS: frozenset[str] = frozenset(
         "catalog",
         "explain",
         "diff",
+        "audit",  # #7 (2026-05-12) — audit selftest + future audit subcommands
     }
 )
 """Subcommand tokens the CLI recognises.  Anything else is treated as
@@ -525,6 +526,26 @@ def parse_args():
     # Diff — cross-snapshot diff CLI shortcut (ARCH-13 Round 47)
     from olav.cli.commands.diff import build_diff_parser
     build_diff_parser(subparsers)
+
+    # Audit — operator entry points for audit subsystem (#7, 2026-05-12)
+    audit_parser = subparsers.add_parser(
+        "audit",
+        help="Audit subsystem operations (selftest, ...)",
+    )
+    audit_sub = audit_parser.add_subparsers(dest="audit_command", help="Audit action")
+    selftest_parser = audit_sub.add_parser(
+        "selftest",
+        help="Validate a profile's SQL against the live DB schema before running",
+    )
+    selftest_parser.add_argument(
+        "profile",
+        help="Profile name (e.g. 'bgp_health') or path to profile .md file",
+    )
+    selftest_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON instead of human-readable output",
+    )
 
     # Default interactive mode flags
     parser.add_argument(
@@ -2016,6 +2037,12 @@ What tools are available and when should each be used?
         if args.command == "diff":
             from olav.cli.commands.diff import handle_diff_command
             sys.exit(handle_diff_command(args))
+            return
+
+        # Handle audit — schema selftest + future audit subcommands (#7, 2026-05-12)
+        if args.command == "audit":
+            from olav.cli.commands.audit import handle_audit_command
+            sys.exit(handle_audit_command(args))
             return
 
         # Activate bypass mode before creating session (sets env var for all gates)

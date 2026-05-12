@@ -159,6 +159,14 @@ def run_map_engine(
     # ARCH-11 Phase 1: profile opt-in. When true, each finding is decorated
     # with a `_source` dict and render_report prints a [src: …] tag.
     emit_sources = bool(profile.get("emit_sources", False))
+    # #4 per-job SQL timeout (2026-05-12). Wall-clock budget per query;
+    # default 30s, override via profile YAML `job_timeout_seconds: <int>`.
+    # 0 or negative → no timeout (legacy behaviour for callers that
+    # explicitly opt out).
+    try:
+        job_timeout_seconds = float(profile.get("job_timeout_seconds", 30))
+    except (TypeError, ValueError):
+        job_timeout_seconds = 30.0
 
     # ── Resolution: parse snapshot_resolution → minutes (drives anomaly + incident engines)
     raw_resolution = profile.get("snapshot_resolution", "1d")
@@ -183,12 +191,38 @@ def run_map_engine(
             severity = job.get("severity", "info")
 
             if job_type == "sql":
-                findings, total_count = _execute_sql_job(
-                    conn=conn,
-                    query=job["query"],
-                    window=time_window,
-                    max_findings=max_findings,
-                )
+                try:
+                    findings, total_count = _execute_sql_job(
+                        conn=conn,
+                        query=job["query"],
+                        window=time_window,
+                        max_findings=max_findings,
+                        timeout_seconds=job_timeout_seconds,
+                    )
+                except JobTimeoutError as _to_exc:
+                    # Surface as a synthetic Critical finding so the
+                    # operator sees the timeout in the report instead
+                    # of a section that's silently empty. Force severity
+                    # promotion so render_report doesn't paint it green.
+                    logger.warning(
+                        "map_engine: job %r timed out (%.1fs): %s",
+                        job_name, job_timeout_seconds, _to_exc,
+                    )
+                    findings = [{
+                        "device": "(map_engine)",
+                        "metric_value": int(job_timeout_seconds),
+                        "metric_name": "Job Timeout",
+                        "severity_hint": "Critical",
+                        "_warning": "job_timeout",
+                        "reason": (
+                            f"Job {job_name!r} exceeded "
+                            f"job_timeout_seconds={job_timeout_seconds:.0f}s "
+                            f"and was interrupted. Tune `job_timeout_seconds` "
+                            f"in the profile or simplify the SQL."
+                        ),
+                    }]
+                    total_count = 1
+                    severity = "Critical"
                 # RAW-05: when a parsed-only SQL job returns nothing but
                 # raw_output_store still has rows for the same command, the
                 # operator would otherwise see a clean bill of health. Emit
@@ -624,11 +658,67 @@ def _raw_fallback_probe(
     ]
 
 
+class JobTimeoutError(RuntimeError):
+    """Raised when a job's SQL exceeds the configured timeout."""
+
+
+def _execute_with_timeout(
+    conn: duckdb.DuckDBPyConnection,
+    query: str,
+    params: dict,
+    timeout_seconds: float,
+):
+    """Run a DuckDB query under a wall-clock budget.
+
+    DuckDB 1.4 does NOT support ``SET statement_timeout``. We run the
+    query on a worker thread + poll wall-clock; on overrun we call
+    ``conn.interrupt()`` to cancel the query and raise JobTimeoutError.
+
+    Important: ``conn.interrupt()`` is connection-scoped, so this must
+    be called on a connection that ONLY this thread is using. The
+    audit pipeline opens a fresh conn for run_map_engine, so this
+    holds in practice.
+    """
+    import threading
+    result: list = [None]
+    error: list = [None]
+
+    def _runner():
+        try:
+            cursor = conn.execute(query, params) if params else conn.execute(query)
+            cols = [d[0] for d in cursor.description]
+            rows = cursor.fetchall()
+            result[0] = (cols, rows)
+        except Exception as exc:
+            error[0] = exc
+
+    t = threading.Thread(target=_runner, daemon=True)
+    t.start()
+    t.join(timeout=timeout_seconds)
+    if t.is_alive():
+        # Cancel the query on the DuckDB side, then wait briefly for
+        # the worker to unwind. If it never unwinds we still raise —
+        # the thread will be cleaned up at process exit.
+        try:
+            conn.interrupt()
+        except Exception as exc:
+            logger.warning("map_engine: conn.interrupt() failed: %s", exc)
+        t.join(timeout=2.0)
+        raise JobTimeoutError(
+            f"SQL exceeded {timeout_seconds}s; query interrupted. "
+            f"Tune `job_timeout_seconds` in the profile or simplify the SQL."
+        )
+    if error[0] is not None:
+        raise error[0]
+    return result[0]
+
+
 def _execute_sql_job(
     conn: duckdb.DuckDBPyConnection,
     query: str,
     window: str,
     max_findings: int,
+    timeout_seconds: float | None = None,
 ) -> tuple[list[dict], int]:
     """Run a parameterized DuckDB query and return (findings, total_count).
 
@@ -646,6 +736,10 @@ def _execute_sql_job(
     The total count lets the caller surface a `truncated` warning when
     the query produced more rows than `max_findings`. Without this, a
     100-finding job silently degrades to a 50-finding report.
+
+    timeout_seconds: when set, wraps the query in a wall-clock budget
+    via ``_execute_with_timeout``. Raises JobTimeoutError on overrun.
+    None / 0 / negative → no timeout (legacy behaviour).
     """
     import re
 
@@ -673,9 +767,15 @@ def _execute_sql_job(
     # Only pass the param dict when $cutoff is actually referenced (drift queries
     # use ROW_NUMBER() and never reference $cutoff at all).
     params = {"cutoff": cutoff} if "$cutoff" in capped_query else {}
-    result = conn.execute(capped_query, params)
-    columns = [desc[0] for desc in result.description]
-    rows = result.fetchall()
+
+    if timeout_seconds and timeout_seconds > 0:
+        columns, rows = _execute_with_timeout(
+            conn, capped_query, params, float(timeout_seconds),
+        )
+    else:
+        result = conn.execute(capped_query, params)
+        columns = [desc[0] for desc in result.description]
+        rows = result.fetchall()
 
     findings = [dict(zip(columns, row, strict=False)) for row in rows]
     if len(findings) <= max_findings:
@@ -687,7 +787,13 @@ def _execute_sql_job(
     # query is materialised by DuckDB once.
     try:
         count_query = f"SELECT COUNT(*) FROM ({inner_query}) __q"
-        total = conn.execute(count_query, params).fetchone()[0]
+        if timeout_seconds and timeout_seconds > 0:
+            _, count_rows = _execute_with_timeout(
+                conn, count_query, params, float(timeout_seconds),
+            )
+            total = count_rows[0][0]
+        else:
+            total = conn.execute(count_query, params).fetchone()[0]
     except Exception as exc:
         logger.warning(
             "map_engine: truncation count query failed (using max+1 as floor): %s", exc,
