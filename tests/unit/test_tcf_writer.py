@@ -193,7 +193,9 @@ devices: [R1, R2, R3]
     with patch("olav.core.cab.tcf_writer._db_facts", return_value=fake_facts):
         r = render_tcf_from_change_plan(plan, output_dir=tmp_path)
     assert r["status"] == "error"
-    assert "ebgp_direct requires exactly 2 devices" in r["error"]
+    # ISSUE-ARCH-40 (2026-05-12): error string now comes from the
+    # shared intent_registry.require_two_devices helper.
+    assert "ebgp_direct" in r["error"] and "exactly 2 devices" in r["error"]
 
 
 def test_render_success_writes_grounded_tcf(tmp_path):

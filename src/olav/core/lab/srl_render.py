@@ -152,10 +152,8 @@ def _generate_ebgp_direct(
       ]
       change_intent = {"type": "ebgp_direct", "lab_subnet": "172.16.99.0/30"}
     """
-    if len(devices) != 2:
-        raise ValueError(
-            f"ebgp_direct requires exactly 2 devices; got {len(devices)}"
-        )
+    # ISSUE-ARCH-40: device-count check uses shared registry helper
+    require_two_devices("ebgp_direct", devices)
 
     # Validate + allocate /30
     subnet = change_intent.get("lab_subnet", "172.16.99.0/30")
@@ -206,7 +204,13 @@ def _generate_ebgp_direct(
 # ---------------------------------------------------------------------------
 
 
-_SUPPORTED_INTENTS = {"ebgp_direct"}
+# ISSUE-ARCH-40 (P2, 2026-05-12): use shared intent registry. Local
+# alias keeps the existing public-API surface (some tests import this
+# name) but the canonical truth lives in olav.core.cab.intent_registry.
+from olav.core.cab.intent_registry import (
+    TWO_DEVICE_INTENTS as _SUPPORTED_INTENTS,
+    require_two_devices,
+)
 
 
 

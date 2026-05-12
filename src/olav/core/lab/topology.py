@@ -30,7 +30,14 @@ while _PROJECT_ROOT.parent != _PROJECT_ROOT and not (_PROJECT_ROOT / "pyproject.
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
 
-_DEFAULT_IMAGE = "ghcr.io/nokia/srlinux:24.10.1"
+# ISSUE-ARCH-38 (P2, 2026-05-12): single source of truth lives in
+# olav.core.lab._images. _DEFAULT_IMAGE remains importable for any
+# legacy callers but now resolves dynamically (env var > lab config
+# > hard-coded default) instead of being a frozen string literal.
+from olav.core.lab._images import srl_image as _resolve_srl_image
+
+def _DEFAULT_IMAGE() -> str:  # noqa: N802 — preserves old caller form
+    return _resolve_srl_image()
 
 
 _PATTERNS: list[tuple[re.Pattern, str]] = [
@@ -350,7 +357,7 @@ def _wrap_with_comments(
 def generate_clab_topology(
     nodes: list[str],
     lab_name: str,
-    image: str = _DEFAULT_IMAGE,
+    image: str | None = None,
     snapshot_id: str | None = None,
 ) -> str:
     """Generate a deploy-ready ContainerLab SRL topology YAML from netops L2 data.
@@ -388,6 +395,11 @@ def generate_clab_topology(
         return "# ERROR: nodes list is empty — must include at least 2 device names\n"
     if not lab_name:
         return "# ERROR: lab_name is required\n"
+
+    # ISSUE-ARCH-38: resolve image lazily so config / env / wheel-baked
+    # default all flow through a single helper.
+    if image is None:
+        image = _resolve_srl_image()
 
     warnings: list[str] = []
 

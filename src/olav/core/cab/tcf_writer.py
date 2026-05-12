@@ -220,10 +220,9 @@ def _render_ebgp_direct(
     Uses prod_cli.generate_*_ebgp_config helpers (already used by
     derive_prod_cli_from_tcf).  Lab subnet drives the per-device IPs.
     """
-    if len(devices) != 2:
-        raise ValueError(
-            f"ebgp_direct requires exactly 2 devices; got {len(devices)}"
-        )
+    # ISSUE-ARCH-40: device-count check uses shared registry helper
+    from .intent_registry import require_two_devices
+    require_two_devices("ebgp_direct", devices)
 
     a, b = devices
     fa, fb = facts[a], facts[b]
@@ -672,6 +671,49 @@ def validate_prod_cli_completeness(
                     f"`routing-options autonomous-system {m.group(1)}` "
                     f"but DB ground truth says local_as={db_asn}."
                 )
+
+        # ── ISSUE-CAB-LLM-EMIT-SEMANTIC-ERRORS (P2, 2026-05-12) ─────
+        # Local 27B models (qwen3.6:27b, gemma4:31b) often pick the
+        # PEER'S LOOPBACK as the BGP neighbor IP for eBGP-direct. That
+        # only works with `multihop` + an IGP that already routes
+        # loopback↔loopback — for direct eBGP between two routers on a
+        # shared link, the neighbor IP must be the peer's LINK IP
+        # (e.g. host of the lab_subnet /30). Heuristic check: any
+        # declared `neighbor <ip>` whose IP matches a loopback in
+        # facts (for THIS device or another) is suspicious. Warns
+        # only when there's no `multihop` declaration in the same block.
+        import re as _re
+        block_has_multihop = "multihop" in block.lower()
+        if "neighbor " in block and not block_has_multihop:
+            # Collect all loopbacks across the change
+            loopbacks = set()
+            for d, df in (facts or {}).items():
+                lb = (df or {}).get("loopback")
+                if lb:
+                    # Normalise: strip /32 if present, take host part
+                    lb_host = lb.split("/")[0].strip()
+                    if lb_host:
+                        loopbacks.add(lb_host)
+            # Find every neighbor IP declared (Junos + IOS forms)
+            nbrs_junos = _re.findall(
+                r"set\s+protocols\s+bgp\s+group\s+\S+\s+neighbor\s+(\S+)",
+                block,
+            )
+            nbrs_ios = _re.findall(
+                r"^\s*neighbor\s+(\S+)\s+remote-as\b",
+                block, _re.MULTILINE,
+            )
+            for nbr in set(nbrs_junos + nbrs_ios):
+                nbr_host = nbr.split("/")[0].strip()
+                if nbr_host in loopbacks:
+                    warnings.append(
+                        f"{device}: BGP neighbor {nbr_host!r} matches a "
+                        f"loopback IP from facts — eBGP-direct should use "
+                        f"the peer's LINK IP (lab_subnet host), not its "
+                        f"loopback. Loopback-as-neighbor requires "
+                        f"`multihop` + IGP routing the loopbacks. If you "
+                        f"meant multihop, declare it explicitly."
+                    )
 
     return warnings
 

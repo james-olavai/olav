@@ -31,7 +31,11 @@ while _PROJECT_ROOT.parent != _PROJECT_ROOT and not (_PROJECT_ROOT / "pyproject.
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
 
-_SUPPORTED_INTENTS = {"ebgp_direct"}
+# ISSUE-ARCH-40 (P2, 2026-05-12): shared intent registry
+from olav.core.cab.intent_registry import (
+    TWO_DEVICE_INTENTS as _SUPPORTED_INTENTS,
+    require_two_devices,
+)
 
 
 def _to_lab_name(prod_name: str) -> str:
@@ -80,10 +84,8 @@ def _render_ebgp_direct_rollback(*, lab_iface: str) -> str:
 
 
 def _generate_ebgp_direct(devices: list[dict]) -> dict[str, str]:
-    if len(devices) != 2:
-        raise ValueError(
-            f"ebgp_direct rollback requires exactly 2 devices; got {len(devices)}"
-        )
+    # ISSUE-ARCH-40: device-count check uses shared registry helper
+    require_two_devices("ebgp_direct", devices)
     # Lab interface is e1-1 by R89 convention (sequential per-node
     # starting at 1; both endpoints land on ethernet-1/1)
     lab_iface = "ethernet-1/1"
