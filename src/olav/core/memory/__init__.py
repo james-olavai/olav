@@ -241,12 +241,28 @@ class LanceDBStore:
                         if field.type.list_size != self._embedding_dim:
                             stored_dim = field.type.list_size
                             if allow_destructive:
+                                # ISSUE-CH8-DEMO-DIRECTIVE-VANISHES-ON-DIM-MIGRATION
+                                # (P2, 2026-05-12): make the warning impossible
+                                # to miss + tell the operator the exact
+                                # recovery commands so demo / directive guides
+                                # can be re-imported, otherwise the agent's
+                                # compliance silently regresses to baseline.
                                 logger.warning(
-                                    "Embedding dim mismatch on table %r "
-                                    "(stored=%d, embedder=%d).  "
-                                    "OLAV_ALLOW_DESTRUCTIVE_DIM_MIGRATION=1 — "
-                                    "dropping and recreating; existing rows "
-                                    "WILL BE LOST.",
+                                    "═" * 70 + "\n"
+                                    "⚠️  EMBEDDING DIM MIGRATION — DESTRUCTIVE  ⚠️\n"
+                                    "Table %r: stored=%dd, new embedder=%dd. "
+                                    "OLAV_ALLOW_DESTRUCTIVE_DIM_MIGRATION=1 set; "
+                                    "dropping and recreating — ALL EXISTING ROWS LOST "
+                                    "(directives, query patterns, schema knowledge).\n"
+                                    "\n"
+                                    "  → To restore the workspace's guide library:\n"
+                                    "        olav kb import-guides .olav/workspace\n"
+                                    "  → To re-prime schema knowledge (netops):\n"
+                                    "        olav --agent netops-init '/netops_init'\n"
+                                    "\n"
+                                    "If the source data isn't on disk, the memory "
+                                    "cannot be recovered.\n"
+                                    + "═" * 70,
                                     tname, stored_dim, self._embedding_dim,
                                 )
                                 self._db.drop_table(tname)

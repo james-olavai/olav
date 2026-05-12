@@ -122,10 +122,25 @@ async def _fast_status(args: str) -> dict:
         if workspace_path.exists():
             status_info["agents_count"] = len(list(workspace_path.glob("*/AGENT.md")))
 
-        # Tools count (shared/tools if exists, or scan workspace)
-        tools_path = base_path / "tools"
-        if tools_path.exists():
-            status_info["tools_count"] = len(list(tools_path.glob("*.py")))
+        # ISSUE-ADMIN-STATUS-TOOLS-COUNT-ZERO (P3, 2026-05-12):
+        # tools live in two places — legacy `.olav/tools/*.py` (mostly
+        # empty in current installs) AND `.olav/workspace/<agent>/tools/*.py`
+        # plus `.olav/workspace/<agent>/<sub-agent>/tools/*.py` for the
+        # post-rev-259 sub-agent layout. Count BOTH so admin status
+        # reports the real number an operator would see via `olav list`.
+        tools_seen: set[str] = set()
+        legacy_tools = base_path / "tools"
+        if legacy_tools.exists():
+            for f in legacy_tools.glob("*.py"):
+                if f.name != "__init__.py":
+                    tools_seen.add(str(f.resolve()))
+        if workspace_path.exists():
+            # Two-level glob covers both flat-agent and sub-agent shapes
+            for pattern in ("*/tools/*.py", "*/*/tools/*.py"):
+                for f in workspace_path.glob(pattern):
+                    if f.name != "__init__.py":
+                        tools_seen.add(str(f.resolve()))
+        status_info["tools_count"] = len(tools_seen)
 
         return {"status": "success", "data": status_info}
 

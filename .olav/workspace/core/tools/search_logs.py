@@ -160,9 +160,41 @@ def search_logs(
         LIMIT {limit}
     """
 
+    clock_skew_hint = ""
     try:
         con = duckdb.connect(":memory:")
         rows = con.execute(sql).fetchall()
+        # ISSUE-CH10-SYSLOG-CLOCK-SKEW-1H-WINDOW (P3, 2026-05-12):
+        # When the result set is empty but Parquet rows exist within
+        # the file footprint, the user's host clock is probably skewed
+        # vs the syslog receiver's clock. Auto-fall-back to a wider
+        # 24h window and surface a hint so the operator can fix NTP
+        # without re-running the query.
+        if not rows and hours < 24:
+            try:
+                fallback_sql = f"""
+                    SELECT timestamp, host, severity, facility, message
+                    FROM read_parquet('{parquet_glob}', union_by_name=true)
+                    WHERE TRY_CAST(timestamp AS TIMESTAMP) >=
+                          CAST(now() AS TIMESTAMP) - INTERVAL '24 hours'
+                    {(' AND LOWER(severity) = ' + repr(severity.lower())) if severity else ''}
+                    {(" AND host ILIKE '%" + host.replace(chr(39), chr(39)*2) + "%'") if host else ''}
+                    {(" AND message ILIKE '%" + query.replace(chr(39), chr(39)*2) + "%'") if query else ''}
+                    ORDER BY timestamp DESC
+                    LIMIT {limit}
+                """
+                fallback_rows = con.execute(fallback_sql).fetchall()
+                if fallback_rows:
+                    rows = fallback_rows
+                    clock_skew_hint = (
+                        f"\n\n⚠️ Clock-skew fallback: original {hours}h "
+                        f"window returned 0 rows but the 24h window has "
+                        f"{len(fallback_rows)}. Host clock may be off "
+                        f"vs ingestion clock — check NTP."
+                    )
+                    hours = 24  # report the widened window in the header
+            except Exception as exc:
+                _logger.debug("search_logs clock-skew fallback failed: %s", exc)
         con.close()
     except Exception as exc:
         _logger.warning("search_logs query error: %s", exc)
@@ -190,4 +222,4 @@ def search_logs(
         header += f", query='{query}'"
     header += "):\n"
 
-    return header + "\n".join(lines)
+    return header + "\n".join(lines) + clock_skew_hint
