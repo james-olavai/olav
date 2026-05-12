@@ -88,8 +88,15 @@ def render_report(
                 profile_path = str(_alt2)
                 _pp = _alt2
 
-    # 1. Init LLM once via config-driven factory
-    llm = LLMFactory.get_chat_model(agent_id="auditor")
+    # 1. Init LLM once via config-driven factory.
+    #
+    # ISSUE-AUDIT-LLM-OUTPUT-NONDETERMINISTIC (P3, 2026-05-12): force
+    # temperature=0 so two runs over the same findings JSON produce
+    # near-identical prose. Most providers (OpenAI, Anthropic, Ollama)
+    # honor this to within token-tie-breaking noise; combined with the
+    # evidence-only correlation prompt (P1.1) this is enough to make
+    # audit reports diff-able across runs without a full Jinja rewrite.
+    llm = LLMFactory.get_chat_model(agent_id="auditor", temperature=0)
 
     # 2. Load shared format contract (applies to ALL sections)
     prompts_path = Path(prompts_dir)
@@ -195,11 +202,27 @@ def render_report(
 
     # Append incident clusters if engine produced any — gives LLM the full
     # topology root-cause context for cross-section chain reasoning.
+    #
+    # ISSUE-AUDIT-INCIDENT-CORRELATION-DEGRADED (P3, 2026-05-12): the
+    # cluster-priority rules used to be hard-coded into correlation_pass.md
+    # and shipped to the LLM on every run, even when 99% of audits have
+    # no clusters (run_incident_clustering defaults to false). Now the
+    # cluster context AND the rules for processing it are injected
+    # only when clusters exist — saves ~150 prompt tokens per run on
+    # small-budget models like gemma4.
     clusters = audit_json.get("incident_clusters", [])
     cluster_context = ""
     if clusters:
+        cluster_rules = (
+            "\n\n**Incident Cluster priority** (clusters present in this run):\n"
+            "- State the `root_cause_candidates` device(s) as the inferred origin.\n"
+            "- Describe the `cascade_chain` in plain language (quote literally — do not embellish).\n"
+            "- Use `event_types` to characterise the blast radius.\n"
+            "- Timestamp the cluster with `start_time` / `duration_mins`."
+        )
         cluster_context = (
-            "\n\n---\n\n**Incident Clusters (topology root-cause engine output):**\n```json\n"
+            cluster_rules
+            + "\n\n---\n\n**Incident Clusters (topology root-cause engine output):**\n```json\n"
             + json.dumps(clusters, ensure_ascii=False, indent=2, default=str)
             + "\n```"
         )
