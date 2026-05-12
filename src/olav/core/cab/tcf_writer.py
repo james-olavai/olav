@@ -550,6 +550,132 @@ _INTENT_RENDERERS = {
 }
 
 
+def validate_prod_cli_completeness(
+    cli_per_device: dict[str, list[str]],
+    facts: dict[str, dict[str, Any]] | None = None,
+) -> list[str]:
+    """ISSUE-CAB-PROD-CLI-INCOMPLETE (P0, 2026-05-12) — completeness lint.
+
+    Scan LLM-authored prod CLI blocks and flag the platform-specific
+    completeness gaps that have historically slipped through the
+    freeform_cli path:
+
+      Junos:
+        - eBGP block (`set protocols bgp ...`) MUST include a
+          `routing-options autonomous-system <ASN>` declaration
+          somewhere in the same device block (else commit fails).
+        - Any block emitting `set ...` SHOULD have a `commit` at the
+          end, otherwise the change is staged-only.
+
+      IOS:
+        - `router bgp <asn>` block MUST include `address-family ipv4`
+          AND each `neighbor <ip>` MUST have a matching `activate`
+          line under that address-family (else BGP session sits Idle).
+        - SHOULD end with `end` / `write memory` / `copy run start`
+          for persistence.
+
+    Returns a list of human-readable warning strings; never raises.
+    Caller (submit_change_plan) surfaces these in the response envelope
+    under ``cli_completeness_warnings`` so the user sees them before
+    lab apply / push to prod.
+
+    Heuristics: platform detected per-device by inspecting the first
+    non-empty line of the CLI block. `set ...` → junos; otherwise → ios.
+    The ``facts`` dict (from _db_facts) is consulted when present to
+    cross-check declared ASNs against DB ground truth.
+    """
+    warnings: list[str] = []
+    facts = facts or {}
+    for device, lines in (cli_per_device or {}).items():
+        if not isinstance(lines, list) or not lines:
+            continue
+        non_empty = [ln for ln in lines if ln.strip()]
+        if not non_empty:
+            continue
+        platform_hint = "junos" if non_empty[0].lstrip().startswith("set ") else "ios"
+        block = "\n".join(non_empty)
+
+        # ── Junos checks ────────────────────────────────────────────
+        if platform_hint == "junos":
+            if "protocols bgp" in block and "autonomous-system" not in block:
+                warnings.append(
+                    f"{device} (junos): eBGP block missing "
+                    f"`set routing-options autonomous-system <ASN>` — "
+                    f"Junos commit will reject. Add the local ASN line."
+                )
+            # Junos `commit` is conventionally added at deploy-push time,
+            # but flag if explicitly missing in a long block (≥10 lines).
+            if len(non_empty) >= 10 and not any(
+                "commit" in ln for ln in non_empty[-3:]
+            ):
+                warnings.append(
+                    f"{device} (junos): {len(non_empty)}-line block has "
+                    f"no trailing `commit` — the deploy-push layer wraps "
+                    f"it, but make sure the change wasn't meant to span "
+                    f"multiple commits."
+                )
+
+        # ── IOS checks ──────────────────────────────────────────────
+        else:
+            if "router bgp" in block:
+                # Find every neighbor IP declared
+                import re as _re
+                neighbors = _re.findall(
+                    r"^\s*neighbor\s+(\S+)\s+remote-as\b",
+                    block, _re.MULTILINE,
+                )
+                if "address-family ipv4" not in block and "address-family vpnv4" not in block:
+                    warnings.append(
+                        f"{device} (ios): `router bgp` block missing "
+                        f"`address-family ipv4` — BGP session will sit "
+                        f"Idle. Add the AF block and `activate` each neighbor."
+                    )
+                else:
+                    # Each neighbor must be activated under an AF
+                    af_chunk = block.split("address-family ipv4", 1)[1] if "address-family ipv4" in block else ""
+                    for nbr in neighbors:
+                        if f"neighbor {nbr} activate" not in af_chunk:
+                            warnings.append(
+                                f"{device} (ios): neighbor {nbr} declared "
+                                f"under `router bgp` but no `address-family "
+                                f"ipv4 ... neighbor {nbr} activate` — peer "
+                                f"will not exchange routes."
+                            )
+            if "router bgp" in block or any(
+                "interface " in ln for ln in non_empty
+            ):
+                if not any(kw in block for kw in ("end", "write memory", "copy running-config startup-config")):
+                    warnings.append(
+                        f"{device} (ios): block has no `end` / "
+                        f"`write memory` — change will not persist across "
+                        f"reload. Add an explicit save."
+                    )
+
+        # ── ASN cross-check (any platform) ──────────────────────────
+        if facts.get(device) and "router bgp" in block:
+            import re as _re
+            m = _re.search(r"router bgp\s+(\d+)", block)
+            db_asn = facts[device].get("local_as")
+            if m and db_asn and str(db_asn) != m.group(1):
+                warnings.append(
+                    f"{device} (ios): declared `router bgp {m.group(1)}` "
+                    f"but DB ground truth says local_as={db_asn}. CLI "
+                    f"may renumber the device unintentionally."
+                )
+        if facts.get(device) and "autonomous-system" in block:
+            import re as _re
+            m = _re.search(r"autonomous-system\s+(\d+)", block)
+            db_asn = facts[device].get("local_as")
+            if m and db_asn and str(db_asn) != m.group(1):
+                warnings.append(
+                    f"{device} (junos): declared "
+                    f"`routing-options autonomous-system {m.group(1)}` "
+                    f"but DB ground truth says local_as={db_asn}."
+                )
+
+    return warnings
+
+
 def render_tcf_from_change_plan(
     plan_text: str,
     output_dir: str | Path = "exports/cab",
@@ -731,6 +857,17 @@ def render_tcf_from_change_plan(
         elif intent_type == "freeform_cli":
             renderer = _INTENT_RENDERERS[intent_type]
             rendered = renderer(devices, facts, lab_subnet, summary)
+            # ISSUE-CAB-PROD-CLI-INCOMPLETE (P0, 2026-05-12): the
+            # freeform_cli path is the only renderer where LLM
+            # actually authors the prod CLI. Run completeness lint
+            # so missing `autonomous-system` / `address-family` /
+            # `activate` / `commit` are surfaced as warnings BEFORE
+            # the change reaches lab or prod.
+            cli_lint = validate_prod_cli_completeness(
+                summary.get("cli_per_device") or {}, facts,
+            )
+            if cli_lint:
+                warnings.extend(cli_lint)
         else:
             renderer = _INTENT_RENDERERS[intent_type]
             rendered = renderer(devices, facts, lab_subnet)

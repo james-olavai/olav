@@ -135,7 +135,9 @@ def test_submit_blocked_writes_md_but_no_tcf(tmp_path):
 
 def test_submit_success_with_db_mocked(tmp_path):
     """Happy path: feasibility OK + DB returns different ASNs →
-    .md saved, TCF spec.yaml written."""
+    .md saved, TCF spec.yaml written. CAB-DATA-NOT-GROUNDED (P0,
+    2026-05-12) requires facts_cited with at least one inspect_*
+    citation when feasibility=OK."""
     fake_facts = {
         "R2": {"platform": "cisco_ios", "loopback": "2.2.2.2", "local_as": 65001},
         "R3": {"platform": "cisco_ios", "loopback": "3.3.3.3", "local_as": 65000},
@@ -148,6 +150,7 @@ def test_submit_success_with_db_mocked(tmp_path):
             "rationale": "Redundant transit.",
             "steps": "Apply both phases atomically.",
             "feasibility": "OK",
+            "facts_cited": ["inspect_devices: R2.local_as=65001, R3.local_as=65000"],
             "output_root": str(tmp_path),
         })
     assert r["status"] == "ok"
@@ -176,6 +179,7 @@ def test_submit_auto_generates_change_id(tmp_path):
             "intent": "ebgp_direct",
             "devices": ["R2", "R3"],
             "summary": "Some change",
+            "facts_cited": ["inspect_devices: R2 & R3 grounded"],
             "output_root": str(tmp_path),
         })
     assert r["status"] == "ok"
@@ -214,8 +218,13 @@ def test_facts_cited_renders_into_plan_md(tmp_path):
     assert "inspect_blast_radius" in md
 
 
-def test_facts_cited_empty_warns_but_passes(tmp_path):
-    """Empty facts_cited + feasibility=OK → warning, but call succeeds."""
+def test_facts_cited_empty_with_OK_is_hard_error(tmp_path):
+    """ISSUE-CAB-DATA-NOT-GROUNDED (P0, hardened 2026-05-12).
+    Previously: soft warning. Now: hard error when feasibility=OK and
+    facts_cited is empty — agent must call inspect_* tools before
+    declaring the plan feasible. Without this, gemma4-class agents
+    skip every inspector tool and produce specs with hallucinated
+    ASN/loopback/topology values."""
     fake_facts = {
         "R2": {"platform": "cisco_ios", "loopback": "2.2.2.2", "local_as": 65001},
         "R3": {"platform": "cisco_ios", "loopback": "3.3.3.3", "local_as": 65000},
@@ -227,10 +236,55 @@ def test_facts_cited_empty_warns_but_passes(tmp_path):
             "summary": "x",
             "output_root": str(tmp_path),
         })
-    assert r["status"] == "ok"  # soft enforcement
-    warnings = r.get("warnings") or []
-    assert any("facts_cited is empty" in w for w in warnings), (
-        f"expected facts_cited-empty warning; got {warnings!r}"
+    assert r["status"] == "error", (
+        f"empty facts_cited + feasibility=OK MUST be rejected; got {r!r}"
+    )
+    assert "facts_cited is empty" in r["error"]
+    assert "inspect_devices" in r["error"], (
+        "error must guide the agent on what inspect_* tools to call"
+    )
+
+
+def test_facts_cited_without_inspect_with_OK_is_hard_error(tmp_path):
+    """facts_cited with entries but NONE referencing an inspect_*
+    tool is also rejected — empty grounding is empty grounding,
+    even if some text is supplied."""
+    fake_facts = {
+        "R2": {"platform": "cisco_ios", "loopback": "2.2.2.2", "local_as": 65001},
+        "R3": {"platform": "cisco_ios", "loopback": "3.3.3.3", "local_as": 65000},
+    }
+    with patch("olav.core.cab.tcf_writer._db_facts", return_value=fake_facts):
+        r = _M.submit_change_plan.invoke({
+            "intent": "ebgp_direct",
+            "devices": ["R2", "R3"],
+            "summary": "x",
+            "facts_cited": ["I just feel it's right", "user told me to"],
+            "output_root": str(tmp_path),
+        })
+    assert r["status"] == "error"
+    assert "NONE reference an inspect_*" in r["error"] or "inspect_*" in r["error"]
+
+
+def test_facts_cited_empty_with_OK_HITL_ONLY_passes(tmp_path):
+    """Escape valve: feasibility=OK_HITL_ONLY allows empty facts_cited
+    for the rare cases where DB grounding genuinely doesn't apply
+    (e.g., greenfield setup with no devices in DB yet). The trade-off
+    is mandatory human review (downstream lab dispatch differs)."""
+    fake_facts = {
+        "R2": {"platform": "cisco_ios", "loopback": "2.2.2.2", "local_as": 65001},
+        "R3": {"platform": "cisco_ios", "loopback": "3.3.3.3", "local_as": 65000},
+    }
+    with patch("olav.core.cab.tcf_writer._db_facts", return_value=fake_facts):
+        r = _M.submit_change_plan.invoke({
+            "intent": "ebgp_direct",
+            "devices": ["R2", "R3"],
+            "summary": "x",
+            "feasibility": "OK_HITL_ONLY",
+            "output_root": str(tmp_path),
+        })
+    assert r["status"] == "ok", (
+        f"OK_HITL_ONLY is the documented escape from hard grounding; "
+        f"got {r!r}"
     )
 
 
@@ -290,11 +344,25 @@ def test_submit_tool_args_schema_loaded():
     props = schema["properties"]
     # intent is a string with enum constraint
     assert "intent" in props
-    # Rev 254 freeform_cli became the second supported intent (replaces
-    # the older ibgp_direct / vlan_add placeholders); future intents
-    # land via YAML schemas (rev 271 Phase F) rather than expanding
-    # this Literal[].
-    assert props["intent"]["enum"] == ["ebgp_direct", "freeform_cli"]
+    # Supported intents (F.1 follow-up, 2026-05-12):
+    #   ebgp_direct        — deterministic Python renderer (Patch K)
+    #   static_route_add   — YAML schema (rev 271 Phase F)
+    #   vlan_add           — YAML schema (rev 271 Phase F)
+    #   freeform_cli       — catch-all for ad-hoc CLI; cli_per_device slot
+    # Expansion criterion: any intent shipped with a YAML schema in
+    # src/olav/data/intent_schemas/<name>.intent.yaml OR a hand-coded
+    # entry in tcf_writer._INTENT_RENDERERS MUST also appear in this
+    # Literal — otherwise the LLM is grammar-blocked from choosing it.
+    assert set(props["intent"]["enum"]) == {
+        "ebgp_direct", "static_route_add", "vlan_add", "freeform_cli",
+    }, (
+        "intent Literal drifted from supported intents in "
+        "src/olav/core/cab/tcf_writer._INTENT_RENDERERS + "
+        "src/olav/data/intent_schemas/. Update both in lockstep."
+    )
+    # intent_args optional slot (carries per-intent fields for YAML-schema
+    # intents like static_route_add: src_device, dst_prefix, next_hop_ip).
+    assert "intent_args" in props
     # devices is a typed list
     assert props["devices"]["type"] == "array"
     assert props["devices"]["items"]["type"] == "string"

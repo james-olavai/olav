@@ -59,6 +59,7 @@ def _compose_plan_md(
     freeform_rollback_per_device: dict[str, list[str]] | None = None,
     freeform_pre_checks: list[dict[str, Any]] | None = None,
     freeform_post_checks: list[dict[str, Any]] | None = None,
+    intent_args: dict[str, Any] | None = None,
 ) -> str:
     """Build the Markdown plan body from structured + prose fields.
 
@@ -112,13 +113,28 @@ def _compose_plan_md(
         )
         # Embed each top-level key inline in the YAML block
         parts.append(ff_yaml.rstrip())
+    # YAML-schema intents (static_route_add, vlan_add, ...) carry per-
+    # intent fields in intent_args. tcf_writer's generic_intent_handler
+    # reads `intent_args:` from the Change Summary YAML block.
+    if intent_args:
+        import yaml as _yaml
+        ia_yaml = _yaml.safe_dump(
+            {"intent_args": intent_args},
+            sort_keys=False, default_flow_style=False,
+        )
+        parts.append(ia_yaml.rstrip())
     parts.extend(["```", ""])
     return "\n".join(parts)
 
 
 @tool
 def submit_change_plan(
-    intent: Literal["ebgp_direct", "freeform_cli"],
+    intent: Literal[
+        "ebgp_direct",
+        "static_route_add",
+        "vlan_add",
+        "freeform_cli",
+    ],
     devices: list[str],
     summary: str,
     rationale: str = "",
@@ -132,6 +148,7 @@ def submit_change_plan(
     rollback_per_device: dict[str, list[str]] | None = None,
     pre_checks: list[dict[str, Any]] | None = None,
     post_checks: list[dict[str, Any]] | None = None,
+    intent_args: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Submit your change plan.  This is sim's deliverable — calling
@@ -156,13 +173,32 @@ def submit_change_plan(
                 in different ASNs.  Python composes CLI from DB facts
                 + per-platform templates.  No CLI args needed.
 
-            ``freeform_cli`` — any other change type (static route,
-                OSPF, VLAN, ACL, MTU, interface description, ...).
-                You provide CLI directly via ``cli_per_device`` /
-                ``rollback_per_device`` and check intents via
-                ``pre_checks`` / ``post_checks``.  CLI must be
+            ``static_route_add`` — add a static route on one device.
+                Pass ``intent_args = {"src_device": "R3",
+                "dst_prefix": "192.0.2.0/24", "next_hop_ip":
+                "10.0.13.1", "admin_distance": <optional int>}``.
+                CLI rendered deterministically from
+                ``src/olav/data/intent_schemas/static_route_add.intent.yaml``
+                — no LLM CLI authoring.
+
+            ``vlan_add`` — add a VLAN on a switch. Pass
+                ``intent_args = {"src_device": "SW1", "vlan_id": <int>,
+                "vlan_name": "<name>"}``. Same deterministic Jinja
+                path as static_route_add.
+
+            ``freeform_cli`` — fallback for change types not yet
+                templated (OSPF area / cost / metric, ACL apply,
+                MTU, interface description, route-map, prefix-list,
+                ...). You provide CLI directly via ``cli_per_device``
+                / ``rollback_per_device`` and check intents via
+                ``pre_checks`` / ``post_checks``. CLI must be
                 grounded in inspector outputs (e.g. interface IP from
                 inspect_devices, neighbor IP from inspect_topology).
+                Validated by ``validate_prod_cli_completeness`` lint
+                (CAB-PROD-CLI-INCOMPLETE follow-up) — missing
+                ``autonomous-system`` on Junos eBGP / missing
+                ``activate`` on IOS BGP / missing trailing commit
+                emit warnings the user sees before lab apply.
         devices: List of device hostnames (1-4).  Must match
             ``netops.devices.hostname`` values.
         summary: One-line title for the change.  Becomes the TCF
@@ -304,21 +340,50 @@ def submit_change_plan(
     if not change_id:
         change_id = _slugify(f"{'-'.join(devices)}-{intent.split('_')[0]}")
 
-    # ARCH-35: validate facts_cited — soft enforcement on initial roll-out.
-    # Each citation should reference at least one inspect_* tool output;
-    # an empty list when feasibility=OK earns a warning but doesn't block.
-    # Once fine-tuning lands (ADR-0010 graduation), this becomes a hard
-    # requirement.
+    # ISSUE-CAB-DATA-NOT-GROUNDED (P0, hardened 2026-05-12).
+    # Previous: soft warning when facts_cited was empty.
+    # New: hard error — empty facts_cited with feasibility=OK is a
+    # refusal to ground the plan in DB facts. The agent must either
+    # (a) cite at least one inspect_* tool output, or
+    # (b) explicitly mark feasibility=OK_HITL_ONLY (for the rare cases
+    #     where DB grounding doesn't apply, with the trade-off of
+    #     mandatory human review).
+    # The previous soft warning let gemma4-class agents skip every
+    # inspector tool and still get spec.tcf.yaml written with
+    # hallucinated values.
     facts_cited_list = list(facts_cited or [])
     fc_warnings: list[str] = []
-    if feasibility == "OK" and not facts_cited_list:
-        fc_warnings.append(
-            "facts_cited is empty — HITL reviewers cannot trace which "
-            "inspect_* outputs grounded this plan.  Recommended: cite at "
-            "least inspect_devices, inspect_topology, and (for change "
-            "planning) inspect_blast_radius."
-        )
-    else:
+    if feasibility == "OK":
+        if not facts_cited_list:
+            return {
+                "status": "error",
+                "error": (
+                    "facts_cited is empty with feasibility=OK. "
+                    "Every plan must trace facts to inspect_* tool outputs. "
+                    "REQUIRED steps before re-calling submit_change_plan: "
+                    "(1) call inspect_devices to verify device ASNs / "
+                    "loopbacks / platforms; (2) call inspect_topology to "
+                    "verify L2/L3 adjacencies; (3) optionally call "
+                    "inspect_blast_radius for impact analysis. Then re-call "
+                    "with facts_cited=['inspect_devices: <evidence>', "
+                    "'inspect_topology: <evidence>', ...]. "
+                    "If DB grounding genuinely does not apply to this "
+                    "change, mark feasibility=OK_HITL_ONLY instead."
+                ),
+            }
+        if not any(_INSPECT_CITE_RE.search(e) for e in facts_cited_list):
+            return {
+                "status": "error",
+                "error": (
+                    "facts_cited has entries but NONE reference an "
+                    "inspect_* tool. Each citation must name the tool "
+                    "that produced the fact, e.g. "
+                    "'inspect_devices: R3.local_as=65000'. Re-call "
+                    "submit_change_plan after running the inspectors."
+                ),
+            }
+        # Soft warning for the entries that don't name inspect_*; not a
+        # hard block once at least one cite is grounded.
         for entry in facts_cited_list:
             if not _INSPECT_CITE_RE.search(entry):
                 fc_warnings.append(
@@ -377,6 +442,7 @@ def submit_change_plan(
         freeform_rollback_per_device=rollback_per_device,
         freeform_pre_checks=pre_checks,
         freeform_post_checks=post_checks,
+        intent_args=intent_args,
     )
 
     # Save the human-readable .md artifact for HITL review
