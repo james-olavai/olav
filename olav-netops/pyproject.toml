@@ -74,6 +74,7 @@ netops = "olav_netops.catalog:get_catalog_topics"
 # directly. The domain package owns the locator + loader.
 [project.entry-points."olav.cli_tools"]
 diff_snapshots = "olav_netops.cli.diff_hook:load_diff_snapshots"
+selftest_profile = "olav_netops.cli.audit_hook:load_selftest_profile"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/olav_netops"]

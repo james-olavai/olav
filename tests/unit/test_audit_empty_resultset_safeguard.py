@@ -320,3 +320,89 @@ def test_selftest_profile_aggregates_multiple_failures(map_engine, tmp_path):
     statuses = {j["name"]: j["status"] for j in result["jobs"]}
     assert statuses["good_job"] == "ok"
     assert statuses["bad_job"] in ("schema_error", "runtime_error")
+
+
+# ── ISSUE #4 (2026-05-12 C round) — Per-job SQL timeout ────────────────
+
+
+def test_execute_sql_job_completes_under_timeout(map_engine, db):
+    """Fast query under timeout budget completes normally — no overhead."""
+    db.execute("CREATE TABLE t (x INT)")
+    db.execute("INSERT INTO t VALUES (1), (2), (3)")
+    findings, total = map_engine._execute_sql_job(
+        conn=db, query="SELECT x FROM t", window="1h",
+        max_findings=10, timeout_seconds=5.0,
+    )
+    assert len(findings) == 3
+    assert total == 3
+
+
+def test_execute_sql_job_raises_on_timeout(map_engine, db):
+    """A runaway query (here: a 50M × 50K cross-join) is killed within
+    the budget and raises JobTimeoutError. Without this, a misformed
+    SQL could hang the audit indefinitely."""
+    import pytest
+    # Cross-join produces 2.5B rows — would never finish on demo hardware.
+    bad_sql = "SELECT COUNT(*) FROM range(50000000) a, range(50000) b"
+    with pytest.raises(map_engine.JobTimeoutError) as excinfo:
+        map_engine._execute_sql_job(
+            conn=db, query=bad_sql, window="1h",
+            max_findings=1, timeout_seconds=0.5,
+        )
+    assert "exceeded 0.5s" in str(excinfo.value)
+    assert "Tune" in str(excinfo.value)
+
+
+def test_execute_sql_job_zero_timeout_means_no_timeout(map_engine, db):
+    """timeout_seconds=0 or None falls through to legacy un-timed path."""
+    db.execute("CREATE TABLE t (x INT)")
+    db.execute("INSERT INTO t VALUES (1), (2), (3)")
+    findings, total = map_engine._execute_sql_job(
+        conn=db, query="SELECT x FROM t", window="1h",
+        max_findings=10, timeout_seconds=0,
+    )
+    assert len(findings) == 3
+    findings, total = map_engine._execute_sql_job(
+        conn=db, query="SELECT x FROM t", window="1h",
+        max_findings=10, timeout_seconds=None,
+    )
+    assert len(findings) == 3
+
+
+def test_run_map_engine_surfaces_timeout_as_finding(map_engine, tmp_path):
+    """When a job times out, run_map_engine MUST surface a Critical
+    synthetic finding rather than silently omit the section. Operators
+    need to see WHY the section is empty."""
+    import duckdb as _d
+    db_file = tmp_path / "t.duckdb"
+    _d.connect(str(db_file)).close()  # empty db is fine, query will run on it
+
+    profile = tmp_path / "to_profile.md"
+    profile.write_text(
+        "---\n"
+        "name: to_profile\n"
+        "job_timeout_seconds: 0.5\n"
+        "jobs:\n"
+        "  - name: slow_job\n"
+        "    type: sql\n"
+        "    severity: Info\n"
+        "    section_prompt: dummy\n"
+        "    query: \"SELECT COUNT(*) AS device, '1' AS metric_name, "
+        "COUNT(*) AS metric_value, 'Critical' AS severity_hint "
+        "FROM range(50000000) a, range(50000) b\"\n"
+        "---\n# body\n"
+    )
+
+    json_path_str = map_engine.run_map_engine(
+        profile_path=str(profile),
+        time_window="1h",
+        db_path=str(db_file),
+        output_dir=str(tmp_path),
+    )
+    import json as _json
+    audit = _json.loads(open(json_path_str).read())
+    findings = audit["jobs"]["slow_job"]["findings"]
+    assert len(findings) == 1
+    assert findings[0]["_warning"] == "job_timeout"
+    assert findings[0]["severity_hint"] == "Critical"
+    assert audit["jobs"]["slow_job"]["severity"] == "Critical"

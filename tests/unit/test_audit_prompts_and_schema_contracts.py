@@ -675,3 +675,72 @@ def test_render_report_exposes_jinja_helpers_and_branch():
         "Branch on narrative_mode lost — opt-in profile flag has no "
         "effect on rendering."
     )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Contracts 19–20 (2026-05-12 C round): #4 SQL timeout + #7 selftest CLI.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_map_engine_has_job_timeout():
+    """map_engine MUST expose JobTimeoutError + _execute_with_timeout and
+    `run_map_engine` MUST surface timeouts as Critical synthetic findings.
+    Without this a runaway SQL hangs the audit indefinitely."""
+    me_py = NETOPS_AUDIT / "runner" / "tools" / "map_engine.py"
+    src = me_py.read_text(encoding="utf-8")
+    assert "class JobTimeoutError(" in src, (
+        "JobTimeoutError class disappeared — timeout path can no longer "
+        "be distinguished from generic SQL errors."
+    )
+    assert "def _execute_with_timeout(" in src, (
+        "_execute_with_timeout helper lost — queries will run unbounded."
+    )
+    assert "conn.interrupt()" in src, (
+        "conn.interrupt() call lost — timeout won't actually cancel the "
+        "DuckDB worker, just abandon the Python wait."
+    )
+    assert "job_timeout_seconds" in src, (
+        "job_timeout_seconds profile knob lost from run_map_engine."
+    )
+    assert "job_timeout" in src, (
+        "_warning: job_timeout sentinel lost — timeouts will be invisible "
+        "in the rendered report."
+    )
+
+
+def test_cli_audit_selftest_wiring():
+    """`olav audit selftest` must be wired in main.py + commands/audit.py
+    + olav-netops audit_hook + pyproject entry-point. Without all four,
+    operators can't run schema validation from the shell."""
+    main_py = (REPO_ROOT / "src" / "olav" / "cli" / "main.py").read_text(encoding="utf-8")
+    assert 'audit_parser = subparsers.add_parser(' in main_py and '"audit"' in main_py, (
+        "audit subparser not wired in main.py argparse setup."
+    )
+    assert 'args.command == "audit"' in main_py, (
+        "audit dispatch case missing from main.py command handler."
+    )
+    assert '"audit"' in main_py, (
+        "'audit' missing from _KNOWN_COMMANDS — would fall through to NL "
+        "query path instead of the subcommand handler."
+    )
+
+    audit_cmd = (REPO_ROOT / "src" / "olav" / "cli" / "commands" / "audit.py")
+    assert audit_cmd.exists(), "olav/cli/commands/audit.py module missing"
+    cmd_src = audit_cmd.read_text(encoding="utf-8")
+    assert "def handle_audit_command(" in cmd_src
+    assert "def _handle_selftest(" in cmd_src
+    assert "selftest_profile" in cmd_src, (
+        "audit CLI no longer references selftest_profile — wiring broken."
+    )
+
+    hook = REPO_ROOT / "olav-netops" / "src" / "olav_netops" / "cli" / "audit_hook.py"
+    assert hook.exists(), "olav_netops/cli/audit_hook.py entry-point loader missing"
+    hook_src = hook.read_text(encoding="utf-8")
+    assert "def load_selftest_profile(" in hook_src
+
+    pyproject = (REPO_ROOT / "olav-netops" / "pyproject.toml").read_text(encoding="utf-8")
+    assert "selftest_profile = " in pyproject, (
+        "olav.cli_tools entry-point for selftest_profile missing from "
+        "olav-netops/pyproject.toml — `olav audit selftest` would fall "
+        "back to the dev-mode path walk on every invocation."
+    )
