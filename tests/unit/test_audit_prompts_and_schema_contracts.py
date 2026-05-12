@@ -554,3 +554,51 @@ def test_render_report_has_alert_webhook_helper():
         "Lost the 'webhook is best-effort' contract — a 5xx receiver could "
         "now break the audit pipeline."
     )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Contracts 14–15 (2026-05-12): P3 production-readiness hardening.
+#   * ISSUE-AUDIT-LLM-OUTPUT-NONDETERMINISTIC → temperature=0 pin
+#   * ISSUE-AUDIT-INCIDENT-CORRELATION-DEGRADED → conditional cluster context
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_render_report_uses_temperature_zero():
+    """render_report MUST init the LLM with temperature=0 so two runs
+    over the same findings JSON produce diff-able prose. Provider-side
+    determinism isn't perfect, but combined with the evidence-only
+    prompt this drops cross-run variance from ~40% sentence-level
+    rewrites down to token-tie-breaking noise."""
+    rr_py = NETOPS_AUDIT / "runner" / "tools" / "render_report.py"
+    src = rr_py.read_text(encoding="utf-8")
+    assert "get_chat_model(agent_id=\"auditor\", temperature=0)" in src, (
+        "render_report's LLMFactory call lost temperature=0 — audit "
+        "reports will resume drifting in prose between identical runs, "
+        "destroying diff-ability for archived audits."
+    )
+
+
+def test_correlation_pass_md_does_not_carry_unused_cluster_rules():
+    """The 'Incident Cluster priority' rules block was extracted from
+    correlation_pass.md (where it shipped on every run) and moved to
+    render_report.py's cluster_context, which only fires when clusters
+    actually exist. Without this, gemma4-budget prompts waste ~150
+    tokens on rules irrelevant to 99% of audits."""
+    cp_md = (NETOPS_AUDIT / "runner" / "prompts" / "correlation_pass.md").read_text(encoding="utf-8")
+    assert "Incident Cluster priority" not in cp_md, (
+        "correlation_pass.md re-introduced 'Incident Cluster priority' "
+        "block — should be conditionally injected by render_report only "
+        "when audit_json contains a non-empty incident_clusters array."
+    )
+    # The companion rules MUST live in render_report instead
+    rr_py = (NETOPS_AUDIT / "runner" / "tools" / "render_report.py").read_text(encoding="utf-8")
+    assert "Incident Cluster priority" in rr_py, (
+        "cluster_rules string disappeared from render_report.py — when a "
+        "profile sets run_incident_clustering: true, the LLM won't get any "
+        "guidance on how to summarise clusters."
+    )
+    assert "if clusters:" in rr_py or "if clusters " in rr_py, (
+        "Conditional cluster injection guard lost — cluster context will "
+        "either always inject (wasting tokens) or never inject (losing "
+        "feature when run_incident_clustering=true)."
+    )
