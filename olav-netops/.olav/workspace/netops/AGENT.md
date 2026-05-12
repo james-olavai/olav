@@ -36,9 +36,11 @@ tools:
 # collect already nested.
 subagents:
   - path: ./analyze/SKILL.md
-  - path: ./sim/SKILL.md           # R-AGENT-HIERARCHY Phase B+C 2026-05-09:
-                                   # split from analyze; owns CHANGE PLAN
-                                   # writing in prose + render_tcf skill-script
+  - path: ./analyzer/SKILL.md      # R-CAB-THREE-STAGE Day 2 2026-05-12 (dev_docs/75):
+                                   # renamed from sim/. Analyzer drafts a
+                                   # DraftChangePlan via submit_draft; Sim
+                                   # (Python skill-script, built Day 4)
+                                   # turns drafts into TCF specs.
   - path: ./investigate/SKILL.md   # R-VERTICAL-SLICE Step 1 (2026-05-09,
                                    # dev_docs/74): evidence drilldown — syslog,
                                    # command output, config text

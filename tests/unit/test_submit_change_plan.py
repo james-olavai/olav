@@ -25,7 +25,7 @@ def _load_submit_change_plan():
         / ".olav"
         / "workspace"
         / "netops"
-        / "sim"
+        / "analyzer"
         / "tools"
         / "submit_change_plan.py"
     )
