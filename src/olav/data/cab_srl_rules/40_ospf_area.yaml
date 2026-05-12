@@ -17,8 +17,21 @@ body: |
 
     enter candidate
     set / network-instance default protocols ospf instance 1 admin-state enable
+    set / network-instance default protocols ospf instance 1 version ospf-v2
     set / network-instance default protocols ospf instance 1 router-id <ROUTER_ID>
-    set / network-instance default protocols ospf instance 1 area <AREA_AS_IPV4> interface ethernet-1/1.0 admin-state enable
+    set / network-instance default protocols ospf instance 1 area <AREA_AS_IPV4> interface <LAB_INTF>.0 admin-state enable
+    set / network-instance default protocols ospf instance 1 area <AREA_AS_IPV4> interface <LAB_INTF>.0 interface-type point-to-point
     commit save
 
   Convert numeric area to IPv4 form: `0` → `0.0.0.0`, `10` → `0.0.0.10`.
+
+  CRITICAL:
+  - The `version ospf-v2` line is MANDATORY (SRL YANG rejects the
+    OSPF instance without it). Always emit it after admin-state enable.
+  - Use the lab interface name from the INTERFACE NAME MAPPING context
+    (e.g. `ethernet-1/1`). Do NOT hard-code `ethernet-1/1.0` if a
+    different lab interface was assigned — read the mapping verbatim.
+  - For two-router p2p links (the common CAB shape), ALWAYS emit
+    `interface-type point-to-point`. Without it SRL defaults to
+    broadcast and adjacency stops at `two-way` because DR election
+    can't complete on a 2-node segment.
