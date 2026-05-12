@@ -19,15 +19,13 @@ from typing import Any
 from .tcf_schema import CabTcf
 
 
-# Intent types that the SRL lab generator (R89) currently supports.
-# Mirrors generate_srl_lab_config._SUPPORTED_INTENTS — kept in sync
-# but maintained here so the helper raises before invoking the tool.
-_R89_SUPPORTED_INTENTS = {"ebgp_direct"}
-
-
-# Intent types that R90 (the rollback generator, future) will support.
-# Same mirror approach.
-_R90_SUPPORTED_INTENTS = {"ebgp_direct"}
+# ISSUE-ARCH-40 (P2, 2026-05-12): both R89 (srl_render) and R90
+# (srl_rollback) consume the same shared intent registry, so the two
+# aliases here just reference it. Keeping the named aliases preserves
+# the existing local-symbol callers (and the public API: tests still
+# import these names).
+from .intent_registry import TWO_DEVICE_INTENTS as _R89_SUPPORTED_INTENTS
+from .intent_registry import TWO_DEVICE_INTENTS as _R90_SUPPORTED_INTENTS
 
 
 def _lab_name_for(tcf: CabTcf, suffix: str = "") -> str:

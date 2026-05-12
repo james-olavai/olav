@@ -25,12 +25,15 @@ from __future__ import annotations
 import ipaddress
 from typing import Any
 
+from .intent_registry import TWO_DEVICE_INTENTS
 from .tcf_schema import CabTcf
 
 
-# Supported intent types — mirrors _R89_SUPPORTED_INTENTS shape so
-# expanding both modules together is the natural upgrade path.
-_PROD_SUPPORTED_INTENTS = {"ebgp_direct"}
+# ISSUE-ARCH-40 (P2, 2026-05-12): single source of truth lives in
+# intent_registry.TWO_DEVICE_INTENTS. The local alias here keeps
+# call-site readability ("the prod CLI generator only supports these")
+# while ensuring the set is shared with lab/srl_render + lab/srl_rollback.
+_PROD_SUPPORTED_INTENTS = TWO_DEVICE_INTENTS
 
 
 # ---------------------------------------------------------------------------

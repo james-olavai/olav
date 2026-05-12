@@ -177,9 +177,16 @@ def deploy_lab(
         # Parse YAML to dict (API requires JSON object, not raw YAML string)
         topo_dict = _yaml.safe_load(yaml_content)
 
-        # Auto-inject correct image into any node that lacks one — prevents the agent
-        # from searching the web for image tags and using wrong/outdated images.
-        _SRL_IMAGE = "ghcr.io/nokia/srlinux:24.10.1"
+        # ISSUE-ARCH-38 (P2, 2026-05-12): image source-of-truth lives
+        # in olav.core.lab._images.srl_image() — resolves from env var
+        # ``OLAV_SRL_IMAGE`` → ``<lab_workspace>/config/config.json``
+        # ``srl_image`` key → pinned default. Auto-INJECT when missing;
+        # WARN (don't silently overwrite) when user provided a
+        # different srlinux tag, so tests of new SRL releases via
+        # config don't get clobbered.
+        from olav.core.lab._images import srl_image as _resolve_srl_image
+        from olav.core.lab._images import is_srlinux_image
+        _SRL_IMAGE = _resolve_srl_image()
         _nodes = topo_dict.get("topology", {}).get("nodes", {})
         _kinds = topo_dict.get("topology", {}).get("kinds", {})
         for _node_name, _node_cfg in _nodes.items():
@@ -189,17 +196,30 @@ def deploy_lab(
             # Inject kind if missing
             if not _node_cfg.get("kind"):
                 _node_cfg["kind"] = "nokia_srlinux"
-            # Inject image if missing or wrong (not the pinned version)
-            if not _node_cfg.get("image") and not _kinds.get(_node_cfg.get("kind", ""), {}).get("image"):
+            # Inject image if missing entirely (kind block didn't supply one either)
+            existing_img = _node_cfg.get("image")
+            kind_img = _kinds.get(_node_cfg.get("kind", ""), {}).get("image")
+            if not existing_img and not kind_img:
                 _node_cfg["image"] = _SRL_IMAGE
-            elif _node_cfg.get("image") and "srlinux" in _node_cfg["image"] and ":24.10.1" not in _node_cfg["image"]:
-                # Override any wrong srlinux tag (e.g. :latest) with the pinned version
-                _node_cfg["image"] = _SRL_IMAGE
-        # Also override the kinds section if it specifies a wrong image
+            elif existing_img and is_srlinux_image(existing_img) and existing_img != _SRL_IMAGE:
+                # User supplied a different SRL tag — respect it, warn loudly
+                logger.warning(
+                    "deploy_lab: node %r uses image %s, but configured "
+                    "DEFAULT_SRL_IMAGE is %s. Respecting user choice; "
+                    "set OLAV_SRL_IMAGE or lab/config/config.json:srl_image "
+                    "to silence this warning.",
+                    _node_name, existing_img, _SRL_IMAGE,
+                )
+        # Same policy on the kinds section
         for _kind_name, _kind_cfg in _kinds.items():
             if isinstance(_kind_cfg, dict) and _kind_cfg.get("image"):
-                if "srlinux" in _kind_cfg["image"] and ":24.10.1" not in _kind_cfg["image"]:
-                    _kind_cfg["image"] = _SRL_IMAGE
+                k_img = _kind_cfg["image"]
+                if is_srlinux_image(k_img) and k_img != _SRL_IMAGE:
+                    logger.warning(
+                        "deploy_lab: kind %r uses image %s, but configured "
+                        "DEFAULT_SRL_IMAGE is %s. Respecting user choice.",
+                        _kind_name, k_img, _SRL_IMAGE,
+                    )
 
         # Normalize topology before validation (auto-fix common agent mistakes like kind=srlinux)
         topo_dict = _normalize_clab_topology(topo_dict)
