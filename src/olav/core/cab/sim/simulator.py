@@ -88,16 +88,23 @@ def _routes_for_intent(draft: DraftChangePlan) -> list[RouteChange]:
 def _check_isolation(g: nx.Graph, draft: DraftChangePlan) -> list[str]:
     """Return list of scoped devices that are isolated in the graph.
 
-    Isolation is only meaningful for multi-device intents (ebgp_direct
-    / ibgp_direct) — for single-device intents (vlan_add / freeform_cli
-    / static_route_add) "no graph neighbors" usually just means the
-    analyzer didn't bother collecting topology, not a real fault.
+    Isolation is only meaningful for intents that REQUIRE direct L2
+    adjacency between the scoped pair (ebgp_direct). For:
+      * single-device intents (vlan_add / freeform_cli / static_route_add)
+        — "no graph neighbors" usually just means the analyzer didn't
+        bother collecting topology, not a real fault
+      * ibgp_direct — peers via loopback over IGP, direct L2 NOT required
+        (this was a false positive in-vivo on 2026-05-12 when gemma
+        switched from ebgp_direct to ibgp_direct per Sim's suggestion
+        and the simulator then blocked it with device_isolated)
 
     For ebgp_direct the feasibility rule already catches the
     not_directly_connected case; this is a defence-in-depth pass over
     the broader graph view.
     """
     if len(draft.devices_in_scope) < 2:
+        return []
+    if draft.proposed_intent == "ibgp_direct":
         return []
     isolated = []
     for d in draft.devices_in_scope:
