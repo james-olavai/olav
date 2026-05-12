@@ -104,7 +104,12 @@ def _check_isolation(g: nx.Graph, draft: DraftChangePlan) -> list[str]:
     """
     if len(draft.devices_in_scope) < 2:
         return []
-    if draft.proposed_intent == "ibgp_direct":
+    # Only ebgp_direct genuinely REQUIRES direct L2 adjacency. iBGP peers
+    # via loopback over IGP. freeform_cli is intent-agnostic (could be
+    # ACLs, descriptions, OSPF, ECMP, anything) — the simulator can't
+    # presume direct L2 from intent alone. static_route_add / vlan_add
+    # are also topology-agnostic. Limit the strict check to ebgp_direct.
+    if draft.proposed_intent != "ebgp_direct":
         return []
     isolated = []
     for d in draft.devices_in_scope:
