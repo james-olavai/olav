@@ -188,3 +188,135 @@ def test_execute_sql_job_no_truncation_at_exact_cap(map_engine, db):
     )
     assert len(findings) == 5
     assert total == 5, "boundary: exactly max_findings rows means no truncation"
+
+
+# ── ISSUE-AUDIT-SCHEMA-DRIFT-NO-SELFTEST (P2, 2026-05-12) ──────────────
+
+
+def test_selftest_profile_ok(map_engine, db, tmp_path):
+    """All jobs reference valid tables/columns → ok=True."""
+    db.execute("CREATE TABLE bgp_neighbors (device VARCHAR, state VARCHAR)")
+    db.execute("INSERT INTO bgp_neighbors VALUES ('R1', 'Established')")
+    profile = tmp_path / "ok_profile.md"
+    profile.write_text(
+        "---\n"
+        "name: test_ok\n"
+        "jobs:\n"
+        "  - name: bgp_check\n"
+        "    type: sql\n"
+        "    severity: Warning\n"
+        "    query: \"SELECT device, state FROM bgp_neighbors\"\n"
+        "---\n# body\n"
+    )
+    # Patch MAIN_DB_PATH-equivalent by passing db_path explicitly. The
+    # function expects a path string; spin up a temp file db.
+    db_file = tmp_path / "t.duckdb"
+    import duckdb as _d
+    src = _d.connect(str(db_file))
+    src.execute("CREATE TABLE bgp_neighbors (device VARCHAR, state VARCHAR)")
+    src.execute("INSERT INTO bgp_neighbors VALUES ('R1', 'Established')")
+    src.close()
+    result = map_engine.selftest_profile(str(profile), db_path=str(db_file))
+    assert result["ok"] is True
+    assert result["profile"] == "test_ok"
+    assert len(result["jobs"]) == 1
+    assert result["jobs"][0]["status"] == "ok"
+    assert result["jobs"][0]["error"] is None
+
+
+def test_selftest_profile_missing_table(map_engine, tmp_path):
+    """Job references a table that doesn't exist → schema_error."""
+    profile = tmp_path / "bad_profile.md"
+    profile.write_text(
+        "---\n"
+        "name: test_missing_table\n"
+        "jobs:\n"
+        "  - name: bgp_check\n"
+        "    type: sql\n"
+        "    severity: Warning\n"
+        "    query: \"SELECT * FROM nonexistent_table\"\n"
+        "---\n# body\n"
+    )
+    db_file = tmp_path / "t.duckdb"
+    import duckdb as _d
+    _d.connect(str(db_file)).close()  # create empty db
+    result = map_engine.selftest_profile(str(profile), db_path=str(db_file))
+    assert result["ok"] is False
+    assert result["jobs"][0]["status"] == "schema_error"
+    assert "nonexistent_table" in result["jobs"][0]["error"] or "Catalog" in result["jobs"][0]["error"]
+
+
+def test_selftest_profile_missing_column(map_engine, tmp_path):
+    """Job references a column the table doesn't have → schema_error or runtime_error."""
+    profile = tmp_path / "bad_col.md"
+    profile.write_text(
+        "---\n"
+        "name: test_missing_col\n"
+        "jobs:\n"
+        "  - name: bgp_check\n"
+        "    type: sql\n"
+        "    severity: Warning\n"
+        "    query: \"SELECT session_state FROM bgp_neighbors\"\n"
+        "---\n# body\n"
+    )
+    db_file = tmp_path / "t.duckdb"
+    import duckdb as _d
+    con = _d.connect(str(db_file))
+    con.execute("CREATE TABLE bgp_neighbors (device VARCHAR, state VARCHAR)")
+    con.close()
+    result = map_engine.selftest_profile(str(profile), db_path=str(db_file))
+    assert result["ok"] is False
+    assert result["jobs"][0]["status"] in ("schema_error", "runtime_error")
+    assert "session_state" in (result["jobs"][0]["error"] or "")
+
+
+def test_selftest_profile_window_placeholder(map_engine, tmp_path):
+    """Job using :window placeholder → cutoff binds correctly, no error."""
+    profile = tmp_path / "win.md"
+    profile.write_text(
+        "---\n"
+        "name: test_window\n"
+        "jobs:\n"
+        "  - name: win_check\n"
+        "    type: sql\n"
+        "    severity: Warning\n"
+        "    query: \"SELECT device FROM devices WHERE last_seen > NOW() - INTERVAL :window\"\n"
+        "---\n# body\n"
+    )
+    db_file = tmp_path / "t.duckdb"
+    import duckdb as _d
+    con = _d.connect(str(db_file))
+    con.execute("CREATE TABLE devices (device VARCHAR, last_seen TIMESTAMP)")
+    con.close()
+    result = map_engine.selftest_profile(str(profile), db_path=str(db_file))
+    assert result["ok"] is True
+
+
+def test_selftest_profile_aggregates_multiple_failures(map_engine, tmp_path):
+    """One bad + one good job → ok=False, but only the bad one flagged."""
+    profile = tmp_path / "mixed.md"
+    profile.write_text(
+        "---\n"
+        "name: test_mixed\n"
+        "jobs:\n"
+        "  - name: good_job\n"
+        "    type: sql\n"
+        "    severity: Info\n"
+        "    query: \"SELECT * FROM devices\"\n"
+        "  - name: bad_job\n"
+        "    type: sql\n"
+        "    severity: Warning\n"
+        "    query: \"SELECT * FROM nope_does_not_exist\"\n"
+        "---\n# body\n"
+    )
+    db_file = tmp_path / "t.duckdb"
+    import duckdb as _d
+    con = _d.connect(str(db_file))
+    con.execute("CREATE TABLE devices (device VARCHAR)")
+    con.close()
+    result = map_engine.selftest_profile(str(profile), db_path=str(db_file))
+    assert result["ok"] is False
+    assert len(result["jobs"]) == 2
+    statuses = {j["name"]: j["status"] for j in result["jobs"]}
+    assert statuses["good_job"] == "ok"
+    assert statuses["bad_job"] in ("schema_error", "runtime_error")

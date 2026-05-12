@@ -375,6 +375,108 @@ def _extract_first_table(query: str) -> str | None:
     return m.group(1) if m else None
 
 
+# ── ISSUE-AUDIT-SCHEMA-DRIFT-NO-SELFTEST (P2, 2026-05-12) ─────────────
+def selftest_profile(
+    profile_path: str,
+    db_path: str | None = None,
+) -> dict:
+    """Validate every Job in a Profile against the current DB schema.
+
+    Catches schema drift BEFORE the profile is run for real. Each job's
+    SQL gets two passes:
+      1. ``EXPLAIN <query>`` — DuckDB binder verifies tables + columns
+         exist. Binder errors (missing column, unknown table) surface
+         here.
+      2. Bind the ``$cutoff`` parameter and run ``SELECT ... LIMIT 0``
+         — catches column-name typos that EXPLAIN misses (e.g.
+         ``SELECT non_existent_col FROM t``).
+
+    Returns:
+        ``{"ok": bool, "profile": str, "jobs": [{"name", "status",
+        "error", "table"}, ...]}``
+
+        ``status`` is one of ``ok`` / ``schema_error`` / ``runtime_error``.
+
+    Failure mode this protects: upstream parser renames a column (e.g.
+    ``state`` → ``session_state`` on ``v_bgp_neighbors_auto``). The
+    profile's SQL ``SELECT state FROM ...`` silently returns NULL or
+    zero rows on the next run. Without selftest, the audit reports
+    "✅ Healthy" instead of flagging the regression.
+    """
+    if db_path is None:
+        try:
+            from olav.core.config import MAIN_DB_PATH
+            db_path = str(MAIN_DB_PATH)
+        except ImportError as err:
+            raise ValueError("db_path must be provided when OLAV config is unavailable") from err
+
+    profile = _parse_profile_yaml(profile_path)
+    profile_name = profile.get("name", "unnamed")
+    jobs = profile.get("jobs", [])
+
+    cutoff = _parse_window_to_cutoff("1h")  # placeholder for any :window refs
+    results: list[dict] = []
+    all_ok = True
+
+    with duckdb.connect(str(db_path), read_only=True) as conn:
+        for job in jobs:
+            job_name = job.get("name", "<unnamed>")
+            query = job.get("query", "")
+            entry: dict = {
+                "name": job_name,
+                "table": _extract_first_table(query),
+                "status": "ok",
+                "error": None,
+            }
+            if job.get("type", "sql") != "sql":
+                # Rev 274: only sql jobs are runnable.
+                entry["status"] = "ok"
+                entry["error"] = "non-sql job (deprecated; rendered as warning finding)"
+                results.append(entry)
+                continue
+            if not query.strip():
+                entry["status"] = "schema_error"
+                entry["error"] = "empty query"
+                all_ok = False
+                results.append(entry)
+                continue
+            # Translate :window placeholder the same way _execute_sql_job does.
+            import re as _re
+            duckdb_query = _re.sub(
+                r"NOW\(\)\s*-\s*INTERVAL\s*:window", "$cutoff", query,
+                flags=_re.IGNORECASE,
+            )
+            duckdb_query = _re.sub(r":window", "$cutoff", duckdb_query, flags=_re.IGNORECASE)
+            params = {"cutoff": cutoff} if "$cutoff" in duckdb_query else {}
+            inner = duckdb_query.rstrip().rstrip(";")
+            # Pass 1: EXPLAIN — binder check
+            try:
+                conn.execute(f"EXPLAIN {inner}", params)
+            except Exception as exc:
+                entry["status"] = "schema_error"
+                entry["error"] = f"EXPLAIN failed: {exc}"
+                all_ok = False
+                results.append(entry)
+                continue
+            # Pass 2: LIMIT 0 — column-name + type check
+            try:
+                conn.execute(f"SELECT * FROM ({inner}) __q LIMIT 0", params)
+            except Exception as exc:
+                entry["status"] = "runtime_error"
+                entry["error"] = f"LIMIT 0 probe failed: {exc}"
+                all_ok = False
+                results.append(entry)
+                continue
+            results.append(entry)
+
+    return {
+        "ok": all_ok,
+        "profile": profile_name,
+        "profile_path": str(profile_path),
+        "jobs": results,
+    }
+
+
 def _check_data_sufficiency(
     conn: duckdb.DuckDBPyConnection,
     query: str,
