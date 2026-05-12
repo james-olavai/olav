@@ -275,6 +275,17 @@ def render_report(
 
     logger.info("render_report: final report at %s", report_path)
 
+    # ── ISSUE-AUDIT-NO-ALERTING-CHANNEL (P2, 2026-05-12) ────────────────
+    # Push critical findings to OLAV_ALERT_WEBHOOK_URL if set. Best-
+    # effort: webhook failures are logged, NOT raised — audit must
+    # still produce its report even if the alerting receiver is down.
+    _post_critical_alert(
+        audit_json=audit_json,
+        profile_name=audit_json.get("profile", "unknown"),
+        report_path=str(report_path),
+        executive_summary=summary,
+    )
+
     # Extract Executive Summary + freshness banner for immediate display.
     executive_summary = ""
     stale_banner = ""
@@ -846,6 +857,94 @@ def _empty_section(job_name: str, lang: str = "en") -> str:
     if lang == "zh":
         return f"\n## {job_name}\n\n\u2705 {job_name}：本巡检窗口内未发现异常。\n"
     return f"\n## {job_name}\n\n✅ {job_name}: No anomalies detected in this window.\n"
+
+
+def _post_critical_alert(
+    audit_json: dict,
+    profile_name: str,
+    report_path: str,
+    executive_summary: str,
+) -> None:
+    """ISSUE-AUDIT-NO-ALERTING-CHANNEL (P2, 2026-05-12).
+
+    POST a JSON payload to ``OLAV_ALERT_WEBHOOK_URL`` when the audit
+    contains at least one Critical finding (or stale-data warning).
+    Payload format is webhook-receiver-agnostic — the caller chooses
+    whether to translate to PagerDuty / Slack / Discord on the receiver
+    side.
+
+    Behaviour:
+      * No webhook URL → no-op (returns silently).
+      * No Critical / stale-data signal → no-op (avoids noise).
+      * Webhook 4xx/5xx / timeout → logged, NOT raised. The audit's
+        local .md report still gets produced.
+
+    Threshold knob: ``OLAV_ALERT_SEVERITY`` env var; one of
+    ``critical`` (default) / ``warning`` / ``info``. Anything ≥ the
+    threshold triggers a POST.
+    """
+    import os
+    webhook_url = os.environ.get("OLAV_ALERT_WEBHOOK_URL", "").strip()
+    if not webhook_url:
+        return  # not configured
+
+    threshold = os.environ.get("OLAV_ALERT_SEVERITY", "critical").strip().lower()
+    severity_rank = {"info": 0, "warning": 1, "critical": 2}
+    threshold_rank = severity_rank.get(threshold, 2)
+
+    # Collect severities present in findings.
+    max_severity_rank = -1
+    critical_findings: list[dict] = []
+    warning_findings: list[dict] = []
+    for job_name, job_data in audit_json.get("jobs", {}).items():
+        for finding in job_data.get("findings", []) or []:
+            if not isinstance(finding, dict):
+                continue
+            hint = (finding.get("severity_hint") or "").lower()
+            rank = severity_rank.get(hint, -1)
+            if rank > max_severity_rank:
+                max_severity_rank = rank
+            if hint == "critical":
+                critical_findings.append({"job": job_name, **finding})
+            elif hint == "warning":
+                warning_findings.append({"job": job_name, **finding})
+
+    freshness = audit_json.get("freshness_warning")
+    has_freshness_critical = isinstance(freshness, dict) and bool(freshness)
+
+    if max_severity_rank < threshold_rank and not has_freshness_critical:
+        return  # nothing to alert on
+
+    payload = {
+        "profile": profile_name,
+        "report_path": report_path,
+        "generated_at": audit_json.get("generated_at"),
+        "freshness_warning": freshness,
+        "executive_summary": executive_summary[:4000],
+        "critical_count": len(critical_findings),
+        "warning_count": len(warning_findings),
+        "critical_findings": critical_findings[:20],  # cap to keep payload small
+    }
+    try:
+        import urllib.request
+        import json as _json
+        req = urllib.request.Request(
+            webhook_url,
+            data=_json.dumps(payload, default=str).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            logger.info(
+                "render_report: alert webhook → HTTP %d (profile=%s)",
+                resp.status, profile_name,
+            )
+    except Exception as exc:
+        # Webhook is best-effort; never block the audit.
+        logger.warning(
+            "render_report: alert webhook POST failed (profile=%s): %s: %s",
+            profile_name, type(exc).__name__, exc,
+        )
 
 
 def _append_to_file(path: Path, content: str) -> None:

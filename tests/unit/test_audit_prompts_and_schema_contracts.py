@@ -488,3 +488,69 @@ def test_execute_sql_job_returns_total_count_tuple():
         assert total == 20
     finally:
         con.close()
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Contracts 11–13 (2026-05-12): P2 production-readiness hardening.
+#   * ISSUE-AUDIT-SCHEMA-DRIFT-NO-SELFTEST → selftest_profile() pin
+#   * ISSUE-AUDIT-ERROR-COUNTERS-NO-BASELINE → INTERFACE_ERROR_DELTA pin
+#   * ISSUE-AUDIT-NO-ALERTING-CHANNEL → webhook helper pin
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_map_engine_has_selftest_profile():
+    """map_engine MUST expose `selftest_profile(profile_path, db_path)`
+    so operators can validate profile SQL against the live schema before
+    running an audit. Loss of this function = schema drift goes silent."""
+    me_py = NETOPS_AUDIT / "runner" / "tools" / "map_engine.py"
+    src = me_py.read_text(encoding="utf-8")
+    assert "def selftest_profile(" in src, (
+        "map_engine.selftest_profile() disappeared — schema-drift detection "
+        "regression. Profile SQL referencing renamed columns will silently "
+        "return 0 rows and look like '✅ Healthy'."
+    )
+    assert "EXPLAIN" in src and "LIMIT 0" in src, (
+        "selftest two-pass validation lost (EXPLAIN + LIMIT 0 probe). "
+        "Column-name typos that EXPLAIN misses will leak through."
+    )
+
+
+def test_interface_health_uses_delta_not_absolute_counter():
+    """interface_health profile MUST use delta-over-window for error
+    counters, not absolute totals. Absolute counters yield false-positives
+    on long-running devices (a 6-month device with 250 input_errors is
+    normal). The job MUST also gracefully degrade to 0 findings when only
+    1 snapshot exists (no LEFT JOIN false positives)."""
+    profile = NETOPS_AUDIT / "profiles" / "interface_health.md"
+    text = profile.read_text(encoding="utf-8")
+    assert "INTERFACE_ERROR_DELTA" in text, (
+        "interface_health lost INTERFACE_ERROR_DELTA job — regressed to "
+        "absolute counter check. Long-running devices will be false-flagged."
+    )
+    assert "input_errors_delta" in text and "snap_pair" in text, (
+        "Delta CTE structure lost — error counters back to absolute."
+    )
+    assert "p.snapshot_id IS NULL" in text or "p.snapshot_id IS NOT NULL" in text, (
+        "Single-snapshot guard lost — query will emit false positives when "
+        "no baseline snapshot exists."
+    )
+
+
+def test_render_report_has_alert_webhook_helper():
+    """render_report MUST expose `_post_critical_alert` that POSTs to
+    OLAV_ALERT_WEBHOOK_URL on Critical findings. Loss of this helper means
+    weekend critical events never page anyone."""
+    rr_py = NETOPS_AUDIT / "runner" / "tools" / "render_report.py"
+    src = rr_py.read_text(encoding="utf-8")
+    assert "def _post_critical_alert(" in src, (
+        "_post_critical_alert helper disappeared — audit Critical findings "
+        "will only write .md, no external notification path."
+    )
+    assert "OLAV_ALERT_WEBHOOK_URL" in src, (
+        "OLAV_ALERT_WEBHOOK_URL env var lookup lost from render_report — "
+        "alerting helper has no way to be configured."
+    )
+    assert "best-effort" in src.lower() or "swallow" in src.lower() or "must not raise" in src.lower() or "NOT raised" in src, (
+        "Lost the 'webhook is best-effort' contract — a 5xx receiver could "
+        "now break the audit pipeline."
+    )
