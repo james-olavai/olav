@@ -646,3 +646,32 @@ def test_save_profile_chains_selftest():
         "save_profile lost the 'selftest is advisory' contract — a DB-"
         "unavailable environment could now break profile creation."
     )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Contract 18 (2026-05-12 B follow-up): Jinja-first deterministic rendering.
+# Opt-in via profile YAML `narrative_mode: jinja`. Two runs over identical
+# findings JSON produce byte-identical reports — required for archived /
+# signed audit reports. Default narrative_mode=llm preserves existing
+# small-model behaviour for users who haven't opted in.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_render_report_exposes_jinja_helpers_and_branch():
+    """render_report MUST expose `_render_section_jinja` and
+    `_render_executive_summary_jinja`, and the run loop MUST branch on
+    `profile_cfg["narrative_mode"]`. Without this, the byte-determinism
+    contract for archived audit reports cannot be satisfied."""
+    rr_py = NETOPS_AUDIT / "runner" / "tools" / "render_report.py"
+    src = rr_py.read_text(encoding="utf-8")
+    assert "def _render_section_jinja(" in src, (
+        "_render_section_jinja helper disappeared — Jinja-first rendering "
+        "lost. Archived audits will resume LLM-driven prose drift."
+    )
+    assert "def _render_executive_summary_jinja(" in src, (
+        "_render_executive_summary_jinja helper disappeared."
+    )
+    assert 'narrative_mode == "jinja"' in src, (
+        "Branch on narrative_mode lost — opt-in profile flag has no "
+        "effect on rendering."
+    )

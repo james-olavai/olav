@@ -126,6 +126,22 @@ def render_report(
     # Detect report language once — drives ALL LLM calls and placeholders
     lang = _detect_report_language(profile_cfg)
 
+    # ── ISSUE-AUDIT-LLM-OUTPUT-NONDETERMINISTIC (B follow-up, 2026-05-12) ─
+    # Profile-level narrative_mode knob:
+    #   * "llm"   (default): per-section + correlation pass go through
+    #             LLM (existing behaviour, near-deterministic via T=0)
+    #   * "jinja": ALL prose generated from Jinja templates against
+    #             findings JSON — byte-identical across runs (modulo
+    #             timestamp in path). Required for archived audits
+    #             that need digital signatures / regression diffs.
+    narrative_mode = str(profile_cfg.get("narrative_mode", "llm")).strip().lower()
+    if narrative_mode not in ("llm", "jinja"):
+        logger.warning(
+            "render_report: unknown narrative_mode %r, falling back to 'llm'",
+            narrative_mode,
+        )
+        narrative_mode = "llm"
+
     # 4. Prepare output file
     out_dir = Path(resolved_output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -144,11 +160,36 @@ def render_report(
             and findings_list[0].get("_warning") == "insufficient_data"
         )
 
+        # Truncation pre-amble (shared across narrative modes)
+        if job_data.get("truncated"):
+            shown = job_data.get("shown_count", len(findings_list))
+            total = job_data.get("total_count", "?")
+            if lang == "zh":
+                trunc_note = (
+                    f"> ⚠️ **结果截断**：仅显示前 {shown} 条 finding（共 {total} 条）。"
+                    f" 调高 profile 的 `max_findings_per_job` 以查看更多。\n\n"
+                )
+            else:
+                trunc_note = (
+                    f"> ⚠️ **Results truncated**: showing {shown} of {total} findings. "
+                    f"Raise the profile's `max_findings_per_job` to see more.\n\n"
+                )
+        else:
+            trunc_note = ""
+
         if job_data["count"] == 0:
             # No LLM call — write localized placeholder directly
             placeholder = _empty_section(job_name, lang)
-            _append_to_file(report_path, placeholder)
-        elif is_sentinel:
+            _append_to_file(report_path, trunc_note + placeholder if trunc_note else placeholder)
+            continue
+        if narrative_mode == "jinja":
+            # Deterministic Jinja path — no LLM call.
+            section_content = _render_section_jinja(
+                job_name=job_name, job_data=job_data, lang=lang,
+            )
+            _append_to_file(report_path, trunc_note + section_content)
+            continue
+        if is_sentinel:
             s = findings_list[0]
             if lang == "zh":
                 note = (
@@ -166,28 +207,11 @@ def render_report(
                     f"> {s.get('recommendation', '')}  \n\n"
                     f"*No anomaly findings rendered — accumulate more snapshots before this check becomes meaningful.*\n\n---\n"
                 )
-            _append_to_file(report_path, note)
+            _append_to_file(report_path, trunc_note + note if trunc_note else note)
         else:
             prompt = _assemble_prompt(system_envelope, section_prompt, findings_list, lang)
             section_content = llm.invoke(prompt).content
-            # ISSUE-AUDIT-FINDINGS-CAP-SILENT-TRUNCATION (P1, 2026-05-12):
-            # surface the truncation header BEFORE the LLM-rendered section
-            # so the operator sees "X of Y" before reading any findings.
-            if job_data.get("truncated"):
-                shown = job_data.get("shown_count", len(findings_list))
-                total = job_data.get("total_count", "?")
-                if lang == "zh":
-                    trunc_note = (
-                        f"> ⚠️ **结果截断**：仅显示前 {shown} 条 finding（共 {total} 条）。"
-                        f" 调高 profile 的 `max_findings_per_job` 以查看更多。\n\n"
-                    )
-                else:
-                    trunc_note = (
-                        f"> ⚠️ **Results truncated**: showing {shown} of {total} findings. "
-                        f"Raise the profile's `max_findings_per_job` to see more.\n\n"
-                    )
-                _append_to_file(report_path, trunc_note)
-            _append_to_file(report_path, section_content)
+            _append_to_file(report_path, trunc_note + section_content if trunc_note else section_content)
 
     # 6. Phase 3 — Global Correlation Pass
     corr_template = _load_text(prompts_path / "correlation_pass.md", fallback=_DEFAULT_CORR_TEMPLATE)
@@ -242,8 +266,16 @@ def render_report(
               "'restore data collection / re-run snapshot'."
         )
 
-    summary_prompt = lang_directive + freshness_directive + "\n\n" + corr_template + "\n\n---\n\n" + full_report + cluster_context
-    summary = llm.invoke(summary_prompt).content
+    if narrative_mode == "jinja":
+        # Deterministic executive summary — no LLM call.
+        summary = _render_executive_summary_jinja(
+            audit_json=audit_json,
+            profile_cfg=profile_cfg,
+            lang=lang,
+        )
+    else:
+        summary_prompt = lang_directive + freshness_directive + "\n\n" + corr_template + "\n\n---\n\n" + full_report + cluster_context
+        summary = llm.invoke(summary_prompt).content
 
     # ── ISSUE-AUDIT-FRESHNESS-GATE-MISSING (P1, 2026-05-12) ─────────────
     # If map_engine flagged stale data, prepend a deterministic banner
@@ -880,6 +912,182 @@ def _empty_section(job_name: str, lang: str = "en") -> str:
     if lang == "zh":
         return f"\n## {job_name}\n\n\u2705 {job_name}：本巡检窗口内未发现异常。\n"
     return f"\n## {job_name}\n\n✅ {job_name}: No anomalies detected in this window.\n"
+
+
+# ── B. Jinja-first narrative rendering (2026-05-12) ────────────────────
+#
+# Deterministic alternative to LLM-rendered prose. Opt-in via profile
+# frontmatter `narrative_mode: jinja`. Two runs over identical findings
+# JSON produce byte-identical reports (modulo the timestamp in the file
+# name itself) — required for archived audits / digital signatures /
+# regression diffs.
+_SEVERITY_ICON = {"critical": "🔴", "warning": "⚠️", "info": "✅"}
+
+
+def _render_section_jinja(job_name: str, job_data: dict, lang: str = "en") -> str:
+    """Deterministic per-section render: heading + findings table + 1-line
+    summary of severity counts. No LLM call."""
+    findings = job_data.get("findings", []) or []
+    if not findings:
+        return _empty_section(job_name, lang)
+
+    _hidden = {"severity_hint", "_source", "_warning"}
+    columns: list[str] = []
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        for k in f.keys():
+            if k.startswith("_") or k in _hidden:
+                continue
+            if k not in columns:
+                columns.append(k)
+    if not columns:
+        columns = ["device"]
+
+    pinned = [c for c in ("device", "device_name", "interface",
+                          "metric_name", "metric_value") if c in columns]
+    rest = sorted(c for c in columns if c not in pinned)
+    columns = pinned + rest
+
+    header_label = {"zh": "严重度", "en": "Severity"}.get(lang, "Severity")
+    header_cells = list(columns) + [header_label]
+    lines = [f"## {job_name}", "", "| " + " | ".join(header_cells) + " |",
+             "| " + " | ".join(["---"] * len(header_cells)) + " |"]
+    crit = warn = info = 0
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        hint = (f.get("severity_hint") or "info").lower()
+        if hint == "critical":
+            crit += 1
+        elif hint == "warning":
+            warn += 1
+        else:
+            info += 1
+        cells = [str(f.get(c, "")) for c in columns]
+        cells.append(f"{_SEVERITY_ICON.get(hint, '·')} {hint.capitalize()}")
+        lines.append("| " + " | ".join(cells) + " |")
+
+    if lang == "zh":
+        tally = f"\n本节统计：{crit} 严重 / {warn} 警告 / {info} 信息。"
+    else:
+        tally = f"\nSection tally: {crit} Critical / {warn} Warning / {info} Info."
+    lines.append(tally)
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def _render_executive_summary_jinja(
+    audit_json: dict, profile_cfg: dict, lang: str
+) -> str:
+    """Deterministic executive summary: severity tallies + top-N action
+    items + verdict line. No LLM call."""
+    crit_findings: list[tuple] = []
+    warn_findings: list[tuple] = []
+    for job_name, job_data in audit_json.get("jobs", {}).items():
+        for f in job_data.get("findings", []) or []:
+            if not isinstance(f, dict):
+                continue
+            hint = (f.get("severity_hint") or "").lower()
+            if hint == "critical":
+                crit_findings.append((job_name, f))
+            elif hint == "warning":
+                warn_findings.append((job_name, f))
+    freshness = audit_json.get("freshness_warning")
+    fresh_present = isinstance(freshness, dict) and bool(freshness)
+
+    def _device_key(item):
+        f = item[1]
+        return ((f.get("device") or f.get("device_name") or ""), item[0])
+    crit_findings.sort(key=_device_key)
+    warn_findings.sort(key=_device_key)
+
+    if fresh_present:
+        verdict = "🔴 Critical (unverified)" if crit_findings else "⚠️ At Risk (stale data)"
+        verdict_zh = "🔴 严重（数据未验证）" if crit_findings else "⚠️ 风险（数据陈旧）"
+    elif crit_findings:
+        verdict = "🔴 Critical"
+        verdict_zh = "🔴 严重"
+    elif warn_findings:
+        verdict = "⚠️ At Risk"
+        verdict_zh = "⚠️ 风险"
+    else:
+        verdict = "✅ Healthy"
+        verdict_zh = "✅ 健康"
+
+    lines: list[str] = ["## Executive Summary", ""]
+    if lang == "zh":
+        lines.append(
+            f"本次审计共发现 {len(crit_findings)} 项严重、{len(warn_findings)} 项警告。"
+        )
+        if fresh_present:
+            lines.append("⚠️ 数据陈旧——下列发现仅反映陈旧快照，无法证明当前网络状态。")
+        lines.append("")
+        lines.append("**优先处理项**")
+    else:
+        lines.append(
+            f"This audit surfaced {len(crit_findings)} Critical and "
+            f"{len(warn_findings)} Warning finding(s)."
+        )
+        if fresh_present:
+            lines.append(
+                "⚠️ Data is stale — findings reflect the captured snapshot, "
+                "NOT the current network state."
+            )
+        lines.append("")
+        lines.append("**Prioritized Action Items**")
+
+    items: list[str] = []
+    if fresh_present:
+        hrs = freshness.get("max_hours_since_last_seen", "?")
+        if lang == "zh":
+            items.append(f"1. 🔴 全局——数据已陈旧 {hrs}h——恢复采集 / 重新跑快照。")
+        else:
+            items.append(f"1. 🔴 Global — Stale data ({hrs}h) — restore data collection / re-run snapshot.")
+    seen_devices: set = set()
+    rank = len(items) + 1
+    for job_name, f in crit_findings:
+        if rank > 3:
+            break
+        dev = f.get("device") or f.get("device_name") or "?"
+        if dev in seen_devices:
+            continue
+        seen_devices.add(dev)
+        metric = f.get("metric_name", job_name)
+        val = f.get("metric_value", "")
+        if lang == "zh":
+            items.append(f"{rank}. 🔴 {dev} — {metric}={val} — 请按 {job_name} 章节调查。")
+        else:
+            items.append(f"{rank}. 🔴 {dev} — {metric}={val} — investigate per {job_name}.")
+        rank += 1
+    for job_name, f in warn_findings:
+        if rank > 3:
+            break
+        dev = f.get("device") or f.get("device_name") or "?"
+        if dev in seen_devices:
+            continue
+        seen_devices.add(dev)
+        metric = f.get("metric_name", job_name)
+        val = f.get("metric_value", "")
+        if lang == "zh":
+            items.append(f"{rank}. ⚠️ {dev} — {metric}={val} — 请按 {job_name} 章节复核。")
+        else:
+            items.append(f"{rank}. ⚠️ {dev} — {metric}={val} — review per {job_name}.")
+        rank += 1
+    if not items:
+        items.append(
+            "✅ No action items required for this inspection window."
+            if lang != "zh" else "✅ 本次审计无需处理。"
+        )
+    lines.extend(items)
+    lines.append("")
+    if lang == "zh":
+        lines.append(f"**网络健康**：{verdict_zh}")
+    else:
+        lines.append(f"**Network Health**: {verdict}")
+    lines.append("")
+    lines.append("---")
+    return "\n".join(lines) + "\n"
 
 
 def _post_critical_alert(
