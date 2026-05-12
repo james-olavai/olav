@@ -31,6 +31,7 @@ import yaml
 from pydantic import ValidationError
 
 from olav.core.cab.schemas import (
+    DEFAULT_MAX_RETRIES,
     DraftChangePlan,
     FeasibilityVerdict,
     LabRejectionReport,
@@ -85,9 +86,18 @@ def _write_rejection(
     cab_dir: Path,
     verdict: FeasibilityVerdict,
     revision_round: int,
+    max_retries: int = DEFAULT_MAX_RETRIES,
     timestamp: datetime | None = None,
-) -> Path:
+) -> tuple[Path, bool]:
+    """Persist the rejection. Returns (path, hard_blocked).
+
+    Sets ``hard_blocked=True`` when the analyzer has exhausted its
+    revision budget — the schema invariant requires
+    ``revision_round >= max_retries`` for hard_blocked, so the bound
+    here is intentionally inclusive.
+    """
     cab_dir.mkdir(parents=True, exist_ok=True)
+    hard_blocked = revision_round >= max_retries
     rej = RejectionReport(
         rejected_at=timestamp or datetime.now(tz=UTC),
         rejected_by="sim",
@@ -95,14 +105,15 @@ def _write_rejection(
         revision_round=revision_round,
         blockers=list(verdict.blockers),
         suggested_alternatives=list(verdict.suggested_alternatives),
-        hard_blocked=False,
+        hard_blocked=hard_blocked,
+        max_retries=max_retries,
     )
     path = cab_dir / "rejection_sim.yaml"
     path.write_text(
         yaml.safe_dump(rej.model_dump(mode="json"), sort_keys=False),
         encoding="utf-8",
     )
-    return path
+    return path, hard_blocked
 
 
 def finalize_tcf_from_draft(draft_path: str | Path) -> dict[str, Any]:
@@ -135,22 +146,27 @@ def finalize_tcf_from_draft(draft_path: str | Path) -> dict[str, Any]:
     # Stage 2 — feasibility
     verdict = check_feasibility(draft)
     if verdict.feasibility == "BLOCKED":
-        rej_path = _write_rejection(
+        rej_path, hard_blocked = _write_rejection(
             change_id=change_id,
             cab_dir=cab_dir,
             verdict=verdict,
             revision_round=draft.revision_round,
         )
         return {
-            "status": "rejected",
+            "status": "hard_blocked" if hard_blocked else "rejected",
             "rejection_path": str(rej_path),
             "blockers": [b.code for b in verdict.blockers],
+            "hard_blocked": hard_blocked,
             "next_step": {
-                "action": "analyzer_revise",
-                "sub_agent": "analyzer",
+                "action": "user_review" if hard_blocked else "analyzer_revise",
+                "sub_agent": "user" if hard_blocked else "analyzer",
                 "args": {"change_id": change_id,
                           "rejection_path": str(rej_path)},
                 "hint": (
+                    f"Hard-blocked after {draft.revision_round} revisions "
+                    f"(blockers: {[b.code for b in verdict.blockers]}). "
+                    f"Surface to user."
+                ) if hard_blocked else (
                     f"Sim rejected the draft with blockers "
                     f"{[b.code for b in verdict.blockers]}. Analyzer "
                     f"should call receive_rejection then re-submit."
@@ -177,19 +193,20 @@ def finalize_tcf_from_draft(draft_path: str | Path) -> dict[str, Any]:
             feasibility="BLOCKED",
             blockers=sim_blockers,
         )
-        rej_path = _write_rejection(
+        rej_path, hard_blocked = _write_rejection(
             change_id=change_id,
             cab_dir=cab_dir,
             verdict=synth_verdict,
             revision_round=draft.revision_round,
         )
         return {
-            "status": "rejected",
+            "status": "hard_blocked" if hard_blocked else "rejected",
             "rejection_path": str(rej_path),
             "blockers": [b.code for b in sim_blockers],
+            "hard_blocked": hard_blocked,
             "next_step": {
-                "action": "analyzer_revise",
-                "sub_agent": "analyzer",
+                "action": "user_review" if hard_blocked else "analyzer_revise",
+                "sub_agent": "user" if hard_blocked else "analyzer",
                 "args": {"change_id": change_id,
                           "rejection_path": str(rej_path)},
             },
@@ -225,17 +242,18 @@ def finalize_tcf_from_draft(draft_path: str | Path) -> dict[str, Any]:
                 evidence={"render_result": result},
             )],
         )
-        rej_path = _write_rejection(
+        rej_path, hard_blocked = _write_rejection(
             change_id=change_id, cab_dir=cab_dir,
             verdict=synth, revision_round=draft.revision_round,
         )
         return {
-            "status": "rejected",
+            "status": "hard_blocked" if hard_blocked else "rejected",
             "rejection_path": str(rej_path),
             "blockers": ["render_failed"],
+            "hard_blocked": hard_blocked,
             "next_step": {
-                "action": "analyzer_revise",
-                "sub_agent": "analyzer",
+                "action": "user_review" if hard_blocked else "analyzer_revise",
+                "sub_agent": "user" if hard_blocked else "analyzer",
                 "args": {"change_id": change_id,
                           "rejection_path": str(rej_path)},
             },
