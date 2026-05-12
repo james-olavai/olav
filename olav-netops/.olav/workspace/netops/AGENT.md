@@ -37,10 +37,12 @@ tools:
 subagents:
   - path: ./analyze/SKILL.md
   - path: ./analyzer/SKILL.md      # R-CAB-THREE-STAGE Day 2 2026-05-12 (dev_docs/75):
-                                   # renamed from sim/. Analyzer drafts a
-                                   # DraftChangePlan via submit_draft; Sim
-                                   # (Python skill-script, built Day 4)
-                                   # turns drafts into TCF specs.
+                                   # Analyzer drafts a DraftChangePlan via
+                                   # submit_draft (LLM, fuzzy reasoning).
+  - path: ./sim/SKILL.md           # R-CAB-THREE-STAGE Day 4 2026-05-12 (dev_docs/75):
+                                   # Sim turns drafts into specs via
+                                   # finalize_tcf (Python, deterministic).
+                                   # agent_type=api; single skill-script.
   - path: ./investigate/SKILL.md   # R-VERTICAL-SLICE Step 1 (2026-05-09,
                                    # dev_docs/74): evidence drilldown — syslog,
                                    # command output, config text
