@@ -212,14 +212,38 @@ def finalize_tcf_from_draft(draft_path: str | Path) -> dict[str, Any]:
             },
         }
 
-    # Stage 4 — render via legacy adapter
-    from olav.core.cab.tcf_writer import render_tcf_from_change_plan
-    plan_md = _draft_to_plan_md(draft, change_id)
-    output_dir = cab_dir.parent  # render writes under <output_dir>/<change_id>/
+    # Stage 4 — native render (no DB, no plan_md, no LLM)
+    # ──────────────────────────────────────────────────────────────────
+    # 2026-05-13 cleanup: legacy ``render_tcf_from_change_plan`` adapter
+    # is gone. Native renderers in ``sim/render/<intent>.py`` consume
+    # the draft directly and produce a typed CabTcf — no DB queries,
+    # no Markdown intermediate. Fall back to legacy ONLY for intents
+    # without a native renderer (deprecation window).
     try:
-        result = render_tcf_from_change_plan(
-            plan_md, output_dir=str(output_dir), created_by="sim",
-        )
+        from olav.core.cab.sim.render import RENDERERS as _NATIVE_RENDERERS
+        from olav.core.cab.lab_subnet_pool import allocate_lab_subnet
+        if draft.proposed_intent in _NATIVE_RENDERERS:
+            lab_subnet = allocate_lab_subnet(change_id)
+            tcf = _NATIVE_RENDERERS[draft.proposed_intent](
+                draft, lab_subnet, change_id
+            )
+            spec_p = cab_dir / "spec.tcf.yaml"
+            spec_p.write_text(
+                yaml.safe_dump(tcf.model_dump(mode="json"), sort_keys=False),
+                encoding="utf-8",
+            )
+            spec_path = str(spec_p)
+            result = {"status": "ok", "spec_path": spec_path}
+        else:
+            # Legacy fallback (still calls _db_facts internally — to be
+            # removed once native renderers for ebgp_direct / ibgp /
+            # static_route / vlan_add all land).
+            from olav.core.cab.tcf_writer import render_tcf_from_change_plan
+            plan_md = _draft_to_plan_md(draft, change_id)
+            output_dir = cab_dir.parent
+            result = render_tcf_from_change_plan(
+                plan_md, output_dir=str(output_dir), created_by="sim",
+            )
     except Exception as e:  # NEVER raises
         return {
             "status": "error",
@@ -228,9 +252,6 @@ def finalize_tcf_from_draft(draft_path: str | Path) -> dict[str, Any]:
         }
 
     if result.get("status") not in {"ok", "success"}:
-        # Render-side rejection (e.g. unsupported intent, DB gap on
-        # required ASN). Fold it back into the rejection envelope so
-        # the orchestrator handles it uniformly.
         from olav.core.cab.schemas import Blocker
         msg = str(result.get("error") or "render returned non-ok status")
         synth = FeasibilityVerdict(
@@ -261,13 +282,10 @@ def finalize_tcf_from_draft(draft_path: str | Path) -> dict[str, Any]:
 
     spec_path = result.get("spec_path")
 
-    # Post-render augmentation: copy the analyzer's collected topology
-    # edges into the spec so lab doesn't re-query the DB. Keeps the
-    # deterministic-from-input chain intact: facts in the draft drive
-    # both sim's render and lab's deploy. (R-CAB-THREE-STAGE follow-up,
-    # 2026-05-13 — found by R1-R3 OSPF e2e where lab's independent
-    # query of v_l2_links_auto desynced with the analyzer's view.)
-    if spec_path and draft.facts_collected.topology_edges:
+    # Topology backfill for legacy-rendered specs only — native
+    # renderers already write topology_links upfront.
+    if spec_path and draft.facts_collected.topology_edges \
+       and draft.proposed_intent not in _NATIVE_RENDERERS:
         try:
             spec_p = Path(spec_path)
             spec = yaml.safe_load(spec_p.read_text(encoding="utf-8"))
