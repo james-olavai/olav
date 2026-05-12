@@ -456,6 +456,57 @@ def generate_clab_topology(
         con.close()
 
 
+def build_intf_map_from_links(
+    nodes: list[str],
+    links: list[tuple[str, str, str, str]],
+) -> dict[str, dict[str, str]]:
+    """Same encounter-order allocation as ``_build_yaml`` but driven
+    by explicit (src_dev, src_intf, dst_dev, dst_intf) tuples — lets
+    callers who already have topology data (e.g. lab reading from
+    ``spec.tcf.yaml``) skip the DB round-trip."""
+    if not nodes or not links:
+        return {}
+    unique = _dedupe_bidirectional(list(links))
+    port_counter: dict[str, int] = {}
+    intf_map: dict[str, dict[str, str]] = {n: {} for n in nodes}
+    for src_d, src_i, dst_d, dst_i in unique:
+        if _validate_iface(src_i) or _validate_iface(dst_i):
+            continue
+        src_port = port_counter.get(src_d, 0) + 1
+        dst_port = port_counter.get(dst_d, 0) + 1
+        port_counter[src_d] = src_port
+        port_counter[dst_d] = dst_port
+        if src_d in intf_map:
+            intf_map[src_d][src_i] = f"ethernet-1/{src_port}"
+        if dst_d in intf_map:
+            intf_map[dst_d][dst_i] = f"ethernet-1/{dst_port}"
+    return {d: m for d, m in intf_map.items() if m}
+
+
+def generate_clab_topology_from_links(
+    nodes: list[str],
+    links: list[tuple[str, str, str, str]],
+    lab_name: str,
+    image: str | None = None,
+) -> str:
+    """Lab-side entry point. Builds the CLAB YAML from caller-supplied
+    links (already deduped or not) instead of querying the netops DB.
+
+    Used by ``tcf_validate`` when ``spec.tcf.yaml.topology_links`` is
+    populated — keeps the lab's view consistent with what sim+analyzer
+    decided, no DB round-trip. ``generate_clab_topology`` (the
+    DB-querying version) stays as fallback for legacy specs.
+    """
+    if image is None:
+        image = _resolve_srl_image()
+    warnings: list[str] = []
+    unique = _dedupe_bidirectional(list(links))
+    counters: dict[str, int] = {}
+    yaml_content = _build_yaml(lab_name, nodes, image, unique, warnings, counters)
+    emitted = sum(counters.values()) // 2 if counters else 0
+    return _wrap_with_comments(yaml_content, "from-spec", emitted, warnings)
+
+
 def build_prod_to_lab_intf_map(
     nodes: list[str],
     snapshot_id: str | None = None,

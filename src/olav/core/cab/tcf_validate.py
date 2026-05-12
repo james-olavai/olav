@@ -267,10 +267,32 @@ def validate_tcf_in_lab(
             "tcf_recorded": False, "lab_destroyed": False,
         }
 
-    # ── Phase 1: topology (R88-A) ─────────────────────────────────────
+    # ── Phase 1: topology — prefer spec.topology_links over DB ────────
+    # 2026-05-13: if sim already wrote the topology into the spec
+    # (which it does for any draft built from inspect_topology output),
+    # use it verbatim. This keeps lab in sync with what the analyzer
+    # and sim saw — no DB round-trip, no risk of drift between the
+    # snapshot sim used and the snapshot lab pulls.
     try:
-        from olav.core.lab.topology import generate_clab_topology
-        yaml_content = generate_clab_topology(**r88_args)
+        from olav.core.lab.topology import (
+            generate_clab_topology,
+            generate_clab_topology_from_links,
+        )
+        spec_links = list(getattr(tcf_full, "topology_links", []) or [])
+        if spec_links:
+            link_tuples = [
+                (lnk.source_device, lnk.source_interface,
+                 lnk.destination_device, lnk.destination_interface)
+                for lnk in spec_links
+            ]
+            yaml_content = generate_clab_topology_from_links(
+                nodes=r88_args["nodes"],
+                links=link_tuples,
+                lab_name=lab_name,
+                image=r88_args.get("image"),
+            )
+        else:
+            yaml_content = generate_clab_topology(**r88_args)
     except Exception as exc:  # noqa: BLE001
         _attempt_destroy()
         return {
@@ -516,10 +538,25 @@ def validate_tcf_in_lab(
             # actually landed — OSPF / BGP would bind to an interface
             # with no IP and never form adjacency.
             try:
-                from olav.core.lab.topology import build_prod_to_lab_intf_map
-                intf_map_all = build_prod_to_lab_intf_map(
-                    [d.name for d in tcf_full.devices]
+                from olav.core.lab.topology import (
+                    build_intf_map_from_links,
+                    build_prod_to_lab_intf_map,
                 )
+                # Same source-of-truth preference as Phase 1: spec
+                # links first, DB fallback only when absent.
+                if spec_links:
+                    intf_map_all = build_intf_map_from_links(
+                        nodes=[d.name for d in tcf_full.devices],
+                        links=[
+                            (lnk.source_device, lnk.source_interface,
+                             lnk.destination_device, lnk.destination_interface)
+                            for lnk in spec_links
+                        ],
+                    )
+                else:
+                    intf_map_all = build_prod_to_lab_intf_map(
+                        [d.name for d in tcf_full.devices]
+                    )
             except Exception:
                 intf_map_all = {}
             this_dev_map = intf_map_all.get(dev.name, {})

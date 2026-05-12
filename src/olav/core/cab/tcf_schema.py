@@ -98,6 +98,36 @@ class Device(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Topology — physical L2 links between the devices in scope
+# ---------------------------------------------------------------------------
+
+
+class TcfLink(BaseModel):
+    """One L2 adjacency between two devices in the change scope.
+
+    2026-05-13: previously lab re-queried ``netops.v_l2_links_auto``
+    every validation to learn topology, even though the analyzer
+    already collected it via ``inspect_topology`` and the simulator
+    already saw it in ``draft.facts_collected.topology_edges``. The
+    spec is now the source of truth for which links matter for this
+    change — lab's ``generate_clab_topology`` reads from here when
+    the field is populated, falling back to the DB query only for
+    legacy specs without it.
+
+    Identical shape to ``schemas.facts.TopologyEdge`` so sim can
+    copy the analyzer's envelope verbatim.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    source_device: str
+    source_interface: str
+    destination_device: str
+    destination_interface: str
+    discovery_protocol: str | None = None
+
+
+# ---------------------------------------------------------------------------
 # CLI block — implementation + rollback share this shape
 # ---------------------------------------------------------------------------
 
@@ -389,6 +419,10 @@ class CabTcf(BaseModel):
 
     intent: Intent
     devices: list[Device]
+    #: L2 links between the scoped devices, copied from the analyzer's
+    #: ``inspect_topology`` output. Optional for legacy specs; lab
+    #: prefers this over re-querying the DB when populated.
+    topology_links: list[TcfLink] = Field(default_factory=list)
     pre_check: list[PreCheck] = Field(default_factory=list)
     implementation: list[CliBlock] = Field(default_factory=list)
     rollback: list[CliBlock] = Field(default_factory=list)
