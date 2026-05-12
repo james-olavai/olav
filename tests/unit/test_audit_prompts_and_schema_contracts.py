@@ -602,3 +602,47 @@ def test_correlation_pass_md_does_not_carry_unused_cluster_rules():
         "either always inject (wasting tokens) or never inject (losing "
         "feature when run_incident_clustering=true)."
     )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Contracts 16–17 (2026-05-12 A follow-up): NL-audit-creation hardening.
+#   * Webhook dedup → render_report._is_duplicate_alert + state file
+#   * Author auto-selftest → save_profile chains map_engine.selftest_profile
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_render_report_has_alert_dedup():
+    """`_post_critical_alert` MUST dedup repeat alerts within a tunable
+    window. Without dedup, a multi-hour incident floods the receiver
+    every cron-tick (alert fatigue → operators mute the channel → real
+    alerts get missed)."""
+    rr_py = NETOPS_AUDIT / "runner" / "tools" / "render_report.py"
+    src = rr_py.read_text(encoding="utf-8")
+    assert "_alert_fingerprint" in src and "_is_duplicate_alert" in src, (
+        "alert dedup helpers gone — repeat critical conditions will "
+        "re-POST every audit run."
+    )
+    assert "OLAV_ALERT_DEDUP_WINDOW_SECONDS" in src, (
+        "dedup window env knob lost — operators cannot tune cadence."
+    )
+    assert ".audit_alert_state.json" in src, (
+        "alert state file path missing — fingerprints can't persist "
+        "across runs and dedup becomes a no-op."
+    )
+
+
+def test_save_profile_chains_selftest():
+    """save_profile MUST run map_engine.selftest_profile after writing
+    the .md so author-written SQL gets schema-checked against the live
+    DB. Without this, gemma4-class author writes typo'd column names
+    that pass yaml-validation but break at first audit run."""
+    sp_py = NETOPS_AUDIT / "author" / "tools" / "save_profile.py"
+    src = sp_py.read_text(encoding="utf-8")
+    assert "_try_selftest" in src or "selftest_profile" in src, (
+        "save_profile no longer chains selftest — author-time schema "
+        "drift detection lost."
+    )
+    assert "advisory" in src.lower() or "best-effort" in src.lower() or "never raises" in src.lower(), (
+        "save_profile lost the 'selftest is advisory' contract — a DB-"
+        "unavailable environment could now break profile creation."
+    )

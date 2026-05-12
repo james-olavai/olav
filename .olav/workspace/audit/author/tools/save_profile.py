@@ -115,7 +115,66 @@ def save_profile(
     profile_path.write_text(content, encoding="utf-8")
 
     logger.info("save_profile: wrote %s", profile_path)
+
+    # ── A.2 auto-selftest (2026-05-12) ──────────────────────────────
+    # Run selftest_profile against the live DB to catch schema drift
+    # right at authoring time. Author-written SQL on small models can
+    # syntactically pass yet reference renamed columns; without this,
+    # the bug surfaces only when the profile is run for real.
+    # Failures are surfaced as a non-fatal warning in the return string
+    # — the profile is still written so the user can inspect & fix.
+    selftest_msg = _try_selftest(str(profile_path))
+    if selftest_msg:
+        return f"{profile_path}\n\n{selftest_msg}"
     return str(profile_path)
+
+
+def _try_selftest(profile_path: str) -> str:
+    """Run map_engine.selftest_profile on the freshly-written profile.
+
+    Returns:
+        Empty string on success, or a human-readable warning string
+        listing failing jobs. Never raises — selftest is advisory.
+    """
+    try:
+        import importlib.util as _iu
+        from pathlib import Path as _P
+        # Locate map_engine relative to this author tool's workspace.
+        _here = _P(__file__).resolve()
+        # author/tools/save_profile.py → audit/runner/tools/map_engine.py
+        candidates = [
+            _here.parent.parent.parent / "runner" / "tools" / "map_engine.py",
+        ]
+        me_path = next((p for p in candidates if p.exists()), None)
+        if me_path is None:
+            return ""  # map_engine not found in this workspace shape
+        spec = _iu.spec_from_file_location("_author_selftest_me", me_path)
+        mod = _iu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        result = mod.selftest_profile(profile_path)
+        if result.get("ok"):
+            return ""
+        failures = [
+            f"  • {j['name']}: {j['error']}"
+            for j in result.get("jobs", [])
+            if j.get("status") != "ok"
+        ]
+        if not failures:
+            return ""
+        return (
+            "⚠️ selftest: profile written but " + str(len(failures))
+            + " job(s) failed schema check against the live DB:\n"
+            + "\n".join(failures)
+            + "\nEdit the profile + re-run save_profile, OR fix the SQL "
+              "in place and verify with map_engine.selftest_profile()."
+        )
+    except Exception as exc:
+        # Selftest is best-effort. If the DB or map_engine isn't
+        # available in the user's environment, just skip — don't
+        # block profile creation.
+        logger.debug("save_profile: selftest skipped: %s: %s",
+                     type(exc).__name__, exc)
+        return ""
 
 
 # ---------------------------------------------------------------------------

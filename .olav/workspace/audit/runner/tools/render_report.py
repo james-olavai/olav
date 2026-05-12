@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -938,6 +938,28 @@ def _post_critical_alert(
     if max_severity_rank < threshold_rank and not has_freshness_critical:
         return  # nothing to alert on
 
+    # ── Webhook dedup (2026-05-12 follow-up) ─────────────────────────
+    # Compute a stable fingerprint over (profile, set-of-critical-
+    # (device, metric_name) tuples, freshness_present). Identical
+    # critical conditions in the same dedup window → swallow the POST
+    # to prevent alert fatigue. Window default 3600s; override via
+    # ``OLAV_ALERT_DEDUP_WINDOW_SECONDS=0`` to disable, or any positive
+    # int to tune.
+    dedup_window = int(os.environ.get("OLAV_ALERT_DEDUP_WINDOW_SECONDS", "3600"))
+    state_path = Path(report_path).parent / ".audit_alert_state.json"
+    fingerprint = _alert_fingerprint(
+        profile_name=profile_name,
+        critical_findings=critical_findings,
+        freshness_present=has_freshness_critical,
+    )
+    if dedup_window > 0 and _is_duplicate_alert(state_path, fingerprint, dedup_window):
+        logger.info(
+            "render_report: alert webhook SKIPPED (dedup, profile=%s, "
+            "fingerprint=%s..., window=%ds)",
+            profile_name, fingerprint[:12], dedup_window,
+        )
+        return
+
     payload = {
         "profile": profile_name,
         "report_path": report_path,
@@ -947,6 +969,7 @@ def _post_critical_alert(
         "critical_count": len(critical_findings),
         "warning_count": len(warning_findings),
         "critical_findings": critical_findings[:20],  # cap to keep payload small
+        "fingerprint": fingerprint,
     }
     try:
         import urllib.request
@@ -962,12 +985,105 @@ def _post_critical_alert(
                 "render_report: alert webhook → HTTP %d (profile=%s)",
                 resp.status, profile_name,
             )
+        # Record the successful send for future dedup checks.
+        if dedup_window > 0:
+            _record_alert_sent(state_path, fingerprint, profile_name)
     except Exception as exc:
         # Webhook is best-effort; never block the audit.
         logger.warning(
             "render_report: alert webhook POST failed (profile=%s): %s: %s",
             profile_name, type(exc).__name__, exc,
         )
+
+
+def _alert_fingerprint(
+    profile_name: str,
+    critical_findings: list[dict],
+    freshness_present: bool,
+) -> str:
+    """Stable hash over the dedup-relevant audit signal.
+
+    Uses (profile_name, sorted set of (device, metric_name) tuples,
+    freshness_present). Deliberately excludes: timestamps, exact
+    counter values, executive_summary prose — those rotate every run
+    even when the underlying condition is unchanged.
+    """
+    import hashlib
+    keys = sorted({
+        (
+            (f.get("device") or f.get("device_name") or ""),
+            (f.get("metric_name") or f.get("job") or ""),
+        )
+        for f in critical_findings
+        if isinstance(f, dict)
+    })
+    payload = f"{profile_name}|{keys}|fresh={int(freshness_present)}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _is_duplicate_alert(state_path: Path, fingerprint: str, window_seconds: int) -> bool:
+    """Return True if this fingerprint was sent within window_seconds."""
+    import json as _json
+    if not state_path.exists():
+        return False
+    try:
+        state = _json.loads(state_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    entry = state.get(fingerprint)
+    if not isinstance(entry, dict):
+        return False
+    last_sent = entry.get("last_sent")
+    if not last_sent:
+        return False
+    try:
+        last_dt = datetime.fromisoformat(last_sent)
+    except Exception:
+        return False
+    now = datetime.now(tz=UTC)
+    return (now - last_dt).total_seconds() < window_seconds
+
+
+def _record_alert_sent(state_path: Path, fingerprint: str, profile_name: str) -> None:
+    """Persist a successful alert send so the next run can dedup."""
+    import json as _json
+    state: dict = {}
+    if state_path.exists():
+        try:
+            state = _json.loads(state_path.read_text(encoding="utf-8"))
+        except Exception:
+            state = {}
+    now_iso = datetime.now(tz=UTC).isoformat()
+    entry = state.get(fingerprint) or {}
+    entry["last_sent"] = now_iso
+    if "first_sent" not in entry:
+        entry["first_sent"] = now_iso
+    entry["sent_count"] = int(entry.get("sent_count", 0)) + 1
+    entry["profile"] = profile_name
+    state[fingerprint] = entry
+    # Prune entries older than 14 days to keep the file bounded.
+    cutoff = datetime.now(tz=UTC) - timedelta(days=14)
+    state = {
+        k: v for k, v in state.items()
+        if not v.get("last_sent")
+        or _safe_fromisoformat(v["last_sent"]) > cutoff
+    }
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(_json.dumps(state, indent=2), encoding="utf-8")
+    except Exception as exc:
+        logger.warning(
+            "render_report: failed to persist alert state %s: %s",
+            state_path, exc,
+        )
+
+
+def _safe_fromisoformat(s: str) -> datetime:
+    """Parse ISO timestamps with tolerance; fall back to epoch on failure."""
+    try:
+        return datetime.fromisoformat(s)
+    except Exception:
+        return datetime.fromtimestamp(0, tz=UTC)
 
 
 def _append_to_file(path: Path, content: str) -> None:
