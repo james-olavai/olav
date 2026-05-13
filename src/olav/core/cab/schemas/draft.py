@@ -52,6 +52,13 @@ class DraftChangePlan(BaseModel):
     intent_args: dict[str, Any] = Field(default_factory=dict)
     rationale: str = Field(min_length=1)
 
+    # L1-L4 layered reasoning chain produced by S3 (Step 1 of the
+    # "list per-layer impact, then map to intent" prompt). Strings are
+    # short phrases prefixed with the layer tag, e.g.
+    # ``"L2: add VLAN 200 'guest' on SW1"``. Optional — older drafts
+    # (and minimal flows) may omit it.
+    layer_changes: list[str] = Field(default_factory=list)
+
     # Grounding (schema-enforced — replaces F.3 hard-error)
     facts_collected: FactsEnvelope
 
