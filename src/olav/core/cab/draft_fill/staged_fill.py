@@ -122,6 +122,16 @@ CONTEXT:
   devices_in_scope: {devices_in_scope}
   facts (per-device): {facts_summary}
 
+==== VENDOR CLI AUTHORING GUIDE (FROM KB) ====
+{cli_authoring_guide}
+==== END GUIDE ====
+
+Apply the rules above when composing CLI. In particular:
+  - Junos: wrap with `configure` and `commit and-quit`
+  - Cisco IOS: wrap with `configure terminal` and `end` + `write memory`
+  - rollback symmetry: every `set` has a `delete`/`no`
+  - post_check expected_pattern from the catalog, NEVER empty
+
 You must compose intent_args with this EXACT schema. Field names are CASE-SENSITIVE
 and must match verbatim — using synonyms ("expected" instead of "expected_pattern") is REJECTED.
 
@@ -154,10 +164,116 @@ HARD constraints (lint will reject any violation):
      - NOT empty string — expected_pattern must be a real substring/regex that proves the change worked.
        e.g. "FULL" for OSPF adjacency, "192.0.2.0/24" for static route, "Description: uplink" for desc change.
   4. post_check.device MUST be in {devices_in_scope}.
-  5. Use REAL prod CLI for the device platform (Junos `set protocols...`, IOS `router...`).
+  5. Use REAL prod CLI for the device platform — per the VENDOR CLI AUTHORING GUIDE above.
+     Junos must include `configure` AND `commit and-quit` wrappers.
+     Cisco IOS must include `configure terminal` AND `end` + `write memory` wrappers.
 
 Return ONLY the JSON object. NOTHING else.
 """
+
+
+# ────────────────────────────────────────────────────────────────────
+# S5 — self-review pass (re-read assembled draft, propose fixes)
+# ────────────────────────────────────────────────────────────────────
+
+REVIEW_PROMPT = """\
+You just composed this DraftChangePlan section by section. Now do a
+final SELF-REVIEW of the assembled draft and identify any issues.
+
+ASSEMBLED DRAFT:
+{draft_json}
+
+==== VENDOR CLI AUTHORING GUIDE (FROM KB) ====
+{cli_authoring_guide}
+==== END GUIDE ====
+
+CHECKLIST — review each item against the guide:
+
+1. **Per-device CLI completeness**
+   - Junos devices: does `cli_per_device[<device>]` START with `configure`
+     and END with `commit and-quit` (or `commit`)?
+   - Cisco IOS devices: does it START with `configure terminal` and END
+     with `end` then `write memory`?
+   - Naked `set ...` (Junos) or `router ospf` (Cisco) without the wrapper
+     is INCOMPLETE — operators executing this verbatim get a no-op.
+
+2. **Rollback symmetry + wrapping**
+   - Every impl `set X` has matching rollback `delete X` (Junos) or `no X` (Cisco)?
+   - Rollback also wrapped with configure / commit / write memory?
+
+3. **post_checks**
+   - Every entry has device + command + expected_pattern (NON-EMPTY real
+     substring) + description?
+   - Field names are CANONICAL (NOT `expected`, NOT `cmd`, NOT `desc`)?
+
+4. **facts_collected completeness**
+   - Every device in scope has platform + local_as + loopback filled
+     (no nulls where the DB would have a value)?
+
+5. **Cross-field consistency**
+   - Does facts.devices[].platform match the platform implied by the CLI
+     (e.g. if cli_per_device has `set protocols`, that device should be junos;
+     if `router ospf 1`, should be cisco_ios)?
+
+Return ONLY JSON, NOTHING else:
+{{
+  "review_pass": <true|false>,
+  "findings": ["<one-line per issue>"],
+  "fixed_draft": <FULL corrected DraftChangePlan JSON if review_pass=false; omit if review_pass=true>
+}}
+
+If review_pass=true, "findings" can be empty list.
+
+When emitting fixed_draft, return the COMPLETE draft (all top-level fields:
+user_prompt, devices_in_scope, proposed_intent, intent_args, rationale,
+facts_collected, revision_round, previous_blockers), not just the changed parts.
+"""
+
+
+def _validate_review(parsed: Any) -> list["LintError"]:
+    from .lint import LintError
+    errors: list[LintError] = []
+    if not isinstance(parsed, dict):
+        return [LintError(code="not_dict", message="review must be a JSON object", field="(root)")]
+    if "review_pass" not in parsed:
+        errors.append(LintError(code="review_pass_missing", message="must include 'review_pass' boolean", field="review_pass"))
+    if not parsed.get("review_pass", True) and not parsed.get("fixed_draft"):
+        errors.append(LintError(
+            code="fixed_draft_missing",
+            message="review_pass=false but 'fixed_draft' is missing",
+            field="fixed_draft",
+            hint="When review_pass=false, you MUST include the corrected draft as 'fixed_draft' (full DraftChangePlan).",
+        ))
+    return errors
+
+
+# ────────────────────────────────────────────────────────────────────
+# Memory / KB loader
+# ────────────────────────────────────────────────────────────────────
+
+def _load_cli_authoring_guide() -> str:
+    """Read the change_plan_cli_authoring.guide.yaml body.
+
+    Searches workspace guides dirs (cwd-relative) then a fallback empty
+    string. NOT going through lancedb — staged-fill knows it always
+    needs this guide, no semantic search required.
+    """
+    from pathlib import Path
+    candidates = [
+        Path.cwd() / ".olav/workspace/netops/guides/change_plan_cli_authoring.guide.yaml",
+        Path.cwd() / "olav-netops/.olav/workspace/netops/guides/change_plan_cli_authoring.guide.yaml",
+    ]
+    for p in candidates:
+        if p.exists():
+            try:
+                import yaml as _yaml
+                data = _yaml.safe_load(p.read_text(encoding="utf-8"))
+                body = (data or {}).get("body", "")
+                if body:
+                    return body
+            except Exception:
+                pass
+    return ""
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -482,6 +598,9 @@ def run_staged_fill(
         llm, journal, _validate_intent, max_attempts_per_section,
     )
 
+    # Load vendor CLI authoring guide once — injected into S4 + S5
+    cli_authoring_guide = _load_cli_authoring_guide()
+
     # S4 — intent_args (only freeform_cli prototype here)
     intent_name = intent_obj["proposed_intent"]
     if intent_name == "freeform_cli":
@@ -491,6 +610,7 @@ def run_staged_fill(
                 user_prompt=user_prompt,
                 devices_in_scope=devices_in_scope,
                 facts_summary=facts_summary,
+                cli_authoring_guide=cli_authoring_guide or "(KB guide unavailable)",
             ),
             llm, journal,
             lambda p: _validate_freeform_args(p, devices_in_scope),
@@ -501,7 +621,7 @@ def run_staged_fill(
         # synthesizes from facts). Future: add per-intent templates.
         args_obj = {}
 
-    # Assemble + final lint
+    # Assemble initial draft
     draft = DraftChangePlan(
         user_prompt=user_prompt,
         devices_in_scope=devices_in_scope,
@@ -512,6 +632,46 @@ def run_staged_fill(
         revision_round=0,
         previous_blockers=[],
     )
+
+    # S5 — self-review pass. LLM reads the assembled draft, applies the
+    # KB checklist, returns either review_pass=true OR a fixed_draft.
+    # Only run for freeform_cli (where intent_args is non-trivial); other
+    # intents have nothing to review until per-intent S4 templates land.
+    # ALSO skip if S4's output is already lint-clean — memory guide
+    # injection into S4 prompt usually nails it; running review when
+    # there's nothing to fix wastes 500+s on 30B for no benefit.
+    early_errors = lint_draft(draft)
+    skip_review = (intent_name == "freeform_cli") and not early_errors
+    if intent_name == "freeform_cli" and args_obj and not skip_review:
+        try:
+            review_obj = _fill_section(
+                "S5_review",
+                REVIEW_PROMPT.format(
+                    draft_json=json.dumps(draft.model_dump(mode="json"),
+                                            indent=2, default=str)[:8000],
+                    cli_authoring_guide=cli_authoring_guide or "(KB guide unavailable)",
+                ),
+                llm, journal, _validate_review, max_attempts_per_section,
+            )
+            if not review_obj.get("review_pass") and review_obj.get("fixed_draft"):
+                try:
+                    fixed_draft = DraftChangePlan.model_validate(
+                        review_obj["fixed_draft"]
+                    )
+                    # Re-lint the fixed draft; only adopt if it improves
+                    # (≤ current lint errors) — never accept regressions.
+                    orig_errors = lint_draft(draft)
+                    fixed_errors = lint_draft(fixed_draft)
+                    if len(fixed_errors) <= len(orig_errors):
+                        draft = fixed_draft
+                except Exception:
+                    # fixed_draft doesn't validate → keep original
+                    pass
+        except RuntimeError:
+            # Review section exhausted its retry budget — keep original
+            # draft, let final lint be the gate.
+            pass
+
     journal.total_elapsed_s = round(time.time() - t_total, 2)
     journal.final_lint_errors = [e.to_dict() for e in lint_draft(draft)]
 
