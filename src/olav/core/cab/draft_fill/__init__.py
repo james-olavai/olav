@@ -15,5 +15,12 @@ from __future__ import annotations
 
 from .lint import lint_draft, LintError
 from .staged_fill import run_staged_fill, FillJournal
+from .inspectors import inspect_devices, inspect_topology
+from .llm_wrap import make_llm_callable
 
-__all__ = ["lint_draft", "LintError", "run_staged_fill", "FillJournal"]
+__all__ = [
+    "lint_draft", "LintError",
+    "run_staged_fill", "FillJournal",
+    "inspect_devices", "inspect_topology",
+    "make_llm_callable",
+]

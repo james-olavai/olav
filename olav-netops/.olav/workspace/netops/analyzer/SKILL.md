@@ -16,8 +16,14 @@ tools:
   - inspect_routing
   - inspect_blast_radius
   - inspect_interfaces
-  - submit_draft        # R-CAB-THREE-STAGE Day 2: replaces submit_change_plan
-  - receive_rejection   # R-CAB-THREE-STAGE Day 2: pulls prior rejection on revise
+  - submit_staged_draft # R-MULTI-LLM-HYBRID design 4 (2026-05-13): PRIMARY draft tool
+                        # — section-by-section LLM compose with per-section lint.
+                        # Use this for any change request (single or multi-device).
+                        # 30B-friendly; produces facts-complete + lint-clean drafts.
+  - submit_draft        # LEGACY one-shot path. Kept as fallback during cutover.
+                        # Prefer submit_staged_draft unless you've inspected first
+                        # and have the full envelope ready.
+  - receive_rejection   # Pulls prior rejection on revise.
   - format_and_export
 static_context_mode: on_intent
 system: $ref:./prompts/system.md
@@ -61,16 +67,40 @@ alternatives that you then revise.
 | **`submit_draft(...)`** | **Final action — writes draft.yaml, returns next_step pointing at Sim** |
 | `receive_rejection(change_id=..., prefer="sim")` | Read prior rejection on revise |
 
-## Workflow A — fresh change request
+## Workflow A — fresh change request (PRIMARY PATH: staged-fill)
+
+For ANY change request — single device, multi-device, any intent — call
+`submit_staged_draft(user_prompt)` directly. The tool runs:
+
+  1. Extract scope (devices in user's prompt)
+  2. Query DB for facts (no LLM in this step — pure Python)
+  3. Compose intent + rationale
+  4. Fill intent_args per the chosen intent
+  5. Per-section lint after each step + retry on schema/shape errors
+  6. Write draft.yaml + journal; return next_step pointing at Sim
+
+**You do NOT need to call inspect_* tools first**. submit_staged_draft
+handles facts collection internally via deterministic DB queries — that
+removes a common failure mode where the LLM forgets to pass topology
+edges into the envelope.
+
+Single tool call ends the analyzer's role. Sim takes over via the
+returned next_step.
+
+Loop ends on `submit_staged_draft`.
+
+## Workflow A2 — legacy one-shot path (only if you must)
+
+If `submit_staged_draft` is unavailable or you have all facts already:
 
 1. `inspect_devices([target1, target2])` → ASNs, loopbacks, platforms.
 2. `inspect_topology([target1, target2])` → are they directly connected?
 3. *Optional* `inspect_routing` / `inspect_blast_radius` / `inspect_interfaces` for context.
-4. **`submit_draft(...)`** — pass everything you observed as
-   `facts_collected` (the entire envelope is grounding evidence; Sim
-   refuses a draft with empty `facts_collected.devices`).
+4. **`submit_draft(...)`** — one-shot pass everything you observed as
+   `facts_collected`.
 
-Total: 3-4 tool calls. Your loop ends on `submit_draft`.
+This path is brittle for 30B models on multi-device drafts (facts
+fields often empty, post_check field names wrong). Prefer Workflow A.
 
 ## Workflow B — revision after Sim rejection
 
