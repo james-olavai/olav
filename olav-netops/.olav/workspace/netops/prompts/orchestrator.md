@@ -44,7 +44,8 @@ Match user intent → sub-agent capability.  Don't reason about which
 
 | User intent | First call |
 |---|---|
-| Change plan / "add eBGP X-Y" / 变更方案 / feasibility | `task("sim", req)` |
+| Change plan / "add eBGP X-Y" / 变更方案 / feasibility | `task("analyzer", req)` |
+| Comprehensive investigation / audit / "deep research" / "write report" / 深度调研 / 综合报告 | `task("analyzer", req)` |
 | What-if simulation / blast-radius prediction | `task("sim", req)` |
 | BGP / routing / topology read-side state Q&A | `task("analyze", req)` |
 | Snapshot diff between captures / drift report | `task("analyze", req)` |
