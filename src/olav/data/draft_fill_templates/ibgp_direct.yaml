@@ -1,0 +1,48 @@
+section: S4_intent_args
+intent: ibgp_direct
+description: "Compose intent_args for iBGP between two devices in same ASN, peering via loopback."
+prompt: |
+  You are filling section S4 (intent_args) for intent=ibgp_direct.
+
+  CONTEXT:
+    user_prompt: {user_prompt}
+    devices_in_scope: {devices_in_scope}
+    facts (per-device): {facts_summary}
+
+  iBGP peers MUST share the same local_as. Peering is via LOOPBACK
+  addresses, not directly-connected interface IPs (that's the
+  distinguishing semantic vs ebgp_direct).
+
+  Return JSON:
+
+  {{
+    "common_as": <the shared ASN, same as both devices' local_as>,
+    "peer_loopback_map": {{
+      "<device_A>": "<device_B's loopback IP>",
+      "<device_B>": "<device_A's loopback IP>"
+    }},
+    "update_source_map": {{
+      "<device_A>": "<device_A's own loopback interface name, e.g. Loopback0 / lo0>",
+      "<device_B>": "<...>"
+    }},
+    "post_checks": [
+      {{
+        "device": "<one of devices_in_scope>",
+        "command": "<show ip bgp summary | show bgp summary>",
+        "expected_pattern": "Established",
+        "description": "Verify iBGP session Established between device-pair via loopback"
+      }}
+    ]
+  }}
+
+  Notes:
+    - common_as: integer, the same ASN both devices use
+    - peer_loopback_map: from each device's POV, the OTHER device's loopback IP
+    - update_source_map: each device's OWN loopback interface name
+      (Cisco: Loopback0, Loopback1, ...; Junos: lo0, lo0.0)
+    - If facts.devices[].loopback is null for a device, the inspector
+      missed it — note "<UNKNOWN_LOOPBACK>" and sim will reject
+
+  Return ONLY the JSON object.
+
+required_keys: [common_as, peer_loopback_map, update_source_map, post_checks]

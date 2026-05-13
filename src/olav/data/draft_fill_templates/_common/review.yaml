@@ -1,0 +1,35 @@
+section: S5_review
+description: "Final self-review pass over the assembled draft."
+prompt: |
+  You just composed this DraftChangePlan section by section. Now do a
+  final SELF-REVIEW of the assembled draft and identify any issues.
+
+  ASSEMBLED DRAFT:
+  {draft_json}
+
+  ==== VENDOR CLI AUTHORING GUIDE (FROM KB) ====
+  {cli_authoring_guide}
+  ==== END GUIDE ====
+
+  CHECKLIST — review each item against the guide:
+
+  1. Per-device CLI completeness
+     - Junos: configure / set ... / commit and-quit
+     - Cisco IOS: configure terminal / ... / end + write memory
+  2. Rollback symmetry — every impl `set X` has matching `delete X`/`no X`?
+  3. post_checks — every entry has device + command + expected_pattern
+     (NON-EMPTY real substring) + description?
+  4. facts_collected completeness — every device has platform + local_as +
+     loopback filled?
+  5. Cross-field consistency — facts.devices[].platform matches the platform
+     implied by the CLI?
+
+  Return ONLY JSON:
+  {{
+    "review_pass": <true|false>,
+    "findings": ["<one-line per issue>"],
+    "fixed_draft": <FULL corrected DraftChangePlan JSON if review_pass=false; omit if true>
+  }}
+
+  When emitting fixed_draft, return the COMPLETE draft (all top-level fields),
+  not just the changed parts.

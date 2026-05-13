@@ -35,8 +35,22 @@ LLMCallable = Callable[[str], str]
 
 
 # ────────────────────────────────────────────────────────────────────
-# Section templates
+# Section templates — loaded from data/draft_fill_templates/ YAML.
+# The Python constants below remain as FALLBACKS only (used if a YAML
+# file fails to load, defensive). Edit the YAML to change prompts —
+# no Python change required.
 # ────────────────────────────────────────────────────────────────────
+
+from .templates import load_common, load_intent, intent_required_keys, has_intent_template
+
+
+def _yaml_prompt(name: str, fallback: str) -> str:
+    """Read prompt from YAML; fall back to Python constant on any error."""
+    try:
+        return load_common(name).get("prompt") or fallback
+    except Exception:
+        return fallback
+
 
 SCOPE_PROMPT = """\
 You are filling section S1 (scope) of a DraftChangePlan.
@@ -391,7 +405,11 @@ def _fill_section(
             errors = [LintError(code="json_parse_error", message=parse_err, field=section_name)]
         elapsed = time.time() - t0
 
-        accepted = not errors and not parse_err
+        # D3: Only ERROR-severity lint blocks acceptance. Warnings are
+        # logged in the journal but don't trigger retry. parse_err is
+        # always blocking.
+        blocking_errors = [e for e in errors if getattr(e, "severity", "error") != "warning"]
+        accepted = not blocking_errors and not parse_err
         journal.attempts.append(SectionAttempt(
             section=section_name, attempt=attempt,
             prompt_chars=len(current_prompt),
@@ -404,11 +422,12 @@ def _fill_section(
         if accepted:
             return parsed
 
-        last_errors = errors
-        # Build retry prompt: original + lint feedback
+        last_errors = blocking_errors
+        # Build retry prompt: original + ONLY blocking-error lint feedback
+        # (warnings already logged in journal, not actionable for retry).
         err_lines = "\n".join(
             f"  - [{e.code}] {e.message}" + (f"\n      HINT: {e.hint}" if e.hint else "")
-            for e in errors
+            for e in blocking_errors
         )
         retry_note = (
             f"\n\nPrevious attempt #{attempt} REJECTED with these lint errors:\n"
@@ -442,6 +461,14 @@ def _validate_scope(parsed: Any) -> list[LintError]:
 
 
 def _validate_facts(parsed: Any, scope: list[str], intent_hint: str = "") -> list[LintError]:
+    """Validate the S2 facts envelope.
+
+    2026-05-13 D3 refinement: topology_edges_missing is now a WARNING
+    (not blocking error) for the case where the change is
+    topology-independent OR DB has no recorded link for the scope.
+    The S2 validator only HARD-fails on truly broken structure
+    (non-dict, missing required keys, devices missing scope).
+    """
     errors: list[LintError] = []
     if not isinstance(parsed, dict):
         return [LintError(code="not_dict", message="facts must be a JSON object", field="(root)")]
@@ -471,6 +498,12 @@ def _validate_facts(parsed: Any, scope: list[str], intent_hint: str = "") -> lis
                     message=f"devices[{i}] ({d.get('name')!r}) missing 'platform'",
                     field=f"devices[{i}].platform",
                 ))
+    # NB: topology_edges_missing was an ERROR before; relaxed to WARNING
+    # because (a) topology-independent intents (vlan_add, freeform with
+    # ACL/MTU) genuinely don't need edges, and (b) the inspector may
+    # return [] when DB lacks the link — the LLM accurately copying that
+    # empty list is CORRECT behavior, not a fault. Real topology gaps
+    # surface in per-intent feasibility check at sim stage.
     edges = parsed.get("topology_edges")
     if len(scope) >= 2 and (not isinstance(edges, list) or not edges):
         errors.append(LintError(
@@ -479,6 +512,7 @@ def _validate_facts(parsed: Any, scope: list[str], intent_hint: str = "") -> lis
             field="topology_edges",
             hint="Copy inspect_topology output into topology_edges as a list of "
                  "{source_device, source_interface, destination_device, destination_interface, discovery_protocol}",
+            severity="warning",   # D3: was blocking error; relaxed to warning
         ))
     return errors
 
@@ -561,10 +595,15 @@ def run_staged_fill(
     journal = FillJournal(user_prompt=user_prompt)
     t_total = time.time()
 
+    # Load templates (YAML, with Python fallback if YAML unavailable)
+    scope_p = _yaml_prompt("scope", SCOPE_PROMPT)
+    facts_p = _yaml_prompt("facts", FACTS_PROMPT)
+    intent_p = _yaml_prompt("intent", INTENT_PROMPT)
+
     # S1 — scope
     scope_obj = _fill_section(
         "S1_scope",
-        SCOPE_PROMPT.format(user_prompt=user_prompt),
+        scope_p.format(user_prompt=user_prompt),
         llm, journal, _validate_scope, max_attempts_per_section,
     )
     devices_in_scope = scope_obj["devices_in_scope"]
@@ -576,7 +615,7 @@ def run_staged_fill(
     # S2 — facts
     facts_obj = _fill_section(
         "S2_facts",
-        FACTS_PROMPT.format(
+        facts_p.format(
             devices_in_scope=devices_in_scope,
             inspect_devices_json=json.dumps(insp_devices_out, default=str)[:2000],
             inspect_topology_json=json.dumps(insp_topology_out, default=str)[:2000],
@@ -590,7 +629,7 @@ def run_staged_fill(
     facts_summary = _summarize_facts(facts_obj.get("devices", []), facts_obj.get("topology_edges", []))
     intent_obj = _fill_section(
         "S3_intent",
-        INTENT_PROMPT.format(
+        intent_p.format(
             user_prompt=user_prompt,
             devices_in_scope=devices_in_scope,
             facts_summary=facts_summary,
@@ -601,24 +640,48 @@ def run_staged_fill(
     # Load vendor CLI authoring guide once — injected into S4 + S5
     cli_authoring_guide = _load_cli_authoring_guide()
 
-    # S4 — intent_args (only freeform_cli prototype here)
+    # S4 — intent_args — DATA-DRIVEN per-intent dispatch via YAML templates.
+    # 2026-05-13 D2: every intent gets its own template file. Adding a new
+    # intent = drop <intent>.yaml in data/draft_fill_templates/, no Python.
     intent_name = intent_obj["proposed_intent"]
-    if intent_name == "freeform_cli":
+    intent_template = load_intent(intent_name)
+    if intent_template:
+        s4_prompt = intent_template["prompt"].format(
+            user_prompt=user_prompt,
+            devices_in_scope=devices_in_scope,
+            facts_summary=facts_summary,
+            cli_authoring_guide=cli_authoring_guide or "(KB guide unavailable)",
+        )
+        # Per-intent validator: prefer the rich freeform validator,
+        # fall back to generic "required_keys present" for other intents.
+        if intent_name == "freeform_cli":
+            validator = lambda p: _validate_freeform_args(p, devices_in_scope)
+        else:
+            req = intent_required_keys(intent_name)
+            def _generic_validator(parsed, _req=req, _intent=intent_name):
+                errors: list[LintError] = []
+                if not isinstance(parsed, dict):
+                    return [LintError(code="not_dict",
+                                       message=f"{_intent} intent_args must be a JSON object",
+                                       field="(root)")]
+                for k in _req:
+                    if k not in parsed or (isinstance(parsed[k], (list, dict, str)) and not parsed[k]):
+                        errors.append(LintError(
+                            code=f"{_intent}_missing_{k}",
+                            message=f"intent_args.{k} required for {_intent}",
+                            field=f"intent_args.{k}",
+                            hint=f"Per the {_intent}.yaml template, populate {k} with a non-empty value.",
+                        ))
+                return errors
+            validator = _generic_validator
         args_obj = _fill_section(
             "S4_intent_args",
-            FREEFORM_CLI_ARGS_PROMPT.format(
-                user_prompt=user_prompt,
-                devices_in_scope=devices_in_scope,
-                facts_summary=facts_summary,
-                cli_authoring_guide=cli_authoring_guide or "(KB guide unavailable)",
-            ),
-            llm, journal,
-            lambda p: _validate_freeform_args(p, devices_in_scope),
-            max_attempts_per_section,
+            s4_prompt,
+            llm, journal, validator, max_attempts_per_section,
         )
     else:
-        # Other intents: no intent_args needed for ebgp_direct etc. (renderer
-        # synthesizes from facts). Future: add per-intent templates.
+        # No template for this intent yet — emit empty args, sim will
+        # decide whether the legacy template renderer covers it.
         args_obj = {}
 
     # Assemble initial draft
@@ -635,18 +698,17 @@ def run_staged_fill(
 
     # S5 — self-review pass. LLM reads the assembled draft, applies the
     # KB checklist, returns either review_pass=true OR a fixed_draft.
-    # Only run for freeform_cli (where intent_args is non-trivial); other
-    # intents have nothing to review until per-intent S4 templates land.
-    # ALSO skip if S4's output is already lint-clean — memory guide
-    # injection into S4 prompt usually nails it; running review when
-    # there's nothing to fix wastes 500+s on 30B for no benefit.
+    # Skip when S4's output is already lint-clean — review when there's
+    # nothing to fix wastes 500+s on 30B for no benefit.
+    review_p = _yaml_prompt("review", REVIEW_PROMPT)
     early_errors = lint_draft(draft)
-    skip_review = (intent_name == "freeform_cli") and not early_errors
-    if intent_name == "freeform_cli" and args_obj and not skip_review:
+    blocking_early = [e for e in early_errors if getattr(e, "severity", "error") != "warning"]
+    skip_review = not blocking_early
+    if args_obj and not skip_review:
         try:
             review_obj = _fill_section(
                 "S5_review",
-                REVIEW_PROMPT.format(
+                review_p.format(
                     draft_json=json.dumps(draft.model_dump(mode="json"),
                                             indent=2, default=str)[:8000],
                     cli_authoring_guide=cli_authoring_guide or "(KB guide unavailable)",
