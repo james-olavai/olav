@@ -36,212 +36,17 @@ LLMCallable = Callable[[str], str]
 
 # ────────────────────────────────────────────────────────────────────
 # Section templates — loaded from data/draft_fill_templates/ YAML.
-# The Python constants below remain as FALLBACKS only (used if a YAML
-# file fails to load, defensive). Edit the YAML to change prompts —
-# no Python change required.
+# YAML is the source of truth; edit there to change prompts.
+# Per-intent S4 prompts in <intent>.yaml.
 # ────────────────────────────────────────────────────────────────────
 
 from .templates import load_common, load_intent, intent_required_keys, has_intent_template
 
 
-def _yaml_prompt(name: str, fallback: str) -> str:
-    """Read prompt from YAML; fall back to Python constant on any error."""
-    try:
-        return load_common(name).get("prompt") or fallback
-    except Exception:
-        return fallback
+def _load_prompt(name: str) -> str:
+    """Return data/draft_fill_templates/_common/<name>.yaml :: prompt."""
+    return (load_common(name) or {}).get("prompt", "")
 
-
-SCOPE_PROMPT = """\
-You are filling section S1 (scope) of a DraftChangePlan.
-
-USER PROMPT:
-{user_prompt}
-
-Return ONLY a JSON object with these exact keys:
-  - "user_prompt":      string (echo the user prompt verbatim)
-  - "devices_in_scope": list of device hostnames (e.g. ["R1", "R3"])
-
-NOTHING ELSE. Do not include explanation, just the JSON object.
-
-Example output:
-{{"user_prompt": "Add OSPF between R1 and R3", "devices_in_scope": ["R1", "R3"]}}
-"""
-
-FACTS_PROMPT = """\
-You are filling section S2 (facts_collected) of a DraftChangePlan.
-
-SCOPE: devices_in_scope = {devices_in_scope}
-
-INSPECTOR OUTPUTS (raw JSON from inspect_devices + inspect_topology):
-
-inspect_devices result:
-{inspect_devices_json}
-
-inspect_topology result:
-{inspect_topology_json}
-
-Return ONLY a JSON object with EXACTLY these keys:
-{{
-  "devices": [
-    {{"name": "...", "platform": "...", "local_as": <int or null>, "loopback": "...", "interfaces": [...]}},
-    ...
-  ],
-  "topology_edges": [
-    {{"source_device": "...", "source_interface": "...", "destination_device": "...", "destination_interface": "...", "discovery_protocol": "..."}},
-    ...
-  ],
-  "routing_state": {{}},
-  "blast_radius": {{}}
-}}
-
-Rules (HARD):
-  - Every device in {devices_in_scope} MUST appear in "devices".
-  - For multi-device drafts (>=2 devices), "topology_edges" MUST be populated
-    from inspect_topology output. Empty topology_edges for a multi-device draft
-    is a lint failure.
-  - Just COPY the inspector outputs verbatim — don't summarize or omit.
-
-NOTHING ELSE. JSON only.
-"""
-
-INTENT_PROMPT = """\
-You are filling section S3 (intent + rationale) of a DraftChangePlan.
-
-USER PROMPT: {user_prompt}
-SCOPE: {devices_in_scope}
-FACTS SUMMARY: {facts_summary}
-
-Choose ONE intent from: ebgp_direct, ibgp_direct, static_route_add, vlan_add, freeform_cli.
-
-Rules:
-  - If user wants OSPF / iBGP / static route etc. and there's no dedicated intent
-    type, use freeform_cli (you'll provide CLI in S4).
-  - If user wants eBGP between same-AS devices → BLOCKED (let sim reject).
-
-Return ONLY a JSON object:
-{{
-  "proposed_intent": "<one of the 5>",
-  "rationale": "<≥30 chars explaining WHY based on facts observed>"
-}}
-
-Example: {{"proposed_intent": "freeform_cli", "rationale": "Both R1 and R3 are AS 65000 directly connected; OSPF Area 0 will form IGP for R2 decommission."}}
-"""
-
-FREEFORM_CLI_ARGS_PROMPT = """\
-You are filling section S4 (intent_args) for intent=freeform_cli.
-
-CONTEXT:
-  user_prompt: {user_prompt}
-  devices_in_scope: {devices_in_scope}
-  facts (per-device): {facts_summary}
-
-==== VENDOR CLI AUTHORING GUIDE (FROM KB) ====
-{cli_authoring_guide}
-==== END GUIDE ====
-
-Apply the rules above when composing CLI. In particular:
-  - Junos: wrap with `configure` and `commit and-quit`
-  - Cisco IOS: wrap with `configure terminal` and `end` + `write memory`
-  - rollback symmetry: every `set` has a `delete`/`no`
-  - post_check expected_pattern from the catalog, NEVER empty
-
-You must compose intent_args with this EXACT schema. Field names are CASE-SENSITIVE
-and must match verbatim — using synonyms ("expected" instead of "expected_pattern") is REJECTED.
-
-{{
-  "cli_per_device": {{
-    "<DEVICE_NAME>": [
-      "<cli line 1>",
-      "<cli line 2>",
-      ...
-    ]
-  }},
-  "rollback_per_device": {{
-    "<DEVICE_NAME>": ["<undo cli lines>"]
-  }},
-  "post_checks": [
-    {{
-      "device": "<one of devices_in_scope>",
-      "command": "<show command, e.g. 'show ip ospf neighbor'>",
-      "expected_pattern": "<substring/regex that must appear in command output>",
-      "description": "<what this verifies>"
-    }}
-  ]
-}}
-
-HARD constraints (lint will reject any violation):
-  1. Every device in {devices_in_scope} MUST have an entry in cli_per_device AND rollback_per_device.
-  2. post_checks list MUST be non-empty.
-  3. Each post_check MUST have FOUR keys: device, command, expected_pattern, description.
-     - NOT "expected" — the canonical name is "expected_pattern".
-     - NOT empty string — expected_pattern must be a real substring/regex that proves the change worked.
-       e.g. "FULL" for OSPF adjacency, "192.0.2.0/24" for static route, "Description: uplink" for desc change.
-  4. post_check.device MUST be in {devices_in_scope}.
-  5. Use REAL prod CLI for the device platform — per the VENDOR CLI AUTHORING GUIDE above.
-     Junos must include `configure` AND `commit and-quit` wrappers.
-     Cisco IOS must include `configure terminal` AND `end` + `write memory` wrappers.
-
-Return ONLY the JSON object. NOTHING else.
-"""
-
-
-# ────────────────────────────────────────────────────────────────────
-# S5 — self-review pass (re-read assembled draft, propose fixes)
-# ────────────────────────────────────────────────────────────────────
-
-REVIEW_PROMPT = """\
-You just composed this DraftChangePlan section by section. Now do a
-final SELF-REVIEW of the assembled draft and identify any issues.
-
-ASSEMBLED DRAFT:
-{draft_json}
-
-==== VENDOR CLI AUTHORING GUIDE (FROM KB) ====
-{cli_authoring_guide}
-==== END GUIDE ====
-
-CHECKLIST — review each item against the guide:
-
-1. **Per-device CLI completeness**
-   - Junos devices: does `cli_per_device[<device>]` START with `configure`
-     and END with `commit and-quit` (or `commit`)?
-   - Cisco IOS devices: does it START with `configure terminal` and END
-     with `end` then `write memory`?
-   - Naked `set ...` (Junos) or `router ospf` (Cisco) without the wrapper
-     is INCOMPLETE — operators executing this verbatim get a no-op.
-
-2. **Rollback symmetry + wrapping**
-   - Every impl `set X` has matching rollback `delete X` (Junos) or `no X` (Cisco)?
-   - Rollback also wrapped with configure / commit / write memory?
-
-3. **post_checks**
-   - Every entry has device + command + expected_pattern (NON-EMPTY real
-     substring) + description?
-   - Field names are CANONICAL (NOT `expected`, NOT `cmd`, NOT `desc`)?
-
-4. **facts_collected completeness**
-   - Every device in scope has platform + local_as + loopback filled
-     (no nulls where the DB would have a value)?
-
-5. **Cross-field consistency**
-   - Does facts.devices[].platform match the platform implied by the CLI
-     (e.g. if cli_per_device has `set protocols`, that device should be junos;
-     if `router ospf 1`, should be cisco_ios)?
-
-Return ONLY JSON, NOTHING else:
-{{
-  "review_pass": <true|false>,
-  "findings": ["<one-line per issue>"],
-  "fixed_draft": <FULL corrected DraftChangePlan JSON if review_pass=false; omit if review_pass=true>
-}}
-
-If review_pass=true, "findings" can be empty list.
-
-When emitting fixed_draft, return the COMPLETE draft (all top-level fields:
-user_prompt, devices_in_scope, proposed_intent, intent_args, rationale,
-facts_collected, revision_round, previous_blockers), not just the changed parts.
-"""
 
 
 def _validate_review(parsed: Any) -> list["LintError"]:
@@ -536,6 +341,33 @@ def _validate_intent(parsed: Any) -> list[LintError]:
             message=f"rationale is only {len(rationale)} chars; need ≥30",
             field="rationale",
         ))
+    # layer_changes is optional but if present must be a list of L<n>-tagged strings.
+    layer_changes = parsed.get("layer_changes")
+    if layer_changes is not None:
+        if not isinstance(layer_changes, list):
+            errors.append(LintError(
+                code="layer_changes_not_list",
+                message="layer_changes must be a JSON array (use [] if none)",
+                field="layer_changes",
+            ))
+        else:
+            for i, item in enumerate(layer_changes):
+                if not isinstance(item, str) or not item.strip():
+                    errors.append(LintError(
+                        code="layer_changes_item_invalid",
+                        message=f"layer_changes[{i}] must be a non-empty string",
+                        field=f"layer_changes[{i}]",
+                    ))
+                    continue
+                head = item.strip()[:3].upper()
+                if head not in ("L1:", "L2:", "L3:", "L4:"):
+                    errors.append(LintError(
+                        code="layer_changes_bad_prefix",
+                        message=f"layer_changes[{i}]={item!r} must start with 'L1:'..'L4:'",
+                        field=f"layer_changes[{i}]",
+                        severity="warning",
+                        hint="Format: 'L<n>: <short phrase>' where n in {1,2,3,4}",
+                    ))
     return errors
 
 
@@ -595,10 +427,10 @@ def run_staged_fill(
     journal = FillJournal(user_prompt=user_prompt)
     t_total = time.time()
 
-    # Load templates (YAML, with Python fallback if YAML unavailable)
-    scope_p = _yaml_prompt("scope", SCOPE_PROMPT)
-    facts_p = _yaml_prompt("facts", FACTS_PROMPT)
-    intent_p = _yaml_prompt("intent", INTENT_PROMPT)
+    # Load templates from YAML (single source of truth)
+    scope_p = _load_prompt("scope")
+    facts_p = _load_prompt("facts")
+    intent_p = _load_prompt("intent")
 
     # S1 — scope
     scope_obj = _fill_section(
@@ -685,12 +517,15 @@ def run_staged_fill(
         args_obj = {}
 
     # Assemble initial draft
+    layer_changes_raw = intent_obj.get("layer_changes") or []
+    layer_changes = [s for s in layer_changes_raw if isinstance(s, str) and s.strip()]
     draft = DraftChangePlan(
         user_prompt=user_prompt,
         devices_in_scope=devices_in_scope,
         proposed_intent=intent_name,
         intent_args=args_obj,
         rationale=intent_obj["rationale"],
+        layer_changes=layer_changes,
         facts_collected=facts_obj,
         revision_round=0,
         previous_blockers=[],
@@ -700,7 +535,7 @@ def run_staged_fill(
     # KB checklist, returns either review_pass=true OR a fixed_draft.
     # Skip when S4's output is already lint-clean — review when there's
     # nothing to fix wastes 500+s on 30B for no benefit.
-    review_p = _yaml_prompt("review", REVIEW_PROMPT)
+    review_p = _load_prompt("review")
     early_errors = lint_draft(draft)
     blocking_early = [e for e in early_errors if getattr(e, "severity", "error") != "warning"]
     skip_review = not blocking_early
@@ -710,8 +545,7 @@ def run_staged_fill(
                 "S5_review",
                 review_p.format(
                     draft_json=json.dumps(draft.model_dump(mode="json"),
-                                            indent=2, default=str)[:8000],
-                    cli_authoring_guide=cli_authoring_guide or "(KB guide unavailable)",
+                                            indent=2, default=str)[:5000],
                 ),
                 llm, journal, _validate_review, max_attempts_per_section,
             )

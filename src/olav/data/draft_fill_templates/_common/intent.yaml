@@ -1,5 +1,5 @@
 section: S3_intent
-description: "Choose proposed_intent + write rationale grounded in facts."
+description: "Pick proposed_intent via L1-L4 layered reasoning, then map to one of the 5 supported intents."
 prompt: |
   You are filling section S3 (intent + rationale) of a DraftChangePlan.
 
@@ -7,21 +7,50 @@ prompt: |
   SCOPE: {devices_in_scope}
   FACTS SUMMARY: {facts_summary}
 
-  Choose ONE intent from: ebgp_direct, ibgp_direct, static_route_add, vlan_add, freeform_cli.
+  Step 1 — List the change impact PER OSI LAYER. Mention ONLY layers actually
+  touched; skip layers untouched. Keep each item to one short phrase.
 
-  Intent-selection rules:
-    - eBGP between 2 devices with DIFFERENT ASNs, directly connected     → ebgp_direct
-    - iBGP between 2 devices with SAME ASN, peering via loopback         → ibgp_direct
-    - Single static route on one device                                  → static_route_add
-    - Single VLAN add on switch                                          → vlan_add
-    - OSPF area / interface description / MTU / ACL / route-map / etc.   → freeform_cli
-    - If user wants eBGP but devices SAME ASN                            → BLOCKED (sim will reject same_asn) — still propose ebgp_direct
-    - If user wants eBGP but devices NOT directly connected              → BLOCKED — propose ebgp_direct anyway, sim catches it
+    L1 (physical):   new interface / cable / optic / trunk port enable ...
+    L2 (data link):  VLAN / trunk / LACP / STP / switchport-mode / MAC ...
+    L3 (network):    SubIF / SVI / IP address / static route / route-map / NAT ...
+    L4 (services):   BGP neighbor / OSPF area / ACL / QoS / VRF / MTU / SNMP ...
+
+  Step 2 — Pick ONE proposed_intent that BEST covers the Step 1 items.
+
+  Intent menu (sim has a renderer for each):
+    - ebgp_direct      : eBGP between 2 devices, DIFFERENT ASNs, directly connected
+    - ibgp_direct     : iBGP between 2 devices, SAME ASN, peering via loopback
+    - static_route_add: single static route on one device (L3 only)
+    - vlan_add        : single VLAN add on a switch (L2 only)
+    - freeform_cli    : anything that doesn't fit the four structured intents
+                        (OSPF, interface description, MTU, ACL, route-map,
+                        multi-layer composite changes, etc.)
+
+  Edge cases:
+    - eBGP requested but devices SAME ASN          → still propose ebgp_direct (sim will BLOCK same_asn)
+    - eBGP requested but NOT directly connected    → still propose ebgp_direct (sim will BLOCK not_directly_connected)
+    - Multi-layer change (e.g. VLAN + SVI + OSPF)  → freeform_cli
 
   Return ONLY a JSON object:
   {{
+    "layer_changes": ["L<n>: <short phrase>", ...],
     "proposed_intent": "<one of the 5>",
-    "rationale": "<≥30 chars explaining WHY based on facts observed>"
+    "rationale": "<≥30 chars explaining WHY this intent covers the Step-1 items, grounded in facts>"
   }}
 
-  Example: {{"proposed_intent": "freeform_cli", "rationale": "Both R1 and R3 are AS 65000 directly connected; OSPF Area 0 will form IGP for R2 decommission."}}
+  Example (single-layer, structured intent):
+  {{
+    "layer_changes": ["L2: add VLAN 200 'guest' on SW1"],
+    "proposed_intent": "vlan_add",
+    "rationale": "Pure L2 change on one switch; vlan_add is the structured intent that covers single VLAN provisioning."
+  }}
+
+  Example (multi-layer, falls back to freeform):
+  {{
+    "layer_changes": [
+      "L4: enable OSPF area 0 on R1 and R3",
+      "L4: ensure OSPF process declared (Cisco router ospf 1)"
+    ],
+    "proposed_intent": "freeform_cli",
+    "rationale": "OSPF Area 0 IGP setup on directly-connected R1 (junos) and R3 (cisco_ios); no structured OSPF intent exists, so freeform_cli with vendor-specific CLI is correct."
+  }}
