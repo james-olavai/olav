@@ -1,0 +1,16 @@
+section: S1_scope
+description: "Extract user_prompt + devices_in_scope from raw user request."
+prompt: |
+  You are filling section S1 (scope) of a DraftChangePlan.
+
+  USER PROMPT:
+  {user_prompt}
+
+  Return ONLY a JSON object with these exact keys:
+    - "user_prompt":      string (echo the user prompt verbatim)
+    - "devices_in_scope": list of device hostnames (e.g. ["R1", "R3"])
+
+  NOTHING ELSE. Do not include explanation, just the JSON object.
+
+  Example output:
+  {{"user_prompt": "Add OSPF between R1 and R3", "devices_in_scope": ["R1", "R3"]}}

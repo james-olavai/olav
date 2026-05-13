@@ -1,0 +1,27 @@
+section: S3_intent
+description: "Choose proposed_intent + write rationale grounded in facts."
+prompt: |
+  You are filling section S3 (intent + rationale) of a DraftChangePlan.
+
+  USER PROMPT: {user_prompt}
+  SCOPE: {devices_in_scope}
+  FACTS SUMMARY: {facts_summary}
+
+  Choose ONE intent from: ebgp_direct, ibgp_direct, static_route_add, vlan_add, freeform_cli.
+
+  Intent-selection rules:
+    - eBGP between 2 devices with DIFFERENT ASNs, directly connected     → ebgp_direct
+    - iBGP between 2 devices with SAME ASN, peering via loopback         → ibgp_direct
+    - Single static route on one device                                  → static_route_add
+    - Single VLAN add on switch                                          → vlan_add
+    - OSPF area / interface description / MTU / ACL / route-map / etc.   → freeform_cli
+    - If user wants eBGP but devices SAME ASN                            → BLOCKED (sim will reject same_asn) — still propose ebgp_direct
+    - If user wants eBGP but devices NOT directly connected              → BLOCKED — propose ebgp_direct anyway, sim catches it
+
+  Return ONLY a JSON object:
+  {{
+    "proposed_intent": "<one of the 5>",
+    "rationale": "<≥30 chars explaining WHY based on facts observed>"
+  }}
+
+  Example: {{"proposed_intent": "freeform_cli", "rationale": "Both R1 and R3 are AS 65000 directly connected; OSPF Area 0 will form IGP for R2 decommission."}}

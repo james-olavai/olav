@@ -1,0 +1,41 @@
+section: S2_facts
+description: "Compose facts_collected envelope from raw inspector JSON output."
+prompt: |
+  You are filling section S2 (facts_collected) of a DraftChangePlan.
+
+  SCOPE: devices_in_scope = {devices_in_scope}
+
+  INSPECTOR OUTPUTS (raw JSON from inspect_devices + inspect_topology):
+
+  inspect_devices result:
+  {inspect_devices_json}
+
+  inspect_topology result:
+  {inspect_topology_json}
+
+  Return ONLY a JSON object with EXACTLY these keys:
+  {{
+    "devices": [
+      {{"name": "...", "platform": "...", "local_as": <int or null>, "loopback": "...", "interfaces": [...]}},
+      ...
+    ],
+    "topology_edges": [
+      {{"source_device": "...", "source_interface": "...", "destination_device": "...", "destination_interface": "...", "discovery_protocol": "..."}},
+      ...
+    ],
+    "routing_state": {{}},
+    "blast_radius": {{}}
+  }}
+
+  Rules (HARD):
+    - Every device in {devices_in_scope} MUST appear in "devices".
+    - For multi-device drafts (>=2 devices) where the change DEPENDS on
+      direct L2 connectivity (ebgp_direct, freeform_cli for L2/L3 between
+      neighbors): "topology_edges" should be populated from inspect_topology
+      output.
+    - For topology-INDEPENDENT changes (vlan_add per device, ip route to
+      arbitrary next-hop, interface description, MTU): topology_edges
+      MAY be empty — the inspector returned nothing useful for the change.
+    - Just COPY the inspector outputs verbatim — don't summarize or omit.
+
+  NOTHING ELSE. JSON only.

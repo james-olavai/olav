@@ -1,0 +1,49 @@
+section: S4_intent_args
+intent: freeform_cli
+description: "Compose cli_per_device + rollback_per_device + post_checks for any-protocol change via raw vendor CLI."
+prompt: |
+  You are filling section S4 (intent_args) for intent=freeform_cli.
+
+  CONTEXT:
+    user_prompt: {user_prompt}
+    devices_in_scope: {devices_in_scope}
+    facts (per-device): {facts_summary}
+
+  ==== VENDOR CLI AUTHORING GUIDE (FROM KB) ====
+  {cli_authoring_guide}
+  ==== END GUIDE ====
+
+  Apply the rules above. In particular:
+    - Junos: wrap with `configure` and `commit and-quit`
+    - Cisco IOS: wrap with `configure terminal` and `end` + `write memory`
+    - rollback symmetry: every `set` has a `delete`/`no`
+    - post_check expected_pattern from the catalog, NEVER empty
+
+  Schema (case-sensitive field names):
+
+  {{
+    "cli_per_device": {{
+      "<DEVICE_NAME>": ["<cli line 1>", "<cli line 2>", ...]
+    }},
+    "rollback_per_device": {{
+      "<DEVICE_NAME>": ["<undo cli lines>"]
+    }},
+    "post_checks": [
+      {{
+        "device": "<one of devices_in_scope>",
+        "command": "<show command>",
+        "expected_pattern": "<substring/regex that must appear in output>",
+        "description": "<what this verifies>"
+      }}
+    ]
+  }}
+
+  HARD constraints:
+    1. Every device in {devices_in_scope} MUST have an entry in cli_per_device AND rollback_per_device.
+    2. post_checks list MUST be non-empty.
+    3. post_check fields: device, command, expected_pattern (NOT 'expected'), description.
+    4. post_check.device MUST be in {devices_in_scope}.
+
+  Return ONLY the JSON object. NOTHING else.
+
+required_keys: [cli_per_device, rollback_per_device, post_checks]
