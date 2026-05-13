@@ -113,6 +113,23 @@ class LLMFactory:
         # Apply HTTP request timeout from shared config
         params["timeout"] = llm_config.timeout
 
+        # ── 2026-05-13 STAGED-FILL FIX (ollama only) ─────────────────────
+        # langchain-ollama (ChatOllama) accepts num_ctx / num_predict
+        # as direct top-level kwargs. Ollama defaults (num_ctx=2048,
+        # num_predict=128) are far too small for thinking-mode models
+        # — gemma4:31b / qwen3.6:27b silently emit content_len=0 when
+        # thinking eats the whole num_predict budget (done_reason=length).
+        #
+        # Verified 2026-05-13 in-vivo (R2-R4 OSPF staged-fill):
+        #   default opts → S4 content_len=0 (empty, thinking ate budget)
+        #   num_ctx=65536 + num_predict=4096 → 5/5 deterministic PASS
+        #
+        # Override per-model by passing num_ctx / num_predict via kwargs
+        # (caller can downsize for small models on memory-constrained host).
+        if params.get("model_provider") == "ollama":
+            params.setdefault("num_ctx", 65536)
+            params.setdefault("num_predict", 4096)
+
         # Handle JSON mode
         if json_mode:
             # Add JSON output constraint based on provider hints in base_url
