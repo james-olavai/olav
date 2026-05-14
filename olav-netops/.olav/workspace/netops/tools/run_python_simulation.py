@@ -153,7 +153,7 @@ except ImportError:
 # sandbox-internal global, even with prompt teaching.  Per ADR-0008
 # condition #2 (sandbox-external write target — writes
 # exports/cab/<change_id>/spec.tcf.yaml), TCF emission belongs at the
-# @tool layer.  The function still lives at olav.core.cab.tcf_emit_from_sim;
+# @tool layer.  The function still lives at the enterprise lab package.tcf_emit_from_sim;
 # emit_tcf() is the named-callable Pydantic-typed wrapper.
 
 # ── End globals preamble ──────────────────────────────────────────────────────

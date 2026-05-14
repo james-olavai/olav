@@ -1,7 +1,14 @@
 """
 OLAV v0.19.0 - AI Operations Assistant
 DeepAgents Native Framework
+
+``__path__`` is extended so subpackages shipped by sibling
+distributions (e.g. ``olav-ent`` providing ``olav.enterprise.*``)
+contribute to the same logical ``olav.*`` namespace.
 """
+
+import pkgutil
+__path__ = pkgutil.extend_path(__path__, __name__)
 
 __version__ = "0.19.0"
 
