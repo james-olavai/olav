@@ -98,6 +98,26 @@ body: |
 
   Use when: caller asks "can X reach Y" / "test reachability".
 
+  **CRITICAL — header schema (Phase E fix 2026-05-14)**:
+  every header field is **string-typed** by Batfish's
+  ``PacketHeaderConstraints``, not array.  The specifier syntax
+  accepts comma-separated values inside that one string.
+
+  ```yaml
+  # ✅ correct
+  headers: {dstIps: "192.168.50.0/24"}
+  headers: {dstIps: "10.0.0.0/24,10.1.0.0/24"}   # comma-separated specifier
+
+  # ❌ wrong — produces Batfish 500
+  headers: {dstIps: ["192.168.50.0/24"]}         # list (not array-typed field)
+  ```
+
+  ``batfish_q`` now auto-coerces ``list[str]`` -> comma-joined string
+  via its ``PacketHeaderConstraintsArgs`` Pydantic model, so if you
+  accidentally pass a list it will be normalised — but pass a string
+  to keep your intent unambiguous.  Unknown header field names raise
+  a clean Pydantic ValidationError in the envelope ``message``.
+
   ---
 
   ## traceroute  — "trace a flow's path"

@@ -34,12 +34,86 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import tool
+from pydantic import BaseModel, ConfigDict, field_validator
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Pydantic schema for Batfish PacketHeaderConstraints
+# ---------------------------------------------------------------------------
+#
+# Phase E root cause (2026-05-14): LLMs naturally pass list values for
+# ``dstIps`` / ``srcIps`` because they look like the polymorphic
+# ``nodes`` field.  But Batfish's PacketHeaderConstraints expects
+# strings — the specifier syntax accepts comma-separated values.  A
+# list raises an unhelpful 500.  This model normalises the types
+# before the call.
+
+class PacketHeaderConstraintsArgs(BaseModel):
+    """Strict schema for the ``headers`` arg of Batfish questions like
+    ``reachability`` and ``traceroute``.
+
+    Every field accepts ``str | list[str]`` and the validator coerces
+    lists to Batfish's comma-separated specifier syntax.  Unknown
+    fields raise a Pydantic ValidationError that ``batfish_q`` surfaces
+    as a clean envelope message — far more useful than the Batfish 500.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    dstIps: str | None = None
+    srcIps: str | None = None
+    applications: str | None = None
+    ipProtocols: str | None = None
+    dscps: str | None = None
+    ecns: str | None = None
+    srcPorts: str | None = None
+    dstPorts: str | None = None
+    icmpCodes: str | None = None
+    icmpTypes: str | None = None
+    packetLengths: str | None = None
+    tcpFlags: str | None = None
+
+    @field_validator(
+        "dstIps", "srcIps", "applications", "ipProtocols", "dscps", "ecns",
+        "srcPorts", "dstPorts", "icmpCodes", "icmpTypes", "packetLengths",
+        "tcpFlags",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_list_to_specifier(cls, v: Any) -> Any:  # noqa: ANN401
+        if isinstance(v, list):
+            return ",".join(str(item) for item in v)
+        return v
+
+
+def _extract_caused_by_chain(exc: BaseException) -> str:
+    """Pull the deepest ``Caused by:`` line out of a Batfish HTTPError.
+
+    pybatfish raises ``requests.HTTPError`` for Batfish 500s; the
+    response body usually contains the Java exception chain.  Returning
+    the deepest cause gives the LLM the actionable schema error
+    instead of a useless ``"HTTPError 500"`` string.
+    """
+    response = getattr(exc, "response", None)
+    if response is None:
+        return str(exc)
+    body = getattr(response, "text", "") or ""
+    causes = re.findall(r"Caused by: ([^\n]+)", body)
+    if causes:
+        # Deepest cause is the last "Caused by:" line.
+        return causes[-1].strip()
+    # No chain — try a one-line BatfishException summary if present.
+    bf_line = re.search(r"(org\.batfish[^\n]+)", body)
+    if bf_line:
+        return bf_line.group(1).strip()
+    return str(exc)
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +226,23 @@ def batfish_q(
         )
         → {"status": "ok", "rows": [{"Node": "R1", ...}], "row_count": 1, ...}
     """
-    args = q_args or {}
+    args = dict(q_args) if q_args else {}
+
+    # Phase E: validate + coerce headers via Pydantic so list-typed
+    # dstIps/srcIps don't slip through and hit Batfish as 500.
+    if isinstance(args.get("headers"), dict):
+        try:
+            normalised = PacketHeaderConstraintsArgs(**args["headers"])
+        except Exception as exc:
+            return {
+                "status": "error",
+                "message": f"invalid headers field(s): {exc}",
+                "snapshot_id": snapshot_id,
+                "reference_snapshot": reference_snapshot,
+                "rows": None,
+                "row_count": 0,
+            }
+        args["headers"] = normalised.model_dump(exclude_none=True)
 
     try:
         _init_snapshot_if_needed(snapshot_id)
@@ -204,9 +294,12 @@ def batfish_q(
         df = answer.frame()
         rows = df.to_dict("records") if df is not None else []
     except Exception as exc:
+        # Phase E: dig the Caused-by chain out of HTTPError bodies so
+        # the LLM sees the real schema error, not "HTTPError 500".
+        cause = _extract_caused_by_chain(exc)
         return {
             "status": "error",
-            "message": f"question {question!r} failed: {exc}",
+            "message": f"question {question!r} failed: {cause}",
             "snapshot_id": snapshot_id,
             "reference_snapshot": reference_snapshot,
             "rows": None,

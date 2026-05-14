@@ -203,6 +203,22 @@ When REPORT_MODE is off (caller didn't mention it): behave as before
    guesses.
 2. **Never retry the same `q_args` twice**.  Batfish is deterministic;
    identical query → identical result.
+2a. **READ THE ERROR MESSAGE BEFORE FALLING BACK** (Phase E rule).
+    ``batfish_q`` envelope ``message`` now contains the deepest
+    ``Caused by:`` chain from Batfish 500s (e.g. ``"Cannot deserialize
+    value of type java.lang.String from Array value ...
+    PacketHeaderConstraints['dstIps']"``).  When you see one:
+    - Schema mismatch (Cannot deserialize, expected X got Y) → fix
+      args shape and retry ONCE with corrected args.  Don't degrade
+      to a different question.
+    - "invalid headers field(s)" → Pydantic rejected an unknown
+      header field.  Check the field name spelling against the
+      reachability catalog entry; never invent fields.
+    - "snapshot init failed" / "set_snapshot failed" → genuine
+      service-side issue.  Surface to caller and stop, don't retry.
+    Only after a corrected retry STILL fails should you degrade to a
+    different question.  Falling back without reading the error
+    cause was the Phase D failure mode.
 3. **No analyzer-level reasoning**.  You do not consult DB state, do
    not search syslog, do not check live devices.  If the caller's
    question genuinely needs that data, reply with "this needs
