@@ -722,12 +722,13 @@ def _collect_cmd(nr, target, cmd, devices, snapshot_id, snapshot_date,
                                     "reason": "device CLI error / unsupported"})
             continue
 
+        platform = _normalise_platform(
+            nr.inventory.hosts[host].platform or "cisco_ios"
+        )
+
         parsed_data = None
         parsed_rows = 0
-        parsed = _textfsm_parse(
-            nr.inventory.hosts[host].platform or "cisco_ios",
-            cmd, raw_output
-        )
+        parsed = _textfsm_parse(platform, cmd, raw_output)
         if parsed:
             parsed_data = json.dumps(parsed)
             parsed_rows = len(parsed)
@@ -738,6 +739,7 @@ def _collect_cmd(nr, target, cmd, devices, snapshot_id, snapshot_date,
             "command": cmd,
             "raw_output": raw_output,
             "parsed_data": parsed_data,
+            "platform": platform,
         })
         results_summary.append({"device": host, "command": cmd,
                                 "status": "success", "parsed_rows": parsed_rows})
