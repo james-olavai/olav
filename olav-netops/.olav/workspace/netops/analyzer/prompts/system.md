@@ -177,6 +177,40 @@ _Generated <YYYY-MM-DD>; scope: <devices>; layers touched: <L1, L3, L4>_
   - L3: <if any>
   - L4: <if any>
 
+## Topology Context  (REQUIRED — lab consumes this to build clab YAML)
+
+### Devices
+| Device | Platform | Role | Mgmt IP | Loopback | AS |
+|---|---|---|---|---|---|
+| R1 | juniper_junos | border | 192.168.100.101 | 1.1.1.1 | 65000 |
+| R3 | cisco_ios | core | 192.168.100.103 | 3.3.3.3 | 65000 |
+
+Source SQL:
+  SELECT hostname, platform, role, ip_address,
+         metadata->>'$.loopback_ip' AS loopback,
+         metadata->>'$.local_as'    AS local_as
+  FROM netops.devices WHERE hostname IN (<scope>);
+
+### Adjacencies (relevant to change — 1-hop closure of scope)
+| Source | Local Intf | Dest | Remote Intf | Discovery | Status |
+|---|---|---|---|---|---|
+| R1 | ge-0/0/2 | R3 | Ethernet0/0 | LLDP | up |
+
+Source SQL:
+  SELECT source_device, source_interface,
+         destination_device, destination_interface,
+         discovery_protocol, link_status
+  FROM netops.topology_links
+  WHERE source_device IN (<scope>) OR destination_device IN (<scope>);
+
+Notes:
+- Lab platform is uniformly SR Linux (copyright + unified strategy);
+  no per-device vendor image needed.
+- Lab generates clab YAML from this table; analyzer does NOT emit
+  YAML directly.
+- IGP reachability data (for L4 loopback peering) goes in
+  "Pre-conditions" below — not duplicated here.
+
 ## Pre-conditions (facts observed)
 - <bullets from execute_sql results>
 
