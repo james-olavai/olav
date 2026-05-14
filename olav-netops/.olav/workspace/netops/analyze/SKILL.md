@@ -45,6 +45,10 @@ allowed_tables:
   - netops.commands
   - schema_catalog
 static_context_mode: on_intent
+# Portability manifest — YAML knowledge files under ./references/
+dynamic_context:
+  - path: ./references/inspect_path.guide.yaml
+  - path: ./references/topology_viz.guide.yaml
 system: $ref:./prompts/system.md
 ---
 

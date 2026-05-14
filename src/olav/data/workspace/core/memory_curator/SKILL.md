@@ -6,6 +6,9 @@ tools:
   - commit_to_memory       # Turn-2: commit (with from_draft=True) or single-shot
 agent_type: api
 static_context: []
+# Portability manifest — YAML knowledge files under ./references/
+dynamic_context:
+  - path: ./references/memory_ingestion_routing.guide.yaml
 ---
 
 ## Role (R102 — conversational memory)

@@ -19,6 +19,9 @@ tools:
 allowed_tables:
   - netops.raw_output_store
 static_context_mode: on_intent
+# Portability manifest — YAML knowledge files under ./references/
+dynamic_context:
+  - path: ./references/syslog_search_during_troubleshooting.guide.yaml
 system: $ref:./prompts/system.md
 ---
 

@@ -31,6 +31,12 @@ metadata:
     - route_lookup
     - policy_test
     - acl_search
+# Portability manifest — YAML knowledge files under ./references/
+# (OLAV runtime discovers them via recursive scan; this list is for
+# downstream agent frameworks that need explicit inventory).
+dynamic_context:
+  - path: ./references/batfish_capability_catalog.guide.yaml
+  - path: ./references/batfish_question_catalog.guide.yaml
 system: $ref:./prompts/system.md
 ---
 

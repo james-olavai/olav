@@ -14,6 +14,9 @@ metadata:
   intent: active_live_data_collection
 tools:
   - execute_cli_parallel     # Run a CLI command on multiple devices in parallel (Nornir; whitelist/blacklist enforced)
+# Portability manifest — YAML knowledge files under ./references/
+dynamic_context:
+  - path: ./references/take_snapshot_when_db_stale.guide.yaml
 system: $ref:./prompts/system.md
 ---
 

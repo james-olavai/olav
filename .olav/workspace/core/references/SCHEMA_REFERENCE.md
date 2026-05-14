@@ -1,11 +1,7 @@
 # 📊 Quick SQL Reference & Examples (R82)
 
-> **CRITICAL**: Column names below are authoritative.  Pre-R82 versions
-> of this file referenced columns / views that **no longer exist**
-> (`mgmt_ip`, `device_type`, `device_role`, `is_active`,
-> `v_interfaces`, `v_topo_links_clean`, `v_device_neighbors_summary`,
-> `v_l2_topology_summary`, `v_routes_auto`).  All listed below match
-> current production schema.
+> **CRITICAL**: Column names and view names below are authoritative.
+> Use only the table/view names listed here — do NOT guess or extend.
 
 **Latest snapshot filter**: Each table has its own snapshot timeline.
 Always use `snapshot_id = (SELECT MAX(snapshot_id) FROM <same_table>)`.
@@ -196,22 +192,17 @@ wrong; prefer the auto-view path.
 | `SELECT device_type FROM devices` | `SELECT platform FROM netops.devices` |
 | `SELECT device_role FROM devices` | `SELECT role FROM netops.devices` |
 | `SELECT * FROM devices WHERE is_active = true` | (no `is_active`) `SELECT * FROM netops.devices` |
-| `SELECT * FROM v_interfaces` (deleted) | JSON-extract from `netops.parsed_outputs WHERE command='show ip interface brief'` |
-| `SELECT * FROM v_topo_links_clean` (deleted) | `SELECT * FROM netops.v_l2_links_auto` |
-| `SELECT * FROM v_device_neighbors_summary` (deleted) | `SELECT * FROM netops.v_l2_links_auto` |
-| `SELECT * FROM bgp_sessions` (deleted in R70) | `SELECT * FROM netops.v_bgp_neighbors_auto` |
-| `SELECT * FROM ospf_adjacencies` (deleted in R70) | `SELECT * FROM netops.v_ospf_neighbors_auto` |
+| `SELECT mac_address FROM v_*` | JSON-extract from `netops.parsed_outputs WHERE command='show mac address-table'` |
+| `FROM bgp_sessions` | `FROM netops.v_bgp_neighbors_auto` |
+| `FROM ospf_adjacencies` | `FROM netops.v_ospf_neighbors_auto` |
 | `FROM devices` (no schema prefix) | `FROM netops.devices` (always prefix) |
 
----
+For neighbors / adjacencies / topology data the only valid sources are:
+* `netops.topology_links` (CDP/LLDP base table)
+* `netops.v_l2_links_auto` (cleaned topology view)
+* `netops.v_bgp_neighbors_auto` (BGP sessions, cross-vendor)
+* `netops.v_ospf_neighbors_auto` (OSPF adjacencies, cross-vendor)
 
-## What's *not* in the schema anymore
-
-R70 deleted these in favour of declarative `view_recipes`:
-* `netops.bgp_sessions` / `netops.ospf_adjacencies` (materialised L3 tables)
-* `v_interfaces` / `v_topology_l2` / `v_topo_links_clean` / `v_arp` / `v_routes_enriched`
-* `v_device_neighbors_summary` / `v_l2_topology_summary`
-* `view_recipes_seed.yaml` monolith (split into per-protocol files)
-
-R72 deleted `auto_learn.py` batch learner; use `/learn_cmd` for
-interactive parser learning.
+If a name like `v_topology_l2_auto` / `v_topo_links_clean` / `v_topo_*`
+/ `v_device_neighbors_summary` comes to mind — STOP, those don't
+exist; use one of the four canonical names above.
