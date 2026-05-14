@@ -58,6 +58,10 @@ class UsageGuide:
     keywords: list[str]
     body: str
     schema_version: int = 1
+    # 2026-05-14: priority field (optional in YAML, default 5).  Maps
+    # linearly to LanceDB ``weight`` at insert time so high-priority
+    # guides outrank operational_event noise in mixed recall results.
+    priority: int = 5
     related: list[dict] = field(default_factory=list)
     source_path: Path | None = None
 
@@ -86,6 +90,7 @@ class UsageGuide:
             keywords=[str(k) for k in keywords],
             body=str(data["body"]).strip(),
             schema_version=int(data.get("schema_version", 1)),
+            priority=int(data.get("priority", 5)),
             related=list(data.get("related") or []),
             source_path=path,
         )
@@ -197,6 +202,17 @@ def prime_guides_from_dir(
         # tags: JSON list, contains agent + intent + all keywords so a
         # tag-FTS index (future Phase 3 work) can light up cleanly.
         tag_list = [guide.intent, guide.agent] + list(guide.keywords)
+        # 2026-05-14: derive ``weight`` from the guide's ``priority`` field.
+        # Maps priority 1..10 → weight 0.5..2.0 (linear).  Default priority=5
+        # → weight=1.0 (parity with pre-2026-05-14 behaviour).  This makes
+        # high-priority guides (priority>=8) outrank both operational_event
+        # entries (weight 0.5) and standard guides in mixed recall results.
+        guide_priority = getattr(guide, "priority", None)
+        if isinstance(guide_priority, (int, float)) and guide_priority > 0:
+            # priority 1 → 0.5; priority 5 → 1.0; priority 10 → 2.0
+            guide_weight = 0.5 + (float(guide_priority) - 1.0) * (1.5 / 9.0)
+        else:
+            guide_weight = 1.0
         try:
             store.add_memory(
                 id=mem_id,
@@ -209,9 +225,11 @@ def prime_guides_from_dir(
                     "agent": guide.agent,
                     "schema_version": guide.schema_version,
                     "n_keywords": len(guide.keywords),
+                    "priority": guide_priority,
                 },
                 origin="config",
                 confidence=1.0,
+                weight=guide_weight,
                 tags=json.dumps(tag_list, ensure_ascii=False),
             )
             count += 1
