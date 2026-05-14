@@ -26,7 +26,7 @@ requires:
 slash_commands:
   - name: /netops_init
     kind: shell
-    script: .olav/workspace/ops/netops_init/run.py
+    script: .olav/workspace/netops/netops_init/run.py
     description: "Full network discovery — SSH all devices, run discovery commands, populate DB"
     cwd_policy: project_root
     timeout: 600
