@@ -216,11 +216,14 @@ class LLMFactory:
                 extra = mkw.setdefault("extra_body", {})
                 ctk = extra.setdefault("chat_template_kwargs", {})
                 ctk.setdefault("enable_thinking", False)
-                # Also try the OpenAI-style reasoning_effort knob for
-                # endpoints that honour it (e.g. some OpenRouter/proxy
-                # passthroughs to o1-class models).  Unknown keys are
-                # ignored by OpenAI-compat servers.
-                extra.setdefault("reasoning_effort", "minimal")
+                # 2026-05-15: removed ``reasoning_effort: minimal`` —
+                # Ollama OpenAI-compat strictly validates that field and
+                # rejects ``minimal`` with HTTP 400 (only "high"/"medium"/
+                # "low"/"max"/"none" allowed).  The ``enable_thinking``
+                # kwarg in chat_template_kwargs already covers qwen3 /
+                # gemma4; OpenAI o1 path would need its own branch if
+                # ever needed (the original comment claimed "unknown
+                # keys ignored" — turned out to be wrong for Ollama).
         elif _enable_thinking_explicit:
             # Explicit ON: force reasoning=True so it isn't masked by an
             # upstream default or model preset.
