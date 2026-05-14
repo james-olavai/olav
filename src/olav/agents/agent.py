@@ -1030,13 +1030,45 @@ class OLAVAgent:
             if HAS_PROMPT_CACHING and AnthropicPromptCachingMiddleware is not None:
                 _middleware.append(AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"))
 
-            runnable = create_agent(
-                sa_llm,
-                system_prompt=prompt,
-                tools=tools,  # may be empty list — still prevents FilesystemMiddleware
-                middleware=_middleware,
-                name=name,
-            )
+            # dev_docs/77 §2.6.2: a sub-agent that itself declares
+            # ``subagents:`` in its SKILL.md needs deepagents'
+            # ``SubAgentMiddleware`` to inject the ``task`` tool so it
+            # can delegate to its peers (e.g. analyzer → sim).  Build
+            # via ``create_deep_agent`` in that case; the deepagents
+            # middleware then auto-wires the task tool.
+            sa_nested_subagents = metadata.get("subagents") or []
+            if sa_nested_subagents:
+                # Recursive build: nested ``- path:`` entries are
+                # resolved relative to *this* sub-agent's directory,
+                # so temporarily swap _agent_dir for the inner call.
+                _saved_agent_dir = self._agent_dir
+                try:
+                    self._agent_dir = sa_dir
+                    nested = self._build_subagents(
+                        {"subagents": sa_nested_subagents},
+                    )
+                finally:
+                    self._agent_dir = _saved_agent_dir
+                logger.info(
+                    f"  → '{name}' is a recursive deep-agent with "
+                    f"{len(nested)} nested sub-agent(s); task() auto-injected"
+                )
+                runnable = create_deep_agent(
+                    model=sa_llm,
+                    system_prompt=prompt,
+                    tools=tools,
+                    subagents=nested,
+                    middleware=_middleware,
+                    name=name,
+                )
+            else:
+                runnable = create_agent(
+                    sa_llm,
+                    system_prompt=prompt,
+                    tools=tools,  # may be empty list — still prevents FilesystemMiddleware
+                    middleware=_middleware,
+                    name=name,
+                )
             # Rev 264: sub-agent runnable also gets deepagents
             # FilesystemMiddleware injection (glob/grep/ls/read_file/
             # write_file/edit_file). Even with the SKILL.md whitelist
