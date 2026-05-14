@@ -168,8 +168,8 @@ def build_delegate_tool(
         no generic sandbox tools.  Use this for all cross-agent delegation.
 
         Args:
-            subagent_name: Exact name of the subagent (e.g. 'config-discovery',
-                           'ops-orchestrator', 'quick-query').  Call
+            subagent_name: Exact name of the subagent (e.g. 'analyzer',
+                           'sim', 'investigate').  Call
                            list_platform_services() or check PLATFORM.md to
                            discover available names.
             task_description: Complete, self-contained task description.

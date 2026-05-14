@@ -62,7 +62,7 @@ def _pick_config(
     Candidate backup commands come from ``netops.commands WHERE
     backup_only=TRUE`` — the SSOT seeded by
     :func:`commands_sync.sync_commands` from
-    ``.olav/workspace/ops/netops_init/config/user_commands.yaml`` plus
+    ``.olav/workspace/netops/netops_init/config/user_commands.yaml`` plus
     user overlays.  **No per-platform list hardcoded in this module.**
     Adding a new vendor's backup command is a YAML edit, zero code
     change.

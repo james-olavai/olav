@@ -8,7 +8,7 @@ Ansible / Dict / …) is the authoritative source for ``platform`` and
   * show-version parse field names for model / OS version extraction
 
 Builtin profiles ship in
-``.olav/workspace/ops/netops_init/config/platform_profiles.yaml``. For a
+``.olav/workspace/netops/netops_init/config/platform_profiles.yaml``. For a
 platform not present in the YAML, a convention-based fallback derives the
 vendor from the platform string (``nokia_sros`` → Nokia, ``foo_bar`` →
 "Foo"). Model / OS version fields stay empty, so those columns are NULL
@@ -30,7 +30,7 @@ def _profiles_path() -> Path:
     """Resolve the platform_profiles.yaml shipped with the ops skill."""
     try:
         from olav.core.config import get_paths_config
-        base = Path(get_paths_config().agent_dir) / "workspace" / "ops" / "netops_init" / "config"
+        base = Path(get_paths_config().agent_dir) / "workspace" / "netops" / "netops_init" / "config"
         candidate = base / "platform_profiles.yaml"
         if candidate.exists():
             return candidate
@@ -38,7 +38,7 @@ def _profiles_path() -> Path:
         pass
     here = Path(__file__).resolve().parent
     for up in [here.parent.parent.parent, here.parent.parent.parent.parent]:
-        candidate = up / ".olav" / "workspace" / "ops" / "netops_init" / "config" / "platform_profiles.yaml"
+        candidate = up / ".olav" / "workspace" / "netops" / "netops_init" / "config" / "platform_profiles.yaml"
         if candidate.exists():
             return candidate
     return Path("")

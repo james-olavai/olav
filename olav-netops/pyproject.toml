@@ -40,7 +40,7 @@ oc_outputs       = "olav_netops.core.tables:OcOutputsTable"
 
 # ── Slash command entry points ────────────────────────────────────────────
 # Provides slash commands to the platform via the olav.slash_commands group.
-# The MANIFEST.yaml in .olav/workspace/ops/ is the authoritative source for
+# The MANIFEST.yaml in .olav/workspace/netops/ is the authoritative source for
 # per-project configuration (approval, timeout, aliases).  These entry points
 # declare what the package *can* provide; the project MANIFEST activates them.
 [project.entry-points."olav.slash_commands"]
