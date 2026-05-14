@@ -375,6 +375,17 @@ Then `format_and_export(data=<MD>, filename="<topic>_<YYYY-MM-DD>", format="md",
    engineers look first.
 5. **Evidence-grounded findings only** — every finding cites a concrete
    device + value from one of your `execute_sql` results.
+6. **STOP-AFTER-SIM-ANSWER** — once a Phase 2.5 `task("sim", ...)` call
+   returns a definitive answer (rows + verdict in its Markdown reply),
+   **proceed immediately to Phase 4 SYNTHESISE + Phase 5 EMIT**.  Do
+   NOT loop on additional `execute_sql` / `query_evidence` /
+   `inspect_drift_configs` calls trying to "double-check" the sim
+   answer.  Sim's Batfish output IS the config-layer ground truth;
+   the only reason to keep gathering after sim is if you discover a
+   NEW question (different scope, different concept) that sim's
+   reply didn't cover.  Default: write the report.  Saves operator
+   time; avoids the 25-min timeout pattern seen in the 2026-05-14
+   "192.168.50.0/24 reachability" test.
 
 ---
 
@@ -389,6 +400,19 @@ Then `format_and_export(data=<MD>, filename="<topic>_<YYYY-MM-DD>", format="md",
 4. **Cross-domain via delegation** — config-layer questions go to
    sim via Phase 2.5 DELEGATION (below); never invent config
    semantics yourself.
+5. **STOP-AFTER-DEFINITIVE-ANSWER** — once you have enough evidence
+   to answer the user's question, **WRITE THE REPORT**.  Symptoms of
+   over-investigation to avoid:
+   - calling `inspect_drift_configs` repeatedly on the same snapshot
+     hoping for different output (it's deterministic)
+   - calling `execute_sql` for a "verification" that sim already
+     answered
+   - calling `query_evidence` for syslog that has nothing to do
+     with the user's question
+   The user wants an answer, not exhaustive proof.  Trust your
+   tools; one query per fact; synthesise and emit.  If a tool
+   returns empty/sparse data, document the gap in your report —
+   don't loop trying to find data that isn't there.
 
 ---
 
