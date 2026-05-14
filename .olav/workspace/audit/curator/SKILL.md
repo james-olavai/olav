@@ -6,11 +6,15 @@ metadata:
   version: 2.0.0
   replaces: [learner v1.0.0]
 tools:
-  - discover_view_schemas
+  # Direct StructuredTool — both have @tool wrappers in tools/
   - fuzzy_map_schema
-  - sync_schema_reference
   - scaffold_domain_agent
-  - trace_learner
+  # Skill-script bridge for the remaining curator operations.
+  # Invoke via execute_skill_script(skill_name="curator", script_name=...):
+  #   - discover_view_schemas.py  — LLM + DB schema discovery → view_recipes
+  #   - sync_schema_reference.py  — regenerate SCHEMA_REFERENCE.md
+  #   - trace_learner.py          — mine recent failures into operational constraints
+  - execute_skill_script
 ---
 
 ## Curator Subagent
