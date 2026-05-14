@@ -82,6 +82,76 @@ def _safe_view_name(command: str) -> str:
 
 # ── L2 topology view (minimal projection) ───────────────────────────────
 
+def build_snapshots_view(con: Any) -> dict[str, int]:
+    """Create / refresh ``netops.v_snapshots_auto``.
+
+    Per-snapshot metadata view: capture timestamp, device coverage,
+    row count.  Lets downstream consumers (analyzer, audit, reports)
+    anchor every artifact in real time without guessing today's date.
+
+    Source: ``netops.parsed_outputs`` (snapshot_id + ingested_at).
+    If ``ingested_at`` is NULL for older rows, fall back to parsing
+    the timestamp encoded in the snapshot_id itself (snap_YYYYMMDD_HHMMSS_*).
+
+    Columns:
+        snapshot_id    VARCHAR
+        captured_at    TIMESTAMP  (MIN ingested_at, or parsed from snap_id)
+        finished_at    TIMESTAMP  (MAX ingested_at, or parsed from snap_id)
+        device_count   INT
+        row_count      INT
+        duration_s     DOUBLE     (NULL when single-row snapshots)
+    """
+    try:
+        con.execute(
+            """
+            CREATE OR REPLACE VIEW netops.v_snapshots_auto AS
+            WITH derived AS (
+                SELECT
+                    snapshot_id,
+                    MIN(ingested_at) AS min_ingested,
+                    MAX(ingested_at) AS max_ingested,
+                    COUNT(DISTINCT device_name) AS device_count,
+                    COUNT(*) AS row_count
+                FROM netops.parsed_outputs
+                WHERE snapshot_id IS NOT NULL
+                GROUP BY snapshot_id
+            )
+            SELECT
+                snapshot_id,
+                COALESCE(
+                    min_ingested,
+                    CASE
+                        WHEN snapshot_id LIKE 'snap\\_%' ESCAPE '\\'
+                        THEN try_strptime(substr(snapshot_id, 6, 15), '%Y%m%d_%H%M%S')
+                        ELSE NULL
+                    END
+                ) AS captured_at,
+                COALESCE(
+                    max_ingested,
+                    CASE
+                        WHEN snapshot_id LIKE 'snap\\_%' ESCAPE '\\'
+                        THEN try_strptime(substr(snapshot_id, 6, 15), '%Y%m%d_%H%M%S')
+                        ELSE NULL
+                    END
+                ) AS finished_at,
+                device_count,
+                row_count,
+                CASE
+                    WHEN min_ingested IS NOT NULL AND max_ingested IS NOT NULL
+                    THEN EPOCH(max_ingested - min_ingested)
+                    ELSE NULL
+                END AS duration_s
+            FROM derived
+            ORDER BY captured_at DESC NULLS LAST
+            """
+        )
+        n = con.execute("SELECT COUNT(*) FROM netops.v_snapshots_auto").fetchone()[0]
+        return {"v_snapshots_auto": int(n)}
+    except Exception as exc:
+        logger.warning("build_snapshots_view failed: %s", exc)
+        return {}
+
+
 def build_l2_topology_view(con: Any) -> dict[str, int]:
     """Create / refresh ``netops.v_l2_links_auto``.
 
@@ -484,7 +554,11 @@ def finalise_ingest(con: Any) -> dict[str, Any]:
     Failures in either layer log at WARN but don't raise — view
     building is advisory; raw ``parsed_outputs`` queries always work.
     """
-    out: dict[str, Any] = {"l2": {}, "per_command": {}, "value_profile": {}, "introspection": {}}
+    out: dict[str, Any] = {"snapshots": {}, "l2": {}, "per_command": {}, "value_profile": {}, "introspection": {}}
+    try:
+        out["snapshots"] = build_snapshots_view(con)
+    except Exception as exc:
+        logger.warning("finalise_ingest: build_snapshots_view failed: %s", exc)
     try:
         out["l2"] = build_l2_topology_view(con)
     except Exception as exc:
