@@ -2,11 +2,12 @@
 name: netops
 description: "Network Operations — SSH collection, BGP/OSPF analysis, topology queries, simulation, drift detection, ContainerLab digital twin, parser learning"
 system_prompt_file: prompts/orchestrator.md
-# R-VERTICAL-SLICE 2026-05-09 (dev_docs/74): hybrid thinking — orchestrator
-# uses reasoning ON for multi-step planning + capability dispatch; each
-# sub-agent declares thinking_mode: disabled so its tool calls execute
-# fast.  Verified gemma4:31b clean tool calls in both modes.
-thinking_mode: enabled
+# 2026-05-15: gemma4:31b 全栈策略 — 仅 analyzer (PLAN-Act-Reflect 子代理)
+# 用 thinking ON；orchestrator + 所有其他 sub-agent 走 thinking OFF.
+# 编排器只做关键字路由 + dispatch，不需要 reasoning。早期 R-VERTICAL-SLICE
+# 让 orchestrator think 是 qwen3 时代的设计；gemma4 nothink 在路由 layer
+# 已实证够用 (rev 261/267/268)，多阶段推理交给 analyzer。
+thinking_mode: disabled
 route_keywords:
   - network device router switch firewall CLI SSH show
   - BGP OSPF EIGRP routing neighbor adjacency protocol session
