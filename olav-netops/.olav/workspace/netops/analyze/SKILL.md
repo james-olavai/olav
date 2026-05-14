@@ -4,7 +4,7 @@ agent_type: api  # skip TodoListMiddleware (NETOPS sub-agents are tool-execution
 # R-VERTICAL-SLICE 2026-05-09: sub-agent uses no-think for
 # fast tool execution; orchestrator handles planning.
 thinking_mode: disabled
-description: "READ-SIDE network analysis: BGP / OSPF investigation, snapshot drift detection, topology Q&A, blast-radius reachability, Mermaid diagram. Inspector @tools wrap NetworkX queries; LLM never writes graph code. Reads DB only; no live device access. Does NOT own change planning — for 'plan a change' / 'add eBGP X-Y' / 'CAB' the orchestrator delegates to `task('analyzer', ...)` instead."
+description: "READ-SIDE network analysis: BGP / OSPF investigation, snapshot drift detection, topology Q&A, blast-radius reachability, Mermaid diagram. Inspector @tools wrap NetworkX queries; LLM never writes graph code. Reads DB only; no live device access. Does NOT own change planning — for 'plan a change' / 'add eBGP X-Y' / '变更方案' the orchestrator delegates to `task('analyzer', ...)` instead."
 metadata:
   version: 2.0.0
   replaces: [ops-analysis v1.1.0, ops-diff v1.0.0]
@@ -117,7 +117,7 @@ sim's inspector-driven approach.
    one of the 8 inspectors.  Don't query DuckDB directly for these
    patterns — the inspectors are faster and structured.
 3. **Don't compose change plans**.  If the user asks for a change
-   plan or "add eBGP" or "CAB" → redirect: that's `sim`'s job.
+   plan or "add eBGP" → redirect: that's ``analyzer``'s Workflow A.
 4. **Drift reports go via `format_and_export`** to
    `exports/drift_reports/<id>.md` (or `exports/diagrams/` for
    Mermaid).

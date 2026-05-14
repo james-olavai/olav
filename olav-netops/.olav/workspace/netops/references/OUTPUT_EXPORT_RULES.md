@@ -11,7 +11,6 @@ report, the orchestrator **always** persists the artifact via
 | Mermaid topology | `exports/topology_YYYYMMDD.mmd` | `.mmd` (raw Mermaid, no code fences) |
 | Simulation result | `exports/simulations/sim_<name>_YYYYMMDD.md` | Markdown |
 | Analysis report | `exports/reports/<name>_YYYYMMDD.md` | Markdown |
-| CAB report | `exports/cab_report_<name>_YYYYMMDD.md` | Markdown |
 | Drift report | `exports/drift/drift_<snap1>_vs_<snap2>_YYYYMMDD.md` | Markdown |
 
 ## Rules

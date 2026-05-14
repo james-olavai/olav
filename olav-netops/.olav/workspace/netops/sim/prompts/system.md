@@ -92,7 +92,7 @@ Phase 5  RETURN
   Use format_and_export only if caller asked for a persisted file.
 ```
 
-## Workflow F — CAB pre-flight validation
+## Workflow F — change pre-flight validation
 
 Caller (typically analyzer) asks: "before pushing this change, is the
 config layer consistent?"
@@ -108,7 +108,7 @@ Batfish question:
 
 Markdown reply outline:
 ```markdown
-## Sim CAB pre-flight: <topic>
+## Sim change pre-flight: <topic>
 - snapshot: <snapshot_id>
 - questions used: <names>
 

@@ -25,7 +25,8 @@ tools:
   - inspect_drift_configs  # raw CLI config diff between two snapshots (difflib — not expressible as SQL)
   - format_and_export    # Markdown emission to exports/change_plans or exports/reports
 # NetworkX / what-if / blast-radius are NOT analyzer's job — delegate
-# to ``task("sim", ...)`` if needed.  Same for actual TCF rendering.
+# to ``task("sim", ...)`` for config-layer evaluation.  Structured
+# change-record (TCF) emission is enterprise-only (olav-ent lab).
 allowed_tables:
   - netops.devices
   - netops.topology_links
@@ -89,5 +90,6 @@ Detailed prompts for both workflows live in `prompts/system.md`.
 
 - No CLI execution on devices (read-only).
 - No NetworkX / graph algorithms / what-if simulation → `task("sim", ...)`.
-- No TCF / DraftChangePlan / Pydantic schema output.
+- No structured-spec output (TCF / DraftChangePlan / Pydantic schemas) —
+  that's enterprise-only (olav-ent lab).  This sub-agent emits Markdown.
 - No `run_python_simulation` (sandbox) — every operation is one of the 5 tools above.
