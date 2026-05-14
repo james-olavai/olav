@@ -435,6 +435,7 @@ class LanceDBStore:
         origin: str = "agent",
         confidence: float = 0.5,
         tags: str = "[]",
+        weight: float = 1.0,
     ) -> dict:
         """Add a memory entry to the store.
 
@@ -449,6 +450,10 @@ class LanceDBStore:
             origin: Knowledge source — "agent" | "document" | "user" | "audit"
             confidence: Reliability score 0.0-1.0 (default 0.5 for agent captures)
             tags: JSON array string of entity/topic tags (default "[]")
+            weight: Ranking weight for hybrid recall (1.0 = neutral;
+                    >1 boost; <1 suppress).  2026-05-14: used by
+                    search_by_text to multiply BM25 score so high-priority
+                    usage_guide entries outrank operational_event noise.
 
         Returns:
             Dict with status and message
@@ -509,7 +514,7 @@ class LanceDBStore:
                     pa.array([now]),
                     pa.array([now]),
                     pa.array([1]),  # access_count
-                    pa.array([1.0]),  # initial weight
+                    pa.array([float(weight)]),  # configurable weight
                     pa.array([origin]),
                     pa.array([confidence], type=pa.float32()),
                     pa.array([tags]),
@@ -655,7 +660,19 @@ class LanceDBStore:
             if where_clauses:
                 search_q = search_q.where(" AND ".join(where_clauses))
 
-            results = search_q.limit(limit).to_list()
+            # 2026-05-14 weight-aware reranking: fetch 3x candidates, then
+            # rank by ``_score * weight`` so high-priority usage_guide rows
+            # outrank low-priority operational_event rows even when BM25
+            # similarity is comparable.  Weight is set at insert time
+            # (guide_kb.py from priority field; operational_event_capture
+            # writes weight=0.5).
+            raw = search_q.limit(limit * 3).to_list()
+            for r in raw:
+                w = r.get("weight") or 1.0
+                s = r.get("_score") or r.get("score") or 1.0
+                r["_effective_score"] = float(s) * float(w)
+            raw.sort(key=lambda r: r["_effective_score"], reverse=True)
+            results = raw[:limit]
 
             return [
                 {
@@ -665,6 +682,7 @@ class LanceDBStore:
                     "scope": r.get("scope"),
                     "origin": r.get("origin", "agent"),
                     "confidence": r.get("confidence", 0.5),
+                    "weight": r.get("weight", 1.0),
                     "tags": r.get("tags", "[]"),
                     "metadata": r.get("metadata"),
                     "timestamp": r.get("timestamp"),

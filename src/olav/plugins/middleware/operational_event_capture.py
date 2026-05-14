@@ -317,6 +317,12 @@ class OperationalEventCapturePlugin(OLAVMiddlewarePlugin):
                     },
                     origin="agent",
                     confidence=0.8,
+                    # 2026-05-14: weight=0.5 for L1 auto-captured operational
+                    # events.  These are illustrative ("last time you did X")
+                    # not normative — the ranker multiplies score by weight,
+                    # so usage_guide entries (weight=1.0+) sort above prior-
+                    # example noise.  Adjustable via OLAV_OPEV_WEIGHT env.
+                    weight=0.5,
                     tags=_json.dumps([cap["tool"]]),
                 )
                 written += 1
