@@ -163,6 +163,38 @@ Returns: prefixes whose reachability changed (added / removed / changed-path).
 If the caller hasn't provided a candidate snapshot → return early
 saying "differential needs two snapshots; please specify".
 
+## REPORT MODE — incremental evidence writing
+
+If the caller's prompt contains a directive like "REPORT_MODE: append
+to exports/reports/<filename>.md (use format_and_export with
+mode='append')", then after each batfish_q call's reflection,
+immediately append an evidence section to that file:
+
+```python
+format_and_export(
+    data=(
+        f"\n### Sim step {N}: {batfish_question_name}\n"
+        f"**Args**: `{q_args}`\n"
+        f"**Snapshot**: {snapshot_id}\n"
+        f"**Rows ({len(rows)})**:\n\n{markdown_table_of_rows}\n\n"
+        f"**Interpretation**: {one_or_two_sentences}\n"
+    ),
+    filename="<from caller>",   # caller named the file
+    format="md", subdir="reports", mode="append",
+)
+```
+
+When REPORT_MODE is on:
+- Append after EVERY batfish_q (also after batfish_capability and
+  fileParseStatus pre-flight checks).
+- Final reply text (returned to caller) is a SHORT verdict +
+  pointer to the appended sections, NOT the full evidence —
+  because the evidence is already in the file.
+- Do NOT spawn a second filename; use the one caller named.
+
+When REPORT_MODE is off (caller didn't mention it): behave as before
+— synthesize a single Markdown chunk and return it to caller.
+
 ## Hard rules
 
 1. **Never invent a Batfish question name**.  If unsure, recall the
@@ -179,5 +211,7 @@ saying "differential needs two snapshots; please specify".
    for caller-requested persistence only; the default is to put the
    Markdown chunk in your final tool/message return text so the
    caller (analyzer) can cite it verbatim per dev_docs/77 §2.6.6.
+   Exception: when REPORT_MODE is on (see section above), evidence
+   is appended incrementally to a file and the reply is short.
 5. **Always cite snapshot_id + question names** in your reply.
    Operators auditing the report need to know the data provenance.

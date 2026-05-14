@@ -28,6 +28,108 @@ Both follow the same skeleton: **COLLECT_BROAD → SCHEMA_DISCOVERY →
 PLAN (L1-L4 layered) → ACT → REFLECT → SYNTHESISE → EMIT**.  The
 only difference is the final Markdown template.
 
+---
+
+## REPORT MODE — incremental writing (default ON for both workflows)
+
+**Problem solved**: a final-only `format_and_export` collapses 10+
+tool calls' raw evidence into a 3-bullet summary — network engineers
+lose route tables, BGP session reasons, parse caveats, exact SQL row
+data.  Fix: after every ACT/REFLECT pair, append a new section to
+the report file *immediately*.  The report grows alongside the
+investigation; if anything times out, the partial report on disk is
+still useful.
+
+### Trigger
+
+Enter REPORT MODE whenever the user's prompt contains *any* of:
+"report", "audit", "write to exports", "save", "出报告", "调研",
+"export", or when Workflow A/D is selected by the Modes table above.
+**Default to ON** — when in doubt, write incrementally.
+
+### Mechanics
+
+The tool now accepts `mode='append'`.  Each call appends `data` to
+the file (creates it if missing).  Use this on EVERY step:
+
+```python
+# 1. INITIALIZE (after Phase 0 anchored a snapshot)
+report_fn = "<topic>_<YYYY-MM-DD>"  # e.g. "ibgp_health_2026-05-14"
+format_and_export(
+    data=f"# <Topic>\n_Generated {captured_at}; Snapshot {snap_id}; Source analyzer + sim_\n\n## Question\n{user_prompt}\n\n## Method\nL1→L4 layered audit; SQL state + delegated config-layer eval.\n",
+    filename=report_fn, format="md", subdir="reports", mode="append",
+)
+
+# 2. AFTER EACH OWN TOOL CALL'S REFLECTION
+format_and_export(
+    data=(
+        f"\n## Step {N}: {what_you_did}\n"
+        f"**Tool**: execute_sql\n"
+        f"**Query**: `{sql_snippet}`\n"
+        f"**Rows ({len(rows)})**:\n\n{markdown_table_of_rows}\n\n"
+        f"**Reflection**: {one_or_two_sentence_takeaway}\n"
+    ),
+    filename=report_fn, format="md", subdir="reports", mode="append",
+)
+
+# 3. AFTER A task("sim", ...) RETURNS
+format_and_export(
+    data=(
+        f"\n## Step {N}: delegated to sim — {topic}\n"
+        f"**Delegation prompt**: {prompt_excerpt}\n\n"
+        f"### Sim's reply (verbatim)\n\n{sim_reply}\n"
+    ),
+    filename=report_fn, format="md", subdir="reports", mode="append",
+)
+
+# 4. FINAL SYNTHESIS (last append)
+format_and_export(
+    data=(
+        "\n## Synthesis\n"
+        "<cross-source conclusion, evidence-grounded>\n\n"
+        "## Recommendations\n"
+        "- ...\n\n"
+        "## Caveats & Gaps\n"
+        "- ...\n"
+    ),
+    filename=report_fn, format="md", subdir="reports", mode="append",
+)
+```
+
+### Pass REPORT MODE to sim
+
+When you `task("sim", ...)`, include the report filename in the
+delegation prompt so sim can append its own step-by-step evidence to
+the SAME file (instead of returning only a summary):
+
+```
+sim_reply = task(
+    description=(
+        "On snapshot snap_..., run reachability for R1->192.168.50.0/24. "
+        "REPORT_MODE: append your per-question evidence sections to "
+        "exports/reports/<report_fn>.md (use format_and_export with "
+        "mode='append').  Return a short verdict in your reply text."
+    ),
+    subagent_type="sim",
+)
+```
+
+### Hard rules for REPORT MODE
+
+1. **One append per react step** — never batch.  If you call
+   `execute_sql` three times then append once, you've lost two
+   steps' raw data.
+2. **Raw rows go in the report** — embed the Markdown-formatted
+   row table (not a summary).  Truncate at 20 rows with "...N more
+   omitted" if a result is huge.
+3. **Use the same `filename` for every append in this session** —
+   you decided it in step 1.  Never spawn a second report file.
+4. **The final synthesis section is also append, not overwrite** —
+   the synthesis sits at the bottom of the same growing file.
+5. **Skip REPORT MODE only when the user explicitly asks for a one-shot
+   answer in chat (no file)**, e.g. "what's R3's BGP state right now"
+   with no save verb.
+
 ## L1-L4 mental model (used in BOTH workflows)
 
 Plan and analyse in OSI L1-L4 order — same discipline a senior
@@ -468,15 +570,21 @@ sim_reply = task(
     description=(
         "On snapshot snap_20260514_101701_156d60, run "
         "bgpSessionCompatibility for nodes R1 and R3. "
-        "Return the rows + a one-sentence verdict."
+        "REPORT_MODE: append your per-question evidence sections to "
+        "exports/reports/ibgp_health_2026-05-14.md "
+        "(use format_and_export with mode='append'). "
+        "Return a short verdict in your reply text."
     ),
     subagent_type="sim",
 )
 ```
 
-`sim_reply` is the sub-agent's final Markdown text.  Cite it
-verbatim in your final report (Phase 4 SYNTHESISE) — do not
-re-format or re-summarise unless adding cross-source synthesis.
+`sim_reply` is the sub-agent's final Markdown text.  When REPORT
+MODE is on, sim has already appended its detailed evidence to the
+report file — `sim_reply` is the short summary you append under a
+"delegated to sim" step section.  When REPORT MODE is off, cite
+`sim_reply` verbatim in your final report (Phase 4 SYNTHESISE) —
+do not re-format or re-summarise unless adding cross-source synthesis.
 
 ### Hard rules for delegation
 

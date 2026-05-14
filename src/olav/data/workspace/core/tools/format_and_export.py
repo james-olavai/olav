@@ -26,6 +26,7 @@ def format_and_export(
     filename: str | None = None,
     format: str | None = None,
     subdir: str | None = None,
+    mode: str | None = None,
 ) -> dict[str, Any]:
     """Save STRING content to a file under exports/.
 
@@ -33,6 +34,17 @@ def format_and_export(
     It is NOT a configuration dict, NOT the return of a previous tool,
     NOT a wrapper. The string you pass is what gets written byte-for-byte
     (after format-specific encoding for CSV/JSON/YAML).
+
+    ## REPORT MODE — incremental writing
+
+    Pass ``mode="append"`` to append to an existing file (or create it
+    if missing).  Use this when an agent is in REPORT MODE — emitting
+    a Markdown report incrementally as each react step's reflection
+    completes.  Append mode is restricted to text formats
+    (md/txt/mmd/sh); JSON/CSV/YAML raise ValueError because byte
+    concatenation corrupts their parse.
+
+    Default mode is "overwrite" — preserves the old contract.
 
     ANTI-PATTERNS (these will FAIL with a Pydantic validation error):
 
@@ -75,10 +87,20 @@ def format_and_export(
         subdir:   Subdir under exports/. Auto-routed by format if omitted:
                   md/mmd/txt → exports/reports/, csv/json/yaml → exports/,
                   sh/py → exports/scripts/.
+        mode:     "overwrite" (default) or "append".  Append is for
+                  REPORT MODE incremental writing and only works for
+                  text formats (md/txt/mmd/sh).
 
     Returns:
         {"path": "exports/.../file.ext", "absolute_path": "...", "size": 1234, "format": "md"}
     """
+    # Normalise mode early; reject malformed values up-front.
+    if mode is None:
+        mode = "overwrite"
+    if isinstance(mode, str):
+        mode = mode.strip().lower()
+    if mode not in ("overwrite", "append"):
+        raise ValueError(f"mode must be 'overwrite' or 'append', got {mode!r}")
     # 1. Determine output directory based on format.
     # WRITER-WRONG-PATH (R82): the previous import was
     # ``from olav.core.config import EXPORTS_DIR as REPORTS_DIR`` and the
@@ -211,8 +233,16 @@ def format_and_export(
     # 7. Build full path
     filepath = output_dir / f"{filename}.{format}"
 
+    # Reject append for structured formats — byte concatenation would
+    # corrupt JSON/CSV/YAML parse.
+    if mode == "append" and format in ("json", "csv", "yaml", "yml"):
+        raise ValueError(
+            f"append mode is not supported for {format!r} (would corrupt the parse); "
+            f"use mode='overwrite' or write to a different filename"
+        )
+
     # 7. Write file based on format
-    _write_file(filepath, data, format)
+    _write_file(filepath, data, format, mode=mode)
 
     # 8. Return result with relative path for display
     return {
@@ -282,7 +312,7 @@ def _detect_format(data: Any) -> str:  # noqa: ANN401
         return "txt"
 
 
-def _write_file(filepath: Path, data: Any, format: str) -> None:  # noqa: ANN401
+def _write_file(filepath: Path, data: Any, format: str, mode: str = "overwrite") -> None:  # noqa: ANN401
     """
     根据格式写入文件
 
@@ -290,9 +320,10 @@ def _write_file(filepath: Path, data: Any, format: str) -> None:  # noqa: ANN401
         filepath: 文件路径
         data: 要写入的数据
         format: 文件格式
+        mode:   'overwrite' (default) or 'append' — append only valid for text formats
     """
     if format == "json":
-        # JSON格式：结构化输出
+        # JSON格式：结构化输出 (mode='append' rejected earlier in format_and_export)
         if isinstance(data, (dict, list)):
             content = json.dumps(data, indent=2, ensure_ascii=False)
         elif isinstance(data, str):
@@ -308,17 +339,21 @@ def _write_file(filepath: Path, data: Any, format: str) -> None:  # noqa: ANN401
         filepath.write_text(content, encoding="utf-8")
 
     elif format == "csv":
-        # CSV格式：使用pandas处理
+        # CSV格式：使用pandas处理 (mode='append' rejected earlier)
         _write_csv(filepath, data)
 
     elif format == "yaml":
-        # YAML格式：结构化数据
+        # YAML格式：结构化数据 (mode='append' rejected earlier)
         _write_yaml(filepath, data)
 
     elif format == "sh":
         # Shell script: write as plain text, ensure LF line endings
         content = str(data)
-        filepath.write_text(content, encoding="utf-8", newline="\n")
+        if mode == "append":
+            with open(filepath, "a", encoding="utf-8", newline="\n") as f:
+                f.write(content)
+        else:
+            filepath.write_text(content, encoding="utf-8", newline="\n")
 
     else:
         # Markdown/Text/其他
@@ -326,7 +361,11 @@ def _write_file(filepath: Path, data: Any, format: str) -> None:  # noqa: ANN401
             content = _dict_to_markdown(data)
         else:
             content = str(data)
-        filepath.write_text(content, encoding="utf-8")
+        if mode == "append":
+            with open(filepath, "a", encoding="utf-8") as f:
+                f.write(content)
+        else:
+            filepath.write_text(content, encoding="utf-8")
 
 
 def _dict_to_markdown(data: dict[str, Any], level: int = 1) -> str:
