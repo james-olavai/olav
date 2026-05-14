@@ -2,6 +2,18 @@
 
 Structured sim↔lab change contract. See ``dev_docs/65`` for design.
 
+**2026-05-14 cleanup**: the legacy sim Python pipeline (``sim/`` package,
+``tcf_writer``, ``tcf_sim``, ``draft_fill``, ``schemas``, plus helpers
+``intf_picker`` / ``lab_subnet_pool`` / ``generic_intent_handler`` /
+``semantic_review`` / ``pre_check_runner``) was removed; sim is being
+rebuilt as a Batfish-backed sub-agent per ``dev_docs/77 §2``.  The
+TCF contract layer below (``tcf_schema``, ``tcf_io``, ``tcf_lab``,
+``tcf_validate``, ``tcf_args``, ``tcf_diff``, ``postcheck_translate``,
+``prod_cli``, ``intent_registry``) is kept because the lab sub-agent
+still consumes ``spec.tcf.yaml``.  Lab redesign per ``dev_docs/78`` is
+deferred; until then lab continues to work against the legacy TCF
+spec format produced by external sources / hand-written specs.
+
 Public API:
     * ``CabTcf`` — top-level Pydantic model for a CAB change record
     * ``tcf_load(path)`` — read + parse + validate from disk
@@ -18,12 +30,6 @@ from .prod_cli import (
     generate_ios_ebgp_rollback,
     generate_junos_ebgp_config,
     generate_junos_ebgp_rollback,
-)
-from .semantic_review import review_cli_pair, review_paired_blocks
-from .pre_check_runner import (
-    ProdExecutor,
-    make_dry_run_executor,
-    run_prod_pre_check,
 )
 from .tcf_args import (
     tcf_to_clab_topology_args,
@@ -53,8 +59,6 @@ from .tcf_schema import (
     StepVerdict,
     TvtRow,
 )
-from .tcf_sim import tcf_emit_from_sim
-from .tcf_writer import render_tcf_from_change_plan
 
 __all__ = [
     "CabTcf",
@@ -74,15 +78,11 @@ __all__ = [
     "generate_ios_ebgp_rollback",
     "generate_junos_ebgp_config",
     "generate_junos_ebgp_rollback",
-    "review_cli_pair",
-    "review_paired_blocks",
     "tcf_diff_spec_vs_lab",
     "tcf_emit",
-    "tcf_emit_from_sim",
     "tcf_load",
     "tcf_load_for_lab",
     "tcf_record_lab_run",
-    "render_tcf_from_change_plan",
     "validate_tcf_in_lab",
     "tcf_to_r88_args",
     "tcf_to_r89_args",
@@ -90,8 +90,4 @@ __all__ = [
     "tcf_to_clab_topology_args",
     "tcf_to_srl_render_args",
     "tcf_to_prod_cli_args",
-    # Prod pre_check gate (ARCH-34 prod side)
-    "ProdExecutor",
-    "make_dry_run_executor",
-    "run_prod_pre_check",
 ]
