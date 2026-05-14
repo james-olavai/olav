@@ -412,9 +412,32 @@ evaluation.
 
 ### How to delegate
 
-Use the native `task` tool (auto-injected because
+**Pre-flight capability check (NEW — dev_docs/77 §2 follow-up)**:
+before any `task("sim", ...)`, decide whether sim can even evaluate
+the in-scope devices.  Cheap SQL pre-check:
+
+```python
+caps = execute_sql(sql="""
+    SELECT hostname, platform FROM netops.devices
+    WHERE hostname IN ('R1','R3','R5')
+""")
+# Cross-reference platforms against the Batfish vendor support
+# guide (`batfish_capability_catalog.guide.yaml` in your KB) OR ask
+# sim itself: `task("sim", "batfish_capability for [R1,R3,R5]")`
+# returns a structured map.
+```
+
+Decision:
+- All FULL → safe to delegate; expect complete reply
+- PARTIAL (some FULL + some PARTIAL/NONE) → delegate AND tell user in
+  final report which devices Batfish skipped (caveat under "Scope")
+- NONE (all in-scope devices unsupported by Batfish) → DO NOT delegate
+  to sim; note in final report: "config-layer evaluation unavailable
+  for this scope's vendors; relying on SQL state observations"
+
+Then use the native `task` tool (auto-injected because
 analyzer/SKILL.md declares `subagents: [../sim/SKILL.md]`).  Pass
-the snapshot_id you anchored in Phase 0 + a precise question:
+the snapshot_id + a precise question:
 
 ```
 sim_reply = task(

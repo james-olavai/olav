@@ -10,6 +10,11 @@ agent_type: api
 thinking_mode: enabled    # sim reasons about which Batfish question to use + interprets rows
 description: "Sim — Batfish-backed config-layer evaluator.  Answers BGP/OSPF compatibility, reachability, route lookup, route-map policy, ACL search, and snapshot differential questions by calling pybatfish against a live Batfish service.  Tools: batfish_q (generic question runner, RAG-driven question selection) + format_and_export (markdown reply chunk).  Typical caller: analyzer delegates here via task('sim', '<specific config question>') as part of cross-domain investigation (dev_docs/77 §2.6).  No SQL, no logs, no live device access."
 tools:
+  - batfish_capability      # 2026-05-14 Phase A: pre-flight check —
+                             # which in-scope devices can Batfish parse?
+                             # Cheap (static vendor table + 1 SQL) — call
+                             # FIRST before any batfish_q if scope includes
+                             # mixed / unfamiliar vendors.
   - batfish_q
   - format_and_export
 metadata:
