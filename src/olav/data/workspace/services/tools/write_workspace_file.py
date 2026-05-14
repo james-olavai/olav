@@ -7,8 +7,8 @@ Writes are restricted to paths within the project root (no /etc, /usr, etc.).
 
 Workflow:
   1. write_workspace_file("docker-compose.yml", content) → create compose file
-  2. write_workspace_file(".olav/workspace/ops/netbox/SKILL.md", content) → create skill
-  3. write_workspace_file(".olav/workspace/ops/netbox/prompts/system.md", content)
+  2. write_workspace_file(".olav/workspace/netops/netbox/SKILL.md", content) → create skill
+  3. write_workspace_file(".olav/workspace/netops/netbox/prompts/system.md", content)
 """
 
 import json
@@ -64,7 +64,7 @@ def write_workspace_file(
 
     Args:
         path:           File path relative to project root (e.g. "docker-compose.yml"
-                        or ".olav/workspace/ops/netbox/SKILL.md")
+                        or ".olav/workspace/netops/netbox/SKILL.md")
         content:        Full file content to write.
         create_parents: Create parent directories if they don't exist (default True).
 

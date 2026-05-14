@@ -7,7 +7,7 @@ from __future__ import annotations
 # Shell commands that can cause irreversible data loss or system damage.
 # Used by:
 #   - OLAVSafetyMiddleware (src/olav/plugins/middleware/safety.py) — triggers HITL interrupt
-#   - run_shell tool (.olav/workspace/ops/tools/run_shell.py)       — hard-blocks execution
+#   - run_shell tool (.olav/workspace/core/remote/tools/run_shell.py) — hard-blocks execution
 DANGEROUS_EXEC_PATTERNS: tuple[str, ...] = (
     "rm -rf",
     "rm -fr",

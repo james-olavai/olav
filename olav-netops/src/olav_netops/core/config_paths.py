@@ -8,9 +8,9 @@ to know ``nornir/config.yaml`` is a thing.
 Migration history:
 - Pre-M2:  ``.olav/config/nornir/config.yaml``              (flat)
 - Pre-M2:  ``.olav/config/domains/netops/nornir/config.yaml`` (domains)
-- Post-M2: ``.olav/workspace/ops/config/nornir/config.yaml`` (workspace)
-- Post-M3: ``.olav/workspace/ops/probe/config/nornir/config.yaml``
-- Post-R32 (ADR-0005): ``.olav/workspace/ops/collect/config/nornir/config.yaml``
+- Post-M2: ``.olav/workspace/netops/config/nornir/config.yaml`` (workspace)
+- Post-M3: ``.olav/workspace/netops/probe/config/nornir/config.yaml``
+- Post-R32 (ADR-0005): ``.olav/workspace/netops/collect/config/nornir/config.yaml``
 - Post-R-AGENT-HIERARCHY Phase A (2026-05-09 dev_docs/73): the orchestrator
   workspace dir was renamed ``ops/`` → ``netops/``; this resolver was
   missed in that rename and reverted by 2026-05-09 follow-up — the
@@ -34,9 +34,9 @@ def resolve_nornir_config_path() -> Path:
     """Resolve the nornir config path with migration-aware fallback.
 
     Priority:
-    0. Post-R32 collect-scoped path: ``.olav/workspace/ops/collect/config/nornir/config.yaml``
-    1. Post-M3 probe-scoped path:    ``.olav/workspace/ops/probe/config/nornir/config.yaml`` (pre-R32)
-    2. Post-M2 workspace path:       ``.olav/workspace/ops/config/nornir/config.yaml``
+    0. Post-R32 collect-scoped path: ``.olav/workspace/netops/collect/config/nornir/config.yaml``
+    1. Post-M3 probe-scoped path:    ``.olav/workspace/netops/probe/config/nornir/config.yaml`` (pre-R32)
+    2. Post-M2 workspace path:       ``.olav/workspace/netops/config/nornir/config.yaml``
     3. Legacy domains path:          ``.olav/config/domains/netops/nornir/config.yaml``
     4. Old flat path:                ``.olav/config/nornir/config.yaml``
     """

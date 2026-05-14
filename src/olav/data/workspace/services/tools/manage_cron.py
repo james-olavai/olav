@@ -123,15 +123,18 @@ def apply_cron_schedules(yaml_path: str = "") -> dict[str, Any]:
     """Apply cron_schedules.yaml declaratively — add/update all declared jobs.
 
     Args:
-        yaml_path: Path to cron_schedules.yaml. Defaults to .olav/workspace/ops/netops_init/config/cron_schedules.yaml
+        yaml_path: Path to cron_schedules.yaml. Defaults to .olav/workspace/netops/netops_init/config/cron_schedules.yaml
     """
     if not yaml_path:
         root = Path(__file__).resolve().parents[4]
-        # LEGACY-KEEP: Post-M3 moved cron config to netops_init/config/;
-        # pre-M3 installs still have it under ops/config/. Fall back for them.
-        new_path = root / ".olav/workspace/ops/netops_init/config/cron_schedules.yaml"
-        legacy_path = root / ".olav/workspace/ops/config/cron_schedules.yaml"
-        yaml_path = str(new_path if new_path.exists() else legacy_path)
+        # Probe netops/ first (current canonical layout); fall back to
+        # the legacy ops/ paths for pre-2026-05 installs.
+        candidates = [
+            root / ".olav/workspace/netops/netops_init/config/cron_schedules.yaml",
+            root / ".olav/workspace/ops/netops_init/config/cron_schedules.yaml",
+            root / ".olav/workspace/ops/config/cron_schedules.yaml",
+        ]
+        yaml_path = str(next((p for p in candidates if p.exists()), candidates[0]))
 
     path = Path(yaml_path)
     if not path.exists():

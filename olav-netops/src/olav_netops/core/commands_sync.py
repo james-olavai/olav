@@ -166,7 +166,7 @@ def _load_blacklist(
     sets of patterns apply, patterns never "cancel" each other):
 
     1. **Workspace default**:
-       ``.olav/workspace/ops/config/blacklisted_commands.yaml`` — shipped
+       ``.olav/workspace/netops/config/blacklisted_commands.yaml`` — shipped
        with olav-netops.  Covers interactive commands (``ping``,
        ``traceroute``), privileged write paths (``write``, ``copy``,
        ``configure``), feature-gated commands that error on stock
@@ -182,7 +182,7 @@ def _load_blacklist(
     """
     paths: list[Path] = []
     if workspace_root is not None:
-        ws_path = workspace_root / "ops" / "config" / "blacklisted_commands.yaml"
+        ws_path = workspace_root / "netops" / "config" / "blacklisted_commands.yaml"
         if ws_path.exists():
             paths.append(ws_path)
     user_path = config_dir / "blacklisted_commands.yaml"
@@ -218,7 +218,7 @@ def _load_user_commands(config_dir: Path, workspace_root: Path | None = None) ->
 
     Two sources merged (user override wins):
 
-    1. **Workspace default**: `.olav/workspace/ops/netops_init/config/user_commands.yaml`
+    1. **Workspace default**: `.olav/workspace/netops/netops_init/config/user_commands.yaml`
        — shipped with olav-netops, carries per-vendor backup commands
        (``show running-config`` for Cisco, ``show configuration`` for Junos, …).
 
@@ -236,7 +236,7 @@ def _load_user_commands(config_dir: Path, workspace_root: Path | None = None) ->
     """
     paths: list[Path] = []
     if workspace_root is not None:
-        ws_path = workspace_root / "ops" / "netops_init" / "config" / "user_commands.yaml"
+        ws_path = workspace_root / "netops" / "netops_init" / "config" / "user_commands.yaml"
         if ws_path.exists():
             paths.append(ws_path)
     user_path = config_dir / "user_commands.yaml"
@@ -282,14 +282,14 @@ def _deploy_seed_templates(agent_dir: Path) -> int:
     """Copy vendor-seed TextFSM templates into `.olav/templates/`.
 
     Shipped defaults live at
-    ``.olav/workspace/ops/netops_init/seed_templates/<platform>/*.textfsm``
+    ``.olav/workspace/netops/netops_init/seed_templates/<platform>/*.textfsm``
     and are copied into ``.olav/templates/<platform>/*.textfsm`` on every
     sync call. Existing user templates are NOT overwritten — seeds are
     dropped only when the target file doesn't yet exist. Returns the
     count of files newly deployed.
     """
     import shutil
-    seed_root = agent_dir / "workspace" / "ops" / "netops_init" / "seed_templates"
+    seed_root = agent_dir / "workspace" / "netops" / "netops_init" / "seed_templates"
     if not seed_root.exists():
         return 0
     target_root = agent_dir / "templates"

@@ -1,7 +1,7 @@
 """Topology ETL — extract neighbour relationships into ``netops.topology_links``.
 
 Protocols and their field mappings are declared in
-``.olav/workspace/ops/netops_init/config/discovery_protocols.yaml``. Adding
+``.olav/workspace/netops/netops_init/config/discovery_protocols.yaml``. Adding
 a new protocol (IS-IS, BFD, FabricPath, …) is a YAML-only change — no
 Python edits needed. Only the optional "raw output" regex fallback is
 hardcoded for the two ubiquitous protocols (CDP/LLDP); new protocols rely
@@ -31,7 +31,7 @@ def _protocols_path() -> Path:
     """Resolve discovery_protocols.yaml shipped with the ops skill workspace."""
     try:
         from olav.core.config import get_paths_config
-        base = Path(get_paths_config().agent_dir) / "workspace" / "ops" / "netops_init" / "config"
+        base = Path(get_paths_config().agent_dir) / "workspace" / "netops" / "netops_init" / "config"
         candidate = base / "discovery_protocols.yaml"
         if candidate.exists():
             return candidate
@@ -39,7 +39,7 @@ def _protocols_path() -> Path:
         pass
     here = Path(__file__).resolve().parent
     for up in [here.parent.parent.parent, here.parent.parent.parent.parent]:
-        candidate = up / ".olav" / "workspace" / "ops" / "netops_init" / "config" / "discovery_protocols.yaml"
+        candidate = up / ".olav" / "workspace" / "netops" / "netops_init" / "config" / "discovery_protocols.yaml"
         if candidate.exists():
             return candidate
     return Path("")
