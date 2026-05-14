@@ -292,10 +292,9 @@ def run_python_simulation(
           - `diff_configs(device_name, snapshot_id_1, snapshot_id_2)`
       - `json`, `math`, `itertools`, `collections` — standard library
 
-    For TCF emission (CAB workflow), use the **`emit_tcf` @tool directly** —
-    NOT this sandbox.  TCF writes a YAML spec to disk (sandbox-external
-    write target per ADR-0008 condition #2), so it lives at the @tool
-    layer with a Pydantic schema.
+    Structured change-record (TCF) emission is an enterprise feature —
+    if ``olav-ent`` is installed, use the lab subagent's tools.  This
+    sandbox does not own that path.
 
     IMPORTANT: Your code MUST assign a JSON-serialisable dict to `_result` before finishing.
 

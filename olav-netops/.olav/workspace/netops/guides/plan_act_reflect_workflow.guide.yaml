@@ -24,7 +24,7 @@ body: |
   work needs multiple data-gathering steps + synthesis + judgment.
 
   This is NOT for simple lookups ("show me R1's interfaces") nor for
-  structured change plans (which use the CAB three-stage pipeline).
+  structured change plans (which use analyzer Workflow A — see ``analyzer/prompts/system.md``).
 
   ## Phase 1 — PLAN (always first, before any data tool call)
 

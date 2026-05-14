@@ -19,23 +19,38 @@ body: |
   ``analyze`` resolves to ``ops-analyze``), so a few naming variants
   Just Work.
 
-  ## Valid sub-agent names
+  ## Valid sub-agent names (free distribution)
 
-  Both short and ``ops-`` prefixed names accepted (R-AGENT-HIERARCHY
-  Phase A in flux — both styles registered for now):
-
-  - ``analyze`` / ``ops-analyze`` — read-side state / topology / drift
-  - ``analyzer`` — change-plan ANALYST (LLM): facts → DraftChangePlan via
-    ``submit_draft``; revision via ``receive_rejection`` (R-CAB-THREE-STAGE
-    Day 2, 2026-05-12, dev_docs/75; renamed from ``sim``)
-  - ``sim`` — change-plan FINALIZER (Python skill-script): one tool
-    ``finalize_tcf(draft_path)``; renders TCF or writes rejection_sim.yaml
-    deterministically; no LLM in the loop (R-CAB-THREE-STAGE Day 4)
+  - ``analyzer`` — **DEFAULT**.  SQL state + Markdown report writer
+    (5 tools: execute_sql / describe_table / query_evidence /
+    inspect_drift_configs / format_and_export).  Owns Workflow A
+    (change plan → exports/change_plans/) and Workflow D (investigation
+    report → exports/reports/).  Delegates cross-domain to sim via
+    native ``task()`` for config-layer evaluation (dev_docs/77 §2.6).
+  - ``sim`` — Batfish-backed config-layer evaluator (3 tools:
+    batfish_capability / batfish_q / format_and_export).  Answers
+    BGP/OSPF compatibility, reachability, route lookup, route-map
+    policy test, ACL search, differential reachability.  No SQL,
+    no logs, no live device access.  Replaced the deleted
+    R-CAB-THREE-STAGE Python pipeline on 2026-05-14 (dev_docs/77 §2).
+  - ``analyze`` / ``ops-analyze`` — inspector-based read-side
+    analysis (8 @tools wrapping NetworkX queries: devices /
+    topology / routing / blast_radius / drift_*).  Owns the
+    Mermaid / blast-radius / visualization paths analyzer doesn't
+    cover.  Coexists with ``analyzer``.
   - ``investigate`` — log/syslog/config-text drilldown
-  - ``collect`` / ``ops-collect`` — data-plane probes, ``take_snapshot``
-  - ``lab`` / ``ops-lab`` — ContainerLab digital twin validation
-  - ``topology`` — discovery (BGP/OSPF/CDP/LLDP recipes)
-  - ``learner`` — parser learning (/learn_cmd flow)
+    (query_evidence).
+  - ``collect`` / ``ops-collect`` — data-plane probes,
+    ``take_snapshot``.
+  - ``topology`` — discovery (BGP/OSPF/CDP/LLDP recipes → typed
+    TopologySnapshot).
+  - ``learner`` — parser learning (/learn_cmd flow).
+
+  ## Enterprise-only sub-agents (require ``olav-ent`` install)
+
+  - ``lab`` — ContainerLab digital twin validator (currently
+    deferred, dev_docs/78).  In the free distribution this name
+    will return "sub-agent not found".
 
   ## True hallucinations — these will fail
 
@@ -46,13 +61,23 @@ body: |
   - ❌ ``task("config-discovery", ...)``
   - ❌ ``task("quick-query", ...)``
 
+  Stale names that NO LONGER exist (deleted in the 2026-05-14
+  R-CAB-THREE-STAGE removal — calling them will fail):
+
+  - ❌ ``submit_draft`` / ``receive_rejection`` — were analyzer's
+    OLD tools when it owned DraftChangePlan; analyzer now writes
+    Markdown directly.
+  - ❌ ``finalize_tcf`` / ``rejection_sim`` — were sim's OLD
+    skill-script; sim is now a Batfish LLM sub-agent.
+
   ## What to do when task() returns "sub-agent not found"
 
   The second arg was wrong.  Pick from the valid list above; do NOT
   retry with another made-up name.  If task() complains about the
   name, try ``olav_delegate`` as the alternate path — same semantics,
   different resolver.  If both fail, the capability genuinely
-  doesn't exist; say so to the user.
+  doesn't exist (e.g. ``lab`` in the free distribution); say so to
+  the user.
 
   ## Capability-level routing
 
@@ -61,18 +86,16 @@ body: |
 
   | User intent | First call |
   |---|---|
-  | Change plan / "add eBGP X-Y" / 变更方案 | task("sim", req) |
-  | What-if / blast-radius prediction | task("sim", req) |
-  | BGP / routing read-side state Q&A | task("analyze", req) |
-  | Snapshot diff / drift report | task("analyze", req) |
-  | Topology diagram / Mermaid | task("analyze", req) |
-  | Why / log / syslog / 故障定位 / 日志 | task("investigate", req) |
-  | "What does config say" / "show output of X" | task("investigate", req) |
-  | Lab validation / CAB / "test in lab" | task("lab", <plan from sim>) |
+  | DEFAULT — change plan / investigation / report / "why" / 调研 / 变更方案 | task("analyzer", req) |
+  | Pure config-layer ("does ACL drop X", "is BGP config compatible", "what route for prefix P") | task("sim", req) ← direct, skip analyzer hop |
+  | Topology diagram / Mermaid / blast-radius visualisation | task("analyze", req) |
+  | Why / log / syslog / 故障日志 | task("investigate", req) — or via analyzer |
   | Ping / traceroute / live data-plane | task("collect", req) |
   | Topology data discovery (LLDP/CDP) | task("topology", req) |
   | Parser learning (/learn_cmd) | task("learner", req) |
 
 related:
-  - intent: compound_chain_workflow
-    note: "compound prompts may need MULTIPLE task() calls in sequence"
+  - intent: plan_act_reflect_workflow
+    note: "analyzer's COLLECT_BROAD → PLAN → ACT → REFLECT → SYNTHESISE → EMIT skeleton"
+  - intent: batfish_question_catalog
+    note: "what sim can answer + per-question arg schema"

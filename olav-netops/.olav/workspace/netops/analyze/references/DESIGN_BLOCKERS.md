@@ -21,6 +21,6 @@ assume or invent values.
 
 1. If ANY BLOCKER is found → state it as **Phase 0 prerequisite** in the
    change plan. Do NOT assume or invent values.
-2. WARN items → list in Design Commentary (🟡 PREREQ in CAB flow).
+2. WARN items → list in Design Commentary (🟡 PREREQ in change flow).
 3. All DB queries use existing tables / views — never modify schema during
    feasibility check.

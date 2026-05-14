@@ -52,7 +52,7 @@ container (lab's job).  Backend: Batfish service at
 ### Detailed workflows
 
 See `prompts/system.md`:
-- **Workflow F** — CAB pre-flight validation (BGP/OSPF session viability for a change)
+- **Workflow F** — change pre-flight validation (BGP/OSPF session viability for a change)
 - **Workflow G** — Control-plane fault analysis (why is OSPF stuck in Init)
 - **Workflow H** — Differential reachability (will this change break who reaches whom)
 

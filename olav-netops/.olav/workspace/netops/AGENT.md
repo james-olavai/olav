@@ -35,21 +35,27 @@ tools:
 # back from top-level (workspace.yaml shrunk 6→3); analyze + lab +
 # collect already nested.
 subagents:
-  - path: ./analyze/SKILL.md
-  - path: ./analyzer/SKILL.md      # R-CAB-THREE-STAGE Day 2 2026-05-12 (dev_docs/75):
-                                   # Analyzer drafts a DraftChangePlan via
-                                   # submit_draft (LLM, fuzzy reasoning).
-  - path: ./sim/SKILL.md           # R-CAB-THREE-STAGE Day 4 2026-05-12 (dev_docs/75):
-                                   # Sim turns drafts into specs via
-                                   # finalize_tcf (Python, deterministic).
-                                   # agent_type=api; single skill-script.
-  - path: ./investigate/SKILL.md   # R-VERTICAL-SLICE Step 1 (2026-05-09,
-                                   # dev_docs/74): evidence drilldown — syslog,
-                                   # command output, config text
+  - path: ./analyze/SKILL.md       # Inspector-based read-side analysis
+                                   # (NetworkX inspectors): topology +
+                                   # routing + drift_* + blast_radius +
+                                   # Mermaid visualisation paths.
+  - path: ./analyzer/SKILL.md      # DEFAULT entry point (dev_docs/77 §2.6).
+                                   # SQL state + Markdown report writer.
+                                   # Owns Workflow A (change plan) +
+                                   # Workflow D (investigation report).
+                                   # Delegates cross-domain to sim.
+  - path: ./sim/SKILL.md           # Batfish-backed config-layer evaluator
+                                   # (dev_docs/77 §2 2026-05-14).  3 tools:
+                                   # batfish_capability / batfish_q /
+                                   # format_and_export.  Replaced the
+                                   # R-CAB-THREE-STAGE Python pipeline.
+  - path: ./investigate/SKILL.md   # Evidence drilldown — syslog,
+                                   # command output, config text.
   - path: ./collect/SKILL.md
-  - path: ./lab/SKILL.md
   - path: ./topology/SKILL.md
   - path: ./learner/SKILL.md
+  # ./lab/SKILL.md is an enterprise-only sub-agent provided by
+  # olav-ent — the free distribution does not ship it.
   # Cross-workspace platform sub-agent for format_and_export / save:
   - path: ../core/writer/SKILL.md
 ---
@@ -69,10 +75,11 @@ an external API (httpx → CLAB, service calls).
 
 | Sub-agent | isolation | Why |
 |---|---|---|
-| analyze (sim) | `True` | networkx / DuckDB only |
+| analyze (inspectors) | `True` | networkx / DuckDB only |
 | analyze (diff) | `True` | local comparison only |
 | analyze (topology) | `True` | graph algorithms only |
-| lab | `False` | pushes configs via httpx to ContainerLab |
+| sim | N/A | no sandbox — Batfish HTTP via batfish_q @tool |
+| lab (enterprise) | `False` | pushes configs via httpx to ContainerLab |
 | collect (probe) | N/A | no sandbox — uses execute_cli_parallel |
 
 `network_isolation=True` closes all network egress (urllib / aiohttp /
