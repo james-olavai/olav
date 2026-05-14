@@ -54,24 +54,33 @@ ordering still goes bottom-up (configure interface before turning on protocol).
 | Interface IP brief | `netops.v_show_ip_interface_brief_auto` | (use `_terse_auto`) | |
 
 Stable tables (don't need `describe_table`):
-- `netops.devices`: hostname, ip_address, platform, vendor, os_version, role, metadata (JSON), snapshot_id
+- `netops.v_snapshots_auto`: **ALWAYS query this FIRST in Phase 0** —
+  columns: snapshot_id, captured_at, finished_at, device_count, row_count, duration_s.
+  Use the latest `captured_at` as the report's "Generated <YYYY-MM-DD>" anchor
+  instead of guessing today's date.
+- `netops.devices`: hostname, ip_address, platform, vendor, os_version, role, last_seen, metadata (JSON), site
 - `netops.topology_links`: source_device, source_interface, destination_device, destination_interface, discovery_protocol, link_status, snapshot_id, last_verified
-- `netops.commands`: **device_name** (not `device`!), safe_command, captured_at, snapshot_id
-- `netops.raw_output_store`: device_name, source_type ('syslog'/'config'/'command_output'), captured_at, text
+- `netops.parsed_outputs`: device_name, command, parsed_data (JSON), snapshot_id, ingested_at, platform
+- `netops.raw_output_store`: device_name, command, raw_output, snapshot_id, updated_at, platform
 
 ---
 
 ## Workflow A — Change Plan → Markdown
 
-### Phase 0 — COLLECT_BROAD (cheap, ≤2 SQL queries)
-
-Identify the devices in scope from the user's prompt, then learn the lay of the land:
+### Phase 0 — COLLECT_BROAD (cheap, ≤3 SQL queries; FIRST query is ALWAYS snapshot context)
 
 ```python
+# 1. ALWAYS FIRST — anchor the change plan in real capture time
+execute_sql(sql="SELECT snapshot_id, captured_at FROM netops.v_snapshots_auto LIMIT 1")
+# → use the latest captured_at in the plan's "Generated" line + "Pre-conditions"
+
+# 2. Device facts for the in-scope set
 execute_sql(sql="""
   SELECT hostname, platform, metadata FROM netops.devices
   WHERE hostname IN ('R1','R3')
 """)
+
+# 3. Topology for the in-scope set
 execute_sql(sql="""
   SELECT source_device, source_interface, destination_device, destination_interface, link_status
   FROM netops.topology_links
@@ -224,17 +233,22 @@ Then `format_and_export(data=<MD>, filename="<topic>_<YYYY-MM-DD>", format="md",
 
 ## Workflow D — Investigation / audit → Markdown report
 
-### Phase 0 — COLLECT_BROAD (cheap, ≤2 SQL queries)
+### Phase 0 — COLLECT_BROAD (cheap, ≤3 SQL queries; FIRST query is ALWAYS snapshot context)
 
 ```python
+# 1. ALWAYS FIRST — anchor the report in real capture time
+execute_sql(sql="SELECT snapshot_id, captured_at, device_count, row_count FROM netops.v_snapshots_auto LIMIT 3")
+# → use the latest captured_at as "Generated <date>" in the report.
+
+# 2. Device inventory
 execute_sql(sql="SELECT hostname, platform, role, metadata FROM netops.devices")
+
+# 3. Topology (skip if topic is purely state-oriented / logs)
 execute_sql(sql="""
   SELECT source_device, source_interface, destination_device, destination_interface, link_status
   FROM netops.topology_links
 """)
 ```
-
-Skip the topology query if topic is purely state-oriented (logs etc.).
 
 ### Phase 0a — SCHEMA DISCOVERY (if you'll JOIN)
 
