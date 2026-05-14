@@ -384,6 +384,95 @@ Then `format_and_export(data=<MD>, filename="<topic>_<YYYY-MM-DD>", format="md",
    the deliverable; a human pushes it.
 2. **One markdown per request** — no multiple emits.
 3. **No fabricated facts** — every claim traces back to one of your
-   tool results.  If you didn't query, don't claim.
-4. **NetworkX / blast-radius is not your job** — delegate via
-   `task("sim", ...)` if a what-if question comes up.
+   tool results (yours OR a delegated sub-agent's).  If you didn't
+   query, don't claim.
+4. **Cross-domain via delegation** — config-layer questions go to
+   sim via Phase 2.5 DELEGATION (below); never invent config
+   semantics yourself.
+
+---
+
+## Phase 2.5 — DELEGATION (cross-domain via `task("sim", ...)`)
+
+**dev_docs/77 §2.6**.  Insert this phase between Phase 2 (ACT — own
+SQL stage) and Phase 3 (REFLECT) in BOTH Workflow A and Workflow D,
+whenever the investigation/change benefits from config-layer
+evaluation.
+
+### When to delegate to sim
+
+| Trigger in your Phase 2 results | Delegate via |
+|---|---|
+| "BGP session Established but 0 prefixes" → is config compatible? | `task("sim", "bgpSessionCompatibility for R1 R3 on snapshot <id>")` |
+| "OSPF Init / 2-Way stuck" → why config-wise? | `task("sim", "ospfSessionCompatibility for R3-R4 on snapshot <id>")` |
+| "could R1 reach 10.50.0.0/24 after change" → reachability what-if | `task("sim", "reachability from R1 to 10.50.0.0/24 on snapshot <id>")` |
+| "would this change break existing connectivity" → differential | `task("sim", "differentialReachability baseline=<X> candidate=<Y>")` |
+| "what route does R3 use for prefix P" → RIB lookup | `task("sim", "routes nodes=R3 network=P on snapshot <id>")` |
+| "what does this route-map actually permit" → policy test | `task("sim", "testRoutePolicy nodes=R3 policies=[RM-IN] inputRoutes=[...]")` |
+
+### How to delegate
+
+Use the native `task` tool (auto-injected because
+analyzer/SKILL.md declares `subagents: [../sim/SKILL.md]`).  Pass
+the snapshot_id you anchored in Phase 0 + a precise question:
+
+```
+sim_reply = task(
+    description=(
+        "On snapshot snap_20260514_101701_156d60, run "
+        "bgpSessionCompatibility for nodes R1 and R3. "
+        "Return the rows + a one-sentence verdict."
+    ),
+    subagent_type="sim",
+)
+```
+
+`sim_reply` is the sub-agent's final Markdown text.  Cite it
+verbatim in your final report (Phase 4 SYNTHESISE) — do not
+re-format or re-summarise unless adding cross-source synthesis.
+
+### Hard rules for delegation
+
+1. **One sim call per question type**.  If you need both BGP and
+   OSPF compat, make ONE call asking for both — do NOT chain
+   serially without need.
+2. **Pass the snapshot_id explicitly**.  sim doesn't know your
+   context; it needs the snapshot ID you anchored in Phase 0.
+3. **Never expect sim to query the DB / search logs**.  If sim
+   needs SQL state or syslog evidence, you fetch it yourself with
+   `execute_sql` / `query_evidence` and embed the results in the
+   delegation prompt.
+4. **Cite sim's reply as a dedicated report section**.  Header:
+   `## Config-layer Findings (delegated to sim)`.  Operators must
+   trace which findings came from which source.
+5. **Skip delegation when not useful**.  Simple "show me R3 BGP
+   state" prompts → just execute_sql; no need for sim.  Delegate
+   only when the question genuinely needs config-layer evaluation
+   that SQL can't provide.
+
+### Report structure when delegation happened
+
+```markdown
+# <Topic>
+_Generated <YYYY-MM-DD>; snapshot=<id>; sources: own execute_sql + delegated to sim_
+
+## Executive Summary
+- ...
+
+## State (from execute_sql)
+... your SQL findings ...
+
+## Config-layer Findings (delegated to sim)
+> Returned by sim, snapshot=<id>, questions=bgpSessionCompatibility
+| Node | Remote | State | Why |
+|---|---|---|---|
+...quoted from sim's reply...
+
+## Cross-source Synthesis
+SQL says BGP Established 0 prefixes; sim says config is
+NOT_COMPATIBLE (LOCAL_IP_UNKNOWN_STATICALLY).  Root cause is
+likely missing `update-source` on neighbor configuration.
+
+## Risks & Recommendations
+...
+```

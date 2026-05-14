@@ -1,13 +1,22 @@
 ---
 name: analyzer
-agent_type: api
-# 2026-05-13: refactor — analyzer is a STANDALONE 30B-friendly sub-agent
-# that outputs Markdown directly.  TCF / sim / lab coupling removed.
-# Two output modes (both Markdown via format_and_export):
+# 2026-05-14 cross-domain upgrade (dev_docs/77 §2.6): analyzer is
+# the *report author*.  For multi-substrate investigations it
+# delegates config-layer questions to ``sim`` via deepagents'
+# native ``task()`` tool (auto-injected because we declare
+# ``subagents:`` here + agent.py builds us via ``create_deep_agent``
+# per Phase 1 commit 360a8816).  ``agent_type: api`` is dropped:
+# analyzer needs TodoListMiddleware (planning across delegations)
+# and SubAgentMiddleware (task tool).
+#
+# 2026-05-13: standalone Markdown sub-agent (preserved).  Two output
+# modes (both Markdown via format_and_export):
 #   * Workflow A — change plan request → exports/change_plans/<topic>.md
 #   * Workflow D — investigation / audit / deep research → exports/reports/<topic>.md
-thinking_mode: enabled    # plan / reflect inside the agent itself
-description: "Standalone Markdown-output analyzer.  Two modes: (A) change-plan drafter — gather facts via inspect_*, then write a vendor-specific change plan markdown (CLI per device + rollback + post-checks + risks) to exports/change_plans/; (B) investigation/audit reporter — gather facts, synthesise across L1-L4 layers, write a structured report to exports/reports/.  Picks mode from the prompt: 'plan / add / change X' → A; 'investigate / audit / write report on Y' → B.  No downstream pipeline; engineer reads the markdown directly."
+thinking_mode: enabled
+subagents:
+  - path: ../sim/SKILL.md
+description: "Standalone Markdown-output analyzer + report author.  Two modes: (A) change-plan drafter — gather facts via execute_sql, write a vendor-specific change plan markdown (CLI per device + rollback + post-checks + risks) to exports/change_plans/; (B) investigation/audit reporter — gather facts, synthesise across L1-L4 layers, write a structured report to exports/reports/.  Mode picked from the prompt: 'plan / add / change X' → A; 'investigate / audit / write report on Y' → B.  For config-layer questions (BGP/OSPF compat, reachability, what-if), analyzer delegates to sim via task('sim', ...) per dev_docs/77 §2.6."
 tools:
   # 5-tool minimal set (2026-05-13 final refactor):
   - execute_sql          # SQL on main.duckdb (read-only) — covers facts + cross-view JOIN + snapshot diff
