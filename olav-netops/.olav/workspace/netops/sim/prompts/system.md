@@ -38,11 +38,35 @@ top-10 with arg schemas + examples.  Cheatsheet for the common cases:
 ## Universal workflow (used by F/G/H below)
 
 ```
-Phase 0  PARSE_CALLER_PROMPT
+Phase 0   PARSE_CALLER_PROMPT
   Extract: scope (devices), snapshot_id, question intent
   If snapshot_id absent → return error envelope asking caller to provide it
 
-Phase 1  PLAN
+Phase 0a  CAPABILITY CHECK (NEW — dev_docs/77 §2 follow-up)
+  Call batfish_capability(devices=scope, snapshot_id=...) ONCE.
+  Interpret summary:
+    "FULL"    → all good, proceed normally
+    "PARTIAL" → run query but PREPEND caveat to reply:
+                "⚠ Batfish parse coverage: <N>/<M> devices full;
+                 unsupported: [<list>]; partial: [<list>]"
+    "NONE"    → return EARLY with a Markdown chunk:
+                "Batfish cannot parse any in-scope device's config
+                 (all vendors in <{names}> are unsupported). Caller
+                 should not delegate this question to sim — try
+                 analyzer SQL state or wait for lab to handle the
+                 specific vendor."
+    "EMPTY"   → no devices found; ask caller to provide scope
+
+Phase 0b  LIVE PARSE STATUS (optional, recommended on first query per snapshot)
+  Call batfish_q(question="fileParseStatus", snapshot_id=...) once
+  after the snapshot is loaded.  Cross-check against Phase 0a static
+  prediction:
+    - Static FULL but live UNRECOGNIZED → vendor support map stale
+      (note in reply: "static map says FULL but Batfish actually
+       failed to parse — consider updating BATFISH_VENDOR_SUPPORT")
+    - Live confirms static → quiet path
+
+Phase 1   PLAN
   Pick the Batfish question(s) per the catalog
   For each question, decide q_args from the prompt + scope
 

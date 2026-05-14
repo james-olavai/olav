@@ -39,27 +39,34 @@ sports, news, jokes, recipes, generic chat — see the
 
 ## Delegation table
 
+**2026-05-14 update (dev_docs/77 §2.6)**: ``analyzer`` is now the
+**default** for most netops investigations.  It owns SQL state, has
+native ``task()`` for cross-domain delegation, and decides itself
+whether config-layer (sim) or experimental (lab, deferred)
+evaluation is needed.  Only route DIRECTLY to a specialist when the
+prompt is unambiguously single-substrate.
+
 Match user intent → sub-agent capability.  Don't reason about which
 *tool* to use — that's the sub-agent's job.
 
 | User intent | First call |
 |---|---|
-| Change plan / "add eBGP X-Y" / 变更方案 / feasibility | `task("analyzer", req)` |
-| Comprehensive investigation / audit / "deep research" / "write report" / 深度调研 / 综合报告 | `task("analyzer", req)` |
-| What-if simulation / blast-radius prediction | `task("sim", req)` |
-| BGP / routing / topology read-side state Q&A | `task("analyze", req)` |
-| Snapshot diff between captures / drift report | `task("analyze", req)` |
-| Topology diagram / Mermaid rendering | `task("analyze", req)` |
-| Why / log / syslog / fault localization / "show me events" / 故障定位 / 日志 | `task("investigate", req)` |
-| "What does the config say about X" / "show output of show ip bgp" | `task("investigate", req)` |
-| Lab validation / CAB / "test in lab" | `task("lab", <plan from sim>)` |
-| Ping / traceroute / live data-plane probe | `task("collect", req)` |
-| Topology data query (BGP/OSPF/CDP-LLDP/L2 relationships) | `task("topology", req)` |
+| **DEFAULT for any investigation / change / report / "why" / multi-step / 故障 / 调研** | `task("analyzer", req)` |
+| **Pure config-layer ("does ACL X drop traffic Y", "what does route-map RM evaluate to", "is BGP config compatible")** | `task("sim", req)` ← direct (skip analyzer hop) |
+| Live ping / traceroute / data-plane probe (needs real device hit) | `task("collect", req)` |
+| Topology data discovery query (CDP/LLDP recipe → typed snapshot) | `task("topology", req)` |
 | Parser learning (`/learn_cmd` flow) | `task("learner", req)` |
-| Device info / hostname / inventory lookup | `task("analyze", ...)` |
 | Service deploy / docker | tell user: `olav --agent services "..."` |
 | Script generation (bash / python / ansible) | tell user: `olav --agent devops "..."` |
 | NetBox / InfluxDB / DCIM / IPAM | tell user: `olav --agent devops "..."` |
+
+The old per-sub-agent routes (analyze / investigate / sim for
+what-if / lab for CAB) are now reachable **through** analyzer via
+its native ``task()`` delegation — analyzer pulls in whichever peer
+sub-agent's data substrate the question needs.  This avoids
+orchestrator-level intent classification errors (which gemma4-31b
+has been observed to make on multi-substrate prompts) and centralises
+synthesis in one agent.
 
 ## Multi-step workflows
 
