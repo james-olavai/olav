@@ -1053,12 +1053,19 @@ class OLAVAgent:
                     f"  → '{name}' is a recursive deep-agent with "
                     f"{len(nested)} nested sub-agent(s); task() auto-injected"
                 )
+                # create_deep_agent installs its own complete middleware
+                # stack (TodoListMiddleware + SubAgentMiddleware +
+                # FilesystemMiddleware + summarization + prompt-caching
+                # when configured at the orchestrator level).  Passing
+                # ANY of our sub-agent-level middleware produces
+                # "Please remove duplicate middleware instances".  Let
+                # deepagents own the full stack; we just pass the
+                # tools + subagents wiring.
                 runnable = create_deep_agent(
                     model=sa_llm,
                     system_prompt=prompt,
                     tools=tools,
                     subagents=nested,
-                    middleware=_middleware,
                     name=name,
                 )
             else:
