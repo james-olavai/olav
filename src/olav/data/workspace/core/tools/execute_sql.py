@@ -210,8 +210,8 @@ class SchemaContext:
                             "netops.oc_outputs", "netops.parsed_outputs"}
             PREFER_SAMPLES = [
                 "main.v_bgp_neighbors_auto", "main.v_interfaces_auto",
-                "main.v_ospf_neighbors_auto", "main.v_topology_l2_auto",
-                "main.v_topo_links_clean", "netops.devices",
+                "main.v_ospf_neighbors_auto", "main.v_l2_links_auto",
+                "netops.topology_links", "netops.devices",
             ]
             self._schema_cache["samples"] = {}
             # First try preferred tables, then fill from remaining (skip noisy ones)
@@ -293,14 +293,10 @@ class SchemaContext:
         context_parts.append(
             "  v_interfaces_auto         → interface admin/oper status + IP address per device\n"
             "  v_bgp_neighbors_auto      → BGP neighbor state, remote-AS, prefixes received\n"
-            "  v_ospf_neighbors_auto     → OSPF neighbor state + cost (LLM-compiled, all vendors)\n"
-            "  v_topology_l2_auto        → L2 neighbors: CDP/LLDP local/remote interface + protocol\n"
+            "  v_ospf_neighbors_auto     → OSPF neighbor state + cost (cross-vendor)\n"
+            "  v_l2_links_auto           → L2 neighbors (CDP/LLDP): cleaned topology view\n"
+            "  netops.topology_links     → CDP/LLDP base table: src/dst device + interface pairs\n"
             "  v_arp_auto                → ARP table: ip_address, mac_address, interface per device\n"
-            "  v_topo_links_clean        → resolved topology: src/dst device + interface pairs\n"
-            "  v_device_neighbors_summary → compact neighbor table (LLDP/CDP)\n"
-            "  v_isis_adjacencies        → IS-IS adjacency state + level\n"
-            "  v_evpn_instances          → EVPN VNI/RD per device\n"
-            "  v_mpls_ldp_peers          → MPLS LDP peer state\n"
             "  netops.devices            → device inventory: hostname, platform, ip_address, role\n"
             "  netops.parsed_outputs     → raw TextFSM rows: parsed_data (JSON), command, snapshot_id\n"
             "  netops.topology_links     → computed topology links (src/dst device+interface+protocol)\n"
@@ -483,7 +479,7 @@ def main(params: dict) -> dict:
                 "netops.parsed_outputs(device_name,command,parsed_data,snapshot_id) | "
                 "netops.topology_links(source_device,source_interface,destination_device,destination_interface,discovery_protocol) | "
                 "views(no prefix): v_interfaces_auto, v_bgp_neighbors_auto, v_ospf_neighbors_auto, "
-                "v_topology_l2_auto, v_arp_auto, v_topo_links_clean"
+                "v_l2_links_auto, v_arp_auto"
             )
             output = DatabaseQueryOutput(
                 data=display_data,

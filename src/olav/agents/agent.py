@@ -1083,7 +1083,17 @@ class OLAVAgent:
             # top. gemma4 was triggering read_file post-task to
             # "verify" its own output — pruning here stops that
             # plan-loop tail. write_todos handled via agent_type:api.
-            _prune_graph_tools(runnable, _DEEPAGENTS_INJECT_TOOLS, f"sub-agent '{name}'")
+            #
+            # 2026-05-14: a sub-agent that *explicitly* whitelists a tool
+            # in its SKILL.md (e.g. ``writer`` needs ``read_file`` to
+            # polish exports/) must keep that tool through pruning —
+            # otherwise the whitelist is silently ignored and the agent
+            # fails at invocation time with "Middleware added tools that
+            # the agent doesn't know how to execute".
+            _effective_prune = _DEEPAGENTS_INJECT_TOOLS
+            if sa_filter is not None:
+                _effective_prune = _DEEPAGENTS_INJECT_TOOLS - sa_filter
+            _prune_graph_tools(runnable, _effective_prune, f"sub-agent '{name}'")
             subagents.append(
                 {
                     "name": name,

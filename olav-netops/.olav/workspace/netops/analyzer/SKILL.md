@@ -41,6 +41,23 @@ allowed_tables:
   - netops.v_show_interfaces_terse_auto
   - netops.v_l2_links_auto
 static_context_mode: on_intent
+
+# 2026-05-14: portability manifest — list YAML knowledge files
+# located under ./references/.  OLAV runtime continues recursive
+# import via ``olav kb import-guides`` (behaviour unchanged); this
+# field is for downstream agent frameworks (LangGraph etc.) that
+# need an explicit knowledge inventory to migrate the agent.
+# Each referenced YAML carries its own ``keywords``/``priority``/
+# ``body`` so the consumer can implement AutoRecall-style or
+# fall-back-to-static loading.
+dynamic_context:
+  - path: ./references/topology_query.guide.yaml
+  - path: ./references/change_plan_cli_authoring.guide.yaml
+  - path: ./references/fault_analysis_workflow.guide.yaml
+  - path: ./references/plan_act_reflect_workflow.guide.yaml
+  - path: ./references/schema_introspection_via_describe_table.guide.yaml
+  - path: ./references/troubleshoot_layered_l1_to_l4.guide.yaml
+
 system: $ref:./prompts/system.md
 metadata:
   version: 5.0.0

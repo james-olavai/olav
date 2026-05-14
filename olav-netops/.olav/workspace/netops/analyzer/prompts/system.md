@@ -308,10 +308,13 @@ Source SQL:
 Notes:
 - Lab platform is uniformly SR Linux (copyright + unified strategy);
   no per-device vendor image needed.
-- Lab generates clab YAML from this table; analyzer does NOT emit
-  YAML directly.
+- Lab generates clab YAML from the Adjacencies table (not a Mermaid
+  block); analyzer does NOT emit YAML directly.
 - IGP reachability data (for L4 loopback peering) goes in
   "Pre-conditions" below — not duplicated here.
+- Topology diagram (Mermaid) is added later if needed by invoking
+  the core writer sub-agent ``polish + embed topology`` on the
+  saved change plan — analyzer does NOT render Mermaid itself.
 
 ## Pre-conditions (facts observed)
 - <bullets from execute_sql results>

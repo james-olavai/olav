@@ -97,7 +97,16 @@ class UsageGuide:
 
 
 def discover_guides(workspace_root: Path) -> list[UsageGuide]:
-    """Glob every ``*.guide.yaml`` under ``workspace_root/<agent>/guides/``.
+    """Glob every ``*.guide.yaml`` anywhere under ``workspace_root``.
+
+    Pre-2026-05-14 the importer only scanned ``guides/`` directories.
+    That broke when guides moved to ``<skill>/references/`` (for
+    portability — see SKILL.md ``dynamic_context`` manifest).  Now
+    the importer simply finds every ``*.guide.yaml`` regardless of
+    parent directory name; SKILL.md ``dynamic_context`` remains the
+    canonical authoritative reference for downstream agent
+    frameworks, while OLAV's runtime keeps the convenient recursive
+    scan.
 
     Returns successfully-loaded guides; logs and skips invalid files
     rather than aborting (so one bad guide doesn't block ingest).
@@ -109,7 +118,7 @@ def discover_guides(workspace_root: Path) -> list[UsageGuide]:
             workspace_root,
         )
         return guides
-    for path in sorted(workspace_root.rglob("guides/*.guide.yaml")):
+    for path in sorted(workspace_root.rglob("*.guide.yaml")):
         try:
             guides.append(UsageGuide.from_yaml(path))
         except (KeyError, ValueError, yaml.YAMLError) as exc:

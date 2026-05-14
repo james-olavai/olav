@@ -236,14 +236,26 @@ def _insert_link(
 
     link_id = _make_link_id(src_dev, src_intf, dst_dev, dst_intf)
     try:
+        # 2026-05-14: switched from INSERT OR IGNORE to ON CONFLICT
+        # DO UPDATE so subsequent snapshots refresh the link's
+        # snapshot_id / last_seen / status.  The previous INSERT OR
+        # IGNORE froze the table to the first snapshot's data forever,
+        # making render_topology_mermaid / drift detection blind to
+        # newer captures.  ``first_seen`` is preserved.
         con.execute(
             """
-            INSERT OR IGNORE INTO netops.topology_links
+            INSERT INTO netops.topology_links
                 (link_id, source_device, source_interface,
                  destination_device, destination_interface,
                  discovery_protocol, link_type, link_status,
                  first_seen, last_seen, snapshot_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, 'up', ?, ?, ?)
+            ON CONFLICT (link_id) DO UPDATE SET
+                last_seen          = excluded.last_seen,
+                last_verified      = excluded.last_seen,
+                snapshot_id        = excluded.snapshot_id,
+                link_status        = excluded.link_status,
+                discovery_protocol = excluded.discovery_protocol
             """,
             [link_id, src_dev, src_intf, dst_dev, dst_intf,
              protocol, link_type, now, now, snapshot_id or "unknown"],
