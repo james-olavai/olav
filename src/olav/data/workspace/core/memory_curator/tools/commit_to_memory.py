@@ -107,6 +107,64 @@ def _detect_topology_media_type(body: str) -> str:
     return "unknown"
 
 
+def _write_kb_audit_row(
+    *,
+    workspace_root: Path,
+    action: str,
+    intent: str,
+    agent: str,
+    source_tier: str | None = None,
+    body: str = "",
+    keywords: list[str] | None = None,
+    reason: str | None = None,
+    actor: str | None = None,
+) -> Path:
+    """Write one ``kb_audit/<ts>_<verb>_<intent>.yaml`` audit row.
+
+    dev_docs/79: every KB-mutating action (commit / remove) appends one
+    YAML file to ``<workspace>/kb_audit/`` so the change record is git-
+    trackable + grep-able six months later.  Distinct from the
+    ``audit.duckdb`` row written by the tool-call middleware (which
+    captures invocation but not semantic intent).
+    """
+    import os
+    import hashlib
+    from datetime import datetime, timezone
+
+    audit_dir = workspace_root / "kb_audit"
+    audit_dir.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(timezone.utc).astimezone()
+    ts = now.strftime("%Y-%m-%dT%H-%M-%S")
+    fname = f"{ts}_{action}_{intent}.yaml"
+    target = audit_dir / fname
+
+    body_sha = (
+        hashlib.sha256(
+            (body + "\n" + "\n".join(keywords or [])).encode("utf-8")
+        ).hexdigest()
+        if body or keywords
+        else ""
+    )
+    row = {
+        "action": action,
+        "intent": intent,
+        "agent": agent,
+        "actor": actor or os.environ.get("USER", "unknown"),
+        "timestamp": now.isoformat(timespec="seconds"),
+        "body_sha256": body_sha,
+    }
+    if source_tier is not None:
+        row["source_tier"] = source_tier
+    if reason is not None:
+        row["reason"] = reason
+
+    target.write_text(
+        yaml.safe_dump(row, sort_keys=False, allow_unicode=True, default_flow_style=False),
+        encoding="utf-8",
+    )
+    return target
+
+
 def _commit_usage_guide(
     *,
     intent: str,
@@ -123,10 +181,16 @@ def _commit_usage_guide(
     guides_dir.mkdir(parents=True, exist_ok=True)
     guide_path = guides_dir / f"{intent}.guide.yaml"
 
+    # 2026-05-15 (dev_docs/79): R102 conversational commits always
+    # carry source_tier: user — the lowest-trust band so user-spoken
+    # rules can't outrank platform / team / vendor guides in retrieval.
+    # Promotion to team/platform tier is via git PR, not via the
+    # conversational path (preserves audit chain).
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "intent": intent,
         "agent": agent,
+        "source_tier": "user",
         "keywords": list(keywords),
         "body": body.strip() + "\n",
     }
@@ -145,6 +209,18 @@ def _commit_usage_guide(
     memory_id = f"guide_{agent}_{intent}"
     visibility = [agent] if scope != "global" else [agent, "global (all agents)"]
 
+    # 2026-05-15: write kb_audit row alongside LanceDB upsert so the
+    # commit has a git-trackable trail beyond the audit.duckdb row.
+    _write_kb_audit_row(
+        workspace_root=workspace_root,
+        action="commit",
+        intent=intent,
+        agent=agent,
+        source_tier="user",
+        body=body,
+        keywords=keywords,
+    )
+
     return {
         "status": "success",
         "category": "usage_guide",
@@ -153,6 +229,7 @@ def _commit_usage_guide(
         "primed": prime_result.get("guide_entries", 0) > 0,
         "agent_visibility": visibility,
         "prime_summary": prime_result,
+        "source_tier": "user",
     }
 
 

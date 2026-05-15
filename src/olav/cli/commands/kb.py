@@ -451,6 +451,203 @@ def cmd_backfill_tags(args) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# ── 2026-05-15 (dev_docs/79) — enterprise KB lifecycle commands ──────
+
+def _find_guide(
+    workspace_root: Path,
+    intent: str,
+    agent_hint: str | None = None,
+) -> tuple[Path, dict]:
+    """Locate ``<intent>.guide.yaml`` under ``workspace_root``.
+
+    If ``agent_hint`` is given, only that agent's guides directory is
+    searched.  Otherwise the search spans the whole workspace and the
+    caller gets an error if more than one agent owns the same intent.
+    """
+    import yaml
+    candidates = []
+    for path in workspace_root.rglob(f"{intent}.guide.yaml"):
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError:
+            continue
+        if data.get("intent") != intent:
+            continue
+        if agent_hint and data.get("agent") != agent_hint:
+            continue
+        candidates.append((path, data))
+    if not candidates:
+        scope = f"agent={agent_hint!r}" if agent_hint else "any agent"
+        raise FileNotFoundError(
+            f"No guide '{intent}' found under {workspace_root} ({scope})"
+        )
+    if len(candidates) > 1:
+        agents = sorted({d.get("agent", "?") for _, d in candidates})
+        raise ValueError(
+            f"Multiple guides named '{intent}' found "
+            f"(agents: {agents}). Disambiguate with --agent <name>."
+        )
+    return candidates[0]
+
+
+def _write_audit_row(
+    workspace_root: Path,
+    *,
+    action: str,
+    intent: str,
+    agent: str,
+    reason: str | None = None,
+    body_sha256: str = "",
+    source_tier: str | None = None,
+) -> Path:
+    """Append one ``kb_audit/<ts>_<verb>_<intent>.yaml`` row."""
+    import os
+    import yaml
+    from datetime import datetime, timezone
+
+    audit_dir = workspace_root / "kb_audit"
+    audit_dir.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(timezone.utc).astimezone()
+    fname = f"{now.strftime('%Y-%m-%dT%H-%M-%S')}_{action}_{intent}.yaml"
+    target = audit_dir / fname
+    row = {
+        "action": action,
+        "intent": intent,
+        "agent": agent,
+        "actor": os.environ.get("USER", "unknown"),
+        "timestamp": now.isoformat(timespec="seconds"),
+        "body_sha256": body_sha256,
+    }
+    if reason is not None:
+        row["reason"] = reason
+    if source_tier is not None:
+        row["source_tier"] = source_tier
+    target.write_text(
+        yaml.safe_dump(row, sort_keys=False, allow_unicode=True, default_flow_style=False),
+        encoding="utf-8",
+    )
+    return target
+
+
+def cmd_remove(args) -> int:
+    """`olav kb remove <intent>` — tombstone + LanceDB delete + audit row."""
+    import hashlib
+    import os
+    import yaml
+
+    workspace_root = Path(args.workspace).resolve()
+    if not workspace_root.exists():
+        print(f"workspace root not found: {workspace_root}", file=sys.stderr)
+        return 1
+
+    # Reason gate
+    reason = args.reason
+    if not reason and not os.environ.get("OLAV_KB_REMOVE_ALLOW_NO_REASON"):
+        print(
+            "error: --reason is required (override with "
+            "OLAV_KB_REMOVE_ALLOW_NO_REASON=1 for batch scripts)",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        guide_path, data = _find_guide(workspace_root, args.intent, args.agent)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    agent = data.get("agent", args.agent or "?")
+    source_tier = data.get("source_tier", "user")
+    body = str(data.get("body", ""))
+    body_sha = hashlib.sha256(body.encode("utf-8")).hexdigest() if body else ""
+    memory_id = f"guide_{agent}_{args.intent}"
+
+    # 1. Tombstone (unless --keep-yaml)
+    if not args.keep_yaml:
+        tomb = guide_path.with_suffix(guide_path.suffix + ".removed")
+        guide_path.rename(tomb)
+        tombstone_note = f"tombstoned → {tomb.name}"
+    else:
+        tombstone_note = "yaml kept (--keep-yaml); reprime will resurrect"
+
+    # 2. LanceDB delete
+    try:
+        store = _get_store()
+        store.delete_memory(id=memory_id)
+        lance_note = f"LanceDB row {memory_id} deleted"
+    except Exception as exc:
+        lance_note = f"LanceDB delete failed: {exc}"
+
+    # 3. Audit row
+    audit_path = _write_audit_row(
+        workspace_root,
+        action="remove",
+        intent=args.intent,
+        agent=agent,
+        reason=reason or "",
+        body_sha256=body_sha,
+        source_tier=source_tier,
+    )
+
+    print(f"✓ removed {args.intent} (agent={agent}, tier={source_tier})")
+    print(f"  • {tombstone_note}")
+    print(f"  • {lance_note}")
+    print(f"  • audit: {audit_path.relative_to(workspace_root)}")
+    if reason:
+        print(f"  • reason: {reason}")
+    return 0
+
+
+def cmd_show(args) -> int:
+    """`olav kb show <intent>` — print the guide YAML."""
+    workspace_root = Path(args.workspace).resolve()
+    try:
+        guide_path, _ = _find_guide(workspace_root, args.intent, args.agent)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(guide_path.read_text(encoding="utf-8"))
+    return 0
+
+
+def cmd_list_guides(args) -> int:
+    """`olav kb list-guides` — table of active guides + tiers."""
+    import yaml
+    workspace_root = Path(args.workspace).resolve()
+    if not workspace_root.exists():
+        print(f"workspace root not found: {workspace_root}", file=sys.stderr)
+        return 1
+
+    rows = []
+    for path in sorted(workspace_root.rglob("*.guide.yaml")):
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError:
+            continue
+        intent = data.get("intent", "?")
+        agent = data.get("agent", "?")
+        tier = data.get("source_tier") or "user (legacy)"
+        if args.tier and not str(tier).startswith(args.tier):
+            continue
+        if args.agent and agent != args.agent:
+            continue
+        rows.append((agent, intent, tier, path.relative_to(workspace_root)))
+
+    if not rows:
+        print("No guides found." if not args.tier and not args.agent
+              else f"No guides match filter (tier={args.tier}, agent={args.agent}).")
+        return 0
+
+    w_agent = max(len("AGENT"), max(len(r[0]) for r in rows))
+    w_intent = max(len("INTENT"), max(len(r[1]) for r in rows))
+    w_tier = max(len("TIER"), max(len(str(r[2])) for r in rows))
+    print(f"{'AGENT':<{w_agent}}  {'INTENT':<{w_intent}}  {'TIER':<{w_tier}}  PATH")
+    print("-" * (w_agent + w_intent + w_tier + 12))
+    for agent, intent, tier, p in rows:
+        print(f"{agent:<{w_agent}}  {intent:<{w_intent}}  {tier:<{w_tier}}  {p}")
+    return 0
+
+
 def build_kb_parser(parent_subparsers) -> argparse.ArgumentParser:
     """Register `kb` subcommand on a parent argparse subparsers object."""
     kb_parser = parent_subparsers.add_parser(
@@ -554,6 +751,44 @@ def build_kb_parser(parent_subparsers) -> argparse.ArgumentParser:
     bft.add_argument("--batch-size", type=int, default=50, dest="batch_size")
     bft.add_argument("--dry-run", action="store_true", dest="dry_run", help="Preview only")
 
+    # 2026-05-15 (dev_docs/79): enterprise lifecycle commands ──────────
+    rm = kb_sub.add_parser(
+        "remove",
+        help="Remove a usage_guide by intent — writes tombstone YAML + "
+             "kb_audit row + deletes LanceDB row.  Requires --reason.",
+    )
+    rm.add_argument("intent", help="Guide intent (e.g. netbox_sync_defaults)")
+    rm.add_argument("--agent", default=None,
+                    help="Disambiguate if multiple agents declare the same intent")
+    rm.add_argument("--reason", default=None, required=False,
+                    help="Free-form reason for the removal (required unless "
+                         "OLAV_KB_REMOVE_ALLOW_NO_REASON=1)")
+    rm.add_argument("--keep-yaml", action="store_true", dest="keep_yaml",
+                    help="Don't rename source YAML to .removed; only evict "
+                         "LanceDB row (use when re-priming after edit)")
+    rm.add_argument("--workspace", default=".olav/workspace",
+                    help="Workspace root (default: .olav/workspace)")
+
+    sh = kb_sub.add_parser(
+        "show",
+        help="Print the YAML source of a usage_guide (for promotion / inspection)",
+    )
+    sh.add_argument("intent", help="Guide intent to show")
+    sh.add_argument("--agent", default=None, help="Disambiguate by agent")
+    sh.add_argument("--workspace", default=".olav/workspace",
+                    help="Workspace root (default: .olav/workspace)")
+
+    lg = kb_sub.add_parser(
+        "list-guides",
+        help="Table of active usage_guide entries with source_tier",
+    )
+    lg.add_argument("--tier", default=None,
+                    choices=["vendor", "platform", "team", "user"],
+                    help="Filter by source_tier")
+    lg.add_argument("--agent", default=None, help="Filter by agent")
+    lg.add_argument("--workspace", default=".olav/workspace",
+                    help="Workspace root (default: .olav/workspace)")
+
     return kb_parser
 
 
@@ -585,6 +820,12 @@ def handle_kb_command(args) -> int:
         return cmd_search(args)
     elif kb_cmd == "backfill-tags":
         return cmd_backfill_tags(args)
+    elif kb_cmd == "remove":
+        return cmd_remove(args)
+    elif kb_cmd == "show":
+        return cmd_show(args)
+    elif kb_cmd == "list-guides":
+        return cmd_list_guides(args)
     else:
         print(f"Unknown kb subcommand: {kb_cmd}", file=sys.stderr)
         return 1

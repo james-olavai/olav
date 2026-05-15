@@ -49,6 +49,36 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
+# 2026-05-15 (dev_docs/79): canonical source-tier hierarchy.  Every
+# usage_guide gets a tier label; the priority + weight pair is
+# derived from the tier so user-spoken rules can't outrank
+# architectural invariants by accident.
+#
+# ``priority → weight`` math (preserved from rev 2026-05-14):
+#     weight = 0.5 + (priority - 1) * (1.5 / 9.0)
+# So priority 1 → 0.5, 5 → 1.0, 10 → 2.0.
+SOURCE_TIERS: dict[str, dict[str, float]] = {
+    "vendor":   {"priority": 10, "weight": 2.0},
+    "platform": {"priority":  8, "weight": 1.67},
+    "team":     {"priority":  6, "weight": 1.33},
+    "user":     {"priority":  3, "weight": 0.83},
+}
+# Legacy un-tagged guides (schema_version 1 with no source_tier field)
+# default to "user" — the most conservative tier so they don't outrank
+# tier-tagged platform / team guides during migration.
+DEFAULT_SOURCE_TIER = "user"
+
+
+def _tier_priority(tier: str) -> int:
+    """Map source_tier → priority. Falls back to DEFAULT_SOURCE_TIER on miss."""
+    return int(SOURCE_TIERS.get(tier, SOURCE_TIERS[DEFAULT_SOURCE_TIER])["priority"])
+
+
+def _tier_weight(tier: str) -> float:
+    """Map source_tier → weight (used directly by LanceDB rerank)."""
+    return float(SOURCE_TIERS.get(tier, SOURCE_TIERS[DEFAULT_SOURCE_TIER])["weight"])
+
+
 @dataclass
 class UsageGuide:
     """One YAML guide entry, loaded from disk."""
@@ -62,6 +92,11 @@ class UsageGuide:
     # linearly to LanceDB ``weight`` at insert time so high-priority
     # guides outrank operational_event noise in mixed recall results.
     priority: int = 5
+    # 2026-05-15 (dev_docs/79): source_tier field for trust hierarchy.
+    # Replaces hand-set priority — when source_tier is present, it
+    # overrides priority via SOURCE_TIERS map.  Missing field on a
+    # schema_version=1 YAML defaults to "user" (least trusted).
+    source_tier: str = DEFAULT_SOURCE_TIER
     related: list[dict] = field(default_factory=list)
     source_path: Path | None = None
 
@@ -84,13 +119,32 @@ class UsageGuide:
             isinstance(k, str) for k in keywords
         ):
             raise ValueError(f"{path}: 'keywords' must be a list of strings")
+        # 2026-05-15: derive priority from source_tier when present.  Legacy
+        # schema_version=1 YAML without source_tier maps to "user" → priority 3.
+        raw_tier = data.get("source_tier")
+        if raw_tier is not None:
+            tier = str(raw_tier).lower()
+            if tier not in SOURCE_TIERS:
+                raise ValueError(
+                    f"{path}: source_tier '{tier}' not in "
+                    f"{sorted(SOURCE_TIERS)}"
+                )
+            derived_priority = _tier_priority(tier)
+        else:
+            tier = DEFAULT_SOURCE_TIER
+            # Honour explicit ``priority:`` field on un-tagged YAML so the
+            # pre-2026-05-15 hand-set priorities (e.g. priority: 10 on the
+            # schema guides shipped 2026-05-15 commit 7f1ae71d) keep
+            # working until those files are migrated to schema v2.
+            derived_priority = int(data.get("priority", _tier_priority(tier)))
         return cls(
             intent=str(data["intent"]),
             agent=str(data["agent"]),
             keywords=[str(k) for k in keywords],
             body=str(data["body"]).strip(),
             schema_version=int(data.get("schema_version", 1)),
-            priority=int(data.get("priority", 5)),
+            priority=derived_priority,
+            source_tier=tier,
             related=list(data.get("related") or []),
             source_path=path,
         )
@@ -123,11 +177,32 @@ def discover_guides(workspace_root: Path) -> list[UsageGuide]:
             workspace_root,
         )
         return guides
+    # 2026-05-15 (dev_docs/79): collect tombstoned intents to skip during
+    # discovery.  A tombstone is ``<intent>.guide.yaml.removed`` — same
+    # name with ``.removed`` suffix — written by ``olav kb remove`` to
+    # mark an intent as decommissioned without losing the audit trail.
+    tombstoned_ids: set[str] = set()
+    for tomb in workspace_root.rglob("*.guide.yaml.removed"):
+        try:
+            data = yaml.safe_load(tomb.read_text(encoding="utf-8")) or {}
+            ident = f"guide_{data.get('agent', '?')}_{data.get('intent', '?')}"
+            tombstoned_ids.add(ident)
+        except yaml.YAMLError as exc:
+            logger.warning("guide_kb: tombstone parse failed %s — %s", tomb, exc)
+
     for path in sorted(workspace_root.rglob("*.guide.yaml")):
         try:
-            guides.append(UsageGuide.from_yaml(path))
+            g = UsageGuide.from_yaml(path)
         except (KeyError, ValueError, yaml.YAMLError) as exc:
             logger.warning("guide_kb: failed to load %s — %s", path, exc)
+            continue
+        if g.memory_id in tombstoned_ids:
+            logger.info(
+                "guide_kb: skip tombstoned %s (source %s)",
+                g.memory_id, path,
+            )
+            continue
+        guides.append(g)
     return guides
 
 
@@ -202,14 +277,13 @@ def prime_guides_from_dir(
         # tags: JSON list, contains agent + intent + all keywords so a
         # tag-FTS index (future Phase 3 work) can light up cleanly.
         tag_list = [guide.intent, guide.agent] + list(guide.keywords)
-        # 2026-05-14: derive ``weight`` from the guide's ``priority`` field.
-        # Maps priority 1..10 → weight 0.5..2.0 (linear).  Default priority=5
-        # → weight=1.0 (parity with pre-2026-05-14 behaviour).  This makes
-        # high-priority guides (priority>=8) outrank both operational_event
-        # entries (weight 0.5) and standard guides in mixed recall results.
-        guide_priority = getattr(guide, "priority", None)
+        # 2026-05-15 (dev_docs/79): weight comes from source_tier when
+        # schema_version >= 2; legacy v1 entries honour the explicit
+        # ``priority:`` field (back-compat) and derive weight from that.
+        # Either way the priority→weight math is:
+        #   weight = 0.5 + (priority - 1) * (1.5 / 9.0)
+        guide_priority = getattr(guide, "priority", 5)
         if isinstance(guide_priority, (int, float)) and guide_priority > 0:
-            # priority 1 → 0.5; priority 5 → 1.0; priority 10 → 2.0
             guide_weight = 0.5 + (float(guide_priority) - 1.0) * (1.5 / 9.0)
         else:
             guide_weight = 1.0
@@ -224,6 +298,7 @@ def prime_guides_from_dir(
                     "intent": guide.intent,
                     "agent": guide.agent,
                     "schema_version": guide.schema_version,
+                    "source_tier": guide.source_tier,
                     "n_keywords": len(guide.keywords),
                     "priority": guide_priority,
                 },
