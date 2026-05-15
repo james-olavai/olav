@@ -4,6 +4,12 @@ agent_type: api  # skip TodoListMiddleware (NETOPS sub-agents are tool-execution
 # R-VERTICAL-SLICE 2026-05-09: sub-agent uses no-think for
 # fast tool execution; orchestrator handles planning.
 thinking_mode: disabled
+# 2026-05-15: TextFSM template generation is mechanical pattern
+# extraction — temp 0.0 keeps identical raw output → identical parser
+# (regression detection becomes trivial; non-deterministic temp would
+# mask which input change actually drove a template diff).
+llm:
+  temperature: 0.0
 description: >
   Parser-layer learning for CLI output. Takes raw device output the
   stock ntc-templates can't parse and produces a persistent parser

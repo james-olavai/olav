@@ -4,6 +4,11 @@ agent_type: api  # skip TodoListMiddleware (NETOPS sub-agents are tool-execution
 # R-VERTICAL-SLICE 2026-05-09: sub-agent uses no-think for
 # fast tool execution; orchestrator handles planning.
 thinking_mode: disabled
+# 2026-05-15: deterministic single-call grep-style searches — pin
+# temperature to 0.0 so identical queries return byte-identical
+# matched lines (no sampling drift).
+llm:
+  temperature: 0.0
 description: "Evidence drilldown for fault analysis. Searches recorded text — syslog, command output, config — for a pattern on a device. Returns matched lines with timestamps. Use when user asks why/log/syslog/具体输出/为什么/故障定位."
 metadata:
   version: 1.0.0

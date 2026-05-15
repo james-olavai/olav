@@ -1,0 +1,122 @@
+{
+  "$schema": "./schemas/api.json",
+  "description": "API Configuration - Unified LLM and Embedding settings",
+  "notes": [
+    "Unified API configuration for LLM and Embedding",
+    "Environment variables override JSON values (prefix: OLAV_API_, OLAV_LLM_, OLAV_EMBEDDING_)"
+  ],
+  "shared": {
+    "api_key": "ollama",
+    "timeout": 300
+  },
+  "llm": {
+    "provider": "custom",
+    "model": "qwen3.6:27b",
+    "base_url": "http://192.168.100.12:11434/v1",
+    "temperature": 0.1,
+    "max_tokens": 32768,
+    "custom_headers": {},
+    "providers": {
+      "openai": {
+        "description": "OpenAI API or OpenAI-compatible (OpenRouter, Together, etc.)",
+        "default_model": "gpt-4-turbo"
+      },
+      "anthropic": {
+        "description": "Anthropic Claude API",
+        "default_model": "claude-3-5-sonnet-20241022"
+      },
+      "azure_openai": {
+        "description": "Microsoft Azure OpenAI",
+        "default_model": "gpt-4-turbo",
+        "required_fields": [
+          "azure_deployment",
+          "azure_endpoint"
+        ]
+      },
+      "ollama": {
+        "description": "Ollama local models",
+        "default_model": "llama3.1",
+        "default_base_url": "http://localhost:11434"
+      },
+      "groq": {
+        "description": "Groq API (ultra-fast inference)",
+        "default_model": "mixtral-8x7b-32768"
+      },
+      "mistral": {
+        "description": "Mistral AI",
+        "default_model": "mistral-small-latest"
+      },
+      "custom": {
+        "description": "Custom OpenAI-compatible API",
+        "default_model": "gpt-4-turbo",
+        "required_fields": [
+          "base_url"
+        ]
+      }
+    },
+    "model_provider": "openai"
+  },
+  "embedding": {
+    "mode": "api",
+    "local": {
+      "model": "BAAI/bge-base-en-v1.5",
+      "description": "English model (768 dimensions) - optimized for BGE",
+      "device": "cpu",
+      "normalize_embeddings": true
+    },
+    "api": {
+      "model": "nomic-embed-text-v2-moe:latest",
+      "base_url": "http://192.168.100.12:11434/v1",
+      "description": "Local Ollama embedding (nomic v2 MoE, 768 dim)"
+    },
+    "fallback": {
+      "enabled": true,
+      "description": "Fallback to local if API fails"
+    }
+  },
+  "auth": {
+    "mode": "token",
+    "token_file": "~/.olav/token",
+    "server_token_file": ".olav/run/server.token",
+    "users_db": ".olav/databases/users.duckdb",
+    "session_ttl_hours": 24,
+    "ldap": {
+      "host": "localhost",
+      "port": 3890,
+      "base_dn": "dc=example,dc=com",
+      "tls": false
+    },
+    "ad": {
+      "domain": "",
+      "dc_host": ""
+    },
+    "oidc": {
+      "issuer_url": "",
+      "client_id": "olav"
+    }
+  },
+  "active_workspace": "core",
+  "syslog_receiver": {
+    "enabled": true,
+    "port": 15514,
+    "host": "0.0.0.0",
+    "batch_size": 75,
+    "flush_interval": 120,
+    "parquet_compression": "snappy",
+    "retention_days": 30,
+    "auto_start": false
+  },
+  "security": {
+    "allowed_cidrs": [
+      "192.168.100.0/24",
+      "127.0.0.1/32"
+    ],
+    "trust_proxy_headers": false
+  },
+  "reranker": {
+    "enabled": false,
+    "model": "dengcao/bge-reranker-v2-m3",
+    "base_url": "http://192.168.100.12:11434",
+    "_comment": "R99 TIER 1 ABANDONED 2026-04-28. Both bbjson/bge-reranker-base (v1, family=llama) and dengcao/bge-reranker-v2-m3 (family=bert) tested on demo7 \u2192 BOTH made results WORSE: directive guides moved from baseline rank 9-12 down to 21-24 (buried beyond top-K). Root cause: Ollama's /api/embeddings exposes BERT cross-encoders as bi-encoders, but their rerank-head latent space \u2014 trained for paired-input scoring \u2014 is meaningless when split. Plumbing kept enabled:false for future cross-encoder sidecar path (see dev_docs/67)."
+  }
+}

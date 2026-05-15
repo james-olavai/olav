@@ -5,6 +5,12 @@ tools:
   - propose_memory_draft   # Turn-1 of HITL: write draft to fs + return preview
   - commit_to_memory       # Turn-2: commit (with from_draft=True) or single-shot
 agent_type: api
+# 2026-05-15: R102 HITL replies are short — "I've drafted N memories,
+# review the YAML preview, reply 'yes' or 'edit X' to proceed."  4K
+# output is plenty; capping prevents the model from over-explaining
+# (which has historically caused the multi-turn HITL to drift).
+llm:
+  max_tokens: 4096
 static_context: []
 # Portability manifest — YAML knowledge files under ./references/
 dynamic_context:

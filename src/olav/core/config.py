@@ -293,7 +293,7 @@ class LLMConfig:
 
     @property
     def max_tokens(self) -> int:
-        return self._loader._env_override("llm", "max_tokens", self._data.get("max_tokens", 16000))
+        return self._loader._env_override("llm", "max_tokens", self._data.get("max_tokens", 32768))
 
     @property
     def base_url(self) -> str:

@@ -11,6 +11,12 @@ agent_type: api
 # Batfish question 选取交给 analyzer 在 PLAN 阶段决定后下发；sim 只
 # 接收"调 batfish_q(question=X, args=Y)"指令并 surface 结果行.
 thinking_mode: disabled
+# 2026-05-15: deterministic Batfish question dispatch — pin temp 0.0
+# so identical questions produce identical batfish_q args + identical
+# row-summary prose.  Sim's job is mechanical transformation, not
+# generation; sampling jitter is pure noise here.
+llm:
+  temperature: 0.0
 description: "Sim — Batfish-backed config-layer evaluator.  Answers BGP/OSPF compatibility, reachability, route lookup, route-map policy, ACL search, and snapshot differential questions by calling pybatfish against a live Batfish service.  Tools: batfish_q (generic question runner, RAG-driven question selection) + format_and_export (markdown reply chunk).  Typical caller: analyzer delegates here via task('sim', '<specific config question>') as part of cross-domain investigation (dev_docs/77 §2.6).  No SQL, no logs, no live device access."
 tools:
   - batfish_capability      # 2026-05-14 Phase A: pre-flight check —
