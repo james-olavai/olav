@@ -14,13 +14,12 @@ name: analyzer
 #   * Workflow A — change plan request → exports/change_plans/<topic>.md
 #   * Workflow D — investigation / audit / deep research → exports/reports/<topic>.md
 thinking_mode: enabled
-# 2026-05-15: analyzer is the PLAN-Act-Reflect planner — gets the
-# largest context window + longest output budget.  Other sub-agents
-# (sim/investigate/collect/etc.) fall through to api.json defaults
-# (16K max_tokens, 65536 num_ctx — see core/llm.py).
-llm:
-  num_ctx: 65536       # full 64K input window for multi-substrate reasoning
-  max_tokens: 32768    # double the global default — long PLAN + REFLECT prose
+# 2026-05-15: analyzer inherits global defaults (32K max_tokens, 64K
+# num_ctx — see core/llm.py + .olav/config/api.json).  The earlier
+# explicit ``llm:`` block was redundant once global max_tokens went
+# 16K → 32K.  The per-skill override mechanism is now exercised by
+# the deterministic-output sub-agents (sim/investigate/learner have
+# ``temperature: 0.0``) and the short-message memory_curator.
 subagents:
   - path: ../sim/SKILL.md
 description: "Standalone Markdown-output analyzer + report author.  Two modes: (A) change-plan drafter — gather facts via execute_sql, write a vendor-specific change plan markdown (CLI per device + rollback + post-checks + risks) to exports/change_plans/; (B) investigation/audit reporter — gather facts, synthesise across L1-L4 layers, write a structured report to exports/reports/.  Mode picked from the prompt: 'plan / add / change X' → A; 'investigate / audit / write report on Y' → B.  For config-layer questions (BGP/OSPF compat, reachability, what-if), analyzer delegates to sim via task('sim', ...) per dev_docs/77 §2.6."
