@@ -722,6 +722,23 @@ def _collect_cmd(nr, target, cmd, devices, snapshot_id, snapshot_date,
                                     "error": str(multi.exception)[:100]})
             continue
         raw_output = multi[0].result or ""
+
+        # 2026-05-15: collection-time credential redaction.  Network-config
+        # aware via netconan — replaces passwords / SNMP communities /
+        # shared secrets while leaving IPs / hostnames / ASNs / topology
+        # relationships intact.  Disable with OLAV_REDACTION=0 (or
+        # api.json.redaction.enabled=false).  Failure mode is fail-open:
+        # if netconan barfs we log + keep raw output rather than silently
+        # writing partial scrubs.  See ADR-0008 (forthcoming) / dev_docs/79.
+        try:
+            from olav.core.redaction import scrub as _redaction_scrub
+            raw_output, _findings = _redaction_scrub(raw_output)
+        except Exception as _red_exc:  # noqa: BLE001
+            import logging as _lg
+            _lg.getLogger(__name__).warning(
+                "redaction skipped for %s/%s: %s", host, cmd, _red_exc,
+            )
+
         raw_dir = snapshots_dir / snapshot_date / "raw" / host
         raw_dir.mkdir(parents=True, exist_ok=True)
         # NETOPS-05: whitelist characters so CLI-supplied `--commands ".."` or

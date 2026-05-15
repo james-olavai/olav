@@ -152,6 +152,16 @@ graph = [
 ldap = [
     "ldap3>=2.9",
 ]
+# Collection-time credential redaction (network-config aware).  netconan
+# is ~50KB pure Python from the Batfish/Intentionet team — knows IOS /
+# IOS-XR / NX-OS / Junos / EOS config syntax for passwords / SNMP
+# communities / RADIUS / TACACS / IPSec PSK / BGP MD5 etc.  Scrubs
+# credentials but preserves IP / hostname / ASN / topology relationships
+# so diff and diagnostic analysis still work on the redacted output.
+# See ``src/olav/core/redaction.py`` + ADR-0008 (forthcoming).
+redaction = [
+    "netconan>=0.13",
+]
 # R66f cleanup: removed vestigial extras that had zero usage in ``src/olav/``
 # and were also declared as hard deps in the ``olav-netops`` package:
 #   pdf    — PyPDF2/pdfplumber: 0 importers in platform code.
