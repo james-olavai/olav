@@ -158,6 +158,7 @@ _KNOWN_COMMANDS: frozenset[str] = frozenset(
         "explain",
         "diff",
         "audit",  # #7 (2026-05-12) — audit selftest + future audit subcommands
+        "user",   # 2026-05-15 — `olav user create/list/token/revoke`, alias for admin add-user/...
     }
 )
 """Subcommand tokens the CLI recognises.  Anything else is treated as
@@ -311,6 +312,19 @@ def parse_args():
     # Admin command
     admin_parser = subparsers.add_parser("admin", help="Admin commands (status, backup, etc.)")
     admin_parser.add_argument("args", nargs=argparse.REMAINDER, help="Admin command arguments")
+
+    # User command — convenience alias for `admin add-user/list-users/...`
+    # 2026-05-15: lets `olav user create alice` work directly (instead of
+    # `olav admin add-user alice`) — promotes user management to a discoverable
+    # top-level command (visible in `olav --help`).
+    user_parser = subparsers.add_parser(
+        "user",
+        help="Manage platform users (create, list, token, revoke)",
+    )
+    user_parser.add_argument(
+        "args", nargs=argparse.REMAINDER,
+        help="user subcommand: create <name> | list | token <name> | revoke <name>",
+    )
 
     # Config command
     config_parser = subparsers.add_parser(
@@ -1644,6 +1658,47 @@ async def cli_main_impl() -> None:
             console.print("  User Guide:       ./docs/")
             console.print("  Configuration:    ~/.olav/config/")
             console.print()
+            return
+
+        # Handle user command — friendly aliases for the admin user subcommands
+        if args.command == "user":
+            from olav.cli.commands.admin_users import AdminUsersCommand
+
+            # Translate `user <verb> <args>` → AdminUsersCommand's verb names.
+            # Aliases: create→add-user, list→list-users, token→rotate-token,
+            # revoke→revoke-token.
+            _alias = {
+                "create": "add-user",
+                "list":   "list-users",
+                "token":  "rotate-token",
+                "revoke": "revoke-token",
+                # Pass through canonical names verbatim too.
+                "add-user":    "add-user",
+                "list-users":  "list-users",
+                "rotate-token":"rotate-token",
+                "revoke-token":"revoke-token",
+            }
+            parts = list(args.args or [])
+            if not parts:
+                console.print(
+                    "usage: olav user <create|list|token|revoke> [args]\n"
+                    "  olav user create <name> [--role admin|user|readonly]\n"
+                    "  olav user list\n"
+                    "  olav user token <name>     # rotate + print token\n"
+                    "  olav user revoke <name>"
+                )
+                return
+            verb = _alias.get(parts[0])
+            if verb is None:
+                console.print(f"unknown user subcommand '{parts[0]}'. "
+                              f"Try: create / list / token / revoke")
+                raise SystemExit(2)
+            cmd_args = " ".join([verb, *parts[1:]])
+            _admin_users = AdminUsersCommand()
+            _result_str = await _admin_users.execute(cmd_args)
+            console.print(_result_str)
+            if _result_str.startswith("error:"):
+                raise SystemExit(1)
             return
 
         # Handle admin command
