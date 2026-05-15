@@ -100,8 +100,8 @@ _legacy_archived/
 # netops
 labs/
 olav-netops/
-.olav/workspace/ops/
-.olav/workspace/ops-lab/
+.olav/workspace/netops/
+.olav/workspace/devops/
 
 # enterprise
 olav-ent/
@@ -118,6 +118,13 @@ olav-web/
 .olav/config/approval_rules.yaml
 
 # ── Whitelist (tracked paths inside ignored parents) ──
+!olav-netops/
+olav-netops/*
+!olav-netops/.olav/
+olav-netops/.olav/*
+!olav-netops/.olav/workspace/
+olav-netops/.olav/workspace/*
+!olav-netops/.olav/workspace/kb_audit/
 !.olav/
 .olav/*
 !.olav/config/

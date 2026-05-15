@@ -1,23 +1,23 @@
-schema_version: 1
+schema_version: 2
 intent: sql_schema_devices_and_topology
 agent: netops
-priority: 10
+source_tier: platform
 keywords:
-  - device
-  - devices
-  - inventory
-  - "border router"
-  - "core router"
-  - "access switch"
-  - role
-  - platform
-  - vendor
-  - topology
-  - links
-  - lldp
-  - cdp
-  - "show lldp"
-  - "show cdp"
+- device
+- devices
+- inventory
+- border router
+- core router
+- access switch
+- role
+- platform
+- vendor
+- topology
+- links
+- lldp
+- cdp
+- show lldp
+- show cdp
 body: |
   ## OLAV inventory + topology schemas
 

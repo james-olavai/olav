@@ -1,20 +1,20 @@
-schema_version: 1
+schema_version: 2
 intent: sql_schema_route_views
 agent: netops
-priority: 10
+source_tier: platform
 keywords:
-  - route
-  - routes
-  - routing
-  - "routing table"
-  - prefix
-  - "next hop"
-  - nexthop
-  - "show ip route"
-  - "show route"
-  - static
-  - connected
-  - rib
+- route
+- routes
+- routing
+- routing table
+- prefix
+- next hop
+- nexthop
+- show ip route
+- show route
+- static
+- connected
+- rib
 body: |
   ## OLAV routing-table view schema
 
