@@ -980,23 +980,37 @@ class OLAVAgent:
             prompt = _inject_static_context(prompt, sa_dir, metadata)
 
             # R-VERTICAL-SLICE 2026-05-09 (dev_docs/74): per-sub-agent
-            # ``thinking_mode`` overrides the orchestrator's setting.  When
-            # the sub-agent's mode differs from what ``self.llm`` was
-            # constructed with, build a dedicated LLM for this sub-agent.
+            # ``thinking_mode`` overrides the orchestrator's setting.
+            # 2026-05-15: extended to a generic ``llm:`` block carrying
+            # any subset of {model, temperature, max_tokens, base_url,
+            # model_provider, num_ctx, num_predict}; missing keys fall
+            # through to api.json defaults.  Single fall-through chain,
+            # no profiles indirection (per "YAGNI" call-out 2026-05-15).
             sa_thinking = metadata.get("thinking_mode")
+            sa_llm_overrides = metadata.get("llm") or {}
             sa_llm = self.llm
             _orch_thinking = (self._preloaded_olav_config or {}).get("thinking_mode")
-            if sa_thinking is not None and sa_thinking != _orch_thinking:
+            _needs_dedicated_llm = (
+                (sa_thinking is not None and sa_thinking != _orch_thinking)
+                or bool(sa_llm_overrides)
+            )
+            if _needs_dedicated_llm:
                 try:
                     sa_llm = LLMFactory.get_chat_model(
                         model_name=self.model_name,
                         temperature=self.temperature,
                         agent_id=name,
                         thinking_mode=sa_thinking,
+                        overrides=sa_llm_overrides,
                     )
+                    _diag_bits = []
+                    if sa_thinking is not None:
+                        _diag_bits.append(f"thinking_mode={sa_thinking}")
+                    if sa_llm_overrides:
+                        _diag_bits.append(f"llm_overrides={sa_llm_overrides}")
                     logger.info(
                         f"  → sub-agent '{name}' uses dedicated LLM "
-                        f"(thinking_mode={sa_thinking})"
+                        f"({', '.join(_diag_bits)})"
                     )
                 except Exception as _e:
                     logger.warning(

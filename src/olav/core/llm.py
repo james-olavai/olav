@@ -29,6 +29,7 @@ class LLMFactory:
         model_name: str | None = None,
         agent_id: str | None = None,
         thinking_mode: str | None = None,
+        overrides: dict | None = None,
         **kwargs: Any,
     ) -> BaseChatModel:
         """Create a chat model instance using init_chat_model.
@@ -41,6 +42,13 @@ class LLMFactory:
             temperature: Override default temperature
             model_name: Override model name (defaults to settings.llm_model_name)
             agent_id: Optional agent ID for per-agent model selection
+            overrides: Per-skill ``llm:`` block from SKILL.md frontmatter.
+                Supported keys: ``model``, ``temperature``, ``max_tokens``,
+                ``base_url``, ``model_provider``, ``num_ctx`` (Ollama),
+                ``num_predict`` (Ollama).  Any missing key falls through to
+                the global ``api.json`` ``llm.*`` default.  Beats the
+                ``model_name`` / ``temperature`` positional args (so caller
+                can pass the legacy args without clobbering SKILL.md intent).
             **kwargs: Additional model parameters
 
         Returns:
@@ -49,32 +57,43 @@ class LLMFactory:
         from olav.core.config import get_llm_config
 
         llm_config = get_llm_config()
+        overrides = overrides or {}
 
-        # Get base parameters from config (with agent override support)
-        # FIX: Direct parameter construction instead of missing to_langchain_params()
+        # Per-skill overrides beat positional args beat global config.
+        # Single fall-through chain — no profiles indirection (YAGNI).
+        _model = overrides.get("model") or model_name or llm_config.model
+        _temp = (
+            overrides.get("temperature")
+            if "temperature" in overrides
+            else (temperature if temperature is not None else llm_config.temperature)
+        )
+
         params = {
-            "model": model_name or llm_config.model,
-            "temperature": temperature if temperature is not None else llm_config.temperature,
+            "model": _model,
+            "temperature": _temp,
         }
 
         # Explicitly pass max_tokens so OpenRouter/provider doesn't default to
         # the model's full context window (e.g. 30000 for grok-4.1-fast).
-        if llm_config.max_tokens:
-            params["max_tokens"] = llm_config.max_tokens
+        _max_tokens = overrides.get("max_tokens", llm_config.max_tokens)
+        if _max_tokens:
+            params["max_tokens"] = _max_tokens
 
         # Add API key if available
         if llm_config.api_key:
             params["api_key"] = llm_config.api_key
 
-        # Add base_url if configured
-        if llm_config.base_url:
-            params["base_url"] = llm_config.base_url
+        # Add base_url if configured (per-skill override beats global)
+        _base_url = overrides.get("base_url") or llm_config.base_url
+        if _base_url:
+            params["base_url"] = _base_url
 
         # Add model_provider if configured.
         # Always pass it explicitly – init_chat_model cannot infer the provider
         # from custom model names like "x-ai/grok-4.1-fast" or "openrouter/*".
-        if llm_config.model_provider:
-            params["model_provider"] = llm_config.model_provider
+        _model_provider = overrides.get("model_provider") or llm_config.model_provider
+        if _model_provider:
+            params["model_provider"] = _model_provider
         else:
             # Auto-detect provider from base_url when config leaves it blank.
             # Without this fallback langchain's init_chat_model raises
@@ -126,9 +145,32 @@ class LLMFactory:
         #
         # Override per-model by passing num_ctx / num_predict via kwargs
         # (caller can downsize for small models on memory-constrained host).
-        if params.get("model_provider") == "ollama":
-            params.setdefault("num_ctx", 65536)
-            params.setdefault("num_predict", 4096)
+        # Detect Ollama backend by URL even if model_provider is "openai"
+        # (Ollama's OpenAI-compat /v1 endpoint is the common deploy shape).
+        # Ollama on the /v1 path still honours ``options.num_ctx`` /
+        # ``options.num_predict`` via extra_body — required to bump past
+        # the 2048-token default when running gemma4:31b / qwen3:27b.
+        _base_url_lower = str(params.get("base_url") or "").lower()
+        _ollama_backed = (
+            params.get("model_provider") == "ollama"
+            or "ollama" in _base_url_lower
+            or ":11434" in _base_url_lower
+        )
+        if _ollama_backed:
+            _num_ctx = overrides.get("num_ctx", 65536)
+            _num_predict = overrides.get("num_predict", 4096)
+            if params.get("model_provider") == "ollama":
+                # Native langchain-ollama path — top-level kwargs.
+                params.setdefault("num_ctx", _num_ctx)
+                params.setdefault("num_predict", _num_predict)
+            else:
+                # OpenAI-compat path to Ollama — ship as extra_body.options.*
+                # so the underlying Ollama runtime sees them.
+                mkw = params.setdefault("model_kwargs", {})
+                extra = mkw.setdefault("extra_body", {})
+                ol_opts = extra.setdefault("options", {})
+                ol_opts.setdefault("num_ctx", _num_ctx)
+                ol_opts.setdefault("num_predict", _num_predict)
 
         # Handle JSON mode
         if json_mode:
@@ -239,6 +281,16 @@ class LLMFactory:
         model = params.get("model", "unknown")
         base_url = params.get("base_url", "")
         logger.debug(f"Initializing ChatModel: {model} base_url={base_url} (agent={agent_id})")
+        if overrides:
+            # Surface the override summary at INFO so operators can confirm
+            # SKILL.md frontmatter actually reached the factory.
+            _ov_summary = {k: v for k, v in overrides.items() if v is not None}
+            logger.info(
+                "  → agent=%s LLM overrides: %s (effective: temp=%s, "
+                "max_tokens=%s, num_ctx=%s)",
+                agent_id, _ov_summary, params.get("temperature"),
+                params.get("max_tokens"), params.get("num_ctx"),
+            )
 
         # ── Sprint 0a token_meter: attach TokenUsageCallback ──────────────
         # Soft-fail — if the callback / recorder is unavailable we log at
