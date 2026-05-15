@@ -1,0 +1,81 @@
+schema_version: 2
+intent: r102_pending_draft_check
+agent: core
+source_tier: platform
+keywords:
+- "ok"
+- "yes"
+- "可以"
+- "入库"
+- "确认"
+- "提交"
+- "commit"
+- "confirm"
+- "alright"
+- "proceed"
+- "approve"
+- "通过"
+- "好的"
+- "draft confirmation"
+- "pending memory draft"
+- "curator_drafts"
+body: |
+  ## When the user replies with a short affirmative ("OK / 可以 / yes / 入库
+  / 确认 / 提交"), check for a pending memory draft FIRST.
+
+  Background: `memory_curator.propose_memory_draft(...)` persists drafts to
+  `<workspace>/.curator_drafts/<intent>.draft.json` and waits for the
+  user's next turn to confirm.  Because the orchestrator is stateless
+  across CLI invocations, a bare "可以" / "OK" in turn 2 looks like a
+  context-free new request unless you actively probe disk for pending
+  drafts.
+
+  ## Required behaviour
+
+  On any user message that is **substantially just an affirmative**
+  (≤ 20 chars, content drawn from the keywords list above, optionally
+  with punctuation), the orchestrator MUST:
+
+  1. List `<workspace>/.curator_drafts/*.draft.json` (NOT the
+     `committed/` subdirectory — those are already done).
+  2. If exactly ONE pending draft exists, delegate to `memory_curator`:
+     `olav_delegate("memory_curator", "Commit the pending draft —
+     call commit_to_memory(from_draft=True, intent='<that intent>'). "
+     "The user has confirmed via short affirmative.")`
+  3. If MULTIPLE pending drafts exist, ask the user which one to
+     commit (list intents).
+  4. If ZERO pending drafts, fall back to the normal "what would you
+     like me to remember?" reply — the affirmative was about
+     something else.
+
+  ## Why this matters (dev_docs/79 context)
+
+  Without this check, R102's HITL turn-2 confirmation breaks under
+  gemma4:31b nothink: each CLI invocation is a fresh LangGraph state,
+  the orchestrator can't recall the proposal from turn 1, and the
+  draft sits stranded in `.curator_drafts/` forever.  Documented as
+  ISSUE-R102-BARE-CONFIRMATION-LOSES-DRAFT-CONTEXT (P2).
+
+  ## Anti-patterns
+
+  - **Do NOT** treat the affirmative as a generic acknowledgement.
+    "OK / 可以" almost always means "yes to the immediately preceding
+    proposal" in OLAV's UX.
+  - **Do NOT** call `memory_curator` with the user's affirmative
+    verbatim — that loses the intent name and curator falls into the
+    same trap.  Resolve the intent from `.curator_drafts/` first,
+    pass it explicitly.
+  - **Do NOT** commit without reading the draft.  R102's HARD HITL
+    rule still applies — the draft file content is the canonical
+    confirmation target.
+
+  ## Example
+
+  Turn 1 (user): "记住 NetBox tenant 永远是 acme"
+    → curator writes `.curator_drafts/netbox_sync_defaults.draft.json`
+    → renders YAML preview
+  Turn 2 (user): "可以"
+    → orchestrator: ls .curator_drafts/ → finds netbox_sync_defaults
+    → olav_delegate("memory_curator", "Commit pending draft, intent=netbox_sync_defaults")
+    → curator calls `commit_to_memory(from_draft=True, intent='netbox_sync_defaults')`
+    → guide written + kb_audit row

@@ -566,12 +566,23 @@ def _run_collection(
         staging_file.write_text(json.dumps(all_rows))
         print(f"  → Staging JSON written: {staging_file.name}")
 
+        # 2026-05-15: track ingest status so Stage 4 can fail loud
+        # instead of printing ✅ over a Binder Error (see
+        # ISSUE-NETOPS-INIT-MISLEADING-SUCCESS).
+        ingest_status = "unknown"
+        ingest_error = None
+        ingest_records = 0
         try:
             ingest = IngestManager(db_path=MAIN_DB_PATH, staging_dir=SNAPSHOTS_STAGING_JSON)
             load_result = ingest.bulk_load()
             print(f"  ✓ IngestManager loaded: {load_result}")
+            ingest_status = load_result.get("status", "unknown")
+            ingest_error = load_result.get("message")
+            ingest_records = int(load_result.get("records_inserted", 0))
         except Exception as e:
             print(f"  ✗ IngestManager ERROR: {e}")
+            ingest_status = "error"
+            ingest_error = str(e)
 
         # ── Device ETL FIRST so netops.devices is populated ────────────
         # This MUST run before Topology ETL: ``topology_engine._insert_link``
@@ -684,6 +695,13 @@ def _run_collection(
         "successful": total_ok,
         "failed": total_fail,
         "results": results_summary,
+        # 2026-05-15 — let Stage 4 see whether the ingest pipeline
+        # actually wrote rows.  Non-success + 0 records means devices /
+        # topology / views never populated and downstream queries
+        # return zero.
+        "ingest_status": ingest_status,
+        "ingest_error": ingest_error,
+        "ingest_records": ingest_records,
     }
 
 
@@ -812,22 +830,38 @@ def main() -> int:
     elapsed = time.time() - t1
 
     print(f"\n📊 Stage 4: Summary")
-    print(f"  Snapshot ID : {result['snapshot_id']}")
-    print(f"  Devices     : {result['devices']}")
-    print(f"  Commands    : {result['commands']}")
-    print(f"  Successful  : {result['successful']}")
-    print(f"  Failed      : {result['failed']}")
-    print(f"  Elapsed     : {elapsed:.1f}s")
+    print(f"  Snapshot ID    : {result['snapshot_id']}")
+    print(f"  Devices        : {result['devices']}")
+    print(f"  Commands       : {result['commands']}")
+    print(f"  SSH collected  : {result['successful']} ok, {result['failed']} failed")
+    print(f"  DB ingest      : {result.get('ingest_status', 'unknown')} "
+          f"({result.get('ingest_records', 0)} records)")
+    print(f"  Elapsed        : {elapsed:.1f}s")
 
     if result["failed"] > 0:
         print(f"\n⚠  Some collections failed — check credentials in hosts.yaml / defaults.yaml")
         for r in result["results"]:
             if r["status"] == "failed":
                 print(f"  {r['device']} / {r['command']}: {r.get('error', 'unknown')[:80]}")
-        return 0  # partial success is not a hard error
-    else:
-        print(f"\n✅ Network initialization complete — DB populated, run 'olav \"show BGP status\"' to query")
-        return 0
+
+    # 2026-05-15: distinguish "SSH collected some rows but DB ingest
+    # failed" from "everything OK".  The former used to print ✅ —
+    # operator would query and get 0 rows back with no clue why.
+    ingest_status = result.get("ingest_status", "unknown")
+    ingest_records = result.get("ingest_records", 0)
+    if ingest_status == "error" or (ingest_status != "no_files" and ingest_records == 0
+                                     and result["successful"] > 0):
+        print(f"\n❌ Network initialization FAILED at the ingest stage")
+        if result.get("ingest_error"):
+            print(f"   error: {result['ingest_error']}")
+        print(f"   {result['successful']} rows were collected over SSH but only "
+              f"{ingest_records} reached the DB.  Downstream queries will return 0.")
+        return 2
+
+    if result["failed"] > 0:
+        return 0  # partial collection failure is not a hard error
+    print(f"\n✅ Network initialization complete — DB populated, run 'olav \"show BGP status\"' to query")
+    return 0
 
 
 if __name__ == "__main__":

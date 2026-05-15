@@ -75,19 +75,23 @@ class SkillCommand(BaseCommand):
         if not args:
             return "error: usage: olav skill install <path|url> [--merge-into <workspace>]"
 
-        # Parse --merge-into flag
+        # Parse --merge-into / --force-overwrite flags
         merge_into: str | None = None
+        force_overwrite = False
         filtered: list[str] = []
         i = 0
         while i < len(args):
             if args[i] == "--merge-into" and i + 1 < len(args):
                 merge_into = args[i + 1]
                 i += 2
+            elif args[i] == "--force-overwrite":
+                force_overwrite = True
+                i += 1
             else:
                 filtered.append(args[i])
                 i += 1
         if not filtered:
-            return "error: usage: olav skill install <path|url> [--merge-into <workspace>]"
+            return "error: usage: olav skill install <path|url> [--merge-into <workspace>] [--force-overwrite]"
         source = filtered[0]
 
         # GAP-06: git URL support — clone to temp dir then proceed
@@ -192,12 +196,33 @@ class SkillCommand(BaseCommand):
 
         if decl.workspaces:
             # Multi-workspace mode: install each sub-workspace
+            #
+            # 2026-05-15 (ISSUE-NETOPS-OVERLAPS-PLATFORM-AUDIT): refuse to
+            # overwrite a workspace name that ``olav init`` already
+            # owns.  Pre-fix, ``olav skill install olav-netops`` would
+            # silently overwrite the bundled ``audit/`` because the
+            # netops repo carries a dev-mirror of it.  Now skip with a
+            # warning unless ``--force-overwrite`` is set.
+            _PLATFORM_OWNED = {"core", "audit", "services"}
             for sub_ws in decl.workspaces:
                 sub_source = source_path / sub_ws.source
                 if not sub_source.is_dir():
                     warnings.append(f"workspace '{sub_ws.name}' source not found: {sub_ws.source}")
                     continue
                 ws_dir = workspace_root / sub_ws.name
+                if (
+                    sub_ws.name in _PLATFORM_OWNED
+                    and ws_dir.exists()
+                    and not force_overwrite
+                ):
+                    warnings.append(
+                        f"workspace '{sub_ws.name}' is platform-owned and "
+                        f"already exists; skipping overwrite (use "
+                        f"--force-overwrite to override — note this can "
+                        f"replace bundled audit/core/services with a "
+                        f"sub-repo's dev-mirror copy that may drift)"
+                    )
+                    continue
                 ws_dir.mkdir(parents=True, exist_ok=True)
                 _copy_skill_files(sub_source, ws_dir)
                 _update_platform_md(workspace_root, sub_ws.name)
