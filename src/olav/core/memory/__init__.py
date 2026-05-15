@@ -773,7 +773,20 @@ class LanceDBStore:
             return {"status": "success", "id": id}
 
         except Exception as e:
-            logger.error(f"Failed to delete memory {id}: {e}")
+            # 2026-05-15 (P3 cleanup, ISSUE-INIT-PRIMES-GUIDE-BEFORE-TABLE):
+            # ``prime_guides_from_dir`` calls delete_memory() for idempotent
+            # upsert.  On fresh ``olav init`` the memory table doesn't
+            # exist yet (it gets created lazily on the first add_memory),
+            # so the very first prime cycle hits ``Table memory does not
+            # exist. Create it first.`` for every guide.  This is benign —
+            # there's nothing to delete pre-create — but the stderr noise
+            # makes operators think init failed.  Demote that specific
+            # message to debug.
+            msg = str(e)
+            if "does not exist" in msg.lower() and "table" in msg.lower():
+                logger.debug(f"delete_memory {id}: table not yet created (benign on first prime)")
+            else:
+                logger.error(f"Failed to delete memory {id}: {e}")
             return {"status": "error", "message": str(e)}
 
     def update_weight(

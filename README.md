@@ -37,7 +37,7 @@
 pip install olav
 olav registry register http://netbox:8000        # connect any API
 olav "how many devices are in NetBox?"            # query immediately
-olav --agent ops "write a backup script"          # generate real scripts
+olav --agent netops "write a backup script"          # generate real scripts
 ```
 
 [Quick Start](#quick-start) | [Docs](https://docs.olavai.com) | [中文](src/README_ZH.md)
@@ -63,7 +63,7 @@ olav registry register http://netbox:8000
 
 # Query from any agent, forever
 olav "how many devices are in NetBox?"
-olav --agent ops "compare OLAV database vs NetBox — are they in sync?"
+olav --agent netops "compare OLAV database vs NetBox — are they in sync?"
 ```
 
 The `api_request` tool is **schema-aware** — it reads API reference docs generated at registration time, handles pagination (DRF/NetBox style), and manages auth (JWT/Bearer/API-key) automatically.
@@ -72,7 +72,7 @@ The `api_request` tool is **schema-aware** — it reads API reference docs gener
 
 ```
 olav "list all devices"                  → Core Agent (database + knowledge base)
-olav --agent ops "simulate link failure" → Ops Agent (network operations + SSH)
+olav --agent netops "simulate link failure" → Ops Agent (network operations + SSH)
 olav --agent audit "run health check"    → Audit Agent (compliance + learning)
 ```
 
@@ -149,11 +149,12 @@ olav "how many devices are in NetBox?"
 ### Network Operations (optional)
 
 ```bash
-olav skill install /path/to/olav-netops/          # 2 workspaces: ops + audit
+olav agent install /path/to/olav-netops/          # adds netops + devops workspaces
+                                                   # (legacy alias: `olav skill install`)
 
-olav --agent ops "/netops_init"                    # collect device data via SSH
-olav --agent ops "simulate R2 link failure"        # What-If analysis
-olav --agent ops "deploy digital twin"             # ContainerLab validation
+olav --agent netops "/netops_init"                 # collect device data via SSH
+olav --agent netops "simulate R2 link failure"     # What-If analysis
+olav --agent netops "deploy digital twin"          # ContainerLab validation
 ```
 
 ### Other Interfaces
@@ -176,8 +177,8 @@ olav v0.18.0 (pip install olav)
 │   ├── remote      — remote_execute (SSH), run_shell
 │   └── admin       — workspace_health, bulk_ingest, deploy/stop_service, cron, ...
 │
-olav-netops v0.18.0 (olav skill install olav-netops/)
-├── ops orchestrator
+olav-netops v0.19.0 (olav agent install olav-netops/)
+├── netops orchestrator
 │   ├── probe    — Parallel SSH with command whitelist (Nornir)
 │   ├── analysis — Dijkstra + ECMP simulation (networkx)
 │   ├── diff     — Cross-snapshot drift detection
