@@ -115,6 +115,67 @@ def _validate_row(row: dict, line_no: int) -> RowVerdict:
     )
 
 
+def _write_audit_row(
+    *,
+    workspace_root: Path,
+    csv_path: Path,
+    endpoint: str,
+    n_created: int,
+    n_existed: int,
+    n_failed: int,
+    n_skipped: int,
+) -> Path:
+    """Drop a kb_audit/<ts>_netbox_push.yaml row for the write call.
+
+    dev_docs/79: every KB-mutating action is git-trackable. Maps to
+    the kb_audit/ contract used by ``commit_to_memory`` and
+    ``olav kb remove`` — same fields, ``action: netbox_push``.
+
+    The CSV body sha256 is the integrity tie-back to the exact bytes
+    that were pushed; future readers can compare against the CSV in
+    git history to reconstruct intent.
+    """
+    import hashlib
+    import os
+    from datetime import datetime, timezone
+
+    try:
+        import yaml as _yaml
+    except ImportError:
+        return Path("/tmp/kb_audit_skipped_no_yaml.txt")
+
+    audit_dir = workspace_root / "kb_audit"
+    audit_dir.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(timezone.utc).astimezone()
+    fname = f"{now.strftime('%Y-%m-%dT%H-%M-%S')}_netbox_push.yaml"
+    target = audit_dir / fname
+
+    body_sha = (
+        hashlib.sha256(csv_path.read_bytes()).hexdigest()
+        if csv_path.exists()
+        else ""
+    )
+    row = {
+        "action": "netbox_push",
+        "csv_path": str(csv_path),
+        "csv_body_sha256": body_sha,
+        "endpoint": endpoint,
+        "actor": os.environ.get("USER", "unknown"),
+        "timestamp": now.isoformat(timespec="seconds"),
+        "results": {
+            "created": n_created,
+            "existed": n_existed,
+            "failed": n_failed,
+            "skipped_validation": n_skipped,
+        },
+    }
+    target.write_text(
+        _yaml.safe_dump(row, sort_keys=False, allow_unicode=True, default_flow_style=False),
+        encoding="utf-8",
+    )
+    return target
+
+
 # ── NetBox HTTP client (stdlib only — no requests dep) ──────────────
 
 def _slugify(s: str) -> str:
@@ -182,7 +243,7 @@ class NetboxClient:
     def device_lookup_or_create(
         self, name: str, site_id: int, role_id: int,
         device_type_id: int, status: str = "active",
-        platform: str | None = None,
+        platform_id: int | None = None,
     ) -> tuple[int | None, str]:
         q = f"name={name}&site_id={site_id}"
         code, body = self._request("GET", f"/api/dcim/devices/?{q}")
@@ -195,8 +256,8 @@ class NetboxClient:
             "device_type": device_type_id,
             "status": status,
         }
-        # platform on NetBox v4+ is a separate object; skip linking it
-        # automatically — user can wire platform_id resolution later.
+        if platform_id is not None:
+            payload["platform"] = platform_id
         code, body = self._request("POST", "/api/dcim/devices/", data=payload)
         if code in (200, 201) and body:
             return body.get("id"), "created"
@@ -279,12 +340,28 @@ def _push_row(client: NetboxClient, row: dict) -> tuple[str, list[str]]:
     if role_id is None:
         return "failed_chain", notes
 
+    # Platform is optional — only resolve if the CSV row carries one.
+    # NetBox v4+ treats platform as a separate object referenced by id.
+    platform_id: int | None = None
+    plat = (row.get("platform") or "").strip()
+    if plat:
+        plat_id, st = client.lookup_or_create(
+            "platforms",
+            lookup_query={"name": plat},
+            create_payload={"name": plat, "slug": _slugify(plat)},
+        )
+        notes.append(f"platform '{plat}': {st}")
+        if plat_id is None:
+            return "failed_chain", notes
+        platform_id = plat_id
+
     dev_id, st = client.device_lookup_or_create(
         name=row["name"].strip(),
         site_id=site_id,
         role_id=role_id,
         device_type_id=dt_id,
         status=row["status"].strip().lower() or "active",
+        platform_id=platform_id,
     )
     notes.append(f"device '{row['name']}': {st}")
     if dev_id is None:
@@ -461,12 +538,27 @@ def main() -> int:
 
         report_path.write_text(report + "\n" + "\n".join(push_lines), encoding="utf-8")
 
+        # 2026-05-15 (dev_docs/79): every KB-mutating action drops a
+        # git-trackable kb_audit/ row.  --write into NetBox is the
+        # services-side counterpart of memory_curator commit — same
+        # audit principle applies.
+        audit_path = _write_audit_row(
+            workspace_root=Path(".olav/workspace"),
+            csv_path=csv_path,
+            endpoint=endpoint,
+            n_created=n_created,
+            n_existed=n_existed,
+            n_failed=n_failed,
+            n_skipped=sum(1 for v in verdicts if v.verdict == "skip"),
+        )
+
         print(
             f"✓ real-write done: "
             f"{n_created} created | {n_existed} existed | {n_failed} failed"
         )
         print(f"  endpoint: {endpoint}")
         print(f"  report  : {report_path}")
+        print(f"  audit   : {audit_path}")
         return 0 if n_failed == 0 else 1
 
     report_path.write_text(report, encoding="utf-8")
