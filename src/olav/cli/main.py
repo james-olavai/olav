@@ -1129,6 +1129,11 @@ async def run_single_query(
     )
 
     run_id = str(uuid.uuid4())
+    # 2026-05-15: thread_id needed for sessions table UPSERT — fall back to
+    # session_id (caller-provided) → run_id (always present) so every CLI
+    # turn touches both audit_runs AND sessions.  See
+    # ISSUE-AUDIT-TABLES-EMPTY-IN-DEMO.
+    _thread_id = session_id or run_id
     recorder = AuditEventRecorder()
     global _active_audit, _active_run_id
     _active_audit, _active_run_id = recorder, run_id
@@ -1136,6 +1141,7 @@ async def run_single_query(
         run_id=run_id,
         agent_id=assistant_id,
         user_id=user_id,
+        thread_id=_thread_id,
         source_channel="cli",
     )
     recorder.record(
@@ -1179,6 +1185,21 @@ async def run_single_query(
         _rec_limit = int(os.environ.get("OLAV_RECURSION_LIMIT", "200"))
         config = {"configurable": {"thread_id": session_id or run_id}, "recursion_limit": _rec_limit}
         input_msg = {"messages": [{"role": "human", "content": query}]}
+
+        # 2026-05-15: bind OlavRunContext to the graph runtime so
+        # AuditMiddleware.awrap_tool_call can read recorder + run_id off
+        # `runtime.context` and write audit_tool_calls rows.  Without this
+        # the CLI ran in middleware-mode but with no context binding →
+        # tool calls fell through to no-op silently
+        # (ISSUE-AUDIT-TABLES-EMPTY-IN-DEMO).
+        from olav.plugins.middleware._context import OlavRunContext
+        _run_context = OlavRunContext(
+            run_id=run_id,
+            recorder=recorder,
+            agent_id=assistant_id,
+            user_id=user_id,
+            source_channel="cli",
+        )
         _chunks: list[str] = []
         _tool_results: list[dict] = []  # capture tool outputs for post-processing
         _pending_tool_args: dict[str, tuple] = {}  # run_id → (tool_name, args), drained by on_tool_end
@@ -1192,7 +1213,7 @@ async def run_single_query(
         _DELEGATE_TOOLS = {"olav_delegate", "task"}
         _delegate_depth = 0
 
-        async for event in _graph.astream_events(input_msg, config=config, version="v2"):
+        async for event in _graph.astream_events(input_msg, config=config, context=_run_context, version="v2"):
             kind = event.get("event", "")
             data = event.get("data", {})
 
