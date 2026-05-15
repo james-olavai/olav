@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""import_netbox_csv — validate (and someday push) a NetBox-shaped CSV.
+"""import_netbox_csv — validate (and optionally push) a NetBox-shaped CSV.
 
 Symmetric counterpart to ``netops/export_netbox_csv``.  Reads
 ``exports/netbox_devices.csv`` (or any path passed in), validates the
@@ -7,12 +7,18 @@ shape against the canonical column contract, and produces a per-row
 dry-run report — what each row would create / update / skip if we
 were really POSTing to NetBox.
 
-dev_docs/71 Ch10b semantics:
+dev_docs/71 Ch10b / Ch10c semantics:
 
 * Default: ``--dry-run`` (validate + report, no HTTP).  Safe for CI.
-* ``--write`` is a stub — errors out with "real-write path requires
-  registered NetBox service + auth".  Will be wired up once the
-  services agent learns ``netbox_dcim_create_device`` / etc. tools.
+* ``--write`` actually POSTs to a registered NetBox service:
+    - resolves endpoint via ``--endpoint`` arg OR
+      ``services.yaml.services.netbox.endpoint``
+    - resolves token via ``--token`` arg OR
+      ``$NETBOX_TOKEN`` env var (services.yaml's ``token_env`` field)
+    - for each CSV row: idempotent lookup-or-create of
+      site / manufacturer / device_type / device_role; then POST
+      device with the resolved FKs.  Re-running the same CSV
+      is a no-op on existing rows.
 
 Validations (dry-run):
 
@@ -40,7 +46,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
+import os
+import re
 import sys
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime
 from ipaddress import IPv4Address
@@ -104,6 +115,183 @@ def _validate_row(row: dict, line_no: int) -> RowVerdict:
     )
 
 
+# ── NetBox HTTP client (stdlib only — no requests dep) ──────────────
+
+def _slugify(s: str) -> str:
+    """NetBox slug: lowercase + dash-separated alnum, used as the
+    foreign-key handle for sites / manufacturers / device-types /
+    device-roles when creating them via the API."""
+    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-") or "unnamed"
+
+
+class NetboxClient:
+    """Minimal NetBox REST client for the lookup-or-create chain
+    needed by /import_netbox_csv --write.  Stdlib urllib only to
+    avoid adding a runtime dependency on `requests`."""
+
+    def __init__(self, endpoint: str, token: str) -> None:
+        self.endpoint = endpoint.rstrip("/")
+        self.token = token
+
+    def _request(self, method: str, path: str,
+                 data: dict | None = None) -> tuple[int, dict | None]:
+        url = f"{self.endpoint}{path}"
+        body = None
+        headers = {
+            "Authorization": f"Token {self.token}",
+            "Accept": "application/json",
+        }
+        if data is not None:
+            body = json.dumps(data).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(url, data=body, method=method, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                payload = resp.read()
+                return resp.status, json.loads(payload) if payload else None
+        except urllib.error.HTTPError as exc:
+            try:
+                err_body = json.loads(exc.read().decode("utf-8"))
+            except Exception:
+                err_body = {"detail": str(exc)}
+            return exc.code, err_body
+
+    def lookup_or_create(
+        self,
+        resource: str,
+        lookup_query: dict,
+        create_payload: dict,
+    ) -> tuple[int | None, str]:
+        """GET ?{lookup_query}; if zero hits, POST {create_payload}.
+        Returns (id_or_None, status_word).
+
+        status_word ∈ {"exists", "created", "failed:<msg>"} so the
+        per-row report can show what actually happened.
+        """
+        q = "&".join(f"{k}={v}" for k, v in lookup_query.items())
+        code, body = self._request("GET", f"/api/dcim/{resource}/?{q}")
+        if code == 200 and body and body.get("count", 0) > 0:
+            return body["results"][0]["id"], "exists"
+        # Create
+        code, body = self._request("POST", f"/api/dcim/{resource}/",
+                                   data=create_payload)
+        if code in (200, 201) and body:
+            return body.get("id"), "created"
+        return None, f"failed:{code}:{(body or {}).get('detail') or body}"
+
+    def device_lookup_or_create(
+        self, name: str, site_id: int, role_id: int,
+        device_type_id: int, status: str = "active",
+        platform: str | None = None,
+    ) -> tuple[int | None, str]:
+        q = f"name={name}&site_id={site_id}"
+        code, body = self._request("GET", f"/api/dcim/devices/?{q}")
+        if code == 200 and body and body.get("count", 0) > 0:
+            return body["results"][0]["id"], "exists"
+        payload: dict = {
+            "name": name,
+            "site": site_id,
+            "role": role_id,
+            "device_type": device_type_id,
+            "status": status,
+        }
+        # platform on NetBox v4+ is a separate object; skip linking it
+        # automatically — user can wire platform_id resolution later.
+        code, body = self._request("POST", "/api/dcim/devices/", data=payload)
+        if code in (200, 201) and body:
+            return body.get("id"), "created"
+        return None, f"failed:{code}:{(body or {}).get('detail') or body}"
+
+
+def _resolve_endpoint_and_token(
+    explicit_endpoint: str | None,
+    explicit_token: str | None,
+) -> tuple[str | None, str | None]:
+    """Resolution order:
+      endpoint: --endpoint > services.yaml.netbox.endpoint > default
+      token:    --token    > $NETBOX_TOKEN env var
+    services.yaml lookup is best-effort; missing file is OK.
+    """
+    endpoint = explicit_endpoint
+    token = explicit_token or os.environ.get("NETBOX_TOKEN")
+    if endpoint is None:
+        try:
+            import yaml
+            services_yaml = Path(".olav/config/services.yaml")
+            if services_yaml.exists():
+                data = yaml.safe_load(services_yaml.read_text(encoding="utf-8")) or {}
+                stanza = (data.get("services") or {}).get("netbox") or {}
+                endpoint = stanza.get("endpoint")
+        except Exception:
+            pass
+    return endpoint, token
+
+
+def _push_row(client: NetboxClient, row: dict) -> tuple[str, list[str]]:
+    """Idempotent lookup-or-create chain for one CSV row.
+
+    Returns (verdict, notes) where verdict is "created" / "exists" /
+    "failed_chain".  Notes carries per-step diagnostics that land in
+    the markdown report.
+    """
+    notes: list[str] = []
+    site = row["site"].strip()
+    site_id, st = client.lookup_or_create(
+        "sites",
+        lookup_query={"name": site},
+        create_payload={"name": site, "slug": _slugify(site)},
+    )
+    notes.append(f"site '{site}': {st}")
+    if site_id is None:
+        return "failed_chain", notes
+
+    manu = row["manufacturer"].strip()
+    manu_id, st = client.lookup_or_create(
+        "manufacturers",
+        lookup_query={"name": manu},
+        create_payload={"name": manu, "slug": _slugify(manu)},
+    )
+    notes.append(f"manufacturer '{manu}': {st}")
+    if manu_id is None:
+        return "failed_chain", notes
+
+    dt = row["device_type"].strip()
+    dt_id, st = client.lookup_or_create(
+        "device-types",
+        lookup_query={"model": dt, "manufacturer_id": manu_id},
+        create_payload={
+            "manufacturer": manu_id,
+            "model": dt,
+            "slug": _slugify(f"{manu}-{dt}"),
+        },
+    )
+    notes.append(f"device_type '{dt}': {st}")
+    if dt_id is None:
+        return "failed_chain", notes
+
+    role = row["device_role"].strip()
+    role_id, st = client.lookup_or_create(
+        "device-roles",
+        lookup_query={"name": role},
+        create_payload={"name": role, "slug": _slugify(role)},
+    )
+    notes.append(f"device_role '{role}': {st}")
+    if role_id is None:
+        return "failed_chain", notes
+
+    dev_id, st = client.device_lookup_or_create(
+        name=row["name"].strip(),
+        site_id=site_id,
+        role_id=role_id,
+        device_type_id=dt_id,
+        status=row["status"].strip().lower() or "active",
+    )
+    notes.append(f"device '{row['name']}': {st}")
+    if dev_id is None:
+        return "failed_chain", notes
+    return ("created" if "created" in notes[-1] else "exists"), notes
+
+
 def _render_report(verdicts: list[RowVerdict], csv_path: Path,
                    col_check: str) -> str:
     n_total = len(verdicts)
@@ -150,18 +338,19 @@ def main() -> int:
     )
     parser.add_argument(
         "--write", action="store_true",
-        help="(STUB) actually POST to NetBox — not yet implemented; errors out.",
+        help="Actually POST validated rows to NetBox.  Requires --endpoint "
+             "(or services.yaml.netbox.endpoint) + --token (or $NETBOX_TOKEN). "
+             "Idempotent: re-running on the same CSV is a no-op.",
+    )
+    parser.add_argument(
+        "--endpoint", default=None,
+        help="NetBox API endpoint (default: services.yaml.netbox.endpoint)",
+    )
+    parser.add_argument(
+        "--token", default=None,
+        help="NetBox API token (default: $NETBOX_TOKEN)",
     )
     args = parser.parse_args()
-
-    if args.write:
-        print(
-            "❌ --write is not implemented yet — needs registered NetBox "
-            "service + per-tier write tools.  Use --dry-run (default) for "
-            "validation. (Tracked: Ch10b deferred work in dev_docs/71.)",
-            file=sys.stderr,
-        )
-        return 2
 
     csv_path = Path(args.csv)
     if not csv_path.exists():
@@ -209,9 +398,77 @@ def main() -> int:
             for i, row in enumerate(reader)
         ]
 
+    # Render the dry-run base report once — both paths reuse it.
     report = _render_report(verdicts, csv_path, col_check)
     report_path = Path(args.report)
     report_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # ── --write path (Ch10c real POST) ──────────────────────────────
+    if args.write:
+        endpoint, token = _resolve_endpoint_and_token(args.endpoint, args.token)
+        if not endpoint:
+            print(
+                "❌ --write needs an endpoint (--endpoint or "
+                "services.yaml.netbox.endpoint)", file=sys.stderr,
+            )
+            return 2
+        if not token:
+            print(
+                "❌ --write needs a token (--token or $NETBOX_TOKEN env var)",
+                file=sys.stderr,
+            )
+            return 2
+
+        # Re-read CSV rows for the push (validation already populated verdicts)
+        rows = list(csv.DictReader(csv_path.open(encoding="utf-8")))
+        client = NetboxClient(endpoint=endpoint, token=token)
+
+        push_lines = [
+            "",
+            "## Real-write results (--write)",
+            "",
+            f"**Endpoint**: `{endpoint}`",
+            "",
+            "| Line | Name | Verdict | Notes |",
+            "|---|---|---|---|",
+        ]
+        n_created = 0
+        n_existed = 0
+        n_failed = 0
+        for v, row in zip(verdicts, rows):
+            if v.verdict == "skip":
+                push_lines.append(
+                    f"| {v.line_no} | {v.name} | skip (validation) | {'; '.join(v.errors)} |"
+                )
+                continue
+            push_verdict, notes = _push_row(client, row)
+            note_text = " · ".join(notes)
+            push_lines.append(
+                f"| {v.line_no} | {v.name} | {push_verdict} | {note_text} |"
+            )
+            if push_verdict == "created":
+                n_created += 1
+            elif push_verdict == "exists":
+                n_existed += 1
+            else:
+                n_failed += 1
+
+        push_lines.extend([
+            "",
+            f"**Created**: {n_created} · **Already existed**: {n_existed} "
+            f"· **Failed**: {n_failed}",
+        ])
+
+        report_path.write_text(report + "\n" + "\n".join(push_lines), encoding="utf-8")
+
+        print(
+            f"✓ real-write done: "
+            f"{n_created} created | {n_existed} existed | {n_failed} failed"
+        )
+        print(f"  endpoint: {endpoint}")
+        print(f"  report  : {report_path}")
+        return 0 if n_failed == 0 else 1
+
     report_path.write_text(report, encoding="utf-8")
 
     n_total = len(verdicts)
@@ -228,8 +485,6 @@ def main() -> int:
         for v in verdicts:
             if v.verdict == "skip":
                 print(f"    line {v.line_no} ({v.name}): {'; '.join(v.errors)}")
-                if not any(False for _ in []):  # placeholder
-                    pass
         return 1
     return 0
 

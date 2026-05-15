@@ -126,12 +126,99 @@ def test_unknown_status_rejected(tmp_path: Path) -> None:
     assert "status" in (tmp_path / "r.md").read_text()
 
 
-def test_write_flag_is_stub(tmp_path: Path) -> None:
-    """--write must fail loud until the real POST path ships."""
+def test_write_flag_needs_endpoint(tmp_path: Path) -> None:
+    """--write without --endpoint (and no services.yaml) errors out."""
     csv_p = _happy_csv(tmp_path)
-    res = _run_import(csv_p, "--write", report=tmp_path / "r.md")
+    res = subprocess.run(
+        [sys.executable, str(IMPORT_SCRIPT), "--csv", str(csv_p),
+         "--report", str(tmp_path / "r.md"), "--write",
+         "--token", "dummy"],
+        capture_output=True, text=True, cwd=tmp_path,  # cwd has no services.yaml
+    )
     assert res.returncode == 2
-    assert "not implemented" in (res.stderr + res.stdout).lower()
+    assert "endpoint" in (res.stderr + res.stdout).lower()
+
+
+def test_write_flag_needs_token(tmp_path: Path) -> None:
+    """--write without --token (and no $NETBOX_TOKEN) errors out."""
+    csv_p = _happy_csv(tmp_path)
+    env = {k: v for k, v in __import__("os").environ.items() if k != "NETBOX_TOKEN"}
+    res = subprocess.run(
+        [sys.executable, str(IMPORT_SCRIPT), "--csv", str(csv_p),
+         "--report", str(tmp_path / "r.md"), "--write",
+         "--endpoint", "http://localhost:9999"],
+        capture_output=True, text=True, env=env, cwd=tmp_path,
+    )
+    assert res.returncode == 2
+    assert "token" in (res.stderr + res.stdout).lower()
+
+
+def test_write_path_calls_netbox_api(tmp_path: Path, monkeypatch) -> None:
+    """In-process test of NetboxClient: mock urlopen, verify the
+    lookup-or-create chain hits the right endpoints in the right order."""
+    import sys as _sys
+    _sys.path.insert(0, str(IMPORT_SCRIPT.parent))
+    import importlib
+    if "run" in _sys.modules:
+        del _sys.modules["run"]
+    run_mod = importlib.import_module("run")
+
+    calls: list[tuple[str, str, dict | None]] = []
+    next_id = {"v": 100}
+
+    class _MockResp:
+        def __init__(self, status: int, body: dict | None):
+            self.status = status
+            self._body = body
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def read(self): return __import__("json").dumps(self._body).encode("utf-8") if self._body is not None else b""
+
+    def _fake_urlopen(req, timeout=None):
+        method = req.get_method()
+        url = req.full_url
+        data = None
+        if req.data:
+            data = __import__("json").loads(req.data.decode())
+        calls.append((method, url, data))
+        # GET = no hits; POST = returns the created object with a fresh id.
+        if method == "GET":
+            return _MockResp(200, {"count": 0, "results": []})
+        if method == "POST":
+            next_id["v"] += 1
+            return _MockResp(201, {"id": next_id["v"], "name": (data or {}).get("name", "x")})
+        return _MockResp(405, {"detail": "method not allowed"})
+
+    monkeypatch.setattr(run_mod.urllib.request, "urlopen", _fake_urlopen)
+    client = run_mod.NetboxClient("http://nb.test", "tok")
+    row = {
+        "name": "R1", "site": "lab", "manufacturer": "Juniper",
+        "device_type": "vsrx", "device_role": "border",
+        "status": "active",
+    }
+    verdict, notes = run_mod._push_row(client, row)
+    assert verdict == "created", notes
+    # 5-step chain: site GET → site POST → manuf GET → manuf POST → ...
+    methods = [c[0] for c in calls]
+    assert methods.count("GET") == 5     # one per resource
+    assert methods.count("POST") == 5    # creation per resource
+    # First POST should be the site
+    first_post = next(c for c in calls if c[0] == "POST")
+    assert "sites" in first_post[1]
+    assert first_post[2]["name"] == "lab"
+
+
+def test_slugify_round_trip() -> None:
+    """Slugs need to be safe for NetBox (lowercase, dash-separated alnum)."""
+    import sys as _sys
+    _sys.path.insert(0, str(IMPORT_SCRIPT.parent))
+    if "run" in _sys.modules:
+        del _sys.modules["run"]
+    run_mod = __import__("importlib").import_module("run")
+    assert run_mod._slugify("DC1") == "dc1"
+    assert run_mod._slugify("border-leaf 01") == "border-leaf-01"
+    assert run_mod._slugify("juniper-vsrx") == "juniper-vsrx"
+    assert run_mod._slugify("***") == "unnamed"
 
 
 def test_missing_csv_errors_helpfully(tmp_path: Path) -> None:
