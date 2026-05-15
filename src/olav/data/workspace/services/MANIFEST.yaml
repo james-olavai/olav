@@ -16,3 +16,11 @@ route_keywords:
 owner: olav
 requires:
   olav-platform: ">=0.18"
+
+slash_commands:
+  - name: /import_netbox_csv
+    kind: shell
+    script: .olav/workspace/services/import_netbox_csv/run.py
+    description: "Validate + dry-run import a NetBox-shaped CSV (produced by netops /export_netbox_csv) into NetBox.  Default = dry-run only (no HTTP).  Pass --write to actually POST (not yet implemented; errors out for now)."
+    cwd_policy: project_root
+    timeout: 60
