@@ -370,6 +370,24 @@ rules:
     enforced: false
     git: ignore
 
+  # 2026-05-15 (dev_docs/79): kb_audit/ is the git-trackable audit
+  # chain for every R102 commit + ``olav kb remove`` action.  It MUST
+  # be tracked even though the parent olav-netops/ tree is gitignored
+  # — losing kb_audit rows defeats the entire enterprise lifecycle
+  # point of the source_tier + remove design.  Explicit per-path rule
+  # overrides the ``olav-netops/**`` rule above because the gitignore
+  # generator emits more-specific patterns later (negation rules).
+  - pattern: olav-netops/.olav/workspace/kb_audit/**
+    owner: olav-netops
+    class: audit
+    status: authoritative
+    enforced: true
+    git: track
+    notes: |
+      Per-action audit YAML rows (commit / remove). One file per
+      action, named `<iso-ts>_<verb>_<intent>.yaml`. Git history is
+      the canonical change record for KB mutations.
+
   - pattern: olav-ent/**
     owner: olav-ent
     class: enterprise

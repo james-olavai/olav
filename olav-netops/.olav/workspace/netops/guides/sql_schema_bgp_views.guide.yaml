@@ -1,19 +1,19 @@
-schema_version: 1
+schema_version: 2
 intent: sql_schema_bgp_views
 agent: netops
-priority: 10
+source_tier: platform
 keywords:
-  - bgp
-  - neighbors
-  - sessions
-  - peers
-  - established
-  - idle
-  - active
-  - "bgp state"
-  - "bgp neighbor"
-  - "show bgp"
-  - "show ip bgp"
+- bgp
+- neighbors
+- sessions
+- peers
+- established
+- idle
+- active
+- bgp state
+- bgp neighbor
+- show bgp
+- show ip bgp
 body: |
   ## OLAV BGP view schemas (exact column names — do not guess)
 

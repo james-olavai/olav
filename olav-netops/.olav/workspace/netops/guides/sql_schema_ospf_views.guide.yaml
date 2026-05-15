@@ -1,19 +1,19 @@
-schema_version: 1
+schema_version: 2
 intent: sql_schema_ospf_views
 agent: netops
-priority: 10
+source_tier: platform
 keywords:
-  - ospf
-  - "ospf neighbor"
-  - "ospf adjacency"
-  - "ospf area"
-  - "show ip ospf"
-  - init
-  - exstart
-  - "two-way"
-  - full
-  - dr
-  - bdr
+- ospf
+- ospf neighbor
+- ospf adjacency
+- ospf area
+- show ip ospf
+- init
+- exstart
+- two-way
+- full
+- dr
+- bdr
 body: |
   ## OLAV OSPF view schemas
 

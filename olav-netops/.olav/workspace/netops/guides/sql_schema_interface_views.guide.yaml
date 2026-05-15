@@ -1,21 +1,21 @@
-schema_version: 1
+schema_version: 2
 intent: sql_schema_interface_views
 agent: netops
-priority: 10
+source_tier: platform
 keywords:
-  - interface
-  - interfaces
-  - "show interfaces"
-  - "show ip interface"
-  - "interface down"
-  - "interface up"
-  - "link state"
-  - "admin state"
-  - shutdown
-  - "no shutdown"
-  - shut
-  - "admin down"
-  - "line protocol"
+- interface
+- interfaces
+- show interfaces
+- show ip interface
+- interface down
+- interface up
+- link state
+- admin state
+- shutdown
+- no shutdown
+- shut
+- admin down
+- line protocol
 body: |
   ## OLAV interface view schemas
 
