@@ -4,17 +4,20 @@ _deepagents_bridge.py — deepagents API 的版本隔离层。
 升级 deepagents 时只需改这一个文件。
 agent.py 和其他模块从这里导入，不直接接触 deepagents 包。
 
-版本策略:
-  supported range: >=0.5.0, <1.0
+版本策略 (2026-05-16 更新, _DA_MIN bumped from 0.5.0 → 0.5.9 to match pyproject):
+  supported range: >=0.5.9, <0.6
   - 低于 _DA_MIN  → ImportError (明确告知升级路径)
-  - >=1.0         → UserWarning (可能有 breaking changes，需人工验证)
+  - >=0.6.0       → UserWarning (实验性 CodeInterpreterMiddleware + v3 stream_events,
+                    需 OLAV 单独验证再放行)
 
-0.5 新增功能:
-  - AsyncSubAgent / AsyncSubAgentMiddleware: 非阻塞后台子智能体 (需 LangGraph Platform)
-  - SummarizationToolMiddleware: 工具形式的摘要中间件
-  - 多模态 read_file: 支持 PDF / 音频 / 视频
-  - 后端协议 binary 文件支持 (base64)
-  - Anthropic Prompt Caching 改进
+0.5 主要功能演进:
+  - 0.5.2 FilesystemPermission (虚拟 FS 读/写访问控制 — 激活 agent.py:574-612 的写保护)
+  - 0.5.4 Harness Profiles (按 provider/model 注册 prompt/tool/middleware 覆盖层 —
+          OLAV 在 src/olav/agents/profiles/ 下使用)
+  - 0.5.5 FilesystemBackend symlink-loop 加固
+  - 0.5.6 CompiledSubAgent 名字传 lc_agent_name 元数据 (LangSmith trace 清晰化)
+  - 0.5.7 GP-subagent 继承父级 permissions
+  - 0.5.0 AsyncSubAgent / AsyncSubAgentMiddleware: 非阻塞后台子智能体 (需 LangGraph Platform)
 """
 
 from __future__ import annotations
@@ -34,8 +37,8 @@ except PackageNotFoundError as exc:
         "deepagents is not installed. Run: pip install 'deepagents>=0.5.0,<1.0'"
     ) from exc
 
-_DA_MIN = V("0.5.0")
-_DA_NEXT_MAJOR = V("1.0.0")
+_DA_MIN = V("0.5.9")
+_DA_NEXT_MAJOR = V("0.6.0")  # 0.6.x adds experimental CodeInterpreter + v3 events; re-evaluate after upstream stabilises
 
 if _DA_VERSION < _DA_MIN:
     raise ImportError(
