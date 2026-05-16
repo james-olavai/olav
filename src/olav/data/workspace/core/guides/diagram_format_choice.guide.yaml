@@ -1,61 +1,95 @@
-schema_version: 1
+schema_version: 2
 intent: diagram_format_choice_and_minimal_examples
 agent: core
+source_tier: platform
 keywords:
-  - diagram
-  - visualize
-  - visualization
-  - draw
-  - chart
-  - topology
-  - mermaid
-  - drawio
-  - plantuml
-  - infographic
-  - flowchart
-  - sequence
-  - mmd
-  - svg
-  - png
-  - 图
-  - 图表
-  - 拓扑
-  - 流程图
-  - 可视化
+- diagram
+- visualize
+- visualization
+- draw
+- chart
+- topology
+- mermaid
+- drawio
+- plantuml
+- infographic
+- flowchart
+- sequence
+- mmd
+- svg
+- png
+- 图
+- 图表
+- 拓扑
+- 流程图
+- 可视化
 body: |
   Pick the right diagram format, save via ``format_and_export``.
 
-  Decision matrix:
+  ## Decision matrix
 
-  | User says | Format | Why |
-  |---|---|---|
-  | "topology" / "diagram" / "draw the network" | mermaid (.mmd) | default; renders in markdown / GitHub |
-  | "edit it later" / "open in diagrams.net" | drawio (.xml) | editable XML |
-  | "presentation deck" / "Cisco stencils" / "PlantUML" | plantuml (.puml) | vendor stencils |
-  | "score card" / "dashboard" / "KPI summary" | infographic (.yaml) | tabular metrics, NOT topology |
-  | "BGP path tree" / "routing tree" | mermaid flowchart | most expressive |
+  | User says | Format | Tool | Why |
+  |---|---|---|---|
+  | "topology" / "diagram" / "draw the network" | mermaid (.mmd) | ``render_topology_mermaid`` | default; renders in Markdown / GitHub |
+  | "edit it later" / "open in diagrams.net" | drawio (.drawio) | ``render_topology_drawio`` | editable XML, Cisco stencils |
+  | "presentation deck" / "Cisco stencils" / "PlantUML" | plantuml (.puml) | (LLM hand-craft) | vendor stencils, PNG render |
+  | "score card" / "dashboard" / "KPI summary" | infographic (.yaml) | (LLM hand-craft) | tabular metrics, NOT topology |
+  | "BGP path tree" / "routing tree" | mermaid flowchart | (LLM hand-craft) | most expressive for trees |
 
-  Mermaid example (default, smallest):
+  ## Mermaid example (default, smallest)
 
-      flowchart LR
-        R1[R1\nAS 65001] -->|10.0.0.1/30| R2[R2\nAS 65002]
-        R2 --> SW1[(SW1)]
+  ```
+  flowchart LR
+    R1[R1\nAS 65001] -->|10.0.0.1/30| R2[R2\nAS 65002]
+    R2 --> SW1[(SW1)]
+  ```
 
-  Infographic YAML shape:
+  Best for: 5-30 nodes, inline in Markdown reports, GitHub /
+  GitLab / Confluence-with-mermaid-plugin rendering.
 
-      type: scorecard
-      title: "Network Health"
-      kpis:
-        - name: "BGP Convergence"
-          value: "98.7%"
-          status: "ok"
-          target: "≥ 99%"
+  ## drawio example (editable XML)
 
-  Save:
-      format_and_export(data="<diagram>", format="mmd",
-                        filename="topology")
-      # auto-routes: .mmd/.xml/.puml → exports/reports/
-      #              .yaml → exports/
+  Use ``render_topology_drawio`` Python tool — same input contract as
+  the Mermaid one (Markdown adjacency table). For deep formatting
+  rules, see ``viz_drawio`` guide (auto-recalled when keywords like
+  ``drawio`` / ``editable diagram`` / ``mxfile`` appear).
 
-  Don't paste the diagram inline — always go to disk via
-  ``format_and_export`` (see ``write_class_tool_call`` directive).
+  Best for: enterprise audiences (Confluence editable embeds), >50
+  nodes (hand laid-out), users who want to add annotations before
+  presenting.
+
+  ## Infographic YAML shape
+
+  ```yaml
+  type: scorecard
+  title: "Network Health"
+  kpis:
+    - name: "BGP Convergence"
+      value: "98.7%"
+      status: "ok"
+      target: "≥ 99%"
+  ```
+
+  Best for: dashboards, KPI summaries, NOT topology.
+
+  ## Save (universal)
+
+  ```python
+  format_and_export(data="<diagram>", format="mmd",       # or drawio / puml / yaml
+                    filename="topology")
+  # auto-routes by format:
+  #   .mmd / .drawio / .puml → exports/reports/
+  #   .yaml → exports/
+  ```
+
+  Don't paste the diagram inline in the chat reply — always go to
+  disk via ``format_and_export`` (see ``write_class_tool_call``
+  directive).
+
+  ## When the topology is bigger than the format can show
+
+  - >50 nodes: Mermaid gets cramped; switch to drawio with tree
+    layout, or hand-curated PlantUML with swimlanes
+  - >300 nodes (e.g. ingested rancid fleet): drawio with
+    ``layout=tree`` is the only option that opens cleanly; OR slice
+    by site / role and produce one diagram per slice

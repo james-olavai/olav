@@ -24,7 +24,8 @@ _REFS_DIR = Path(__file__).parent.parent.parent / "references"
 _AVAILABLE = {
     "mermaid": "viz_mermaid.md",
     "plantuml_network": "viz_plantuml_network.md",
-    "drawio": "viz_drawio.md",
+    # drawio moved to schema-v2 KB guide (core/guides/viz_drawio.guide.yaml)
+    # — auto-recalled on drawio / mxfile / editable-diagram keywords.
     "infographic": "viz_infographic.md",
     "schema": "SCHEMA_REFERENCE.md",
     "skill_dev": "SKILL_DEVELOPMENT.md",
@@ -87,7 +88,7 @@ def load_reference(name: str, section: str | None = None) -> str:
     Available references:
       - mermaid            : Mermaid flowchart/sequence/state diagram syntax
       - plantuml_network   : PlantUML + Cisco stencil network topology syntax
-      - drawio             : draw.io XML generation rules and Cisco shapes
+      - (drawio retired)   : see core/guides/viz_drawio.guide.yaml (auto-recalled)
       - infographic        : KPI score-card, timeline, gauge YAML templates
       - schema             : Database schema reference (tables, views, columns)
       - skill_dev          : Skill development guidelines
