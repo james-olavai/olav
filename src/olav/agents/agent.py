@@ -109,6 +109,37 @@ except (ImportError, AttributeError) as _exc:
     )
 
 
+# Stop `jump_to` from leaking from the parent orchestrator's state into
+# sub-agents.  Background: when the LLM returns `jump_to="model"` (e.g.
+# under HITL-rewrite or middleware-injected tool messages) and a
+# sub-agent inherits that key via `task()`, the sub-agent's
+# model→tools branch evaluates `state["jump_to"]` and tries to dispatch
+# to "model" — but its `ends` dict only contains {tools, exit_node}
+# because `langchain.agents.factory._make_model_to_tools_edge` does not
+# add `loop_entry_node` to destinations when both `loop_exit_node ==
+# "model"` and `response_format is None` (factory.py:1523-1524).  The
+# branch raises `KeyError: 'model'` from `_branch._finish`.
+#
+# Upstream is unfixed in deepagents 0.5.9 / langchain 1.2.18 /
+# langgraph 1.1.10 (verified 2026-05-16, factory.py wiring identical at
+# HEAD).  See memory/project_langgraph_keyerror_model.md.
+try:
+    import deepagents.middleware.subagents as _ds_subagents_for_jump
+    if "jump_to" not in _ds_subagents_for_jump._EXCLUDED_STATE_KEYS:
+        _ds_subagents_for_jump._EXCLUDED_STATE_KEYS.add("jump_to")
+        logger.info(
+            "✓ Patched deepagents._EXCLUDED_STATE_KEYS to filter `jump_to` "
+            "from sub-agent state (closes KeyError 'model' under KB-heavy "
+            "sub-agents — see dev_docs/83 §13d)"
+        )
+except (ImportError, AttributeError) as _exc:
+    logger.warning(
+        "Could not patch deepagents `_EXCLUDED_STATE_KEYS` (KeyError 'model' "
+        "workaround disabled): %s: %s",
+        type(_exc).__name__, _exc,
+    )
+
+
 def _prune_graph_tools(graph, unwanted: frozenset[str], label: str) -> None:
     """Strip auto-injected tools from a compiled langgraph.
 
