@@ -499,12 +499,76 @@ def _generate_postcheck_playbook(audit_json: dict, lang: str = "zh") -> str:
         )
         lines.extend(p2_lines)
 
-    # ── Priority 3: Catch-all for any remaining devices in findings ───────
+    # ── Priority 2b: Metric breaches from unrecognised job names ─────────
+    # PRIORITY_JOBS above is curated for built-in profiles (BGP / OSPF /
+    # interface / CPU / etc.) where we have hand-written ``_ops_prompt_*``
+    # builders.  For ad-hoc profiles (wireless AP concentration, custom
+    # thresholds promoted from an explorer finding), we emit a data-aware
+    # breach prompt: one entry per device whose row carries severity_hint
+    # in {Critical, Warning}, quoting metric_name + value.  Fixes the
+    # 2026-05-16 bug where Priority 3 picked alphabetically-first
+    # Info-level devices and ignored the real Critical/Warning ones.
+    severity_order = {"critical": 0, "warning": 1}
+    recognised_jobs = {pj[0] for pj in PRIORITY_JOBS}
+    metric_breach_lines: list[str] = []
+    for job_name, job_data in jobs.items():
+        if job_name in recognised_jobs:
+            continue
+        breaches = [
+            f for f in job_data.get("findings", [])
+            if (f.get("severity_hint") or "").lower() in severity_order
+            and f.get("device_name", f.get("device", ""))
+            and "_warning" not in f
+        ]
+        breaches.sort(key=lambda f: (
+            severity_order.get((f.get("severity_hint") or "").lower(), 99),
+            -float(f.get("metric_value") or 0),
+        ))
+        for f in breaches[:5]:
+            device = f.get("device_name", f.get("device", ""))
+            if device in seen_devices:
+                continue
+            metric_name = f.get("metric_name") or "metric"
+            metric_value = f.get("metric_value", "?")
+            hint = (f.get("severity_hint") or "").capitalize()
+            if lang == "zh":
+                prompt = (
+                    f'olav -a ops "对 {device} 指标 \\"{metric_name}\\"={metric_value} '
+                    f'({hint}) 做根因排查：1)确认数据是否最新；'
+                    f'2)若属容量/拥塞类问题，用 networkx 分析周边拓扑负载是否可重新调度；'
+                    f'3)给出修复建议序列"'
+                )
+            else:
+                prompt = (
+                    f'olav -a ops "Investigate {device}: {metric_name}={metric_value} '
+                    f'({hint}). Verify data freshness, use networkx to assess whether '
+                    f'the surrounding topology can absorb a redistribution, and output '
+                    f'a recovery sequence."'
+                )
+            metric_breach_lines.append(
+                f"**{prompt_index}.** `{device}` — {job_name}: "
+                f"{metric_name}={metric_value} ({hint})\n\n```bash\n{prompt}\n```\n"
+            )
+            seen_devices.add(device)
+            prompt_index += 1
+    if metric_breach_lines:
+        lines.append(
+            "\n### Priority 2b — " +
+            ("阈值越界（自定义指标）" if lang == "zh" else "Threshold Breaches (Custom Metrics)") +
+            "\n"
+        )
+        lines.extend(metric_breach_lines)
+
+    # ── Priority 3: Catch-all for any remaining HIGH-SEVERITY devices ───
+    # Pre-2026-05-16 this pulled every device regardless of severity_hint;
+    # for HAVING-filtered profiles with 50-row outputs the alphabetically-
+    # first 5 Info-level devices won, drowning Critical/Warning rows.
     all_finding_devices: set[str] = set()
     for job_data in jobs.values():
         for f in job_data.get("findings", []):
             d = f.get("device_name", f.get("device", ""))
-            if d and "_warning" not in f:
+            hint = (f.get("severity_hint") or "").lower()
+            if d and hint in severity_order and "_warning" not in f:
                 all_finding_devices.add(d)
 
     fallback_devices = all_finding_devices - seen_devices

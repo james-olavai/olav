@@ -9,6 +9,11 @@ tools:
   - list_profiles
   - execute_skill_script
   - recall_memory
+  - read_file               # 2026-05-16 (dev_docs/84 §B): operator can pass an
+                            # explorer markdown report by path and the author
+                            # extracts the SQL + threshold context.  Reads are
+                            # constrained to exports/reports/** by FilesystemPermission
+                            # rule in src/olav/agents/agent.py.
 references:
   - path: ./references/PROFILE_AUTHORING.md
 ---
@@ -26,8 +31,13 @@ Profile file under `.olav/workspace/audit/profiles/`. Three sub-modes:
 
 ## Hard Constraints
 
-- **Never** use `ls`, `glob`, `grep`, or any filesystem tool to search for reference files or legacy files.
-- All Profile content must be generated from the user's job specification plus `database_introspection` results. Do not look up existing files.
+- **Never** use `ls`, `glob`, `grep` to search for reference files or legacy files.
+- **EXCEPTION**: `read_file(file_path="exports/reports/<basename>.md")` IS allowed
+  when the operator passes an explorer report path — extract the SQL +
+  threshold context from that report and shape it into the profile.  The
+  FilesystemPermission allow-rule (`/**/exports/reports/**`) makes this
+  the only read path open to you.  See dev_docs/84 §B.
+- All other Profile content must be generated from the user's job specification plus `database_introspection` results. Do not look up arbitrary files.
 - Call `database_introspection` immediately for Create / Append — do not guess table or column names.
 - For Retune / overwrite operations, `save_profile` requires explicit user confirmation (HMITL gate).
 
