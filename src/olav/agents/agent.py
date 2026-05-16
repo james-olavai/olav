@@ -620,7 +620,25 @@ class OLAVAgent:
                     # to use real-disk paths (read_file core tool, or
                     # task() delegation, or execute_skill_script).
                     # Override with OLAV_ALLOW_VIRTUAL_FS_READS=1.
+                    #
+                    # 2026-05-16 (dev_docs/84 §B): explicit allow for
+                    # ``exports/reports/**`` BEFORE the global deny —
+                    # the audit/author sub-agent needs to read explorer
+                    # markdown reports there to translate findings into
+                    # v4.0 profiles.  deepagents evaluates permissions
+                    # in order, so the allow lands first and the global
+                    # deny still blocks every other read path.
+                    # Path patterns use wcmatch.globmatch with GLOBSTAR + BRACE.
+                    # Backend resolves relative paths to absolute via
+                    # ``LocalShellBackend(root_dir=Path.cwd())`` before the
+                    # permission check, so the allow pattern needs a globstar
+                    # prefix (``/**/exports/reports/**``) to match the workspace's
+                    # absolute path. Plain ``/exports/reports/**`` only matches
+                    # paths literally starting at filesystem root.
                     *([] if os.environ.get("OLAV_ALLOW_VIRTUAL_FS_READS") else [
+                        FilesystemPermission(
+                            operations=["read"], paths=["/**/exports/reports/**"], mode="allow",
+                        ),
                         FilesystemPermission(
                             operations=["read"], paths=["/**"], mode="deny",
                         ),
