@@ -1,0 +1,105 @@
+schema_version: 2
+intent: dc_fabric_l1_l4_issues
+agent: netops
+source_tier: platform
+keywords:
+- data center
+- DC fabric
+- spine
+- leaf
+- nx-os
+- N9K
+- N7K
+- N5K
+- vpc
+- evpn
+- vxlan
+- vni
+- show vpc
+- show l2route
+- show nve peers
+- 数据中心
+- fabric
+body: |
+  ## Data-Centre Fabric L1-L4 playbook
+
+  Spine-leaf NX-OS fabrics with VXLAN-EVPN.  Pick hypotheses whose
+  data preconditions are met by your SURVEY findings.
+
+  ## L1 — physical
+
+  ### Optic compatibility (LR / SR / AOC) mismatches
+  ```sql
+  SELECT device_name, interface, media_type, transceiver
+  FROM netops.v_show_interfaces_auto
+  WHERE transceiver IS NOT NULL
+    AND interface LIKE '%/%/%';
+  ```
+  - Long-haul LR optic on a 3-meter intra-rack link wastes budget
+  - SR optic on a 10km link = silent failure
+
+  ### Power redundancy state
+  Verify both power supplies on every spine are operational —
+  fabric uplinks can saturate one PSU on a 600W chassis.
+
+  ## L2 — link layer
+
+  ### vPC peer-link / consistency-check failures
+  ```sql
+  SELECT device_name, parsed_data FROM netops.parsed_outputs
+  WHERE command='show vpc' AND parsed_data IS NOT NULL;
+  ```
+  Look for:
+  - `peer adjacency: failed` or `keepalive disabled`
+  - `consistency-check: failed`
+  - `vlan inconsistency: <vlan>` listed
+
+  ### MLAG / vPC orphan ports
+  - A vPC member port without its pair = single-homed = single point
+    of failure.
+
+  ## L3 — routing & overlay
+
+  ### BGP EVPN session health
+  ```sql
+  SELECT device_name, neighbor, remote_as, bgp_state
+  FROM netops.v_show_ip_bgp_neighbors_auto
+  WHERE address_family LIKE '%evpn%' AND bgp_state != 'Established';
+  ```
+  EVPN sessions that aren't Established = MAC/IP routes not
+  propagating = silent unreachable hosts.
+
+  ### VNI consistency drift
+  ```sql
+  SELECT vni, COUNT(DISTINCT device_name) AS configured_on
+  FROM (SELECT device_name,
+               json_extract_string(e.unnest, '$.vni') AS vni
+        FROM netops.parsed_outputs,
+             UNNEST(json_extract(parsed_data, '$')::JSON[]) AS e
+        WHERE command IN ('show nve peers', 'show vxlan'))
+  GROUP BY vni HAVING configured_on < (SELECT COUNT(*) FROM netops.devices WHERE platform='cisco_nxos') * 0.8;
+  ```
+  VNIs configured on <80% of leaves = tenant-segment islands.
+
+  ### Anycast-gateway MAC inconsistency
+  All leaves in the fabric should advertise the same gateway MAC
+  for a given SVI; drift = duplicate MAC tables + East-West flap.
+
+  ### Peer-policy / peer-template drift across leaves
+  Two leaves running different BGP peer policies for the same
+  spine = unpredictable convergence.
+
+  ## L4 — services
+
+  ### Micro-segmentation policy drift
+  - VRFs / VLANs that exist on some leaves but not others
+  - Contracts deny rates spiking on specific tenant pairs
+
+  ### Multicast PIM / DR election
+  - For multicast-replication-mode multicast, PIM DR drift across
+    leaves = duplicated / dropped multicast traffic
+
+  ## When recording
+  - Include the actual SQL as `evidence_sql`.
+  - Pull a few result rows as `evidence_rows`.
+  - vPC + EVPN issues frequently correlate — use `related_findings`.

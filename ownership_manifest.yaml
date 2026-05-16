@@ -388,6 +388,39 @@ rules:
       action, named `<iso-ts>_<verb>_<intent>.yaml`. Git history is
       the canonical change record for KB mutations.
 
+  # 2026-05-16: netops workspace authoritative source — SKILL.md /
+  # prompts/ / references/ / tools/ for every sub-agent (analyze,
+  # analyzer, collect, ingest, explorer, investigate, learner,
+  # netops_init, sim, topology, export_netbox_csv).  Without tracking,
+  # changes like the explorer system.md (dev_docs/83) only live on
+  # disk and never propagate.  scripts/sync_netops_workspace.py keeps
+  # the root mirror at ``.olav/workspace/netops/`` in sync.
+  - pattern: olav-netops/.olav/workspace/netops/**
+    owner: olav-netops
+    class: netops
+    status: authoritative
+    enforced: true
+    git: track
+    notes: |
+      Sub-agent definitions live here. The root ``.olav/workspace/
+      netops/`` is a dev mirror per the matching rule below; this is
+      the authoritative copy.
+
+  # SECRET — Nornir SSH credential file. The .example sibling stays
+  # tracked; the real defaults.yaml has plaintext lab passwords and
+  # MUST never be committed.  Lives inside the tracked netops tree
+  # above; rule below takes precedence because secret_rules are
+  # emitted after negations in scripts/gen_gitignore.py.
+  - pattern: olav-netops/.olav/workspace/netops/collect/config/nornir/defaults.yaml
+    owner: olav-netops
+    class: netops
+    status: authoritative
+    enforced: true
+    git: secret
+    notes: |
+      Real Nornir credentials (CLAB lab default cisco/<redacted-lab-password> etc).
+      Copy from defaults.yaml.example, chmod 600, never commit.
+
   - pattern: olav-ent/**
     owner: olav-ent
     class: enterprise
