@@ -53,10 +53,15 @@ classifiers = [
 
 dependencies = [
     # LLM & Agents
-    "langchain>=0.1.0",
+    # Ceiling at langchain<1.3 / langchain-core<1.4 keeps us on the 1.2.x
+    # branch — langchain 1.3.x (released 2026-05-15) is brand-new and would
+    # transitively force langgraph 1.2.x.  Floor raised to >=1.2.17 because
+    # deepagents 0.5.9 (our new floor) requires that.  Re-evaluate after
+    # langchain 1.3.x settles upstream.
+    "langchain>=1.2.17,<1.3",
     "langchain-openai>=0.0.1",
     "langchain-ollama>=0.1.0",
-    "langchain-core>=0.1.0",
+    "langchain-core>=1.3.2,<1.4",
     "langchain-huggingface>=0.1.0",
     # Data Processing
     "pydantic>=2.0",
@@ -92,7 +97,9 @@ dependencies = [
     # so headless / CI environments still work without a daemon.
     "keyring>=24",
     "langchain-community>=0.4.1",
-    "langgraph>=1.0.8",
+    # Pin to 1.1.x — langgraph 1.2.0 (2026-05-12) is too new; defer until
+    # langchain 1.3.x is also pinned (they evolve together).
+    "langgraph>=1.1.10,<1.2",
     "duckdb-engine>=0.17.0",
     "langgraph-checkpoint-sqlite>=3.0.0",
     "python-frontmatter>=1.1.0",
@@ -311,9 +318,20 @@ exclude_lines = [
 ]
 
 [tool.uv]
-# deepagents-cli>=0.0.37 is a core dependency (see pyproject.toml [project.dependencies]).
-# deepagents-cli transitively requires deepagents>=0.5.0,<1.0; pin here to avoid
-# any future transitive conflict.
+# deepagents-cli==0.0.41 is a core dependency (see pyproject.toml [project.dependencies]).
+# We override the deepagents library independently so we can pick up library-side
+# fixes without touching the cli (the cli is monkey-patched in
+# src/olav/cli/tui_overlay.py and is therefore exact-pinned).
+#
+# Floor at 0.5.9 (2026-05-10) brings in:
+#   * FilesystemPermission (0.5.2) — activates the virtual-FS write guard in
+#                                    src/olav/agents/agent.py:576-612 (currently
+#                                    falls back silently on 0.5.1).
+#   * Harness Profiles    (0.5.4) — per-provider prompt/middleware overrides.
+#   * Auto-GP-subagent permission inheritance (0.5.7).
+#   * CompiledSubAgent name propagation to lc_agent_name (0.5.6).
+# Ceiling <0.6 skips the experimental CodeInterpreterMiddleware + v3 stream_events
+# (0.6.0, 2026-05-12) — re-evaluate after upstream stabilises.
 override-dependencies = [
-    "deepagents>=0.5.0,<1.0",
+    "deepagents>=0.5.9,<0.6",
 ]
