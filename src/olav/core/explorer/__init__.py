@@ -13,7 +13,7 @@ unit tested without spinning up langchain.
 """
 from __future__ import annotations
 
-from .promote import promote_finding_to_audit
+from .promote import promote_finding_to_audit, read_audit_profile_provenance
 from .scratchpad import (
     record_finding,
     start_exploration,
@@ -22,6 +22,7 @@ from .scratchpad import (
 
 __all__ = [
     "promote_finding_to_audit",
+    "read_audit_profile_provenance",
     "record_finding",
     "start_exploration",
     "update_exploration_run",
