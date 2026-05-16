@@ -200,6 +200,7 @@ def apply_olav_overlay() -> bool:
     ok &= _patch_title()
     ok &= _patch_workspace_command()
     ok &= _patch_disable_self_upgrade()
+    ok &= _patch_welcome_footer()
     # Scaffold patch is "best effort" for native mode — don't let its
     # absence flip `ok` to False when the core overlay (banner, title,
     # /workspace command) is otherwise healthy.  Native users still
@@ -426,6 +427,51 @@ def _patch_disable_self_upgrade() -> bool:
         return True
     except Exception:
         logger.warning("Self-upgrade disable patch failed", exc_info=True)
+        return False
+
+
+def _patch_welcome_footer() -> bool:
+    """Replace deepagents-cli's "Ready to code!" footer with an OLAV-flavoured one.
+
+    Default deepagents-cli welcome footer (``widgets/welcome.py``):
+        "Ready to code! What would you like to build?"
+        Tip: <random coding tip from _TIPS>
+
+    OLAV is not a coding assistant; the prompt sets the wrong frame for
+    a network/audit operator.  This patch replaces the function with a
+    drop-in that emits an audit / explore / schedule call-to-action plus
+    OLAV-aware tips (mention `/audit`, `/netops`, `/workspace` and the
+    explore → audit → cron lifecycle).
+    """
+    try:
+        from deepagents_cli.widgets import welcome as _dc_welcome
+        from rich.style import Style  # noqa: PLC0415 — rich is a deepagents-cli dep
+        from textual.content import Content  # noqa: PLC0415
+        import random
+
+        olav_tips = [
+            "Try `/netops` to explore the network or take a fresh snapshot",
+            "Try `/audit run <profile>` to run a recurring health check",
+            "Use `/workspace <name>` to switch agent context",
+            "Authored a profile? Schedule it via `core/admin manage_cron`",
+            "Discover new problems with the netops/explorer sub-agent",
+            "Inspect today's audit reports under `exports/audit_reports/`",
+        ]
+
+        def _olav_welcome_footer(*, primary_color: str = _dc_welcome.theme.PRIMARY,  # type: ignore[name-defined]
+                                  tip: str | None = None) -> "Content":
+            if tip is None:
+                tip = random.choice(olav_tips)  # noqa: S311
+            return Content.assemble(
+                ("\nOLAV ready — explore, audit, or schedule. What's next on the network?\n",
+                 primary_color),
+                (f"Tip: {tip}", "dim italic"),
+            )
+
+        _dc_welcome.build_welcome_footer = _olav_welcome_footer  # type: ignore[assignment]
+        return True
+    except Exception:
+        logger.warning("Welcome footer patch failed", exc_info=True)
         return False
 
 
