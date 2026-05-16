@@ -27,7 +27,6 @@ from olav.agents._deepagents_bridge import (
     AnthropicPromptCachingMiddleware,
     AsyncSubAgent,
     CompiledSubAgent,
-    HAS_ASYNC_SUBAGENTS,
     HAS_PROMPT_CACHING,
     SubAgent,
     build_summarization_middleware,
@@ -653,6 +652,19 @@ class OLAVAgent:
         )
         if _fs_permissions is not None:
             _create_kwargs["permissions"] = _fs_permissions
+
+        # Register OLAV-owned harness profiles before create_deep_agent
+        # consults the registry.  Idempotent — subsequent OLAVAgent
+        # instances share the same registration.  See
+        # ``olav.agents.profiles`` for the catalogue.
+        try:
+            from olav.agents.profiles import register_olav_profiles
+            register_olav_profiles()
+        except Exception as _exc:  # noqa: BLE001 — never block startup
+            logger.warning(
+                "OLAV harness profile registration skipped: %s: %s",
+                type(_exc).__name__, _exc,
+            )
 
         # Per-orchestrator opt-in for terminal `task` tool. The contextvar
         # is read by `_patched_build_task_tool` during create_deep_agent →

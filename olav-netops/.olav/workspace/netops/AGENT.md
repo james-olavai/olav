@@ -17,7 +17,9 @@ route_keywords:
   - lab containerlab digital twin convergence SRL CAB
   - simulate what-if failure blast-radius decommission
   - learn parser textfsm command unparseable
-  - 路由 拓扑 接口 采集 快照 故障 漂移 模拟 学习
+  - explore audit autonomous investigation finding discover hypothesis
+  - ingest bundle import rancid snapshot offline
+  - 路由 拓扑 接口 采集 快照 故障 漂移 模拟 学习 探索 发现 离线 包 导入
   - log syslog event error warning 日志 为什么 故障定位 evidence why
 # Patch D' Step 2 (2026-05-08): explicit tools whitelist.  Without
 # this, orchestrator auto-loaded all 7-8 core/tools/ .py files,
@@ -53,8 +55,14 @@ subagents:
   - path: ./investigate/SKILL.md   # Evidence drilldown — syslog,
                                    # command output, config text.
   - path: ./collect/SKILL.md
+  - path: ./ingest/SKILL.md        # offline file gather — bundle / rancid /
+                                   # vendor dump landed via the same downstream
+                                   # as live SSH (dev_docs/80).
   - path: ./topology/SKILL.md
   - path: ./learner/SKILL.md
+  - path: ./explorer/SKILL.md      # autonomous Level-2 audit: LLM picks its
+                                   # own investigation vectors, records findings
+                                   # with mandatory SQL evidence (dev_docs/83).
   # ./lab/SKILL.md is an enterprise-only sub-agent provided by
   # olav-ent — the free distribution does not ship it.
   # Cross-workspace platform sub-agent for format_and_export / save:
