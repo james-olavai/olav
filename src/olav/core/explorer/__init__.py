@@ -10,10 +10,15 @@ Public API (used by the netops/explorer sub-agent and its @tool wrappers):
 
 All three are pure Python — no LLM, no agent framework — so they can be
 unit tested without spinning up langchain.
+
+Graduation to audit profiles (formerly handled by ``promote_finding_to_audit``)
+is intentionally NOT exposed here.  See ``dev_docs/84 §7`` for the
+corrected lifecycle: explorer emits free-form markdown → human review →
+audit ``author`` sub-agent shapes proper v4.0 profiles via its existing
+``create_profile_atomic`` / ``save_profile`` tools.
 """
 from __future__ import annotations
 
-from .promote import promote_finding_to_audit, read_audit_profile_provenance
 from .scratchpad import (
     record_finding,
     start_exploration,
@@ -21,8 +26,6 @@ from .scratchpad import (
 )
 
 __all__ = [
-    "promote_finding_to_audit",
-    "read_audit_profile_provenance",
     "record_finding",
     "start_exploration",
     "update_exploration_run",
