@@ -28,8 +28,21 @@ import duckdb
 _WRITE_LOCK = threading.Lock()
 
 # ---------------------------------------------------------------------------
-# GAP-1: Audit log redaction (ISO 27001 A.10 / NIST SC-28)
-# Patterns match common network credential keywords followed by a value token.
+# Credential-token redaction (5-pattern regex) — ISO 27001 A.10 / NIST SC-28.
+#
+# Scope: this is the enterprise dataset-export *gate-check* layer (Layer 1
+# of olav.enterprise.audit_dataset_export.redact_audit_run) — it replaces
+# matched credential values with the literal ``[REDACTED]`` marker, and the
+# same patterns are reused as an escape-detector at the end of that pipeline
+# (line 502-508 of audit_dataset_export.py).
+#
+# It is *NOT* the collection-time scrub — that lives in
+# ``olav.core.redaction.scrub`` (network-config-aware via netconan) and is
+# invoked at the collection boundary (olav-netops/netops_init/run.py:_collect_cmd)
+# and as defense-in-depth inside ``record_message`` below.  The two layers
+# emit different replacement tokens on purpose (``[REDACTED]`` vs.
+# ``netconanRemovedN``), and the gate-check below relies on the former to
+# detect "did any plaintext credential escape the pipeline?".  See ADR-0008.
 # ---------------------------------------------------------------------------
 _REDACT_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(?i)(\bpassword\s+)\S+"),
@@ -41,11 +54,15 @@ _REDACT_PATTERNS: list[re.Pattern[str]] = [
 
 
 def redact_sensitive(content: str) -> str:
-    """Replace credential values in *content* with [REDACTED]."""
+    """Replace credential values in *content* with ``[REDACTED]``.
+
+    Used by ``olav.enterprise.audit_dataset_export.redact_audit_run`` as
+    Layer 1 of its 3-layer pipeline.  For collection-time scrubbing of
+    raw network config text, use ``olav.core.redaction.scrub`` instead.
+    """
     for pattern in _REDACT_PATTERNS:
         content = pattern.sub(lambda m: m.group(1) + "[REDACTED]", content)
     return content
-
 
 # ---------------------------------------------------------------------------
 # GAP-2: Audit manifest (NIST AU-9 / SOC2 CC7.3)
@@ -104,15 +121,16 @@ def verify_audit_integrity(
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS audit_runs (
-    run_id        VARCHAR PRIMARY KEY,
-    start_time    TIMESTAMP,
-    end_time      TIMESTAMP,
-    status        VARCHAR,
-    agent_id      VARCHAR,
-    session_id    VARCHAR,
-    thread_id     VARCHAR,
-    user_id       VARCHAR,
-    source_channel VARCHAR
+    run_id            VARCHAR PRIMARY KEY,
+    start_time        TIMESTAMP,
+    end_time          TIMESTAMP,
+    status            VARCHAR,
+    agent_id          VARCHAR,
+    session_id        VARCHAR,
+    thread_id         VARCHAR,
+    user_id           VARCHAR,
+    source_channel    VARCHAR,
+    collection_source VARCHAR  -- v0.22: 'live_ssh' | 'bundle:<collector>:<v>' | 'ingest:...'
 );
 
 CREATE TABLE IF NOT EXISTS audit_events (
@@ -158,6 +176,14 @@ def _apply_sessions_migration(conn) -> None:
     apply_migration(conn)
 
 
+def _apply_collection_source_migration(conn) -> None:
+    """Idempotently add ``audit_runs.collection_source`` (v0.22, dev_docs/80)."""
+    from olav.core.migrations.v0_22_audit_collection_source import (
+        apply_migration,
+    )
+    apply_migration(conn)
+
+
 class AuditEventRecorder:
     """Writes audit events to a DuckDB file.
 
@@ -196,6 +222,7 @@ class AuditEventRecorder:
                     "ALTER TABLE audit_messages ADD COLUMN IF NOT EXISTS tool_calls VARCHAR"
                 ),
                 _apply_sessions_migration(conn),
+                _apply_collection_source_migration(conn),
             ),
             error_context="DDL init",
             max_attempts=12,
@@ -373,7 +400,17 @@ class AuditEventRecorder:
         _msg_no = self._msg_seq.get(_key, 0) + 1
         self._msg_seq[_key] = _msg_no
         message_id = str(uuid.uuid4())
-        safe_content = redact_sensitive(content)
+        # Defense-in-depth final scrub before message hits audit DB.
+        # Tool outputs are already scrubbed at the collection boundary
+        # (olav-netops/netops_init/run.py:_collect_cmd); user prompts
+        # and LLM-generated assistant text are not, so this catches
+        # anything an operator pasted into chat.  Lazy import keeps the
+        # netconan dep optional (`[redaction]` extras).
+        try:
+            from olav.core.redaction import scrub
+            safe_content, _ = scrub(content)
+        except Exception:  # noqa: BLE001
+            safe_content = content
         self._execute(
             """
             INSERT INTO audit_messages

@@ -201,6 +201,13 @@ class TestRebuildRunTimeline:
 
 
 class TestRedactionLayer1:
+    """Layer-1: regex-based credential redaction used by the enterprise
+    dataset-export pipeline (``audit_recorder.redact_sensitive`` →
+    ``[REDACTED]``).  This is *separate* from the network-config-aware
+    collection-time scrub in ``olav.core.redaction.scrub`` (netconan) —
+    see ADR-0008.  Layer-1's regex tokens are also reused as a final
+    escape detector in ``audit_dataset_export.gate_check`` (line 502)."""
+
     def test_credentials_redacted(self):
         from olav.core.audit_recorder import redact_sensitive
 
