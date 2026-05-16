@@ -1,0 +1,95 @@
+schema_version: 1
+intent: inspect_path_l2_traffic_route
+agent: netops
+keywords:
+  - L2 path
+  - L2 path from
+  - path from
+  - path between
+  - shortest path between
+  - route from
+  - traffic from
+  - traffic path
+  - how does traffic
+  - how does traffic from
+  - reaches
+  - reach
+  - reach Y from X
+  - hop-by-hop
+  - via what path
+  - through which devices
+  - what path
+  - is there a path
+  - ECMP between
+  - equal cost path
+  - equal-cost paths
+  - L2 路径
+  - 经过哪些设备
+  - 从 X 到 Y 路径
+  - 流量路径
+body: |
+  When the user asks for a path / route / traffic flow between two
+  named devices, the answer comes from the analyze sub-agent's
+  ``inspect_path`` tool — NOT ``query_topology`` (that one is in
+  the topology sub-agent and uses different semantics — view-based
+  flat list, not graph traversal).
+
+  ## Trigger phrases
+
+  - "show me the L2 path from X to Y"
+  - "how does traffic from X reach Y"
+  - "what path does traffic take from X to Y"
+  - "is there a loop-free path between X and Y"
+  - "do we have ECMP between A and B"
+  - "shortest path X→Y"
+  - "经过哪些设备从 X 到 Y"
+
+  ## Why NOT query_topology / inspect_topology
+
+  - ``query_topology`` (topology sub-agent) returns a FLAT list of
+    L2/BGP/OSPF rows for given devices. No graph traversal. No
+    "path between" capability.
+  - ``inspect_topology`` (analyze sub-agent) does BFS up to N hops
+    around a single device. Good for "what's R3 connected to";
+    NOT for "how does traffic from R1 reach R4".
+  - ``inspect_path`` (analyze sub-agent) does NetworkX
+    ``shortest_path`` + ``all_simple_paths`` over the unified
+    L2+L3 overlay graph. THIS is the tool for "path from X to Y".
+
+  ## What the orchestrator does
+
+      task("analyze", "Find the L2 path from <src> to <dst>")
+
+  Sim/analyze should then call:
+
+      inspect_path(src="<src>", dst="<dst>", max_paths=3)
+
+  ## Anti-pattern
+
+  ❌ "I cannot access topology data because query_topology is not
+     available" — analyze sub-agent does NOT have query_topology.
+     It has inspect_path. Read the actual tool list before reporting
+     a tool as missing.
+
+  ## Example
+
+  User: "show me the L2 path from R1 to R4"
+
+  analyze should call::
+
+      inspect_path(src="R1", dst="R4")
+
+  Returns::
+
+      {"shortest_path": ["R1", "WAN", "R2", "R4"],
+       "shortest_hops": 3,
+       "all_paths": [{"path": [...], "hops": 3, "equal_cost": true}],
+       "ecmp": {"is_ecmp": false, "ecmp_count": 1}}
+
+  Then format the path as a hop-by-hop table for the user.
+
+related:
+  - intent: blast_radius_analysis
+    note: "for 'what breaks if X fails' use inspect_blast_radius, not inspect_path"
+  - intent: topology_query
+    note: "for adjacency around a device use inspect_topology, not inspect_path"

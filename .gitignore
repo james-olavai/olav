@@ -125,6 +125,7 @@ olav-netops/.olav/*
 !olav-netops/.olav/workspace/
 olav-netops/.olav/workspace/*
 !olav-netops/.olav/workspace/kb_audit/
+!olav-netops/.olav/workspace/netops/
 !.olav/
 .olav/*
 !.olav/config/
@@ -138,6 +139,7 @@ olav-netops/.olav/workspace/*
 .env
 .pypirc
 .pypirc_test
+olav-netops/.olav/workspace/netops/collect/config/nornir/defaults.yaml
 .olav/config/api.json
 .olav/config/services.yaml
 .env.local
