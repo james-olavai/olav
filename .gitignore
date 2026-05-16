@@ -126,6 +126,8 @@ olav-netops/.olav/*
 olav-netops/.olav/workspace/*
 !olav-netops/.olav/workspace/kb_audit/
 !olav-netops/.olav/workspace/netops/
+!olav-netops/.olav/workspace/audit/
+!olav-netops/.olav/workspace/devops/
 !.olav/
 .olav/*
 !.olav/config/

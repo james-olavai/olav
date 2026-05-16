@@ -406,6 +406,33 @@ rules:
       netops/`` is a dev mirror per the matching rule below; this is
       the authoritative copy.
 
+  # 2026-05-16 (parallel to netops/** above): audit workspace ships
+  # bundled with olav-netops via `olav skill install` (see
+  # olav-netops/workspace.yaml — the `workspaces:` list pulls audit
+  # alongside netops + devops).  Author SKILL.md + runner tools (incl.
+  # render_report.py with the Priority 2b builder) live here as the
+  # authoritative copy.
+  - pattern: olav-netops/.olav/workspace/audit/**
+    owner: olav-netops
+    class: netops
+    status: authoritative
+    enforced: true
+    git: track
+    notes: |
+      Audit sub-agent definitions + profiles. Ships bundled with the
+      netops workspace via `olav skill install <olav-netops-git-url>`.
+      Authority lives here; the OLAV core wheel's
+      ``src/olav/data/workspace/audit/`` is a dev fallback used by
+      ``olav init`` when no skill pack is installed yet.
+
+  # 2026-05-16: devops workspace also bundled — same pattern.
+  - pattern: olav-netops/.olav/workspace/devops/**
+    owner: olav-netops
+    class: netops
+    status: authoritative
+    enforced: true
+    git: track
+
   # SECRET — Nornir SSH credential file. The .example sibling stays
   # tracked; the real defaults.yaml has plaintext lab passwords and
   # MUST never be committed.  Lives inside the tracked netops tree
