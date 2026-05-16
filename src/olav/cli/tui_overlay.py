@@ -94,6 +94,20 @@ def resolve_tui_mode(root: Path | None = None) -> TuiMode:
     # No workspace at all → native (new default for fresh projects).
     return "native"
 
+# Suppress deepagents-cli's PyPI auto-update-check on every TUI launch.
+# OLAV pins deepagents-cli==0.0.41 (exact) because tui_overlay below
+# monkey-patches private internals (WelcomeBanner constants,
+# DeepAgentsApp TITLE/_handle_command, command_registry COMMANDS).
+# A user-triggered upgrade would silently break those bindings until
+# _SUPPORTED_VERSIONS is updated — so the "new version available"
+# nag is at best noise and at worst destructive.
+#
+# Setting the env var at module import time (which runs before the
+# Textual app is constructed; see src/olav/cli/main.py:806).
+# update_check.is_update_check_enabled() reads it lazily so this works.
+os.environ.setdefault("DEEPAGENTS_CLI_NO_UPDATE_CHECK", "1")
+
+
 _SUPPORTED_VERSIONS: frozenset[str] = frozenset({"0.0.41"})
 """deepagents-cli versions where the overlay has been smoke-tested.
 
