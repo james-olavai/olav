@@ -1,9 +1,23 @@
-"""OLAV harness profiles — model-specific behavior overrides.
+"""OLAV harness profiles — tier-based behavior overrides.
 
 Profiles are deepagents `HarnessProfile` objects keyed by the
-``provider:model`` spec.  They let us encode per-model discipline
-(tool whitelist, prompt suffix, middleware excludes) without scattering
-``if model.startswith("gemma")`` branches across ``agent.py``.
+``provider:model`` spec.  They let us encode per-tier discipline
+(tool whitelist, prompt suffix, middleware excludes) without
+scattering ``if model.startswith("gemma")`` branches across
+``agent.py``.
+
+Architecture (2026-05-16 refactor):
+    Profiles are organised **by tier**, not by model identity, because
+    the adherence pattern OLAV actually needs to correct for is a
+    function of model size (small / medium / large), not of model
+    family.  Truly model-specific overlays (Anthropic prompt caching,
+    Codex action-bias, OpenRouter routing) belong in
+    ``profiles/overlays/`` and compose on top of tier profiles via
+    deepagents' additive registration semantics.
+
+Tier source of truth: ``olav.core.config._TIER_REGEX_SMALL`` /
+``_TIER_REGEX_MEDIUM`` — the same patterns the rest of OLAV uses for
+context-budget / recall-top-k / summarisation-threshold inference.
 
 Registration is idempotent and side-effect-only — importing this
 package once at OLAVAgent construction time is enough.  Re-registering
@@ -25,16 +39,21 @@ _REGISTERED = False
 def register_olav_profiles() -> None:
     """Register all OLAV-owned harness profiles with deepagents.
 
-    Idempotent — subsequent calls are no-ops (registration merge would
-    still work but emits redundant info logs).  Called once from
+    Idempotent — subsequent calls are no-ops.  Called once from
     :class:`OLAVAgent.__init__` before ``create_deep_agent``.
     """
     global _REGISTERED
     if _REGISTERED:
         return
+    registered: list[str] = []
     try:
-        from olav.agents.profiles import gemma4
-        gemma4.register()
+        from olav.agents.profiles import tier_small, tier_medium
+        tier_small.register()
+        registered.append("tier_small")
+        tier_medium.register()
+        registered.append("tier_medium")
+        # tier_large: deepagents stock behavior is fine — large models
+        # don't need OLAV-imposed discipline.  No profile registered.
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "OLAV harness-profile registration failed (non-fatal — "
@@ -43,4 +62,4 @@ def register_olav_profiles() -> None:
         )
         return
     _REGISTERED = True
-    logger.info("✓ OLAV harness profiles registered: [gemma4]")
+    logger.info("✓ OLAV harness profiles registered: %s", registered)
