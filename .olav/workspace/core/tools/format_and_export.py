@@ -86,7 +86,7 @@ def format_and_export(
                   from `data` content if omitted.
         subdir:   Subdir under exports/. Auto-routed by format if omitted:
                   md/mmd/txt → exports/reports/, csv/json/yaml → exports/,
-                  sh/py → exports/scripts/.
+                  drawio/puml → exports/topology/, sh/py → exports/scripts/.
         mode:     "overwrite" (default) or "append".  Append is for
                   REPORT MODE incremental writing and only works for
                   text formats (md/txt/mmd/sh).
@@ -164,6 +164,11 @@ def format_and_export(
         output_dir = EXPORTS_DIR  # exports/<file>.csv
     elif format and format.lower() in ("md", "txt", "mmd"):
         output_dir = EXPORTS_DIR / "reports"  # exports/reports/<file>.md
+    elif format and format.lower() in ("drawio", "puml"):
+        # Topology / diagram artefacts get their own subdir so reports/
+        # stays text-only and downstream consumers (Confluence sync,
+        # ``olav diagram-bundle``, etc.) can glob ``exports/topology/*``.
+        output_dir = EXPORTS_DIR / "topology"  # exports/topology/<file>.drawio
     else:
         output_dir = None  # resolved after format detection
 
@@ -197,6 +202,8 @@ def format_and_export(
     if output_dir is None:
         if format in ("csv", "json", "yaml", "yml", "sh"):
             output_dir = EXPORTS_DIR  # exports/<file>.csv
+        elif format in ("drawio", "puml"):
+            output_dir = EXPORTS_DIR / "topology"  # exports/topology/<file>.drawio
         else:
             output_dir = EXPORTS_DIR / "reports"  # exports/reports/<file>.md
 
