@@ -158,17 +158,6 @@ you find**, not a predefined list.
 
 When ready to finish:
 
-0. (OPTIONAL) For each `confirmed` `high`/`critical` finding worth
-   long-term monitoring, suggest promotion to a recurring audit
-   profile via
-   `promote_finding_to_audit(finding_id, profile_name="<snake_case>",
-   dry_run=True)`.  The tool returns a YAML preview; include those
-   previews under a "Suggested audit profiles" section in the final
-   report.  The operator reviews + git-commits — never write the
-   profile to disk yourself (keep ``dry_run=True``).  Skip this if
-   no findings warrant permanent monitoring (e.g. the network was
-   healthy).
-
 1. Re-query all findings:
    ```sql
    SELECT severity, category, summary, detail, evidence_sql, confidence
@@ -194,3 +183,25 @@ When ready to finish:
    turns_used=<n>, wall_sec_used=<s>, final_report_path=<path>)`.
 
 That's the end of the session.
+
+# Graduating findings to recurring audits — NOT your job
+
+Some findings will be worth turning into recurring health checks
+(e.g. "CRC errors > 1M on any interface" should re-fire weekly).
+**You do not write those audit profiles.**  The flow is:
+
+1. You emit the markdown report (step 3 above).
+2. A human reads it, decides which findings warrant permanent
+   monitoring.
+3. The human invokes the **audit** orchestrator with the report as
+   context, e.g.
+   `olav -a audit "Read exports/reports/explore_<run_id>.md and
+   create profiles for any finding marked 'should re-monitor'."`
+4. The audit `author` sub-agent shapes those into proper
+   `audit/profiles/*.md` v4.0-format profiles via its existing
+   `create_profile_atomic` / `save_profile` tools.
+
+Asking the LLM (you) to emit YAML-frontmatter audit profiles
+inline burns tokens on schema adherence and skips human review.
+Keep your output free-form Markdown; let the audit author specialist
+do the structured part later.

@@ -17,11 +17,14 @@ tools:
   - record_finding            # external scratchpad write
   - update_exploration_run    # budget / status bookkeeping
   - start_exploration         # opens a new run_id at session start
-  - promote_finding_to_audit  # graduate a finding → audit profile
-                              # (dry_run=True default; operator commits)
   - task                      # delegate to sim / investigate / analyzer
   - recall_memory             # optional taxonomy / past findings
-  - format_and_export         # final markdown report
+  - format_and_export         # final markdown report.  Graduating a
+                              # finding to a recurring audit profile is
+                              # NOT the explorer's job — the markdown
+                              # report goes to a human, who then asks
+                              # `olav -a audit "create profile from
+                              # exports/reports/explore_xxx.md"`.
 dynamic_context: []           # Level 2 default — NO playbook auto-loaded.
                               # Playbooks live in ./references/ as schema-v2
                               # KB guides; the LLM pulls them on-demand via
