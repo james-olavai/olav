@@ -13,7 +13,10 @@ Replaces the legacy ``olav.api.server:app`` target.
 from __future__ import annotations
 
 import json
+import logging
 import os
+
+_logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # 1. Discover installed OLAV agents
@@ -47,15 +50,42 @@ os.environ.setdefault("DATABASE_URI", ":memory:")
 os.environ.setdefault("REDIS_URI", "fake")
 os.environ.setdefault("MIGRATIONS_PATH", "__inmem")
 os.environ.setdefault("LANGSMITH_LANGGRAPH_API_VARIANT", "local_dev")
-# Allow blocking I/O: our graph factory and workspace resolver do filesystem
-# operations that run inside langgraph_api's async get_graph() handler (which
-# calls invoke_factory without wrapping in to_thread).  Without this flag,
-# blockbuster intercepts the blocking calls and raises an exception that
-# _validate_workspace's bare except swallows, producing a misleading ValueError.
-os.environ.setdefault("LANGGRAPH_ALLOW_BLOCKING", "true")
 
 # ---------------------------------------------------------------------------
-# 3. Import the native langgraph_api ASGI app — reads env vars at import time
+# 3. Pre-warm graph cache and ConfigLoader BEFORE the event loop starts.
+#
+# langgraph_api calls make_graph(config) from the async event loop on every
+# run request. If make_graph() does blocking filesystem I/O there, blockbuster
+# (langgraph_api's async I/O detector) raises an exception. Solution: build
+# all graphs here in the main thread (synchronous import context = no event
+# loop = no blockbuster). By the time the event loop accepts the first request,
+# _graph_cache is fully populated and make_graph() is a pure dict lookup.
+#
+# This replaces the previous workaround of LANGGRAPH_ALLOW_BLOCKING=true.
+# ---------------------------------------------------------------------------
+
+try:
+    from olav.core.config import ConfigLoader  # noqa: PLC0415
+
+    ConfigLoader()  # prime the singleton; subsequent calls are in-memory
+except Exception:
+    pass
+
+try:
+    from olav.server.graph_factory import _graph_cache, build_graph  # noqa: PLC0415
+
+    for _name in _agents:
+        if _name not in _graph_cache:
+            try:
+                _graph_cache[_name] = build_graph(_name)
+                _logger.info("app.py: pre-warmed graph cache for agent=%s", _name)
+            except Exception as _exc:
+                _logger.warning("app.py: failed to pre-warm graph for agent=%s: %s", _name, _exc)
+except Exception as _exc:
+    _logger.warning("app.py: graph pre-warm skipped: %s", _exc)
+
+# ---------------------------------------------------------------------------
+# 4. Import the native langgraph_api ASGI app — reads env vars at import time
 # ---------------------------------------------------------------------------
 
 from langgraph_api.server import app  # noqa: E402, F401  # re-exported

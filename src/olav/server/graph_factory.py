@@ -165,6 +165,17 @@ def make_graph(config: dict | None = None) -> object:
     """
     graph_id = (config or {}).get("configurable", {}).get("graph_id") or _DEFAULT_ASSISTANT_ID
     if graph_id not in _graph_cache:
+        # Cache miss — should only happen after /reload before async rebuild completes,
+        # or in test/dev scenarios. olav.api.app pre-warms all registered agents at
+        # startup so normal request paths never reach here.
+        # Warn visibly: if this fires in production it means event-loop blocking I/O
+        # is happening and LANGGRAPH_ALLOW_BLOCKING=true would be needed as a fallback.
+        logger.warning(
+            "make_graph cache miss for graph_id=%r — building synchronously "
+            "(blocks event loop). Check that app.py pre-warmed all agents "
+            "and that /reload completed its async rebuild before this request.",
+            graph_id,
+        )
         _graph_cache[graph_id] = build_graph(graph_id)
     return _graph_cache[graph_id]
 
