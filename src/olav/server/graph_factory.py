@@ -139,5 +139,41 @@ def _validate_workspace(name: str) -> None:
 # harder to diagnose.
 graph = build_graph()
 
+# ---------------------------------------------------------------------------
+# Multi-graph factory for native langgraph_api user_router
+#
+# When langgraph_api is configured with multiple graph entries (one per
+# OLAV agent), it calls make_graph(config) on each run request, passing
+# config["configurable"]["graph_id"] to identify which agent to use.
+# The cache avoids re-building on every request.
+# ---------------------------------------------------------------------------
 
-__all__ = ["build_graph", "graph"]
+_graph_cache: dict[str, object] = {}
+
+
+def make_graph(config: dict | None = None) -> object:
+    """Return the compiled OLAV graph for the requested graph_id.
+
+    This is the entry point configured in langgraph.json / LANGSERVE_GRAPHS
+    for each registered agent name.  The ``graph_id`` key inside
+    ``config["configurable"]`` matches the key in the graphs map so
+    langgraph_api can route requests to the right agent.
+
+    Args:
+        config: LangGraph run config.  ``config["configurable"]["graph_id"]``
+            carries the agent name (e.g. "core", "netops", "audit").
+            ``None`` or missing key falls back to "core".
+
+    Returns:
+        A compiled LangGraph graph object, cached by graph_id.
+
+    Raises:
+        ValueError: When the requested agent workspace doesn't exist.
+    """
+    graph_id = (config or {}).get("configurable", {}).get("graph_id") or _DEFAULT_ASSISTANT_ID
+    if graph_id not in _graph_cache:
+        _graph_cache[graph_id] = build_graph(graph_id)
+    return _graph_cache[graph_id]
+
+
+__all__ = ["build_graph", "graph", "make_graph", "_graph_cache"]
