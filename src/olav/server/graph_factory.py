@@ -104,29 +104,22 @@ def build_graph(assistant_id: str | None = None) -> Any:
 
 
 def _validate_workspace(name: str) -> None:
-    """Raise :class:`ValueError` when *name* isn't an installed agent.
-
-    A cheap filesystem check — avoids stripping into OLAVAgent
-    construction when the root cause is just a typo.  Respects the
-    same resolution order the loader itself uses so aliasing via
-    ``resolve_workspace_path`` still works.
-    """
+    """Raise :class:`ValueError` when *name* isn't an installed agent."""
     from olav.core.workspace import resolve_workspace_path
 
     try:
         workspace_path = resolve_workspace_path(name)
-    except Exception:  # noqa: BLE001  # resolver may raise anything
-        workspace_path = None
-
-    agent_md_exists = (
-        workspace_path is not None
-        and (workspace_path / "AGENT.md").is_file()
-    )
-    if not agent_md_exists:
+    except Exception as exc:
         raise ValueError(
-            f"No workspace found for agent {name!r}. "
-            f"Set {_ENV_ASSISTANT_ID} to one of the installed agents "
-            "(typically: core, netops, audit, devops)."
+            f"No workspace found for agent {name!r}: workspace resolver raised "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
+    if not (workspace_path / "AGENT.md").is_file():
+        raise ValueError(
+            f"No workspace found for agent {name!r}: "
+            f"{workspace_path / 'AGENT.md'} does not exist. "
+            f"Set {_ENV_ASSISTANT_ID} to one of the installed agents."
         )
 
 

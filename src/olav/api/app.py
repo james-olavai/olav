@@ -20,9 +20,9 @@ import os
 # ---------------------------------------------------------------------------
 
 try:
-    from olav.core.workspace_discovery import discover_agent_names  # noqa: PLC0415
+    from olav.core.workspace_discovery import discover_top_level_agent_names  # noqa: PLC0415
 
-    _agents = discover_agent_names() or ["core"]
+    _agents = discover_top_level_agent_names() or ["core"]
 except Exception:
     _agents = ["core"]
 
@@ -47,6 +47,12 @@ os.environ.setdefault("DATABASE_URI", ":memory:")
 os.environ.setdefault("REDIS_URI", "fake")
 os.environ.setdefault("MIGRATIONS_PATH", "__inmem")
 os.environ.setdefault("LANGSMITH_LANGGRAPH_API_VARIANT", "local_dev")
+# Allow blocking I/O: our graph factory and workspace resolver do filesystem
+# operations that run inside langgraph_api's async get_graph() handler (which
+# calls invoke_factory without wrapping in to_thread).  Without this flag,
+# blockbuster intercepts the blocking calls and raises an exception that
+# _validate_workspace's bare except swallows, producing a misleading ValueError.
+os.environ.setdefault("LANGGRAPH_ALLOW_BLOCKING", "true")
 
 # ---------------------------------------------------------------------------
 # 3. Import the native langgraph_api ASGI app — reads env vars at import time
