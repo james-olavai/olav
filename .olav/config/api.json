@@ -11,8 +11,8 @@
   },
   "llm": {
     "provider": "custom",
-    "model": "qwen3.6:27b",
-    "base_url": "http://192.168.100.12:11434/v1",
+    "model": "gemma4-31b-it",
+    "base_url": "http://192.168.100.12:11433/v1",
     "temperature": 0.1,
     "max_tokens": 32768,
     "custom_headers": {},

@@ -81,12 +81,17 @@ _SMALL_TIER_EXCLUDED_TOOLS = frozenset({
 # "is this model small?"; this list mirrors the concrete tags OLAV
 # expects to actually load.
 _SMALL_MODEL_SPECS: tuple[str, ...] = (
-    # gemma family
+    # gemma family — Ollama tag form (name:tag)
     "gemma4:31b",
     "gemma4:27b",
     "gemma4:9b",
     "gemma4:e2b",
     "gemma:2b",
+    # gemma family — llama.cpp / OpenAI-compat form (hyphenated id, no
+    # colon in model name → register under provider:model since the
+    # resolver tries ``f"{provider}:{identifier}"`` first).
+    "openai:gemma4-31b-it",
+    "openai:gemma4-9b-it",
     # phi-3 family
     "phi-3:mini",
     "phi-3:medium",

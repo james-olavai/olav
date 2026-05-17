@@ -139,6 +139,24 @@ except (ImportError, AttributeError) as _exc:
     )
 
 
+# Register OLAV harness profiles at MODULE LOAD TIME so they are present
+# before any sub-agent is compiled — ``OLAVAgent._build_subagents`` runs
+# *before* the constructor reaches the orchestrator's
+# ``create_deep_agent`` call, and each sub-agent goes through
+# deepagents' ``_harness_profile_for_model`` resolver during its own
+# ``create_agent``.  If we registered profiles inside ``__init__``
+# (post-_build_subagents), sub-agents would resolve against an empty
+# registry and silently fall back to defaults.  See dev_docs/84 §2.
+try:
+    from olav.agents.profiles import register_olav_profiles as _register_olav_profiles
+    _register_olav_profiles()
+except Exception as _exc:  # noqa: BLE001 — never block startup
+    logger.warning(
+        "OLAV harness profile registration at module-load failed: %s: %s",
+        type(_exc).__name__, _exc,
+    )
+
+
 def _prune_graph_tools(graph, unwanted: frozenset[str], label: str) -> None:
     """Strip auto-injected tools from a compiled langgraph.
 
@@ -671,18 +689,9 @@ class OLAVAgent:
         if _fs_permissions is not None:
             _create_kwargs["permissions"] = _fs_permissions
 
-        # Register OLAV-owned harness profiles before create_deep_agent
-        # consults the registry.  Idempotent — subsequent OLAVAgent
-        # instances share the same registration.  See
-        # ``olav.agents.profiles`` for the catalogue.
-        try:
-            from olav.agents.profiles import register_olav_profiles
-            register_olav_profiles()
-        except Exception as _exc:  # noqa: BLE001 — never block startup
-            logger.warning(
-                "OLAV harness profile registration skipped: %s: %s",
-                type(_exc).__name__, _exc,
-            )
+        # (Profile registration moved to module-load time at the top of
+        # this file so sub-agents compiled by ``_build_subagents`` see
+        # the registry — see dev_docs/84 §2.)
 
         # Per-orchestrator opt-in for terminal `task` tool. The contextvar
         # is read by `_patched_build_task_tool` during create_deep_agent →
