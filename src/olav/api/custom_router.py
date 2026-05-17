@@ -306,15 +306,24 @@ async def memory_graph():
 @app.get("/agents", include_in_schema=False)
 async def list_agents():
     """Compatibility shim: Next.js login page calls GET /agents to validate auth and list agents."""
+    import asyncio  # noqa: PLC0415
     from olav.core.workspace_discovery import discover_top_level_agent_names  # noqa: PLC0415
 
-    agents = discover_top_level_agent_names() or ["core"]
+    agents = await asyncio.to_thread(discover_top_level_agent_names) or ["core"]
     return [{"id": name, "name": name} for name in agents]
 
 
 @app.post("/reload")
 async def reload_agent():
-    """Flush graph cache and config/router singletons so the next request rebuilds."""
+    """Flush graph cache and config/router singletons, then rebuild graphs asynchronously.
+
+    After clearing _graph_cache, immediately rebuilds all graphs via
+    asyncio.to_thread() so the next request finds a warm cache and make_graph()
+    stays a pure dict lookup (no blocking I/O in the event loop).
+    """
+    import asyncio  # noqa: PLC0415
+
+    # --- 1. Reset singletons ---
     try:
         import olav.server.graph_factory as _gf  # noqa: PLC0415
 
@@ -337,5 +346,26 @@ async def reload_agent():
     except Exception:
         pass
 
-    _logger.info("Graph cache, config, and router reset")
-    return {"status": "reloaded"}
+    # --- 2. Async rebuild — warm the cache before returning ---
+    # discover_top_level_agent_names() reads AGENT.md files from disk.
+    # build_graph() does heavy filesystem + model loading.
+    # Both must run in asyncio.to_thread() to avoid blockbuster interception.
+    rebuilt: list[str] = []
+    failed: list[str] = []
+    try:
+        from olav.core.workspace_discovery import discover_top_level_agent_names  # noqa: PLC0415
+        import olav.server.graph_factory as _gf  # noqa: PLC0415
+
+        agents = await asyncio.to_thread(discover_top_level_agent_names) or ["core"]
+        for name in agents:
+            try:
+                _gf._graph_cache[name] = await asyncio.to_thread(_gf.build_graph, name)
+                rebuilt.append(name)
+            except Exception as exc:
+                _logger.warning("reload: failed to rebuild graph for %s: %s", name, exc)
+                failed.append(name)
+    except Exception as exc:
+        _logger.warning("reload: graph rebuild skipped: %s", exc)
+
+    _logger.info("Reload complete: rebuilt=%s failed=%s", rebuilt, failed)
+    return {"status": "reloaded", "rebuilt": rebuilt, "failed": failed}
