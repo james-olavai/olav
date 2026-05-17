@@ -8,7 +8,7 @@ answer this question:
 * ``olav.cli.commands.workspace``
 * ``olav.cli.commands.skill`` (uninstall path)
 * ``olav.core.router`` (Tier-2 fallback)
-* ``olav.api.server`` (``/agents`` endpoint)
+* ``olav.api.server`` (``/agents`` endpoint, deleted in v0.11.0)
 
 Each had subtly different logic: some returned just names, some
 returned ``(name, dir)``, some filtered by ``AGENT.md`` presence, some
