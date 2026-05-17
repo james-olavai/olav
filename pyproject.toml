@@ -100,6 +100,10 @@ dependencies = [
     # Pin to 1.1.x — langgraph 1.2.0 (2026-05-12) is too new; defer until
     # langchain 1.3.x is also pinned (they evolve together).
     "langgraph>=1.1.10,<1.2",
+    # Native langgraph_api server (replaces custom server.py, v0.11.0+).
+    # inmem runtime used; no Postgres/Redis required.
+    "langgraph-api>=0.7.100",
+    "langgraph-runtime-inmem>=0.27.3",
     "duckdb-engine>=0.17.0",
     "langgraph-checkpoint-sqlite>=3.0.0",
     "python-frontmatter>=1.1.0",
@@ -196,6 +200,7 @@ dev = [
     "pyright>=1.1.408",
     # Enterprise optional deps needed for unit tests
     "tink>=1.14.1",
+    "playwright>=1.59.0",
 ]
 
 [tool.ruff]
