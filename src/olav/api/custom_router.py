@@ -43,7 +43,61 @@ if _NEXT_DIR.exists():
 
 
 # ---------------------------------------------------------------------------
-# Auth helpers (lifted verbatim from server.py)
+# CIDR allowlist middleware (migrated from server.py)
+# ---------------------------------------------------------------------------
+
+def _load_allowed_cidrs() -> list | None:
+    """Load allowed_cidrs from api.json security section. Returns None if unconfigured."""
+    try:
+        from olav.core.config import ConfigLoader  # noqa: PLC0415
+
+        cidrs = ConfigLoader().security.allowed_cidrs
+        if not cidrs:
+            return None
+        import ipaddress  # noqa: PLC0415
+
+        return [ipaddress.ip_network(c, strict=False) for c in cidrs]
+    except Exception:
+        return None
+
+
+@app.middleware("http")
+async def cidr_allowlist_middleware(request: Request, call_next):
+    """Block requests from IPs outside the configured CIDR allowlist.
+
+    - If no allowlist is configured, all IPs are allowed (backward compatible).
+    - 127.0.0.1 and ::1 are always allowed.
+    - /health is always allowed (monitoring probes).
+    """
+    if request.url.path == "/health":
+        return await call_next(request)
+
+    allowed = _load_allowed_cidrs()
+    if allowed is None:
+        return await call_next(request)
+
+    import ipaddress  # noqa: PLC0415
+
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    try:
+        addr = ipaddress.ip_address(client_ip)
+    except ValueError:
+        return await call_next(request)
+
+    if addr.is_loopback:
+        return await call_next(request)
+
+    for network in allowed:
+        if addr in network:
+            return await call_next(request)
+
+    from starlette.responses import JSONResponse  # noqa: PLC0415
+
+    return JSONResponse({"detail": "Forbidden"}, status_code=403)
+
+
+# ---------------------------------------------------------------------------
+# Auth helpers (migrated from server.py)
 # ---------------------------------------------------------------------------
 
 def _get_auth_mode() -> str:

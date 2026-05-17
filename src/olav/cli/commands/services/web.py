@@ -45,7 +45,7 @@ _DEFAULT_HOST = "0.0.0.0"
 _DEFAULT_PORT = DEFAULT_WEB_PORT
 
 # Markers that identify our uvicorn process in the command line
-_CMDLINE_MARKERS = ("uvicorn", "olav.api.server")
+_CMDLINE_MARKERS = ("uvicorn", "olav.api.app")
 
 
 def _is_our_process(pid: int) -> bool:
@@ -160,7 +160,7 @@ class WebService:
                     sys.executable,
                     "-m",
                     "uvicorn",
-                    "olav.api.server:app",
+                    "olav.api.app:app",
                     "--host",
                     self._host,
                     "--port",

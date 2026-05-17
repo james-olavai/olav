@@ -1491,7 +1491,7 @@ ConfigLoader._loaded = False
 ConfigLoader._instance = None
 
 from starlette.requests import Request
-from olav.api.server import cidr_allowlist_middleware
+from olav.api.custom_router import cidr_allowlist_middleware
 
 async def _call_next(_req):
     from starlette.responses import JSONResponse

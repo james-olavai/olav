@@ -107,7 +107,7 @@ p.write_text(json.dumps(cfg, indent=2))
 echo "  web port: ${WEB_PORT}"
 
 # Start web service directly on custom port (bypasses olav web start's hardcoded DEFAULT_WEB_PORT)
-"$PYTHON" -m uvicorn olav.api.server:app \
+"$PYTHON" -m uvicorn olav.api.app:app \
     --host 127.0.0.1 --port "${WEB_PORT}" \
     --log-level warning \
     >"${TEST_DIR}/.olav/logs/web.log" 2>&1 &
