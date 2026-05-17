@@ -21,6 +21,7 @@ import os
 import re
 import signal
 import sys
+import threading
 import uuid as _uuid_mod
 import warnings
 from importlib.metadata import entry_points
@@ -103,8 +104,9 @@ def _sigint_handler(signum: int, frame: object) -> None:
     _sigterm_handler(signum, frame)
 
 
-signal.signal(signal.SIGTERM, _sigterm_handler)
-signal.signal(signal.SIGINT, _sigint_handler)
+if threading.current_thread() is threading.main_thread():
+    signal.signal(signal.SIGTERM, _sigterm_handler)
+    signal.signal(signal.SIGINT, _sigint_handler)
 
 _GENERIC_DOMAIN_PROMPT = "You are an AI Operations Assistant."
 
