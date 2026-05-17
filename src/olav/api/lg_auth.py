@@ -45,7 +45,16 @@ async def authenticate(
 
     Returns a string user_id which langgraph_api wraps in ``SimpleUser(username)``.
     Raises ``Auth.exceptions.HTTPException(401)`` for any authentication failure.
+
+    Public paths bypass LANGGRAPH_AUTH entirely; custom_router handles its own
+    auth at the route handler level for those paths.
     """
+    path = request.url.path
+    # These paths are served by custom_router which gates auth itself.
+    # Static assets must be public so the login page JS loads before any auth.
+    if path in ("/", "/login") or path.startswith("/_next/") or path.startswith("/login/"):
+        return "anonymous"
+
     mode = _get_auth_mode()
 
     if mode == "none":
@@ -64,7 +73,11 @@ async def authenticate(
     try:
         provider = get_auth_provider(mode)
         identity = provider.authenticate(token=token, source_channel="api_bearer")
-        return identity.user_id
+        # Reject OS-identity fallback: that only happens when the token is invalid
+        # or the DB doesn't exist.  A token auth mode must produce source="token".
+        if identity.source not in ("token", "server_token"):
+            raise Auth.exceptions.HTTPException(status_code=401, detail="Invalid token")
+        return identity.username
     except Auth.exceptions.HTTPException:
         raise
     except Exception as exc:

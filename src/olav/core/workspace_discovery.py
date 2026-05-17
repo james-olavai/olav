@@ -104,6 +104,56 @@ def discover_agent_paths(
     return pairs
 
 
+def discover_top_level_agent_names(
+    root: Path | None = None,
+    *,
+    layout: Layout | None = None,
+) -> list[str]:
+    """Return only the agents that should be exposed in the Web UI agent selector.
+
+    An agent is considered "top-level" (user-facing) when its AGENT.md
+    frontmatter meets ANY of these criteria:
+      - has ``kind: Agent`` field
+      - has ``route_keywords`` field  (routable by the intent router)
+      - has ``name`` AND ``system_prompt_file`` AND ``description``
+
+    Agents with no frontmatter (e.g. bare sub-workspaces) are always excluded.
+    Agents can opt out explicitly by adding ``expose_in_ui: false`` to frontmatter.
+    New agents with valid frontmatter are included automatically — no manual list.
+    """
+    import re  # noqa: PLC0415
+
+    result: list[str] = []
+    for name, agent_md in discover_agent_paths(root, layout=layout):
+        try:
+            text = agent_md.read_text(encoding="utf-8")
+        except OSError:
+            continue
+
+        # Extract YAML frontmatter block
+        fm_match = re.match(r"^---\n(.*?)\n---", text, re.DOTALL)
+        if not fm_match:
+            continue  # no frontmatter → internal/sub-agent workspace
+        fm = fm_match.group(1)
+
+        # Explicit opt-out
+        if re.search(r"^expose_in_ui:\s*false\s*$", fm, re.MULTILINE):
+            continue
+
+        # Positive criteria: must have kind: Agent OR route_keywords.
+        # This distinguishes user-facing orchestrators from specialist
+        # sub-workspaces (e.g. topology, command_learner) that have AGENT.md
+        # but are invoked indirectly by a parent agent, not directly by users.
+        # New agents with either field are auto-included without manual config.
+        has_kind_agent = bool(re.search(r"^kind:\s*Agent\s*$", fm, re.MULTILINE))
+        has_route_keywords = bool(re.search(r"^route_keywords:", fm, re.MULTILINE))
+
+        if has_kind_agent or has_route_keywords:
+            result.append(name)
+
+    return sorted(result)
+
+
 def _detect_layout(root: Path) -> Layout:
     """Layout auto-detection.
 

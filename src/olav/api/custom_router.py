@@ -251,7 +251,11 @@ async def login_submit(body: LoginRequest, request: Request):
     """Validate token and set session cookie."""
     mode = _get_auth_mode()
     if mode == "none":
-        return RedirectResponse(url="/", status_code=302)
+        # Set a dummy cookie so the Next.js SPA's client-side auth check
+        # finds a session and doesn't redirect back to /login in a loop.
+        resp = RedirectResponse(url="/", status_code=302)
+        _set_session_cookie(resp, "anonymous", request)
+        return resp
 
     try:
         identity = get_auth_provider(mode).authenticate(token=body.token)
@@ -270,12 +274,19 @@ async def login_submit(body: LoginRequest, request: Request):
 @app.get("/memory/graph", include_in_schema=False)
 async def memory_graph():
     """Serve the knowledge graph vis.js HTML (built on demand)."""
+    import asyncio  # noqa: PLC0415
+
     kg_path = _KG_PATH
     if not kg_path.exists():
         try:
-            kg_path.parent.mkdir(parents=True, exist_ok=True)
-            graph_data = _build_kg()
-            _export_kg_visjs(graph_data, kg_path)
+            # Run blocking filesystem/KG-build ops in a thread so we don't
+            # block the event loop (avoids blockbuster warnings).
+            def _build_sync():
+                kg_path.parent.mkdir(parents=True, exist_ok=True)
+                graph_data = _build_kg()
+                _export_kg_visjs(graph_data, kg_path)
+
+            await asyncio.to_thread(_build_sync)
         except Exception as exc:
             return HTMLResponse(
                 "<html><body style='font-family:sans-serif;background:#0d1117;color:#e6edf3;padding:40px'>"
@@ -290,6 +301,15 @@ async def memory_graph():
                 status_code=200,
             )
     return FileResponse(str(kg_path), media_type="text/html")
+
+
+@app.get("/agents", include_in_schema=False)
+async def list_agents():
+    """Compatibility shim: Next.js login page calls GET /agents to validate auth and list agents."""
+    from olav.core.workspace_discovery import discover_top_level_agent_names  # noqa: PLC0415
+
+    agents = discover_top_level_agent_names() or ["core"]
+    return [{"id": name, "name": name} for name in agents]
 
 
 @app.post("/reload")
