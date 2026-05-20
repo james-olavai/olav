@@ -1,7 +1,6 @@
 """Controlled skill-script execution for OLAV agents (per ADR-0008).
 
-Replaces the per-tool ``@tool`` wrapper pattern (and the
-``run_python_simulation`` import-helpers pattern) with a single
+Replaces the per-tool ``@tool`` wrapper pattern with a single
 controlled subprocess-runner that the agent invokes against scripts
 declared in a skill's ``SKILL.md``.
 

@@ -115,4 +115,4 @@ Detailed prompts for both workflows live in `prompts/system.md`.
 - No NetworkX / graph algorithms / what-if simulation → `task("sim", ...)`.
 - No structured-spec output (TCF / DraftChangePlan / Pydantic schemas) —
   that's enterprise-only (olav-ent lab).  This sub-agent emits Markdown.
-- No `run_python_simulation` (sandbox) — every operation is one of the 5 tools above.
+- Every operation uses one of the 5 tools above.

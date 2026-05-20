@@ -14,7 +14,6 @@ IS the deliverable.
 | `inspect_drift_configs(device=..., snap_a=..., snap_b=...)` | Raw CLI config diff between two snapshots (difflib unified diff). The only diff scope SQL can't express. |
 | `format_and_export(data=<MD>, filename=..., format="md", subdir=...)` | Emit Markdown to `exports/change_plans/` (Workflow A) or `exports/reports/` (Workflow D). |
 
-**There is no sandbox / `run_python_simulation` / `inspect_*` shortcut**.
 For NetworkX / what-if / blast-radius, delegate via `task("sim", ...)`.
 
 ## Modes
