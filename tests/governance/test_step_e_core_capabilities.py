@@ -14,10 +14,10 @@ Current core surface (4 cross-domain tools):
   - ``execute_sql``
   - ``recall_memory``
   - ``web_search``
-  - ``format_and_export`` (R85 — shared save path)
+  - ``read_file``
 
 Other relocated ADR-0006 tools stay in sub-agent homes:
-  - ``manage_cron`` → ``core/admin/tools/``
+  - ``manage_cron`` → ``admin/ops/tools/``
   - ``search_knowledge_lancedb`` — removed (ARCH-10)
   - ``run_python_code`` — removed in v0.18.0
 """
@@ -33,38 +33,32 @@ REPO = Path(__file__).resolve().parents[2]
 WORKSPACE = REPO / ".olav" / "workspace"
 CORE_SKILL = WORKSPACE / "core" / "SKILL.md"
 CORE_TOOLS = WORKSPACE / "core" / "tools"
-ADMIN_TOOLS = WORKSPACE / "core" / "admin" / "tools"
+ADMIN_OPS_TOOLS = WORKSPACE / "admin" / "ops" / "tools"
+ADMIN_EDITOR_TOOLS = WORKSPACE / "admin" / "editor" / "tools"
 WRITER_TOOLS = WORKSPACE / "core" / "writer" / "tools"
 
 
-# R85 (post-R65/ARCH-23): cross-domain tools stay on the core
-# orchestrator.  R85 promoted format_and_export from writer-only;
-# R86 follow-up promoted read_file the same way (any agent that
-# needs to consume a previously-saved spec / report needs to read
-# files from EXPORTS_DIR).
+# Current runtime core surface (dev_docs/85+): 4 tools.
 _EXPECTED_CAPABILITIES: tuple[str, ...] = (
     "execute_sql",
     "recall_memory",
     "web_search",
-    "format_and_export",
     "read_file",
 )
 
 
 # Files previously advertised on core that R65 relocated into sub-agent homes.
 # The test verifies the canonical file still exists in its new home.
+# v0.11.0: deploy_service + stop_service merged into manage_service;
+#          load_reference moved from core/admin/ to admin/editor/ (post-R-AGENT-HIERARCHY).
 _RELOCATED_CANONICAL_FILES: tuple[tuple[str, Path], ...] = (
     ("api_request.py",        WORKSPACE / "core" / "api_query" / "tools"),
-    ("deploy_service.py",     ADMIN_TOOLS),
-    ("stop_service.py",       ADMIN_TOOLS),
-    ("write_workspace_file.py", ADMIN_TOOLS),
-    ("run_shell.py",          WORKSPACE / "core" / "remote" / "tools"),
-    ("load_reference.py",     ADMIN_TOOLS),
-    ("search_logs.py",        ADMIN_TOOLS),
-    # R85: format_and_export moved BACK to core/tools/ (was at WRITER_TOOLS
-    # post-R65; restored to a shared core capability for inline-save).
-    ("format_and_export.py",  CORE_TOOLS),
-    ("manage_cron.py",        ADMIN_TOOLS),
+    ("manage_service.py",     ADMIN_OPS_TOOLS),
+    ("write_workspace_file.py", ADMIN_EDITOR_TOOLS),
+    # run_shell is no longer present in runtime core workspace.
+    ("load_reference.py",     ADMIN_EDITOR_TOOLS),
+    # search_logs and format_and_export are canonical in core/tools/.
+    ("manage_cron.py",        ADMIN_OPS_TOOLS),
 )
 
 
@@ -78,23 +72,19 @@ def _skill_frontmatter() -> dict:
 # ── Advertised capability surface (post-R65 ARCH-23) ───────────────────────
 
 
-def test_core_skill_tools_list_has_five_entries():
-    """R86 follow-up: core surface is 5 tools — R85's 4 + read_file
-    (promoted from writer-only same as format_and_export).  Test
-    name lineage: 'seven' (ADR-0006), 'three' (post-R65 ARCH-23),
-    'four' (R85), now 'five' (R86 follow-up).
-    """
+def test_core_skill_tools_list_has_four_entries():
+    """Current runtime core surface is 4 tools."""
     meta = _skill_frontmatter()
     tools = meta.get("tools") or []
-    assert len(tools) == 5, (
+    assert len(tools) == 4, (
         f"core/SKILL.md advertises {len(tools)} tools; R86 follow-up "
-        f"requires 5 cross-domain tools (execute_sql, recall_memory, "
-        f"web_search, format_and_export, read_file)"
+        f"requires 4 cross-domain tools (execute_sql, recall_memory, "
+        f"web_search, read_file)"
     )
 
 
-def test_core_skill_tools_are_the_expected_five():
-    """R86 follow-up: expected set is the 5 cross-domain tools."""
+def test_core_skill_tools_are_the_expected_four():
+    """Expected set is the current 4 cross-domain tools."""
     meta = _skill_frontmatter()
     tools = meta.get("tools") or []
     assert set(tools) == set(_EXPECTED_CAPABILITIES), (
@@ -119,9 +109,9 @@ def test_manage_cron_module_still_has_four_crud_impls():
     functions ``list_cron/add_cron/remove_cron/apply_cron_schedules`` stay
     as plain-Python implementations called by the dispatcher.
 
-    R65 relocated manage_cron.py from core/tools/ → core/admin/tools/.
+    manage_cron canonical path is admin/ops/tools/.
     """
-    manage_cron = ADMIN_TOOLS / "manage_cron.py"
+    manage_cron = ADMIN_OPS_TOOLS / "manage_cron.py"
     assert manage_cron.is_file(), f"missing canonical file: {manage_cron}"
     text = manage_cron.read_text(encoding="utf-8")
     for fn_name in ("list_cron", "add_cron", "remove_cron", "apply_cron_schedules"):
@@ -140,7 +130,7 @@ def test_manage_cron_is_single_tool_dispatcher():
     not blocked by a stale Round-34 pin.
     """
     import re
-    manage_cron = (ADMIN_TOOLS / "manage_cron.py").read_text(encoding="utf-8")
+    manage_cron = (ADMIN_OPS_TOOLS / "manage_cron.py").read_text(encoding="utf-8")
     dispatcher_matches = re.findall(r"@tool\s*\ndef manage_cron\s*\(", manage_cron)
     crud_matches = [
         fn for fn in ("list_cron", "add_cron", "remove_cron", "apply_cron_schedules")
