@@ -77,13 +77,11 @@ _SEMANTIC_ALIASES: dict[str, tuple[str, ...]] = {
     # Plain "analyze" → registered as ops-analyze.
     "analyze": ("ops-analyze",),
     # ARCH-30 (2026-05-10): ``sim`` is its own sub-agent post-Phase B+C
-    # (R-AGENT-HIERARCHY).  The legacy alias mapping ``sim`` → ops-analyze
+    # (R-AGENT-HIERARCHY).  The legacy alias mapping ``sim`` → ops-analyze  # LEGACY-KEEP
     # was correct before the split; it now hides the dedicated sim agent.
     # Resolver checks exact match first, so this entry only matters for
     # workspaces that don't have a sim sub-agent registered (then it
-    # falls back to analyze).
-    # LEGACY-KEEP: fallback to ops-analyze/analyze intentional for workspaces
-    # without a dedicated sim sub-agent (e.g. slim installs, olav-ent).
+    # falls back to analyze; intentional for slim installs / olav-ent).
     "sim": ("sim", "ops-analyze", "analyze"),
 }
 
