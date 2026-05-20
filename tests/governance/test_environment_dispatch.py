@@ -60,7 +60,7 @@ def test_check_approval_read_only_still_passes_with_env():
 
 def test_execute_cli_advertises_environment_param():
     """Source-level guard: the environment kwarg must appear in the tool signature."""
-    src = (REPO / ".olav" / "workspace" / "netops" / "tools" / "execute_cli_parallel.py").read_text(
+    src = (REPO / ".olav" / "workspace" / "netops" / "scripts" / "execute_cli_parallel.py").read_text(
         encoding="utf-8"
     )
     assert "environment: str | None" in src
@@ -68,7 +68,7 @@ def test_execute_cli_advertises_environment_param():
 
 
 def test_take_snapshot_advertises_environment_param_and_skipped():
-    src = (REPO / ".olav" / "workspace" / "netops" / "tools" / "take_snapshot.py").read_text(
+    src = (REPO / ".olav" / "workspace" / "netops" / "scripts" / "take_snapshot.py").read_text(
         encoding="utf-8"
     )
     assert "environment: str | None" in src
@@ -80,7 +80,7 @@ def test_take_snapshot_returns_skipped_on_mismatch(tmp_path, monkeypatch):
     """End-to-end: take_snapshot must drop hosts whose env tag differs."""
     pytest.importorskip("nornir")  # tool's module-level import requires Nornir
 
-    path = REPO / ".olav" / "workspace" / "netops" / "tools" / "take_snapshot.py"
+    path = REPO / ".olav" / "workspace" / "netops" / "scripts" / "take_snapshot.py"
     spec = importlib.util.spec_from_file_location("take_snapshot_under_test", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

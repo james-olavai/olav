@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from langchain_core.tools import StructuredTool
 
 logger = logging.getLogger(__name__)
 
@@ -153,4 +152,7 @@ def _preview_lancedb(semantic_query: str, threshold: float) -> list[dict]:
         return []
 
 
-_test_map_query_tool = StructuredTool.from_function(test_map_query)
+if __name__ == "__main__":
+    import json as _json, sys as _sys
+    _args = _json.loads(_sys.stdin.read() or "{}")
+    print(_json.dumps(test_map_query(**_args), default=str))

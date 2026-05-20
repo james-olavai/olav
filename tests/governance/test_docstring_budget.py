@@ -26,7 +26,7 @@ _BUDGET_LINES = 20
 
 _TOOL_FILES = [
     REPO / ".olav" / "workspace" / "core" / "tools" / "execute_sql.py",
-    REPO / ".olav" / "workspace" / "core" / "api_query" / "tools" / "api_request.py",
+    REPO / ".olav" / "workspace" / "core" / "api_query" / "scripts" / "api_request.py",
     NETOPS_TOOLS / "diff_configs.py",
     NETOPS_TOOLS / "take_snapshot.py",
     NETOPS_TOOLS / "execute_cli_parallel.py",
@@ -36,16 +36,20 @@ _TOOL_FILES = [
 def _tool_docstrings(path: Path) -> dict[str, int]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
     out: dict[str, int] = {}
+    stem = path.stem
     for node in ast.walk(tree):
         if not isinstance(node, ast.FunctionDef):
             continue
-        # Find @tool decorator
+        # Accept @tool-decorated functions OR the stem-named/main plain function.
+        # Scripts (post tools→scripts migration) use plain functions without
+        # @tool; tools/ versions use @tool decorator.
         has_tool = any(
             (isinstance(d, ast.Name) and d.id == "tool")
             or (isinstance(d, ast.Attribute) and d.attr == "tool")
             for d in node.decorator_list
         )
-        if not has_tool:
+        is_plain_entry = not node.decorator_list and node.name in (stem, "main")
+        if not (has_tool or is_plain_entry):
             continue
         doc = ast.get_docstring(node) or ""
         out[node.name] = len(doc.splitlines())
@@ -77,6 +81,7 @@ def test_each_tool_advertises_tool_help_pointer():
             continue
         src = path.read_text(encoding="utf-8")
         tree = ast.parse(src)
+        stem = path.stem
         for node in ast.walk(tree):
             if not isinstance(node, ast.FunctionDef):
                 continue
@@ -85,7 +90,12 @@ def test_each_tool_advertises_tool_help_pointer():
                 or (isinstance(d, ast.Attribute) and d.attr == "tool")
                 for d in node.decorator_list
             )
-            if not has_tool:
+            # Scripts (post migration) use a stem-named plain function as
+            # the entry point; @tool versions use the decorator.
+            # Exclude `main` helper dispatchers from the tool_help requirement
+            # since those are internal subprocess wrappers, not LLM-facing tools.
+            is_plain_entry = not node.decorator_list and node.name == stem
+            if not (has_tool or is_plain_entry):
                 continue
             doc = ast.get_docstring(node) or ""
             if "tool_help" not in doc:

@@ -154,7 +154,7 @@ def test_commit_to_memory_writes_v2_user_tier(tmp_path: Path, monkeypatch) -> No
 
     # Import the helper after env var is set so workspace_root resolves correctly.
     import importlib
-    from olav.data.workspace.core.memory_curator.tools import commit_to_memory as ct
+    from olav.data.workspace.core.memory_curator.scripts import commit_to_memory as ct
     importlib.reload(ct)
 
     # Bypass embedder + LanceDB by replacing prime with a no-op.

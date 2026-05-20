@@ -10,6 +10,7 @@ route_keywords:
   - learn command TextFSM template generate teach
   - schema discover map field column view
   - trace analyze failure pattern improve self-healing
+  - explore investigation data-driven explore anomaly evidence query
 # Rev 259 (2026-05-11): Run vs Author split experiment.
 # The orchestrator routes:
 #   - Run prompts ("run X", "generate report") → runner sub-agent
@@ -32,9 +33,10 @@ tools:
   - recall_memory   # Check prior audit runs / profile decisions
   - web_search      # Verify unknown audit-domain terms
 subagents:
-  - path: ./runner/SKILL.md   # Run mode (run_map_engine + render_report)
-  - path: ./author/SKILL.md   # Profile Authoring (save_profile + append_jobs + 5 supporting skill scripts)
-  - path: ./curator/SKILL.md  # Schema discovery + TextFSM learning + trace analysis
+  - path: ./runner/SKILL.md    # Run mode (run_map_engine + render_report)
+  - path: ./author/SKILL.md    # Profile Authoring (save_profile + append_jobs + 5 supporting skill scripts)
+  - path: ./curator/SKILL.md   # Schema discovery + TextFSM learning + trace analysis
+  - path: ./explorer/SKILL.md  # Data-driven investigation: query evidence, explore anomalies
 ---
 
 ## Overview

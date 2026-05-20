@@ -6,15 +6,23 @@ metadata:
   version: 2.0.0
   replaces: [learner v1.0.0]
 tools:
-  # Direct StructuredTool — both have @tool wrappers in tools/
-  - fuzzy_map_schema
-  - scaffold_domain_agent
-  # Skill-script bridge for the remaining curator operations.
-  # Invoke via execute_skill_script(skill_name="curator", script_name=...):
-  #   - discover_view_schemas.py  — LLM + DB schema discovery → view_recipes
-  #   - sync_schema_reference.py  — regenerate SCHEMA_REFERENCE.md
-  #   - trace_learner.py          — mine recent failures into operational constraints
-  - execute_skill_script
+  - recall_memory
+scripts:
+  - name: fuzzy_map_schema
+    description: "Normalize multi-vendor CLI output keys to Cisco baseline using LLM. Returns mapped JSON."
+    file: fuzzy_map_schema.py
+  - name: scaffold_domain_agent
+    description: "Scaffold a new domain agent or skill workspace directory from learned patterns."
+    file: scaffold_domain_agent.py
+  - name: discover_view_schemas
+    description: "LLM + DB schema discovery → view_recipes. Args: force_refresh=False, concepts_filter=None."
+    file: discover_view_schemas.py
+  - name: sync_schema_reference
+    description: "Regenerate SCHEMA_REFERENCE.md from live DuckDB. Args: db_path='', schema_ref_path=''."
+    file: sync_schema_reference.py
+  - name: trace_learner
+    description: "Mine recent audit failures into operational constraints. Args: hours=168, limit=50."
+    file: trace_learner.py
 ---
 
 ## Curator Subagent

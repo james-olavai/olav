@@ -33,9 +33,9 @@ REPO = Path(__file__).resolve().parents[2]
 WORKSPACE = REPO / ".olav" / "workspace"
 CORE_SKILL = WORKSPACE / "core" / "SKILL.md"
 CORE_TOOLS = WORKSPACE / "core" / "tools"
-ADMIN_OPS_TOOLS = WORKSPACE / "admin" / "ops" / "tools"
-ADMIN_EDITOR_TOOLS = WORKSPACE / "admin" / "editor" / "tools"
-WRITER_TOOLS = WORKSPACE / "core" / "writer" / "tools"
+ADMIN_OPS_TOOLS = WORKSPACE / "admin" / "ops" / "scripts"
+ADMIN_EDITOR_TOOLS = WORKSPACE / "admin" / "editor" / "scripts"
+WRITER_TOOLS = WORKSPACE / "core" / "writer" / "scripts"
 
 
 # Current runtime core surface (dev_docs/85+): 4 tools.
@@ -53,8 +53,8 @@ _EXPECTED_CAPABILITIES: tuple[str, ...] = (
 # post-R-AGENT-HIERARCHY: manage_service moved back to devops/services (Direction A);
 #                         load_reference moved from core/admin/ to admin/editor/.
 _RELOCATED_CANONICAL_FILES: tuple[tuple[str, Path], ...] = (
-    ("api_request.py",        WORKSPACE / "core" / "api_query" / "tools"),
-    ("deploy_service.py",     WORKSPACE / "devops" / "services" / "tools"),
+    ("api_request.py",        WORKSPACE / "core" / "api_query" / "scripts"),
+    ("deploy_service.py",     WORKSPACE / "devops" / "services" / "scripts"),
     ("write_workspace_file.py", ADMIN_EDITOR_TOOLS),
     # run_shell is no longer present in runtime core workspace.
     ("load_reference.py",     ADMIN_EDITOR_TOOLS),
@@ -137,14 +137,16 @@ def test_manage_cron_is_single_tool_dispatcher():
         fn for fn in ("list_cron", "add_cron", "remove_cron", "apply_cron_schedules")
         if re.search(rf"@tool\s*\ndef {fn}\s*\(", manage_cron)
     ]
-    # Valid patterns: (A) single dispatcher + 0 CRUD @tool, or (B) 4 CRUD
-    # @tools + 0 dispatcher.
+    # Valid patterns: (A) single dispatcher + 0 CRUD @tool, (B) 4 CRUD
+    # @tools + 0 dispatcher, or (C) plain script with 0 @tool decorators
+    # (post-scripts-migration: @tool removed, loaded via SKILL.md scripts: field).
     pattern_a = len(dispatcher_matches) == 1 and len(crud_matches) == 0
     pattern_b = len(dispatcher_matches) == 0 and len(crud_matches) == 4
-    assert pattern_a or pattern_b, (
+    pattern_c = len(dispatcher_matches) == 0 and len(crud_matches) == 0
+    assert pattern_a or pattern_b or pattern_c, (
         f"manage_cron.py has inconsistent @tool surface: "
         f"dispatcher={len(dispatcher_matches)}, CRUD fns with @tool={crud_matches}. "
-        f"Expect either (A) 1 dispatcher + 0 CRUD, or (B) 0 dispatcher + 4 CRUD."
+        f"Expect (A) 1 dispatcher, (B) 4 CRUD @tools, or (C) plain script."
     )
 
 

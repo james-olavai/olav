@@ -33,13 +33,12 @@ INSTALLER_CORE = REPO / "src" / "olav" / "data" / "workspace" / "core"
 # Post-R64 layout: (tool_filename, subagent-folder-or-"tools")
 # Anything not in ``tools/`` is under ``<subagent>/tools/``.
 _PLATFORM_CORE_TOOLS_LAYOUT = [
-    ("describe_table.py",     "db_query"),  # R39 (ARCH-18)
+    # describe_table removed: now in core/db_query/scripts/ (scripts migration).
     ("execute_sql.py",        "tools"),     # R41 (ARCH-16 tier-aware rows)
-    ("get_static_context.py", "admin"),     # R24 (ARCH-17 lazy mode)
-    ("load_reference.py",     "admin"),     # R38 (section slicing)
+    # get_static_context, load_reference, tool_help removed: core/admin dissolved;
+    # files now live in admin/editor/scripts/ which is outside the core installer tree.
     ("recall_memory.py",      "tools"),     # R40 (ARCH-16 tier default)
     ("search_logs.py",        "tools"),     # R100/S5 — promoted from admin/ to shared core/tools/
-    ("tool_help.py",          "admin"),     # R38 + R49 (tier + SKILL.md field)
     ("web_search.py",         "tools"),     # R43 (docstring search_knowledge → recall_memory)
 ]
 
