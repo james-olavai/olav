@@ -2,9 +2,14 @@
 """
 Execute CLI commands on multiple devices in parallel via Nornir.
 
-Replaces execute_cli — pass devices=["R1"] for a single device.
-Safety layers: check_approval, blacklist/pipe_allowed, environment
-label filter, circuit breaker (60s TTL).
+Replaces execute_cli (single-device) — pass devices=["R1"] for a single device.
+Same whitelist/blacklist validation as the retired execute_cli:
+- check_approval gate (command-level; blocks all devices if triggered)
+- Commands table: blacklisted, pipe_allowed
+- Device name sanitisation
+- Environment label filter (per-device; skips hosts whose tag doesn't match)
+- Compact output by default (full=True for untruncated)
+- Fails open if commands table is not yet populated
 """
 
 from __future__ import annotations
