@@ -10,12 +10,15 @@ Usage:
 """
 
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 def _find_project_root() -> Path:
@@ -52,7 +55,7 @@ def _load_baselines() -> dict:
         with open(config_path, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     except Exception as e:
-        print(f"Warning: Failed to load baselines.yaml: {e}")
+        logger.warning("Failed to load baselines.yaml: %s", e)
         return {}
 
 def _get_standard_command(vendor_command: str, standard_platform: str) -> str:
@@ -93,7 +96,7 @@ def _get_standard_sample(platform: str, command: str) -> dict | None:
                 data = json.loads(result[0]) if isinstance(result[0], str) else result[0]
                 return data[0] if isinstance(data, list) and data else data
     except Exception as e:
-        print(f"Discovery debug: Failed to fetch standard sample: {e}")
+        logger.debug("Failed to fetch standard sample: %s", e)
     return None
 
 def _get_db_schema(table_name: str) -> dict | None:
