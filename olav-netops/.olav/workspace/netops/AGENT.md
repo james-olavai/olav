@@ -7,6 +7,11 @@ system_prompt_file: prompts/orchestrator.md
 # 编排器只做关键字路由 + dispatch，不需要 reasoning。早期 R-VERTICAL-SLICE
 # 让 orchestrator think 是 qwen3 时代的设计；gemma4 nothink 在路由 layer
 # 已实证够用 (rev 261/267/268)，多阶段推理交给 analyzer。
+# FINDING-07: thinking_mode intentionally diverges between workspace copies:
+# root workspace: enabled — reverted 2026-05-18 for dev + non-gemma4 deployments
+#   (orchestrator intent-routing regression without it — Ch9b audit test).
+# olav-netops (this file): disabled — gemma4:31b nothink strategy (dev_docs/77 §3.2);
+#   routing layer proven sufficient without thinking in gemma4 deployment profile.
 thinking_mode: disabled
 route_keywords:
   - network device router switch firewall CLI SSH show
@@ -38,35 +43,32 @@ tools:
 # back from top-level (workspace.yaml shrunk 6→3); analyze + lab +
 # collect already nested.
 subagents:
-  - path: ./analyze/SKILL.md       # Inspector-based read-side analysis
-                                   # (NetworkX inspectors): topology +
-                                   # routing + drift_* + blast_radius +
-                                   # Mermaid visualisation paths.
+  # 2026-05-19: analyze sub-agent deleted — inspect_blast_radius folded
+  # into analyzer (the only NetworkX tool SQL cannot replace).
   - path: ./analyzer/SKILL.md      # DEFAULT entry point (dev_docs/77 §2.6).
                                    # SQL state + Markdown report writer.
-                                   # Owns Workflow A (change plan) +
-                                   # Workflow D (investigation report).
-                                   # Delegates cross-domain to sim.
-  - path: ./sim/SKILL.md           # Batfish-backed config-layer evaluator
+                                   # 7 tools: execute_sql / describe_table /
+                                   # query_evidence / diff_configs /
+                                   # diff_snapshots / inspect_blast_radius /
+                                   # format_and_export.
+  - path: ./simulator/SKILL.md     # Batfish-backed config-layer evaluator
                                    # (dev_docs/77 §2 2026-05-14).  3 tools:
                                    # batfish_capability / batfish_q /
-                                   # format_and_export.  Replaced the
-                                   # R-CAB-THREE-STAGE Python pipeline.
-  - path: ./investigate/SKILL.md   # Evidence drilldown — syslog,
-                                   # command output, config text.
-  - path: ./collect/SKILL.md
-  - path: ./ingest/SKILL.md        # offline file gather — bundle / rancid /
+                                   # format_and_export.
+  # 2026-05-19: investigate sub-agent deleted — query_evidence already
+  # in analyzer (Workflow D handles log/syslog/fault search natively).
+  - path: ./collector/SKILL.md
+  - path: ./importer/SKILL.md      # offline file gather — bundle / rancid /
                                    # vendor dump landed via the same downstream
                                    # as live SSH (dev_docs/80).
   - path: ./topology/SKILL.md
-  - path: ./learner/SKILL.md
-  - path: ./explorer/SKILL.md      # autonomous Level-2 audit: LLM picks its
-                                   # own investigation vectors, records findings
-                                   # with mandatory SQL evidence (dev_docs/83).
+  - path: ./learner/SKILL.md       # parser learning (learn_commands / cmd_learn / draft_parser…)
+  # 2026-05-19: explorer migrated to audit/explorer/ — it is an audit-domain
+  # capability (open-ended health exploration), not a netops sub-agent.
+  # Route: "find issues / autonomous scan / no specific question" → olav --agent audit
   # ./lab/SKILL.md is an enterprise-only sub-agent provided by
   # olav-ent — the free distribution does not ship it.
-  # Cross-workspace platform sub-agent for format_and_export / save:
-  - path: ../core/writer/SKILL.md
+  - path: ../core/writer/SKILL.md  # format_and_export / save
 ---
 
 ## Overview

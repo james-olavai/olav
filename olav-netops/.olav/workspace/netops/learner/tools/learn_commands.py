@@ -160,13 +160,12 @@ def _learn_one_group(
 
     Returns ``(status, newly_parsed, freeze_info)``.
     """
-    # Import sibling tools; this module lives in the workspace, so use
-    # relative-path injection.
+    # Import helpers from _lib/ (internal helpers, not exposed @tools).
     import sys as _sys
     from pathlib import Path as _P
-    _here = _P(__file__).resolve().parent
-    if str(_here) not in _sys.path:
-        _sys.path.insert(0, str(_here))
+    _lib = _P(__file__).resolve().parent.parent / "_lib"
+    if str(_lib) not in _sys.path:
+        _sys.path.insert(0, str(_lib))
 
     from analyze_structure import analyze_structure, render_hints  # type: ignore
     from draft_parser import draft_parser  # type: ignore
@@ -241,7 +240,7 @@ def _learn_one_group(
                     "device": s.get("device"),
                     "command": command,
                     "parsed_data": parsed,
-                    "source": f"command_learner_{dsl}",
+                    "source": f"learner_{dsl}",
                 })
         return "learned", newly_parsed, freeze_info
 

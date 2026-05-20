@@ -1,6 +1,6 @@
 # ADR-0004: New top-level agent extension policy
 
-**Status**: Accepted
+**Status**: Accepted, superseded in part by ADR-0012 (§ "exactly four agents" → five)
 **Date**: 2026-04-18
 **Round**: Round 29
 **Related issue**: ARCH-21 D (rev 151, see `dev_docs/00. issues.md`)
