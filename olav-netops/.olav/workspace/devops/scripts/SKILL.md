@@ -7,7 +7,6 @@ tools:
   - execute_sql           # read real device/service data from OLAV DB to ground scripts
   - read_file             # inspect existing scripts / configs before generating new
   - recall_memory         # check prior scripting decisions / patterns
-  - execute_skill_script  # invoke shared netops helpers when relevant
 metadata:
   version: 0.3.0
   type: agent
