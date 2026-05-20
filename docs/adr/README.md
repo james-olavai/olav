@@ -18,6 +18,7 @@ lightweight, markdown-native ADR template.
 | [0008](0008-skills-middleware-first-architecture.md) | SkillsMiddleware-first architecture | Accepted | R92 |
 | [0009](0009-data-quality-over-prompt-engineering.md) | Data quality over prompt engineering for local small models | Accepted | R-VERTICAL-SLICE |
 | [0010](0010-fine-tuning-graduation-line.md) | Fine-tuning graduation line — stop compensating in code for model deficiencies | Accepted | Post R-VERTICAL-SLICE |
+| [0011](0011-llm-first-bounded-by-typed-apis.md) | LLM-first means typed APIs + structured output, not free-form code generation | Accepted | Post R-AGENT-HIERARCHY |
 
 ## When to write an ADR
 
