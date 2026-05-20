@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from langchain_core.tools import StructuredTool
 
 logger = logging.getLogger(__name__)
 
@@ -117,4 +116,7 @@ def _introspect_lancedb(db_path: str | None) -> dict:
     return {"db_type": "lancedb", "tables": tables_info}
 
 
-_database_introspection_tool = StructuredTool.from_function(database_introspection)
+if __name__ == "__main__":
+    import json as _json, sys as _sys
+    _args = _json.loads(_sys.stdin.read() or "{}")
+    print(_json.dumps(database_introspection(**_args), default=str))

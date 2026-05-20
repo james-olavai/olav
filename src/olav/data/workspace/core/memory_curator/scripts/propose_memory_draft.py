@@ -28,7 +28,6 @@ import time
 from pathlib import Path
 
 import yaml
-from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +113,6 @@ def _render_preview(payload: dict) -> str:
     )
 
 
-@tool
 def propose_memory_draft(
     intent: str,
     keywords: list[str],
@@ -201,7 +199,7 @@ if __name__ == "__main__":
     try:
         raw = sys.stdin.read()
         params = json.loads(raw) if raw.strip() else {}
-        print(json.dumps(propose_memory_draft.func(**params),
+        print(json.dumps(propose_memory_draft(**params),
                          ensure_ascii=False, indent=2))
     except Exception as exc:
         print(json.dumps({"status": "error", "error": str(exc)},

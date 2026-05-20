@@ -6,11 +6,23 @@ metadata:
   version: 2.0.0
   replaces: [learner v1.0.0]
 tools:
-  - discover_view_schemas
-  - fuzzy_map_schema
-  - sync_schema_reference
-  - scaffold_domain_agent
-  - trace_learner
+  - recall_memory
+scripts:
+  - name: fuzzy_map_schema
+    description: "Normalize multi-vendor CLI output keys to Cisco baseline using LLM. Returns mapped JSON."
+    file: fuzzy_map_schema.py
+  - name: scaffold_domain_agent
+    description: "Scaffold a new domain agent or skill workspace directory from learned patterns."
+    file: scaffold_domain_agent.py
+  - name: discover_view_schemas
+    description: "LLM + DB schema discovery → view_recipes. Args: force_refresh=False, concepts_filter=None."
+    file: discover_view_schemas.py
+  - name: sync_schema_reference
+    description: "Regenerate SCHEMA_REFERENCE.md from live DuckDB. Args: db_path='', schema_ref_path=''."
+    file: sync_schema_reference.py
+  - name: trace_learner
+    description: "Mine recent audit failures into operational constraints. Args: hours=168, limit=50."
+    file: trace_learner.py
 ---
 
 ## Curator Subagent

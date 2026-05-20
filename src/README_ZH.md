@@ -35,8 +35,8 @@
 
 ```bash
 pip install olav
-olav --agent services "注册 NetBox 服务 http://netbox:8000"   # 接入任何 API
-olav --agent services "NetBox 里有多少台设备？"               # 即时查询
+olav --agent admin "注册 NetBox 服务 http://netbox:8000"   # 接入任何 API
+olav --agent admin "NetBox 里有多少台设备？"               # 即时查询
 olav --agent core "写一个备份脚本"                            # 生成真实脚本
 ```
 
@@ -59,11 +59,11 @@ OLAV:  服务 → olav registry register → reference markdown → api_request 
 
 ```bash
 # 注册一次
-olav --agent services "注册 NetBox 服务 http://netbox:8000"
+olav --agent admin "注册 NetBox 服务 http://netbox:8000"
 
 # 任何 agent 都能查询
 olav "NetBox 里有多少台设备？"
-olav --agent services "对比 OLAV 数据库和 NetBox 的设备清单"
+olav --agent admin "对比 OLAV 数据库和 NetBox 的设备清单"
 ```
 
 `api_request` 工具**感知 API 结构** — 读取注册时生成的 API 参考文档，自动处理分页（DRF/NetBox 风格），自动管理认证（JWT/Bearer/API-key）。
@@ -74,7 +74,7 @@ v0.18.1 canonical set（Round 18 Step D lite 后）：
 
 ```
 olav "快速问题"                          → Core Agent（日常 80%，含脚本生成）
-olav --agent services "查询 NetBox"       → Services Agent（API 集成、服务注册）
+olav --agent admin "查询 NetBox"       → Services Agent（API 集成、服务注册）
 olav --agent ops "模拟链路故障"           → Ops Agent（网络运维 + lab / probe 子 agent）
 olav --agent audit "执行健康检查"         → Audit Agent（profile 作者 + 执行器）
 ```

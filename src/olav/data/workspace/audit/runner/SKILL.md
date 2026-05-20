@@ -3,9 +3,15 @@ name: audit-runner
 description: "Audit Run — executes an existing Profile against the DB and produces a Markdown health report. Two tool calls, deterministic."
 agent_type: api  # skip TodoListMiddleware — runner is task-completion, not plan-and-iterate
 tools:
-  - run_map_engine
-  - render_report
   - recall_memory
+scripts:
+  - name: run_map_engine
+    description: "Execute every Job's SQL/LanceDB query plus anomaly/baseline/incident engines, write segmented JSON. Returns json_path."
+    file: map_engine.py
+  - name: render_report
+    description: "Per-Job LLM render + global correlation pass + deterministic post-check playbook. Returns report path + executive summary inline."
+    file: render_report.py
+    return_direct: true
 ---
 
 ## Role

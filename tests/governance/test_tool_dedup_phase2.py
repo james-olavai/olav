@@ -53,6 +53,12 @@ _DELIBERATE_DIVERGENCE: set[str] = {
     # (mutating-SQL approval gate, tier-aware context rows); the
     # core/db_query/tools/execute_sql.py is a simpler delegate wrapper.
     "execute_sql.py",
+    # core/tools/recall_memory.py is the MCP @tool version; core/scripts/
+    # recall_memory.py is the migrated plain-script version (no LangChain).
+    # Both are needed during the scripts migration transition.
+    "recall_memory.py",
+    # Same dual-version pattern for web_search during the migration.
+    "web_search.py",
 }
 
 
@@ -62,7 +68,7 @@ def _md5(path: Path) -> str:
 
 def _canonical_dir(name: str) -> Path:
     if name in _NETOPS_CANONICAL:
-        return WORKSPACE / "netops" / "tools"
+        return WORKSPACE / "netops" / "scripts"
     if name in _CORE_CANONICAL:
         return WORKSPACE / "core" / "tools"
     raise AssertionError(f"no canonical mapping for {name}")
@@ -72,9 +78,9 @@ def _canonical_dir(name: str) -> Path:
 
 
 def test_ops_canonical_files_exist_as_regular_files():
-    """Post-dev_docs/85: netops/tools/ is the canonical home (ops→netops rename)."""
+    """Post-scripts-migration: netops/scripts/ is the canonical home for cross-domain netops tools."""
     for name in _NETOPS_CANONICAL:
-        p = WORKSPACE / "netops" / "tools" / name
+        p = WORKSPACE / "netops" / "scripts" / name
         assert p.exists(), f"canonical netops tool missing: {p}"
         assert not p.is_symlink(), (
             f"{p} is a symlink — it's supposed to be the canonical source."
@@ -157,10 +163,9 @@ def test_sub_agent_tools_symlink_up_to_core():
 
 
 def test_pre_existing_diff_configs_symlink_still_present():
-    """Post-dev_docs/85: ops/analyze no longer exists (→ netops/analyzer).
-    diff_configs.py is a real file in netops/tools/ — no symlink required."""
-    p = WORKSPACE / "netops" / "tools" / "diff_configs.py"
-    assert p.exists(), f"netops/tools/diff_configs.py missing after ops→netops rename"
+    """Post-scripts-migration: diff_configs.py is a real file in netops/scripts/."""
+    p = WORKSPACE / "netops" / "scripts" / "diff_configs.py"
+    assert p.exists(), f"netops/scripts/diff_configs.py missing after ops→netops rename"
     assert not p.is_symlink(), (
-        "netops/tools/diff_configs.py should be a canonical real file, not a symlink"
+        "netops/scripts/diff_configs.py should be a canonical real file, not a symlink"
     )

@@ -34,7 +34,6 @@ import time
 from pathlib import Path
 
 import yaml
-from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
 
@@ -429,7 +428,6 @@ def _archive_draft(draft_path: str) -> None:
     p.rename(target)
 
 
-@tool
 def commit_to_memory(
     intent: str = "",
     keywords: list[str] | None = None,
@@ -572,7 +570,7 @@ if __name__ == "__main__":
     try:
         raw = sys.stdin.read()
         params = json.loads(raw) if raw.strip() else {}
-        result = commit_to_memory.func(**params)
+        result = commit_to_memory(**params)
         print(json.dumps(result, ensure_ascii=False, indent=2))
     except Exception as exc:
         print(json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False),

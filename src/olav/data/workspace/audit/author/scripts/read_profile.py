@@ -16,7 +16,6 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -143,27 +142,11 @@ def read_profile(name: str, profiles_dir: str | None = None) -> dict:
     }
 
 
-# Register both as tools
 ListProfilesInput.model_rebuild()
 ReadProfileInput.model_rebuild()
 
-_list_profiles_tool = StructuredTool.from_function(
-    list_profiles,
-    name="list_profiles",
-    description=(
-        "List all available audit profile files (.md) in the profiles directory. "
-        "Use before read_profile when unsure of the exact profile name."
-    ),
-    args_schema=ListProfilesInput,
-)
 
-_read_profile_tool = StructuredTool.from_function(
-    read_profile,
-    name="read_profile",
-    description=(
-        "Read and parse an existing audit profile. Returns the full list of jobs "
-        "with their queries, thresholds, and severity settings. "
-        "Use before tune_thresholds or append_jobs to understand current coverage."
-    ),
-    args_schema=ReadProfileInput,
-)
+if __name__ == "__main__":
+    import json as _json, sys as _sys
+    _args = _json.loads(_sys.stdin.read() or "{}")
+    print(_json.dumps(read_profile(**_args), default=str))

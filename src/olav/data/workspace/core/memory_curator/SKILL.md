@@ -2,8 +2,15 @@
 name: memory_curator
 description: "Conversational memory ingestion (R102). Turn user-stated rules / pasted runbook / topology source into LanceDB rows with HITL."
 tools:
-  - propose_memory_draft   # Turn-1 of HITL: write draft to fs + return preview
-  - commit_to_memory       # Turn-2: commit (with from_draft=True) or single-shot
+  - recall_memory
+scripts:
+  - name: propose_memory_draft
+    description: "Turn-1 of HITL: write draft to disk + return YAML preview. Args: intent, keywords, body, agent, scope, category, chunks."
+    file: propose_memory_draft.py
+  - name: commit_to_memory
+    description: "Turn-2: commit (from_draft=True) or single-shot memory commit. Args: intent, keywords, body, agent, scope, category, chunks, confirm, from_draft."
+    file: commit_to_memory.py
+    return_direct: true
 agent_type: api
 # 2026-05-15: R102 HITL replies are short — "I've drafted N memories,
 # review the YAML preview, reply 'yes' or 'edit X' to proceed."  4K

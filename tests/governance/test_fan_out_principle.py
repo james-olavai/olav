@@ -86,7 +86,7 @@ def test_diff_configs_exposes_full_flag():
 
 def test_api_request_has_compact_cap_constant():
     """api_request auto-caps paginated list responses in compact mode."""
-    src = (REPO / ".olav" / "workspace" / "core" / "api_query" / "tools" / "api_request.py").read_text(
+    src = (REPO / ".olav" / "workspace" / "core" / "api_query" / "scripts" / "api_request.py").read_text(
         encoding="utf-8"
     )
     assert "_COMPACT_LIST_CAP" in src, (
@@ -98,7 +98,7 @@ def test_tool_help_pointer_present_on_trimmed_tools():
     """Trimmed tools (ARCH-18 #1) should still advertise tool_help for detail."""
     tool_files = [
         REPO / ".olav" / "workspace" / "core" / "tools" / "execute_sql.py",
-        REPO / ".olav" / "workspace" / "core" / "api_query" / "tools" / "api_request.py",
+        REPO / ".olav" / "workspace" / "core" / "api_query" / "scripts" / "api_request.py",
         NETOPS_TOOLS / "diff_configs.py",
         NETOPS_TOOLS / "take_snapshot.py",
         NETOPS_TOOLS / "execute_cli_parallel.py",

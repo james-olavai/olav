@@ -15,7 +15,6 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -239,15 +238,8 @@ def _suggest_thresholds(
 
 AnalyzeThresholdsInput.model_rebuild()
 
-_analyze_thresholds_tool = StructuredTool.from_function(
-    analyze_thresholds,
-    name="analyze_thresholds",
-    description=(
-        "Analyze real data distribution in DuckDB to suggest evidence-based alert thresholds. "
-        "Provide a SQL query returning a numeric 'value' column; the tool computes "
-        "P50/P75/P90/P95/P99 percentiles and recommends Warning/Critical thresholds. "
-        "Use BEFORE creating or tuning a profile to ground thresholds in real data. "
-        "Present results to user for confirmation before writing the profile."
-    ),
-    args_schema=AnalyzeThresholdsInput,
-)
+
+if __name__ == "__main__":
+    import json as _json, sys as _sys
+    _args = _json.loads(_sys.stdin.read() or "{}")
+    print(_json.dumps(analyze_thresholds(**_args), default=str))

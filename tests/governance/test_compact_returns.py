@@ -61,7 +61,7 @@ def test_diff_configs_exposes_full_kwarg():
 
 
 def test_api_request_compact_list_cap_constant():
-    src = (REPO / ".olav" / "workspace" / "core" / "api_query" / "tools" / "api_request.py").read_text(
+    src = (REPO / ".olav" / "workspace" / "core" / "api_query" / "scripts" / "api_request.py").read_text(
         encoding="utf-8"
     )
     assert "_COMPACT_LIST_CAP" in src
@@ -72,7 +72,7 @@ def test_api_request_compact_list_cap_constant():
 
 def test_api_request_returns_truncated_dict_when_page_large(monkeypatch):
     """End-to-end: a large first-page response triggers the compact cap."""
-    mod = _load(REPO / ".olav" / "workspace" / "core" / "api_query" / "tools" / "api_request.py", "api_request_test")
+    mod = _load(REPO / ".olav" / "workspace" / "core" / "api_query" / "scripts" / "api_request.py", "api_request_test")
 
     big_page = [{"id": i} for i in range(200)]
     fake_response = {"count": 200, "next": None, "results": big_page}
