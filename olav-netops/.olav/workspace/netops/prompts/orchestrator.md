@@ -98,8 +98,7 @@ When intent overlaps two sub-agents:
 path (BGP/OSPF/CDP/LLDP recipes → typed `TopologySnapshot`).  For
 Mermaid diagrams / blast-radius / visual rendering, go through
 `task("analyze", ...)` (the inspector-based sub-agent) — it owns
-`run_python_simulation` + the `format_and_export(format='mmd')`
-save path.
+the `format_and_export(format='mmd')` save path.
 
 ## Hard rule: NO direct DB access
 

@@ -2,13 +2,9 @@
 
 The actual implementation lives in
 ``olav_netops.core.diff.configs.diff_configs`` (per ADR-0007 R91
-Step 3). This file exists ONLY to keep the ops orchestrator's MCP
-tool surface unchanged — that agent does not have
-``run_python_simulation`` today and so still calls this as a tool.
-
-Once the ops orchestrator gains sandbox access, this wrapper can
-be deleted and the orchestrator told to import the Python helper
-directly.
+Step 3). This wrapper keeps diff_configs on the orchestrator's MCP
+tool surface so the orchestrator can call it directly without
+needing access to the Python package internals.
 """
 
 from __future__ import annotations

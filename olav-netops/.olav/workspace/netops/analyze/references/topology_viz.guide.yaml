@@ -40,4 +40,4 @@ body: |
 
 related:
   - intent: simulation_what_if
-    note: "for what-if blast-radius questions, prefer ops-analyze with run_python_simulation"
+    note: "for what-if blast-radius questions, use inspect_blast_radius via task(\"analyzer\", ...)"

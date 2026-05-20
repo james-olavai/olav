@@ -78,9 +78,7 @@ _WRITE_VERB_ROOTS = frozenset({
 })
 
 # Full tool names whose write nature isn't captured by verb-in-segments.
-_WRITE_TOOL_FULL = frozenset({
-    "run_python_simulation",  # runs code, side-effects possible
-})
+_WRITE_TOOL_FULL: frozenset[str] = frozenset()
 
 
 # Substrings of arg/result keys whose values get redacted before

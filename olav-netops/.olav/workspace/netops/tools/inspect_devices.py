@@ -1,9 +1,8 @@
 """inspect_devices @tool — facts lookup for named devices.
 
 R-AGENT-HIERARCHY post-Phase-D inspector pattern (2026-05-09):
-small models can't reliably compose multi-line Python in
-``run_python_simulation``.  Replace the sandbox with narrow,
-typed inspector tools that wrap ``model.facts`` / ``model.graph``.
+narrow, typed inspector tools that wrap ``model.facts`` / ``model.graph``
+instead of sandbox-based Python composition.
 
 Each inspector:
 * takes typed args (Pydantic schema enforced at LLM decode time)
