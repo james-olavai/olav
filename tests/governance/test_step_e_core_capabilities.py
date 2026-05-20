@@ -49,11 +49,12 @@ _EXPECTED_CAPABILITIES: tuple[str, ...] = (
 
 # Files previously advertised on core that R65 relocated into sub-agent homes.
 # The test verifies the canonical file still exists in its new home.
-# v0.11.0: deploy_service + stop_service merged into manage_service;
-#          load_reference moved from core/admin/ to admin/editor/ (post-R-AGENT-HIERARCHY).
+# v0.11.0: deploy_service + stop_service merged into manage_service (admin/ops).
+# post-R-AGENT-HIERARCHY: manage_service moved back to devops/services (Direction A);
+#                         load_reference moved from core/admin/ to admin/editor/.
 _RELOCATED_CANONICAL_FILES: tuple[tuple[str, Path], ...] = (
     ("api_request.py",        WORKSPACE / "core" / "api_query" / "tools"),
-    ("manage_service.py",     ADMIN_OPS_TOOLS),
+    ("deploy_service.py",     WORKSPACE / "devops" / "services" / "tools"),
     ("write_workspace_file.py", ADMIN_EDITOR_TOOLS),
     # run_shell is no longer present in runtime core workspace.
     ("load_reference.py",     ADMIN_EDITOR_TOOLS),
