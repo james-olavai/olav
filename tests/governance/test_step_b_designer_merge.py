@@ -106,9 +106,8 @@ def test_auditor_system_prompt_describes_authoring_mode():
 
 
 def test_tool_help_tool_roots_excludes_designer():
-    # Post-R65 (ARCH-23): tool_help.py relocated from core/tools/ to
-    # core/admin/tools/.
-    text = (WORKSPACE / "core" / "admin" / "tools" / "tool_help.py").read_text(encoding="utf-8")
+    # v0.11.0: moved from core/admin/tools/ to admin/developer/; post-R-AGENT-HIERARCHY: admin/editor/.
+    text = (WORKSPACE / "admin" / "editor" / "tools" / "tool_help.py").read_text(encoding="utf-8")
     assert "audit/designer" not in text and "audit\" / \"designer\"" not in text, (
         "tool_help._TOOL_ROOTS must no longer reference audit/designer/tools"
     )
