@@ -82,6 +82,8 @@ _SEMANTIC_ALIASES: dict[str, tuple[str, ...]] = {
     # Resolver checks exact match first, so this entry only matters for
     # workspaces that don't have a sim sub-agent registered (then it
     # falls back to analyze).
+    # LEGACY-KEEP: fallback to ops-analyze/analyze intentional for workspaces
+    # without a dedicated sim sub-agent (e.g. slim installs, olav-ent).
     "sim": ("sim", "ops-analyze", "analyze"),
 }
 

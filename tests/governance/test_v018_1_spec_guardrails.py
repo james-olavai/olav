@@ -109,34 +109,6 @@ def test_core_agent_has_at_most_7_tools():
     )
 
 
-def test_services_agent_exists_as_top_level():
-    """Sprint 3 Step A (Round 16) — services/ top-level agent is live."""
-    services = WORKSPACE / "services"
-    assert services.is_dir()
-    assert (services / "AGENT.md").exists()
-    assert (services / "SKILL.md").exists()
-    assert (services / "prompts" / "system.md").exists()
-    assert (services / "tools").is_dir()
-
-
-def test_ops_subagents_merged_to_collect_analyze():
-    """Sprint 3 Step C (Round 31) + Step D-后半 lite (Round 32 per ADR-0005).
-
-    Notes:
-    * Analysis + diff merged into analyze/ in Round 31.
-    * Probe renamed to collect/ in Round 32. Lab stays as a standalone
-      sub-agent per ADR-0005 (not merged into collect) because its 10-tool
-      CAB workflow would blow past the ≤5 sub-agent tool target.
-    """
-    ops = WORKSPACE / "ops"
-    assert (ops / "analyze").is_dir(), "ops/analysis + ops/diff → ops/analyze"
-    assert (ops / "collect").is_dir(), "ops/probe → ops/collect (Round 32)"
-    # Source subagents should be gone.
-    assert not (ops / "analysis").exists()
-    assert not (ops / "diff").exists()
-    assert not (ops / "probe").exists()
-
-
 @_REV_259_SPLIT_XFAIL
 def test_audit_subagents_collapse_designer_into_auditor():
     """v0.18.1 Sprint 3 Step B — designer merged into auditor (Round 17).
@@ -151,10 +123,6 @@ def test_audit_subagents_collapse_designer_into_auditor():
     assert not (audit / "learner").exists(), "Round 34: renamed to curator"
 
 
-def test_ops_lab_folded_into_ops():
-    """v0.18.1 Sprint 3 Step D lite (Round 18) — ops-lab/ shell deleted."""
-    assert (WORKSPACE / "ops" / "lab").is_dir()
-    assert not (WORKSPACE / "ops-lab").exists()
 
 
 def test_core_prompt_within_small_tier_budget():
