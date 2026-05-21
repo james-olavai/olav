@@ -2,7 +2,7 @@
 name: analyzer
 # 2026-05-14 cross-domain upgrade (dev_docs/77 §2.6): analyzer is
 # the *report author*.  For multi-substrate investigations it
-# delegates config-layer questions to ``sim`` via deepagents'
+# delegates config-layer questions to ``simulator`` via deepagents'
 # native ``task()`` tool (auto-injected because we declare
 # ``subagents:`` here + agent.py builds us via ``create_deep_agent``
 # per Phase 1 commit 360a8816).  ``agent_type: api`` is dropped:
@@ -15,14 +15,12 @@ name: analyzer
 #   * Workflow D — investigation / audit / deep research → exports/reports/<topic>.md
 thinking_mode: enabled
 # 2026-05-15: analyzer inherits global defaults (32K max_tokens, 64K
-# num_ctx — see core/llm.py + .olav/config/api.json).  The earlier
-# explicit ``llm:`` block was redundant once global max_tokens went
-# 16K → 32K.  The per-skill override mechanism is now exercised by
-# the deterministic-output sub-agents (sim/investigate/learner have
-# ``temperature: 0.0``) and the short-message memory_curator.
+# num_ctx — see core/llm.py + .olav/config/api.json).  The per-skill
+# override mechanism is used by deterministic sub-agents (sim/learner
+# have ``temperature: 0.0``).
 subagents:
   - path: ../simulator/SKILL.md
-description: "Standalone Markdown-output analyzer + report author.  Three modes: (A) change-plan drafter — gather facts via execute_sql, write a vendor-specific change plan markdown (CLI per device + rollback + post-checks + risks) to exports/change_plans/; (B) investigation/audit reporter — gather facts, synthesise across L1-L4 layers, write a structured report to exports/reports/; (C) L2 topology what-if — inspect_blast_radius simulates device/link failures on the NetworkX graph.  Mode picked from prompt. For control-plane questions (BGP/OSPF compat, reachability), delegates to simulator via task('simulator', ...) per dev_docs/77 §2.6."
+description: "Standalone Markdown-output analyzer + report author.  Three modes: (A) change-plan drafter — gather facts via execute_sql, write a vendor-specific change plan markdown (CLI per device + rollback + post-checks + risks) to exports/change_plans/; (B) investigation/audit reporter — gather facts, synthesise across L1-L4 layers, write a structured report to exports/reports/; (C) L2 topology what-if — inspect_blast_radius simulates device/link failures on the NetworkX graph (not Batfish — see capability boundary below).  Mode picked from the prompt: 'plan / add / change X' → A; 'investigate / audit / write report on Y' → B; 'what if X fails / blast radius of Y' → C.  For control-plane questions (BGP/OSPF compat, reachability policy), analyzer delegates to simulator via task('simulator', ...) per dev_docs/77 §2.6."
 tools:
   - execute_sql          # SQL on main.duckdb (read-only) — covers facts + cross-view JOIN + snapshot diff
   - execute_skill_script # call analyzer scripts (describe_table, query_evidence)
@@ -37,6 +35,9 @@ scripts:
   - name: query_evidence
     description: "Unified text search across syslog/command_output/config (3 sources via Literal arg)"
     file: query_evidence.py
+# Capability boundary — inspect_blast_radius vs sim (Batfish):
+#   inspect_blast_radius → L2 graph: "if device X fails, how many nodes are isolated?"
+#   sim → control plane: routing policy, BGP/OSPF config compatibility, ACL reachability
 # Structured change-record (TCF) emission is enterprise-only (olav-ent lab).
 allowed_tables:
   - netops.devices
@@ -90,25 +91,30 @@ Python pipeline, no schema-validated envelope.  Plan, gather facts,
 think layered (L1-L4), and produce a Markdown file an engineer can
 read and act on.
 
-### Tools (5 total — one tool per concern)
+### Tools (5 tools + 2 scripts)
 
 | Tool | Purpose |
 |---|---|
 | `execute_sql(sql=..., explain_only=False)` | read-only SQL on `main.duckdb`; covers per-device facts, cross-view JOINs, snapshot-id diff. Returns `list[dict]`. |
-| `describe_table(table_name=..., include_samples=True)` | one-shot schema introspection: columns + types + 2 sample rows. Use in Phase 0a before writing JOIN SQL. |
-| `query_evidence(source="syslog"\|"command_output"\|"config", pattern=..., device=..., time_range=..., snapshot=...)` | text search across recorded outputs / syslog / configs. |
-| `inspect_drift_configs(device=..., snap_a=..., snap_b=...)` | raw CLI config diff between two snapshots (difflib — not expressible as SQL). |
+| `diff_configs(device=..., command=..., snapshot_id_1=..., snapshot_id_2=...)` | raw CLI config diff between two snapshots (difflib — not expressible as SQL). |
+| `diff_snapshots(snapshot_id_1=..., snapshot_id_2=..., table_name=None, device=None)` | SQL-based structural diff across `parsed_outputs`/`topology_links`/`raw_output_store` between two snapshot IDs. |
+| `inspect_blast_radius(remove_devices=[...], remove_links=[[A,B]])` | L2 topology what-if: remove devices/links from NetworkX graph → returns isolated nodes + component count delta. NOT Batfish — graph topology only, no control-plane. |
 | `format_and_export(data=<MD>, filename=..., format="md", subdir="change_plans"\|"reports")` | emit the Markdown artifact. |
+
+| Script | Purpose |
+|---|---|
+| `scripts/describe_table.py` | one-shot schema introspection: columns + types + 2 sample rows. Use in Phase 0a before writing JOIN SQL. Invoke via stdin JSON: `{"table_name": "netops.devices", "include_samples": true}`. |
+| `scripts/query_evidence.py` | text search across recorded outputs / syslog / configs. Invoke via stdin JSON: `{"source": "syslog"\|"command_output"\|"config", "pattern": "...", "device": "...", "time_range": "...", "snapshot": "..."}`. |
 
 ### Two output modes
 
 * **Workflow A — Change plan markdown** (`subdir="change_plans"`)
-  Trigger: "plan / add / change / 变更 / new ... between X and Y / modify".
+  Trigger: "plan / add / change / change request / new ... between X and Y / modify".
   Output: complete change plan including CLI per device, rollback,
   post-checks, risks.
 
 * **Workflow D — Investigation / audit report** (`subdir="reports"`)
-  Trigger: "investigate / audit / comprehensive report / 深度调研".
+  Trigger: "investigate / audit / comprehensive report / deep research".
   Output: layered (L1-L4) health/audit report with findings,
   cross-layer anomalies, recommendations.
 
@@ -117,7 +123,7 @@ Detailed prompts for both workflows live in `prompts/system.md`.
 ### What this sub-agent does NOT do
 
 - No CLI execution on devices (read-only).
-- No NetworkX / graph algorithms / what-if simulation → `task("sim", ...)`.
+- No control-plane evaluation (BGP policy, route-map, ACL reachability) → `task("simulator", ...)`.
 - No structured-spec output (TCF / DraftChangePlan / Pydantic schemas) —
   that's enterprise-only (olav-ent lab).  This sub-agent emits Markdown.
-- Every operation uses one of the 5 tools above.
+- Every operation uses one of the 7 tools above.

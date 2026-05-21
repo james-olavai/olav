@@ -1,13 +1,7 @@
 ---
 name: learner
-agent_type: api  # skip TodoListMiddleware (NETOPS sub-agents are tool-execution, not plan-and-iterate)
-# R-VERTICAL-SLICE 2026-05-09: sub-agent uses no-think for
-# fast tool execution; orchestrator handles planning.
+agent_type: api
 thinking_mode: disabled
-# 2026-05-15: TextFSM template generation is mechanical pattern
-# extraction — temp 0.0 keeps identical raw output → identical parser
-# (regression detection becomes trivial; non-deterministic temp would
-# mask which input change actually drove a template diff).
 llm:
   temperature: 0.0
 description: >
@@ -57,7 +51,7 @@ actionable invocation:
 
 ```
 ⚡ To enable structured queries for these, run:
-    olav --agent netops_ops '/learn_cmd cisco_ios "show spanning-tree"'
+    olav --agent netops '/learn_cmd cisco_ios "show spanning-tree"'
 ```
 
 The user runs `/learn_cmd <platform> "<command>"` when they want that
