@@ -166,6 +166,34 @@ class CommandsTable(BaseIngestTable):
     conflict_key = ["platform", "command"]
 
 
+class BundleIngestsTable(BaseIngestTable):
+    """One row per bundle ingest event — full provenance / chain-of-custody.
+
+    Schema mirrors the CREATE TABLE in migrations/v0_22_portable_ingest.py;
+    the class enables ``ensure_schema()`` on fresh DBs so the migration path
+    only needs to cover in-place evolution of existing prod DBs.
+    """
+
+    schema_name = "netops"
+    table_name = "bundle_ingests"
+    columns = [
+        ColumnDef("bundle_id",           "VARCHAR",   nullable=False),
+        ColumnDef("snapshot_id",         "VARCHAR"),
+        ColumnDef("bundle_sha256",       "VARCHAR",   nullable=False),
+        ColumnDef("collector_name",      "VARCHAR"),
+        ColumnDef("collector_version",   "VARCHAR"),
+        ColumnDef("collected_at",        "TIMESTAMP"),
+        ColumnDef("ingested_at",         "TIMESTAMP"),
+        ColumnDef("ingested_by",         "VARCHAR"),
+        ColumnDef("pre_scrubbed",        "BOOLEAN"),
+        ColumnDef("salt_fingerprint",    "VARCHAR"),
+        ColumnDef("hosts_count",         "INTEGER"),
+        ColumnDef("commands_count",      "INTEGER"),
+        ColumnDef("parser_fill_summary", "VARCHAR"),
+    ]
+    conflict_key = ["bundle_id"]
+
+
 # ARCH-24 removed (Round 70): BgpSessionsTable / OspfAdjacenciesTable
 # were materialized by the now-deleted L3 ETL. Their data is now exposed
 # through ``netops.v_bgp_neighbors_auto`` / ``netops.v_ospf_neighbors_auto``
@@ -187,6 +215,7 @@ def _register_all() -> None:
     TableRegistry.register(TopologyLinksTable())
     TableRegistry.register(OcOutputsTable())
     TableRegistry.register(CommandsTable())
+    TableRegistry.register(BundleIngestsTable())
 
 
 # Tables that existed in pre-R83 ETL designs but are no longer written to
