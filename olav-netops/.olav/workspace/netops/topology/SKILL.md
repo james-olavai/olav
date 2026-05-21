@@ -10,11 +10,23 @@ description: >
   ~/.olav/config/topology.yaml — agent drafts a YAML recipe on first query
   and freezes it for reuse. No Python-code generation, no sandbox.
 tools:
-  - path: ./tools/query_topology.py
-  - path: ./tools/discover_recipe.py
-  - path: ./tools/save_recipe.py
-  - path: ./tools/rebuild_views.py
-  - path: ./tools/list_recipes.py
+  - execute_skill_script
+scripts:
+  - name: query_topology
+    description: "Query BGP / OSPF / L2 topology views and return a typed TopologySnapshot"
+    file: query_topology.py
+  - name: discover_recipe
+    description: "LLM-assisted recipe discovery for a new protocol from raw_output_store samples"
+    file: discover_recipe.py
+  - name: save_recipe
+    description: "Validate recipe YAML, dry-run against current snapshot, UPSERT to view_recipes"
+    file: save_recipe.py
+  - name: rebuild_views
+    description: "Pure SQL rebuild of topology views for one or all protocols (no LLM)"
+    file: rebuild_views.py
+  - name: list_recipes
+    description: "List available topology recipes (built-in vs user, with active status)"
+    file: list_recipes.py
 references:
   - path: ./references/INTENT_FORMAT.md
   - path: ./references/RECIPE_FORMAT.md

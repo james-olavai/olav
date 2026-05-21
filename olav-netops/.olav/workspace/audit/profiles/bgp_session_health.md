@@ -17,4 +17,4 @@ jobs:
     BY created_at DESC LIMIT 100
 ---
 
-# BGP Session Health Check Profile\n\nThis profile monitors BGP neighbor session states across all devices.\n\n## Purpose\nDetect down or unstable BGP sessions that could impact routing.\n\n## Coverage\n- Queries latest BGP neighbor data from `v_bgp_neighbors_auto` view.\n- Flags non-Established sessions (Idle, Connect, Active, OpenSent, OpenConfirm).\n\n## Usage\nRun with `olav --agent audit-auditor bgp_session_health` for report.\n\n**Note:** Ignores nonexistent_table_xyz_abc as no such table exists; uses real BGP data from production schema.
+# BGP Session Health Check Profile\n\nThis profile monitors BGP neighbor session states across all devices.\n\n## Purpose\nDetect down or unstable BGP sessions that could impact routing.\n\n## Coverage\n- Queries latest BGP neighbor data from `v_bgp_neighbors_auto` view.\n- Flags non-Established sessions (Idle, Connect, Active, OpenSent, OpenConfirm).\n\n## Usage\nRun with `olav --agent audit "run profile bgp_session_health"` for report.\n\n**Note:** Ignores nonexistent_table_xyz_abc as no such table exists; uses real BGP data from production schema.
