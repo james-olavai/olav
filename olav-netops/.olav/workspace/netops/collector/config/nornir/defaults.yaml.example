@@ -1,0 +1,18 @@
+# Nornir default credentials — copy to defaults.yaml and fill in
+#
+# This file contains SSH credentials used by ALL devices unless
+# overridden in hosts.yaml or groups.yaml.
+#
+# SECURITY: defaults.yaml is gitignored. Never commit real passwords.
+# Copy this file and fill in your credentials:
+#   cp defaults.yaml.example defaults.yaml
+#   chmod 600 defaults.yaml
+
+username: YOUR_SSH_USERNAME
+password: YOUR_SSH_PASSWORD
+port: 22
+
+connection_options:
+  netmiko:
+    extras:
+      device_type: cisco_ios
