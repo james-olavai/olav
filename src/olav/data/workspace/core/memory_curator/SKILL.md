@@ -3,12 +3,13 @@ name: memory_curator
 description: "Conversational memory ingestion (R102). Turn user-stated rules / pasted runbook / topology source into LanceDB rows with HITL."
 tools:
   - recall_memory
+  - execute_skill_script    # runs scripts/ entries (ADR-0008 native pattern)
 scripts:
   - name: propose_memory_draft
-    description: "Turn-1 of HITL: write draft to disk + return YAML preview. Args: intent, keywords, body, agent, scope, category, chunks."
+    description: "Turn-1 of HITL: write draft to disk + return YAML preview"
     file: propose_memory_draft.py
   - name: commit_to_memory
-    description: "Turn-2: commit (from_draft=True) or single-shot memory commit. Args: intent, keywords, body, agent, scope, category, chunks, confirm, from_draft."
+    description: "Turn-2: commit (from_draft=True) or single-shot memory commit"
     file: commit_to_memory.py
     return_direct: true
 agent_type: api
@@ -51,6 +52,15 @@ User intents like:
 - "把 /path/to/runbook.md 加进记忆"
 - (paste of Mermaid / DOT / SVG-XML topology text)
 
+## Scripts
+
+All operations run via `execute_skill_script(skill_name="memory_curator", script_name=<file>, script_args={...})`.
+
+| Script file | Purpose |
+|---|---|
+| `propose_memory_draft.py` | Turn-1 HITL: write draft to disk + return YAML preview |
+| `commit_to_memory.py` | Turn-2: commit from draft or single-shot (return_direct=True) |
+
 ## How to work
 
 Follow the decision tree in `prompts/system.md`.  Always:
@@ -62,7 +72,7 @@ Follow the decision tree in `prompts/system.md`.  Always:
    choice between updating it vs creating a sibling.
 3. Render the proposed YAML and show it to the user.
 4. Wait for explicit confirmation (HARD HITL — see AGENT.md).
-5. Call `commit_to_memory`.
+5. `execute_skill_script("memory_curator", "commit_to_memory.py", {"from_draft": true, "confirm": true, ...})`.
 6. Tell the user the file path, the AutoRecall agent visibility,
    and a suggested test query.
 

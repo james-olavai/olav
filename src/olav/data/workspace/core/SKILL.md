@@ -1,36 +1,25 @@
 ---
 name: core
-description: "Core platform agent — data queries directly, delegates to writer/api_query/remote/admin subagents"
+description: "Core platform agent — data queries directly, delegates to writer/api-query/remote/admin subagents"
 tools:
   - execute_sql
   - recall_memory
   - web_search
-  # ISSUE-SCHEMA-PUSH-VS-PULL (dev_docs/00, 2026-04-30): describe_table
-  # promoted to core orchestrator so the agent can introspect schema
-  # on demand without 2-hop delegation through db_query.  Pairs with
-  # the `prime_memory_at_ingest` schema_knowledge push being disabled
-  # by default — agent now uses pull-mode introspection (Q2 in-vivo
-  # showed 27B-dense already does this naturally).
-  - describe_table
-  # R85 (dev_docs/62 § "R85 inline-save"): format_and_export promoted
-  # from writer-only to shared core capability so any agent that
-  # produces report data can save it directly.  Writer keeps it via
-  # the same inheritance path and remains the polish/edit subagent.
-  - format_and_export
-  # R86 follow-up: read_file promoted same way.  Any agent (orch,
-  # ops-lab consuming a CAB spec, audit consuming a profile) needs
-  # to load text files from disk.  Lives at core/tools/read_file.py.
+  # Patch D' Step 4 (2026-05-08): format_and_export removed from
+  # the universal-availability list.  R85 promoted it for inline
+  # convenience but the side effect was every agent's prompt carried
+  # its 150-token schema and weak local LLMs picked it as a substitute
+  # for missing tools (gemma4 nothink → format_and_export instead of
+  # task("ops-analyze") for emit_tcf).  Writer's SKILL.md now declares
+  # it explicitly; agents that need it can do the same.  This restores
+  # progressive-disclosure for the write-class tool surface.
+  # read_file is kept as global — read-only, low blast-radius, used by
+  # multiple sub-agents loading specs / profiles.
   - read_file
-  # R100/S5 (dev_docs/69): search_logs promoted from
-  # core/admin/tools/ to shared core tools (now at
-  # core/tools/search_logs.py).  Reads the platform syslog Parquet
-  # store under .olav/databases/logs/.  Any agent investigating
-  # device behaviour needs syslog access — ops debugging BGP wants
-  # "what does syslog say about R1?", audit wants "any criticals
-  # last 24h?".  Previously locked behind admin sub-agent which
-  # forced a 2-hop delegation and made it unreachable from
-  # top-level ops/netops.
-  - search_logs
+  # execute_skill_script — native deepagents skill executor (ADR-0008).
+  # Agents with scripts: in their SKILL.md call this to run those scripts.
+  # Security: path-confined to skill's scripts/ dir, JSON stdin/stdout.
+  - execute_skill_script
 static_context:
   - path: ./references/SKILL_DEVELOPMENT.md
   - path: ./references/REQUIRED_INFO_CHECK.md
@@ -53,8 +42,8 @@ metadata:
 Core orchestrator directly handles data queries (3 tools + olav_delegate).
 Other capabilities are delegated to subagents:
 - `writer` — format tables, charts, reports, scripts (unified output engine)
-- `db_query` — complex multi-step database queries
-- `api_query` — API requests, health checks
+- `db-query` — complex multi-step database queries
+- `api-query` — API requests, health checks
 - `remote` — SSH, shell commands
 - `admin` — platform management, deployment, cron
 

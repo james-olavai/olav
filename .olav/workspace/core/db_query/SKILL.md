@@ -1,12 +1,12 @@
 ---
-name: db_query
+name: db-query
 description: "Database queries — complex multi-step DuckDB SQL workflows"
 scripts:
   - name: execute_sql
-    description: "Execute a DuckDB SQL query with auto schema discovery and error self-correction."
+    description: "Execute a DuckDB SQL query with auto schema discovery and error self-correction"
     file: execute_sql.py
   - name: describe_table
-    description: "Describe a DuckDB table: columns, types, row count, optional sample rows."
+    description: "Return schema and sample rows for a DuckDB table"
     file: describe_table.py
 references:
   - path: ./references/RAW_FALLBACK.md

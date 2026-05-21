@@ -38,12 +38,15 @@ ADMIN_EDITOR_TOOLS = WORKSPACE / "admin" / "editor" / "scripts"
 WRITER_TOOLS = WORKSPACE / "core" / "writer" / "scripts"
 
 
-# Current runtime core surface (dev_docs/85+): 4 tools.
+# Current runtime core surface (dev_docs/85+): 5 tools.
+# ADR-0008 (2026-05-21): execute_skill_script added as the native deepagents
+# skill executor — replaces the former custom _make_script_tool wrapper.
 _EXPECTED_CAPABILITIES: tuple[str, ...] = (
     "execute_sql",
     "recall_memory",
     "web_search",
     "read_file",
+    "execute_skill_script",
 )
 
 
@@ -73,14 +76,13 @@ def _skill_frontmatter() -> dict:
 # ── Advertised capability surface (post-R65 ARCH-23) ───────────────────────
 
 
-def test_core_skill_tools_list_has_four_entries():
-    """Current runtime core surface is 4 tools."""
+def test_core_skill_tools_list_has_expected_count():
+    """Current runtime core surface is 5 tools (ADR-0008 adds execute_skill_script)."""
     meta = _skill_frontmatter()
     tools = meta.get("tools") or []
-    assert len(tools) == 4, (
-        f"core/SKILL.md advertises {len(tools)} tools; R86 follow-up "
-        f"requires 4 cross-domain tools (execute_sql, recall_memory, "
-        f"web_search, read_file)"
+    assert len(tools) == len(_EXPECTED_CAPABILITIES), (
+        f"core/SKILL.md advertises {len(tools)} tools; expected "
+        f"{len(_EXPECTED_CAPABILITIES)}: {sorted(_EXPECTED_CAPABILITIES)}"
     )
 
 

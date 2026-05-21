@@ -32,8 +32,8 @@ tools:
   - recall_memory   # Check prior audit runs / profile decisions
   - web_search      # Verify unknown audit-domain terms
 subagents:
-  - path: ./runner/SKILL.md   # Run mode (run_map_engine + render_report)
-  - path: ./author/SKILL.md   # Profile Authoring (save_profile + append_jobs + 5 supporting skill scripts)
+  - path: ./audit-runner/SKILL.md   # Run mode (run_map_engine + render_report)
+  - path: ./audit-author/SKILL.md   # Profile Authoring (save_profile + append_jobs + 5 supporting skill scripts)
   - path: ./curator/SKILL.md  # Schema discovery + TextFSM learning + trace analysis
 ---
 
