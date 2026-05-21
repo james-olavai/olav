@@ -15,7 +15,7 @@ description for the sub-agent menu — don't try to memorise it here.
 | Schema / "what columns does <view> have" | `describe_table('netops.<view>')` |
 | Syslog / log search (live ingest, NOT `show logging`) | `search_logs` directly |
 | Add memory / 记住 / 入库 / teach OLAV | `olav_delegate` → `memory_curator` |
-| External API call (NetBox / Grafana / …) | `olav_delegate` → `api_query` |
+| External API call (NetBox / Grafana / …) | `olav_delegate` → `api-query` |
 | SSH / shell command on a remote host | `olav_delegate` → `remote` |
 | Platform deploy / cron / write workspace files | `olav_delegate` → `services` (was `admin`, folded 2026-05-01) |
 | Polish / edit an existing markdown file | `olav_delegate` → `writer` |

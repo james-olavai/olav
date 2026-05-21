@@ -9,13 +9,13 @@ tools:
   - format_and_export         # save the polished markdown back (mode='overwrite')
 scripts:
   - name: render_topology_mermaid
-    description: "Convert an adjacency Markdown table into a Mermaid diagram block."
+    description: "Convert an adjacency Markdown table into a Mermaid diagram block"
     file: render_topology_mermaid.py
   - name: render_topology_drawio
-    description: "Convert an adjacency Markdown table into draw.io XML saved under exports/topology/."
+    description: "Render network topology as draw.io XML"
     file: render_topology_drawio.py
   - name: topology_view
-    description: "Query DB for topology: hosts, edges, roles, sites, protocols (BGP/OSPF/L2). Returns structured table."
+    description: "Query DB for topology: hosts, edges, roles, protocols"
     file: topology_view_filter.py
 dynamic_context:
   # KB autorecall picks these up on diagram/drawio/mermaid keywords.

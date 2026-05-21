@@ -48,8 +48,11 @@ def _load_parse_src_token():
         repo_root = Path.cwd()
 
     # rev 259 Run/Author split: render_report.py moved auditor/ → runner/.
+    # rev ~296: runner/ dir renamed → audit-runner/ (SkillsMiddleware spec compliance).
     # tools/ → scripts/ migration: probe scripts/ first, then tools/ for compat.
     _LAYOUTS = (
+        (".olav", "workspace", "audit", "audit-runner", "scripts", "render_report.py"),
+        (".olav", "workspace", "audit", "audit-runner", "tools", "render_report.py"),
         (".olav", "workspace", "audit", "runner", "scripts", "render_report.py"),
         (".olav", "workspace", "audit", "runner", "tools", "render_report.py"),
         (".olav", "workspace", "audit", "auditor", "tools", "render_report.py"),

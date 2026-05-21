@@ -15,8 +15,9 @@ Security guarantees:
   * Script path must resolve to a regular file under
     ``<workspace_root>/<skill_path>/scripts/<script_name>``.
   * No shell metacharacter substitution — uses ``subprocess.run``
-    with a list argv.
-  * Args are passed as JSON on stdin, not in the command line.
+    with a list argv in both modes.
+  * Args passed as JSON stdin (OLAV native) or ``--key value`` CLI
+    pairs (``argv: true`` in SKILL.md, for argparse-based scripts).
   * Stdout / stderr / return code are captured and returned as a
     structured dict (no raw shell escapes leaking back).
   * Timeout enforced (default 120s; max 600s).
@@ -122,6 +123,46 @@ def _resolve_skill_dir(workspace_root: Path, skill_name: str) -> Path | None:
     return aliases.get(skill_name)
 
 
+def _read_script_metadata(skill_dir: Path, script_name: str) -> dict:
+    """Return the SKILL.md ``scripts:`` entry for *script_name*, or ``{}``."""
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.is_file():
+        return {}
+    try:
+        import yaml  # soft dep — already required by the workspace loader
+
+        text = skill_md.read_text(encoding="utf-8")
+        if not text.startswith("---"):
+            return {}
+        front = text.split("---", 2)[1]
+        meta = yaml.safe_load(front) or {}
+        for entry in meta.get("scripts", []):
+            if isinstance(entry, dict) and entry.get("file") == script_name:
+                return entry
+    except Exception as exc:
+        logger.debug("Could not read script metadata from %s: %s", skill_md, exc)
+    return {}
+
+
+def _build_argv_args(args: dict) -> list[str]:
+    """Convert *args* dict to ``--key value`` CLI pairs.
+
+    Complex values (list, dict) are JSON-serialised so the receiving
+    script can ``json.loads(value)`` if needed.  Bool values become
+    the strings ``"true"`` / ``"false"``.
+    """
+    result: list[str] = []
+    for k, v in args.items():
+        result.append(f"--{k}")
+        if isinstance(v, (dict, list)):
+            result.append(json.dumps(v))
+        elif isinstance(v, bool):
+            result.append("true" if v else "false")
+        else:
+            result.append(str(v))
+    return result
+
+
 def execute_skill_script(
     skill_name: str,
     script_name: str,
@@ -137,10 +178,11 @@ def execute_skill_script(
             (e.g. ``"ops-lab"``). Looked up under the workspace root.
         script_name: Filename of the script to run (must end ``.py``).
             Resolved as ``<skill_dir>/scripts/<script_name>``.
-        args: Optional structured args. Serialised to JSON and sent
-            on the script's stdin. The script is expected to read
-            ``sys.stdin``, parse JSON, and emit its result as a JSON
-            object on stdout.
+        args: Optional structured args. By default serialised to JSON
+            and sent on the script's stdin (OLAV native convention).
+            If the SKILL.md entry carries ``argv: true``, args are
+            instead passed as ``--key value`` CLI pairs so the script
+            can use ``argparse`` (third-party / deepagents-native style).
         timeout: Maximum subprocess wall-clock seconds (capped at 600).
         workspace_root: Override workspace root; defaults to
             ``OLAV_WORKSPACE_ROOT`` env or repo-walk to ``.olav/workspace``.
@@ -214,12 +256,23 @@ def execute_skill_script(
             ),
         }
 
-    payload = json.dumps(args or {}).encode("utf-8")
+    # Determine arg-passing convention from the SKILL.md scripts entry.
+    # argv: true  → --key value CLI pairs (argparse / deepagents-native).
+    # default     → JSON on stdin (OLAV convention, structured + safe).
+    script_meta = _read_script_metadata(skill_dir, script_name)
+    argv_mode: bool = bool(script_meta.get("argv", False))
+
+    if argv_mode:
+        cmd = [sys.executable, str(resolved)] + _build_argv_args(args or {})
+        stdin_payload: bytes | None = None
+    else:
+        cmd = [sys.executable, str(resolved)]
+        stdin_payload = json.dumps(args or {}).encode("utf-8")
 
     try:
         completed = subprocess.run(
-            [sys.executable, str(resolved)],
-            input=payload,
+            cmd,
+            input=stdin_payload,
             capture_output=True,
             timeout=timeout,
             check=False,

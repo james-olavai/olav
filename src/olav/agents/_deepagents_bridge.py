@@ -137,6 +137,17 @@ _async = _safe_imports(
     ("deepagents.middleware.async_subagents", "AsyncSubAgentMiddleware", None),
     enabled=HAS_ASYNC_SUBAGENTS,
 )
+
+# SkillsMiddleware — native deepagents skill discovery layer (ADR-0008).
+# Available since deepagents 0.5.x; always present in our supported range.
+_skills = _safe_imports(
+    ("deepagents.middleware.skills", "SkillsMiddleware", None),
+    ("deepagents.backends", "FilesystemBackend", None),
+    enabled=True,
+)
+SkillsMiddleware = _skills["SkillsMiddleware"]
+FilesystemBackend = _skills["FilesystemBackend"]
+HAS_SKILLS_MIDDLEWARE: bool = SkillsMiddleware is not None
 AsyncSubAgent = _async["AsyncSubAgent"]
 AsyncSubAgentMiddleware = _async["AsyncSubAgentMiddleware"]
 
@@ -311,12 +322,15 @@ __all__ = [
     "LocalShellBackend",
     "AsyncSubAgent",
     "AsyncSubAgentMiddleware",
+    "SkillsMiddleware",
+    "FilesystemBackend",
     # Feature flags
     "HAS_SUMMARIZATION",
     "HAS_PROMPT_CACHING",
     "HAS_LOCAL_SHELL_BACKEND",
     "HAS_NAMESPACE_FACTORY",
     "HAS_ASYNC_SUBAGENTS",
+    "HAS_SKILLS_MIDDLEWARE",
     # Version info
     "_DA_VERSION",
     "_DA_MIN",

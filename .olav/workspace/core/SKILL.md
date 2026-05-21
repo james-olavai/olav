@@ -1,6 +1,6 @@
 ---
 name: core
-description: "Core platform agent — data queries directly, delegates to writer/api_query/remote/admin subagents"
+description: "Core platform agent — data queries directly, delegates to writer/api-query/remote/admin subagents"
 tools:
   - execute_sql
   - recall_memory
@@ -16,6 +16,10 @@ tools:
   # read_file is kept as global — read-only, low blast-radius, used by
   # multiple sub-agents loading specs / profiles.
   - read_file
+  # execute_skill_script — native deepagents skill executor (ADR-0008).
+  # Agents with scripts: in their SKILL.md call this to run those scripts.
+  # Security: path-confined to skill's scripts/ dir, JSON stdin/stdout.
+  - execute_skill_script
 static_context:
   - path: ./references/SKILL_DEVELOPMENT.md
   - path: ./references/REQUIRED_INFO_CHECK.md
@@ -38,8 +42,8 @@ metadata:
 Core orchestrator directly handles data queries (3 tools + olav_delegate).
 Other capabilities are delegated to subagents:
 - `writer` — format tables, charts, reports, scripts (unified output engine)
-- `db_query` — complex multi-step database queries
-- `api_query` — API requests, health checks
+- `db-query` — complex multi-step database queries
+- `api-query` — API requests, health checks
 - `remote` — SSH, shell commands
 - `admin` — platform management, deployment, cron
 

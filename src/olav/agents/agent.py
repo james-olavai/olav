@@ -4,7 +4,7 @@ OLAV Orchestrator Agent - v4.0 (MVC: Agent=Controller, Tools=Model, Writer=View)
 
 Architecture:
 - OLAVAgent: orchestrator with 3 direct tools (execute_sql, recall_memory, web_search)
-- 5 subagents: db_query, api_query, remote, admin, writer
+- 5 subagents: db-query, api-query, remote, admin, writer
 - writer subagent: unified output engine with report-type references
 - LangGraph MemorySaver for checkpoint/persistence
 - LanceDB for long-term semantic memory
@@ -27,7 +27,10 @@ from olav.agents._deepagents_bridge import (
     AnthropicPromptCachingMiddleware,
     AsyncSubAgent,
     CompiledSubAgent,
+    FilesystemBackend,
     HAS_PROMPT_CACHING,
+    HAS_SKILLS_MIDDLEWARE,
+    SkillsMiddleware,
     SubAgent,
     build_summarization_middleware,
     create_deep_agent,
@@ -676,6 +679,45 @@ class OLAVAgent:
                     "succeed and may deceive the agent on open-ended "
                     "save tasks"
                 )
+
+        # ADR-0008: Native SkillsMiddleware — skill discovery and third-party
+        # skill compatibility (deepagents standard pattern).
+        # Sources: top-level agent directories whose children have SKILL.md.
+        # Sub-agents (author, runner, curator …) sit one level below each
+        # source, which is exactly what SkillsMiddleware's ls() scan finds.
+        # This replaces the former custom _make_script_tool / _load_scripts_from_skill_md.
+        if HAS_SKILLS_MIDDLEWARE and SkillsMiddleware is not None and FilesystemBackend is not None:
+            workspace_root = (self.olav_base_path / "workspace").resolve()
+            skill_sources: list[tuple[str, str]] = []
+            if workspace_root.is_dir():
+                for src_dir in sorted(workspace_root.iterdir()):
+                    if not src_dir.is_dir() or src_dir.name.startswith("_"):
+                        continue
+                    has_skills = any(
+                        (sub / "SKILL.md").exists()
+                        for sub in src_dir.iterdir()
+                        if sub.is_dir()
+                    )
+                    if has_skills:
+                        skill_sources.append((str(src_dir), src_dir.name.capitalize()))
+            # Also expose a user-level project skills directory for third-party skills.
+            user_skills = Path(".agents") / "skills"
+            if user_skills.is_dir():
+                skill_sources.append((str(user_skills.resolve()), "User"))
+            if skill_sources:
+                try:
+                    skills_mw = SkillsMiddleware(
+                        backend=FilesystemBackend(virtual_mode=False),
+                        sources=skill_sources,
+                    )
+                    effective_middleware = [skills_mw] + list(effective_middleware)
+                    logger.info(
+                        "✓ SkillsMiddleware: %d source(s): %s",
+                        len(skill_sources),
+                        [label for _, label in skill_sources],
+                    )
+                except Exception as _e:
+                    logger.warning("SkillsMiddleware init failed (continuing without): %s", _e)
 
         _create_kwargs: dict = dict(
             model=self.llm,
