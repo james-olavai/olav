@@ -22,9 +22,12 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parents[2]
 _DEVOPS_WS = _ROOT / ".olav" / "workspace" / "devops"
-_SYSTEM_MD = _DEVOPS_WS / "prompts" / "system.md"
-_SKILL_MD = _DEVOPS_WS / "SKILL.md"
+# devops top-level is AGENT.md-based (orchestrator); script generation lives
+# in the 'scripts' sub-agent which is SKILL.md-based.
 _AGENT_MD = _DEVOPS_WS / "AGENT.md"
+_SCRIPTS_WS = _DEVOPS_WS / "scripts"
+_SKILL_MD = _SCRIPTS_WS / "SKILL.md"
+_SYSTEM_MD = _SCRIPTS_WS / "prompts" / "system.md"
 
 
 # ---------------------------------------------------------------------------
@@ -42,10 +45,10 @@ class TestDevopsWorkspaceStructure:
         assert _AGENT_MD.exists(), "AGENT.md missing from devops workspace"
 
     def test_skill_md_exists(self):
-        assert _SKILL_MD.exists(), "SKILL.md missing from devops workspace"
+        assert _SKILL_MD.exists(), f"scripts/SKILL.md missing from devops workspace at {_SKILL_MD}"
 
     def test_system_prompt_exists(self):
-        assert _SYSTEM_MD.exists(), "prompts/system.md missing from devops workspace"
+        assert _SYSTEM_MD.exists(), f"scripts/prompts/system.md missing at {_SYSTEM_MD}"
 
 
 # ---------------------------------------------------------------------------
@@ -54,28 +57,29 @@ class TestDevopsWorkspaceStructure:
 
 
 class TestDevopsSkillConfig:
-    """SKILL.md must declare zero dedicated tools (full core inheritance)."""
+    """devops/scripts SKILL.md must declare script-generation tools."""
 
     def _skill_text(self) -> str:
         return _SKILL_MD.read_text(encoding="utf-8")
 
-    def test_skill_name_is_devops(self):
+    def test_skill_name_is_scripts(self):
+        # devops top-level is an orchestrator (AGENT.md); the script-generation
+        # sub-agent is named 'scripts' — rev ~282 restructure
         src = self._skill_text()
-        assert "name: devops" in src, "SKILL.md must declare name: devops"
+        assert "name: scripts" in src, "scripts/SKILL.md must declare name: scripts"
 
-    def test_skill_has_no_dedicated_tools(self):
-        """tools: [] means no dedicated tools — all tools inherited from core."""
+    def test_skill_has_format_and_export(self):
+        """scripts sub-agent must have format_and_export to export generated scripts."""
         src = self._skill_text()
-        assert "tools: []" in src, (
-            "SKILL.md must declare tools: [] (zero dedicated tools, full core inheritance)"
+        assert "format_and_export" in src, (
+            "scripts/SKILL.md must include format_and_export in tools:"
         )
 
-    def test_skill_references_infra_references(self):
-        """static_context must include ../infra/references/ for API endpoint context."""
+    def test_skill_has_schema_reference(self):
+        """static_context must include BASELINE_SCHEMA.md for DB schema context."""
         src = self._skill_text()
-        assert "infra/references" in src, (
-            "SKILL.md static_context must include ../infra/references/ "
-            "so devops inherits API reference context"
+        assert "BASELINE_SCHEMA" in src, (
+            "scripts/SKILL.md static_context must include BASELINE_SCHEMA.md"
         )
 
 
@@ -91,13 +95,13 @@ class TestDevopsNetboxImport:
         return _SYSTEM_MD.read_text(encoding="utf-8")
 
     def test_script_exported_to_exports_scripts(self):
-        """system.md must mandate export to exports/scripts/ via format_and_export."""
+        """system.md must mandate export via format_and_export to scripts subdir."""
         src = self._system_text()
-        assert "exports/scripts" in src, (
-            "system.md must instruct devops to export scripts to exports/scripts/"
+        assert "format_and_export" in src, (
+            "system.md must instruct devops to use format_and_export to export scripts"
         )
-        assert "format_and_export" in src or "exports/scripts" in src, (
-            "system.md must reference format_and_export or exports/scripts output path"
+        assert 'subdir="scripts"' in src or "subdir='scripts'" in src, (
+            "system.md must set subdir='scripts' in format_and_export call"
         )
 
     def test_script_uses_real_device_data(self):
@@ -176,11 +180,11 @@ class TestDevopsInfraBoundary:
             "system.md must include guards against executing generated scripts directly"
         )
 
-    def test_devops_uses_run_python_code_for_generation(self):
-        """system.md must use run_python_code to generate scripts."""
+    def test_devops_uses_format_and_export_for_generation(self):
+        """system.md must use format_and_export to output scripts as files."""
         src = self._system_text()
-        assert "run_python_code" in src, (
-            "system.md must reference run_python_code for script generation workflow"
+        assert "format_and_export" in src, (
+            "system.md must reference format_and_export for script export workflow"
         )
 
 
@@ -346,14 +350,14 @@ class TestApiRequestUnregisteredService:
 
     def _invoke_api_request(self, service: str):
         import importlib.util as _ilu
+        # api_request migrated from core/tools/ @tool to core/api_query/scripts/ plain fn
         spec = _ilu.spec_from_file_location(
             "api_request",
-            str(_ROOT / ".olav" / "workspace" / "core" / "tools" / "api_request.py"),
+            str(_ROOT / ".olav" / "workspace" / "core" / "api_query" / "scripts" / "api_request.py"),
         )
         mod = _ilu.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        # Call via .invoke() to exercise the full LangChain tool wrapper
-        return mod.api_request.invoke({"service": service, "method": "GET", "path": "/"})
+        return mod.api_request(service=service, method="GET", path="/")
 
     def test_returns_error_dict_not_exception(self):
         """Unregistered service returns a dict, not a raised KeyError."""
