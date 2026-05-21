@@ -17,7 +17,7 @@ import pytest
 
 
 _TOOL_PATH = Path(
-    "/home/yhvh/Olav/olav-netops/.olav/workspace/netops/topology/tools/"
+    "/home/yhvh/Olav/olav-netops/.olav/workspace/netops/topology/scripts/"
     "query_topology.py"
 )
 
@@ -117,7 +117,7 @@ def test_bgp_query_uses_correct_columns_and_join(tiny_db, monkeypatch):
         "olav.core.config.MAIN_DB_PATH", str(tiny_db),
     )
     m = _load_query_topology()
-    result = m.query_topology.invoke({"concept": "bgp", "snapshot_id": "snap_A"})
+    result = m.query_topology(concept="bgp", snapshot_id="snap_A")
 
     assert result["snapshot_id"] == "snap_A"
     sessions = result["bgp_sessions"]
@@ -139,7 +139,7 @@ def test_ospf_query_uses_correct_view_and_normalises_state(tiny_db, monkeypatch)
         "olav.core.config.MAIN_DB_PATH", str(tiny_db),
     )
     m = _load_query_topology()
-    result = m.query_topology.invoke({"concept": "ospf", "snapshot_id": "snap_A"})
+    result = m.query_topology(concept="ospf", snapshot_id="snap_A")
 
     adjs = result["ospf_adjacencies"]
     assert len(adjs) == 2
@@ -159,7 +159,7 @@ def test_l2_query_unchanged(tiny_db, monkeypatch):
         "olav.core.config.MAIN_DB_PATH", str(tiny_db),
     )
     m = _load_query_topology()
-    result = m.query_topology.invoke({"concept": "l2", "snapshot_id": "snap_A"})
+    result = m.query_topology(concept="l2", snapshot_id="snap_A")
 
     links = result["l2_links"]
     assert len(links) == 1
@@ -184,7 +184,7 @@ def test_latest_snapshot_picks_richest_with_l2(tiny_db, monkeypatch):
     )
     m = _load_query_topology()
     # Without explicit snapshot_id, should pick snap_A (has L2) not snap_B_later
-    result = m.query_topology.invoke({"concept": "all", "snapshot_id": None})
+    result = m.query_topology(concept="all", snapshot_id=None)
     assert result["snapshot_id"] == "snap_A", (
         f"expected richest snapshot snap_A, got {result['snapshot_id']!r}"
     )
