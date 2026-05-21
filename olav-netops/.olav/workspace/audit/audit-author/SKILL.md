@@ -31,9 +31,6 @@ scripts:
   - name: database_introspection
     description: "List DuckDB tables + columns. Call FIRST in Create/Append mode to avoid guessing schema."
     file: database_introspection.py
-  - name: test_map_query
-    description: "Validate a SQL or LanceDB query before writing it into a Profile."
-    file: test_map_query.py
 references:
   - path: ./references/PROFILE_AUTHORING.md
 ---
@@ -47,7 +44,7 @@ Profile file under `.olav/workspace/audit/profiles/`. Three sub-modes:
 |---|---|---|
 | **Create** | User asks for a fresh profile | **one call: `create_profile_atomic(name, jobs=[ProfileJob, ...])`** (server-side does introspection + per-SQL validation + write) |
 | **Retune** | Existing profile thresholds need updating | list_profiles → read_profile → analyze_thresholds → save_profile (overwrite) |
-| **Append** | Add new jobs to an existing profile | read_profile → database_introspection → test_map_query → append_jobs |
+| **Append** | Add new jobs to an existing profile | read_profile → database_introspection → append_jobs |
 
 ## Hard Constraints
 
