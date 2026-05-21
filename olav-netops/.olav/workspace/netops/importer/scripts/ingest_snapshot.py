@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """`ingest_snapshot` — land a portable bundle into raw_output_store.
 
-Wraps ``olav.core.ingest.landing.ingest_snapshot``.  Defaults
+Wraps ``olav_netops.core.ingest.landing.ingest_snapshot``.  Defaults
 ``db_path`` and ``staging_dir`` from the platform paths config so the
 agent does not have to plumb them.
 """
@@ -54,7 +54,7 @@ def ingest_snapshot(
 
     from olav.core.config import MAIN_DB_PATH, get_paths_config
     from olav.core.ingest.bundle_reader import BundleReader
-    from olav.core.ingest.landing import ingest_snapshot as _do_ingest
+    from olav_netops.core.ingest.landing import ingest_snapshot as _do_ingest
 
     effective_db_path = Path(
         db_path
