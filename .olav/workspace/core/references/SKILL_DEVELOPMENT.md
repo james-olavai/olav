@@ -5,7 +5,7 @@
 In Olav, a **skill** is a workspace directory that packages:
 - An agent identity (`AGENT.md`) — who this agent is and how to configure it
 - A router manifest (`MANIFEST.yaml`) — keywords so the router can route queries here
-- Tools (`SKILL.md` + `tools/`) — `@tool` functions the agent can call
+- Tools (`SKILL.md` + `scripts/`) — plain Python scripts the LLM calls via `execute_skill_script`
 - A system prompt (`prompts/system.md`) — what the agent knows and how it behaves
 - References (`references/`) — static context injected into the system prompt
 
@@ -21,15 +21,20 @@ them. No code changes needed — drop files, the platform picks them up.
 └── <skill-name>/
     ├── AGENT.md            ← Required: agent config (YAML frontmatter + description)
     ├── MANIFEST.yaml       ← Required: router metadata
-    ├── SKILL.md            ← Required: tool list + static_context
+    ├── SKILL.md            ← Required: tool list + scripts declarations
     ├── prompts/
     │   └── system.md       ← Agent system prompt (Markdown, plain text)
-    ├── tools/
-    │   ├── mytool.py       ← Each @tool decorated function in its own file
+    ├── scripts/
+    │   ├── myscript.py     ← Plain Python functions (no @tool decorator)
     │   └── ...
     └── references/
         └── API_GUIDE.md    ← Injected into system prompt via static_context
 ```
+
+> **Note**: `tools/` directories existed in older skills for `@tool`-decorated
+> functions. The canonical pattern since rev ~282 is `scripts/` with plain Python
+> functions called via `execute_skill_script`. Only platform @tool pools (e.g.
+> `netops/tools/`, `core/tools/`) still use `tools/`.
 
 ---
 
@@ -73,29 +78,48 @@ route_keywords:
 name: netbox
 description: "NetBox API tools — DCIM and IPAM"
 tools:
-  - netbox_dcim          # tools/netbox_dcim.py
-  - netbox_ipam          # tools/netbox_ipam.py
+  - execute_skill_script   # REQUIRED — lets the LLM call scripts listed below
 static_context:
   - path: ./references/API_GUIDE.md
+scripts:
+  - name: netbox_devices
+    description: "Query NetBox for devices, optionally filtered by site"
+    file: netbox_devices.py
+  - name: netbox_prefixes
+    description: "Query NetBox IPAM for IP prefixes and VLANs"
+    file: netbox_prefixes.py
 ---
 
 # NetBox Skill
 
-Tools for querying NetBox via its REST API.
+Scripts for querying NetBox via its REST API.
 ```
 
-### tools/example_tool.py
+**Critical authoring rules:**
+1. `scripts:` entries must use `{name, description, file}` form — NOT `{path: ./scripts/foo.py}`.
+   Path-form entries are silently ignored by SkillsMiddleware and the LLM can't discover the script.
+2. `execute_skill_script` must appear in `tools:` for the LLM to actually call scripts.
+   Without it, scripts appear in the system prompt as documentation only.
+3. `tools: []` is valid only for pipeline-invoked skills where Python calls scripts directly.
+
+### scripts/example_script.py
 
 ```python
-from langchain_core.tools import tool
-
-@tool
-def get_devices(site: str = "") -> list[dict]:
+def netbox_devices(site: str = "") -> list[dict]:
     """Query NetBox for all devices, optionally filtered by site."""
     from olav.platform.services.client import service_call
     params = {"site": site} if site else {}
     return service_call("netbox", "GET", "/api/dcim/devices/", params=params)
+
+
+if __name__ == "__main__":
+    import json, sys
+    args = json.load(sys.stdin) if not sys.stdin.isatty() else {}
+    print(json.dumps(netbox_devices(**args)))
 ```
+
+No `@tool` decorator, no Pydantic schema — plain Python function + JSON stdin/stdout
+for `execute_skill_script` compatibility.
 
 ---
 
@@ -134,7 +158,7 @@ from pathlib import Path
 
 ws = Path(".olav/workspace/netbox")
 (ws / "prompts").mkdir(parents=True, exist_ok=True)
-(ws / "tools").mkdir(exist_ok=True)
+(ws / "scripts").mkdir(exist_ok=True)   # scripts/, NOT tools/
 (ws / "references").mkdir(exist_ok=True)
 
 # Write AGENT.md
@@ -159,13 +183,16 @@ route_keywords:
   - prefix
 """)
 
-# Write SKILL.md (reference generated tools)
+# Write SKILL.md — name-form scripts:, execute_skill_script in tools:
 (ws / "SKILL.md").write_text("""---
 name: netbox
 description: "NetBox API tools"
 tools:
-  - netbox_dcim
-  - netbox_ipam
+  - execute_skill_script
+scripts:
+  - name: netbox_devices
+    description: "Query NetBox for devices, optionally filtered by site"
+    file: netbox_devices.py
 ---
 """)
 
@@ -277,3 +304,7 @@ Then run: `olav registry register myservice`
 - **Do not** put domain-specific tools in `core/tools/` — those are platform primitives only
 - **Do not** edit `workspace.lock.yaml` by hand — it is written by `olav skill install`
 - **Do not** put Python package logic in tools — tools call platform functions, not implement them
+- **Do not** use `@tool` decorator in `scripts/` — plain functions only; @tool belongs in `tools/` pools
+- **Do not** use path-form `scripts:` entries (`- path: ./scripts/foo.py`) — always use name-form
+- **Do not** omit `execute_skill_script` from `tools:` if the LLM needs to call scripts
+- **Do not** create `tools/` directory in new skills — use `scripts/` (tools/ is a migration artifact)

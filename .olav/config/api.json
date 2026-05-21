@@ -98,7 +98,7 @@
   "active_workspace": "core",
   "syslog_receiver": {
     "enabled": true,
-    "port": 15514,
+    "port": 15516,
     "host": "0.0.0.0",
     "batch_size": 75,
     "flush_interval": 120,
