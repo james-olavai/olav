@@ -66,4 +66,4 @@ Monitors BGP peering health across the network:
 - **Freshness**: Data staleness
 - **Prefixes**: Low received route counts
 
-Use with `olav --agent audit-auditor \"run profile bgp_health_check\"` for reports.
+Use with `olav --agent audit "run profile bgp_health_check"` for reports.
