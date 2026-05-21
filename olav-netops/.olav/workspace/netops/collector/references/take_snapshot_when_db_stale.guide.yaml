@@ -1,0 +1,57 @@
+schema_version: 1
+intent: take_snapshot_when_db_stale_and_targeted
+agent: core
+keywords:
+  - take_snapshot
+  - snapshot
+  - fresh
+  - current
+  - latest
+  - real-time
+  - real time
+  - stale
+  - outdated
+  - mismatch
+  - contradicts
+  - investigate
+  - troubleshoot
+  - debug
+  - flap
+  - flapping
+  - 快照
+  - 当前
+  - 最新
+  - 实时
+  - 过期
+  - 不一致
+  - 排查
+  - 诊断
+body: |
+  DB state contradicts observation → ``take_snapshot`` the suspected
+  device(s) ONLY, never the whole fleet.
+
+  Trigger: SQL says "all peers Established" but user says "flapping",
+  user says "right now / currently / still", or you've re-queried 3×
+  and the numbers don't change.
+
+  Right shape (~3s wall):
+      take_snapshot(devices=["R1"], commands=["show bgp summary"])
+
+  Wrong (✗ 30-60s, audit noise, 100+ irrelevant rows):
+      take_snapshot(devices=["R1","R2","R3","R4","SW1","SW2"],
+                    commands=["show ip bgp", "show interfaces", ...])
+
+  Investigating a link → BOTH endpoints, link-relevant commands only.
+
+  Flow (BGP flap):
+    1. ``execute_sql netops.v_bgp_neighbors_auto WHERE device_name='R1'``
+    2. result shows Established but user reports flap → DB stale
+    3. ``search_logs(host="R1", query="BGP", hours=1)`` confirms events
+    4. ``take_snapshot(devices=["R1"], commands=["show bgp summary"])``
+    5. re-``execute_sql`` — fresh data lands in ``parsed_outputs`` /
+       ``raw_output_store`` immediately
+
+  When NOT:
+    * one-off "device up?" → ``execute_cli(device='R1', 'show clock')``
+    * fleet-wide audit → audit agent's ``record_*`` flow
+    * DB already up-to-date — re-snap creates duplicate rows
