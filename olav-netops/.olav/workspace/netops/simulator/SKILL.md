@@ -19,13 +19,15 @@ llm:
   temperature: 0.0
 description: "Sim — Batfish-backed config-layer evaluator.  Answers BGP/OSPF compatibility, reachability, route lookup, route-map policy, ACL search, and snapshot differential questions by calling pybatfish against a live Batfish service.  Tools: batfish_q (generic question runner, RAG-driven question selection) + format_and_export (markdown reply chunk).  Typical caller: analyzer delegates here via task('sim', '<specific config question>') as part of cross-domain investigation (dev_docs/77 §2.6).  No SQL, no logs, no live device access."
 tools:
-  - batfish_capability      # 2026-05-14 Phase A: pre-flight check —
-                             # which in-scope devices can Batfish parse?
-                             # Cheap (static vendor table + 1 SQL) — call
-                             # FIRST before any batfish_q if scope includes
-                             # mixed / unfamiliar vendors.
-  - batfish_q
+  - execute_skill_script    # dispatches batfish_capability + batfish_q scripts below
   - format_and_export
+scripts:
+  - name: batfish_capability
+    description: "Pre-flight check — which in-scope devices can Batfish parse? Call FIRST before batfish_q for mixed/unfamiliar vendor scope."
+    file: batfish_capability.py
+  - name: batfish_q
+    description: "Generic Batfish question runner. Accepts question name + args, returns structured rows."
+    file: batfish_q.py
 metadata:
   version: 5.0.0
   type: agent
