@@ -13,8 +13,6 @@ Entry point used by main.py interactive loop:
 from __future__ import annotations
 
 import logging
-import sys
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -54,31 +52,9 @@ def _handle_trace_review(
     """
     db_path = db_path or _get_default_audit_db()
 
-    _project_root = Path(__file__).resolve().parent.parent.parent.parent.parent
-    _candidates = [
-        _project_root / "olav-netops" / ".olav" / "workspace" / "config" / "sync" / "tools",
-        _project_root / ".olav" / "workspace" / "config" / "sync" / "tools",
-    ]
-    _sync_tools = next((c for c in _candidates if c.exists()), None)
-    if _sync_tools is not None and str(_sync_tools) not in sys.path:
-        sys.path.insert(0, str(_sync_tools))
-
     try:
-        import importlib.util as _ilu
-
-        _tl_path = (
-            _sync_tools / "trace_learner.py" if _sync_tools else _candidates[0] / "trace_learner.py"
-        )
-        if not _tl_path.exists():
-            return {
-                "status": "error",
-                "message": f"trace_learner.py not found at {_tl_path}",
-            }
-        _spec = _ilu.spec_from_file_location("trace_learner", _tl_path)
-        _mod = _ilu.module_from_spec(_spec)
-        _spec.loader.exec_module(_mod)
-
-        return _mod._run_learn_cycle(
+        from olav.core.curator.trace_learner import _run_learn_cycle
+        return _run_learn_cycle(
             hours=hours,
             limit=limit,
             db_path=db_path,
