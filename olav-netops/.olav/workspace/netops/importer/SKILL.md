@@ -18,10 +18,18 @@ tools:
   - read_file
   - glob
   - grep
-  # Python first-party — validation, discovery cascade, final landing
-  - ingest_snapshot
-  - validate_bundle
-  - discover_platform_for_host
+  # execute_skill_script dispatches the scripts listed below
+  - execute_skill_script
+scripts:
+  - name: validate_bundle
+    description: "Pre-flight sanity check — sha256 + manifest schema. No DB writes. Always call first."
+    file: validate_bundle.py
+  - name: ingest_snapshot
+    description: "Land a canonical bundle into raw_output_store + structured views. Call after validate_bundle."
+    file: ingest_snapshot.py
+  - name: discover_platform_for_host
+    description: "Tier 1+2 TextFSM cascade platform detection for a single host dir. Use when _meta.platform is unknown."
+    file: discover_platform.py
 dynamic_context:
   - path: ./references/bundle_schema.guide.yaml
   - path: ./references/vendor_dump_heuristics.guide.yaml

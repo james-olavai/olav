@@ -37,6 +37,4 @@ NETOPS_INIT_DIR = _first_existing(
 
 ROUTING_EXPERT_GUIDE = _first_existing(
     NETOPS_WORKSPACE / "analyzer" / "references" / "ROUTING_EXPERT_GUIDE.md",
-    NETOPS_WORKSPACE / "analyze" / "references" / "ROUTING_EXPERT_GUIDE.md",
-    ROOT_WORKSPACE / "ops" / "analyze" / "references" / "ROUTING_EXPERT_GUIDE.md",
 )
