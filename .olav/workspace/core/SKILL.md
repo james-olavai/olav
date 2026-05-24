@@ -13,8 +13,8 @@ tools:
   # task("ops-analyze") for emit_tcf).  Writer's SKILL.md now declares
   # it explicitly; agents that need it can do the same.  This restores
   # progressive-disclosure for the write-class tool surface.
-  # read_file is kept as global — read-only, low blast-radius, used by
-  # multiple sub-agents loading specs / profiles.
+  # read_file — deepagents native FilesystemMiddleware tool (no @tool file).
+  # Declaring it here keeps it from being pruned by _prune_graph_tools.
   - read_file
   # execute_skill_script — native deepagents skill executor (ADR-0008).
   # Agents with scripts: in their SKILL.md call this to run those scripts.
