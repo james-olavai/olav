@@ -22,8 +22,8 @@ for two historical reasons:
 1. The first such tool (R88-A `generate_clab_topology`) was
    designed to fix a small-model failure mode where free-form
    markdown synthesis dropped the `links:` section in a CLAB
-   topology yaml. Making it an MCP tool (vs. a Python helper
-   inside `run_python_simulation`) felt like the most direct
+   topology yaml. Making it an MCP tool (vs. a plain Python script
+   called via `execute_skill_script`) felt like the most direct
    intervention at the time.
 
 2. Each subsequent generator (R89 / R90 / TCF) followed the same
@@ -54,47 +54,55 @@ The cost of this pattern, surfaced in the audit:
 
 The full agent-by-agent audit (also in `dev_docs/00`) shows
 ~30 of 71 total tools across all agents (40%+) are candidates for
-sandbox folding — not just our R90 leftovers. **audit/auditor**
+migration — not just our R90 leftovers. **audit/auditor**
 alone has 9 of 11 tools fitting the pattern.
 
-`run_python_simulation` already exposes a Python sandbox with
-DuckDB read access (`db`), in-memory clone (`sim`), networkx,
-netutils, and full Python stdlib. The deterministic core of any
-tool we'd build can run there.
+`execute_skill_script` provides a controlled script execution
+channel: plain Python files under `<skill>/scripts/` are called
+as subprocesses with full filesystem and network access but no
+persistent in-process state. The deterministic core of any tool
+that doesn't need cross-call state can be expressed as a script.
+
+> **Correction (2026-05-25)**: The original text here referenced
+> `run_python_simulation` as the delivery mechanism. That tool was
+> never implemented. `execute_in_sandbox` (`platform/sandbox.py`)
+> exists but is used only by `netops/learner` for validating
+> potentially-broken TextFSM parser code — it is not a general
+> agent execution mechanism. The correct delivery mechanism for
+> "Python-first" logic is `execute_skill_script` + `scripts/`.
 
 We are committing to a default-Python rule going forward.
 
 ## Decision
 
-**1. The default tool surface for an agent is Python — `olav.core.<domain>`
-modules called from `run_python_simulation`, with discovery / how-to
-guidance via `expert_knowledge` or `usage_guide` memory entries.**
+**1. The default tool surface for an agent is a script file under
+`<skill>/scripts/`, called via `execute_skill_script`. Discovery
+guidance lives in `expert_knowledge` or `usage_guide` YAML entries.**
 
-**2. We escalate a Python function to an MCP `@tool` wrapper only when
+**2. We escalate a script to an MCP `@tool` wrapper only when
 at least one of the following conditions holds:**
 
-* **Sandbox-external privilege.** The operation requires credentials,
-  network access, or capabilities not available inside
-  `run_python_simulation`. Examples: CLAB REST API auth, prod-device
-  SSH (scrapli), privileged docker host operations.
-* **Sandbox-external write target.** The operation writes to a
-  location the sandbox cannot reach but later tools rely on.
-  Example: `save_lab_config` writes to a tmpdir that
+* **Process-external privilege with persistent state.** The operation
+  requires credentials, persistent connections, or auth state that
+  must survive across multiple calls within the same agent run.
+  Examples: CLAB REST API session, prod-device SSH (scrapli),
+  Batfish snapshot cache (`batfish_q._LOADED_SNAPSHOTS`).
+* **Cross-process write target.** The operation writes to a location
+  that a later in-process tool call must read from the same process
+  context. Example: `save_lab_config` writes to a tmpdir that
   `deploy_and_push_lab` reads — the path is a privileged contract.
 * **Critical audit.** Every invocation of the operation must
-  produce a row in `audit.duckdb.audit_tool_calls`. Calls hidden
-  inside Python sandbox scripts will not satisfy auditors.
+  produce a row in `audit.duckdb.audit_tool_calls`. A subprocess
+  call inside a script cannot guarantee this per invocation.
   Examples: `register_service`, `record_network_event`,
   `take_snapshot`.
-* **Cross-snapshot DB joins or other cached/expensive operations**
-  that benefit from being a named, parameterised tool with its
-  own runtime state. (Genuinely debatable; most current `diff_*`
-  tools are borderline.)
+* **Persistent in-process state.** Tool maintains module-level caches
+  or connection pools across calls (e.g. circuit breaker state in
+  `execute_cli_parallel`). Scripts reset state on every invocation.
 
-**Failing all four conditions, the operation MUST be a Python
-function in `src/olav/core/<domain>/tools/`, with one or more
-`expert_knowledge` / `usage_guide` YAML entries teaching agents
-when to import + call it.**
+**Failing all four conditions, the operation MUST be a plain Python
+script in `<skill>/scripts/`, registered in `SKILL.md` under
+`scripts:` with name-form entries.**
 
 **3. The rule applies retroactively.** Existing MCP tools that
 fail the four-condition test are tagged for refactor in
@@ -131,10 +139,10 @@ tool ships as a Python function instead.
   usage YAMLs to discover which Python functions exist.
   Misclassified scope or weak keywords mean agents won't surface
   the guidance. R87 Phase 1.5 scoping is the foundation.
-* **Sandbox debug is harder than tool-call debug.** A failed
-  Python script in `run_python_simulation` produces a stack
-  trace; a failed tool call produces a single error envelope.
-  Tracing complex workflows requires more work.
+* **Script debug is slightly different from tool-call debug.** A
+  failed script returns stdout/stderr from the subprocess; a failed
+  tool call produces a single error envelope. Both surface errors to
+  the agent, but the format differs.
 * **Some discoverability is lost.** A tool list in SKILL.md is
   visible to humans reviewing config; Python-API + memory
   guidance requires reading `dev_docs` or the YAMLs. Mitigation:
