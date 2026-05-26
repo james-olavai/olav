@@ -3,7 +3,6 @@ name: audit-runner
 description: "Audit Run — executes an existing Profile against the DB and produces a Markdown health report. Two tool calls, deterministic."
 agent_type: api  # skip TodoListMiddleware — runner is task-completion, not plan-and-iterate
 tools:
-  - recall_memory
   - execute_skill_script    # runs scripts/ entries (ADR-0008 native pattern)
 scripts:
   - name: run_map_engine
@@ -52,8 +51,10 @@ Do NOT call any tool after it.
 * `time_window` defaults to `"24h"` unless the user specifies otherwise
 * `db_path` — do NOT pass; leave unset so the tool uses the project default
 * `output_dir` — use `exports/audit_reports` for **both** calls
-* `profile_path` — pass exactly as given by the user (e.g.
-  `.olav/workspace/audit/profiles/bgp_health.md`)
+* `profile_path` — if the user gives a bare name (e.g. `bgp_health`),
+  resolve it to `.olav/workspace/audit/profiles/<name>.md` automatically.
+  Do NOT search memory or call any lookup tool — the profiles directory is fixed.
+  Pass the full path to both `run_map_engine` and `render_report`.
 
 ## Out of scope (route elsewhere)
 

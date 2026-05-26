@@ -43,20 +43,23 @@ tools:
 # back from top-level (workspace.yaml shrunk 6→3); analyze + lab +
 # collect already nested.
 subagents:
-  # 2026-05-19: analyze sub-agent deleted — inspect_blast_radius folded
-  # into analyzer (the only NetworkX tool SQL cannot replace).
-  - path: ./analyzer/SKILL.md      # DEFAULT entry point (dev_docs/77 §2.6).
-                                   # SQL state + Markdown report writer.
+  # 2026-05-26: analyzer split (ISSUE-AGENT-TOOL-BLOAT fix).
+  # analyzer = Mode A (change planning, 4+3=7).
+  # reporter = Mode B+C (investigation + blast radius, 4+3=7).
+  - path: ./analyzer/SKILL.md      # Mode A: change-plan drafter.
                                    # 7 tools: execute_sql / describe_table /
-                                   # query_evidence / diff_configs /
-                                   # diff_snapshots / inspect_blast_radius /
-                                   # format_and_export.
+                                   # inspect_devices / inspect_interfaces /
+                                   # diff_configs / format_and_export.
+                                   # Route: "plan / add / change / modify / 变更"
+  - path: ./reporter/SKILL.md      # Mode B+C: investigation reporter + blast radius.
+                                   # 7 tools: execute_sql / describe_table /
+                                   # query_evidence / diff_snapshots /
+                                   # inspect_blast_radius / format_and_export.
+                                   # Route: "investigate / audit / why / blast radius / drift"
   - path: ./simulator/SKILL.md     # Batfish-backed config-layer evaluator
                                    # (dev_docs/77 §2 2026-05-14).  3 tools:
                                    # batfish_capability / batfish_q /
                                    # format_and_export.
-  # 2026-05-19: investigate sub-agent deleted — query_evidence already
-  # in analyzer (Workflow D handles log/syslog/fault search natively).
   - path: ./collector/SKILL.md
   - path: ./importer/SKILL.md      # offline file gather — bundle / rancid /
                                    # vendor dump landed via the same downstream

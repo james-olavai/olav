@@ -43,13 +43,10 @@ os.environ.setdefault(
     json.dumps({"path": "olav.api.lg_auth:auth", "disable_studio_auth": True}),
 )
 
-# inmem runtime — no Postgres or Redis required (thread history lost on restart,
-# which is acceptable per the explicit decision to defer persistence).
-os.environ.setdefault("LANGGRAPH_RUNTIME_EDITION", "inmem")
-os.environ.setdefault("DATABASE_URI", ":memory:")
-os.environ.setdefault("REDIS_URI", "fake")
-os.environ.setdefault("MIGRATIONS_PATH", "__inmem")
-os.environ.setdefault("LANGSMITH_LANGGRAPH_API_VARIANT", "local_dev")
+# Private langgraph_api env vars — all set via the compat shim so that
+# version upgrades only need to touch one file.
+from olav.api._lg_compat import apply_lg_env_defaults  # noqa: PLC0415
+apply_lg_env_defaults()
 
 # ---------------------------------------------------------------------------
 # 3. Pre-warm graph cache and ConfigLoader BEFORE the event loop starts.

@@ -242,12 +242,34 @@ def compute_summarization_trigger(tier: str | None) -> tuple[str, int] | None:
         return None
 
 
+def _make_summarization_backend():  # type: ignore[no-untyped-def]
+    """Return a backend for SummarizationMiddleware history offloading.
+
+    Prefers LocalShellBackend (virtual_mode=True, root=.olav/logs) so history
+    is offloaded to local disk without requiring the LangGraph ``files`` channel.
+    StateBackend requires FilesystemMiddleware to register that channel; agents
+    that skip FilesystemMiddleware (agent_type: api) hit KeyError: 'files' when
+    StateBackend._read_files() is called during offloading.
+
+    Falls back to StateBackend when LocalShellBackend is unavailable.
+    """
+    if LocalShellBackend is not None:
+        from pathlib import Path as _Path
+        return lambda _rt: LocalShellBackend(
+            root_dir=str(_Path.cwd() / ".olav" / "logs"),
+            virtual_mode=True,
+        )
+    return _StateBackend
+
+
 def build_summarization_middleware(model, tier: str | None = None):  # type: ignore[no-untyped-def]
     """Create a SummarizationMiddleware instance for the given model.
 
-    Uses StateBackend (in-memory, no filesystem dependency) as the backend
-    so compiled subagents get context compression without needing a real
-    filesystem or sandbox backend.
+    Uses LocalShellBackend (writes to .olav/logs/) for history offloading so
+    the middleware works in agents that do not register FilesystemMiddleware
+    (agent_type: api). StateBackend required the LangGraph ``files`` channel
+    which only exists when FilesystemMiddleware is in the stack; omitting it
+    caused KeyError: 'files' in _offload_to_backend for every api-type agent.
 
     Args:
         model: Resolved ``BaseChatModel`` instance.
@@ -257,11 +279,15 @@ def build_summarization_middleware(model, tier: str | None = None):  # type: ign
             instead of the upstream 85% default. ``None`` or unknown tier
             falls back to upstream ``create_summarization_middleware``.
 
-    Returns None when SummarizationMiddleware or StateBackend are unavailable.
+    Returns None when SummarizationMiddleware is unavailable.
     """
     if not HAS_SUMMARIZATION:
         return None
-    if _create_summarization_middleware is None or _StateBackend is None:
+    if _create_summarization_middleware is None:
+        return None
+
+    backend = _make_summarization_backend()
+    if backend is None:
         return None
 
     trigger = compute_summarization_trigger(tier)
@@ -269,15 +295,15 @@ def build_summarization_middleware(model, tier: str | None = None):  # type: ign
         if trigger is None:
             # Unknown / unsupported tier → upstream defaults (profile-aware
             # fraction=0.85 when available, fixed-token fallback otherwise).
-            mw = _create_summarization_middleware(model, _StateBackend)
+            mw = _create_summarization_middleware(model, backend)
         else:
             # Tier-aware path — instantiate directly so we can override
             # trigger without fighting ``compute_summarization_defaults``.
             if SummarizationMiddleware is None:
-                return _create_summarization_middleware(model, _StateBackend)
+                return _create_summarization_middleware(model, backend)
             mw = SummarizationMiddleware(
                 model=model,
-                backend=_StateBackend,
+                backend=backend,
                 trigger=trigger,
                 keep=("messages", 6),
             )

@@ -8,101 +8,79 @@ You DO NOT SSH to anything. You DO NOT write configs. You read files
 that someone else collected, validate them, and feed them to the
 ingest pipeline.
 
-## Tools available
+## Scripts available
 
-- `ls(path)` — list a directory
-- `read_file(path)` — read up to 2000 lines of a file
-- `glob(pattern)` — find paths matching a glob
-- `grep(pattern, path)` — search for a pattern within files
+- `survey_bundle(path)` — **always call first**; returns format, host list,
+  platform map, Tier 3 sample lines, collector info, and a prescriptive
+  `notes` field telling you exactly what to do next
+- `discover_platform_for_host(host_dir)` — Tier 1+2 TextFSM cascade for
+  one host directory; only needed for hosts in `needs_platform_detection`
 - `validate_bundle(path)` — cheap pre-flight; returns
   `{ok, errors, warnings, hosts_seen, commands_seen}`
-- `ingest_snapshot(path, collection_source)` — the actual landing;
-  returns `{bundle_id, snapshot_id, hosts, commands, parser_fills}`
+- `ingest_snapshot(path, collection_source, host_platforms)` — the actual
+  landing; returns `{bundle_id, snapshot_id, hosts, commands, parser_fills}`
 
 ## Workflow
 
 ### 1. Locate the input
 
 User typically says `/ingest_bundle <path>` or names a path.
-If the path is `~/.olav/inbox/` — list it and pick the most recent
-`*.zip` or directory.
 
-### 2. Identify the format
+### 2. Survey the bundle
 
-Run `ls <path>`. Decide:
+```
+survey_bundle(<path>)
+```
 
-- **Canonical bundle** — has `manifest.yaml` at root + `devices/<host>/`
-  subdirs with `.txt` per-command files. **Supported.**
-- **Rancid layout** — `<group>/configs/<host>` flat files with
-  `!`-banner separators. Not yet supported (Phase 4); tell the user
-  and stop.
-- **Loose vendor dumps** — `<host>.txt` files, one big blob each.
-  Not yet supported; tell the user and stop.
-- **Tech-support archives** (`.tar` / `.tgz`) — not yet supported;
-  tell the user and stop.
+Read the `notes` field — it tells you exactly what to do next.
+Read `format` to report to the user what was found.
 
-If ambiguous (mixed inputs, partial bundles), do NOT guess. Report
-what you see and ask the user.
+- `ingest_supported=False` → tell the user the format is not yet
+  supported and stop.
+- `ingest_supported=True` → proceed to step 3.
 
-### 3. Validate (always)
+### 3. Platform discovery (only when needed)
+
+`survey_bundle` already ran Tier 1 banner-sniffing.  Check
+`needs_platform_detection` — hosts there need the full Tier 1+2 cascade.
+
+```
+result = discover_platform_for_host("/path/to/bundle/devices/R-EDGE-42")
+```
+
+If `confidence == "unknown"`, use `platform_sample_lines["R-EDGE-42"]`
+from the `survey_bundle` result (already loaded — **no read_file needed**):
+
+```
+# survey["platform_sample_lines"]["R-EDGE-42"] == ["R-EDGE-42#", "IOS Software...", ...]
+# Apply platform_signatures.guide.yaml heuristics → "cisco_ios"
+
+host_platforms = {"R-EDGE-42": "cisco_ios"}   # extend per host as needed
+```
+
+**Don't call this for every host.** Only for hosts in `needs_platform_detection`.
+
+### 4. Validate
 
 ```
 validate_bundle(<path>)
 ```
 
-If `ok=False` — report `errors` to the user and stop. Common errors:
-- SHA256 mismatch (transit corruption or tampering) — refuse
-- Missing `manifest.yaml` — refuse
-- Unsupported schema_version — refuse
+If `ok=False` — report `errors` to the user and stop.
+If `ok=True` but warnings exist, surface them but proceed.
 
-If `ok=True` but warnings exist (`hosts_seen != manifest.hosts_collected`
-etc.), surface them in your final report but proceed.
-
-### 3.5 Platform discovery (only when needed)
-
-The ingest pipeline runs Tier 1+2 platform discovery automatically
-(TextFSM cascade across cisco_ios / cisco_nxos / cisco_xr / juniper_junos /
-arista_eos / nokia_sros / huawei_vrp). You almost never need to do this
-manually — but for **bundles where _meta.platform is "unknown" AND no
-show_version is present**, the pipeline can't classify and the host's
-rows land with platform=unknown.
-
-To rescue those hosts: call `discover_platform_for_host(host_dir)`
-explicitly. If it returns `confidence == "unknown"`, follow the Tier 3
-workflow:
-
-```
-result = discover_platform_for_host("/path/to/bundle/devices/R-EDGE-42")
-# {"confidence": "unknown", "sample_file": ".../show_running-config.txt", ...}
-
-sample = read_file(result["sample_file"], limit=50)
-# Apply the signal table in references/platform_signatures.guide.yaml
-# (Cisco IOS prompts, JUNOS banners, Arista EOS, Nokia *A:, etc.)
-# Decide platform.
-
-host_platforms = {"R-EDGE-42": "cisco_ios"}    # extend per host as needed
-```
-
-Then pass `host_platforms` into the ingest call in step 4.
-
-**Don't run this for every host.** Trust Python's discovery — only step
-in when it tells you "unknown" + hands you a `sample_file`.
-
-### 4. Ingest
+### 5. Ingest
 
 ```
 ingest_snapshot(
   path=<path>,
-  collection_source="bundle:<collector_name>:<collector_version>",
-  host_platforms=<map from step 3.5, or empty>
+  collection_source="bundle:<name>:<version>",   # from survey["collector"]
+  host_platforms=<map from step 3, or {}>
 )
 ```
 
-The `collection_source` string ends up in `audit_runs.collection_source`
-and in `raw_output_store.ingested_via`. Read the bundle's
-`manifest.collector.{name,version}` via `read_file` first if you need
-those values; otherwise the manifest's actual contents are what land
-in `netops.bundle_ingests` regardless.
+`collection_source` values come from `survey_bundle` result:
+`survey["collector"]["name"]` and `survey["collector"]["version"]`.
 
 `host_platforms` is the dict you built in step 3.5 from Tier 3 LLM
 fallbacks. Empty / omitted is the common case — Python's Tier 1+2

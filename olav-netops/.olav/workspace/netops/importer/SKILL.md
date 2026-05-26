@@ -13,22 +13,19 @@ metadata:
   category: network-data-ingest
   intent: offline_snapshot_ingestion
 tools:
-  # deepagents native — format discovery + Tier 3 LLM-fallback inspection
-  - ls
-  - read_file
-  - glob
-  - grep
-  # execute_skill_script dispatches the scripts listed below
   - execute_skill_script
 scripts:
+  - name: survey_bundle
+    description: "One-shot format detection + host/platform survey. Always call first. Returns format, hosts, platforms, platform_sample_lines (Tier 3 fallback), collector info, and prescriptive notes field."
+    file: survey_bundle.py
   - name: validate_bundle
-    description: "Pre-flight sanity check — sha256 + manifest schema. No DB writes. Always call first."
+    description: "Pre-flight sanity check — sha256 + manifest schema. No DB writes. Call after survey_bundle confirms ingest_supported=True."
     file: validate_bundle.py
   - name: ingest_snapshot
     description: "Land a canonical bundle into raw_output_store + structured views. Call after validate_bundle."
     file: ingest_snapshot.py
   - name: discover_platform_for_host
-    description: "Tier 1+2 TextFSM cascade platform detection for a single host dir. Use when _meta.platform is unknown."
+    description: "Tier 1+2 TextFSM cascade platform detection for one host dir. Only needed for hosts in needs_platform_detection. If confidence=unknown, classify from platform_sample_lines in survey_bundle result — no read_file needed."
     file: discover_platform.py
 dynamic_context:
   - path: ./references/bundle_schema.guide.yaml
@@ -46,35 +43,36 @@ support `show tech-support`, hand-built bundle — and lands it in
 OLAV's main DB using the same downstream path as live SSH collection.
 
 Users drop a file or directory into `~/.olav/inbox/` (or anywhere) and
-invoke this agent. The agent uses deepagents-native file primitives
-(`ls`, `read_file`, `glob`, `grep`) to identify the format, then calls
-`validate_bundle` for a pre-flight sanity check and `ingest_snapshot`
-for the actual landing.
+invoke this agent. The agent calls `survey_bundle` first to identify the
+format and host inventory, then follows the prescribed workflow in the
+`notes` field of the result.
 
 See [dev_docs/80](../../../../dev_docs/80.%20PORTABLE_SNAPSHOT_INGEST.md)
 for the full design.
 
-## Two-tool model
+## Script pipeline
 
-| Tool | When to use | Returns |
+| Script | When to use | Returns |
 |---|---|---|
-| `validate_bundle(path)` | Always run first — cheap, no DB writes | `{ok, errors, warnings, hosts_seen, commands_seen}` |
-| `ingest_snapshot(path, collection_source)` | Only after `validate_bundle.ok == True` | `{bundle_id, snapshot_id, hosts, commands, parser_fills}` |
+| `survey_bundle(path)` | **Always first** — format detection + host survey | `{format, ingest_supported, hosts, platforms, needs_platform_detection, platform_sample_lines, collector, notes}` |
+| `discover_platform_for_host(host_dir)` | Only for hosts in `needs_platform_detection` | `{platform, confidence, sample_file}` |
+| `validate_bundle(path)` | After `ingest_supported=True` confirmed | `{ok, errors, warnings, hosts_seen, commands_seen}` |
+| `ingest_snapshot(path, …)` | After `validate_bundle.ok == True` | `{bundle_id, snapshot_id, hosts, commands, parser_fills}` |
 
 ## Format detection workflow
 
-1. `ls <path>` — what's inside?
-2. If you see `manifest.yaml` at the root → **canonical bundle** (the
-   easy case). Run `validate_bundle` then `ingest_snapshot`.
-3. If you see `<group>/configs/<host>` files with `!`-banner separators →
-   **rancid** layout. (Phase 4 — currently `ingest_snapshot` does NOT
-   accept rancid; bail out and tell the user.)
-4. If you see loose `<host>.txt` files containing concatenated CLI
-   output → **vendor dump** layout. Same as rancid — bail out for now.
-5. If you see vendor archives (`*.tar`, `*.tgz` with `show-tech*`
-   contents) → **tech-support bundle**. Defer to Phase 6.
+1. `survey_bundle(path)` — returns `format` + `notes` prescribing the next step.
+2. If `ingest_supported=False` → tell the user the format is not yet
+   supported and what format it was detected as.
+3. If `ingest_supported=True` → proceed to step 3.
+4. For hosts in `needs_platform_detection`: call
+   `discover_platform_for_host(host_dir)`.  If `confidence="unknown"`,
+   read `platform_sample_lines[hostname]` from the survey result and
+   classify visually — no `read_file` needed.
+5. `validate_bundle(path)` → check `ok`.
+6. `ingest_snapshot(path, collection_source=…, host_platforms=…)`.
 
-When **ambiguous**, surface to the user before acting — do not guess.
+When **ambiguous**, surface `survey_bundle.notes` to the user — do not guess.
 
 ## Safety / chain-of-custody
 

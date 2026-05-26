@@ -1,74 +1,63 @@
 #!/usr/bin/env python3
-"""list_profiles — enumerate available audit profiles.
+"""list_profiles — list all available audit profiles.
 
-Skill script (R92.3 fold pattern) invoked via:
-    execute_skill_script(skill_name='auditor', script_name='list_profiles.py')
-
-Reads ``<workspace>/audit/profiles/*.md`` and returns each profile's
-filename + first non-empty markdown header line as a quick description.
+Single-call terminal operation: no arguments needed.
+Call once, present the table to the user, and stop immediately.
 """
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
 
-def _resolve_profiles_dir() -> Path:
-    """Find the audit profiles dir relative to runtime workspace."""
-    if env := os.environ.get("OLAV_WORKSPACE_ROOT"):
-        return Path(env) / "audit" / "profiles"
-    cwd_workspace = Path.cwd() / ".olav" / "workspace" / "audit" / "profiles"
-    if cwd_workspace.exists():
-        return cwd_workspace
-    # Fallback — install-time path
+def _default_profiles_dir() -> str:
+    try:
+        from olav.core.config import get_paths_config
+        return get_paths_config().audit_profiles_dir
+    except Exception:
+        pass
     here = Path(__file__).resolve()
     for parent in here.parents:
         candidate = parent / "audit" / "profiles"
         if candidate.is_dir():
-            return candidate
-    return Path(".olav/workspace/audit/profiles")
+            return str(candidate)
+    return ".olav/workspace/audit/profiles"
 
 
-def _first_header(path: Path) -> str:
-    """Pull the first H1 (`# ...`) from a markdown file."""
-    try:
-        for line in path.read_text(encoding="utf-8").splitlines()[:20]:
-            line = line.strip()
-            if line.startswith("# ") and not line.startswith("# !"):
-                return line[2:].strip()
-    except Exception:
-        pass
-    return ""
-
-
-def main() -> int:
-    profiles_dir = _resolve_profiles_dir()
-    if not profiles_dir.is_dir():
-        print(json.dumps({
-            "status": "error",
-            "message": f"profiles dir not found: {profiles_dir}",
-        }, ensure_ascii=False))
-        return 1
-
-    profiles: list[dict] = []
-    for p in sorted(profiles_dir.glob("*.md")):
+def list_profiles() -> dict:
+    directory = Path(_default_profiles_dir())
+    if not directory.exists():
+        return {
+            "profiles_dir": str(directory),
+            "profiles": [],
+            "count": 0,
+            "message": f"Directory '{directory}' does not exist yet.",
+        }
+    profiles = []
+    for p in sorted(directory.glob("*.md")):
+        title = ""
+        try:
+            for line in p.read_text(encoding="utf-8").splitlines()[:20]:
+                line = line.strip()
+                if line.startswith("# ") and not line.startswith("# !"):
+                    title = line[2:].strip()
+                    break
+        except Exception:
+            pass
         profiles.append({
             "name": p.stem,
             "filename": p.name,
-            "title": _first_header(p),
+            "title": title,
             "size_bytes": p.stat().st_size,
         })
-
-    print(json.dumps({
-        "status": "success",
-        "profiles_dir": str(profiles_dir),
+    return {
+        "profiles_dir": str(directory),
         "count": len(profiles),
         "profiles": profiles,
-    }, ensure_ascii=False, indent=2))
-    return 0
+    }
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.stdin.read()  # consume any stdin (no args needed)
+    print(json.dumps(list_profiles(), default=str, ensure_ascii=False))

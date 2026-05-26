@@ -201,9 +201,16 @@ class TestToolWrappersLoad:
         mod = _load_script("query_evidence")
         assert hasattr(mod, "query_evidence"), "function missing from script"
 
-    def test_start_exploration_legacy_wrapper_still_loads(self):
-        mod = _load_script("start_exploration")
-        assert hasattr(mod, "start_exploration"), "function missing from script"
+    def test_scratchpad_scripts_removed(self):
+        """start_exploration / record_finding / update_exploration_run were
+        dormant (not referenced in system.md; LLM writes via format_and_export).
+        Removed in direction-A cleanup — DB scratchpad pattern abandoned for now.
+        See dev_docs/86 § ISSUE-AGENT-TOOL-BLOAT / audit explorer analysis."""
+        for name in ("start_exploration", "record_finding", "update_exploration_run"):
+            assert not (_EXPLORER_DIR / "scripts" / f"{name}.py").exists(), (
+                f"{name}.py must be deleted — scratchpad scripts were dormant "
+                "(not in system.md); use format_and_export for incremental output"
+            )
 
     def test_promote_finding_to_audit_module_removed(self):
         """The promote_finding_to_audit @tool wrapper was removed in
