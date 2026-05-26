@@ -7,22 +7,21 @@ metadata:
   replaces: [learner v1.0.0]
 tools:
   - recall_memory
-  - execute_skill_script    # runs scripts/ entries (ADR-0008 native pattern)
 scripts:
   - name: fuzzy_map_schema
-    description: "Map multi-vendor CLI output keys to Cisco baseline schema"
+    description: "Normalize multi-vendor CLI output keys to Cisco baseline using LLM. Returns mapped JSON."
     file: fuzzy_map_schema.py
   - name: scaffold_domain_agent
-    description: "Scaffold a new domain agent or skill workspace directory from learned patterns"
+    description: "Scaffold a new domain agent or skill workspace directory from learned patterns."
     file: scaffold_domain_agent.py
   - name: discover_view_schemas
-    description: "LLM + DB schema discovery → view_recipes"
+    description: "LLM + DB schema discovery → view_recipes. Args: force_refresh=False, concepts_filter=None."
     file: discover_view_schemas.py
   - name: sync_schema_reference
-    description: "Regenerate SCHEMA_REFERENCE.md from live DuckDB"
+    description: "Regenerate SCHEMA_REFERENCE.md from live DuckDB. Args: db_path='', schema_ref_path=''."
     file: sync_schema_reference.py
   - name: trace_learner
-    description: "Mine recent audit failures into operational constraints"
+    description: "Mine recent audit failures into operational constraints. Args: hours=168, limit=50."
     file: trace_learner.py
 ---
 
@@ -30,7 +29,8 @@ scripts:
 
 Responsible for **curating** the audit subsystem's understanding of the
 data it audits — schema, commands, traces, and patterns. Renamed from
-`learner` per ADR-0003 B.2 (Round 34).
+`learner` per ADR-0003 B.2 (the rename was formalized and executed in
+Round 34 following the same precedent as probe → collect in Round 32).
 
 Responsibilities:
 
@@ -39,14 +39,6 @@ Responsibilities:
 - **Trace analysis** — analyze past runs to extract failure patterns and improve prompts
 - **Scaffolding** — generate new agent workspace from learned patterns
 
-## Scripts
-
-All operations run via `execute_skill_script(skill_name="curator", script_name=<file>, script_args={...})`.
-
-| Script file | Key args | Purpose |
-|---|---|---|
-| `fuzzy_map_schema.py` | `vendor`, `raw_fields`, `target_schema` | Vendor → standard schema normalisation |
-| `scaffold_domain_agent.py` | `domain_name`, `description`, `output_dir` | Generate new agent workspace |
-| `discover_view_schemas.py` | `force_refresh` (bool), `concepts_filter` (list) | LLM-assisted DB schema discovery |
-| `sync_schema_reference.py` | `db_path`, `schema_ref_path` | Regenerate SCHEMA_REFERENCE.md |
-| `trace_learner.py` | `hours` (int, 168), `limit` (int, 50) | Mine audit failures into constraints |
+The `curator` naming reflects the broader role beyond pure "learning":
+the agent also **maintains** schema references and **curates** the trace
+memory used by the auditor's correlation pass.

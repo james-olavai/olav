@@ -56,10 +56,10 @@ MIRRORED_PROMPT_PATHS = [
     # their system prompts. The retired `auditor/` directory is no
     # longer a sub-agent and is kept only as `_legacy_auditor/` in
     # olav-netops (backup, not mirrored).
-    "runner/SKILL.md",
-    "runner/prompts/system.md",
-    "author/SKILL.md",
-    "author/prompts/system.md",
+    "audit-runner/SKILL.md",
+    "audit-runner/prompts/system.md",
+    "audit-author/SKILL.md",
+    "audit-author/prompts/system.md",
     "curator/SKILL.md",
 ]
 
@@ -171,14 +171,14 @@ _MAP_ENGINE_READS = {
 
 def test_map_engine_reads_only_declared_pydantic_fields():
     """ProfileJob must declare every field map_engine reads via
-    .get(). Otherwise a typed save_profile() call produces a job dict
+    .get(). Otherwise a typed write_profile() call produces a job dict
     that the engine reads as missing, silently returning zero
     findings."""
-    sp = _load_module(
-        "_sp_contract",
-        NETOPS_AUDIT / "author/tools/save_profile.py",
+    wp = _load_module(
+        "_wp_contract",
+        NETOPS_AUDIT / "audit-author/scripts/write_profile.py",
     )
-    declared = set(sp.ProfileJob.model_fields.keys())
+    declared = set(wp.ProfileJob.model_fields.keys())
     missing = _MAP_ENGINE_READS - declared
     assert not missing, (
         f"ProfileJob is missing fields that map_engine reads: "
@@ -187,25 +187,19 @@ def test_map_engine_reads_only_declared_pydantic_fields():
     )
 
 
-def test_append_profile_job_field_set_mirrors_save_profile_job():
-    """Both author-side tools must declare the same canonical schema.
-    This is the rev 256→257 regression that bit Designer-flow with
-    zero findings. The schemas are duplicated in code (no shared
-    module — dynamic tool loading constraint), so a test pins the
-    mirror invariant."""
-    sp = _load_module(
-        "_sp_contract2",
-        NETOPS_AUDIT / "author/tools/save_profile.py",
+def test_single_canonical_profile_job_schema():
+    """write_profile.py merges save_profile + append_jobs into a single
+    entry point with a single ProfileJob class. Verify the canonical
+    class is present and has all required fields."""
+    wp = _load_module(
+        "_wp_contract2",
+        NETOPS_AUDIT / "audit-author/scripts/write_profile.py",
     )
-    aj = _load_module(
-        "_aj_contract2",
-        NETOPS_AUDIT / "author/tools/append_jobs.py",
-    )
-    sf = set(sp.ProfileJob.model_fields.keys())
-    af = set(aj.AppendProfileJob.model_fields.keys())
-    assert sf == af, (
-        f"save_profile.ProfileJob and append_jobs.AppendProfileJob "
-        f"have drifted: only_in_save={sf - af}, only_in_append={af - sf}"
+    assert hasattr(wp, "ProfileJob"), "write_profile.py must export ProfileJob"
+    assert hasattr(wp, "write_profile"), "write_profile.py must export write_profile()"
+    fields = set(wp.ProfileJob.model_fields.keys())
+    assert _MAP_ENGINE_READS <= fields, (
+        f"ProfileJob missing map_engine fields: {_MAP_ENGINE_READS - fields}"
     )
 
 
@@ -263,7 +257,7 @@ def test_audit_workspace_mirrors_stay_in_sync(rel_path):
 
 def _load_render_report_module():
     """Load render_report.py without going through workspace tool discovery."""
-    path = NETOPS_AUDIT / "runner" / "tools" / "render_report.py"
+    path = NETOPS_AUDIT / "audit-runner" / "scripts" / "render_report.py"
     assert path.exists(), f"render_report.py missing at {path}"
     spec = importlib.util.spec_from_file_location("_rr_contract_test", path)
     mod = importlib.util.module_from_spec(spec)
@@ -271,17 +265,19 @@ def _load_render_report_module():
     return mod
 
 
-def test_render_report_is_terminal_tool():
-    """render_report's StructuredTool MUST have return_direct=True so
-    langgraph exits the runner sub-agent loop after the call, preventing
-    the small-model paraphrase-duplication regression."""
+def test_render_report_is_script_not_tool():
+    """render_report is a plain script (ADR-0008 migration). It must NOT
+    export a LangChain StructuredTool — the duplication-prevention contract
+    is now enforced via the orchestrator passthrough rule and execute_skill_script
+    subprocess exit semantics (not return_direct=True on a @tool)."""
     mod = _load_render_report_module()
-    tool = getattr(mod, "_render_report_tool", None)
-    assert tool is not None, "_render_report_tool symbol disappeared"
-    assert tool.return_direct is True, (
-        "render_report lost return_direct=True — gemma4-class models will "
-        "regress to 2-3× executive summary duplication. See "
-        "dev_docs/00 (verbatim-passthrough fix, 2026-05-12)."
+    # Must expose the render_report callable
+    assert hasattr(mod, "render_report"), "render_report() function missing from render_report.py"
+    # Must NOT expose a legacy @tool symbol (that would indicate unintended regression)
+    assert not hasattr(mod, "_render_report_tool"), (
+        "render_report.py re-introduced _render_report_tool @tool symbol — "
+        "this conflicts with the ADR-0008 scripts migration and will double "
+        "context overhead in the runner sub-agent."
     )
 
 
@@ -396,7 +392,7 @@ def test_correlation_pass_has_evidence_only_rules():
     ('shared physical path') from unrelated findings (e.g. multiple
     devices with Ethernet0/3 errors)."""
     for tree in (NETOPS_AUDIT, PLATFORM_AUDIT):
-        text = (tree / "runner" / "prompts" / "correlation_pass.md").read_text(encoding="utf-8")
+        text = (tree / "audit-runner" / "prompts" / "correlation_pass.md").read_text(encoding="utf-8")
         assert "EVIDENCE-ONLY MODE" in text, (
             f"correlation_pass.md in {tree} lost EVIDENCE-ONLY MODE section — "
             "LLM will resume fabricating causal claims unsupported by SQL findings."
@@ -416,7 +412,7 @@ def test_map_engine_has_freshness_gate():
     """map_engine MUST run the global freshness gate before returning audit
     JSON. Otherwise profiles without per-job freshness checks (e.g.
     ospf_health) silently report '✅ Healthy' on 11-day-old data."""
-    me_py = NETOPS_AUDIT / "runner" / "tools" / "map_engine.py"
+    me_py = NETOPS_AUDIT / "audit-runner" / "scripts" / "map_engine.py"
     src = me_py.read_text(encoding="utf-8")
     assert "freshness_warning" in src, (
         "map_engine lost freshness_warning field — global freshness gate "
@@ -440,7 +436,7 @@ def test_render_report_surfaces_freshness_and_truncation():
       (2) truncation: section header warning when SQL produced more
           rows than max_findings allowed.
     """
-    rr_py = NETOPS_AUDIT / "runner" / "tools" / "render_report.py"
+    rr_py = NETOPS_AUDIT / "audit-runner" / "scripts" / "render_report.py"
     src = rr_py.read_text(encoding="utf-8")
     # P1.2 — freshness
     assert "freshness_warning" in src, (
@@ -467,7 +463,7 @@ def test_execute_sql_job_returns_total_count_tuple():
     caller can detect + surface truncation. If this regresses to a flat
     list return, the silent-truncation regression returns."""
     import duckdb as _duckdb
-    me_path = NETOPS_AUDIT / "runner" / "tools" / "map_engine.py"
+    me_path = NETOPS_AUDIT / "audit-runner" / "scripts" / "map_engine.py"
     spec = importlib.util.spec_from_file_location("_me_contract_test", me_path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -502,7 +498,7 @@ def test_map_engine_has_selftest_profile():
     """map_engine MUST expose `selftest_profile(profile_path, db_path)`
     so operators can validate profile SQL against the live schema before
     running an audit. Loss of this function = schema drift goes silent."""
-    me_py = NETOPS_AUDIT / "runner" / "tools" / "map_engine.py"
+    me_py = NETOPS_AUDIT / "audit-runner" / "scripts" / "map_engine.py"
     src = me_py.read_text(encoding="utf-8")
     assert "def selftest_profile(" in src, (
         "map_engine.selftest_profile() disappeared — schema-drift detection "
@@ -540,7 +536,7 @@ def test_render_report_has_alert_webhook_helper():
     """render_report MUST expose `_post_critical_alert` that POSTs to
     OLAV_ALERT_WEBHOOK_URL on Critical findings. Loss of this helper means
     weekend critical events never page anyone."""
-    rr_py = NETOPS_AUDIT / "runner" / "tools" / "render_report.py"
+    rr_py = NETOPS_AUDIT / "audit-runner" / "scripts" / "render_report.py"
     src = rr_py.read_text(encoding="utf-8")
     assert "def _post_critical_alert(" in src, (
         "_post_critical_alert helper disappeared — audit Critical findings "
@@ -569,7 +565,7 @@ def test_render_report_uses_temperature_zero():
     determinism isn't perfect, but combined with the evidence-only
     prompt this drops cross-run variance from ~40% sentence-level
     rewrites down to token-tie-breaking noise."""
-    rr_py = NETOPS_AUDIT / "runner" / "tools" / "render_report.py"
+    rr_py = NETOPS_AUDIT / "audit-runner" / "scripts" / "render_report.py"
     src = rr_py.read_text(encoding="utf-8")
     assert "get_chat_model(agent_id=\"auditor\", temperature=0)" in src, (
         "render_report's LLMFactory call lost temperature=0 — audit "
@@ -584,14 +580,14 @@ def test_correlation_pass_md_does_not_carry_unused_cluster_rules():
     render_report.py's cluster_context, which only fires when clusters
     actually exist. Without this, gemma4-budget prompts waste ~150
     tokens on rules irrelevant to 99% of audits."""
-    cp_md = (NETOPS_AUDIT / "runner" / "prompts" / "correlation_pass.md").read_text(encoding="utf-8")
+    cp_md = (NETOPS_AUDIT / "audit-runner" / "prompts" / "correlation_pass.md").read_text(encoding="utf-8")
     assert "Incident Cluster priority" not in cp_md, (
         "correlation_pass.md re-introduced 'Incident Cluster priority' "
         "block — should be conditionally injected by render_report only "
         "when audit_json contains a non-empty incident_clusters array."
     )
     # The companion rules MUST live in render_report instead
-    rr_py = (NETOPS_AUDIT / "runner" / "tools" / "render_report.py").read_text(encoding="utf-8")
+    rr_py = (NETOPS_AUDIT / "audit-runner" / "scripts" / "render_report.py").read_text(encoding="utf-8")
     assert "Incident Cluster priority" in rr_py, (
         "cluster_rules string disappeared from render_report.py — when a "
         "profile sets run_incident_clustering: true, the LLM won't get any "
@@ -616,7 +612,7 @@ def test_render_report_has_alert_dedup():
     window. Without dedup, a multi-hour incident floods the receiver
     every cron-tick (alert fatigue → operators mute the channel → real
     alerts get missed)."""
-    rr_py = NETOPS_AUDIT / "runner" / "tools" / "render_report.py"
+    rr_py = NETOPS_AUDIT / "audit-runner" / "scripts" / "render_report.py"
     src = rr_py.read_text(encoding="utf-8")
     assert "_alert_fingerprint" in src and "_is_duplicate_alert" in src, (
         "alert dedup helpers gone — repeat critical conditions will "
@@ -636,7 +632,7 @@ def test_save_profile_chains_selftest():
     the .md so author-written SQL gets schema-checked against the live
     DB. Without this, gemma4-class author writes typo'd column names
     that pass yaml-validation but break at first audit run."""
-    sp_py = NETOPS_AUDIT / "author" / "tools" / "save_profile.py"
+    sp_py = NETOPS_AUDIT / "audit-author" / "scripts" / "write_profile.py"
     src = sp_py.read_text(encoding="utf-8")
     assert "_try_selftest" in src or "selftest_profile" in src, (
         "save_profile no longer chains selftest — author-time schema "
@@ -662,7 +658,7 @@ def test_render_report_exposes_jinja_helpers_and_branch():
     `_render_executive_summary_jinja`, and the run loop MUST branch on
     `profile_cfg["narrative_mode"]`. Without this, the byte-determinism
     contract for archived audit reports cannot be satisfied."""
-    rr_py = NETOPS_AUDIT / "runner" / "tools" / "render_report.py"
+    rr_py = NETOPS_AUDIT / "audit-runner" / "scripts" / "render_report.py"
     src = rr_py.read_text(encoding="utf-8")
     assert "def _render_section_jinja(" in src, (
         "_render_section_jinja helper disappeared — Jinja-first rendering "
@@ -686,7 +682,7 @@ def test_map_engine_has_job_timeout():
     """map_engine MUST expose JobTimeoutError + _execute_with_timeout and
     `run_map_engine` MUST surface timeouts as Critical synthetic findings.
     Without this a runaway SQL hangs the audit indefinitely."""
-    me_py = NETOPS_AUDIT / "runner" / "tools" / "map_engine.py"
+    me_py = NETOPS_AUDIT / "audit-runner" / "scripts" / "map_engine.py"
     src = me_py.read_text(encoding="utf-8")
     assert "class JobTimeoutError(" in src, (
         "JobTimeoutError class disappeared — timeout path can no longer "

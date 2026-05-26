@@ -12,8 +12,17 @@ metadata:
   agent_type: api
   category: network-operations
   intent: active_live_data_collection
-tools:
-  - execute_cli_parallel     # Run a CLI command on multiple devices in parallel (Nornir; whitelist/blacklist enforced)
+tools: []
+scripts:
+  - name: execute_cli_parallel
+    description: "Run CLI commands across multiple devices in parallel"
+    file: execute_cli_parallel.py
+  - name: take_snapshot
+    description: "Collect fresh CLI output and write to parsed_outputs"
+    file: ../scripts/take_snapshot.py
+  - name: search_commands
+    description: "Pre-flight: discover available CLI commands/pipe rules for a device or platform"
+    file: ../scripts/search_commands.py
 # Portability manifest — YAML knowledge files under ./references/
 dynamic_context:
   - path: ./references/take_snapshot_when_db_stale.guide.yaml
@@ -26,7 +35,7 @@ The Collect agent specialises in **active live-network data collection** — the
 broader successor to the former ops-probe. It covers both pure probing
 (ping/traceroute/port scan via shell) and batch CLI collection (parallel
 `show` commands across devices via Nornir). Data lands in DuckDB for
-downstream analysis by `ops-analyze`.
+downstream analysis by `analyzer`.
 
 See [ADR-0005](../../../docs/adr/0005-probe-to-collect-rename-lab-stays-standalone.md)
 for the rename rationale and why `ops/lab` remains a separate sub-agent

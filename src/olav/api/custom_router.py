@@ -303,6 +303,29 @@ async def memory_graph():
     return FileResponse(str(kg_path), media_type="text/html")
 
 
+@app.get("/health", include_in_schema=False)
+async def health_check():
+    """Auth-exempt health probe — returns service status and agent count."""
+    import asyncio  # noqa: PLC0415
+
+    try:
+        from olav.core.workspace_discovery import discover_top_level_agent_names  # noqa: PLC0415
+
+        agents = await asyncio.to_thread(discover_top_level_agent_names) or []
+        agent_count = len(agents)
+    except Exception:
+        agent_count = -1
+
+    try:
+        from importlib.metadata import version  # noqa: PLC0415
+
+        ver = version("olav")
+    except Exception:
+        ver = "unknown"
+
+    return {"status": "healthy", "version": ver, "agents": agent_count}
+
+
 @app.get("/agents", include_in_schema=False)
 async def list_agents():
     """Compatibility shim: Next.js login page calls GET /agents to validate auth and list agents."""

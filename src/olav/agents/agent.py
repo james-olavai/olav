@@ -687,19 +687,24 @@ class OLAVAgent:
         # source, which is exactly what SkillsMiddleware's ls() scan finds.
         # This replaces the former custom _make_script_tool / _load_scripts_from_skill_md.
         if HAS_SKILLS_MIDDLEWARE and SkillsMiddleware is not None and FilesystemBackend is not None:
-            workspace_root = (self.olav_base_path / "workspace").resolve()
             skill_sources: list[tuple[str, str]] = []
-            if workspace_root.is_dir():
-                for src_dir in sorted(workspace_root.iterdir()):
-                    if not src_dir.is_dir() or src_dir.name.startswith("_"):
-                        continue
-                    has_skills = any(
-                        (sub / "SKILL.md").exists()
-                        for sub in src_dir.iterdir()
-                        if sub.is_dir()
+            # Scope to the current agent's domain directory only, not all of
+            # workspace/. The original full-workspace scan injected ~700 tokens
+            # of cross-domain skill descriptions (audit/admin/core/netops all
+            # together) into every orchestrator prompt — the netops orchestrator
+            # does not need to know about audit/ or admin/ skills.
+            # (ISSUE-ORCHESTRATOR-CONTEXT-BLOAT fix §1 — skill_sources scope)
+            _skill_scan_dir: Path = self._agent_dir
+            if _skill_scan_dir.is_dir():
+                has_sub_skills = any(
+                    (sub / "SKILL.md").exists()
+                    for sub in _skill_scan_dir.iterdir()
+                    if sub.is_dir()
+                )
+                if has_sub_skills:
+                    skill_sources.append(
+                        (str(_skill_scan_dir), _skill_scan_dir.name.capitalize())
                     )
-                    if has_skills:
-                        skill_sources.append((str(src_dir), src_dir.name.capitalize()))
             # Also expose a user-level project skills directory for third-party skills.
             user_skills = Path(".agents") / "skills"
             if user_skills.is_dir():

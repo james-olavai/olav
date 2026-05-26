@@ -125,7 +125,7 @@ _LEGITIMATE_USAGE_FILES: frozenset[str] = frozenset({
     "src/olav/data/workspace/services/tools/manage_cron.py",
     "src/olav/data/workspace/audit/audit-runner/tools/map_engine.py",
     "src/olav/data/workspace/audit/audit-runner/scripts/map_engine.py",
-    "src/olav/data/workspace/audit/audit-author/tools/list_profiles.py",
+    "src/olav/data/workspace/audit/audit-author/scripts/load_profile.py",
     "src/olav/data/workspace/core/tools/format_and_export.py",
     "src/olav/data/workspace/core/tools/recall_memory.py",
     "src/olav/data/workspace/core/scripts/format_and_export.py",
