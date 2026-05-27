@@ -11,10 +11,10 @@
   },
   "llm": {
     "provider": "custom",
-    "model": "gemma4-31b-it",
+    "model": "gemma-4-31b-it-Q4_K_M.gguf",
     "base_url": "http://192.168.100.12:11433/v1",
     "temperature": 0.1,
-    "max_tokens": 32768,
+    "max_tokens": 8192,
     "custom_headers": {},
     "providers": {
       "openai": {

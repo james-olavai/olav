@@ -8,17 +8,38 @@ You DO NOT SSH to anything. You DO NOT write configs. You read files
 that someone else collected, validate them, and feed them to the
 ingest pipeline.
 
-## Scripts available
+## Calling convention — MUST read this first
 
-- `survey_bundle(path)` — **always call first**; returns format, host list,
+ALL scripts run via `execute_skill_script`.  The skill name is `"importer"`.
+Do NOT call `ls`, `read_file`, or any other tool to inspect bundles — use the scripts below.
+
+```python
+# Step 2 — always first
+execute_skill_script(skill_name="importer", script_name="survey_bundle.py",
+                     script_args={"path": "/abs/path/to/bundle"})
+
+# Step 4 — validate
+execute_skill_script(skill_name="importer", script_name="validate_bundle.py",
+                     script_args={"path": "/abs/path/to/bundle"})
+
+# Step 5 — ingest
+execute_skill_script(skill_name="importer", script_name="ingest_snapshot.py",
+                     script_args={"path": "/abs/path/to/bundle",
+                                  "collection_source": "bundle:name:version",
+                                  "host_platforms": {}})
+```
+
+## Scripts
+
+- `survey_bundle.py` — **always call first**; returns format, host list,
   platform map, Tier 3 sample lines, collector info, and a prescriptive
   `notes` field telling you exactly what to do next
-- `discover_platform_for_host(host_dir)` — Tier 1+2 TextFSM cascade for
-  one host directory; only needed for hosts in `needs_platform_detection`
-- `validate_bundle(path)` — cheap pre-flight; returns
+- `discover_platform.py` — Tier 1+2 TextFSM cascade for one host directory;
+  only needed for hosts in `needs_platform_detection`
+- `validate_bundle.py` — cheap pre-flight; returns
   `{ok, errors, warnings, hosts_seen, commands_seen}`
-- `ingest_snapshot(path, collection_source, host_platforms)` — the actual
-  landing; returns `{bundle_id, snapshot_id, hosts, commands, parser_fills}`
+- `ingest_snapshot.py` — the actual landing; returns
+  `{bundle_id, snapshot_id, hosts, commands, parser_fills}`
 
 ## Workflow
 
@@ -28,8 +49,9 @@ User typically says `/ingest_bundle <path>` or names a path.
 
 ### 2. Survey the bundle
 
-```
-survey_bundle(<path>)
+```python
+execute_skill_script(skill_name="importer", script_name="survey_bundle.py",
+                     script_args={"path": "<path>"})
 ```
 
 Read the `notes` field — it tells you exactly what to do next.
@@ -44,26 +66,21 @@ Read `format` to report to the user what was found.
 `survey_bundle` already ran Tier 1 banner-sniffing.  Check
 `needs_platform_detection` — hosts there need the full Tier 1+2 cascade.
 
-```
-result = discover_platform_for_host("/path/to/bundle/devices/R-EDGE-42")
+```python
+execute_skill_script(skill_name="importer", script_name="discover_platform.py",
+                     script_args={"host_dir": "/path/to/bundle/devices/R-EDGE-42"})
 ```
 
 If `confidence == "unknown"`, use `platform_sample_lines["R-EDGE-42"]`
-from the `survey_bundle` result (already loaded — **no read_file needed**):
-
-```
-# survey["platform_sample_lines"]["R-EDGE-42"] == ["R-EDGE-42#", "IOS Software...", ...]
-# Apply platform_signatures.guide.yaml heuristics → "cisco_ios"
-
-host_platforms = {"R-EDGE-42": "cisco_ios"}   # extend per host as needed
-```
+from the `survey_bundle` result (already loaded — **no read_file needed**).
 
 **Don't call this for every host.** Only for hosts in `needs_platform_detection`.
 
 ### 4. Validate
 
-```
-validate_bundle(<path>)
+```python
+execute_skill_script(skill_name="importer", script_name="validate_bundle.py",
+                     script_args={"path": "<path>"})
 ```
 
 If `ok=False` — report `errors` to the user and stop.
@@ -71,12 +88,11 @@ If `ok=True` but warnings exist, surface them but proceed.
 
 ### 5. Ingest
 
-```
-ingest_snapshot(
-  path=<path>,
-  collection_source="bundle:<name>:<version>",   # from survey["collector"]
-  host_platforms=<map from step 3, or {}>
-)
+```python
+execute_skill_script(skill_name="importer", script_name="ingest_snapshot.py",
+                     script_args={"path": "<path>",
+                                  "collection_source": "bundle:<name>:<version>",
+                                  "host_platforms": {}})
 ```
 
 `collection_source` values come from `survey_bundle` result:
