@@ -1,16 +1,28 @@
-"""inspect_blast_radius @tool — What-If reachability impact."""
+#!/usr/bin/env python3
+"""inspect_blast_radius — What-If reachability impact."""
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Any
 
-from langchain_core.tools import tool
+
+def _find_project_root() -> Path:
+    p = Path(__file__).resolve().parent
+    while p != p.parent:
+        if (p / "pyproject.toml").exists():
+            return p
+        p = p.parent
+    return Path.cwd()
+
+
+sys.path.insert(0, str(_find_project_root() / "src"))
 
 # Eager import to avoid asyncio.gather _ModuleLock deadlocks when
 # LangGraph runs multiple inspect_* tools in parallel.
 from olav_netops.sim import load_network_model
 
 
-@tool
 def inspect_blast_radius(
     remove_devices: list[str] | None = None,
     remove_links: list[list[str]] | None = None,
@@ -42,34 +54,18 @@ def inspect_blast_radius(
 
     Returns:
         ``{
-            "removed_devices": [...],          # only those actually in graph
-            "removed_links": [...],            # only those actually present
-            "components": [[...], [...]],      # post-failure components
-            "isolated_nodes": [...],
+            "removed_devices": [...],       # only those actually in graph
+            "removed_links": [...],         # only those actually present
+            "components": [                 # post-failure component summaries
+                {"size": N, "members": [...first 5 nodes...+"…+M more"]},
+                ...
+            ],
+            "isolated_nodes": [...],        # up to 30 zero-degree nodes
+            "isolated_total": N,            # USE THIS for counts, not len(isolated_nodes)
+            "isolated_truncated": bool,     # True if isolated_nodes list was capped
             "connectivity_loss": {pre_components, post_components},
-            "validation_warnings": [...],      # human-readable, e.g.
-              # "device 'Rfoo' is not in the topology graph",
-              # "link ['R2','R3'] is not present in the topology graph"
+            "validation_warnings": [...],   # e.g. "device 'X' not in topology graph"
          }``
-
-    Example (valid):
-        >>> inspect_blast_radius(remove_devices=["R3"])
-        {"removed_devices": ["R3"], "removed_links": [],
-         "components": [["R1"], ["R2", "R4"], ["SW1"]],
-         "isolated_nodes": ["R1", "SW1"],
-         "connectivity_loss": {"pre_components": 1, "post_components": 3},
-         "validation_warnings": []}
-
-    Example (invalid — surfaces the mistake instead of silent OK):
-        >>> inspect_blast_radius(remove_links=[["R2", "R3"]])
-        # R2-R3 has no direct link → simulation impossible
-        {"removed_devices": [], "removed_links": [],
-         "components": [...same as no-op...],
-         "isolated_nodes": [],
-         "connectivity_loss": {"pre_components": 1, "post_components": 1},
-         "validation_warnings": [
-           "link ['R2', 'R3'] is not present in the topology graph"
-         ]}
     """
     import networkx as nx
     model = load_network_model(snapshot=snapshot_id)
@@ -90,9 +86,11 @@ def inspect_blast_radius(
             g.remove_node(d)
             actually_removed_devices.append(d)
         else:
+            sample = sorted(model.graph.nodes)[:20]
             warnings.append(
                 f"device {d!r} is not in the topology graph "
-                f"(known devices: {sorted(model.graph.nodes)})"
+                f"(sample of known devices — first 20 of {len(model.graph.nodes)}: {sample}; "
+                f"use inspect_devices() to search by substring)"
             )
 
     # Validate + remove links — must be a 2-element pair AND have an edge
@@ -129,14 +127,39 @@ def inspect_blast_radius(
     )
     isolated = sorted(n for n in g.nodes if g.degree(n) == 0)
 
+    # Compact component summaries — returning full node lists for a
+    # 2500-node network floods the LLM context (60K+ tokens).  Agents
+    # only need counts + a small sample to understand impact.
+    _SAMPLE = 5
+    component_summaries = [
+        {
+            "size": len(c),
+            "members": c if len(c) <= _SAMPLE else c[:_SAMPLE] + [f"…+{len(c) - _SAMPLE} more"],
+        }
+        for c in components
+    ]
+
+    # Isolated nodes: full list up to 30; summary beyond that.
+    _MAX_ISO = 30
+    isolated_out = isolated[:_MAX_ISO]
+
     return {
         "removed_devices": actually_removed_devices,
         "removed_links": actually_removed_links,
-        "components": components,
-        "isolated_nodes": isolated,
+        "components": component_summaries,
+        "isolated_nodes": isolated_out,
+        "isolated_total": len(isolated),
+        "isolated_truncated": len(isolated) > _MAX_ISO,
         "connectivity_loss": {
             "pre_components": pre_components,
             "post_components": len(components),
         },
         "validation_warnings": warnings,
     }
+
+
+if __name__ == "__main__":
+    import json as _json, sys as _sys
+    _args = _json.loads(_sys.stdin.read() or "{}")
+    result = inspect_blast_radius(**_args)
+    print(_json.dumps(result, default=str))
