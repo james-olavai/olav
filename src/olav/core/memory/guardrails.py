@@ -1,18 +1,24 @@
-"""Dynamic Guardrail Injection for OLAV Agentic Memory System.
+"""Security guardrail injection for OLAV agents.
 
-Implements Phase 4 of the LANCEDB_MEMORY_SYSTEM_INTEGRATION plan:
-  - GuardrailInjector: Queries LanceDB for historical failure/audit memories
-    and dynamically injects them as constraints into the agent's system prompt.
+GuardrailsPlugin / GuardrailInjector handle ONE category of memory:
+``category="audit"`` — **security hard constraints** that must be injected
+into the system message before every model call, regardless of quota or
+relevance ranking.  Examples:
+  - "Never execute DROP TABLE or DELETE without explicit user confirmation."
+  - "Do not write to /etc or system directories via shell tools."
 
-Example injected block::
+This is intentionally narrow.  Failure-learning constraints (operational
+lessons from past runs) are NOT stored here.  They belong to the normal
+AutoRecallMiddleware path:
+  - ``trace_learner`` → ``category="expert_knowledge"``, ``scope="shared:audit"``
+  - ``AutoRecallMiddleware`` injects them ranked + quota-controlled into the
+    user message for audit sub-agents only.
 
-    === LEARNED CONSTRAINTS (from experience) ===
-    ⚠ Last time you ran `collect inventory` on host-3, it timed out — use `--timeout 60` flag.
-    ✓ Always verify service state with `status --brief` before enabling maintenance mode.
-    === END CONSTRAINTS ===
-
-This avoids modifying static YAML/Python files; constraints live in LanceDB
-and evolve with the agent's experience.
+Why two paths:
+  - Security constraints: must fire on every LLM call, not subject to
+    quota, injected into system message (hard enforcement).
+  - Failure-learning: optional context, quota-managed, injected into user
+    message (soft guidance via AutoRecallMiddleware).
 """
 
 import json
@@ -32,8 +38,8 @@ GUARDRAIL_TOP_K = 5  # Max constraints to inject per invocation
 GUARDRAIL_SECTION_HEADER = "=== LEARNED CONSTRAINTS (from past experience) ==="
 GUARDRAIL_SECTION_FOOTER = "=== END CONSTRAINTS ==="
 
-_FAILURE_AUDIT_CATEGORY = "audit"  # Category used for failure records
-_FAILURE_FLAG_KEY = "failure"  # Metadata key indicating a failure entry
+_FAILURE_AUDIT_CATEGORY = "audit"  # Security hard constraints only (not failure learning)
+_FAILURE_FLAG_KEY = "failure"  # Metadata key indicating a security constraint entry
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -48,14 +54,18 @@ def store_failure_memory(
     embedder=None,
     table_name: str | None = None,
 ) -> dict:
-    """Store a failure event as an audit memory for future guardrail injection.
+    """Store a security hard constraint into the guardrail memory (category='audit').
 
-    This is called by Auto-Capture (or explicitly) when an agent run yields
-    an error or known failure pattern.
+    Use this ONLY for security rules that must be injected into the system
+    message before every model call (e.g. "never DROP TABLE without confirmation").
+
+    For failure-learning constraints from past runs, use trace_learner instead —
+    it writes category='expert_knowledge' scope='shared:audit' so AutoRecallMiddleware
+    delivers them ranked and quota-controlled to audit sub-agents only.
 
     Args:
         store:       LanceDBStore instance.
-        description: Human-readable description of what failed (max 200 chars).
+        description: Security constraint text (max 200 chars).
         scope:       Memory scope (agent name or "global").
         embedder:    Optional sentence-transformers model (SentenceTransformer).
                      If None, fallback zero-vector is used.

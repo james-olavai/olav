@@ -216,41 +216,72 @@ def _extract_constraints(
 # ---------------------------------------------------------------------------
 
 
+def _tags_from_constraint(text: str) -> list[str]:
+    """Extract simple keyword tags from a constraint string for hybrid search."""
+    import re as _re
+    # Pull known OLAV-domain keywords as tags
+    _KEYWORDS = re.compile(
+        r"\b(sql|bgp|ospf|bgp|ssh|cli|interface|vlan|route|snapshot|"
+        r"describe_table|execute_sql|v_show_\w+|netops|audit|runner|"
+        r"explorer|author|curator|error|timeout|column|table)\b",
+        re.IGNORECASE,
+    )
+    seen: list[str] = []
+    for m in _KEYWORDS.finditer(text):
+        tag = m.group(0).lower()
+        if tag not in seen:
+            seen.append(tag)
+    return seen[:8]
+
+
 def _write_constraints_to_memory(
     constraints: list[str],
     store=None,
-    scope: str = "global",
 ) -> int:
-    """Write extracted constraint strings to LanceDB memory via guardrails.
+    """Write extracted constraint strings to LanceDB as expert_knowledge.
 
-    Args:
-        constraints: List of constraint strings from _extract_constraints().
-        store:       LanceDBStore instance. If None, lazy-loads.
-        scope:       Memory scope (agent name or "global").
-
-    Returns:
-        Number of constraints successfully written.
+    Writes with category='expert_knowledge' and scope='shared:audit' so
+    AutoRecallMiddleware delivers them to all audit sub-agents (runner,
+    author, explorer, curator) during ranked recall, subject to the
+    normal quota/cap controls.  Non-audit agents are not affected.
     """
     if not constraints:
         return 0
 
-    from olav.core.memory.guardrails import store_failure_memory
+    import json
+    import uuid
+
+    from olav.core.memory import MEMORY_TABLE, MemoryCategory, get_store
 
     if store is None:
         try:
-            from olav.core.memory import get_store
-
             store = get_store()
         except Exception as exc:
             logger.warning("_write_constraints_to_memory: cannot load store — %s", exc)
             return 0
 
+    tname = MEMORY_TABLE
+    if not store.table_exists(tname):
+        store.create_table(tname)
+
     written = 0
     for constraint in constraints:
-        if not constraint or not constraint.strip():
+        constraint = constraint.strip()
+        if not constraint:
             continue
         try:
-            store_failure_memory(store=store, description=constraint.strip(), scope=scope)
+            memory_id = f"trace-{uuid.uuid4().hex[:8]}"
+            tags = _tags_from_constraint(constraint)
+            store.add_memory(
+                id=memory_id,
+                text=constraint,
+                vector=[0.0] * store.embedding_dim,
+                category=MemoryCategory.EXPERT_KNOWLEDGE,
+                scope="shared:audit",
+                metadata={"source": "trace_learner", "origin": "failure_learning"},
+                tags=json.dumps(tags),
+                table_name=tname,
+            )
             written += 1
         except Exception as exc:
             logger.warning("_write_constraints_to_memory: failed to write %r — %s", constraint, exc)
@@ -305,7 +336,7 @@ def _run_learn_cycle(
     constraints = _extract_constraints(report, llm=llm)
 
     # Step 3
-    learn_count = _write_constraints_to_memory(constraints, store=store, scope="global")
+    learn_count = _write_constraints_to_memory(constraints, store=store)
 
     return {
         **report,

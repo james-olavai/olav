@@ -69,6 +69,7 @@ class MemoryCategory:
     DECISION = "decision"
     PREFERENCE = "preference"
     AUDIT = "audit"
+    EXPERT_KNOWLEDGE = "expert_knowledge"  # operational knowledge, scoped per domain
 
 
 class LanceDBStore:

@@ -32,6 +32,7 @@ Parity with the original callback's behaviour.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING, Any
@@ -133,6 +134,14 @@ class AuditMiddleware(OLAVMiddlewarePlugin):
         # Clear any leaked per-turn state — defensive; normally
         # aafter_tool_call handles cleanup.
         self._tool_starts.clear()
+
+        # Fire trace_learner in the background after every run so failure
+        # constraints are written to expert_knowledge/shared:audit for the
+        # next agent invocation.  Fire-and-forget: never blocks the caller.
+        asyncio.create_task(  # noqa: RUF006
+            _bg_trace_learn(),
+            name="trace_learner_bg",
+        )
         return None
 
     # ------------------------------------------------------------------
@@ -264,6 +273,23 @@ def _summarise(value: Any, limit: int = 1024) -> str:
     if len(text) > limit:
         return text[:limit] + "…"
     return text
+
+
+async def _bg_trace_learn() -> None:
+    """Background task: run trace_learner after each agent run.
+
+    Writes failure-derived constraints as expert_knowledge/shared:audit
+    into LanceDB so AutoRecallMiddleware delivers them to audit sub-agents
+    on the next invocation.  Errors are swallowed — this must never affect
+    the caller.
+    """
+    try:
+        from olav.core.curator.trace_learner import trace_learner
+        import asyncio
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, trace_learner)
+    except Exception as exc:
+        logger.debug("_bg_trace_learn: non-fatal error — %s", exc)
 
 
 __all__ = ["AuditMiddleware"]
