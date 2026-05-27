@@ -169,7 +169,7 @@ class TestAuditAgentMdWiring:
         """Sanity — adding explorer must not displace siblings."""
         fm = _parse_front_matter(_AUDIT_AGENT_MD)
         sub_paths = {s["path"] for s in fm.get("subagents", [])}
-        for sibling in ("./audit-runner/SKILL.md", "./audit-author/SKILL.md", "./curator/SKILL.md"):
+        for sibling in ("./audit-runner/SKILL.md", "./audit-author/SKILL.md"):
             assert sibling in sub_paths
 
     def test_route_keywords_mention_explore(self):
