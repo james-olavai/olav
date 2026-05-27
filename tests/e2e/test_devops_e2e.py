@@ -189,6 +189,81 @@ class TestDevopsInfraBoundary:
 
 
 # ---------------------------------------------------------------------------
+# devops/infra sub-agent structure
+# ---------------------------------------------------------------------------
+
+
+_INFRA_WS = _DEVOPS_WS / "infra"
+
+
+class TestDevopsInfraStructure:
+    """devops/infra sub-agent workspace must exist with required files."""
+
+    def test_infra_directory_exists(self):
+        assert _INFRA_WS.is_dir(), f"devops/infra workspace not found at {_INFRA_WS}"
+
+    def test_infra_skill_md_exists(self):
+        assert (_INFRA_WS / "SKILL.md").is_file(), "devops/infra/SKILL.md missing"
+
+    def test_infra_skill_md_name(self):
+        text = (_INFRA_WS / "SKILL.md").read_text(encoding="utf-8")
+        assert "name: infra" in text, "infra/SKILL.md must declare name: infra"
+
+    def test_infra_skill_md_has_api_request(self):
+        text = (_INFRA_WS / "SKILL.md").read_text(encoding="utf-8")
+        assert "api_request" in text, "infra/SKILL.md must list api_request in tools:"
+
+    def test_infra_system_prompt_exists(self):
+        assert (_INFRA_WS / "prompts" / "system.md").is_file(), (
+            "devops/infra/prompts/system.md missing"
+        )
+
+    def test_infra_references_directory_exists(self):
+        refs = _INFRA_WS / "references"
+        assert refs.is_dir(), "devops/infra/references/ missing"
+        assert any(refs.glob("*.md")), "devops/infra/references/ is empty — run olav registry register"
+
+    def test_infra_system_prompt_mentions_api_request(self):
+        text = (_INFRA_WS / "prompts" / "system.md").read_text(encoding="utf-8")
+        assert "api_request" in text, "infra/prompts/system.md must show api_request usage"
+
+
+# ---------------------------------------------------------------------------
+# devops/services sub-agent structure
+# ---------------------------------------------------------------------------
+
+
+_SERVICES_WS = _DEVOPS_WS / "services"
+_SERVICES_SCRIPTS = _SERVICES_WS / "scripts"
+
+
+class TestDevopsServicesStructure:
+    """devops/services sub-agent scripts must all exist."""
+
+    def test_services_skill_md_exists(self):
+        assert (_SERVICES_WS / "SKILL.md").is_file(), "devops/services/SKILL.md missing"
+
+    def test_services_skill_md_name(self):
+        text = (_SERVICES_WS / "SKILL.md").read_text(encoding="utf-8")
+        assert "name: services" in text, "services/SKILL.md must declare name: services"
+
+    def test_register_service_script_exists(self):
+        assert (_SERVICES_SCRIPTS / "register_service.py").is_file()
+
+    def test_deploy_service_script_exists(self):
+        assert (_SERVICES_SCRIPTS / "deploy_service.py").is_file()
+
+    def test_stop_service_script_exists(self):
+        assert (_SERVICES_SCRIPTS / "stop_service.py").is_file()
+
+    def test_api_request_script_exists(self):
+        assert (_SERVICES_SCRIPTS / "api_request.py").is_file()
+
+    def test_docker_compose_script_exists(self):
+        assert (_SERVICES_SCRIPTS / "docker_compose.py").is_file()
+
+
+# ---------------------------------------------------------------------------
 # Agent invocation E2E — requires LLM backend
 #
 # Skip unless DEVOPS_E2E_ENABLED=1 or a real API key is configured.
