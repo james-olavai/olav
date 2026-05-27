@@ -307,6 +307,17 @@ class LLMFactory:
         except Exception as _tm_err:
             logger.debug("token_meter attach skipped: %s", _tm_err)
 
+        # For non-OpenAI backends (local llama.cpp, Ollama, vLLM) bump the
+        # HTTP client's built-in retry counter.  The openai client retries on
+        # 503 by default but stops after 2 attempts; local servers (especially
+        # llama.cpp) can return "Loading model" 503s for 10-30 s while the
+        # KV cache warms up — 5 attempts with exponential back-off covers it.
+        # Leave the real openai.com API at its default (2) to avoid delaying
+        # genuine failures.
+        _base_for_retry = str(params.get("base_url") or "").lower()
+        if _base_for_retry and "openai.com" not in _base_for_retry:
+            params.setdefault("max_retries", 5)
+
         # Use init_chat_model - LangChain handles provider detection
         try:
             return init_chat_model(**params)
