@@ -96,6 +96,28 @@ def render_report(
     # audit reports diff-able across runs without a full Jinja rewrite.
     llm = LLMFactory.get_chat_model(agent_id="auditor", temperature=0)
 
+    # Retry wrapper: llama.cpp returns 503 "Loading model" transiently
+    # between sequential calls (KV-cache flush / slot contention).
+    # Retry up to 5 times with 10-second backoff before giving up.
+    def _llm_invoke(prompt: Any, retries: int = 5, delay: float = 10.0) -> Any:
+        import time
+        last_exc: Exception | None = None
+        for attempt in range(retries):
+            try:
+                return llm.invoke(prompt)
+            except Exception as exc:
+                msg = str(exc)
+                if "503" in msg or "Loading model" in msg or "unavailable" in msg.lower():
+                    last_exc = exc
+                    logger.warning(
+                        "render_report: LLM 503 on attempt %d/%d, retrying in %.0fs",
+                        attempt + 1, retries, delay,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise
+        raise last_exc  # type: ignore[misc]
+
     # 2. Load shared format contract (applies to ALL sections)
     prompts_path = Path(prompts_dir)
     system_envelope = _load_text(prompts_path / "system_envelope.md", fallback="")
@@ -208,7 +230,7 @@ def render_report(
             _append_to_file(report_path, trunc_note + note if trunc_note else note)
         else:
             prompt = _assemble_prompt(system_envelope, section_prompt, findings_list, lang)
-            section_content = llm.invoke(prompt).content
+            section_content = _llm_invoke(prompt).content
             _append_to_file(report_path, trunc_note + section_content if trunc_note else section_content)
 
     # 6. Phase 3 — Global Correlation Pass
@@ -273,7 +295,7 @@ def render_report(
         )
     else:
         summary_prompt = lang_directive + freshness_directive + "\n\n" + corr_template + "\n\n---\n\n" + full_report + cluster_context
-        summary = llm.invoke(summary_prompt).content
+        summary = _llm_invoke(summary_prompt).content
 
     # ── ISSUE-AUDIT-FRESHNESS-GATE-MISSING (P1, 2026-05-12) ─────────────
     # If map_engine flagged stale data, prepend a deterministic banner
