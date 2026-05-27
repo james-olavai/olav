@@ -107,11 +107,22 @@ def render_report(
                 return llm.invoke(prompt)
             except Exception as exc:
                 msg = str(exc)
-                if "503" in msg or "Loading model" in msg or "unavailable" in msg.lower():
+                # Retry on transient server-side errors: 503, model loading,
+                # and HTTP connection drops (Ollama closes keep-alive between
+                # back-to-back requests → RemoteProtocolError / APIConnectionError).
+                is_transient = (
+                    "503" in msg
+                    or "Loading model" in msg
+                    or "unavailable" in msg.lower()
+                    or "Connection error" in msg
+                    or "RemoteProtocol" in msg
+                    or "Server disconnected" in msg
+                )
+                if is_transient:
                     last_exc = exc
                     logger.warning(
-                        "render_report: LLM 503 on attempt %d/%d, retrying in %.0fs",
-                        attempt + 1, retries, delay,
+                        "render_report: LLM transient error on attempt %d/%d, retrying in %.0fs — %s",
+                        attempt + 1, retries, delay, msg[:120],
                     )
                     time.sleep(delay)
                     continue
