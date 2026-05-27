@@ -72,8 +72,7 @@ severity_hint` so `map_engine` can normalise findings. Time filter uses
 
 | Script | Purpose |
 |---|---|
-| `list_profiles` | TERMINAL list operation — one call, present table, stop |
-| `test_map_query` | Validate a SQL/LanceDB query before writing it into a Profile |
+| `test_map_query` | Validate a SQL query before writing it into a Profile |
 | `analyze_thresholds` | Compute P50/P90/P95/P99 + recommend warning/critical thresholds |
 | `load_profile` | List profiles (`action='list'`) or read one (`action='read'`) |
 | `create_profile_atomic` | One-call create: introspect + validate + write |

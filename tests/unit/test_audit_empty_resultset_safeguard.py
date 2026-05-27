@@ -1,5 +1,5 @@
 """Tests for ISSUE-AUDIT-FALSE-GREEN-EMPTY-RESULTSET fix in
-``olav-netops/.olav/workspace/audit/runner/tools/map_engine.py`` (path
+``olav-netops/.olav/workspace/audit/audit-runner/scripts/map_engine.py`` (path
 moved from ``auditor/`` to ``runner/`` in rev 259's Run/Author split).
 
 Verifies that when a SQL audit job returns no findings:
@@ -25,7 +25,7 @@ import pytest
 # Load map_engine via spec since it lives in the workspace tools/, not on
 # sys.path. Mirrors how the running agent loads it.
 _ME_PATH = (
-    Path("/home/yhvh/Olav/olav-netops/.olav/workspace/audit/runner/tools/map_engine.py")
+    Path("/home/yhvh/Olav/olav-netops/.olav/workspace/audit/audit-runner/scripts/map_engine.py")
 )
 
 
