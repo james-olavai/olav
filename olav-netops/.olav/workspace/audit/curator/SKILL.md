@@ -6,6 +6,7 @@ metadata:
   version: 2.0.0
   replaces: [learner v1.0.0]
 tools:
+  - execute_skill_script  # required to call scripts (fuzzy_map_schema, scaffold_domain_agent, etc.)
   - recall_memory
 scripts:
   - name: fuzzy_map_schema
