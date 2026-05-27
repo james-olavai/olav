@@ -70,7 +70,7 @@ def _introspect_db() -> dict[str, Any]:
         return {"ok": False, "error": f"duckdb / config import failed: {exc}"}
 
     try:
-        db_path = get_paths_config().db_main
+        db_path = get_paths_config().main_db
     except Exception as exc:
         return {"ok": False, "error": f"db_path resolve failed: {exc}"}
 
@@ -90,6 +90,7 @@ def _introspect_db() -> dict[str, Any]:
 
 
 _INTERVAL_RE = re.compile(r":window\b", re.IGNORECASE)
+_LATEST_SNAP_RE = re.compile(r":latest_snapshot\b", re.IGNORECASE)
 
 
 def _validate_sql_job(query: str, db_path: str | Path) -> tuple[bool, str]:
@@ -102,6 +103,13 @@ def _validate_sql_job(query: str, db_path: str | Path) -> tuple[bool, str]:
     # Substitute :window with a real interval string so DuckDB parses
     # the parameterised form.
     sql = _INTERVAL_RE.sub("'1 hours'::INTERVAL", query)
+    # Substitute :latest_snapshot with a DuckDB scalar subquery so the
+    # LIMIT 0 probe resolves the column types correctly.
+    sql = _LATEST_SNAP_RE.sub(
+        "(SELECT snapshot_id FROM netops.topology_links "
+        "GROUP BY snapshot_id ORDER BY COUNT(*) DESC LIMIT 1)",
+        sql,
+    )
     test_sql = f"SELECT * FROM ({sql.rstrip().rstrip(';')}) __q LIMIT 0"
     try:
         with duckdb.connect(str(db_path), read_only=True) as conn:
@@ -165,7 +173,7 @@ def create_profile_atomic(
     db_path = None
     try:
         from olav.core.config import get_paths_config
-        db_path = str(get_paths_config().db_main)
+        db_path = str(get_paths_config().main_db)
     except Exception:
         pass
 

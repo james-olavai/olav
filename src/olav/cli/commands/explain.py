@@ -43,7 +43,7 @@ def _load_parse_src_token():
     from olav.core.config import get_paths_config
 
     try:
-        repo_root = Path(get_paths_config().workspace_root).resolve().parents[0]
+        repo_root = Path(get_paths_config().project_root).resolve()
     except Exception:
         repo_root = Path.cwd()
 

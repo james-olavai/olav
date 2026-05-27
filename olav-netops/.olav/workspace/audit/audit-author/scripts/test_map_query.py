@@ -130,7 +130,7 @@ def _preview_lancedb(semantic_query: str, threshold: float) -> list[dict]:
 
     try:
         from olav.core.config import get_paths_config
-        lancedb_path = str(get_paths_config().knowledge_db_dir)
+        lancedb_path = str(get_paths_config().knowledge_dir)
     except Exception:
         logger.warning("Cannot resolve LanceDB path")
         return []

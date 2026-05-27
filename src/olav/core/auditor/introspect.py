@@ -99,7 +99,7 @@ def _introspect_lancedb(db_path: str | None) -> dict:
     if db_path is None:
         try:
             from olav.core.config import get_paths_config
-            db_path = str(get_paths_config().knowledge_db_dir)
+            db_path = str(get_paths_config().knowledge_dir)
         except Exception:
             return {"db_type": "lancedb", "error": "db_path required", "tables": {}}
 
