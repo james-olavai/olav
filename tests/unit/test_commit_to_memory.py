@@ -35,7 +35,7 @@ import sys
 _TOOL_PATH = (
     Path(__file__).resolve().parent.parent.parent
     / "src" / "olav" / "data" / "workspace" / "core"
-    / "memory_curator" / "tools" / "commit_to_memory.py"
+    / "memory_curator" / "scripts" / "commit_to_memory.py"
 )
 
 
@@ -86,7 +86,7 @@ def store(tmp_path, monkeypatch):
 
 
 def test_rejects_empty_intent(tool_mod):
-    out = tool_mod.commit_to_memory.func(
+    out = tool_mod.commit_to_memory(
         intent="", keywords=["a"], body="hello",
     )
     assert out["status"] == "error"
@@ -94,7 +94,7 @@ def test_rejects_empty_intent(tool_mod):
 
 
 def test_rejects_empty_keywords(tool_mod):
-    out = tool_mod.commit_to_memory.func(
+    out = tool_mod.commit_to_memory(
         intent="foo", keywords=[], body="hello",
     )
     assert out["status"] == "error"
@@ -102,7 +102,7 @@ def test_rejects_empty_keywords(tool_mod):
 
 
 def test_rejects_invalid_category(tool_mod):
-    out = tool_mod.commit_to_memory.func(
+    out = tool_mod.commit_to_memory(
         intent="foo", keywords=["a"], body="x", category="bogus",
     )
     assert out["status"] == "error"
@@ -110,7 +110,7 @@ def test_rejects_invalid_category(tool_mod):
 
 
 def test_rejects_document_without_chunks(tool_mod):
-    out = tool_mod.commit_to_memory.func(
+    out = tool_mod.commit_to_memory(
         intent="foo", keywords=["a"], category="document",
     )
     assert out["status"] == "error"
@@ -118,7 +118,7 @@ def test_rejects_document_without_chunks(tool_mod):
 
 
 def test_rejects_usage_guide_without_body(tool_mod):
-    out = tool_mod.commit_to_memory.func(
+    out = tool_mod.commit_to_memory(
         intent="foo", keywords=["a"], body="", category="usage_guide",
     )
     assert out["status"] == "error"
@@ -130,7 +130,7 @@ def test_rejects_usage_guide_without_body(tool_mod):
 
 def test_usage_guide_writes_yaml_and_primes(tool_mod, workspace, store):
     with patch("olav.core.memory.guide_kb._embed", side_effect=_embed_stub):
-        out = tool_mod.commit_to_memory.func(
+        out = tool_mod.commit_to_memory(
             intent="netbox_sync_team_acme",
             keywords=["netbox", "sync", "tenant"],
             body="Tenant is always acme-network-ops.",
@@ -172,8 +172,8 @@ def test_usage_guide_idempotent_on_recommit(tool_mod, workspace, store):
         category="usage_guide",
     )
     with patch("olav.core.memory.guide_kb._embed", side_effect=_embed_stub):
-        r1 = tool_mod.commit_to_memory.func(**kwargs)
-        r2 = tool_mod.commit_to_memory.func(**kwargs)
+        r1 = tool_mod.commit_to_memory(**kwargs)
+        r2 = tool_mod.commit_to_memory(**kwargs)
 
     assert r1["memory_ids"] == r2["memory_ids"]
     memories = store.get_memories(limit=20)
@@ -190,7 +190,7 @@ def test_document_writes_n_chunks_no_yaml(tool_mod, workspace, store):
         "Section 2: Tenant rules.",
         "Section 3: Status defaults.",
     ]
-    out = tool_mod.commit_to_memory.func(
+    out = tool_mod.commit_to_memory(
         intent="runbook_netbox_sop",
         keywords=["runbook", "netbox", "sop"],
         chunks=chunks,
@@ -217,7 +217,7 @@ def test_document_writes_n_chunks_no_yaml(tool_mod, workspace, store):
 
 
 def test_document_skips_empty_chunks(tool_mod, workspace, store):
-    out = tool_mod.commit_to_memory.func(
+    out = tool_mod.commit_to_memory(
         intent="r1",
         keywords=["a"],
         chunks=["body 1", "", "  ", "body 2"],
@@ -246,7 +246,7 @@ def test_document_writes_zero_vec_when_embed_returns_none(
     import olav.core.embedder as embedder_mod
     monkeypatch.setattr(embedder_mod, "embed_text", lambda text: None)
 
-    out = tool_mod.commit_to_memory.func(
+    out = tool_mod.commit_to_memory(
         intent="no_embed",
         keywords=["llm-only"],
         chunks=["chunk one", "chunk two"],
@@ -276,7 +276,7 @@ def test_topology_writes_zero_vec_when_embed_returns_none(
     import olav.core.embedder as embedder_mod
     monkeypatch.setattr(embedder_mod, "embed_text", lambda text: None)
 
-    out = tool_mod.commit_to_memory.func(
+    out = tool_mod.commit_to_memory(
         intent="no_embed_topo",
         keywords=["topology"],
         body="graph TD\n  A --> B\n",
@@ -302,7 +302,7 @@ def test_topology_writes_zero_vec_when_embed_returns_none(
 
 def test_topology_mermaid_detection(tool_mod, workspace, store):
     body = "graph TD\n  R1 --> R2\n  R2 --> R3\n"
-    out = tool_mod.commit_to_memory.func(
+    out = tool_mod.commit_to_memory(
         intent="lab_demo7_topology",
         keywords=["topology", "demo7"],
         body=body,
@@ -324,7 +324,7 @@ def test_topology_mermaid_detection(tool_mod, workspace, store):
 
 def test_topology_dot_detection(tool_mod, workspace, store):
     body = "digraph G {\n  R1 -> R2;\n  R2 -> R3;\n}"
-    out = tool_mod.commit_to_memory.func(
+    out = tool_mod.commit_to_memory(
         intent="dot_topo",
         keywords=["dot", "topology"],
         body=body,
@@ -335,7 +335,7 @@ def test_topology_dot_detection(tool_mod, workspace, store):
 
 
 def test_topology_unknown_format(tool_mod, workspace, store):
-    out = tool_mod.commit_to_memory.func(
+    out = tool_mod.commit_to_memory(
         intent="freeform",
         keywords=["custom"],
         body="just some plain text describing topology",
@@ -354,7 +354,7 @@ def test_confirm_false_logs_warning_but_writes(tool_mod, workspace, store, caplo
 
     with caplog.at_level(logging.WARNING):
         with patch("olav.core.memory.guide_kb._embed", side_effect=_embed_stub):
-            out = tool_mod.commit_to_memory.func(
+            out = tool_mod.commit_to_memory(
                 intent="bypass",
                 keywords=["test"],
                 body="bypass body",
@@ -384,7 +384,7 @@ def _load_propose_module():
 
 def test_propose_writes_draft_returns_preview(workspace, store):
     propose_mod = _load_propose_module()
-    out = propose_mod.propose_memory_draft.func(
+    out = propose_mod.propose_memory_draft(
         intent="bgp_active_l3_check",
         keywords=["bgp", "active"],
         body="BGP Active = check L3 reach",
@@ -407,7 +407,7 @@ def test_commit_from_draft_seals_and_archives(tool_mod, workspace, store):
     propose_mod = _load_propose_module()
 
     # Turn 1
-    propose_out = propose_mod.propose_memory_draft.func(
+    propose_out = propose_mod.propose_memory_draft(
         intent="bgp_active_l3_check",
         keywords=["bgp", "active", "L3"],
         body="BGP Active state: check L3 reach (route + ACL)",
@@ -419,7 +419,7 @@ def test_commit_from_draft_seals_and_archives(tool_mod, workspace, store):
 
     # Turn 2 — agent calls commit_to_memory(from_draft=True) only
     with patch("olav.core.memory.guide_kb._embed", side_effect=_embed_stub):
-        commit_out = tool_mod.commit_to_memory.func(from_draft=True)
+        commit_out = tool_mod.commit_to_memory(from_draft=True)
 
     assert commit_out["status"] == "success"
     assert commit_out["category"] == "usage_guide"
@@ -437,22 +437,22 @@ def test_commit_from_draft_picks_latest_when_intent_omitted(tool_mod, workspace,
     """Multiple drafts pending → latest by mtime wins when intent unset."""
     import time as _time
     propose_mod = _load_propose_module()
-    propose_mod.propose_memory_draft.func(
+    propose_mod.propose_memory_draft(
         intent="rule_a", keywords=["a"], body="rule a", agent="ops",
     )
     _time.sleep(0.05)  # ensure different mtime
-    propose_mod.propose_memory_draft.func(
+    propose_mod.propose_memory_draft(
         intent="rule_b", keywords=["b"], body="rule b", agent="ops",
     )
 
     with patch("olav.core.memory.guide_kb._embed", side_effect=_embed_stub):
-        out = tool_mod.commit_to_memory.func(from_draft=True)  # no intent
+        out = tool_mod.commit_to_memory(from_draft=True)  # no intent
 
     assert out["status"] == "success"
     assert "guide_ops_rule_b" in out["memory_ids"]
 
 
 def test_commit_from_draft_missing_returns_error(tool_mod, workspace, store):
-    out = tool_mod.commit_to_memory.func(from_draft=True)
+    out = tool_mod.commit_to_memory(from_draft=True)
     assert out["status"] == "error"
     assert "no draft found" in out["message"].lower()
