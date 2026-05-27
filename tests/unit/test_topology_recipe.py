@@ -92,9 +92,9 @@ _VALID_RECIPE = textwrap.dedent("""\
     concept: bgp_summary
     vendor_hint: cisco_ios
     field_mappings:
-      neighbor_ip: neighbor
-      neighbor_as: as
-      state: state_pfxrcd
+      neighbor_ip: bgp_neighbor
+      neighbor_as: neighbor_as
+      state: state_or_prefixes_received
 """)
 
 
@@ -157,33 +157,24 @@ def test_save_recipe_invalid_yaml(sr, tmp_path):
 
 
 @pytest.mark.skipif(not _DB.exists(), reason="main.duckdb not present")
-@pytest.mark.xfail(
-    reason=(
-        "save_recipe.py imports _generate_sql_branch / _PROTOCOL_VIEW_NAMES / "
-        "ensure_view_recipes_table from olav_netops.core.view_builder, but these "
-        "functions were removed when the recipe system was refactored (view_builder "
-        "docstring line 55: 'orphan view_recipes table').  save_recipe.py needs to "
-        "be updated to use the current view_builder API."
-    ),
-    strict=True,
-)
 def test_save_recipe_valid_writes_file(sr, tmp_path):
-    """Valid recipe with matching data in the DB writes a file to disk.
-
-    Currently xfail: save_recipe.py references removed view_builder functions.
-    Remove xfail once save_recipe.py is updated to the current API.
-    """
+    """Valid recipe with matching data in the DB writes file + UPSERTs to view_recipes."""
     import yaml
 
+    # force=False to also validate dry-run returns rows (bgp data exists in demo set)
     with patch.object(sr, "_user_recipes_dir", return_value=tmp_path):
-        out = sr.save_recipe(_VALID_RECIPE, force=True)
+        out = sr.save_recipe(_VALID_RECIPE)
 
     assert out["ok"] is True, f"save_recipe failed: {out.get('error')}"
-    assert out["entries_written"] >= 1
+    assert out["entries_written"] == 1
+    # YAML file written to tmp_path
     recipe_files = list(tmp_path.glob("*.yaml"))
-    assert len(recipe_files) >= 1
+    assert len(recipe_files) == 1
     parsed = yaml.safe_load(recipe_files[0].read_text())
     if isinstance(parsed, list):
         parsed = parsed[0]
     assert parsed["command"] == "show ip bgp summary"
     assert parsed["concept"] == "bgp_summary"
+    # Dry-run row count recorded
+    assert "bgp_summary/cisco_ios" in out["diagnostics"]["dry_run_counts"]
+    assert out["diagnostics"]["dry_run_counts"]["bgp_summary/cisco_ios"] > 0

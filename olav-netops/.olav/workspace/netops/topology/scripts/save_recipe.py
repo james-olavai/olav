@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,53 @@ logger = logging.getLogger(__name__)
 
 
 _ALLOWED_VENDORS = {"cisco_ios", "juniper_junos", "arista_eos", "cisco_nxos", "universal"}
+
+_VIEW_NAME_RE = re.compile(r"[^a-zA-Z0-9_]+")
+
+
+def _safe_view_name(command: str) -> str:
+    return _VIEW_NAME_RE.sub("_", command.strip().lower()).strip("_")
+
+
+def _ensure_view_recipes_table(con) -> None:
+    """Create view_recipes if it doesn't exist (idempotent)."""
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS view_recipes (
+            command       VARCHAR,
+            concept       VARCHAR,
+            vendor_hint   VARCHAR DEFAULT 'universal',
+            field_mappings JSON,
+            filter_expr   VARCHAR,
+            discovered_at TIMESTAMP,
+            UNIQUE (command, concept, vendor_hint)
+        )
+    """)
+
+
+def _probe_sql_for_entry(entry: dict) -> str:
+    """Build a SELECT SQL to dry-run a recipe entry against its auto-view.
+
+    field_mappings maps  canonical_name → json_field_name  where
+    json_field_name is the column name in ``v_<cmd>_auto``.
+    The SELECT aliases json_field_name → canonical_name so the probe view
+    has canonical column names (mirrors the old _generate_sql_branch shape).
+    """
+    command = entry["command"]
+    vendor = entry.get("vendor_hint") or "universal"
+    mappings: dict = entry.get("field_mappings") or {}
+    auto_view = f"netops.v_{_safe_view_name(command)}_auto"
+    if mappings:
+        sel = ", ".join(f'"{src}" AS {can}' for can, src in mappings.items())
+    else:
+        sel = "*"
+    where = ""
+    if vendor != "universal":
+        safe_vendor = vendor.replace("'", "''")
+        where = (
+            f" WHERE device_name IN "
+            f"(SELECT hostname FROM netops.devices WHERE platform = '{safe_vendor}')"
+        )
+    return f"SELECT {sel} FROM {auto_view}{where}"
 
 
 def _validate_entry(entry: dict) -> tuple[bool, str]:
@@ -72,6 +120,7 @@ def save_recipe(recipe_yaml: str, force: bool = False) -> dict[str, Any]:
     """
     import duckdb
     import yaml
+    from datetime import UTC, datetime
     from olav.core.config import MAIN_DB_PATH
 
     try:
@@ -97,25 +146,16 @@ def save_recipe(recipe_yaml: str, force: bool = False) -> dict[str, Any]:
     con = duckdb.connect(str(MAIN_DB_PATH))
     diagnostics: dict[str, Any] = {"dry_run_counts": {}}
     try:
-        # Import lazily — avoids circular deps at module-load time
-        from olav_netops.core.view_builder import (
-            _generate_sql_branch,
-            _PROTOCOL_VIEW_NAMES,
-            ensure_view_recipes_table,
-        )
-        from datetime import UTC, datetime
-
-        ensure_view_recipes_table(con)
+        _ensure_view_recipes_table(con)
 
         # Dry-run each entry as its own probe view.
         for i, entry in enumerate(entries):
             concept = entry["concept"]
-            command = entry["command"]
             vendor = entry.get("vendor_hint") or "universal"
             probe_name = f"_probe_{concept}_{vendor}_{i}"
             try:
-                branch_sql = _generate_sql_branch(entry, concept)
-                con.execute(f"CREATE OR REPLACE VIEW netops.{probe_name} AS {branch_sql}")
+                probe_sql = _probe_sql_for_entry(entry)
+                con.execute(f"CREATE OR REPLACE VIEW netops.{probe_name} AS {probe_sql}")
                 n = con.execute(f"SELECT COUNT(*) FROM netops.{probe_name}").fetchone()[0]
                 diagnostics["dry_run_counts"][f"{concept}/{vendor}"] = int(n)
                 con.execute(f"DROP VIEW IF EXISTS netops.{probe_name}")
@@ -152,22 +192,23 @@ def save_recipe(recipe_yaml: str, force: bool = False) -> dict[str, Any]:
             path.write_text(yaml.safe_dump(file_entries, sort_keys=False), encoding="utf-8")
             files_written.append(str(path))
 
-        # DB upsert
+        # DB upsert (DELETE+INSERT — table may not have UNIQUE constraint)
         for entry in entries:
+            vendor = entry.get("vendor_hint") or "universal"
+            con.execute(
+                "DELETE FROM view_recipes WHERE command=? AND concept=? AND vendor_hint=?",
+                [entry["command"], entry["concept"], vendor],
+            )
             con.execute(
                 """
                 INSERT INTO view_recipes
                     (command, concept, vendor_hint, field_mappings, filter_expr, discovered_at)
                 VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT (command, concept, vendor_hint) DO UPDATE SET
-                    field_mappings = EXCLUDED.field_mappings,
-                    filter_expr = EXCLUDED.filter_expr,
-                    discovered_at = EXCLUDED.discovered_at
                 """,
                 [
                     entry["command"],
                     entry["concept"],
-                    entry.get("vendor_hint") or "universal",
+                    vendor,
                     json.dumps(entry["field_mappings"]),
                     entry.get("filter_expr"),
                     now,
