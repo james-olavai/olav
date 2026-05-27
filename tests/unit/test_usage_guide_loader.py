@@ -153,12 +153,21 @@ def test_discover_missing_root_returns_empty(tmp_path):
 
 
 def test_discover_ignores_non_guide_yaml(tmp_path):
-    """Only ``*.guide.yaml`` files in ``guides/`` directories count."""
+    """Only ``*.guide.yaml`` files count, regardless of parent directory.
+
+    As of 2026-05-14 discover_guides scans *all* ``*.guide.yaml`` under the
+    workspace root (not just ``guides/`` dirs).  Non-matching extensions are
+    still excluded.
+    """
     _write(tmp_path / "ops" / "guides" / "real.guide.yaml", VALID_YAML)
-    _write(tmp_path / "ops" / "guides" / "config.yaml", VALID_YAML)  # wrong suffix
-    _write(tmp_path / "ops" / "real.guide.yaml", VALID_YAML)         # not under guides/
+    _write(tmp_path / "ops" / "guides" / "config.yaml", VALID_YAML)   # wrong suffix
+    _write(tmp_path / "ops" / "references" / "other.guide.yaml",
+           VALID_YAML.replace("intent: topology_visualization", "intent: from_references"))
     guides = discover_guides(tmp_path)
-    assert len(guides) == 1
+    assert len(guides) == 2  # both *.guide.yaml found; config.yaml excluded
+    assert all(g.source_path.suffix == ".yaml" for g in guides)
+    intents = {g.intent for g in guides}
+    assert intents == {"topology_visualization", "from_references"}
 
 
 def test_discover_returns_sorted_for_determinism(tmp_path):

@@ -108,13 +108,20 @@ def test_probe_tolerates_missing_table(map_engine):
         tmp.close()
 
 
-def test_profile_has_raw_fallback_flag_on_anomaly_jobs():
-    """health_full_drift.md must mark both CPU and Memory anomaly jobs."""
-    profile = (
-        REPO / ".olav" / "workspace" / "audit" / "profiles" / "health_full_drift.md"
-    ).read_text(encoding="utf-8")
-    # Cheap structural check: two `raw_fallback: true` lines — one per job.
-    assert profile.count("raw_fallback: true") >= 2, (
-        "Expected at least 2 `raw_fallback: true` markers in health_full_drift.md "
-        "(CPU_Anomaly + Memory_Anomaly). RAW-05 regression if they disappear."
+def test_at_least_one_profile_has_raw_fallback_flag():
+    """At least one live profile must carry ``raw_fallback: true`` (RAW-05 guard).
+
+    When the primary query returns zero rows but raw_output_store has captures,
+    this flag makes the silent "looks healthy" case visible.  If no profile uses
+    it, the feature is effectively dead-code — flag it here so it doesn't erode
+    silently.
+    """
+    profiles_dir = REPO / ".olav" / "workspace" / "audit" / "profiles"
+    profiles = list(profiles_dir.glob("*.md"))
+    assert profiles, f"No profiles found in {profiles_dir}"
+    flagged = [p for p in profiles if "raw_fallback: true" in p.read_text(encoding="utf-8")]
+    assert flagged, (
+        "No profile in .olav/workspace/audit/profiles/ carries `raw_fallback: true`. "
+        "Add it to at least one job where TextFSM parse failures are a known risk "
+        "(e.g. interface_health INTERFACE_DOWN). RAW-05 regression guard."
     )

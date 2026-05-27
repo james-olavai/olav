@@ -7,6 +7,7 @@ jobs:
 - name: INTERFACE_DOWN
   type: sql
   severity: Critical
+  raw_fallback: true
   section_prompt: 'Identify operationally down interfaces. A `link_status` other than
     `up` indicates a Layer-1/2 problem (no carrier, admin down, error-disabled). Ignore
     Null0 / Loopback interfaces — those are software-only. Cross-correlate with the
