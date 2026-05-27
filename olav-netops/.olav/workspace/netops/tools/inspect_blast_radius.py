@@ -14,6 +14,7 @@ from olav_netops.sim import load_network_model
 def inspect_blast_radius(
     remove_devices: list[str] | None = None,
     remove_links: list[list[str]] | None = None,
+    snapshot_id: str | None = None,
 ) -> dict[str, Any]:
     """
     What-If: simulate device / link failures on the network graph
@@ -71,7 +72,7 @@ def inspect_blast_radius(
          ]}
     """
     import networkx as nx
-    model = load_network_model()
+    model = load_network_model(snapshot=snapshot_id)
 
     g = model.graph.copy()
     pre_components = nx.number_weakly_connected_components(g)
