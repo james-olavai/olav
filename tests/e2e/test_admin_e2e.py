@@ -102,14 +102,33 @@ class TestAdminAgentStructure:
         )
 
     def test_admin_check_health_tool_exists(self):
-        # migrated from tools/ → scripts/ in rev ~295
         tool = _WORKSPACE / "ops" / "scripts" / "check_health.py"
         assert tool.is_file(), f"check_health.py missing at {tool}"
 
     def test_admin_export_logs_tool_exists(self):
-        # migrated from tools/ → scripts/ in rev ~295
         tool = _WORKSPACE / "ops" / "scripts" / "export_logs.py"
         assert tool.is_file(), f"export_logs.py missing at {tool}"
+
+    def test_admin_installer_scripts_exist(self):
+        scripts = _WORKSPACE / "installer" / "scripts"
+        for name in ("skill_query.py", "skill_install.py", "adapt_skill.py", "analyze_skill.py"):
+            assert (scripts / name).is_file(), f"admin/installer/scripts/{name} missing"
+
+    def test_admin_editor_scripts_exist(self):
+        scripts = _WORKSPACE / "editor" / "scripts"
+        for name in ("audit_workspace.py", "scaffold_skill.py", "write_workspace_file.py",
+                     "tool_help.py", "load_reference.py", "get_static_context.py"):
+            assert (scripts / name).is_file(), f"admin/editor/scripts/{name} missing"
+
+    def test_admin_installer_subagent_declares_scripts(self):
+        text = (_WORKSPACE / "installer" / "SKILL.md").read_text(encoding="utf-8")
+        for name in ("skill_query", "skill_install"):
+            assert name in text, f"admin/installer/SKILL.md must declare {name}"
+
+    def test_admin_editor_subagent_declares_scripts(self):
+        text = (_WORKSPACE / "editor" / "SKILL.md").read_text(encoding="utf-8")
+        for name in ("audit_workspace", "scaffold_skill", "write_workspace_file"):
+            assert name in text, f"admin/editor/SKILL.md must declare {name}"
 
 
 # ── Behaviour (LLM required) ─────────────────────────────────────────────────
