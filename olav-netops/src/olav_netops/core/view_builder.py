@@ -602,7 +602,7 @@ def finalise_ingest(con: Any) -> dict[str, Any]:
         if not workspace_root.exists():
             try:
                 from olav.core.config import get_paths_config
-                workspace_root = get_paths_config().olav_dir / "workspace"
+                workspace_root = Path(get_paths_config().workspace_dir)
             except Exception:  # noqa: BLE001
                 workspace_root = None
         if workspace_root is not None and workspace_root.exists():

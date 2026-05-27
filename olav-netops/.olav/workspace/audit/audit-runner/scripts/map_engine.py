@@ -184,6 +184,20 @@ def run_map_engine(
     jobs_output: dict[str, Any] = {}
 
     with duckdb.connect(str(db_path)) as conn:
+        # Resolve latest_snapshot once per run: the snapshot with the most
+        # topology links is the richest current-state snapshot.  Using COUNT(*)
+        # instead of MAX() avoids picking sparse dev/lab snapshots that happen
+        # to sort after the main demo/prod snapshot lexicographically.
+        try:
+            _snap_row = conn.execute(
+                "SELECT snapshot_id FROM netops.topology_links "
+                "GROUP BY snapshot_id ORDER BY COUNT(*) DESC LIMIT 1"
+            ).fetchone()
+            latest_snapshot: str | None = _snap_row[0] if _snap_row else None
+        except Exception:
+            latest_snapshot = None
+        logger.info("map_engine: latest_snapshot resolved to %r", latest_snapshot)
+
         for job in profile.get("jobs", []):
             job_name = job["name"]
             job_type = job.get("type", "sql")
@@ -197,6 +211,7 @@ def run_map_engine(
                         window=time_window,
                         max_findings=max_findings,
                         timeout_seconds=job_timeout_seconds,
+                        latest_snapshot=latest_snapshot,
                     )
                 except JobTimeoutError as _to_exc:
                     # Surface as a synthetic Critical finding so the
@@ -480,7 +495,14 @@ def selftest_profile(
                 flags=_re.IGNORECASE,
             )
             duckdb_query = _re.sub(r":window", "$cutoff", duckdb_query, flags=_re.IGNORECASE)
-            params = {"cutoff": cutoff} if "$cutoff" in duckdb_query else {}
+            # Translate :latest_snapshot placeholder — bind a placeholder value
+            # so EXPLAIN / LIMIT 0 probes parse correctly during linting.
+            duckdb_query = _re.sub(
+                r":latest_snapshot", "$latest_snapshot", duckdb_query, flags=_re.IGNORECASE,
+            )
+            params: dict = {"cutoff": cutoff} if "$cutoff" in duckdb_query else {}
+            if "$latest_snapshot" in duckdb_query:
+                params["latest_snapshot"] = "snap_lint_placeholder"
             inner = duckdb_query.rstrip().rstrip(";")
             # Pass 1: EXPLAIN — binder check
             try:
@@ -718,6 +740,7 @@ def _execute_sql_job(
     window: str,
     max_findings: int,
     timeout_seconds: float | None = None,
+    latest_snapshot: str | None = None,
 ) -> tuple[list[dict], int]:
     """Run a parameterized DuckDB query and return (findings, total_count).
 
@@ -726,6 +749,10 @@ def _execute_sql_job(
       1. Computes cutoff = datetime.now() - parse_window(window)  (pure Python)
       2. Replaces `INTERVAL :window` occurrences with `$cutoff` in the query
       3. Binds the cutoff datetime as a named DuckDB parameter
+
+    Profile SQL may also use `:latest_snapshot` to pin queries to the current
+    network state (snapshot with the most topology data).  This is replaced
+    with `$latest_snapshot` and bound as a string parameter.
 
     The window VALUE is never concatenated into the SQL string.
 
@@ -755,6 +782,13 @@ def _execute_sql_job(
     # Also handle any remaining standalone :window references
     duckdb_query = re.sub(r":window", "$cutoff", duckdb_query, flags=re.IGNORECASE)
 
+    # Replace :latest_snapshot with a bound parameter so queries always
+    # target the current network state snapshot, not arbitrary old snapshots.
+    if ":latest_snapshot" in duckdb_query.lower() and latest_snapshot:
+        duckdb_query = re.sub(
+            r":latest_snapshot", "$latest_snapshot", duckdb_query, flags=re.IGNORECASE,
+        )
+
     inner_query = duckdb_query.rstrip().rstrip(";")
     # Apply LIMIT via outer CTE — integer literal, NOT a user-supplied value
     capped_query = (
@@ -766,6 +800,8 @@ def _execute_sql_job(
     # Only pass the param dict when $cutoff is actually referenced (drift queries
     # use ROW_NUMBER() and never reference $cutoff at all).
     params = {"cutoff": cutoff} if "$cutoff" in capped_query else {}
+    if "$latest_snapshot" in capped_query and latest_snapshot:
+        params["latest_snapshot"] = latest_snapshot
 
     if timeout_seconds and timeout_seconds > 0:
         columns, rows = _execute_with_timeout(
