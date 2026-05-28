@@ -24,6 +24,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 DEMO_RUNSHEET = REPO / "dev_docs" / "42. DEMO_RUNSHEET.md"
+DEMO_RUNSHEET_82 = REPO / "dev_docs" / "82. DEMO_INBOX_PROD_RUNSHEET.md"
 WORKSPACE = REPO / ".olav" / "workspace"
 
 # Shipped with the pip package — first examples new users see.
@@ -31,6 +32,7 @@ USER_FACING_DOCS = (
     REPO / "README.md",
     REPO / "src" / "README_ZH.md",
     DEMO_RUNSHEET,
+    DEMO_RUNSHEET_82,
 )
 
 
