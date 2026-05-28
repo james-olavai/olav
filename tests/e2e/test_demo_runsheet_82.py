@@ -265,7 +265,7 @@ class TestCH6APDensity:
         if cls._out is None:
             cls._out = _run(
                 "netops",
-                "找出接入层中连接 AP 数量最多的交换机（5台以上），评估单点故障风险",
+                "找出接入层中连接 AP 数量最多的交换机（20台以上），评估单点故障风险",
                 timeout=480,
             )
         return cls._out
