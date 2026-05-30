@@ -1311,7 +1311,10 @@ class OLAVAgent:
             platform_ctx = ""
 
         # ② Agent-specific system prompt
-        prompt_file = self._agent_dir / "prompts" / "system.md"
+        # Respect system_prompt_file from AGENT.md (e.g. netops uses
+        # prompts/orchestrator.md, not the default prompts/system.md).
+        _prompt_file_rel = olav_config.get("system_prompt_file", "prompts/system.md")
+        prompt_file = self._agent_dir / _prompt_file_rel
         agent_prompt = _read_prompt_file(prompt_file)
 
         if agent_prompt:
