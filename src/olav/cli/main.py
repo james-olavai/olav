@@ -1323,54 +1323,15 @@ async def run_single_query(
 
         # NL-CLI-SILENT-FINAL (R82): some models (small ones especially)
         # finish a run with only tool calls — they consider the work
-        # "delegated and done" and emit no final assistant text.  The
-        # user then sees only `🔧` indicators with no result.
-        #
-        # FORCED-SYNTHESIS (ISSUE-NO-SYNTHESIS, 2026-05-30): before
-        # falling back to raw `📁` lines, re-invoke the LLM once with
-        # the tool results as context so the user gets a natural-language
-        # answer.  Only applies to data-query tools (execute_sql,
-        # execute_skill_script, diff_configs); file-write tools are
-        # already handled by the terminal-tool path above.
+        # "delegated and done" and emit no final assistant text.
+        # Root fix: OUTPUT RULE in orchestrator system prompts (2026-05-30).
+        # Raw-preview fallback for file-write-only runs or genuine silent exits.
         if not final_content and _tool_results:
             _SILENT_DELEGATE = {"olav_delegate", "task"}
             _WRITE_TOOLS = {
                 "format_and_export", "render_report", "take_snapshot",
                 "save_lab_config", "write_file",
             }
-            _substantive = [
-                tr for tr in _tool_results
-                if tr["name"] not in (_SILENT_DELEGATE | _WRITE_TOOLS)
-            ]
-            # Delegate-only fallback: orchestrator called task()/olav_delegate()
-            # and produced no direct output. Use the sub-agent's result as context.
-            if not _substantive:
-                _substantive = [tr for tr in _tool_results if tr["name"] in _SILENT_DELEGATE]
-            if _substantive and hasattr(agent, "llm"):
-                try:
-                    from langchain_core.messages import HumanMessage as _HM
-                    _ctx = "\n\n".join(
-                        f"[{tr['name']}]:\n{tr['content'][:1200]}"
-                        for tr in _substantive[:4]
-                    )
-                    _synth_prompt = (
-                        f"The user asked: {query!r}\n\n"
-                        f"You ran the following tool(s) and got these results:\n\n"
-                        f"{_ctx}\n\n"
-                        "Write a concise natural-language answer to the user's question "
-                        "based on these results. Do not call any tools."
-                    )
-                    _synth_msg = await agent.llm.ainvoke([_HM(content=_synth_prompt)])
-                    _synth_text = (getattr(_synth_msg, "content", "") or "").strip()
-                    if _synth_text:
-                        console.print("")
-                        console.print(_synth_text)
-                        final_content = _synth_text
-                except Exception as _synth_err:
-                    logger.debug("forced-synthesis LLM call failed: %s", _synth_err)
-
-            # Raw-preview fallback: only reached when forced synthesis failed
-            # or produced no text (file-write-only runs or LLM error).
             if not final_content:
                 _PATH_KEYS = ("path", "absolute_path", "saved_to", "file")
                 _fallback_lines: list[str] = []
