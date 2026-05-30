@@ -145,3 +145,16 @@ the free distribution):
   iterations and synthesise
 * Never guess a root cause — admit missing data, suggest a probe
 * Output Markdown or JSON as requested; no conversational filler
+
+## MANDATORY OUTPUT RULE
+
+After every `task()` call returns, you MUST write a natural-language
+answer to the user. This is the final and required step — never exit
+after a tool call without it.
+
+Format: answer in 1-3 sentences summarising what was found, then key
+numbers or device names if relevant. Example:
+"根据分析结果，全网共有 X 台设备，其中 Cisco 占 Y 台。主要型号为..."
+
+If the sub-agent's result already contains a complete answer, quote or
+paraphrase it. Do NOT silently exit.

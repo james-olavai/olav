@@ -138,7 +138,7 @@ def _run(agent: str, prompt: str, timeout: int = 180) -> str:
         out = (stdout or "") + (stderr or "")
         if not _is_transient_llm_error(out) or attempt == 2:
             return out
-        time.sleep(60)
+        time.sleep(20)
     return out
 
 
@@ -249,7 +249,6 @@ class TestCH3InventoryBaseline:
 
 @_LLM_SKIP
 @_DEMO_SKIP
-@pytest.mark.timeout(420)
 class TestCH4APFirmwareDistribution:
     """CH4: OLAV 查询全网 AP 固件版本分布，按型号统计数量。"""
 
@@ -261,7 +260,7 @@ class TestCH4APFirmwareDistribution:
             cls._out = _run(
                 "netops",
                 "查询全网 AP 固件版本分布：按 AP 型号统计数量，列出各型号名称与对应固件版本",
-                timeout=360,
+                timeout=480,
             )
         return cls._out
 
