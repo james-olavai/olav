@@ -160,6 +160,63 @@ except Exception as _exc:  # noqa: BLE001 — never block startup
     )
 
 
+def _prune_model_node_bind_tools(graph, unwanted: frozenset[str], label: str) -> None:
+    """Strip auto-injected tools from the model node's dynamic bind_tools call.
+
+    Complements ``_prune_graph_tools`` (which removes tools from the executor
+    node so the LLM *can't* call them) by also removing them from the model
+    node's closure tool list, so the LLM *doesn't see* their JSON schemas in
+    the prompt.  Saves ~2500-3500 tokens per orchestrator invocation.
+
+    deepagents builds the model node as a ``RunnableCallable`` whose ``afunc``
+    closure contains a mutable ``list[StructuredTool]`` passed to
+    ``model.bind_tools()`` at invocation time.  Mutating that list in-place
+    is safe: no isinstance() checks are triggered, no proxy is needed.
+
+    Best-effort: structural mismatches (deepagents upgrade) are swallowed.
+    """
+    if os.environ.get("OLAV_KEEP_BUILTIN_TOOLS"):
+        return
+    try:
+        model_node = getattr(graph, "nodes", {}).get("model")
+        if model_node is None or not hasattr(model_node, "bound"):
+            return
+        rc = model_node.bound
+        _prune_closure_tools(rc, unwanted, label)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            f"Model node bind_tools prune failed for {label} (non-fatal): "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+
+def _prune_closure_tools(rc, unwanted: frozenset[str], label: str) -> None:
+    """Locate and filter the tools list inside a RunnableCallable's closure."""
+    pruned_objects: set[int] = set()  # avoid double-pruning shared list objects
+    for fn_attr in ("afunc", "func"):
+        fn = getattr(rc, fn_attr, None)
+        if fn is None:
+            continue
+        for cell in getattr(fn, "__closure__", None) or []:
+            try:
+                val = cell.cell_contents
+            except ValueError:
+                continue
+            if not isinstance(val, list) or not val or not hasattr(val[0], "name"):
+                continue
+            if id(val) in pruned_objects:
+                continue
+            pruned_objects.add(id(val))
+            removed = [t.name for t in val if getattr(t, "name", None) in unwanted]
+            val[:] = [t for t in val if getattr(t, "name", None) not in unwanted]
+            if removed:
+                logger.info(
+                    f"✓ Pruned {len(removed)} bind_tools schemas from "
+                    f"{label}.{fn_attr}: {sorted(removed)}"
+                )
+            break  # first tools list per function is sufficient
+
+
 def _prune_graph_tools(graph, unwanted: frozenset[str], label: str) -> None:
     """Strip auto-injected tools from a compiled langgraph.
 
@@ -800,6 +857,7 @@ class OLAVAgent:
             return
 
         _prune_graph_tools(self.graph, _DEEPAGENTS_INJECT_TOOLS, f"orchestrator '{self.agent_id}'")
+        _prune_model_node_bind_tools(self.graph, _DEEPAGENTS_INJECT_TOOLS, f"orchestrator '{self.agent_id}'")
 
     # ------------------------------------------------------------------
     # Tool loading helpers
@@ -1225,6 +1283,7 @@ class OLAVAgent:
             if sa_filter is not None:
                 _effective_prune = _DEEPAGENTS_INJECT_TOOLS - sa_filter
             _prune_graph_tools(runnable, _effective_prune, f"sub-agent '{name}'")
+            _prune_model_node_bind_tools(runnable, _effective_prune, f"sub-agent '{name}'")
             subagents.append(
                 {
                     "name": name,
