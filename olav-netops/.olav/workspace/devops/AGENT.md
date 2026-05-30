@@ -1,7 +1,7 @@
 ---
 name: devops
 description: "DevOps & Infrastructure orchestrator — automation script generation (bash/python/ansible) + infrastructure integrations (NetBox DCIM/IPAM, InfluxDB metrics) + bulk change scripts. Pure delegation; sub-agents own all write/query work."
-system_prompt_file: prompts/orchestrator.md
+system_prompt_file: prompts/devops.md
 route_keywords:
   - script bash python ansible automation backup bulk operation migrate generate code
   - 脚本 自动化 备份 批量

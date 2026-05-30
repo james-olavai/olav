@@ -213,12 +213,12 @@ def _audit_subagent(subagent_dir: Path) -> dict:
 
 
 def _check_platform_md_stale() -> dict | None:
-    """Check if PLATFORM.md is missing or lists agents not in the workspace.
+    """Check if olav.md is missing or lists agents not in the workspace.
 
     Returns a warning dict (compatible with audit issue format) if stale,
-    or None if PLATFORM.md is up-to-date.
+    or None if olav.md is up-to-date.
     """
-    platform_md = _WORKSPACE_DIR / "PLATFORM.md"
+    platform_md = _WORKSPACE_DIR / "olav.md"
 
     # Actual agent dirs (those with an AGENT.md)
     actual_agents = {
@@ -231,12 +231,12 @@ def _check_platform_md_stale() -> dict | None:
         if actual_agents:
             return {
                 "type": "platform_md_missing",
-                "message": f"PLATFORM.md does not exist — run `olav refresh` ({len(actual_agents)} agents found)",
+                "message": f"olav.md does not exist — run `olav refresh` ({len(actual_agents)} agents found)",
                 "severity": "warning",
             }
         return None
 
-    # Parse agents list from PLATFORM.md frontmatter
+    # Parse agents list from olav.md frontmatter
     try:
         text = platform_md.read_text(encoding="utf-8")
         if text.startswith("---"):
@@ -258,7 +258,7 @@ def _check_platform_md_stale() -> dict | None:
             parts_msg.append(f"stale: {sorted(extra)}")
         return {
             "type": "platform_md_stale",
-            "message": "PLATFORM.md is out of date — " + ", ".join(parts_msg) + " — run `olav refresh`",
+            "message": "olav.md is out of date — " + ", ".join(parts_msg) + " — run `olav refresh`",
             "severity": "warning",
         }
     return None
@@ -274,7 +274,7 @@ def workspace_health(agent_dir: str = "") -> str:
     - SKILL.md declared tool list vs actual @tool functions (drift)
     - Missing prompts/system.md
     - Broken static_context: file references
-    - PLATFORM.md staleness (missing or out-of-date agent list)
+    - olav.md staleness (missing or out-of-date agent list)
 
     Args:
         agent_dir: Optional agent folder name to limit scope (e.g. "config", "ops").
@@ -282,7 +282,7 @@ def workspace_health(agent_dir: str = "") -> str:
 
     Returns:
         JSON with keys: summary (counts), report (human-readable text), details (per-subagent),
-        platform_issues (PLATFORM.md staleness warnings).
+        platform_issues (olav.md staleness warnings).
     """
     if not _WORKSPACE_DIR.exists():
         return json.dumps({"error": f"Workspace not found: {_WORKSPACE_DIR}"})
@@ -305,7 +305,7 @@ def workspace_health(agent_dir: str = "") -> str:
         total_errors += sum(1 for i in audit["issues"] if i.get("severity") == "error")
         total_warnings += sum(1 for i in audit["issues"] if i.get("severity") == "warning")
 
-    # PLATFORM.md staleness check (only when scanning whole workspace)
+    # olav.md staleness check (only when scanning whole workspace)
     platform_issues: list[dict] = []
     if not agent_dir:
         stale = _check_platform_md_stale()

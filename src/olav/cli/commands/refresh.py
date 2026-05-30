@@ -2,7 +2,7 @@
 
 Scans .olav/workspace/*/AGENT.md and:
 
-1. Rewrites PLATFORM.md frontmatter (agents list + body table).
+1. Rewrites olav.md frontmatter (agents list + body table).
 2. Replaces the <!-- BEGIN_AGENT_ROUTING --> ... <!-- END_AGENT_ROUTING --> section
    in .olav/workspace/olav/prompts/system.md with a fresh routing table.
 
@@ -84,16 +84,16 @@ def _scan_agents(workspace_root: Path) -> list[dict[str, Any]]:
     return agents
 
 
-# ── PLATFORM.md ─────────────────────────────────────────────────────────────
+# ── olav.md ─────────────────────────────────────────────────────────────
 
 
 def _write_platform_md(workspace_root: Path, agents: list[dict[str, Any]]) -> None:
-    """Rewrite PLATFORM.md with the current agent list.
+    """Rewrite olav.md with the current agent list.
 
     Preserves the existing ``active`` and ``platform`` frontmatter keys so that
     per-environment configuration (database paths, service URLs) is not lost.
     """
-    platform_md = workspace_root / "PLATFORM.md"
+    platform_md = workspace_root / "olav.md"
 
     existing_meta: dict[str, Any] = {}
     if platform_md.exists():
@@ -179,7 +179,7 @@ def _write_platform_md(workspace_root: Path, agents: list[dict[str, Any]]) -> No
     body = "\n".join(table_lines)
     new_text = "---\n" + yaml.dump(new_meta, default_flow_style=False) + "---\n\n" + body + "\n"
     platform_md.write_text(new_text, encoding="utf-8")
-    logger.info("PLATFORM.md rewritten: %d agents → %s", len(agents), flags)
+    logger.info("olav.md rewritten: %d agents → %s", len(agents), flags)
 
 
 # ── system.md routing table ─────────────────────────────────────────────────
@@ -262,7 +262,7 @@ def _cleanup_disabled_files(workspace_root: Path) -> list[Path]:
 
 
 def refresh_workspace(workspace_root: Path | None = None) -> str:
-    """Scan workspace and rebuild PLATFORM.md + main agent routing.
+    """Scan workspace and rebuild olav.md + main agent routing.
 
     This is a deterministic operation (no LLM calls).  Safe to call repeatedly
     — subsequent runs produce identical output for the same workspace state.
@@ -314,7 +314,7 @@ class RefreshCommand:
     """``olav refresh`` — rebuild global agent registry (deterministic, no LLM)."""
 
     name = "refresh"
-    description = "Rebuild global agent registry (PLATFORM.md + routing table)"
+    description = "Rebuild global agent registry (olav.md + routing table)"
 
     async def execute(self, args: str = "") -> str:  # noqa: ARG002
         return refresh_workspace()

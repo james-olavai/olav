@@ -552,10 +552,10 @@ def _create_skill_venv(workspace_dir: Path, packages: list[str]) -> dict:
 
 
 def _update_platform_md(workspace_root: Path, agent_name: str) -> None:
-    """GAP-02: append agent_name to PLATFORM.md agents list if not present."""
+    """GAP-02: append agent_name to olav.md agents list if not present."""
     from olav.core.platform_registry import PlatformRegistry, _parse_frontmatter
 
-    platform_md = workspace_root / "PLATFORM.md"
+    platform_md = workspace_root / "olav.md"
     reg = PlatformRegistry.load(workspace_root)
 
     if agent_name in reg.agents:
@@ -578,7 +578,7 @@ def _update_platform_md(workspace_root: Path, agent_name: str) -> None:
     if body:
         new_text += "\n" + body
     platform_md.write_text(new_text, encoding="utf-8")
-    logger.info("PLATFORM.md updated: agents=%s", new_agents)
+    logger.info("olav.md updated: agents=%s", new_agents)
 
 
 def _prime_lab_services_from_config(workspace_root: Path) -> str:

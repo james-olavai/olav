@@ -1,7 +1,7 @@
 ---
 name: audit-orchestrator
 description: "Audit — runs health check Profiles, authors / extends Profiles, open-ended data investigation"
-system_prompt_file: prompts/orchestrator.md
+system_prompt_file: prompts/audit.md
 route_keywords:
   - audit health check compliance report profile SLA
   - 审计 健康检查 合规 报告

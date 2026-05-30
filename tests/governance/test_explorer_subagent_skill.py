@@ -29,6 +29,15 @@ def _parse_front_matter(md_path: Path) -> dict:
     return yaml.safe_load(fm) or {}
 
 
+def _skill_body(md_path: Path) -> str:
+    """Return the content body of a SKILL.md (everything after the YAML front-matter)."""
+    text = md_path.read_text(encoding="utf-8")
+    if text.startswith("---\n"):
+        parts = text.split("---\n", 2)
+        return parts[2].strip() if len(parts) >= 3 else ""
+    return text.strip()
+
+
 # ── SKILL.md ──────────────────────────────────────────────────────────
 
 
@@ -98,35 +107,37 @@ class TestExplorerSkillFrontMatter:
 
 class TestPromptContract:
     def test_system_prompt_exists(self):
-        assert (_EXPLORER_DIR / "prompts" / "system.md").is_file()
+        """prompts/system.md merged into SKILL.md body — verify body is non-empty."""
+        body = _skill_body(_EXPLORER_DIR / "SKILL.md")
+        assert body, "SKILL.md body (system prompt) is empty"
 
     def test_system_prompt_mentions_react_loop(self):
         """The migrated workflow framing must stay explicit."""
-        text = (_EXPLORER_DIR / "prompts" / "system.md").read_text(encoding="utf-8")
+        text = _skill_body(_EXPLORER_DIR / "SKILL.md")
         for phase in ("SURVEY", "CLASSIFY", "INVESTIGATE", "REPORT"):
             assert phase in text, f"system prompt missing phase keyword: {phase}"
 
     def test_system_prompt_instructs_recall_memory_for_playbook(self):
         """CLASSIFY phase must instruct calling recall_memory to pull a
         network-type playbook."""
-        text = (_EXPLORER_DIR / "prompts" / "system.md").read_text(encoding="utf-8")
+        text = _skill_body(_EXPLORER_DIR / "SKILL.md")
         assert "recall_memory" in text
         assert "L1-L4" in text or "playbook" in text
 
     def test_system_prompt_instructs_reflection_on_high_severity(self):
         """Severity-first ranking and L1-L4 progression are mandatory."""
-        text = (_EXPLORER_DIR / "prompts" / "system.md").read_text(encoding="utf-8")
+        text = _skill_body(_EXPLORER_DIR / "SKILL.md")
         assert "Rank by severity" in text
         assert "L1 → L4" in text or "L1-L4" in text
 
     def test_system_prompt_mentions_anti_fabrication(self):
         """Evidence-grounding requirement must be explicit in the prompt."""
-        text = (_EXPLORER_DIR / "prompts" / "system.md").read_text(encoding="utf-8")
+        text = _skill_body(_EXPLORER_DIR / "SKILL.md")
         assert "Evidence or nothing" in text
         assert "must cite the query" in text
 
     def test_system_prompt_mentions_budgets(self):
-        text = (_EXPLORER_DIR / "prompts" / "system.md").read_text(encoding="utf-8")
+        text = _skill_body(_EXPLORER_DIR / "SKILL.md")
         assert "5+ grounded findings" in text
 
 

@@ -60,65 +60,62 @@ def _analyze_failures(
     try:
         import duckdb
 
-        con = duckdb.connect(str(db_path), read_only=True)
-
-        # Count all runs in window (ok + failed)
-        total_row = con.execute(
-            """
-            SELECT COUNT(*) AS n
-            FROM audit_runs
-            WHERE start_time >= (CURRENT_TIMESTAMP - INTERVAL (?) HOUR)
-            """,
-            [hours],
-        ).fetchone()
-        total_all = total_row[0] if total_row else 0
-
-        # Fetch failed runs
-        failed_rows = con.execute(
-            """
-            SELECT run_id, agent_id, status
-            FROM audit_runs
-            WHERE status IN ('error', 'cancelled')
-              AND start_time >= (CURRENT_TIMESTAMP - INTERVAL (?) HOUR)
-            ORDER BY start_time DESC
-            LIMIT ?
-            """,
-            [hours, limit],
-        ).fetchall()
-
-        failures: list[dict] = []
-        for run_id, agent_id, status in failed_rows:
-            event_rows = con.execute(
+        with duckdb.connect(str(db_path)) as con:
+            # Count all runs in window (ok + failed)
+            total_row = con.execute(
                 """
-                SELECT event_type, payload
-                FROM audit_events
-                WHERE run_id = ?
-                  AND event_type IN ('tool_call_failed', 'run_error')
-                ORDER BY timestamp
+                SELECT COUNT(*) AS n
+                FROM audit_runs
+                WHERE start_time >= (CURRENT_TIMESTAMP - INTERVAL (?) HOUR)
                 """,
-                [run_id],
+                [hours],
+            ).fetchone()
+            total_all = total_row[0] if total_row else 0
+
+            # Fetch failed runs
+            failed_rows = con.execute(
+                """
+                SELECT run_id, agent_id, status
+                FROM audit_runs
+                WHERE status IN ('error', 'cancelled')
+                  AND start_time >= (CURRENT_TIMESTAMP - INTERVAL (?) HOUR)
+                ORDER BY start_time DESC
+                LIMIT ?
+                """,
+                [hours, limit],
             ).fetchall()
 
-            error_events: list[dict[str, Any]] = []
-            for event_type, payload_str in event_rows:
-                ev: dict[str, Any] = {"event_type": event_type}
-                if payload_str:
-                    try:
-                        ev.update(json.loads(payload_str))
-                    except json.JSONDecodeError:
-                        ev["raw"] = payload_str
-                error_events.append(ev)
+            failures: list[dict] = []
+            for run_id, agent_id, status in failed_rows:
+                event_rows = con.execute(
+                    """
+                    SELECT event_type, payload
+                    FROM audit_events
+                    WHERE run_id = ?
+                      AND event_type IN ('tool_call_failed', 'run_error')
+                    ORDER BY timestamp
+                    """,
+                    [run_id],
+                ).fetchall()
 
-            failures.append(
-                {
-                    "run_id": run_id,
-                    "agent_id": agent_id,
-                    "status": status,
-                    "error_events": error_events,
-                }
-            )
+                error_events: list[dict[str, Any]] = []
+                for event_type, payload_str in event_rows:
+                    ev: dict[str, Any] = {"event_type": event_type}
+                    if payload_str:
+                        try:
+                            ev.update(json.loads(payload_str))
+                        except json.JSONDecodeError:
+                            ev["raw"] = payload_str
+                    error_events.append(ev)
 
-        con.close()
+                failures.append(
+                    {
+                        "run_id": run_id,
+                        "agent_id": agent_id,
+                        "status": status,
+                        "error_events": error_events,
+                    }
+                )
 
         total_failures = len(failures)
         total_ok = total_all - total_failures
