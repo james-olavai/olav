@@ -146,10 +146,9 @@ def _run(agent: str, prompt: str, timeout: int = 180) -> str:
 
 
 def _is_planning_only(out: str) -> bool:
-    """Return True if agent produced a correct planning checkpoint but didn't execute.
-    Pattern: SESSION INTENT + NEXT STEPS present, but no actual SQL result data.
-    Indicates the agent understood the request and delegated correctly but timed out
-    before execution completed. Treat as acceptable pass — intent was demonstrated.
+    """Return True if agent produced planning text but no actual SQL execution.
+    Pattern: SESSION INTENT / NEXT STEPS present, but no execution data keywords.
+    Tests that hit this path call pytest.skip() — not a pass, not a fail.
     """
     out_lower = out.lower()
     has_planning = (
@@ -198,11 +197,10 @@ class TestCH3InventoryBaseline:
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
                 f"See dev_docs/90. Output tail:\n{out[-600:]}"
             )
-        # Accept: actual Cisco device data OR vendor-aware planning checkpoint
-        # (agent understood query intent but timed out before SQL execution)
-        assert ("cisco" in out_lower
-                or ("vendor" in out_lower and "## next steps" in out_lower)), (
-            f"Expected 'cisco' or vendor-inventory planning in response:\n{out[:800]}"
+        if _is_planning_only(out):
+            pytest.skip("ISSUE-PLANNING-ONLY-ACCEPTANCE: agent produced planning text but no SQL execution — timed out before executing")
+        assert "cisco" in out_lower, (
+            f"Expected Cisco device data in inventory response:\n{out[:800]}"
         )
 
     def test_mentions_device_count(self):
@@ -216,9 +214,8 @@ class TestCH3InventoryBaseline:
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
                 f"See dev_docs/90. Output tail:\n{out[-600:]}"
             )
-        # Planning-only: accept if agent acknowledged the count intent
-        if "## next steps" in out_lower and "vendor" in out_lower:
-            return
+        if _is_planning_only(out):
+            pytest.skip("ISSUE-PLANNING-ONLY-ACCEPTANCE: agent produced planning text but no SQL execution — timed out before executing")
         import re
         numbers = [int(n) for n in re.findall(r"\b(\d{3,})\b", out)]
         assert any(n >= 300 for n in numbers), (
@@ -236,10 +233,10 @@ class TestCH3InventoryBaseline:
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
                 f"See dev_docs/90. Output tail:\n{out[-600:]}"
             )
-        # Accept: actual model numbers OR planning context mentioning "top 10" + "model"
+        if _is_planning_only(out):
+            pytest.skip("ISSUE-PLANNING-ONLY-ACCEPTANCE: agent produced planning text but no SQL execution — timed out before executing")
         assert (any(m in out_lower for m in ("3850", "c9300", "c9500", "ws-c"))
-                or ("top 10" in out_lower and "model" in out_lower)
-                or ("## next steps" in out_lower and "most frequent" in out_lower)), (
+                or ("top 10" in out_lower and "model" in out_lower)), (
             f"Expected model breakdown in inventory response:\n{out[:800]}"
         )
 
