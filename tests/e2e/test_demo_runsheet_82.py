@@ -704,6 +704,12 @@ class TestCH15MemoryInjection:
         cls._import_output = (result.stdout or "") + (result.stderr or "")
 
     @classmethod
+    def teardown_class(cls):
+        # Remove the test yaml so it doesn't leak into unit test discover_experts() scans.
+        if _CH15_YAML_PATH.exists():
+            _CH15_YAML_PATH.unlink()
+
+    @classmethod
     def _get(cls) -> str:
         if cls._out is None:
             cls._out = _run(

@@ -42,8 +42,8 @@ def test_analyzer_declares_sim_as_subagent():
         (s["path"] if isinstance(s, dict) else s)
         for s in subagents
     ]
-    assert any("sim/SKILL.md" in p for p in paths), (
-        f"analyzer must declare ../sim/SKILL.md in subagents:; got {paths}"
+    assert any("sim/SKILL.md" in p or "simulator/SKILL.md" in p for p in paths), (
+        f"analyzer must declare ../simulator/SKILL.md (or ../sim/SKILL.md) in subagents:; got {paths}"
     )
 
 
