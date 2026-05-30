@@ -789,6 +789,7 @@ class OLAVAgent:
             store=self.store,
             subagents=subagents,
             middleware=effective_middleware,
+            filesystem_middleware=False,
         )
         if _fs_permissions is not None:
             _create_kwargs["permissions"] = _fs_permissions
@@ -813,51 +814,6 @@ class OLAVAgent:
         self._olav_middleware = list(effective_middleware)
         self._olav_callbacks = list(effective_callbacks)
 
-        # 2026-05-10 INVIVO-ORCH-FILESYSTEM-LEAK fix: deepagents auto-
-        # injects FilesystemMiddleware tools (glob, grep, ls, read_file,
-        # write_file, edit_file) and TodoListMiddleware (write_todos)
-        # into the orchestrator's tool registry. The FilesystemPermission
-        # deny rules silently fail to match relative glob patterns
-        # (paths=["/**"] doesn't match "**/r3-r4-ebgp*"), so the LLM
-        # successfully calls glob to search files instead of dispatching
-        # to a sub-agent.
-        #
-        # T15 in-vivo failure: prompt "fix wrong interface in r3-r4-ebgp"
-        # → orchestrator called glob("**/r3-r4-ebgp*") + glob(
-        # "/exports/**/*.tcf.yaml"), never reached task("sim").
-        #
-        # Surgical fix: prune the offending tools from the compiled
-        # graph's tool registry. Orchestrators that declare a `tools:`
-        # whitelist in SKILL.md should ONLY have those tools (plus
-        # olav_delegate/task for sub-agent dispatch).
-        self._prune_orchestrator_tools(olav_config)
-
-    def _prune_orchestrator_tools(self, olav_config: dict) -> None:
-        """Strip auto-injected filesystem / todo tools from the compiled
-        orchestrator graph (post-create_deep_agent fixup).
-
-        Why this is post-compile rather than pre: deepagents'
-        ``create_deep_agent`` appends FilesystemMiddleware tools to
-        whatever ``tools=`` we pass, and there is no public API to
-        opt out of the base middleware stack. The simplest path is
-        to mutate the compiled tool registry on the ``tools`` node
-        afterward.
-
-        Tools removed by default: ``glob``, ``grep``, ``ls``,
-        ``read_file``, ``write_file``, ``edit_file``, ``execute``,
-        ``write_todos``. Sub-agent dispatch tools (``task``,
-        ``olav_delegate``) and OLAV-declared tools are preserved.
-        Override via ``OLAV_KEEP_BUILTIN_TOOLS=1`` if a debug session
-        needs the unfiltered set.
-        """
-        if os.environ.get("OLAV_KEEP_BUILTIN_TOOLS"):
-            logger.info(
-                "Orchestrator tool prune SKIPPED — OLAV_KEEP_BUILTIN_TOOLS=1"
-            )
-            return
-
-        _prune_graph_tools(self.graph, _DEEPAGENTS_INJECT_TOOLS, f"orchestrator '{self.agent_id}'")
-        _prune_model_node_bind_tools(self.graph, _DEEPAGENTS_INJECT_TOOLS, f"orchestrator '{self.agent_id}'")
 
     # ------------------------------------------------------------------
     # Tool loading helpers
@@ -1145,9 +1101,14 @@ class OLAVAgent:
                 # Prepend core tools; subagent-local tools take precedence on name clash
                 tools = [t for t in core_tools if t.name not in existing_names] + tools
 
-            prompt_file = metadata.get("system_prompt_file", "prompts/system.md")
-            prompt_path = sa_dir / prompt_file
-            prompt = _read_prompt_file(prompt_path)
+            # System prompt: SKILL.md body is the canonical source.
+            # system_prompt_file in frontmatter is an explicit override
+            # (used by dual-path agents like core/writer that are also
+            # top-level orchestrators and need a separate prompt file).
+            if "system_prompt_file" in metadata:
+                prompt = _read_prompt_file(sa_dir / metadata["system_prompt_file"])
+            else:
+                prompt = (post.content or "").strip()
             if not prompt:
                 prompt = f"You are the {name} agent."
 
@@ -1164,7 +1125,7 @@ class OLAVAgent:
             sa_thinking = metadata.get("thinking_mode")
             sa_llm_overrides = metadata.get("llm") or {}
             sa_llm = self.llm
-            _orch_thinking = (self._preloaded_olav_config or {}).get("thinking_mode")
+            _orch_thinking = (getattr(self, "_preloaded_olav_config", None) or {}).get("thinking_mode")
             _needs_dedicated_llm = (
                 (sa_thinking is not None and sa_thinking != _orch_thinking)
                 or bool(sa_llm_overrides)
@@ -1298,16 +1259,16 @@ class OLAVAgent:
         """Get the system prompt for the orchestrator.
 
         Build order:
-          1. PLATFORM.md context (global — platform topology, registered agents)
+          1. olav.md context (global — platform topology, registered agents)
           2. Agent's own prompts/system.md
           3. static_context files declared in AGENT.md frontmatter
         """
-        # ① PLATFORM.md global context
+        # ① olav.md global context
         try:
             from olav.core.platform_registry import PlatformRegistry
             platform_ctx = PlatformRegistry.load(self.olav_base_path / "workspace").as_context()
         except Exception as _e:
-            logger.debug("PLATFORM.md context unavailable: %s", _e)
+            logger.debug("olav.md context unavailable: %s", _e)
             platform_ctx = ""
 
         # ② Agent-specific system prompt

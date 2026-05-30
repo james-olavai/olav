@@ -1,98 +1,92 @@
 ---
-name: learner
 agent_type: api
-thinking_mode: disabled
+description: 'Parser-layer learning for CLI output. Takes raw device output the stock
+  ntc-templates can''t parse and produces a persistent parser (TextFSM or Python).
+  Invoked via `/learn_cmd` — learns once, freezes the parser, every subsequent pipeline
+  run picks it up automatically.
+
+  '
 llm:
   temperature: 0.0
-description: >
-  Parser-layer learning for CLI output. Takes raw device output the
-  stock ntc-templates can't parse and produces a persistent parser
-  (TextFSM or Python). Invoked via `/learn_cmd` — learns once, freezes
-  the parser, every subsequent pipeline run picks it up automatically.
-tools:
-  - execute_skill_script
-scripts:
-  - name: learn_commands
-    description: "Batch-mode parser learning from a list of (device, command, raw_output) samples"
-    file: learn_commands.py
-  - name: cmd_learn
-    description: "Interactive single-command parser learning and freezing via /learn_cmd"
-    file: cmd_learn.py
-references:
-  - path: ./references/DSL_CHOICE_RULES.md
-  - path: ./references/FROZEN_LAYOUT.md
 metadata:
-  version: 1.0.0
   category: network-operations
   required_params:
     batch:
-      - samples_list
+    - samples_list
     interactive:
-      - command_text
-      - device_name
+    - command_text
+    - device_name
+  version: 1.0.0
+name: learner
+references:
+- path: ./references/DSL_CHOICE_RULES.md
+- path: ./references/FROZEN_LAYOUT.md
+scripts:
+- description: Batch-mode parser learning from a list of (device, command, raw_output)
+    samples
+  file: learn_commands.py
+  name: learn_commands
+- description: Interactive single-command parser learning and freezing via /learn_cmd
+  file: cmd_learn.py
+  name: cmd_learn
+thinking_mode: disabled
+tools:
+- execute_skill_script
 ---
 
-# Command Learner
 
-Unified parser-learning skill.  Invoked by **user-initiated**
-`/learn_cmd` only — `netops_init` does **not** call this skill.
-Round 72 (ISSUE-LEARNER-BATCH-CUT) removed batch auto-learning from
-the pipeline; v0.21.0 deleted `olav_netops.core.auto_learn` entirely.
 
-## Why this skill exists
+# Command Learner System Prompt
 
-Parse coverage out of the box (ntc-templates + custom TextFSM + PaC
-parsers) is never 100% — vendors add commands, output formats drift
-between OS versions, and some output structures ntc doesn't ship a
-template for.  When `/netops_init`'s Stage 3.5 parse-coverage
-classifier reports a `(platform, command)` pair as *raw-only*, it
-writes it to `.olav/config/unsupported.json` and prints an
-actionable invocation:
+You are a parser-generation agent. Given raw CLI output from a network
+device you produce either a TextFSM template or a Python `def parse(raw)`
+function that structures the output into a list of dicts.
+
+## Hard rules
+
+1. **Pick the right DSL for the input**:
+   - Aligned-column tables, one record per line → **TextFSM** (simpler,
+     portable, no sandbox required to execute).
+   - Multi-line blocks separated by blank lines (Junos-style), indented
+     key-value sections, or any structure TextFSM's line-oriented model
+     struggles with → **Python** (`def parse(raw: str) -> list[dict]`).
+2. **Every sample must parse successfully**. If the user gives you 3
+   samples from 3 different devices, your parser must return non-empty
+   structured records for **all three**. A "best effort" parser that
+   works on one device is not acceptable.
+3. **Generalize**. If one sample has ASN `"65000"` and another has
+   `"1.1"` (asdot), emit `\S+` not a hardcoded pattern. The point of
+   multi-sample input is variance.
+4. **Python parsers run under AST allowlist** — allowed modules are
+   `json / re / typing / collections / ipaddress / dataclasses /
+   itertools / logging / netutils`. Banned: `os / sys / subprocess /
+   shutil / pathlib / socket / urllib / requests / httpx / open /
+   eval / exec / compile / __import__ / input / getattr / setattr /
+   globals / locals / vars`.
+5. **Never read files, never open network connections**. Your
+   parser is a pure function: raw text in, list-of-dicts out.
+
+## Output format
+
+Start your response with one marker line indicating the DSL:
 
 ```
-⚡ To enable structured queries for these, run:
-    olav --agent netops '/learn_cmd cisco_ios "show spanning-tree"'
+# OLAV_DSL: textfsm
 ```
 
-The user runs `/learn_cmd <platform> "<command>"` when they want that
-concept in SQL — the skill learns once, freezes the parser to
-`.olav/templates/`, and every subsequent pipeline run picks it up
-via the standard three-tier parse chain.
+or
 
-Router between DSLs (TextFSM vs Python) lives in
-`references/DSL_CHOICE_RULES.md`.
+```
+# OLAV_DSL: python
+```
 
-## Entry points
+Then emit **only** the parser source — no prose, no explanation, no
+markdown fences. Your entire response after the marker should be
+valid TextFSM or valid Python.
 
-### `learn_commands(samples, budget_seconds, max_workers, max_retries, allow_llm, force_relearn) -> LearnResult`
+## Reflection on retry
 
-Direct function call. No agent, no NL parsing.
-
-- **samples**: `list[{device, platform, command, raw_output}]`
-- **budget_seconds**: wall-clock hard limit (default 300)
-- **max_workers**: ThreadPool size (default 5)
-- **max_retries**: per-command LLM attempts (default 2)
-- **allow_llm**: False = frozen-only (CI / smoke install)
-- **force_relearn**: ignore failure cache
-
-Called by `/learn_cmd` (agent-facing).  Not called by `netops_init`
-(pipeline); see ISSUE-LEARNER-BATCH-CUT for rationale.
-
-### `cmd_learn` (LangChain `@tool`)
-
-Thin wrapper for agent-side invocation. Captures raw via `_run_one`
-then calls `learn_commands([single_sample])`.
-
-## Output contract
-
-Frozen artifacts:
-
-| DSL | Location |
-|---|---|
-| TextFSM | `.olav/templates/<platform>/<cmd_safe>.textfsm` |
-| Python (main) | `.olav/templates/parsers/<platform>/<cmd_safe>.py` |
-| Python (quarantine) | `.olav/templates/parsers/_quarantine/<platform>/<cmd_safe>.py` |
-| Failure cache | `.olav/templates/_failed_learn.json` (TTL 7 days) |
-
-Runtime parse chain unchanged (`textfsm_parse.parse_output`):
-PaC Python → custom TextFSM → ntc-templates.
+If your previous attempt failed, the prompt will include the last
+error (parse exception, sample coverage < 70%, AST violation, etc.).
+Diagnose it directly and fix. Don't apologize; re-emit corrected
+source.

@@ -344,7 +344,7 @@ def parse_args():
 
     # Refresh command — rebuild global agent registry (deterministic, no LLM)
     subparsers.add_parser(
-        "refresh", help="Rebuild global agent registry (PLATFORM.md + routing table)"
+        "refresh", help="Rebuild global agent registry (olav.md + routing table)"
     )
 
     # Sessions command — list conversation sessions across interfaces (M4)
@@ -663,6 +663,125 @@ def _resolve_agent_id(agent_id: str, workspace: str | None) -> str:
         return str(resolved.relative_to(workspace_root))
     except ValueError:
         return agent_id
+
+
+async def _try_run_via_api_server(
+    query: str,
+    assistant_id: str,
+    session_id: str | None,
+    token: str | None,
+    port: int = 2280,
+    probe_timeout: float = 0.3,
+) -> bool:
+    """Probe the running API server and stream the response if available.
+
+    Returns True if the server handled the request, False if the server is
+    unreachable (caller should fall back to local in-process agent).
+    """
+    import uuid as _uuid
+    try:
+        import httpx as _httpx
+    except ImportError:
+        return False
+
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    base_url = f"http://localhost:{port}"
+
+    # Fast probe — bail immediately if server is not up.
+    try:
+        async with _httpx.AsyncClient(timeout=probe_timeout) as _probe:
+            r = await _probe.get(f"{base_url}/ok")
+            if r.status_code != 200:
+                return False
+    except Exception:
+        return False
+
+    thread_id = session_id or str(_uuid.uuid4())
+
+    # Ensure thread exists (idempotent).
+    try:
+        async with _httpx.AsyncClient(timeout=5, headers=headers) as _hc:
+            await _hc.post(f"{base_url}/threads", json={"thread_id": thread_id})
+    except Exception:
+        return False
+
+    # Stream via SSE — messages mode gives per-token deltas.
+    payload = {
+        "assistant_id": assistant_id,
+        "input": {"messages": [{"role": "human", "content": query}]},
+        "stream_mode": "messages",
+        "config": {
+            "recursion_limit": int(os.environ.get("OLAV_RECURSION_LIMIT", "200")),
+        },
+    }
+
+    _chunks: list[str] = []
+    try:
+        import json as _json
+        async with _httpx.AsyncClient(timeout=300, headers=headers) as _hc:
+            async with _hc.stream(
+                "POST",
+                f"{base_url}/threads/{thread_id}/runs/stream",
+                json=payload,
+            ) as resp:
+                if resp.status_code >= 400:
+                    logger.debug("API server returned %s — falling back to local", resp.status_code)
+                    return False
+                _event_type: str = ""
+                async for line in resp.aiter_lines():
+                    line = line.strip()
+                    if not line:
+                        _event_type = ""
+                        continue
+                    if line.startswith("event:"):
+                        _event_type = line[6:].strip()
+                        continue
+                    if not line.startswith("data:"):
+                        continue
+                    raw = line[5:].strip()
+                    if _event_type == "error":
+                        # Server-side error — fall back to local agent.
+                        logger.debug("API server stream error: %s", raw[:200])
+                        return False
+                    if _event_type not in ("messages/partial", "messages/complete"):
+                        continue
+                    try:
+                        items = _json.loads(raw)
+                    except Exception:
+                        continue
+                    if not isinstance(items, list):
+                        items = [items]
+                    for item in items:
+                        if not isinstance(item, dict):
+                            continue
+                        # AIMessageChunk (partial) or ai (complete) carries text.
+                        if item.get("type") not in ("AIMessageChunk", "AIMessage", "ai"):
+                            continue
+                        content = item.get("content", "")
+                        if not isinstance(content, str):
+                            # Structured content blocks (tool use etc.) — skip.
+                            continue
+                        if content and _event_type == "messages/partial":
+                            console.print(content, end="")
+                            _chunks.append(content)
+                        elif content and _event_type == "messages/complete" and not _chunks:
+                            # No partial chunks received — print complete response.
+                            console.print(content)
+                            _chunks.append(content)
+    except Exception as exc:
+        logger.debug("API server streaming failed (%s) — falling back to local", exc)
+        # If we already printed some output, don't fall back (it would duplicate).
+        if _chunks:
+            console.print()  # newline after partial output
+            return True
+        return False
+
+    if _chunks:
+        console.print()  # ensure trailing newline
+    return True
 
 
 def create_olav_agent_with_backend(
@@ -1081,6 +1200,7 @@ async def run_single_query(
     # deepagents-cli is used for TUI mode; single-query uses langgraph native API
 
     # P1: silent auth check (D6) — no interactive prompt in single-query mode
+    _token: str | None = None
     if _get_auth_mode() != "none":
         identity = _silent_auth()
         if identity is None:
@@ -1090,8 +1210,31 @@ async def run_single_query(
             )
             sys.exit(1)
         user_id = identity.username
+        _token = getattr(identity, "token", None)
+        if _token is None:
+            try:
+                from olav.core.auth.keyring_store import load_token
+                _token = load_token()
+            except Exception:
+                pass
     else:
         user_id = os.environ.get("USER", "anonymous")
+
+    # ── API server fast-path: route through running background server ──
+    # When the OLAV API server (uvicorn olav.api.app:app --port 2280) is up,
+    # delegate to it instead of creating a second in-process agent instance.
+    # Benefits: avoids double graph init (~3s), shared audit/memory state,
+    # eliminates DuckDB concurrent-connection conflicts.
+    # Falls back to local agent if server is unreachable.
+    _server_port = int(os.environ.get("OLAV_API_PORT", "2280"))
+    if await _try_run_via_api_server(
+        query=query,
+        assistant_id=assistant_id,
+        session_id=session_id,
+        token=_token,
+        port=_server_port,
+    ):
+        return
 
     # Top-level agent selection is explicit (--agent ops/audit).
     # Core is always the default. Semantic routing is used WITHIN an agent

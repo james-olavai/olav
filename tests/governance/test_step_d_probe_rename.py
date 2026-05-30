@@ -30,14 +30,18 @@ COLLECT = WORKSPACE / "netops" / "collector"
 
 def test_collect_directory_exists():
     assert COLLECT.is_dir(), f"netops/collect/ missing: {COLLECT}"
-    # tools/ deleted in rev ~298 (@tool→scripts migration complete); prompts/ still required
-    for sub in ("prompts",):
-        assert (COLLECT / sub).is_dir(), f"netops/collect/{sub}/ missing"
 
 
 def test_collect_has_skill_and_system_prompt():
+    """prompts/system.md merged into SKILL.md body — verify file exists and body is non-empty."""
     assert (COLLECT / "SKILL.md").is_file()
-    assert (COLLECT / "prompts" / "system.md").is_file()
+    text = (COLLECT / "SKILL.md").read_text(encoding="utf-8")
+    if text.startswith("---\n"):
+        parts = text.split("---\n", 2)
+        body = parts[2].strip() if len(parts) >= 3 else ""
+    else:
+        body = text.strip()
+    assert body, "collector SKILL.md body (system prompt) is empty"
 
 
 def test_probe_directory_removed():

@@ -1,7 +1,7 @@
 ---
 name: netops
 description: "Network Operations — SSH collection, BGP/OSPF analysis, topology queries, simulation, drift detection, ContainerLab digital twin, parser learning"
-system_prompt_file: prompts/orchestrator.md
+system_prompt_file: prompts/netops.md
 # 2026-05-15: gemma4:31b 全栈策略 — 仅 analyzer (PLAN-Act-Reflect 子代理)
 # 用 thinking ON；orchestrator + 所有其他 sub-agent 走 thinking OFF.
 # 编排器只做关键字路由 + dispatch，不需要 reasoning。早期 R-VERTICAL-SLICE

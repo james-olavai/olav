@@ -419,7 +419,7 @@ class SemanticRouter:
                     "method": "default",
                 }
 
-        # Discover agents via PLATFORM.md (Tier 1) then AGENT.md fallback
+        # Discover agents via olav.md (Tier 1) then AGENT.md fallback
         from olav.core.workspace import resolve_workspace_root
 
         ws_root = resolve_workspace_root()
@@ -507,7 +507,7 @@ def discover_valid_agents(workspace_root: "Path | None" = None) -> list[str]:
     """Return the ordered list of top-level agent names for this platform.
 
     Resolution order (first match wins):
-      1. PLATFORM.md ``agents:`` list  — explicit Tier-1 registration
+      1. olav.md ``agents:`` list  — explicit Tier-1 registration
       2. Workspace subdirs with AGENT.md — filesystem fallback
       3. ["core"]                        — last-resort default (v0.15+)
 
@@ -527,7 +527,7 @@ def discover_valid_agents(workspace_root: "Path | None" = None) -> list[str]:
     if not workspace_root.exists():
         return ["core"]
 
-    # Tier 1 — PLATFORM.md explicit list
+    # Tier 1 — olav.md explicit list
     registry = PlatformRegistry.load(workspace_root)
     if registry.agents:
         return registry.agents
@@ -544,7 +544,7 @@ def discover_valid_agents(workspace_root: "Path | None" = None) -> list[str]:
 def _load_agents_from_workspace() -> list[dict[str, Any]]:
     """Load agent definitions for the LanceDB semantic routing index.
 
-    Uses PLATFORM.md agents list (Tier 1) to enumerate agents, then reads
+    Uses olav.md agents list (Tier 1) to enumerate agents, then reads
     MANIFEST.yaml route_keywords for each to build the index entries.
     Falls back to AGENT.md description if no MANIFEST exists.
     """

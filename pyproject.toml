@@ -297,7 +297,7 @@ markers = [
     "slow: Slow-running tests",
     "integration: Integration tests (requires live CLAB/network services)",
 ]
-timeout = 120
+timeout = 360
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",

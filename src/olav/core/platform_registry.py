@@ -1,12 +1,12 @@
-"""platform_registry — global PLATFORM.md loader.
+"""platform_registry — global olav.md loader.
 
 Tier 1 of the three-tier registration model:
 
-  Tier 1 (Global):  PLATFORM.md → top-level agents + platform context
+  Tier 1 (Global):  olav.md → top-level agents + platform context
   Tier 2 (Agent):   AGENT.md   → sub-agents (per-agent declaration)
   Tier 3 (Dynamic): MANIFEST.yaml → Skill auto-discovery
 
-PLATFORM.md lives at .olav/workspace/PLATFORM.md.  Its YAML frontmatter
+olav.md lives at .olav/workspace/olav.md.  Its YAML frontmatter
 declares which top-level agents are installed and any platform-wide context
 (database paths, service endpoints, etc.).
 
@@ -43,17 +43,17 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-PLATFORM_MD_FILENAME = "PLATFORM.md"
+PLATFORM_MD_FILENAME = "olav.md"
 
 
 @dataclass
 class PlatformRegistry:
-    """Parsed representation of PLATFORM.md.
+    """Parsed representation of olav.md.
 
     Attributes
     ----------
     agents:
-        Ordered list of top-level agent names declared in PLATFORM.md.
+        Ordered list of top-level agent names declared in olav.md.
         These are the valid routing targets for the platform router.
     active:
         The default/active agent name (``active:`` frontmatter key).
@@ -79,7 +79,7 @@ class PlatformRegistry:
 
     @classmethod
     def load(cls, workspace_root: Path) -> "PlatformRegistry":
-        """Load PLATFORM.md from *workspace_root*.
+        """Load olav.md from *workspace_root*.
 
         Returns an empty registry (all defaults) if the file is missing or
         cannot be parsed — never raises.
@@ -92,7 +92,7 @@ class PlatformRegistry:
             text = platform_md.read_text(encoding="utf-8")
             meta, body = _parse_frontmatter(text)
         except Exception as exc:
-            logger.warning("Failed to parse PLATFORM.md at %s: %s", platform_md, exc)
+            logger.warning("Failed to parse olav.md at %s: %s", platform_md, exc)
             return cls()
 
         agents = list(meta.get("agents") or [])

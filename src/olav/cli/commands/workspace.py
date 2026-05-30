@@ -155,7 +155,7 @@ class WorkspaceCommand(BaseCommand):
         data["active_workspace"] = name
         api_path.write_text(_json.dumps(data, indent=2), encoding="utf-8")
 
-        # GAP-05: sync PLATFORM.md active: field
+        # GAP-05: sync olav.md active: field
         _update_platform_md_active(self.workspace_root, name)
 
         return result_msg
@@ -439,13 +439,13 @@ class WorkspaceCommand(BaseCommand):
 # ── module-level helpers ──────────────────────────────────────────────────────
 
 def _update_platform_md_active(workspace_root: Path, agent_name: str) -> None:
-    """GAP-05: update PLATFORM.md active: field when workspace use is called."""
+    """GAP-05: update olav.md active: field when workspace use is called."""
     from olav.core.platform_registry import _parse_frontmatter
     import yaml as _yaml
 
-    platform_md = workspace_root / "PLATFORM.md"
+    platform_md = workspace_root / "olav.md"
     if not platform_md.exists():
-        return  # nothing to update if PLATFORM.md doesn't exist
+        return  # nothing to update if olav.md doesn't exist
 
     try:
         text = platform_md.read_text(encoding="utf-8")
@@ -457,4 +457,4 @@ def _update_platform_md_active(workspace_root: Path, agent_name: str) -> None:
         platform_md.write_text(new_text, encoding="utf-8")
     except Exception as exc:
         import logging
-        logging.getLogger(__name__).warning("Failed to update PLATFORM.md active: %s", exc)
+        logging.getLogger(__name__).warning("Failed to update olav.md active: %s", exc)

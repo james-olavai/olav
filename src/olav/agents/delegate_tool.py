@@ -170,7 +170,7 @@ def build_delegate_tool(
         Args:
             subagent_name: Exact name of the subagent (e.g. 'analyzer',
                            'sim', 'investigate').  Call
-                           list_platform_services() or check PLATFORM.md to
+                           list_platform_services() or check olav.md to
                            discover available names.
             task_description: Complete, self-contained task description.
                               The subagent has NO memory of the current

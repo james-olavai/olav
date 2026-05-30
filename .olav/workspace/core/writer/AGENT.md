@@ -3,7 +3,7 @@ name: writer
 kind: Agent
 description: "Writer sub-agent — polishing markdown documents, generating reports, and summarizing content from exports/."
 version: "0.1.0"
-system_prompt_file: prompts/system.md
+system_prompt_file: prompts/writer.md
 subagents: []
 static_context: []
 ---
