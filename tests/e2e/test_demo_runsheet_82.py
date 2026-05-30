@@ -6,6 +6,9 @@
     # 需要本地 LLM 在线（已配置 gemma-4-31b-it-Q4_K_M.gguf）
     RUNSHEET_E2E_ENABLED=1 uv run pytest tests/e2e/test_demo_runsheet_82.py -v
 
+慢速环境（LLM 响应 >30s）可设超时乘数：
+    OLAV_E2E_TIMEOUT_FACTOR=2 RUNSHEET_E2E_ENABLED=1 uv run pytest ...
+
 数据集要求: main.duckdb 中已存在至少 2 个快照（运行 netops ingest 后自动满足；演示环境已预载）。
 """
 from __future__ import annotations
@@ -19,9 +22,9 @@ from pathlib import Path
 import pytest
 
 # Each CH invokes a full LLM agent chain — override the global 360s pytest-timeout.
-# subprocess timeout per _run() is 180-480s; worst case 3 retries × 480s + 2×60s = 1560s.
-# pytest per-test is 2400s to accommodate the worst-case retry scenario.
-pytestmark = pytest.mark.timeout(2400)
+# subprocess timeout per _run() is 180-480s × OLAV_E2E_TIMEOUT_FACTOR;
+# worst case 3 retries × 480s + 2×20s = 1480s. pytest per-test scales with the factor.
+pytestmark = pytest.mark.timeout(int(2400 * float(os.environ.get("OLAV_E2E_TIMEOUT_FACTOR", "1.0"))))
 
 _ROOT = Path(__file__).resolve().parents[2]
 # RUNSHEET_AGENT_CWD overrides the working directory for all agent invocations.
@@ -32,6 +35,9 @@ _DB = _AGENT_CWD / ".olav" / "databases" / "main.duckdb"
 _OLAV_CMD = [sys.executable, "-m", "olav"]
 
 _LLM_ENABLED = os.environ.get("RUNSHEET_E2E_ENABLED", "").strip() == "1"
+# Scale all subprocess timeouts uniformly. Set OLAV_E2E_TIMEOUT_FACTOR=2 on slow
+# LLM servers (>30s response latency) to avoid spurious CI failures.
+_TIMEOUT_FACTOR = float(os.environ.get("OLAV_E2E_TIMEOUT_FACTOR", "1.0"))
 _LLM_SKIP = pytest.mark.skipif(
     not _LLM_ENABLED,
     reason="LLM-gated: set RUNSHEET_E2E_ENABLED=1 to run 82号 runsheet E2E tests",
@@ -117,11 +123,13 @@ def _run(agent: str, prompt: str, timeout: int = 180) -> str:
     Wraps the subprocess with the Unix ``timeout`` command so that the kill
     is guaranteed regardless of Python's communicate() timer reliability.
     ``--kill-after=15`` sends SIGKILL if SIGTERM is ignored after 15s.
-    Retries once (after 45s) on transient 503 'Loading model' LLM server errors.
+    Retries up to 3× (with 20s sleep) on transient 503 'Loading model' errors.
+    ``timeout`` is scaled by OLAV_E2E_TIMEOUT_FACTOR (default 1.0).
     """
+    effective = int(timeout * _TIMEOUT_FACTOR)
     for attempt in range(3):
         cmd = [
-            "timeout", "--kill-after=15", str(timeout),
+            "timeout", "--kill-after=15", str(effective),
         ] + _OLAV_CMD + ["--agent", agent, prompt]
         proc = subprocess.Popen(
             cmd,
@@ -131,7 +139,7 @@ def _run(agent: str, prompt: str, timeout: int = 180) -> str:
             cwd=str(_AGENT_CWD),
         )
         try:
-            stdout, stderr = proc.communicate(timeout=timeout + 30)
+            stdout, stderr = proc.communicate(timeout=effective + 30)
         except subprocess.TimeoutExpired:
             proc.kill()
             stdout, stderr = proc.communicate()
