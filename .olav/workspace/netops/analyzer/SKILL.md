@@ -19,9 +19,6 @@ scripts:
   - name: inspect_interfaces
     description: "Per-interface IP/status/proto from latest snapshot; Cisco IOS + Junos terse views"
     file: inspect_interfaces.py
-  - name: inspect_routing
-    description: "BGP/OSPF neighborship state from topology graph + DB; returns {device: {bgp:[...], ospf:[...]}}"
-    file: inspect_routing.py
 # Structured change-record (TCF) emission is enterprise-only (olav-ent lab).
 allowed_tables:
   - netops.devices
