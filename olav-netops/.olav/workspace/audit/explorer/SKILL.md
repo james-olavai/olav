@@ -45,7 +45,6 @@ scripts:
 - description: Mark an exploration run as completed and record the final report path
   file: finish_exploration.py
   name: finish_exploration
-system: $ref:./prompts/system.md
 thinking_mode: enabled
 tools:
 - execute_skill_script

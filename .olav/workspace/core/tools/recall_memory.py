@@ -73,43 +73,19 @@ def recall_memory(
 ) -> str:
     """Query long-term memory for past experiences, decisions, and network events.
 
-    Use this when you need to recall:
-    - Historical decisions made in past sessions ("what did we decide about R2?")
-    - Past network events for a specific device ("past BGP issues on R1")
-    - Learned preferences or constraints ("how do we handle OSPF MTU mismatches?")
-    - Prior troubleshooting outcomes ("what caused the outage last time?")
-
-    This uses hybrid semantic search (vector + BM25 + recency boost), so
-    natural language queries work better than exact keywords.
+    Hybrid semantic search (vector + BM25 + recency). Use natural language.
+    Call once at the start of an investigation or change plan.
+    Full usage: tool_help('recall_memory').
 
     Args:
-        query:    Natural language query describing what you're trying to recall.
-                  Examples:
-                    - "BGP session failures on R1"
-                    - "decisions about retiring R2 router"
-                    - "OSPF MTU mismatch root cause"
-                    - "past link-down events on Gi0/1"
-        category: Optional filter:
-                    - "fact"       — Network facts and observed states
-                    - "decision"   — Past decisions and their rationale
-                    - "preference" — Learned preferences and constraints
-                    - "expert_knowledge" — Curated vendor/platform expertise (R87)
-                    - "usage_guide" / "format_guide" — Curated procedural rules
-                    - "audit"      — Failure records and action audits
-                  Leave None to search across all categories.
-        scope:    Optional memory scope filter. Default ``None`` searches
-                  across all scopes — recommended; let vector relevance
-                  pick the most relevant memory regardless of which agent
-                  authored it. Pass an explicit scope (e.g. ``"ops-lab"``,
-                  ``"shared:ops"``, ``"org"``, or a legacy ``"global"``)
-                  only when you need to restrict.
-        limit:    Max results to return. Omit to use the model-tier default
-                  (small=1, medium=2, large=3 per ``TIER_DEFAULTS.recall_top_k``,
-                  ARCH-16). Hard ceiling is 10 regardless of tier.
+        query:    Natural language query ("BGP failures on R1", "OSPF MTU issue").
+        category: Optional — fact / decision / preference / expert_knowledge /
+                  usage_guide / format_guide / audit. None = all categories.
+        scope:    Optional scope filter. None = all scopes (recommended).
+        limit:    Max results. Omit = tier default (small=1, medium=2, large=3).
 
     Returns:
-        Formatted list of relevant memories with timestamps and categories,
-        or "No relevant memories found" if nothing matches.
+        Formatted memory entries with timestamps, or "No relevant memories found".
     """
     if not query or not query.strip():
         return "Error: query must not be empty."

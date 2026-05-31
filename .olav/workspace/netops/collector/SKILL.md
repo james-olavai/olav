@@ -18,13 +18,12 @@ scripts:
   file: execute_cli_parallel.py
   name: execute_cli_parallel
 - description: Collect fresh CLI output and write to parsed_outputs
-  file: ../scripts/take_snapshot.py
+  file: take_snapshot.py
   name: take_snapshot
 - description: 'Pre-flight: discover available CLI commands/pipe rules for a device
     or platform'
-  file: ../scripts/search_commands.py
+  file: search_commands.py
   name: search_commands
-system: $ref:./prompts/system.md
 thinking_mode: disabled
 tools:
 - execute_skill_script

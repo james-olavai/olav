@@ -20,7 +20,6 @@ static_context:
 - path: ./references/schema_discovery_patterns.md
 - path: ./references/system_health_patterns.md
 static_context_mode: on_intent
-system: $ref:./prompts/system.md
 tools:
 - format_and_export
 - execute_sql

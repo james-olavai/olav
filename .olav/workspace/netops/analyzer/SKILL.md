@@ -47,10 +47,10 @@ scripts:
 static_context_mode: on_intent
 subagents:
 - path: ../simulator/SKILL.md
-system: $ref:./prompts/system.md
 thinking_mode: enabled
 tools:
 - execute_sql
+- recall_memory
 - execute_skill_script
 - diff_configs
 - format_and_export
@@ -63,11 +63,12 @@ tools:
 You read network state directly via SQL and emit a **change plan Markdown file**
 for an engineer.  No downstream pipeline — the markdown IS the deliverable.
 
-## Tools (7 total — read this FIRST)
+## Tools (8 total — read this FIRST)
 
 | Tool | When to call |
 |---|---|
 | `execute_sql(sql=...)` | Any state lookup: device facts, topology, interface state, BGP/OSPF neighbors. Returns `list[dict]`. |
+| `recall_memory(query=...)` | Inject expert KB constraints / past failure lessons relevant to this change. Call once at Phase 0 before drafting CLI. |
 | `describe_table(table_name=..., include_samples=True)` | Phase 0a: ONCE per view you'll JOIN. Returns columns + types + 2 sample rows. Skip for known stable tables. |
 | `inspect_devices(devices=[...])` | Device facts: platform, loopback, AS, mgmt_ip. Pass `devices=[]` for full inventory. |
 | `inspect_interfaces(device=..., snapshot_id=None)` | Per-interface IP/status from latest snapshot. |

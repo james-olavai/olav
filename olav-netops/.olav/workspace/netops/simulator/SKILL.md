@@ -36,7 +36,6 @@ scripts:
     structured rows.
   file: batfish_q.py
   name: batfish_q
-system: $ref:./prompts/system.md
 thinking_mode: disabled
 tools:
 - execute_skill_script

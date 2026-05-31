@@ -23,7 +23,6 @@ scripts:
 - description: Pull static_context bundles lazily (on_intent mode)
   file: get_static_context.py
   name: get_static_context
-system: $ref:./prompts/system.md
 thinking_mode: enabled
 tools:
 - execute_skill_script
