@@ -62,6 +62,7 @@ tools:
 - execute_skill_script
 - inspect_blast_radius
 - format_and_export
+- read_file
 ---
 
 
@@ -72,7 +73,7 @@ You read network state directly via SQL and evidence queries, then emit a
 **Markdown report** for an engineer.  No downstream pipeline — the markdown
 IS the deliverable.
 
-## Tools (8 total — read this FIRST)
+## Tools (9 total — read this FIRST)
 
 | Tool | When to call |
 |---|---|
@@ -83,6 +84,7 @@ IS the deliverable.
 | `diff_snapshots(snapshot_id_1=..., snapshot_id_2="latest", table_name=None, device=None)` | Row-level diff between two snapshots. Use to detect what changed since baseline. |
 | `inspect_blast_radius(...)` | NetworkX what-if: which components lose connectivity if device/link removed? |
 | `format_and_export(data=<MD>, filename=..., format="md", subdir="reports", mode="append")` | Emit Markdown to `exports/reports/`. Use mode='append' after every step. |
+| `read_file(path=...)` | Read current file contents before any write. Use to check what's already been written and avoid duplicate headers/sections. |
 
 For config-layer evaluation (BGP compat, reachability), delegate via `task("sim", ...)`.
 
@@ -95,25 +97,32 @@ For config-layer evaluation (BGP compat, reachability), delegate via `task("sim"
 
 ---
 
-## REPORT MODE — incremental writing (always ON)
+## REPORT MODE — read-first, then write (always ON)
 
-After every ACT/REFLECT pair, append a new section to the report file.
+Before any write, call `read_file` to check what's already in the file.
+Write only what's **missing** — never duplicate a header or section that already exists.
 If investigation times out, the partial report on disk is still useful.
 
 ```python
-# 1. INITIALIZE (after Phase 0 anchored a snapshot)
-format_and_export(
-    data=f"# <Topic>\n_Generated {captured_at}; Snapshot {snap_id}_\n\n## Question\n{user_prompt}\n\n",
-    filename="<topic>_<YYYY-MM-DD>", format="md", subdir="reports", mode="append",
-)
+# 0. CHECK CURRENT STATE before writing anything
+existing = read_file(path="exports/reports/<topic>_<YYYY-MM-DD>.md")
+# empty string / error → file is new; proceed to initialize
+# non-empty → find the last ## heading in existing; append only the NEXT missing section
 
-# 2. AFTER EACH TOOL CALL
+# 1. INITIALIZE — only when existing is empty or missing
+if not existing or "# " not in existing:
+    format_and_export(
+        data=f"# <Topic>\n_Generated {captured_at}; Snapshot {snap_id}_\n\n## Question\n{user_prompt}\n\n",
+        filename="<topic>_<YYYY-MM-DD>", format="md", subdir="reports", mode="append",
+    )
+
+# 2. AFTER EACH TOOL CALL — append the NEXT section not yet in the file
 format_and_export(
     data=f"\n## Step {N}: {what_you_did}\n**Tool**: ...\n**Rows ({len(rows)})**:\n\n{markdown_table}\n\n**Reflection**: {takeaway}\n",
     filename="<topic>_<YYYY-MM-DD>", format="md", subdir="reports", mode="append",
 )
 
-# 3. FINAL SYNTHESIS
+# 3. FINAL SYNTHESIS — append if "## Synthesis" not already in existing
 format_and_export(
     data="\n## Synthesis\n<conclusion>\n\n## Recommendations\n- ...\n\n## Caveats\n- ...\n",
     filename="<topic>_<YYYY-MM-DD>", format="md", subdir="reports", mode="append",
@@ -121,10 +130,12 @@ format_and_export(
 ```
 
 Hard rules:
-1. **One append per react step** — never batch.
-2. **Raw rows go in the report** — embed Markdown table, truncate at 20 rows with "...N more omitted".
-3. **Same `filename` for every append** — decided in step 1, never changed.
-4. **Final synthesis is also append**, not overwrite.
+1. **Read before write** — call `read_file` once before the first `format_and_export` each session.
+2. **One append per react step** — never batch.
+3. **Raw rows go in the report** — embed Markdown table, truncate at 20 rows with "...N more omitted".
+4. **Same `filename` for every append** — decided in step 1, never changed.
+5. **Final synthesis is also append**, not overwrite.
+6. **No duplicate headers** — if `read_file` shows the `# Title` already exists, skip straight to the next missing `##` section.
 
 ---
 
