@@ -28,12 +28,12 @@ from olav.agents._deepagents_bridge import (
     AsyncSubAgent,
     CompiledSubAgent,
     FilesystemBackend,
-    HAS_PROMPT_CACHING,
     HAS_SKILLS_MIDDLEWARE,
     SkillsMiddleware,
     SubAgent,
     build_summarization_middleware,
     create_deep_agent,
+    should_use_prompt_caching,
 )
 
 from olav.core.config import settings
@@ -1177,7 +1177,7 @@ class OLAVAgent:
             _summ = build_summarization_middleware(self.llm, tier=_tier)
             if _summ is not None:
                 _middleware.append(_summ)
-            if HAS_PROMPT_CACHING and AnthropicPromptCachingMiddleware is not None:
+            if should_use_prompt_caching():
                 _middleware.append(AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"))
 
             # dev_docs/77 §2.6.2: a sub-agent that itself declares
