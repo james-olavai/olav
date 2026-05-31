@@ -19,6 +19,9 @@ scripts:
 - description: Batch ingest staging JSON files from exports/snapshots/json/ into DuckDB
   file: bulk_ingest.py
   name: bulk_ingest
+- description: List workspace files and grep content (useful for checking agent/tool structure)
+  file: explore_ws.py
+  name: explore_ws
 system: $ref:./prompts/system.md
 thinking_mode: enabled
 tools:
