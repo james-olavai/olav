@@ -30,6 +30,15 @@ _SKILL_MD = _SCRIPTS_WS / "SKILL.md"
 _SYSTEM_MD = _SCRIPTS_WS / "prompts" / "system.md"
 
 
+def _skill_body(md_path: Path) -> str:
+    """Return content body of a SKILL.md (everything after the YAML front-matter)."""
+    text = md_path.read_text(encoding="utf-8")
+    if text.startswith("---\n"):
+        parts = text.split("---\n", 2)
+        return parts[2].strip() if len(parts) >= 3 else ""
+    return text.strip()
+
+
 # ---------------------------------------------------------------------------
 # Workspace structure
 # ---------------------------------------------------------------------------
@@ -48,7 +57,9 @@ class TestDevopsWorkspaceStructure:
         assert _SKILL_MD.exists(), f"scripts/SKILL.md missing from devops workspace at {_SKILL_MD}"
 
     def test_system_prompt_exists(self):
-        assert _SYSTEM_MD.exists(), f"scripts/prompts/system.md missing at {_SYSTEM_MD}"
+        """prompts/system.md merged into SKILL.md body — verify body is non-empty."""
+        body = _skill_body(_SKILL_MD)
+        assert body, f"scripts/SKILL.md body (system prompt) is empty at {_SKILL_MD}"
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +103,7 @@ class TestDevopsNetboxImport:
     """system.md must enforce environment-aware script generation standards."""
 
     def _system_text(self) -> str:
-        return _SYSTEM_MD.read_text(encoding="utf-8")
+        return _skill_body(_SKILL_MD)
 
     def test_script_exported_to_exports_scripts(self):
         """system.md must mandate export via format_and_export to scripts subdir."""
@@ -169,7 +180,7 @@ class TestDevopsInfraBoundary:
     """devops must NOT directly execute API writes — scripts only."""
 
     def _system_text(self) -> str:
-        return _SYSTEM_MD.read_text(encoding="utf-8")
+        return _skill_body(_SKILL_MD)
 
     def test_devops_does_not_execute_api_writes(self):
         """system.md must prohibit api_request write usage."""
@@ -214,9 +225,9 @@ class TestDevopsInfraStructure:
         assert "api_request" in text, "infra/SKILL.md must list api_request in tools:"
 
     def test_infra_system_prompt_exists(self):
-        assert (_INFRA_WS / "prompts" / "system.md").is_file(), (
-            "devops/infra/prompts/system.md missing"
-        )
+        """prompts/system.md merged into SKILL.md body — verify body is non-empty."""
+        body = _skill_body(_INFRA_WS / "SKILL.md")
+        assert body, "devops/infra/SKILL.md body (system prompt) is empty"
 
     def test_infra_references_directory_exists(self):
         refs = _INFRA_WS / "references"
@@ -224,8 +235,8 @@ class TestDevopsInfraStructure:
         assert any(refs.glob("*.md")), "devops/infra/references/ is empty — run olav registry register"
 
     def test_infra_system_prompt_mentions_api_request(self):
-        text = (_INFRA_WS / "prompts" / "system.md").read_text(encoding="utf-8")
-        assert "api_request" in text, "infra/prompts/system.md must show api_request usage"
+        text = _skill_body(_INFRA_WS / "SKILL.md")
+        assert "api_request" in text, "infra/SKILL.md body must show api_request usage"
 
 
 # ---------------------------------------------------------------------------

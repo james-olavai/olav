@@ -243,17 +243,26 @@ class LLMFactory:
         )
         _enable_thinking_explicit = thinking_mode == "enabled"
 
+        _base_for_thinking = str(params.get("base_url") or "").lower()
+        _is_openrouter = "openrouter" in _base_for_thinking
         if _disable_thinking:
             # Provider-specific thinking-off mechanism:
             # * Ollama (langchain-ollama) — native ``reasoning`` field on
             #   ChatOllama.  Set False to disable thinking entirely.
-            # * llama.cpp / vLLM / OpenAI-compat — pass
+            # * llama.cpp / vLLM / local OpenAI-compat — pass
             #   ``chat_template_kwargs.enable_thinking=false`` via
             #   extra_body.  llama-server forwards to the template
             #   renderer; unknown keys ignored elsewhere.
+            # * OpenRouter — DO NOT send chat_template_kwargs.  OpenRouter
+            #   forwards extra_body fields to the downstream provider
+            #   (e.g. deepseek-v4-flash) which does NOT support
+            #   enable_thinking and responds with choices[0].message=null
+            #   for conversations that contain ToolMessage entries.
+            #   2026-05-31: confirmed via direct curl; 4-message tool call
+            #   conversation → null content when enable_thinking=False sent.
             if params.get("model_provider") == "ollama":
                 params["reasoning"] = False
-            else:
+            elif not _is_openrouter:
                 mkw = params.setdefault("model_kwargs", {})
                 extra = mkw.setdefault("extra_body", {})
                 ctk = extra.setdefault("chat_template_kwargs", {})
@@ -271,7 +280,7 @@ class LLMFactory:
             # upstream default or model preset.
             if params.get("model_provider") == "ollama":
                 params["reasoning"] = True
-            else:
+            elif not _is_openrouter:
                 mkw = params.setdefault("model_kwargs", {})
                 extra = mkw.setdefault("extra_body", {})
                 ctk = extra.setdefault("chat_template_kwargs", {})
@@ -320,10 +329,12 @@ class LLMFactory:
 
         # Use init_chat_model - LangChain handles provider detection
         try:
-            return init_chat_model(**params)
+            llm = init_chat_model(**params)
         except Exception as e:
             logger.error(f"Failed to initialize chat model: {e}")
             raise
+
+        return llm
 
     @staticmethod
     def test_connectivity() -> bool:

@@ -99,7 +99,12 @@ def build_graph(assistant_id: str | None = None) -> Any:
         _ENV_ASSISTANT_ID,
         os.environ.get(_ENV_ASSISTANT_ID, ""),
     )
-    compiled, _backend = create_olav_agent_with_backend(name)
+    # Disable custom checkpointer/store: langgraph_api ≥0.7.100 raises
+    # ValueError when the graph carries a custom checkpointer or store —
+    # the platform manages persistence itself (in-memory for local dev,
+    # Postgres for cloud).  Passing enable_checkpointer=False compiles
+    # the graph without them so the server starts cleanly.
+    compiled, _backend = create_olav_agent_with_backend(name, enable_checkpointer=False)
     return compiled
 
 

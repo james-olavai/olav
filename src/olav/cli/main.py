@@ -850,6 +850,7 @@ def create_olav_agent_with_backend(
     sandbox=None,
     sandbox_type: str | None = None,
     workspace: str | None = None,
+    enable_checkpointer: bool = True,
 ):
     """Create OLAV agent with CompositeBackend.
 
@@ -876,7 +877,7 @@ def create_olav_agent_with_backend(
     olav_agent = OLAVAgent(
         agent_id=effective_id,
         session_id=session_id,
-        enable_checkpointer=True,
+        enable_checkpointer=enable_checkpointer,
     )
 
     # Create backend
