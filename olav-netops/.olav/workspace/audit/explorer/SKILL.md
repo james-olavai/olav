@@ -221,7 +221,7 @@ ORDER BY CAST(severity AS INT) LIMIT 50
 For offline/imported bundles, always use `v_show_logging_auto` via `execute_sql`.
 
 After each query: interpret the result in one sentence.
-If a result shows a clear problem, **persist it immediately** — both to DB and to the report:
+**After EVERY layer query — whether findings exist or not — write the section to the report immediately before moving to the next layer.** Also persist confirmed findings to DB:
 
 ```python
 # 1. Structured DB record (queryable by downstream agents)
@@ -254,13 +254,18 @@ Derive the filename from the user's request or network name — never hardcode i
 Example: `"network_health_2026-05-18"` or `"vu_campus_health_2026-05-18"`.
 
 ```python
-report_fn = "network_health_<YYYY-MM-DD>"   # decide once, reuse every append
+# Use TODAY's date for the filename (when the report is being written),
+# NOT the snapshot's captured_at date. The snapshot date goes inside the report.
+import datetime
+today = datetime.date.today().strftime("%Y-%m-%d")
+report_fn = f"network_health_{today}"   # decide once, reuse every append
 
 # CHECK STATE FIRST — before any format_and_export
 existing = read_file(path=f"exports/reports/{report_fn}.md")
-# empty / error → initialize; non-empty → find last ## heading, append next section only
+# empty / error → file is new this session; initialize header
+# non-empty → this session already wrote something; find last ## heading and continue
 
-# INITIALIZE — only when file is new
+# INITIALIZE — only when file is new (no content from this session yet)
 if not existing or "# " not in existing:
     format_and_export(
         data=f"# Network Health Investigation\n_Generated {captured_at}; {device_count} devices in snapshot_\n\n",
@@ -319,4 +324,4 @@ FROM netops.exploration_runs WHERE status = 'completed' ORDER BY started_at DESC
 5. **Empty result = move on.** Do not retry the same pattern with synonyms. "No data found" is a valid and useful answer.
 5a. **SQL error → `describe_table` once, then adjust or skip.** If a query fails with a column-not-found error, call `describe_table(table_name="netops.<view>")` exactly once to get the real columns, rewrite the query, and move on. Never retry a failing query more than once. Never loop back to `SHOW TABLES` after a SQL error.
 6. **Read before write.** Call `read_file` before the first `format_and_export` each session. Write only the sections not already present — never duplicate a heading already in the file. Append findings as they're discovered.
-7. **Stop when you have 5+ grounded findings**, or when L1-L4 are all covered. Do not pad with low-value checks.
+7. **Stop only after L1-L4 are all attempted.** Do not stop early because one layer already has many findings — each layer (L1 interface errors, L2 access security, L3 routing, L4 BGP/overlay) must be queried before synthesis. Skip a layer only if the relevant view doesn't exist or returns zero rows.
