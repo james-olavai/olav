@@ -19,6 +19,44 @@ from pathlib import Path
 from langchain_community.cache import SQLiteCache
 from langchain_core.globals import set_llm_cache
 
+
+class _ValidatingSQLiteCache(SQLiteCache):
+    """SQLiteCache that refuses to store or return 0-token empty responses.
+
+    deepseek-v4-flash via OpenRouter occasionally returns completion_tokens=0
+    with empty content on the synthesis step after a large ToolMessage.  If
+    that response is cached, all future identical requests return the same
+    empty result permanently.  This subclass treats such entries as a cache
+    miss so the model is re-invoked, and never writes them back.
+    """
+
+    @staticmethod
+    def _is_empty_response(generations: list) -> bool:
+        for gen in generations:
+            for g in (gen if isinstance(gen, list) else [gen]):
+                msg = getattr(g, "message", None)
+                if msg is None:
+                    continue
+                content = getattr(msg, "content", None)
+                if content:
+                    return False
+                meta = getattr(msg, "response_metadata", {}) or {}
+                tok = meta.get("token_usage", {}) or {}
+                if tok.get("completion_tokens", 1) == 0:
+                    return True
+        return False
+
+    def lookup(self, prompt: str, llm_string: str):
+        result = super().lookup(prompt, llm_string)
+        if result is not None and self._is_empty_response(result):
+            return None
+        return result
+
+    def update(self, prompt: str, llm_string: str, return_val: list) -> None:
+        if self._is_empty_response(return_val):
+            return
+        super().update(prompt, llm_string, return_val)
+
 from langchain.agents import create_agent
 from langchain.agents.middleware import TodoListMiddleware
 
@@ -497,13 +535,18 @@ class OLAVAgent:
             pass
 
         # LangChain LLM cache — SQLite (user-isolated in ~/.olav/cache/{user}/)
+        # Uses a validating subclass that refuses to cache or return 0-token
+        # empty responses (deepseek-v4-flash via OpenRouter occasionally returns
+        # 0 completion_tokens with empty content on the synthesis step after a
+        # large ToolMessage; caching that stale entry breaks all future identical
+        # requests permanently).
         from olav.core.config import USER_CACHE_DIR
 
         cache_path = USER_CACHE_DIR / "llm_cache.db"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            set_llm_cache(SQLiteCache(database_path=str(cache_path)))
-            logger.info(f"✓ LLM cache enabled: {cache_path}")
+            set_llm_cache(_ValidatingSQLiteCache(database_path=str(cache_path)))
+            logger.info(f"✓ LLM cache enabled (validating): {cache_path}")
         except Exception as e:
             logger.warning(f"LLM cache init failed: {e}. Caching disabled.")
 
@@ -527,14 +570,18 @@ class OLAVAgent:
                 )
 
         # LanceDB long-term semantic memory store
+        # Skipped when enable_checkpointer=False (e.g. langgraph_api server mode)
+        # because langgraph_api ≥0.7.100 raises ValueError if the compiled graph
+        # carries a custom store — it manages persistence internally.
         self.store = None
-        try:
-            db_path = self.olav_base_path / "databases" / "memory.lance"
-            self.store = LangGraphLanceDBStore(db_path=str(db_path))
-            logger.info(f"✓ Long-term memory store initialized (LanceDB): {db_path}")
-        except Exception as e:
-            logger.warning(f"LanceDBStore init failed: {e}. Long-term memory disabled.")
-            self.store = None
+        if enable_checkpointer:
+            try:
+                db_path = self.olav_base_path / "databases" / "memory.lance"
+                self.store = LangGraphLanceDBStore(db_path=str(db_path))
+                logger.info(f"✓ Long-term memory store initialized (LanceDB): {db_path}")
+            except Exception as e:
+                logger.warning(f"LanceDBStore init failed: {e}. Long-term memory disabled.")
+                self.store = None
 
         # Build agent graph (reuse the preloaded config from above)
         olav_config = self._preloaded_olav_config or self._load_olav_config()
@@ -1164,8 +1211,17 @@ class OLAVAgent:
             #
             # agent_type: api — pure API/query agents skip TodoListMiddleware to keep
             # the execution path minimal (no filesystem side-effects expected).
+            # Exception: agents with metadata.enable_todo_list=true (e.g. explorer)
+            # are multi-step workflows that need in-memory task tracking even though
+            # they are api-type. They must also declare write_todos in tools: so the
+            # prune logic (_DEEPAGENTS_INJECT_TOOLS - sa_filter) keeps it.
             _is_api_agent = metadata.get("agent_type", "").strip().lower() in ("api", "query")
-            _middleware = [] if _is_api_agent else [TodoListMiddleware()]
+            _wants_todo = bool(metadata.get("enable_todo_list", False))
+            _middleware = (
+                [TodoListMiddleware()]
+                if (not _is_api_agent or _wants_todo)
+                else []
+            )
             # ARCH-19 Round 42: tier-aware summarization threshold — small
             # tier fires at 50% of context_budget, medium at 65%, large at
             # 80% (via TIER_DEFAULTS.summarization_trigger_pct).
