@@ -86,6 +86,10 @@ class TestExplorerSkillFrontMatter:
         assert "recall_memory" in tools
         assert "format_and_export" in tools
         assert "task" not in tools
+        # Scratchpad persistence toolset (ISSUE-AGENT-SCRATCHPAD-NOT-WIRED)
+        assert "start_exploration" in tools, "start_exploration must be in scripts:"
+        assert "record_finding" in tools, "record_finding must be in scripts:"
+        assert "finish_exploration" in tools, "finish_exploration must be in scripts:"
 
     def test_tool_whitelist_excludes_write_tools(self):
         """Explorer is read-only — never gives the LLM a tool that mutates
@@ -212,15 +216,41 @@ class TestToolWrappersLoad:
         mod = _load_script("query_evidence")
         assert hasattr(mod, "query_evidence"), "function missing from script"
 
-    def test_scratchpad_scripts_removed(self):
-        """start_exploration / record_finding / update_exploration_run were
-        dormant (not referenced in system.md; LLM writes via format_and_export).
-        Removed in direction-A cleanup — DB scratchpad pattern abandoned for now.
-        See dev_docs/86 § ISSUE-AGENT-TOOL-BLOAT / audit explorer analysis."""
-        for name in ("start_exploration", "record_finding", "update_exploration_run"):
-            assert not (_EXPLORER_DIR / "scripts" / f"{name}.py").exists(), (
-                f"{name}.py must be deleted — scratchpad scripts were dormant "
-                "(not in system.md); use format_and_export for incremental output"
+    def test_scratchpad_scripts_present(self):
+        """start_exploration / record_finding / finish_exploration must exist.
+
+        Wired in ISSUE-AGENT-SCRATCHPAD-NOT-WIRED (2026-05-31): the DB scratchpad
+        is now the Plan-React persistence layer for structured hand-off to
+        downstream agents (reporter, analyzer).  format_and_export remains for
+        the human-readable markdown output; record_finding provides queryable
+        structured records in netops.exploration_findings.
+        """
+        for name in ("start_exploration", "record_finding", "finish_exploration"):
+            assert (_EXPLORER_DIR / "scripts" / f"{name}.py").exists(), (
+                f"{name}.py missing — scratchpad scripts are required for "
+                "structured finding persistence (Plan-React hand-off)"
+            )
+
+    def test_scratchpad_scripts_registered_in_skill_md(self):
+        """The three scratchpad scripts must be declared in SKILL.md scripts:."""
+        fm = _parse_front_matter(_EXPLORER_DIR / "SKILL.md")
+        declared = {
+            (e["name"] if isinstance(e, dict) else e)
+            for e in (fm.get("scripts") or [])
+        }
+        for name in ("start_exploration", "record_finding", "finish_exploration"):
+            assert name in declared, (
+                f"'{name}' not in SKILL.md scripts: — LLM cannot call it "
+                "via execute_skill_script"
+            )
+
+    def test_scratchpad_scripts_have_main(self):
+        """Each scratchpad script must expose a main() entry point."""
+        for name in ("start_exploration", "record_finding", "finish_exploration"):
+            mod = _load_script(name)
+            assert hasattr(mod, "main"), (
+                f"{name}.py is missing main() — scripts called via "
+                "execute_skill_script must have a main() entry point"
             )
 
     def test_promote_finding_to_audit_module_removed(self):

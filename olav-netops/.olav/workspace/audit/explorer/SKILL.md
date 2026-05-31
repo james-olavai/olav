@@ -35,6 +35,16 @@ scripts:
     analysis
   file: query_evidence.py
   name: query_evidence
+- description: Open a new structured exploration run; returns run_id used by record_finding
+  file: start_exploration.py
+  name: start_exploration
+- description: Persist one confirmed finding to netops.exploration_findings with mandatory
+    evidence_sql (anti-fabrication); requires run_id from start_exploration
+  file: record_finding.py
+  name: record_finding
+- description: Mark an exploration run as completed and record the final report path
+  file: finish_exploration.py
+  name: finish_exploration
 system: $ref:./prompts/system.md
 thinking_mode: enabled
 tools:
@@ -90,6 +100,24 @@ SELECT snapshot_id, captured_at, device_count FROM netops.v_snapshots_auto LIMIT
 Key views to check for: `v_show_logging_auto` (parsed syslog), `v_show_interfaces_auto`
 (interface counters), `v_show_authentication_sessions_auto` (802.1X state),
 `v_show_cdp_neighbors_detail_auto` (topology).
+
+## Step 1b — OPEN EXPLORATION RUN (after SURVEY, before CLASSIFY)
+
+After the SURVEY queries return a `snapshot_id`, open a structured run:
+
+```python
+execute_skill_script(
+    skill_name="explorer",
+    script_name="start_exploration.py",
+    script_args={
+        "snapshot_id": "<snapshot_id from v_snapshots_auto>",
+        "requested_by": "explorer",
+    },
+)
+# → {"run_id": "explore_<hex>", "status": "started"}
+```
+
+Store the returned `run_id` — every `record_finding` call needs it.
 
 ## Step 2 — CLASSIFY
 
@@ -193,7 +221,30 @@ ORDER BY CAST(severity AS INT) LIMIT 50
 For offline/imported bundles, always use `v_show_logging_auto` via `execute_sql`.
 
 After each query: interpret the result in one sentence.
-If a result shows a clear problem, append it to the report immediately.
+If a result shows a clear problem, **persist it immediately** — both to DB and to the report:
+
+```python
+# 1. Structured DB record (queryable by downstream agents)
+execute_skill_script(
+    skill_name="explorer",
+    script_name="record_finding.py",
+    script_args={
+        "run_id": "<run_id from start_exploration>",
+        "phase": "test",           # survey / hypothesise / test / correlate / report
+        "severity": "high",        # critical / high / medium / low / info
+        "summary": "R1 has 12,000 CRC errors on Gi0/1",
+        "evidence_sql": "SELECT device_name, interface, crc FROM netops.v_show_interfaces_auto WHERE TRY_CAST(crc AS INT) > 1000",
+        "category": "L1-interface",
+        "confidence": "confirmed",  # confirmed / hypothesis / refuted / not_applicable
+    },
+)
+# → {"finding_id": "finding_<hex>", "status": "recorded"}
+
+# 2. Append to markdown report (human-readable output)
+format_and_export(data="\n## L1 ...\n...", filename=report_fn, format="md", subdir="reports", mode="append")
+```
+
+`evidence_sql` is mandatory — it must be the exact query that returned the data proving this finding.
 
 ## Step 4 — REPORT (incremental, start early)
 
@@ -229,6 +280,26 @@ format_and_export(
 ```
 
 Use the **same `filename`** for every append in this session.
+
+**Final step — close the exploration run** (after the last format_and_export):
+
+```python
+execute_skill_script(
+    skill_name="explorer",
+    script_name="finish_exploration.py",
+    script_args={
+        "run_id": "<run_id>",
+        "final_report_path": "exports/reports/<report_fn>.md",
+    },
+)
+```
+
+This transitions the run to `status='completed'` in `netops.exploration_runs`.
+Downstream agents (reporter, analyzer) can then query:
+```sql
+SELECT run_id, snapshot_id, findings_count, final_report_path
+FROM netops.exploration_runs WHERE status = 'completed' ORDER BY started_at DESC LIMIT 3
+```
 
 # Hard rules
 
