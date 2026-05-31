@@ -4,20 +4,22 @@ _deepagents_bridge.py — deepagents API 的版本隔离层。
 升级 deepagents 时只需改这一个文件。
 agent.py 和其他模块从这里导入，不直接接触 deepagents 包。
 
-版本策略 (2026-05-16 更新, _DA_MIN bumped from 0.5.0 → 0.5.9 to match pyproject):
-  supported range: >=0.5.9, <0.6
-  - 低于 _DA_MIN  → ImportError (明确告知升级路径)
-  - >=0.6.0       → UserWarning (实验性 CodeInterpreterMiddleware + v3 stream_events,
-                    需 OLAV 单独验证再放行)
+版本策略 (2026-06-01 v0.20: bumped _DA_MIN 0.5.9 → 0.6.7, _DA_NEXT_MAJOR → 0.7.0):
+  supported range: >=0.6.7, <0.7
+  - 低于 _DA_MIN  → ImportError
+  - >=0.7.0       → UserWarning (re-evaluate after upstream stabilises)
 
-0.5 主要功能演进:
-  - 0.5.2 FilesystemPermission (虚拟 FS 读/写访问控制 — 激活 agent.py:574-612 的写保护)
-  - 0.5.4 Harness Profiles (按 provider/model 注册 prompt/tool/middleware 覆盖层 —
-          OLAV 在 src/olav/agents/profiles/ 下使用)
-  - 0.5.5 FilesystemBackend symlink-loop 加固
-  - 0.5.6 CompiledSubAgent 名字传 lc_agent_name 元数据 (LangSmith trace 清晰化)
-  - 0.5.7 GP-subagent 继承父级 permissions
-  - 0.5.0 AsyncSubAgent / AsyncSubAgentMiddleware: 非阻塞后台子智能体 (需 LangGraph Platform)
+0.6 主要功能演进 (vs 0.5.9):
+  - 0.6.0 DeltaChannel via langgraph.channels.delta (checkpoint diff storage)
+  - 0.5.9→0.6.x TodoListMiddleware 迁移至 langchain.agents.middleware (breaking!)
+  - 0.6.5 RubricMiddleware — self-eval + auto-retry for coverage contracts
+  - 0.6.6 DeepAgentState / state_schema — typed cross-call state
+  - 0.6.6 ContextHubBackend — Git-versioned memory backend
+
+IMPORTANT: 升级 deepagents 时更新：
+  1. _DA_MIN / _DA_NEXT_MAJOR
+  2. _KNOWN_INJECT_TOOLS 版本审计常量（tests/governance/test_deepagents_inject_tool_contract.py）
+  3. Feature flags 下方版本门控常量
 """
 
 from __future__ import annotations
@@ -37,21 +39,21 @@ except PackageNotFoundError as exc:
         "deepagents is not installed. Run: pip install 'deepagents>=0.5.0,<1.0'"
     ) from exc
 
-_DA_MIN = V("0.5.9")
-_DA_NEXT_MAJOR = V("0.6.0")  # 0.6.x adds experimental CodeInterpreter + v3 events; re-evaluate after upstream stabilises
+_DA_MIN = V("0.6.7")
+_DA_NEXT_MAJOR = V("0.7.0")
 
 if _DA_VERSION < _DA_MIN:
     raise ImportError(
         f"deepagents {_DA_VERSION} is too old. "
         f"Olav requires deepagents>={_DA_MIN}. "
-        f"Run: pip install -U 'deepagents>={_DA_MIN},<{_DA_NEXT_MAJOR}'"
+        f"Run: uv sync (pyproject.toml override-dependencies already set)"
     )
 
 if _DA_VERSION >= _DA_NEXT_MAJOR:
     warnings.warn(
         f"deepagents {_DA_VERSION} may have breaking changes — Olav was validated "
         f"against <{_DA_NEXT_MAJOR}. Verify compatibility before using in production. "
-        f"See dev_docs/17. RELEASE_PLAN.md for the upgrade checklist.",
+        f"See dev_docs/91. V0_20_ARCHITECTURE_PLAN.md for the upgrade checklist.",
         stacklevel=2,
     )
 
@@ -77,10 +79,18 @@ HAS_NAMESPACE_FACTORY: bool = _DA_VERSION >= V("0.4.0")
 """True when NamespaceFactory / BackendContext pattern is available."""
 
 HAS_ASYNC_SUBAGENTS: bool = _DA_VERSION >= V("0.5.0")
-"""True when AsyncSubAgent / AsyncSubAgentMiddleware are available (non-blocking background subagents).
-Requires LangGraph Platform or self-hosted LangGraph server for actual remote execution."""
+"""True when AsyncSubAgent / AsyncSubAgentMiddleware are available."""
 
-# ── Core exports (stable across 0.4.x → 0.5.x) ───────────────────────────────
+HAS_RUBRIC_MIDDLEWARE: bool = _DA_VERSION >= V("0.6.5")
+"""True when RubricMiddleware is available (self-eval + auto-retry for coverage contracts)."""
+
+HAS_STATE_SCHEMA: bool = _DA_VERSION >= V("0.6.6")
+"""True when state_schema param and DeepAgentState are available in create_deep_agent."""
+
+HAS_CONTEXT_HUB: bool = _DA_VERSION >= V("0.6.6")
+"""True when ContextHubBackend is available (Git-versioned memory backend)."""
+
+# ── Core exports (stable across 0.4.x → 0.6.x) ───────────────────────────────
 
 from deepagents import create_deep_agent as _create_deep_agent  # noqa: E402
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent  # noqa: E402
@@ -117,6 +127,26 @@ def _safe_imports(
 
 
 # ── Version-gated exports ─────────────────────────────────────────────────────
+
+# 0.6.5+: RubricMiddleware — self-eval + auto-retry for coverage contracts
+_rubric = _safe_imports(
+    ("deepagents.middleware.rubric", "RubricMiddleware", None),
+    enabled=HAS_RUBRIC_MIDDLEWARE,
+)
+RubricMiddleware = _rubric["RubricMiddleware"]
+
+# 0.6.6+: DeepAgentState (typed cross-call state) and ContextHubBackend (Git-versioned memory)
+_state = _safe_imports(
+    ("deepagents.graph", "DeepAgentState", None),
+    enabled=HAS_STATE_SCHEMA,
+)
+DeepAgentState = _state["DeepAgentState"]
+
+_ctx_hub = _safe_imports(
+    ("deepagents.backends.context_hub", "ContextHubBackend", None),
+    enabled=HAS_CONTEXT_HUB,
+)
+ContextHubBackend = _ctx_hub["ContextHubBackend"]
 
 _summ = _safe_imports(
     ("deepagents.backends", "StateBackend", "_StateBackend"),
@@ -376,6 +406,11 @@ __all__ = [
     "AsyncSubAgentMiddleware",
     "SkillsMiddleware",
     "FilesystemBackend",
+    # 0.6.5+ gated
+    "RubricMiddleware",
+    # 0.6.6+ gated
+    "DeepAgentState",
+    "ContextHubBackend",
     # Feature flags
     "HAS_SUMMARIZATION",
     "HAS_PROMPT_CACHING",
@@ -383,6 +418,9 @@ __all__ = [
     "HAS_NAMESPACE_FACTORY",
     "HAS_ASYNC_SUBAGENTS",
     "HAS_SKILLS_MIDDLEWARE",
+    "HAS_RUBRIC_MIDDLEWARE",
+    "HAS_STATE_SCHEMA",
+    "HAS_CONTEXT_HUB",
     # Version info
     "_DA_VERSION",
     "_DA_MIN",

@@ -34,15 +34,24 @@ _NETOPS_WORKSPACE = REPO / "olav-netops" / ".olav" / "workspace"
 
 # The version that _DEEPAGENTS_INJECT_TOOLS was last audited against.
 # When deepagents is upgraded, update this constant AND re-audit the frozenset.
-_AUDITED_DEEPAGENTS_VERSION = "0.5.9"
+# v0.20 (2026-06-01): audited against 0.6.7 — inject set unchanged from 0.5.9.
+# FilesystemMiddleware injects same 7 tools; TodoListMiddleware moved to
+# langchain.agents.middleware but still injects write_todos under same name.
+_AUDITED_DEEPAGENTS_VERSION = "0.6.7"
 
-# Known inject tools for deepagents 0.5.x (FilesystemMiddleware + TodoList)
-_KNOWN_INJECT_TOOLS_0_5 = frozenset({
+# Known inject tools for deepagents 0.6.x (FilesystemMiddleware + TodoList via langchain)
+# Verified 2026-06-01 against deepagents 0.6.7:
+#   FilesystemMiddleware._create_* methods: edit_file, execute, glob, grep, ls, read_file, write_file
+#   TodoListMiddleware (now in langchain.agents.middleware): write_todos only
+_KNOWN_INJECT_TOOLS_0_6 = frozenset({
     "glob", "grep", "ls",
     "read_file", "write_file", "edit_file",
     "execute",
     "write_todos",
 })
+
+# Alias for backward compat with parametrized tests below
+_KNOWN_INJECT_TOOLS_0_5 = _KNOWN_INJECT_TOOLS_0_6
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -102,17 +111,16 @@ def test_inject_tools_version_pin():
 
 
 def test_inject_tools_frozenset_matches_audited_set():
-    """_DEEPAGENTS_INJECT_TOOLS in agent.py must match the audited set for 0.5.x."""
-    from packaging.version import Version as V
-    installed_v = V(_pkg_version("deepagents"))
-    if installed_v >= V("0.6.0"):
-        pytest.skip("0.6.x inject set not yet audited — see test_inject_tools_version_pin")
+    """_DEEPAGENTS_INJECT_TOOLS in agent.py must match the audited set for current version.
 
+    0.5.x and 0.6.x have the same inject set: FilesystemMiddleware injects 7 tools,
+    TodoListMiddleware (moved to langchain.agents.middleware in 0.6.x) still injects write_todos.
+    """
     from olav.agents.agent import _DEEPAGENTS_INJECT_TOOLS
-    assert _DEEPAGENTS_INJECT_TOOLS == _KNOWN_INJECT_TOOLS_0_5, (
-        f"_DEEPAGENTS_INJECT_TOOLS drifted from audited 0.5.x set.\n"
+    assert _DEEPAGENTS_INJECT_TOOLS == _KNOWN_INJECT_TOOLS_0_6, (
+        f"_DEEPAGENTS_INJECT_TOOLS drifted from audited 0.6.x set.\n"
         f"In agent.py:  {sorted(_DEEPAGENTS_INJECT_TOOLS)}\n"
-        f"Expected:     {sorted(_KNOWN_INJECT_TOOLS_0_5)}"
+        f"Expected:     {sorted(_KNOWN_INJECT_TOOLS_0_6)}"
     )
 
 
