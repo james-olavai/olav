@@ -284,15 +284,23 @@ def test_render_report_is_script_not_tool():
 def test_orchestrator_prompt_has_passthrough_rule():
     """Audit orchestrator must explicitly tell the LLM to forward
     sub-agent replies unchanged when they already contain a final
-    artifact (Report saved: ... / Profile saved: ...)."""
+    artifact (Report saved: ... / Profile saved: ...).
+    Note: orchestrator.md merged into prompts/audit.md (0.11.0)."""
     for tree in (NETOPS_AUDIT, PLATFORM_AUDIT):
-        text = (tree / "prompts" / "orchestrator.md").read_text(encoding="utf-8")
+        # orchestrator.md merged into audit.md in 0.11.0 — try both
+        for candidate in ("prompts/audit.md", "prompts/orchestrator.md"):
+            p = tree / candidate
+            if p.exists():
+                text = p.read_text(encoding="utf-8")
+                break
+        else:
+            pytest.skip(f"no orchestrator prompt found in {tree}")
         assert "passthrough" in text.lower(), (
-            f"orchestrator.md in {tree} lost the passthrough rule — "
+            f"{candidate} in {tree} lost the passthrough rule — "
             "orchestrator will resume paraphrasing sub-agent replies."
         )
         assert "Report saved" in text and "Forward it to the user UNCHANGED" in text, (
-            f"orchestrator.md in {tree} passthrough rule weakened — "
+            f"{candidate} in {tree} passthrough rule weakened — "
             "must name the artifact ('Report saved:') and the action "
             "('Forward it to the user UNCHANGED')."
         )

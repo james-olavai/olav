@@ -175,9 +175,9 @@ def _extract_constraints(
 
     if llm is None:
         try:
-            from olav.core.config import get_llm
+            from olav.core.llm import get_chat_model
 
-            llm = get_llm()
+            llm = get_chat_model()
         except Exception as exc:
             logger.warning("_extract_constraints: cannot load LLM — %s", exc)
             return []
