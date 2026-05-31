@@ -836,7 +836,8 @@ class OLAVAgent:
             store=self.store,
             subagents=subagents,
             middleware=effective_middleware,
-            filesystem_middleware=False,
+            # filesystem_middleware removed in deepagents 0.6.x; FS access now
+            # controlled via permissions=[FilesystemPermission(...)] list.
         )
         if _fs_permissions is not None:
             _create_kwargs["permissions"] = _fs_permissions
