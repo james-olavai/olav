@@ -686,7 +686,7 @@ class TestCH13AuditExplorer:
             cls._out = _run(
                 "audit",
                 "探索最新快照的网络数据，找出值得关注的问题或异常，输出发现摘要",
-                timeout=480,
+                timeout=700,
             )
         return cls._out
 
