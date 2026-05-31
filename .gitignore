@@ -66,26 +66,26 @@ ownership_manifest.yaml
 CLAUDE.md
 PARTNERS.md
 .dockerignore
-dev_docs/
-scripts/
-run/
+/dev_docs/
+/scripts/
+/run/
 .github/copilot-instructions.md
-.vscode/
-.claude/
+/.vscode/
+/.claude/
 
 # testing
-tests/
+/tests/
 
 # generated
-dist/
-exports/
-tmp/
+/dist/
+/exports/
+/tmp/
 .coverage
-.pytest_cache/
-.ruff_cache/
-.venv/
-.agent/
-olav-post/
+/.pytest_cache/
+/.ruff_cache/
+/.venv/
+/.agent/
+/olav-post/
 olav-netops/exports/
 olav-doc/site/
 olav-web/dist/
@@ -95,25 +95,25 @@ olav-web/.wrangler/
 .olav/logs/
 
 # legacy
-_legacy_archived/
+/_legacy_archived/
 
 # netops
-labs/
-olav-netops/
+/labs/
+/olav-netops/
 .olav/workspace/netops/
 .olav/workspace/devops/
 
 # enterprise
-olav-ent/
+/olav-ent/
 
 # docs
-olav-doc/
+/olav-doc/
 
 # website
-olav-web/
+/olav-web/
 
 # runtime-workspace
-.olav/
+/.olav/
 .olav/workspace/audit/
 .olav/config/approval_rules.yaml
 
