@@ -63,7 +63,12 @@ HAS_SUMMARIZATION: bool = _DA_VERSION >= V("0.4.0")
 """True when SummarizationMiddleware is available (auto context compression)."""
 
 HAS_PROMPT_CACHING: bool = True
-"""True when AnthropicPromptCachingMiddleware is available (from langchain_anthropic)."""
+"""True when AnthropicPromptCachingMiddleware is available (from langchain_anthropic).
+
+Note: class availability ≠ injection eligibility. Use ``should_use_prompt_caching()``
+at call sites — the middleware is Anthropic-specific and must not be injected when
+provider is custom/openai/ollama (ISSUE-HARNESS-PROMPT-CACHING-PROVIDER-BLIND).
+"""
 
 HAS_LOCAL_SHELL_BACKEND: bool = _DA_VERSION >= V("0.4.0")
 """True when LocalShellBackend is available (subprocess execution backend)."""
@@ -159,6 +164,26 @@ AnthropicPromptCachingMiddleware = _safe_imports(
 )["AnthropicPromptCachingMiddleware"]
 if AnthropicPromptCachingMiddleware is None:
     HAS_PROMPT_CACHING = False
+
+
+def should_use_prompt_caching() -> bool:
+    """True when prompt caching is both available AND the active provider is Anthropic.
+
+    HAS_PROMPT_CACHING only guards class availability; this function guards
+    actual injection. AnthropicPromptCachingMiddleware is provider-specific —
+    injecting it for custom/openai/ollama providers is a no-op at best and a
+    source of confusing log noise at worst.
+
+    Silently returns False on any config-read failure so startup is never
+    blocked by a missing or malformed api.json.
+    """
+    if not HAS_PROMPT_CACHING or AnthropicPromptCachingMiddleware is None:
+        return False
+    try:
+        from olav.core.config import get_llm_config
+        return get_llm_config().provider == "anthropic"
+    except Exception:
+        return False
 
 
 # ── Stable wrapper ────────────────────────────────────────────────────────────
@@ -338,6 +363,7 @@ __all__ = [
     "create_deep_agent",
     "build_summarization_middleware",
     "compute_summarization_trigger",
+    "should_use_prompt_caching",
     "CompiledSubAgent",
     "SubAgent",
     # Version-gated (may be None if version too old)
