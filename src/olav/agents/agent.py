@@ -1236,6 +1236,20 @@ class OLAVAgent:
             if should_use_prompt_caching():
                 _middleware.append(AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"))
 
+            # 0.6.5+: RubricMiddleware — self-eval + auto-retry for coverage contracts.
+            # Only injected for agents that opt in via metadata.rubric_middleware=true.
+            # The middleware is a no-op when no rubric is passed at invocation time, so
+            # it is safe to include unconditionally in opted-in agents' stacks.
+            # Rubric contract (what to check) is passed per-invocation; injection here
+            # just makes the agent capable of being graded when called with rubric state.
+            from olav.agents._deepagents_bridge import HAS_RUBRIC_MIDDLEWARE, RubricMiddleware as _RubricMW
+            if HAS_RUBRIC_MIDDLEWARE and _RubricMW is not None and metadata.get("rubric_middleware"):
+                try:
+                    _middleware.append(_RubricMW(model=sa_llm, max_iterations=2))
+                    logger.info(f"  → '{name}' RubricMiddleware enabled (coverage self-eval)")
+                except Exception as _re:
+                    logger.warning(f"  ! RubricMiddleware init failed for '{name}': {_re}")
+
             # dev_docs/77 §2.6.2: a sub-agent that itself declares
             # ``subagents:`` in its SKILL.md needs deepagents'
             # ``SubAgentMiddleware`` to inject the ``task`` tool so it
