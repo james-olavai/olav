@@ -28,71 +28,22 @@ def format_and_export(
     subdir: str | None = None,
     mode: str | None = None,
 ) -> dict[str, Any]:
-    """Save STRING content to a file under exports/.
+    """Save string content to exports/ — supports md/json/csv/yaml/sh/mmd formats.
 
-    The `data` parameter is the literal file content as a STRING.
-    It is NOT a configuration dict, NOT the return of a previous tool,
-    NOT a wrapper. The string you pass is what gets written byte-for-byte
-    (after format-specific encoding for CSV/JSON/YAML).
-
-    ## REPORT MODE — incremental writing
-
-    Pass ``mode="append"`` to append to an existing file (or create it
-    if missing).  Use this when an agent is in REPORT MODE — emitting
-    a Markdown report incrementally as each react step's reflection
-    completes.  Append mode is restricted to text formats
-    (md/txt/mmd/sh); JSON/CSV/YAML raise ValueError because byte
-    concatenation corrupts their parse.
-
-    Default mode is "overwrite" — preserves the old contract.
-
-    ANTI-PATTERNS (these will FAIL with a Pydantic validation error):
-
-        format_and_export(data={"format":"md", "filename":"x"})   # ❌ dict
-        format_and_export(data={"path":"...", "size":1234})       # ❌ dict
-        format_and_export(data='"my content"')                    # ❌ JSON-quoted
-
-    CORRECT calls — `data` is the actual string content:
-
-        format_and_export(
-            data="# Devices\\n\\n| Name | IP |\\n|------|-----|\\n| R1 | 1.2.3.4 |",
-            format="md",
-            filename="devices_summary",
-        )
-        # → exports/reports/devices_summary.md
-
-        format_and_export(
-            data='[{"hostname":"R1","ip":"10.0.0.1"},{"hostname":"R2","ip":"10.0.0.2"}]',
-            format="csv",
-            filename="devices",
-        )
-        # → exports/devices.csv
-
-        format_and_export(
-            data="#!/usr/bin/env bash\\nfor h in R1 R2; do ssh $h ...; done",
-            format="sh",
-            filename="backup",
-        )
-        # → exports/scripts/backup.sh
+    ``data`` is the literal file content as a STRING, not a dict or tool result.
+    Full usage and anti-patterns: tool_help('format_and_export').
 
     Args:
-        data:     File content as a STRING. For CSV/JSON output, pass the
-                  JSON-serialised string of an array/object — the tool
-                  will parse it. For markdown/sh/text, pass the literal
-                  text. NEVER pass a dict, a previous tool result, or
-                  a configuration object.
-        filename: Basename WITHOUT extension. Auto-generated if omitted.
-        format:   md / json / txt / csv / yaml / mmd / sh — auto-detected
-                  from `data` content if omitted.
-        subdir:   Subdir under exports/. Auto-routed by format if omitted:
-                  md/mmd/txt → exports/reports/, csv/json/yaml → exports/,
-                  drawio/puml → exports/topology/, sh/py → exports/scripts/.
-        mode:     "overwrite" (default) or "append".  Append is for
-                  REPORT MODE incremental writing and only works for
-                  text formats (md/txt/mmd/sh).
+        data:     File content as a string. For CSV/JSON pass a JSON-serialised
+                  array/object; for md/sh/txt pass the literal text.
+        filename: Basename without extension. Auto-generated if omitted.
+        format:   md / json / txt / csv / yaml / mmd / sh. Auto-detected if omitted.
+        subdir:   Subdir under exports/. Auto-routed by format if omitted.
+        mode:     "overwrite" (default) or "append". Append = REPORT MODE
+                  incremental writing; text formats only (md/txt/mmd/sh).
 
     Returns:
-        {"path": "exports/.../file.ext", "absolute_path": "...", "size": 1234, "format": "md"}
+        {"path": "exports/.../file.ext", "absolute_path": "...", "size": N, "format": ".."}
     """
     # Normalise mode early; reject malformed values up-front.
     if mode is None:

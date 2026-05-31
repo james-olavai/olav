@@ -19,7 +19,6 @@ static_context:
 - path: ./references/influxdb_netops_Query_api.md
 - path: ./references/influxdb_netops_Health_api.md
 static_context_mode: on_intent
-system: $ref:./prompts/system.md
 tools:
 - format_and_export
 - api_request

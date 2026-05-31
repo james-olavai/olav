@@ -40,7 +40,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _MAX_TIMEOUT_SECONDS = 600
-_MAX_OUTPUT_BYTES = 1_000_000  # 1 MB cap per stream
+_MAX_OUTPUT_BYTES = 524_288  # 512 KB cap per stream (ARCH-20: fits within large-tier context share)
 
 
 def _resolve_workspace_root() -> Path:

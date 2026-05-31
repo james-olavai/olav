@@ -33,7 +33,6 @@ scripts:
     from platform_sample_lines in survey_bundle result — no read_file needed.
   file: discover_platform.py
   name: discover_platform_for_host
-system: $ref:./prompts/system.md
 thinking_mode: enabled
 tools:
 - execute_skill_script
