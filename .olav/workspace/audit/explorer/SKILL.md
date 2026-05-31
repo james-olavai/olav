@@ -23,6 +23,7 @@ dynamic_context:
 metadata:
   agent_type: api
   category: network-autonomous-audit
+  enable_todo_list: true
   intent: open_ended_network_health_exploration
   type: agent
   version: 0.2.0
@@ -53,6 +54,7 @@ tools:
 - recall_memory
 - format_and_export
 - read_file
+- write_todos
 ---
 
 
@@ -69,6 +71,29 @@ full-text keyword search via `query_evidence`.
 
 Find network problems an operator should know about.
 Rank by severity. Back every finding with evidence.
+
+# WORKFLOW INIT — call write_todos immediately after SURVEY
+
+After your SURVEY queries return a `snapshot_id`, call `write_todos` once to
+declare the investigation plan. This gives you an in-memory checklist — mark
+each item done as you complete it, so you always know which layers remain.
+
+```python
+write_todos([
+    "1. SURVEY + CLASSIFY + open exploration run",
+    "2. L1 — interface errors: query + record_finding + write section",
+    "3. L2 — access security: query + record_finding + write section",
+    "4. L3 — routing stability: query + record_finding + write section",
+    "5. L4 — BGP/overlay: query + record_finding + write section",
+    "6. Summary + Recommendations + finish_exploration",
+])
+```
+
+Mark each item complete with `write_todos` update after the layer's section is
+written to the report. Do **not** move to the next layer until the current one is
+written.
+
+---
 
 # FIRST ACTION — no deliberation
 
