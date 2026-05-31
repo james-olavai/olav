@@ -665,6 +665,41 @@ def _resolve_agent_id(agent_id: str, workspace: str | None) -> str:
         return agent_id
 
 
+def _is_kb_json(content: str) -> bool:
+    """Return True when content is a KB-fact JSON block (semantic cache payload).
+
+    The agent emits these at the end of every run to update the memory store.
+    Format: a JSON list of dicts with keys text/category/importance/tags.
+    Users should never see these — they are internal bookkeeping.
+    """
+    stripped = content.strip()
+    if not stripped:
+        return False
+    # Fast check: must start with '[' or a fenced ```json block
+    prefix = stripped[:10]
+    if not (prefix.startswith("[") or prefix.startswith("```")):
+        return False
+    try:
+        import json as _json
+        candidate = stripped
+        if candidate.startswith("```"):
+            # Strip fenced code block markers
+            lines = candidate.splitlines()
+            candidate = "\n".join(lines[1:-1]) if len(lines) > 2 else candidate
+        parsed = _json.loads(candidate)
+        if isinstance(parsed, list) and parsed:
+            first = parsed[0]
+            return (
+                isinstance(first, dict)
+                and "text" in first
+                and "category" in first
+                and "importance" in first
+            )
+    except Exception:
+        pass
+    return False
+
+
 async def _try_run_via_api_server(
     query: str,
     assistant_id: str,
@@ -719,6 +754,10 @@ async def _try_run_via_api_server(
     }
 
     _chunks: list[str] = []
+    # Tracks the last substantial tool-result content from return_direct tools
+    # (olav_delegate, render_report).  Surfaced when the orchestrator makes no
+    # final text turn — i.e. _chunks is still empty at stream end.
+    _last_tool_content: str = ""
     try:
         import json as _json
         async with _httpx.AsyncClient(timeout=300, headers=headers) as _hc:
@@ -757,12 +796,30 @@ async def _try_run_via_api_server(
                     for item in items:
                         if not isinstance(item, dict):
                             continue
-                        # AIMessageChunk (partial) or ai (complete) carries text.
-                        if item.get("type") not in ("AIMessageChunk", "AIMessage", "ai"):
-                            continue
+                        item_type = item.get("type", "")
                         content = item.get("content", "")
                         if not isinstance(content, str):
                             # Structured content blocks (tool use etc.) — skip.
+                            continue
+                        # Track return_direct tool results (olav_delegate, render_report).
+                        # These become the final response when the orchestrator skips its
+                        # final text turn (return_direct=True short-circuits the LLM).
+                        if (
+                            item_type == "tool"
+                            and _event_type == "messages/complete"
+                            and content.strip()
+                            and item.get("name") in ("olav_delegate", "render_report")
+                        ):
+                            _last_tool_content = content
+                            continue
+                        # AIMessageChunk (partial) or ai (complete) carries text.
+                        if item_type not in ("AIMessageChunk", "AIMessage", "ai"):
+                            continue
+                        # Skip KB-fact JSON blocks — the agent outputs these to
+                        # update the semantic cache at the end of every run.
+                        # They look like: [{"text":…,"category":…,"importance":…}]
+                        # and are not user-facing answers.
+                        if _is_kb_json(content):
                             continue
                         if content and _event_type == "messages/partial":
                             console.print(content, end="")
@@ -781,6 +838,9 @@ async def _try_run_via_api_server(
 
     if _chunks:
         console.print()  # ensure trailing newline
+    elif _last_tool_content:
+        # Orchestrator used return_direct — surface the sub-agent result.
+        console.print(_last_tool_content)
     return True
 
 
