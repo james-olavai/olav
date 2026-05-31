@@ -15,6 +15,9 @@ scripts:
 - description: Render network topology as draw.io XML
   file: render_topology_drawio.py
   name: render_topology_drawio
+- description: Query DB for filtered topology adjacency table + device metadata; pass result to render helpers
+  file: topology_view_filter.py
+  name: topology_view
 static_context: []
 thinking_mode: disabled
 tools:

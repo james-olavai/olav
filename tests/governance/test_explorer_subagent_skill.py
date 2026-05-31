@@ -140,9 +140,11 @@ class TestPromptContract:
         assert "Evidence or nothing" in text
         assert "must cite the query" in text
 
-    def test_system_prompt_mentions_budgets(self):
+    def test_system_prompt_mentions_full_coverage(self):
+        # Rule 7 changed (2026-06-01): "5+ findings → stop" replaced with
+        # "all L1-L4 layers must be attempted before synthesis".
         text = _skill_body(_EXPLORER_DIR / "SKILL.md")
-        assert "5+ grounded findings" in text
+        assert "L1-L4 are all attempted" in text or "after L1-L4" in text or "Stop only after" in text
 
 
 # ── netops AGENT.md wire-up ───────────────────────────────────────────

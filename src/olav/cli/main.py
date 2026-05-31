@@ -1525,40 +1525,77 @@ async def run_single_query(
                 console.print(line)
             final_content = final_content + "\n" + "\n".join(_terminal_tool_lines)
 
-        # NL-CLI-SILENT-FINAL (R82): some models (small ones especially)
-        # finish a run with only tool calls — they consider the work
-        # "delegated and done" and emit no final assistant text.
-        # Root fix: OUTPUT RULE in orchestrator system prompts (2026-05-30).
-        # Raw-preview fallback for file-write-only runs or genuine silent exits.
+        # NL-CLI-SILENT-FINAL (R82 / v0.20 SYNTHESIS-NODE):
+        # Some models (gemma4, small deepseek variants) finish a run after
+        # tool calls without emitting a final AIMessage — they treat
+        # "tool executed = task done".
+        #
+        # Tier 1 fix: LLM synthesis call using tool results as context.
+        #   Triggered when: final_content is empty AND substantive (non-delegate,
+        #   non-write-only) tool results exist.
+        #   On failure: fall through to Tier 2 raw preview.
+        #
+        # Tier 2 fix (raw preview): path/file output from write-only tools.
+        #   Kept as last-resort for format_and_export / render_report runs where
+        #   the agent's job is writing a file (no natural-language answer expected).
+        _SILENT_DELEGATE = {"olav_delegate", "task"}
+        _WRITE_TOOLS = {
+            "format_and_export", "render_report", "take_snapshot",
+            "save_lab_config", "write_file",
+        }
         if not final_content and _tool_results:
-            _SILENT_DELEGATE = {"olav_delegate", "task"}
-            _WRITE_TOOLS = {
-                "format_and_export", "render_report", "take_snapshot",
-                "save_lab_config", "write_file",
-            }
-            if not final_content:
-                _PATH_KEYS = ("path", "absolute_path", "saved_to", "file")
-                _fallback_lines: list[str] = []
-                for tr in _tool_results:
-                    name = tr["name"]
-                    if name in _SILENT_DELEGATE:
-                        continue  # the inner subagent's tools are what produced output
-                    content = tr["content"]
-                    # Try to extract a file path / saved-to indicator from the
-                    # tool's structured output (format_and_export, render_report,
-                    # take_snapshot all return path-bearing dicts).
-                    preview = content
-                    for key in _PATH_KEYS:
-                        m = re.search(rf"['\"]?{key}['\"]?\s*[:=]\s*['\"]([^'\"]+)['\"]", content)
-                        if m:
-                            preview = f"{key}: {m.group(1)}"
-                            break
-                    _fallback_lines.append(f"📁 {name} → {preview[:200]}")
-                if _fallback_lines:
-                    console.print("")
-                    for line in _fallback_lines:
-                        console.print(line)
-                    final_content = "\n".join(_fallback_lines)
+            # ── Tier 1: LLM synthesis ──
+            _synth_candidates = [
+                tr for tr in _tool_results
+                if tr["name"] not in _SILENT_DELEGATE
+                and tr["name"] not in _WRITE_TOOLS
+            ]
+            if _synth_candidates:
+                _ctx_parts = []
+                for tr in _synth_candidates[:4]:
+                    _raw = tr.get("content") or ""
+                    _ctx_parts.append(f"[{tr['name']}]:\n{_raw[:600]}")
+                _synth_context = "\n\n".join(_ctx_parts)
+                _synth_prompt = (
+                    f"User asked: {query}\n\n"
+                    f"Tool results:\n{_synth_context}\n\n"
+                    "Provide a concise natural-language summary of these results "
+                    "directly answering the user's question."
+                )
+                try:
+                    from langchain_core.messages import HumanMessage as _HM
+                    _synth_llm = getattr(agent, "llm", None)
+                    if _synth_llm is not None:
+                        _synth_resp = await _synth_llm.ainvoke([_HM(content=_synth_prompt)])
+                        _synth_text = getattr(_synth_resp, "content", "") or ""
+                        if _synth_text.strip():
+                            console.print("")
+                            console.print(_synth_text)
+                            final_content = _synth_text
+                except Exception:
+                    pass  # fall through to Tier 2
+
+        if not final_content and _tool_results:
+            # ── Tier 2: raw path preview (file-write runs) ──
+            _PATH_KEYS = ("path", "absolute_path", "saved_to", "file")
+            _fallback_lines: list[str] = []
+            for tr in _tool_results:
+                name = tr["name"]
+                if name in _SILENT_DELEGATE:
+                    continue  # the inner subagent's tools are what produced output
+                content = tr["content"]
+                preview = content
+                for key in _PATH_KEYS:
+                    m = re.search(rf"['\"]?{key}['\"]?\s*[:=]\s*['\"]([^'\"]+)['\"]", content)
+                    if m:
+                        preview = f"{key}: {m.group(1)}"
+                        break
+                _fallback_lines.append(f"📁 {name} → {preview[:200]}")
+            if _fallback_lines:
+                console.print("")
+                for line in _fallback_lines:
+                    console.print(line)
+                final_content = "\n".join(_fallback_lines)
 
         recorder.record(
             event_type="assistant_output_final",
