@@ -8,6 +8,8 @@ scripts:
   - name: describe_table
     description: "Return schema and sample rows for a DuckDB table"
     file: describe_table.py
+tools:
+  - execute_skill_script
 references:
   - path: ./references/RAW_FALLBACK.md
 ---

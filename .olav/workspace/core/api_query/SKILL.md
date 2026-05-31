@@ -2,6 +2,7 @@
 name: api-query
 description: "API service queries — HTTP requests to registered services (NetBox, Grafana, Jira, etc.), health checks, web search, report export"
 tools:
+  - execute_skill_script
   - web_search
   - format_and_export
 scripts:
