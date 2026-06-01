@@ -5,13 +5,14 @@ description: Live data collection — parallel CLI / Nornir, liveness + latency 
 dynamic_context:
 - path: ./references/take_snapshot_when_db_stale.guide.yaml
 metadata:
+  rubric_middleware: true
   agent_type: api
   category: network-operations
   intent: active_live_data_collection
   replaces:
   - ops-probe v1.2.0
   type: agent
-  version: 2.0.0
+  version: 2.1.0
 name: collector
 scripts:
 - description: Run CLI commands across multiple devices in parallel

@@ -23,6 +23,11 @@ scripts:
 static_context:
   - path: ./references/SERVICES_API_GUIDE.md
 static_context_mode: on_intent
+metadata:
+  rubric_middleware: true
+  type: agent
+  version: 1.0.0
+  category: devops-services
 ---
 
 ## services — service lifecycle sub-agent
