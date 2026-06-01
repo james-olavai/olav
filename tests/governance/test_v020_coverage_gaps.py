@@ -5,6 +5,7 @@ Tests:
 2. RubricMiddleware opt-in contract — agents with rubric_middleware: true must have it in SKILL.md metadata
 3. Orchestrator tool count ceiling — AGENT.md-declared orchestrators must not exceed a max tool count
 4. SummarizationMiddleware build path — build_summarization_middleware() with a real BaseChatModel returns non-None
+5. SKILL.md new-standard compliance — metadata block, version, enable_todo_list+write_todos, name-form scripts
 """
 from __future__ import annotations
 
@@ -198,3 +199,104 @@ def test_orchestrator_tool_count_ceiling():
         f"Adding orchestrator tools increases per-invocation token cost. "
         f"Consider moving new capabilities to sub-agents."
     )
+
+
+# ---------------------------------------------------------------------------
+# 5. SKILL.md new-standard compliance
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("label,path", _collect_skill_mds())
+def test_skill_md_has_metadata_block(label: str, path: Path):
+    """Every SKILL.md must have a metadata: block.
+
+    The metadata block is the authoritative carrier of harness opt-in flags
+    (rubric_middleware, enable_todo_list), version, category, and type.
+    An agent without a metadata block cannot opt into any harness capability
+    and cannot be versioned or classified correctly.
+    """
+    fm = _parse_skill_md(path)
+    assert fm.get("metadata") is not None, (
+        f"{label}: missing metadata: block.\n"
+        f"Add at minimum: metadata:\n  type: agent\n  version: 1.0.0"
+    )
+
+
+@pytest.mark.parametrize("label,path", _collect_skill_mds())
+def test_skill_md_metadata_has_version(label: str, path: Path):
+    """Every SKILL.md metadata block must declare a version.
+
+    Version enables change tracking, governance diffs, and compatibility
+    checks. Without it, upgrades are invisible.
+    """
+    fm = _parse_skill_md(path)
+    meta = fm.get("metadata") or {}
+    assert meta.get("version"), (
+        f"{label}: metadata block exists but has no version field.\n"
+        f"Add:  version: 1.0.0  (or current version)"
+    )
+
+
+@pytest.mark.parametrize("label,path", _collect_skill_mds())
+def test_enable_todo_list_requires_write_todos_in_tools(label: str, path: Path):
+    """enable_todo_list: true requires write_todos in the tools list.
+
+    TodoListMiddleware activates when enable_todo_list is set, but the LLM
+    can only call write_todos if it appears in tools:. Without it the harness
+    injects the middleware but the agent has no call path to use it —
+    the middleware is silently dead weight.
+    """
+    fm = _parse_skill_md(path)
+    meta = fm.get("metadata") or {}
+    if not meta.get("enable_todo_list"):
+        return
+    tools = fm.get("tools") or []
+    assert "write_todos" in tools, (
+        f"{label}: enable_todo_list=true but write_todos not in tools.\n"
+        f"Add write_todos to the tools: list so the LLM can call it."
+    )
+
+
+@pytest.mark.parametrize("label,path", _collect_skill_mds())
+def test_script_entries_are_name_form(label: str, path: Path):
+    """All scripts: entries must be name-form dicts, not bare path strings.
+
+    Path-form entries (a bare string like './scripts/foo.py') cannot carry a
+    description field, so SkillsMiddleware cannot inject the script's purpose
+    into the agent system prompt. The LLM will not know the script exists.
+
+    Canonical form:
+        scripts:
+          - name: foo
+            file: foo.py
+            description: "What this script does"
+    """
+    fm = _parse_skill_md(path)
+    scripts = fm.get("scripts") or []
+    for entry in scripts:
+        assert isinstance(entry, dict), (
+            f"{label}: script entry {entry!r} is a bare string (path-form).\n"
+            f"Convert to name-form: {{name: ..., file: ..., description: ...}}"
+        )
+
+
+@pytest.mark.parametrize("label,path", _collect_skill_mds())
+def test_script_entries_have_required_fields(label: str, path: Path):
+    """Each name-form script entry must have name, file, and description.
+
+    Missing fields degrade SkillsMiddleware injection:
+    - name: used by execute_skill_script as the callable identifier
+    - file: the Python file to run
+    - description: injected into the agent system prompt so the LLM knows
+      what the script does and when to call it
+    """
+    fm = _parse_skill_md(path)
+    scripts = fm.get("scripts") or []
+    for entry in scripts:
+        if not isinstance(entry, dict):
+            continue  # caught by test_script_entries_are_name_form
+        missing = [k for k in ("name", "file", "description") if not entry.get(k)]
+        assert not missing, (
+            f"{label}: script {entry.get('name', '?')!r} is missing fields: {missing}.\n"
+            f"Every script entry needs name, file, and description."
+        )
