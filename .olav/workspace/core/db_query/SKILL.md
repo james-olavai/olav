@@ -12,6 +12,11 @@ tools:
   - execute_skill_script
 references:
   - path: ./references/RAW_FALLBACK.md
+metadata:
+  category: database-query
+  rubric_middleware: true
+  type: agent
+  version: 1.0.0
 ---
 
 ## Known columns (write SQL directly — do NOT call describe_table first)
