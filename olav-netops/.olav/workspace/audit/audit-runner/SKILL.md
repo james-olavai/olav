@@ -15,6 +15,10 @@ scripts:
   return_direct: true
 tools:
 - execute_skill_script
+metadata:
+  category: audit-execution
+  type: agent
+  version: 1.0.0
 ---
 
 
