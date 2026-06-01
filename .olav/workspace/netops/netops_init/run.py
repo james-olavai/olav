@@ -9,8 +9,8 @@ Stages:
   4. Report (summary per device, parse rate, topology hint)
 
 Usage:
-  olav --agent netops_ops "/netops_init"             # Full collection
-  olav --agent netops_ops "/netops_init --dry-run"   # Env check only, no SSH
+  olav --agent netops "/netops_init"             # Full collection
+  olav --agent netops "/netops_init --dry-run"   # Env check only, no SSH
 """
 
 from __future__ import annotations
@@ -166,7 +166,7 @@ def _check_environment() -> tuple[bool, list[str]]:
         if not hosts.exists():
             issues.append(
                 f"hosts.yaml not found at {hosts}. "
-                f"Copy from: .olav/workspace/netops/collect/config/nornir/hosts.yaml.example"
+                f"Copy from: .olav/workspace/netops/collector/config/nornir/hosts.yaml.example"
             )
         else:
             # Count devices
@@ -491,7 +491,7 @@ def _run_collection(
         # pipeline for 10+ minutes on fresh installs (ISSUE-AUTO-LEARN-PERF).
         # Round 72 (ISSUE-LEARNER-BATCH-CUT) decided batch learning does
         # not belong in the pipeline — it's a ``/learn_cmd`` user action
-        # backed by the ``command_learner`` skill, not autonomous plumbing.
+        # backed by the ``netops/learner`` sub-agent, not autonomous plumbing.
         #
         # What this block does now:
         #   1. Classify every row into one of three buckets:
@@ -558,7 +558,7 @@ def _run_collection(
             print(f"")
             print(f"    ⚡ To enable structured queries for these, run:")
             for (plat, cmd), _devs in sorted(raw_only.items())[:6]:
-                print(f"        olav --agent netops_ops '/learn_cmd {plat} \"{cmd}\"'")
+                print(f"        olav --agent netops '/learn_cmd {plat} \"{cmd}\"'")
             if len(raw_only) > 6:
                 print(f"        …and {len(raw_only) - 6} more (see .olav/config/unsupported.json)")
 
