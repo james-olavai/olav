@@ -1564,15 +1564,22 @@ async def run_single_query(
                     "directly answering the user's question."
                 )
                 try:
+                    import asyncio as _asyncio
                     from langchain_core.messages import HumanMessage as _HM
                     _synth_llm = getattr(agent, "llm", None)
                     if _synth_llm is not None:
-                        _synth_resp = await _synth_llm.ainvoke([_HM(content=_synth_prompt)])
-                        _synth_text = getattr(_synth_resp, "content", "") or ""
-                        if _synth_text.strip():
-                            console.print("")
-                            console.print(_synth_text)
-                            final_content = _synth_text
+                        for _synth_attempt in range(3):
+                            try:
+                                _synth_resp = await _synth_llm.ainvoke([_HM(content=_synth_prompt)])
+                                _synth_text = getattr(_synth_resp, "content", "") or ""
+                                if _synth_text.strip():
+                                    console.print("")
+                                    console.print(_synth_text)
+                                    final_content = _synth_text
+                                break
+                            except Exception:
+                                if _synth_attempt < 2:
+                                    await _asyncio.sleep(10)
                 except Exception:
                     pass  # fall through to Tier 2
 
