@@ -112,6 +112,11 @@ def _is_no_synthesis(out: str) -> bool:
             "running", "healthy", "ok", "normal", "connected", "online", "offline",
             "service", "platform", "health", "status",
             "健康", "正常", "运行", "在线", "服务", "平台", "状态",
+            # Factual recall / direct answer patterns (expert KB, memory, schedule)
+            "联系人", "维护", "变更", "窗口", "每周", "每月", "每天",
+            "时间为", "时间是", "schedule", "window", "contact", "maintenance",
+            "tuesday", "monday", "wednesday", "thursday", "friday",
+            "周一", "周二", "周三", "周四", "周五", "周六", "周日",
         )
     )
     return has_tool_calls and not has_traceback and not has_synthesis

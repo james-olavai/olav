@@ -16,6 +16,7 @@ For full NetBox E2E integration tests, run manually:
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -301,8 +302,24 @@ devops_e2e = pytest.mark.skipif(
     reason="Enable DEVOPS_E2E_ENABLED=1 or configure a real API key to run devops agent E2E tests",
 )
 
-_OLAV_BIN = shutil.which("olav") or "olav"
+_OLAV_CMD = [sys.executable, "-m", "olav"]
 _EXPORTS_SCRIPTS = _ROOT / "exports" / "scripts"
+_TIMEOUT_FACTOR = float(os.environ.get("OLAV_E2E_TIMEOUT_FACTOR", "1"))
+
+
+def _run_devops(prompt: str, timeout: int = 180) -> subprocess.CompletedProcess:
+    effective = int(timeout * _TIMEOUT_FACTOR)
+    proc = subprocess.Popen(
+        _OLAV_CMD + ["--agent", "devops", prompt],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(_ROOT),
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=effective)
+        return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        stdout, stderr = proc.communicate()
+        return subprocess.CompletedProcess(proc.args, -1, stdout or "", stderr or "")
 
 
 @devops_e2e
@@ -321,15 +338,9 @@ class TestDevopsAgentE2E:
 
     def test_script_exported_to_exports_scripts(self, tmp_path):
         """devops agent exports generated script to exports/scripts/."""
-        import time
         before_time = time.time() - 1  # 1s buffer
 
-        result = subprocess.run(
-            [_OLAV_BIN, "--agent", "devops",
-             "Write a bash script to list all devices by querying the OLAV database"],
-            capture_output=True, text=True, timeout=120,
-            cwd=str(_ROOT),
-        )
+        result = _run_devops("Write a bash script to list all devices by querying the OLAV database")
         assert result.returncode == 0, f"olav exited {result.returncode}:\n{result.stderr}"
 
         new_or_updated = (
@@ -344,12 +355,7 @@ class TestDevopsAgentE2E:
 
     def test_script_uses_real_device_data(self, tmp_path):
         """devops agent uses real device names — not placeholders."""
-        result = subprocess.run(
-            [_OLAV_BIN, "--agent", "devops",
-             "Write a bash script to backup running-config from all routers"],
-            capture_output=True, text=True, timeout=120,
-            cwd=str(_ROOT),
-        )
+        result = _run_devops("Write a bash script to backup running-config from all routers")
         assert result.returncode == 0, f"olav exited {result.returncode}:\n{result.stderr}"
 
         # Check generated script files — must use real IPs/names, not generic placeholders

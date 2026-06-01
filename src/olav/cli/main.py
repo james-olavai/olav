@@ -911,6 +911,7 @@ def create_olav_agent_with_backend(
     # Attach plugin_registry to the graph so CLI/API code can access it for
     # binding the top-level run context to callback plugins (e.g. audit).
     graph.plugin_registry = olav_agent.plugin_registry  # type: ignore[attr-defined]
+    graph.llm = olav_agent.llm  # type: ignore[attr-defined]  # for NL-CLI-SILENT-FINAL synthesis
     return graph, composite_backend
 
 

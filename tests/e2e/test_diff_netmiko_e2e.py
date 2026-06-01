@@ -274,10 +274,9 @@ class TestDiffTopologyDriftStable:
         """diff_topology_drift must return status=success on stable topology."""
         self._ensure_two_topology_snapshots()
 
-        sys.path.insert(0, str(_ROOT / ".olav/workspace/ops/diff/tools"))
-        from diff_topology_drift import diff_topology_drift
+        from olav_netops.core.diff import diff_topology_drift
 
-        result = diff_topology_drift.invoke({"snapshot_id_1": self._snap1, "snapshot_id_2": self._snap2})
+        result = diff_topology_drift(snapshot_id_1=self._snap1, snapshot_id_2=self._snap2)
         assert result.get("status") == "success", (
             f"diff_topology_drift returned error: {result.get('error')}"
         )
@@ -286,11 +285,10 @@ class TestDiffTopologyDriftStable:
         """Stable network: diff on same or back-to-back snapshots should report 0 changes."""
         self._ensure_two_topology_snapshots()
 
-        sys.path.insert(0, str(_ROOT / ".olav/workspace/ops/diff/tools"))
-        from diff_topology_drift import diff_topology_drift
+        from olav_netops.core.diff import diff_topology_drift
 
         # Same snapshot compared against itself → always 0 changes
-        result = diff_topology_drift.invoke({"snapshot_id_1": self._snap1, "snapshot_id_2": self._snap1})
+        result = diff_topology_drift(snapshot_id_1=self._snap1, snapshot_id_2=self._snap1)
         assert result.get("total_changes", 0) == 0, (
             f"self-diff returned non-zero changes: {result.get('total_changes')}"
         )
