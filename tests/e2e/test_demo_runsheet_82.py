@@ -102,9 +102,11 @@ def _is_no_synthesis(out: str) -> bool:
             # File-write / script-gen synthesis (devops, writer agents)
             "generated", "created", "saved to", "saved at", "script has",
             "已生成", "已创建", "已保存", "脚本已", "生成了", "已完成",
+            # Prose starters — LLM-generated answer prefixes
+            "here is", "here are", "below is", "below are", "the following",
             # Inventory / data summary phrases
-            "total of", "there are", "we have", "i see", "found a",
-            "共有", "设备共", "型号有", "版本有", "共发现",
+            "total of", "there are", "we have", "i see", "found a", "total",
+            "共有", "设备共", "型号有", "版本有", "共发现", "合计", "总计",
             # Report / export phrases
             "report saved", "export", "the file", "the path",
             "报告已", "导出", "文件路径",
