@@ -28,8 +28,9 @@ metadata:
   - change_request
   - change_planning
   network_isolation: 'true'
+  rubric_middleware: true
   type: agent
-  version: 6.0.0
+  version: 6.1.0
 name: analyzer
 scripts:
 - description: Phase 0a schema discovery — columns + types + 2 sample rows per table

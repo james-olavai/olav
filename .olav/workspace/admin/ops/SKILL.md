@@ -24,7 +24,14 @@ scripts:
   name: explore_ws
 thinking_mode: enabled
 tools:
+- write_todos
 - execute_skill_script
+metadata:
+  enable_todo_list: true
+  rubric_middleware: true
+  type: agent
+  version: 1.0.0
+  category: platform-operations
 ---
 
 

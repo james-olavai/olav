@@ -5,13 +5,15 @@ description: Query registered services (NetBox DCIM/IPAM, InfluxDB, etc.) + gene
 metadata:
   agent_type: api
   category: infrastructure-management
+  enable_todo_list: true
   intents:
   - device_lookup
   - ip_query
   - metric_query
   - changeset_generation
+  rubric_middleware: true
   type: agent
-  version: 0.2.0
+  version: 0.3.0
 name: infra
 static_context:
 - path: ./references/netbox_dcim_api.md
@@ -25,6 +27,7 @@ tools:
 - service_health
 - execute_sql
 - recall_memory
+- write_todos
 ---
 
 
@@ -50,7 +53,18 @@ Refer to reference docs in `references/` for available endpoints and parameters.
 
 Without `--enable-api-write` flag: all write attempts return `{"status": "blocked"}`.
 
-With `--enable-api-write`, follow this 6-step workflow:
+With `--enable-api-write`, track the 6-step workflow with `write_todos` before executing:
+
+```python
+write_todos(todos=[
+    {"content": "Read current state", "status": "in_progress"},
+    {"content": "Show diff to user", "status": "pending"},
+    {"content": "Dry-run validation", "status": "pending"},
+    {"content": "Request approval", "status": "pending"},
+    {"content": "Execute write", "status": "pending"},
+    {"content": "Verify result", "status": "pending"},
+])
+```
 
 ### Step 1 — Read current state
 ```python

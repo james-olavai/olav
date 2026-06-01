@@ -3,6 +3,12 @@ agent_type: api
 description: Audit Profile Author — creates, extends, or retunes Profile files via
   Pydantic-typed structured-output tools. Merged from the v0.18.0 designer sub-agent
   (Round 17).
+metadata:
+  agent_type: api
+  category: audit-profile-management
+  rubric_middleware: true
+  type: agent
+  version: 1.1.0
 name: audit-author
 references:
 - path: ./references/PROFILE_AUTHORING.md

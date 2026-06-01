@@ -25,6 +25,11 @@ tools:
 - read_file
 - recall_memory
 - format_and_export
+metadata:
+  rubric_middleware: true
+  type: agent
+  version: 1.0.0
+  category: content-creation
 ---
 
 

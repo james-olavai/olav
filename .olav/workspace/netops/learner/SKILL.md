@@ -9,6 +9,7 @@ description: 'Parser-layer learning for CLI output. Takes raw device output the 
 llm:
   temperature: 0.0
 metadata:
+  rubric_middleware: true
   category: network-operations
   required_params:
     batch:
@@ -16,7 +17,7 @@ metadata:
     interactive:
     - command_text
     - device_name
-  version: 1.0.0
+  version: 1.1.0
 name: learner
 references:
 - path: ./references/DSL_CHOICE_RULES.md

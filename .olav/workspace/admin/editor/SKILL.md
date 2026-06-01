@@ -25,8 +25,15 @@ scripts:
   name: get_static_context
 thinking_mode: enabled
 tools:
+- write_todos
 - execute_skill_script
 - recall_memory
+metadata:
+  enable_todo_list: true
+  rubric_middleware: true
+  type: agent
+  version: 1.0.0
+  category: workspace-management
 ---
 
 
