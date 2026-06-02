@@ -657,3 +657,16 @@ rules:
     status: authoritative
     enforced: true
     git: track
+
+  # admin is a platform top-level agent (ADR-0012) — platform self-management
+  # (ops/installer/editor). Fixes ADMIN-OWNERSHIP-GAP: previously had no
+  # explicit rule (fell under .olav/workspace/** ignore) and shipped in no
+  # wheel source. Now authoritative source ships at
+  # src/olav/data/workspace/admin/ (covered by src/olav/**); tracked runtime
+  # workspace, parallel to core/services.
+  - pattern: .olav/workspace/admin/**
+    owner: olav
+    class: runtime-workspace
+    status: authoritative
+    enforced: true
+    git: track
