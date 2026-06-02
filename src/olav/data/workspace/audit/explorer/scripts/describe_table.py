@@ -6,7 +6,7 @@ into ``execute_sql``. Agents can call ``describe_table("netops.devices")``
 to get just that one table's columns, types, and (optionally) two sample
 rows — without carrying the entire database schema in the system prompt.
 
-The script uses DuckDB ``DESCRIBE`` directly (no caching layer needed for
+The tool uses DuckDB ``DESCRIBE`` directly (no caching layer needed for
 single-table queries). Accepts both schema-qualified (``netops.devices``)
 and bare (``devices``) table names; netops schema is tried first when the
 name is bare to match the most common operator workflow.
@@ -140,7 +140,7 @@ def describe_table(table_name: str, include_samples: bool = False) -> dict[str, 
 
 
 if __name__ == "__main__":
-    import json as _json, sys as _sys
-    _args = _json.loads(_sys.stdin.read() or "{}")
+    import json, sys
+    _args = json.loads(sys.stdin.read() or "{}")
     result = describe_table(**_args)
-    print(_json.dumps(result, default=str))
+    print(json.dumps(result, default=str))

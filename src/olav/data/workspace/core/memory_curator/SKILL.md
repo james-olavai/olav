@@ -23,6 +23,10 @@ static_context: []
 # Portability manifest — YAML knowledge files under ./references/
 dynamic_context:
   - path: ./references/memory_ingestion_routing.guide.yaml
+metadata:
+  version: 1.0.0
+  type: agent
+  category: platform
 ---
 
 ## Role (R102 — conversational memory)

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# LEGACY-UNCHECKED: file uses "legacy" in historical R100/S2 comments about removed code
 """Data Export — 极简文件导出工具
 
 统一数据导出功能，支持多种格式自动检测。
@@ -93,14 +92,6 @@ def format_and_export(
     Returns:
         {"path": "exports/.../file.ext", "absolute_path": "...", "size": 1234, "format": "md"}
     """
-    # Strict string contract: reject non-string data up-front so callers
-    # get a clear feedback signal instead of a silent malformed write.
-    if not isinstance(data, str):
-        raise TypeError(
-            f"data must be a string, got {type(data).__name__!r}. "
-            "Pass the file content as a literal string, not a dict or list."
-        )
-
     # Normalise mode early; reject malformed values up-front.
     if mode is None:
         mode = "overwrite"
@@ -492,8 +483,7 @@ def _write_yaml(filepath: Path, data: Any) -> None:  # noqa: ANN401
 
 
 if __name__ == "__main__":
-    import json as _json
-    import sys as _sys
+    import json as _json, sys as _sys
     _args = _json.loads(_sys.stdin.read() or "{}")
     result = format_and_export(**_args)
     print(_json.dumps(result, default=str))

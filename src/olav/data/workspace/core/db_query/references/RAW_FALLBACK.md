@@ -75,7 +75,7 @@ command)` pair AND the user is doing **aggregate** queries
 ("count BGP Established across all devices"), suggest:
 
 ```
-olav --agent netops_ops '/learn_cmd "show bgp summary" --device R2'
+olav --agent ops '/learn_cmd "show bgp summary" --device R2'
 ```
 
 This will persist a parser so future queries get Tier-1 / Tier-2 speed.

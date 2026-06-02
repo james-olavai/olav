@@ -514,8 +514,7 @@ class DateTimeEncoder(json.JSONEncoder):
 
 
 if __name__ == "__main__":
-    import json as _json
-    import sys as _sys
+    import json as _json, sys as _sys
     _args = _json.loads(_sys.stdin.read() or "{}")
     result = main(_args)
     print(_json.dumps(result, ensure_ascii=False, indent=2, cls=DateTimeEncoder))

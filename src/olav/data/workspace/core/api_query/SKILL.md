@@ -2,6 +2,7 @@
 name: api-query
 description: "API service queries — HTTP requests to registered services (NetBox, Grafana, Jira, etc.), health checks, web search, report export"
 tools:
+  - execute_skill_script
   - web_search
   - format_and_export
 scripts:
@@ -11,4 +12,9 @@ scripts:
   - name: service_health
     description: "Check health and reachability of a registered service"
     file: service_health.py
+metadata:
+  category: api-integration
+  rubric_middleware: true
+  type: agent
+  version: 1.0.0
 ---

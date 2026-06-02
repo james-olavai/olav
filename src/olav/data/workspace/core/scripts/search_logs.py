@@ -224,8 +224,7 @@ def search_logs(
 
 
 if __name__ == "__main__":
-    import json as _json
-    import sys as _sys
+    import json as _json, sys as _sys
     _args = _json.loads(_sys.stdin.read() or "{}")
     result = search_logs(**_args)
     print(_json.dumps(result, default=str))

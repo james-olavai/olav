@@ -392,8 +392,7 @@ def render_topology_drawio(
 
 
 if __name__ == "__main__":
-    import json as _json
-    import sys as _sys
+    import json as _json, sys as _sys
     _args = _json.loads(_sys.stdin.read() or "{}")
     result = render_topology_drawio(**_args)
     print(_json.dumps(result, default=str))
