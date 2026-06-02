@@ -9,7 +9,6 @@ scripts; not registered as an MCP tool.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 

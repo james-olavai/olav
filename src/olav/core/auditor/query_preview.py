@@ -9,7 +9,6 @@ ADR-0007 + ADR-0008, called from auditor skill scripts.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 logger = logging.getLogger(__name__)
 

@@ -43,7 +43,6 @@ from __future__ import annotations
 import hashlib
 import json as _json
 import logging
-import re
 from typing import TYPE_CHECKING, Any
 
 from olav.plugins.base import OLAVMiddlewarePlugin

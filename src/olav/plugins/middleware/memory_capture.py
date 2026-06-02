@@ -1,7 +1,6 @@
 """Memory Capture Plugin — extracts facts from conversations and stores them in LanceDB."""
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 

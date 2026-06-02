@@ -215,7 +215,6 @@ def _extract_constraints(
 
 def _tags_from_constraint(text: str) -> list[str]:
     """Extract simple keyword tags from a constraint string for hybrid search."""
-    import re as _re
     # Pull known OLAV-domain keywords as tags
     _KEYWORDS = re.compile(
         r"\b(sql|bgp|ospf|bgp|ssh|cli|interface|vlan|route|snapshot|"

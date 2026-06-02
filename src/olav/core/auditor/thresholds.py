@@ -40,7 +40,6 @@ def analyze_thresholds(
           - sample_values: up to 5 representative data points
           - error: error message if query failed (allows LLM to retry)
     """
-    import re
 
     if db_path is None:
         try:

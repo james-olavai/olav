@@ -20,7 +20,7 @@ from pathlib import Path
 import yaml
 
 from olav.cli.commands.base import BaseCommand
-from olav.core.workspace import WorkspaceDeclaration, check_binary_requirements
+from olav.core.workspace import AgentDeclaration, WorkspaceDeclaration, check_binary_requirements
 
 logger = logging.getLogger(__name__)
 

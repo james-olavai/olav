@@ -533,7 +533,6 @@ def cmd_remove(args) -> int:
     """`olav kb remove <intent>` — tombstone + LanceDB delete + audit row."""
     import hashlib
     import os
-    import yaml
 
     workspace_root = Path(args.workspace).resolve()
     if not workspace_root.exists():

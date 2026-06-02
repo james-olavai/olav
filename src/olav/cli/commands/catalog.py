@@ -219,7 +219,7 @@ def _render_describe(table: str) -> str:
     db_path = _resolve_main_db()
     if db_path is None:
         return (
-            f"error: main DuckDB not found. Run `olav init` first, then retry."
+            "error: main DuckDB not found. Run `olav init` first, then retry."
         )
 
     columns = _table_schema(db_path, table)
