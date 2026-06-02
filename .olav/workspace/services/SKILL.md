@@ -27,10 +27,10 @@ metadata:
   rubric_middleware: true
   type: agent
   version: 1.0.0
-  category: devops-services
+  category: platform-services
 ---
 
-## services — service lifecycle sub-agent
+## services — service lifecycle (platform agent root skill)
 
 Register and operate the external systems OLAV integrates with.
 
@@ -58,7 +58,7 @@ Register and operate the external systems OLAV integrates with.
 
 ## Boundary
 
-- **Do NOT** query infrastructure databases (NetBox IPAM, InfluxDB metrics) — that's `infra`.
-- **Do NOT** generate scripts — that's `scripts`.
+- **Do NOT** query infrastructure databases (NetBox IPAM, InfluxDB metrics) — that's the `devops` agent's `infra`.
+- **Do NOT** generate scripts — that's the `devops` agent's `scripts`.
 - When a service name is unknown, call `api_request` with `service=<name>` and let the
   tool error surface the registered list.

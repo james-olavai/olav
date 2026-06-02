@@ -37,7 +37,7 @@ to dedicated agents/sub-agents.
 When a query requires domain-specific tools, core routes via sub-agents or suggests:
 - Network CLI / BGP / OSPF / config diff / snapshot → `--agent netops`
 - Compliance reports / audit profiles → `--agent audit`
-- Service registration / API integrations → `--agent devops`
+- Service registration / container deploy / authenticated API calls → `--agent services`
 - Platform administration (health/logs/cron/deploy/stop/workspace edits) → `--agent admin`
 - Lab / CAB simulations → `--agent netops "<CAB task>"`
 

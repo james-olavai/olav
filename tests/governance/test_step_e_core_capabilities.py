@@ -57,7 +57,8 @@ _EXPECTED_CAPABILITIES: tuple[str, ...] = (
 #                         load_reference moved from core/admin/ to admin/editor/.
 _RELOCATED_CANONICAL_FILES: tuple[tuple[str, Path], ...] = (
     ("api_request.py",        WORKSPACE / "core" / "api_query" / "scripts"),
-    ("deploy_service.py",     WORKSPACE / "devops" / "services" / "scripts"),
+    # ADR-0014: services promoted to platform top-level agent.
+    ("deploy_service.py",     WORKSPACE / "services" / "scripts"),
     ("write_workspace_file.py", ADMIN_EDITOR_TOOLS),
     # run_shell is no longer present in runtime core workspace.
     ("load_reference.py",     ADMIN_EDITOR_TOOLS),

@@ -53,6 +53,8 @@ CURRENT_AGENTS: frozenset[str] = frozenset({
     "devops",
     "netops",
     "ops",
+    "services",            # ADR-0014: platform service-lifecycle agent (NEW;
+                           # name reclaimed — old self-mgmt services→admin)
 })
 
 
@@ -62,7 +64,10 @@ DELETED_AGENTS: frozenset[str] = frozenset({
     "audit-auditor",       # → audit (Round 17 Step B)
     "ops-lab",             # top-level shell → ops (Round 18 Step D lite)
     "infra",               # → services (Round 16 Step A + ARCH-20 P1)
-    "services",            # → admin (dev_docs/85 AGENT_ARCHITECTURE_V2)
+    # NOTE: "services" is NOT deleted — ADR-0014 reclaimed the name for the
+    # platform service-lifecycle agent (docker/CLAB deploy, register, api).
+    # The *old* self-mgmt services became `admin` (dev_docs/85); that one
+    # stays gone, but it's tracked by name=admin now.
     "gitea",               # removed (ARCH-20 P1)
     "config",              # → core/admin/ (ARCH-20 P1)
 })

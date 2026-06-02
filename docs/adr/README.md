@@ -21,6 +21,7 @@ lightweight, markdown-native ADR template.
 | [0011](0011-llm-first-bounded-by-typed-apis.md) | LLM-first means typed APIs + structured output, not free-form code generation | Accepted | Post R-AGENT-HIERARCHY |
 | [0012](0012-admin-as-fifth-top-level-agent.md) | Promote admin to fifth canonical top-level agent (supersedes ADR-0004 §4) | Accepted | Post R-AGENT-HIERARCHY |
 | [0013](0013-cross-domain-read-access-policy.md) | Cross-domain sub-agent read-access via allowed_tables | Accepted | Post R-AGENT-HIERARCHY |
+| [0014](0014-services-platform-agent-netops-scope.md) | services is a platform core agent; netops scoped to netops + audit | Proposed | Architecture audit batch |
 
 ## When to write an ADR
 
