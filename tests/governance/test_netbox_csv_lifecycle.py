@@ -17,7 +17,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 EXPORT_SCRIPT = REPO / "olav-netops" / ".olav" / "workspace" / "netops" / "export_netbox_csv" / "run.py"
-IMPORT_SCRIPT = REPO / "src" / "olav" / "data" / "workspace" / "services" / "import_netbox_csv" / "run.py"
+IMPORT_SCRIPT = REPO / "olav-netops" / ".olav" / "workspace" / "netops" / "import_netbox_csv" / "run.py"
 
 
 def _read_columns_from(script: Path) -> tuple[str, ...]:
