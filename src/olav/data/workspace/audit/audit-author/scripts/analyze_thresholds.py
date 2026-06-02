@@ -13,6 +13,7 @@ Usage pattern (HMITL):
 from __future__ import annotations
 
 import logging
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -77,6 +78,7 @@ def analyze_thresholds(
           - sample_values: up to 5 representative data points
           - error: error message if query failed (allows LLM to retry)
     """
+    import re
 
     if db_path is None:
         try:
@@ -238,7 +240,6 @@ AnalyzeThresholdsInput.model_rebuild()
 
 
 if __name__ == "__main__":
-    import json as _json
-    import sys as _sys
+    import json as _json, sys as _sys
     _args = _json.loads(_sys.stdin.read() or "{}")
     print(_json.dumps(analyze_thresholds(**_args), default=str))

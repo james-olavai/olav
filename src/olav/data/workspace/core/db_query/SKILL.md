@@ -8,8 +8,15 @@ scripts:
   - name: describe_table
     description: "Return schema and sample rows for a DuckDB table"
     file: describe_table.py
+tools:
+  - execute_skill_script
 references:
   - path: ./references/RAW_FALLBACK.md
+metadata:
+  category: database-query
+  rubric_middleware: true
+  type: agent
+  version: 1.0.0
 ---
 
 ## Known columns (write SQL directly — do NOT call describe_table first)

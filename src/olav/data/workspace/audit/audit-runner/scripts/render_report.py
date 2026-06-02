@@ -26,8 +26,9 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,39 @@ def render_report(
     # evidence-only correlation prompt (P1.1) this is enough to make
     # audit reports diff-able across runs without a full Jinja rewrite.
     llm = LLMFactory.get_chat_model(agent_id="auditor", temperature=0)
+
+    # Retry wrapper: llama.cpp returns 503 "Loading model" transiently
+    # between sequential calls (KV-cache flush / slot contention).
+    # Retry up to 5 times with 10-second backoff before giving up.
+    def _llm_invoke(prompt: Any, retries: int = 5, delay: float = 10.0) -> Any:
+        import time
+        last_exc: Exception | None = None
+        for attempt in range(retries):
+            try:
+                return llm.invoke(prompt)
+            except Exception as exc:
+                msg = str(exc)
+                # Retry on transient server-side errors: 503, model loading,
+                # and HTTP connection drops (Ollama closes keep-alive between
+                # back-to-back requests → RemoteProtocolError / APIConnectionError).
+                is_transient = (
+                    "503" in msg
+                    or "Loading model" in msg
+                    or "unavailable" in msg.lower()
+                    or "Connection error" in msg
+                    or "RemoteProtocol" in msg
+                    or "Server disconnected" in msg
+                )
+                if is_transient:
+                    last_exc = exc
+                    logger.warning(
+                        "render_report: LLM transient error on attempt %d/%d, retrying in %.0fs — %s",
+                        attempt + 1, retries, delay, msg[:120],
+                    )
+                    time.sleep(delay)
+                    continue
+                raise
+        raise last_exc  # type: ignore[misc]
 
     # 2. Load shared format contract (applies to ALL sections)
     prompts_path = Path(prompts_dir)
@@ -207,7 +241,7 @@ def render_report(
             _append_to_file(report_path, trunc_note + note if trunc_note else note)
         else:
             prompt = _assemble_prompt(system_envelope, section_prompt, findings_list, lang)
-            section_content = llm.invoke(prompt).content
+            section_content = _llm_invoke(prompt).content
             _append_to_file(report_path, trunc_note + section_content if trunc_note else section_content)
 
     # 6. Phase 3 — Global Correlation Pass
@@ -272,7 +306,7 @@ def render_report(
         )
     else:
         summary_prompt = lang_directive + freshness_directive + "\n\n" + corr_template + "\n\n---\n\n" + full_report + cluster_context
-        summary = llm.invoke(summary_prompt).content
+        summary = _llm_invoke(summary_prompt).content
 
     # ── ISSUE-AUDIT-FRESHNESS-GATE-MISSING (P1, 2026-05-12) ─────────────
     # If map_engine flagged stale data, prepend a deterministic banner
@@ -1376,7 +1410,6 @@ _DEFAULT_CORR_TEMPLATE = (
 )
 
 if __name__ == "__main__":
-    import json as _json
-    import sys as _sys
+    import json as _json, sys as _sys
     _args = _json.loads(_sys.stdin.read() or "{}")
     print(_json.dumps(render_report(**_args), default=str))

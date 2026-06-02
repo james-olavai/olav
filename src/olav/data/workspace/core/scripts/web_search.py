@@ -134,8 +134,7 @@ def web_search(query: str) -> str:
 
 
 if __name__ == "__main__":
-    import json as _json
-    import sys as _sys
+    import json as _json, sys as _sys
     _args = _json.loads(_sys.stdin.read() or "{}")
     action = _args.pop("action", "search")
     fn = {"search": web_search, "ddg": web_search}.get(action, web_search)

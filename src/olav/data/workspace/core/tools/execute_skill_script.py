@@ -78,9 +78,9 @@ def execute_skill_script(
 
     Example:
         >>> execute_skill_script(
-        ...     skill_name="analyze",
-        ...     script_name="diff_topology_drift.py",
-        ...     script_args={"snap_a": "snap_2026_01_01", "snap_b": "snap_2026_01_02"},
+        ...     skill_name="lab",
+        ...     script_name="generate_clab_topology.py",
+        ...     script_args={"nodes": ["R1", "R4"], "lab_name": "cab_demo"},
         ... )
     """
     return _impl(

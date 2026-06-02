@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, validator
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 
 # Add src to Python Path
@@ -34,7 +35,9 @@ def _find_project_root():
 
 sys.path.insert(0, str(_find_project_root() / "src"))
 
+import duckdb as _duckdb
 
+from olav.core.config import MAIN_DB_PATH
 
 
 def _classify_sql(sql: str) -> str:
@@ -473,8 +476,7 @@ class DateTimeEncoder(json.JSONEncoder):
 
 
 if __name__ == "__main__":
-    import json as _json
-    import sys as _sys
+    import json as _json, sys as _sys
     _args = _json.loads(_sys.stdin.read() or "{}")
     result = main(_args)
     print(_json.dumps(result, ensure_ascii=False, indent=2, cls=DateTimeEncoder))
