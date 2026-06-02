@@ -46,11 +46,24 @@ _SYSTEM_PROMPT_SUFFIX = """\
 # ``olav.core.config._TIER_REGEX_MEDIUM`` is the source of truth for
 # "is this model medium?".
 _MEDIUM_MODEL_SPECS: tuple[str, ...] = (
+    # qwen family — Ollama tag form
     "qwen3.6:27b",
+    "qwen3:30b",
+    "qwen3:14b",
     "qwen2.5:14b",
     "qwen2.5:32b",
+    "qwen2.5-coder:32b",
+    # qwen family — OpenAI-compat / OpenRouter
+    "openai:qwen2.5-32b-instruct",
+    "openai:qwen3-32b",
+    "openai:qwen3-14b",
+    # mixtral / mistral family
     "mixtral:8x7b",
     "mistral-small",
+    "openai:mistral-small-latest",
+    # llama 13B-34B class — llama.cpp gguf via OpenAI-compat
+    "openai:llama-3.3-70b-instruct-Q4_K_M.gguf",
+    "openai:llama-3.1-70b-instruct-Q4_K_M.gguf",
 )
 
 

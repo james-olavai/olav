@@ -92,6 +92,16 @@ _SMALL_MODEL_SPECS: tuple[str, ...] = (
     # resolver tries ``f"{provider}:{identifier}"`` first).
     "openai:gemma4-31b-it",
     "openai:gemma4-9b-it",
+    # gemma family — gguf quantised form served via llama.cpp server
+    # (OpenAI-compat endpoint; model_provider=openai from LangChain's view).
+    # Add gguf variants here as new quantisations are used in production.
+    # Naming convention: <family>-<size>-<variant>-<quant>.gguf
+    "openai:gemma-4-31b-it-Q4_K_M.gguf",
+    "openai:gemma-4-31b-it-Q8_0.gguf",
+    "openai:gemma-4-27b-it-Q4_K_M.gguf",
+    "openai:gemma-4-27b-it-Q8_0.gguf",
+    "openai:gemma-4-9b-it-Q4_K_M.gguf",
+    "openai:gemma-4-9b-it-Q8_0.gguf",
     # phi-3 family
     "phi-3:mini",
     "phi-3:medium",
