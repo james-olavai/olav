@@ -68,6 +68,7 @@ PARTNERS.md
 .dockerignore
 /dev_docs/
 /scripts/
+/tools/
 /run/
 .github/copilot-instructions.md
 /.vscode/
@@ -85,6 +86,7 @@ PARTNERS.md
 /.ruff_cache/
 /.venv/
 /.agent/
+/.langgraph_api/
 /olav-post/
 olav-netops/exports/
 olav-doc/site/
@@ -116,6 +118,9 @@ olav-web/.wrangler/
 /.olav/
 .olav/workspace/audit/
 .olav/config/approval_rules.yaml
+
+# collector
+/olav-collector/
 
 # ── Whitelist (tracked paths inside ignored parents) ──
 !olav-netops/

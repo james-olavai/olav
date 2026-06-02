@@ -7,6 +7,7 @@ owners:
   - olav-ent
   - olav-doc
   - olav-web
+  - olav-collector
 
 classes:
   - platform
@@ -14,6 +15,7 @@ classes:
   - enterprise
   - docs
   - website
+  - collector
   - runtime-workspace
   - testing
   - build
@@ -154,6 +156,14 @@ rules:
     enforced: true
     git: track
 
+  - pattern: langgraph.json
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+    notes: langgraph dev server graph config — points at src/olav/server/graph_factory.py:graph
+
   - pattern: CHANGELOG.md
     owner: olav
     class: platform
@@ -195,6 +205,14 @@ rules:
     status: authoritative
     enforced: true
     git: ignore
+
+  - pattern: tools/**
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: ignore
+    notes: root-level dev/benchmark tooling (e.g. compare_bench.py) — not part of release surface, parallels scripts/**
 
   - pattern: tests/**
     owner: olav
@@ -276,6 +294,14 @@ rules:
     enforced: false
     git: ignore
     notes: containerlab session files
+
+  - pattern: .langgraph_api/**
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+    notes: langgraph dev server runtime checkpoints (*.pckl, store) — never committed
 
   - pattern: olav-post/**
     owner: olav
@@ -497,6 +523,19 @@ rules:
     status: generated
     enforced: false
     git: ignore
+
+  # ── olav-collector (standalone collector repo) ───────────────────
+  # Co-located separate repository — offline-deployable network
+  # collector (nornir + netmiko, bundled wheels, Dockerfile). Not part
+  # of the olav release surface; never committed to this repo. Contains
+  # credentials.env (lab SSH creds) covered by this ignore rule.
+  - pattern: olav-collector/**
+    owner: olav-collector
+    class: collector
+    status: authoritative
+    enforced: true
+    git: ignore
+    notes: standalone co-located collector repo — never committed here
 
   # ── Workspace control plane ────────────────────────────────────
   - pattern: .olav/**
