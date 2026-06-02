@@ -33,5 +33,6 @@ workspaces:
     source: .olav/workspace/netops
   - name: audit
     source: .olav/workspace/audit
-  - name: devops
-    source: .olav/workspace/devops
+  # devops removed 2026-06-02 (ADR-0014 Phase B): devops is now a PLATFORM
+  # agent shipped in the olav wheel (src/olav/data/workspace/devops), deployed
+  # by `olav init` — no longer bundled with the netops skill pack.

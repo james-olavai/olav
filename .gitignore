@@ -96,6 +96,11 @@ olav-web/.wrangler/
 .olav/databases/
 .olav/logs/
 .olav/workspace/ops/
+.olav/workspace/devops/
+.olav/workspace/audit/
+.olav/workspace/core/
+.olav/workspace/services/
+.olav/workspace/admin/
 
 # legacy
 /_legacy_archived/
@@ -136,14 +141,9 @@ olav-netops/.olav/workspace/*
 !.olav/workspace/
 .olav/workspace/*
 !.olav/workspace/netops/
-!.olav/workspace/devops/
-!.olav/workspace/audit/
 !.olav/config/
 !.olav/config/*.example
 !.olav/config/schemas/
-!.olav/workspace/core/
-!.olav/workspace/services/
-!.olav/workspace/admin/
 
 # ── Secrets (NEVER commit) ──
 .env
