@@ -18,14 +18,14 @@ keywords:
   - debug
   - flap
   - flapping
-  - 快照
-  - 当前
-  - 最新
-  - 实时
-  - 过期
-  - 不一致
-  - 排查
-  - 诊断
+  - snapshot
+  - current
+  - latest
+  - real-time
+  - stale
+  - inconsistent
+  - troubleshoot
+  - diagnose
 body: |
   DB state contradicts observation → ``take_snapshot`` the suspected
   device(s) ONLY, never the whole fleet.
@@ -52,6 +52,6 @@ body: |
        ``raw_output_store`` immediately
 
   When NOT:
-    * one-off "device up?" → ``execute_cli(device='R1', 'show clock')``
+    * one-off "device up?" → ``execute_cli_parallel(devices=['R1'], command='show clock')``
     * fleet-wide audit → audit agent's ``record_*`` flow
     * DB already up-to-date — re-snap creates duplicate rows

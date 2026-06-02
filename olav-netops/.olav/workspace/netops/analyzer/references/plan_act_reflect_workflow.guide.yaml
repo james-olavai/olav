@@ -8,11 +8,11 @@ keywords:
   - multi-step analysis
   - audit and write report
   - thorough investigation
-  - 深度调研
-  - 综合报告
-  - 多步分析
-  - 写报告
-  - 调研并输出
+  - deep research
+  - comprehensive report
+  - multi-step analysis
+  - write report
+  - research and output
   - end-to-end audit
   - holistic review
   - long-form analysis
@@ -43,7 +43,7 @@ body: |
                     tools: task("analyze", "BGP summary per device")
   - stage3_evidence: pull syslog for any session flaps →
                     artifact: timeline of flap events
-                    tools: task("investigate", "BGP flap events last 7d")
+                    tools: task("analyzer", "query_evidence BGP flap events last 7d")
   - stage4_synthesis: derive hypothesis + risk list
                     artifact: structured findings
                     tools: (LLM reasoning only, no tools)

@@ -8,8 +8,8 @@ keywords:
   - banner classification
   - tier 3 fallback
   - show running-config
-  - 平台识别
-  - 厂商识别
+  - platform identification
+  - vendor identification
 priority: 4
 body: |
   ## Tier 3 LLM platform-classification table

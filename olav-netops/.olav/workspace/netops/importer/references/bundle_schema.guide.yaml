@@ -8,9 +8,9 @@ keywords:
   - ingest schema
   - _meta.yaml
   - content_sha256
-  - 离线包
-  - 快照包
-  - 导入
+  - offline bundle
+  - snapshot bundle
+  - import
 priority: 5
 body: |
   ## Canonical bundle layout (dev_docs/80 §3)

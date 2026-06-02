@@ -23,7 +23,7 @@ they vanish at session end.
 
 ### 🔧 Domain (Olav infrastructure, real persistent ops)
 
-`execute_cli` · `write_workspace_file` · `execute_sql` · `run_shell`
+`execute_cli_parallel` · `write_workspace_file` · `execute_sql` · `run_shell`
 · `deploy_service` · `register_service` · `search_commands` ·
 `sync_inventory`
 
@@ -46,7 +46,7 @@ for thinking, not doing.
 | Create / write any project file | `write_workspace_file` | `write_file`, `run_python_code` |
 | Read a file you just wrote | `run_shell("cat .olav/services/<name>/file")` | `read_file` (wrong path resolution) |
 | Network SQL queries | `execute_sql` | `run_python_code` |
-| Device CLI | `execute_cli` | `run_python_code` |
+| Device CLI | `execute_cli_parallel` | `run_python_code` |
 
 ## `run_shell` — common patterns
 

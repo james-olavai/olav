@@ -9,26 +9,23 @@ keywords:
   - why is
   - down
   - flap
-  - 故障
-  - 为什么
-  - 定位
+  - fault
+  - why is
+  - locate issue
   - troubleshoot
   - issue
   - problem with
 body: |
   Fault analysis questions ("why is X down", "diagnose Y", "root cause",
-  "故障") follow this REQUIRED sequence:
+  "fault") follow this REQUIRED sequence:
 
-  1. **State check (analyze)** — `task("analyze", "current state of <devices>")`
+  1. **State check** — `task("analyzer", "current state of <devices>")`
      Get hard evidence of what IS true now: BGP up/down, link status,
-     prefix counts.  Use inspect_routing, inspect_devices,
-     inspect_topology.
+     prefix counts.  Use execute_sql on v_*_auto views.
 
-  2. **Evidence search (investigate)** — `task("investigate", "syslog
-     mentioning <symptom> on <devices>")`
-     Get historical evidence: flaps, errors, config diffs.  Use
-     query_evidence with patterns like "BGP", "OSPF dead", "down",
-     "neighbor".
+  2. **Evidence search** — `task("analyzer", "syslog mentioning <symptom>
+     on <devices>")`  Analyzer's Workflow D calls `query_evidence` internally.
+     Looks for patterns like "BGP", "OSPF dead", "down", "neighbor".
 
   3. **Synthesize**: state your hypothesis with evidence_chain
      pointers.  Format: "X is the cause because (state shows Y) AND
@@ -42,7 +39,7 @@ body: |
   - **Adjacency flap** → inspect_drift_routing shows state changes;
     query_evidence(syslog, pattern="ADJCHANGE") lists timing.
   - **Silent unreachable** → inspect_blast_radius confirms graph
-    state but live ping requires task("collect").
+    state but live ping requires task("collector").
 
   ## Anti-pattern: jumping to live CLI before exhausting DB
 
@@ -52,6 +49,4 @@ body: |
 
 related:
   - intent: compound_chain_workflow
-    note: "if user said 'diagnose then fix', after step 3 invoke task('sim')"
-  - intent: log_search
-    note: "investigate sub-agent's primary capability"
+    note: "if user said 'diagnose then fix', after step 3 invoke task('simulator')"
