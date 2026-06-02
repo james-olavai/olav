@@ -141,6 +141,7 @@ olav-netops/.olav/workspace/*
 !.olav/workspace/
 .olav/workspace/*
 !.olav/workspace/core/
+!.olav/workspace/services/
 
 # ── Secrets (NEVER commit) ──
 .env

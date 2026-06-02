@@ -35,19 +35,23 @@ _REMOVED_AGENTS = frozenset(
         "config",           # → core/admin/ (ARCH-20 Phase 1)
         "gitea",
         "infra",
-        "services",         # → admin/ (dev_docs/85)
+        # NOTE: "services" removed from removed-set — ADR-0014 reclaimed the
+        # name for the platform service-lifecycle agent. The old self-mgmt
+        # services became `admin` (dev_docs/85); admin present = old one gone.
         "command_learner",  # → netops/learner/ (2026-05-20)
     }
 )
 
-# Current canonical top-level set (post dev_docs/85 ops→netops rename).
+# Current canonical top-level set (post dev_docs/85 ops→netops rename;
+# ADR-0014 added platform `services`).
 _EXPECTED_TOP_LEVEL_DIRS = frozenset(
     {
-        "admin",           # formerly services/
+        "admin",           # formerly the self-mgmt services/ (dev_docs/85)
         "audit",
         "core",
         "devops",
         "netops",          # formerly ops/ (main); learner/ is a netops sub-agent
+        "services",        # ADR-0014: platform service-lifecycle agent (NEW)
         "ops",             # transitional — contains only netops_init
     }
 )
