@@ -58,10 +58,12 @@ if _DA_VERSION >= _DA_NEXT_MAJOR:
     )
 
 # ── Feature flags ─────────────────────────────────────────────────────────────
-# Gate new features behind version checks so the codebase degrades gracefully
-# when running against an older patch.
+# _DA_MIN = 0.6.7, so all features introduced before 0.6.7 are always available.
+# Literals below replace version comparisons to make the invariant explicit.
+# When _DA_MIN is bumped again, update these constants if any feature was gated
+# above the new minimum.
 
-HAS_SUMMARIZATION: bool = _DA_VERSION >= V("0.4.0")
+HAS_SUMMARIZATION: bool = True
 """True when SummarizationMiddleware is available (auto context compression)."""
 
 HAS_PROMPT_CACHING: bool = True
@@ -72,22 +74,22 @@ at call sites — the middleware is Anthropic-specific and must not be injected 
 provider is custom/openai/ollama (ISSUE-HARNESS-PROMPT-CACHING-PROVIDER-BLIND).
 """
 
-HAS_LOCAL_SHELL_BACKEND: bool = _DA_VERSION >= V("0.4.0")
+HAS_LOCAL_SHELL_BACKEND: bool = True
 """True when LocalShellBackend is available (subprocess execution backend)."""
 
-HAS_NAMESPACE_FACTORY: bool = _DA_VERSION >= V("0.4.0")
+HAS_NAMESPACE_FACTORY: bool = True
 """True when NamespaceFactory / BackendContext pattern is available."""
 
-HAS_ASYNC_SUBAGENTS: bool = _DA_VERSION >= V("0.5.0")
+HAS_ASYNC_SUBAGENTS: bool = True
 """True when AsyncSubAgent / AsyncSubAgentMiddleware are available."""
 
-HAS_RUBRIC_MIDDLEWARE: bool = _DA_VERSION >= V("0.6.5")
+HAS_RUBRIC_MIDDLEWARE: bool = True
 """True when RubricMiddleware is available (self-eval + auto-retry for coverage contracts)."""
 
-HAS_STATE_SCHEMA: bool = _DA_VERSION >= V("0.6.6")
+HAS_STATE_SCHEMA: bool = True
 """True when state_schema param and DeepAgentState are available in create_deep_agent."""
 
-HAS_CONTEXT_HUB: bool = _DA_VERSION >= V("0.6.6")
+HAS_CONTEXT_HUB: bool = True
 """True when ContextHubBackend is available (Git-versioned memory backend)."""
 
 # ── Core exports (stable across 0.4.x → 0.6.x) ───────────────────────────────
@@ -126,25 +128,22 @@ def _safe_imports(
         return dict.fromkeys(keys, None)
 
 
-# ── Version-gated exports ─────────────────────────────────────────────────────
+# ── Exports ───────────────────────────────────────────────────────────────────
 
-# 0.6.5+: RubricMiddleware — self-eval + auto-retry for coverage contracts
+# RubricMiddleware — self-eval + auto-retry for coverage contracts
 _rubric = _safe_imports(
     ("deepagents.middleware.rubric", "RubricMiddleware", None),
-    enabled=HAS_RUBRIC_MIDDLEWARE,
 )
 RubricMiddleware = _rubric["RubricMiddleware"]
 
-# 0.6.6+: DeepAgentState (typed cross-call state) and ContextHubBackend (Git-versioned memory)
+# DeepAgentState (typed cross-call state) and ContextHubBackend (Git-versioned memory)
 _state = _safe_imports(
     ("deepagents.graph", "DeepAgentState", None),
-    enabled=HAS_STATE_SCHEMA,
 )
 DeepAgentState = _state["DeepAgentState"]
 
 _ctx_hub = _safe_imports(
     ("deepagents.backends.context_hub", "ContextHubBackend", None),
-    enabled=HAS_CONTEXT_HUB,
 )
 ContextHubBackend = _ctx_hub["ContextHubBackend"]
 
@@ -154,7 +153,6 @@ _summ = _safe_imports(
     ("deepagents.middleware.summarization", "create_summarization_middleware", "_create_summarization_middleware"),
     ("deepagents.middleware.summarization", "create_summarization_tool_middleware", None),
     ("deepagents.middleware", "SummarizationMiddleware", None),
-    enabled=HAS_SUMMARIZATION,
 )
 _StateBackend = _summ["_StateBackend"]
 SummarizationToolMiddleware = _summ["SummarizationToolMiddleware"]
@@ -164,13 +162,11 @@ SummarizationMiddleware = _summ["SummarizationMiddleware"]
 
 LocalShellBackend = _safe_imports(
     ("deepagents.backends", "LocalShellBackend", None),
-    enabled=HAS_LOCAL_SHELL_BACKEND,
 )["LocalShellBackend"]
 
 _async = _safe_imports(
     ("deepagents.middleware.async_subagents", "AsyncSubAgent", None),
     ("deepagents.middleware.async_subagents", "AsyncSubAgentMiddleware", None),
-    enabled=HAS_ASYNC_SUBAGENTS,
 )
 
 # SkillsMiddleware — native deepagents skill discovery layer (ADR-0008).

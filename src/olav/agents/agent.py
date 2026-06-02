@@ -66,7 +66,9 @@ from olav.agents._deepagents_bridge import (
     AsyncSubAgent,
     CompiledSubAgent,
     FilesystemBackend,
+    HAS_RUBRIC_MIDDLEWARE,
     HAS_SKILLS_MIDDLEWARE,
+    RubricMiddleware as _RubricMW,
     SkillsMiddleware,
     SubAgent,
     build_summarization_middleware,
@@ -87,6 +89,30 @@ except ImportError:
     _HAS_FRONTMATTER = False
 
 logger = logging.getLogger(__name__)
+
+
+def _make_rubric_callback(agent_name: str):
+    """Return an on_evaluation callback for RubricMiddleware (dev_docs/92 §2)."""
+    def _on_evaluation(evaluation) -> None:
+        try:
+            criteria = [
+                {
+                    "name": getattr(c, "name", str(c)),
+                    "passed": getattr(c, "passed", None),
+                    "reason": getattr(c, "reason", None),
+                }
+                for c in (getattr(evaluation, "criteria", []) or [])
+            ]
+            logger.info(
+                "rubric_evaluation agent=%s passed=%s iterations=%s",
+                agent_name,
+                getattr(evaluation, "passed", None),
+                getattr(evaluation, "iterations", None),
+            )
+            logger.debug("rubric_evaluation detail: agent=%s criteria=%s", agent_name, criteria)
+        except Exception as _log_exc:
+            logger.debug("rubric_evaluation callback error for '%s': %s", agent_name, _log_exc)
+    return _on_evaluation
 
 
 # ── Deepagents auto-injection: tools to strip from compiled graphs ──
@@ -838,9 +864,9 @@ class OLAVAgent:
             middleware=effective_middleware,
             # filesystem_middleware removed in deepagents 0.6.x; FS access now
             # controlled via permissions=[FilesystemPermission(...)] list.
+            # None → [] (no FS permissions granted) is explicit deepagents intent.
+            permissions=_fs_permissions or [],
         )
-        if _fs_permissions is not None:
-            _create_kwargs["permissions"] = _fs_permissions
 
         # (Profile registration moved to module-load time at the top of
         # this file so sub-agents compiled by ``_build_subagents`` see
@@ -1237,16 +1263,16 @@ class OLAVAgent:
             if should_use_prompt_caching():
                 _middleware.append(AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"))
 
-            # 0.6.5+: RubricMiddleware — self-eval + auto-retry for coverage contracts.
+            # RubricMiddleware — self-eval + auto-retry for coverage contracts.
             # Only injected for agents that opt in via metadata.rubric_middleware=true.
-            # The middleware is a no-op when no rubric is passed at invocation time, so
-            # it is safe to include unconditionally in opted-in agents' stacks.
-            # Rubric contract (what to check) is passed per-invocation; injection here
-            # just makes the agent capable of being graded when called with rubric state.
-            from olav.agents._deepagents_bridge import HAS_RUBRIC_MIDDLEWARE, RubricMiddleware as _RubricMW
+            # on_evaluation callback logs structured evaluation results (dev_docs/92 §2).
             if HAS_RUBRIC_MIDDLEWARE and _RubricMW is not None and metadata.get("rubric_middleware"):
                 try:
-                    _middleware.append(_RubricMW(model=sa_llm, max_iterations=2))
+                    _middleware.append(_RubricMW(
+                        model=sa_llm,
+                        max_iterations=2,
+                        on_evaluation=_make_rubric_callback(name),
+                    ))
                     logger.info(f"  → '{name}' RubricMiddleware enabled (coverage self-eval)")
                 except Exception as _re:
                     logger.warning(f"  ! RubricMiddleware init failed for '{name}': {_re}")
