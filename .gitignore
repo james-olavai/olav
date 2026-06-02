@@ -95,6 +95,7 @@ olav-web/node_modules/
 olav-web/.wrangler/
 .olav/databases/
 .olav/logs/
+.olav/workspace/netops/
 .olav/workspace/ops/
 .olav/workspace/devops/
 .olav/workspace/audit/
@@ -138,9 +139,6 @@ olav-netops/.olav/workspace/*
 !olav-netops/.olav/workspace/audit/
 !.olav/
 .olav/*
-!.olav/workspace/
-.olav/workspace/*
-!.olav/workspace/netops/
 !.olav/config/
 !.olav/config/*.example
 !.olav/config/schemas/

@@ -40,6 +40,12 @@ jobs:
       - name: Bootstrap platform workspace (olav init)
         run: uv run olav init
 
+      # netops runtime (.olav/workspace/netops) is also a generated mirror
+      # (of olav-netops/.olav/workspace/netops) — deploy it via skill install
+      # so tests/runtime can read it from a plain checkout.
+      - name: Install netops skill pack
+        run: uv run olav skill install olav-netops
+
       - name: Run unit tests — root
         if: matrix.suite == 'root'
         run: uv run pytest tests/unit/ -q --tb=short
@@ -79,6 +85,12 @@ jobs:
       - name: Bootstrap platform workspace (olav init)
         run: uv run olav init
 
+      # netops runtime (.olav/workspace/netops) is also a generated mirror
+      # (of olav-netops/.olav/workspace/netops) — deploy it via skill install
+      # so tests/runtime can read it from a plain checkout.
+      - name: Install netops skill pack
+        run: uv run olav skill install olav-netops
+
       - name: Run gate tests — root
         if: matrix.suite == 'root'
         run: uv run pytest tests/gates/ -q --tb=short
@@ -117,6 +129,12 @@ jobs:
       # tests can read it. Reproduction is byte-exact under editable install.
       - name: Bootstrap platform workspace (olav init)
         run: uv run olav init
+
+      # netops runtime (.olav/workspace/netops) is also a generated mirror
+      # (of olav-netops/.olav/workspace/netops) — deploy it via skill install
+      # so tests/runtime can read it from a plain checkout.
+      - name: Install netops skill pack
+        run: uv run olav skill install olav-netops
 
       - name: Run root E2E tests
         run: uv run pytest tests/e2e/ -q --tb=short
