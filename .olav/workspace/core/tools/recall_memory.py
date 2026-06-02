@@ -93,7 +93,6 @@ def recall_memory(
     limit = _resolve_recall_limit(limit)
 
     import concurrent.futures as _cf
-    import functools
 
     def _search() -> str:
         return _recall_memory_inner(query=query, category=category, scope=scope, limit=limit)

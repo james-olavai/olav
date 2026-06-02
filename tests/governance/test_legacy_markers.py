@@ -52,7 +52,7 @@ _ALLOWLIST: set[Path] = {
     REPO / "src" / "olav" / "cli" / "admin.py",
     REPO / "src" / "olav" / "plugins" / "middleware" / "_mode.py",
     REPO / "src" / "olav" / "plugins" / "middleware" / "save_assertion.py",
-    REPO / "src" / "olav" / "data" / "workspace" / "services" / "tools" / "manage_cron.py",
+    # services/tools/manage_cron.py — deleted with services/ in v0.20.0
     REPO / "src" / "olav" / "data" / "workspace" / "audit" / "audit-runner" / "tools" / "map_engine.py",
     REPO / "src" / "olav" / "data" / "workspace" / "audit" / "audit-runner" / "scripts" / "map_engine.py",
     REPO / "src" / "olav" / "data" / "workspace" / "audit" / "audit-author" / "tools" / "list_profiles.py",
@@ -135,24 +135,17 @@ def test_at_least_one_remove_marker_tracked():
 
 
 def test_analyze_logs_marker_promoted_to_remove():
-    """Round-9 upgraded the analyze_logs UNCHECKED marker to REMOVE-v0.19.
+    """Post-v0.20.0: services/tools/analyze_logs.py deleted with services/.
 
-    Post-R66d cleanup (v0.19.0 cut): the dead paths flagged by the
-    REMOVE-v0.19 marker were actually deleted (285 LOC — _query_llm_cache,
-    _query_app_logs, second @tool dispatcher). The file now carries
-    LEGACY-KEEP covering the purely-narrative mention in its docstring.
+    The ARCH-22 D cleanup lifecycle for analyze_logs is complete:
+      Round-9  → upgraded UNCHECKED → REMOVE-v0.19
+      R66d     → deleted dead helpers (_query_llm_cache, _query_app_logs)
+      v0.20.0  → entire services/ package data removed; file no longer exists
+
+    This pin guards against accidental reintroduction of the file.
     """
     path = REPO / "src" / "olav" / "data" / "workspace" / "services" / "tools" / "analyze_logs.py"
-    assert path.exists(), f"vendored analyze_logs.py missing at {path}"
-    text = path.read_text(encoding="utf-8")
-    # The file must carry *some* classification marker so ARCH-22 D stays clean.
-    assert re.search(r"LEGACY-(KEEP|REMOVE-v0\.\d+|UNCHECKED)", text), (
-        "analyze_logs.py lost its LEGACY-* marker — ARCH-22 D requires "
-        "classified markers on every file mentioning 'legacy'/'deprecated'."
+    assert not path.exists(), (
+        f"analyze_logs.py reappeared at {path} — services/ was permanently "
+        "removed in v0.20.0. Do not restore this file."
     )
-    # The dead helpers should *actually* be gone after the v0.19 cleanup.
-    for dead_helper in ("_query_llm_cache", "_query_app_logs"):
-        assert dead_helper not in text, (
-            f"{dead_helper} reappeared in analyze_logs.py — the R66d v0.19 "
-            f"cleanup removed it because Round-9 confirmed zero readers."
-        )
