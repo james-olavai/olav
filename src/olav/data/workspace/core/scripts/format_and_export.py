@@ -1,4 +1,6 @@
-"""Data Export Tool - 极简文件导出工具
+#!/usr/bin/env python3
+# LEGACY-UNCHECKED: file uses "legacy" in historical R100/S2 comments about removed code
+"""Data Export — 极简文件导出工具
 
 统一数据导出功能，支持多种格式自动检测。
 只有Orchestrator可以调用此工具，SubAgent不应直接写文件。
@@ -17,10 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from langchain_core.tools import tool
 
-
-@tool
 def format_and_export(
     data: str,
     filename: str | None = None,
@@ -28,23 +27,80 @@ def format_and_export(
     subdir: str | None = None,
     mode: str | None = None,
 ) -> dict[str, Any]:
-    """Save string content to exports/ — supports md/json/csv/yaml/sh/mmd formats.
+    """Save STRING content to a file under exports/.
 
-    ``data`` is the literal file content as a STRING, not a dict or tool result.
-    Full usage and anti-patterns: tool_help('format_and_export').
+    The `data` parameter is the literal file content as a STRING.
+    It is NOT a configuration dict, NOT the return of a previous tool,
+    NOT a wrapper. The string you pass is what gets written byte-for-byte
+    (after format-specific encoding for CSV/JSON/YAML).
+
+    ## REPORT MODE — incremental writing
+
+    Pass ``mode="append"`` to append to an existing file (or create it
+    if missing).  Use this when an agent is in REPORT MODE — emitting
+    a Markdown report incrementally as each react step's reflection
+    completes.  Append mode is restricted to text formats
+    (md/txt/mmd/sh); JSON/CSV/YAML raise ValueError because byte
+    concatenation corrupts their parse.
+
+    Default mode is "overwrite" — preserves the old contract.
+
+    ANTI-PATTERNS (these will FAIL with a Pydantic validation error):
+
+        format_and_export(data={"format":"md", "filename":"x"})   # ❌ dict
+        format_and_export(data={"path":"...", "size":1234})       # ❌ dict
+        format_and_export(data='"my content"')                    # ❌ JSON-quoted
+
+    CORRECT calls — `data` is the actual string content:
+
+        format_and_export(
+            data="# Devices\\n\\n| Name | IP |\\n|------|-----|\\n| R1 | 1.2.3.4 |",
+            format="md",
+            filename="devices_summary",
+        )
+        # → exports/reports/devices_summary.md
+
+        format_and_export(
+            data='[{"hostname":"R1","ip":"10.0.0.1"},{"hostname":"R2","ip":"10.0.0.2"}]',
+            format="csv",
+            filename="devices",
+        )
+        # → exports/devices.csv
+
+        format_and_export(
+            data="#!/usr/bin/env bash\\nfor h in R1 R2; do ssh $h ...; done",
+            format="sh",
+            filename="backup",
+        )
+        # → exports/scripts/backup.sh
 
     Args:
-        data:     File content as a string. For CSV/JSON pass a JSON-serialised
-                  array/object; for md/sh/txt pass the literal text.
-        filename: Basename without extension. Auto-generated if omitted.
-        format:   md / json / txt / csv / yaml / mmd / sh. Auto-detected if omitted.
-        subdir:   Subdir under exports/. Auto-routed by format if omitted.
-        mode:     "overwrite" (default) or "append". Append = REPORT MODE
-                  incremental writing; text formats only (md/txt/mmd/sh).
+        data:     File content as a STRING. For CSV/JSON output, pass the
+                  JSON-serialised string of an array/object — the tool
+                  will parse it. For markdown/sh/text, pass the literal
+                  text. NEVER pass a dict, a previous tool result, or
+                  a configuration object.
+        filename: Basename WITHOUT extension. Auto-generated if omitted.
+        format:   md / json / txt / csv / yaml / mmd / sh — auto-detected
+                  from `data` content if omitted.
+        subdir:   Subdir under exports/. Auto-routed by format if omitted:
+                  md/mmd/txt → exports/reports/, csv/json/yaml → exports/,
+                  sh/py → exports/scripts/.
+        mode:     "overwrite" (default) or "append".  Append is for
+                  REPORT MODE incremental writing and only works for
+                  text formats (md/txt/mmd/sh).
 
     Returns:
-        {"path": "exports/.../file.ext", "absolute_path": "...", "size": N, "format": ".."}
+        {"path": "exports/.../file.ext", "absolute_path": "...", "size": 1234, "format": "md"}
     """
+    # Strict string contract: reject non-string data up-front so callers
+    # get a clear feedback signal instead of a silent malformed write.
+    if not isinstance(data, str):
+        raise TypeError(
+            f"data must be a string, got {type(data).__name__!r}. "
+            "Pass the file content as a literal string, not a dict or list."
+        )
+
     # Normalise mode early; reject malformed values up-front.
     if mode is None:
         mode = "overwrite"
@@ -115,11 +171,6 @@ def format_and_export(
         output_dir = EXPORTS_DIR  # exports/<file>.csv
     elif format and format.lower() in ("md", "txt", "mmd"):
         output_dir = EXPORTS_DIR / "reports"  # exports/reports/<file>.md
-    elif format and format.lower() in ("drawio", "puml"):
-        # Topology / diagram artefacts get their own subdir so reports/
-        # stays text-only and downstream consumers (Confluence sync,
-        # ``olav diagram-bundle``, etc.) can glob ``exports/topology/*``.
-        output_dir = EXPORTS_DIR / "topology"  # exports/topology/<file>.drawio
     else:
         output_dir = None  # resolved after format detection
 
@@ -153,8 +204,6 @@ def format_and_export(
     if output_dir is None:
         if format in ("csv", "json", "yaml", "yml", "sh"):
             output_dir = EXPORTS_DIR  # exports/<file>.csv
-        elif format in ("drawio", "puml"):
-            output_dir = EXPORTS_DIR / "topology"  # exports/topology/<file>.drawio
         else:
             output_dir = EXPORTS_DIR / "reports"  # exports/reports/<file>.md
 
@@ -442,66 +491,9 @@ def _write_yaml(filepath: Path, data: Any) -> None:  # noqa: ANN401
         filepath.write_text(content, encoding="utf-8")
 
 
-# ============================================================================
-# 测试代码
-# ============================================================================
-
 if __name__ == "__main__":
-    """测试数据导出功能"""
-
-    print("=" * 80)
-    print("测试 format_and_export 工具")
-    print("=" * 80)
-
-    # 测试1: Markdown报告
-    print("\n1️⃣ 测试 Markdown 报告")
-    md_content = """# 网络诊断报告
-
-## 问题描述
-R1的OSPF邻居down
-
-## 根因分析
-子网掩码不匹配
-
-## 解决建议
-修改接口IP配置
-"""
-    result = format_and_export(md_content, filename="test_diagnosis")
-    print(f"✅ 导出成功: {result['path']} ({result['size']} bytes)")
-
-    # 测试2: JSON数据
-    print("\n2️⃣ 测试 JSON 数据")
-    json_data = {
-        "devices": [
-            {"hostname": "R1", "ip": "192.168.1.1"},
-            {"hostname": "R2", "ip": "192.168.1.2"},
-        ]
-    }
-    result = format_and_export(json_data, filename="test_devices")
-    print(f"✅ 导出成功: {result['path']} ({result['size']} bytes)")
-
-    # 测试3: 文本输出
-    print("\n3️⃣ 测试文本输出")
-    text_content = "R1#show tech-support\nCisco IOS Software...\n"
-    result = format_and_export(text_content, filename="test_tech_support")
-    print(f"✅ 导出成功: {result['path']} ({result['size']} bytes)")
-
-    # 测试4: CSV数据
-    print("\n4️⃣ 测试 CSV 导出")
-    csv_data = [
-        {"vlan_id": 10, "name": "Management", "status": "active"},
-        {"vlan_id": 20, "name": "Data", "status": "active"},
-        {"vlan_id": 30, "name": "Voice", "status": "inactive"},
-    ]
-    result = format_and_export(csv_data, filename="test_vlans", format="csv")
-    print(f"✅ 导出成功: {result['path']} ({result['size']} bytes)")
-
-    # 测试5: 自动检测
-    print("\n5️⃣ 测试自动格式检测")
-    auto_data = "## 自动检测测试\n这应该被识别为Markdown"
-    result = format_and_export(auto_data)  # 无filename，无format
-    print(f"✅ 自动检测并导出: {result['path']} (格式: {result['format']})")
-
-    print("\n" + "=" * 80)
-    print("✅ 所有测试通过！检查 exports/ 目录查看导出的文件")
-    print("=" * 80)
+    import json as _json
+    import sys as _sys
+    _args = _json.loads(_sys.stdin.read() or "{}")
+    result = format_and_export(**_args)
+    print(_json.dumps(result, default=str))

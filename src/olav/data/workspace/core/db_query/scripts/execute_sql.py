@@ -8,10 +8,6 @@ Core Features:
 3. Error self-correction (via Agent ReAct loop)
 4. DuckDB-specific optimizations
 5. SchemaContext singleton caching (5 min TTL)
-
-Usage in DeepAgents:
-    from .tools import execute_sql
-    agent = create_deep_agent(tools=[execute_sql.execute_sql])
 """
 
 import json
@@ -23,9 +19,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from langchain_core.tools import tool
 from pydantic import BaseModel, Field, validator
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 
 # Add src to Python Path
@@ -40,9 +34,7 @@ def _find_project_root():
 
 sys.path.insert(0, str(_find_project_root() / "src"))
 
-import duckdb as _duckdb
 
-from olav.core.config import MAIN_DB_PATH
 
 
 def _classify_sql(sql: str) -> str:
@@ -62,26 +54,11 @@ def _classify_sql(sql: str) -> str:
 def db_query(sql: str, params: list | None = None) -> list[dict]:
     """Execute a SQL query against the main DuckDB database.
 
-    SELECT/WITH queries run read-only. All mutating SQL (INSERT, UPDATE,
-    DELETE, DDL) requires explicit approval before execution.
+    Delegates to olav.tools.sql.query_duckdb() for the actual execution.
+    SELECT/WITH queries run read-only. All mutating SQL requires approval.
     """
-    sql_type = _classify_sql(sql)
-
-    if sql_type == "SELECT":
-        # Safe read-only path
-        with _duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
-            cur = conn.cursor()
-            cur.execute(sql, params or [])
-            if cur.description:
-                cols = [d[0] for d in cur.description]
-                return [dict(zip(cols, row, strict=False)) for row in cur.fetchall()]
-            return []
-
-    # Mutating SQL — require approval
-    return [{"requires_approval": True, "sql_type": sql_type, "sql": sql,
-             "reason": f"{sql_type} operation requires explicit approval before execution"}]
-
-
+    from olav.tools.sql import query_duckdb
+    return query_duckdb(sql, params=params)
 
 
 # ============================================================================
@@ -104,26 +81,6 @@ class DatabaseQueryInput(BaseModel):
         if v is None:
             return ""
         return v
-
-
-_CONTEXT_ROWS_FALLBACK = 20  # ARCH-16 fallback when tier config unavailable
-
-
-def _resolve_context_rows() -> int:
-    """Return how many result rows to surface to the LLM context (ARCH-16).
-
-    Tier-aware cap via ``TIER_DEFAULTS[<tier>].execute_sql_context_rows``
-    (small=10 / medium=20 / large=50). Falls back to
-    ``_CONTEXT_ROWS_FALLBACK`` when config is unavailable so smoke tests
-    without a configured tier still get a bounded result set.
-    """
-    try:
-        from olav.core.config import get_llm_config, tier_default
-        tier = get_llm_config().model_tier
-        val = tier_default(tier, "execute_sql_context_rows", _CONTEXT_ROWS_FALLBACK)
-        return max(1, int(val))
-    except Exception:  # noqa: BLE001
-        return _CONTEXT_ROWS_FALLBACK
 
 
 class DatabaseQueryOutput(BaseModel):
@@ -206,12 +163,10 @@ class SchemaContext:
                     pass
 
             # Get sample data — prefer views and devices; skip noisy catalog/JSON tables
-            SKIP_SAMPLES = {"main.schema_catalog", "main.yang_leaves",
+            SKIP_SAMPLES = {"main.schema_catalog",
                             "netops.oc_outputs", "netops.parsed_outputs"}
             PREFER_SAMPLES = [
-                "main.v_bgp_neighbors_auto", "main.v_interfaces_auto",
-                "main.v_ospf_neighbors_auto", "main.v_l2_links_auto",
-                "netops.topology_links", "netops.devices",
+                "netops.devices", "netops.topology_links",
             ]
             self._schema_cache["samples"] = {}
             # First try preferred tables, then fill from remaining (skip noisy ones)
@@ -282,27 +237,31 @@ class SchemaContext:
         # CRITICAL: schema-qualified names required for netops tables
         context_parts.append(
             "⚠️  ALWAYS use schema-qualified names: `netops.devices`, `netops.parsed_outputs`, etc.\n"
-            "   Views (v_*) are in main schema and can be queried unqualified.\n"
         )
 
         # List tables
         context_parts.append(f"Tables: {', '.join(self._schema_cache['tables'])}\n")
 
-        # View semantic hints — help agent pick the right view immediately
-        context_parts.append("**View Quick Reference (USE THESE FIRST for network queries):**")
-        context_parts.append(
-            "  v_interfaces_auto         → interface admin/oper status + IP address per device\n"
-            "  v_bgp_neighbors_auto      → BGP neighbor state, remote-AS, prefixes received\n"
-            "  v_ospf_neighbors_auto     → OSPF neighbor state + cost (cross-vendor)\n"
-            "  v_l2_links_auto           → L2 neighbors (CDP/LLDP): cleaned topology view\n"
-            "  netops.topology_links     → CDP/LLDP base table: src/dst device + interface pairs\n"
-            "  v_arp_auto                → ARP table: ip_address, mac_address, interface per device\n"
-            "  netops.devices            → device inventory: hostname, platform, ip_address, role\n"
-            "  netops.parsed_outputs     → raw TextFSM rows: parsed_data (JSON), command, snapshot_id\n"
-            "  netops.topology_links     → computed topology links (src/dst device+interface+protocol)\n"
-            "  netops.oc_outputs         → OC JSON per module: oc_module, oc_data, device_name\n"
-            "  netops.raw_output_store   → latest raw CLI text per (device, command)"
+        # Dynamic table quick reference — generated from actual DB schema
+        context_parts.append("**Table Quick Reference (auto-discovered):**")
+        for table_name, details in self._schema_cache.get("table_details", {}).items():
+            cols = details.get("columns", [])
+            col_summary = ", ".join(c["name"] for c in cols[:6])
+            if len(cols) > 6:
+                col_summary += ", ..."
+            context_parts.append(f"  {table_name} → {col_summary}")
+
+        # If parsed_data JSON columns exist, add DuckDB JSON query hint
+        has_json = any(
+            any(c["name"] == "parsed_data" for c in d.get("columns", []))
+            for d in self._schema_cache.get("table_details", {}).values()
         )
+        if has_json:
+            context_parts.append(
+                "\n**JSON column query pattern (for parsed_data):**\n"
+                "  SELECT device_name, parsed_data::VARCHAR FROM <table> WHERE command='<cmd>'\n"
+                "  parsed_data is a JSON array of dicts — cast to VARCHAR to read field names."
+            )
 
         # Detail each table
         for table_name, details in self._schema_cache["table_details"].items():
@@ -427,10 +386,9 @@ def main(params: dict) -> dict:
             results = context.query(direct_sql)
             results = _sanitize_rows(results)
 
-            # Limit data returned to the LLM context to prevent bloat/hang.
-            # Tier-aware (ARCH-16, Round 41): small=10 / medium=20 / large=50.
-            # Full data is still exported to CSV if count > 50, regardless of tier.
-            MAX_ROWS_TO_CONTEXT = _resolve_context_rows()
+            # Limit data returned to Agent context to prevent bloat/hang (max 20 rows)
+            # Full data is still exported to CSV if count > 50
+            MAX_ROWS_TO_CONTEXT = 20
 
             # Auto-export logic
             csv_path = None
@@ -438,8 +396,8 @@ def main(params: dict) -> dict:
                 import csv
                 from pathlib import Path
 
-                export_dir = Path("exports") / "queries"
-                export_dir.mkdir(parents=True, exist_ok=True)
+                export_dir = Path("exports")
+                export_dir.mkdir(exist_ok=True)
 
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 csv_path = export_dir / f"query_{timestamp}.csv"
@@ -462,7 +420,6 @@ def main(params: dict) -> dict:
 
             # Check if results are empty - provide schema hints for agentic retry
             if len(results) == 0:
-                # ... same as before ...
                 output = DatabaseQueryOutput(
                     data=results,
                     sql=direct_sql,
@@ -473,14 +430,12 @@ def main(params: dict) -> dict:
                 )
                 return output.model_dump(exclude_none=True)
 
-            # Include compact schema hint in success response for follow-up query accuracy
-            SCHEMA_HINT = (
-                "Schema reminder: netops.devices(hostname,platform,ip_address,role) | "
-                "netops.parsed_outputs(device_name,command,parsed_data,snapshot_id) | "
-                "netops.topology_links(source_device,source_interface,destination_device,destination_interface,discovery_protocol) | "
-                "views(no prefix): v_interfaces_auto, v_bgp_neighbors_auto, v_ospf_neighbors_auto, "
-                "v_l2_links_auto, v_arp_auto"
-            )
+            # Dynamic schema hint from actual tables
+            _hint_parts = []
+            for _tbl, _det in context._schema_cache.get("table_details", {}).items():
+                _cols = ",".join(c["name"] for c in _det.get("columns", [])[:5])
+                _hint_parts.append(f"{_tbl}({_cols})")
+            SCHEMA_HINT = ("Schema: " + " | ".join(_hint_parts)) if _hint_parts else "Use explain_only=True to discover schema"
             output = DatabaseQueryOutput(
                 data=display_data,
                 sql=direct_sql,
@@ -510,31 +465,6 @@ def main(params: dict) -> dict:
     return output.model_dump(exclude_none=True)
 
 
-# ============================================================================
-# LangChain Tool Registration
-# ============================================================================
-
-
-@tool
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-def execute_sql(query: str = "", sql: str = "", explain_only: bool = False) -> dict:
-    """Default tool for device data queries — DuckDB SELECT against main.duckdb.
-
-    Call ``tool_help('execute_sql')`` for the full schema quick-reference
-    (views, column conventions, and worked examples).
-
-    Args:
-        query: Natural-language question used for schema discovery.
-        sql: Optional direct SQL; when supplied, overrides the NL path.
-        explain_only: Return schema context without executing anything.
-
-    Example:
-        execute_sql(sql="SELECT hostname, platform FROM netops.devices")
-    """
-    params = {"query": query, "sql": sql, "explain_only": explain_only}
-    return main(params)
-
-
 class DateTimeEncoder(json.JSONEncoder):
     def default(self, obj):
         if hasattr(obj, "isoformat"):
@@ -543,18 +473,8 @@ class DateTimeEncoder(json.JSONEncoder):
 
 
 if __name__ == "__main__":
-    try:
-        input_str = sys.stdin.read()
-        if not input_str:
-            input_data = {}
-        else:
-            input_data = json.loads(input_str)
-
-        result = main(input_data)
-        print(json.dumps(result, ensure_ascii=False, indent=2, cls=DateTimeEncoder))
-    except Exception as e:
-        print(
-            json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False),
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    import json as _json
+    import sys as _sys
+    _args = _json.loads(_sys.stdin.read() or "{}")
+    result = main(_args)
+    print(_json.dumps(result, ensure_ascii=False, indent=2, cls=DateTimeEncoder))

@@ -8,7 +8,6 @@ interpolates the window value into the SQL string.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 
 logger = logging.getLogger(__name__)
@@ -153,6 +152,7 @@ def _preview_lancedb(semantic_query: str, threshold: float) -> list[dict]:
 
 
 if __name__ == "__main__":
-    import json as _json, sys as _sys
+    import json as _json
+    import sys as _sys
     _args = _json.loads(_sys.stdin.read() or "{}")
     print(_json.dumps(test_map_query(**_args), default=str))

@@ -71,7 +71,8 @@ class SemanticRouter:
 
             # Try local embedding first
             if emb_config.mode == "local":
-                import os as _os, logging as _logging
+                import os as _os
+                import logging as _logging
                 for _n in ("sentence_transformers", "transformers", "transformers.modeling_utils", "huggingface_hub"):
                     _logging.getLogger(_n).setLevel(_logging.ERROR)
                 # Suppress C-level stdout+stderr (safetensors shard reports come on fd 2)
