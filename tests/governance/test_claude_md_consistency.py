@@ -106,6 +106,16 @@ _LEGITIMATE_USAGE_FILES: frozenset[str] = frozenset({
     # LEGACY-KEEP at module top; allowlist covers the installer copy.
     # Round 64 (ARCH-23): tool_help.py moved from core/tools/ → admin/tools/.
     "src/olav/data/workspace/core/admin/tools/tool_help.py",
+    # ADMIN-OWNERSHIP-GAP fix (ADR-0014, 2026-06-02): admin promoted to the
+    # platform wheel at src/olav/data/workspace/admin/. These scripts carry
+    # narrative/compat "legacy" wording (migration history, pre-2026-05 cron
+    # layout fallback, load-bearing "legacy behaviour" docstring) — not tech
+    # debt. The deployment copies under .olav/workspace/admin/ carry
+    # LEGACY-KEEP markers; the wheel copies are allowlisted here (test_arch22_d
+    # requires same-line tags, which narrative lines don't carry).
+    "src/olav/data/workspace/admin/ops/scripts/manage_cron.py",
+    "src/olav/data/workspace/admin/ops/scripts/analyze_logs.py",
+    "src/olav/data/workspace/admin/editor/scripts/tool_help.py",
     "src/olav/core/memory/migrate.py",
     "src/olav/core/utils.py",
     "src/olav/cli/commands/kb.py",
