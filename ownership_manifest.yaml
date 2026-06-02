@@ -570,14 +570,20 @@ rules:
   # 6→3 user-facing orchestrators.  netops/ contains former ops/,
   # topology/, command_learner/, and ops-lab/ as sub-agents.
   # devops/ contains former devops/ + infra/ as sub-agents.
+  # WORKSPACE-DUAL-COPY-DEBT Phase 3 (2026-06-02): git:ignore→track. CI
+  # (test.yml) runs tests/unit WITHOUT `olav init`, and those tests read the
+  # runtime workspace from a plain checkout — so the runtime MUST be tracked
+  # until CI gains a workspace-bootstrap step. Authoritative source remains
+  # olav-netops/.olav/workspace/netops/; this tracked dev-mirror duplicates it
+  # (the very debt this issue tracks) and stays until the CI-init fix lands.
   - pattern: .olav/workspace/netops/**
     owner: olav-netops
     class: netops
     status: transitional
     target_repo: olav-netops
-    reason: dev-mirror-of-olav-netops-workspace-drift-guarded-by-test_workspace_ops_ssot
+    reason: dev-mirror-tracked-because-CI-runs-tests-unit-without-olav-init
     enforced: true
-    git: ignore
+    git: track
 
   # ADR-0014 Phase C / Decision 5: `ops` is RETIRED as an agent — it has no
   # AGENT.md/SKILL.md, only netops_init runtime state snapshots
@@ -602,13 +608,19 @@ rules:
     enforced: true
     git: track
 
+  # WORKSPACE-DUAL-COPY-DEBT Phase 3 (2026-06-02): git:ignore→track. Same
+  # reason as the netops runtime rule above — CI runs tests/unit without
+  # `olav init` and they read .olav/workspace/audit from a plain checkout
+  # (e.g. test_audit_prompts_and_schema_contracts.py). Authoritative source =
+  # src/olav/data/workspace/audit + olav-netops bundle; this tracked runtime
+  # duplicates it pending the CI-init fix.
   - pattern: .olav/workspace/audit/**
     owner: olav
     class: runtime-workspace
     status: authoritative
-    reason: audit-agent-workspace-tools-and-profiles-shipped-from-platform-runtime
+    reason: runtime-tracked-because-CI-runs-tests-unit-without-olav-init
     enforced: true
-    git: ignore
+    git: track
 
   # ── .olav/ whitelist (tracked paths — negations) ───────────────
   - pattern: .olav/config/*.example
