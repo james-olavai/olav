@@ -32,6 +32,14 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --all-extras
 
+      # WORKSPACE-DUAL-COPY-DEBT Phase 3: platform agent runtime
+      # (.olav/workspace/{core,audit,admin,devops,services}) is no longer
+      # tracked — it's the generated mirror of src/olav/data/workspace/.
+      # `olav init` deploys it from the (editable-installed) wheel source so
+      # tests can read it. Reproduction is byte-exact under editable install.
+      - name: Bootstrap platform workspace (olav init)
+        run: uv run olav init
+
       - name: Run unit tests — root
         if: matrix.suite == 'root'
         run: uv run pytest tests/unit/ -q --tb=short
@@ -63,6 +71,14 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --all-extras
 
+      # WORKSPACE-DUAL-COPY-DEBT Phase 3: platform agent runtime
+      # (.olav/workspace/{core,audit,admin,devops,services}) is no longer
+      # tracked — it's the generated mirror of src/olav/data/workspace/.
+      # `olav init` deploys it from the (editable-installed) wheel source so
+      # tests can read it. Reproduction is byte-exact under editable install.
+      - name: Bootstrap platform workspace (olav init)
+        run: uv run olav init
+
       - name: Run gate tests — root
         if: matrix.suite == 'root'
         run: uv run pytest tests/gates/ -q --tb=short
@@ -93,6 +109,14 @@ jobs:
 
       - name: Install Python dependencies
         run: uv sync --all-extras
+
+      # WORKSPACE-DUAL-COPY-DEBT Phase 3: platform agent runtime
+      # (.olav/workspace/{core,audit,admin,devops,services}) is no longer
+      # tracked — it's the generated mirror of src/olav/data/workspace/.
+      # `olav init` deploys it from the (editable-installed) wheel source so
+      # tests can read it. Reproduction is byte-exact under editable install.
+      - name: Bootstrap platform workspace (olav init)
+        run: uv run olav init
 
       - name: Run root E2E tests
         run: uv run pytest tests/e2e/ -q --tb=short

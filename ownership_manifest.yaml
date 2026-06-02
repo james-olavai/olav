@@ -598,29 +598,27 @@ rules:
     enforced: false
     git: ignore
 
-  # ADR-0014 Phase B: devops is now a platform agent (authoritative source
-  # ships in the wheel at src/olav/data/workspace/devops/). This is the tracked
-  # runtime workspace, parallel to core/services.
+  # WORKSPACE-DUAL-COPY-DEBT Phase 3 (2026-06-02): GENERATED mirror, git:ignore.
+  # Authoritative source = src/olav/data/workspace/devops/ (wheel); `olav init`
+  # deploys it (CI runs init — test.yml). Eliminates the runtime-vs-src dup.
   - pattern: .olav/workspace/devops/**
     owner: olav
-    class: runtime-workspace
-    status: authoritative
-    enforced: true
-    git: track
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
 
-  # WORKSPACE-DUAL-COPY-DEBT Phase 3 (2026-06-02): git:ignore→track. Same
-  # reason as the netops runtime rule above — CI runs tests/unit without
-  # `olav init` and they read .olav/workspace/audit from a plain checkout
-  # (e.g. test_audit_prompts_and_schema_contracts.py). Authoritative source =
-  # src/olav/data/workspace/audit + olav-netops bundle; this tracked runtime
-  # duplicates it pending the CI-init fix.
+  # WORKSPACE-DUAL-COPY-DEBT Phase 3 (2026-06-02): the CI-init fix landed, so
+  # this GENERATED mirror is now git:ignore. Authoritative source =
+  # src/olav/data/workspace/audit/ (wheel); `olav init` deploys it (byte-exact,
+  # editable install). CI (test.yml) runs `olav init` before tests so they can
+  # read it from a plain checkout.
   - pattern: .olav/workspace/audit/**
     owner: olav
-    class: runtime-workspace
-    status: authoritative
-    reason: runtime-tracked-because-CI-runs-tests-unit-without-olav-init
-    enforced: true
-    git: track
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
 
   # ── .olav/ whitelist (tracked paths — negations) ───────────────
   - pattern: .olav/config/*.example
@@ -664,34 +662,31 @@ rules:
     git: ignore
     reason: per-install-approval-policy
 
+  # Phase 3: GENERATED mirror (git:ignore). Authoritative = src/olav/data/
+  # workspace/core/; `olav init` deploys it (byte-exact, editable install).
   - pattern: .olav/workspace/core/**
     owner: olav
-    class: runtime-workspace
-    status: authoritative
-    enforced: true
-    git: track
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
 
-  # ADR-0014: services is a platform-core top-level agent (service lifecycle —
-  # register / deploy / stop containers, docker-compose, authenticated API
-  # calls). Authoritative source ships in the wheel at
-  # src/olav/data/workspace/services/ (covered by src/olav/**); this is the
-  # tracked runtime workspace, parallel to core.
+  # ADR-0014: services is a platform-core top-level agent (service lifecycle).
+  # Phase 3: GENERATED mirror (git:ignore). Authoritative = src/olav/data/
+  # workspace/services/; `olav init` deploys it.
   - pattern: .olav/workspace/services/**
     owner: olav
-    class: runtime-workspace
-    status: authoritative
-    enforced: true
-    git: track
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
 
   # admin is a platform top-level agent (ADR-0012) — platform self-management
-  # (ops/installer/editor). Fixes ADMIN-OWNERSHIP-GAP: previously had no
-  # explicit rule (fell under .olav/workspace/** ignore) and shipped in no
-  # wheel source. Now authoritative source ships at
-  # src/olav/data/workspace/admin/ (covered by src/olav/**); tracked runtime
-  # workspace, parallel to core/services.
+  # (ops/installer/editor). Authoritative source = src/olav/data/workspace/admin/.
+  # Phase 3: GENERATED mirror (git:ignore); `olav init` deploys it.
   - pattern: .olav/workspace/admin/**
     owner: olav
-    class: runtime-workspace
-    status: authoritative
-    enforced: true
-    git: track
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
