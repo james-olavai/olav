@@ -59,6 +59,15 @@ _DELIBERATE_DIVERGENCE: set[str] = {
     "recall_memory.py",
     # Same dual-version pattern for web_search during the migration.
     "web_search.py",
+    # 2026-06-02 (WORKSPACE-DUAL-COPY-DEBT): the 4 netops cross-domain tools
+    # have the SAME deliberate @tool↔script dual-version split — netops/tools/X
+    # is the `@tool`-decorated wrapper (in-process pool, has the `full` flag for
+    # test_fan_out), netops/scripts/X is the subprocess CLI form (has __main__).
+    # Both wrap the same olav_netops.core.* impl. tools/X ≠ scripts/X by design.
+    "diff_configs.py",
+    "search_commands.py",
+    "take_snapshot.py",
+    "execute_cli_parallel.py",
 }
 
 

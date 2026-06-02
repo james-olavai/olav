@@ -570,20 +570,20 @@ rules:
   # 6→3 user-facing orchestrators.  netops/ contains former ops/,
   # topology/, command_learner/, and ops-lab/ as sub-agents.
   # devops/ contains former devops/ + infra/ as sub-agents.
-  # WORKSPACE-DUAL-COPY-DEBT Phase 3 (2026-06-02): git:ignore→track. CI
-  # (test.yml) runs tests/unit WITHOUT `olav init`, and those tests read the
-  # runtime workspace from a plain checkout — so the runtime MUST be tracked
-  # until CI gains a workspace-bootstrap step. Authoritative source remains
-  # olav-netops/.olav/workspace/netops/; this tracked dev-mirror duplicates it
-  # (the very debt this issue tracks) and stays until the CI-init fix lands.
+  # WORKSPACE-DUAL-COPY-DEBT Phase 3 COMPLETE (2026-06-03): GENERATED mirror,
+  # git:ignore. Authoritative source = olav-netops/.olav/workspace/netops/;
+  # `olav skill install olav-netops` deploys it (CI runs init + skill install).
+  # The 4 netops cross-domain tools have a deliberate @tool↔script dual-version
+  # split (netops/tools/X = @tool wrapper, netops/scripts/X = CLI script) — both
+  # wrap olav_netops.core.* impl; allowlisted in test_tool_dedup_phase2.
   - pattern: .olav/workspace/netops/**
     owner: olav-netops
-    class: netops
-    status: transitional
+    class: generated
+    status: generated
     target_repo: olav-netops
-    reason: dev-mirror-tracked-because-CI-runs-tests-unit-without-olav-init
-    enforced: true
-    git: track
+    reason: generated-mirror-deployed-by-olav-skill-install
+    enforced: false
+    git: ignore
 
   # ADR-0014 Phase C / Decision 5: `ops` is RETIRED as an agent — it has no
   # AGENT.md/SKILL.md, only netops_init runtime state snapshots
