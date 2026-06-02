@@ -451,13 +451,19 @@ rules:
       ``src/olav/data/workspace/audit/`` is a dev fallback used by
       ``olav init`` when no skill pack is installed yet.
 
-  # 2026-05-16: devops workspace also bundled — same pattern.
+  # ADR-0014 Phase B (2026-06-02): devops MOVED to the platform wheel
+  # (src/olav/data/workspace/devops/). netops now ships only netops + audit.
+  # The olav-netops copy is retired; files removed. Rule kept as git: ignore
+  # so any on-disk residue is not committed.  TODO: the infra/ network
+  # reference docs (netbox_*/influxdb_*) are domain knowledge that rode along
+  # into the platform wheel — extract them back to the netops skill pack
+  # (overlay on install) so the platform devops ships generic.
   - pattern: olav-netops/.olav/workspace/devops/**
     owner: olav-netops
     class: netops
-    status: authoritative
-    enforced: true
-    git: track
+    status: externalized
+    enforced: false
+    git: ignore
 
   # SECRET — Nornir SSH credential file. The .example sibling stays
   # tracked; the real defaults.yaml has plaintext lab passwords and
@@ -573,14 +579,15 @@ rules:
     enforced: true
     git: ignore
 
+  # ADR-0014 Phase B: devops is now a platform agent (authoritative source
+  # ships in the wheel at src/olav/data/workspace/devops/). This is the tracked
+  # runtime workspace, parallel to core/services.
   - pattern: .olav/workspace/devops/**
-    owner: olav-netops
-    class: netops
-    status: transitional
-    target_repo: olav-netops
-    reason: dev-mirror-of-olav-netops-devops-workspace
-    enforced: false
-    git: ignore
+    owner: olav
+    class: runtime-workspace
+    status: authoritative
+    enforced: true
+    git: track
 
   - pattern: .olav/workspace/audit/**
     owner: olav

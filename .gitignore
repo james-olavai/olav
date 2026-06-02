@@ -102,8 +102,8 @@ olav-web/.wrangler/
 # netops
 /labs/
 /olav-netops/
+olav-netops/.olav/workspace/devops/
 .olav/workspace/netops/
-.olav/workspace/devops/
 
 # enterprise
 /olav-ent/
@@ -132,14 +132,14 @@ olav-netops/.olav/workspace/*
 !olav-netops/.olav/workspace/kb_audit/
 !olav-netops/.olav/workspace/netops/
 !olav-netops/.olav/workspace/audit/
-!olav-netops/.olav/workspace/devops/
 !.olav/
 .olav/*
+!.olav/workspace/
+.olav/workspace/*
+!.olav/workspace/devops/
 !.olav/config/
 !.olav/config/*.example
 !.olav/config/schemas/
-!.olav/workspace/
-.olav/workspace/*
 !.olav/workspace/core/
 !.olav/workspace/services/
 
