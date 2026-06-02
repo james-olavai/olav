@@ -223,7 +223,8 @@ _CreateProfileAtomicInput.model_rebuild()
 
 
 if __name__ == "__main__":
-    import json as _json, sys as _sys
+    import json as _json
+    import sys as _sys
     _args = _json.loads(_sys.stdin.read() or "{}")
     # Reconstruct Pydantic objects from dicts
     if "jobs" in _args:

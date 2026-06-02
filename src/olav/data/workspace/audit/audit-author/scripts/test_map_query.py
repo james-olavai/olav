@@ -152,6 +152,7 @@ def _preview_lancedb(semantic_query: str, threshold: float) -> list[dict]:
 
 
 if __name__ == "__main__":
-    import json as _json, sys as _sys
+    import json as _json
+    import sys as _sys
     _args = _json.loads(_sys.stdin.read() or "{}")
     print(_json.dumps(test_map_query(**_args), default=str))

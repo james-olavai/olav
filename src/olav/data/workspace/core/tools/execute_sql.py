@@ -431,7 +431,7 @@ def main(params: dict) -> dict:
             # Tier-aware (ARCH-16, Round 41): small=10 / medium=20 / large=50.
             # Full data is still exported to CSV if count > 50, regardless of tier.
             MAX_ROWS_TO_CONTEXT = _resolve_context_rows()
-            
+
             # Auto-export logic
             csv_path = None
             if len(results) > 50:

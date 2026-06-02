@@ -21,7 +21,6 @@ flow.
 """
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from typing import Any
@@ -90,7 +89,6 @@ def _introspect_db() -> dict[str, Any]:
 
 
 _INTERVAL_RE = re.compile(r":window\b", re.IGNORECASE)
-_LATEST_SNAP_RE = re.compile(r":latest_snapshot\b", re.IGNORECASE)
 
 
 def _validate_sql_job(query: str, db_path: str | Path) -> tuple[bool, str]:
@@ -103,13 +101,6 @@ def _validate_sql_job(query: str, db_path: str | Path) -> tuple[bool, str]:
     # Substitute :window with a real interval string so DuckDB parses
     # the parameterised form.
     sql = _INTERVAL_RE.sub("'1 hours'::INTERVAL", query)
-    # Substitute :latest_snapshot with a DuckDB scalar subquery so the
-    # LIMIT 0 probe resolves the column types correctly.
-    sql = _LATEST_SNAP_RE.sub(
-        "(SELECT snapshot_id FROM netops.topology_links "
-        "GROUP BY snapshot_id ORDER BY COUNT(*) DESC LIMIT 1)",
-        sql,
-    )
     test_sql = f"SELECT * FROM ({sql.rstrip().rstrip(';')}) __q LIMIT 0"
     try:
         with duckdb.connect(str(db_path), read_only=True) as conn:
@@ -232,7 +223,8 @@ _CreateProfileAtomicInput.model_rebuild()
 
 
 if __name__ == "__main__":
-    import json as _json, sys as _sys
+    import json as _json
+    import sys as _sys
     _args = _json.loads(_sys.stdin.read() or "{}")
     # Reconstruct Pydantic objects from dicts
     if "jobs" in _args:

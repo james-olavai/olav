@@ -62,10 +62,10 @@ def _get_standard_command(vendor_command: str, standard_platform: str) -> str:
     llm = LLMFactory.get_chat_model(temperature=0)
     prompt = f"""
     Translate the following network CLI command to its equivalent on the standard platform.
-    
+
     Vendor Command: {vendor_command}
     Standard Platform: {standard_platform}
-    
+
     Respond only with the command string. No explanation.
     Example: "display bgp peer" -> "show ip bgp neighbors"
     """
@@ -163,8 +163,8 @@ def _check_cache(vendor: str, command: str) -> list[dict] | None:
         try:
             result = conn.execute(
                 """
-                SELECT raw_key, cisco_key 
-                FROM schema_mappings 
+                SELECT raw_key, cisco_key
+                FROM schema_mappings
                 WHERE vendor = ? AND command = ?
             """,
                 [vendor, command],
@@ -370,7 +370,7 @@ def fuzzy_map_schema(
     """Normalize multi-vendor parsed output to a standard schema.
 
     Uses LLM to translate vendor-specific JSON keys to standard keys (e.g., Cisco IOS baseline),
-    then caches the mapping for future use. Baselines are classified by device category 
+    then caches the mapping for future use. Baselines are classified by device category
     (routing, firewall, wireless) in configuration.
 
     Args:

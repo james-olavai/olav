@@ -8,10 +8,6 @@ Core Features:
 3. Error self-correction (via Agent ReAct loop)
 4. DuckDB-specific optimizations
 5. SchemaContext singleton caching (5 min TTL)
-
-Usage in DeepAgents:
-    from .tools import execute_sql
-    agent = create_deep_agent(tools=[execute_sql.execute_sql])
 """
 
 import json
@@ -23,9 +19,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from langchain_core.tools import tool
 from pydantic import BaseModel, Field, validator
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 
 # Add src to Python Path
@@ -379,6 +373,8 @@ def _sanitize_rows(rows: list[dict]) -> list[dict]:
 def main(params: dict) -> dict:
     """Execute database query with auto schema exploration.
 
+    Use tool_help("execute_sql") for full usage, examples, and tier limits.
+
     Args:
         params: {
             "query": "Natural language query",
@@ -510,31 +506,6 @@ def main(params: dict) -> dict:
     return output.model_dump(exclude_none=True)
 
 
-# ============================================================================
-# LangChain Tool Registration
-# ============================================================================
-
-
-@tool
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-def execute_sql(query: str = "", sql: str = "", explain_only: bool = False) -> dict:
-    """Default tool for device data queries — DuckDB SELECT against main.duckdb.
-
-    Call ``tool_help('execute_sql')`` for the full schema quick-reference
-    (views, column conventions, and worked examples).
-
-    Args:
-        query: Natural-language question used for schema discovery.
-        sql: Optional direct SQL; when supplied, overrides the NL path.
-        explain_only: Return schema context without executing anything.
-
-    Example:
-        execute_sql(sql="SELECT hostname, platform FROM netops.devices")
-    """
-    params = {"query": query, "sql": sql, "explain_only": explain_only}
-    return main(params)
-
-
 class DateTimeEncoder(json.JSONEncoder):
     def default(self, obj):
         if hasattr(obj, "isoformat"):
@@ -543,18 +514,8 @@ class DateTimeEncoder(json.JSONEncoder):
 
 
 if __name__ == "__main__":
-    try:
-        input_str = sys.stdin.read()
-        if not input_str:
-            input_data = {}
-        else:
-            input_data = json.loads(input_str)
-
-        result = main(input_data)
-        print(json.dumps(result, ensure_ascii=False, indent=2, cls=DateTimeEncoder))
-    except Exception as e:
-        print(
-            json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False),
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    import json as _json
+    import sys as _sys
+    _args = _json.loads(_sys.stdin.read() or "{}")
+    result = main(_args)
+    print(_json.dumps(result, ensure_ascii=False, indent=2, cls=DateTimeEncoder))

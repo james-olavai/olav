@@ -332,7 +332,7 @@ def _dict_to_markdown(data: dict[str, Any], level: int = 1) -> str:
     for key, val in data.items():
         # Title case the key for headers
         title = str(key).replace("_", " ").title()
-        
+
         if isinstance(val, dict):
             lines.append(f"{'#' * level} {title}")
             lines.append(_dict_to_markdown(val, level + 1))
