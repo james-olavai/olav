@@ -104,7 +104,6 @@ olav-web/.wrangler/
 /labs/
 /olav-netops/
 olav-netops/.olav/workspace/devops/
-.olav/workspace/netops/
 
 # enterprise
 /olav-ent/
@@ -117,7 +116,6 @@ olav-netops/.olav/workspace/devops/
 
 # runtime-workspace
 /.olav/
-.olav/workspace/audit/
 .olav/config/approval_rules.yaml
 
 # collector
@@ -137,7 +135,9 @@ olav-netops/.olav/workspace/*
 .olav/*
 !.olav/workspace/
 .olav/workspace/*
+!.olav/workspace/netops/
 !.olav/workspace/devops/
+!.olav/workspace/audit/
 !.olav/config/
 !.olav/config/*.example
 !.olav/config/schemas/
