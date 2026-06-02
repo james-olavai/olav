@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# LEGACY-KEEP: the YAML-path probe below falls back to the pre-2026-05 ops/
+# cron layout for installs that predate the ops→netops rename — intentional
+# backward-compat, not dead code.
 """
 Cron Management Tool — manage system crontab entries for olav scheduled tasks.
 
