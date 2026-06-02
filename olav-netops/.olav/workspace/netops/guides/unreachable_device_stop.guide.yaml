@@ -9,8 +9,8 @@ keywords:
   - device offline
   - SSH timeout
   - device down
-  - 设备不可达
-  - 连接失败
+  - device unreachable
+  - connection failed
 body: |
   When a sub-agent reports a device is **unreachable** (TCP/SSH
   failed, no response, transport error), STOP and report — do NOT
@@ -21,7 +21,7 @@ body: |
   Real example (in-vivo T13, 2026-05-10): user asked "ping R3 from
   R1 and report connectivity". The collect sub-agent answered
   correctly: "TCP connection to R1 failed". The orchestrator then
-  auto-dispatched task("investigate") to find R1's outage cause,
+  auto-dispatched task("analyzer") to find R1's outage cause,
   ran multiple syslog queries, hit timeout. The user got a less
   helpful response than the first answer would have been.
 
@@ -35,7 +35,6 @@ body: |
     "connection refused", "timeout", "404 not found", "ICMP no reply"
   - ``execute_cli_parallel`` returned ``status: error`` for the
     target device
-  - ``execute_cli`` raised a connection-class exception
   - inspect_devices returned ``unknown_devices: [name]``
 
   ## What to do — STOP path
@@ -57,7 +56,7 @@ body: |
   - "why is X unreachable"
   - "find the cause of X's outage"
   - "deep investigate"
-  - 排查 / 故障定位
+  - troubleshoot / fault localization
 
   In those cases follow ``fault_analysis_workflow`` (separate guide)
   — investigate logs, recent config changes, snapshots. Allow up to

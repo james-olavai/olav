@@ -1,6 +1,6 @@
 schema_version: 1
 intent: batfish_vendor_support
-agent: sim
+agent: simulator
 keywords:
   - batfish vendor support
   - batfish capability
@@ -73,7 +73,7 @@ body: |
   (the tool is read-only on netops.devices — no Batfish required) to
   decide:
 
-  - All FULL → safe to ``task("sim", ...)``
+  - All FULL → safe to ``task("simulator", ...)``
   - PARTIAL → still delegate, but include in your synthesised report
     a "Scope coverage" caveat noting which devices Batfish saw
   - NONE → skip sim entirely; tell user "for these vendors, current

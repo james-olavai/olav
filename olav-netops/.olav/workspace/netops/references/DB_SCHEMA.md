@@ -45,7 +45,7 @@ dedicated column:
 ```json
 {
   "groups":  ["core_routers"],
-  "aliases": ["核心路由器1", "R3路由器"],
+  "aliases": ["core-router-1", "R3-router"],
   "<any other data.* key>": "..."
 }
 ```
@@ -54,7 +54,7 @@ Use `metadata::JSON->>'$.key'` or `metadata LIKE '%substr%'` for
 lookups.  Natural-language alias resolution uses this:
 
 ```sql
-SELECT hostname FROM netops.devices WHERE metadata LIKE '%核心路由器1%';
+SELECT hostname FROM netops.devices WHERE metadata LIKE '%core-router-1%';
 ```
 
 ## Common query patterns
@@ -116,5 +116,5 @@ referencing them:
 * `view_recipes_seed.yaml` monolith — split into per-protocol files
   under `olav-netops/.olav/workspace/topology/recipes/builtin/`.
 * `auto_learn.py` batch learner — removed v0.21.0.  Invoke
-  `command_learner.learn_commands` via the `/learn_cmd` skill for
+  `netops/learner` (`learn_commands`) via the `/learn_cmd` skill for
   interactive parser learning.

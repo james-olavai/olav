@@ -7,8 +7,8 @@ keywords:
   - junos commit-archive
   - loose dump
   - format detection
-  - 厂商
-  - 散文本
+  - vendor
+  - loose text dump
 priority: 3
 body: |
   ## Vendor-dump format heuristics

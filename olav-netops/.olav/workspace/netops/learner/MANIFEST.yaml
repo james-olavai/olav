@@ -1,5 +1,5 @@
 kind: Agent
-name: command_learner
+name: learner
 version: 1.0.0
 description: >
   Parser-layer learning for CLI output — unified entry point for batch
@@ -13,8 +13,8 @@ route_keywords:
   - unparseable output
   - custom template
   - learn cli
-  - 学习命令
-  - 生成解析器
+  - learn command
+  - generate parser
 requires:
   - olav-platform>=0.19
   - olav-netops>=0.19

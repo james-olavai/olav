@@ -11,9 +11,9 @@ keywords:
   - .md
   - .csv
   - .json
-  - 保存
-  - 导出
-  - 写文件
+  - save
+  - export
+  - write file
 body: |
   Any request to "save", "export", "write to disk", or to land an
   artefact under exports/ — call ``format_and_export`` directly.

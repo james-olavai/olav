@@ -13,7 +13,7 @@ route_keywords:
   - LLDP neighbors
   - L2 links
   - network relationships
-  - 拓扑
-  - 邻居关系
+  - topology
+  - neighbor relationships
   - query topology
   - list recipes

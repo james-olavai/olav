@@ -38,17 +38,17 @@ keywords:
   - ldp
   - mpls
   - vrrp
-  - 排查
-  - 故障
-  - 诊断
-  - 调试
-  - 找原因
-  - 根因
-  - 不通
-  - 不可达
-  - 链路
-  - 接口
-  - 物理
+  - troubleshoot
+  - fault
+  - diagnose
+  - debug
+  - find cause
+  - root cause
+  - unreachable
+  - not reachable
+  - link
+  - interface
+  - physical
 body: |
   ACTION: when user reports a stuck protocol session, FIRST emit a
   tool_call to gather L1 evidence (do NOT inline-recite procedures).
@@ -59,8 +59,8 @@ body: |
   |---|---|
   | BGP ``Idle`` | ``execute_sql SELECT * FROM netops.v_show_interfaces_terse_auto WHERE device_name='<host>'`` |
   | BGP ``Active`` | ``execute_sql SELECT * FROM netops.v_show_ip_route_auto WHERE device_name='<host>' AND destination LIKE '<peer>%'`` |
-  | BGP ``Connect`` | ``execute_cli device='<host>' command='show system connections | match :179'`` |
-  | BGP ``OpenSent`` | ``execute_cli device='<host>' command='show ip bgp neighbors <peer> | include reset'`` |
+  | BGP ``Connect`` | ``execute_cli_parallel devices=['<host>'] command='show system connections | match :179'`` |
+  | BGP ``OpenSent`` | ``execute_cli_parallel devices=['<host>'] command='show ip bgp neighbors <peer> | include reset'`` |
   | OSPF ``Init`` / ``ExStart`` | ``execute_sql SELECT * FROM netops.v_show_interfaces_terse_auto WHERE device_name='<host>'`` (then check MTU + area) |
   | BFD ``Down`` | ``execute_sql SELECT * FROM netops.v_show_interfaces_terse_auto`` for both endpoints |
 

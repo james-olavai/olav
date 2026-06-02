@@ -9,8 +9,8 @@ keywords:
   - neighbors
   - 1-hop
   - 1-hop closure
-  - 邻居
-  - 拓扑
+  - neighbor
+  - topology
   - cdp
   - lldp
   - bgp neighbor

@@ -82,6 +82,94 @@ body: |
   Use when: caller asks "what route does X use to reach Y" / "is the
   route in the table".
 
+  **⚠ LARGE-NETWORK WARNING — MANDATORY for campus/enterprise networks:**
+  Querying routes without a specific ``nodes`` filter returns ALL routes
+  across ALL devices.  A 339-device campus EIGRP network has ~3.7 million
+  route rows.  Serialising them overflows any sub-100K-token LLM context.
+
+  ``batfish_q`` automatically summarises results > 400 rows:
+  - ``row_count``: TRUE total rows (use for baseline vs sim delta math)
+  - ``summary.unique_networks``: count of unique /prefix entries
+  - ``rows``: first 10 sample rows only (for context, not counting)
+  - ``truncated``: ``true`` when summary mode is active
+
+  **Rule**: ALWAYS pass a specific ``nodes`` regex — never use ``".*"``.
+  For blast-radius simulation, scope to the PEER nodes of the deactivated
+  device (the nodes whose route tables change when the target goes down),
+  NOT the deactivated node itself.
+
+  **Batfish NodeSpecifier syntax** for the ``nodes`` arg:
+  - Literal: ``"foo-border-4500x"`` (exact hostname)
+  - Regex:   ``"/foo-border-4500x|foo2-dist-4500xv/"`` (slashes required for alternation!)
+  - Without slashes ``"a|b"`` is treated as a literal name containing ``|`` → returns 0 rows.
+
+  ```yaml
+  # ✅ correct — peer nodes of foo-dist-4500xv-d (regex with slashes)
+  q_args: {nodes: "/foo-border-4500x|foo2-dist-4500xv/"}
+
+  # ✅ correct — single node (no slashes needed)
+  q_args: {nodes: "foo-border-4500x"}
+
+  # ❌ wrong — fetches all 3.7M routes, crashes context
+  q_args: {nodes: ".*"}
+  q_args: {}   # no filter = all nodes
+
+  # ❌ wrong — pipe without slashes = 0 rows
+  q_args: {nodes: "foo-border-4500x|foo2-dist-4500xv"}
+  ```
+
+  For route-count delta (change simulation):
+  ```
+  baseline_count = batfish_q(snap_baseline, "routes", {"nodes": "peer-regex"}).row_count
+  sim_count      = batfish_q(snap_simN,     "routes", {"nodes": "peer-regex"}).row_count
+  delta          = baseline_count - sim_count
+  unique_lost    = baseline.summary.unique_networks - sim.summary.unique_networks
+  ```
+
+  ---
+
+  ## Blast-radius upgrade simulation — using pre-built Batfish snapshots
+
+  For change-plan simulations where Batfish-native forked snapshots already
+  exist (created by ``fork_snapshot`` outside OLAV), pass the Batfish
+  snapshot name directly as ``snapshot_id``.
+
+  **Prerequisite**: Set ``OLAV_BATFISH_NETWORK`` env var to the Batfish
+  network name (e.g. ``vu-prod-inbox``) so ``batfish_q`` can look up
+  existing snapshots without re-exporting configs.
+
+  Standard workflow for each upgrade stage:
+  ```
+  Step 1 — check capability (once per baseline):
+    batfish_capability(snapshot_id="2025-11-02-baseline")
+
+  Step 2 — baseline route count on peer nodes:
+    batfish_q("2025-11-02-baseline", "routes",
+              {"nodes": "<peer_regex>"})
+    → envelope.row_count = baseline_count
+
+  Step 3 — simulated route count (node deactivated):
+    batfish_q("2025-11-02-sim-stageN", "routes",
+              {"nodes": "<peer_regex>"})
+    → envelope.row_count = sim_count
+
+  Step 4 — delta = baseline_count - sim_count
+           prefixes_lost = baseline.summary.unique_networks - sim.summary.unique_networks
+  ```
+
+  For VU campus network (Batfish network ``vu-prod-inbox``), available
+  pre-built snapshots and their peer node regexes:
+
+  | Snapshot | Deactivated | Peer nodes regex (use ``/regex/`` syntax) |
+  |---|---|---|
+  | 2025-11-02-baseline | (none) | — |
+  | 2025-11-02-sim-stage1 | suns-dist-4500xv, foo-server-4500x-1/2 | ``/suns-wan-4500x\|suns-border/`` |
+  | 2025-11-02-sim-stage2 | sta-dist-4500xv-4, sta-dist-4500xv-5 | ``sta-wan-4500xv`` |
+  | 2025-11-02-sim-stage3 | wer-dist-4500xv | ``/wer-wan-4500xv\|wer2-wan/`` |
+  | 2025-11-02-sim-stage4 | foo-dist-4500xv-m | ``/foo-border-4500x\|foo-core-6807v/`` |
+  | 2025-11-02-sim-stage5 | foo-dist-4500xv-d | ``/foo-border-4500x\|foo2-dist-4500xv/`` |
+  | 2025-11-02-sim-stage6 | foo2-dist-4500xv | ``/foo2-wan-4500xv\|foo2-wan-3560/`` |
+
   ---
 
   ## reachability  — "can A talk to B (per configs)?"

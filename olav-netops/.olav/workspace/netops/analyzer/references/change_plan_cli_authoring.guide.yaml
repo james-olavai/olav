@@ -9,8 +9,8 @@ keywords:
   - configure terminal
   - commit
   - write memory
-  - 写 change plan
-  - prod CLI 完整性
+  - write change plan
+  - prod CLI completeness
 priority: 5
 body: |
   # Prod CLI authoring — hard rules
