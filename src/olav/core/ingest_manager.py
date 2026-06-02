@@ -25,7 +25,7 @@ from typing import Any
 
 import duckdb
 
-from olav.core.config import AGENT_DIR, BACKUP_DIR, CONFIG_DIR, MAIN_DB_PATH
+from olav.core.config import BACKUP_DIR, MAIN_DB_PATH
 from olav.platform.ingest_base import TableRegistry
 
 

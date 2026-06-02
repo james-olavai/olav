@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import random
 import re
 import threading
@@ -26,6 +27,8 @@ import duckdb
 # (e.g. API server with multiple request threads).  Cross-process serialisation
 # is handled by DuckDB's own file-level write lock.
 _WRITE_LOCK = threading.Lock()
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Credential-token redaction (5-pattern regex) — ISO 27001 A.10 / NIST SC-28.

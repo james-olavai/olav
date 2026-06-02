@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from olav.core.api_registry import load_schema
-from olav.platform.services.registry import ServiceConfig, ServiceRegistry, ToolGroupConfig
+from olav.platform.services.registry import ServiceConfig, ServiceRegistry
 
 logger = logging.getLogger(__name__)
 

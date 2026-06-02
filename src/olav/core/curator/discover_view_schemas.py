@@ -33,7 +33,7 @@ import json
 import logging
 import sys
 from collections import defaultdict
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from textwrap import dedent
 from typing import Any

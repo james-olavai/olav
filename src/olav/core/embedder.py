@@ -14,9 +14,7 @@ default since v0.15, but offline deployments still need it — keep it.
 """
 from __future__ import annotations
 
-import contextlib
 import hashlib
-import io
 import logging
 import os
 from collections import OrderedDict

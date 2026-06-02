@@ -95,6 +95,7 @@ def _is_mixed_script_domain(domain: str) -> bool:
             continue
         # Get Unicode script block (approximation via codepoint ranges)
         cp = ord(ch)
+        cat = unicodedata.category(ch)
         if 0x0400 <= cp <= 0x04FF or 0x0500 <= cp <= 0x052F:
             scripts.add("Cyrillic")
         elif 0x0370 <= cp <= 0x03FF:

@@ -445,7 +445,6 @@ def _patch_welcome_footer() -> bool:
     """
     try:
         from deepagents_cli.widgets import welcome as _dc_welcome
-        from rich.style import Style  # noqa: PLC0415 — rich is a deepagents-cli dep
         from textual.content import Content  # noqa: PLC0415
         import random
 
