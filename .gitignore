@@ -95,6 +95,7 @@ olav-web/node_modules/
 olav-web/.wrangler/
 .olav/databases/
 .olav/logs/
+.olav/workspace/ops/
 
 # legacy
 /_legacy_archived/

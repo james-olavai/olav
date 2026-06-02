@@ -579,6 +579,19 @@ rules:
     enforced: true
     git: ignore
 
+  # ADR-0014 Phase C / Decision 5: `ops` is RETIRED as an agent — it has no
+  # AGENT.md/SKILL.md, only netops_init runtime state snapshots
+  # (netops_init/state/*.json). Formalized as generated/ignore. The
+  # ops→netops config-dir rename tail (_DOMAIN_WORKSPACE_MAP["netops"]=="ops"
+  # in src/olav/core/config.py + netops_init's state-path) is deferred — it
+  # touches netops runtime state-path resolution and is gated on the e2e suite.
+  - pattern: .olav/workspace/ops/**
+    owner: olav-netops
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
   # ADR-0014 Phase B: devops is now a platform agent (authoritative source
   # ships in the wheel at src/olav/data/workspace/devops/). This is the tracked
   # runtime workspace, parallel to core/services.
