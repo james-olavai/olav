@@ -3,7 +3,7 @@
 OLAV Orchestrator Agent - v4.0 (MVC: Agent=Controller, Tools=Model, Writer=View)
 
 Architecture:
-- OLAVAgent: orchestrator with 3 direct tools (execute_sql, recall_memory, web_search)
+- OLAVAgent: orchestrator with 3 direct tools (execute_sql, olav_recall_memory, web_search)
 - 5 subagents: db-query, api-query, remote, admin, writer
 - writer subagent: unified output engine with report-type references
 - LangGraph MemorySaver for checkpoint/persistence
@@ -930,7 +930,7 @@ class OLAVAgent:
     def _load_orchestrator_tools(self, olav_config: dict) -> list:
         """Load tools: core workspace tools (global) + this agent's tools.
 
-        Core workspace tools (e.g. recall_memory, execute_sql) are always
+        Core workspace tools (e.g. olav_recall_memory, execute_sql) are always
         loaded first so they are available in every agent regardless of
         workspace. Agent-specific tools are appended after, with duplicates
         (by name) removed.

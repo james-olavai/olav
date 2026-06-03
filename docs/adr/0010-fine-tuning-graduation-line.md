@@ -128,7 +128,7 @@ Per FT-CRUTCH, when the fine-tuned model is available:
 | Hard retry gate enforcing argument shape | `emit_tcf` 6-retry content gate |
 | "Did you mean?" suggestions | `_best_match` substring matcher |
 | Removal of capability the LLM kept misusing | dropping `execute_sql` from orchestrator to force `task()` |
-| Long enumeration of "DO NOT do X" hints | orchestrator.md "never `ls/glob/recall_memory before delegate`" |
+| Long enumeration of "DO NOT do X" hints | orchestrator.md "never `ls/glob/olav_recall_memory before delegate`" |
 
 ### What is NOT a Layer 4 patch (illustrative)
 

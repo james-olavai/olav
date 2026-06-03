@@ -3,7 +3,7 @@ pointing to a single canonical source.
 
 Post-R65 (ARCH-23) note: core's monolithic ``core/tools/`` collection was
 relocated into sub-agent ``tools/`` folders. Only 3 cross-domain tools remain
-in core/tools/ (``execute_sql`` / ``recall_memory`` / ``web_search``); everything
+in core/tools/ (``execute_sql`` / ``olav_recall_memory`` / ``web_search``); everything
 else now lives in its sub-agent home as a real file (not a symlink). The
 previous "canonical-in-core/tools/ + symlink-in-subagent" pattern was retired.
 
@@ -42,7 +42,7 @@ _OPS_CANONICAL = _NETOPS_CANONICAL  # alias kept for test backward-compat
 _CORE_CANONICAL = {
     "web_search.py",
     "execute_sql.py",
-    "recall_memory.py",
+    "olav_recall_memory.py",
 }
 
 # Deliberate divergence: the same filename may appear in multiple sub-agent
@@ -53,10 +53,10 @@ _DELIBERATE_DIVERGENCE: set[str] = {
     # (mutating-SQL approval gate, tier-aware context rows); the
     # core/db_query/tools/execute_sql.py is a simpler delegate wrapper.
     "execute_sql.py",
-    # core/tools/recall_memory.py is the MCP @tool version; core/scripts/
-    # recall_memory.py is the migrated plain-script version (no LangChain).
+    # core/tools/olav_recall_memory.py is the MCP @tool version; core/scripts/
+    # olav_recall_memory.py is the migrated plain-script version (no LangChain).
     # Both are needed during the scripts migration transition.
-    "recall_memory.py",
+    "olav_recall_memory.py",
     # Same dual-version pattern for web_search during the migration.
     "web_search.py",
     # 2026-06-02 (WORKSPACE-DUAL-COPY-DEBT): the 4 netops cross-domain tools

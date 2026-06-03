@@ -2,7 +2,7 @@
 name: memory_curator
 description: "Conversational memory ingestion (R102). Turn user-stated rules / pasted runbook / topology source into LanceDB rows with HITL."
 tools:
-  - recall_memory
+  - olav_recall_memory
   - execute_skill_script    # runs scripts/ entries (ADR-0008 native pattern)
 scripts:
   - name: propose_memory_draft
@@ -71,7 +71,7 @@ Follow the decision tree in `prompts/system.md`.  Always:
 
 1. Classify input shape (short NL / file path / topology source /
    image).
-2. `recall_memory(query=<extracted_intent>, scope=<target>)` to
+2. `olav_recall_memory(query=<extracted_intent>, scope=<target>)` to
    check for existing similar entry.  If hit, OFFER the user the
    choice between updating it vs creating a sibling.
 3. Render the proposed YAML and show it to the user.
@@ -89,7 +89,7 @@ Follow the decision tree in `prompts/system.md`.  Always:
   fabricate a description — explicitly tell them that R100 Tier 2
   (dev_docs/68) is the roadmap, and offer to store a user-provided
   text description instead.
-* If `recall_memory` returns nothing relevant, say so — don't
+* If `olav_recall_memory` returns nothing relevant, say so — don't
   invent precedent.
 
 ## Anti-patterns

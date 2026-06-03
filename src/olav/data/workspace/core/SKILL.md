@@ -3,7 +3,8 @@ name: core
 description: "Core platform agent — data queries directly, delegates to writer/api-query/remote/admin subagents"
 tools:
   - execute_sql
-  - recall_memory
+  - olav_recall_memory
+  - olav_store_memory
   - web_search
   # Patch D' Step 4 (2026-05-08): format_and_export removed from
   # the universal-availability list.  R85 promoted it for inline

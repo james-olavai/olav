@@ -59,7 +59,7 @@ class TestSynthesisCandidateFiltering:
     def test_data_tools_are_candidates(self):
         results = [
             {"name": "execute_sql", "content": '{"count": 282}'},
-            {"name": "recall_memory", "content": "some memory"},
+            {"name": "olav_recall_memory", "content": "some memory"},
         ]
         assert len(_synth_candidates(results)) == 2
 

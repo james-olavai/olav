@@ -29,7 +29,7 @@ to dedicated agents/sub-agents.
 
 ### Direct Handling (no --agent needed)
 - **Cross-domain computation & data** — `run_python_code`, `execute_sql`
-- **Memory & KB** — `recall_memory`, `search_knowledge_lancedb`, `web_search`
+- **Memory & KB** — `olav_recall_memory`, `search_knowledge_lancedb`, `web_search`
 - **Output** — `format_and_export`
 - **Document writing** — polish/edit markdown → escalates to `core/writer/` sub-agent
 

@@ -1,4 +1,4 @@
-"""Phase 0-3 TDD (updated rev 100): recall_memory embedder function
+"""Phase 0-3 TDD (updated rev 100): olav_recall_memory embedder function
 
 Original fix (PERF-3): SentenceTransformer lazy singleton.
 Phase 2-1: _get_embedder() delegated to olav.core.embedder.get_embedder().
@@ -9,7 +9,7 @@ Uses AST static analysis to avoid numpy secondary-load restrictions.
 import ast
 from pathlib import Path
 
-SOURCE_PATH = Path(__file__).resolve().parents[2] / "src/olav/data/workspace/core/tools/recall_memory.py"
+SOURCE_PATH = Path(__file__).resolve().parents[2] / "src/olav/data/workspace/core/tools/olav_recall_memory.py"
 
 
 def _load_ast():
@@ -32,7 +32,7 @@ def test_embedder_is_module_level_not_local():
         and any(isinstance(t, ast.Name) and t.id == "_embedder" for t in node.targets)
     ]
     assert not module_level_assigns, (
-        "recall_memory.py must NOT have a module-level `_embedder` variable since "
+        "olav_recall_memory.py must NOT have a module-level `_embedder` variable since "
         "Phase 2-1 delegates to olav.core.embedder.get_embedder() instead."
     )
 
@@ -44,7 +44,7 @@ def test_embed_query_function_exists():
     func_names = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
 
     assert "_embed_query" in func_names, (
-        "recall_memory.py MUST define a `_embed_query()` function. "
+        "olav_recall_memory.py MUST define a `_embed_query()` function. "
         "Rev 98 renamed _get_embedder → _embed_query to call embed_text() (OpenAI API)."
     )
 
@@ -81,14 +81,14 @@ def test_embed_query_calls_embed_text():
 
 
 def test_no_local_embedder_in_recall_function():
-    """修复后：`recall_memory` 函数内不应再有局部 `_embedder = SentenceTransformer(...)` 赋值。"""
+    """修复后：`olav_recall_memory` 函数内不应再有局部 `_embedder = SentenceTransformer(...)` 赋值。"""
     tree = _load_ast()
 
     recall_fn = next(
         (
             node
             for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef) and node.name == "recall_memory"
+            if isinstance(node, ast.FunctionDef) and node.name == "olav_recall_memory"
         ),
         None,
     )
@@ -104,7 +104,7 @@ def test_no_local_embedder_in_recall_function():
     ]
 
     assert not local_embedder_assigns, (
-        f"Found local `_embedder = ...` inside recall_memory function at lines "
+        f"Found local `_embedder = ...` inside olav_recall_memory function at lines "
         f"{[n.lineno for n in local_embedder_assigns]}. "
         "PERF-3: remove it, use _get_embedder() instead."
     )

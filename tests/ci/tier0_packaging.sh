@@ -182,7 +182,7 @@ from pathlib import Path
 import olav, frontmatter
 from olav.core.tool_discovery import discover_tools
 core = Path(olav.__file__).parent / 'data' / 'workspace' / 'core'
-# Orchestrator must have exactly 3 tools (execute_sql, recall_memory, web_search)
+# Orchestrator must have exactly 3 tools (execute_sql, olav_recall_memory, web_search)
 orch = discover_tools(core / 'tools')
 assert len(orch) == 3, f'Expected 3 orchestrator tools, got {len(orch)}: {[t.name for t in orch]}'
 assert 'execute_sql' in {t.name for t in orch}, 'execute_sql missing'

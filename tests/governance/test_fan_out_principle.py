@@ -4,7 +4,7 @@ Guards three mechanical invariants that are the observable shadow of
 "don't return multiple data sources in one shot" (the full principle
 text lives at ``dev_docs/ARCH-16_FAN_OUT_PRINCIPLE.md``):
 
-1. ``recall_memory`` does NOT hard-code a ``top_k`` constant — the
+1. ``olav_recall_memory`` does NOT hard-code a ``top_k`` constant — the
    default must resolve through ``tier_default`` (ARCH-18 #3).
 2. ``execute_cli_parallel`` / ``diff_configs`` / ``api_request`` expose a
    ``full: bool`` escape hatch so compact-by-default is the norm.

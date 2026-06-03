@@ -52,7 +52,7 @@ tools:
 - execute_skill_script
 - execute_sql
 - search_logs
-- recall_memory
+- olav_recall_memory
 - format_and_export
 - read_file
 - write_todos
@@ -102,7 +102,7 @@ written.
 ```sql
 SHOW TABLES IN netops
 ```
-No planning turn. No recall_memory. No other query first.
+No planning turn. No olav_recall_memory. No other query first.
 Call `execute_sql(sql="SHOW TABLES IN netops")` immediately.
 After that result returns, begin your investigation.
 
@@ -153,7 +153,7 @@ The `network_type_classifier` guide (already loaded) has the signal rules.
 
 State the classification explicitly, then call:
 ```python
-recall_memory(query="<type> L1-L4 issues")
+olav_recall_memory(query="<type> L1-L4 issues")
 ```
 to load the type-specific hypothesis playbook. Pick the most relevant
 angles from it — don't pursue every item blindly.

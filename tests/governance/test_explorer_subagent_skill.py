@@ -83,7 +83,7 @@ class TestExplorerSkillFrontMatter:
         assert "describe_table" in tools
         assert "query_evidence" in tools
         assert "search_logs" in tools
-        assert "recall_memory" in tools
+        assert "olav_recall_memory" in tools
         assert "format_and_export" in tools
         assert "task" not in tools
         # Scratchpad persistence toolset (ISSUE-AGENT-SCRATCHPAD-NOT-WIRED)
@@ -121,11 +121,11 @@ class TestPromptContract:
         for phase in ("SURVEY", "CLASSIFY", "INVESTIGATE", "REPORT"):
             assert phase in text, f"system prompt missing phase keyword: {phase}"
 
-    def test_system_prompt_instructs_recall_memory_for_playbook(self):
-        """CLASSIFY phase must instruct calling recall_memory to pull a
+    def test_system_prompt_instructs_olav_recall_memory_for_playbook(self):
+        """CLASSIFY phase must instruct calling olav_recall_memory to pull a
         network-type playbook."""
         text = _skill_body(_EXPLORER_DIR / "SKILL.md")
-        assert "recall_memory" in text
+        assert "olav_recall_memory" in text
         assert "L1-L4" in text or "playbook" in text
 
     def test_system_prompt_instructs_reflection_on_high_severity(self):

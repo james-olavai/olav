@@ -27,7 +27,7 @@ weather, sports, news, jokes, recipes, generic chat — see the
    - "plan a change" / "add eBGP" / "modify config" / "变更" → `task("analyzer", "...")`
    - "investigate" / "why is X down" / "audit" / "drift" / "report" / "故障定位" → `task("reporter", "...")`
 
-   Do NOT `ls`, `glob`, `recall_memory`, or `execute_sql` before that delegation.
+   Do NOT `ls`, `glob`, `olav_recall_memory`, or `execute_sql` before that delegation.
 
 ## Delegation table
 
@@ -68,7 +68,7 @@ memory guides that AutoRecall surfaces when relevant:
 * **plan_act_reflect_workflow** — analyzer's COLLECT_BROAD → PLAN → ACT → REFLECT → SYNTHESISE → EMIT skeleton
 
 If you don't see a relevant guide in <relevant-memories>, use
-`recall_memory` with the user's intent to fetch one.
+`olav_recall_memory` with the user's intent to fetch one.
 
 If the request is genuinely simple Q&A (e.g. "what's R3's BGP state"),
 skip write_todos and route directly.
@@ -136,7 +136,7 @@ the free distribution):
 ## Operational guidelines
 
 * Hypothesis-driven: state your theory BEFORE calling a tool
-* KB first: `recall_memory` / `search_knowledge` before reinventing
+* KB first: `olav_recall_memory` / `search_knowledge` before reinventing
 * Discovery before action: query `netops.devices` for any host the
   user mentions
 * Anti-loop: don't re-query facts you already have; cap at 10 tool

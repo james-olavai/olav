@@ -139,14 +139,14 @@ class TestKBImportAndAgentRecall:
             f"Import failed, cannot test recall: rc={cls._import_rc}\n"
             f"{cls._import_stdout}\n{cls._import_stderr}"
         )
-        # Directly invoke recall_memory tool — avoids full-agent web-search overhead
+        # Directly invoke olav_recall_memory tool — avoids full-agent web-search overhead
         # while still testing the complete KB import→embed→retrieve pipeline (C-KB-28).
         import json as _json
         env = {
             **os.environ,
             "OLAV_MEMORY_DB_PATH": str(cls._tmp / "kb_e2e.db"),
         }
-        recall_tool = str(_ROOT / "src" / "olav" / "data" / "workspace" / "core" / "tools" / "recall_memory.py")
+        recall_tool = str(_ROOT / "src" / "olav" / "data" / "workspace" / "core" / "tools" / "olav_recall_memory.py")
         cls._recall_result = subprocess.run(
             [_PYTHON, recall_tool],
             input=_json.dumps({"query": "BGP failover unique token OLAV_UNIQUE_TOKEN"}),
@@ -175,10 +175,10 @@ class TestKBImportAndAgentRecall:
         )
 
     def test_recall_exits_zero(self):
-        """C-KB-28: recall_memory tool must exit 0 when querying the KB."""
+        """C-KB-28: olav_recall_memory tool must exit 0 when querying the KB."""
         result = self._get_recall_result()
         assert result.returncode == 0, (
-            f"recall_memory exited {result.returncode}:\n"
+            f"olav_recall_memory exited {result.returncode}:\n"
             f"{result.stdout[:600]}\n{result.stderr[:600]}"
         )
 
@@ -192,7 +192,7 @@ class TestKBImportAndAgentRecall:
         ),
     )
     def test_recall_contains_unique_token(self):
-        """C-KB-28: recall_memory must surface the unique doc token (proves real KB retrieval)."""
+        """C-KB-28: olav_recall_memory must surface the unique doc token (proves real KB retrieval)."""
         result = self._get_recall_result()
         combined = result.stdout + result.stderr
         assert _RECALL_TOKEN in combined, (
@@ -202,11 +202,11 @@ class TestKBImportAndAgentRecall:
         )
 
     def test_recall_no_traceback(self):
-        """C-KB-28: recall_memory must not raise an unhandled exception."""
+        """C-KB-28: olav_recall_memory must not raise an unhandled exception."""
         result = self._get_recall_result()
         combined = result.stdout + result.stderr
         assert "Traceback" not in combined, (
-            f"Unhandled exception in recall_memory:\n{combined[:800]}"
+            f"Unhandled exception in olav_recall_memory:\n{combined[:800]}"
         )
 
     def test_recall_mentions_bgp_failover(self):

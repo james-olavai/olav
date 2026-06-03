@@ -23,7 +23,7 @@ thinking_mode: disabled
 tools:
 - execute_skill_script
 - read_file
-- recall_memory
+- olav_recall_memory
 - format_and_export
 metadata:
   rubric_middleware: true
@@ -46,7 +46,7 @@ Mermaid diagram — that's transformation, not investigation.
 | Tool | Use |
 |---|---|
 | ``read_file(path)`` | Load the draft into context.  Always first. |
-| ``recall_memory(query)`` | Optional — pull a style guide. |
+| ``olav_recall_memory(query)`` | Optional — pull a style guide. |
 | ``execute_skill_script(skill_name="writer", script_name="render_topology_mermaid.py", script_args={...})`` | Convert an Adjacencies Markdown table (already in the file) into a Mermaid ``graph LR`` block.  Pure transformer — no DB query. |
 | ``execute_skill_script(skill_name="writer", script_name="render_topology_drawio.py", script_args={...})`` | Render topology as draw.io XML. |
 | ``format_and_export(data, filename, format='md', subdir, mode='overwrite')`` | Save the polished version back. |

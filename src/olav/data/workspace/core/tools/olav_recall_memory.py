@@ -38,7 +38,7 @@ def _embed_query(text: str) -> "list[float] | None":
         from olav.core.embedder import embed_text
         return embed_text(text)
     except Exception as e:
-        logger.debug(f"recall_memory: embed_query failed ({e})")
+        logger.debug(f"olav_recall_memory: embed_query failed ({e})")
         return None
 
 
@@ -46,7 +46,7 @@ _RECALL_MEMORY_FALLBACK_TOP_K = 3  # ARCH-16: conservative small-model-safe defa
 
 
 def _resolve_recall_limit(explicit: int | None) -> int:
-    """Resolve ``limit`` for recall_memory respecting tier defaults.
+    """Resolve ``limit`` for olav_recall_memory respecting tier defaults.
 
     Priority: explicit caller value (clamped to 1..10) > tier default from
     ``TIER_DEFAULTS[<tier>]["recall_top_k"]`` > fallback. Keeps the hard
@@ -65,7 +65,7 @@ def _resolve_recall_limit(explicit: int | None) -> int:
 
 
 @tool
-def recall_memory(
+def olav_recall_memory(
     query: str,
     category: str | None = None,
     scope: str | None = None,
@@ -75,7 +75,7 @@ def recall_memory(
 
     Hybrid semantic search (vector + BM25 + recency). Use natural language.
     Call once at the start of an investigation or change plan.
-    Full usage: tool_help('recall_memory').
+    Full usage: tool_help('olav_recall_memory').
 
     Args:
         query:    Natural language query ("BGP failures on R1", "OSPF MTU issue").
@@ -95,27 +95,27 @@ def recall_memory(
     import concurrent.futures as _cf
 
     def _search() -> str:
-        return _recall_memory_inner(query=query, category=category, scope=scope, limit=limit)
+        return _olav_recall_memory_inner(query=query, category=category, scope=scope, limit=limit)
 
     try:
         with _cf.ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(_search)
             return future.result(timeout=15)
     except _cf.TimeoutError:
-        logger.warning("recall_memory: timed out after 15s — continuing without memory")
+        logger.warning("olav_recall_memory: timed out after 15s — continuing without memory")
         return "Memory recall skipped (timeout)."
     except Exception as e:
-        logger.error(f"recall_memory failed: {e}")
+        logger.error(f"olav_recall_memory failed: {e}")
         return f"Memory recall failed: {e}"
 
 
-def _recall_memory_inner(
+def _olav_recall_memory_inner(
     query: str,
     category: str | None,
     scope: str,
     limit: int,
 ) -> str:
-    """Core memory search logic — called inside a thread by recall_memory."""
+    """Core memory search logic — called inside a thread by olav_recall_memory."""
     try:
         # Let get_store auto-detect embedding_dim from the configured embedder
         # (was hardcoded 768 — broke against 2048-dim tables and tripped the
@@ -196,10 +196,10 @@ def _recall_memory_inner(
         return "\n\n".join(lines)
 
     except Exception as e:
-        logger.error(f"recall_memory failed: {e}")
+        logger.error(f"olav_recall_memory failed: {e}")
         return f"Memory recall failed: {e}"
 
 
 if __name__ == "__main__":
     data = json.loads(sys.stdin.read())
-    print(json.dumps(recall_memory.invoke(data), ensure_ascii=False))
+    print(json.dumps(olav_recall_memory.invoke(data), ensure_ascii=False))

@@ -58,7 +58,7 @@ class TestAnalyzerModeA:
         assert (_ANALYZER_DIR / "SKILL.md").is_file()
 
     def test_tool_count_at_most_8(self):
-        # Limit raised from 7 → 8 (2026-05-31): recall_memory added to enable
+        # Limit raised from 7 → 8 (2026-05-31): olav_recall_memory added to enable
         # expert-KB guardrail injection from trace_learner failure learning.
         # Budget is still tight — do not add more tools without a clear rationale.
         fm = _parse_front_matter(_ANALYZER_DIR / "SKILL.md")

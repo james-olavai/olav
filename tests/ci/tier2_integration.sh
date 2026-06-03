@@ -7,7 +7,7 @@
 # end-to-end round-trip against the populated DB from Groups 1-2, sandbox
 # `model` auto-inject via a real subprocess, plus parity with T1 Group 12
 # for load_reference slicing / tool_help detail / OLAV_DEBUG_* envs /
-# recall_memory tier / subagent cap / summarization trigger / SKILL.md
+# olav_recall_memory tier / subagent cap / summarization trigger / SKILL.md
 # docstring mode / OLAV_BACKUP_COMMANDS_PATH / 🔧[orch] origin tag. Each
 # catches packaging drift the same way T2-29 did for describe_table.py.
 # ==============================================================================
@@ -977,28 +977,28 @@ else
     fail_test "T2-34" "debug env resolvers broken post-wheel"
 fi
 
-# T2-35: recall_memory tier-aware limit default (R40, ARCH-16)
+# T2-35: olav_recall_memory tier-aware limit default (R40, ARCH-16)
 "$PYTHON" <<'PYEOF'
 import importlib.util
 from pathlib import Path
-p = Path(".olav/workspace/core/tools/recall_memory.py")
+p = Path(".olav/workspace/core/tools/olav_recall_memory.py")
 spec = importlib.util.spec_from_file_location("rm_t2", p)
 mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
-schema = getattr(mod.recall_memory, "args_schema", None)
+schema = getattr(mod.olav_recall_memory, "args_schema", None)
 fields = getattr(schema, "model_fields", None) or getattr(schema, "__fields__", {})
 req = getattr(fields["limit"], "is_required", None)
 if callable(req):
     req = req()
-assert req is False, "recall_memory limit must stay optional for tier default"
+assert req is False, "olav_recall_memory limit must stay optional for tier default"
 assert mod._resolve_recall_limit(100) == 10, "ceiling clamp broken"
 assert mod._resolve_recall_limit(0) == 1, "floor clamp broken"
 val = mod._resolve_recall_limit(None)
 assert isinstance(val, int) and 1 <= val <= 10
 PYEOF
 if [ $? -eq 0 ]; then
-    pass_test "T2-35" "recall_memory(limit=None) tier resolution (R40)"
+    pass_test "T2-35" "olav_recall_memory(limit=None) tier resolution (R40)"
 else
-    fail_test "T2-35" "recall_memory tier default broken post-wheel"
+    fail_test "T2-35" "olav_recall_memory tier default broken post-wheel"
 fi
 
 # T2-36: subagent return cap via tier_default (R40, ARCH-18 #4)

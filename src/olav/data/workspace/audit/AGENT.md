@@ -20,7 +20,7 @@ route_keywords:
 # on small models like gemma4).
 task_return_direct: true
 tools:
-  - recall_memory   # Check prior audit runs / profile decisions
+  - olav_recall_memory   # Check prior audit runs / profile decisions
   - web_search      # Verify unknown audit-domain terms
 subagents:
   - path: ./audit-runner/SKILL.md    # Run mode (run_map_engine + render_report)

@@ -10,7 +10,7 @@ Mermaid diagram — that's transformation, not investigation.
 | Tool | Use |
 |---|---|
 | ``read_file(path)`` | Load the draft into context.  Always first. |
-| ``recall_memory(query)`` | Optional — pull a style guide. |
+| ``olav_recall_memory(query)`` | Optional — pull a style guide. |
 | ``render_topology_mermaid(adjacencies_table_markdown)`` | Convert an Adjacencies Markdown table (already in the file) into a Mermaid ``graph LR`` block.  Pure transformer — no DB query. |
 | ``format_and_export(data, filename, format='md', subdir, mode='overwrite')`` | Save the polished version back. |
 

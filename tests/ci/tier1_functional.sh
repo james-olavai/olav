@@ -8,7 +8,7 @@
 # tool_help detail), Round-39 describe_table, Round-36/42 OLAV_DEBUG_*
 # env vars, Round-48 devices.environment column.
 #
-# Group 12 supplement (T1-64~T1-69): ARCH-16 recall_memory tier default /
+# Group 12 supplement (T1-64~T1-69): ARCH-16 olav_recall_memory tier default /
 # ARCH-18 subagent return cap / ARCH-19 Summarization tier trigger /
 # SKILL.md tools_docstring_mode per-agent override / OLAV_BACKUP_COMMANDS_PATH
 # env override / 🔧[orch]|[sub] origin tag on on_tool_start log lines.
@@ -390,20 +390,20 @@ if any(x in result_str for x in ("R1", "R2", "R3", "hostname", "device", "error"
 sys.exit(1)
 EOF
 
-# ── T1-38 helper: recall_memory safe on empty table ───────────────────────
-cat > "${HELPERS}/t1_38_recall_memory.py" << 'EOF'
+# ── T1-38 helper: olav_recall_memory safe on empty table ───────────────────────
+cat > "${HELPERS}/t1_38_olav_recall_memory.py" << 'EOF'
 import sys, importlib.util, os
 from pathlib import Path
 os.chdir(Path(sys.argv[1]))
-tool_path = Path(".olav/workspace/core/tools/recall_memory.py")
+tool_path = Path(".olav/workspace/core/tools/olav_recall_memory.py")
 if not tool_path.exists():
     print(f"Not found: {tool_path}", file=sys.stderr)
     sys.exit(1)
-spec = importlib.util.spec_from_file_location("recall_memory", tool_path)
+spec = importlib.util.spec_from_file_location("olav_recall_memory", tool_path)
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 try:
-    result = mod.recall_memory.invoke({"query": "test empty recall"})
+    result = mod.olav_recall_memory.invoke({"query": "test empty recall"})
     print(str(result)[:200])
     sys.exit(0)
 except Exception as e:
@@ -732,27 +732,27 @@ assert env_col.nullable, "environment must be nullable for LLDP-discovered devic
 print("OK")
 EOF
 
-# ── T1-64 helper: ARCH-16 recall_memory tier-aware limit default ─────────
-cat > "${HELPERS}/t1_64_recall_memory_tier_limit.py" << 'EOF'
-"""ARCH-16 (Round 40) — recall_memory(limit=None) must resolve via
+# ── T1-64 helper: ARCH-16 olav_recall_memory tier-aware limit default ─────────
+cat > "${HELPERS}/t1_64_olav_recall_memory_tier_limit.py" << 'EOF'
+"""ARCH-16 (Round 40) — olav_recall_memory(limit=None) must resolve via
 tier_default; explicit limit still clamps to 1..10."""
 import sys
 import importlib.util
 from pathlib import Path
 import os
 os.chdir(Path(sys.argv[1]))
-tool_py = Path(".olav/workspace/core/tools/recall_memory.py")
+tool_py = Path(".olav/workspace/core/tools/olav_recall_memory.py")
 spec = importlib.util.spec_from_file_location("rm", tool_py)
 mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
 
 # Signature: limit must be optional so tier default applies.
-schema = getattr(mod.recall_memory, "args_schema", None)
+schema = getattr(mod.olav_recall_memory, "args_schema", None)
 fields = getattr(schema, "model_fields", None) or getattr(schema, "__fields__", {})
-assert "limit" in fields, "recall_memory lost 'limit' kwarg"
+assert "limit" in fields, "olav_recall_memory lost 'limit' kwarg"
 req = getattr(fields["limit"], "is_required", None)
 if callable(req):
     req = req()
-assert req is False, "recall_memory limit must be optional"
+assert req is False, "olav_recall_memory limit must be optional"
 
 # Resolver clamps + tier fallback.
 assert mod._resolve_recall_limit(5) == 5
@@ -1395,7 +1395,7 @@ else
 fi
 
 run_check "[T1-37]" "execute_sql 查 devices" "$PYTHON" "${HELPERS}/t1_37_execute_sql.py" "${TEST_DIR}"
-run_check "[T1-38]" "recall_memory 空表安全" "$PYTHON" "${HELPERS}/t1_38_recall_memory.py" "${TEST_DIR}"
+run_check "[T1-38]" "olav_recall_memory 空表安全" "$PYTHON" "${HELPERS}/t1_38_olav_recall_memory.py" "${TEST_DIR}"
 run_check "[T1-39]" "format_and_export JSON" "$PYTHON" "${HELPERS}/t1_39_format_export.py" "${TEST_DIR}"
 run_check "[T1-40]" "manage_cron list_cron" "$PYTHON" "${HELPERS}/t1_40_list_cron.py" "${TEST_DIR}"
 
@@ -1669,9 +1669,9 @@ case "$_t163_rc" in
     *)  fail_test "[T1-63]" "L4 walker" "(rc=$_t163_rc)" ;;
 esac
 
-# T1-64: recall_memory tier-aware limit default (Round 40, ARCH-16)
-run_check "[T1-64]" "recall_memory(limit=None) tier resolution" \
-    "$PYTHON" "${HELPERS}/t1_64_recall_memory_tier_limit.py" "${TEST_DIR}"
+# T1-64: olav_recall_memory tier-aware limit default (Round 40, ARCH-16)
+run_check "[T1-64]" "olav_recall_memory(limit=None) tier resolution" \
+    "$PYTHON" "${HELPERS}/t1_64_olav_recall_memory_tier_limit.py" "${TEST_DIR}"
 
 # T1-65: subagent return cap via tier_default (Round 40, ARCH-18 #4)
 run_check "[T1-65]" "delegate_tool subagent return cap" \

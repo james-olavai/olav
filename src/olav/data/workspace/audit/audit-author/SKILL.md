@@ -40,7 +40,7 @@ scripts:
   name: analyze_thresholds
 tools:
 - execute_sql
-- recall_memory
+- olav_recall_memory
 - execute_skill_script
 - read_file
 ---

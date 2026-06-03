@@ -20,7 +20,7 @@ scripts:
 thinking_mode: disabled
 tools:
 - write_todos
-- recall_memory
+- olav_recall_memory
 - execute_skill_script
 metadata:
   enable_todo_list: true
