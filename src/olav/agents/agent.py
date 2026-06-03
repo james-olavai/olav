@@ -1445,6 +1445,14 @@ class OLAVAgent:
             os.environ.get("OLAV_LANGGRAPH_RECURSION_LIMIT", "30")
         )
 
+        # Reset per-turn SQL call counter so the loop-detection warning in
+        # execute_sql fires relative to this invocation, not a previous one.
+        try:
+            from olav.data.workspace.core.tools.execute_sql import reset_sql_call_counter
+            reset_sql_call_counter()
+        except Exception:
+            pass
+
         # Inject rubric into state when the agent opts in via
         # ``synthesis_rubric: true`` in its AGENT.md/SKILL.md frontmatter.
         # RubricMiddleware is a no-op when ``state["rubric"]`` is absent; this
