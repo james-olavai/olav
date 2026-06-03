@@ -90,14 +90,18 @@ This is the ONLY workflow for this agent. Trigger: "plan / add / change / modify
 # 1. ALWAYS FIRST — anchor the change plan in real capture time
 execute_sql(sql="SELECT snapshot_id, captured_at FROM netops.v_snapshots_auto LIMIT 1")
 
-# 2. Device facts for the in-scope set
-execute_sql(sql="SELECT hostname, platform, metadata FROM netops.devices WHERE hostname IN ('R1','R3')")
+# 2. Device facts for the in-scope set — ONE query fetches ALL devices at once.
+# For a known model: WHERE model LIKE '%C4500X%'
+# For known names: WHERE hostname IN ('R1','R3','R4')
+# NEVER loop one hostname per query — that loops 14+ times and crashes.
+execute_sql(sql="SELECT hostname, platform, model, ip_address, role FROM netops.devices WHERE model LIKE '%C4500X%'")
 
-# 3. Topology for the in-scope set
+# 3. Topology for the in-scope set (optional, only if topology matters for the plan)
 execute_sql(sql="""
   SELECT source_device, source_interface, destination_device, destination_interface, link_status
   FROM netops.topology_links
-  WHERE source_device IN ('R1','R3') OR destination_device IN ('R1','R3')
+  WHERE source_device LIKE '%4500x%' OR destination_device LIKE '%4500x%'
+  LIMIT 100
 """)
 ```
 
@@ -233,6 +237,7 @@ Then `format_and_export(data=<MD>, filename="<topic>_<YYYY-MM-DD>", format="md",
 3. **Cisco: global block + per-interface** — `ip ospf 1 area 0` requires `router ospf 1` declared first.
 4. **Junos: always include unit number** — `ge-0/0/2.0`, not `ge-0/0/2`.
 5. **One markdown per change request** — no extra files.
+6. **NEVER query devices one at a time** — Phase 0 is ≤3 SQL queries TOTAL regardless of device count. Fetch ALL in-scope devices in ONE query using `WHERE model = 'X'` or `WHERE hostname IN (...)`. A per-device loop (one SQL per hostname) WILL overflow the context window and crash. If the device list is unknown, one `SELECT hostname FROM netops.devices WHERE model LIKE '%C4500X%'` fetches them all at once.
 
 ---
 

@@ -108,6 +108,59 @@ class DatabaseQueryInput(BaseModel):
 
 _CONTEXT_ROWS_FALLBACK = 20  # ARCH-16 fallback when tier config unavailable
 
+# Per-thread loop detection for execute_sql. Small models (gemma4) sometimes
+# query N devices one-by-one instead of one bulk query, exhausting the context.
+# Uses a recent-SQL deque (per thread): if ≥ LOOP_DETECT_THRESHOLD identical
+# query stems arrive back-to-back, inject a hard-stop so the model consolidates.
+import threading as _threading
+import collections as _collections
+_sql_recent = _threading.local()
+_SQL_LOOP_DETECT_THRESHOLD = 5   # same query stem repeated ≥5 times → loop
+
+def _sql_stem(sql: str) -> str:
+    """Reduce SQL to its structural stem for loop detection.
+
+    Keeps the SELECT columns + FROM table + WHERE column name, but strips
+    the literal WHERE value. This catches per-device loops like:
+      WHERE hostname = 'device-1', WHERE hostname = 'device-2', ...
+    while NOT flagging different queries like:
+      WHERE model = 'C4500X', WHERE platform = 'cisco_ios', ...
+    (those have different column names → different stems).
+    """
+    import re
+    s = (sql or "").strip().lower()
+    # Normalise whitespace
+    s = re.sub(r"\s+", " ", s)
+    # Strip the literal string values but keep the column name
+    # e.g. "WHERE hostname = 'R1'" → "WHERE hostname = '?'"
+    s = re.sub(r"=\s*'[^']*'", "= '?'", s)
+    s = re.sub(r"IN\s*\([^)]*\)", "IN (?)", s, flags=re.IGNORECASE)
+    # Truncate to first 150 chars to focus on structure
+    return s[:150]
+
+def _check_sql_loop(sql: str) -> str | None:
+    """Return a hard-stop message if a loop is detected, else None."""
+    stem = _sql_stem(sql)
+    recent = getattr(_sql_recent, "q", None)
+    if recent is None:
+        _sql_recent.q = _collections.deque(maxlen=_SQL_LOOP_DETECT_THRESHOLD + 2)
+        recent = _sql_recent.q
+    recent.append(stem)
+    if len(recent) >= _SQL_LOOP_DETECT_THRESHOLD and len(set(recent)) == 1:
+        return (
+            f"🚫 execute_sql LOOP DETECTED: the same query has been called "
+            f"{len(recent)} times in a row. You are querying devices one by one. "
+            "STOP immediately. Consolidate into ONE query: "
+            "SELECT hostname, model, ip_address FROM netops.devices "
+            "WHERE model LIKE '%C4500X%'. "
+            "Use the data already returned and proceed to write the change plan."
+        )
+    return None
+
+def reset_sql_call_counter() -> None:
+    """Reset loop detection state (called by ainvoke before each agent run)."""
+    _sql_recent.q = None
+
 
 def _resolve_context_rows() -> int:
     """Return how many result rows to surface to the LLM context (ARCH-16).
@@ -531,8 +584,17 @@ def execute_sql(query: str = "", sql: str = "", explain_only: bool = False) -> d
     Example:
         execute_sql(sql="SELECT hostname, platform FROM netops.devices")
     """
-    params = {"query": query, "sql": sql, "explain_only": explain_only}
-    return main(params)
+    # Loop detection: same query stem repeated ≥ threshold times → hard-stop
+    loop_msg = _check_sql_loop(sql or query)
+    if loop_msg:
+        return {
+            "status": "error",
+            "message": loop_msg,
+            "sql": sql,
+            "count": 0,
+            "data": [],
+        }
+    return main({"query": query, "sql": sql, "explain_only": explain_only})
 
 
 class DateTimeEncoder(json.JSONEncoder):
