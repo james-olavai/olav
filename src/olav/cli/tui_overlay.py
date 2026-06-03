@@ -147,6 +147,23 @@ OLAV_ASCII_BANNER = """
 """
 
 
+# OLAV-flavoured splash tips.  Replace deepagents_code.widgets.welcome._TIPS
+# (coding-assistant tips) so the welcome footer + idle splash speak the
+# network/audit operator's language.  dict[str, int] = tip → relative weight,
+# matching the upstream _TIPS shape consumed by welcome._pick_tip().
+OLAV_TIPS: dict[str, int] = {
+    "Try /netops to explore the network or take a fresh snapshot": 3,
+    "Use /audit run <profile> to run a recurring health check": 2,
+    "Use /workspace <name> to switch agent context": 2,
+    "Discover new problems with the netops/explorer sub-agent": 2,
+    "Authored a profile? Schedule it via admin manage_cron": 1,
+    "Inspect today's audit reports under exports/audit_reports/": 1,
+    "Use @ to reference files and / for commands": 2,
+    "Use /threads to resume a previous conversation": 1,
+    "Press Shift+Tab to toggle auto-approve mode": 1,
+}
+
+
 def consume_pending_workspace() -> str | None:
     """Return and clear the pending workspace swap request, if any.
 
@@ -201,6 +218,7 @@ def apply_olav_overlay() -> bool:
     ok &= _patch_workspace_command()
     ok &= _patch_disable_self_upgrade()
     ok &= _patch_welcome_footer()
+    ok &= _patch_tips()
     # Scaffold patch is "best effort" for native mode — don't let its
     # absence flip `ok` to False when the core overlay (banner, title,
     # /workspace command) is otherwise healthy.  Native users still
@@ -449,14 +467,7 @@ def _patch_welcome_footer() -> bool:
         from deepagents_code.widgets import welcome as _dc_welcome
         from textual.content import Content  # noqa: PLC0415
 
-        olav_tips = [
-            "Try `/netops` to explore the network or take a fresh snapshot",
-            "Try `/audit run <profile>` to run a recurring health check",
-            "Use `/workspace <name>` to switch agent context",
-            "Authored a profile? Schedule it via `core/admin manage_cron`",
-            "Discover new problems with the netops/explorer sub-agent",
-            "Inspect today's audit reports under `exports/audit_reports/`",
-        ]
+        olav_tips = list(OLAV_TIPS)
 
         def _olav_welcome_footer(*, primary_color: str = _dc_welcome.theme.PRIMARY,  # type: ignore[name-defined]
                                   tip: str | None = None,
@@ -482,6 +493,30 @@ def _patch_welcome_footer() -> bool:
         return True
     except Exception:
         logger.warning("Welcome footer patch failed", exc_info=True)
+        return False
+
+
+def _patch_tips() -> bool:
+    """Swap deepagents-code's coding-assistant splash tips for OLAV's.
+
+    ``welcome._TIPS`` is the data source for both the startup splash
+    (``WelcomeBanner.__init__`` → ``_pick_tip()``) and the welcome-footer
+    default tip.  Patching the banner constants alone leaves the rotating
+    "Use /copy to copy the latest assistant message"-style tips, which set
+    the wrong frame for a network/audit operator.  Replace the dict contents
+    in place so any module-global references stay valid.
+    """
+    try:
+        from deepagents_code.widgets import welcome as _dc_welcome
+
+        if not hasattr(_dc_welcome, "_TIPS") or not isinstance(_dc_welcome._TIPS, dict):
+            logger.warning("welcome._TIPS missing or not a dict — tips patch skipped")
+            return False
+        _dc_welcome._TIPS.clear()
+        _dc_welcome._TIPS.update(OLAV_TIPS)
+        return True
+    except Exception:
+        logger.warning("Tips patch failed", exc_info=True)
         return False
 
 
