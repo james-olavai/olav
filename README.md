@@ -79,7 +79,7 @@ olav --agent audit "run health check"    → Audit Agent (compliance + learning)
 Core agent uses a **subagent architecture** — the orchestrator sees only 5 tools:
 
 ```
-core orchestrator (5 tools: execute_sql, recall_memory, web_search, format_and_export, olav_delegate)
+core orchestrator (5 tools: execute_sql, olav_recall_memory, web_search, format_and_export, olav_delegate)
   ├── db_query    — database queries, knowledge base, web search, export
   ├── api_query   — API requests, health checks, web search, export
   ├── remote      — SSH to servers, local shell commands
@@ -172,7 +172,7 @@ olav --agent core "run: df -h"  # shell commands via Core Agent
 ```
 olav v0.18.0 (pip install olav)
 ├── core orchestrator (5 tools)
-│   ├── db_query    — execute_sql, recall_memory, web_search, format_and_export
+│   ├── db_query    — execute_sql, olav_recall_memory, web_search, format_and_export
 │   ├── api_query   — api_request, service_health, web_search, format_and_export
 │   ├── remote      — remote_execute (SSH), run_shell
 │   └── admin       — workspace_health, bulk_ingest, deploy/stop_service, cron, ...

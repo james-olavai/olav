@@ -1,6 +1,6 @@
 """Round 41 — ARCH-16 tool-level LIMITs (execute_sql + search_logs tier-aware).
 
-Completes the Round 40 recall_memory work. Remaining ARCH-16 tool gaps:
+Completes the Round 40 olav_recall_memory work. Remaining ARCH-16 tool gaps:
 
 * ``execute_sql`` surfaces at most ``TIER_DEFAULTS.execute_sql_context_rows``
   rows to the LLM (small=10 / medium=20 / large=50). CSV export at >50

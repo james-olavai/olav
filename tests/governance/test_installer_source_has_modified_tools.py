@@ -37,9 +37,9 @@ _PLATFORM_CORE_TOOLS_LAYOUT = [
     ("execute_sql.py",        "tools"),     # R41 (ARCH-16 tier-aware rows)
     # get_static_context, load_reference, tool_help removed: core/admin dissolved;
     # files now live in admin/editor/scripts/ which is outside the core installer tree.
-    ("recall_memory.py",      "tools"),     # R40 (ARCH-16 tier default)
+    ("olav_recall_memory.py",      "tools"),     # R40 (ARCH-16 tier default)
     ("search_logs.py",        "tools"),     # R100/S5 — promoted from admin/ to shared core/tools/
-    ("web_search.py",         "tools"),     # R43 (docstring search_knowledge → recall_memory)
+    ("web_search.py",         "tools"),     # R43 (docstring search_knowledge → olav_recall_memory)
 ]
 
 _PLATFORM_CORE_TOOLS = [t for t, _ in _PLATFORM_CORE_TOOLS_LAYOUT]

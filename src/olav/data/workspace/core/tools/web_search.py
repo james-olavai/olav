@@ -64,7 +64,7 @@ def _get_search_engine():
 def web_search(query: str) -> str:
     """Search the web for network troubleshooting information.
 
-    Use this tool when ``recall_memory()`` (unified KB + long-term memory
+    Use this tool when ``olav_recall_memory()`` (unified KB + long-term memory
     + captured facts) finds no relevant internal documentation. Common
     use cases:
 

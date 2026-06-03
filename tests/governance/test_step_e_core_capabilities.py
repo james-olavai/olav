@@ -12,7 +12,7 @@ the polish/edit subagent (its original spec).
 
 Current core surface (4 cross-domain tools):
   - ``execute_sql``
-  - ``recall_memory``
+  - ``olav_recall_memory``
   - ``web_search``
   - ``read_file``
 
@@ -43,7 +43,8 @@ WRITER_TOOLS = WORKSPACE / "core" / "writer" / "scripts"
 # skill executor — replaces the former custom _make_script_tool wrapper.
 _EXPECTED_CAPABILITIES: tuple[str, ...] = (
     "execute_sql",
-    "recall_memory",
+    "olav_recall_memory",
+    "olav_store_memory",
     "web_search",
     "read_file",
     "execute_skill_script",

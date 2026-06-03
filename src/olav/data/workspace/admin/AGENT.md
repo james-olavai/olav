@@ -13,7 +13,7 @@ route_keywords:
   - audit workspace consistency syntax error broken ref
   - platform admin self-management self-development
 tools:
-  - recall_memory
+  - olav_recall_memory
 task_return_direct: true
 subagents:
   - path: ./ops/SKILL.md        # health + logs + cron

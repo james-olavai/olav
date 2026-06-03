@@ -59,7 +59,7 @@ subagents:
 thinking_mode: disabled
 tools:
 - execute_sql
-- recall_memory
+- olav_recall_memory
 - execute_skill_script
 - inspect_blast_radius
 - format_and_export
@@ -79,7 +79,7 @@ IS the deliverable.
 | Tool | When to call |
 |---|---|
 | `execute_sql(sql=...)` | Any state lookup: device facts, cross-view JOIN, BGP/OSPF/interface state. Returns `list[dict]`. |
-| `recall_memory(query=...)` | Inject expert KB constraints / past failure lessons relevant to this investigation. Call once at Phase 0 for unfamiliar topology or protocol. |
+| `olav_recall_memory(query=...)` | Inject expert KB constraints / past failure lessons relevant to this investigation. Call once at Phase 0 for unfamiliar topology or protocol. |
 | `describe_table(table_name=..., include_samples=True)` | Phase 0a: ONCE per view you'll JOIN. Returns columns + types + 2 sample rows. Skip for known stable tables. |
 | `query_evidence(source=..., pattern=..., device=...)` | Log / syslog / command_output / config text search. `source` ∈ {`syslog`, `command_output`, `config`}. |
 | `diff_snapshots(snapshot_id_1=..., snapshot_id_2="latest", table_name=None, device=None)` | Row-level diff between two snapshots. Use to detect what changed since baseline. |

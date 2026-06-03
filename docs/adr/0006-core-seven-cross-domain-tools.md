@@ -13,7 +13,7 @@ advertised **21 @tool entries**. The content broke down roughly as:
 
 | Bucket | Count | Examples |
 |---|---|---|
-| Cross-domain (computation, memory, KB, web, export) | 5-6 | `run_python_code`, `execute_sql`, `recall_memory`, `search_knowledge_lancedb`, `web_search`, `format_and_export` |
+| Cross-domain (computation, memory, KB, web, export) | 5-6 | `run_python_code`, `execute_sql`, `olav_recall_memory`, `search_knowledge_lancedb`, `web_search`, `format_and_export` |
 | Network-ops domain | 4 | `execute_cli`, `search_commands`, `diff_configs`, `take_snapshot` |
 | Service lifecycle | 3 | `deploy_service`, `stop_service`, `api_request` |
 | Platform admin | 4 | `write_workspace_file`, `run_shell`, `load_reference`, `search_logs` |
@@ -42,7 +42,7 @@ ADR nails down *which* 7 and *how to count*.
 tools:
   - run_python_code
   - execute_sql
-  - recall_memory
+  - olav_recall_memory
   - search_knowledge_lancedb
   - web_search
   - format_and_export

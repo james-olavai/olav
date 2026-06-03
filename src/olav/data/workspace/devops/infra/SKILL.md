@@ -26,7 +26,7 @@ tools:
 - api_request
 - service_health
 - execute_sql
-- recall_memory
+- olav_recall_memory
 - write_todos
 ---
 

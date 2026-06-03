@@ -26,7 +26,7 @@ _BUDGET_LINES = 20
 
 _TOOL_FILES = [
     REPO / ".olav" / "workspace" / "core" / "tools" / "execute_sql.py",
-    REPO / ".olav" / "workspace" / "core" / "tools" / "recall_memory.py",
+    REPO / ".olav" / "workspace" / "core" / "tools" / "olav_recall_memory.py",
     REPO / ".olav" / "workspace" / "core" / "tools" / "format_and_export.py",
     REPO / ".olav" / "workspace" / "core" / "api_query" / "scripts" / "api_request.py",
     NETOPS_TOOLS / "diff_configs.py",

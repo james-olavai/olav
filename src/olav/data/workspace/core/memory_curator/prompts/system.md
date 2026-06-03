@@ -79,7 +79,7 @@ Then handle their description as Case 1 (short NL).
 ## ALWAYS BEFORE COMMIT
 
 1. **Dedup check** —
-   `recall_memory(query=<extracted_intent_or_first_keywords>, scope=<target>)`.
+   `olav_recall_memory(query=<extracted_intent_or_first_keywords>, scope=<target>)`.
 
    If the top hit is clearly the same rule → offer the user the
    choice:

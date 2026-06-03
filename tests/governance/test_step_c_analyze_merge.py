@@ -126,7 +126,7 @@ def test_skill_md_has_thinking_mode():
 
 
 def test_tool_count_at_most_8():
-    # Limit raised from 7 → 8 (2026-05-31): recall_memory added for expert-KB
+    # Limit raised from 7 → 8 (2026-05-31): olav_recall_memory added for expert-KB
     # guardrail injection.  Keep in sync with test_netops_analyzer_reporter_split.py.
     from tests.governance.test_netops_analyzer_reporter_split import _collect_tools
     meta = _skill_frontmatter()

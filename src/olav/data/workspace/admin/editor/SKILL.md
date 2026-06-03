@@ -27,7 +27,7 @@ thinking_mode: enabled
 tools:
 - write_todos
 - execute_skill_script
-- recall_memory
+- olav_recall_memory
 metadata:
   enable_todo_list: true
   rubric_middleware: true

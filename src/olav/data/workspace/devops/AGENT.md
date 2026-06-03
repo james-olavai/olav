@@ -11,7 +11,7 @@ route_keywords:
 # delegation. No direct execute_sql, no write-class tools.
 # Whitelist 2 low-risk reads only; everything else delegates.
 tools:
-  - recall_memory
+  - olav_recall_memory
   - web_search
 subagents:
   - path: ./scripts/SKILL.md

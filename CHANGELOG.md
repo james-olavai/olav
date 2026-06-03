@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🏗️ Architecture — ARCH-23 MVC Core Refactor (R64 + R65)
 
 - **Core 3 orchestrator tools + 5 sub-agents**: `core/tools/` trimmed to
-  the 3 truly-cross-domain tools (`execute_sql`, `recall_memory`,
+  the 3 truly-cross-domain tools (`execute_sql`, `olav_recall_memory`,
   `web_search`); 17 tools relocated into sub-agent homes:
   - `core/admin/tools/` — 11 tools (`analyze_logs`, `bulk_ingest`,
     `deploy_service`, `get_static_context`, `load_reference`,

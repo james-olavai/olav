@@ -42,7 +42,7 @@ for the full design + decision log.
   `prime_guides_from_dir`; for `category=document` dispatch to
   `LanceDBStore.kb_import` with the chunks list.
 * Inherited from core platform:
-  * `recall_memory` — dedup check before commit
+  * `olav_recall_memory` — dedup check before commit
   * `read_file` — load file paths the user mentioned
   * `format_and_export` — preview the proposed YAML to the user
 
@@ -52,7 +52,7 @@ Memory becomes team ground truth.  An LLM hallucinating a rule and
 silently writing it to LanceDB is worse than any agent runtime
 error.  Always:
 
-1. `recall_memory` first to check for an existing similar entry.
+1. `olav_recall_memory` first to check for an existing similar entry.
 2. Show the user the EXACT YAML body that will be written.
 3. Wait for explicit "OK" / "yes" / "save" / "好" / "可以" / "入库".
 4. Only then call `commit_to_memory`.

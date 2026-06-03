@@ -27,7 +27,7 @@ tools:
 - format_and_export
 - execute_sql
 - read_file
-- recall_memory
+- olav_recall_memory
 ---
 
 
