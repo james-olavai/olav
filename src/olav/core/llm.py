@@ -327,6 +327,21 @@ class LLMFactory:
         if _base_for_retry and "openai.com" not in _base_for_retry:
             params.setdefault("max_retries", 5)
 
+        # Promote extra_body from model_kwargs to a top-level kwarg so
+        # LangChain / ChatOpenAI does not emit "Parameters {'extra_body'}
+        # should be specified explicitly" (UserWarning).  The warning fires
+        # when extra_body is inside model_kwargs; passing it directly is the
+        # supported path (ChatOpenAI and init_chat_model both accept it via
+        # **kwargs → underlying openai client).  Merge with any existing
+        # top-level extra_body so callers that already pass it correctly are
+        # not overwritten.
+        _mkw = params.get("model_kwargs") or {}
+        if _eb := _mkw.pop("extra_body", None):
+            existing_eb = params.get("extra_body") or {}
+            params["extra_body"] = {**_eb, **existing_eb}  # caller wins
+            if not _mkw:
+                params.pop("model_kwargs", None)
+
         # Use init_chat_model - LangChain handles provider detection
         try:
             llm = init_chat_model(**params)

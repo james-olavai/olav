@@ -889,7 +889,11 @@ def create_olav_agent_with_backend(
         from olav.agents._deepagents_bridge import HAS_LOCAL_SHELL_BACKEND, LocalShellBackend
 
         if HAS_LOCAL_SHELL_BACKEND and LocalShellBackend is not None:
-            composite_backend = LocalShellBackend(root_dir=str(Path.cwd()), inherit_env=True)
+            composite_backend = LocalShellBackend(
+                root_dir=str(Path.cwd()),
+                inherit_env=True,
+                virtual_mode=False,  # explicit; suppresses deepagents "default will change" warning
+            )
         else:
             composite_backend = CompositeBackend(
                 default=FilesystemBackend(),
@@ -1246,8 +1250,9 @@ async def run_single_query(
 
     # Apply input_parser: expand @file references and handle !cmd shell commands
     try:
-        from olav.cli.input_parser import parse_input as _parse_input
         import subprocess as _subprocess
+
+        from olav.cli.input_parser import parse_input as _parse_input
         query, _is_shell_cmd, _shell_cmd = _parse_input(query)
         if _is_shell_cmd and _shell_cmd:
             _proc = _subprocess.run(_shell_cmd, shell=True, capture_output=True, text=True)
@@ -1305,8 +1310,8 @@ async def run_single_query(
 
     # ── Semantic cache: check for cached answer ──
     try:
-        from olav.core.memory import SemanticCache, get_store
         from olav.core.embedder import embed_text as _embed
+        from olav.core.memory import SemanticCache, get_store
         _cstore = get_store()
         if _cstore:
             try:
@@ -1565,6 +1570,7 @@ async def run_single_query(
                 )
                 try:
                     import asyncio as _asyncio
+
                     from langchain_core.messages import HumanMessage as _HM
                     _synth_llm = getattr(agent, "llm", None)
                     if _synth_llm is not None:
@@ -1658,6 +1664,7 @@ async def run_single_query(
         if not _cached_content:
             try:
                 import duckdb
+
                 from olav.core.config import AUDIT_DB_PATH
                 with duckdb.connect(str(AUDIT_DB_PATH), read_only=True) as _adb:
                     _row = _adb.execute(
@@ -1691,8 +1698,8 @@ async def run_single_query(
                 )
             else:
                 try:
-                    from olav.core.memory import SemanticCache, get_store
                     from olav.core.embedder import embed_text as _embed
+                    from olav.core.memory import SemanticCache, get_store
                     _cstore = get_store()
                     if _cstore:
                         _sc = SemanticCache(_cstore)
@@ -1798,6 +1805,7 @@ async def cli_main_impl() -> None:
         # Handle list command
         if args.command == "list":
             import yaml
+
             from olav.core.workspace import resolve_workspace_root
 
             workspace_root = resolve_workspace_root()
