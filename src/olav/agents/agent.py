@@ -810,6 +810,25 @@ class OLAVAgent:
                     "save tasks"
                 )
 
+        # Orchestrator-level RubricMiddleware for synthesis enforcement.
+        # Only activated when AGENT.md declares ``rubric_middleware: true``.
+        # The grader checks that the orchestrator produced a natural-language
+        # answer (not just raw tool output) — fixes ISSUE-NO-SYNTHESIS for
+        # small models that skip the final answer turn.
+        # ``synthesis_rubric: true`` additionally tells ainvoke() to populate
+        # state["rubric"] on every call; without that key the middleware is a no-op.
+        if HAS_RUBRIC_MIDDLEWARE and _RubricMW is not None and olav_config.get("rubric_middleware"):
+            try:
+                _orch_rubric_mw = _RubricMW(
+                    model=self.llm,
+                    max_iterations=2,
+                    on_evaluation=_make_rubric_callback(self.agent_id),
+                )
+                effective_middleware = list(effective_middleware) + [_orch_rubric_mw]
+                logger.info("✓ '%s' orchestrator RubricMiddleware enabled", self.agent_id)
+            except Exception as _re:
+                logger.warning("orchestrator RubricMiddleware init failed for '%s': %s", self.agent_id, _re)
+
         # ADR-0008: Native SkillsMiddleware — skill discovery and third-party
         # skill compatibility (deepagents standard pattern).
         # Sources: top-level agent directories whose children have SKILL.md.
@@ -1438,12 +1457,17 @@ class OLAVAgent:
         if _cfg.get("synthesis_rubric") and isinstance(input_, dict):
             input_.setdefault(
                 "rubric",
-                "The response MUST end with a natural-language paragraph that "
-                "directly answers the user's question using the tool results. "
-                "A response that contains only raw tool output (JSON rows, "
-                "'📁 execute_sql → ...' lines, or structured data) without any "
-                "explanatory prose does NOT satisfy this criterion. "
-                "Criterion: prose_summary_present.",
+                "Single criterion: prose_summary_present.\n"
+                "PASS (result=satisfied) if and only if: the last assistant "
+                "message in the transcript contains at least one sentence in "
+                "any human language (Chinese, English, etc.) that is not raw "
+                "tool output. Any natural-language sentence — even one — "
+                "satisfies this criterion.\n"
+                "FAIL (result=needs_revision) ONLY if: the last assistant "
+                "message is ENTIRELY composed of JSON rows, '📁 ...' tool "
+                "echo lines, code blocks, or bare markdown tables with no "
+                "prose at all. Do NOT fail for brevity, language choice, or "
+                "missing breakdowns — only for complete absence of prose.",
             )
 
         try:
