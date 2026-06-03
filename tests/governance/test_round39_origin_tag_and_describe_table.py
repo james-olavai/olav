@@ -21,11 +21,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 CLI_MAIN = REPO / "src" / "olav" / "cli" / "main.py"
 TIER2_CI = REPO / "tests" / "ci" / "tier2_integration.sh"
-DESCRIBE_TABLE_PY = REPO / ".olav" / "workspace" / "core" / "db_query" / "scripts" / "describe_table.py"
+DESCRIBE_TABLE_PY = REPO / ".olav" / "workspace" / "core" / "db-query" / "scripts" / "describe_table.py"
 DB_QUERY_SYMLINK = (
-    REPO / ".olav" / "workspace" / "core" / "db_query" / "scripts" / "describe_table.py"
+    REPO / ".olav" / "workspace" / "core" / "db-query" / "scripts" / "describe_table.py"
 )
-DB_QUERY_SKILL = REPO / ".olav" / "workspace" / "core" / "db_query" / "SKILL.md"
+DB_QUERY_SKILL = REPO / ".olav" / "workspace" / "core" / "db-query" / "SKILL.md"
 
 
 # ── WRITER-01 (a) origin tag pins ────────────────────────────────────────

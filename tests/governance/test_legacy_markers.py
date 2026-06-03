@@ -60,7 +60,7 @@ _ALLOWLIST: set[Path] = {
     REPO / "src" / "olav" / "data" / "workspace" / "core" / "tools" / "olav_recall_memory.py",
     REPO / "src" / "olav" / "data" / "workspace" / "core" / "scripts" / "format_and_export.py",
     REPO / "src" / "olav" / "data" / "workspace" / "core" / "scripts" / "olav_recall_memory.py",
-    REPO / "src" / "olav" / "data" / "workspace" / "core" / "memory_curator" / "scripts" / "commit_to_memory.py",
+    REPO / "src" / "olav" / "data" / "workspace" / "core" / "memory-curator" / "scripts" / "commit_to_memory.py",
     REPO / "src" / "olav" / "cli" / "commands" / "skill.py",
     REPO / "src" / "olav" / "cli" / "commands" / "explain.py",
     REPO / "src" / "olav" / "core" / "ingest" / "platform_discovery.py",

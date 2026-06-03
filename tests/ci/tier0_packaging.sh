@@ -130,7 +130,7 @@ if [ "$RUN_CORE" = true ]; then
     check "A3: wheel contains execute_sql.py" \
         sh -c "unzip -l '$WHEEL' | grep -q 'execute_sql.py'"
     check "A3b: wheel contains 4 subagent SKILL.md files" \
-        sh -c "test \$(unzip -l '$WHEEL' | grep -c 'core/\\(db_query\\|api_query\\|remote\\|admin\\|writer\\)/SKILL.md') -eq 5"
+        sh -c "test \$(unzip -l '$WHEEL' | grep -c 'core/\\(db-query\\|api-query\\|remote\\|admin\\|writer\\)/SKILL.md') -eq 5"
 
     # ── A4-A10: olav init ────────────────────────────────────
     cd "${TEST_DIR}"
@@ -187,7 +187,7 @@ orch = discover_tools(core / 'tools')
 assert len(orch) == 3, f'Expected 3 orchestrator tools, got {len(orch)}: {[t.name for t in orch]}'
 assert 'execute_sql' in {t.name for t in orch}, 'execute_sql missing'
 assert 'format_and_export' not in {t.name for t in orch}, 'format_and_export should be in writer only'
-# Must have 5 subagents (db_query, api_query, remote, admin, writer)
+# Must have 5 subagents (db-query, api-query, remote, admin, writer)
 post = frontmatter.load(str(core / 'AGENT.md'))
 subs = post.metadata.get('subagents', [])
 assert len(subs) == 5, f'Expected 5 subagents, got {len(subs)}'

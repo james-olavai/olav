@@ -16,7 +16,7 @@ memorise it here.
 | Schema / "what columns does <view> have" | `describe_table('netops.<view>')` |
 | Syslog / log search (live ingest, NOT `show logging`) | `search_logs` directly |
 | Remember a durable fact / 记住 / 入库 | `olav_store_memory` (writes LanceDB directly) |
-| Curate / review / structure many memories | `olav_delegate` → `memory_curator` |
+| Curate / review / structure many memories | `olav_delegate` → `memory-curator` |
 | External API call (NetBox / Grafana / …) | `olav_delegate` → `api-query` |
 | SSH / shell command on a remote host | `olav_delegate` → `remote` |
 | Platform deploy / cron / write workspace files | `olav_delegate` → `services` (was `admin`, folded 2026-05-01) |

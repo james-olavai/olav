@@ -2,7 +2,7 @@
 """propose_memory_draft — Turn-1 helper for R102 multi-turn HITL.
 
 deepagents `task()` sub-agent calls are stateless per invocation, so
-``memory_curator`` Turn-2 (user confirms) cannot see the YAML it
+``memory-curator`` Turn-2 (user confirms) cannot see the YAML it
 proposed in Turn-1.  This tool persists the draft to disk:
 
 * Turn 1: agent calls ``propose_memory_draft(...)`` → writes

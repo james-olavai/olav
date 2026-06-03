@@ -62,8 +62,8 @@ if str(_PROJECT_ROOT / "src") not in sys.path:
 # Workspace directories that contain `tools/` subdirs (legacy @tool pattern).
 _TOOL_ROOTS = [
     _PROJECT_ROOT / ".olav" / "workspace" / "core" / "tools",
-    _PROJECT_ROOT / ".olav" / "workspace" / "core" / "api_query" / "tools",
-    _PROJECT_ROOT / ".olav" / "workspace" / "core" / "db_query" / "tools",
+    _PROJECT_ROOT / ".olav" / "workspace" / "core" / "api-query" / "tools",
+    _PROJECT_ROOT / ".olav" / "workspace" / "core" / "db-query" / "tools",
     _PROJECT_ROOT / ".olav" / "workspace" / "core" / "writer" / "tools",
     _PROJECT_ROOT / ".olav" / "workspace" / "admin" / "ops" / "tools",
     _PROJECT_ROOT / ".olav" / "workspace" / "admin" / "installer" / "tools",
@@ -78,8 +78,8 @@ _TOOL_ROOTS = [
 # Workspace directories that contain `scripts/` subdirs (scripts-化 pattern).
 _SCRIPT_ROOTS = [
     _PROJECT_ROOT / ".olav" / "workspace" / "core" / "scripts",
-    _PROJECT_ROOT / ".olav" / "workspace" / "core" / "api_query" / "scripts",
-    _PROJECT_ROOT / ".olav" / "workspace" / "core" / "db_query" / "scripts",
+    _PROJECT_ROOT / ".olav" / "workspace" / "core" / "api-query" / "scripts",
+    _PROJECT_ROOT / ".olav" / "workspace" / "core" / "db-query" / "scripts",
     _PROJECT_ROOT / ".olav" / "workspace" / "core" / "writer" / "scripts",
     _PROJECT_ROOT / ".olav" / "workspace" / "admin" / "ops" / "scripts",
     _PROJECT_ROOT / ".olav" / "workspace" / "admin" / "installer" / "scripts",

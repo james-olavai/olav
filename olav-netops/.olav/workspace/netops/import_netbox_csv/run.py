@@ -540,7 +540,7 @@ def main() -> int:
 
         # 2026-05-15 (dev_docs/79): every KB-mutating action drops a
         # git-trackable kb_audit/ row.  --write into NetBox is the
-        # services-side counterpart of memory_curator commit — same
+        # services-side counterpart of memory-curator commit — same
         # audit principle applies.
         audit_path = _write_audit_row(
             workspace_root=Path(".olav/workspace"),
