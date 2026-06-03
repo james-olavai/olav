@@ -14,6 +14,7 @@ route_keywords:
   - platform admin self-management self-development
 tools:
   - olav_recall_memory
+  - olav_store_memory
 task_return_direct: true
 subagents:
   - path: ./ops/SKILL.md        # health + logs + cron

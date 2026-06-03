@@ -38,6 +38,7 @@ route_keywords:
 # routes intent → sub-agent does data work.
 tools:
   - olav_recall_memory
+  - olav_store_memory
   - web_search
 # R-AGENT-HIERARCHY Phase A (2026-05-09): topology + learner pulled
 # back from top-level (workspace.yaml shrunk 6→3); analyze + lab +

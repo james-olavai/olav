@@ -21,6 +21,7 @@ thinking_mode: disabled
 tools:
 - write_todos
 - olav_recall_memory
+- olav_store_memory
 - execute_skill_script
 metadata:
   enable_todo_list: true

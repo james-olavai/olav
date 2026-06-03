@@ -27,6 +27,7 @@ tools:
 - service_health
 - execute_sql
 - olav_recall_memory
+- olav_store_memory
 - write_todos
 ---
 

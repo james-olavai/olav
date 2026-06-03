@@ -53,6 +53,7 @@ tools:
 - execute_sql
 - search_logs
 - olav_recall_memory
+- olav_store_memory
 - format_and_export
 - read_file
 - write_todos

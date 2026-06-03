@@ -24,6 +24,7 @@ tools:
 - execute_skill_script
 - read_file
 - olav_recall_memory
+- olav_store_memory
 - format_and_export
 metadata:
   rubric_middleware: true
