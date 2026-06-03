@@ -1,5 +1,5 @@
 ---
-name: memory_curator
+name: memory-curator
 kind: Agent
 description: "Memory curator sub-agent — natural-language ingestion of usage guides, runbook chunks, and topology source into the unified LanceDB memory store (R102, dev_docs/70)."
 version: "0.1.0"
@@ -14,7 +14,7 @@ static_context_mode: on_intent
 
 Conversational counterpart to declarative `*.guide.yaml` files.  Where
 `olav kb import-guides` ingests files an operator hand-authored,
-`memory_curator` ingests **what the user just said** — natural-
+`memory-curator` ingests **what the user just said** — natural-
 language rules, runbook excerpts, topology source pasted into the
 chat, etc. — and shapes them into the same `usage_guide` /
 `document` / `topology` memory categories.
@@ -62,7 +62,7 @@ Production conversation must keep `confirm=True`.
 
 ## Invocation
 
-The core orchestrator routes to memory_curator on user intents
+The core orchestrator routes to memory-curator on user intents
 matching the bilingual keyword set in
 `core/guides/memory_ingestion_routing.guide.yaml` —
 e.g. "记住 / 教 / 记忆 / save this rule / add to memory / kb /

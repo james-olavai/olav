@@ -65,7 +65,7 @@ related:                       # optional
 * `core/guides/take_snapshot_when_db_stale.guide.yaml`
 * `ops/guides/output_export_rules.guide.yaml`
 * `services/guides/netbox_device_sync_team_acme.guide.yaml`
-  (created by memory_curator in the demo flow)
+  (created by memory-curator in the demo flow)
 
 ## File location
 

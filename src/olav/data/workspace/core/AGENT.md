@@ -6,8 +6,8 @@ version: "4.0.0"
 system_prompt_file: prompts/core.md
 subagents:
   - path: ./writer/SKILL.md
-  - path: ./api_query/SKILL.md
-  - path: ./db_query/SKILL.md
+  - path: ./api-query/SKILL.md
+  - path: ./db-query/SKILL.md
 static_context:
   - path: ./references/SKILL_DEVELOPMENT.md
   - path: ./references/REQUIRED_INFO_CHECK.md
@@ -44,5 +44,5 @@ When a query requires domain-specific tools, core routes via sub-agents or sugge
 ## Sub-agents
 
 - `core/writer/` — Document editing and polishing specialist
-- `core/db_query/` — DB + memory + KB + export helpers (symlinks to core/tools/ canonical)
-- `core/api_query/` — API integration helpers (`api_request` symlink, web search, export)
+- `core/db-query/` — DB + memory + KB + export helpers (symlinks to core/tools/ canonical)
+- `core/api-query/` — API integration helpers (`api_request` symlink, web search, export)

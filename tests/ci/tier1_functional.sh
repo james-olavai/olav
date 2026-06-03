@@ -604,7 +604,7 @@ import importlib.util
 from pathlib import Path
 import os
 os.chdir(Path(sys.argv[1]))
-tool_py = Path(".olav/workspace/core/db_query/tools/describe_table.py")
+tool_py = Path(".olav/workspace/core/db-query/tools/describe_table.py")
 if not tool_py.is_file():
     print(f"describe_table.py missing at {tool_py}", file=sys.stderr)
     sys.exit(1)

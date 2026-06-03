@@ -153,9 +153,16 @@ def test_commit_to_memory_writes_v2_user_tier(tmp_path: Path, monkeypatch) -> No
     monkeypatch.setenv("OLAV_WORKSPACE_ROOT", str(tmp_path / "ws"))
 
     # Import the helper after env var is set so workspace_root resolves correctly.
-    import importlib
-    from olav.data.workspace.core.memory_curator.scripts import commit_to_memory as ct
-    importlib.reload(ct)
+    # The 'memory-curator' skill dir uses a hyphen (SkillsMiddleware spec) which
+    # is an invalid Python module path — load by file path, not dotted import.
+    import importlib.util
+    _cm = (
+        Path(__file__).resolve().parents[2]
+        / "src/olav/data/workspace/core/memory-curator/scripts/commit_to_memory.py"
+    )
+    _spec = importlib.util.spec_from_file_location("commit_to_memory", _cm)
+    ct = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(ct)
 
     # Bypass embedder + LanceDB by replacing prime with a no-op.
     monkeypatch.setattr(

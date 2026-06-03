@@ -13,7 +13,7 @@ Background (discovered during T2 execution, post-Round-60):
   missing) file — T2-29 caught exactly this for ``describe_table.py``.
 
 R64 (ARCH-23 closure): core orchestrator trimmed to 3 tools; others
-relocated into ``{admin, db_query, writer, api_query, remote}/tools/``
+relocated into ``{admin, db-query, writer, api-query, remote}/tools/``
 sub-agent folders. This pin now tracks the post-R64 canonical location
 per tool; deployment may still carry legacy monolithic copies (being
 dismantled in a later round) so we match against the installer layout
@@ -33,7 +33,7 @@ INSTALLER_CORE = REPO / "src" / "olav" / "data" / "workspace" / "core"
 # Post-R64 layout: (tool_filename, subagent-folder-or-"tools")
 # Anything not in ``tools/`` is under ``<subagent>/tools/``.
 _PLATFORM_CORE_TOOLS_LAYOUT = [
-    # describe_table removed: now in core/db_query/scripts/ (scripts migration).
+    # describe_table removed: now in core/db-query/scripts/ (scripts migration).
     ("execute_sql.py",        "tools"),     # R41 (ARCH-16 tier-aware rows)
     # get_static_context, load_reference, tool_help removed: core/admin dissolved;
     # files now live in admin/editor/scripts/ which is outside the core installer tree.

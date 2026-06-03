@@ -51,7 +51,7 @@ _CORE_CANONICAL = {
 _DELIBERATE_DIVERGENCE: set[str] = {
     # core/tools/execute_sql.py is the orchestrator cross-domain version
     # (mutating-SQL approval gate, tier-aware context rows); the
-    # core/db_query/tools/execute_sql.py is a simpler delegate wrapper.
+    # core/db-query/tools/execute_sql.py is a simpler delegate wrapper.
     "execute_sql.py",
     # core/tools/olav_recall_memory.py is the MCP @tool version; core/scripts/
     # olav_recall_memory.py is the migrated plain-script version (no LangChain).

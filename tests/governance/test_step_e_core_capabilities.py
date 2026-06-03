@@ -57,7 +57,7 @@ _EXPECTED_CAPABILITIES: tuple[str, ...] = (
 # post-R-AGENT-HIERARCHY: manage_service moved back to devops/services (Direction A);
 #                         load_reference moved from core/admin/ to admin/editor/.
 _RELOCATED_CANONICAL_FILES: tuple[tuple[str, Path], ...] = (
-    ("api_request.py",        WORKSPACE / "core" / "api_query" / "scripts"),
+    ("api_request.py",        WORKSPACE / "core" / "api-query" / "scripts"),
     # ADR-0014: services promoted to platform top-level agent.
     ("deploy_service.py",     WORKSPACE / "services" / "scripts"),
     ("write_workspace_file.py", ADMIN_EDITOR_TOOLS),

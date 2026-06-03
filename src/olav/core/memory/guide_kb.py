@@ -19,7 +19,7 @@ Contract:
 User-facing surfaces:
 * ``olav kb import-guides <dir>`` (declarative — see
   ``src/olav/cli/commands/kb.py:cmd_import_guides``)
-* ``memory_curator`` sub-agent (conversational — R102, dev_docs/70)
+* ``memory-curator`` sub-agent (conversational — R102, dev_docs/70)
 
 YAML schema (one guide per file)::
 

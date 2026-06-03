@@ -23,7 +23,7 @@ body: |
   ## When the user replies with a short affirmative ("OK / 可以 / yes / 入库
   / 确认 / 提交"), check for a pending memory draft FIRST.
 
-  Background: `memory_curator.propose_memory_draft(...)` persists drafts to
+  Background: `memory-curator.propose_memory_draft(...)` persists drafts to
   `<workspace>/.curator_drafts/<intent>.draft.json` and waits for the
   user's next turn to confirm.  Because the orchestrator is stateless
   across CLI invocations, a bare "可以" / "OK" in turn 2 looks like a
@@ -38,8 +38,8 @@ body: |
 
   1. List `<workspace>/.curator_drafts/*.draft.json` (NOT the
      `committed/` subdirectory — those are already done).
-  2. If exactly ONE pending draft exists, delegate to `memory_curator`:
-     `olav_delegate("memory_curator", "Commit the pending draft —
+  2. If exactly ONE pending draft exists, delegate to `memory-curator`:
+     `olav_delegate("memory-curator", "Commit the pending draft —
      call commit_to_memory(from_draft=True, intent='<that intent>'). "
      "The user has confirmed via short affirmative.")`
   3. If MULTIPLE pending drafts exist, ask the user which one to
@@ -61,7 +61,7 @@ body: |
   - **Do NOT** treat the affirmative as a generic acknowledgement.
     "OK / 可以" almost always means "yes to the immediately preceding
     proposal" in OLAV's UX.
-  - **Do NOT** call `memory_curator` with the user's affirmative
+  - **Do NOT** call `memory-curator` with the user's affirmative
     verbatim — that loses the intent name and curator falls into the
     same trap.  Resolve the intent from `.curator_drafts/` first,
     pass it explicitly.
@@ -76,6 +76,6 @@ body: |
     → renders YAML preview
   Turn 2 (user): "可以"
     → orchestrator: ls .curator_drafts/ → finds netbox_sync_defaults
-    → olav_delegate("memory_curator", "Commit pending draft, intent=netbox_sync_defaults")
+    → olav_delegate("memory-curator", "Commit pending draft, intent=netbox_sync_defaults")
     → curator calls `commit_to_memory(from_draft=True, intent='netbox_sync_defaults')`
     → guide written + kb_audit row

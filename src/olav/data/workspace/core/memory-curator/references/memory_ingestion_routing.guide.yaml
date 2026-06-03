@@ -1,5 +1,5 @@
 schema_version: 1
-intent: memory_ingestion_routing_to_memory_curator
+intent: memory_ingestion_routing_to_memory-curator
 agent: core
 keywords:
   # English
@@ -43,7 +43,7 @@ keywords:
   - 把...入库
 body: |
   Routing — when user wants to teach OLAV something, delegate to
-  memory_curator (R102, dev_docs/70).
+  memory-curator (R102, dev_docs/70).
 
   This is the conversational ingestion path.  It complements:
     * `olav kb import-guides` (declarative YAML, version-controlled)
@@ -65,7 +65,7 @@ body: |
     * a file path explicitly meant to be ingested (`/path/to/x.md`)
     * pasted Mermaid / DOT / SVG (long unprompted topology source)
 
-  Do NOT route to memory_curator for:
+  Do NOT route to memory-curator for:
     * `olav_recall_memory` queries — that's READING memory, not writing
     * `execute_sql` / `search_logs` — these are operational reads
     * the user just chatting about a rule (no save intent)
@@ -73,9 +73,9 @@ body: |
   Worked example flow (NetBox sync rules):
 
     User: 帮我加一条记忆 — NetBox sync 时 tenant 永远是 acme-network-ops
-    Core: 🔧 olav_delegate(subagent_name='memory_curator', ...)
-    memory_curator: 🔧 olav_recall_memory(query='netbox sync tenant')
-    memory_curator → user: <proposed YAML preview, await confirmation>
+    Core: 🔧 olav_delegate(subagent_name='memory-curator', ...)
+    memory-curator: 🔧 olav_recall_memory(query='netbox sync tenant')
+    memory-curator → user: <proposed YAML preview, await confirmation>
     User: y
-    memory_curator: 🔧 commit_to_memory(intent='netbox_device_sync_team_acme', ...)
-    memory_curator → user: ✓ Stored.  Test with: olav --agent services "Sync R1"
+    memory-curator: 🔧 commit_to_memory(intent='netbox_device_sync_team_acme', ...)
+    memory-curator → user: ✓ Stored.  Test with: olav --agent services "Sync R1"

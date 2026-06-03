@@ -1,6 +1,6 @@
 """commit_to_memory tool — R102 Phase B/E.
 
-Pins the contract for the memory_curator sub-agent's tool.  Three
+Pins the contract for the memory-curator sub-agent's tool.  Three
 category branches are tested independently:
 
 * ``usage_guide`` — writes ``<intent>.guide.yaml`` to disk + primes
@@ -35,7 +35,7 @@ import sys
 _TOOL_PATH = (
     Path(__file__).resolve().parent.parent.parent
     / "src" / "olav" / "data" / "workspace" / "core"
-    / "memory_curator" / "scripts" / "commit_to_memory.py"
+    / "memory-curator" / "scripts" / "commit_to_memory.py"
 )
 
 

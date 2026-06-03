@@ -140,7 +140,7 @@ _LEGITIMATE_USAGE_FILES: frozenset[str] = frozenset({
     "src/olav/data/workspace/core/tools/olav_recall_memory.py",
     "src/olav/data/workspace/core/scripts/format_and_export.py",
     "src/olav/data/workspace/core/scripts/olav_recall_memory.py",
-    "src/olav/data/workspace/core/memory_curator/scripts/commit_to_memory.py",
+    "src/olav/data/workspace/core/memory-curator/scripts/commit_to_memory.py",
     "src/olav/cli/commands/skill.py",
     "src/olav/cli/commands/explain.py",
     "src/olav/core/ingest/platform_discovery.py",

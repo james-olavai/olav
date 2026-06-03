@@ -442,10 +442,10 @@ class TestApiRequestUnregisteredService:
 
     def _invoke_api_request(self, service: str):
         import importlib.util as _ilu
-        # api_request migrated from core/tools/ @tool to core/api_query/scripts/ plain fn
+        # api_request migrated from core/tools/ @tool to core/api-query/scripts/ plain fn
         spec = _ilu.spec_from_file_location(
             "api_request",
-            str(_ROOT / ".olav" / "workspace" / "core" / "api_query" / "scripts" / "api_request.py"),
+            str(_ROOT / ".olav" / "workspace" / "core" / "api-query" / "scripts" / "api_request.py"),
         )
         mod = _ilu.module_from_spec(spec)
         spec.loader.exec_module(mod)

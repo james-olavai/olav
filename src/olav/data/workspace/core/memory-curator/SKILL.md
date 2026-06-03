@@ -1,5 +1,5 @@
 ---
-name: memory_curator
+name: memory-curator
 description: "Conversational memory ingestion (R102). Turn user-stated rules / pasted runbook / topology source into LanceDB rows with HITL."
 tools:
   - olav_recall_memory
@@ -59,7 +59,7 @@ User intents like:
 
 ## Scripts
 
-All operations run via `execute_skill_script(skill_name="memory_curator", script_name=<file>, script_args={...})`.
+All operations run via `execute_skill_script(skill_name="memory-curator", script_name=<file>, script_args={...})`.
 
 | Script file | Purpose |
 |---|---|
@@ -77,7 +77,7 @@ Follow the decision tree in `prompts/system.md`.  Always:
    choice between updating it vs creating a sibling.
 3. Render the proposed YAML and show it to the user.
 4. Wait for explicit confirmation (HARD HITL — see AGENT.md).
-5. `execute_skill_script("memory_curator", "commit_to_memory.py", {"from_draft": true, "confirm": true, ...})`.
+5. `execute_skill_script("memory-curator", "commit_to_memory.py", {"from_draft": true, "confirm": true, ...})`.
 6. Tell the user the file path, the AutoRecall agent visibility,
    and a suggested test query.
 

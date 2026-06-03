@@ -17,7 +17,7 @@ Three category branches:
 * ``topology``  — Mermaid / DOT / SVG-XML source.  Single memory row
   with ``metadata.media_type`` set; no YAML on disk.
 
-This tool exists for the ``memory_curator`` sub-agent only.  Everything
+This tool exists for the ``memory-curator`` sub-agent only.  Everything
 it does is reachable via lower-level Python (``prime_guides_from_dir``,
 ``LanceDBStore.add_memory``) — the sub-agent surface is a UX wrapper.
 
@@ -441,7 +441,7 @@ def commit_to_memory(
 ) -> dict:
     """Commit a curated memory entry to the unified LanceDB store.
 
-    HARD requirement: caller (memory_curator sub-agent) must have shown
+    HARD requirement: caller (memory-curator sub-agent) must have shown
     the user the EXACT body / chunks first and received explicit
     confirmation IN A SEPARATE user turn after the YAML preview.
 
