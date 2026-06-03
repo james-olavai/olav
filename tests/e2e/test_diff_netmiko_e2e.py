@@ -31,8 +31,6 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT / "src"))
-sys.path.insert(0, str(_ROOT / ".olav/workspace/ops/tools"))
-sys.path.insert(0, str(_ROOT / ".olav/workspace/ops/diff/tools"))
 
 _DIFF_E2E_ENABLED = os.environ.get("DIFF_E2E_ENABLED", "").strip() == "1"
 
@@ -184,13 +182,14 @@ class TestDiffNetmikoE2E:
         """diff_sql_state must detect Loopback99 in the after snapshot."""
         self._ensure_snapshots()
 
-        from diff_sql_state import diff_sql_state
+        # diff_sql_state is a plain core helper (no @tool wrapper) — call directly.
+        from olav_netops.core.diff.sql_state import diff_sql_state
 
-        result = diff_sql_state.invoke({
-            "table": "netops.parsed_outputs",
-            "snapshot_id_1": self._snap_before,
-            "snapshot_id_2": self._snap_after,
-        })
+        result = diff_sql_state(
+            table_name="netops.parsed_outputs",
+            snapshot_id_1=self._snap_before,
+            snapshot_id_2=self._snap_after,
+        )
         assert result.get("status") == "success", f"diff_sql_state failed: {result}"
 
         new_rows = result.get("new_in_t2", [])
