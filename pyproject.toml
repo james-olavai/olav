@@ -112,8 +112,14 @@ dependencies = [
     "duckdb-engine>=0.17.0",
     "langgraph-checkpoint-sqlite>=3.0.0",
     "python-frontmatter>=1.1.0",
-    # Knowledge Base & Embedding
-    "lancedb>=0.29.2",
+    # Knowledge Base & Embedding.
+    # 2026-06-03: use the `[pylance]` extra — lancedb >=0.30 no longer auto-installs
+    # the standalone `lance` (pylance) lib, but KB/UKS dataset ops (compaction,
+    # merge_insert, to_lance) need it ("the lance library is required … pip install
+    # pylance").  The extra lets lancedb pin the pylance build matching its own
+    # version, instead of us hard-coding a floor that drifts.  Caught by demo
+    # fresh-wheel e2e (dev_docs/104 cat C); editable dev had pylance transitively.
+    "lancedb[pylance]>=0.29.2",
     "sentence-transformers>=5.2.3",
     # Web search (required by web_search tool via langchain DuckDuckGoSearchRun).
     # langchain-community 0.4+ migrated from `duckduckgo-search` → `ddgs`;

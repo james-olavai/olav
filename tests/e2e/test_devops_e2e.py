@@ -241,19 +241,19 @@ class TestDevopsInfraStructure:
 
 
 # ---------------------------------------------------------------------------
-# devops/services sub-agent structure
+# services platform-agent structure (ADR-0014: top-level, no longer under devops)
 # ---------------------------------------------------------------------------
 
 
-_SERVICES_WS = _DEVOPS_WS / "services"
+_SERVICES_WS = _ROOT / ".olav" / "workspace" / "services"
 _SERVICES_SCRIPTS = _SERVICES_WS / "scripts"
 
 
 class TestDevopsServicesStructure:
-    """devops/services sub-agent scripts must all exist."""
+    """services platform-agent scripts must all exist (top-level, per ADR-0014)."""
 
     def test_services_skill_md_exists(self):
-        assert (_SERVICES_WS / "SKILL.md").is_file(), "devops/services/SKILL.md missing"
+        assert (_SERVICES_WS / "SKILL.md").is_file(), "services/SKILL.md missing"
 
     def test_services_skill_md_name(self):
         text = (_SERVICES_WS / "SKILL.md").read_text(encoding="utf-8")
