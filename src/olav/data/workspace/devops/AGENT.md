@@ -12,6 +12,7 @@ route_keywords:
 # Whitelist 2 low-risk reads only; everything else delegates.
 tools:
   - olav_recall_memory
+  - olav_store_memory
   - web_search
 subagents:
   - path: ./scripts/SKILL.md

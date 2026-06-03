@@ -3,6 +3,7 @@ name: memory_curator
 description: "Conversational memory ingestion (R102). Turn user-stated rules / pasted runbook / topology source into LanceDB rows with HITL."
 tools:
   - olav_recall_memory
+  - olav_store_memory
   - execute_skill_script    # runs scripts/ entries (ADR-0008 native pattern)
 scripts:
   - name: propose_memory_draft

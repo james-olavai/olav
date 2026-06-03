@@ -41,6 +41,7 @@ scripts:
 tools:
 - execute_sql
 - olav_recall_memory
+- olav_store_memory
 - execute_skill_script
 - read_file
 ---

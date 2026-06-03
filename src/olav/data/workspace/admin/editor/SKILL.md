@@ -28,6 +28,7 @@ tools:
 - write_todos
 - execute_skill_script
 - olav_recall_memory
+- olav_store_memory
 metadata:
   enable_todo_list: true
   rubric_middleware: true

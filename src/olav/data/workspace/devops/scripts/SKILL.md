@@ -28,6 +28,7 @@ tools:
 - execute_sql
 - read_file
 - olav_recall_memory
+- olav_store_memory
 ---
 
 
