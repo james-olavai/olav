@@ -662,6 +662,26 @@ rules:
     git: ignore
     reason: per-install-approval-policy
 
+  # Nornir inventory (config/defaults/groups). defaults.yaml carries device
+  # login credentials (username/password) — NEVER commit.  Per-install runtime.
+  - pattern: .olav/config/nornir/**
+    owner: olav
+    class: runtime-workspace
+    status: authoritative
+    enforced: true
+    git: secret
+    reason: contains-device-credentials
+
+  # Runtime-discovered unsupported-command map (per platform/device). Generated
+  # by the collection pipeline; instance-local state, not source.
+  - pattern: .olav/config/unsupported.json
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+    reason: runtime-generated-unsupported-command-data
+
   # Phase 3: GENERATED mirror (git:ignore). Authoritative = src/olav/data/
   # workspace/core/; `olav init` deploys it (byte-exact, editable install).
   - pattern: .olav/workspace/core/**
