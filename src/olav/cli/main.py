@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""OLAV v0.14.0 CLI - Full deepagents-cli integration.
+"""OLAV v0.14.0 CLI - Full deepagents-code integration.
 
-This is a thin wrapper around deepagents-cli for domain operations.
+This is a thin wrapper around deepagents-code for domain operations.
 All domain functionality is exposed through workspace agents and tools, not CLI commands.
 
 Usage:
@@ -178,7 +178,7 @@ def _get_known_commands() -> frozenset[str]:
 
 
 def parse_args():
-    """Parse command line arguments - deepagents-cli compatible."""
+    """Parse command line arguments - deepagents-code compatible."""
     import types as _types
 
     # Known subcommands – if the first non-flag positional arg is NOT one of
@@ -903,7 +903,7 @@ def create_olav_agent_with_backend(
         )
 
     # Bake plugin callbacks into the graph so they fire even when callers
-    # (e.g. deepagents_cli.execute_task) build their own config without callbacks.
+    # (e.g. deepagents_code.execute_task) build their own config without callbacks.
     graph = olav_agent.graph
     cbs = olav_agent.plugin_registry.get_callback_plugins()
     if cbs:
@@ -924,11 +924,11 @@ def _hitl_audit_scope(recorder: AuditEventRecorder, run_id: str, agent_id: str):
     restored in the ``finally`` block even if an exception occurs.
     """
     try:
-        import deepagents_cli.execution as _dce  # type: ignore[import]
+        import deepagents_code.execution as _dce  # type: ignore[import]
 
         _original = _dce.prompt_for_tool_approval
     except Exception as _e:
-        logger.debug("_hitl_audit_scope: deepagents_cli not available (%s) — HITL events disabled", _e)
+        logger.debug("_hitl_audit_scope: deepagents_code not available (%s) — HITL events disabled", _e)
         yield
         return
 
@@ -971,19 +971,19 @@ async def simple_cli(
     sandbox_type: str | None = None,
     no_splash: bool = False,
 ) -> None:
-    """Main CLI loop using deepagents-cli Textual TUI with OLAV overlay."""
+    """Main CLI loop using deepagents-code Textual TUI with OLAV overlay."""
     try:
-        from deepagents_cli.app import run_textual_app
+        from deepagents_code.app import run_textual_app
     except ImportError as _e:
         console.print(
-            f"[red]Error:[/red] Interactive TUI requires deepagents-cli: {_e}\n"
+            f"[red]Error:[/red] Interactive TUI requires deepagents-code: {_e}\n"
             "Use single-query mode: [cyan]olav \"your question\"[/cyan]"
         )
         return
 
     # Apply OLAV branding (banner, title) and /workspace command BEFORE the
     # Textual app is constructed.  Version-guarded — a mismatch falls back to
-    # vanilla deepagents-cli so the TUI still works.
+    # vanilla deepagents-code so the TUI still works.
     from olav.cli.tui_overlay import apply_olav_overlay
 
     apply_olav_overlay()
@@ -994,7 +994,7 @@ async def simple_cli(
     # and have the old muscle memory.
     _ = no_splash  # retained for API compatibility
 
-    # P6 dispatch: native mode spawns a langgraph subprocess (deepagents-cli
+    # P6 dispatch: native mode spawns a langgraph subprocess (deepagents-code
     # owns the lifecycle; our scaffold patch redirects it at OLAV's graph
     # factory).  Overlay mode keeps the v0.19.x in-process path.  Auto-detect
     # picks native when the new workspace layout is in play or no workspace
@@ -1259,7 +1259,7 @@ async def run_single_query(
     except Exception:
         pass
 
-    # deepagents-cli is used for TUI mode; single-query uses langgraph native API
+    # deepagents-code is used for TUI mode; single-query uses langgraph native API
 
     # P1: silent auth check (D6) — no interactive prompt in single-query mode
     _token: str | None = None
@@ -2402,11 +2402,11 @@ What tools are available and when should each be used?
 
         # Create session state
         try:
-            from deepagents_cli.config import SessionState
+            from deepagents_code.config import SessionState
         except ImportError as _e:
             console.print(
-                f"[red]Error:[/red] Interactive mode requires deepagents-cli: {_e}\n"
-                "Install with: [cyan]pip install 'deepagents-cli>=0.0.37'[/cyan]"
+                f"[red]Error:[/red] Interactive mode requires deepagents-code: {_e}\n"
+                "Install with: [cyan]pip install 'deepagents-code>=0.0.37'[/cyan]"
             )
             sys.exit(1)
 

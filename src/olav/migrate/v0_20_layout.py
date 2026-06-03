@@ -12,7 +12,7 @@ to the v0.20.2 deepagents-compatible layout
 
 Everything else (``MANIFEST.yaml``, ``tools/``, ``prompts/``,
 ``references/``, individual ``<skill>/SKILL.md`` subdirectories)
-is carried over verbatim — deepagents-cli reads the new locations,
+is carried over verbatim — deepagents-code reads the new locations,
 OLAV reads both.
 
 This module provides three entry points:
@@ -46,7 +46,7 @@ _NEW_AGENTS_ROOT = Path(".deepagents") / "agents"
 
 _AGENT_MD_OLD = "AGENT.md"
 _AGENT_MD_NEW = "AGENTS.md"
-"""Filename change — AGENT.md → AGENTS.md.  deepagents-cli insists
+"""Filename change — AGENT.md → AGENTS.md.  deepagents-code insists
 on the plural; OLAV's loader accepts both so we can read the new
 layout before the migration runs."""
 

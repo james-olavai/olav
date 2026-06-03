@@ -83,13 +83,20 @@ dependencies = [
     "python-dateutil>=2.8.0",
     "python-crontab>=3.0.0",
     "tenacity>=8.0",
-    # DeepAgents CLI — exact pin because olav.cli.tui_overlay monkey-patches
-    # private deepagents-cli internals (WelcomeBanner constants, DeepAgentsApp
-    # TITLE/_handle_command, command_registry.COMMANDS).  A version mismatch
-    # logs a warning and falls back to vanilla deepagents branding, but keep
-    # the pin tight to minimise surprises.  Update overlay._SUPPORTED_VERSIONS
-    # in the same commit as any version bump.
-    "deepagents-cli==0.0.41",
+    # DeepAgents interactive REPL/TUI — 2026-06-03: migrated from the old
+    # `deepagents-cli==0.0.41` to `deepagents-code`.  The deepagents ecosystem
+    # split: `deepagents-cli` (now 0.2.x) is deploy/init/agents-only and HARD-
+    # PINS `deepagents==0.5.3` (incompatible with our deepagents>=0.6.7 → made
+    # `pip install olav` ResolutionImpossible for non-uv users).  The
+    # interactive REPL/TUI that olav.cli.{main,tui_overlay} integrate with moved
+    # to `deepagents-code`, which requires `deepagents==0.6.7` (matches us) and
+    # still exposes the internals we monkey-patch (config.SessionState,
+    # app.run_textual_app/DeepAgentsApp, command_registry.COMMANDS, banners,
+    # server_manager, server.generate_langgraph_json).  olav.cli.tui_overlay
+    # monkey-patches these private internals; on a version mismatch it logs a
+    # warning and falls back to vanilla branding.  Update
+    # overlay._SUPPORTED_VERSIONS in the same commit as any bump.
+    "deepagents-code>=0.1.8",
     # OS keyring for CLI bearer tokens (olav.core.auth.keyring_store).  Plain
     # ~/.olav/token remains the fallback when no keyring backend is usable,
     # so headless / CI environments still work without a daemon.

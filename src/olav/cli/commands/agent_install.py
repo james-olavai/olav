@@ -22,7 +22,7 @@ subcommand is removed entirely.  See §13 of the evaluation doc.
 
 Why a separate verb at all
 --------------------------
-``deepagents-cli`` has its own ``deepagents skills`` subcommand that
+``deepagents-code`` has its own ``deepagents skills`` subcommand that
 creates / lists / deletes *individual* ``SKILL.md`` files.  OLAV's
 install handles a much bigger unit — a whole agent package with
 ``pyproject.toml``, entry points, multiple sub-agents, and workspace
