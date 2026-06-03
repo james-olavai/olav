@@ -1434,15 +1434,27 @@ async def run_single_query(
                 if chunk:
                     text = getattr(chunk, "content", "")
                     if text:
-                        console.print(text, end="")
-                        _chunks.append(text)
+                        # Only stream-print orchestrator-level LLM turns
+                        # (_delegate_depth == 0). Sub-agent internal LLM
+                        # calls (_delegate_depth > 0) must NOT land in
+                        # _chunks — if they do, the orchestrator's final
+                        # answer is silently discarded by the `not _chunks`
+                        # guard in on_chat_model_end (CH8/CH11 failure mode:
+                        # reporter sub-agent streamed text first, orchestrator
+                        # answer appeared in AIMessage.content but was never
+                        # surfaced to the CLI). See dev_docs/104 cat A.
+                        if _delegate_depth == 0:
+                            console.print(text, end="")
+                            _chunks.append(text)
 
             elif kind == "on_chat_model_end":
-                # Non-streaming mode: full response arrives here
+                # Non-streaming mode: full response arrives here.
+                # Same depth guard: only capture the orchestrator's own
+                # LLM turn (depth=0), not sub-agent internal completions.
                 output = data.get("output")
                 if output:
                     text = getattr(output, "content", "")
-                    if text and not _chunks:  # only if not already streamed
+                    if text and not _chunks and _delegate_depth == 0:
                         console.print(text)
                         _chunks.append(text)
 
