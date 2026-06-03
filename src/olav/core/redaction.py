@@ -58,18 +58,37 @@ _SALT_FILENAME = ".redaction_salt"
 _SALT_LENGTH_HEX = 64  # 32 bytes hex-encoded
 
 
+class RedactionUnavailableError(RuntimeError):
+    """Raised when redaction is required (strict mode) but netconan is absent.
+
+    Lets callers fail-closed — refuse to write unredacted data — instead of
+    silently degrading. Only raised when ``OLAV_REDACTION_STRICT`` (or
+    ``cfg["strict"]``) is set AND redaction is enabled AND netconan is missing.
+    """
+
+
+# Module-level guard so the "netconan missing" SECURITY warning is emitted
+# ONCE per process, not once per scrubbed command (scrub() is called per-command
+# during collection — see netops_init/run.py — so an un-deduped warning would
+# either flood the log or be ignored, the practical definition of "silent").
+_NETCONAN_MISSING_WARNED = False
+
+
 @dataclass
 class Findings:
     """Per-scrub audit counts (no plaintext retained)."""
     total_replacements: int = 0
     category_counts: dict[str, int] = field(default_factory=dict)
     salt_fingerprint: str = ""
+    degraded: bool = False  # True when redaction did NOT run (netconan missing
+    #                         or failed) and the text was written UNREDACTED.
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "total_replacements": self.total_replacements,
             "category_counts": dict(self.category_counts),
             "salt_fingerprint": self.salt_fingerprint,
+            "degraded": self.degraded,
         }
 
 
@@ -126,7 +145,7 @@ def _load_config_overrides() -> dict[str, Any]:
         from olav.core.config import get_config
         full = get_config()
         red = (full.get("redaction") if isinstance(full, dict) else None) or {}
-        for k, default in cfg.items():
+        for k in list(cfg):
             if k in red:
                 cfg[k] = red[k]
     except Exception:  # noqa: BLE001 — config layer optional / new install
@@ -160,6 +179,14 @@ def scrub(
     WARNING and returns the **input unchanged** — surface the
     failure rather than silently writing partial data to disk.
     Caller can decide whether to drop the row.
+
+    When netconan is MISSING but redaction is enabled, the default is
+    fail-open (returns input unchanged) but the returned
+    ``Findings.degraded`` is ``True`` and a one-time ``⚠️ SECURITY``
+    warning is logged — so an unredacted batch is auditable, not silent.
+    Set ``OLAV_REDACTION_STRICT=1`` (or ``cfg["strict"]=True``) to
+    fail-closed instead: a :class:`RedactionUnavailableError` is raised
+    rather than writing plaintext.
     """
     if cfg is None:
         cfg = _load_config_overrides()
@@ -169,12 +196,24 @@ def scrub(
     try:
         from netconan.anonymize_files import FileAnonymizer
     except ImportError:
-        logger.warning(
-            "redaction: netconan not installed — install the [redaction] "
-            "extra (pip install 'olav[redaction]') or set "
-            "OLAV_REDACTION=0 to opt out.  Returning input unchanged.",
+        global _NETCONAN_MISSING_WARNED
+        strict = bool(cfg.get("strict", False)) or os.environ.get(
+            "OLAV_REDACTION_STRICT", ""
+        ).strip().lower() in ("1", "true", "on", "yes")
+        msg = (
+            "redaction: netconan is NOT installed but redaction is ENABLED — "
+            "credentials will be written UNREDACTED to disk. Install the "
+            "[redaction] extra (pip install 'olav[redaction]'), or set "
+            "OLAV_REDACTION=0 to explicitly opt out, or OLAV_REDACTION_STRICT=1 "
+            "to fail-closed instead of writing plaintext."
         )
-        return text, Findings()
+        if strict:
+            # Fail-closed: refuse to silently write unredacted data.
+            raise RedactionUnavailableError(msg) from None
+        if not _NETCONAN_MISSING_WARNED:
+            logger.warning("⚠️ SECURITY: %s", msg)
+            _NETCONAN_MISSING_WARNED = True
+        return text, Findings(degraded=True)
 
     salt = _workspace_salt(workspace_root)
     extra_sensitive = list(cfg.get("extra_sensitive_words") or [])
@@ -194,11 +233,12 @@ def scrub(
         scrubbed = dst.getvalue()
     except Exception as exc:  # noqa: BLE001
         logger.warning(
-            "redaction: netconan failed (%s) — returning input unchanged "
-            "to surface the failure rather than silently mis-scrubbing.",
+            "⚠️ SECURITY: redaction: netconan failed (%s) — returning input "
+            "UNREDACTED to surface the failure rather than silently mis-scrubbing. "
+            "Findings.degraded=True so the caller can flag/drop this batch.",
             exc,
         )
-        return text, Findings()
+        return text, Findings(degraded=True)
 
     # Findings: count distinct replacement tokens netconan emits.
     # netconan's replacements look like ``netconanRemoved<N>`` for
