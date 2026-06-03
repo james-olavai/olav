@@ -2,6 +2,12 @@
 name: netops
 description: "Network Operations — SSH collection, BGP/OSPF analysis, topology queries, simulation, drift detection, ContainerLab digital twin, parser learning"
 system_prompt_file: prompts/netops.md
+# RubricMiddleware: grader checks that the final response contains a natural-
+# language summary (not just raw tool output). Fixes ISSUE-NO-SYNTHESIS where
+# gemma4 exits after tool calls without writing a prose answer.
+# synthesis_rubric: true tells OLAVAgent.ainvoke() to populate state["rubric"].
+rubric_middleware: true
+synthesis_rubric: true
 # 2026-05-15: gemma4:31b 全栈策略 — 仅 analyzer (PLAN-Act-Reflect 子代理)
 # 用 thinking ON；orchestrator + 所有其他 sub-agent 走 thinking OFF.
 # 编排器只做关键字路由 + dispatch，不需要 reasoning。早期 R-VERTICAL-SLICE

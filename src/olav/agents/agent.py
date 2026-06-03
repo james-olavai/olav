@@ -1426,6 +1426,26 @@ class OLAVAgent:
             os.environ.get("OLAV_LANGGRAPH_RECURSION_LIMIT", "30")
         )
 
+        # Inject rubric into state when the agent opts in via
+        # ``synthesis_rubric: true`` in its AGENT.md/SKILL.md frontmatter.
+        # RubricMiddleware is a no-op when ``state["rubric"]`` is absent; this
+        # is the only place that populates it so the middleware activates.
+        # The rubric targets the no-synthesis failure mode (ISSUE-NO-SYNTHESIS /
+        # dev_docs/90): small models (gemma4) finish tool calls and exit without
+        # a natural-language answer turn — the grader detects this and forces a
+        # revision loop (max 2 iterations, configured in the middleware init).
+        _cfg = getattr(self, "_preloaded_olav_config", {}) or {}
+        if _cfg.get("synthesis_rubric") and isinstance(input_, dict):
+            input_.setdefault(
+                "rubric",
+                "The response MUST end with a natural-language paragraph that "
+                "directly answers the user's question using the tool results. "
+                "A response that contains only raw tool output (JSON rows, "
+                "'📁 execute_sql → ...' lines, or structured data) without any "
+                "explanatory prose does NOT satisfy this criterion. "
+                "Criterion: prose_summary_present.",
+            )
+
         try:
             result = await self.graph.ainvoke(input_, config=config, **kwargs)
         except asyncio.CancelledError as e:
