@@ -1,7 +1,7 @@
 """Server-mode glue for OLAV — LangGraph graph factory, config helpers.
 
 This package exists so ``langgraph dev`` / ``langgraph up`` / LangSmith
-Studio / (starting v0.20.2) deepagents-cli's server-subprocess mode
+Studio / (starting v0.20.2) deepagents-code's server-subprocess mode
 can build an OLAV-flavoured compiled graph from outside OLAV's
 in-process TUI path.
 

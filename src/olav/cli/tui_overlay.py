@@ -1,16 +1,16 @@
-"""OLAV overlay on top of ``deepagents-cli``'s Textual TUI.
+"""OLAV overlay on top of ``deepagents-code``'s Textual TUI.
 
-OLAV delegates the interactive TUI to ``deepagents_cli.app.run_textual_app``
+OLAV delegates the interactive TUI to ``deepagents_code.app.run_textual_app``
 but re-skins the shell and adds a ``/workspace`` slash command that triggers
 a restart-style agent swap.
 
 Monkey-patch targets (version-guarded)
 --------------------------------------
-* ``deepagents_cli.config._UNICODE_BANNER`` / ``_ASCII_BANNER`` —
+* ``deepagents_code.config._UNICODE_BANNER`` / ``_ASCII_BANNER`` —
   welcome banner text consumed by ``WelcomeBanner.__init__``.
-* ``deepagents_cli.app.DeepAgentsApp.TITLE`` / ``SUB_TITLE`` — window
+* ``deepagents_code.app.DeepAgentsApp.TITLE`` / ``SUB_TITLE`` — window
   title shown in the Textual header.
-* ``deepagents_cli.command_registry.COMMANDS`` /
+* ``deepagents_code.command_registry.COMMANDS`` /
   ``SLASH_COMMANDS`` — extended with OLAV's ``/workspace`` entry so
   autocomplete discovers it.
 * ``DeepAgentsApp._handle_command`` — wrapped to intercept
@@ -24,10 +24,10 @@ flag via :func:`consume_pending_workspace` and re-enters with the new
 
 Version guard
 -------------
-Monkey-patching deepagents-cli internals is only safe against pinned
+Monkey-patching deepagents-code internals is only safe against pinned
 versions.  :data:`_SUPPORTED_VERSIONS` lists the versions we have
 smoke-tested; on any other version the overlay logs a warning and
-skips every patch so the TUI falls back to vanilla deepagents-cli
+skips every patch so the TUI falls back to vanilla deepagents-code
 branding (no crash).
 """
 
@@ -94,8 +94,8 @@ def resolve_tui_mode(root: Path | None = None) -> TuiMode:
     # No workspace at all → native (new default for fresh projects).
     return "native"
 
-# Suppress deepagents-cli's PyPI auto-update-check on every TUI launch.
-# OLAV pins deepagents-cli==0.0.41 (exact) because tui_overlay below
+# Suppress deepagents-code's PyPI auto-update-check on every TUI launch.
+# OLAV depends on deepagents-code>=0.1.8 because tui_overlay below
 # monkey-patches private internals (WelcomeBanner constants,
 # DeepAgentsApp TITLE/_handle_command, command_registry COMMANDS).
 # A user-triggered upgrade would silently break those bindings until
@@ -105,13 +105,13 @@ def resolve_tui_mode(root: Path | None = None) -> TuiMode:
 # Setting the env var at module import time (which runs before the
 # Textual app is constructed; see src/olav/cli/main.py:806).
 # update_check.is_update_check_enabled() reads it lazily so this works.
-os.environ.setdefault("DEEPAGENTS_CLI_NO_UPDATE_CHECK", "1")
+os.environ.setdefault("DEEPAGENTS_CODE_NO_UPDATE_CHECK", "1")
 
 
-_SUPPORTED_VERSIONS: frozenset[str] = frozenset({"0.0.41"})
-"""deepagents-cli versions where the overlay has been smoke-tested.
+_SUPPORTED_VERSIONS: frozenset[str] = frozenset({"0.1.8"})
+"""deepagents-code versions where the overlay has been smoke-tested.
 
-Update this set together with the ``deepagents-cli`` pin in
+Update this set together with the ``deepagents-code`` pin in
 ``pyproject.toml`` after verifying the TUI manually (see
 ``tests/ci/tier1_functional.sh`` T1-53)."""
 
@@ -179,15 +179,15 @@ def apply_olav_overlay() -> bool:
         return True
 
     try:
-        import deepagents_cli
+        import deepagents_code
     except ImportError:
-        logger.warning("deepagents_cli not importable — overlay skipped")
+        logger.warning("deepagents_code not importable — overlay skipped")
         return False
 
-    version = getattr(deepagents_cli, "__version__", "unknown")
+    version = getattr(deepagents_code, "__version__", "unknown")
     if version not in _SUPPORTED_VERSIONS:
         logger.warning(
-            "deepagents-cli %s is not in the overlay's supported set %s — "
+            "deepagents-code %s is not in the overlay's supported set %s — "
             "falling back to vanilla deepagents TUI (branding and /workspace "
             "command disabled). Update _SUPPORTED_VERSIONS after smoke-testing.",
             version,
@@ -214,8 +214,8 @@ def apply_olav_overlay() -> bool:
 _BLOCKED_COMMANDS: frozenset[str] = frozenset({"/update", "/auto-update"})
 """Slash commands hidden from the menu and intercepted by the overlay.
 
-These commands trigger ``deepagents_cli.update_check.perform_upgrade``
-which would bump ``deepagents-cli`` past our exact pin and break the
+These commands trigger ``deepagents_code.update_check.perform_upgrade``
+which would bump ``deepagents-code`` past our exact pin and break the
 overlay.  We hide them from autocomplete and, as belt-and-braces,
 intercept them in ``_handle_command`` with a message pointing users
 back to ``pip install --upgrade olav``."""
@@ -224,13 +224,13 @@ back to ``pip install --upgrade olav``."""
 def _patch_banner() -> bool:
     """Swap the deepagents welcome banner constants for OLAV's."""
     try:
-        import deepagents_cli.config as _dc_config
+        import deepagents_code.config as _dc_config
 
         if not hasattr(_dc_config, "_UNICODE_BANNER") or not hasattr(
             _dc_config, "_ASCII_BANNER"
         ):
             logger.warning(
-                "deepagents_cli.config is missing _UNICODE_BANNER/_ASCII_BANNER — "
+                "deepagents_code.config is missing _UNICODE_BANNER/_ASCII_BANNER — "
                 "banner overlay skipped"
             )
             return False
@@ -246,7 +246,7 @@ def _patch_banner() -> bool:
 def _patch_title() -> bool:
     """Set the Textual window TITLE/SUB_TITLE to OLAV's."""
     try:
-        from deepagents_cli.app import DeepAgentsApp
+        from deepagents_code.app import DeepAgentsApp
 
         DeepAgentsApp.TITLE = "OLAV"
         DeepAgentsApp.SUB_TITLE = "Online Analytical Vertex for Agentic Operations"
@@ -262,17 +262,17 @@ def _patch_workspace_command() -> bool:
     Steps:
 
     1. Build a ``SlashCommand`` for ``/workspace`` and prepend it to
-       :data:`deepagents_cli.command_registry.COMMANDS` so autocomplete
+       :data:`deepagents_code.command_registry.COMMANDS` so autocomplete
        surfaces it.
-    2. Extend :data:`deepagents_cli.command_registry.SLASH_COMMANDS`
+    2. Extend :data:`deepagents_code.command_registry.SLASH_COMMANDS`
        (the derived list consumed by the autocomplete UI).
     3. Wrap ``DeepAgentsApp._handle_command`` with a dispatcher that
        intercepts ``/workspace`` and delegates everything else to the
        original.
     """
     try:
-        from deepagents_cli import command_registry as _cr
-        from deepagents_cli.app import DeepAgentsApp
+        from deepagents_code import command_registry as _cr
+        from deepagents_code.app import DeepAgentsApp
 
         if not hasattr(_cr, "COMMANDS") or not hasattr(_cr, "SLASH_COMMANDS"):
             logger.warning(
@@ -301,7 +301,7 @@ def _patch_workspace_command() -> bool:
             argument_hint="<name>",
         )
 
-        # Filter out deepagents-cli's self-upgrade commands — they'd break
+        # Filter out deepagents-code's self-upgrade commands — they'd break
         # our pinned version — and prepend /workspace.
         filtered_commands = tuple(
             c for c in _cr.COMMANDS if c.name not in _BLOCKED_COMMANDS
@@ -361,7 +361,7 @@ def _patch_workspace_command() -> bool:
             if cmd_token in _BLOCKED_COMMANDS:
                 _notify(
                     self,
-                    "This command is disabled under OLAV — deepagents-cli is "
+                    "This command is disabled under OLAV — deepagents-code is "
                     "pinned. Run `pip install --upgrade olav` to update.",
                     severity="warning",
                 )
@@ -376,14 +376,14 @@ def _patch_workspace_command() -> bool:
 
 
 def _patch_disable_self_upgrade() -> bool:
-    """Neutralise deepagents-cli's background auto-update and on-demand
+    """Neutralise deepagents-code's background auto-update and on-demand
     upgrade helpers.
 
-    ``deepagents-cli`` has two upgrade paths we need to close:
+    ``deepagents-code`` has two upgrade paths we need to close:
 
     * ``update_check.is_auto_update_enabled()`` — polled on TUI start and
       in the background; when true and a newer version is live on PyPI,
-      the CLI silently runs ``pip install --upgrade deepagents-cli``,
+      the CLI silently runs ``pip install --upgrade deepagents-code``,
       which would bump past our pin.
     * ``update_check.perform_upgrade()`` — invoked by ``/update`` and by
       the auto-update loop; executes the upgrade directly.
@@ -393,11 +393,11 @@ def _patch_disable_self_upgrade() -> bool:
     ``(False, <message>)`` tuple explaining the block.  These functions
     are defensive: the slash commands themselves are already hidden and
     intercepted in :func:`_patch_workspace_command`, but a future
-    deepagents-cli release might expose a new entry point that still
+    deepagents-code release might expose a new entry point that still
     calls these helpers.
     """
     try:
-        from deepagents_cli import update_check
+        from deepagents_code import update_check
 
         if hasattr(update_check, "is_auto_update_enabled"):
             update_check.is_auto_update_enabled = lambda: False  # type: ignore[assignment]
@@ -412,9 +412,9 @@ def _patch_disable_self_upgrade() -> bool:
             async def _blocked_upgrade() -> tuple[bool, str]:
                 return (
                     False,
-                    "deepagents-cli upgrade blocked by OLAV overlay. "
+                    "deepagents-code upgrade blocked by OLAV overlay. "
                     "Run `pip install --upgrade olav` to receive a "
-                    "compatible deepagents-cli bump.",
+                    "compatible deepagents-code bump.",
                 )
 
             update_check.perform_upgrade = _blocked_upgrade  # type: ignore[assignment]
@@ -431,9 +431,9 @@ def _patch_disable_self_upgrade() -> bool:
 
 
 def _patch_welcome_footer() -> bool:
-    """Replace deepagents-cli's "Ready to code!" footer with an OLAV-flavoured one.
+    """Replace deepagents-code's "Ready to code!" footer with an OLAV-flavoured one.
 
-    Default deepagents-cli welcome footer (``widgets/welcome.py``):
+    Default deepagents-code welcome footer (``widgets/welcome.py``):
         "Ready to code! What would you like to build?"
         Tip: <random coding tip from _TIPS>
 
@@ -444,7 +444,7 @@ def _patch_welcome_footer() -> bool:
     explore → audit → cron lifecycle).
     """
     try:
-        from deepagents_cli.widgets import welcome as _dc_welcome
+        from deepagents_code.widgets import welcome as _dc_welcome
         from textual.content import Content  # noqa: PLC0415
         import random
 
@@ -475,25 +475,25 @@ def _patch_welcome_footer() -> bool:
 
 
 def _patch_scaffold_for_olav_graph() -> bool:
-    """Redirect deepagents-cli's subprocess graph loader at OLAV's factory.
+    """Redirect deepagents-code's subprocess graph loader at OLAV's factory.
 
     Without this patch, ``run_textual_app(server_kwargs=...)`` spawns
     a ``langgraph dev`` subprocess whose ``langgraph.json`` points at
-    ``./server_graph.py:graph`` — deepagents-cli's own default graph.
+    ``./server_graph.py:graph`` — deepagents-code's own default graph.
     The subprocess therefore completely ignores OLAV's agents, tools,
     and plugin registry.
 
     The patch wraps
-    :func:`deepagents_cli.server_manager._scaffold_workspace`.  After
+    :func:`deepagents_code.server_manager._scaffold_workspace`.  After
     deepagents' default scaffolding (checkpointer module, pyproject
     template, initial langgraph.json) writes its files, the wrapper
-    calls :func:`deepagents_cli.server.generate_langgraph_json` one
+    calls :func:`deepagents_code.server.generate_langgraph_json` one
     more time with ``graph_ref="olav.server.graph_factory:graph"`` to
     overwrite the config file.
 
     Why this works
     --------------
-    :func:`deepagents_cli.server._build_server_cmd` launches the
+    :func:`deepagents_code.server._build_server_cmd` launches the
     subprocess via ``sys.executable -m langgraph_cli dev`` — same
     Python interpreter, same ``site-packages``.  OLAV is therefore
     already importable in the subprocess, so ``dependencies: ["."]``
@@ -503,24 +503,24 @@ def _patch_scaffold_for_olav_graph() -> bool:
 
     Returns:
         ``True`` when the patch was applied, ``False`` when a
-        required deepagents-cli symbol is missing (older / newer
+        required deepagents-code symbol is missing (older / newer
         release than the overlay was tested against).
     """
     try:
-        from deepagents_cli import server_manager as _sm
+        from deepagents_code import server_manager as _sm
 
         if not hasattr(_sm, "_scaffold_workspace"):
             logger.warning(
-                "deepagents_cli.server_manager._scaffold_workspace no longer "
+                "deepagents_code.server_manager._scaffold_workspace no longer "
                 "exists — native /agents cutover patch skipped"
             )
             return False
 
         try:
-            from deepagents_cli.server import generate_langgraph_json
+            from deepagents_code.server import generate_langgraph_json
         except ImportError:
             logger.warning(
-                "deepagents_cli.server.generate_langgraph_json not importable "
+                "deepagents_code.server.generate_langgraph_json not importable "
                 "— scaffold patch skipped"
             )
             return False

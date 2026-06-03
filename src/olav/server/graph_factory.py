@@ -2,8 +2,8 @@
 
 Imported by ``langgraph dev`` / ``langgraph up`` subprocesses via
 ``langgraph.json``.  The subprocess reads the agent name from the
-``DEEPAGENTS_CLI_SERVER_ASSISTANT_ID`` environment variable (set by
-deepagents-cli when spawning the server) and builds the corresponding
+``DEEPAGENTS_CODE_SERVER_ASSISTANT_ID`` environment variable (set by
+deepagents-code when spawning the server) and builds the corresponding
 OLAV compiled graph.
 
 Why this module exists (Phase 5, v0.20.0)
@@ -13,7 +13,7 @@ speaks the langgraph-server protocol:
 
 * ``langgraph dev`` for local debugging
 * LangSmith Studio for UI-based tracing
-* (starting v0.20.2) the deepagents-cli TUI in server-subprocess mode
+* (starting v0.20.2) the deepagents-code TUI in server-subprocess mode
 
 Until v0.20.2 the TUI still uses the in-process ``agent=<graph>``
 path; this module is additive only.  Everything here wraps the
@@ -24,7 +24,7 @@ Contract
 --------
 * Module-level ``graph`` variable whose type is a LangGraph compiled
   graph (langgraph-server requirement).
-* ``DEEPAGENTS_CLI_SERVER_ASSISTANT_ID`` read at import time; missing
+* ``DEEPAGENTS_CODE_SERVER_ASSISTANT_ID`` read at import time; missing
   or empty → fall back to ``"core"``.
 * Unknown agent name → raise :class:`ValueError` loudly so a
   misconfigured subprocess fails fast instead of silently serving the
@@ -44,8 +44,8 @@ _DEFAULT_ASSISTANT_ID = "core"
 """Agent chosen when the env var is unset or empty.  Matches OLAV's
 existing CLI default (``olav`` without ``--agent`` picks core)."""
 
-_ENV_ASSISTANT_ID = "DEEPAGENTS_CLI_SERVER_ASSISTANT_ID"
-"""Environment variable deepagents-cli sets when spawning the
+_ENV_ASSISTANT_ID = "DEEPAGENTS_CODE_SERVER_ASSISTANT_ID"
+"""Environment variable deepagents-code sets when spawning the
 subprocess.  Keeping the name identical avoids adding another knob."""
 
 
@@ -61,7 +61,7 @@ def build_graph(assistant_id: str | None = None) -> Any:
             ``core`` / ``netops`` / ``audit`` / ``devops`` (post
             R-AGENT-HIERARCHY Phase A 2026-05-09).  When
             ``None`` or an empty string, falls back to the
-            ``DEEPAGENTS_CLI_SERVER_ASSISTANT_ID`` env var, then to
+            ``DEEPAGENTS_CODE_SERVER_ASSISTANT_ID`` env var, then to
             ``"core"``.
 
     Returns:
