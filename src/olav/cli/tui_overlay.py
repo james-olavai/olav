@@ -444,9 +444,10 @@ def _patch_welcome_footer() -> bool:
     explore → audit → cron lifecycle).
     """
     try:
+        import random
+
         from deepagents_code.widgets import welcome as _dc_welcome
         from textual.content import Content  # noqa: PLC0415
-        import random
 
         olav_tips = [
             "Try `/netops` to explore the network or take a fresh snapshot",
@@ -458,12 +459,22 @@ def _patch_welcome_footer() -> bool:
         ]
 
         def _olav_welcome_footer(*, primary_color: str = _dc_welcome.theme.PRIMARY,  # type: ignore[name-defined]
-                                  tip: str | None = None) -> "Content":
+                                  tip: str | None = None,
+                                  show_tip: bool | None = None,
+                                  **_kwargs) -> Content:
+            # NOTE: signature must track deepagents_code.widgets.welcome.
+            # build_welcome_footer — 0.1.8 added `show_tip`.  `**_kwargs`
+            # absorbs future additions so the TUI degrades gracefully instead
+            # of crashing in WelcomeBanner.compose (dev_docs/104; the cli→code
+            # migration missed this kwarg).
+            cta = ("\nOLAV ready — explore, audit, or schedule. "
+                   "What's next on the network?\n")
+            if show_tip is False:
+                return Content.assemble((cta, primary_color))
             if tip is None:
                 tip = random.choice(olav_tips)  # noqa: S311
             return Content.assemble(
-                ("\nOLAV ready — explore, audit, or schedule. What's next on the network?\n",
-                 primary_color),
+                (cta, primary_color),
                 (f"Tip: {tip}", "dim italic"),
             )
 
