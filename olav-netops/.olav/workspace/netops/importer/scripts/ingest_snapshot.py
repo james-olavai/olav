@@ -94,7 +94,15 @@ def ingest_snapshot(
 
 
 if __name__ == "__main__":
-    import json as _json, sys as _sys
+    import contextlib as _ctx
+    import json as _json
+    import sys as _sys
+
     _args = _json.loads(_sys.stdin.read() or "{}")
-    result = ingest_snapshot(**_args)
+    # Keep stdout PURE JSON: the ingest impl (IngestManager.bulk_load,
+    # view_builder, topology_engine) logs progress to stdout.  Route that to
+    # stderr so machine consumers can `json.loads(stdout)` reliably — the demo
+    # e2e wrapper choked on log-polluted stdout for 4/5 bundles (dev_docs/104 #1).
+    with _ctx.redirect_stdout(_sys.stderr):
+        result = ingest_snapshot(**_args)
     print(_json.dumps(result, default=str))
