@@ -13,9 +13,9 @@ from unittest.mock import patch
 
 import pytest
 
-_DB = Path(__file__).resolve().parents[2] / ".olav/databases/main.duckdb")
+_DB = Path(__file__).resolve().parents[2] / ".olav/databases/main.duckdb"
 _TOOL_PATH = Path(
-    str(Path(__file__).resolve().parents[2] / "olav-netops/.olav/workspace/netops/tools/inspect_blast_radius.py"
+    Path(__file__).resolve().parents[2] / "olav-netops/.olav/workspace/netops/tools/inspect_blast_radius.py"
 )
 
 pytestmark = pytest.mark.skipif(

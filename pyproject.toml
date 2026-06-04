@@ -288,7 +288,7 @@ reportRedeclaration = "warning"
 [tool.pytest.ini_options]
 minversion = "7.0"
 testpaths = ["tests"]
-pythonpath = ["src", "olav-netops/src"]
+pythonpath = [".", "src", "olav-netops/src"]
 # Run notes:
 #   Default: pytest tests/                     (all tests, no LLM/network needed)
 #   E2E CLI:  pytest tests/e2e/test_cli.py     (subprocess, no LLM)

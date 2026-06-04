@@ -14,9 +14,9 @@ from pathlib import Path
 
 import pytest
 
-_DB = Path(__file__).resolve().parents[2] / ".olav/databases/main.duckdb")
+_DB = Path(__file__).resolve().parents[2] / ".olav/databases/main.duckdb"
 _SCRIPT = Path(
-    str(Path(__file__).resolve().parents[2] / "olav-netops/.olav/workspace/netops/reporter/scripts/query_evidence.py"
+    Path(__file__).resolve().parents[2] / "olav-netops/.olav/workspace/netops/reporter/scripts/query_evidence.py"
 )
 
 pytestmark = pytest.mark.skipif(

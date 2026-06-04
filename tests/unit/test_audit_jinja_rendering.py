@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 _RR_PATH = Path(
-    str(Path(__file__).resolve().parents[2] / "olav-netops/.olav/workspace/audit/audit-runner/scripts/render_report.py"
+    Path(__file__).resolve().parents[2] / "olav-netops/.olav/workspace/audit/audit-runner/scripts/render_report.py"
 )
 
 
