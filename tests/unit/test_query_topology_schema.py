@@ -17,7 +17,7 @@ import pytest
 
 
 _TOOL_PATH = Path(
-    "/home/yhvh/Olav/olav-netops/.olav/workspace/netops/topology/scripts/"
+    str(Path(__file__).resolve().parents[2] / "olav-netops/.olav/workspace/netops/topology/scripts/"
     "query_topology.py"
 )
 
