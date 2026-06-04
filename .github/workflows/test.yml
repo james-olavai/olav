@@ -143,6 +143,57 @@ jobs:
         run: uv run pytest tests/governance/ -q --tb=short -m netops
 
   # ─────────────────────────────────────────────────────────────
+  # Layer 2 E2E — always run, no LLM / no external infra needed
+  #
+  # These 8 test files (50 tests, ~65s) exercise platform and netops
+  # behaviours without requiring an LLM API, demo DB, CLAB, or Netmiko.
+  # They were previously hidden in the nightly e2e job and never ran on PR.
+  #
+  # Excluded from this job (nightly-only, need real infra):
+  #   test_lab_e2e_minimal.py    — PROBE_E2E_ENABLED + CLAB host
+  #   test_cab_digital_twin_e2e  — CLAB_API_TOKEN + live containerlab
+  #   test_diff_netmiko_e2e      — DIFF_E2E_ENABLED + SSH devices
+  #   test_ingest_clab_roundtrip — INGEST_E2E_ENABLED + CLAB lab
+  #   test_m4_l4_e2e             — L4_WEB_E2E_ENABLED + running server
+  #   test_web_ui_multi_agent_browser — playwright + browser
+  #   all *_LLM_SKIP gated tests — require LLM API key
+  # ─────────────────────────────────────────────────────────────
+  e2e-fast:
+    name: E2E fast (no-LLM)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install Python dependencies
+        run: uv sync --all-extras
+
+      - name: Bootstrap platform workspace (olav init)
+        run: uv run olav init
+
+      - name: Install netops skill pack
+        run: uv run olav skill install olav-netops
+
+      - name: Run no-LLM e2e tests
+        env:
+          OLAV_AUTH_MODE: none
+        run: |
+          uv run pytest \
+            tests/e2e/test_m1_platform_e2e.py \
+            tests/e2e/test_phase1_collection.py \
+            tests/e2e/test_phase2_normalization.py \
+            tests/e2e/test_phase3_topology.py \
+            tests/e2e/test_phase4_nl_acceptance.py \
+            tests/e2e/test_uks_cli.py \
+            tests/e2e/test_uks_e2e_full.py \
+            tests/e2e/test_uks_recall.py \
+            -q --tb=short
+
+  # ─────────────────────────────────────────────────────────────
   # E2E tests — nightly only, requires PROBE_E2E_ENABLED secret
   # ─────────────────────────────────────────────────────────────
   e2e:
