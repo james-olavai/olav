@@ -18,6 +18,10 @@ import pytest
 @pytest.fixture(scope="module")
 def _admin_agent():
     os.environ.setdefault("OLAV_AUTH_MODE", "none")
+    # Provide dummy API key so LLMFactory does not raise openai.OpenAIError
+    # in CI where OPENAI_API_KEY is not set. The agent is never invoked,
+    # only its graph tool list is inspected.
+    os.environ.setdefault("OLAV_LLM_API_KEY", "test")
     import logging
     logging.disable(logging.CRITICAL)
     from olav.agents.agent import OLAVAgent
