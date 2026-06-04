@@ -17,7 +17,8 @@ from pathlib import Path
 
 import pytest
 
-_WORKSPACE = Path(__file__).resolve().parents[2] / "olav-netops/.olav/workspace/audit/audit-author/scripts"
+# After olav skill install olav-netops, audit workspace is deployed to .olav/workspace/audit/
+_WORKSPACE = Path(__file__).resolve().parents[2] / ".olav/workspace/audit/audit-author/scripts"
 
 
 def _import_module_from_path(modname: str, file_path: Path):

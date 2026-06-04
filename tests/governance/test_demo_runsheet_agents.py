@@ -52,8 +52,7 @@ CURRENT_AGENTS: frozenset[str] = frozenset({
     "core",
     "devops",
     "netops",
-    "ops",
-    "services",            # ADR-0014: platform service-lifecycle agent (NEW;
+        "services",            # ADR-0014: platform service-lifecycle agent (NEW;
                            # name reclaimed — old self-mgmt services→admin)
 })
 
