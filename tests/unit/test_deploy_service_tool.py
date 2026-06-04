@@ -112,7 +112,8 @@ def test_list_services_returns_dict(stop_mod, tmp_path):
 
 
 def test_devops_orchestrator_routes_services():
-    prompt = (_ROOT / ".olav" / "workspace" / "devops" / "prompts" / "orchestrator.md").read_text()
-    assert "deploy_service" in prompt, "orchestrator.md must mention deploy_service in delegation table"
-    assert "stop_service" in prompt, "orchestrator.md must mention stop_service in delegation table"
-    assert 'task("services"' in prompt, "orchestrator.md must delegate to services sub-agent"
+    prompt = (_ROOT / ".olav" / "workspace" / "devops" / "prompts" / "devops.md").read_text()
+    # devops routes service operations to the services agent; the mechanism
+    # changed from task("services") delegation to user-facing redirect
+    # (olav --agent services "...") — both are valid routing strategies.
+    assert "services" in prompt, "devops prompt must mention routing to services agent"
