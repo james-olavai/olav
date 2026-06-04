@@ -390,3 +390,162 @@ class TestMultiAgentSwitching:
             data = json.loads(resp.read())
         graph_ids = [a.get("graph_id") for a in data]
         assert "netops" in graph_ids, f"Expected 'netops' in {graph_ids}"
+
+
+# ---------------------------------------------------------------------------
+# Helper — log in once and return a page in chat state
+# ---------------------------------------------------------------------------
+
+def _wait_for_chat_ready(page, timeout_s: int = 30) -> None:
+    """Block until the chat textarea is visible, enabled, and not mid-stream."""
+    # The textarea has placeholder "Write your message..." — match that to avoid
+    # matching the login token <input> on /login page.
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        ta = page.query_selector("textarea[placeholder], [role='textbox']")
+        if ta and ta.is_visible() and ta.is_enabled():
+            # Also confirm we are NOT on the login page
+            if "/login" not in page.url:
+                return
+        time.sleep(0.5)
+    raise AssertionError(
+        f"Chat textarea not ready after {timeout_s}s  (url={page.url})"
+    )
+
+
+def _ensure_logged_in(page, server_url: str) -> None:
+    """Navigate to server and log in if not already on the chat page."""
+    server_host = server_url.split("://", 1)[-1].rstrip("/")
+    already_on_chat = (
+        server_host in page.url
+        and "/login" not in page.url
+    )
+    if not already_on_chat:
+        page.goto(server_url + "/", wait_until="domcontentloaded", timeout=20000)
+        page.wait_for_timeout(800)
+
+    if "/login" in page.url:
+        token_input = page.query_selector("input")
+        if token_input:
+            token_input.fill("olav_test")
+        login_btn = page.query_selector("button")
+        if login_btn:
+            login_btn.click()
+            page.wait_for_load_state("networkidle", timeout=15000)
+
+    _wait_for_chat_ready(page)
+
+
+def _send_and_wait(page, message: str, timeout_s: int = 120) -> str:
+    """Type *message*, submit, wait until an AI reply appears, return its text."""
+    _wait_for_chat_ready(page)
+
+    ta = page.query_selector("textarea[placeholder], [role='textbox']")
+    ta.fill(message)
+    ta.press("Enter")
+
+    # Wait for at least one .prose AI-bubble to appear (polls up to timeout_s)
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        has_prose = page.evaluate("""() => {
+            const proses = [...document.querySelectorAll('.prose')].filter(el => {
+                let p = el.parentElement;
+                while (p) {
+                    if (p.classList && p.classList.contains('flex-row-reverse')) return false;
+                    p = p.parentElement;
+                }
+                return true;
+            });
+            return proses.some(el => (el.innerText || '').trim().length > 10);
+        }""")
+        if has_prose:
+            break
+        time.sleep(0.8)
+
+    # Wait until streaming also finishes (textarea re-enabled)
+    _wait_for_chat_ready(page, timeout_s=max(10, deadline - time.monotonic()))
+
+    # Extra settle time so the DOM fully renders the last tokens
+    page.wait_for_timeout(500)
+
+    # AI responses are rendered by MarkdownContent with class "prose ..."
+    # User bubbles are inside a .flex-row-reverse wrapper — exclude those.
+    body = page.evaluate("""() => {
+        // Select all .prose containers that are NOT inside a .flex-row-reverse
+        // (user messages use flex-row-reverse, AI messages do not)
+        const all = [...document.querySelectorAll('.prose')].filter(el => {
+            let p = el.parentElement;
+            while (p) {
+                if (p.classList && p.classList.contains('flex-row-reverse')) return false;
+                p = p.parentElement;
+            }
+            return true;
+        });
+        return all
+            .map(el => (el.innerText || el.textContent || '').trim())
+            .filter(t => t.length > 10)
+            .join(' | ')
+            .slice(0, 500);
+    }""")
+
+    return (body or "").strip()
+
+
+def _switch_agent_fresh(page, agent_id: str) -> None:
+    """Select *agent_id* from the <select> dropdown and start a New Thread."""
+    sel = page.query_selector("select")
+    if sel:
+        sel.select_option(agent_id)
+        page.wait_for_timeout(600)
+    new_btn = page.query_selector("button:has-text('New Thread')")
+    if new_btn and not new_btn.is_disabled():
+        new_btn.click()
+        page.wait_for_timeout(800)
+    _wait_for_chat_ready(page)
+
+
+# ---------------------------------------------------------------------------
+# All-agents chat smoke tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(
+    os.environ.get("BROWSERLESS_URL", "") == "",
+    reason="BROWSERLESS_URL not set — browser tests require browserless-chrome",
+)
+class TestAllAgentsChat:
+    """Send '你能做什么？' to every registered agent and verify a non-empty response.
+
+    Runs sequentially in a single browser session to avoid repeated login overhead
+    and navigation races. Login happens once; each sub-test switches agent and starts
+    a new thread.
+    """
+
+    AGENTS = ["core", "netops", "devops", "admin", "audit", "services"]
+
+    def test_all_agents_respond(self, browser_page, server_url):
+        """Every agent must return a non-empty reply to '你能做什么？'.
+
+        Reports a per-agent summary table even on partial failure so we know
+        which agents are broken.
+        """
+        _ensure_logged_in(browser_page, server_url)
+
+        results: list[dict] = []
+        for agent_id in self.AGENTS:
+            _switch_agent_fresh(browser_page, agent_id)
+            response = _send_and_wait(browser_page, "你能做什么？", timeout_s=120)
+            results.append({
+                "agent": agent_id,
+                "ok": bool(response and len(response) > 10),
+                "preview": response[:100] if response else "(empty)",
+            })
+            print(f"\n[{agent_id}] {'✓' if results[-1]['ok'] else '✗'}  {results[-1]['preview']}")
+
+        failed = [r for r in results if not r["ok"]]
+        summary = "\n".join(
+            f"  {'✓' if r['ok'] else '✗'} {r['agent']:12s}  {r['preview']}"
+            for r in results
+        )
+        assert not failed, (
+            f"The following agents did not respond:\n{summary}"
+        )
