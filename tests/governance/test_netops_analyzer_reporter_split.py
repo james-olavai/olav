@@ -57,14 +57,14 @@ class TestAnalyzerModeA:
     def test_skill_md_exists(self):
         assert (_ANALYZER_DIR / "SKILL.md").is_file()
 
-    def test_tool_count_at_most_8(self):
+    def test_tool_count_at_most_9(self):
         # Limit raised from 7 → 8 (2026-05-31): olav_recall_memory added to enable
         # expert-KB guardrail injection from trace_learner failure learning.
-        # Budget is still tight — do not add more tools without a clear rationale.
+        # Budget raised 8→9 (2026-06-04): write_todos added for TodoListMiddleware (phase-based task decomposition for small models — CH11 fix).
         fm = _parse_front_matter(_ANALYZER_DIR / "SKILL.md")
         tools = _collect_tools(fm)
-        assert len(tools) <= 8, (
-            f"analyzer has {len(tools)} tools (> 8 hard limit): {sorted(tools)}"
+        assert len(tools) <= 9, (
+            f"analyzer has {len(tools)} tools (> 9 hard limit): {sorted(tools)}"
         )
 
     def test_has_change_plan_tools(self):

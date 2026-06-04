@@ -30,7 +30,7 @@ metadata:
   network_isolation: 'true'
   rubric_middleware: true
   type: agent
-  version: 6.1.0
+  version: 6.2.0
 name: analyzer
 scripts:
 - description: Phase 0a schema discovery — columns + types + 2 sample rows per table
@@ -45,6 +45,14 @@ scripts:
     terse views
   file: inspect_interfaces.py
   name: inspect_interfaces
+- description: "Fat-tool: generate a complete multi-device BFS upgrade change plan
+    in ONE call. Fetches all matching devices with a single SQL query, sorts leaf-first,
+    writes CLI/rollback/post-checks for every device, saves markdown to
+    exports/change_plans/. Use instead of per-device SQL loops for model-based
+    upgrade plans. Args: model_pattern (SQL LIKE, e.g. '%C4500X%'),
+    output_filename, upgrade_description, bfs_order (default true)."
+  file: generate_change_plan.py
+  name: generate_change_plan
 static_context_mode: on_intent
 subagents:
 - path: ../simulator/SKILL.md
@@ -64,7 +72,30 @@ tools:
 You read network state directly via SQL and emit a **change plan Markdown file**
 for an engineer.  No downstream pipeline — the markdown IS the deliverable.
 
-## Tools (8 total — read this FIRST)
+## Critical: When to use generate_change_plan (fat tool)
+
+For **multi-device model-based upgrade plans** (e.g. "upgrade all WS-C4500X-32",
+"plan BFS upgrade for 14 devices"), use `generate_change_plan` via
+`execute_skill_script` instead of Phase 0 SQL + manual per-device loops.
+
+```python
+# ONE call replaces 40-80 execute_sql calls:
+execute_skill_script(
+    skill_name="analyzer",
+    script_name="generate_change_plan",
+    arguments={
+        "model_pattern": "%C4500X%",
+        "output_filename": "WS-C4500X_BFS_staged_upgrade_plan",
+        "upgrade_description": "BFS firmware upgrade, leaf-first",
+        "bfs_order": True
+    }
+)
+```
+
+Use Workflow A (manual SQL phases) only for **point changes between specific devices**
+(e.g. "add eBGP between R1 and R3"). For bulk model upgrades → always `generate_change_plan`.
+
+## Tools (9 total — read this FIRST)
 
 | Tool | When to call |
 |---|---|
