@@ -75,7 +75,7 @@ v0.18.1 canonical set（Round 18 Step D lite 后）：
 ```
 olav "快速问题"                          → Core Agent（日常 80%，含脚本生成）
 olav --agent admin "查询 NetBox"       → Services Agent（API 集成、服务注册）
-olav --agent ops "模拟链路故障"           → Ops Agent（网络运维 + lab / probe 子 agent）
+olav --agent netops "模拟链路故障"           → Ops Agent（网络运维 + lab / probe 子 agent）
 olav --agent audit "执行健康检查"         → Audit Agent（profile 作者 + 执行器）
 ```
 
@@ -160,9 +160,9 @@ olav --agent core "写一个备份所有路由器配置的脚本"
 ```bash
 pip install olav-netops
 
-olav --agent ops "/netops_init"                    # SSH 采集设备数据
-olav --agent ops "模拟 R2 链路故障"                 # What-If 分析
-olav --agent ops "部署数字孪生（CAB 验证）"         # ContainerLab 验证（由 ops orchestrator 委派到 ops/lab 子 agent）
+olav --agent netops "/netops_init"                    # SSH 采集设备数据
+olav --agent netops "模拟 R2 链路故障"                 # What-If 分析
+olav --agent netops "部署数字孪生（CAB 验证）"         # ContainerLab 验证（由 ops orchestrator 委派到 ops/lab 子 agent）
 ```
 
 ### 其他使用方式
