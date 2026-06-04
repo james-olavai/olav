@@ -59,17 +59,26 @@ jobs:
       - name: Install netops skill pack
         run: uv run olav skill install olav-netops
 
-      # demo 데이터 없으면 import (CI 캐시 없을 때)
-      - name: Import demo bundles (if available)
+      # tmp/anon/ 은 gitignored — runner 호스트에 사전 배치된 경우에만 import.
+      # 2개 날짜만 명시 지정 (전체 6개 대비 setup 시간 절약 ~2분).
+      # bundle 없으면 demo_runsheet 테스트가 _DEMO_SKIP 게이트로 자동 skip.
+      - name: Import demo bundles (2 snapshots for e2e data)
         run: |
-          for bundle in tmp/anon/bundle_*/; do
-            [ -d "$bundle" ] || continue
+          for bundle in tmp/anon/bundle_2026-01-18 tmp/anon/bundle_2026-02-15; do
+            [ -d "$bundle" ] || { echo "⚠ $bundle not found, skipping"; continue; }
             echo "Importing $bundle ..."
             echo "{\"path\": \"$bundle\"}" | \
               uv run python .olav/workspace/netops/importer/scripts/ingest_snapshot.py \
-              2>/dev/null || true
+              2>/dev/null && echo "✓ imported" || echo "⚠ import failed (continuing)"
           done
         continue-on-error: true
+
+      # nornir/Netmiko 채집 테스트: DIFF_E2E_ENABLED=1 없으면 자동 skip.
+      # nornir 미설정 환경에서는 설정하지 말 것.
+      # - test_diff_netmiko_e2e:    DIFF_E2E_ENABLED=1 필요
+      # - test_ingest_clab_roundtrip: INGEST_E2E_ENABLED=1 + CLAB 필요
+      # - test_command_learner_e2e:  LEARNER_E2E_ENABLED=1 필요
+      # → 위 변수 미설정 시 해당 테스트 자동 skip (코드 레벨 게이팅)
 
       - name: Run demo runsheet e2e (CH3-CH15)
         run: |
