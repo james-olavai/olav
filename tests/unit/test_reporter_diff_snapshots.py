@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-_DB = Path(__file__).resolve().parents[2] / ".olav/databases/main.duckdb")
+_DB = Path(__file__).resolve().parents[2] / ".olav/databases/main.duckdb"
 _SCRIPT = Path(
-    str(Path(__file__).resolve().parents[2] / "olav-netops/.olav/workspace/netops/reporter/scripts/diff_snapshots.py"
+    Path(__file__).resolve().parents[2] / "olav-netops/.olav/workspace/netops/reporter/scripts/diff_snapshots.py"
 )
 
 # Two snapshots that exist in the demo dataset with different row counts

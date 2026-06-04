@@ -16,9 +16,8 @@ import duckdb
 import pytest
 
 
-_TOOL_PATH = Path(
-    str(Path(__file__).resolve().parents[2] / "olav-netops/.olav/workspace/netops/topology/scripts/"
-    "query_topology.py"
+_TOOL_PATH = (
+    Path(__file__).resolve().parents[2] / "olav-netops/.olav/workspace/netops/topology/scripts/query_topology.py"
 )
 
 
