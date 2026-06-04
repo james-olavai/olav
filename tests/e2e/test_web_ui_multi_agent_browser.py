@@ -329,6 +329,49 @@ class TestMemoryGraphRoute:
         assert "html" in content_type.lower(), f"Expected HTML, got: {content_type}"
 
 
+class TestThreadsSidebar:
+    def test_sidebar_opens_at_correct_width(self, browser_page, server_url):
+        """Threads sidebar must render at ≥22% viewport width when opened.
+
+        Regression test for react-resizable-panels v4 `defaultLayout` bug:
+        a conditionally-added panel received only ~2% instead of 28% because
+        the group's in-memory state (chat=100%) was not reset on panel join.
+        Fixed via `defaultLayout={{ "thread-history": 28, "chat": 72 }}` on
+        the ResizablePanelGroup.
+        """
+        browser_page.goto(server_url + "/", wait_until="networkidle")
+
+        # Log in (auth_mode=none accepts any token)
+        token_input = browser_page.query_selector("input")
+        if token_input:
+            token_input.fill("olav_test")
+        login_btn = browser_page.query_selector("button")
+        if login_btn:
+            login_btn.click()
+            browser_page.wait_for_load_state("networkidle", timeout=15000)
+            browser_page.wait_for_timeout(1500)
+
+        # Click the Threads toggle button
+        threads_btn = browser_page.query_selector("button:has-text('Threads')")
+        assert threads_btn is not None, "Threads toggle button not found"
+        threads_btn.click()
+        browser_page.wait_for_timeout(2000)
+
+        # The sidebar panel must be in the DOM and wide enough
+        panel = browser_page.query_selector("#thread-history")
+        assert panel is not None, "#thread-history panel not rendered after opening sidebar"
+
+        box = panel.bounding_box()
+        assert box is not None, "Could not get bounding box for #thread-history"
+
+        viewport_width = browser_page.viewport_size["width"]
+        pct = box["width"] / viewport_width * 100
+        assert pct >= 22, (
+            f"Sidebar rendered at {pct:.1f}% viewport width — expected ≥22% (minSize). "
+            "Likely a react-resizable-panels defaultLayout regression."
+        )
+
+
 @pytest.mark.skipif(
     not Path(".olav/workspace/netops").exists(),
     reason="netops workspace not installed",
