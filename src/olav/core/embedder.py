@@ -256,8 +256,14 @@ def embed_text(text: str) -> "list[float] | None":
             # pydantic validation in the SDK then drops the response as
             # malformed → "No embedding data received").  Forcing "float"
             # is the standards-compliant request and the cheapest fix.
+            # Some providers (NVIDIA NIM) require an `input_type` field
+            # in the request body (e.g. "query" or "passage").
+            # Set OLAV_EMBEDDING_INPUT_TYPE to pass it via extra_body.
+            _input_type = os.environ.get("OLAV_EMBEDDING_INPUT_TYPE")
+            _extra = {"input_type": _input_type} if _input_type else None
             resp = client.embeddings.create(
                 input=text, model=model, encoding_format="float",
+                **({"extra_body": _extra} if _extra else {}),
             )
             vec = resp.data[0].embedding
         else:
