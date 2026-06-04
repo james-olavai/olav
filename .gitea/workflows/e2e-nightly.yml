@@ -1,6 +1,8 @@
-name: E2E Nightly
+name: E2E Full
 
-# 仅手动/远程触发（workflow_dispatch 支持在 Gitea UI 手动或通过 API 远程运行）
+# 仅手动/远程触发 — 避免定时自动消耗 LLM token
+# Gitea UI: Actions → E2E Full → Run workflow
+# API 触发: POST /api/v1/repos/admin/olav/actions/workflows/e2e-nightly.yml/dispatches
 on:
   workflow_dispatch:
     inputs:
