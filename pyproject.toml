@@ -130,6 +130,7 @@ dependencies = [
     "pandas>=3.0.1",
     "textfsm>=2.1.0",
     "ntc-templates>=9.1.0",
+    "google-genai>=1.70.0",
 ]
 
 [project.scripts]
