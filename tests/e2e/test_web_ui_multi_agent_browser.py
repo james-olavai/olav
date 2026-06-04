@@ -23,6 +23,7 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -47,6 +48,49 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _docker_host_ip() -> str:
+    """Return the IP of this host as reachable from Docker containers.
+
+    Priority:
+    1. BROWSERLESS_HOST_IP env var (explicit override)
+    2. Gateway of the browserless container's network (via docker inspect)
+    3. Default route gateway (works when running inside a Docker container)
+    4. Hardcoded fallback
+    """
+    if explicit := os.environ.get("BROWSERLESS_HOST_IP", ""):
+        return explicit
+
+    # Try docker inspect on the browserless container — works on bare metal
+    try:
+        r = subprocess.run(
+            ["docker", "inspect", "browserless-chrome-1",
+             "--format", "{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    except Exception:
+        pass
+
+    # Inside a Docker container: default route gateway = Docker bridge host
+    try:
+        r = subprocess.run(
+            ["ip", "route", "show", "default"],
+            capture_output=True, text=True, timeout=3,
+        )
+        parts = r.stdout.split()
+        gw = parts[parts.index("via") + 1]
+        # Only use if it looks like a private Docker range, not a LAN router
+        import ipaddress  # noqa: PLC0415
+        addr = ipaddress.ip_address(gw)
+        if addr.is_private and not str(gw).startswith("192.168."):
+            return gw
+    except Exception:
+        pass
+
+    return "10.0.13.1"
+
+
 def _wait_for_port(host: str, port: int, timeout: float = 30.0) -> bool:
     """Poll until the port accepts connections or timeout elapses."""
     deadline = time.monotonic() + timeout
@@ -68,6 +112,37 @@ def server_url() -> str:
     port = _free_port()
     env = {**os.environ, "OLAV_AUTH_MODE": "none"}
 
+    # When using a remote/Docker browserless instance, the browser runs inside
+    # a container and cannot reach 127.0.0.1 on the host. Bind on 0.0.0.0 and
+    # return the host IP that the container can route to.
+    # Also write a temp api.json with allowed_cidrs:[] so the CIDR middleware
+    # doesn't block the Docker gateway IP.
+    browserless_url = os.environ.get("BROWSERLESS_URL", "")
+    tmp_home = None
+    if browserless_url:
+        bind_host = "0.0.0.0"
+        # Auto-detect the Docker gateway IP so the browser inside the
+        # browserless container can route back to this server.
+        serve_host = _docker_host_ip()
+
+        # Build a temp OLAV_HOME with allowed_cidrs=[] (accepts all IPs).
+        # OLAV_HOME is the project root — api.json lives at {home}/.olav/config/api.json
+        tmp_home = tempfile.mkdtemp(prefix="olav_webtest_")
+        tmp_config_dir = Path(tmp_home) / ".olav" / "config"
+        tmp_config_dir.mkdir(parents=True)
+        # Copy api.json and clear the CIDR allowlist
+        real_api = Path(".olav/config/api.json")
+        if real_api.exists():
+            api_data = json.loads(real_api.read_text())
+        else:
+            api_data = {}
+        api_data.setdefault("security", {})["allowed_cidrs"] = []
+        (tmp_config_dir / "api.json").write_text(json.dumps(api_data))
+        env["OLAV_HOME"] = tmp_home
+    else:
+        bind_host = "127.0.0.1"
+        serve_host = "127.0.0.1"
+
     proc = subprocess.Popen(
         [
             sys.executable,
@@ -75,7 +150,7 @@ def server_url() -> str:
             "uvicorn",
             "olav.api.app:app",
             "--host",
-            "127.0.0.1",
+            bind_host,
             "--port",
             str(port),
             "--log-level",
@@ -92,13 +167,17 @@ def server_url() -> str:
         out, _ = proc.communicate(timeout=5)
         pytest.fail(f"Server did not start on port {port}.\nOutput:\n{out}")
 
-    yield f"http://127.0.0.1:{port}"
+    yield f"http://{serve_host}:{port}"
 
     proc.terminate()
     try:
         proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
         proc.kill()
+
+    if tmp_home:
+        import shutil  # noqa: PLC0415
+        shutil.rmtree(tmp_home, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
@@ -107,18 +186,31 @@ def server_url() -> str:
 
 @pytest.fixture(scope="module")
 def browser_page(server_url):
-    """Yield a Playwright page pointed at the running server."""
+    """Yield a Playwright page pointed at the running server.
+
+    If BROWSERLESS_URL is set (e.g. ws://localhost:9222), connect via CDP
+    instead of launching a local Chromium binary.
+    """
     pytest.importorskip("playwright", reason="playwright not installed")
 
     from playwright.sync_api import sync_playwright  # noqa: PLC0415
 
+    browserless_url = os.environ.get("BROWSERLESS_URL", "")
+
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+        if browserless_url:
+            # browserless/chrome exposes CDP at http://host:port
+            # Playwright fetches /json/version internally to get the WS URL
+            cdp_url = browserless_url.replace("ws://", "http://").replace("wss://", "https://")
+            browser = pw.chromium.connect_over_cdp(cdp_url)
+        else:
+            browser = pw.chromium.launch(headless=True)
         ctx = browser.new_context(base_url=server_url)
         page = ctx.new_page()
         yield page
         ctx.close()
-        browser.close()
+        if not browserless_url:
+            browser.close()
 
 
 # ---------------------------------------------------------------------------
