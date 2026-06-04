@@ -9,8 +9,8 @@ from unittest.mock import patch
 import pytest
 
 _ROOT = Path(__file__).resolve().parents[2]
-_DEPLOY_PATH = _ROOT / ".olav" / "workspace" / "devops" / "services" / "scripts" / "deploy_service.py"
-_STOP_PATH = _ROOT / ".olav" / "workspace" / "devops" / "services" / "scripts" / "stop_service.py"
+_DEPLOY_PATH = _ROOT / ".olav" / "workspace" / "services" / "scripts" / "deploy_service.py"
+_STOP_PATH = _ROOT / ".olav" / "workspace" / "services" / "scripts" / "stop_service.py"
 
 
 def _load(path: Path, name: str):
