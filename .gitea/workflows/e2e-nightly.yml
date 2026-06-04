@@ -1,0 +1,104 @@
+name: E2E Nightly
+
+# 夜间定时 + 手动触发（workflow_dispatch 支持在 gitea UI 手动运行）
+on:
+  schedule:
+    - cron: "0 2 * * *"   # 每天凌晨 2:00 UTC
+  workflow_dispatch:
+    inputs:
+      agent:
+        description: "指定 agent 测试（留空=全部）"
+        required: false
+        default: ""
+      timeout_factor:
+        description: "超时倍数（默认 1.0，慢机器用 2.0）"
+        required: false
+        default: "1.0"
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # Layer 3: Full E2E — LLM + demo DB required
+  # ─────────────────────────────────────────────────────────────
+  e2e-full:
+    name: E2E full (LLM)
+    runs-on: ubuntu-latest
+    env:
+      PROBE_E2E_ENABLED: "1"
+      DEVOPS_E2E_ENABLED: "1"
+      RUNSHEET_E2E_ENABLED: "1"
+      OLAV_AUTH_MODE: none
+      OLAV_E2E_TIMEOUT_FACTOR: ${{ github.event.inputs.timeout_factor || '1.0' }}
+      # LLM 연결 — gitea secrets 에 등록 필요
+      OLAV_LLM_API_KEY: ${{ secrets.OLAV_LLM_API_KEY }}
+      OLAV_LLM_BASE_URL: ${{ secrets.OLAV_LLM_BASE_URL || 'https://api.deepseek.com/v1' }}
+      OLAV_LLM_MODEL: ${{ secrets.OLAV_LLM_MODEL || 'deepseek/deepseek-v4-flash' }}
+      OLAV_CLAB_HOST: ${{ secrets.OLAV_CLAB_HOST }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Install olav-netops (editable)
+        run: uv pip install -e olav-netops/
+
+      - name: Bootstrap workspace
+        run: uv run olav init
+
+      - name: Install netops skill pack
+        run: uv run olav skill install olav-netops
+
+      # demo 데이터 없으면 import (CI 캐시 없을 때)
+      - name: Import demo bundles (if available)
+        run: |
+          for bundle in tmp/anon/bundle_*/; do
+            [ -d "$bundle" ] || continue
+            echo "Importing $bundle ..."
+            echo "{\"path\": \"$bundle\"}" | \
+              uv run python .olav/workspace/netops/importer/scripts/ingest_snapshot.py \
+              2>/dev/null || true
+          done
+        continue-on-error: true
+
+      - name: Run demo runsheet e2e (CH3-CH15)
+        run: |
+          uv run pytest tests/e2e/test_demo_runsheet_82.py \
+            -q --tb=short --timeout=600
+        continue-on-error: true
+
+      - name: Run admin e2e
+        run: uv run pytest tests/e2e/test_admin_e2e.py -q --tb=short
+        continue-on-error: true
+
+      - name: Run netops e2e
+        run: uv run pytest tests/e2e/test_netops_e2e.py -q --tb=short
+        continue-on-error: true
+
+      - name: Run devops e2e
+        run: uv run pytest tests/e2e/test_devops_e2e.py -q --tb=short
+        continue-on-error: true
+
+      - name: Run audit e2e
+        run: uv run pytest tests/e2e/test_audit_e2e.py -q --tb=short
+        continue-on-error: true
+
+      - name: Run KB + memory e2e
+        run: |
+          uv run pytest \
+            tests/e2e/test_m3_kb_llm_e2e.py \
+            tests/e2e/test_uks_e2e_full.py \
+            -q --tb=short
+        continue-on-error: true
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## E2E Nightly Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Date: $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- LLM: $OLAV_LLM_MODEL" >> $GITHUB_STEP_SUMMARY
