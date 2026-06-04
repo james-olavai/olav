@@ -25,7 +25,7 @@ import pytest
 # Load map_engine via spec since it lives in the workspace tools/, not on
 # sys.path. Mirrors how the running agent loads it.
 _ME_PATH = (
-    Path("/home/yhvh/Olav/olav-netops/.olav/workspace/audit/audit-runner/scripts/map_engine.py")
+    Path(__file__).resolve().parents[2] / "olav-netops/.olav/workspace/audit/audit-runner/scripts/map_engine.py"
 )
 
 

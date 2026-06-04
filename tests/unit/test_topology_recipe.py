@@ -19,13 +19,9 @@ from unittest.mock import patch, MagicMock
 import duckdb
 import pytest
 
-_DB = Path("/home/yhvh/Olav/.olav/databases/main.duckdb")
-_DISCOVER_SCRIPT = Path(
-    "/home/yhvh/Olav/olav-netops/.olav/workspace/netops/topology/scripts/discover_recipe.py"
-)
-_SAVE_SCRIPT = Path(
-    "/home/yhvh/Olav/olav-netops/.olav/workspace/netops/topology/scripts/save_recipe.py"
-)
+_DB = Path(__file__).resolve().parents[2] / ".olav/databases/main.duckdb"
+_DISCOVER_SCRIPT = Path(__file__).resolve().parents[2] / "olav-netops/.olav/workspace/netops/topology/scripts/discover_recipe.py"
+_SAVE_SCRIPT = Path(__file__).resolve().parents[2] / "olav-netops/.olav/workspace/netops/topology/scripts/save_recipe.py"
 
 
 def _load(path, name):
