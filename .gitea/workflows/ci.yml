@@ -126,12 +126,9 @@ jobs:
         env:
           OLAV_AUTH_MODE: none
         run: |
+          # test_phase1-4 are gitignored — only run tracked e2e files
           uv run pytest \
             tests/e2e/test_m1_platform_e2e.py \
-            tests/e2e/test_phase1_collection.py \
-            tests/e2e/test_phase2_normalization.py \
-            tests/e2e/test_phase3_topology.py \
-            tests/e2e/test_phase4_nl_acceptance.py \
             tests/e2e/test_uks_cli.py \
             tests/e2e/test_uks_e2e_full.py \
             tests/e2e/test_uks_recall.py \
