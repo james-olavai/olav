@@ -902,6 +902,25 @@ class OLAVAgent:
             self.graph = create_deep_agent(**_create_kwargs)
         finally:
             _TASK_RETURN_DIRECT.reset(_task_rd_token)
+
+        # Prune deepagents auto-injected tools from the orchestrator graph itself.
+        # deepagents' FilesystemMiddleware + TodoListMiddleware always inject
+        # read_file / write_file / edit_file / glob / grep / ls / execute /
+        # write_todos regardless of the `tools=[]` we pass.  For pure-router
+        # orchestrators (admin, core) these FS tools cause the model to explore
+        # the filesystem instead of delegating via task() — exactly the
+        # `admin cron list` failure mode: gemma4 called read_file/glob/ls before
+        # ever attempting task("ops", ...).  Sub-agents are pruned already (line
+        # 1362); this extends the same treatment to the orchestrator graph.
+        # Agents that legitimately need FS tools (e.g. devops/scripts) can opt
+        # out by setting `keep_orchestrator_fs_tools: true` in AGENT.md.
+        if not olav_config.get("keep_orchestrator_fs_tools"):
+            _orch_prune = _DEEPAGENTS_INJECT_TOOLS - set(
+                t.name for t in orchestrator_tools
+            )
+            if _orch_prune:
+                _prune_graph_tools(self.graph, _orch_prune, f"orchestrator '{self.agent_id}'")
+
         # Store middleware ref for manual invocation — deepagents 0.5.2
         # accepts the `middleware` kwarg but doesn't mount it on the graph.
         self._olav_middleware = list(effective_middleware)
