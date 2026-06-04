@@ -52,12 +52,11 @@ _EXPECTED_TOP_LEVEL_DIRS = frozenset(
         "devops",
         "netops",          # formerly ops/ (main); learner/ is a netops sub-agent
         "services",        # ADR-0014: platform service-lifecycle agent (NEW)
-        "ops",             # transitional — contains only netops_init
     }
 )
 
 
-_TRANSITIONAL_DIRS = frozenset({"ops"})  # transitional: ops/ contains only netops_init
+_TRANSITIONAL_DIRS = frozenset()  # ops/ removed in ADR-0014
 
 
 def _top_level_dirs() -> set[str]:
