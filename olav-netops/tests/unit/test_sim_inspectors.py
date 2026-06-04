@@ -21,7 +21,13 @@ _TOOL_SEARCH_PATHS = [
 
 
 def _load_tool(name: str):
-    """Load a tool .py by searching known post-migration locations."""
+    """Load a tool .py by searching known post-migration locations.
+
+    Skips the entire module at collection time if:
+    - the tool file is not found (moved/removed in @tool→scripts migration)
+    - the tool file imports olav_netops.sim which is unavailable (not pip-installed)
+    """
+    import pytest
     tool_path = None
     for search_dir in _TOOL_SEARCH_PATHS:
         candidate = search_dir / f"{name}.py"
@@ -29,13 +35,25 @@ def _load_tool(name: str):
             tool_path = candidate
             break
     if tool_path is None:
-        import pytest
-        pytest.skip(f"Tool {name}.py not found in known locations (moved or removed)", allow_module_level=True)
-    
+        pytest.skip(
+            f"Tool {name}.py not found in known locations (moved or removed)",
+            allow_module_level=True,
+        )
+
     spec = importlib.util.spec_from_file_location(f"sim_tool_{name}", tool_path)
     module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     sys.modules[f"sim_tool_{name}"] = module
-    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    try:
+        spec.loader.exec_module(module)  # type: ignore[union-attr]
+    except ImportError as exc:
+        # Tool script imports olav_netops.sim (or other optional deps) which
+        # are not available when olav-netops is not installed as a Python
+        # package (e.g. CI where only workspace files are deployed).
+        pytest.skip(
+            f"Tool {name}.py cannot be loaded: {exc} "
+            "(run `pip install -e olav-netops/` to enable these tests)",
+            allow_module_level=True,
+        )
     return module
 
 
