@@ -287,3 +287,11 @@ duplicated across sub-agents must be identical to the canonical source — use
 - `--dangerously-skip-permissions` bypasses approval gates for testing only. See `src/olav/platform/safety/permissions.py`.
 - DuckDB `read_only=True` is a data-integrity constraint and is never bypassed.
 - Never mount `/` in a privileged container with `rm -rf` — always mount specific directories and guard empty path variables.
+
+## 工作语言与汇报规范
+
+**所有汇总、状态报告、分析结论一律使用简体中文输出。**
+
+- 代码、commit message、文档（CLAUDE.md / dev_docs / ADR）保持英文
+- 与用户的交互对话、分析判断、进度汇报使用中文
+- 错误诊断和根因分析也用中文，代码片段内嵌英文注释正常
