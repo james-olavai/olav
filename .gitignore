@@ -129,6 +129,11 @@ olav-netops/.olav/workspace/devops/
 /olav-collector/
 
 # ── Whitelist (tracked paths inside ignored parents) ──
+!tests/
+tests/*
+!tests/fixtures/
+tests/fixtures/*
+!tests/fixtures/demo_db/
 !olav-netops/
 olav-netops/*
 !olav-netops/.olav/

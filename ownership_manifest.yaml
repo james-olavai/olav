@@ -221,6 +221,14 @@ rules:
     enforced: true
     git: ignore
 
+  # Demo DB Parquet fixtures — tracked for e2e CI (38.8 MB, zstd compressed)
+  - pattern: tests/fixtures/demo_db/**
+    owner: olav
+    class: testing
+    status: authoritative
+    enforced: false
+    git: track
+
   - pattern: run/**
     owner: olav
     class: platform
