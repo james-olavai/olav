@@ -349,12 +349,50 @@ class LLMFactory:
             if not _mkw:
                 params.pop("model_kwargs", None)
 
-        # Use init_chat_model - LangChain handles provider detection
-        try:
-            llm = init_chat_model(**params)
-        except Exception as e:
-            logger.error(f"Failed to initialize chat model: {e}")
-            raise
+        # Google AI Studio: use ChatGoogleGenerativeAI (native SDK)
+        # instead of init_chat_model / ChatOpenAI which loses thinking_level support.
+        # thinking_mode mapping:
+        #   "disabled" / OLAV_DISABLE_THINKING=1  → thinking_level="minimal"  (fastest)
+        #   "enabled"                              → thinking_level="high"
+        #   None (default)                         → thinking_level="minimal"  (default off)
+        if _is_google:
+            try:
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                _google_thinking = (
+                    "high" if (thinking_mode == "enabled")
+                    else "minimal"   # disabled / None → minimal (no thinking)
+                )
+                _google_params = {
+                    "model": params.get("model", "gemma-4-31b-it"),
+                    "google_api_key": params.get("api_key") or os.environ.get("GOOGLE_API_KEY", ""),
+                    "thinking_level": _google_thinking,
+                    "temperature": params.get("temperature", 0.1),
+                }
+                if params.get("max_tokens"):
+                    _google_params["max_output_tokens"] = params["max_tokens"]
+                if params.get("callbacks"):
+                    _google_params["callbacks"] = params["callbacks"]
+                logger.info(
+                    "Google AI Studio: model=%s thinking_level=%s",
+                    _google_params["model"], _google_thinking,
+                )
+                llm = ChatGoogleGenerativeAI(**_google_params)
+            except ImportError:
+                logger.warning(
+                    "langchain-google-genai not installed; falling back to ChatOpenAI. "
+                    "Install with: uv add langchain-google-genai"
+                )
+                llm = init_chat_model(**params)
+            except Exception as e:
+                logger.error("Google AI Studio init failed: %s", e)
+                raise
+        else:
+            # Use init_chat_model - LangChain handles provider detection
+            try:
+                llm = init_chat_model(**params)
+            except Exception as e:
+                logger.error(f"Failed to initialize chat model: {e}")
+                raise
 
         return llm
 
