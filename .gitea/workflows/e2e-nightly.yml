@@ -115,12 +115,28 @@ jobs:
             -q --tb=short
         continue-on-error: true
 
-      - name: Run WebGUI browser e2e
+      # ── WebGUI Layer A: API-only tests (no browser required) ──────────────
+      # These use only server_url (HTTP within the runner container) and always
+      # run regardless of BROWSERLESS_URL. Covers /assistants/search, /threads,
+      # agent list completeness.
+      - name: Run WebGUI API tests (no browser)
+        run: |
+          uv run pytest tests/e2e/test_web_ui_multi_agent_browser.py \
+            -q --tb=short --timeout=60 \
+            -k "not (test_root_serves_spa or test_no_server_error or test_spa_loads_javascript or test_chat_container_exists or test_memory_graph_serves_html or test_sidebar_opens_at_correct_width or test_all_agents_respond)"
+        continue-on-error: true
+
+      # ── WebGUI Layer B: Browser + LLM tests (requires browserless-chrome) ─
+      # Skipped automatically when BROWSERLESS_URL is empty.
+      # NOTE: In Docker CI the runner container's OLAV server may be unreachable
+      # from the browserless container (different Docker networks). Set
+      # BROWSERLESS_HOST_IP to the runner container's LAN-visible IP to fix.
+      - name: Run WebGUI browser + LLM e2e
         if: ${{ env.BROWSERLESS_URL != '' }}
         run: |
           uv run playwright install chromium --with-deps 2>/dev/null || true
           uv run pytest tests/e2e/test_web_ui_multi_agent_browser.py \
-            -q --tb=short --timeout=120
+            -q --tb=short --timeout=600
         continue-on-error: true
 
       - name: Summary
