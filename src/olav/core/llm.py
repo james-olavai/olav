@@ -245,6 +245,11 @@ class LLMFactory:
 
         _base_for_thinking = str(params.get("base_url") or "").lower()
         _is_openrouter = "openrouter" in _base_for_thinking
+        # Google AI Studio / Vertex AI do not support chat_template_kwargs
+        # in extra_body — they reject with 400 INVALID_ARGUMENT.
+        _is_google = "generativelanguage.googleapis.com" in _base_for_thinking \
+            or "aiplatform.googleapis.com" in _base_for_thinking \
+            or "integrate.api.nvidia.com" in _base_for_thinking
         if _disable_thinking:
             # Provider-specific thinking-off mechanism:
             # * Ollama (langchain-ollama) — native ``reasoning`` field on
@@ -262,7 +267,9 @@ class LLMFactory:
             #   conversation → null content when enable_thinking=False sent.
             if params.get("model_provider") == "ollama":
                 params["reasoning"] = False
-            elif not _is_openrouter:
+            elif not _is_openrouter and not _is_google:
+                # Google AI Studio (gemma-4-31b-it): thinkingBudget not supported
+                # for this model — skip silently.
                 mkw = params.setdefault("model_kwargs", {})
                 extra = mkw.setdefault("extra_body", {})
                 ctk = extra.setdefault("chat_template_kwargs", {})
@@ -280,7 +287,7 @@ class LLMFactory:
             # upstream default or model preset.
             if params.get("model_provider") == "ollama":
                 params["reasoning"] = True
-            elif not _is_openrouter:
+            elif not _is_openrouter and not _is_google:
                 mkw = params.setdefault("model_kwargs", {})
                 extra = mkw.setdefault("extra_body", {})
                 ctk = extra.setdefault("chat_template_kwargs", {})
