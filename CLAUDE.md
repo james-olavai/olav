@@ -103,7 +103,6 @@ During the two-phase migration, `olav-doc/web/` and `olav-web/` coexist. Once `o
 | `.olav/workspace/audit/` | olav | authoritative (audit orchestrator + sub-agents) |
 | `.olav/workspace/netops/` | olav-netops | transitional (network-domain extension workspace) |
 | `.olav/workspace/admin/` | olav | authoritative (admin/operator workflows) |
-| `.olav/workspace/ops/` | olav-netops | transitional (vendored, will migrate to olav-netops) |
 
 `.olav/databases/` and `.olav/logs/` are runtime-generated, never committed.
 
@@ -120,7 +119,6 @@ tracked** — they are all generated mirrors. Tracked under `.olav/`: only
   them (editable install → exact).
 - `.olav/workspace/netops/**` — mirror of `olav-netops/.olav/workspace/netops/`.
   `olav skill install olav-netops` deploys it.
-- `.olav/workspace/ops/**` — netops_init runtime state only (no agent def).
 
 **CI (test.yml) runs `olav init` + `olav skill install olav-netops`** before
 tests so they read the runtime from a plain checkout.

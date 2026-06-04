@@ -16,8 +16,8 @@ import pytest
 
 
 REPO = Path(__file__).resolve().parent.parent.parent
-ANALYZER_SKILL = REPO / "olav-netops/.olav/workspace/netops/analyzer/SKILL.md"
-ANALYZER_SYSTEM = REPO / "olav-netops/.olav/workspace/netops/analyzer/prompts/system.md"
+ANALYZER_SKILL = REPO / ".olav/workspace/netops/analyzer/SKILL.md"
+ANALYZER_SYSTEM = REPO / ".olav/workspace/netops/analyzer/SKILL.md"  # analyzer uses SKILL.md body, no separate system.md
 
 
 def _load_analyzer_metadata() -> dict:
@@ -70,8 +70,9 @@ def test_analyzer_system_prompt_mentions_delegation_to_sim():
         "analyzer system.md must teach delegation via "
         "task('sim', ...) — Phase 2.5 DELEGATION per dev_docs/77 §2.6.4"
     )
-    # Also expect a section header / phase tag so the workflow is obvious
-    assert "DELEGATION" in text or "Phase 2.5" in text, (
-        "analyzer system.md must have an explicit DELEGATION phase "
-        "(text 'DELEGATION' or 'Phase 2.5') in Workflow A and/or D"
+    # After Goal+Constraints refactor (commit b4fdeab9) Phase 2.5 section
+    # was replaced with a constraint in Workflow A. Accept task("sim") mention.
+    assert "DELEGATION" in text or "Phase 2.5" in text or 'task("sim"' in text, (
+        "analyzer SKILL.md must reference sim delegation via task(\"sim\") "
+        "or DELEGATION/Phase 2.5 keyword"
     )

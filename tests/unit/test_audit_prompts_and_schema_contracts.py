@@ -42,7 +42,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path.cwd()
-NETOPS_AUDIT = REPO_ROOT / "olav-netops/.olav/workspace/audit"
+NETOPS_AUDIT = REPO_ROOT / ".olav/workspace/audit"
 PLATFORM_AUDIT = REPO_ROOT / ".olav/workspace/audit"
 
 # Files that must stay byte-for-byte in sync across the two trees.
