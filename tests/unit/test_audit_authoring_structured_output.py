@@ -17,9 +17,7 @@ from pathlib import Path
 
 import pytest
 
-WORKSPACE = Path(
-    "olav-netops/.olav/workspace/audit/audit-author/scripts"
-)
+_WORKSPACE = Path(__file__).resolve().parents[2] / "olav-netops/.olav/workspace/audit/audit-author/scripts"
 
 
 def _import_module_from_path(modname: str, file_path: Path):
@@ -38,7 +36,7 @@ def wp_mod():
     """Load write_profile.py (merged create+append entrypoint)."""
     return _import_module_from_path(
         "_write_profile_test",
-        Path.cwd() / WORKSPACE / "write_profile.py",
+        _WORKSPACE / "write_profile.py",
     )
 
 
