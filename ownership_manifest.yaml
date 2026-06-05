@@ -199,6 +199,14 @@ rules:
     enforced: true
     git: track
 
+  - pattern: olav_kb/**
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+    notes: Global knowledge base (ADR-0015) — any-format documents loaded via `olav kb import-kb`
+
   - pattern: scripts/**
     owner: olav
     class: platform

@@ -22,6 +22,7 @@ lightweight, markdown-native ADR template.
 | [0012](0012-admin-as-fifth-top-level-agent.md) | Promote admin to fifth canonical top-level agent (supersedes ADR-0004 §4) | Accepted | Post R-AGENT-HIERARCHY |
 | [0013](0013-cross-domain-read-access-policy.md) | Cross-domain sub-agent read-access via allowed_tables | Accepted | Post R-AGENT-HIERARCHY |
 | [0014](0014-services-platform-agent-netops-scope.md) | services is a platform core agent; netops scoped to netops + audit | Proposed | Architecture audit batch |
+| [0015](0015-memory-kb-architecture.md) | Memory architecture — reflection/expert_knowledge split + olav_kb/ global KB | Accepted | 0.20.0 |
 
 ## When to write an ADR
 

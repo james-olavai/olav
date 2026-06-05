@@ -7,6 +7,7 @@ Functions:
     migrate_memory_table(store): Backfill origin/confidence/tags on existing memory rows.
     migrate_kb_chunks(store):    Move kb_chunks rows into the unified memory table
                                  (Phase 4, called from `olav kb migrate`).
+    migrate_add_expires_at(store): Add expires_at column (ADR-0015, nullable, default NULL).
 """
 
 import json
@@ -206,3 +207,51 @@ def migrate_kb_chunks(
     summary = {"migrated": migrated, "skipped": skipped, "errors": errors, "dry_run": False}
     logger.info(f"migrate_kb_chunks: {summary}")
     return summary
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# migrate_add_expires_at  (ADR-0015 — called by create_table on open)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def migrate_add_expires_at(
+    store: "LanceDBStore",
+    table_name: str | None = None,
+) -> dict:
+    """Add the ``expires_at`` column (ADR-0015) to an existing memory table.
+
+    The column is nullable with default NULL so all existing rows are
+    unaffected (they will never expire).  Only ``reflection`` rows written
+    after ADR-0015 will have a non-NULL value.
+
+    This migration is idempotent — calling it on a table that already has
+    ``expires_at`` is a no-op.
+
+    Args:
+        store:      LanceDBStore instance.
+        table_name: Optional table name override (defaults to MEMORY_TABLE).
+
+    Returns:
+        Summary dict with keys ``added``, ``skipped``, ``message``.
+    """
+    from olav.core.memory import MEMORY_TABLE
+
+    tname = table_name or MEMORY_TABLE
+
+    if not store.table_exists(tname):
+        logger.info(f"migrate_add_expires_at: table '{tname}' does not exist — skipping.")
+        return {"added": 0, "skipped": 1, "message": "table missing"}
+
+    try:
+        tbl = store.get_table(tname)
+        existing_names = {f.name for f in tbl.schema}
+        if "expires_at" in existing_names:
+            logger.debug(f"migrate_add_expires_at: '{tname}' already has expires_at — skipping.")
+            return {"added": 0, "skipped": 0, "message": "already migrated"}
+
+        tbl.add_columns({"expires_at": "cast(NULL as timestamp)"})
+        logger.info(f"migrate_add_expires_at: added 'expires_at' to '{tname}' (ADR-0015)")
+        return {"added": 1, "skipped": 0, "message": "ok"}
+    except Exception as e:
+        logger.error(f"migrate_add_expires_at: failed: {e}")
+        return {"added": 0, "skipped": 0, "message": str(e)}
