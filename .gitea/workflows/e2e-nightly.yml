@@ -78,6 +78,20 @@ jobs:
           fi
         continue-on-error: true
 
+      # ── OLAV API server warm-up (hot-process fast-path for all LLM tests) ───
+      # Without this every `python -m olav "..."` subprocess initialises a fresh
+      # agent graph (~3-5s overhead) + LLM call.  With the server on :2280 the
+      # CLI probes it first and routes via HTTP SSE (~0.3s overhead).
+      # Result: ~20x speedup per LLM call (3 queries: 358s → 17s measured).
+      - name: Start OLAV API server (warm LLM process)
+        run: |
+          uv run olav service web start
+          echo "Polling :2280/ok (up to 60s)..."
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:2280/ok && echo "API server ready after ${i}s" && break
+            sleep 1
+          done || echo "WARNING: API server not responding — tests will cold-start"
+
       # nornir/Netmiko 채집 테스트: DIFF_E2E_ENABLED=1 없으면 자동 skip.
       # nornir 미설정 환경에서는 설정하지 말 것.
       # - test_diff_netmiko_e2e:    DIFF_E2E_ENABLED=1 필요
@@ -138,6 +152,10 @@ jobs:
           uv run pytest tests/e2e/test_web_ui_multi_agent_browser.py \
             -q --tb=short --timeout=600
         continue-on-error: true
+
+      - name: Stop OLAV API server
+        if: always()
+        run: uv run olav service web stop || true
 
       - name: Summary
         if: always()

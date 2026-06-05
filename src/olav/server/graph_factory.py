@@ -120,10 +120,14 @@ def _validate_workspace(name: str) -> None:
             f"{type(exc).__name__}: {exc}"
         ) from exc
 
-    if not (workspace_path / "AGENT.md").is_file():
+    _has_agent_file = (
+        (workspace_path / "AGENT.md").is_file()
+        or (workspace_path / "SKILL.md").is_file()
+    )
+    if not _has_agent_file:
         raise ValueError(
             f"No workspace found for agent {name!r}: "
-            f"{workspace_path / 'AGENT.md'} does not exist. "
+            f"neither AGENT.md nor SKILL.md found in {workspace_path}. "
             f"Set {_ENV_ASSISTANT_ID} to one of the installed agents."
         )
 

@@ -171,6 +171,15 @@ class InitCommand(BaseCommand):
         except Exception as exc:  # noqa: BLE001
             refresh_status = f"⚠ skipped ({exc})"
 
+        # Bootstrap api_registry.services in main.duckdb from services.yaml
+        try:
+            from olav.platform.services.registry_sync import bootstrap_from_yaml
+
+            svc_result = bootstrap_from_yaml()
+            svc_status = f"synced {svc_result.get('synced', 0)} services"
+        except Exception as exc:  # noqa: BLE001
+            svc_status = f"⚠ skipped ({exc})"
+
         return (
             "platform ready: created .olav scaffolding\n"
             f"llm: {llm_status}\n"
@@ -180,7 +189,8 @@ class InitCommand(BaseCommand):
             f"indexes: {index_status}\n"
             f"guides: {guides_status}\n"
             f"auth: {user_status}\n"
-            f"registry: {refresh_status}"
+            f"registry: {refresh_status}\n"
+            f"services: {svc_status}"
         )
 
     def _init_admin_user(self, base_dir: Path) -> str:

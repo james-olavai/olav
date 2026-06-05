@@ -59,6 +59,7 @@ def register_service(
     endpoint: str,
     auth_type: str = "none",
     auth_token_env: str | None = None,
+    token_prefix: str | None = None,
     kind: str | None = None,
 ) -> dict[str, Any]:
     """Register a new service in ``.olav/config/services.yaml``.
@@ -66,8 +67,10 @@ def register_service(
     Args:
         name: Unique registry key (e.g. ``"netbox-stage"``).
         endpoint: HTTP base URL.
-        auth_type: One of ``"none"`` / ``"bearer"`` / ``"basic"``.
-        auth_token_env: Env-var name holding the token (for bearer/basic).
+        auth_type: One of ``"none"`` / ``"bearer"`` / ``"basic"`` / ``"api_key"``.
+        auth_token_env: Env-var name holding the token (for bearer/api_key/basic).
+        token_prefix: Prefix prepended to token value (for api_key, e.g. ``"Token "``
+            for NetBox-style ``Authorization: Token <value>`` headers).
         kind: Optional hint for deploy/stop (e.g. ``"containerlab"``).
 
     Returns:
@@ -86,7 +89,7 @@ def register_service(
             "status": "error",
             "message": f"auth_type must be one of {sorted(_VALID_AUTH_TYPES)}",
         }
-    if auth_type in ("bearer", "basic") and not auth_token_env:
+    if auth_type in ("bearer", "basic", "api_key") and not auth_token_env:
         return {
             "status": "error",
             "message": f"auth_type={auth_type!r} requires auth_token_env",
@@ -126,11 +129,20 @@ def register_service(
     entry: dict[str, Any] = {"endpoint": endpoint, "auth_type": auth_type}
     if auth_token_env:
         entry["auth_token_env"] = auth_token_env
+    if token_prefix:
+        entry["token_prefix"] = token_prefix
     if kind:
         entry["kind"] = kind
 
     services[name] = entry
     path.write_text(yaml.safe_dump(doc, sort_keys=True, allow_unicode=True), encoding="utf-8")
+
+    # Sync to api_registry.services in main.duckdb so execute_sql can discover services
+    try:
+        from olav.platform.services.registry_sync import upsert_service
+        upsert_service(name, entry)
+    except Exception:
+        pass  # DB sync is best-effort; services.yaml is the authoritative source
 
     return {
         "status": "success",

@@ -59,7 +59,8 @@ description for the sub-agent menu — don't try to memorise it here.
 | Schema / "what columns does <view> have" | `describe_table('netops.<view>')` |
 | Syslog / log search (live ingest, NOT `show logging`) | `search_logs` directly |
 | Add memory / 记住 / 入库 / teach OLAV | `olav_delegate` → `memory-curator` |
-| External API call (NetBox / Grafana / …) | `olav_delegate` → `api-query` |
+| Which services are registered / what endpoint is X | `execute_sql("SELECT name, endpoint, readonly_only FROM api_registry.services")` |
+| External API call (NetBox / Grafana / …) — data NOT in DuckDB | `olav_delegate` → `api-query` |
 | SSH / shell command on a remote host | `olav_delegate` → `remote` |
 | Platform deploy / cron / write workspace files | `olav_delegate` → `services` (was `admin`, folded 2026-05-01) |
 | Polish / edit an existing markdown file | `olav_delegate` → `writer` |
@@ -69,6 +70,14 @@ description for the sub-agent menu — don't try to memorise it here.
 Always prefix tables with `netops.`. Call `describe_table('netops.<view>')` when
 column shape is unclear — your injected `SCHEMA_REFERENCE` has stable column
 lists for `devices`, `topology_links`, `parsed_outputs`, and common auto-views.
+
+For service endpoints, use `api_registry.services` (no prefix needed):
+```sql
+SELECT name, endpoint, readonly_only, auth_type FROM api_registry.services
+SELECT endpoint FROM api_registry.services WHERE name = 'netbox'
+```
+**Decision rule**: device/interface/BGP data → `netops.*` via `execute_sql`.
+External-only data (IPAM assignments, rack positions, custom fields) → `api-query`.
 
 ## After getting data — save inline
 

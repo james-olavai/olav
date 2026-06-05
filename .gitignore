@@ -93,6 +93,7 @@ olav-doc/site/
 olav-web/dist/
 olav-web/node_modules/
 olav-web/.wrangler/
+.olav/automations/
 .olav/databases/
 .olav/logs/
 .olav/workspace/netops/

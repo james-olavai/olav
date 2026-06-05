@@ -1,38 +1,36 @@
-"""DevOps agent E2E tests — doc 40 compliance.
+"""DevOps agent E2E tests.
 
-Validates the devops workspace and agent contract against the design
-specification in dev_docs/40. DEVOPS_AGENT_DESIGN.md.
+Static tests (no LLM): workspace structure + automation library conventions.
+LLM E2E tests (DEVOPS_E2E_ENABLED=1): natural-language NetBox workflow.
 
-These tests run offline (no NetBox instance required) and verify:
-- Workspace structure: AGENT.md, SKILL.md, prompts/system.md exist
-- SKILL.md declares zero dedicated tools (all core-inherited)
-- system.md enforces environment discovery before script generation
-- system.md mandates script quality standards (shebang, dry-run, auth header)
-- Script output: exported to exports/scripts/ via format_and_export (not chat text)
+NetBox workflow (two-phase):
+  Phase 1 — services deploys NetBox via natural language.
+  Phase 2 — devops/infra writes a device-import script to .olav/automations/.
 
-For full NetBox E2E integration tests, run manually:
-    olav --agent devops "Write a script to sync OLAV devices to NetBox at localhost:8000"
-    bash exports/scripts/<generated>.sh --dry-run
+Run LLM tests manually:
+    DEVOPS_E2E_ENABLED=1 uv run pytest tests/e2e/test_devops_e2e.py::TestNetboxWorkflowE2E -v
 """
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
+import time
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
 _ROOT = Path(__file__).resolve().parents[2]
 _DEVOPS_WS = _ROOT / ".olav" / "workspace" / "devops"
-# devops top-level is AGENT.md-based (orchestrator); script generation lives
-# in the 'scripts' sub-agent which is SKILL.md-based.
-_AGENT_MD = _DEVOPS_WS / "AGENT.md"
-_SCRIPTS_WS = _DEVOPS_WS / "scripts"
-_SKILL_MD = _SCRIPTS_WS / "SKILL.md"
-_SYSTEM_MD = _SCRIPTS_WS / "prompts" / "system.md"
+_INFRA_WS = _DEVOPS_WS / "infra"
+_SERVICES_WS = _ROOT / ".olav" / "workspace" / "services"
+_SERVICES_SCRIPTS = _SERVICES_WS / "scripts"
+_AUTOMATIONS = _ROOT / ".olav" / "automations"
 
 
 def _skill_body(md_path: Path) -> str:
-    """Return content body of a SKILL.md (everything after the YAML front-matter)."""
+    """Return SKILL.md body (everything after the YAML front-matter)."""
     text = md_path.read_text(encoding="utf-8")
     if text.startswith("---\n"):
         parts = text.split("---\n", 2)
@@ -41,162 +39,26 @@ def _skill_body(md_path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Workspace structure
+# Workspace structure — devops orchestrator
 # ---------------------------------------------------------------------------
 
 
 class TestDevopsWorkspaceStructure:
-    """devops workspace must exist with required files."""
-
     def test_workspace_directory_exists(self):
         assert _DEVOPS_WS.is_dir(), f"devops workspace not found at {_DEVOPS_WS}"
 
-    def test_agent_md_exists(self):
-        assert _AGENT_MD.exists(), "AGENT.md missing from devops workspace"
+    def test_orchestrator_skill_md_exists(self):
+        assert (_DEVOPS_WS / "SKILL.md").is_file(), "devops/SKILL.md missing"
 
-    def test_skill_md_exists(self):
-        assert _SKILL_MD.exists(), f"scripts/SKILL.md missing from devops workspace at {_SKILL_MD}"
+    def test_orchestrator_routes_to_infra(self):
+        text = (_DEVOPS_WS / "SKILL.md").read_text(encoding="utf-8")
+        assert "infra" in text, "devops orchestrator must route to infra sub-agent"
 
-    def test_system_prompt_exists(self):
-        """prompts/system.md merged into SKILL.md body — verify body is non-empty."""
-        body = _skill_body(_SKILL_MD)
-        assert body, f"scripts/SKILL.md body (system prompt) is empty at {_SKILL_MD}"
-
-
-# ---------------------------------------------------------------------------
-# SKILL.md compliance (doc 40 §3)
-# ---------------------------------------------------------------------------
-
-
-class TestDevopsSkillConfig:
-    """devops/scripts SKILL.md must declare script-generation tools."""
-
-    def _skill_text(self) -> str:
-        return _SKILL_MD.read_text(encoding="utf-8")
-
-    def test_skill_name_is_scripts(self):
-        # devops top-level is an orchestrator (AGENT.md); the script-generation
-        # sub-agent is named 'scripts' — rev ~282 restructure
-        src = self._skill_text()
-        assert "name: scripts" in src, "scripts/SKILL.md must declare name: scripts"
-
-    def test_skill_has_format_and_export(self):
-        """scripts sub-agent must have format_and_export to export generated scripts."""
-        src = self._skill_text()
-        assert "format_and_export" in src, (
-            "scripts/SKILL.md must include format_and_export in tools:"
-        )
-
-    def test_skill_has_schema_reference(self):
-        """static_context must include BASELINE_SCHEMA.md for DB schema context."""
-        src = self._skill_text()
-        assert "BASELINE_SCHEMA" in src, (
-            "scripts/SKILL.md static_context must include BASELINE_SCHEMA.md"
-        )
-
-
-# ---------------------------------------------------------------------------
-# system.md compliance — environment discovery (doc 40 §2, §7)
-# ---------------------------------------------------------------------------
-
-
-class TestDevopsNetboxImport:
-    """system.md must enforce environment-aware script generation standards."""
-
-    def _system_text(self) -> str:
-        return _skill_body(_SKILL_MD)
-
-    def test_script_exported_to_exports_scripts(self):
-        """system.md must mandate export via format_and_export to scripts subdir."""
-        src = self._system_text()
-        assert "format_and_export" in src, (
-            "system.md must instruct devops to use format_and_export to export scripts"
-        )
-        assert 'subdir="scripts"' in src or "subdir='scripts'" in src, (
-            "system.md must set subdir='scripts' in format_and_export call"
-        )
-
-    def test_script_uses_real_device_data(self):
-        """system.md must mandate real device data — no placeholder IPs or hostnames."""
-        src = self._system_text()
-        # Must instruct to query devices
-        assert "execute_sql" in src, (
-            "system.md must instruct using execute_sql to discover devices"
-        )
-        assert "netops.devices" in src, (
-            "system.md must reference netops.devices for device discovery"
-        )
-        # Must prohibit placeholders
-        assert "NEVER" in src or "never" in src.lower(), (
-            "system.md must include NEVER rules against placeholder values"
-        )
-        placeholder_prohibited = (
-            "placeholder" in src.lower()
-            or "10.0.0.1" in src
-            or "example.com" in src
-        )
-        assert placeholder_prohibited, (
-            "system.md must explicitly prohibit placeholder values (10.0.0.1, example.com, etc.)"
-        )
-
-    def test_script_has_dry_run(self):
-        """system.md must mandate --dry-run flag in every generated script."""
-        src = self._system_text()
-        assert "--dry-run" in src, (
-            "system.md must require --dry-run flag in generated scripts (doc 40 §3)"
-        )
-
-    def test_script_has_auth_header(self):
-        """system.md must mandate auth via env var — no hardcoded tokens."""
-        src = self._system_text()
-        # Must prohibit hardcoded tokens
-        no_hardcode = (
-            "NEVER hardcode" in src
-            or "env var" in src
-            or "${VAR" in src
-            or "env vars" in src
-        )
-        assert no_hardcode, (
-            "system.md must mandate Authorization header via env var, "
-            "not hardcoded tokens"
-        )
-
-    def test_script_bash_syntax_valid(self):
-        """system.md must mandate shebang + strict mode (#!/bin/bash + set -euo pipefail)."""
-        src = self._system_text()
-        assert "#!/bin/bash" in src, (
-            "system.md must include #!/bin/bash shebang requirement"
-        )
-        assert "set -euo pipefail" in src, (
-            "system.md must require set -euo pipefail for strict bash mode"
-        )
-
-
-# ---------------------------------------------------------------------------
-# devops vs infra boundary (doc 40 §5)
-# ---------------------------------------------------------------------------
-
-
-class TestDevopsInfraBoundary:
-    """devops must NOT directly execute API writes — scripts only."""
-
-    def _system_text(self) -> str:
-        return _skill_body(_SKILL_MD)
-
-    def test_devops_does_not_execute_api_writes(self):
-        """system.md must prohibit api_request write usage."""
-        src = self._system_text()
-        assert "NEVER" in src, "system.md must contain NEVER rules"
-        # devops generates scripts, not executes writes
-        assert "run_shell" in src or "NEVER use run_shell" in src or "NEVER" in src, (
-            "system.md must include guards against executing generated scripts directly"
-        )
-
-    def test_devops_uses_format_and_export_for_generation(self):
-        """system.md must use format_and_export to output scripts as files."""
-        src = self._system_text()
-        assert "format_and_export" in src, (
-            "system.md must reference format_and_export for script export workflow"
+    def test_scripts_subagent_removed(self):
+        """devops/scripts sub-agent absorbed into infra — directory must not exist."""
+        assert not (_DEVOPS_WS / "scripts").is_dir(), (
+            "devops/scripts/ still exists — should have been removed; "
+            "script-generation capability is now in devops/infra"
         )
 
 
@@ -205,12 +67,7 @@ class TestDevopsInfraBoundary:
 # ---------------------------------------------------------------------------
 
 
-_INFRA_WS = _DEVOPS_WS / "infra"
-
-
 class TestDevopsInfraStructure:
-    """devops/infra sub-agent workspace must exist with required files."""
-
     def test_infra_directory_exists(self):
         assert _INFRA_WS.is_dir(), f"devops/infra workspace not found at {_INFRA_WS}"
 
@@ -219,45 +76,144 @@ class TestDevopsInfraStructure:
 
     def test_infra_skill_md_name(self):
         text = (_INFRA_WS / "SKILL.md").read_text(encoding="utf-8")
-        assert "name: infra" in text, "infra/SKILL.md must declare name: infra"
+        assert "name: infra" in text
 
-    def test_infra_skill_md_has_api_request(self):
+    def test_infra_has_execute_skill_script(self):
+        """infra must have execute_skill_script to call automation library scripts."""
         text = (_INFRA_WS / "SKILL.md").read_text(encoding="utf-8")
-        assert "api_request" in text, "infra/SKILL.md must list api_request in tools:"
+        assert "execute_skill_script" in text
 
-    def test_infra_system_prompt_exists(self):
-        """prompts/system.md merged into SKILL.md body — verify body is non-empty."""
-        body = _skill_body(_INFRA_WS / "SKILL.md")
-        assert body, "devops/infra/SKILL.md body (system prompt) is empty"
+    def test_infra_has_api_request(self):
+        text = (_INFRA_WS / "SKILL.md").read_text(encoding="utf-8")
+        assert "api_request" in text
 
-    def test_infra_references_directory_exists(self):
+    def test_infra_references_exists(self):
         refs = _INFRA_WS / "references"
-        assert refs.is_dir(), "devops/infra/references/ missing"
-        assert any(refs.glob("*.md")), "devops/infra/references/ is empty — run olav registry register"
+        assert refs.is_dir()
+        assert any(refs.glob("*.md"))
 
-    def test_infra_system_prompt_mentions_api_request(self):
-        text = _skill_body(_INFRA_WS / "SKILL.md")
-        assert "api_request" in text, "infra/SKILL.md body must show api_request usage"
+    def test_infra_skill_body_nonempty(self):
+        assert _skill_body(_INFRA_WS / "SKILL.md"), "infra SKILL.md body is empty"
 
 
 # ---------------------------------------------------------------------------
-# services platform-agent structure (ADR-0014: top-level, no longer under devops)
+# Automation library scripts
 # ---------------------------------------------------------------------------
 
 
-_SERVICES_WS = _ROOT / ".olav" / "workspace" / "services"
-_SERVICES_SCRIPTS = _SERVICES_WS / "scripts"
+_INFRA_SCRIPTS = _INFRA_WS / "scripts"
+
+_REQUIRED_SCRIPTS = [
+    "write_automation.py",
+    "list_automations.py",
+    "run_automation.py",
+    "validate_script.py",
+]
+
+
+class TestAutomationLibraryScripts:
+    """infra/scripts/ must contain the four automation library scripts."""
+
+    def test_scripts_directory_exists(self):
+        assert _INFRA_SCRIPTS.is_dir(), f"devops/infra/scripts/ missing at {_INFRA_SCRIPTS}"
+
+    @pytest.mark.parametrize("script_name", _REQUIRED_SCRIPTS)
+    def test_script_file_exists(self, script_name):
+        assert (_INFRA_SCRIPTS / script_name).is_file(), (
+            f"devops/infra/scripts/{script_name} missing"
+        )
+
+    def test_skill_md_registers_all_scripts(self):
+        """infra SKILL.md scripts: section must declare all four scripts."""
+        text = (_INFRA_WS / "SKILL.md").read_text(encoding="utf-8")
+        for name in ("write_automation", "list_automations", "run_automation", "validate_script"):
+            assert name in text, f"infra SKILL.md missing script registration for '{name}'"
+
+    def test_run_automation_has_boundary_check(self):
+        """run_automation.py must only allow scripts inside .olav/automations/."""
+        src = (_INFRA_SCRIPTS / "run_automation.py").read_text(encoding="utf-8")
+        assert "automations" in src, "run_automation.py must enforce .olav/automations/ boundary"
+        assert "ValueError" in src or "relative_to" in src, (
+            "run_automation.py must reject paths outside .olav/automations/"
+        )
+
+    def test_run_automation_has_confirmed_gate(self):
+        """run_automation.py must require confirmed=True to execute."""
+        src = (_INFRA_SCRIPTS / "run_automation.py").read_text(encoding="utf-8")
+        assert "confirmed" in src
+        assert "preview" in src, "run_automation.py must return preview when confirmed=False"
+
+    def test_write_automation_valid_categories(self):
+        """write_automation.py must define the canonical category set."""
+        src = (_INFRA_SCRIPTS / "write_automation.py").read_text(encoding="utf-8")
+        for cat in ("backup", "sync", "bulk", "monitoring", "netbox"):
+            assert cat in src, f"write_automation.py missing category '{cat}'"
+
+    def test_validate_script_runs_py_compile(self):
+        src = (_INFRA_SCRIPTS / "validate_script.py").read_text(encoding="utf-8")
+        assert "py_compile" in src
+
+    def test_validate_script_runs_bash_n(self):
+        src = (_INFRA_SCRIPTS / "validate_script.py").read_text(encoding="utf-8")
+        assert "bash" in src and "-n" in src
+
+
+# ---------------------------------------------------------------------------
+# Automation library conventions in SKILL.md
+# ---------------------------------------------------------------------------
+
+
+class TestAutomationLibraryPrompt:
+    """infra SKILL.md body must describe the automation workflow correctly."""
+
+    def _body(self) -> str:
+        return _skill_body(_INFRA_WS / "SKILL.md")
+
+    def test_automation_directory_is_olav_automations(self):
+        assert ".olav/automations" in self._body()
+
+    def test_list_automations_before_generate(self):
+        """Prompt must instruct checking library before generating a new script."""
+        body = self._body()
+        assert "list_automations" in body
+
+    def test_validate_before_run(self):
+        """Prompt must require validate_script before run_automation."""
+        body = self._body()
+        assert "validate_script" in body
+        assert "run_automation" in body
+
+    def test_no_placeholder_values(self):
+        body = self._body()
+        assert "NEVER use placeholder" in body or "NEVER" in body
+
+    def test_real_device_discovery_via_sql(self):
+        body = self._body()
+        assert "execute_sql" in body
+        assert "netops.devices" in body
+
+    def test_dry_run_required(self):
+        body = self._body()
+        assert "--dry-run" in body
+
+    def test_six_step_write_workflow(self):
+        """Prompt must describe 6-step write workflow for interactive ≤5 item changes."""
+        body = self._body()
+        assert "6" in body or "six" in body.lower() or "Step" in body
+
+
+# ---------------------------------------------------------------------------
+# services platform-agent structure
+# ---------------------------------------------------------------------------
 
 
 class TestDevopsServicesStructure:
-    """services platform-agent scripts must all exist (top-level, per ADR-0014)."""
-
     def test_services_skill_md_exists(self):
-        assert (_SERVICES_WS / "SKILL.md").is_file(), "services/SKILL.md missing"
+        assert (_SERVICES_WS / "SKILL.md").is_file()
 
     def test_services_skill_md_name(self):
         text = (_SERVICES_WS / "SKILL.md").read_text(encoding="utf-8")
-        assert "name: services" in text, "services/SKILL.md must declare name: services"
+        assert "name: services" in text
 
     def test_register_service_script_exists(self):
         assert (_SERVICES_SCRIPTS / "register_service.py").is_file()
@@ -274,175 +230,24 @@ class TestDevopsServicesStructure:
     def test_docker_compose_script_exists(self):
         assert (_SERVICES_SCRIPTS / "docker_compose.py").is_file()
 
+    def test_services_has_write_compose_file(self):
+        assert (_SERVICES_SCRIPTS / "write_compose_file.py").is_file()
 
-# ---------------------------------------------------------------------------
-# Agent invocation E2E — requires LLM backend
-#
-# Skip unless DEVOPS_E2E_ENABLED=1 or a real API key is configured.
-# Run manually with:
-#   DEVOPS_E2E_ENABLED=1 uv run pytest tests/e2e/test_devops_e2e.py::TestDevopsAgentE2E -v
-# ---------------------------------------------------------------------------
-
-import os
-import shutil
-import subprocess
-import time
-
-
-def _devops_e2e_enabled() -> bool:
-    explicit = os.environ.get("DEVOPS_E2E_ENABLED")
-    if explicit is None:
-        return False
-    return explicit.lower() in {"1", "true", "yes"}
-
-
-_DEVOPS_E2E = _devops_e2e_enabled()
-devops_e2e = pytest.mark.skipif(
-    not _DEVOPS_E2E,
-    reason="Enable DEVOPS_E2E_ENABLED=1 or configure a real API key to run devops agent E2E tests",
-)
-
-_OLAV_CMD = [sys.executable, "-m", "olav"]
-_EXPORTS_SCRIPTS = _ROOT / "exports" / "scripts"
-_TIMEOUT_FACTOR = float(os.environ.get("OLAV_E2E_TIMEOUT_FACTOR", "1"))
-
-
-def _run_devops(prompt: str, timeout: int = 180) -> subprocess.CompletedProcess:
-    effective = int(timeout * _TIMEOUT_FACTOR)
-    proc = subprocess.Popen(
-        _OLAV_CMD + ["--agent", "devops", prompt],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(_ROOT),
-    )
-    try:
-        stdout, stderr = proc.communicate(timeout=effective)
-        return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        stdout, stderr = proc.communicate()
-        return subprocess.CompletedProcess(proc.args, -1, stdout or "", stderr or "")
-
-
-@devops_e2e
-class TestDevopsAgentE2E:
-    """Full agent invocation E2E — generates real scripts via LLM.
-
-    Validates claims C-NE-41 through C-NE-44 (doc 40 §7 Phase 3).
-
-    Requirements:
-    - DEVOPS_E2E_ENABLED=1 (or real API key in config)
-    - netops.devices populated in .olav/databases/domain.duckdb
-    """
-
-    # Shared across test instances — set by test_script_exported_to_exports_scripts
-    _last_exported_script: "Optional[Path]" = None
-
-    def test_script_exported_to_exports_scripts(self, tmp_path):
-        """devops agent exports generated script to exports/scripts/."""
-        before_time = time.time() - 1  # 1s buffer
-
-        result = _run_devops("Write a bash script to list all devices by querying the OLAV database")
-        assert result.returncode == 0, f"olav exited {result.returncode}:\n{result.stderr}"
-
-        new_or_updated = (
-            {p for p in _EXPORTS_SCRIPTS.glob("*.sh") if p.stat().st_mtime >= before_time}
-            if _EXPORTS_SCRIPTS.exists() else set()
-        )
-        assert new_or_updated, (
-            f"No new/updated .sh file in exports/scripts/ after devops run.\n"
-            f"stdout: {result.stdout[:500]}\nstderr: {result.stderr[:500]}"
-        )
-        TestDevopsAgentE2E._last_exported_script = max(new_or_updated, key=lambda p: p.stat().st_mtime)
-
-    def test_script_uses_real_device_data(self, tmp_path):
-        """devops agent uses real device names — not placeholders."""
-        result = _run_devops("Write a bash script to backup running-config from all routers")
-        assert result.returncode == 0, f"olav exited {result.returncode}:\n{result.stderr}"
-
-        # Check generated script files — must use real IPs/names, not generic placeholders
-        if _EXPORTS_SCRIPTS.exists():
-            scripts = sorted(_EXPORTS_SCRIPTS.glob("*.sh"), key=lambda p: p.stat().st_mtime)
-            if scripts:
-                content = scripts[-1].read_text()
-                # "hostname" is a common bash variable/command — exclude from check
-                placeholders = {"10.0.0.1", "example.com", "YOUR_TOKEN", "CHANGEME", "YOUR_HOSTNAME"}
-                has_placeholder = any(p in content for p in placeholders)
-                assert not has_placeholder, (
-                    f"Generated script contains placeholder values: {scripts[-1].name}\n"
-                    f"Content snippet: {content[:300]}"
-                )
-
-    def test_script_has_dry_run(self):
-        """devops generated script contains dry-run capability (--dry-run flag or DRY_RUN env var)."""
-        if not _EXPORTS_SCRIPTS.exists():
-            pytest.skip("exports/scripts/ not populated — run test_script_exported_to_exports_scripts first")
-
-        scripts = sorted(_EXPORTS_SCRIPTS.glob("*.sh"), key=lambda p: p.stat().st_mtime)
-        assert scripts, "No .sh files in exports/scripts/"
-
-        latest = scripts[-1].read_text()
-        has_dry_run = "--dry-run" in latest or "DRY_RUN" in latest
-        assert has_dry_run, (
-            f"Generated script {scripts[-1].name} missing dry-run capability "
-            f"(expected '--dry-run' flag or 'DRY_RUN' env var).\nSnippet: {latest[:400]}"
-        )
-
-    def test_script_has_auth_header(self):
-        """devops generated API script uses env var for auth — no hardcoded tokens."""
-        if not _EXPORTS_SCRIPTS.exists():
-            pytest.skip("exports/scripts/ not populated — run test_script_exported_to_exports_scripts first")
-
-        # Only check API scripts (NetBox/InfluxDB etc.) not SSH-only scripts
-        scripts = sorted(_EXPORTS_SCRIPTS.glob("*.sh"), key=lambda p: p.stat().st_mtime)
-        assert scripts, "No .sh files in exports/scripts/"
-
-        latest = scripts[-1].read_text()
-        # If script makes HTTP calls, it must use env var for auth
-        if "Authorization" in latest or "curl" in latest:
-            has_env_auth = (
-                "${" in latest  # env var expansion
-                and "Authorization" in latest
-            )
-            assert has_env_auth, (
-                f"Script uses HTTP but hardcodes Authorization header.\n"
-                f"Snippet: {latest[:400]}"
-            )
-
-    def test_script_bash_syntax_valid(self):
-        """bash -n syntax check passes on generated script."""
-        script = TestDevopsAgentE2E._last_exported_script
-        if script is None:
-            # Running in isolation — fall back to most-recent .sh
-            if not _EXPORTS_SCRIPTS.exists():
-                pytest.skip("exports/scripts/ not populated")
-            scripts = sorted(_EXPORTS_SCRIPTS.glob("*.sh"), key=lambda p: p.stat().st_mtime)
-            if not scripts:
-                pytest.skip("No .sh files in exports/scripts/")
-            script = scripts[-1]
-
-        result = subprocess.run(
-            ["bash", "-n", str(script)],
-            capture_output=True, text=True,
-        )
-        assert result.returncode == 0, (
-            f"bash -n failed on {script.name}:\n{result.stderr}"
-        )
-
+    def test_services_confirms_state_changes(self):
+        """docker_compose.py must require confirmed=True for state-changing ops."""
+        src = (_SERVICES_SCRIPTS / "docker_compose.py").read_text(encoding="utf-8")
+        assert "confirmed" in src
+        assert "preview" in src
 
 
 # ---------------------------------------------------------------------------
-# C-NE-38 — api_request returns clear error for unregistered service
+# api_request — unregistered service returns structured error (C-NE-38)
 # ---------------------------------------------------------------------------
+
+
 class TestApiRequestUnregisteredService:
-    """C-NE-38: api_request with unknown service returns informative error dict.
-
-    Claim: calling api_request("foobar", ...) must NOT crash the agent with a raw
-    traceback; it must return a structured dict with status="error" and a hint
-    directing the operator toward `olav registry register`.
-    """
-
-    def _invoke_api_request(self, service: str):
+    def _invoke_api_request(self, service: str) -> dict:
         import importlib.util as _ilu
-        # api_request migrated from core/tools/ @tool to core/api-query/scripts/ plain fn
         spec = _ilu.spec_from_file_location(
             "api_request",
             str(_ROOT / ".olav" / "workspace" / "core" / "api-query" / "scripts" / "api_request.py"),
@@ -452,31 +257,202 @@ class TestApiRequestUnregisteredService:
         return mod.api_request(service=service, method="GET", path="/")
 
     def test_returns_error_dict_not_exception(self):
-        """Unregistered service returns a dict, not a raised KeyError."""
         result = self._invoke_api_request("foobar-nonexistent")
-        assert isinstance(result, dict), (
-            f"Expected dict, got {type(result).__name__}: {result!r}"
-        )
+        assert isinstance(result, dict)
 
     def test_error_status_field(self):
-        """Error dict has status='error'."""
         result = self._invoke_api_request("foobar-nonexistent")
-        assert result.get("status") == "error", (
-            f"Expected status='error', got {result!r}"
-        )
+        assert result.get("status") == "error"
 
     def test_error_names_the_service(self):
-        """Error message identifies the unregistered service by name."""
         result = self._invoke_api_request("foobar-nonexistent")
         combined = f"{result.get('reason', '')} {result.get('hint', '')}"
-        assert "foobar-nonexistent" in combined, (
-            f"Service name not in error message: {combined!r}"
-        )
+        assert "foobar-nonexistent" in combined
 
     def test_error_lists_available_services(self):
-        """Error hints list registered services so the agent can self-correct."""
         result = self._invoke_api_request("foobar-nonexistent")
         hint = result.get("hint", "")
-        assert "Available services:" in hint or "Available:" in hint, (
-            f"Hint does not list available services: {hint!r}"
+        assert "Available services:" in hint or "Available:" in hint
+
+
+# ---------------------------------------------------------------------------
+# LLM E2E — NetBox workflow (two-phase)
+#
+# Phase 1: services deploys latest NetBox via natural language.
+# Phase 2: devops/infra writes a device-import script to .olav/automations/.
+#
+# Gate: DEVOPS_E2E_ENABLED=1
+# Run:
+#   DEVOPS_E2E_ENABLED=1 uv run pytest tests/e2e/test_devops_e2e.py::TestNetboxWorkflowE2E -v -s
+# ---------------------------------------------------------------------------
+
+
+def _e2e_enabled() -> bool:
+    return os.environ.get("DEVOPS_E2E_ENABLED", "").lower() in {"1", "true", "yes"}
+
+
+_E2E_SKIP = pytest.mark.skipif(not _e2e_enabled(), reason="Set DEVOPS_E2E_ENABLED=1 to run")
+_TIMEOUT = int(float(os.environ.get("OLAV_E2E_TIMEOUT_FACTOR", "1")) * 240)
+_OLAV = [sys.executable, "-m", "olav"]
+
+
+def _run(agent: str, prompt: str, timeout: int = _TIMEOUT) -> subprocess.CompletedProcess:
+    proc = subprocess.Popen(
+        _OLAV + ["--agent", agent, prompt],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(_ROOT),
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        stdout, stderr = proc.communicate()
+        return subprocess.CompletedProcess(proc.args, -1, stdout or "", stderr or "")
+
+
+@_E2E_SKIP
+class TestNetboxWorkflowE2E:
+    """Two-phase NetBox workflow: deploy via services → import script via devops.
+
+    Phase 1 verifies services agent correctly:
+      - web_searches for the latest NetBox docker image
+      - writes a docker-compose.yml under .olav/services/netbox/
+      - returns a HITL preview (confirmed=False), not an actual deployment
+
+    Phase 2 verifies devops/infra agent correctly:
+      - queries netops.devices for real device data
+      - generates a Python import script
+      - saves it to .olav/automations/netbox/
+      - validates the script passes py_compile
+      - script contains --dry-run flag and no placeholder values
+    """
+
+    # ------------------------------------------------------------------ Phase 1
+
+    def test_phase1_services_writes_compose_file(self):
+        """services agent writes docker-compose.yml for NetBox to .olav/services/netbox/."""
+        compose_dir = _ROOT / ".olav" / "services" / "netbox"
+        before = compose_dir / "docker-compose.yml"
+        before_mtime = before.stat().st_mtime if before.exists() else 0.0
+
+        result = _run(
+            "services",
+            "部署最新版本的 NetBox，先生成 compose 文件给我看，不要直接部署",
+        )
+        assert result.returncode == 0, (
+            f"services agent exited {result.returncode}:\n{result.stderr[:500]}"
+        )
+
+        compose = _ROOT / ".olav" / "services" / "netbox" / "docker-compose.yml"
+        assert compose.exists(), (
+            f"services agent did not write .olav/services/netbox/docker-compose.yml\n"
+            f"stdout: {result.stdout[:800]}"
+        )
+        assert compose.stat().st_mtime > before_mtime, (
+            "docker-compose.yml was not updated by this run"
+        )
+
+    def test_phase1_compose_references_netbox_image(self):
+        """docker-compose.yml must reference a real netbox image, not a placeholder."""
+        compose = _ROOT / ".olav" / "services" / "netbox" / "docker-compose.yml"
+        if not compose.exists():
+            pytest.skip("Phase 1 compose file not yet generated — run test_phase1_services_writes_compose_file first")
+
+        content = compose.read_text(encoding="utf-8")
+        assert "netbox" in content.lower(), "Compose file does not reference a netbox image"
+        placeholder_values = {"YOUR_IMAGE", "example.com", "CHANGEME", "latest-dev"}
+        for p in placeholder_values:
+            assert p not in content, f"Compose file contains placeholder '{p}'"
+
+    def test_phase1_returns_preview_not_running_container(self):
+        """services agent must not start the container unprompted — HITL gate."""
+        result = _run(
+            "services",
+            "部署最新版本的 NetBox，先生成 compose 文件给我看，不要直接部署",
+        )
+        # Agent should mention preview / confirm / 确认 — NOT report containers running
+        stdout_lower = result.stdout.lower()
+        assert "preview" in stdout_lower or "confirm" in stdout_lower or "确认" in result.stdout, (
+            f"services agent did not show HITL confirmation step.\nstdout: {result.stdout[:600]}"
+        )
+        assert "running" not in stdout_lower or "preview" in stdout_lower, (
+            "services agent appears to have started the container without confirmation"
+        )
+
+    # ------------------------------------------------------------------ Phase 2
+
+    def test_phase2_infra_writes_import_script(self):
+        """devops/infra writes a NetBox device-import script to .olav/automations/netbox/."""
+        netbox_automations = _AUTOMATIONS / "netbox"
+        before_scripts = set(netbox_automations.glob("*.py")) if netbox_automations.exists() else set()
+
+        result = _run(
+            "devops",
+            "写一个 Python 脚本，把 OLAV 数据库中的所有设备导入到 NetBox，"
+            "保存到自动化库，加上 --dry-run 参数",
+        )
+        assert result.returncode == 0, (
+            f"devops agent exited {result.returncode}:\n{result.stderr[:500]}"
+        )
+
+        after_scripts = set(netbox_automations.glob("*.py")) if netbox_automations.exists() else set()
+        new_scripts = after_scripts - before_scripts
+        assert new_scripts, (
+            f"devops/infra did not write any .py file to .olav/automations/netbox/\n"
+            f"stdout: {result.stdout[:800]}"
+        )
+
+    def test_phase2_script_has_dry_run(self):
+        """Generated import script must have --dry-run flag."""
+        netbox_automations = _AUTOMATIONS / "netbox"
+        if not netbox_automations.exists():
+            pytest.skip("Phase 2 not yet run")
+        scripts = sorted(netbox_automations.glob("*.py"), key=lambda p: p.stat().st_mtime)
+        assert scripts, "No .py files in .olav/automations/netbox/"
+        content = scripts[-1].read_text(encoding="utf-8")
+        assert "--dry-run" in content or "dry_run" in content, (
+            f"Import script missing --dry-run flag: {scripts[-1].name}\n{content[:400]}"
+        )
+
+    def test_phase2_script_uses_real_devices(self):
+        """Generated script must NOT contain placeholder IPs or hostnames."""
+        netbox_automations = _AUTOMATIONS / "netbox"
+        if not netbox_automations.exists():
+            pytest.skip("Phase 2 not yet run")
+        scripts = sorted(netbox_automations.glob("*.py"), key=lambda p: p.stat().st_mtime)
+        assert scripts
+        content = scripts[-1].read_text(encoding="utf-8")
+        for placeholder in ("10.0.0.1", "YOUR_TOKEN", "CHANGEME", "example.com"):
+            assert placeholder not in content, (
+                f"Import script contains placeholder '{placeholder}': {scripts[-1].name}"
+            )
+
+    def test_phase2_script_passes_syntax_check(self):
+        """Generated import script must pass py_compile syntax check."""
+        netbox_automations = _AUTOMATIONS / "netbox"
+        if not netbox_automations.exists():
+            pytest.skip("Phase 2 not yet run")
+        scripts = sorted(netbox_automations.glob("*.py"), key=lambda p: p.stat().st_mtime)
+        assert scripts
+        r = subprocess.run(
+            [sys.executable, "-m", "py_compile", str(scripts[-1])],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0, (
+            f"py_compile failed on {scripts[-1].name}:\n{r.stderr}"
+        )
+
+    def test_phase2_script_uses_env_var_for_token(self):
+        """Generated script must use env var for NetBox token — no hardcoded secrets."""
+        netbox_automations = _AUTOMATIONS / "netbox"
+        if not netbox_automations.exists():
+            pytest.skip("Phase 2 not yet run")
+        scripts = sorted(netbox_automations.glob("*.py"), key=lambda p: p.stat().st_mtime)
+        assert scripts
+        content = scripts[-1].read_text(encoding="utf-8")
+        # Must reference env var for auth, not a literal token string
+        uses_env = "os.environ" in content or "os.getenv" in content or "${" in content
+        assert uses_env, (
+            f"Import script does not use env var for NetBox token: {scripts[-1].name}\n"
+            f"{content[:400]}"
         )
