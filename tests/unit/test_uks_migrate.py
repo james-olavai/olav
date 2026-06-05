@@ -44,6 +44,7 @@ def _insert_legacy_memory(store, id_, text, metadata_dict, table_name=None):
             pa.array(["agent"]),          # origin col (default)
             pa.array([0.5], type=pa.float32()),   # confidence col (default)
             pa.array(["[]"]),             # tags col (default)
+            pa.array([None], type=pa.timestamp("us", tz="UTC")),  # expires_at (ADR-0015)
         ],
         schema=store._get_schema(),
     )

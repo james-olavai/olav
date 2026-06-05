@@ -4,7 +4,7 @@
 Reads operational_event memories for a given scope, groups by tool
 name, and (when group size ≥ ``min_samples``) calls the chat model
 once per group to abstract a reusable pattern. The pattern is
-written back as a ``expert_knowledge`` memory so future
+written back as a ``reflection`` memory so future
 AutoRecall pulls one well-curated entry instead of N raw events.
 
 Why this is a Python helper, not middleware:
@@ -105,7 +105,7 @@ def extract_operational_patterns(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Read operational_event memories for ``scope``, group by tool,
-    and write one ``expert_knowledge`` pattern per group with ≥
+    and write one ``reflection`` pattern per group with ≥
     ``min_samples`` events in the last ``window_days``.
 
     Args:
@@ -224,9 +224,10 @@ def extract_operational_patterns(
         if dry_run:
             continue
 
-        # Write back as expert_knowledge memory
+        # Write back as reflection memory (ADR-0015: agent-derived writes use reflection)
         try:
             from olav.core.embedder import embed_text
+            from olav.core.memory import MemoryCategory
             vec = embed_text(text)
             if vec is None:
                 continue
@@ -234,7 +235,7 @@ def extract_operational_patterns(
                 id=f"opev-pattern-{scope}-{tool}",
                 text=text,
                 vector=vec,
-                category="expert_knowledge",
+                category=MemoryCategory.REFLECTION,
                 scope=scope,
                 metadata={
                     "tool": tool,
