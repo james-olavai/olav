@@ -93,7 +93,8 @@ class TestNetopsAgentStructure:
     """Netops workspace structure — no LLM required."""
 
     def test_agent_md_exists(self):
-        assert (_WORKSPACE / "AGENT.md").is_file()
+        # v0.20 workspaces use SKILL.md; accept either
+        assert (_WORKSPACE / "SKILL.md").is_file() or (_WORKSPACE / "AGENT.md").is_file()
 
     def test_analyzer_subagent_exists(self):
         assert (_WORKSPACE / "analyzer" / "SKILL.md").is_file()

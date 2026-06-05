@@ -317,9 +317,11 @@ def test_audit_agent_md_declares_task_return_direct():
     consults. If the flag is dropped, orchestrator-layer paraphrase
     duplication of executive summaries returns silently."""
     for tree in (NETOPS_AUDIT, PLATFORM_AUDIT):
-        text = (tree / "AGENT.md").read_text(encoding="utf-8")
+        # audit orchestrator uses SKILL.md (not AGENT.md) as of v0.20
+        agent_file = tree / "SKILL.md" if (tree / "SKILL.md").exists() else tree / "AGENT.md"
+        text = agent_file.read_text(encoding="utf-8")
         assert "task_return_direct: true" in text, (
-            f"AGENT.md in {tree} lost `task_return_direct: true` — audit "
+            f"{agent_file.name} in {tree} lost `task_return_direct: true` — audit "
             "orchestrator will resume the second-LLM-round-trip paraphrase "
             "of sub-agent replies (executive summary duplicated on small "
             "models). See 2026-05-12 verbatim-passthrough fix."
@@ -400,7 +402,7 @@ def test_correlation_pass_has_evidence_only_rules():
     ('shared physical path') from unrelated findings (e.g. multiple
     devices with Ethernet0/3 errors)."""
     for tree in (NETOPS_AUDIT, PLATFORM_AUDIT):
-        text = (tree / "audit-runner" / "prompts" / "correlation_pass.md").read_text(encoding="utf-8")
+        text = (tree / "audit-runner" / "references" / "correlation_pass.md").read_text(encoding="utf-8")
         assert "EVIDENCE-ONLY MODE" in text, (
             f"correlation_pass.md in {tree} lost EVIDENCE-ONLY MODE section — "
             "LLM will resume fabricating causal claims unsupported by SQL findings."
@@ -588,7 +590,7 @@ def test_correlation_pass_md_does_not_carry_unused_cluster_rules():
     render_report.py's cluster_context, which only fires when clusters
     actually exist. Without this, gemma4-budget prompts waste ~150
     tokens on rules irrelevant to 99% of audits."""
-    cp_md = (NETOPS_AUDIT / "audit-runner" / "prompts" / "correlation_pass.md").read_text(encoding="utf-8")
+    cp_md = (NETOPS_AUDIT / "audit-runner" / "references" / "correlation_pass.md").read_text(encoding="utf-8")
     assert "Incident Cluster priority" not in cp_md, (
         "correlation_pass.md re-introduced 'Incident Cluster priority' "
         "block — should be conditionally injected by render_report only "

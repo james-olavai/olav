@@ -842,7 +842,7 @@ class TestCH15MemoryInjection:
         result = subprocess.run(
             # Pass absolute workspace path so shipped experts load regardless of cwd.
             # User-dir scan picks up _CH15_YAML_PATH via _AGENT_CWD/.olav/expertise/.
-            _OLAV_CMD + ["kb", "import-experts", str(_ROOT / ".olav" / "workspace")],
+            _OLAV_CMD + ["kb", "import-kb", str(_ROOT / ".olav" / "workspace")],
             capture_output=True, text=True, cwd=str(_AGENT_CWD),
         )
         cls._import_ok = result.returncode == 0
@@ -866,7 +866,7 @@ class TestCH15MemoryInjection:
 
     def test_expert_import_succeeded(self):
         assert self._import_ok, (
-            f"olav kb import-experts failed — expert memory not stored.\n"
+            f"olav kb import-kb failed — expert memory not stored.\n"
             f"Output: {self._import_output[:400]}"
         )
 

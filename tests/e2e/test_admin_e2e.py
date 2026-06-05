@@ -66,10 +66,15 @@ class TestAdminAgentStructure:
     """Admin agent workspace structure is correct — no LLM required."""
 
     def test_agent_md_exists(self):
-        assert (_WORKSPACE / "AGENT.md").is_file()
+        # v0.20 workspaces use SKILL.md; accept either
+        assert (_WORKSPACE / "SKILL.md").is_file() or (_WORKSPACE / "AGENT.md").is_file()
 
     def test_agent_md_declares_name_admin(self):
-        text = (_WORKSPACE / "AGENT.md").read_text(encoding="utf-8")
+        agent_file = (
+            _WORKSPACE / "SKILL.md" if (_WORKSPACE / "SKILL.md").is_file()
+            else _WORKSPACE / "AGENT.md"
+        )
+        text = agent_file.read_text(encoding="utf-8")
         assert "name: admin" in text
 
     def test_ops_subagent_exists(self):

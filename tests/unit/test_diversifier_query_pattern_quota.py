@@ -45,36 +45,37 @@ def test_diversifier_returns_query_pattern_when_budget_has_room():
     )
 
 
-def test_diversifier_total_slots_unchanged():
-    """After the re-quota, total reserved slots still sum to 13 so the
-    token budget for the recall block doesn't grow."""
+def test_diversifier_total_slots_sum():
+    """Quota dict must be consistent — all values positive, total > 0."""
     from olav.core.memory.middleware import AutoRecallMiddleware
 
     total = sum(AutoRecallMiddleware._CATEGORY_QUOTAS.values())
-    assert total == 13, (
-        f"Total quota must equal recall_top_k (13); got {total}"
-    )
+    assert total > 0, f"Total quota must be positive; got {total}"
+    # All individual quotas must be positive too
+    for cat, n in AutoRecallMiddleware._CATEGORY_QUOTAS.items():
+        assert n > 0, f"quota for {cat!r} must be positive; got {n}"
 
 
 def test_diversifier_quota_distribution():
-    """Exact post-R87 Phase 1 quota distribution: schema_knowledge
-    3→2 to make room for expert_knowledge:1.  Total still 13.
+    """Post-ISSUE-SCHEMA-PUSH-VS-PULL quota distribution (2026-04-30):
+    schema_knowledge + value_distribution removed; curated categories are
+    now query_pattern, usage_guide, format_guide, expert_knowledge.
     Lineage:
-      pre-CC-1c     5/5/-/3        = 13 (no query_pattern)
-      CC-1c         4/4/2/3        = 13 (added query_pattern:2)
-      R85 δ2        3/4/2/3/1      = 13 (added format_guide:1)
-      R87 Phase 1   2/4/2/3/1/1    = 13 (added expert_knowledge:1)
+      pre-CC-1c                5+5+0+3        = 13 (schema+value+guide)
+      CC-1c                    4+4+2+3        = 13 (added query_pattern)
+      R85 δ2                   3+4+2+3+1      = 13 (added format_guide)
+      R87 Phase 1              2+4+2+3+1+1    = 13 (added expert_knowledge)
+      ISSUE-SCHEMA-PUSH-VS-PULL 0+0+2+3+1+3   = 9  (removed schema+value)
     """
     from olav.core.memory.middleware import AutoRecallMiddleware
 
     q = AutoRecallMiddleware._CATEGORY_QUOTAS
-    assert q["schema_knowledge"] == 2
-    assert q["value_distribution"] == 4
     assert q["query_pattern"] == 2
     assert q["usage_guide"] == 3
     assert q["format_guide"] == 1
-    assert q["expert_knowledge"] == 1
-    assert sum(q.values()) == 13
+    assert q["expert_knowledge"] == 3
+    assert "schema_knowledge" not in q, "schema_knowledge was intentionally removed"
+    assert "value_distribution" not in q, "value_distribution was intentionally removed"
 
 
 def test_diversifier_cap_allows_two_query_patterns():

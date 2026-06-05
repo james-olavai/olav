@@ -194,6 +194,60 @@ class BundleIngestsTable(BaseIngestTable):
     conflict_key = ["bundle_id"]
 
 
+class ExplorationRunsTable(BaseIngestTable):
+    """One row per /explore invocation — budget + outcome tracking.
+
+    DDL mirrors migrations/v0_23_exploration.py; class enables
+    ``ensure_schema()`` on fresh DBs.
+    """
+
+    schema_name = "netops"
+    table_name = "exploration_runs"
+    columns = [
+        ColumnDef("run_id",            "VARCHAR",   nullable=False),
+        ColumnDef("started_at",        "TIMESTAMP", nullable=False),
+        ColumnDef("ended_at",          "TIMESTAMP"),
+        ColumnDef("status",            "VARCHAR",   nullable=False),
+        ColumnDef("snapshot_id",       "VARCHAR"),
+        ColumnDef("requested_by",      "VARCHAR"),
+        ColumnDef("budget_turns",      "INTEGER"),
+        ColumnDef("budget_findings",   "INTEGER"),
+        ColumnDef("budget_wall_sec",   "INTEGER"),
+        ColumnDef("turns_used",        "INTEGER"),
+        ColumnDef("findings_count",    "INTEGER"),
+        ColumnDef("wall_sec_used",     "INTEGER"),
+        ColumnDef("final_report_path", "VARCHAR"),
+    ]
+    conflict_key = ["run_id"]
+
+
+class ExplorationFindingsTable(BaseIngestTable):
+    """Per-finding scratchpad — LLM's external memory during exploration.
+
+    Anti-fabrication invariants enforced in the migration DDL:
+    * ``evidence_sql NOT NULL`` — every finding must be SQL-backed
+    * ``UNIQUE (run_id, summary)`` — no duplicate findings per run
+    """
+
+    schema_name = "netops"
+    table_name = "exploration_findings"
+    columns = [
+        ColumnDef("finding_id",       "VARCHAR",  nullable=False),
+        ColumnDef("run_id",           "VARCHAR",  nullable=False),
+        ColumnDef("recorded_at",      "TIMESTAMP", nullable=False),
+        ColumnDef("phase",            "VARCHAR",  nullable=False),
+        ColumnDef("category",         "VARCHAR"),
+        ColumnDef("severity",         "VARCHAR",  nullable=False),
+        ColumnDef("summary",          "VARCHAR",  nullable=False),
+        ColumnDef("detail",           "TEXT"),
+        ColumnDef("evidence_sql",     "TEXT",     nullable=False),
+        ColumnDef("evidence_rows",    "VARCHAR"),
+        ColumnDef("confidence",       "VARCHAR",  nullable=False),
+        ColumnDef("related_findings", "JSON"),
+    ]
+    conflict_key = ["finding_id"]
+
+
 # ARCH-24 removed (Round 70): BgpSessionsTable / OspfAdjacenciesTable
 # were materialized by the now-deleted L3 ETL. Their data is now exposed
 # through ``netops.v_bgp_neighbors_auto`` / ``netops.v_ospf_neighbors_auto``
@@ -216,6 +270,8 @@ def _register_all() -> None:
     TableRegistry.register(OcOutputsTable())
     TableRegistry.register(CommandsTable())
     TableRegistry.register(BundleIngestsTable())
+    TableRegistry.register(ExplorationRunsTable())
+    TableRegistry.register(ExplorationFindingsTable())
 
 
 # Tables that existed in pre-R83 ETL designs but are no longer written to

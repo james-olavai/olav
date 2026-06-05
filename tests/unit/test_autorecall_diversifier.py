@@ -84,38 +84,42 @@ def test_gather_candidates_fetches_curated_categories(monkeypatch):
     out = mw._gather_candidates("q", [0.0, 0.1, 0.2], scope=None, top_k=8)
 
     queried = {c for _, c, _ in calls}
-    assert "schema_knowledge" in queried
-    assert "value_distribution" in queried
+    # schema_knowledge + value_distribution removed in ISSUE-SCHEMA-PUSH-VS-PULL
+    # (dev_docs/00, 2026-04-30); curated categories are now query_pattern,
+    # usage_guide, and expert_knowledge
     assert "query_pattern" in queried
+    assert "usage_guide" in queried
+    assert "expert_knowledge" in queried
 
     # The curated entries should be in the candidate list.
     ids = [m["id"] for m in out]
-    assert any("schema_knowledge_" in i for i in ids)
-    assert any("value_distribution_" in i for i in ids)
+    assert any("query_pattern_" in i for i in ids)
+    assert any("usage_guide_" in i for i in ids)
 
 
-def test_gather_then_diversify_surfaces_cross_platform_schema(monkeypatch):
-    """End-to-end: curated gather + diversifier must include schemas from
-    multiple platforms even when one platform's view dominates BM25."""
+def test_gather_then_diversify_surfaces_multiple_curated_categories(monkeypatch):
+    """End-to-end: curated gather + diversifier must include entries from
+    multiple curated categories (usage_guide + query_pattern) when both
+    are available, even when BM25 would otherwise starve one category.
+    NOTE: schema_knowledge / value_distribution were removed in
+    ISSUE-SCHEMA-PUSH-VS-PULL (dev_docs/00, 2026-04-30)."""
     from olav.core.memory.middleware import AutoRecallMiddleware
 
-    cisco_schema = _mk("schema_v_show_ip_interface_brief_auto", "schema_knowledge")
-    junos_schema = _mk("schema_v_show_interfaces_terse_auto", "schema_knowledge")
-    other_schema = _mk("schema_v_show_interfaces_auto", "schema_knowledge")
-    cisco_values = _mk("values_brief_status", "value_distribution")
-    junos_values = _mk("values_terse_link_state", "value_distribution")
+    guide_a = _mk("guide_interface_troubleshooting", "usage_guide")
+    guide_b = _mk("guide_bgp_peer_down", "usage_guide")
+    qp_a = _mk("qp_interfaces_down_query", "query_pattern")
+    expert_a = _mk("expert_junos_interface_naming", "expert_knowledge")
 
     class _Store:
         def search_by_vector(self, query_vector, limit, category=None, scope=None):
-            if category == "schema_knowledge":
-                return [cisco_schema, junos_schema, other_schema][:limit]
-            if category == "value_distribution":
-                return [cisco_values, junos_values][:limit]
+            if category == "usage_guide":
+                return [guide_a, guide_b][:limit]
             if category == "query_pattern":
-                return []
+                return [qp_a][:limit]
+            if category == "expert_knowledge":
+                return [expert_a][:limit]
             return []
 
-    # Hybrid would return cisco-leaning poisoned results — exclude here.
     monkeypatch.setattr(
         "olav.core.memory.middleware.hybrid_search",
         lambda **kw: [],
@@ -125,8 +129,9 @@ def test_gather_then_diversify_surfaces_cross_platform_schema(monkeypatch):
     raw = mw._gather_candidates("which interfaces are down", [0.1] * 5, scope=None, top_k=6)
     out = mw._diversify_by_category(raw, limit=6)
     ids = {m["id"] for m in out}
-    assert "schema_v_show_interfaces_terse_auto" in ids, (
-        "Junos terse schema must survive into top-K so cross-platform "
-        "questions reach both Cisco and Junos data."
+    assert "guide_interface_troubleshooting" in ids, (
+        "usage_guide entry must survive into top-K"
     )
-    assert "schema_v_show_ip_interface_brief_auto" in ids
+    assert "qp_interfaces_down_query" in ids, (
+        "query_pattern entry must survive into top-K"
+    )

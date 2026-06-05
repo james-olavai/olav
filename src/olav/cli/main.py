@@ -1824,20 +1824,26 @@ async def cli_main_impl() -> None:
             console.print("\n[bold]Available Agents:[/bold]\n")
             found = []
             if workspace_root.exists():
-                for agent_md in sorted(workspace_root.glob("*/AGENT.md")):
-                    agent_dir = agent_md.parent
-                    try:
-                        raw = agent_md.read_text()
-                        if raw.startswith("---"):
-                            parts = raw.split("---", 2)
-                            meta = yaml.safe_load(parts[1]) if len(parts) >= 2 else {}
-                        else:
-                            meta = {}
-                        name = meta.get("name") or agent_dir.name
-                        desc = " ".join(str(meta.get("description", "")).split())
-                        found.append((agent_dir.name, name, desc))
-                    except Exception:
-                        found.append((agent_dir.name, agent_dir.name, ""))
+                seen: set = set()
+                # Accept AGENT.md (legacy), SKILL.md (v0.20+), AGENTS.md (deepagents)
+                for marker in ("AGENT.md", "SKILL.md", "AGENTS.md"):
+                    for agent_md in sorted(workspace_root.glob(f"*/{marker}")):
+                        agent_dir = agent_md.parent
+                        if agent_dir.name in seen:
+                            continue
+                        seen.add(agent_dir.name)
+                        try:
+                            raw = agent_md.read_text()
+                            if raw.startswith("---"):
+                                parts = raw.split("---", 2)
+                                meta = yaml.safe_load(parts[1]) if len(parts) >= 2 else {}
+                            else:
+                                meta = {}
+                            name = meta.get("name") or agent_dir.name
+                            desc = " ".join(str(meta.get("description", "")).split())
+                            found.append((agent_dir.name, name, desc))
+                        except Exception:
+                            found.append((agent_dir.name, agent_dir.name, ""))
             if found:
                 for flag, _name, desc in found:
                     default_tag = " [dim](default)[/dim]" if flag == "olav" else ""
