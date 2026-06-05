@@ -263,6 +263,56 @@ def populate_devices(db_path: Any, snapshot_id: str = "") -> int:
             if not mgmt_ip and loopback_ip:
                 mgmt_ip = loopback_ip
 
+            # Fallback Tier A: show inventory parsed_outputs → platform + model
+            # Fires when show version is absent (e.g. WLC/partial captures).
+            # Reads platform column first (auto-discovery may have set it);
+            # falls back to PID prefix inference for Cisco devices.
+            if not plat or not model:
+                try:
+                    row = conn.execute(
+                        "SELECT parsed_data::VARCHAR, platform FROM netops.parsed_outputs "
+                        "WHERE device_name=? AND command='show inventory' "
+                        "ORDER BY snapshot_id DESC LIMIT 1",
+                        [device_name],
+                    ).fetchone()
+                    if row:
+                        inv_parsed, inv_plat = row[0], row[1]
+                        if not plat and inv_plat:
+                            plat = inv_plat
+                        if inv_parsed:
+                            entries = json.loads(inv_parsed)
+                            if entries and isinstance(entries, list):
+                                for entry in entries:
+                                    pid = _ci(entry, "PID") or ""
+                                    if not model and pid:
+                                        model = pid
+                                    # Infer platform from Cisco PID prefixes
+                                    if not plat and pid:
+                                        if pid.startswith(("C9800", "C9300", "C9200",
+                                                           "C9500", "C9400", "C9600",
+                                                           "WS-C", "ISR", "ASR")):
+                                            plat = "cisco_ios"
+                                    if plat and model:
+                                        break
+                except Exception:
+                    pass
+
+            # Fallback Tier B: raw_output_store.platform (auto-discovery)
+            # Fires when no parsed CLI output yielded a platform — trust the
+            # collector's filename-signature detection instead.
+            if not plat:
+                try:
+                    row = conn.execute(
+                        "SELECT platform FROM netops.raw_output_store "
+                        "WHERE device_name=? AND platform IS NOT NULL "
+                        "ORDER BY updated_at DESC LIMIT 1",
+                        [device_name],
+                    ).fetchone()
+                    if row and row[0]:
+                        plat = row[0]
+                except Exception:
+                    pass
+
             plat = plat or "unknown"
             vendor = get_profile(plat).get("vendor", "")
 

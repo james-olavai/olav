@@ -93,13 +93,23 @@ def discover_agent_paths(
     if not base.is_dir():
         return []
 
+    # v0.20 workspaces use SKILL.md; also accept it in legacy layout.
+    _extra_markers = ["SKILL.md"] if effective_layout == "legacy" else []
+
     pairs: list[tuple[str, Path]] = []
     for entry in sorted(base.iterdir()):
         if not entry.is_dir():
             continue
         agent_def = entry / marker
         if not agent_def.is_file():
-            continue
+            # Try v0.20 SKILL.md fallback
+            for extra in _extra_markers:
+                candidate = entry / extra
+                if candidate.is_file():
+                    agent_def = candidate
+                    break
+            else:
+                continue
         pairs.append((entry.name, agent_def))
     return pairs
 

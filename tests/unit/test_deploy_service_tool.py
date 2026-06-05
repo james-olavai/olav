@@ -54,7 +54,7 @@ def test_deploy_service_signature(deploy_mod):
 
 def test_deploy_service_missing_dir_returns_error(deploy_mod, tmp_path):
     with patch.object(deploy_mod, "PROJECT_ROOT", tmp_path):
-        result = deploy_mod.deploy_service(name="nonexistent_xyz")
+        result = deploy_mod.deploy_service(name="nonexistent_xyz", confirmed=True)
     assert result["success"] is False
     assert "exist" in result.get("error", "").lower() or "exist" in result.get("hint", "").lower()
 
@@ -63,7 +63,7 @@ def test_deploy_service_missing_compose_file_returns_error(deploy_mod, tmp_path)
     svc_dir = tmp_path / ".olav" / "services" / "no_compose"
     svc_dir.mkdir(parents=True)
     with patch.object(deploy_mod, "PROJECT_ROOT", tmp_path):
-        result = deploy_mod.deploy_service(name="no_compose")
+        result = deploy_mod.deploy_service(name="no_compose", confirmed=True)
     assert result["success"] is False
     assert "docker-compose" in result.get("error", "").lower() or "compose" in result.get("hint", "").lower()
 
@@ -92,7 +92,7 @@ def test_stop_service_signature(stop_mod):
 
 def test_stop_service_missing_dir_returns_error_with_hint(stop_mod, tmp_path):
     with patch.object(stop_mod, "PROJECT_ROOT", tmp_path):
-        result = stop_mod.stop_service(name="ghost_service_xyz")
+        result = stop_mod.stop_service(name="ghost_service_xyz", confirmed=True)
     assert result["success"] is False
     assert "hint" in result, "stop_service must return a 'hint' key on failure"
     assert "ghost_service_xyz" in result.get("error", "")
@@ -112,8 +112,9 @@ def test_list_services_returns_dict(stop_mod, tmp_path):
 
 
 def test_devops_orchestrator_routes_services():
-    prompt = (_ROOT / ".olav" / "workspace" / "devops" / "prompts" / "devops.md").read_text()
+    # devops prompt is embedded in SKILL.md (no separate prompts/ dir since v2.0)
+    skill_md = (_ROOT / ".olav" / "workspace" / "devops" / "SKILL.md").read_text()
     # devops routes service operations to the services agent; the mechanism
     # changed from task("services") delegation to user-facing redirect
     # (olav --agent services "...") — both are valid routing strategies.
-    assert "services" in prompt, "devops prompt must mention routing to services agent"
+    assert "services" in skill_md, "devops SKILL.md must mention routing to services agent"
