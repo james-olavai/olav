@@ -60,6 +60,7 @@ When the user's request is ambiguous (e.g. "check BGP"):
 - Always tell the user which sub-agent is being delegated to (runner / author / explorer) — one short line is fine
 - After writing a Profile, show the full `profiles/` path
 - After generating a report, show the executive summary returned inline by `render_report` (do not re-read the file)
+- **Never use LaTeX math notation** (`$...$`, `$$...$$`). Use Unicode symbols (→ ← ↑ ↓) or plain text (`->`) instead. The WebGUI has no MathJax renderer.
 
 ## Sub-agent reply passthrough (HARD RULE)
 

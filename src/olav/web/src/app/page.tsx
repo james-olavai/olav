@@ -31,6 +31,10 @@ function HomePageInner() {
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [assistants, setAssistants] = useState<Assistant[]>([]);
   const [agentsRefreshing, setAgentsRefreshing] = useState(false);
+  // Tracks only user-initiated thread selections (history click / agent switch).
+  // Does NOT update when useStream internally creates a new thread — that would
+  // remount ChatProvider mid-stream and discard the active SSE connection.
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
 
   const { deleteThread } = useThreads({});
   const isMobile = useMobile();
@@ -74,12 +78,13 @@ function HomePageInner() {
     const found = assistants.find((a) => a.assistant_id === assistantId);
     if (found) {
       setAssistant(found);
-      await setThreadId(null); // start fresh conversation on agent switch
+      setSelectedThreadId(null);
+      await setThreadId(null);
     }
   }, [assistants, setThreadId]);
 
   const threadListProps = {
-    onThreadSelect: async (id: string) => { await setThreadId(id); if (isMobile) setSidebar(null); },
+    onThreadSelect: async (id: string) => { setSelectedThreadId(id); await setThreadId(id); if (isMobile) setSidebar(null); },
     onMutateReady: (fn: () => void) => setMutateThreads(() => fn),
     onClose: () => setSidebar(null),
     onInterruptCountChange: setInterruptCount,
@@ -138,7 +143,7 @@ function HomePageInner() {
           <Button
             variant="outline"
             size="sm"
-            onClick={async () => { await setThreadId(null); }}
+            onClick={async () => { setSelectedThreadId(null); await setThreadId(null); }}
             disabled={!threadId}
             className="h-8 border-[#2F6868] bg-[#2F6868] px-2 text-white hover:bg-[#2F6868]/80 md:h-9 md:px-3"
           >
@@ -196,6 +201,7 @@ function HomePageInner() {
             className="relative flex flex-col"
           >
             <ChatProvider
+              key={`${assistant?.assistant_id ?? 'none'}-${selectedThreadId ?? 'new'}`}
               activeAssistant={assistant}
               onHistoryRevalidate={() => mutateThreads?.()}
             >

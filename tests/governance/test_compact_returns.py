@@ -79,11 +79,12 @@ def test_api_request_returns_truncated_dict_when_page_large(monkeypatch):
 
     # Stub the service_call import chain so the tool doesn't try to load
     # real services.yaml / HTTP clients.
+    # Use monkeypatch.setitem so the stub is cleaned up after the test and
+    # does not leak into subsequent tests that load api_request.py fresh.
     import types
     stub_client = types.ModuleType("olav.platform.services.client")
     stub_client.service_call = lambda *a, **kw: fake_response  # noqa: E731
-    import sys
-    sys.modules["olav.platform.services.client"] = stub_client
+    monkeypatch.setitem(__import__("sys").modules, "olav.platform.services.client", stub_client)
 
     tool_obj = mod.api_request
     invoker = tool_obj.invoke if hasattr(tool_obj, "invoke") else tool_obj

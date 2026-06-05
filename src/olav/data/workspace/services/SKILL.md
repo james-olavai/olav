@@ -17,8 +17,14 @@ scripts:
     description: "Write docker-compose.yml or supporting config files into .olav/services/<name>/. Call this BEFORE deploy_service."
     file: write_compose_file.py
   - name: register_service
-    description: "Register a new API service endpoint in services.yaml"
+    description: "Register a new API service endpoint in services.yaml and sync to api_registry.services DuckDB table"
     file: register_service.py
+  - name: deregister_service
+    description: "Remove a service from services.yaml and api_registry.services. Requires confirmed=True (HITL gate)."
+    file: deregister_service.py
+  - name: bootstrap_registry
+    description: "Full sync of all services.yaml entries into api_registry.services DuckDB table. Run after manual edits to services.yaml."
+    file: bootstrap_registry.py
   - name: deploy_service
     description: "Deploy a container service via ContainerLab or Docker"
     file: deploy_service.py
@@ -56,7 +62,12 @@ All work is done through `execute_skill_script` and `web_search`.
   before `deploy_service`. `filename` defaults to `docker-compose.yml`; also
   use for env files (`env/<name>.env`) and config files (`config/config.py`).
 - `register_service(name, endpoint, auth_type, auth_token_env)` — append a
-  new entry to `.olav/config/services.yaml`; refuses to overwrite existing names.
+  new entry to `.olav/config/services.yaml` **and** upsert to `api_registry.services`
+  in DuckDB. Other agents can then discover this service via `execute_sql`.
+- `deregister_service(name, confirmed)` — remove a service from `services.yaml` and
+  `api_registry.services`. **Requires `confirmed=True`** — always preview first.
+- `bootstrap_registry()` — full sync of `services.yaml` → `api_registry.services`.
+  Run after manual edits to `services.yaml` or after `olav init` if services are missing.
 - `deploy_service(name, health_url, confirmed)` — deploy a container service.
   **Requires `confirmed=True` to execute** — always preview first.
 - `stop_service(name, remove, remove_volumes, confirmed)` — stop a service.

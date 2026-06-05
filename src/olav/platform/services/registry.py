@@ -39,6 +39,7 @@ class AuthConfig:
     password_env: str = ""
     token_env: str = ""
     header_name: str = "Authorization"  # for api_key: header name (e.g. 'Authorization', 'X-Api-Key')
+    token_prefix: str = ""       # for api_key: prefix prepended to token value (e.g. "Token " for NetBox)
 
 
 @dataclass
@@ -163,6 +164,7 @@ def _parse_auth(raw: dict) -> AuthConfig:
         password_env=raw.get("password_env", ""),
         token_env=raw.get("token_env", ""),
         header_name=raw.get("header_name", "Authorization"),
+        token_prefix=raw.get("token_prefix", ""),
     )
 
 

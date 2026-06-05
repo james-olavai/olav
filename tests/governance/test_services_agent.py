@@ -179,3 +179,96 @@ def test_platform_md_lists_admin():
     assert "services" in agents, (
         f"olav.md missing the platform `services` agent (ADR-0014): {agents}"
     )
+
+
+# ── deregister_service ────────────────────────────────────────────────────
+
+
+def _load_deregister_service():
+    path = DEVOPS_SERVICES_TOOLS / "deregister_service.py"
+    assert path.is_file(), f"deregister_service.py missing at {path}"
+    spec = importlib.util.spec_from_file_location("deregister_service_test", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_deregister_service_script_exists():
+    assert (DEVOPS_SERVICES_TOOLS / "deregister_service.py").is_file()
+
+
+def test_deregister_preview_without_confirmed(monkeypatch, tmp_path):
+    import yaml
+    fake = tmp_path / "services.yaml"
+    fake.write_text(yaml.safe_dump({"services": {"mysvc": {"endpoint": "http://x"}}}))
+    mod = _load_deregister_service()
+    monkeypatch.setattr(mod, "_services_yaml_path", lambda: fake)
+    result = _invoke(mod.deregister_service, name="mysvc")
+    assert result["status"] == "preview"
+    # YAML must be unchanged — confirmed=False must not mutate
+    data = yaml.safe_load(fake.read_text())
+    assert "mysvc" in data["services"]
+
+
+def test_deregister_removes_entry_when_confirmed(monkeypatch, tmp_path):
+    import yaml
+    fake = tmp_path / "services.yaml"
+    fake.write_text(yaml.safe_dump({"services": {"mysvc": {"endpoint": "http://x"}}}))
+    mod = _load_deregister_service()
+    monkeypatch.setattr(mod, "_services_yaml_path", lambda: fake)
+    # Patch DuckDB sync so it doesn't touch real DB
+    monkeypatch.setattr(mod, "__builtins__", mod.__builtins__)
+    import olav.platform.services.registry_sync as sync_mod
+    monkeypatch.setattr(sync_mod, "delete_service", lambda name: None)
+    result = _invoke(mod.deregister_service, name="mysvc", confirmed=True)
+    assert result["status"] == "ok"
+    data = yaml.safe_load(fake.read_text())
+    assert "mysvc" not in data.get("services", {})
+
+
+def test_deregister_not_found_returns_error(monkeypatch, tmp_path):
+    import yaml
+    fake = tmp_path / "services.yaml"
+    fake.write_text(yaml.safe_dump({"services": {}}))
+    mod = _load_deregister_service()
+    monkeypatch.setattr(mod, "_services_yaml_path", lambda: fake)
+    result = _invoke(mod.deregister_service, name="ghost", confirmed=True)
+    assert result["status"] == "not_found"
+
+
+# ── services SKILL.md registers new scripts ──────────────────────────────
+
+
+def test_services_skill_md_registers_deregister_service():
+    text = (WORKSPACE / "services" / "SKILL.md").read_text(encoding="utf-8")
+    assert "deregister_service" in text, (
+        "services SKILL.md must register deregister_service script"
+    )
+
+
+def test_services_skill_md_registers_bootstrap_registry():
+    text = (WORKSPACE / "services" / "SKILL.md").read_text(encoding="utf-8")
+    assert "bootstrap_registry" in text, (
+        "services SKILL.md must register bootstrap_registry script"
+    )
+
+
+# ── register_service syncs to DuckDB (best-effort) ───────────────────────
+
+
+def test_register_service_calls_upsert_service(monkeypatch, tmp_path):
+    """register_service must attempt to upsert to api_registry.services after YAML write."""
+    import yaml
+    fake = tmp_path / "services.yaml"
+    mod = _load_register_service()
+    monkeypatch.setattr(mod, "_services_yaml_path", lambda: fake)
+
+    upsert_calls = []
+
+    import olav.platform.services.registry_sync as sync_mod
+    monkeypatch.setattr(sync_mod, "upsert_service",
+                        lambda name, entry: upsert_calls.append((name, entry)))
+
+    _invoke(mod.register_service, name="newsvc", endpoint="http://newsvc", auth_type="none")
+    assert upsert_calls, "register_service must call upsert_service after YAML write"
+    assert upsert_calls[0][0] == "newsvc"
