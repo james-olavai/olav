@@ -443,7 +443,7 @@ class LanceDBStore:
         confidence: float = 0.5,
         tags: str = "[]",
         weight: float = 1.0,
-        reflection_ttl_days: int = 30,
+        reflection_ttl_days: int | None = None,
         expires_at: "datetime | None" = None,
     ) -> dict:
         """Add a memory entry to the store.
@@ -521,6 +521,12 @@ class LanceDBStore:
             # ADR-0015: reflection rows always have expires_at set
             computed_expires_at: datetime | None = expires_at
             if computed_expires_at is None and category == MemoryCategory.REFLECTION:
+                if reflection_ttl_days is None:
+                    try:
+                        from olav.core.config import get_memory_config
+                        reflection_ttl_days = get_memory_config().reflection_ttl_days
+                    except Exception:
+                        reflection_ttl_days = 30
                 computed_expires_at = now + timedelta(days=reflection_ttl_days)
 
             # Create record

@@ -18,5 +18,12 @@
   },
   "auth": {
     "mode": "none"
+  },
+  "memory": {
+    "reflection_ttl_days": 30,
+    "dedup_threshold": 0.92,
+    "fts_rebuild_every": 20,
+    "cache_ttl_hours": 24,
+    "cache_max_entries": 500
   }
 }

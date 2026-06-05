@@ -617,6 +617,21 @@ class MemoryConfig:
             )
         )
 
+    @property
+    def reflection_ttl_days(self) -> int:
+        """TTL in days for reflection-category memory rows (default 30).
+
+        Rows older than this are deleted by ``olav kb gc``.
+        Override via OLAV_MEMORY_REFLECTION_TTL_DAYS or api.json memory.reflection_ttl_days.
+        """
+        return int(
+            self._loader._env_override(
+                "memory",
+                "reflection_ttl_days",
+                self._data.get("reflection_ttl_days", 30),
+            )
+        )
+
 
 class AuthConfig:
     """Authentication configuration from api.json auth section.
