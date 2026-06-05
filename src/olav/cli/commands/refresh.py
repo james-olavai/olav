@@ -1,6 +1,6 @@
 """refresh.py — olav refresh: rebuild global agent registry (deterministic, no LLM).
 
-Scans .olav/workspace/*/{SKILL.md,AGENT.md} (SKILL.md preferred; AGENT.md legacy fallback) and:
+Scans .olav/workspace/*/{SKILL.md,AGENT.md} (SKILL.md preferred; AGENT.md for older installs) and:
 
 1. Rewrites olav.md frontmatter (agents list + body table).
 2. Replaces the <!-- BEGIN_AGENT_ROUTING --> ... <!-- END_AGENT_ROUTING --> section
@@ -59,7 +59,7 @@ def _parse_agent_frontmatter(agent_md: Path) -> dict[str, Any]:
 def _scan_agents(workspace_root: Path) -> list[dict[str, Any]]:
     """Scan workspace_root/*/{SKILL.md,AGENT.md} and return a sorted list of agent dicts.
 
-    SKILL.md is preferred (post-ADR-0008 merge); AGENT.md is the legacy fallback.
+    SKILL.md is preferred (post-ADR-0008 merge); AGENT.md is checked as a fallback for older installs.
 
     Each dict contains:
       flag        — directory name (used as --agent <flag>)
