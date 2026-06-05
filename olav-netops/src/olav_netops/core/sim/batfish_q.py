@@ -26,7 +26,7 @@ Returned envelope::
 
 Connection settings come from env vars (see ``_get_session``):
 
-  * ``OLAV_BATFISH_HOST``    (default ``192.168.100.12``)
+  * ``OLAV_BATFISH_HOST``    (default ``localhost``)
   * ``OLAV_BATFISH_HTTP_PORT`` (default ``9996``)
   * ``OLAV_BATFISH_SSL``      (``true`` / ``false``; default ``false``)
 """
@@ -128,7 +128,7 @@ def _get_session() -> Any:
     global _BF_SESSION
     if _BF_SESSION is None:
         from pybatfish.client.session import Session
-        host = os.environ.get("OLAV_BATFISH_HOST", "192.168.100.12")
+        host = os.environ.get("OLAV_BATFISH_HOST", "localhost")
         port = int(os.environ.get("OLAV_BATFISH_HTTP_PORT", "9996"))
         ssl = os.environ.get("OLAV_BATFISH_SSL", "false").lower() == "true"
         _BF_SESSION = Session(host=host, port_v2=port, ssl=ssl)

@@ -4,7 +4,7 @@ graceful errors, optional differential mode.
 
 All pybatfish calls are mocked; this is a unit test of the wrapper
 logic.  Real Batfish reachability is verified by the Phase 2 smoke
-step (live call against 192.168.100.12:9996).
+step (live call against localhost:9996).
 """
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+pytest.importorskip("pybatfish", reason="pybatfish not installed — install olav-netops[sim]")
 
 
 # ---------------------------------------------------------------------------
@@ -21,9 +23,10 @@ import pytest
 @pytest.fixture(autouse=True)
 def _reset_batfish_session_cache():
     """Each test gets a fresh module-level session cache."""
-    if "olav.core.sim.batfish_q" in sys.modules:
-        sys.modules["olav.core.sim.batfish_q"]._BF_SESSION = None
-        sys.modules["olav.core.sim.batfish_q"]._LOADED_SNAPSHOTS = set()
+    mod_key = "olav_netops.core.sim.batfish_q"
+    if mod_key in sys.modules:
+        sys.modules[mod_key]._BF_SESSION = None
+        sys.modules[mod_key]._LOADED_SNAPSHOTS = set()
     yield
 
 
@@ -65,7 +68,7 @@ def test_question_routing_and_dataframe_to_rows():
     with (
         patch("pybatfish.client.session.Session", return_value=mock_session),
         patch(
-            "olav.core.sim.batfish_q._init_snapshot_if_needed",
+            "olav_netops.core.sim.batfish_q._init_snapshot_if_needed",
             return_value=None,
         ) as mock_init,
     ):
@@ -95,7 +98,7 @@ def test_snapshot_init_lazy_and_cached():
     with (
         patch("pybatfish.client.session.Session", return_value=mock_session),
         patch(
-            "olav.core.sim.batfish_q._do_export_and_init"
+            "olav_netops.core.sim.batfish_q._do_export_and_init"
         ) as mock_do_init,
     ):
         from olav.core.sim.batfish_q import batfish_q
@@ -119,7 +122,7 @@ def test_unknown_question_returns_error_envelope():
 
     with (
         patch("pybatfish.client.session.Session", return_value=mock_session),
-        patch("olav.core.sim.batfish_q._init_snapshot_if_needed", return_value=None),
+        patch("olav_netops.core.sim.batfish_q._init_snapshot_if_needed", return_value=None),
     ):
         from olav.core.sim.batfish_q import batfish_q
         result = batfish_q.invoke({
@@ -142,7 +145,7 @@ def test_differential_mode_sets_reference_snapshot():
 
     with (
         patch("pybatfish.client.session.Session", return_value=mock_session),
-        patch("olav.core.sim.batfish_q._init_snapshot_if_needed", return_value=None),
+        patch("olav_netops.core.sim.batfish_q._init_snapshot_if_needed", return_value=None),
     ):
         from olav.core.sim.batfish_q import batfish_q
         result = batfish_q.invoke({
@@ -165,7 +168,7 @@ def test_args_none_passes_no_kwargs():
 
     with (
         patch("pybatfish.client.session.Session", return_value=mock_session),
-        patch("olav.core.sim.batfish_q._init_snapshot_if_needed", return_value=None),
+        patch("olav_netops.core.sim.batfish_q._init_snapshot_if_needed", return_value=None),
     ):
         from olav.core.sim.batfish_q import batfish_q
         result = batfish_q.invoke({
