@@ -5,8 +5,8 @@ description: Polish an EXISTING Markdown file under exports/.  Read → improve 
   beyond the two narrow render_topology_* helpers.  Invoked when the user explicitly
   says 'polish / improve / 润色 / 重写 this report'.
 dynamic_context:
-- path: ../guides/viz_drawio.guide.yaml
-- path: ../guides/format_and_export_calling_convention.guide.yaml
+- path: ../references/viz_drawio.guide.yaml
+- path: ../references/format_and_export_calling_convention.guide.yaml
 name: writer
 scripts:
 - description: Convert an adjacency Markdown table into a Mermaid diagram block
