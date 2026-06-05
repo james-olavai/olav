@@ -3,12 +3,12 @@
 deploy_service — Start a docker-compose service and verify it is healthy.
 
 This tool ONLY handles the lifecycle (up, health-check, logs on failure).
-It does NOT write files — use write_workspace_file first.
+It does NOT write files — use write_compose_file first.
 
 Workflow:
-  1. write_workspace_file(".olav/services/<name>/docker-compose.yml", content)
-  2. write_workspace_file(".olav/services/<name>/env/<name>.env", content)
-  3. write_workspace_file(".olav/services/<name>/configuration/config.py", content)
+  1. write_compose_file(name="<name>", content="...", filename="docker-compose.yml")
+  2. write_compose_file(name="<name>", content="...", filename="env/<name>.env")
+  3. write_compose_file(name="<name>", content="...", filename="config/config.py")
      ... (any other files the compose mounts)
   4. deploy_service(name="<name>", health_url="http://localhost:<port>/")
      → starts containers, waits for health, returns logs on failure
@@ -111,9 +111,9 @@ def deploy_service(
 
     Two-step pattern:
         # Step 1: write docker-compose.yml and ALL supporting files first
-        write_workspace_file(".olav/services/<name>/docker-compose.yml", ...)
-        write_workspace_file(".olav/services/<name>/env/<name>.env", ...)
-        write_workspace_file(".olav/services/<name>/configuration/config.py", ...)
+        write_compose_file(name="<name>", content="...", filename="docker-compose.yml")
+        write_compose_file(name="<name>", content="...", filename="env/<name>.env")
+        write_compose_file(name="<name>", content="...", filename="config/config.py")
         # (any other files that compose volume-mounts reference)
 
         # Step 2: start, wait for health, get logs on failure

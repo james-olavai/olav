@@ -8,6 +8,10 @@ All work is done through `execute_skill_script` and `web_search`.
 
 ## Script quick-reference
 
+- `write_compose_file(name, content, filename)` — write `docker-compose.yml`
+  or any supporting file into `.olav/services/<name>/`. **Call this first**
+  before `deploy_service`. `filename` defaults to `docker-compose.yml`; also
+  use for env files (`env/<name>.env`) and config files (`config/config.py`).
 - `register_service(name, endpoint, auth_type, auth_token_env)` — append a
   new entry to `.olav/config/services.yaml`; refuses to overwrite existing names.
 - `deploy_service(name, health_url, confirmed)` — deploy a container service.
@@ -58,7 +62,7 @@ docker_compose("up -d", service_dir=".olav/services/nginx", confirmed=True)
 
 - "Deploy nginx" →
   1. `web_search` current nginx image tag
-  2. Write `docker-compose.yml` with correct image
+  2. `write_compose_file(name="nginx", content="...")` with correct image
   3. `deploy_service(name="nginx", confirmed=False)` → preview
   4. User confirms → `deploy_service(name="nginx", confirmed=True)`
 

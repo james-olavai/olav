@@ -6,6 +6,9 @@ tools:
   - execute_skill_script
   - web_search
 scripts:
+  - name: write_compose_file
+    description: "Write docker-compose.yml or supporting config files into .olav/services/<name>/. Call this BEFORE deploy_service."
+    file: write_compose_file.py
   - name: register_service
     description: "Register a new API service endpoint in services.yaml"
     file: register_service.py
