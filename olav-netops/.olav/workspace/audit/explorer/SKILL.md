@@ -20,6 +20,11 @@ description: Open-ended network health investigation — senior architect person
   or audit reports with defined scope, use analyzer.
 dynamic_context:
 - path: ./references/network_type_classifier.guide.yaml
+- path: ./references/dc_fabric_l1_l4_issues.guide.yaml
+- path: ./references/campus_wireless_l1_l4_issues.guide.yaml
+- path: ./references/enterprise_branch_l1_l4_issues.guide.yaml
+- path: ./references/isp_edge_l1_l4_issues.guide.yaml
+- path: ./references/sdwan_l1_l4_issues.guide.yaml
 metadata:
   agent_type: api
   category: network-autonomous-audit
@@ -161,94 +166,17 @@ angles from it — don't pursue every item blindly.
 
 ## Step 3 — INVESTIGATE (L1 → L4 bottom-up)
 
-Work through layers. For each layer, pick the most informative
-query given what the fleet has. Common patterns:
+Your injected type-specific playbook (loaded at Step 2 via `olav_recall_memory`)
+contains the SQL hypotheses for your network type. Consult it for L1-L4 query patterns.
 
-**L1/L2 — interface errors and state**
+Schema notes (apply regardless of network type):
+- `v_show_interfaces_auto`: counter columns are **VARCHAR** — use `TRY_CAST(x AS INT)`; key cols: `interface`, `input_errors`, `crc`, `queue_output_drops`
+- `v_show_ip_bgp_summary_auto`: `state_or_prefixes_received` = state string ("Active/Idle") **or** prefix count when Established; detect non-established via `TRY_CAST(...AS INT) IS NULL`
+- `v_show_logging_auto`: cols = `device_name`, `facility`, `severity` (0=emerg…6=info), `mnemonic`, `message` — use for all log searches in imported bundles; `query_evidence(source="syslog")` requires live collector
+- `v_show_authentication_sessions_auto`: cols = `device_name`, `interface`, `status`, `method`
 
-Note: all counter columns in `v_show_interfaces_auto` are **VARCHAR** — cast to INT before comparing.
-Key columns: `interface` (not intf_name), `input_errors`, `crc`, `queue_output_drops`, `output_errors`.
-
-```sql
--- High error counters
-SELECT device_name, interface, input_errors, crc, queue_output_drops
-FROM netops.v_show_interfaces_auto
-WHERE TRY_CAST(input_errors AS INT) > 1000
-   OR TRY_CAST(crc AS INT) > 1000
-ORDER BY TRY_CAST(crc AS INT) DESC NULLS LAST LIMIT 50
-```
-```sql
--- Interface state changes in logs (use parsed log view)
-SELECT device_name, severity, mnemonic, message
-FROM netops.v_show_logging_auto
-WHERE mnemonic ILIKE '%LINEPROTO%' OR mnemonic ILIKE '%UPDOWN%'
-   OR mnemonic ILIKE '%LINK%'
-ORDER BY device_name LIMIT 50
-```
-```python
-query_evidence(source="command_output", pattern="err-disabled")
-```
-
-**L2 — access / security**
-```sql
-SELECT device_name, interface, status, method
-FROM netops.v_show_authentication_sessions_auto
-WHERE status ILIKE '%unauth%' OR status ILIKE '%fail%'
-```
-
-**L3 — routing instability**
-```sql
--- Routing protocol events from parsed log view
-SELECT device_name, facility, severity, mnemonic, message
-FROM netops.v_show_logging_auto
-WHERE facility ILIKE '%EIGRP%' OR facility ILIKE '%OSPF%'
-   OR facility ILIKE '%BGP%'  OR mnemonic ILIKE '%ADJCHG%'
-   OR mnemonic ILIKE '%Holdtime%' OR mnemonic ILIKE '%neighbor%'
-ORDER BY CAST(severity AS INT), device_name LIMIT 50
-```
-
-**L4 — BGP / overlay**
-
-`v_show_ip_bgp_summary_auto` key columns: `bgp_neighbor`, `state_or_prefixes_received`
-(column holds either a state string like "Active/Idle" or a prefix count if established).
-
-```sql
--- Non-established BGP neighbors (state_or_prefixes_received is non-numeric)
-SELECT device_name, bgp_neighbor, neighbor_as, state_or_prefixes_received, up_down
-FROM netops.v_show_ip_bgp_summary_auto
-WHERE TRY_CAST(state_or_prefixes_received AS INT) IS NULL
-ORDER BY device_name LIMIT 50
-```
-
-**Log sweep — use `v_show_logging_auto` (parsed, always available)**
-
-`v_show_logging_auto` columns: `device_name`, `facility`, `severity` (0=emerg…6=info),
-`mnemonic`, `message` (array). Use it for all log searches — no raw parsing needed.
-
-```sql
--- Top error-generating devices (severity <= 4 = error/warning/critical/alert)
-SELECT device_name, facility, mnemonic, CAST(severity AS INT) as sev, COUNT(*) as cnt
-FROM netops.v_show_logging_auto
-WHERE CAST(severity AS INT) <= 4
-GROUP BY device_name, facility, mnemonic, sev
-ORDER BY sev, cnt DESC
-LIMIT 50
-```
-
-```sql
--- Drill a specific device: show all non-info log entries
-SELECT facility, severity, mnemonic, message
-FROM netops.v_show_logging_auto
-WHERE device_name = '<device>'
-  AND CAST(severity AS INT) <= 4
-ORDER BY CAST(severity AS INT) LIMIT 50
-```
-
-`query_evidence(source="syslog", ...)` only works with a live syslog collector.
-For offline/imported bundles, always use `v_show_logging_auto` via `execute_sql`.
-
-After each query: interpret the result in one sentence.
-**After EVERY layer query — whether findings exist or not — write the section to the report immediately before moving to the next layer.** Also persist confirmed findings to DB:
+After each query: interpret in one sentence.
+**After EVERY layer — whether findings exist or not — write the report section immediately before moving on.** Also persist confirmed findings to DB:
 
 ```python
 # 1. Structured DB record (queryable by downstream agents)
@@ -273,74 +201,34 @@ format_and_export(data="\n## L1 ...\n...", filename=report_fn, format="md", subd
 
 `evidence_sql` is mandatory — it must be the exact query that returned the data proving this finding.
 
-## Step 4 — REPORT (read-first, start early)
+## Step 4 — REPORT (read-first, incremental)
 
-**Before any write**, call `read_file` to check what's already in the file.
-Write only what's **missing** — never re-emit a `# Title` or `## Section` that already exists.
-Derive the filename from the user's request or network name — never hardcode it.
-Example: `"network_health_2026-05-18"` or `"vu_campus_health_2026-05-18"`.
+Derive filename from user/network name + today's date (NOT snapshot date):
+`report_fn = "network_health_2026-06-05"` or `"vu_campus_health_<date>"`.
 
 ```python
-# Use TODAY's date for the filename (when the report is being written),
-# NOT the snapshot's captured_at date. The snapshot date goes inside the report.
-import datetime
-today = datetime.date.today().strftime("%Y-%m-%d")
-report_fn = f"network_health_{today}"   # decide once, reuse every append
-
-# CHECK STATE FIRST — before any format_and_export
+# Before first write — check current state
 existing = read_file(path=f"exports/reports/{report_fn}.md")
-# empty / error → file is new this session; initialize header
-# non-empty → this session already wrote something; find last ## heading and continue
 
-# INITIALIZE — only when file is new (no content from this session yet)
-if not existing or "# " not in existing:
-    format_and_export(
-        data=f"# Network Health Investigation\n_Generated {captured_at}; {device_count} devices in snapshot_\n\n",
-        filename=report_fn,
-        format="md", subdir="reports", mode="append",
-    )
+# Initialize (only if new)
+format_and_export(data=f"# Network Health\n_Generated {captured_at}; {device_count} devices_\n\n",
+                  filename=report_fn, format="md", subdir="reports", mode="append")
+
+# After each layer — append section (skip if heading already in `existing`)
+format_and_export(data=f"\n## {layer}\n**Evidence**: `{sql}`\n\n{table}\n\n**Analysis**: {sentence}\n",
+                  filename=report_fn, format="md", subdir="reports", mode="append")
+
+# Final synthesis (only if "## Summary" not yet in file)
+format_and_export(data="\n## Summary\n| Finding | Severity | Layer |\n...\n\n## Recommendations\n...\n",
+                  filename=report_fn, format="md", subdir="reports", mode="append")
+
+# Close the exploration run
+execute_skill_script(skill_name="explorer", script_name="finish_exploration.py",
+    script_args={"run_id": "<run_id>", "final_report_path": f"exports/reports/{report_fn}.md"})
 ```
 
-**After each investigation step with findings**, check state and append the next missing section:
-```python
-# Only append if this section heading is NOT already in `existing`
-format_and_export(
-    data=f"\n## {layer} — {what_you_found}\n**Evidence**: `{sql_snippet}`\n\n{markdown_table}\n\n**Analysis**: {one_sentence}\n",
-    filename=report_fn,
-    format="md", subdir="reports", mode="append",
-)
-```
-
-**Final synthesis** (last append, only if `## Summary` not yet in file):
-```python
-format_and_export(
-    data="\n## Summary\n| Finding | Severity | Layer |\n|---|---|---|\n...\n\n## Recommendations\n...\n",
-    filename=report_fn,
-    format="md", subdir="reports", mode="append",
-)
-```
-
-Use the **same `filename`** for every append in this session.
-
-**Final step — close the exploration run** (after the last format_and_export):
-
-```python
-execute_skill_script(
-    skill_name="explorer",
-    script_name="finish_exploration.py",
-    script_args={
-        "run_id": "<run_id>",
-        "final_report_path": "exports/reports/<report_fn>.md",
-    },
-)
-```
-
-This transitions the run to `status='completed'` in `netops.exploration_runs`.
-Downstream agents (reporter, analyzer) can then query:
-```sql
-SELECT run_id, snapshot_id, findings_count, final_report_path
-FROM netops.exploration_runs WHERE status = 'completed' ORDER BY started_at DESC LIMIT 3
-```
+Downstream agents query completed runs via:
+`SELECT run_id, findings_count, final_report_path FROM netops.exploration_runs WHERE status='completed'`
 
 # Hard rules
 
