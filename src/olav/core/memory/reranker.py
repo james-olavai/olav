@@ -75,7 +75,12 @@ class OllamaEmbeddingReranker(Reranker):
     def _get_http(self):
         if self._http is None:
             import httpx
-            self._http = httpx.Client(timeout=15.0)
+            try:
+                from olav.core.config import get_embedding_config
+                _reranker_timeout = get_embedding_config().reranker_timeout
+            except Exception:
+                _reranker_timeout = 15.0
+            self._http = httpx.Client(timeout=_reranker_timeout)
         return self._http
 
     def _embed_one(self, text: str) -> "list[float] | None":

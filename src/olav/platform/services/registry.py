@@ -18,6 +18,15 @@ from typing import Any
 import yaml
 
 
+def _get_health_check_timeout() -> int:
+    """Return health_check_timeout from ServicesConfig, falling back to 30."""
+    try:
+        from olav.core.config import get_services_config
+        return get_services_config().health_check_timeout
+    except Exception:
+        return 30
+
+
 # ---------------------------------------------------------------------------
 # Config dataclasses
 # ---------------------------------------------------------------------------
@@ -170,7 +179,7 @@ def _parse_lifecycle(raw: dict) -> LifecycleConfig:
         compose_file=raw.get("compose_file", ""),
         service_name=raw.get("service_name", ""),
         health_check=raw.get("health_check", ""),
-        health_timeout=int(raw.get("health_timeout", 30)),
+        health_timeout=int(raw.get("health_timeout", _get_health_check_timeout())),
     )
 
 

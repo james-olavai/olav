@@ -84,7 +84,12 @@ def _discover_schema_url(endpoint: str, configured_url: str | None = None) -> st
         if url not in candidates:
             candidates.append(url)
 
-    with httpx.Client(timeout=10.0) as client:
+    try:
+        from olav.core.config import get_services_config
+        _probe_timeout = get_services_config().schema_probe_timeout
+    except Exception:
+        _probe_timeout = 10.0
+    with httpx.Client(timeout=_probe_timeout) as client:
         for url in candidates:
             try:
                 resp = client.get(url)
@@ -154,7 +159,7 @@ def _to_func_name(prefix: str, method: str, path: str) -> str:
 def register_service(
     service_name: str,
     force: bool = False,
-    max_retries: int = 1,
+    max_retries: int | None = None,
     retry_delay: float = 5.0,
 ) -> dict[str, Any]:
     """Full registration flow for a service.
@@ -167,13 +172,19 @@ def register_service(
     Args:
         service_name: Key in services.yaml
         force:        Re-fetch schema even if already loaded
-        max_retries:  Total fetch attempts before giving up (default 1 = no retry)
+        max_retries:  Total fetch attempts before giving up (None → read from config, default 1)
         retry_delay:  Seconds to wait between attempts
 
     Returns:
         {"service": name, "ops_loaded": int, "reference_files": [str, ...]}
         or {"service": name, "status": "error", "error": str} on failure
     """
+    if max_retries is None:
+        try:
+            from olav.core.config import get_services_config
+            max_retries = get_services_config().schema_fetch_max_retries
+        except Exception:
+            max_retries = 1
     registry = ServiceRegistry.get_instance()
     svc = registry.get(service_name)
 

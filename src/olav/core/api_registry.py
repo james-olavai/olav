@@ -328,7 +328,12 @@ def load_schema(
         return row[0] if row else 0
 
     # Fetch schema — JSON first, YAML fallback
-    with httpx.Client(timeout=30.0) as client:
+    try:
+        from olav.core.config import get_services_config
+        _api_registry_timeout = get_services_config().api_registry_timeout
+    except Exception:
+        _api_registry_timeout = 30.0
+    with httpx.Client(timeout=_api_registry_timeout) as client:
         resp = client.get(schema_url)
         resp.raise_for_status()
         ct = resp.headers.get("content-type", "")

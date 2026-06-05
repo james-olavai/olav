@@ -819,9 +819,14 @@ class OLAVAgent:
         # state["rubric"] on every call; without that key the middleware is a no-op.
         if HAS_RUBRIC_MIDDLEWARE and _RubricMW is not None and olav_config.get("rubric_middleware"):
             try:
+                try:
+                    from olav.core.config import get_agent_config
+                    _rubric_max_iter = get_agent_config().rubric_max_iterations
+                except Exception:
+                    _rubric_max_iter = 2
                 _orch_rubric_mw = _RubricMW(
                     model=self.llm,
-                    max_iterations=2,
+                    max_iterations=_rubric_max_iter,
                     on_evaluation=_make_rubric_callback(self.agent_id),
                 )
                 effective_middleware = list(effective_middleware) + [_orch_rubric_mw]
@@ -1326,9 +1331,14 @@ class OLAVAgent:
             # on_evaluation callback logs structured evaluation results (dev_docs/92 §2).
             if HAS_RUBRIC_MIDDLEWARE and _RubricMW is not None and metadata.get("rubric_middleware"):
                 try:
+                    try:
+                        from olav.core.config import get_agent_config
+                        _sa_rubric_max_iter = get_agent_config().rubric_max_iterations
+                    except Exception:
+                        _sa_rubric_max_iter = 2
                     _middleware.append(_RubricMW(
                         model=sa_llm,
-                        max_iterations=2,
+                        max_iterations=_sa_rubric_max_iter,
                         on_evaluation=_make_rubric_callback(name),
                     ))
                     logger.info(f"  → '{name}' RubricMiddleware enabled (coverage self-eval)")

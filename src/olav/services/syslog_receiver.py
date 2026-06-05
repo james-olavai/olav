@@ -46,7 +46,11 @@ _root_for_pid = next(
 PID_FILE = _root_for_pid / ".olav" / "run" / "syslog_receiver.pid"
 
 UDP_HOST = "0.0.0.0"
-UDP_PORT = int(os.environ.get("OLAV_SYSLOG_PORT", 5514))
+try:
+    from olav.core.config import get_services_config as _get_svc_cfg
+    UDP_PORT = _get_svc_cfg().syslog_port
+except Exception:
+    UDP_PORT = int(os.environ.get("OLAV_SYSLOG_PORT", 5514))
 BATCH_SIZE = int(os.environ.get("OLAV_SYSLOG_BATCH_SIZE", 100))
 FLUSH_INTERVAL = int(os.environ.get("OLAV_SYSLOG_FLUSH_INTERVAL", 60))  # seconds
 

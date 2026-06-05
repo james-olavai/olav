@@ -233,6 +233,18 @@ class ConfigLoader:
         return DatasetExportConfig(self._api.get("dataset_export", {}), self)
 
     @property
+    def services(self) -> "ServicesConfig":
+        return ServicesConfig(self._api.get("services", {}), self)
+
+    @property
+    def execution(self) -> "ExecutionConfig":
+        return ExecutionConfig(self._api.get("execution", {}), self)
+
+    @property
+    def agent(self) -> "AgentConfig":
+        return AgentConfig(self._api.get("agent", {}), self)
+
+    @property
     def tasks(self):
         return self._tasks
 
@@ -432,6 +444,28 @@ class EmbeddingConfig:
     def api_model(self) -> str:
         return self.openai_model
 
+    @property
+    def max_input_chars(self) -> int:
+        """Maximum characters passed to the embedder before truncation (default 6000)."""
+        return int(
+            self._loader._env_override(
+                "embedding",
+                "max_input_chars",
+                self._data.get("max_input_chars", 6000),
+            )
+        )
+
+    @property
+    def reranker_timeout(self) -> float:
+        """HTTP timeout (seconds) for the reranker Ollama endpoint (default 15.0)."""
+        return float(
+            self._loader._env_override(
+                "embedding",
+                "reranker_timeout",
+                self._data.get("reranker_timeout", 15.0),
+            )
+        )
+
 
 class PathsConfig:
     def __init__(self, data: dict, loader: ConfigLoader):
@@ -617,6 +651,61 @@ class MemoryConfig:
             )
         )
 
+    @property
+    def reflection_ttl_days(self) -> int:
+        """Days before reflection memories expire (default 30)."""
+        return int(
+            self._loader._env_override(
+                "memory",
+                "reflection_ttl_days",
+                self._data.get("reflection_ttl_days", 30),
+            )
+        )
+
+    @property
+    def recall_top_k(self) -> int:
+        """Max memories to inject per query (default 3)."""
+        return int(
+            self._loader._env_override(
+                "memory",
+                "recall_top_k",
+                self._data.get("recall_top_k", 3),
+            )
+        )
+
+    @property
+    def capture_max_items(self) -> int:
+        """Max fact/decision items to extract per conversation (default 3)."""
+        return int(
+            self._loader._env_override(
+                "memory",
+                "capture_max_items",
+                self._data.get("capture_max_items", 3),
+            )
+        )
+
+    @property
+    def decay_half_life_days(self) -> int:
+        """Time-decay half-life in days (default 60)."""
+        return int(
+            self._loader._env_override(
+                "memory",
+                "decay_half_life_days",
+                self._data.get("decay_half_life_days", 60),
+            )
+        )
+
+    @property
+    def decay_weight_floor(self) -> float:
+        """Minimum weight after full decay (default 0.1)."""
+        return float(
+            self._loader._env_override(
+                "memory",
+                "decay_weight_floor",
+                self._data.get("decay_weight_floor", 0.1),
+            )
+        )
+
 
 class AuthConfig:
     """Authentication configuration from api.json auth section.
@@ -732,6 +821,168 @@ class DatasetExportConfig:
         )
 
 
+class ServicesConfig:
+    """Configuration for external service integration timeouts and retry policy.
+
+    Reads from ``api.json["services"]``.  All values can be overridden via
+    ``OLAV_SERVICES_*`` environment variables.
+    """
+
+    def __init__(self, data: dict, loader: "ConfigLoader"):
+        self._data = data
+        self._loader = loader
+
+    @property
+    def jwt_login_timeout(self) -> float:
+        """HTTP timeout (s) for JWT login requests (default 15.0)."""
+        return float(
+            self._loader._env_override(
+                "services", "jwt_login_timeout", self._data.get("jwt_login_timeout", 15.0)
+            )
+        )
+
+    @property
+    def schema_probe_timeout(self) -> float:
+        """HTTP timeout (s) when probing for an OpenAPI schema URL (default 10.0)."""
+        return float(
+            self._loader._env_override(
+                "services", "schema_probe_timeout", self._data.get("schema_probe_timeout", 10.0)
+            )
+        )
+
+    @property
+    def schema_fetch_max_retries(self) -> int:
+        """Total schema-fetch attempts before giving up (default 1 = no retry)."""
+        return int(
+            self._loader._env_override(
+                "services",
+                "schema_fetch_max_retries",
+                self._data.get("schema_fetch_max_retries", 1),
+            )
+        )
+
+    @property
+    def api_registry_timeout(self) -> float:
+        """HTTP timeout (s) for api_registry schema fetch (default 30.0)."""
+        return float(
+            self._loader._env_override(
+                "services",
+                "api_registry_timeout",
+                self._data.get("api_registry_timeout", 30.0),
+            )
+        )
+
+    @property
+    def health_check_timeout(self) -> int:
+        """Timeout (s) for lifecycle health-check probes (default 30)."""
+        return int(
+            self._loader._env_override(
+                "services",
+                "health_check_timeout",
+                self._data.get("health_check_timeout", 30),
+            )
+        )
+
+    @property
+    def service_register_retries(self) -> int:
+        """Max retries when registering a service from the CLI (default 3)."""
+        return int(
+            self._loader._env_override(
+                "services",
+                "service_register_retries",
+                self._data.get("service_register_retries", 3),
+            )
+        )
+
+    @property
+    def service_register_retry_delay(self) -> float:
+        """Seconds to wait between registration retry attempts (default 5.0)."""
+        return float(
+            self._loader._env_override(
+                "services",
+                "service_register_retry_delay",
+                self._data.get("service_register_retry_delay", 5.0),
+            )
+        )
+
+    @property
+    def syslog_port(self) -> int:
+        """UDP port the syslog receiver binds to (default 5514)."""
+        return int(
+            self._loader._env_override(
+                "services", "syslog_port", self._data.get("syslog_port", 5514)
+            )
+        )
+
+
+class ExecutionConfig:
+    """Configuration for skill and shell execution limits.
+
+    Reads from ``api.json["execution"]``.  All values can be overridden via
+    ``OLAV_EXECUTION_*`` environment variables.
+    """
+
+    def __init__(self, data: dict, loader: "ConfigLoader"):
+        self._data = data
+        self._loader = loader
+
+    @property
+    def max_skill_timeout_seconds(self) -> int:
+        """Hard upper limit (s) for any skill script subprocess (default 600)."""
+        return int(
+            self._loader._env_override(
+                "execution",
+                "max_skill_timeout_seconds",
+                self._data.get("max_skill_timeout_seconds", 600),
+            )
+        )
+
+    @property
+    def default_shell_timeout_seconds(self) -> int:
+        """Default timeout (s) for shell commands that declare no explicit timeout (default 300)."""
+        return int(
+            self._loader._env_override(
+                "execution",
+                "default_shell_timeout_seconds",
+                self._data.get("default_shell_timeout_seconds", 300),
+            )
+        )
+
+    @property
+    def max_skill_output_bytes(self) -> int:
+        """Maximum bytes captured per stream from a skill subprocess (default 524288 = 512 KB)."""
+        return int(
+            self._loader._env_override(
+                "execution",
+                "max_skill_output_bytes",
+                self._data.get("max_skill_output_bytes", 524288),
+            )
+        )
+
+
+class AgentConfig:
+    """Configuration for agent execution behaviour.
+
+    Reads from ``api.json["agent"]``.  All values can be overridden via
+    ``OLAV_AGENT_*`` environment variables.
+    """
+
+    def __init__(self, data: dict, loader: "ConfigLoader"):
+        self._data = data
+        self._loader = loader
+
+    @property
+    def rubric_max_iterations(self) -> int:
+        """Max RubricMiddleware self-evaluation iterations per agent turn (default 2)."""
+        return int(
+            self._loader._env_override(
+                "agent",
+                "rubric_max_iterations",
+                self._data.get("rubric_max_iterations", 2),
+            )
+        )
+
+
 class RuntimeConfig:
     def __init__(self, data: dict, loader: ConfigLoader):
         self._data = data
@@ -803,6 +1054,18 @@ def get_memory_config() -> MemoryConfig:
 
 def get_dataset_export_config() -> "DatasetExportConfig":
     return get_config().dataset_export
+
+
+def get_services_config() -> "ServicesConfig":
+    return get_config().services
+
+
+def get_execution_config() -> "ExecutionConfig":
+    return get_config().execution
+
+
+def get_agent_config() -> "AgentConfig":
+    return get_config().agent
 
 
 # Backward compatibility
@@ -1042,7 +1305,13 @@ __all__ = [
     "get_runtime_config",
     "get_memory_config",
     "get_dataset_export_config",
+    "get_services_config",
+    "get_execution_config",
+    "get_agent_config",
     "MemoryConfig",
     "AuthConfig",
     "DatasetExportConfig",
+    "ServicesConfig",
+    "ExecutionConfig",
+    "AgentConfig",
 ]
