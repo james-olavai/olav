@@ -101,6 +101,7 @@ def deploy_service(
     name: str,
     health_url: str = "",
     health_timeout: int = 300,
+    confirmed: bool = False,
 ) -> dict:
     """Deploy any container-based service (NetBox, Grafana, Prometheus, etc.).
 
@@ -130,6 +131,26 @@ def deploy_service(
     Returns on success: {"success": true, "containers": [...]}
     Returns on failure: {"success": false, "logs": "...", "hint": "..."}
     """
+    # HITL gate: deployment is irreversible until manually stopped
+    if not confirmed:
+        compose_file = PROJECT_ROOT / ".olav" / "services" / name / "docker-compose.yml"
+        if not compose_file.exists():
+            compose_file = PROJECT_ROOT / ".olav" / "services" / name / "docker-compose.yaml"
+        return {
+            "status": "preview",
+            "action": f"deploy_service(name={name!r})",
+            "service_dir": str(PROJECT_ROOT / ".olav" / "services" / name),
+            "compose_exists": compose_file.exists(),
+            "health_url": health_url or "(none)",
+            "requires_confirmation": True,
+            "message": (
+                f"About to deploy service '{name}' from "
+                f".olav/services/{name}/docker-compose.yml\n"
+                f"Health check URL: {health_url or '(none)'}\n"
+                "Call again with confirmed=True to execute."
+            ),
+        }
+
     service_dir = PROJECT_ROOT / ".olav" / "services" / name
 
     if not service_dir.exists():

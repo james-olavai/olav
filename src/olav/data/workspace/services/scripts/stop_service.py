@@ -36,6 +36,7 @@ def stop_service(
     name: str,
     remove: bool = True,
     remove_volumes: bool = False,
+    confirmed: bool = False,
 ) -> dict:
     """Stop a running docker-compose service managed by OLAV.
 
@@ -53,6 +54,24 @@ def stop_service(
         {"success": true, "service": name} on success
         {"success": false, "error": "...", "hint": "..."} on failure
     """
+    # HITL gate: stopping/removing a service may disrupt running workloads
+    if not confirmed:
+        action_desc = "docker compose down" if remove else "docker compose stop"
+        if remove and remove_volumes:
+            action_desc += " --volumes (⚠️ deletes persistent data)"
+        return {
+            "status": "preview",
+            "action": f"stop_service(name={name!r}, remove={remove}, remove_volumes={remove_volumes})",
+            "command": action_desc,
+            "service_dir": str(PROJECT_ROOT / ".olav" / "services" / name),
+            "requires_confirmation": True,
+            "message": (
+                f"About to stop service '{name}': {action_desc}\n"
+                + ("⚠️  This will delete all persistent volume data.\n" if remove_volumes else "")
+                + "Call again with confirmed=True to execute."
+            ),
+        }
+
     service_dir = PROJECT_ROOT / ".olav" / "services" / name
 
     if not service_dir.exists():
