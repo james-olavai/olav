@@ -3,6 +3,7 @@ name: devops
 description: "DevOps & Infrastructure orchestrator — script generation, NetBox/InfluxDB integrations"
 metadata:
   type: agent
+  version: 1.0.0
   category: platform
 ---
 

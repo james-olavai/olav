@@ -3,6 +3,7 @@ name: admin
 description: "OLAV platform self-management — health/log diagnostics, cron, skill installation, workspace scaffolding"
 metadata:
   type: agent
+  version: 1.0.0
   category: platform
 ---
 

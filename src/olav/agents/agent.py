@@ -999,8 +999,11 @@ class OLAVAgent:
         own_filter: set[str] | None = None
         if skill_path.exists():
             own_filter = self._read_tools_filter(skill_path)
-        else:
-            # AGENT.md may carry a tools field instead (orchestrators)
+        # When SKILL.md exists but has no tools: key (root orchestrators whose
+        # system prompt now lives in SKILL.md body but whose tool declarations
+        # remain in AGENT.md), fall through to AGENT.md so the tools filter
+        # is not silently lost.
+        if own_filter is None:
             agent_md = self._agent_dir / "AGENT.md"
             if agent_md.exists():
                 own_filter = self._read_tools_filter(agent_md)
