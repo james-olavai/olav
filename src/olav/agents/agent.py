@@ -932,36 +932,53 @@ class OLAVAgent:
     # ------------------------------------------------------------------
 
     # ------------------------------------------------------------------
-    # Workspace AGENT.md config loading
+    # Workspace agent config loading
     # ------------------------------------------------------------------
 
     def _load_olav_config(self) -> dict:
-        """Load workspace/AGENT.md YAML frontmatter."""
+        """Load agent config from SKILL.md frontmatter (canonical) or AGENT.md (legacy).
+
+        Priority:
+          1. SKILL.md frontmatter — canonical single-file agent definition
+          2. AGENT.md frontmatter — legacy; supported for backward compat only
+
+        AGENT.md is deprecated: all routing/tool/subagent config should live in
+        SKILL.md frontmatter alongside the system prompt body.
+        """
         workspace_path = self.olav_base_path / "workspace"
         agent_dir = workspace_path / self.agent_id
-        agent_md = agent_dir / "AGENT.md"
-
-        if not agent_md.exists():
-            raise RuntimeError(
-                f"AGENT.md not found at {agent_md}. "
-                f"Workspace agent '{self.agent_id}' does not exist."
-            )
 
         if not _HAS_FRONTMATTER:
             raise RuntimeError(
                 "python-frontmatter is not installed. Run: uv add python-frontmatter"
             )
 
+        skill_md = agent_dir / "SKILL.md"
+        agent_md = agent_dir / "AGENT.md"
+
+        config_file: Path | None = None
+        if skill_md.exists():
+            config_file = skill_md
+            label = "SKILL.md"
+        elif agent_md.exists():
+            config_file = agent_md
+            label = "AGENT.md (legacy)"
+        else:
+            raise RuntimeError(
+                f"No SKILL.md or AGENT.md found at {agent_dir}. "
+                f"Workspace agent '{self.agent_id}' does not exist."
+            )
+
         try:
-            with open(agent_md, encoding="utf-8") as f:
+            with open(config_file, encoding="utf-8") as f:
                 post = _frontmatter.load(f)
         except Exception as e:
-            raise RuntimeError(f"Failed to parse AGENT.md: {e}") from e
+            raise RuntimeError(f"Failed to parse {label}: {e}") from e
 
         if not post.metadata:
-            raise RuntimeError("AGENT.md has no YAML frontmatter.")
+            raise RuntimeError(f"{label} has no YAML frontmatter.")
 
-        logger.info(f"✓ AGENT.md config loaded: {list(post.metadata.keys())}")
+        logger.info(f"✓ {label} config loaded: {list(post.metadata.keys())}")
         self._agent_dir = agent_dir
         return post.metadata
 

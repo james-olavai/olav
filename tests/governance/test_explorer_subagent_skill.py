@@ -6,7 +6,7 @@ What this protects against:
   * Someone setting ``dynamic_context`` to inject taxonomy by default
     (would violate the Level-2 design philosophy of dev_docs/83 §2)
   * Tool wrapper import drift
-  * AGENT.md losing the explorer sub-agent reference
+  * SKILL.md losing the explorer sub-agent reference
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ import yaml
 
 _REPO = Path(__file__).resolve().parents[2]
 _EXPLORER_DIR = _REPO / ".olav" / "workspace" / "audit" / "explorer"
-_AUDIT_AGENT_MD = _REPO / ".olav" / "workspace" / "audit" / "AGENT.md"
+_AUDIT_AGENT_MD = _REPO / ".olav" / "workspace" / "audit" / "SKILL.md"
 
 
 def _parse_front_matter(md_path: Path) -> dict:
@@ -147,7 +147,7 @@ class TestPromptContract:
         assert "L1-L4 are all attempted" in text or "after L1-L4" in text or "Stop only after" in text
 
 
-# ── netops AGENT.md wire-up ───────────────────────────────────────────
+# ── netops SKILL.md wire-up ───────────────────────────────────────────
 
 
 class TestPlaybookGuidesPresent:

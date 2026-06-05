@@ -5,7 +5,7 @@ What this protects against:
     diff_snapshots) — would re-introduce tool bloat > 7
   * reporter missing its investigation tools (query_evidence, diff_snapshots)
   * diff_snapshots being an @tool again (it was demoted to script, FINDING-19)
-  * AGENT.md losing the reporter sub-agent reference
+  * SKILL.md losing the reporter sub-agent reference
   * Either agent exceeding the 7-tool hard limit
 """
 from __future__ import annotations
@@ -20,7 +20,7 @@ _REPO = Path(__file__).resolve().parents[2]
 _NETOPS = _REPO / ".olav" / "workspace" / "netops"
 _ANALYZER_DIR = _NETOPS / "analyzer"
 _REPORTER_DIR = _NETOPS / "reporter"
-_NETOPS_AGENT_MD = _NETOPS / "AGENT.md"
+_NETOPS_AGENT_MD = _NETOPS / "SKILL.md"
 
 
 def _parse_front_matter(md_path: Path) -> dict:
@@ -208,7 +208,7 @@ class TestDiffSnapshotsDemotion:
         )
 
 
-# ── netops AGENT.md routing ───────────────────────────────────────────────────
+# ── netops SKILL.md routing ───────────────────────────────────────────────────
 
 
 class TestNetopsAgentMdRouting:
@@ -216,14 +216,14 @@ class TestNetopsAgentMdRouting:
         fm = _parse_front_matter(_NETOPS_AGENT_MD)
         sub_paths = {s["path"] for s in fm.get("subagents", [])}
         assert "./reporter/SKILL.md" in sub_paths, (
-            "reporter/SKILL.md must be listed as a subagent in netops/AGENT.md"
+            "reporter/SKILL.md must be listed as a subagent in netops/SKILL.md"
         )
 
     def test_analyzer_still_in_subagents(self):
         fm = _parse_front_matter(_NETOPS_AGENT_MD)
         sub_paths = {s["path"] for s in fm.get("subagents", [])}
         assert "./analyzer/SKILL.md" in sub_paths, (
-            "analyzer/SKILL.md must still be listed in netops/AGENT.md"
+            "analyzer/SKILL.md must still be listed in netops/SKILL.md"
         )
 
     def test_both_workspaces_have_reporter(self):

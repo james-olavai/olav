@@ -1,6 +1,7 @@
 ---
 name: memory-curator
-description: "Conversational memory ingestion (R102). Turn user-stated rules / pasted runbook / topology source into LanceDB rows with HITL."
+description: "Memory curator sub-agent — natural-language ingestion of usage guides, runbook chunks, and topology source into the unified LanceDB memory store (R102)."
+subagents: []
 tools:
   - olav_recall_memory
   - olav_store_memory

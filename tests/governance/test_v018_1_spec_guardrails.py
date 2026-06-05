@@ -135,9 +135,8 @@ def test_core_prompt_within_small_tier_budget():
     Round 33 ``core/SKILL.md`` 21→7 trim dropped the prompt well under the
     2500-token ceiling. Round 35 un-xfails this test.
     """
-    agent_md = (WORKSPACE / "core" / "AGENT.md").read_text(encoding="utf-8")
     skill_md = (WORKSPACE / "core" / "SKILL.md").read_text(encoding="utf-8")
-    approx_tokens = (len(agent_md) + len(skill_md)) // 4
+    approx_tokens = len(skill_md) // 4
     assert approx_tokens <= 2500, (
         f"core prompt ≈ {approx_tokens} tokens; small-tier budget is 2500"
     )

@@ -1,6 +1,13 @@
 ---
 name: services
-description: "Service lifecycle management — register APIs, deploy/stop containers, make authenticated HTTP calls against services.yaml endpoints (NetBox, InfluxDB, Gitea, ContainerLab, any custom HTTP API)"
+description: "OLAV service-integration platform agent — register API services, deploy/stop containers (Docker / ContainerLab), docker-compose ops, and authenticated HTTP calls against services.yaml endpoints (NetBox, InfluxDB, Gitea, any custom HTTP API)"
+route_keywords:
+  - register service api endpoint services.yaml netbox influxdb gitea
+  - deploy container service containerlab clab docker
+  - docker compose up down ps logs service
+  - stop shutdown running container service
+  - authenticated http request api call registered service
+task_return_direct: true
 agent_type: api
 tools:
   - execute_skill_script

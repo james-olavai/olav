@@ -4,6 +4,7 @@ description: Polish an EXISTING Markdown file under exports/.  Read → improve 
   / structure / optionally embed Mermaid or draw.io topology → save back.  Never investigates
   beyond the two narrow render_topology_* helpers.  Invoked when the user explicitly
   says 'polish / improve / 润色 / 重写 this report'.
+subagents: []
 dynamic_context:
 - path: ../references/viz_drawio.guide.yaml
 - path: ../references/format_and_export_calling_convention.guide.yaml

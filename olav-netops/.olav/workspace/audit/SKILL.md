@@ -1,6 +1,20 @@
 ---
 name: audit-orchestrator
 description: "Audit — runs health check Profiles, authors / extends Profiles, open-ended data investigation"
+route_keywords:
+  - audit health check compliance report profile SLA
+  - 审计 健康检查 合规 报告
+  - create design build profile threshold baseline
+  - run execute audit report summary executive
+  - explore investigation data-driven explore anomaly evidence query
+task_return_direct: true
+tools:
+  - olav_recall_memory
+  - web_search
+subagents:
+  - path: ./audit-runner/SKILL.md
+  - path: ./audit-author/SKILL.md
+  - path: ./explorer/SKILL.md
 metadata:
   rubric_middleware: true
   type: agent
