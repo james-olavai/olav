@@ -1,6 +1,6 @@
 """refresh.py — olav refresh: rebuild global agent registry (deterministic, no LLM).
 
-Scans .olav/workspace/*/AGENT.md and:
+Scans .olav/workspace/*/{SKILL.md,AGENT.md} (SKILL.md preferred; AGENT.md legacy fallback) and:
 
 1. Rewrites olav.md frontmatter (agents list + body table).
 2. Replaces the <!-- BEGIN_AGENT_ROUTING --> ... <!-- END_AGENT_ROUTING --> section
@@ -57,19 +57,23 @@ def _parse_agent_frontmatter(agent_md: Path) -> dict[str, Any]:
 
 
 def _scan_agents(workspace_root: Path) -> list[dict[str, Any]]:
-    """Scan workspace_root/*/AGENT.md and return a sorted list of agent dicts.
+    """Scan workspace_root/*/{SKILL.md,AGENT.md} and return a sorted list of agent dicts.
+
+    SKILL.md is preferred (post-ADR-0008 merge); AGENT.md is the legacy fallback.
 
     Each dict contains:
       flag        — directory name (used as --agent <flag>)
-      name        — human name from AGENT.md frontmatter
-      description — description from AGENT.md frontmatter
+      name        — human name from frontmatter
+      description — description from frontmatter
       kind        — kind field (may be empty string)
     """
     agents: list[dict[str, Any]] = []
     for agent_dir in sorted(workspace_root.iterdir()):
         if not agent_dir.is_dir():
             continue
-        agent_md = agent_dir / "AGENT.md"
+        agent_md = agent_dir / "SKILL.md"
+        if not agent_md.exists():
+            agent_md = agent_dir / "AGENT.md"
         if not agent_md.exists():
             continue
         meta = _parse_agent_frontmatter(agent_md)
@@ -285,7 +289,7 @@ def refresh_workspace(workspace_root: Path | None = None) -> str:
 
     agents = _scan_agents(workspace_root)
     if not agents:
-        return "warning: no AGENT.md files found in workspace"
+        return "warning: no SKILL.md/AGENT.md files found in workspace"
 
     _write_platform_md(workspace_root, agents)
     routing_updated = _update_main_agent_routing(workspace_root, agents)
