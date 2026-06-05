@@ -45,6 +45,12 @@ For `up / down / restart / stop / start / deploy / stop_service`:
 3. Ask: *"Confirm? [y/n]"*
 4. On user confirmation: call again **with** `confirmed=True`.
 
+**Shortcut — if the user's message is already an affirmative confirmation**
+(e.g. "确认", "yes", "confirm", "go ahead", "execute it", "确认停止 nginx",
+"确认部署", "confirmed"), skip the preview entirely and call directly
+with `confirmed=True`. Do NOT call without confirmed first when the intent
+is an explicit confirmation.
+
 ```
 # Step 1 — preview (safe, no side effects)
 docker_compose("up -d", service_dir=".olav/services/nginx", confirmed=False)
