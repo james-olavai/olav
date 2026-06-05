@@ -53,7 +53,12 @@ def _jwt_login(svc: ServiceConfig) -> str:
     username, password = svc.get_credentials()
     url = svc.endpoint.rstrip("/") + svc.auth.login_path
     client = _get_http_client(svc.verify_ssl)
-    resp = client.post(url, json={"username": username, "password": password}, timeout=15.0)
+    try:
+        from olav.core.config import get_services_config
+        _jwt_timeout = get_services_config().jwt_login_timeout
+    except Exception:
+        _jwt_timeout = 15.0
+    resp = client.post(url, json={"username": username, "password": password}, timeout=_jwt_timeout)
     resp.raise_for_status()
     body = resp.json()
 
