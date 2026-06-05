@@ -33,10 +33,10 @@ def test_admin_root_exists():
 
 
 def test_admin_has_agent_md_with_frontmatter():
-    text = (ADMIN / "AGENT.md").read_text(encoding="utf-8")
-    assert text.startswith("---"), "admin/AGENT.md lacks YAML frontmatter"
+    text = (ADMIN / "SKILL.md").read_text(encoding="utf-8")
+    assert text.startswith("---"), "admin/SKILL.md lacks YAML frontmatter"
     for key in ("name: admin", "route_keywords:"):
-        assert key in text, f"admin/AGENT.md missing {key!r}"
+        assert key in text, f"admin/SKILL.md missing {key!r}"
 
 
 def test_admin_has_ops_subagent():

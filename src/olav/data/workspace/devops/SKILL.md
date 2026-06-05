@@ -1,6 +1,18 @@
 ---
 name: devops
-description: "DevOps & Infrastructure orchestrator — script generation, NetBox/InfluxDB integrations"
+description: "DevOps & Infrastructure orchestrator — automation script generation (bash/python/ansible) + infrastructure integrations (NetBox DCIM/IPAM, InfluxDB metrics) + bulk change scripts."
+route_keywords:
+  - script bash python ansible automation backup bulk operation migrate generate code
+  - 脚本 自动化 备份 批量
+  - netbox dcim ipam influxdb metrics inventory bulk change
+  - 网管 资源 库存
+tools:
+  - olav_recall_memory
+  - olav_store_memory
+  - web_search
+subagents:
+  - path: ./scripts/SKILL.md
+  - path: ./infra/SKILL.md
 metadata:
   type: agent
   version: 1.0.0

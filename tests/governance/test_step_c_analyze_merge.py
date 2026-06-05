@@ -9,7 +9,7 @@ Guards:
 * SKILL.md declares Mode A tools only (4@tool + 3 scripts ≤ 7 total)
 * Investigation tools (query_evidence, inspect_blast_radius, diff_snapshots)
   are NOT in analyzer — they live in reporter/
-* netops/AGENT.md references both analyzer and reporter sub-agents
+* netops/SKILL.md references both analyzer and reporter sub-agents
 """
 
 from __future__ import annotations
@@ -178,21 +178,21 @@ def test_inspect_atool_files_removed_from_netops_tools():
         )
 
 
-# ── netops/AGENT.md ─────────────────────────────────────────────────────────
+# ── netops/SKILL.md ─────────────────────────────────────────────────────────
 
 
 def test_netops_agent_md_references_analyzer():
-    agent_md = WORKSPACE / "netops" / "AGENT.md"
-    assert agent_md.is_file(), "netops/AGENT.md missing"
+    agent_md = WORKSPACE / "netops" / "SKILL.md"
+    assert agent_md.is_file(), "netops/SKILL.md missing"
     text = agent_md.read_text(encoding="utf-8")
     assert "analyzer" in text, (
-        "netops/AGENT.md must reference the analyzer sub-agent"
+        "netops/SKILL.md must reference the analyzer sub-agent"
     )
 
 
 def test_netops_agent_md_references_reporter():
-    agent_md = WORKSPACE / "netops" / "AGENT.md"
+    agent_md = WORKSPACE / "netops" / "SKILL.md"
     text = agent_md.read_text(encoding="utf-8")
     assert "reporter" in text, (
-        "netops/AGENT.md must reference the reporter sub-agent (added 2026-05-26 split)"
+        "netops/SKILL.md must reference the reporter sub-agent (added 2026-05-26 split)"
     )

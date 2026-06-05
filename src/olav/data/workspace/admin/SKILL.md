@@ -1,6 +1,24 @@
 ---
 name: admin
 description: "OLAV platform self-management — health/log diagnostics, cron, skill installation, workspace scaffolding"
+route_keywords:
+  - health check platform status broken validate workspace
+  - export logs bundle support archive log file
+  - cron schedule job recurring task
+  - workspace health analyze logs bulk ingest
+  - install skill pack plugin extension olav-netops olav-ent
+  - list skills installed status
+  - scaffold new skill agent tool workspace file
+  - audit workspace consistency syntax error broken ref
+  - platform admin self-management self-development
+tools:
+  - olav_recall_memory
+  - olav_store_memory
+task_return_direct: true
+subagents:
+  - path: ./ops/SKILL.md
+  - path: ./installer/SKILL.md
+  - path: ./editor/SKILL.md
 metadata:
   type: agent
   version: 1.0.0

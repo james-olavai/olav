@@ -1,6 +1,10 @@
 ---
 name: core
-description: "Core platform agent — data queries directly, delegates to writer/api-query/remote/admin subagents"
+description: "OLAV core agent — unified entry point for queries, CLI, KB search, and platform operations (v0.15+)"
+subagents:
+  - path: ./writer/SKILL.md
+  - path: ./api-query/SKILL.md
+  - path: ./db-query/SKILL.md
 tools:
   - execute_sql
   - olav_recall_memory
