@@ -180,29 +180,75 @@ def cmd_import_formats(args) -> int:
     return 0
 
 
-def cmd_import_experts(args) -> int:
-    """Scan a directory for ``*.expert.yaml`` files and prime each as an
-    ``expert_knowledge`` memory entry.
+def cmd_import_kb(args) -> int:
+    """Load all files from a directory into LanceDB as expert_knowledge rows.
 
-    R87 Phase 1 — vendor / platform-specific corrective knowledge.
-    Each entry's ``scope`` (from YAML) determines which agent surfaces
-    it via the recall middleware.  Sibling to import-guides /
-    import-formats.
+    ADR-0015: replaces ``import-experts`` (YAML schema retired). Accepts any
+    file format — PDF, DOCX, Markdown, TXT, HTML, CSV — via LangChain loaders.
     """
-    workspace_root = Path(args.dir)
-    if not workspace_root.exists():
-        print(f"Error: directory not found: {workspace_root}", file=sys.stderr)
+    from olav.core.memory.kb_import import import_kb
+
+    kb_dir = Path(getattr(args, "path", None) or "olav_kb")
+    if not kb_dir.exists():
+        print(f"Error: directory not found: {kb_dir}", file=sys.stderr)
         return 1
 
-    from olav.core.memory.expert_kb import prime_experts_from_dir
     store = _get_store()
-    result = prime_experts_from_dir(workspace_root, store=store)
+    chunk_size = getattr(args, "chunk_size", 500)
+    chunk_overlap = getattr(args, "chunk_overlap", 100)
+    result = import_kb(kb_dir, store=store, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
-    n = result["expert_entries"]
+    imported = result["imported"]
     skipped = result["skipped"]
-    print(f"Imported {n} expert(s) from {workspace_root} ({skipped} skipped)")
-    if skipped == -1:
+    errors = result.get("errors", [])
+    print(f"Imported {imported} chunk(s) from {kb_dir} ({skipped} skipped, {len(errors)} error(s))")
+    if errors:
+        for e in errors[:5]:
+            print(f"  Error: {e}", file=sys.stderr)
+    return 0 if not errors else 1
+
+
+def cmd_gc(args) -> int:
+    """Delete expired rows and optionally purge all expert_knowledge rows.
+
+    ADR-0015:
+      Default: delete rows WHERE expires_at IS NOT NULL AND expires_at < now()
+      With --purge-expert: also delete all rows WHERE category = 'expert_knowledge'
+    """
+    from olav.core.memory import MEMORY_TABLE
+
+    store = _get_store()
+    purge_expert = getattr(args, "purge_expert", False)
+
+    deleted_expired = 0
+    deleted_expert = 0
+
+    if not store.table_exists(MEMORY_TABLE):
+        print("Knowledge store: empty (no memory table)")
+        return 0
+
+    try:
+        tbl = store.get_table(MEMORY_TABLE)
+        # Delete expired reflection rows
+        tbl.delete("expires_at IS NOT NULL AND expires_at < now()")
+        # Count what's left (approximate — count before delete was tricky with LanceDB)
+        deleted_expired = -1  # LanceDB delete doesn't return count; report as done
+    except Exception as e:
+        print(f"Error during expired row cleanup: {e}", file=sys.stderr)
         return 1
+
+    if purge_expert:
+        try:
+            tbl.delete("category = 'expert_knowledge'")
+            deleted_expert = -1
+        except Exception as e:
+            print(f"Error during expert_knowledge purge: {e}", file=sys.stderr)
+            return 1
+
+    print("GC complete:")
+    print("  Expired reflection rows: deleted (WHERE expires_at IS NOT NULL AND expires_at < now())")
+    if purge_expert:
+        print("  expert_knowledge rows: purged (--purge-expert)")
     return 0
 
 
@@ -700,18 +746,35 @@ def build_kb_parser(parent_subparsers) -> argparse.ArgumentParser:
         help="Workspace root (default: .olav/workspace)",
     )
 
-    # import-experts — prime *.expert.yaml under a workspace as expert_knowledge
-    # rows with scope=<agent_name> (R87 Phase 1)
-    imp_e = kb_sub.add_parser(
-        "import-experts",
-        help="Scan a directory for *.expert.yaml and prime them as "
-             "expert_knowledge memory rows scoped per-agent (R87)",
+    # import-kb — load any-format files into expert_knowledge (ADR-0015)
+    imp_kb = kb_sub.add_parser(
+        "import-kb",
+        help="Load all files from olav_kb/ (or a given path) into LanceDB as "
+             "expert_knowledge rows. Accepts PDF, DOCX, Markdown, TXT, HTML, CSV. "
+             "(ADR-0015 replacement for import-experts)",
     )
-    imp_e.add_argument(
-        "dir",
+    imp_kb.add_argument(
+        "path",
         nargs="?",
-        default=".olav/workspace",
-        help="Workspace root (default: .olav/workspace)",
+        default="olav_kb",
+        help="Directory to import (default: ./olav_kb/)",
+    )
+    imp_kb.add_argument("--chunk-size", type=int, default=500, dest="chunk_size",
+                        help="Chunk size in tokens (default: 500)")
+    imp_kb.add_argument("--chunk-overlap", type=int, default=100, dest="chunk_overlap",
+                        help="Chunk overlap in tokens (default: 100)")
+
+    # gc — delete expired rows (ADR-0015)
+    gc_p = kb_sub.add_parser(
+        "gc",
+        help="Delete expired reflection rows (expires_at < now()). "
+             "Use --purge-expert to also delete all expert_knowledge rows. (ADR-0015)",
+    )
+    gc_p.add_argument(
+        "--purge-expert",
+        action="store_true",
+        dest="purge_expert",
+        help="Also delete all rows WHERE category = 'expert_knowledge'",
     )
 
     # list-experts — audit + filter expert_knowledge entries (R87 Phase 1.5)
@@ -807,8 +870,10 @@ def handle_kb_command(args) -> int:
         return cmd_import_guides(args)
     elif kb_cmd == "import-formats":
         return cmd_import_formats(args)
-    elif kb_cmd == "import-experts":
-        return cmd_import_experts(args)
+    elif kb_cmd == "import-kb":
+        return cmd_import_kb(args)
+    elif kb_cmd == "gc":
+        return cmd_gc(args)
     elif kb_cmd == "list-experts":
         return cmd_list_experts(args)
     elif kb_cmd == "graph":

@@ -54,6 +54,7 @@ def _add_memory_with_origin(store, id_, text, origin, access_count=1,
             pa.array([origin]),
             pa.array([0.8], type=pa.float32()),
             pa.array(["[]"]),
+            pa.array([None], type=pa.timestamp("us", tz="UTC")),  # expires_at (ADR-0015)
         ],
         schema=store._get_schema(),
     )

@@ -15,7 +15,7 @@ import logging
 import math
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -69,7 +69,8 @@ class MemoryCategory:
     DECISION = "decision"
     PREFERENCE = "preference"
     AUDIT = "audit"
-    EXPERT_KNOWLEDGE = "expert_knowledge"  # operational knowledge, scoped per domain
+    EXPERT_KNOWLEDGE = "expert_knowledge"  # user-curated only (ADR-0015); import via `olav kb import-kb`
+    REFLECTION = "reflection"  # agent-derived memory (ADR-0015); always has expires_at TTL
 
 
 class LanceDBStore:
@@ -295,16 +296,17 @@ class LanceDBStore:
                 ("id", pa.string()),
                 ("text", pa.string()),
                 ("vector", pa.list_(pa.float32(), self._embedding_dim)),
-                ("category", pa.string()),  # fact, decision, preference, audit
+                ("category", pa.string()),  # fact, decision, preference, audit, reflection, expert_knowledge
                 ("scope", pa.string()),  # global, agent name, or specific scope
                 ("metadata", pa.string()),  # JSON string for additional metadata
                 ("timestamp", pa.timestamp("us")),
                 ("created_at", pa.timestamp("us")),
                 ("access_count", pa.int32()),
                 ("weight", pa.float32()),  # time-decay weight
-                ("origin", pa.string()),  # agent | document | user | audit
+                ("origin", pa.string()),  # agent | document | user | audit | import
                 ("confidence", pa.float32()),  # 0.0-1.0 knowledge reliability
                 ("tags", pa.string()),  # JSON array of entity/topic tags
+                pa.field("expires_at", pa.timestamp("us"), nullable=True),  # ADR-0015: TTL for reflection
             ]
         )
 
@@ -377,6 +379,10 @@ class LanceDBStore:
         if "tags" not in existing_names:
             tbl.add_columns({"tags": "'[]'"})
             logger.info(f"Migration: added 'tags' column to '{table_name}' (default='[]')")
+        # ADR-0015 migration: add expires_at column (nullable, default NULL)
+        if "expires_at" not in existing_names:
+            tbl.add_columns({"expires_at": "cast(NULL as timestamp)"})
+            logger.info(f"Migration: added 'expires_at' column to '{table_name}' (ADR-0015, default=NULL)")
 
         return tbl
 
@@ -437,6 +443,8 @@ class LanceDBStore:
         confidence: float = 0.5,
         tags: str = "[]",
         weight: float = 1.0,
+        reflection_ttl_days: int = 30,
+        expires_at: "datetime | None" = None,
     ) -> dict:
         """Add a memory entry to the store.
 
@@ -444,17 +452,24 @@ class LanceDBStore:
             id: Unique identifier for the memory
             text: Text content of the memory
             vector: Embedding vector for the text
-            category: Memory category (fact, decision, preference, audit)
+            category: Memory category (fact, decision, preference, audit,
+                      reflection, expert_knowledge).
+                      ADR-0015: use ``reflection`` for all agent-derived writes;
+                      ``expert_knowledge`` for user-curated imports only.
             scope: Scope for isolation (global, agent name, etc.)
             metadata: Additional metadata as dict
             table_name: Table to add to
-            origin: Knowledge source — "agent" | "document" | "user" | "audit"
+            origin: Knowledge source — "agent" | "document" | "user" | "audit" | "import"
             confidence: Reliability score 0.0-1.0 (default 0.5 for agent captures)
             tags: JSON array string of entity/topic tags (default "[]")
             weight: Ranking weight for hybrid recall (1.0 = neutral;
                     >1 boost; <1 suppress).  2026-05-14: used by
                     search_by_text to multiply BM25 score so high-priority
                     usage_guide entries outrank operational_event noise.
+            reflection_ttl_days: TTL in days for ``reflection`` category rows
+                    (ADR-0015). Default 30. Ignored for other categories.
+            expires_at: Explicit expiry timestamp override (rarely used directly;
+                    prefer ``reflection_ttl_days`` instead).
 
         Returns:
             Dict with status and message
@@ -503,6 +518,11 @@ class LanceDBStore:
             now = datetime.now(UTC)
             metadata_json = json.dumps(metadata) if metadata else "{}"
 
+            # ADR-0015: reflection rows always have expires_at set
+            computed_expires_at: datetime | None = expires_at
+            if computed_expires_at is None and category == MemoryCategory.REFLECTION:
+                computed_expires_at = now + timedelta(days=reflection_ttl_days)
+
             # Create record
             record = pa.table(
                 [
@@ -519,6 +539,7 @@ class LanceDBStore:
                     pa.array([origin]),
                     pa.array([confidence], type=pa.float32()),
                     pa.array([tags]),
+                    pa.array([computed_expires_at], type=pa.timestamp("us", tz="UTC")),
                 ],
                 schema=self._get_schema(),
             )
@@ -579,6 +600,8 @@ class LanceDBStore:
                 where_clauses.append(f"category = '{category}'")
             if scope and table_name == MEMORY_TABLE:
                 where_clauses.append(f"(scope = 'global' OR scope = '{scope}')")
+            # ADR-0015: filter out expired reflection rows
+            where_clauses.append("(expires_at IS NULL OR expires_at > now())")
 
             where_sql = " AND ".join(where_clauses) if where_clauses else None
 
@@ -658,6 +681,8 @@ class LanceDBStore:
                 where_clauses.append(f"category = '{category}'")
             if scope and table_name == MEMORY_TABLE:
                 where_clauses.append(f"(scope = 'global' OR scope = '{scope}')")
+            # ADR-0015: filter out expired reflection rows
+            where_clauses.append("(expires_at IS NULL OR expires_at > now())")
             if where_clauses:
                 search_q = search_q.where(" AND ".join(where_clauses))
 
@@ -722,6 +747,8 @@ class LanceDBStore:
                 where_clauses.append(f"category = '{category}'")
             if scope and table_name == MEMORY_TABLE:
                 where_clauses.append(f"(scope = 'global' OR scope = '{scope}')")
+            # ADR-0015: filter out expired reflection rows
+            where_clauses.append("(expires_at IS NULL OR expires_at > now())")
 
             where_sql = " AND ".join(where_clauses) if where_clauses else None
 

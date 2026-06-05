@@ -1,15 +1,17 @@
 """R87 Phase 1 — expert_knowledge memory category — TDD red bar.
 
-Pin the contract for ``olav.core.memory.expert_kb``.  Sibling to
-guide_kb / format_kb but with critical difference: each file
-declares its own ``scope`` (``global`` OR ``<agent_name>``) so the
-recall middleware can filter agent-specific expertise out of other
-agents' surface.
+ADR-0015: expert_kb.py has been deleted. The YAML schema (.expert.yaml) is
+retired. These tests are kept to document the original contract but are
+skipped because the module no longer exists.
 
-See dev_docs/63 § "Phase 1 detailed design".
+The replacement is olav.core.memory.kb_import (any-format document loader)
+and tests/unit/test_kb_import.py.
 """
 
 from __future__ import annotations
+
+import pytest
+pytestmark = pytest.mark.skip(reason="ADR-0015: expert_kb.py deleted — use kb_import.py instead")
 
 import json
 from pathlib import Path

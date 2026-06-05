@@ -226,3 +226,27 @@ def test_run_learn_cycle_with_failures_writes_to_store(tmp_path: Path):
     assert "constraints_extracted" in result
     assert result["constraints_extracted"] == constraints
     llm.invoke.assert_called_once()
+
+
+def test_write_constraints_uses_reflection_category():
+    """ADR-0015: _write_constraints_to_memory must write category=REFLECTION, not EXPERT_KNOWLEDGE."""
+    mod = _tl_mod
+    store_mock = MagicMock()
+    store_mock.table_exists.return_value = True
+    store_mock.embedding_dim = 32
+
+    mod._write_constraints_to_memory(
+        constraints=["Always verify SSH before running execute_cli."],
+        store=store_mock,
+    )
+
+    store_mock.add_memory.assert_called_once()
+    call_kwargs = store_mock.add_memory.call_args
+    # category may be positional or keyword; check kwargs first then args
+    kwargs = call_kwargs.kwargs if call_kwargs.kwargs else {}
+    args = call_kwargs.args if call_kwargs.args else ()
+
+    category = kwargs.get("category") or (args[3] if len(args) > 3 else None)
+    assert category == "reflection", (
+        f"trace_learner should write category='reflection' (ADR-0015), got {category!r}"
+    )
