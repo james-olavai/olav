@@ -22,8 +22,8 @@ pytestmark = pytest.mark.skipif(
     not _DB.exists(), reason="main.duckdb not present — skip live-DB tests"
 )
 
-# snap_20260411_144736_bd4ffc has 8 topology_links across R2/SW1/etc.
-_SNAP = "snap_20260411_144736_bd4ffc"
+# snap_20260603_160314_demo: 3433 topology_links, 2944 nodes, hub degree=82
+_SNAP = "snap_20260603_160314_demo"
 
 
 @pytest.fixture(scope="module")
