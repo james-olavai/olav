@@ -1407,11 +1407,34 @@ class OLAVAgent:
             platform_ctx = ""
 
         # ② Agent-specific system prompt
-        # Respect system_prompt_file from AGENT.md (e.g. netops uses
-        # prompts/orchestrator.md, not the default prompts/system.md).
-        _prompt_file_rel = olav_config.get("system_prompt_file", "prompts/system.md")
-        prompt_file = self._agent_dir / _prompt_file_rel
-        agent_prompt = _read_prompt_file(prompt_file)
+        # Priority order:
+        #   a) system_prompt_file in AGENT.md → explicit file (legacy / dual-path)
+        #   b) SKILL.md body → canonical new standard (no system_prompt_file needed)
+        #   c) prompts/system.md → hard legacy fallback
+        #   d) description field
+        _prompt_file_rel = olav_config.get("system_prompt_file")
+        agent_prompt: str | None = None
+        prompt_file = None
+
+        if _prompt_file_rel:
+            # (a) explicit override
+            prompt_file = self._agent_dir / _prompt_file_rel
+            agent_prompt = _read_prompt_file(prompt_file)
+        else:
+            # (b) SKILL.md body — new standard
+            skill_md = self._agent_dir / "SKILL.md"
+            if skill_md.exists() and _HAS_FRONTMATTER:
+                try:
+                    _post = _frontmatter.load(str(skill_md))
+                    agent_prompt = (_post.content or "").strip() or None
+                    if agent_prompt:
+                        prompt_file = skill_md
+                except Exception as _exc:
+                    logger.debug("SKILL.md frontmatter parse failed: %s", _exc)
+            # (c) hard legacy fallback
+            if not agent_prompt:
+                prompt_file = self._agent_dir / "prompts" / "system.md"
+                agent_prompt = _read_prompt_file(prompt_file)
 
         if agent_prompt:
             try:

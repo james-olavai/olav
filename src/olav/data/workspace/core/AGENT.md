@@ -3,7 +3,6 @@ name: core
 kind: Agent
 description: "OLAV core agent — unified entry point for queries, CLI, KB search, and platform operations (v0.15+)"
 version: "4.0.0"
-system_prompt_file: prompts/core.md
 subagents:
   - path: ./writer/SKILL.md
   - path: ./api-query/SKILL.md

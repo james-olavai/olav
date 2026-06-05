@@ -50,7 +50,7 @@ def render_report(
     json_path: str,
     profile_path: str,
     output_dir: str | None = None,
-    prompts_dir: str = ".olav/workspace/audit/audit-runner/prompts",
+    prompts_dir: str = ".olav/workspace/audit/audit-runner/references",
 ) -> str:
     """Execute Phase 2+3 of the Audit rendering pipeline.
 
