@@ -117,8 +117,8 @@ class TestNoDeadSystemRef:
             "Offenders:\n  " + "\n  ".join(offenders)
         )
 
-    def test_scaffold_skill_template_uses_system_prompt_file(self):
-        """scaffold_skill.py must emit 'system_prompt_file:' not 'system: $ref:'."""
+    def test_scaffold_skill_template_uses_skill_md_body(self):
+        """scaffold_skill.py must embed system prompt in SKILL.md body, not emit system_prompt_file: or system: $ref:."""
         scaffold = (
             ROOT_WORKSPACE / "admin" / "editor" / "scripts" / "scaffold_skill.py"
         )
@@ -126,12 +126,15 @@ class TestNoDeadSystemRef:
             pytest.skip("scaffold_skill.py not found")
         text = scaffold.read_text(encoding="utf-8")
         assert "system: $ref:" not in text, (
-            "scaffold_skill.py template still emits dead 'system: $ref:' config. "
-            "Replace with 'system_prompt_file: prompts/system.md'."
+            "scaffold_skill.py template still emits dead 'system: $ref:' config."
         )
-        assert "system_prompt_file:" in text, (
-            "scaffold_skill.py template must emit 'system_prompt_file:' "
-            "so new agents are wired correctly from the start."
+        assert "system_prompt_file:" not in text, (
+            "scaffold_skill.py must NOT emit 'system_prompt_file:' — "
+            "system prompt belongs in the SKILL.md body, not a separate prompts/ file."
+        )
+        assert "execute_skill_script" in text, (
+            "scaffold_skill.py template must include 'execute_skill_script' in tools: "
+            "so new agents can call scripts from the start."
         )
 
 
