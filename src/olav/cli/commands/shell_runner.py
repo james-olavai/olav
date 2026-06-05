@@ -29,7 +29,11 @@ if TYPE_CHECKING:
 _ALWAYS_FORWARD: frozenset[str] = frozenset({"PATH", "HOME", "LANG", "LC_ALL", "TERM"})
 
 # Default timeout for shell commands that declare no explicit timeout.
-_DEFAULT_TIMEOUT: int = 300  # 5 minutes
+try:
+    from olav.core.config import get_execution_config as _get_exec_cfg_sr
+    _DEFAULT_TIMEOUT: int = _get_exec_cfg_sr().default_shell_timeout_seconds
+except Exception:
+    _DEFAULT_TIMEOUT: int = 300  # 5 minutes
 
 
 # ── approval gate ─────────────────────────────────────────────────────────────

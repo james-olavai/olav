@@ -14,7 +14,9 @@
     },
     "fallback": {
       "enabled": true
-    }
+    },
+    "max_input_chars": 6000,
+    "reranker_timeout": 15.0
   },
   "auth": {
     "mode": "none"
@@ -24,6 +26,28 @@
     "dedup_threshold": 0.92,
     "fts_rebuild_every": 20,
     "cache_ttl_hours": 24,
-    "cache_max_entries": 500
+    "cache_max_entries": 500,
+    "recall_top_k": 3,
+    "capture_max_items": 3,
+    "decay_half_life_days": 60,
+    "decay_weight_floor": 0.1
+  },
+  "services": {
+    "jwt_login_timeout": 15.0,
+    "schema_probe_timeout": 10.0,
+    "schema_fetch_max_retries": 1,
+    "api_registry_timeout": 30.0,
+    "health_check_timeout": 30,
+    "service_register_retries": 3,
+    "service_register_retry_delay": 5.0,
+    "syslog_port": 5514
+  },
+  "execution": {
+    "max_skill_timeout_seconds": 600,
+    "default_shell_timeout_seconds": 300,
+    "max_skill_output_bytes": 524288
+  },
+  "agent": {
+    "rubric_max_iterations": 2
   }
 }

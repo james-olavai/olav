@@ -193,7 +193,15 @@ class ServiceCommand(BaseCommand):
             f"\n[bold cyan]Registering service:[/bold cyan] {service_name}"
             + (" [dim](force)[/dim]" if force else "")
         )
-        result = register_service(service_name, force=force, max_retries=3, retry_delay=5.0)
+        try:
+            from olav.core.config import get_services_config
+            _svc_cfg = get_services_config()
+            _reg_retries = _svc_cfg.service_register_retries
+            _reg_delay = _svc_cfg.service_register_retry_delay
+        except Exception:
+            _reg_retries = 3
+            _reg_delay = 5.0
+        result = register_service(service_name, force=force, max_retries=_reg_retries, retry_delay=_reg_delay)
 
         if result.get("status") == "error":
             self.console.print(f"[red]Error:[/red] {result['error']}")

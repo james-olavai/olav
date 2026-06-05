@@ -39,10 +39,17 @@ logger = logging.getLogger(__name__)
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-RECALL_TOP_K = 3  # Max memories to inject per query
-CAPTURE_MAX_ITEMS = 3  # Max fact/decision items to extract per conversation
-DECAY_HALF_LIFE_DAYS = 60  # Time-decay half-life (days)
-DECAY_WEIGHT_FLOOR = 0.1  # Minimum weight after full decay
+def _load_memory_constants():
+    """Load memory constants from config, falling back to hardcoded defaults."""
+    try:
+        from olav.core.config import get_memory_config
+        cfg = get_memory_config()
+        return cfg.recall_top_k, cfg.capture_max_items, cfg.decay_half_life_days, cfg.decay_weight_floor
+    except Exception:
+        return 3, 3, 60, 0.1
+
+
+RECALL_TOP_K, CAPTURE_MAX_ITEMS, DECAY_HALF_LIFE_DAYS, DECAY_WEIGHT_FLOOR = _load_memory_constants()
 
 _EXTRACT_PROMPT = """\
 You are a precise fact extractor. Given the following conversation between a user and an AI assistant,
