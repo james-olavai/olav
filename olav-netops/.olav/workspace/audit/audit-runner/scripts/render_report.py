@@ -86,16 +86,6 @@ def render_report(
                 profile_path = str(_alt2)
                 _pp = _alt2
 
-    # 1. Init LLM once via config-driven factory.
-    #
-    # ISSUE-AUDIT-LLM-OUTPUT-NONDETERMINISTIC (P3, 2026-05-12): force
-    # temperature=0 so two runs over the same findings JSON produce
-    # near-identical prose. Most providers (OpenAI, Anthropic, Ollama)
-    # honor this to within token-tie-breaking noise; combined with the
-    # evidence-only correlation prompt (P1.1) this is enough to make
-    # audit reports diff-able across runs without a full Jinja rewrite.
-    llm = LLMFactory.get_chat_model(agent_id="auditor", temperature=0)
-
     # Retry wrapper: llama.cpp returns 503 "Loading model" transiently
     # between sequential calls (KV-cache flush / slot contention).
     # Retry up to 5 times with 10-second backoff before giving up.
@@ -172,6 +162,12 @@ def render_report(
             narrative_mode,
         )
         narrative_mode = "llm"
+
+    # Init LLM only when prose generation requires it.
+    # ISSUE-AUDIT-LLM-OUTPUT-NONDETERMINISTIC (P3, 2026-05-12): temperature=0
+    # for near-identical prose across runs when LLM mode is active.
+    if narrative_mode == "llm":
+        llm = LLMFactory.get_chat_model(agent_id="auditor", temperature=0)
 
     # 4. Prepare output file
     out_dir = Path(resolved_output_dir)
