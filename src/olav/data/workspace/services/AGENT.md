@@ -1,7 +1,6 @@
 ---
 name: services
 description: "OLAV service-integration platform agent — register API services, deploy/stop containers (Docker / ContainerLab), docker-compose ops, and authenticated HTTP calls against services.yaml endpoints (NetBox, InfluxDB, Gitea, any custom HTTP API)"
-system_prompt_file: prompts/services.md
 route_keywords:
   - register service api endpoint services.yaml netbox influxdb gitea
   - deploy container service containerlab clab docker

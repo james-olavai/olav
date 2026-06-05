@@ -3,7 +3,6 @@ name: memory-curator
 kind: Agent
 description: "Memory curator sub-agent — natural-language ingestion of usage guides, runbook chunks, and topology source into the unified LanceDB memory store (R102, dev_docs/70)."
 version: "0.1.0"
-system_prompt_file: prompts/system.md
 subagents: []
 static_context:
   - path: ./references/GUIDE_TEMPLATE.md

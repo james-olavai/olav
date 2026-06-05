@@ -1,7 +1,6 @@
 ---
 name: admin
 description: "OLAV platform self-management — health/log diagnostics, cron, ingest, skill pack installation, workspace scaffolding"
-system_prompt_file: prompts/admin.md
 route_keywords:
   - health check platform status broken validate workspace
   - export logs bundle support archive log file
