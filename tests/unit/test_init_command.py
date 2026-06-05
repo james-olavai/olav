@@ -84,7 +84,9 @@ def test_init_deploys_core_workspace(tmp_path, monkeypatch) -> None:
 
     core_ws = tmp_path / ".olav" / "workspace" / "core"
     assert core_ws.exists(), "core workspace dir should be created by init"
-    assert (core_ws / "AGENT.md").exists(), "core workspace AGENT.md should exist"
+    # v0.20 core workspace uses SKILL.md; accept either
+    assert (core_ws / "SKILL.md").exists() or (core_ws / "AGENT.md").exists(), \
+        "core workspace must have SKILL.md or AGENT.md"
     assert (core_ws / "MANIFEST.yaml").exists(), "core workspace MANIFEST.yaml should exist"
 
 
