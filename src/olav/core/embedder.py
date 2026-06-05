@@ -228,10 +228,18 @@ def embed_text(text: str) -> "list[float] | None":
     # embed-server batch_size.  Override via env
     # ``OLAV_EMBED_MAX_CHARS`` (0 = no cap).
     _max_chars_env = os.environ.get("OLAV_EMBED_MAX_CHARS")
-    try:
-        _max_chars = int(_max_chars_env) if _max_chars_env else 6000
-    except ValueError:
-        _max_chars = 6000
+    if _max_chars_env is not None:
+        try:
+            _max_chars = int(_max_chars_env)
+        except ValueError:
+            _max_chars = 6000
+    else:
+        try:
+            from olav.core.config import get_embedding_config
+            _raw = get_embedding_config().max_input_chars
+            _max_chars = int(_raw) if isinstance(_raw, (int, float, str)) else 6000
+        except Exception:
+            _max_chars = 6000
     if _max_chars > 0 and len(text) > _max_chars:
         original_len = len(text)
         text = text[:_max_chars]

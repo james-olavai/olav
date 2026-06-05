@@ -39,8 +39,14 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_MAX_TIMEOUT_SECONDS = 600
-_MAX_OUTPUT_BYTES = 524_288  # 512 KB cap per stream (ARCH-20: fits within large-tier context share)
+try:
+    from olav.core.config import get_execution_config as _get_exec_cfg
+    _exec_cfg = _get_exec_cfg()
+    _MAX_TIMEOUT_SECONDS = _exec_cfg.max_skill_timeout_seconds
+    _MAX_OUTPUT_BYTES = _exec_cfg.max_skill_output_bytes
+except Exception:
+    _MAX_TIMEOUT_SECONDS = 600
+    _MAX_OUTPUT_BYTES = 524_288  # 512 KB cap per stream (ARCH-20: fits within large-tier context share)
 
 
 def _resolve_workspace_root() -> Path:
