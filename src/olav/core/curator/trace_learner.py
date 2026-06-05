@@ -234,12 +234,14 @@ def _write_constraints_to_memory(
     constraints: list[str],
     store=None,
 ) -> int:
-    """Write extracted constraint strings to LanceDB as expert_knowledge.
+    """Write extracted constraint strings to LanceDB as reflection (ADR-0015).
 
-    Writes with category='expert_knowledge' and scope='shared:audit' so
+    Writes with category='reflection' and scope='shared:audit' so
     AutoRecallMiddleware delivers them to all audit sub-agents (runner,
     author, explorer, curator) during ranked recall, subject to the
     normal quota/cap controls.  Non-audit agents are not affected.
+
+    ADR-0015: reflection rows always have expires_at set (default 30 days TTL).
     """
     if not constraints:
         return 0
@@ -272,7 +274,7 @@ def _write_constraints_to_memory(
                 id=memory_id,
                 text=constraint,
                 vector=[0.0] * store.embedding_dim,
-                category=MemoryCategory.EXPERT_KNOWLEDGE,
+                category=MemoryCategory.REFLECTION,
                 scope="shared:audit",
                 metadata={"source": "trace_learner", "origin": "failure_learning"},
                 tags=json.dumps(tags),

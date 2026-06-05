@@ -34,7 +34,8 @@ def _add(store, id_, text, tags, vector=None, origin="agent"):
          pa.array(["fact"]), pa.array(["global"]), pa.array(["{}"]),
          pa.array([ts]), pa.array([ts]),
          pa.array([1]), pa.array([1.0]),
-         pa.array([origin]), pa.array([0.8], type=pa.float32()), pa.array([json.dumps(tags)])],
+         pa.array([origin]), pa.array([0.8], type=pa.float32()), pa.array([json.dumps(tags)]),
+         pa.array([None], type=pa.timestamp("us", tz="UTC"))],  # expires_at (ADR-0015)
         schema=store._get_schema(),
     )
     tbl.add(record)
