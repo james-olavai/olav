@@ -81,7 +81,8 @@ class TestAuditAgentStructure:
     """Audit agent workspace structure — no LLM required."""
 
     def test_agent_md_exists(self):
-        assert (_WORKSPACE / "AGENT.md").is_file()
+        # v0.20 workspaces use SKILL.md; accept either
+        assert (_WORKSPACE / "SKILL.md").is_file() or (_WORKSPACE / "AGENT.md").is_file()
 
     def test_runner_subagent_exists(self):
         # renamed from runner/ → audit-runner/ in rev ~295 (FINDING-11 fix)
