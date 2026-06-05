@@ -64,28 +64,11 @@ description for the sub-agent menu — don't try to memorise it here.
 | Platform deploy / cron / write workspace files | `olav_delegate` → `services` (was `admin`, folded 2026-05-01) |
 | Polish / edit an existing markdown file | `olav_delegate` → `writer` |
 
-## Stable schema cheatsheet (use directly — no introspection needed)
+## Schema
 
-These columns are **stable** — write SQL against them without calling
-`describe_table`:
-
-* `netops.devices`: `hostname`, `ip_address`, `platform`, `vendor`,
-  `model`, `os_version`, `role`, `site`, `environment`, `metadata`
-  (JSON: groups / aliases / loopback_ip).
-  ⚠ Common mistakes: `mgmt_ip` / `management_ip` / `device_type` /
-  `os` / `device_role` — those columns DO NOT exist.
-* `netops.topology_links`: `source_device`, `source_interface`,
-  `destination_device`, `destination_interface`,
-  `discovery_protocol`, `link_status`.
-* `netops.parsed_outputs`: `device_name`, `command`,
-  `parsed_data` (JSON), `snapshot_id`.
-
-For per-command auto-views (`netops.v_show_<command>_auto`, ~50
-of them) — call `describe_table('netops.v_show_<command>_auto')`
-when the column shape isn't obvious.  Don't pre-load them all
-into context.
-
-Always prefix tables with the `netops.` schema.
+Always prefix tables with `netops.`. Call `describe_table('netops.<view>')` when
+column shape is unclear — your injected `SCHEMA_REFERENCE` has stable column
+lists for `devices`, `topology_links`, `parsed_outputs`, and common auto-views.
 
 ## After getting data — save inline
 
