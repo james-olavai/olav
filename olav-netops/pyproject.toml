@@ -26,6 +26,12 @@ dependencies = [
     "rich>=13.0.0",
 ]
 
+[project.optional-dependencies]
+sim = [
+    # Batfish network simulation / what-if analysis
+    "pybatfish>=2024.7.22.1569",
+]
+
 # ── Domain table entry points ─────────────────────────────────────────────────
 # The platform IngestManager calls importlib.metadata.entry_points to discover
 # and auto-register domain tables at startup.

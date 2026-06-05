@@ -46,7 +46,7 @@ jobs:
 
       - name: Install olav-netops as Python package (platform unit tests also need it)
         if: matrix.suite == 'platform'
-        run: uv pip install -e olav-netops/
+        run: uv pip install -e "olav-netops/[sim]"
 
       - name: Run unit tests — platform
         if: matrix.suite == 'platform'
@@ -55,7 +55,7 @@ jobs:
 
       - name: Install olav-netops as Python package (netops unit tests need it)
         if: matrix.suite == 'netops'
-        run: uv pip install -e olav-netops/
+        run: uv pip install -e "olav-netops/[sim]"
 
       - name: Run unit tests — netops
         if: matrix.suite == 'netops'
