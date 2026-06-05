@@ -73,3 +73,83 @@ launcher. Emits HITL prompts for destructive actions.
 - **Sanity check a running integration:**
   `api_request("<name>", method="GET", path="/")` — most services
   accept an anonymous `GET /`.
+
+## NetBox data import pattern
+
+Use this pattern whenever importing network data (interfaces, devices,
+prefixes, VLANs, etc.) that already exists in the OLAV DuckDB databases.
+
+### Threshold rule: 5 items
+
+| Volume | Flow |
+|---|---|
+| ≤ 5 items | Query DB → build payload → `api_request` PATCH/POST directly |
+| > 5 items | Query DB → map schema → save CSV audit file via `write_compose_file` → `api_request` bulk POST |
+
+The 5-item threshold keeps small-model context manageable. Never try to
+hold a large payload in the LLM context — write it to a file first.
+
+### Bulk import (> 5 items)
+
+NetBox REST API accepts JSON arrays for bulk creation:
+
+```python
+# Step 1 — query OLAV DB (via netops execute_sql or query_evidence)
+# Step 2 — map fields to NetBox schema
+# Step 3 — save audit CSV (optional but recommended)
+write_compose_file(
+    name="netbox-import",
+    content="device,interface,type,mac\n...",
+    filename="audit/interfaces_import.csv",
+)
+# Step 4 — bulk POST (NetBox accepts JSON array, NOT CSV via API)
+api_request(
+    service="netbox",
+    method="POST",
+    path="/api/dcim/interfaces/",
+    body=[
+        {"device": {"name": "sw01"}, "name": "GigabitEthernet0/0", "type": "1000base-t"},
+        {"device": {"name": "sw01"}, "name": "GigabitEthernet0/1", "type": "1000base-t"},
+        ...
+    ],
+)
+```
+
+NetBox returns `[{id, name, ...}, ...]` — check every item's `id` is set
+(null id = validation error on that row).
+
+### Small update (≤ 5 items)
+
+```python
+# Single create
+api_request(service="netbox", method="POST", path="/api/dcim/interfaces/",
+            body={"device": {"name": "sw01"}, "name": "Gi0/2", "type": "1000base-t"})
+
+# Single update (requires NetBox object id)
+api_request(service="netbox", method="PATCH", path="/api/dcim/interfaces/42/",
+            body={"description": "uplink to core"})
+```
+
+### Fetch NetBox schema (for field mapping)
+
+```python
+# Full OpenAPI spec — large, cache result
+api_request(service="netbox", method="GET", path="/api/schema/")
+
+# Schema for one endpoint only
+api_request(service="netbox", method="GET", path="/api/schema/?path=/api/dcim/interfaces/")
+```
+
+Cache the schema in a `write_compose_file` call if you need to refer to
+it multiple times — do not re-fetch on every mapping step.
+
+### Common NetBox endpoint paths
+
+| Data type | Create/List | Update/Delete |
+|---|---|---|
+| Devices | `/api/dcim/devices/` | `/api/dcim/devices/{id}/` |
+| Interfaces | `/api/dcim/interfaces/` | `/api/dcim/interfaces/{id}/` |
+| IP Addresses | `/api/ipam/ip-addresses/` | `/api/ipam/ip-addresses/{id}/` |
+| Prefixes | `/api/ipam/prefixes/` | `/api/ipam/prefixes/{id}/` |
+| VLANs | `/api/ipam/vlans/` | `/api/ipam/vlans/{id}/` |
+| Sites | `/api/dcim/sites/` | `/api/dcim/sites/{id}/` |
