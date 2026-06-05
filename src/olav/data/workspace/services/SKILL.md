@@ -4,6 +4,7 @@ description: "Service lifecycle management — register APIs, deploy/stop contai
 agent_type: api
 tools:
   - execute_skill_script
+  - web_search
 scripts:
   - name: register_service
     description: "Register a new API service endpoint in services.yaml"

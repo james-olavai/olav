@@ -11,6 +11,7 @@ route_keywords:
 task_return_direct: true
 tools:
   - execute_skill_script
+  - web_search
 metadata:
   rubric_middleware: true
   type: agent

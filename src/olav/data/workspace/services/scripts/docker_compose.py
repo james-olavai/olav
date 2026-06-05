@@ -95,16 +95,26 @@ def _safe_cwd(service_dir: str) -> tuple[Path | None, str]:
     return resolved, ""
 
 
+# Subcommands that change running state — require confirmed=True before executing.
+_WRITE_SUBCOMMANDS: frozenset[str] = frozenset({"up", "down", "restart", "stop", "start"})
+
+
 def docker_compose(
     subcommand: str,
     service_dir: str = "",
     timeout: int = 60,
+    confirmed: bool = False,
 ) -> dict:
     """Run a docker compose command in a project service directory.
 
     Only a curated allowlist of subcommands is accepted (ps, logs, up, down,
     restart, stop, start, pull, build, config, images, version, ls).
     Dangerous subcommands (exec, run, cp) are hard-blocked.
+
+    State-changing subcommands (up/down/restart/stop/start) require
+    confirmed=True. When confirmed=False (default) they return a preview
+    dict instead of executing — show it to the user and ask for confirmation
+    before calling again with confirmed=True.
 
     Args:
         subcommand: docker compose subcommand + flags (e.g. "ps", "logs --tail 50 netbox",
@@ -113,6 +123,8 @@ def docker_compose(
                      the project root (e.g. ".olav/services/netbox"). Leave empty to
                      use the project root.
         timeout: Max seconds to wait for the command (default 60).
+        confirmed: Must be True to execute state-changing subcommands (up/down/
+                   restart/stop/start). Defaults to False (dry-run/preview).
 
     Returns:
         {
@@ -124,11 +136,26 @@ def docker_compose(
           "reason": str,     # set when blocked=True
         }
     """
-    _, err = _validate_subcommand(subcommand)
+    sub, err = _validate_subcommand(subcommand)
     if err:
         return {
             "success": False, "stdout": "", "stderr": err,
             "returncode": -1, "blocked": True, "reason": err,
+        }
+
+    # HITL gate: state-changing ops require explicit confirmation
+    if sub in _WRITE_SUBCOMMANDS and not confirmed:
+        cwd_preview, _ = _safe_cwd(service_dir)
+        return {
+            "status": "preview",
+            "action": f"docker compose {subcommand}",
+            "service_dir": str(cwd_preview) if cwd_preview else (service_dir or str(PROJECT_ROOT)),
+            "requires_confirmation": True,
+            "message": (
+                f"About to run: docker compose {subcommand}\n"
+                f"Directory: {service_dir or '(project root)'}\n"
+                "Call again with confirmed=True to execute."
+            ),
         }
 
     cwd, err = _safe_cwd(service_dir)
