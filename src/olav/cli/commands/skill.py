@@ -317,6 +317,18 @@ class SkillCommand(BaseCommand):
         except Exception as exc:  # noqa: BLE001
             logger.warning("refresh_workspace failed after skill install: %s", exc)
 
+        # Run domain reload hooks (e.g. olav-netops syncs commands whitelist into DB).
+        # Best-effort: DB may not exist yet on first install, hooks must tolerate that.
+        try:
+            from importlib.metadata import entry_points as _eps
+            for _ep in _eps(group="olav.reload_hooks"):
+                try:
+                    _ep.load()()
+                except Exception as _exc:  # noqa: BLE001
+                    logger.debug("reload_hook %s skipped: %s", _ep.name, _exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("reload_hooks discovery failed: %s", exc)
+
         # Hot-reload running web service (non-blocking, best-effort)
         try:
             from urllib.request import urlopen, Request as _Req
