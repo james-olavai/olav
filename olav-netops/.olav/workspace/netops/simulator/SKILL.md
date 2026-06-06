@@ -33,12 +33,9 @@ scripts:
     before batfish_q for mixed/unfamiliar vendor scope.
   file: batfish_capability.py
   name: batfish_capability
-- description: Generic Batfish question runner. Accepts question name + args, returns
-    structured rows.
-  file: batfish_q.py
-  name: batfish_q
 thinking_mode: disabled
 tools:
+- batfish_q
 - execute_skill_script
 - format_and_export
 ---
