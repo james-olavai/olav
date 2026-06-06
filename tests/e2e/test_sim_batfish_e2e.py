@@ -21,6 +21,8 @@ Timing budget (nightly):
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -29,6 +31,14 @@ pytest.importorskip("pybatfish", reason="pybatfish not installed — install ola
 
 _BF_ENABLED = os.environ.get("BATFISH_E2E_ENABLED", "").strip() == "1"
 _DB = Path(__file__).resolve().parents[2] / ".olav" / "databases" / "main.duckdb"
+_ROOT = Path(__file__).resolve().parents[2]
+
+# Check LLM is configured (api.json or OLAV_LLM_API_KEY env). Used to gate NL-agent test.
+try:
+    from olav.core.config import get_llm_config as _get_llm_config
+    _LLM_READY = bool(_get_llm_config().api_key)
+except Exception:
+    _LLM_READY = False
 
 pytestmark = pytest.mark.skipif(
     not _BF_ENABLED or not _DB.exists(),
@@ -307,3 +317,68 @@ class TestBorderSecurityPolicy:
             if r.get("Structure_Type", "") == "bgp neighbor"
         ]
         assert len(bgp_neighbors) >= 20
+
+
+# ── 7. NL-agent routing scenario ─────────────────────────────────────────────
+#
+# Validates the full prompt → LLM → tool-selection → synthesis chain:
+#   a) simulator agent loads batfish_q as an @tool (not as a subprocess script)
+#   b) LLM selects batfish_q for a BGP neighbour query
+#   c) synthesis surfaces both AS numbers from the live Batfish result
+#
+# Known ground truth (snap_20260118_000000_demo, alpha-border-4500x):
+#   2 neighbours: AS 136247 (iBGP), AS 7575 (eBGP)
+
+
+@pytest.mark.skipif(
+    not _LLM_READY,
+    reason="LLM API key not configured — set OLAV_LLM_API_KEY or add llm.api_key to api.json",
+)
+@pytest.mark.timeout(600)
+class TestSimulatorNLAgent:
+    """NL-agent test: simulator must route to batfish_q and synthesise BGP data."""
+
+    @classmethod
+    def setup_class(cls):
+        # 480s: cold init_snapshot ~140s + LLM ~60s + buffer; kill-after=30 ensures cleanup.
+        cmd = [
+            "timeout", "--kill-after=30", "480",
+            sys.executable, "-m", "olav",
+            "--agent", "netops/simulator",
+            f"用 {_SNAP} 快照，查一下 alpha-border-4500x 配置了几个 BGP 邻居，以及邻居的 AS 号",
+        ]
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=str(_ROOT),
+            env={**os.environ, "OLAV_BATFISH_HOST": os.environ.get("OLAV_BATFISH_HOST", "localhost")},
+        )
+        try:
+            stdout, stderr = proc.communicate(timeout=510)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            stdout, stderr = proc.communicate()
+        cls._out = (stdout or "") + (stderr or "")
+        cls._rc = proc.returncode
+
+    def test_agent_exits_cleanly(self):
+        """Simulator agent must not crash (returncode 0)."""
+        assert self._rc == 0, f"agent exited {self._rc}; tail: {self._out[-300:]}"
+
+    def test_batfish_q_was_called(self):
+        """LLM must invoke batfish_q @tool — not fall back to execute_skill_script."""
+        assert "batfish_q" in self._out, (
+            "batfish_q tool call not found — LLM may have used a script fallback\n"
+            f"output tail: {self._out[-400:]}"
+        )
+
+    def test_as_numbers_in_synthesis(self):
+        """Both AS numbers (136247 iBGP, 7575 eBGP) must appear in the synthesised answer."""
+        assert "136247" in self._out, f"iBGP AS 136247 missing from synthesis\n{self._out[-400:]}"
+        assert "7575" in self._out, f"eBGP AS 7575 missing from synthesis\n{self._out[-400:]}"
+
+    def test_neighbour_count_in_synthesis(self):
+        """Response must reference 2 BGP neighbours."""
+        assert "2" in self._out, f"neighbour count '2' not found in synthesis\n{self._out[-400:]}"
