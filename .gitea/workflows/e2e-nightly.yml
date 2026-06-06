@@ -52,8 +52,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
-      - name: Install olav-netops (editable)
-        run: uv pip install -e olav-netops/
+      - name: Install olav-netops (editable, with sim extras)
+        run: uv pip install -e "olav-netops/[sim]"
 
       - name: Bootstrap workspace
         run: uv run olav init
@@ -152,6 +152,33 @@ jobs:
           uv run pytest tests/e2e/test_web_ui_multi_agent_browser.py \
             -q --tb=short --timeout=600
         continue-on-error: true
+
+      # ── Batfish e2e — requires pybatfish[sim] ─────────────────────────────
+      # Start batfish/allinone container, wait for readiness, then run the
+      # export → init_snapshot → question pipeline against the demo snapshot.
+      - name: Start Batfish container
+        run: |
+          docker run -d --name batfish \
+            -p 9996:9996 -p 9997:9997 \
+            batfish/allinone:latest
+          echo "Waiting for Batfish to be ready (up to 90s)..."
+          for i in $(seq 1 90); do
+            curl -sf http://localhost:9996 >/dev/null 2>&1 && echo "Batfish ready after ${i}s" && break
+            sleep 1
+          done || echo "WARNING: Batfish not responding — batfish e2e will fail"
+
+      - name: Run Batfish e2e
+        env:
+          BATFISH_E2E_ENABLED: "1"
+          OLAV_BATFISH_HOST: localhost
+        run: |
+          uv run pytest tests/e2e/test_sim_batfish_e2e.py \
+            -q --tb=short --timeout=300
+        continue-on-error: true
+
+      - name: Stop Batfish container
+        if: always()
+        run: docker rm -f batfish 2>/dev/null || true
 
       - name: Stop OLAV API server
         if: always()
