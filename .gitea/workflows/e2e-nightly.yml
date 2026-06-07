@@ -32,6 +32,9 @@ jobs:
       OLAV_LLM_API_KEY: ${{ secrets.OLAV_LLM_API_KEY }}
       OLAV_LLM_BASE_URL: ${{ secrets.OLAV_LLM_BASE_URL || 'https://api.deepseek.com/v1' }}
       OLAV_LLM_MODEL: ${{ secrets.OLAV_LLM_MODEL || 'deepseek-v4-flash' }}
+      # Force OpenAI-compat path: api.deepseek.com auto-detects to model_provider=deepseek
+      # which requires langchain-deepseek (not installed). Explicit openai uses ChatOpenAI.
+      OLAV_LLM_MODEL_PROVIDER: ${{ secrets.OLAV_LLM_MODEL_PROVIDER || 'openai' }}
       OLAV_CLAB_HOST: ${{ secrets.OLAV_CLAB_HOST }}
       # ── Embed 모델 ── memory/KB 기능에 필요
       # secrets.OLAV_EMBED_BASE_URL 미등록 시 내부망 Ollama 기본값 사용
@@ -133,6 +136,21 @@ jobs:
       # These use only server_url (HTTP within the runner container) and always
       # run regardless of BROWSERLESS_URL. Covers /assistants/search, /threads,
       # agent list completeness.
+      - name: Ensure OLAV API server is running before WebGUI tests
+        run: |
+          if curl -sf http://localhost:2280/ok >/dev/null 2>&1; then
+            echo "API server already up"
+          else
+            echo "API server down — restarting..."
+            uv run olav service web stop 2>/dev/null || true
+            uv run olav service web start
+            for i in $(seq 1 30); do
+              curl -sf http://localhost:2280/ok >/dev/null 2>&1 && echo "Ready after ${i}s" && break
+              sleep 1
+            done
+          fi
+        continue-on-error: true
+
       - name: Run WebGUI API tests (no browser)
         run: |
           uv run pytest tests/e2e/test_web_ui_multi_agent_browser.py \
@@ -158,12 +176,14 @@ jobs:
       # export → init_snapshot → question pipeline against the demo snapshot.
       - name: Start Batfish container
         run: |
+          docker rm -f batfish 2>/dev/null || true
           docker run -d --name batfish \
             -p 9996:9996 -p 9997:9997 \
             batfish/allinone:latest
-          echo "Waiting for Batfish to be ready (up to 90s)..."
-          for i in $(seq 1 90); do
-            curl -sf http://localhost:9996 >/dev/null 2>&1 && echo "Batfish ready after ${i}s" && break
+          echo "Waiting for Batfish to be ready (up to 120s)..."
+          for i in $(seq 1 120); do
+            # Use nc to check TCP; root URL returns 404 (not a failure indicator)
+            nc -z localhost 9996 2>/dev/null && echo "Batfish port open after ${i}s" && sleep 5 && break
             sleep 1
           done || echo "WARNING: Batfish not responding — batfish e2e will fail"
 
