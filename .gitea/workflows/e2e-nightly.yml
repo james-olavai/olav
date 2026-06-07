@@ -185,16 +185,23 @@ jobs:
       - name: Start Batfish container
         run: |
           docker rm -f batfish 2>/dev/null || true
-          # Pre-pull image separately so the 240s wait is purely for JVM startup,
-          # not image download. On a cold runner the pull alone takes 60-90s.
+          # Pre-pull image to separate download time from readiness wait.
           docker pull batfish/allinone:latest 2>&1 | tail -3 || true
           docker run -d --name batfish \
             -p 9996:9996 -p 9997:9997 \
             batfish/allinone:latest
-          echo "Waiting for Batfish to be ready (up to 240s)..."
+          # DinD networking: the CI job runs inside a Docker container.
+          # docker run -p 9996:9996 publishes to the Docker HOST (gateway),
+          # not to localhost inside this container. Use the default-route gateway
+          # IP (the Docker host) for the readiness probe and for the e2e tests.
+          DOCKER_HOST_IP=$(ip route show default 2>/dev/null | awk 'NR==1{print $3}')
+          DOCKER_HOST_IP="${DOCKER_HOST_IP:-localhost}"
+          echo "Docker host IP (Batfish probe target): $DOCKER_HOST_IP"
+          echo "BATFISH_HOST=$DOCKER_HOST_IP" >> $GITHUB_ENV
+          echo "Waiting for Batfish to be ready (up to 240s) at $DOCKER_HOST_IP:9996..."
           for i in $(seq 1 240); do
-            # Use nc to check TCP; root URL returns 404 (not a failure indicator)
-            nc -z localhost 9996 2>/dev/null && echo "Batfish port open after ${i}s" && sleep 10 && break
+            nc -z "$DOCKER_HOST_IP" 9996 2>/dev/null && \
+              echo "Batfish port open after ${i}s" && sleep 10 && break
             sleep 1
           done || echo "WARNING: Batfish not responding — batfish e2e will fail"
         continue-on-error: true
@@ -202,7 +209,7 @@ jobs:
       - name: Run Batfish e2e
         env:
           BATFISH_E2E_ENABLED: "1"
-          OLAV_BATFISH_HOST: localhost
+          OLAV_BATFISH_HOST: ${{ env.BATFISH_HOST }}
         run: |
           uv run pytest tests/e2e/test_sim_batfish_e2e.py \
             -q --tb=short --timeout=300
