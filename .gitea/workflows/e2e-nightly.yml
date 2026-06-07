@@ -31,7 +31,7 @@ jobs:
       # ── LLM 연결 ── gitea secrets 에 등록 필요
       OLAV_LLM_API_KEY: ${{ secrets.OLAV_LLM_API_KEY }}
       OLAV_LLM_BASE_URL: ${{ secrets.OLAV_LLM_BASE_URL || 'https://api.deepseek.com/v1' }}
-      OLAV_LLM_MODEL: ${{ secrets.OLAV_LLM_MODEL || 'deepseek/deepseek-v4-flash' }}
+      OLAV_LLM_MODEL: ${{ secrets.OLAV_LLM_MODEL || 'deepseek-v4-flash' }}
       OLAV_CLAB_HOST: ${{ secrets.OLAV_CLAB_HOST }}
       # ── Embed 모델 ── memory/KB 기능에 필요
       # secrets.OLAV_EMBED_BASE_URL 미등록 시 내부망 Ollama 기본값 사용

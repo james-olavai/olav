@@ -232,11 +232,17 @@ class TestBorderBgpPolicy:
         ibgp = [r for r in bgp["rows"] if r.get("Session_Type") == "IBGP"]
         assert len(ibgp) >= 10, f"expected ≥10 iBGP sessions, got {len(ibgp)}"
 
-    def test_no_unexpected_ebgp(self, bgp):
-        """No eBGP sessions — this campus topology has no external BGP peers
-        in the collected config set."""
-        ebgp = [r for r in bgp["rows"] if r.get("Session_Type") == "EBGP"]
-        assert ebgp == [], f"unexpected eBGP sessions: {[r['Remote_IP'] for r in ebgp]}"
+    def test_ibgp_dominates_ebgp(self, bgp):
+        """iBGP sessions outnumber eBGP — campus core is iBGP-dominant.
+
+        Note: Batfish reports EBGP_SINGLEHOP/EBGP_MULTIHOP (not "EBGP").
+        alpha-border-4500x has exactly 1 eBGP peer (AS 7575); the rest are iBGP.
+        """
+        ibgp = [r for r in bgp["rows"] if r.get("Session_Type") == "IBGP"]
+        ebgp = [r for r in bgp["rows"] if "EBGP" in r.get("Session_Type", "")]
+        assert len(ibgp) > len(ebgp), (
+            f"expected iBGP({len(ibgp)}) > eBGP({len(ebgp)}) on border nodes"
+        )
 
 
 # ── 5. DC pair route symmetry ─────────────────────────────────────────────────
