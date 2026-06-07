@@ -149,7 +149,12 @@ jobs:
 
       - name: Run WebGUI API tests (no browser)
         run: |
-          uv run pytest tests/e2e/test_web_ui_multi_agent_browser.py \
+          # BROWSERLESS_URL="" forces server_url fixture to bind/serve on 127.0.0.1.
+          # When BROWSERLESS_URL is set, the fixture returns http://<docker_host_ip>:port
+          # (intended for the browserless container to reach back), but direct urllib
+          # calls inside the same container fail because the host gateway has no server
+          # on that port. API-only tests never need the docker-host routing path.
+          BROWSERLESS_URL="" uv run pytest tests/e2e/test_web_ui_multi_agent_browser.py \
             -q --tb=short --timeout=60 \
             -k "not (test_root_serves_spa or test_no_server_error or test_spa_loads_javascript or test_chat_container_exists or test_memory_graph_serves_html or test_sidebar_opens_at_correct_width or test_all_agents_respond)"
         continue-on-error: true
