@@ -136,19 +136,15 @@ jobs:
       # These use only server_url (HTTP within the runner container) and always
       # run regardless of BROWSERLESS_URL. Covers /assistants/search, /threads,
       # agent list completeness.
-      - name: Ensure OLAV API server is running before WebGUI tests
-        run: |
-          if curl -sf http://localhost:2280/ok >/dev/null 2>&1; then
-            echo "API server already up"
-          else
-            echo "API server down — restarting..."
-            uv run olav service web stop 2>/dev/null || true
-            uv run olav service web start
-            for i in $(seq 1 30); do
-              curl -sf http://localhost:2280/ok >/dev/null 2>&1 && echo "Ready after ${i}s" && break
-              sleep 1
-            done
-          fi
+      # Stop the main OLAV API server before WebGUI tests.
+      # Reason: test_web_ui_multi_agent_browser.py::server_url fixture starts
+      # its own uvicorn subprocess per test-module. If the main server is still
+      # running it holds audit.duckdb in write mode; the fixture's uvicorn fails
+      # to acquire the same lock and crashes immediately after binding its port,
+      # causing every API test to see "Connection refused". Push CI never starts
+      # the main server, so its WebGUI tests always pass cleanly.
+      - name: Stop main OLAV API server before WebGUI tests
+        run: uv run olav service web stop 2>/dev/null || true
         continue-on-error: true
 
       - name: Run WebGUI API tests (no browser)
