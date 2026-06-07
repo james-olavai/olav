@@ -184,33 +184,46 @@ jobs:
       # export → init_snapshot → question pipeline against the demo snapshot.
       - name: Start Batfish container
         run: |
-          docker rm -f batfish 2>/dev/null || true
-          # Pre-pull image to separate download time from readiness wait.
-          docker pull batfish/allinone:latest 2>&1 | tail -3 || true
-          docker run -d --name batfish \
-            -p 9996:9996 -p 9997:9997 \
-            batfish/allinone:latest
-          # DinD networking: the CI job runs inside a Docker container.
-          # docker run -p 9996:9996 publishes to the Docker HOST (gateway),
-          # not to localhost inside this container. Use the default-route gateway
-          # IP (the Docker host) for the readiness probe and for the e2e tests.
-          DOCKER_HOST_IP=$(ip route show default 2>/dev/null | awk 'NR==1{print $3}')
-          DOCKER_HOST_IP="${DOCKER_HOST_IP:-localhost}"
-          echo "Docker host IP (Batfish probe target): $DOCKER_HOST_IP"
-          echo "BATFISH_HOST=$DOCKER_HOST_IP" >> $GITHUB_ENV
-          echo "Waiting for Batfish to be ready (up to 240s) at $DOCKER_HOST_IP:9996..."
+          set +e  # disable exit-on-error — each docker cmd handles its own errors
+          docker rm -f batfish 2>/dev/null
+          # Pre-pull so readiness wait is purely JVM startup time.
+          docker pull batfish/allinone:latest 2>&1 | tail -3
+          # DinD networking: the CI job runs inside a Docker container whose
+          # network is managed by the Gitea runner (e.g. GITEA-ACTIONS-TASK-*).
+          # Run Batfish on the same network so 'batfish' hostname resolves
+          # directly — no port-publishing gymnastics needed.
+          SELF=$(cat /proc/self/cgroup 2>/dev/null | grep -o '[a-f0-9]\{64\}' | head -1)
+          SELF="${SELF:-$(hostname)}"
+          JOB_NET=$(docker inspect "$SELF" \
+            --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' \
+            2>/dev/null | awk '{print $1}')
+          echo "CI container ID: $SELF  network: $JOB_NET"
+          if [ -n "$JOB_NET" ]; then
+            docker run -d --name batfish --network "$JOB_NET" batfish/allinone:latest
+            BATFISH_HOST="batfish"
+          else
+            docker run -d --name batfish -p 9996:9996 -p 9997:9997 batfish/allinone:latest
+            BATFISH_HOST="localhost"
+          fi
+          echo "BATFISH_HOST=$BATFISH_HOST" >> $GITHUB_ENV
+          echo "Waiting for Batfish to be ready (up to 240s) at $BATFISH_HOST:9996..."
           for i in $(seq 1 240); do
-            nc -z "$DOCKER_HOST_IP" 9996 2>/dev/null && \
+            nc -z "$BATFISH_HOST" 9996 2>/dev/null && \
               echo "Batfish port open after ${i}s" && sleep 10 && break
             sleep 1
-          done || echo "WARNING: Batfish not responding — batfish e2e will fail"
+          done
+          nc -z "$BATFISH_HOST" 9996 2>/dev/null \
+            || echo "WARNING: Batfish not responding — batfish e2e will fail"
         continue-on-error: true
 
       - name: Run Batfish e2e
         env:
           BATFISH_E2E_ENABLED: "1"
-          OLAV_BATFISH_HOST: ${{ env.BATFISH_HOST }}
         run: |
+          # BATFISH_HOST is set via $GITHUB_ENV in the prior step.
+          # Gitea Actions does NOT support ${{ env.VAR }} for dynamically-set
+          # vars — read it as a plain shell variable instead.
+          OLAV_BATFISH_HOST="${BATFISH_HOST:-localhost}" \
           uv run pytest tests/e2e/test_sim_batfish_e2e.py \
             -q --tb=short --timeout=300
         continue-on-error: true
