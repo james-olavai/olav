@@ -94,6 +94,7 @@ jobs:
             curl -sf http://localhost:2280/ok && echo "API server ready after ${i}s" && break
             sleep 1
           done || echo "WARNING: API server not responding — tests will cold-start"
+        continue-on-error: true
 
       # nornir/Netmiko 채집 테스트: DIFF_E2E_ENABLED=1 없으면 자동 skip.
       # nornir 미설정 환경에서는 설정하지 말 것.
@@ -187,6 +188,7 @@ jobs:
             nc -z localhost 9996 2>/dev/null && echo "Batfish port open after ${i}s" && sleep 5 && break
             sleep 1
           done || echo "WARNING: Batfish not responding — batfish e2e will fail"
+        continue-on-error: true
 
       - name: Run Batfish e2e
         env:
