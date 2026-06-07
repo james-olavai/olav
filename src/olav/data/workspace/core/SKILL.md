@@ -1,5 +1,6 @@
 ---
 name: core
+kind: Agent
 description: "OLAV core agent — unified entry point for queries, CLI, KB search, and platform operations (v0.15+)"
 subagents:
   - path: ./writer/SKILL.md
