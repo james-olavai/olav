@@ -59,7 +59,13 @@ jobs:
         run: uv pip install -e "olav-netops/[sim]"
 
       - name: Bootstrap workspace
-        run: uv run olav init
+        run: |
+          # Remove old deployed workspace so olav init always deploys fresh from src.
+          # Self-hosted runner reuses the workspace dir between runs; without this,
+          # olav init silently skips files that already exist (by design for user edits)
+          # meaning updates to src/olav/data/workspace/**/*.md never take effect in CI.
+          rm -rf .olav/workspace/
+          uv run olav init
 
       - name: Install netops skill pack
         run: uv run olav skill install olav-netops
@@ -179,13 +185,16 @@ jobs:
       - name: Start Batfish container
         run: |
           docker rm -f batfish 2>/dev/null || true
+          # Pre-pull image separately so the 240s wait is purely for JVM startup,
+          # not image download. On a cold runner the pull alone takes 60-90s.
+          docker pull batfish/allinone:latest 2>&1 | tail -3 || true
           docker run -d --name batfish \
             -p 9996:9996 -p 9997:9997 \
             batfish/allinone:latest
-          echo "Waiting for Batfish to be ready (up to 120s)..."
-          for i in $(seq 1 120); do
+          echo "Waiting for Batfish to be ready (up to 240s)..."
+          for i in $(seq 1 240); do
             # Use nc to check TCP; root URL returns 404 (not a failure indicator)
-            nc -z localhost 9996 2>/dev/null && echo "Batfish port open after ${i}s" && sleep 5 && break
+            nc -z localhost 9996 2>/dev/null && echo "Batfish port open after ${i}s" && sleep 10 && break
             sleep 1
           done || echo "WARNING: Batfish not responding — batfish e2e will fail"
         continue-on-error: true
