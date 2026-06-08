@@ -78,6 +78,7 @@ PARTNERS.md
 /tests/
 
 # generated
+src/olav/data/workspace/*/*/references/
 /dist/
 /exports/
 /tmp/
