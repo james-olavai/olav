@@ -85,8 +85,8 @@ class TestListAgentsClaim:
 
     def test_list_shows_multiple_agents(self):
         result = run_olav("list")
-        # At minimum ops, config, core should be present
-        for agent in ("ops", "config", "core"):
+        # At minimum these v0.18+ canonical agents should be present
+        for agent in ("admin", "netops", "core"):
             assert agent in result.stdout, f"Agent '{agent}' not in list output"
 
 
