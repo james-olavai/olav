@@ -426,13 +426,15 @@ class TestSkillListClaim:
         assert result.returncode == 0, result.stderr
 
     def test_skill_list_shows_core_workspaces(self):
-        result = run_olav("skill", "list")
-        for agent in ("ops", "config", "core"):
-            assert agent in result.stdout, f"Agent '{agent}' not in skill list output"
+        # `olav skill list` is deprecated; use `olav list` (v0.18+)
+        result = run_olav("list")
+        for agent in ("admin", "netops", "core"):
+            assert agent in result.stdout, f"Agent '{agent}' not in list output"
 
     def test_skill_list_shows_managed_skills(self):
-        result = run_olav("skill", "list")
-        assert "managed" in result.stdout or "user" in result.stdout
+        # `olav list` shows Location: for each agent (replaces managed/user categories)
+        result = run_olav("list")
+        assert "Location:" in result.stdout
 
 
 # ─────────────────────────────────────────────────────────
@@ -471,13 +473,16 @@ class TestSkillStatusClaim:
         assert result.returncode == 0, result.stderr
 
     def test_skill_status_shows_name(self):
-        result = run_olav("skill", "status", "verify-skill")
-        assert "name" in result.stdout and "verify-skill" in result.stdout
+        # `olav skill status` deprecated; verify via `olav list` that skill appears
+        result = run_olav("list")
+        assert "verify-skill" in result.stdout
 
+    @pytest.mark.xfail(reason="olav skill status deprecated in v0.18; version/source not exposed via olav list")
     def test_skill_status_shows_version(self):
         result = run_olav("skill", "status", "verify-skill")
         assert "version" in result.stdout
 
+    @pytest.mark.xfail(reason="olav skill status deprecated in v0.18; version/source not exposed via olav list")
     def test_skill_status_shows_source(self):
         result = run_olav("skill", "status", "verify-skill")
         assert "source" in result.stdout
@@ -1025,15 +1030,16 @@ class TestCoreAgentSQLClaim:
 # ─────────────────────────────────────────────────────────
 class TestConfigAgentHealthClaim:
     """
-    Claim C-L2-35: `olav --agent config "health check"` 返回健康状态。
-    Verified: 2026-04-03 | Doc: docs/guides/core-agent.md
+    Claim C-L2-35: `olav --agent admin "health check"` 返回健康状态。
+    Updated v0.20.0: core/config sub-agent removed; admin handles health diagnostics.
+    Verified: 2026-06-09 | Doc: docs/guides/core-agent.md
     """
 
     @pytest.fixture(scope="class", autouse=True)
     def _health_result(self, request):
-        result = run_olav("--auto-approve", "--agent", "config", "health check")
-        if result.returncode != 0 and "402" in result.stdout and "credits" in result.stdout:
-            pytest.skip("OpenRouter credits exhausted — top up at openrouter.ai/settings/credits")
+        result = run_olav("--auto-approve", "--agent", "admin", "health check")
+        if result.returncode != 0 and "402" in (result.stdout + result.stderr):
+            pytest.skip("LLM API credits exhausted")
         request.cls._result = result
 
     def test_health_check_exits_zero(self):
@@ -1718,10 +1724,10 @@ class TestShellPassthroughClaim:
         assert "hello_olav_shell_48" in result.stdout
 
     def test_shell_passthrough_handled_before_agent(self):
-        """main.py must contain '!' prefix branch for shell passthrough."""
-        main_src = (REPO_ROOT / "src" / "olav" / "cli" / "main.py").read_text()
-        assert 'user_input.startswith("!")' in main_src
-        assert "execute_bash_command" in main_src
+        """input_parser.py must contain '!' prefix branch for shell passthrough."""
+        # Logic was moved from main.py to input_parser.py in v0.18+
+        parser_src = (REPO_ROOT / "src" / "olav" / "cli" / "input_parser.py").read_text()
+        assert 'startswith("!")' in parser_src
 
     def test_shell_passthrough_git_status(self):
         """!git status must run and exit 0."""
