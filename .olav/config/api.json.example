@@ -1,4 +1,5 @@
 {
+  "_doc": "REQUIRED blocks: shared (or llm.api_key) + llm. All other blocks are OPTIONAL — omit them to use built-in defaults (olav.core.defaults). A minimal working config is just shared + llm. active_workspace is set by `olav workspace use`, not by hand.",
   "shared": {
     "api_key": "YOUR_API_KEY_HERE"
   },
@@ -6,6 +7,17 @@
     "provider": "openai",
     "model": "gpt-4o",
     "temperature": 0.1
+  },
+  "active_workspace": "core",
+  "syslog_receiver": {
+    "enabled": false,
+    "port": 15514,
+    "host": "0.0.0.0",
+    "batch_size": 75,
+    "flush_interval": 120,
+    "parquet_compression": "snappy",
+    "retention_days": 30,
+    "auto_start": false
   },
   "embedding": {
     "mode": "api",
