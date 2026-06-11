@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -115,7 +116,13 @@ def test_take_snapshot_returns_skipped_on_mismatch(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "_write_staging_json", lambda *a, **kw: None)
     monkeypatch.setattr(mod, "_write_raw_file", lambda *a, **kw: None)
 
-    # Force the auto-ingest branch to skip (IngestManager import would pull DB).
+    # Force the auto-ingest branch to skip: the stubbed _run_one reports
+    # success, so take_snapshot would otherwise run IngestManager.bulk_load
+    # + finalise_ingest against the real dev main.duckdb (OOM on large DBs,
+    # and a write to a database this test must not touch). Poisoning the
+    # module entry makes the function-local import raise ImportError, which
+    # take_snapshot's own try/except catches and logs.
+    monkeypatch.setitem(sys.modules, "olav.core.ingest_manager", None)
     tool_obj = mod.take_snapshot
     invoker = tool_obj.invoke if hasattr(tool_obj, "invoke") else tool_obj
     args = {
