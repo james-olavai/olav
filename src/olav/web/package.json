@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev --turbopack -p 3001",
     "build": "next build",
-    "build:deploy": "next build && cp -r out/* ../api/static/",
+    "build:deploy": "next build && rsync -a --delete out/ ../api/static/",
     "start": "next start",
     "lint": "eslint ."
   },
