@@ -79,6 +79,10 @@ PARTNERS.md
 
 # generated
 src/olav/data/workspace/*/*/references/
+src/olav/web/node_modules/
+src/olav/web/.next/
+src/olav/web/out/
+src/olav/web/next-env.d.ts
 /dist/
 /exports/
 /tmp/
