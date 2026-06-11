@@ -175,8 +175,8 @@ Schema notes (apply regardless of network type):
 - `v_show_logging_auto`: cols = `device_name`, `facility`, `severity` (0=emerg…6=info), `mnemonic`, `message` — use for all log searches in imported bundles; `query_evidence(source="syslog")` requires live collector
 - `v_show_authentication_sessions_auto`: cols = `device_name`, `interface`, `status`, `method`
 
-After each query: interpret in one sentence.
-**After EVERY layer — whether findings exist or not — write the report section immediately before moving on.** Also persist confirmed findings to DB:
+After each query: interpret the result in one sentence.
+**After EVERY layer query — whether findings exist or not — write the section to the report immediately before moving to the next layer.** Also persist confirmed findings to DB:
 
 ```python
 # 1. Structured DB record (queryable by downstream agents)
