@@ -116,6 +116,40 @@ rules:
     enforced: false
     git: ignore
 
+  # WebGUI (Next.js) dev tree — source files (src/, package.json, configs)
+  # stay tracked via the src/olav/** rule above. The npm/Next build
+  # artifacts below are machine-generated and huge (node_modules ~763MB);
+  # they must never be committed. The wheel excludes src/olav/web entirely
+  # (see pyproject.toml) — the exported site ships from src/olav/api/static.
+  # Override the src/olav/** track rule (last-match-wins).
+  - pattern: src/olav/web/node_modules/**
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
+  - pattern: src/olav/web/.next/**
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
+  - pattern: src/olav/web/out/**
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
+  - pattern: src/olav/web/next-env.d.ts
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+
   - pattern: pyproject.toml
     owner: olav
     class: platform

@@ -9,6 +9,9 @@ exclude = [
     "src/olav/core/schema_cache.py",
     "src/olav/platform/services/lifecycle.py",
     "src/olav/platform/services/permission_generator.py",
+    # WebGUI dev tree — the exported site ships from src/olav/api/static;
+    # Next.js sources + npm artifacts never belong in the wheel.
+    "src/olav/web/",
 ]
 
 [tool.hatch.build.targets.sdist]
@@ -26,6 +29,7 @@ include = [
 ]
 exclude = [
     "/src/olav/enterprise/",
+    "/src/olav/web/",
 ]
 
 [project]
