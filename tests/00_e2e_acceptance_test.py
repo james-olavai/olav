@@ -814,7 +814,13 @@ class TestSkillVenvClaim:
                 venv_path = REPO_ROOT / ".olav" / "workspace" / "test-venv-e2e" / ".venv"
                 assert venv_path.exists(), f".venv not created at {venv_path}"
             finally:
+                # Full teardown: registry entry AND directory. skill install
+                # writes the agent into .olav/workspace/olav.md — rmtree alone
+                # leaves a stale registry row that fails the v018/platform-md
+                # governance gates for every later test in the same session.
+                run_olav("skill", "remove", "test-venv-e2e")
                 shutil.rmtree(REPO_ROOT / ".olav" / "workspace" / "test-venv-e2e", ignore_errors=True)
+                run_olav("refresh")
 
     def test_skill_with_requires_packages_output_mentions_venv(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -830,7 +836,9 @@ class TestSkillVenvClaim:
                 result = run_olav("skill", "install", str(skill_dir))
                 assert "venv" in result.stdout.lower() or "packages" in result.stdout.lower(), result.stdout
             finally:
+                run_olav("skill", "remove", "test-venv-e2e2")
                 shutil.rmtree(REPO_ROOT / ".olav" / "workspace" / "test-venv-e2e2", ignore_errors=True)
+                run_olav("refresh")
 
 
 # ─────────────────────────────────────────────────────────
