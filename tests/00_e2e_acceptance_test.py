@@ -766,6 +766,23 @@ class TestSkillInstallGitClaim:
         combined = result.stdout + result.stderr
         assert "error" in combined.lower() or "failed" in combined.lower() or "fatal" in combined.lower()
 
+    def test_git_install_tree_url_no_crash(self):
+        """github /tree/ subpath URL (from the Batch-4 variant) — distinct
+        parse path; must install or give a clear message, never traceback."""
+        result = run_olav(
+            "skill", "install", "https://github.com/olavai/skills/tree/main/example-skill"
+        )
+        combined = result.stdout + result.stderr
+        assert "Traceback" not in combined
+        assert (
+            result.returncode == 0
+            or "error" in combined.lower()
+            or "failed" in combined.lower()
+            or "not found" in combined.lower()
+            or "invalid" in combined.lower()
+            or "github" in combined.lower()
+        )
+
 
 # ─────────────────────────────────────────────────────────
 # C-L2-37  Skill venv 隔离
@@ -779,6 +796,9 @@ class TestSkillVenvClaim:
     """
 
     def test_skill_with_requires_packages_creates_venv(self):
+        # try/finally cleanup: an assert failure must not leave the
+        # installed skill behind — orphaned workspace skills break six
+        # governance tests (exactly what venv-test-skill did 2026-06-09).
         with tempfile.TemporaryDirectory() as tmpdir:
             skill_dir = Path(tmpdir) / "test-venv-e2e"
             skill_dir.mkdir()
@@ -788,12 +808,13 @@ class TestSkillVenvClaim:
             (skill_dir / "SKILL.md").write_text(
                 "---\nname: test-venv-e2e\ndescription: venv test\nrequires_packages:\n  - requests\ntools: []\n---\n"
             )
-            result = run_olav("skill", "install", str(skill_dir))
-            assert result.returncode == 0, result.stderr
-            venv_path = REPO_ROOT / ".olav" / "workspace" / "test-venv-e2e" / ".venv"
-            assert venv_path.exists(), f".venv not created at {venv_path}"
-            # Cleanup
-            shutil.rmtree(REPO_ROOT / ".olav" / "workspace" / "test-venv-e2e", ignore_errors=True)
+            try:
+                result = run_olav("skill", "install", str(skill_dir))
+                assert result.returncode == 0, result.stderr
+                venv_path = REPO_ROOT / ".olav" / "workspace" / "test-venv-e2e" / ".venv"
+                assert venv_path.exists(), f".venv not created at {venv_path}"
+            finally:
+                shutil.rmtree(REPO_ROOT / ".olav" / "workspace" / "test-venv-e2e", ignore_errors=True)
 
     def test_skill_with_requires_packages_output_mentions_venv(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -805,9 +826,11 @@ class TestSkillVenvClaim:
             (skill_dir / "SKILL.md").write_text(
                 "---\nname: test-venv-e2e2\ndescription: venv test 2\nrequires_packages:\n  - requests\ntools: []\n---\n"
             )
-            result = run_olav("skill", "install", str(skill_dir))
-            assert "venv" in result.stdout.lower() or "packages" in result.stdout.lower(), result.stdout
-            shutil.rmtree(REPO_ROOT / ".olav" / "workspace" / "test-venv-e2e2", ignore_errors=True)
+            try:
+                result = run_olav("skill", "install", str(skill_dir))
+                assert "venv" in result.stdout.lower() or "packages" in result.stdout.lower(), result.stdout
+            finally:
+                shutil.rmtree(REPO_ROOT / ".olav" / "workspace" / "test-venv-e2e2", ignore_errors=True)
 
 
 # ─────────────────────────────────────────────────────────
@@ -954,7 +977,8 @@ class TestLogExportClaim:
     def test_trajectory_export_creates_jsonl(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             run_olav("log", "export", "trajectory", "--output", tmpdir, "--no-encrypt")
-            assert (Path(tmpdir) / "trajectory.jsonl").exists()
+            # glob (from the Batch-4 variant): tolerate timestamped names
+            assert list(Path(tmpdir).glob("trajectory*.jsonl"))
 
     def test_trajectory_export_output_mentions_complete(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -984,7 +1008,15 @@ class TestRegistryRegisterClaim:
 
     def test_registry_register_no_crash_on_missing_args(self):
         result = run_olav("registry", "register")
-        assert "Traceback" not in result.stderr
+        combined = result.stdout + result.stderr
+        assert "Traceback" not in combined
+        # From the Batch-4 variant: must signal the problem, not succeed silently
+        assert (
+            result.returncode != 0
+            or "usage" in combined.lower()
+            or "url" in combined.lower()
+            or "required" in combined.lower()
+        ), f"Expected usage/error indication; got code={result.returncode}"
 
 
 # ─────────────────────────────────────────────────────────
@@ -1967,156 +1999,13 @@ class TestConfigEvolveClaim:
 # class: test_pipe_quit_exits_zero + test_tui_starts_under_pty.
 
 
-class TestSessionResumeClaim:
-    """C-L2-15: `olav --session <nonexistent>` does not crash; still executes command."""
-
-    def test_nonexistent_session_does_not_crash(self):
-        """`olav --session nonexistent-id version` must output version, not crash."""
-        result = subprocess.run(
-            OLAV_CMD + ["--session", "nonexistent-00000000", "version"],
-            capture_output=True, text=True, timeout=20,
-            cwd=REPO_ROOT,
-        )
-        combined = result.stdout + result.stderr
-        # Must NOT produce an unhandled traceback
-        assert "Traceback" not in combined, (
-            f"Unhandled exception on --session with nonexistent ID:\n{combined[:600]}"
-        )
-        assert result.returncode == 0, (
-            f"Crashed with code {result.returncode}: {combined[:400]}"
-        )
-
-
-class TestLogExportClaim:
-    """C-L2-22: `olav log export trajectory` produces a .jsonl file."""
-
-    def test_log_export_creates_jsonl(self):
-        """`olav log export trajectory --output <dir> --no-encrypt` produces trajectory.jsonl."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            result = subprocess.run(
-                OLAV_CMD + [
-                    "log", "export", "trajectory",
-                    "--output", tmpdir,
-                    "--no-encrypt",
-                ],
-                capture_output=True, text=True, timeout=20,
-                cwd=REPO_ROOT,
-            )
-            combined = result.stdout + result.stderr
-            assert result.returncode == 0, (
-                f"log export failed (code {result.returncode}):\n{combined}"
-            )
-            jsonl_files = list(Path(tmpdir).glob("trajectory*.jsonl"))
-            assert jsonl_files, (
-                f"No trajectory*.jsonl found in {tmpdir}. Output:\n{combined}"
-            )
-
-
-class TestRegistryRegisterClaim:
-    """C-L2-19: `olav registry register` without URL shows usage error, not traceback."""
-
-    def test_register_no_args_shows_usage(self):
-        """`olav registry register` (no URL) must show usage/error, not crash."""
-        result = subprocess.run(
-            OLAV_CMD + ["registry", "register"],
-            capture_output=True, text=True, timeout=15,
-            cwd=REPO_ROOT,
-        )
-        combined = result.stdout + result.stderr
-        assert "Traceback" not in combined, (
-            f"Unhandled traceback when registry register called with no args:\n{combined[:600]}"
-        )
-        # Must exit non-zero (missing required arg) OR show usage text
-        is_error_or_usage = (
-            result.returncode != 0
-            or "usage" in combined.lower()
-            or "url" in combined.lower()
-            or "required" in combined.lower()
-        )
-        assert is_error_or_usage, (
-            f"Expected usage/error indication; got code={result.returncode}, "
-            f"output={combined[:400]!r}"
-        )
-
-
-class TestSkillVenvClaim:
-    """C-L2-37: skill install creates .venv/ when MANIFEST lists requires_packages."""
-
-    def test_skill_install_creates_venv_for_requires_packages(self):
-        """A skill with requires_packages: [requests] gets a .venv/ on install."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            skill_dir = Path(tmpdir) / "venv-test-skill"
-            skill_dir.mkdir()
-            # Minimal MANIFEST.yaml with requires_packages
-            (skill_dir / "MANIFEST.yaml").write_text(
-                "name: venv-test-skill\n"
-                "version: 0.1.0\n"
-                "description: Venv creation test skill\n"
-            )
-            # SKILL.md with requires_packages in YAML frontmatter (GAP-10 reads from here)
-            (skill_dir / "SKILL.md").write_text(
-                "---\n"
-                "requires_packages:\n"
-                "  - requests\n"
-                "---\n"
-                "# venv-test-skill\n"
-                "Test skill for venv creation.\n"
-            )
-            # Minimal AGENT.md so install completes
-            (skill_dir / "AGENT.md").write_text(
-                "# venv-test-skill\nTest skill for venv creation.\n"
-            )
-            result = subprocess.run(
-                OLAV_CMD + ["skill", "install", str(skill_dir)],
-                capture_output=True, text=True, timeout=60,
-                cwd=REPO_ROOT,
-            )
-            combined = result.stdout + result.stderr
-            assert result.returncode == 0, (
-                f"`olav skill install` failed (code {result.returncode}):\n{combined}"
-            )
-            # The skill is installed to .olav/workspace/<name>/ — check there
-            installed_path = REPO_ROOT / ".olav" / "workspace" / "venv-test-skill"
-            venv_path = installed_path / ".venv"
-            assert venv_path.exists(), (
-                f".venv not created under {installed_path}. "
-                f"Output:\n{combined}"
-            )
-            # Clean up: uninstall the skill
-            subprocess.run(
-                OLAV_CMD + ["skill", "remove", "venv-test-skill"],
-                capture_output=True, text=True, timeout=15,
-                cwd=REPO_ROOT,
-            )
-
-
-class TestSkillInstallGitClaim:
-    """C-L2-25: `olav skill install <github-url>` produces a clear result or network error."""
-
-    def test_skill_install_git_url_no_crash(self):
-        """`olav skill install` with a GitHub URL must not traceback — either installs or reports network error."""
-        # Use a known-good public olav skill URL; tolerate network errors in CI
-        test_url = "https://github.com/olavai/skills/tree/main/example-skill"
-        result = subprocess.run(
-            OLAV_CMD + ["skill", "install", test_url],
-            capture_output=True, text=True, timeout=30,
-            cwd=REPO_ROOT,
-        )
-        combined = result.stdout + result.stderr
-        assert "Traceback" not in combined, (
-            f"Unhandled traceback on git skill install:\n{combined[:600]}"
-        )
-        # Either succeeds (exit 0) or gives a clear user-facing network/not-found error
-        has_clear_message = (
-            result.returncode == 0
-            or "network" in combined.lower()
-            or "not found" in combined.lower()
-            or "error" in combined.lower()
-            or "failed" in combined.lower()
-            or "invalid" in combined.lower()
-            or "github" in combined.lower()
-        )
-        assert has_clear_message, (
-            f"No clear message on git skill install failure. "
-            f"code={result.returncode}, output={combined[:400]!r}"
-        )
+# NOTE (2026-06-12): five more Batch-4 duplicate classes lived here
+# (TestSessionResumeClaim, TestLogExportClaim, TestRegistryRegisterClaim,
+# TestSkillVenvClaim, TestSkillInstallGitClaim). Python class shadowing
+# meant the ORIGINAL definitions earlier in this file were never
+# collected by pytest. The duplicates are removed; their unique
+# improvements (jsonl glob, richer no-args assertion, /tree/ URL case)
+# are folded into the originals. The Batch-4 TestSkillVenvClaim also
+# cleaned up via `olav skill remove` — when that failed it left the
+# .olav/workspace/venv-test-skill debris that broke six governance
+# tests on 2026-06-09; the kept original uses shutil.rmtree in finally.
