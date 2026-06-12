@@ -280,6 +280,29 @@ duplicated across sub-agents must be identical to the canonical source — use
 
 ---
 
+## Definition of Done: wiring must be verified from a real entry point
+
+A module is NOT done when its unit tests pass. Four shipped features
+reached green TDD and were never reachable from any entry point — in
+two cases for months: the trace-learn loop (wrote memories no recall
+path could return), `/trace-review` (handler + tests + help text, no
+dispatch), `LifecycleManager` and `generate_permission_rules` (only
+their own tests ever called them).
+
+**Every new module/feature must include at least one integration test
+that exercises it through its real entry point** — CLI verb or
+slash-command dispatch (`execute_command`), middleware chain, API
+route, plugin discovery, or scheduled hook. A test that imports the
+module directly does not count as wiring proof. If reachability is
+config-driven (scope filters, category quotas, registry entries), the
+integration test must run with production-default config — the
+trace-learn loop was "wired" under a scope no production caller used.
+
+Related gates: `tests/governance/test_no_shadowed_tests.py` (a
+shadowed test is a test that silently stopped guarding) and
+`tests/governance/test_workspace_drift_gate.py` (drift detection on
+every governance run, not on demand).
+
 ## Safety
 
 - `--dangerously-skip-permissions` bypasses approval gates for testing only. See `src/olav/platform/safety/permissions.py`.
