@@ -25,7 +25,12 @@ def _load_with_cwd(tmp_path, monkeypatch):
 
     _CONFIG_DIR is a module-level constant frozen at import time, so
     cwd changes alone don't redirect file reads — patch it explicitly.
+    Also drop ambient key env vars: the env tier outranks file config,
+    so a leaked OLAV_LLM_API_KEY from an earlier test (or a dev shell)
+    would silently win every precedence assertion below.
     """
+    for var in ("OLAV_LLM_API_KEY", "OLAV_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
     import olav.core.config as cfgmod
     monkeypatch.setattr(cfgmod, "_CONFIG_DIR", tmp_path / ".olav" / "config")
     cfgmod.reload_config()
@@ -64,8 +69,11 @@ def test_llm_falls_back_to_env_when_neither_set(tmp_path, monkeypatch):
         "llm": {"provider": "openai", "model": "m"},
         "embedding": {"mode": "api"},
     })
-    monkeypatch.setenv("OPENAI_API_KEY", "env-fallback")
     cfgmod = _load_with_cwd(tmp_path, monkeypatch)
+    # set AFTER the helper: _load_with_cwd clears ambient key env vars,
+    # and this test deliberately exercises the env-fallback tier.
+    monkeypatch.setenv("OPENAI_API_KEY", "env-fallback")
+    cfgmod.reload_config()
     assert cfgmod.get_llm_config().api_key == "env-fallback"
 
 

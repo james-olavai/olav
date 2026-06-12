@@ -17,6 +17,10 @@ import pytest
 
 @pytest.fixture(scope="module")
 def _admin_agent():
+    # Scoped env: setdefault leaked OLAV_LLM_API_KEY="test" into the
+    # whole pytest session and broke test_api_key_precedence (env tier
+    # outranks file config). Restore prior values on teardown.
+    _saved = {k: os.environ.get(k) for k in ("OLAV_AUTH_MODE", "OLAV_LLM_API_KEY")}
     os.environ.setdefault("OLAV_AUTH_MODE", "none")
     # Provide dummy API key so LLMFactory does not raise openai.OpenAIError
     # in CI where OPENAI_API_KEY is not set. The agent is never invoked,
@@ -25,7 +29,14 @@ def _admin_agent():
     import logging
     logging.disable(logging.CRITICAL)
     from olav.agents.agent import OLAVAgent
-    return OLAVAgent(agent_id="admin")
+    try:
+        yield OLAVAgent(agent_id="admin")
+    finally:
+        for k, v in _saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 def _orchestrator_tools(agent) -> set[str]:
