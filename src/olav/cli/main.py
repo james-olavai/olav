@@ -967,6 +967,36 @@ def _hitl_audit_scope(recorder: AuditEventRecorder, run_id: str, agent_id: str):
         _dce.prompt_for_tool_approval = _original
 
 
+async def _pipe_repl(assistant_id: str, session_state) -> None:
+    """Line-mode REPL for non-TTY stdin (pipes, CI, heredocs).
+
+    Reads stdin line by line: slash commands go through
+    ``execute_command`` (same dispatch the TUI uses), anything else runs
+    as a single query.  /quit, /exit, or stdin EOF ends the loop.
+    All lines share one session id so multi-line pipes keep context.
+    """
+    import uuid
+
+    from olav.cli.commands.builtin import execute_command
+
+    session_id = getattr(session_state, "session_id", None) or str(uuid.uuid4())
+    auto_approve = getattr(session_state, "auto_approve", False)
+
+    for raw in sys.stdin:
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("/"):
+            try:
+                result = await execute_command(line, auto_approve=auto_approve)
+            except EOFError:  # /quit, /exit
+                break
+            if result:
+                console.print(result)
+        else:
+            await run_single_query(line, assistant_id, session_id=session_id)
+
+
 async def simple_cli(
     agent,
     assistant_id: str,
@@ -976,6 +1006,15 @@ async def simple_cli(
     no_splash: bool = False,
 ) -> None:
     """Main CLI loop using deepagents-code Textual TUI with OLAV overlay."""
+    # Headless fallback: a full-screen Textual app reads key events from
+    # the TTY driver, so piped stdin bytes never reach it — `echo
+    # "/quit" | olav` hung until killed (regression since 91860c10
+    # replaced the prompt_toolkit REPL, 2026-04-14). Pipes get a plain
+    # line REPL instead of the TUI.
+    if not sys.stdin.isatty():
+        await _pipe_repl(assistant_id, session_state)
+        return
+
     try:
         from deepagents_code.app import run_textual_app
     except ImportError as _e:
