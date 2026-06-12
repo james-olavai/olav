@@ -951,47 +951,10 @@ class TestBuildTrajectorySteps:
         assert "assistant_final" in step_types
 
 
-class TestBuildAtifSpansReasoning:
-    def test_reasoning_block_events_in_atif_spans(self):
-        from olav.enterprise.audit_dataset_export import _build_atif_spans
-
-        timeline = {
-            "messages": [
-                {"role": "user", "content": "analyze topology"},
-                {"role": "assistant", "content": "Ring topology detected."},
-            ],
-            "tool_calls": [],
-            "events": [
-                {
-                    "event_id": "e1",
-                    "event_type": "reasoning_block",
-                    "timestamp": "2026-03-18T01:00:00",
-                    "sequence_no": 1,
-                    "run_id": "r1",
-                    "payload": json.dumps({"token": "Analyzing link connections..."}),
-                },
-            ],
-        }
-        spans = _build_atif_spans(timeline)
-
-        thinking_spans = [s for s in spans if s["type"] == "thinking"]
-        assert len(thinking_spans) >= 1, f"No thinking spans. Got: {spans}"
-        assert "Analyzing link" in thinking_spans[0]["content"]
-
-    def test_no_reasoning_events_no_thinking_spans(self):
-        from olav.enterprise.audit_dataset_export import _build_atif_spans
-
-        timeline = {
-            "messages": [
-                {"role": "user", "content": "hello"},
-                {"role": "assistant", "content": "hi"},
-            ],
-            "tool_calls": [],
-            "events": [],
-        }
-        spans = _build_atif_spans(timeline)
-        thinking_spans = [s for s in spans if s["type"] == "thinking"]
-        assert len(thinking_spans) == 0
+# NOTE (2026-06-12): an earlier ``class TestBuildAtifSpansReasoning``
+# lived here, shadowed by the richer DATA-4 version later in this file
+# (caught by tests/governance/test_no_shadowed_tests.py). Removed —
+# same two behaviors, weaker assertions.
 
 
 class TestHasHitlReject:
