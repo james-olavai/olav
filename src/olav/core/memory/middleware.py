@@ -380,6 +380,11 @@ class AutoRecallMiddleware:
         "query_pattern": 3,
         "usage_guide": 4,
         "expert_knowledge": 3,
+        # trace_learner failure constraints (category=reflection,
+        # scope=global). Without a curated fetch they only surface via
+        # the BM25 leg of the long-tail pass — which is what kept the
+        # learn loop write-only until 2026-06-12.
+        "reflection": 2,
     }
 
     # Per-category minimum quotas — reserves slots so a cross-platform
@@ -425,6 +430,11 @@ class AutoRecallMiddleware:
         # value_distribution dropped 4 → 2 to fund this; total
         # 2+2+2+3+1+3=13 unchanged.
         "expert_knowledge": 3,
+        # Failure-learning constraints from trace_learner (30-day TTL,
+        # deduped at write). 1 slot: a lesson is one line; the loop's
+        # value is remembering the lesson at all, not flooding the
+        # prompt with every past failure.
+        "reflection": 1,
     }
 
     # Phase 1.5 — sub-quota per scope tier within expert_knowledge.

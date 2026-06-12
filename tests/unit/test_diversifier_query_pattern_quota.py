@@ -66,6 +66,8 @@ def test_diversifier_quota_distribution():
       R85 δ2                   3+4+2+3+1      = 13 (added format_guide)
       R87 Phase 1              2+4+2+3+1+1    = 13 (added expert_knowledge)
       ISSUE-SCHEMA-PUSH-VS-PULL 0+0+2+3+1+3   = 9  (removed schema+value)
+      TRACE-LEARN-WIRING (2026-06-12) +reflection:1 = 10 (trace_learner
+                               failure constraints, scope=global)
     """
     from olav.core.memory.middleware import AutoRecallMiddleware
 
@@ -74,6 +76,7 @@ def test_diversifier_quota_distribution():
     assert q["usage_guide"] == 3
     assert q["format_guide"] == 1
     assert q["expert_knowledge"] == 3
+    assert q["reflection"] == 1
     assert "schema_knowledge" not in q, "schema_knowledge was intentionally removed"
     assert "value_distribution" not in q, "value_distribution was intentionally removed"
 

@@ -236,10 +236,13 @@ def _write_constraints_to_memory(
 ) -> int:
     """Write extracted constraint strings to LanceDB as reflection (ADR-0015).
 
-    Writes with category='reflection' and scope='shared:audit' so
-    AutoRecallMiddleware delivers them to all audit sub-agents (runner,
-    author, explorer, curator) during ranked recall, subject to the
-    normal quota/cap controls.  Non-audit agents are not affected.
+    Writes with category='reflection' and scope='global' so
+    AutoRecallMiddleware delivers them to every agent during ranked
+    recall, subject to the normal quota/cap controls.  scope was
+    'shared:audit' until 2026-06-12, but the recall plugin queries with
+    scope='global' (store filter: scope='global' OR scope=<scope>), so
+    shared:audit rows were unreachable by any agent — the learn loop
+    was write-only.
 
     ADR-0015: reflection rows always have expires_at set (default 30 days TTL).
     """
@@ -270,12 +273,20 @@ def _write_constraints_to_memory(
         try:
             memory_id = f"trace-{uuid.uuid4().hex[:8]}"
             tags = _tags_from_constraint(constraint)
+            # Real embedding so vector recall can rank these; a zero
+            # vector survives only the BM25 leg of hybrid search and is
+            # dropped by the per-category distance cutoffs.
+            try:
+                from olav.core.embedder import embed_text
+                vector = embed_text(constraint)
+            except Exception:
+                vector = None
             store.add_memory(
                 id=memory_id,
                 text=constraint,
-                vector=[0.0] * store.embedding_dim,
+                vector=vector or [0.0] * store.embedding_dim,
                 category=MemoryCategory.REFLECTION,
-                scope="shared:audit",
+                scope="global",
                 metadata={"source": "trace_learner", "origin": "failure_learning"},
                 tags=json.dumps(tags),
                 table_name=tname,
