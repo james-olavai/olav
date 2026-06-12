@@ -33,7 +33,11 @@ def _clear_warning_registry():
     """
     for mod in list(sys.modules.values()):
         reg = getattr(mod, "__warningregistry__", None)
-        if reg is not None:
+        # isinstance guard: torch.ops-style dynamic namespaces fabricate an
+        # object for ANY attribute name, so `reg is not None` is satisfied
+        # by a non-dict with no .clear() — first seen on CI run #88 where
+        # torch was imported before this fixture ran.
+        if isinstance(reg, dict):
             reg.clear()
     yield
 
