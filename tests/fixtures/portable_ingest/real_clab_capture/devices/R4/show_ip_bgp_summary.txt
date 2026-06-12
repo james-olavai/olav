@@ -1,0 +1,17 @@
+# command: show ip bgp summary
+# collected_at: 2026-05-15T10:23:30Z
+# pre_scrubbed: true
+
+BGP router identifier 4.4.4.4, local AS number 65001
+BGP table version is 2, main routing table version 2
+1 network entries using 248 bytes of memory
+1 path entries using 136 bytes of memory
+1/1 BGP path/bestpath attribute entries using 296 bytes of memory
+0 BGP route-map cache entries using 0 bytes of memory
+0 BGP filter-list cache entries using 0 bytes of memory
+BGP using 680 total bytes of memory
+BGP activity 1/0 prefixes, 1/0 paths, scan interval 60 secs
+1 networks peaked at 09:52:00 May 14 2026 UTC (1d10h ago)
+
+Neighbor        V           AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd
+2.2.2.2         4        65001    2261    2261        2    0    0 1d10h           0

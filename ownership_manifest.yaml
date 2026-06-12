@@ -258,6 +258,32 @@ rules:
     enforced: true
     git: ignore
 
+  # Governance toolchain — referenced by CLAUDE.md, the workspace drift
+  # gate (tests/governance/test_workspace_drift_gate.py), and this very
+  # manifest's workflow. A fresh checkout must be able to run them;
+  # scan_ownership.py was untracked until 2026-06-13 (the ownership
+  # scanner itself was invisible to the repo it governs).
+  - pattern: scripts/scan_ownership.py
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: scripts/gen_gitignore.py
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: scripts/workspace_drift.py
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+
   - pattern: tools/**
     owner: olav
     class: platform
@@ -266,14 +292,24 @@ rules:
     git: ignore
     notes: root-level dev/benchmark tooling (e.g. compare_bench.py) — not part of release surface, parallels scripts/**
 
+  # POLICY FLIP 2026-06-13: tests/** was git:ignore since the pre-release
+  # cleanup (67d01eab) — but release hygiene is enforced by the wheel
+  # packaging rule (packages=["src/olav"]), not by git. The ignore cost
+  # was severe: 198 of 349 test files (57%, 1.6MB) never entered git, so
+  # CI and code review saw fewer than half the tests, and stale tests
+  # rotted invisibly for months (test_context_budget, split_decoupling,
+  # the 2026-06-12 failure-backlog batch all entered git "for the first
+  # time" during remediation). olav-netops/tests was always tracked with
+  # zero problems. Authoritative assets belong in version control.
   - pattern: tests/**
     owner: olav
     class: testing
     status: authoritative
     enforced: true
-    git: ignore
+    git: track
 
-  # Demo DB Parquet fixtures — tracked for e2e CI (38.8 MB, zstd compressed)
+  # Demo DB Parquet fixtures — explicit rule kept for the size note
+  # (38.8 MB, zstd compressed; tracked for e2e CI)
   - pattern: tests/fixtures/demo_db/**
     owner: olav
     class: testing

@@ -1,0 +1,5 @@
+# command: show ip bgp summary
+# collected_at: 2026-05-15T10:23:30Z
+# pre_scrubbed: true
+
+% BGP not active

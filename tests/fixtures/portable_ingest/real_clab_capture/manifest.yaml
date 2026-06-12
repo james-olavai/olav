@@ -1,0 +1,16 @@
+schema_version: 1
+collector:
+  name: olav-collector
+  version: 0.0.0-fixture
+  invocation: scripts/build_portable_ingest_fixture.py (one-off)
+collected_at: '2026-05-15T10:23:30Z'
+collected_by: fixture-build@local
+workspace_id: real_clab_capture
+hosts_collected: 6
+hosts_failed: 0
+redaction:
+  pre_scrubbed: true
+  salt_fingerprint: fixture0
+  netconan_version: 0.13.0
+content_sha256: 697a7895d55df72647c9127edf15ec92b470b40cda9ba45bd0d9c8dd15e062b3
+signature: null

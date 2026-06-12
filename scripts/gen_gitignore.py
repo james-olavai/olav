@@ -153,8 +153,16 @@ def generate(manifest: dict) -> str:
                     continue
                 lines.append(neg_line)
                 emitted_lines.add(neg_line)
-                # Re-ignore contents so only explicitly whitelisted paths survive
-                if i < len(parts) - 1:
+                # Re-ignore contents so only explicitly whitelisted paths
+                # survive. Also required at the FILE's immediate parent:
+                # without it, `!scripts/` un-ignores every sibling of a
+                # whitelisted file (found 2026-06-13 — `!scripts/` +
+                # `!scripts/scan_ownership.py` left 13 other scripts
+                # visible-untracked instead of ignored). Glob leaves
+                # (e.g. *.example) keep the old behaviour: their parent
+                # contents are managed by explicit sibling rules.
+                leaf_is_plain_file = "*" not in parts[-1] and not p.endswith("/**")
+                if i < len(parts) - 1 or leaf_is_plain_file:
                     wild = "/".join(parts[:i]) + "/*"
                     if wild not in emitted_lines:
                         lines.append(wild)

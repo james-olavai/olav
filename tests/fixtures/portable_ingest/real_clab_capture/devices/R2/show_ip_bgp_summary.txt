@@ -1,0 +1,10 @@
+# command: show ip bgp summary
+# collected_at: 2026-05-15T10:23:30Z
+# pre_scrubbed: true
+
+BGP router identifier 2.2.2.2, local AS number 65001
+BGP table version is 1, main routing table version 1
+
+Neighbor        V           AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd
+4.4.4.4         4        65001    2261    2261        1    0    0 1d10h           0
+10.1.12.1       4        65000       0       0        1    0    0 12:26:04 Active
