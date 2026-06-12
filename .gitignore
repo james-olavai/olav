@@ -74,9 +74,6 @@ PARTNERS.md
 /.vscode/
 /.claude/
 
-# testing
-/tests/
-
 # generated
 src/olav/data/workspace/*/*/references/
 src/olav/web/node_modules/
@@ -135,11 +132,11 @@ olav-netops/.olav/workspace/devops/
 /olav-collector/
 
 # ── Whitelist (tracked paths inside ignored parents) ──
-!tests/
-tests/*
-!tests/fixtures/
-tests/fixtures/*
-!tests/fixtures/demo_db/
+!scripts/
+scripts/*
+!scripts/scan_ownership.py
+!scripts/gen_gitignore.py
+!scripts/workspace_drift.py
 !olav-netops/
 olav-netops/*
 !olav-netops/.olav/

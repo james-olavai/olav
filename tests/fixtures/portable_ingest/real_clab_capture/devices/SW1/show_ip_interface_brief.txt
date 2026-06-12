@@ -1,0 +1,9 @@
+# command: show ip interface brief
+# collected_at: 2026-05-15T10:23:30Z
+# pre_scrubbed: true
+
+Interface              IP-Address      OK? Method Status                Protocol
+Ethernet0/0            unassigned      YES unset  up                    up      
+Ethernet0/1            unassigned      YES unset  up                    up      
+Ethernet0/2            unassigned      YES unset  up                    up      
+Ethernet0/3            192.168.100.105 YES NVRAM  up                    up      

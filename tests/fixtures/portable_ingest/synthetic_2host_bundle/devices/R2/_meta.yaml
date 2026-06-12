@@ -1,0 +1,10 @@
+hostname: R2
+mgmt_ip: 192.168.100.102
+platform: cisco_ios
+vendor: Cisco
+os_version: null
+model: null
+commands_attempted: 4
+commands_succeeded: 4
+commands_failed: 0
+collected_at: '2026-05-15T10:23:30Z'
