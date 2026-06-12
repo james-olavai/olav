@@ -32,11 +32,16 @@ def _clear_warning_registry():
     causing catch_warnings(record=True) to miss it in subsequent tests.
     """
     for mod in list(sys.modules.values()):
-        reg = getattr(mod, "__warningregistry__", None)
-        # isinstance guard: torch.ops-style dynamic namespaces fabricate an
-        # object for ANY attribute name, so `reg is not None` is satisfied
-        # by a non-dict with no .clear() — first seen on CI run #88 where
-        # torch was imported before this fixture ran.
+        # __dict__.get, NOT getattr: the warnings machinery always writes
+        # __warningregistry__ into the module's real namespace, while
+        # getattr on arbitrary modules detonates lazy importers — CI run
+        # #88: torch.ops fabricated a non-dict for the name (.clear()
+        # AttributeError); CI run #89: a transformers-style lazy module
+        # tried to import torchvision on the attribute probe.
+        ns = getattr(mod, "__dict__", None)
+        if not isinstance(ns, dict):
+            continue
+        reg = ns.get("__warningregistry__")
         if isinstance(reg, dict):
             reg.clear()
     yield
