@@ -1195,41 +1195,43 @@ class TestTraceReviewClaim:
     """
     Claim C-L2-24: `/trace-review` 分析失败模式，写入 LanceDB 记忆，exit 0。
     Verified: 2026-04-03 | Doc: docs/concepts/self-improving-loop.md
+
+    2026-06-12: rewritten against the slash-command dispatch layer
+    (execute_command). The original tests piped stdin into
+    ``python -m olav``, which stopped working when the REPL became a
+    full-screen TUI (deepagents-code) — they timed out at 60s for every
+    slash command. Worse, their loose assertions ("trace"/"run"
+    anywhere in output) kept passing for months while the /trace-review
+    dispatch wiring was actually missing (lost in the v0.11 refactor).
     """
 
-    def test_trace_review_exits_zero(self):
-        result = subprocess.run(
-            [sys.executable, "-m", "olav"],
-            input="/trace-review\n/quit\n",
-            capture_output=True,
-            text=True,
-            cwd=str(REPO_ROOT),
-            timeout=60,
+    @staticmethod
+    def _run_trace_review(args: str = "") -> str:
+        import asyncio
+
+        from olav.cli.commands.builtin import execute_command
+
+        cmd = f"/trace-review {args}".strip()
+        return asyncio.run(execute_command(cmd, auto_approve=True))
+
+    def test_trace_review_dispatch_reaches_handler(self):
+        out = self._run_trace_review()
+        assert out is not None
+        # Must be the real handler's table title, not the unknown-command
+        # fallthrough to the LLM.
+        assert "Trace Review" in out, (
+            "/trace-review did not reach cmd_trace_review (dispatch broken?)"
         )
-        assert result.returncode == 0, result.stderr
+        assert "Unknown command" not in out
 
     def test_trace_review_shows_metrics(self):
-        result = subprocess.run(
-            [sys.executable, "-m", "olav"],
-            input="/trace-review\n/quit\n",
-            capture_output=True,
-            text=True,
-            cwd=str(REPO_ROOT),
-            timeout=60,
-        )
-        combined = result.stdout + result.stderr
-        assert "trace" in combined.lower() or "run" in combined.lower() or "constraint" in combined.lower()
+        out = self._run_trace_review()
+        assert "Failed / cancelled runs" in out
+        assert "Constraints learned" in out
 
-    def test_trace_review_no_traceback(self):
-        result = subprocess.run(
-            [sys.executable, "-m", "olav"],
-            input="/trace-review\n/quit\n",
-            capture_output=True,
-            text=True,
-            cwd=str(REPO_ROOT),
-            timeout=60,
-        )
-        assert "Traceback" not in result.stderr
+    def test_trace_review_rejects_bad_args(self):
+        out = self._run_trace_review("not-a-number")
+        assert "Usage" in out
 
 
 # ─────────────────────────────────────────────────────────

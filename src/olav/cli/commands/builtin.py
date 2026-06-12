@@ -394,3 +394,41 @@ To use a different provider, configure in .olav/config/api.json"""
 def get_model_override() -> str | None:
     """Get the current model override."""
     return _model_override
+
+
+@register_command("trace-review")
+async def cmd_trace_review(args: str) -> str:
+    """Analyze recent failed runs and learn constraints (self-improving loop).
+
+    Usage:
+        /trace-review                 - review last 168h, up to 50 runs
+        /trace-review <hours>         - custom review window
+        /trace-review <hours> <limit> - custom window and run limit
+
+    Reads failed/cancelled runs from audit.duckdb, extracts failure
+    constraints via the LLM, and writes them to LanceDB memory
+    (category=reflection, scope=global) for recall by every agent.
+    """
+    from rich.console import Console
+
+    from olav.cli.commands.trace_review import _handle_trace_review, print_trace_review
+
+    hours, limit = 168, 50
+    tokens = args.split()
+    try:
+        if len(tokens) >= 1:
+            hours = int(tokens[0])
+        if len(tokens) >= 2:
+            limit = int(tokens[1])
+    except ValueError:
+        return "Usage: /trace-review [hours] [limit] — both must be integers."
+
+    result = _handle_trace_review(hours=hours, limit=limit)
+    # record=True + StringIO sink: render through the existing Rich
+    # formatter but only return the text — the interactive loop prints
+    # the return value, so writing to stdout here would double-print.
+    import io
+
+    con = Console(record=True, width=100, file=io.StringIO())
+    print_trace_review(result, console=con)
+    return con.export_text()

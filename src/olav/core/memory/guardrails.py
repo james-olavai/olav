@@ -10,9 +10,10 @@ relevance ranking.  Examples:
 This is intentionally narrow.  Failure-learning constraints (operational
 lessons from past runs) are NOT stored here.  They belong to the normal
 AutoRecallMiddleware path:
-  - ``trace_learner`` → ``category="reflection"``, ``scope="shared:audit"`` (ADR-0015)
+  - ``trace_learner`` → ``category="reflection"``, ``scope="global"`` (ADR-0015;
+    scope widened from shared:audit 2026-06-12 — recall runs at scope=global)
   - ``AutoRecallMiddleware`` injects them ranked + quota-controlled into the
-    user message for audit sub-agents only.
+    user message for every agent.
 
 Why two paths:
   - Security constraints: must fire on every LLM call, not subject to
@@ -60,8 +61,8 @@ def store_failure_memory(
     message before every model call (e.g. "never DROP TABLE without confirmation").
 
     For failure-learning constraints from past runs, use trace_learner instead —
-    it writes category='reflection' scope='shared:audit' (ADR-0015) so AutoRecallMiddleware
-    delivers them ranked and quota-controlled to audit sub-agents only.
+    it writes category='reflection' scope='global' (ADR-0015) so AutoRecallMiddleware
+    delivers them ranked and quota-controlled to every agent.
 
     Args:
         store:       LanceDBStore instance.
