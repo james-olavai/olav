@@ -817,43 +817,91 @@ class TestSkillVenvClaim:
 # ─────────────────────────────────────────────────────────
 class TestTUIModeClaim:
     """
-    Claim C-L2-14: TUI 模式可正常启动并退出。
+    Claim C-L2-14: 交互模式可正常启动并退出。
     Verified: 2026-04-03 | Doc: docs/getting-started/first-query.md
+
+    2026-06-12: piped stdin now lands in the headless line REPL
+    (_pipe_repl in cli/main.py) — the Textual TUI cannot be driven by a
+    pipe, so these subprocess tests exercise the pipe fallback. The
+    real full-screen TUI is covered by test_tui_starts_under_pty.
+    Startup (agent init) takes ~60s in a cold venv, hence the generous
+    timeouts; the old timeout=15 tests had been dying as SIGKILL since
+    the TUI migration (91860c10, 2026-04-14).
     """
 
-    def test_tui_quit_exits_zero(self):
-        result = subprocess.run(
+    def _pipe(self, text: str, timeout: int = 180):
+        return subprocess.run(
             [sys.executable, "-m", "olav"],
-            input="/quit\n",
+            input=text,
             capture_output=True,
             text=True,
             cwd=str(REPO_ROOT),
-            timeout=15,
+            timeout=timeout,
         )
-        assert result.returncode == 0, result.stderr
 
-    def test_tui_starts_and_shows_banner(self):
-        result = subprocess.run(
-            [sys.executable, "-m", "olav"],
-            input="/quit\n",
-            capture_output=True,
-            text=True,
-            cwd=str(REPO_ROOT),
-            timeout=15,
-        )
-        combined = result.stdout + result.stderr
-        assert "OLAV" in combined or "olav" in combined.lower()
+    def test_pipe_quit_exits_zero(self):
+        result = self._pipe("/quit\n")
+        assert result.returncode == 0, result.stderr[-2000:]
 
-    def test_tui_no_traceback_on_quit(self):
-        result = subprocess.run(
-            [sys.executable, "-m", "olav"],
-            input="/quit\n",
-            capture_output=True,
-            text=True,
-            cwd=str(REPO_ROOT),
-            timeout=15,
-        )
+    def test_pipe_no_traceback_on_quit(self):
+        result = self._pipe("/quit\n")
         assert "Traceback" not in result.stderr
+
+    def test_pipe_slash_command_dispatches(self):
+        """A piped slash command must reach the dispatch layer, not hang."""
+        result = self._pipe("/help\n/quit\n")
+        assert result.returncode == 0, result.stderr[-2000:]
+        assert "Unknown command" not in result.stdout
+        # /help output lists builtin commands
+        assert "/quit" in result.stdout or "quit" in result.stdout
+
+    def test_tui_starts_under_pty(self):
+        """The real Textual TUI boots and paints when given a pty.
+
+        Pipes can't drive a full-screen app, so the TUI half of
+        C-L2-14 is verified with a pseudo-terminal: spawn, wait for it
+        to paint the OLAV banner / input frame, then SIGTERM.
+        """
+        import os
+        import pty
+        import select
+        import signal
+        import time
+
+        py = sys.executable
+        pid, master = pty.fork()
+        if pid == 0:  # child
+            os.chdir(str(REPO_ROOT))
+            os.execv(py, [py, "-m", "olav"])
+
+        os.set_blocking(master, False)
+        buf = b""
+        deadline = time.time() + 150
+        try:
+            while time.time() < deadline:
+                r, _, _ = select.select([master], [], [], 1.0)
+                if r:
+                    try:
+                        chunk = os.read(master, 65536)
+                        if chunk:
+                            buf += chunk
+                    except OSError:
+                        break
+                if b"OLAV" in buf or len(buf) > 20000:
+                    break
+        finally:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                time.sleep(1)
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            os.waitpid(pid, 0)
+            os.close(master)
+
+        assert b"OLAV" in buf or len(buf) > 20000, (
+            f"TUI painted only {len(buf)} bytes within 150s — startup broken?"
+        )
 
 
 # ─────────────────────────────────────────────────────────
@@ -1629,15 +1677,20 @@ class TestModelSwitchClaim:
         assert "gpt-4o-mini" in result
         assert "✅" in result or "Model set" in result
 
-    def test_model_switch_via_tui_pipe(self):
-        """/model command must work via stdin pipe to TUI."""
+    def test_model_switch_via_stdin_pipe(self):
+        """/model command must work via the piped-stdin line REPL.
+
+        2026-06-12: pipes land in _pipe_repl, not the TUI (a Textual
+        app can't read piped input). timeout raised 20→180: agent
+        startup alone takes ~60s, so the old value guaranteed SIGKILL.
+        """
         result = subprocess.run(
             ["uv", "run", "python", "-m", "olav"],
             input="/model gpt-4o-mini\n/quit\n",
-            capture_output=True, text=True, timeout=20,
+            capture_output=True, text=True, timeout=180,
             cwd=REPO_ROOT,
         )
-        assert result.returncode == 0
+        assert result.returncode == 0, result.stderr[-2000:]
         assert "gpt-4o-mini" in result.stdout
 
     def test_model_list_subcommand(self):
@@ -1906,25 +1959,12 @@ class TestConfigEvolveClaim:
 # ===========================================================================
 
 
-class TestTUIModeClaim:
-    """C-L2-14: `olav` with no args or /quit starts TUI and exits cleanly."""
-
-    def test_tui_exits_on_quit_command(self):
-        """`echo /quit | olav` — starts TUI, processes /quit, exits cleanly."""
-        result = subprocess.run(
-            OLAV_CMD,
-            input="/quit\n",
-            capture_output=True, text=True, timeout=30,
-            cwd=REPO_ROOT,
-        )
-        combined = result.stdout + result.stderr
-        # TUI must show the OLAV banner before exiting
-        assert ("OLAV" in combined or "olav" in combined.lower()), (
-            f"TUI banner not found in output: {combined[:500]!r}"
-        )
-        assert result.returncode == 0, (
-            f"TUI exited with non-zero code {result.returncode}. Output: {combined[:500]}"
-        )
+# NOTE (2026-06-12): a second ``class TestTUIModeClaim`` lived here
+# (Batch 4 duplicate). Python class shadowing meant the FIRST
+# TestTUIModeClaim (C-L2-14, earlier in this file) was never collected
+# by pytest — its tests silently did not run. The duplicate's intent
+# (pipe /quit exits cleanly + banner shows) is covered by the primary
+# class: test_pipe_quit_exits_zero + test_tui_starts_under_pty.
 
 
 class TestSessionResumeClaim:
