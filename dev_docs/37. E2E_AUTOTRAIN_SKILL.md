@@ -1,0 +1,630 @@
+# E2E AutoTrain Skill — 设计文档
+
+**版本**: v0.1.0-draft  
+**状态**: 设计阶段  
+**目标**: 设计一个位于 `.agent/skills/` 下的顶层编排 Skill，串联 ContainerLab E2E 测试、训练集导出、Unsloth 自动训练与 benchmark 测试
+
+---
+
+## 1. 设计结论
+
+可以做成一个 `.agent` 下的 Skill，**但这个 Skill 应是顶层编排器，而不是把所有逻辑揉成一个单体脚本**。
+
+它的职责应该是：
+
+1. 调用 ContainerLab E2E 测试流程
+2. 在测试成功后触发训练集导出
+3. 在样本治理通过后触发 Unsloth 训练
+4. 在训练完成后触发固定 benchmark 测试
+5. 汇总结果并决定是否保留本次训练产物
+
+它**不**应承担以下职责：
+
+1. 直接实现 ContainerLab 部署细节
+2. 直接实现审计日志脱敏、去重、打分逻辑
+3. 直接把训练代码和 benchmark 逻辑写死在一个大脚本里
+4. 直接变成 OLAV runtime 内部 tool
+
+这意味着它是一个：
+
+- **外部编排 Skill**
+- **黑盒驱动 OLAV**
+- **可失败、可恢复、可审计** 的流水线控制器
+
+---
+
+## 2. 为什么放在 `.agent/skills/`
+
+### 2.1 合理性
+
+把这条流程先做成 `.agent/skills/` 下的 Skill 是合理的，因为它天然是系统级编排：
+
+- 需要调用 `containerlab`
+- 需要调用 `uv run olav ...`
+- 需要读写 `exports/`、`.olav/databases/`
+- 需要启动训练任务
+- 需要跑 benchmark
+
+这些动作更像“IDE Agent 帮你编排系统工作流”，而不是“OLAV runtime 内部工具函数”。
+
+### 2.2 与 `.olav/workspace/` 的边界
+
+当前项目的 Agent SSOT 是 `.olav/workspace/`，用于 OLAV 自身运行时的 agent/tool 定义。  
+因此这份设计明确区分两种东西：
+
+#### A. `.agent/skills/`
+
+用于：
+
+- VS Code / Claude / Copilot / 外部 IDE Agent 的工作流 Skill
+- 顶层 orchestration
+- 跨系统调用与复合流水线
+
+#### B. `.olav/workspace/`
+
+用于：
+
+- OLAV runtime 内部 agent/tool
+- 被 OLAV 本体调用的工具
+- 运行时绑定、路由、query、sync、ops 等内部能力
+
+结论：
+
+- **E2E AutoTrain** 更适合先做成 `.agent/skills/` 编排层
+- 将来如需内化到 OLAV，再把某些阶段逐步下沉到 `.olav/workspace/`
+
+---
+
+## 3. 与现有设计文档的关系
+
+本设计依赖并编排三份已有设计：
+
+1. `ContainerLab.md`
+   提供真实设备 E2E 测试与证据保留
+2. `audit_dataset_export.md`
+   提供脱敏、去重、打分、导出主格式
+3. `encrypted_dataset_control.md`
+   提供训练集导出加密与本地训练访问控制
+
+本设计本身**不重写这些细节**，只定义它们之间的编排关系。
+
+若涉及企业版能力，统一使用以下 `ent_` 功能标识：
+
+- `ent_field_redaction`
+- `ent_sft_export`
+- `ent_trajectory_export`
+- `ent_atif_export`
+- `ent_dataset_export_encryption`
+- `ent_local_train_one_time_token`
+- `ent_audit_hash_chain`
+- `ent_audit_archive`
+
+固定顺序为：
+
+```text
+ContainerLab E2E
+  -> evidence verification
+  -> dataset export
+  -> dedup + score
+  -> optional encrypt
+  -> Unsloth training
+  -> benchmark
+  -> keep / discard
+```
+
+---
+
+## 4. 目标与非目标
+
+### 4.1 目标
+
+这份 Skill 解决以下问题：
+
+1. 如何把一次真实 E2E 测试串到训练闭环后面
+2. 如何避免测试失败时误触发训练
+3. 如何把训练输入与 benchmark 输出统一记录到一个 run 目录
+4. 如何让训练过程可复跑、可比较、可保留最佳结果
+
+### 4.2 非目标
+
+这份 Skill 不解决以下问题：
+
+1. 如何实现 Unsloth 本身
+2. 如何定义最终模型 serving 方案
+3. 如何替代正式 MLOps 平台
+4. 如何让 agent 自由修改训练主代码并无限自演化
+
+---
+
+## 5. 核心原则
+
+### 5.1 黑盒原则
+
+Skill 与 OLAV 的交互只能通过：
+
+- `uv run olav ...`
+- `duckdb` 只读查询
+- `exports/` 产物
+- `.olav/databases/audit.duckdb` / 主域数据库 / 证据目录
+
+Skill 不应直接 import `src/olav` 的业务模块来拼接内部调用链。
+
+### 5.2 阶段分离
+
+测试、导出、训练、评测必须是独立阶段。  
+任何阶段失败，都必须阻断后续阶段。
+
+### 5.3 固定 benchmark
+
+自动训练只能调整：
+
+- 数据集选择
+- 样本阈值
+- 采样比例
+- Unsloth 超参
+
+不能同时让 agent 修改 benchmark 定义，否则 keep/discard 失去意义。
+
+### 5.4 小步实验
+
+每次自动训练应视为一个小实验单元，而不是无限期长训。  
+建议使用固定训练预算：
+
+- 固定 steps
+- 固定 epochs 上限
+- 固定样本上限
+- 固定 wall clock 上限
+
+### 5.5 明确 keep / discard
+
+训练后的 adapter / checkpoint 只有在 benchmark 改善时才应晋升为候选结果。  
+否则应标记为 discard，并保留实验记录但不作为 best model。
+
+---
+
+## 6. 顶层状态机
+
+建议把整条流水线明确建模为状态机：
+
+```text
+created
+  -> testing
+  -> exporting
+  -> training
+  -> benchmarking
+  -> finalized
+  -> failed
+```
+
+### 状态定义
+
+- `created`
+  已创建顶层流水线 run 目录，尚未开始任何动作
+
+- `testing`
+  正在运行 ContainerLab E2E
+
+- `exporting`
+  正在做训练集导出、去重、打分、可选加密
+
+- `training`
+  正在执行 Unsloth 训练
+
+- `benchmarking`
+  正在执行固定 benchmark
+
+- `finalized`
+  本次流水线已结束，结果已归档
+
+- `failed`
+  某阶段失败，后续阶段未执行
+
+---
+
+## 7. 运行模式
+
+顶层 Skill 不应总是默认跑完整闭环。建议支持三种模式：
+
+### 7.1 `test-only`
+
+只运行：
+
+- ContainerLab E2E
+- 证据检查
+
+适用场景：
+
+- 验证拓扑与采集链路是否正常
+- 不希望触发训练
+
+### 7.2 `test-and-export`
+
+运行：
+
+- ContainerLab E2E
+- 证据检查
+- 数据集导出
+
+适用场景：
+
+- 验证数据治理链路
+- 人工检查导出的数据集质量
+
+### 7.3 `full-autotrain`
+
+运行：
+
+- ContainerLab E2E
+- 证据检查
+- 数据集导出
+- Unsloth 训练
+- benchmark
+- keep/discard 决策
+
+适用场景：
+
+- 小步自动实验
+- 夜间批量迭代
+
+默认建议：
+
+- 默认模式 = `test-only`
+
+---
+
+## 8. 目录结构建议
+
+```text
+.agent/
+└── skills/
+    └── e2e-autotrain/
+        ├── SKILL.md
+        ├── configs/
+        │   ├── export-profile.yaml
+        │   ├── training-profile.yaml
+        │   └── benchmark-profile.yaml
+        ├── scripts/
+        │   ├── run_pipeline.py
+        │   ├── run_containerlab_e2e.py
+        │   ├── export_dataset.py
+        │   ├── train_unsloth.py
+        │   ├── run_benchmark.py
+        │   └── finalize_run.py
+        ├── benchmarks/
+        │   ├── query_generation.jsonl
+        │   ├── tool_selection.jsonl
+        │   └── network_analysis.jsonl
+        └── runs/
+            └── .gitkeep
+```
+
+### 说明
+
+- `run_pipeline.py`
+  顶层状态机编排器
+
+- `run_containerlab_e2e.py`
+  只负责调用 `containerlab-e2e` Skill 或脚本，不实现其内部逻辑
+
+- `export_dataset.py`
+  只负责调用导出 CLI / 脚本，并收集 manifest / stats / rejected_runs
+
+- `train_unsloth.py`
+  只负责根据 profile 启动训练，不负责筛样本
+
+- `run_benchmark.py`
+  使用固定 benchmark 比较本轮 adapter 的效果
+
+- `finalize_run.py`
+  汇总结果、写实验记录、决定 keep/discard
+
+---
+
+## 9. 顶层 run 目录
+
+每次执行都应创建一个唯一 `pipeline_run_id`，例如：
+
+```text
+e2e-autotrain-20260316-210501-bgp-mesh-lora-r16
+```
+
+目录建议：
+
+```text
+.agent/skills/e2e-autotrain/runs/<pipeline_run_id>/
+├── pipeline.json
+├── testing/
+│   ├── test_run_id.txt
+│   └── evidence-link.txt
+├── export/
+│   ├── export_id.txt
+│   ├── manifest.json
+│   ├── stats.json
+│   └── rejected_runs.json
+├── training/
+│   ├── train_config.json
+│   ├── train.log
+│   ├── adapter_path.txt
+│   └── metrics.json
+├── benchmark/
+│   ├── benchmark_config.json
+│   ├── benchmark_results.json
+│   └── summary.txt
+└── final/
+    ├── decision.json
+    └── results.tsv.append
+```
+
+---
+
+## 10. 各阶段输入输出
+
+### 10.1 测试阶段
+
+输入：
+
+- topo file
+- scenario file
+- mode: local / remote
+
+输出：
+
+- `test_run_id`
+- ContainerLab evidence 目录
+- 验证通过 / 失败结论
+
+放行条件：
+
+1. 设备 SSH 成功
+2. raw 输出存在
+3. parsed JSON 存在
+4. 数据库记录存在
+5. topology 验证通过
+
+### 10.2 导出阶段
+
+输入：
+
+- `test_run_id`
+- 导出窗口或 run 选择条件
+- export profile
+
+输出：
+
+- `export_id`
+- `manifest.json`
+- `stats.json`
+- 主格式 / 派生格式数据集
+
+放行条件：
+
+1. 脱敏 gate 通过
+2. 去重成功
+3. 质量打分完成
+4. 样本数量达到最低阈值
+
+### 10.3 训练阶段
+
+输入：
+
+- 数据集路径
+- training profile
+- 可选加密解密访问能力
+
+输出：
+
+- adapter / checkpoint 路径
+- train metrics
+- 训练日志
+
+放行条件：
+
+1. 训练成功结束
+2. 未出现 OOM / fatal error
+3. 输出目录完整
+
+### 10.4 benchmark 阶段
+
+输入：
+
+- adapter / checkpoint
+- benchmark profile
+- 固定 benchmark 数据
+
+输出：
+
+- benchmark 分数
+- 与 baseline 的对比
+- keep / discard 候选结论
+
+---
+
+## 11. Unsloth 训练设计约束
+
+### 11.1 固定训练模板
+
+自动训练阶段不建议让 agent 任意改训练主代码。  
+更合理的做法是固定一个 Unsloth 训练模板，只允许改配置。
+
+可变参数建议限制为：
+
+- `max_steps`
+- `num_train_epochs`
+- `learning_rate`
+- `lora_rank`
+- `lora_alpha`
+- `per_device_train_batch_size`
+- `gradient_accumulation_steps`
+- `max_seq_length`
+- 各 task_type 的采样比例
+
+不建议让 agent 在第一版自动改这些内容：
+
+- prompt template 主逻辑
+- benchmark 代码
+- 模型加载实现
+- tokenizer 预处理主逻辑
+
+### 11.2 训练预算
+
+建议第一版采用固定实验预算，例如：
+
+- `max_steps = 200`
+- `wall_clock_limit = 30 min`
+
+这样每轮实验可比较，不会演变为不可控长训。
+
+---
+
+## 12. benchmark 设计约束
+
+### 12.1 benchmark 必须固定
+
+benchmark 应由人预先定义，不允许自动系统在实验循环中修改。
+
+建议按训练目标拆分三类：
+
+- `query_generation`
+- `tool_selection`
+- `network_analysis`
+
+### 12.2 结果指标
+
+建议最少记录：
+
+- query 正确率
+- tool 选择正确率
+- 参数格式正确率
+- grounded analysis 分数
+- hallucination / unsupported answer 比例
+
+### 12.3 keep / discard 规则
+
+建议第一版明确成规则，不交给自由文本判断：
+
+```text
+if benchmark_score > baseline_score + threshold:
+    keep
+else:
+    discard
+```
+
+可扩展为：
+
+- 主分数提升才 keep
+- 若主分数持平，但 hallucination 更低，也可 keep
+- 若性能略升但格式错误率显著升高，则 discard
+
+---
+
+## 13. 与加密控制的关系
+
+若数据集启用了加密控制，则顶层 Skill 需要遵守以下边界：
+
+1. 数据治理在加密前完成
+2. 训练阶段只消费最终数据集产物
+3. 若是本地训练，需明确是否允许解密访问
+4. token 只控制成品访问，不改变训练样本治理结果
+
+对于 `full-autotrain` 模式，建议策略如下：
+
+- `dev/test`
+  默认允许明文数据集进入训练
+
+- `staging`
+  可选明文或加密，视联调需求决定
+
+- `prod`
+  若触发本地训练，必须显式经过 `local_train_access_mode` 判定
+
+### 13.1 企业功能开关命名
+
+若顶层 Skill 需要显式声明企业版阶段或能力开关，建议统一使用 `ent_` 前缀，避免继续混用编号式命名。
+
+推荐在 pipeline profile 中使用如下键名：
+
+```yaml
+enterprise_features:
+  ent_field_redaction: true
+  ent_sft_export: true
+  ent_trajectory_export: true
+  ent_atif_export: false
+  ent_dataset_export_encryption: true
+  ent_local_train_one_time_token: false
+  ent_audit_hash_chain: true
+  ent_audit_archive: false
+```
+
+解释：
+
+1. `ent_field_redaction`
+  控制是否要求企业级字段脱敏策略参与导出 gate
+2. `ent_dataset_export_encryption`
+  控制是否要求导出产物满足加密策略
+3. `ent_local_train_one_time_token`
+  控制本地训练前是否需要一次性访问授权
+
+这些开关是编排层配置，不是让顶层 Skill 重复实现对应能力。
+
+---
+
+## 14. 失败策略
+
+### 14.1 测试失败
+
+若 E2E 测试失败：
+
+- 直接进入 `failed`
+- 不触发导出
+- 不触发训练
+
+### 14.2 导出失败
+
+若数据集导出失败：
+
+- 直接进入 `failed`
+- 不触发训练
+
+### 14.3 训练失败
+
+若训练失败：
+
+- 记录日志
+- 标记本轮实验为 `discard`
+- 不更新 best
+
+### 14.4 benchmark 失败
+
+若 benchmark 失败：
+
+- 不晋升本轮结果
+- 记录失败原因
+- 默认 `discard`
+
+---
+
+## 15. 最低完成标准
+
+以下条件全部满足，才算这份 Skill 设计闭环：
+
+1. 支持 `test-only`、`test-and-export`、`full-autotrain` 三种模式
+2. 能把 `containerlab-e2e` 测试结果作为训练前 gate
+3. 能消费导出阶段的 `manifest.json`、`stats.json`、数据集产物
+4. 能以固定配置启动一次 Unsloth 训练
+5. 能在固定 benchmark 上给出可比较结果
+6. 能输出 keep / discard 决策
+7. 每次 pipeline run 都有独立 run 目录和状态记录
+
+---
+
+## 16. 第一版明确不做的事情
+
+第一版明确不做：
+
+1. 让 agent 自动改训练主代码
+2. 无限循环自演化训练
+3. 把 benchmark 也交给 agent 自动修改
+4. 将这条 Skill 直接并入 `.olav/workspace/` runtime 内部
+5. 在 prod 默认自动本地训练
+
+第一版的目标不是“完全自动研究组织”，而是“把真实 E2E 测试与小步训练实验安全串起来”。

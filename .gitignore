@@ -66,8 +66,6 @@ ownership_manifest.yaml
 CLAUDE.md
 PARTNERS.md
 .dockerignore
-/dev_docs/
-/scripts/
 /tools/
 /run/
 .github/copilot-instructions.md
@@ -132,11 +130,6 @@ olav-netops/.olav/workspace/devops/
 /olav-collector/
 
 # ── Whitelist (tracked paths inside ignored parents) ──
-!scripts/
-scripts/*
-!scripts/scan_ownership.py
-!scripts/gen_gitignore.py
-!scripts/workspace_drift.py
 !olav-netops/
 olav-netops/*
 !olav-netops/.olav/
