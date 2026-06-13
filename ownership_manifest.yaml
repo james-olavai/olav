@@ -229,12 +229,19 @@ rules:
     enforced: true
     git: ignore
 
+  # POLICY FLIP 2026-06-13: dev_docs/** ignore → track. These are the
+  # platform's design docs / institutional memory — ADRs, CLAUDE.md, and
+  # tests (test_split_decoupling, the architecture review) cite them by
+  # path. The ignore left 64 of 98 (65%) untracked, the same
+  # invisible-authoritative disease as tests/**: design rationale lived
+  # only on one dev machine. Release hygiene is the wheel's job, not
+  # gitignore's; dev_docs never ships either way.
   - pattern: dev_docs/**
     owner: olav
     class: platform
     status: authoritative
     enforced: true
-    git: ignore
+    git: track
 
   - pattern: docs/adr/**
     owner: olav
@@ -251,33 +258,14 @@ rules:
     git: track
     notes: Global knowledge base (ADR-0015) — any-format documents loaded via `olav kb import-kb`
 
+  # POLICY FLIP 2026-06-13: scripts/** ignore → track. Platform dev/ops
+  # tooling — referenced by tests, CLAUDE.md, the drift gate, and the
+  # release workflow. The ignore hid all but 3 explicitly-tracked files
+  # (the governance toolchain, force-added 2026-06-13); 4 junk stubs
+  # (echo-only .sh, an empty changeset.json) were deleted during triage
+  # and the 9 real scripts are now tracked. Excluded from the wheel by
+  # packaging (packages=["src/olav"]); scripts/ never ships.
   - pattern: scripts/**
-    owner: olav
-    class: platform
-    status: authoritative
-    enforced: true
-    git: ignore
-
-  # Governance toolchain — referenced by CLAUDE.md, the workspace drift
-  # gate (tests/governance/test_workspace_drift_gate.py), and this very
-  # manifest's workflow. A fresh checkout must be able to run them;
-  # scan_ownership.py was untracked until 2026-06-13 (the ownership
-  # scanner itself was invisible to the repo it governs).
-  - pattern: scripts/scan_ownership.py
-    owner: olav
-    class: platform
-    status: authoritative
-    enforced: true
-    git: track
-
-  - pattern: scripts/gen_gitignore.py
-    owner: olav
-    class: platform
-    status: authoritative
-    enforced: true
-    git: track
-
-  - pattern: scripts/workspace_drift.py
     owner: olav
     class: platform
     status: authoritative
