@@ -101,6 +101,13 @@ class SemanticRouter:
                     model=emb_config.openai_model or emb_config.api_model,
                     api_key=emb_config.openai_api_key or emb_config.api_key,
                     base_url=emb_config.openai_base_url or None,
+                    # Send raw strings, not tiktoken token-ID arrays. The
+                    # default (check_embedding_ctx_length=True) makes langchain
+                    # submit integer token arrays as `input`, which OpenAI
+                    # accepts but local OpenAI-compat endpoints (Ollama
+                    # embeddinggemma) reject with "400 invalid input type" —
+                    # the router-index error seen in CI vs http://…:11434/v1.
+                    check_embedding_ctx_length=False,
                 )
 
         return self._embeddings
