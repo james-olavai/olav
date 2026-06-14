@@ -110,28 +110,34 @@ jobs:
       # → 위 변수 미설정 시 해당 테스트 자동 skip (코드 레벨 게이팅)
 
       - name: Run demo runsheet e2e (CH3-CH15)
+        if: ${{ github.event.inputs.agent == '' || github.event.inputs.agent == 'core' }}
         run: |
           uv run pytest tests/e2e/test_demo_runsheet_82.py \
             -q --tb=short --timeout=600
         continue-on-error: true
 
       - name: Run admin e2e
+        if: ${{ github.event.inputs.agent == '' || github.event.inputs.agent == 'admin' }}
         run: uv run pytest tests/e2e/test_admin_e2e.py -q --tb=short
         continue-on-error: true
 
       - name: Run netops e2e
+        if: ${{ github.event.inputs.agent == '' || github.event.inputs.agent == 'netops' }}
         run: uv run pytest tests/e2e/test_netops_e2e.py -q --tb=short
         continue-on-error: true
 
       - name: Run devops e2e
+        if: ${{ github.event.inputs.agent == '' || github.event.inputs.agent == 'devops' }}
         run: uv run pytest tests/e2e/test_devops_e2e.py -q --tb=short
         continue-on-error: true
 
       - name: Run audit e2e
+        if: ${{ github.event.inputs.agent == '' || github.event.inputs.agent == 'audit' }}
         run: uv run pytest tests/e2e/test_audit_e2e.py -q --tb=short
         continue-on-error: true
 
       - name: Run KB + memory e2e
+        if: ${{ github.event.inputs.agent == '' || github.event.inputs.agent == 'core' }}
         run: |
           uv run pytest \
             tests/e2e/test_m3_kb_llm_e2e.py \
