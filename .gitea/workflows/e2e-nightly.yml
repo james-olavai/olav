@@ -22,6 +22,11 @@ jobs:
   e2e-full:
     name: E2E full (LLM)
     runs-on: ubuntu-latest
+    # Without a job timeout the runner kills the job at its hard limit with
+    # NO log footer (the 2026-06-14 "log just stops" symptom — undiagnosable).
+    # A explicit budget makes a too-slow LLM endpoint fail gracefully with a
+    # clear timeout message instead. Bump if a healthy endpoint needs longer.
+    timeout-minutes: 90
     env:
       PROBE_E2E_ENABLED: "1"
       DEVOPS_E2E_ENABLED: "1"
