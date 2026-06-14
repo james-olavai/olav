@@ -165,9 +165,13 @@ class SkillCommand(BaseCommand):
         requirements_path = source_path / "requirements.txt"
         pip_installed = False
 
+        # Use `uv pip install` (not `python -m pip`): the runtime venv is
+        # created by uv and has no `pip` module, so `sys.executable -m pip`
+        # fails with "No module named pip". `uv pip install --python <exe>`
+        # targets the same interpreter and needs no in-venv pip.
         if pyproject_path.exists():
             pip_result = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-e", str(source_path)],
+                ["uv", "pip", "install", "--python", sys.executable, "-e", str(source_path)],
                 capture_output=True, text=True,
             )
             if pip_result.returncode == 0:
@@ -176,7 +180,7 @@ class SkillCommand(BaseCommand):
                 warnings.append(f"pip install failed: {pip_result.stderr[:200]}")
         elif requirements_path.exists():
             pip_result = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-r", str(requirements_path)],
+                ["uv", "pip", "install", "--python", sys.executable, "-r", str(requirements_path)],
                 capture_output=True, text=True,
             )
             if pip_result.returncode == 0:
