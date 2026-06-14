@@ -161,6 +161,14 @@ def _get_api_client():
         client_kwargs: dict = {"api_key": cfg.openai_api_key}
         if cfg.openai_base_url:
             client_kwargs["base_url"] = cfg.openai_base_url
+        # Bound every embed call. The SDK default is a 600s timeout × 2
+        # retries (~30 min), so a slow/unresponsive embed endpoint can
+        # wedge `olav init` / `olav skill install` (which embed every
+        # *.guide.yaml) until the CI job is killed with no log footer —
+        # exactly the e2e-nightly setup hang seen 2026-06-14. A bad
+        # endpoint must degrade (skip-on-failure in `_embed`), not hang.
+        client_kwargs["timeout"] = float(os.environ.get("OLAV_EMBED_TIMEOUT", "30"))
+        client_kwargs["max_retries"] = int(os.environ.get("OLAV_EMBED_MAX_RETRIES", "1"))
         _api_client = openai.OpenAI(**client_kwargs)
         _api_model = cfg.openai_model
         logger.debug("API embedding client initialized (model=%s)", _api_model)
