@@ -5,6 +5,65 @@ All notable changes to OLAV will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-06-15
+
+Consolidated release covering the 0.20.x line (deepagents/langchain
+platform cutover) plus the 0.21 governance, docs-accuracy, and CI
+hardening work. (No separate 0.20.0 changelog entry was published; the
+major 0.20 items are folded in here.)
+
+### Added
+- **ADR-0015 unified memory + global KB**: single LanceDB `memory` table
+  with `reflection` / `expert_knowledge` split; `olav kb` command group
+  (import/sync/search/status/graph) over a global `olav_kb/` store;
+  R102 `memory_curator` conversational ingestion (two-turn HITL drafts).
+- **Self-improving loop wired end-to-end**: `trace_learner` now writes
+  failure constraints as `category=reflection, scope=global` with real
+  embeddings and a reserved AutoRecall quota, so lessons reach every
+  agent (previously write-only). `/trace-review` slash command restored.
+- **LLM providers**: Google AI Studio (native `ChatGoogleGenerativeAI`),
+  NVIDIA NIM embedding config, local embeddinggemma embedding endpoint.
+- **Headless line REPL**: piped stdin (`echo "/quit" | olav`) routes to a
+  non-TTY REPL instead of hanging the full-screen Textual TUI.
+- **CI**: Parquet+zstd demo-DB fixtures for fast e2e seeding; Batfish
+  live integration tests; WebGUI browser e2e via browserless-chrome.
+
+### Changed
+- **deepagents/langchain platform cutover (0.20)**: langchain 1.3.x /
+  langchain-core 1.4.x / langgraph 1.2.x / deepagents 0.6.7; P5 langgraph
+  graph factory; interactive REPL migrated `deepagents-cli` →
+  `deepagents-code`.
+- **Workspace single-config**: merged `AGENT.md` → `SKILL.md`; flattened
+  `guides/` → `references/`; `prompts/` content moved into `SKILL.md`
+  bodies. RubricMiddleware / TodoListMiddleware are opt-in per SKILL.md.
+- **Config over hardcoding**: business params (e.g. `reflection_ttl_days`)
+  read from `.olav/config/api.json`, not literals.
+- Embedding client now sends raw strings and bounds its timeout/retries.
+
+### Fixed
+- Router index build no longer 400s against local OpenAI-compat embed
+  endpoints (`check_embedding_ctx_length=False`).
+- `olav init` / `olav skill install` no longer hang on a slow/unreachable
+  embed endpoint (embed client `timeout`/`max_retries`).
+- `olav skill install` uses `uv pip install` (no more "No module named
+  pip" in uv-created venvs).
+
+### Removed
+- `[enterprise]` pip extra (its deps were wheel-excluded and never
+  loaded); enterprise features ship via the `olav-ent` package.
+- `src/olav/web/` (WebGUI dev tree) excluded from the wheel/sdist — the
+  exported site ships from `src/olav/api/static`.
+
+### Governance & CI
+- Tracking policy flipped to `git:track` for `tests/**`, `dev_docs/**`,
+  `scripts/**` (previously ~57% of tests, 65% of design docs were
+  untracked — invisible to CI and review).
+- New governance gates: workspace-drift check and duplicate-shadowed-test
+  detector; Definition-of-Done rule (new modules need a real entry-point
+  integration test).
+- Test-failure backlog cleared (48 → 0); e2e CI hardened (embed-local
+  fallback, embedder pre-warm, realistic CLI timeouts, job timeout-minutes).
+
 ## [0.19.0] - 2026-04-19
 
 ### 🏗️ Architecture — ARCH-23 MVC Core Refactor (R64 + R65)
