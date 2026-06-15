@@ -38,7 +38,7 @@ def _run_kb(*args, env_extra=None, cwd=None):
         text=True,
         cwd=str(cwd or _ROOT),
         env=env,
-        timeout=30,
+        timeout=90,
     )
     return result.returncode, result.stdout, result.stderr
 

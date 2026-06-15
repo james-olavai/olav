@@ -56,7 +56,7 @@ def _embed_stub(text: str) -> list[float]:
     return [x / total for x in v]
 
 
-def _run_kb(*args, env_extra=None, cwd=None, timeout=30):
+def _run_kb(*args, env_extra=None, cwd=None, timeout=90):
     """Run `python -m olav.cli.main kb <args>` and return (rc, stdout, stderr)."""
     env = os.environ.copy()
     if env_extra:

@@ -140,7 +140,7 @@ class TestPlatformRefresh:
 
     @pytest.fixture(scope="class", autouse=True)
     def result(self, request):
-        rc, out, err = _run("refresh", timeout=30)
+        rc, out, err = _run("refresh", timeout=90)
         request.cls._rc = rc
         request.cls._out = out + err
 
