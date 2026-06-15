@@ -43,7 +43,11 @@ jobs:
       OLAV_CLAB_HOST: ${{ secrets.OLAV_CLAB_HOST }}
       # ── Embed 모델 ── memory/KB 기능에 필요
       # secrets.OLAV_EMBED_BASE_URL 미등록 시 내부망 Ollama 기본값 사용
-      OLAV_EMBEDDING_MODE: ${{ secrets.OLAV_EMBED_BASE_URL != '' && 'api' || 'api' }}
+      # Fall back to LOCAL embedding when no reachable embed endpoint secret
+      # is provided. The default Ollama (192.168.100.50:11434) is NOT reachable
+      # from the job container (see ci.yml), so api-by-default caused
+      # `embed_text failed: Request timed out` in init/skill-install.
+      OLAV_EMBEDDING_MODE: ${{ secrets.OLAV_EMBED_BASE_URL != '' && 'api' || 'local' }}
       OLAV_EMBEDDING_BASE_URL: ${{ secrets.OLAV_EMBED_BASE_URL || 'http://192.168.100.50:11434/v1' }}
       OLAV_EMBEDDING_MODEL: ${{ secrets.OLAV_EMBED_MODEL || 'embeddinggemma:latest' }}
       OLAV_EMBEDDING_API_KEY: ${{ secrets.OLAV_EMBED_API_KEY || 'ollama' }}
@@ -74,6 +78,13 @@ jobs:
 
       - name: Install netops skill pack
         run: uv run olav skill install olav-netops
+
+      # Pre-warm the embedder once (local model download / API connection) so
+      # later steps don't pay the cold-load cost mid-test. Mode-agnostic:
+      # local → loads the sentence-transformers model; api → one warm call.
+      - name: Pre-warm embedder
+        run: uv run python -c "from olav.core.embedder import embed_text; v=embed_text('warmup'); print('embedder warm:', bool(v), len(v) if v else 0)"
+        continue-on-error: true
 
       # Parquet seed (~5s, 38.8MB from git) → bundle fallback if parquet missing
       - name: Seed demo DB from Parquet fixtures

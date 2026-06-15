@@ -122,6 +122,13 @@ jobs:
       - name: Install netops skill pack
         run: uv run olav skill install olav-netops
 
+      # Pre-warm the local embedder so the model download + first load happens
+      # ONCE here (no time limit), not inside a test's `olav kb`/`olav refresh`
+      # subprocess where it raced the 30s timeout and flaked the gate.
+      - name: Pre-warm embedder
+        run: uv run python -c "from olav.core.embedder import embed_text; v=embed_text('warmup'); print('embedder warm:', bool(v), len(v) if v else 0)"
+        continue-on-error: true
+
       - name: Run no-LLM e2e tests
         env:
           OLAV_AUTH_MODE: none
