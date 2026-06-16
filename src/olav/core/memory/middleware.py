@@ -10,7 +10,7 @@ Backing implementation for the ``olav.plugins.middleware.memory_recall``
 and ``olav.plugins.middleware.memory_capture`` plugins, plus the
 ``apply_time_decay()`` daemon hook called from ``cli/daemon.py``.
 
-Implements Phase 2 of the LANCEDB_MEMORY_SYSTEM_INTEGRATION plan:
+Implements the AutoRecall / time-decay memory layer:
   - AutoRecallMiddleware:  Pre-processor — injects relevant historical context
                            into the user prompt *before* agent thinking.
   - AutoCaptureMiddleware: Post-processor — extracts key facts/decisions from

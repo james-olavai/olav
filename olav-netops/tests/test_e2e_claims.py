@@ -12,4 +12,4 @@ See tests/e2e/test_ops_nl_e2e.py for NL claim E2E tests.
 See tests/e2e/test_diff_netmiko_e2e.py for C-NE-26 real diff E2E.
 """
 # Real E2E tests to be added as part of A6 (untested claims).
-# Track progress in dev_docs/01. tracking.md §2 (claim coverage).
+# Track progress in dev_docs/00. issues.md (claim coverage).

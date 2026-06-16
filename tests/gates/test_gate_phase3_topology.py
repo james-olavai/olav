@@ -7,7 +7,7 @@ real /netops_init cycle to confirm topology_links was correctly populated.
 Gate condition: topology_links contains correct neighbor relationships for
 all 6 lab devices, sourced from LLDP/CDP discovery data in parsed_outputs.
 
-Design reference: dev_docs/01. tracking.md §Phase 3 (OC-16)
+Design reference: Phase 3 (OC-16)
 Run with:
     uv run pytest tests/gates/test_gate_phase3_topology.py -v
 """

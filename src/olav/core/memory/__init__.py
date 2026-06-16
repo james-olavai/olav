@@ -7,7 +7,7 @@ layer (OCM - Olav Central Memory). It implements:
 - Scope isolation for multi-tenant support
 - Time-decay weights and recency boosts
 
-Following the integration plan in dev_docs/LANCEDB_MEMORY_SYSTEM_INTEGRATION.md
+See dev_docs/39. UNIFIED_KNOWLEDGE_STORE_DESIGN.md for the store design.
 """
 
 import json
@@ -979,7 +979,7 @@ class SemanticCache:
     Class-level shared state ensures all instances (including those created
     just to call invalidate_all()) access the same cache.
 
-    Implements §4 of LANCEDB_MEMORY_SYSTEM_INTEGRATION.md:
+    Similarity-cache shortcut:
         "If a query is 98% similar to a frequent cached request, return the
         cached answer immediately."
     """
@@ -1116,7 +1116,7 @@ def rrf_fusion(
     the document's stored ``weight`` field (set by time-decay).  This ensures
     that recently-accessed memories with high weight rank above stale ones even
     when the raw semantic similarity is similar — implementing the **recency
-    boost** described in the LANCEDB_MEMORY_SYSTEM_INTEGRATION design.
+    boost**.
 
     Args:
         result_lists: List of result lists, each containing dicts with 'id' and optional 'score'
