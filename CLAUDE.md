@@ -165,11 +165,17 @@ governance-enforced rules that follow from it:
 - **Context budget by tier** — usable context is ~8K (small) / ~32K
   (medium) / ≥200K (large). AutoRecall `top_k` = 1 / 2 / 13;
   `execute_sql` context rows = 10 / 20 / 50 (`TIER_DEFAULTS`).
-- **Tool-count caps** — orchestrator/core **≤7** tools; **≤5** tools per
-  sub-agent; **≤5** sub-agents per agent (ADR-0003/0005/0006, ARCH-18;
-  `test_step_c_analyze_merge`, subagent-cap gates). Tool-list bloat both
-  burns context and raises tool-selection error. Prune FS tools deepagents
-  injects into the orchestrator graph (12→4 fixed admin-cron routing).
+- **Orchestrator = thin router** — the top-level agent's job is to route
+  intent to **one** sub-agent and **return that sub-agent's output
+  verbatim** (no re-synthesis/summarising). It holds only the few truly
+  cross-domain tools (`execute_sql`, `olav_recall_memory`/`_store`,
+  `web_search`); **all capability lives in sub-agents, never the
+  orchestrator.** Prune the FS tools deepagents injects into the
+  orchestrator graph (12→4 fixed admin-cron routing). Enforced bounds:
+  **≤7** orchestrator tools, **≤5** tools per sub-agent, **≤5**
+  sub-agents (ADR-0003/0005/0006, ARCH-18; `test_step_c_analyze_merge` +
+  subagent-cap gates). Tool-list bloat burns context AND raises
+  tool-selection error — fewer is better, the caps are ceilings not targets.
 - **`@tool` docstrings ≤15 lines** — full docs behind `tool_help()`
   (ARCH-18 #1, `test_docstring_budget`); each tool's schema costs
   ~150–300 prompt tokens on *every* call.
@@ -179,10 +185,14 @@ governance-enforced rules that follow from it:
 - **Fat tools for N-item work** — Python iterates, the LLM calls once
   (`generate_change_plan`: 0 SQL calls vs 60–80). Create one when
   N×(per-item LLM call) > ~5.
-- **Memory is the steering layer** — behavior is shaped by what's in
-  LanceDB (guides/expert_knowledge/reflection injected per-call), not by
-  hardcoded middleware; see ADR-0015. This is *why* the Tool Architecture
-  below defaults to scripts over `@tool`.
+- **Steer behavior via memory, not code** — to change how an agent
+  behaves, add a `*.guide.yaml` (→ `usage_guide`) or let L1/L2 capture
+  distill `expert_knowledge`; AutoRecall injects the relevant ones into
+  **every** model call (scope-filtered, quota-capped), and failure
+  constraints come back as `reflection` (global). Prefer authoring a
+  guide over editing prompts/middleware — it's the steering layer
+  (ADR-0015 + the Self-Improving Loop). This is also *why* the Tool
+  Architecture below defaults to scripts over `@tool`.
 
 ## Tool Architecture: Python-first, MCP only when justified
 
