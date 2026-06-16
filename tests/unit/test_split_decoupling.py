@@ -466,7 +466,7 @@ class TestEnt1PackageBoundary:
 
 
 # TD-32 (TestTD32TrackingDocIndexPaths) removed 2026-06-12: it inspected
-# ``dev_docs/01. tracking.md``, which has been retired from the repo —
+# a tracking doc that has since been retired from the repo —
 # the first test crashed on FileNotFoundError and the second was already
 # a permanent xfail noting the doc section no longer existed.
 
