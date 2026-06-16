@@ -19,7 +19,7 @@ Contract:
 User-facing surfaces:
 * ``olav kb import-guides <dir>`` (declarative — see
   ``src/olav/cli/commands/kb.py:cmd_import_guides``)
-* ``memory-curator`` sub-agent (conversational — R102, dev_docs/70)
+* ``memory-curator`` sub-agent (conversational — R102, dev_docs/66)
 
 YAML schema (one guide per file)::
 
@@ -49,7 +49,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
-# 2026-05-15 (dev_docs/79): canonical source-tier hierarchy.  Every
+# 2026-05-15 (dev_docs/75): canonical source-tier hierarchy.  Every
 # usage_guide gets a tier label; the priority + weight pair is
 # derived from the tier so user-spoken rules can't outrank
 # architectural invariants by accident.
@@ -92,7 +92,7 @@ class UsageGuide:
     # linearly to LanceDB ``weight`` at insert time so high-priority
     # guides outrank operational_event noise in mixed recall results.
     priority: int = 5
-    # 2026-05-15 (dev_docs/79): source_tier field for trust hierarchy.
+    # 2026-05-15 (dev_docs/75): source_tier field for trust hierarchy.
     # Replaces hand-set priority — when source_tier is present, it
     # overrides priority via SOURCE_TIERS map.  Missing field on a
     # schema_version=1 YAML defaults to "user" (least trusted).
@@ -177,7 +177,7 @@ def discover_guides(workspace_root: Path) -> list[UsageGuide]:
             workspace_root,
         )
         return guides
-    # 2026-05-15 (dev_docs/79): collect tombstoned intents to skip during
+    # 2026-05-15 (dev_docs/75): collect tombstoned intents to skip during
     # discovery.  A tombstone is ``<intent>.guide.yaml.removed`` — same
     # name with ``.removed`` suffix — written by ``olav kb remove`` to
     # mark an intent as decommissioned without losing the audit trail.
@@ -277,7 +277,7 @@ def prime_guides_from_dir(
         # tags: JSON list, contains agent + intent + all keywords so a
         # tag-FTS index (future Phase 3 work) can light up cleanly.
         tag_list = [guide.intent, guide.agent] + list(guide.keywords)
-        # 2026-05-15 (dev_docs/79): weight comes from source_tier when
+        # 2026-05-15 (dev_docs/75): weight comes from source_tier when
         # schema_version >= 2; legacy v1 entries honour the explicit
         # ``priority:`` field (back-compat) and derive weight from that.
         # Either way the priority→weight math is:

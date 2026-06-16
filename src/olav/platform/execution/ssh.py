@@ -7,7 +7,7 @@ ops/probe 场景（在远端节点执行诊断命令）。
 
 不依赖 paramiko，使用系统 ssh —— 在有 ~/.ssh/config 和密钥的环境中零配置。
 
-参考: dev_docs/15. hermes.md §3.1, dev_docs/16. SERVICE_REGISTRY_DESIGN.md §7.1
+参考: dev_docs/30. HERMES_ANALYSIS.md §3.1, dev_docs/archive/19. SERVICE_REGISTRY_DESIGN.md §7.1
 """
 
 from __future__ import annotations

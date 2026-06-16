@@ -1,7 +1,7 @@
 """inspect_critical_nodes @tool — single-points-of-failure +
 centrality analysis on the topology graph.
 
-R-VERTICAL-SLICE follow-on P3 (2026-05-10, dev_docs/74).  Exposes
+R-VERTICAL-SLICE follow-on P3 (2026-05-10, dev_docs/70).  Exposes
 NetworkX articulation_points + betweenness_centrality so the agent
 can answer "which devices are most critical to overall connectivity"
 without the user enumerating every device-loss what-if manually.

@@ -1481,7 +1481,7 @@ async def run_single_query(
                         # guard in on_chat_model_end (CH8/CH11 failure mode:
                         # reporter sub-agent streamed text first, orchestrator
                         # answer appeared in AIMessage.content but was never
-                        # surfaced to the CLI). See dev_docs/104 cat A.
+                        # surfaced to the CLI). See dev_docs/93 cat A.
                         if _delegate_depth == 0:
                             console.print(text, end="")
                             _chunks.append(text)
@@ -2488,7 +2488,7 @@ What tools are available and when should each be used?
             # ``SemanticCache._entries`` list is class-level so cache
             # state persists across run_single_query calls.  This is
             # how the bench harness measures cache amortisation
-            # (per dev_docs/62 Phase 1.5 step b).  Each iteration
+            # (per dev_docs/58 Phase 1.5 step b).  Each iteration
             # prints ``=== run K/N elapsed Xs ===`` markers that the
             # harness greps for timing extraction.
             import time as _time

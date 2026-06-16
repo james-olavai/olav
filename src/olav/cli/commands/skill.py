@@ -5,7 +5,7 @@ Subcommands:
   olav skill list                — list installed workspaces
   olav skill status <name>       — show workspace status
 
-Reference: dev_docs/18. ECOSYSTEM_SPLIT_PLAN.md §2
+Reference: dev_docs/06. ECOSYSTEM_SPLIT_PLAN.md §2
 """
 
 from __future__ import annotations

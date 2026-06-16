@@ -1,6 +1,6 @@
 """Portable snapshot ingest — accepts pre-collected raw output bundles.
 
-Design: ``dev_docs/80. PORTABLE_SNAPSHOT_INGEST.md``.
+Design: ``dev_docs/76. PORTABLE_SNAPSHOT_INGEST.md``.
 
 Public API surface (P1):
   * ``schema``         — Pydantic models for the bundle contract

@@ -5,7 +5,7 @@ Provides service_call() for making authenticated API requests.
 Handles JWT auto-login/refresh, Bearer injection, Basic encoding.
 Uses api_registry for schema-aware response trimming.
 
-Reference: dev_docs/16. SERVICE_REGISTRY_DESIGN.md §Phase2
+Reference: dev_docs/archive/19. SERVICE_REGISTRY_DESIGN.md §Phase2
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 
 **Status**: Accepted, supersedes ADR-0004 § "exactly four canonical agents"
 **Date**: 2026-05-20
-**Round**: Round post-R-AGENT-HIERARCHY (FINDING-04 from dev_docs/86)
+**Round**: Round post-R-AGENT-HIERARCHY (FINDING-04 from dev_docs/81)
 
 ## Context
 

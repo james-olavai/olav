@@ -2,7 +2,7 @@
 ``netops.raw_output_store`` and ``netops.parsed_outputs`` and backfill
 from ``netops.devices.platform``.
 
-R-VERTICAL-SLICE 2026-05-09 (dev_docs/74).  Snapshot writes already
+R-VERTICAL-SLICE 2026-05-09 (dev_docs/70).  Snapshot writes already
 know the device platform (Nornir host.platform).  Denormalising it
 into the fact tables eliminates the JOIN-to-devices that every
 cross-vendor view / inspector currently does.

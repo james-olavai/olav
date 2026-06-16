@@ -10,10 +10,10 @@ import pytest
 # "services absorbs admin tools" design and imports a module that does not
 # exist on branch 0.20.0 (workspace_health currently lives only in an
 # unrelated worktree). Re-enable + repoint to admin once admin ships
-# workspace_health. See dev_docs/103.SERVICES_PLATFORM_MIGRATION.md.
+# workspace_health. See dev_docs/92. SERVICES_PLATFORM_MIGRATION.md.
 pytest.skip(
     "ADR-0014: workspace_health belongs to admin, not services; "
-    "not present on this branch (see dev_docs/103).",
+    "not present on this branch (see dev_docs/92).",
     allow_module_level=True,
 )
 

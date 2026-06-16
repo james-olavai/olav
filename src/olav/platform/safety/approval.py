@@ -10,7 +10,7 @@ approval.py — 网络危险命令审批门
   - read-only 命令（show、display、get）不触发审批
   - 规则列表可通过 .olav/config/approval_rules.yaml 扩展
 
-参考: dev_docs/15. hermes.md §3.2
+参考: dev_docs/30. HERMES_ANALYSIS.md §3.2
 """
 
 from __future__ import annotations

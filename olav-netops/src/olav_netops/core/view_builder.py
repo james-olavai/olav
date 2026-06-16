@@ -311,7 +311,7 @@ def build_per_command_views(con: Any) -> dict[str, int]:
 # With the cache, that drops to 2 (introspect, data).  Small models in
 # particular benefit because they don't have to remember to do
 # step-by-step introspection — the cache hands them everything in one
-# read.  See dev_docs/60. THREE_LAYER_INTROSPECTION_CACHE.md for design.
+# read.  See dev_docs/56. THREE_LAYER_INTROSPECTION_CACHE.md for design.
 
 
 def _ensure_value_profile_table(con: Any) -> None:
@@ -589,7 +589,7 @@ def finalise_ingest(con: Any) -> dict[str, Any]:
     except Exception as exc:
         logger.warning("finalise_ingest: prime_memory_at_ingest failed: %s", exc)
 
-    # Phase 1 (dev_docs/61 MEMORY_DRIVEN_USAGE_GUIDES) — bridge
+    # Phase 1 (dev_docs/57 MEMORY_DRIVEN_USAGE_GUIDES) — bridge
     # procedural ``*.guide.yaml`` files into LanceDB ``usage_guide``.
     # The platform owns the upsert path (``olav.core.memory.guide_kb``);
     # netops just hands it the runtime workspace root.  Same retrieval

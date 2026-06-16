@@ -1,4 +1,4 @@
-"""``batfish_q`` — generic Batfish question runner (dev_docs/77 §2.1).
+"""``batfish_q`` — generic Batfish question runner (dev_docs/73 §2.1).
 
 A single @tool that:
 

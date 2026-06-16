@@ -9,7 +9,7 @@ Claim 层级：
   Level 2 — 功能级（文档站页面）
 
 参考文档：dev_docs/22. WEB_AND_DOCS_SITE.md §7
-CLI 验证记录：dev_docs/23. CLI_VERIFICATION_LOG.md
+CLI 验证记录：dev_docs/24. CLI_VERIFICATION_LOG.md
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@ local.py — 本地执行后端
 通过 subprocess 在本机直接执行命令。
 是最低延迟的后端，适合 ops/probe 和本地 ContainerLab 场景。
 
-参考: dev_docs/15. hermes.md §3.1
+参考: dev_docs/30. HERMES_ANALYSIS.md §3.1
 """
 
 from __future__ import annotations

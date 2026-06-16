@@ -268,7 +268,7 @@ def _write_staging_json(
         "raw_output": raw_output,
         "parsed_data": json.dumps(parsed) if parsed else None,
         "snapshot_id": snapshot_id,
-        # R-VERTICAL-SLICE 2026-05-09 (dev_docs/74): denormalise platform
+        # R-VERTICAL-SLICE 2026-05-09 (dev_docs/70): denormalise platform
         # at write time so downstream cross-vendor views don't have to
         # JOIN to netops.devices.
         "platform": platform,

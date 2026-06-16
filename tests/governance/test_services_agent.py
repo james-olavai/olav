@@ -1,11 +1,11 @@
-"""dev_docs/85 AGENT_ARCHITECTURE_V2 — ``admin/`` top-level agent is wired up.
+"""dev_docs/80 AGENT_ARCHITECTURE_V2 — ``admin/`` top-level agent is wired up.
 
 The ``services/`` agent was renamed to ``admin/`` (platform self-management).
 This test guards the new ``admin`` agent structure and the canonical tool files
 it depends on (deploy/stop/cron/health/log/ingest in admin/ops/tools/).
 
 Historical note: the previous version of this test checked ``services/`` which
-was decommissioned in dev_docs/85.  Tool behaviour assertions are kept verbatim
+was decommissioned in dev_docs/80.  Tool behaviour assertions are kept verbatim
 because the underlying register_service logic did not change — only the path.
 """
 

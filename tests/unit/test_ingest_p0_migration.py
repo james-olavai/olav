@@ -13,7 +13,7 @@ Covers:
 Tests use in-memory DuckDB connections so they run with no external
 dependency on a real audit/main DB.
 
-See dev_docs/80 §6 + ADR-0008 follow-up for the design.
+See dev_docs/76 §6 + ADR-0008 follow-up for the design.
 """
 from __future__ import annotations
 

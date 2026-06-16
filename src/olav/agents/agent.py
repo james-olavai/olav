@@ -92,7 +92,7 @@ logger = logging.getLogger(__name__)
 
 
 def _make_rubric_callback(agent_name: str):
-    """Return an on_evaluation callback for RubricMiddleware (dev_docs/92 §2)."""
+    """Return an on_evaluation callback for RubricMiddleware (dev_docs/87 §2)."""
     def _on_evaluation(evaluation) -> None:
         try:
             criteria = [
@@ -196,7 +196,7 @@ try:
         logger.info(
             "✓ Patched deepagents._EXCLUDED_STATE_KEYS to filter `jump_to` "
             "from sub-agent state (closes KeyError 'model' under KB-heavy "
-            "sub-agents — see dev_docs/83 §13d)"
+            "sub-agents — see dev_docs/78 §13d)"
         )
 except (ImportError, AttributeError) as _exc:
     logger.warning(
@@ -213,7 +213,7 @@ except (ImportError, AttributeError) as _exc:
 # deepagents' ``_harness_profile_for_model`` resolver during its own
 # ``create_agent``.  If we registered profiles inside ``__init__``
 # (post-_build_subagents), sub-agents would resolve against an empty
-# registry and silently fall back to defaults.  See dev_docs/84 §2.
+# registry and silently fall back to defaults.  See dev_docs/79 §2.
 try:
     from olav.agents.profiles import register_olav_profiles as _register_olav_profiles
     _register_olav_profiles()
@@ -525,7 +525,7 @@ class OLAVAgent:
 
         # Pre-load AGENT.md frontmatter so we can read ``thinking_mode``
         # *before* LLM construction (R-VERTICAL-SLICE 2026-05-09,
-        # dev_docs/74).  Cached on self to avoid double-loading later.
+        # dev_docs/70).  Cached on self to avoid double-loading later.
         try:
             self._preloaded_olav_config = self._load_olav_config()
         except Exception as _e:
@@ -772,7 +772,7 @@ class OLAVAgent:
                     # task() delegation, or execute_skill_script).
                     # Override with OLAV_ALLOW_VIRTUAL_FS_READS=1.
                     #
-                    # 2026-05-16 (dev_docs/84 §B): explicit allow for
+                    # 2026-05-16 (dev_docs/79 §B): explicit allow for
                     # ``exports/reports/**`` BEFORE the global deny —
                     # the audit/author sub-agent needs to read explorer
                     # markdown reports there to translate findings into
@@ -894,7 +894,7 @@ class OLAVAgent:
 
         # (Profile registration moved to module-load time at the top of
         # this file so sub-agents compiled by ``_build_subagents`` see
-        # the registry — see dev_docs/84 §2.)
+        # the registry — see dev_docs/79 §2.)
 
         # Per-orchestrator opt-in for terminal `task` tool. The contextvar
         # is read by `_patched_build_task_tool` during create_deep_agent →
@@ -1207,7 +1207,7 @@ class OLAVAgent:
                 else:
                     tools = discovered
 
-            # R-VERTICAL-SLICE 2026-05-09 (dev_docs/74): also discover
+            # R-VERTICAL-SLICE 2026-05-09 (dev_docs/70): also discover
             # tools from the parent orchestrator's tools/ dir, filtered
             # by the sub-agent's whitelist.  This lets sub-agents share
             # a domain-level tool library (e.g. netops/tools/inspect_*.py
@@ -1252,7 +1252,7 @@ class OLAVAgent:
             # Inject static_context references declared in SKILL.md
             prompt = _inject_static_context(prompt, sa_dir, metadata)
 
-            # R-VERTICAL-SLICE 2026-05-09 (dev_docs/74): per-sub-agent
+            # R-VERTICAL-SLICE 2026-05-09 (dev_docs/70): per-sub-agent
             # ``thinking_mode`` overrides the orchestrator's setting.
             # 2026-05-15: extended to a generic ``llm:`` block carrying
             # any subset of {model, temperature, max_tokens, base_url,
@@ -1328,7 +1328,7 @@ class OLAVAgent:
 
             # RubricMiddleware — self-eval + auto-retry for coverage contracts.
             # Only injected for agents that opt in via metadata.rubric_middleware=true.
-            # on_evaluation callback logs structured evaluation results (dev_docs/92 §2).
+            # on_evaluation callback logs structured evaluation results (dev_docs/87 §2).
             if HAS_RUBRIC_MIDDLEWARE and _RubricMW is not None and metadata.get("rubric_middleware"):
                 try:
                     try:
@@ -1345,7 +1345,7 @@ class OLAVAgent:
                 except Exception as _re:
                     logger.warning(f"  ! RubricMiddleware init failed for '{name}': {_re}")
 
-            # dev_docs/77 §2.6.2: a sub-agent that itself declares
+            # dev_docs/73 §2.6.2: a sub-agent that itself declares
             # ``subagents:`` in its SKILL.md needs deepagents'
             # ``SubAgentMiddleware`` to inject the ``task`` tool so it
             # can delegate to its peers (e.g. analyzer → sim).  Build
@@ -1530,7 +1530,7 @@ class OLAVAgent:
         # RubricMiddleware is a no-op when ``state["rubric"]`` is absent; this
         # is the only place that populates it so the middleware activates.
         # The rubric targets the no-synthesis failure mode (ISSUE-NO-SYNTHESIS /
-        # dev_docs/90): small models (gemma4) finish tool calls and exit without
+        # dev_docs/85): small models (gemma4) finish tool calls and exit without
         # a natural-language answer turn — the grader detects this and forces a
         # revision loop (max 2 iterations, configured in the middleware init).
         _cfg = getattr(self, "_preloaded_olav_config", {}) or {}

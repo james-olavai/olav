@@ -1,4 +1,4 @@
-"""TDD (dev_docs/77 §2.1, plan Phase 2): `batfish_q` tool — generic
+"""TDD (dev_docs/73 §2.1, plan Phase 2): `batfish_q` tool — generic
 Batfish question runner.  Lazy snapshot init, session caching,
 graceful errors, optional differential mode.
 

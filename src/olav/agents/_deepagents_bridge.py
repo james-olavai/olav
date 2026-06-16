@@ -53,7 +53,7 @@ if _DA_VERSION >= _DA_NEXT_MAJOR:
     warnings.warn(
         f"deepagents {_DA_VERSION} may have breaking changes — Olav was validated "
         f"against <{_DA_NEXT_MAJOR}. Verify compatibility before using in production. "
-        f"See dev_docs/91. V0_20_ARCHITECTURE_PLAN.md for the upgrade checklist.",
+        f"See dev_docs/86. V0_20_ARCHITECTURE_PLAN.md for the upgrade checklist.",
         stacklevel=2,
     )
 
@@ -221,7 +221,7 @@ def create_deep_agent(**kwargs):  # type: ignore[no-untyped-def]
     minor versions. Current 0.4.x signature is backward-compatible; this
     wrapper provides a shim point without requiring changes to agent.py.
 
-    Upgrade procedure (dev_docs/17 §4.3):
+    Upgrade procedure (dev_docs/16 §4.3):
       1. Update _DA_MIN / _DA_NEXT_MAJOR if needed
       2. Add kwarg remapping here (e.g. old_name → new_name)
       3. Update feature flags above for new gated features

@@ -35,7 +35,7 @@ class ParsedOutputsTable(BaseIngestTable):
         ColumnDef("raw_output", "TEXT"),       # legacy — kept for compat, will be NULL
         ColumnDef("raw_output_hash", "VARCHAR"),  # FK → raw_output_store.content_hash
         ColumnDef("ingested_at", "TIMESTAMP"),
-        # R-VERTICAL-SLICE 2026-05-09 (dev_docs/74): denormalised platform
+        # R-VERTICAL-SLICE 2026-05-09 (dev_docs/70): denormalised platform
         # tag.  Resolved at write time from Nornir host.platform; copied
         # here to avoid downstream JOINs to netops.devices for every
         # cross-vendor view / inspector.  Historical rows preserve the

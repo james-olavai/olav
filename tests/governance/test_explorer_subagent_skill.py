@@ -4,7 +4,7 @@ What this protects against:
   * Future refactor silently dropping ``record_finding`` from the
     tool whitelist (would break anti-fabrication invariant)
   * Someone setting ``dynamic_context`` to inject taxonomy by default
-    (would violate the Level-2 design philosophy of dev_docs/83 §2)
+    (would violate the Level-2 design philosophy of dev_docs/78 §2)
   * Tool wrapper import drift
   * SKILL.md losing the explorer sub-agent reference
 """
@@ -55,7 +55,7 @@ class TestExplorerSkillFrontMatter:
 
     def test_thinking_mode_enabled(self):
         """PLAN/CORRELATE/REPORT phases benefit from deep thinking — see
-        dev_docs/83 §3.3."""
+        dev_docs/78 §3.3."""
         fm = _parse_front_matter(_EXPLORER_DIR / "SKILL.md")
         assert fm["thinking_mode"] == "enabled"
 
@@ -257,9 +257,9 @@ class TestToolWrappersLoad:
 
     def test_promote_finding_to_audit_module_removed(self):
         """The promote_finding_to_audit @tool wrapper was removed in
-        dev_docs/84 §B — explorer outputs free-form markdown; humans
+        dev_docs/79 §B — explorer outputs free-form markdown; humans
         feed it to the audit author for profile creation."""
         assert not (_EXPLORER_DIR / "tools" / "promote_finding_to_audit.py").exists(), (
             "promote_finding_to_audit.py should have been removed — see "
-            "dev_docs/84 §B for the corrected lifecycle"
+            "dev_docs/79 §B for the corrected lifecycle"
         )

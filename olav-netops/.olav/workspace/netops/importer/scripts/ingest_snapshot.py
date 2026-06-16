@@ -102,7 +102,7 @@ if __name__ == "__main__":
     # Keep stdout PURE JSON: the ingest impl (IngestManager.bulk_load,
     # view_builder, topology_engine) logs progress to stdout.  Route that to
     # stderr so machine consumers can `json.loads(stdout)` reliably — the demo
-    # e2e wrapper choked on log-polluted stdout for 4/5 bundles (dev_docs/104 #1).
+    # e2e wrapper choked on log-polluted stdout for 4/5 bundles (dev_docs/93 #1).
     with _ctx.redirect_stdout(_sys.stderr):
         result = ingest_snapshot(**_args)
     print(_json.dumps(result, default=str))

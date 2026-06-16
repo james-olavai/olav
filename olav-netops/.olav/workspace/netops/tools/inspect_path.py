@@ -1,7 +1,7 @@
 """inspect_path @tool — end-to-end path between two devices, with
 ECMP detection.
 
-R-VERTICAL-SLICE follow-on P2 (2026-05-10, dev_docs/74).  Exposes
+R-VERTICAL-SLICE follow-on P2 (2026-05-10, dev_docs/70).  Exposes
 NetworkX shortest_path + all_simple_paths via a typed inspector.
 Closes a real capability gap: previously the agent could answer
 "what's R3 connected to" (inspect_topology, 1-hop) and "what

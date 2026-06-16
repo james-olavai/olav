@@ -6,7 +6,7 @@ still correctly access their scoped config files from new locations:
     discovery_commands.yaml
   - netops/collect/: command registry via search_commands tool
 
-dev_docs/85 rename history:
+dev_docs/80 rename history:
   config agent → admin agent   (platform self-management)
   ops agent    → netops agent  (network domain)
 
@@ -60,7 +60,7 @@ class TestAdminAgentCronAccess:
     ops/netops_init/config/cron_schedules.yaml, the admin agent (ops sub-agent)
     can still list the configured cron jobs (snapshot, trace_learner, audit_weekly).
 
-    dev_docs/85: 'config' agent renamed to 'admin'.
+    dev_docs/80: 'config' agent renamed to 'admin'.
     """
 
     def test_exits_zero(self):
@@ -91,7 +91,7 @@ class TestNetopsAgentCommandRegistry:
     netops/collect/, the netops agent (collector sub-agent) can still
     return available commands for cisco_ios.
 
-    dev_docs/85: 'ops' agent renamed to 'netops'.
+    dev_docs/80: 'ops' agent renamed to 'netops'.
     """
 
     def test_exits_zero(self):
@@ -123,7 +123,7 @@ class TestNetopsAgentBackupCommandsAccess:
     (via search_commands / olav_recall_memory) can still describe which commands
     are used for configuration backup/snapshot.
 
-    dev_docs/85: 'config' agent renamed to 'admin'; backup command queries
+    dev_docs/80: 'config' agent renamed to 'admin'; backup command queries
     route to 'netops' which owns the collector and command registry.
     """
 

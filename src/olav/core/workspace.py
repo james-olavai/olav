@@ -4,7 +4,7 @@ WorkspaceDeclaration is the parsed form of a workspace.yaml file bundled in a
 skill git repo. It drives `olav skill install` to create the workspace directory
 structure under .olav/workspace/<name>/.
 
-Reference: dev_docs/18. ECOSYSTEM_SPLIT_PLAN.md §1.2
+Reference: dev_docs/06. ECOSYSTEM_SPLIT_PLAN.md §1.2
 """
 
 from __future__ import annotations

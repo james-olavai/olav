@@ -77,7 +77,7 @@ TIER_DEFAULTS: dict[str, dict[str, Any]] = {
         # answer cross-platform questions, and 3 hybrid-search hits
         # consistently dropped the Junos one.
         #
-        # Phase 1 (dev_docs/61): bumped 8 → 13 to fit
+        # Phase 1 (dev_docs/57): bumped 8 → 13 to fit
         # _CATEGORY_QUOTAS = {schema:5, value:5, usage_guide:3}.
         # Without the bump usage_guide quota gets 0 slots after schema+value
         # consume the first 8.  13 entries ≈ 4KB context, still <0.5% of

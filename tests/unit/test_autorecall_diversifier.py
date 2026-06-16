@@ -25,7 +25,7 @@ def _mk(mid: str, cat: str) -> dict:
 
 
 def test_diversifier_caps_query_pattern_at_two():
-    """CC-1c (dev_docs/62): cap raised 1 → 2 to give captured SQL a
+    """CC-1c (dev_docs/58): cap raised 1 → 2 to give captured SQL a
     foothold while still protecting against accumulating-near-duplicates
     poisoning the recall.  Original test pinned cap=1 (R83.4)."""
     from olav.core.memory.middleware import AutoRecallMiddleware

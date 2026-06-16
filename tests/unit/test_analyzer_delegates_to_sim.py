@@ -1,4 +1,4 @@
-"""TDD (dev_docs/77 §2.6.3, plan Phase 4): analyzer must declare
+"""TDD (dev_docs/73 §2.6.3, plan Phase 4): analyzer must declare
 ``sim`` in its ``subagents:`` list so deepagents auto-injects the
 ``task`` tool, enabling cross-domain delegation
 (analyzer → task("sim", "<config question>")).
@@ -36,7 +36,7 @@ def test_analyzer_declares_sim_as_subagent():
     subagents = meta.get("subagents") or []
     assert subagents, (
         "analyzer/SKILL.md must declare a non-empty subagents: list "
-        "to enable cross-domain delegation per dev_docs/77 §2.6"
+        "to enable cross-domain delegation per dev_docs/73 §2.6"
     )
     paths = [
         (s["path"] if isinstance(s, dict) else s)
@@ -62,13 +62,13 @@ def test_analyzer_is_not_agent_type_api():
 def test_analyzer_system_prompt_mentions_delegation_to_sim():
     """analyzer/prompts/system.md must teach the analyzer how to
     delegate config-layer questions to sim via task("sim", ...).
-    Phase 2.5 DELEGATION block per dev_docs/77 §2.6.4."""
+    Phase 2.5 DELEGATION block per dev_docs/73 §2.6.4."""
     assert ANALYZER_SYSTEM.exists(), \
         f"analyzer prompts/system.md not found at {ANALYZER_SYSTEM}"
     text = ANALYZER_SYSTEM.read_text(encoding="utf-8")
     assert 'task("sim"' in text or "task('sim'" in text, (
         "analyzer system.md must teach delegation via "
-        "task('sim', ...) — Phase 2.5 DELEGATION per dev_docs/77 §2.6.4"
+        "task('sim', ...) — Phase 2.5 DELEGATION per dev_docs/73 §2.6.4"
     )
     # After Goal+Constraints refactor (commit b4fdeab9) Phase 2.5 section
     # was replaced with a constraint in Workflow A. Accept task("sim") mention.

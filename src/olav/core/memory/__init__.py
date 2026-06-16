@@ -1212,7 +1212,7 @@ def hybrid_search(
         text_weight: Relative weight for the BM25 search list (default 0.5).
         use_cache: Enable Tier-0 semantic cache (default True).
         table_name: Table to search (default ``MEMORY_TABLE`` — the unified
-            memory store; see dev_docs/43 for the design rationale).
+            memory store; see dev_docs/39 for the design rationale).
 
     Returns:
         Combined and reranked list of results.

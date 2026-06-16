@@ -2,7 +2,7 @@
 tests/unit/test_cli_verbs_smoke.py
 ──────────────────────────────────
 P7 cycle 5 — minimal smoke tests for CLI verbs with low prior
-coverage (from the audit in dev_docs/53 §12.2 / §11.1).  Each
+coverage (from the audit in dev_docs/50 §12.2 / §11.1).  Each
 verb gets a single sanity test: the module imports, the command
 class instantiates, and ``--help`` or empty-args returns without
 crashing.

@@ -9,7 +9,7 @@ injection_scanner.py — Prompt 注入检测器
   - 检测到注入时拒绝写入，不崩溃
   - 误报优先于漏报（运维场景中 memory 内容应可信）
 
-参考: dev_docs/15. hermes.md §3.3
+参考: dev_docs/30. HERMES_ANALYSIS.md §3.3
 """
 
 from __future__ import annotations

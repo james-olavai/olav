@@ -6,7 +6,7 @@
 
 ## Context
 
-The workspace SSOT audit (dev_docs/102, ADR-0002) surfaced a `devops`
+The workspace SSOT audit (dev_docs/91, ADR-0002) surfaced a `devops`
 fork that turned out to be a deeper ownership question. Findings on
 branch `0.20.0`:
 
@@ -115,7 +115,7 @@ generated/ignored.
 
 - Cross-package file movement (services + devops out of netops) — a
   multi-step migration with manifest, packaging, and agent-discovery
-  updates. Sequenced in dev_docs/103.
+  updates. Sequenced in dev_docs/92.
 - A new top-level agent raises the base agent-discovery surface (ADR-0004
   cost), though `services` already existed as a sub-agent.
 - `workspace_health` must be (re)created/located under `admin` on this
@@ -131,7 +131,7 @@ generated/ignored.
   removed; netops tree = netops + audit only.
 - Execution is **gated on the new e2e suite** per the maintainer
   directive (no release blessing before e2e green).
-- Migration plan: **dev_docs/103.SERVICES_PLATFORM_MIGRATION.md**.
+- Migration plan: **dev_docs/92. SERVICES_PLATFORM_MIGRATION.md**.
 
 ## Alternatives considered
 

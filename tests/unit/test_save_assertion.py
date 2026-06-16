@@ -97,7 +97,7 @@ def test_claim_with_format_and_export_tool_message_trusted():
 
 
 def test_writer_delegation_no_longer_save_evidence():
-    """R85 (dev_docs/62 § "R85 inline-save"): writer is demoted from
+    """R85 (dev_docs/58 § "R85 inline-save"): writer is demoted from
     save-bottleneck to optional polish/edit subagent.  After R85 every
     agent inherits format_and_export from core and calls it directly;
     olav_delegate('writer', ...) is NO LONGER a save signal.

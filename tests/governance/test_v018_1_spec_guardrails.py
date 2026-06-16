@@ -1,7 +1,7 @@
 """ARCH-21 — v0.18.1 spec guardrails (Sprint 3 landed; all tests now live).
 
 This file pins the final shape we committed to in
-``dev_docs/50. V0_18_1_SPEC.md``. Sprint 3 finished in Rounds 16/17/18/
+``dev_docs/47. V0_18_1_SPEC.md``. Sprint 3 finished in Rounds 16/17/18/
 31/32/33 and Round 35's xfail sweep flipped the remaining marks; every
 test in this module is now a hard enforcement pin, not a forward-looking
 stub.
@@ -23,7 +23,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 WORKSPACE = REPO / ".olav" / "workspace"
-SPEC_DOC = REPO / "dev_docs" / "50. V0_18_1_SPEC.md"
+SPEC_DOC = REPO / "dev_docs" / "47. V0_18_1_SPEC.md"
 
 # rev 259 (2026-05-11): the Run/Author split experiment moves
 # audit/auditor → audit/runner + audit/author, which violates the

@@ -37,7 +37,7 @@ copies are objectively stale (0 markers), and:
 
 NOTE — content reconciliation + release blessing is gated on the new e2e
 suite passing (maintainer directive).  Until then this tool only *reports*
-the drift.  See dev_docs/102.WORKSPACE_SSOT_CONSOLIDATION.md.
+the drift.  See dev_docs/91. WORKSPACE_SSOT_CONSOLIDATION.md.
 
 SAFETY
 ------

@@ -4,7 +4,7 @@ verbatim user_query.
 Why this test exists: the prior shape ``"Q: {user_query}\\nWorking SQL:
 {sql}"`` caused captured query_pattern rows to self-match future
 similar user prompts at ~0.88-0.95 cosine, drowning out directive
-and expert_knowledge entries in AutoRecall.  See dev_docs/67 for the
+and expert_knowledge entries in AutoRecall.  See dev_docs/63 for the
 A/B evidence.  The fix anchors the embedded text on extracted
 keywords + the SQL, keeping the verbatim query only in
 ``metadata.intent`` for L2 distillation.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """api_request — Universal API query script for registered services.
 
-Reference: dev_docs/39. SCHEMA_AWARE_API_ARCHITECTURE.md §8
+Reference: dev_docs/36. SCHEMA_AWARE_API_ARCHITECTURE.md §8
 """
 from __future__ import annotations
 

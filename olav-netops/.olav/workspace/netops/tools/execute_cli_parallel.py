@@ -112,7 +112,7 @@ def _get_nornir():
     return _nornir_instance
 
 
-# ── Circuit breaker (R-VERTICAL-SLICE 2026-05-09, dev_docs/74) ───────────────
+# ── Circuit breaker (R-VERTICAL-SLICE 2026-05-09, dev_docs/70) ───────────────
 # Prevents LLM from retrying the same unreachable device 3+ times, each
 # costing a full SSH timeout (~30s).
 
