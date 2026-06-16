@@ -154,6 +154,36 @@ wheel's job, not gitignore's**. Plain `git add` works; no `-f` needed.
 Rule of thumb: if it's `class: authoritative` in the manifest, it
 belongs in git.
 
+## Design Principles (small-model-first)
+
+OLAV is **designed for local small models** (qwen3 7–30B, small DeepSeek,
+Llama). The whole architecture exists to get production output from
+models that hit planning ceilings — **fix the prompt, not the model**.
+Every agent/tool/prompt change is judged against this. The hard,
+governance-enforced rules that follow from it:
+
+- **Context budget by tier** — usable context is ~8K (small) / ~32K
+  (medium) / ≥200K (large). AutoRecall `top_k` = 1 / 2 / 13;
+  `execute_sql` context rows = 10 / 20 / 50 (`TIER_DEFAULTS`).
+- **Tool-count caps** — orchestrator/core **≤7** tools; **≤5** tools per
+  sub-agent; **≤5** sub-agents per agent (ADR-0003/0005/0006, ARCH-18;
+  `test_step_c_analyze_merge`, subagent-cap gates). Tool-list bloat both
+  burns context and raises tool-selection error. Prune FS tools deepagents
+  injects into the orchestrator graph (12→4 fixed admin-cron routing).
+- **`@tool` docstrings ≤15 lines** — full docs behind `tool_help()`
+  (ARCH-18 #1, `test_docstring_budget`); each tool's schema costs
+  ~150–300 prompt tokens on *every* call.
+- **WHAT, not HOW prompting** — give the goal + constraints, not
+  phase/per-device step lists; HOW-specs make small models loop
+  mechanically (proven across a 5-attempt CH11 experiment).
+- **Fat tools for N-item work** — Python iterates, the LLM calls once
+  (`generate_change_plan`: 0 SQL calls vs 60–80). Create one when
+  N×(per-item LLM call) > ~5.
+- **Memory is the steering layer** — behavior is shaped by what's in
+  LanceDB (guides/expert_knowledge/reflection injected per-call), not by
+  hardcoded middleware; see ADR-0015. This is *why* the Tool Architecture
+  below defaults to scripts over `@tool`.
+
 ## Tool Architecture: Python-first, MCP only when justified
 
 **Execution model**: agents call deterministic logic in one of two ways:
