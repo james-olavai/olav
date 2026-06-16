@@ -23,7 +23,7 @@ Two test tiers:
   NLQueryTests       — run when `NL_QUERY_ENABLED=1` or when runtime LLM config
                        already provides a real API key; skip otherwise.
 
-Design reference: dev_docs/01. tracking.md §Phase 4 (P4-1)
+Design reference: Phase 4 (P4-1)
 Run with:
     uv run pytest tests/gates/test_gate_phase4_nl_acceptance.py -v
 """
