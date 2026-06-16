@@ -182,6 +182,11 @@ governance-enforced rules that follow from it:
 - **WHAT, not HOW prompting** — give the goal + constraints, not
   phase/per-device step lists; HOW-specs make small models loop
   mechanically (proven across a 5-attempt CH11 experiment).
+- **Empty collection arg = discovery, not "none"** — a tool called with
+  an empty optional collection (e.g. `inspect_devices(devices=[])`) must
+  return **all** items, not `{}`. Unspecified intent means "show me
+  everything"; returning empty sends small models into a synonym-retry
+  loop (ADR-0009 Tier-1 #5).
 - **Fat tools for N-item work** — Python iterates, the LLM calls once
   (`generate_change_plan`: 0 SQL calls vs 60–80). Create one when
   N×(per-item LLM call) > ~5.
@@ -195,6 +200,14 @@ governance-enforced rules that follow from it:
   Architecture below defaults to scripts over `@tool`.
 
 ## Tool Architecture: Python-first, MCP only when justified
+
+**Tool I/O is load-bearing for small models.** When a downstream tool
+takes a string, pass a **raw string + comment metadata**, not a JSON
+envelope — small models lose the round-trip re-emitting JSON-encoded
+content as the next tool's args (gemma4 100% deploy-block in R88). And
+fix call-*construction* errors (wrong arg shape) at the **Pydantic
+coercion layer**, not with prompt imperatives: prose rules change
+*whether* a small model calls the tool, never *how correctly* (V2 §M3).
 
 **Execution model**: agents call deterministic logic in one of two ways:
 
@@ -364,6 +377,11 @@ code (confirm before "fixing" code). In tests, set env via
 `monkeypatch`/yield-restore, never `os.environ.setdefault` (it leaks
 across the session). CI embed must be `OLAV_EMBEDDING_MODE: local` —
 the job container cannot reach the internal Ollama at `…:11434`.
+**Agent-behaviour issues need N≥3 runs to call closed** — LLM output
+variance on identical input (same model, config, prompt) can exceed the
+patch's effect (one run made 0 tool calls, the next 31). A single green
+run is not signal; track a success rate or run ≥3 before declaring a
+behavioural fix done (V2_VALIDATION_RETROSPECTIVE §M4).
 
 ## Versioning & Release
 
@@ -392,6 +410,7 @@ NOT auto-publish to PyPI**. The wheel is `packages=["src/olav"]` (no
 - `--dangerously-skip-permissions` bypasses approval gates for testing only. See `src/olav/platform/safety/permissions.py`.
 - DuckDB `read_only=True` is a data-integrity constraint and is never bypassed.
 - Never mount `/` in a privileged container with `rm -rf` — always mount specific directories and guard empty path variables.
+- Embedding **dimension mismatch must fail-fast** (`EmbeddingDimMismatchError`, `src/olav/core/memory/__init__.py`), never silently drop the table — a 768→2048-dim switch once wiped the entire memory table. `OLAV_ALLOW_DESTRUCTIVE_DIM_MIGRATION=1` is debug-only (ISSUE-EMBEDDING-FALLBACK-DIM-MISMATCH-DESTROYS-DATA).
 
 ## 工作语言与汇报规范
 
