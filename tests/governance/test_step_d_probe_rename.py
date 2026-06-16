@@ -1,8 +1,8 @@
-"""Round 32 + dev_docs/85 migration — collector sub-agent structure.
+"""Round 32 + dev_docs/80 migration — collector sub-agent structure.
 
 History:
   Round 32 (ADR-0005): ops/probe → ops/collect rename.
-  dev_docs/85 AGENT_ARCHITECTURE_V2: ops/collect migrated to netops/collect.
+  dev_docs/80 AGENT_ARCHITECTURE_V2: ops/collect migrated to netops/collect.
 
 Guards (current state):
   * ``netops/collect/`` directory exists with SKILL.md, prompts/system.md,

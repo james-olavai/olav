@@ -28,7 +28,7 @@ from olav.core.memory.guide_kb import prime_workspace_guides
 _SERVICES_YAML_TEMPLATE = """\
 # services.yaml — External service registry
 # Run: olav registry register <name>
-# Reference: dev_docs/16. SERVICE_REGISTRY_DESIGN.md
+# Reference: dev_docs/archive/19. SERVICE_REGISTRY_DESIGN.md
 services: {}
 """
 

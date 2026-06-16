@@ -1,6 +1,6 @@
 """CC-1c: query_pattern was being starved out of the diversifier — fix.
 
-Bug discovered while diagnosing Q3 +167% drift (dev_docs/62 § "CC-1b
+Bug discovered while diagnosing Q3 +167% drift (dev_docs/58 § "CC-1b
 structural diagnosis"):
 
 * ``_CATEGORY_CAPS["query_pattern"] = 1`` — hard cap of 1

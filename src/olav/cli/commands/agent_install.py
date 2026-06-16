@@ -1,8 +1,8 @@
 """agent_install.py — Scaffold for the ``olav agent install`` verb.
 
 Introduced in v0.20.0 as part of Phase 5 of the deepagents migration
-(see `dev_docs/53. DEEPAGENTS_MIGRATION_EVALUATION.md` §16 and
-`dev_docs/54. PHASE_5_GRAPH_FACTORY.md` §7).
+(see `dev_docs/50. DEEPAGENTS_MIGRATION_EVALUATION.md` §16 and
+`dev_docs/51. PHASE_5_GRAPH_FACTORY.md` §7).
 
 Until v0.20.2 (Phase 1), this command is a thin shim that forwards
 every invocation to :class:`olav.cli.commands.skill.SkillCommand`.

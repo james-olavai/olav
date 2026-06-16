@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """query_evidence — unified evidence drilldown.
 
-R-VERTICAL-SLICE Step 1 (2026-05-09, dev_docs/74).
+R-VERTICAL-SLICE Step 1 (2026-05-09, dev_docs/70).
 
 One function, three sources via Literal arg routing.  Designed for the
 investigate sub-agent — narrow capability ("find recorded events /

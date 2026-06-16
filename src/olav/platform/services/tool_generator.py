@@ -10,7 +10,7 @@ Flow:
 
 Generated tools use service_call() for authentication and schema-aware trimming.
 
-Reference: dev_docs/16. SERVICE_REGISTRY_DESIGN.md §Phase2
+Reference: dev_docs/archive/19. SERVICE_REGISTRY_DESIGN.md §Phase2
 """
 
 from __future__ import annotations

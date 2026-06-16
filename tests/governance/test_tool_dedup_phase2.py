@@ -7,7 +7,7 @@ in core/tools/ (``execute_sql`` / ``olav_recall_memory`` / ``web_search``); ever
 else now lives in its sub-agent home as a real file (not a symlink). The
 previous "canonical-in-core/tools/ + symlink-in-subagent" pattern was retired.
 
-Post-dev_docs/85 (ops→netops rename): the four formerly-ops cross-domain tools
+Post-dev_docs/80 (ops→netops rename): the four formerly-ops cross-domain tools
 now have canonical sources in ``.olav/workspace/netops/tools/``.
 
 Invariants this suite guards:
@@ -34,7 +34,7 @@ WORKSPACE = REPO / ".olav" / "workspace"
 # directory (relative to WORKSPACE) whose copy is the single source of
 # truth. Everywhere else the file should appear as a symlink or be
 # content-identical.
-# Post-dev_docs/85: formerly "ops" cross-domain tools now live in netops/tools/.
+# Post-dev_docs/80: formerly "ops" cross-domain tools now live in netops/tools/.
 _NETOPS_CANONICAL = {"execute_cli_parallel.py", "diff_configs.py", "search_commands.py", "take_snapshot.py"}
 _OPS_CANONICAL = _NETOPS_CANONICAL  # alias kept for test backward-compat
 

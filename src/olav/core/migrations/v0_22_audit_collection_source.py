@@ -1,6 +1,6 @@
 """Migration v0.22: audit_runs.collection_source column.
 
-Backs the portable-snapshot-ingest design (``dev_docs/80``) — every
+Backs the portable-snapshot-ingest design (``dev_docs/76``) — every
 ``audit_runs`` row now records *how* the data was acquired, so a query
 can tell "live SSH at 14:32" apart from "ingested bundle from R1 at 11:08".
 

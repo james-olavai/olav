@@ -1,6 +1,6 @@
 """``olav migrate`` command — apply the v0.20.2 layout migration.
 
-Part of Phase B (dev_docs/56).  Surfaces
+Part of Phase B (dev_docs/53).  Surfaces
 :mod:`olav.migrate.v0_20_layout` to end-users via a small CLI wrapper:
 
 .. code-block:: shell

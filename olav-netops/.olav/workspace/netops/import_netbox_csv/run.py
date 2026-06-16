@@ -7,7 +7,7 @@ shape against the canonical column contract, and produces a per-row
 dry-run report — what each row would create / update / skip if we
 were really POSTing to NetBox.
 
-dev_docs/71 Ch10b / Ch10c semantics:
+dev_docs/67 Ch10b / Ch10c semantics:
 
 * Default: ``--dry-run`` (validate + report, no HTTP).  Safe for CI.
 * ``--write`` actually POSTs to a registered NetBox service:
@@ -127,7 +127,7 @@ def _write_audit_row(
 ) -> Path:
     """Drop a kb_audit/<ts>_netbox_push.yaml row for the write call.
 
-    dev_docs/79: every KB-mutating action is git-trackable. Maps to
+    dev_docs/75: every KB-mutating action is git-trackable. Maps to
     the kb_audit/ contract used by ``commit_to_memory`` and
     ``olav kb remove`` — same fields, ``action: netbox_push``.
 
@@ -538,7 +538,7 @@ def main() -> int:
 
         report_path.write_text(report + "\n" + "\n".join(push_lines), encoding="utf-8")
 
-        # 2026-05-15 (dev_docs/79): every KB-mutating action drops a
+        # 2026-05-15 (dev_docs/75): every KB-mutating action drops a
         # git-trackable kb_audit/ row.  --write into NetBox is the
         # services-side counterpart of memory-curator commit — same
         # audit principle applies.

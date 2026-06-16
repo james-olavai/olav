@@ -21,7 +21,7 @@ This module provides three entry points:
 * :func:`apply_migration` — executes a plan with optional backup
 * :func:`already_migrated` — idempotence probe
 
-See `dev_docs/56. PHASE_B_v0_20_2_CUTOVER.md` §3.1 for design rationale.
+See `dev_docs/53. PHASE_B_v0_20_2_CUTOVER.md` §3.1 for design rationale.
 """
 
 from __future__ import annotations

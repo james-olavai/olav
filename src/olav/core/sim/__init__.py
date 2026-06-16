@@ -1,7 +1,7 @@
 """olav.core.sim — Batfish-backed sim primitives.
 
 Replaces the legacy ``the legacy CAB sim`` Python pipeline (deleted
-2026-05-14, commit b4045d69).  Per dev_docs/77 §2 the new sim is a
+2026-05-14, commit b4045d69).  Per dev_docs/73 §2 the new sim is a
 2-tool LLM sub-agent that delegates feasibility / reachability /
 differential questions to a Batfish service via ``batfish_q``.
 """

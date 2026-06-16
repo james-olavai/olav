@@ -42,7 +42,7 @@ caused query_pattern rows to self-match future similar queries at
 ~0.88-0.95 cosine, drowning out directive guides and operational
 precedents in AutoRecall.  Verbatim query is preserved in
 ``metadata.intent`` so L2 pattern_extractor still has the full
-context.  See ``dev_docs/67`` for the A/B evidence.
+context.  See ``dev_docs/63`` for the A/B evidence.
 """
 from __future__ import annotations
 

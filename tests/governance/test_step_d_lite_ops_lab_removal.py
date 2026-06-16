@@ -36,9 +36,9 @@ def test_ops_lab_top_level_removed():
 
 
 def test_ops_lab_subagent_still_present():
-    """Post-dev_docs/85: ops/lab/ was removed; lab is no longer a sub-agent."""
+    """Post-dev_docs/80: ops/lab/ was removed; lab is no longer a sub-agent."""
     assert not (WORKSPACE / "ops" / "lab").exists(), (
-        "ops/lab/ should be gone — lab sub-agent was removed in dev_docs/85"
+        "ops/lab/ should be gone — lab sub-agent was removed in dev_docs/80"
     )
     assert not (WORKSPACE / "netops" / "lab").exists(), (
         "netops/lab/ should not exist — lab is no longer a dedicated sub-agent"
@@ -46,9 +46,9 @@ def test_ops_lab_subagent_still_present():
 
 
 def test_ops_lab_skill_md_carries_merged_sections():
-    """Post-dev_docs/85: ops/lab no longer exists; skip this content check."""
+    """Post-dev_docs/80: ops/lab no longer exists; skip this content check."""
     assert not (WORKSPACE / "ops" / "lab").exists(), (
-        "ops/lab/ removed in dev_docs/85 — no SKILL.md to check"
+        "ops/lab/ removed in dev_docs/80 — no SKILL.md to check"
     )
 
 
@@ -98,7 +98,7 @@ def test_core_agent_md_escalation_hint_updated():
 
 
 def test_platform_md_lists_canonical_four_agents():
-    """Post-dev_docs/85: PLATFORM.md reflects the new canonical agent set."""
+    """Post-dev_docs/80: PLATFORM.md reflects the new canonical agent set."""
     platform_md = WORKSPACE / "olav.md"
     text = platform_md.read_text(encoding="utf-8")
     assert text.startswith("---")

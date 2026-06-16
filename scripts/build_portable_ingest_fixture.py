@@ -2,7 +2,7 @@
 
 Reads ``exports/snapshots/<date>/raw/<host>/<safe_cmd>.txt`` (the on-disk
 artefacts from a real ``netops_init`` run) and emits a bundle laid out
-per ``dev_docs/80. PORTABLE_SNAPSHOT_INGEST.md §3``::
+per ``dev_docs/76. PORTABLE_SNAPSHOT_INGEST.md §3``::
 
     <out>/
     ├── manifest.yaml

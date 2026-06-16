@@ -12,7 +12,7 @@ Q2/Q3 inflated +113%/+167% in the platform_kb refactor bench despite
 byte-for-byte equivalent code — that's the contamination this helper
 removes.
 
-See dev_docs/62 § "CC-1: Bench harness reset between runs".
+See dev_docs/58 § "CC-1: Bench harness reset between runs".
 """
 
 from __future__ import annotations

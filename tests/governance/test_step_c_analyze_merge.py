@@ -63,7 +63,7 @@ def test_reporter_directory_exists():
 def test_legacy_ops_analyze_is_gone():
     """ops/analyze/ must not exist — replaced by netops/analyzer/."""
     assert not (WORKSPACE / "ops" / "analyze").exists(), (
-        "ops/analyze/ should not exist after dev_docs/85 ops→netops rename; "
+        "ops/analyze/ should not exist after dev_docs/80 ops→netops rename; "
         "use netops/analyzer/ instead"
     )
 

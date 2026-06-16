@@ -1,4 +1,4 @@
-"""Governance — KB lifecycle (dev_docs/79).
+"""Governance — KB lifecycle (dev_docs/75).
 
 Covers:
 * SOURCE_TIERS table is the source of truth for priority + weight

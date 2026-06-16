@@ -210,7 +210,7 @@ class TestCH3InventoryBaseline:
             pytest.fail(
                 "ISSUE-NO-SYNTHESIS: agent made tool calls but produced no synthesis text. "
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
-                f"See dev_docs/90. Output tail:\n{out[-600:]}"
+                f"See dev_docs/85. Output tail:\n{out[-600:]}"
             )
         if _is_planning_only(out):
             pytest.skip("ISSUE-PLANNING-ONLY-ACCEPTANCE: agent produced planning text but no SQL execution — timed out before executing")
@@ -227,7 +227,7 @@ class TestCH3InventoryBaseline:
             pytest.fail(
                 "ISSUE-NO-SYNTHESIS: agent made tool calls but produced no synthesis text. "
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
-                f"See dev_docs/90. Output tail:\n{out[-600:]}"
+                f"See dev_docs/85. Output tail:\n{out[-600:]}"
             )
         if _is_planning_only(out):
             pytest.skip("ISSUE-PLANNING-ONLY-ACCEPTANCE: agent produced planning text but no SQL execution — timed out before executing")
@@ -246,7 +246,7 @@ class TestCH3InventoryBaseline:
             pytest.fail(
                 "ISSUE-NO-SYNTHESIS: agent made tool calls but produced no synthesis text. "
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
-                f"See dev_docs/90. Output tail:\n{out[-600:]}"
+                f"See dev_docs/85. Output tail:\n{out[-600:]}"
             )
         if _is_planning_only(out):
             pytest.skip("ISSUE-PLANNING-ONLY-ACCEPTANCE: agent produced planning text but no SQL execution — timed out before executing")
@@ -290,7 +290,7 @@ class TestCH4APFirmwareDistribution:
             pytest.fail(
                 "ISSUE-NO-SYNTHESIS: agent made tool calls but produced no synthesis text. "
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
-                f"See dev_docs/90. Output tail:\n{out[-600:]}"
+                f"See dev_docs/85. Output tail:\n{out[-600:]}"
             )
         out = out.lower()
         # Data: AIR-AP3802I-Z-K9, C9130AXI-Z (440 units), CW9166I-Z (100 units)
@@ -354,7 +354,7 @@ class TestCH5SoftwareVersionAudit:
             pytest.fail(
                 "ISSUE-NO-SYNTHESIS: agent made tool calls but produced no synthesis text. "
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
-                f"See dev_docs/90. Output tail:\n{out[-600:]}"
+                f"See dev_docs/85. Output tail:\n{out[-600:]}"
             )
         out = out.lower()
         assert any(kw in out for kw in ("c9300", "9300", "catalyst")), (
@@ -406,7 +406,7 @@ class TestCH6APDensity:
             pytest.fail(
                 "ISSUE-NO-SYNTHESIS: agent made tool calls but produced no synthesis text. "
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
-                f"See dev_docs/90. Output tail:\n{out[-600:]}"
+                f"See dev_docs/85. Output tail:\n{out[-600:]}"
             )  # agent ran tool calls but teardown or delegation prevented synthesis
         out = out.lower()
         assert any(kw in out for kw in ("ehs2", "9300", "edge", "b1s1", "密度")), (
@@ -507,7 +507,7 @@ class TestCH8BlastRadius:
             pytest.fail(
                 "ISSUE-NO-SYNTHESIS: agent made tool calls but produced no synthesis text. "
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
-                f"See dev_docs/90. Output tail:\n{out[-600:]}"
+                f"See dev_docs/85. Output tail:\n{out[-600:]}"
             )
         out = out.lower()
         assert any(kw in out for kw in ("component", "partition", "部分", "断", "isolated", "孤立", "connected")), (
@@ -522,7 +522,7 @@ class TestCH8BlastRadius:
             pytest.fail(
                 "ISSUE-NO-SYNTHESIS: agent made tool calls but produced no synthesis text. "
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
-                f"See dev_docs/90. Output tail:\n{out[-600:]}"
+                f"See dev_docs/85. Output tail:\n{out[-600:]}"
             )
         out = out.lower()
         assert "alpha-dist" in out or "4500xv" in out or "4500xv-d" in out or "4500" in out, (
@@ -668,7 +668,7 @@ class TestCH12AdminHealthCheck:
             pytest.fail(
                 "ISSUE-NO-SYNTHESIS: agent made tool calls but produced no synthesis text. "
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
-                f"See dev_docs/90. Output tail:\n{out[-600:]}"
+                f"See dev_docs/85. Output tail:\n{out[-600:]}"
             )
         out = out.lower()
         assert any(kw in out for kw in ("health", "status", "ok", "running", "service",
@@ -711,7 +711,7 @@ class TestCH13AuditExplorer:
             pytest.fail(
                 "ISSUE-NO-SYNTHESIS: agent made tool calls but produced no synthesis text. "
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
-                f"See dev_docs/90. Output tail:\n{out[-600:]}"
+                f"See dev_docs/85. Output tail:\n{out[-600:]}"
             )
         out = out.lower()
         assert any(kw in out for kw in ("发现", "找到", "found", "issue", "问题", "异常",
@@ -728,7 +728,7 @@ class TestCH13AuditExplorer:
             pytest.fail(
                 "ISSUE-NO-SYNTHESIS: agent made tool calls but produced no synthesis text. "
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
-                f"See dev_docs/90. Output tail:\n{out[-600:]}"
+                f"See dev_docs/85. Output tail:\n{out[-600:]}"
             )
         out = out.lower()
         # Should name at least one device, model, or network construct from the demo data
@@ -772,7 +772,7 @@ class TestCH14DevopsScriptGen:
             pytest.fail(
                 "ISSUE-NO-SYNTHESIS: agent made tool calls but produced no synthesis text. "
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
-                f"See dev_docs/90. Output tail:\n{out[-600:]}"
+                f"See dev_docs/85. Output tail:\n{out[-600:]}"
             )
         out_lower = out.lower()
         assert any(kw in out_lower for kw in ("python", "script", "bash", "脚本", "生成", "备份",
@@ -788,7 +788,7 @@ class TestCH14DevopsScriptGen:
             pytest.fail(
                 "ISSUE-NO-SYNTHESIS: agent made tool calls but produced no synthesis text. "
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
-                f"See dev_docs/90. Output tail:\n{out[-600:]}"
+                f"See dev_docs/85. Output tail:\n{out[-600:]}"
             )
         # devops scripts sub-agent saves to exports/ (see SKILL.md — "Never just print scripts
         # to chat"). Accept either: Python code constructs in output OR saved-path indicator.
@@ -884,7 +884,7 @@ class TestCH15MemoryInjection:
             pytest.fail(
                 "ISSUE-NO-SYNTHESIS: agent made tool calls but produced no synthesis text. "
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
-                f"See dev_docs/90. Output tail:\n{out[-600:]}"
+                f"See dev_docs/85. Output tail:\n{out[-600:]}"
             )
         out_lower = out.lower()
         # Expert body: "Every Tuesday 22:00-02:00 CST"
@@ -902,7 +902,7 @@ class TestCH15MemoryInjection:
             pytest.fail(
                 "ISSUE-NO-SYNTHESIS: agent made tool calls but produced no synthesis text. "
                 "NL-CLI-SILENT-FINAL fallback triggered — small-model skipped final answer turn. "
-                f"See dev_docs/90. Output tail:\n{out[-600:]}"
+                f"See dev_docs/85. Output tail:\n{out[-600:]}"
             )
         out_lower = out.lower()
         # Expert body: "Emergency contact: james.chen@wwt.com"

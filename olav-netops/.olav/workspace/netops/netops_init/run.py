@@ -734,7 +734,7 @@ def _collect_cmd(nr, target, cmd, devices, snapshot_id, snapshot_date,
         # relationships intact.  Disable with OLAV_REDACTION=0 (or
         # api.json.redaction.enabled=false).  Failure mode is fail-open:
         # if netconan barfs we log + keep raw output rather than silently
-        # writing partial scrubs.  See ADR-0008 (forthcoming) / dev_docs/79.
+        # writing partial scrubs.  See ADR-0008 (forthcoming) / dev_docs/75.
         try:
             from olav.core.redaction import scrub as _redaction_scrub
             raw_output, _findings = _redaction_scrub(raw_output)

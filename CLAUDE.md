@@ -15,7 +15,7 @@ This is the `olav` root repository — the **platform base** (control plane, run
 
 ## Repo Boundary Rules
 
-Governance docs: `dev_docs/99. REPO_BOUNDARY_AND_OWNERSHIP.md` + [ADR-0002](docs/adr/0002-repo-boundary-ownership.md). Architecture policy decisions live in `docs/adr/` (see [ADR-0004](docs/adr/0004-new-top-level-agent-extension-policy.md) for the new top-level agent extension policy).
+Governance docs: `dev_docs/03. REPO_BOUNDARY_AND_OWNERSHIP.md` + [ADR-0002](docs/adr/0002-repo-boundary-ownership.md). Architecture policy decisions live in `docs/adr/` (see [ADR-0004](docs/adr/0004-new-top-level-agent-extension-policy.md) for the new top-level agent extension policy).
 
 **Allowed dependency directions:**
 - `olav-netops -> olav` (platform contract)
@@ -91,7 +91,7 @@ Root `docs/`, `web/`, `mkdocs.yml` have been removed. Do not recreate them.
 - Cloudflare Worker edge logic
 - R2 asset governance
 
-During the two-phase migration, `olav-doc/web/` and `olav-web/` coexist. Once `olav-web/` is stable, `olav-doc/web/` will be removed per the migration rules in `dev_docs/25.WEB_REPO_SPLIT_AND_CLOUDFLARE_ARCHITECTURE.md`.
+During the two-phase migration, `olav-doc/web/` and `olav-web/` coexist. Once `olav-web/` is stable, `olav-doc/web/` will be removed per the migration rules in `dev_docs/23. WEB_REPO_SPLIT_AND_CLOUDFLARE_ARCHITECTURE.md`.
 
 ## Workspace Layout
 

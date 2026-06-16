@@ -6,7 +6,7 @@ subprocess-mode graph loader at OLAV's factory.
 
 Before this patch, ``run_textual_app(server_kwargs=...)`` spawned a
 ``langgraph dev`` subprocess that loaded deepagents' own default
-``server_graph.py`` — ignoring OLAV entirely (see dev_docs/56 §10).
+``server_graph.py`` — ignoring OLAV entirely (see dev_docs/53 §10).
 
 The patch wraps ``deepagents_code.server_manager._scaffold_workspace``
 so after the default scaffolding runs, we rewrite the generated

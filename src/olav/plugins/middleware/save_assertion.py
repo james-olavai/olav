@@ -93,7 +93,7 @@ _SAVE_TOOLS = {
 }
 # Subagent names that internally save (their own tool calls are not
 # visible at the orchestrator level, but their delegation IS).
-# R85 (dev_docs/62 § "R85 inline-save"): writer is no longer
+# R85 (dev_docs/58 § "R85 inline-save"): writer is no longer
 # delegated for saves — every agent inherits format_and_export from
 # core and calls it directly.  The ``_delegated_to_writer`` /
 # ``_SAVE_DELEGATIONS`` rules now only cover audit-auditor + ops-lab,
@@ -436,7 +436,7 @@ class SaveAssertionMiddleware(OLAVMiddlewarePlugin):
         #       report-shaped Markdown).  This catches the silent-skip
         #       case where writer is delegated to but its small-model
         #       LLM responds with the diagram as text instead of
-        #       calling format_and_export.  R84 dev_docs/62.
+        #       calling format_and_export.  R84 dev_docs/58.
         claim = _looks_like_save_claim(assistant_content)
         delegated = _delegated_to_writer(messages)
         recoverable = (

@@ -52,7 +52,7 @@ class TestIngestSkillFrontMatter:
 
     def test_thinking_mode_enabled(self):
         """Format classification (rancid vs canonical bundle vs loose dump)
-        is fuzzy work; nothink mis-routes in repeated trials per dev_docs/80."""
+        is fuzzy work; nothink mis-routes in repeated trials per dev_docs/76."""
         fm = _parse_front_matter(_INGEST_DIR / "SKILL.md")
         assert fm["thinking_mode"] == "enabled"
 

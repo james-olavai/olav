@@ -1,6 +1,6 @@
 """External scratchpad — DB-backed memory for the explorer sub-agent.
 
-Three primitives, each with strict input validation.  See dev_docs/83
+Three primitives, each with strict input validation.  See dev_docs/78
 §4 for the full design contract.
 
 Anti-fabrication invariants enforced HERE (in Python) AND at the DB

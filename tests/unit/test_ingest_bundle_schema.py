@@ -1,6 +1,6 @@
 """P1a — Pydantic models for the portable-ingest bundle contract.
 
-Validates the schema declared in ``dev_docs/80 §3``:
+Validates the schema declared in ``dev_docs/76 §3``:
 
   * ``Manifest`` (manifest.yaml) — schema_version, collector, hosts_collected,
     redaction (pre_scrubbed/salt_fingerprint), content_sha256.

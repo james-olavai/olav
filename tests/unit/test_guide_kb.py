@@ -2,7 +2,7 @@
 
 Pins the contract for ``olav.core.memory.guide_kb`` after moving
 ``UsageGuide`` / ``discover_guides`` / ``prime_guides_from_dir`` from
-``olav_netops.core``.  See dev_docs/62 § "Platform-KB refactor".
+``olav_netops.core``.  See dev_docs/58 § "Platform-KB refactor".
 
 Mirrors ``tests/unit/test_uks_import.py`` patterns:
 * ``LanceDBStore(db_path=..., embedding_dim=32)`` for tmp store

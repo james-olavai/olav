@@ -1,6 +1,6 @@
 """Workspace top-level agent compliance tests.
 
-Post-dev_docs/85 (ops→netops rename, services→admin rename):
+Post-dev_docs/80 (ops→netops rename, services→admin rename):
 
 * ``admin/``          — platform self-management (formerly services/)
 * ``audit/``          — audit orchestrator (platform)
@@ -13,7 +13,7 @@ Post-dev_docs/85 (ops→netops rename, services→admin rename):
 Deleted in ARCH-20 Phase 1 (v0.17 residuals):
   audit-auditor, audit-designer, config, gitea, infra
 
-Renamed in dev_docs/85 (v0.11.0):
+Renamed in dev_docs/80 (v0.11.0):
   services → admin
   ops (main) → netops
   devops re-added as live top-level agent
@@ -27,7 +27,7 @@ from pathlib import Path
 WORKSPACE = Path(__file__).resolve().parents[2] / ".olav" / "workspace"
 
 
-# Directories that must not exist (deleted in ARCH-20 Phase 1 + dev_docs/85)
+# Directories that must not exist (deleted in ARCH-20 Phase 1 + dev_docs/80)
 _REMOVED_AGENTS = frozenset(
     {
         "audit-auditor",
@@ -37,16 +37,16 @@ _REMOVED_AGENTS = frozenset(
         "infra",
         # NOTE: "services" removed from removed-set — ADR-0014 reclaimed the
         # name for the platform service-lifecycle agent. The old self-mgmt
-        # services became `admin` (dev_docs/85); admin present = old one gone.
+        # services became `admin` (dev_docs/80); admin present = old one gone.
         "command_learner",  # → netops/learner/ (2026-05-20)
     }
 )
 
-# Current canonical top-level set (post dev_docs/85 ops→netops rename;
+# Current canonical top-level set (post dev_docs/80 ops→netops rename;
 # ADR-0014 added platform `services`).
 _EXPECTED_TOP_LEVEL_DIRS = frozenset(
     {
-        "admin",           # formerly the self-mgmt services/ (dev_docs/85)
+        "admin",           # formerly the self-mgmt services/ (dev_docs/80)
         "audit",
         "core",
         "devops",

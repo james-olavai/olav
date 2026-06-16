@@ -1,4 +1,4 @@
-"""TDD (dev_docs/77 §2.6.2): sub-agents that declare their own `subagents:`
+"""TDD (dev_docs/73 §2.6.2): sub-agents that declare their own `subagents:`
 field in SKILL.md must be built via `create_deep_agent` (not
 `create_agent`), so deepagents `SubAgentMiddleware` auto-injects a
 `task(description, subagent_type)` tool for cross-domain delegation.

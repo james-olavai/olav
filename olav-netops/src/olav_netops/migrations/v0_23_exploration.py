@@ -1,4 +1,4 @@
-"""Migration v0.23: explorer sub-agent scratchpad tables (dev_docs/83).
+"""Migration v0.23: explorer sub-agent scratchpad tables (dev_docs/78).
 
 Adds two tables in the netops schema:
 
@@ -6,7 +6,7 @@ Adds two tables in the netops schema:
   * ``netops.exploration_findings`` — per-finding scratchpad (external memory)
 
 The explorer sub-agent is a Level-2 autonomous network audit agent
-(see dev_docs/83 §2): the LLM acts as a senior architect, picks its
+(see dev_docs/78 §2): the LLM acts as a senior architect, picks its
 own investigation directions, and writes findings to these tables.
 
 DDL invariants enforced here (anti-fabrication):

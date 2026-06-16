@@ -5,7 +5,7 @@ Loads .olav/config/services.yaml and exposes ServiceConfig objects.
 Singleton pattern: use ServiceRegistry.get_instance() to avoid repeated
 YAML parsing across tool calls in the same process.
 
-Reference: dev_docs/16. SERVICE_REGISTRY_DESIGN.md §Phase1
+Reference: dev_docs/archive/19. SERVICE_REGISTRY_DESIGN.md §Phase1
 """
 
 from __future__ import annotations

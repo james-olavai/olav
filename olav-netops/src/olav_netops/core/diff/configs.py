@@ -1,6 +1,6 @@
 """Config diff helper — compare raw CLI outputs between snapshots.
 
-R-VERTICAL-SLICE 2026-05-09 (dev_docs/74): rewritten to read from
+R-VERTICAL-SLICE 2026-05-09 (dev_docs/70): rewritten to read from
 ``netops.raw_output_store`` instead of ``exports/snapshots/...``
 filesystem.  The DB table is the canonical raw-fallback (RAW-05);
 filesystem snapshots are an optional export, often empty.  Reading

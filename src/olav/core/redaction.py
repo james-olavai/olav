@@ -8,7 +8,7 @@ similar credentials; leaves IPs / hostnames / ASNs / BGP relationships
 / interface names intact so downstream diagnostic + diff analysis
 still works on the redacted output.
 
-Design (dev_docs/79 + ADR-0008 forthcoming):
+Design (dev_docs/75 + ADR-0008 forthcoming):
 
 * **Where**:  redaction happens *at collection time* inside
   ``_collect_cmd`` (olav-netops/netops_init/run.py) before the row

@@ -23,7 +23,7 @@ Registration is idempotent and side-effect-only — importing this
 package once at OLAVAgent construction time is enough.  Re-registering
 under the same key merges on top (deepagents 0.5.4+ semantics).
 
-Per dev_docs/77 R88-A / R89 / R90 the architectural fix for small-model
+Per dev_docs/73 R88-A / R89 / R90 the architectural fix for small-model
 adherence issues is *structural*, not "use a bigger model".  Profiles
 are how that structural fix gets declared.
 """

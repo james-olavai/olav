@@ -2,7 +2,7 @@
 
 **Status**: Accepted
 **Date**: 2026-05-10
-**Round**: R-VERTICAL-SLICE closeout (dev_docs/74)
+**Round**: R-VERTICAL-SLICE closeout (dev_docs/70)
 
 ## Context
 
@@ -15,7 +15,7 @@ by turn 30, it hallucinates non-existent sub-agent names; by turn 40,
 it loops on the same tool with pattern variations indefinitely.
 
 The R-VERTICAL-SLICE work (Phase 0 hybrid-thinking canary → 19 commits
-of unscoped chain reactions, dev_docs/74) demonstrated empirically that
+of unscoped chain reactions, dev_docs/70) demonstrated empirically that
 the highest-ROI improvements live in the **data and tool layer**, not
 in prompt engineering.  Same model, same prompt: starting state
 produced "no BGP sessions" (wrong); ending state produced
@@ -181,14 +181,14 @@ audit when a behavior fails.
   final answer until all required sub-agents have been called?
 - Governance: a quality test that scans every `@tool` for the
   uniform error envelope shape (status / error_kind / message).
-- dev_docs/74 closeout section — empirical results of applying
+- dev_docs/70 closeout section — empirical results of applying
   these principles end-to-end.
 - Future model upgrades (gemma5? qwen4?) should ratchet up — these
   principles ALSO apply to bigger models, just less critically.
 
 ## Appendix — Empirical evidence
 
-The 16 principles emerged from a single session (dev_docs/74,
+The 16 principles emerged from a single session (dev_docs/70,
 2026-05-09 → 2026-05-10) of 19 commits.  Each principle is tied
 to a specific bug fix or improvement:
 

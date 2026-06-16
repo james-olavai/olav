@@ -1,4 +1,4 @@
-"""Recall hit-rate bench (P0c — dev_docs/62 R84 Phase 1.5b).
+"""Recall hit-rate bench (P0c — dev_docs/58 R84 Phase 1.5b).
 
 Independent of agent runs.  Tests memory retrieval quality directly:
 given a representative set of natural-language queries with known
@@ -14,7 +14,7 @@ Run via either:
 or as a script for CSV output:
     python tests/integration/test_recall_hit_rate.py --json /tmp/hitrate.json
 
-Targets (per dev_docs/61 § "Measurement"):
+Targets (per dev_docs/57 § "Measurement"):
 * top-1 hit rate ≥ 70% — guide directly recommended is correct
 * top-3 hit rate ≥ 90% — agent will see correct guide in injected block
 * top-5 hit rate ≥ 95% — failure modes mostly limited to truly

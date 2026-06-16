@@ -1,7 +1,7 @@
 """
 TDD: deepagents 0.6.7 集成清理 + on_evaluation 回调
 
-dev_docs/92. DEEPAGENTS_067_FEATURES_AND_OLAV_INTEGRATION.md
+dev_docs/87. DEEPAGENTS_067_FEATURES_AND_OLAV_INTEGRATION.md
 
 验收标准：
   1. _deepagents_bridge 中的版本门控常量在 _DA_MIN=0.6.7 下永远为 True
@@ -220,5 +220,5 @@ def test_version_gate_constants_are_literals_not_comparisons():
     assert not stale_comparisons, (
         f"以下版本门控常量仍使用 _DA_VERSION >= V(...) 比较式，应替换为字面量 True:\n"
         f"{stale_comparisons}\n"
-        f"(dev_docs/92 §4.1)"
+        f"(dev_docs/87 §4.1)"
     )

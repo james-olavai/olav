@@ -1,7 +1,7 @@
 """``batfish_capability`` — pre-flight check for Batfish vendor support
 in a netops snapshot's device scope.
 
-Two-layer answer (per dev_docs/77 §2 follow-up):
+Two-layer answer (per dev_docs/73 §2 follow-up):
 
   1. **Static map** ``BATFISH_VENDOR_SUPPORT`` — known vendor parser
      coverage in upstream Batfish.  Used to predict whether a query

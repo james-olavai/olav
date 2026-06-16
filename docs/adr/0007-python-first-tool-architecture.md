@@ -183,9 +183,9 @@ tool ships as a Python function instead.
 
 * `dev_docs/00 § ISSUE-MCP-OVER-TOOLING` — full architectural
   reflection + audit table.
-* `dev_docs/64 § Type B classification` — the prior pattern this
+* `dev_docs/60 § Type B classification` — the prior pattern this
   ADR generalises.
-* R88-B v1 → v5 closed-loop log (in `dev_docs/64`) — the original
+* R88-B v1 → v5 closed-loop log (in `dev_docs/60`) — the original
   small-model adherence problem that motivated the deterministic
   generators in the first place.
 * CLAUDE.md (local-only) — repeats the rule for live sessions.

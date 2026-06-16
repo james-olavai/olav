@@ -230,7 +230,7 @@ class LLMFactory:
         # unknown body keys so this is safe to send unconditionally
         # when set.
         # Per-agent thinking_mode override beats global env var.  R-VERTICAL-
-        # SLICE Phase 0 (2026-05-09, dev_docs/74): hybrid thinking — orchestrator
+        # SLICE Phase 0 (2026-05-09, dev_docs/70): hybrid thinking — orchestrator
         # gets reasoning ON for planning, sub-agents OFF for fast tool calls.
         # ``thinking_mode`` precedence:
         #   "enabled"  → reasoning ON  (overrides env var)

@@ -15,7 +15,7 @@ Requires approval:
   - DuckDB mutations: DELETE/DROP/INSERT/UPDATE/TRUNCATE/CREATE/ALTER in .execute()
   - curl/wget with write methods in subprocess calls
 
-Reference: dev_docs/19. SANDBOX_TOOL_REFACTOR.md §security
+Reference: dev_docs/18. SANDBOX_TOOL_REFACTOR.md §security
 """
 
 from __future__ import annotations

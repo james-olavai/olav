@@ -11,7 +11,7 @@ Migration history:
 - Post-M2: ``.olav/workspace/netops/config/nornir/config.yaml`` (workspace)
 - Post-M3: ``.olav/workspace/netops/probe/config/nornir/config.yaml``
 - Post-R32 (ADR-0005): ``.olav/workspace/netops/collect/config/nornir/config.yaml``
-- Post-R-AGENT-HIERARCHY Phase A (2026-05-09 dev_docs/73): the orchestrator
+- Post-R-AGENT-HIERARCHY Phase A (2026-05-09 dev_docs/69): the orchestrator
   workspace dir was renamed ``ops/`` → ``netops/``; this resolver was
   missed in that rename and reverted by 2026-05-09 follow-up — the
   active path is now ``.olav/workspace/netops/collect/config/nornir/config.yaml``.

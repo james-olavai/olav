@@ -115,7 +115,7 @@ class AutoRecallMiddleware:
         # goal is keeping the smallest-tier run from burning its last 1-2K
         # tokens on historical hints instead of the live task.
         self._budget_monitor = budget_monitor
-        # R87 Phase 1.5 (dev_docs/63): the active agent's name (e.g.
+        # R87 Phase 1.5 (dev_docs/59): the active agent's name (e.g.
         # ``ops-lab``).  When set, expert_knowledge entries are filtered
         # by ``scope IN (current_agent, shared:<domain>, org)`` — so
         # SRL lab knowledge stays out of writer / core / audit recalls.
@@ -233,7 +233,7 @@ class AutoRecallMiddleware:
         # Strict mode (R99/S2): every required field must be explicit in
         # api.json.  Silent fallback to the Ollama-as-bi-encoder path
         # (which doesn't yield true cross-encoder semantics — see
-        # dev_docs/67) caused the "looks running but actually broken"
+        # dev_docs/63) caused the "looks running but actually broken"
         # trap we hit twice.  No defaults; missing fields → log + skip.
         kind = cfg.get("kind")
         base_url = cfg.get("base_url")
@@ -291,7 +291,7 @@ class AutoRecallMiddleware:
             elif kind == "ollama":
                 # Legacy: Ollama-served reranker model used as
                 # bi-encoder over /api/embeddings.  Does NOT yield true
-                # cross-encoder semantics — see dev_docs/67.  Requires
+                # cross-encoder semantics — see dev_docs/63.  Requires
                 # 'model' field.
                 model_name = cfg.get("model")
                 if not model_name:
@@ -346,7 +346,7 @@ class AutoRecallMiddleware:
     # Per-category hard caps — entries beyond the cap are dropped.
     # ``query_pattern`` is the noisy category: repeat-asked questions
     # accumulate near-duplicate entries that all rank near the top of
-    # hybrid search.  CC-1c (dev_docs/62 § "CC-1c"): cap raised 1 → 2.
+    # hybrid search.  CC-1c (dev_docs/58 § "CC-1c"): cap raised 1 → 2.
     # The original cap=1 paired with an empty quota meant captured SQL
     # never reached the agent for queries with ≥1 captured pattern;
     # cap=2 + quota=2 (below) gives the agent a reliable foothold of
@@ -416,7 +416,7 @@ class AutoRecallMiddleware:
         # primed from *.format.yaml.  Top-1 most-relevant format hits
         # the prompt; the agent uses it for the format_and_export call.
         "format_guide": 1,
-        # R87 Phase 1 → 1.5 (dev_docs/63) — vendor / platform-specific
+        # R87 Phase 1 → 1.5 (dev_docs/59) — vendor / platform-specific
         # expert knowledge.  Per-agent scoped via the YAML's ``scope``
         # field.  Phase 1.5 grants 3 slots (was 1) so the diversifier
         # can reserve one slot for each scope tier:
@@ -448,7 +448,7 @@ class AutoRecallMiddleware:
     # ABOVE this value as too weak to inject.  Empty until we have
     # confidence the gating doesn't side-effect agent behaviour.
     #
-    # Phase 1.5b experiment (dev_docs/62): set ``usage_guide: 1.6`` to
+    # Phase 1.5b experiment (dev_docs/58): set ``usage_guide: 1.6`` to
     # filter Chinese-positive vs English-negative overlap (probe data
     # at tests/integration/test_recall_hit_rate.py).  N=5 bench then
     # showed C4-topo correctness flipped 100% → 0% — but a follow-up
@@ -528,7 +528,7 @@ class AutoRecallMiddleware:
         if query_vector:
             allowed_expert_scopes = self._allowed_expert_scopes()
             for cat, n in self._CATEGORY_FETCH.items():
-                # R87 Phase 1.5 (dev_docs/63): ``expert_knowledge`` is
+                # R87 Phase 1.5 (dev_docs/59): ``expert_knowledge`` is
                 # filtered by ``scope IN (current_agent, shared:<domain>,
                 # org)`` when ``current_agent`` is known.  The store API
                 # takes a single scope string, so we over-fetch with no

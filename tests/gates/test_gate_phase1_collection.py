@@ -11,7 +11,7 @@ collection pipeline.
 Run with:
     uv run pytest tests/gates/test_gate_phase1_collection.py -v
 
-Design reference: dev_docs/07. OPENCONFIG_SCHEMA_DESIGN.md §0 (Phase 1)
+Design reference: dev_docs/10. OPENCONFIG_SCHEMA_DESIGN.md §0 (Phase 1)
 """
 
 from __future__ import annotations

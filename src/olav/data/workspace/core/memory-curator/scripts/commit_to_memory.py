@@ -21,7 +21,7 @@ This tool exists for the ``memory-curator`` sub-agent only.  Everything
 it does is reachable via lower-level Python (``prime_guides_from_dir``,
 ``LanceDBStore.add_memory``) — the sub-agent surface is a UX wrapper.
 
-See ``dev_docs/70 R102_CONVERSATIONAL_MEMORY_INGESTION_SUBAGENT.md``
+See ``dev_docs/66. R102_CONVERSATIONAL_MEMORY_INGESTION_SUBAGENT.md``
 for the design + decision log.
 """
 from __future__ import annotations
@@ -120,7 +120,7 @@ def _write_kb_audit_row(
 ) -> Path:
     """Write one ``kb_audit/<ts>_<verb>_<intent>.yaml`` audit row.
 
-    dev_docs/79: every KB-mutating action (commit / remove) appends one
+    dev_docs/75: every KB-mutating action (commit / remove) appends one
     YAML file to ``<workspace>/kb_audit/`` so the change record is git-
     trackable + grep-able six months later.  Distinct from the
     ``audit.duckdb`` row written by the tool-call middleware (which
@@ -180,7 +180,7 @@ def _commit_usage_guide(
     guides_dir.mkdir(parents=True, exist_ok=True)
     guide_path = guides_dir / f"{intent}.guide.yaml"
 
-    # 2026-05-15 (dev_docs/79): R102 conversational commits always
+    # 2026-05-15 (dev_docs/75): R102 conversational commits always
     # carry source_tier: user — the lowest-trust band so user-spoken
     # rules can't outrank platform / team / vendor guides in retrieval.
     # Promotion to team/platform tier is via git PR, not via the

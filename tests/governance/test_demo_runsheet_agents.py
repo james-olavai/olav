@@ -1,7 +1,7 @@
 """Rounds 21-22 — user-facing docs must only invoke live agents.
 
 Scope:
-* Round 21 covered ``dev_docs/42. DEMO_RUNSHEET.md`` (customer demo runbook).
+* Round 21 covered ``dev_docs/archive/42. DEMO_RUNSHEET.md`` (customer demo runbook).
 * Round 22 adds ``README.md`` + ``src/README_ZH.md`` (shipped with the pip
   package — the first thing new users copy/paste).
 
@@ -23,8 +23,8 @@ from pathlib import Path
 
 
 REPO = Path(__file__).resolve().parents[2]
-DEMO_RUNSHEET = REPO / "dev_docs" / "42. DEMO_RUNSHEET.md"
-DEMO_RUNSHEET_82 = REPO / "dev_docs" / "82. DEMO_INBOX_PROD_RUNSHEET.md"
+DEMO_RUNSHEET = REPO / "dev_docs" / "archive" / "42. DEMO_RUNSHEET.md"
+DEMO_RUNSHEET_82 = REPO / "dev_docs" / "77. DEMO_INBOX_PROD_RUNSHEET.md"
 WORKSPACE = REPO / ".olav" / "workspace"
 
 # Shipped with the pip package — first examples new users see.
@@ -39,7 +39,7 @@ USER_FACING_DOCS = (
 # Explicit allowlist — must match real top-level agent directories under
 # .olav/workspace/ (excluding PLATFORM.md which is a file, not a dir).
 # Update this set whenever you add, rename, or delete a top-level agent.
-# Current state (dev_docs/85 AGENT_ARCHITECTURE_V2):
+# Current state (dev_docs/80 AGENT_ARCHITECTURE_V2):
 #   admin          — platform self-management (renamed from services)
 #   audit          — audit orchestrator (runner/author/curator/explorer)
 #   core           — cross-domain orchestrator
@@ -65,7 +65,7 @@ DELETED_AGENTS: frozenset[str] = frozenset({
     "infra",               # → services (Round 16 Step A + ARCH-20 P1)
     # NOTE: "services" is NOT deleted — ADR-0014 reclaimed the name for the
     # platform service-lifecycle agent (docker/CLAB deploy, register, api).
-    # The *old* self-mgmt services became `admin` (dev_docs/85); that one
+    # The *old* self-mgmt services became `admin` (dev_docs/80); that one
     # stays gone, but it's tracked by name=admin now.
     "gitea",               # removed (ARCH-20 P1)
     "config",              # → core/admin/ (ARCH-20 P1)

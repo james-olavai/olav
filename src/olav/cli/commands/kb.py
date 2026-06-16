@@ -497,7 +497,7 @@ def cmd_backfill_tags(args) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-# ── 2026-05-15 (dev_docs/79) — enterprise KB lifecycle commands ──────
+# ── 2026-05-15 (dev_docs/75) — enterprise KB lifecycle commands ──────
 
 def _find_guide(
     workspace_root: Path,
@@ -813,7 +813,7 @@ def build_kb_parser(parent_subparsers) -> argparse.ArgumentParser:
     bft.add_argument("--batch-size", type=int, default=50, dest="batch_size")
     bft.add_argument("--dry-run", action="store_true", dest="dry_run", help="Preview only")
 
-    # 2026-05-15 (dev_docs/79): enterprise lifecycle commands ──────────
+    # 2026-05-15 (dev_docs/75): enterprise lifecycle commands ──────────
     rm = kb_sub.add_parser(
         "remove",
         help="Remove a usage_guide by intent — writes tombstone YAML + "

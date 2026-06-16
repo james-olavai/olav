@@ -35,7 +35,7 @@ def test_resolve_top_k_uses_tier_defaults(monkeypatch):
     _Cfg.model_tier = "large"
     # R83.4 follow-up: large-tier recall_top_k bumped 3 → 8 to give the
     # diversifier headroom for cross-platform schema/value entries.
-    # Phase 1 (dev_docs/61): bumped 8 → 13 to fit the usage_guide quota
+    # Phase 1 (dev_docs/57): bumped 8 → 13 to fit the usage_guide quota
     # alongside schema (5) + value (5) + usage_guide (3) = 13.
     assert recall._resolve_top_k() == 13
 

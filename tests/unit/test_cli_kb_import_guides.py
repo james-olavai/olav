@@ -1,7 +1,7 @@
 """Platform CLI — `olav kb import-guides <dir>` — TDD red bar.
 
 Pin the contract for the new CLI subcommand added in
-``src/olav/cli/commands/kb.py``.  See dev_docs/62 § "Platform-KB
+``src/olav/cli/commands/kb.py``.  See dev_docs/58 § "Platform-KB
 refactor".
 
 The CLI scans a directory for ``*.guide.yaml`` files and primes them

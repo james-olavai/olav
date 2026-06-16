@@ -2,7 +2,7 @@
 
 Post-R65 (ARCH-23) trimmed core from 7 → 3 cross-domain tools.
 
-R85 (dev_docs/62 § "R85 inline-save") promotes ``format_and_export``
+R85 (dev_docs/58 § "R85 inline-save") promotes ``format_and_export``
 back to a shared core capability.  The cross-agent delegation to
 writer was a workaround for unreliable small-model multi-step; now
 that memory recall surfaces both usage_guide and query_pattern, the
@@ -38,7 +38,7 @@ ADMIN_EDITOR_TOOLS = WORKSPACE / "admin" / "editor" / "scripts"
 WRITER_TOOLS = WORKSPACE / "core" / "writer" / "scripts"
 
 
-# Current runtime core surface (dev_docs/85+): 5 tools.
+# Current runtime core surface (dev_docs/80+): 5 tools.
 # ADR-0008 (2026-05-21): execute_skill_script added as the native deepagents
 # skill executor — replaces the former custom _make_script_tool wrapper.
 _EXPECTED_CAPABILITIES: tuple[str, ...] = (

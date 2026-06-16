@@ -1,7 +1,7 @@
 """generate_network_overview.py — write a per-deployment Network
 Overview guide that the LLM sees on every netops query.
 
-R-VERTICAL-SLICE 2026-05-10 (dev_docs/74).  Eliminates the
+R-VERTICAL-SLICE 2026-05-10 (dev_docs/70).  Eliminates the
 "discovery loop" failure mode where the LLM has to call
 inspect_devices + inspect_topology + inspect_routing 3 times before
 it even knows the network shape.

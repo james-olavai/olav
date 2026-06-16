@@ -180,7 +180,7 @@ def _apply_sessions_migration(conn) -> None:
 
 
 def _apply_collection_source_migration(conn) -> None:
-    """Idempotently add ``audit_runs.collection_source`` (v0.22, dev_docs/80)."""
+    """Idempotently add ``audit_runs.collection_source`` (v0.22, dev_docs/76)."""
     from olav.core.migrations.v0_22_audit_collection_source import (
         apply_migration,
     )

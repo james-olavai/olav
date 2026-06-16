@@ -1,6 +1,6 @@
 """Migration v0.22: portable-snapshot-ingest schema additions (netops DB).
 
-Backs the portable-snapshot-ingest design (``dev_docs/80``).
+Backs the portable-snapshot-ingest design (``dev_docs/76``).
 
 Adds:
 

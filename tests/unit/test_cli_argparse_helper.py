@@ -5,7 +5,7 @@ Unit coverage for src/olav/cli/commands/_argparse.py.
 
 ``parse_subcommand_args`` is the shared helper that replaces the
 repeated ``import shlex; shlex.split(args.strip() or '')`` pattern in
-~10 CLI command modules (audit in dev_docs/53 §12.1 Phase 3 cleanup).
+~10 CLI command modules (audit in dev_docs/50 §12.1 Phase 3 cleanup).
 Centralising it:
 
   - lets every subcommand handle ``None`` / empty / whitespace-only

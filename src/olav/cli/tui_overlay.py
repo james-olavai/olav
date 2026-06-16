@@ -476,7 +476,7 @@ def _patch_welcome_footer() -> bool:
             # NOTE: signature must track deepagents_code.widgets.welcome.
             # build_welcome_footer — 0.1.8 added `show_tip`.  `**_kwargs`
             # absorbs future additions so the TUI degrades gracefully instead
-            # of crashing in WelcomeBanner.compose (dev_docs/104; the cli→code
+            # of crashing in WelcomeBanner.compose (dev_docs/93; the cli→code
             # migration missed this kwarg).
             cta = ("\nOLAV ready — explore, audit, or schedule. "
                    "What's next on the network?\n")

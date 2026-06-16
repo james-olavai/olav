@@ -116,7 +116,7 @@ _ORCH_TAG = re.compile(r"🔧\[orch\]")
 _ANY_TOOL_TAG = re.compile(r"🔧 ")
 # Per-iteration markers emitted by ``run_single_query`` when the CLI's
 # ``--repeat N`` flag is set.  See ``src/olav/cli/main.py`` (Phase 1.5
-# step 3 in dev_docs/62).
+# step 3 in dev_docs/58).
 _RUN_ELAPSED_RE = re.compile(r"=== run (\d+) elapsed ([\d.]+)s ===")
 _SAVE_ASSERTION_FIRED = re.compile(
     r"Auto-recovered|Save assertion warning", re.IGNORECASE
@@ -222,7 +222,7 @@ def measure(
         runs_per_query=runs_per_query,
     )
 
-    # CC-1 (dev_docs/62): drop accumulated query_pattern rows before
+    # CC-1 (dev_docs/58): drop accumulated query_pattern rows before
     # measurement so consecutive bench runs are comparable.  Without
     # this, day-over-day numbers drift purely from agent-captured SQL
     # templates accumulating in the diversifier's top-13.  Preserves
@@ -335,7 +335,7 @@ def main() -> None:
     ap.add_argument(
         "--runs", type=int, default=5,
         help="Runs per query (default 5; N≥5 keeps Q4 std ≤±3 — see "
-             "dev_docs/62 Phase 1.5 N=5 retest for why N=3 was insufficient).",
+             "dev_docs/58 Phase 1.5 N=5 retest for why N=3 was insufficient).",
     )
     ap.add_argument(
         "--demo-dir",

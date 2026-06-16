@@ -6,7 +6,7 @@ deepagents' default tool injection:
 
 * Reaches for ``write_todos`` / ``ls`` / ``read_file`` even when
   not needed (the "plan-loop tail" — see R88-A / R89 / R90 in
-  dev_docs/77).
+  dev_docs/73).
 * Generates multi-paragraph PLAN narratives before issuing the
   next tool call, burning context budget on prose.
 * Batches parallel tool calls unreliably.

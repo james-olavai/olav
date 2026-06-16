@@ -2,7 +2,7 @@
 
 Guards three mechanical invariants that are the observable shadow of
 "don't return multiple data sources in one shot" (the full principle
-text lives at ``dev_docs/ARCH-16_FAN_OUT_PRINCIPLE.md``):
+text lives at ``dev_docs/95. ARCH-16_FAN_OUT_PRINCIPLE.md``):
 
 1. ``olav_recall_memory`` does NOT hard-code a ``top_k`` constant — the
    default must resolve through ``tier_default`` (ARCH-18 #3).
@@ -22,7 +22,7 @@ import pytest
 from tests.governance._paths import NETOPS_TOOLS
 
 REPO = Path(__file__).resolve().parents[2]
-PRINCIPLE_DOC = REPO / "dev_docs" / "ARCH-16_FAN_OUT_PRINCIPLE.md"
+PRINCIPLE_DOC = REPO / "dev_docs" / "95. ARCH-16_FAN_OUT_PRINCIPLE.md"
 
 
 def test_principle_doc_exists_and_is_substantive():
