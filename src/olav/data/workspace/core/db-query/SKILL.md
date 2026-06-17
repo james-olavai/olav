@@ -14,7 +14,7 @@ references:
   - path: ./references/RAW_FALLBACK.md
 metadata:
   category: database-query
-  rubric_middleware: true
+  deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM active grader (replaces dormant rubric_middleware no-op)
   type: agent
   version: 1.0.0
 ---

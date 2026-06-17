@@ -100,6 +100,7 @@ Renumbered to a clean sequence. `00` = architectural issue/decision tracker (sta
 | 93 | `DEMO_E2E_RESULTS.md` | 93. Demo-Env Full E2E Validation — Results & Problems |
 | 94 | `BUSINESS_MODEL.md` | OLAV Business Model — Tools + Services, Not Content Vendor |
 | 95 | `ARCH-16_FAN_OUT_PRINCIPLE.md` | ARCH-16 — Anti-Fan-Out Principle |
+| 96 | `CLAB_NATIVE_IMAGE_SCAN_AND_FIDELITY_TIERS.md` | 96. CLAB redesign — native-image fidelity tiers, scan-only image policy, deterministic twin (supersedes SRL-universal assumption in 73/74) |
 
 ## Archive (superseded)
 

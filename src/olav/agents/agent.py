@@ -1345,6 +1345,31 @@ class OLAVAgent:
                 except Exception as _re:
                     logger.warning(f"  ! RubricMiddleware init failed for '{name}': {_re}")
 
+            # dev_docs/97: deterministic (zero-LLM) synthesis grader. Unlike
+            # RubricMiddleware — which is a no-op on sub-agents because
+            # state["rubric"] is only injected on the top-level invocation
+            # (agent.py ainvoke, gated on synthesis_rubric) — this grader
+            # actually fires on every natural stop and costs zero model calls.
+            # NOTE: sub-agent SKILL.md nests flags under a ``metadata:`` block,
+            # so ``post.metadata`` exposes them one level down (top-level keys are
+            # name/description/scripts/tools/references/metadata). Read both levels
+            # so the flag works regardless of placement. (The pre-existing
+            # ``rubric_middleware`` branch above only checks the top level, which
+            # is why it never fires for sub-agents — see dev_docs/97 §2.)
+            _sa_meta_block = metadata.get("metadata") if isinstance(metadata.get("metadata"), dict) else {}
+            if metadata.get("deterministic_synthesis_grader") or _sa_meta_block.get("deterministic_synthesis_grader"):
+                try:
+                    from olav.agents.deterministic_grader import (
+                        DeterministicSynthesisMiddleware,
+                    )
+                    _middleware.append(DeterministicSynthesisMiddleware(
+                        agent_name=name,
+                        on_evaluation=_make_rubric_callback(name),
+                    ))
+                    logger.info(f"  → '{name}' DeterministicSynthesisMiddleware enabled (zero-LLM grader)")
+                except Exception as _de:
+                    logger.warning(f"  ! DeterministicSynthesisMiddleware init failed for '{name}': {_de}")
+
             # dev_docs/73 §2.6.2: a sub-agent that itself declares
             # ``subagents:`` in its SKILL.md needs deepagents'
             # ``SubAgentMiddleware`` to inject the ``task`` tool so it
