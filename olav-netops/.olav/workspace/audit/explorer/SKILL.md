@@ -30,7 +30,7 @@ metadata:
   category: network-autonomous-audit
   enable_todo_list: true
   intent: open_ended_network_health_exploration
-  rubric_middleware: true
+  deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM active grader (was dormant rubric_middleware)
   type: agent
   version: 0.3.0
 name: explorer
