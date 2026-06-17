@@ -365,6 +365,23 @@ shadowed test is a test that silently stopped guarding) and
 `tests/governance/test_workspace_drift_gate.py` (drift detection on
 every governance run, not on demand).
 
+**Graders/middleware are wiring too — prove they fire.** A verification
+loop can be silently dead while *looking* enabled. Two real traps
+(dev_docs/97): (1) sub-agent SKILL.md flags nest under `metadata:`, but
+`_build_subagents` reads `metadata.get(<flag>)` at the **top** level, so
+a flagged middleware may **never be instantiated** (this left
+`rubric_middleware` inert on every sub-agent); (2) `RubricMiddleware` is
+a **no-op unless `state["rubric"]` is set**, which only
+`synthesis_rubric: true` does, and only on the top-level agent. Before
+calling an agent "verified", confirm the grader **actually fires from a
+real invocation** (log line / `on_evaluation` callback), not that the
+flag is present. And prefer **deterministic, zero-LLM graders**
+(`DeterministicSynthesisMiddleware`) over LLM rubrics for small models —
+an LLM grading an LLM costs a full round-trip and burns context on every
+stop; reserve LLM graders for "done" criteria a Python predicate
+genuinely cannot express. (Loop-engineering L2: deterministic grader >
+LLM grader, same as memory-steering > prompt-editing.)
+
 ## Signal hygiene: keep governance + unit at 0 failures
 
 Never tolerate a "known/pre-existing failure" backlog. A 48-failure
