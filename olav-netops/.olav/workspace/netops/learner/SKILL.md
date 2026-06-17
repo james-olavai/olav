@@ -9,7 +9,7 @@ description: 'Parser-layer learning for CLI output. Takes raw device output the 
 llm:
   temperature: 0.0
 metadata:
-  rubric_middleware: true
+  deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM active grader (was dormant rubric_middleware)
   category: network-operations
   required_params:
     batch:
