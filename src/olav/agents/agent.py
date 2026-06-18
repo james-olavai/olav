@@ -1356,16 +1356,23 @@ class OLAVAgent:
             # so the flag works regardless of placement. (The pre-existing
             # ``rubric_middleware`` branch above only checks the top level, which
             # is why it never fires for sub-agents — see dev_docs/97 §2.)
+            # _det_grader_mw is kept in a variable (not only appended to
+            # _middleware) so the recursive create_deep_agent branch below can
+            # also pass it: create_deep_agent owns the full built-in stack and
+            # rejects DUPLICATE middleware, but a custom grader it does not add
+            # is safe to pass via its ``middleware=`` param.
+            _det_grader_mw = None
             _sa_meta_block = metadata.get("metadata") if isinstance(metadata.get("metadata"), dict) else {}
             if metadata.get("deterministic_synthesis_grader") or _sa_meta_block.get("deterministic_synthesis_grader"):
                 try:
                     from olav.agents.deterministic_grader import (
                         DeterministicSynthesisMiddleware,
                     )
-                    _middleware.append(DeterministicSynthesisMiddleware(
+                    _det_grader_mw = DeterministicSynthesisMiddleware(
                         agent_name=name,
                         on_evaluation=_make_rubric_callback(name),
-                    ))
+                    )
+                    _middleware.append(_det_grader_mw)
                     logger.info(f"  → '{name}' DeterministicSynthesisMiddleware enabled (zero-LLM grader)")
                 except Exception as _de:
                     logger.warning(f"  ! DeterministicSynthesisMiddleware init failed for '{name}': {_de}")
@@ -1396,16 +1403,20 @@ class OLAVAgent:
                 # create_deep_agent installs its own complete middleware
                 # stack (TodoListMiddleware + SubAgentMiddleware +
                 # FilesystemMiddleware + summarization + prompt-caching
-                # when configured at the orchestrator level).  Passing
-                # ANY of our sub-agent-level middleware produces
-                # "Please remove duplicate middleware instances".  Let
-                # deepagents own the full stack; we just pass the
-                # tools + subagents wiring.
+                # when configured at the orchestrator level).  Passing any
+                # of those again produces "Please remove duplicate middleware
+                # instances", so we do NOT pass _middleware.  But a custom
+                # grader deepagents does not add is safe — pass just the
+                # DeterministicSynthesisMiddleware so recursive deep-agents
+                # (analyzer, reporter) get the L2 verification loop too
+                # (dev_docs/97 §5).
+                _deep_extra_mw = [_det_grader_mw] if _det_grader_mw is not None else []
                 runnable = create_deep_agent(
                     model=sa_llm,
                     system_prompt=prompt,
                     tools=tools,
                     subagents=nested,
+                    middleware=_deep_extra_mw,
                     name=name,
                 )
             else:

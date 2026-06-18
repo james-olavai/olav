@@ -28,7 +28,7 @@ metadata:
   - change_request
   - change_planning
   network_isolation: 'true'
-  rubric_middleware: true
+  deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM grader (recursive deep-agent, wired via create_deep_agent middleware=)
   type: agent
   version: 6.2.0
 name: analyzer
