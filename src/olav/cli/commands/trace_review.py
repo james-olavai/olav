@@ -170,7 +170,7 @@ def handle_trace_review_command(args: argparse.Namespace) -> int:
     """``olav trace-review`` CLI verb — cron-friendly, non-interactive.
 
     Default (and ``--propose``) runs the HITL propose path (drafts, no commit),
-    which is the safe default for scheduled runs. ``--learn`` runs the legacy
+    which is the safe default for scheduled runs. ``--learn`` runs the prior
     auto-commit reflection cycle.
     """
     hours = getattr(args, "hours", None)
@@ -195,12 +195,12 @@ def build_trace_review_parser(subparsers) -> argparse.ArgumentParser:
             "Scheduled (cron-friendly) trace review. Reads recent failed runs "
             "from audit.duckdb, extracts per-agent operational lessons, and writes "
             "them as DRAFTS to the memory-curator drafts dir for human review — it "
-            "does NOT auto-commit. Use --learn for the legacy auto-commit reflection "
+            "does NOT auto-commit. Use --learn for the prior auto-commit reflection "
             "cycle (global scope). dev_docs/97 §5."
         ),
     )
     p.add_argument("--hours", type=int, default=None, help="Look-back window (propose default 24, learn default 168)")
     p.add_argument("--limit", type=int, default=50, help="Max failed runs to process (default 50)")
     p.add_argument("--propose", action="store_true", help="HITL propose drafts (default behaviour)")
-    p.add_argument("--learn", action="store_true", help="Legacy: auto-commit reflection constraints (no HITL)")
+    p.add_argument("--learn", action="store_true", help="Prior mode: auto-commit reflection constraints (no HITL)")
     return p

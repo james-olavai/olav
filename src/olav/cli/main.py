@@ -159,6 +159,7 @@ _KNOWN_COMMANDS: frozenset[str] = frozenset(
         "catalog",
         "explain",
         "diff",
+        "trace-review",  # dev_docs/97 — L4 self-improvement verb (build_trace_review_parser)
         "audit",  # #7 (2026-05-12) — audit selftest + future audit subcommands
         "user",   # 2026-05-15 — `olav user create/list/token/revoke`, alias for admin add-user/...
     }
