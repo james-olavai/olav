@@ -112,6 +112,13 @@ def _make_rubric_callback(agent_name: str):
             logger.debug("rubric_evaluation detail: agent=%s criteria=%s", agent_name, criteria)
         except Exception as _log_exc:
             logger.debug("rubric_evaluation callback error for '%s': %s", agent_name, _log_exc)
+        # dev_docs/97 ISSUE-LE-L2-SIGNAL-NOT-PERSISTED: persist the verdict so the
+        # L4 trace-review can see grader-hotspot agents (best-effort, never raises).
+        try:
+            from olav.agents.grader_metrics import record_grader_verdict
+            record_grader_verdict(agent_name, evaluation)
+        except Exception:
+            pass
     return _on_evaluation
 
 

@@ -455,6 +455,49 @@ def _write_draft(agent: str, constraints: list[str], drafts_dir: Path) -> dict |
     }
 
 
+_GRADER_FAIL_THRESHOLD = 3  # ≥N grader rejections in the window → hotspot draft
+
+
+def _write_grader_hotspot_draft(agent: str, stats: dict, hours: int, drafts_dir: Path) -> dict | None:
+    """Write a HITL lesson draft for an agent whose output grader fails a lot."""
+    import time
+
+    fail = int(stats.get("fail", 0))
+    total = int(stats.get("total", 0))
+    if fail <= 0:
+        return None
+    intent = f"grader_hotspot_{agent}"
+    body = (
+        f"`{agent}`'s output grader rejected **{fail} of {total}** responses in the "
+        f"last {hours}h (synthesis/grounded check). Review this agent: is it omitting "
+        f"a prose summary, or claiming results its tools did not produce? Likely fixes "
+        f"— tighten the output contract in its prompt, or fix the tool/script it relies "
+        f"on. (Auto-proposed by trace review from persisted L2 grader verdicts; review "
+        f"before committing.)"
+    )
+    payload = {
+        "intent": intent,
+        "keywords": ["grader", "output", "synthesis", agent, "trace_review"],
+        "body": body,
+        "agent": agent,
+        "scope": agent,
+        "category": "usage_guide",
+        "chunks": None,
+        "created_at": time.time(),
+        "source": "trace_review_grader_hotspot",
+    }
+    draft_path = drafts_dir / f"{intent}.draft.json"
+    draft_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {
+        "agent": agent,
+        "intent": intent,
+        "draft_path": str(draft_path),
+        "constraint_count": 0,
+        "grader_fail": fail,
+        "grader_total": total,
+    }
+
+
 def _run_review_cycle(
     hours: int = 24,
     limit: int = 50,
@@ -488,11 +531,32 @@ def _run_review_cycle(
         drafts_dir.mkdir(parents=True, exist_ok=True)
 
     proposals: list[dict] = []
+    proposed_agents: set[str] = set()
     for agent, sub_report in _group_failures_by_agent(report).items():
         constraints = _extract_constraints(sub_report, llm=llm)
         draft = _write_draft(agent, constraints, drafts_dir)
         if draft is not None:
             proposals.append(draft)
+            proposed_agents.add(agent)
+
+    # dev_docs/97 ISSUE-LE-L2-SIGNAL-NOT-PERSISTED: fold the L2 grader signal
+    # into L4. Agents whose output grader rejected ≥ GRADER_FAIL_THRESHOLD
+    # responses in the window get a hotspot lesson draft (even with no
+    # run-level failures) so a human reviews their prompt/output contract.
+    grader_failures: dict[str, dict] = {}
+    try:
+        from olav.agents.grader_metrics import read_grader_failures
+
+        grader_failures = read_grader_failures(hours=hours)
+    except Exception as exc:
+        logger.debug("read_grader_failures unavailable: %s", exc)
+    for agent, stats in grader_failures.items():
+        if stats.get("fail", 0) < _GRADER_FAIL_THRESHOLD or agent in proposed_agents:
+            continue
+        draft = _write_grader_hotspot_draft(agent, stats, hours, drafts_dir)
+        if draft is not None:
+            proposals.append(draft)
+            proposed_agents.add(agent)
 
     return {
         "status": "success",
@@ -501,6 +565,7 @@ def _run_review_cycle(
         "window_hours": report.get("window_hours", hours),
         "proposals": proposals,
         "drafts_written": len(proposals),
+        "grader_failures": grader_failures,
     }
 
 
