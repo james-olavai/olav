@@ -361,9 +361,14 @@ integration test must run with production-default config — the
 trace-learn loop was "wired" under a scope no production caller used.
 
 Related gates: `tests/governance/test_no_shadowed_tests.py` (a
-shadowed test is a test that silently stopped guarding) and
+shadowed test is a test that silently stopped guarding),
 `tests/governance/test_workspace_drift_gate.py` (drift detection on
-every governance run, not on demand).
+every governance run, not on demand), and
+`tests/governance/test_subagent_reachability.py` (every sub-agent is
+routed/declared, has no orphan dir, and — if script-bearing — its prompt
+carries the `execute_skill_script(skill_name="<self>", …)` recipe; this
+zero-LLM gate catches the db-query/api-query "guess the skill_name" class
+that unit+structure tests missed — dev_docs/97 §9).
 
 **Graders/middleware are wiring too — prove they fire.** A verification
 loop can be silently dead while *looking* enabled. Two real traps
