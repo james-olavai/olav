@@ -834,6 +834,24 @@ class OLAVAgent:
             except Exception as _re:
                 logger.warning("orchestrator RubricMiddleware init failed for '%s': %s", self.agent_id, _re)
 
+        # dev_docs/97: deterministic (zero-LLM) synthesis grader at the
+        # orchestrator level — same "prose-present" contract as the LLM rubric
+        # above (ISSUE-NO-SYNTHESIS) but without the per-call grader round-trip.
+        # create_deep_agent accepts a custom middleware it does not itself add,
+        # so appending to effective_middleware is safe (no duplicate-middleware).
+        if olav_config.get("deterministic_synthesis_grader"):
+            try:
+                from olav.agents.deterministic_grader import DeterministicSynthesisMiddleware
+                effective_middleware = list(effective_middleware) + [
+                    DeterministicSynthesisMiddleware(
+                        agent_name=self.agent_id,
+                        on_evaluation=_make_rubric_callback(self.agent_id),
+                    )
+                ]
+                logger.info("✓ '%s' orchestrator DeterministicSynthesisMiddleware enabled (zero-LLM grader)", self.agent_id)
+            except Exception as _de:
+                logger.warning("orchestrator DeterministicSynthesisMiddleware init failed for '%s': %s", self.agent_id, _de)
+
         # ADR-0008: Native SkillsMiddleware — skill discovery and third-party
         # skill compatibility (deepagents standard pattern).
         # Sources: top-level agent directories whose children have SKILL.md.
