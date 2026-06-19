@@ -476,6 +476,51 @@ def _inject_static_context(prompt: str, skill_dir: Path, metadata: dict) -> str:
     return prompt
 
 
+def _inject_script_recipe(prompt: str, skill_name: str, metadata: dict) -> str:
+    """Append the exact ``execute_skill_script`` invocation for each script.
+
+    dev_docs/97: sub-agents do NOT get a SkillsMiddleware section (that is
+    orchestrator-only), and their only handle to a ``scripts:`` entry is the
+    generic ``execute_skill_script`` tool. SKILL.md bodies routinely name a
+    script as if it were directly callable (``api_request(...)``) without
+    saying *how* to invoke it or *which* ``skill_name`` to pass — so a small
+    model guesses (copying the tool docstring's example) and never finds its
+    own scripts (db-query: 0/76 correct skill_name; api-query: 0/8). This
+    injects the deterministic recipe so the agent always passes its own
+    ``skill_name``. Only fires when the agent can actually call scripts
+    (``execute_skill_script`` in ``tools:``) and declares ``scripts:``.
+    """
+    tools = metadata.get("tools") or []
+    tool_names = {(t if isinstance(t, str) else t.get("name", "")) for t in tools}
+    scripts = metadata.get("scripts") or []
+    if "execute_skill_script" not in tool_names or not scripts:
+        return prompt
+
+    lines = [
+        prompt,
+        "",
+        "## Running this skill's scripts (REQUIRED call shape)",
+        "",
+        f"Your scripts run ONLY via the `execute_skill_script` tool, and you "
+        f"MUST pass `skill_name=\"{skill_name}\"` (this skill's own name — "
+        f"never copy the tool docstring's example value). Available scripts:",
+        "",
+    ]
+    for s in scripts:
+        if not isinstance(s, dict):
+            continue
+        fname = s.get("file") or (f"{s.get('name')}.py" if s.get("name") else None)
+        if not fname:
+            continue
+        desc = s.get("description", "")
+        lines.append(
+            f"- `{s.get('name', fname)}` — {desc}\n"
+            f"  → `execute_skill_script(skill_name=\"{skill_name}\", "
+            f"script_name=\"{fname}\", script_args={{...}})`"
+        )
+    return "\n".join(lines)
+
+
 def _resolve_env_ref(value: str) -> str:
     """Expand ``${ENV_VAR}`` references in a string against os.environ.
 
@@ -1269,6 +1314,11 @@ class OLAVAgent:
 
             # Inject static_context references declared in SKILL.md
             prompt = _inject_static_context(prompt, sa_dir, metadata)
+
+            # dev_docs/97: inject the exact execute_skill_script call shape so
+            # the sub-agent passes its OWN skill_name (fixes the db-query /
+            # api-query "guess the skill_name" failure).
+            prompt = _inject_script_recipe(prompt, name, metadata)
 
             # R-VERTICAL-SLICE 2026-05-09 (dev_docs/70): per-sub-agent
             # ``thinking_mode`` overrides the orchestrator's setting.

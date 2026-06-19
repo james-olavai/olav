@@ -5,7 +5,10 @@ description: "OLAV core agent — unified entry point for queries, CLI, KB searc
 subagents:
   - path: ./writer/SKILL.md
   - path: ./api-query/SKILL.md
-  - path: ./db-query/SKILL.md
+  # db-query removed 2026-06-19 (dev_docs/97): redundant with the
+  # orchestrator's own execute_sql @tool (more capable) and never the
+  # routed path; its execute_skill_script invocation was broken (agent
+  # could not guess its own skill_name). DB queries → core execute_sql.
 tools:
   - execute_sql
   - olav_recall_memory
