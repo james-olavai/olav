@@ -21,6 +21,7 @@ static_context_mode: on_intent
 metadata:
   category: api-integration
   deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM active grader (was dormant rubric_middleware)
+  grader_require_tool_success: true   # dev_docs/97 ISSUE-LE-GRADER-SYNTHESIS-ONLY
   type: agent
   version: 1.1.0
 ---

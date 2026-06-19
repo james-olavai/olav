@@ -8,6 +8,7 @@ description: 'Network topology queries + LLM-assisted recipe discovery. Built-in
   '
 metadata:
   deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM active grader (was dormant rubric_middleware)
+  grader_require_tool_success: true   # dev_docs/97 ISSUE-LE-GRADER-SYNTHESIS-ONLY
   category: network-operations
   intents:
   - topology_query

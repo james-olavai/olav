@@ -35,7 +35,7 @@ from langchain.agents.middleware.types import (
     PrivateStateAttr,
     hook_config,
 )
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,56 @@ _REVISION_FEEDBACK = (
     "least one plain-language sentence that states the answer or what the "
     "result means, then respond again."
 )
+
+_GROUNDED_FEEDBACK = (
+    "Every tool call you made failed, yet your answer presents a result as if "
+    "it succeeded. Do NOT fabricate or infer a positive result on top of failed "
+    "tools. Either fix the tool call and retry, or state plainly that you could "
+    "not complete the task and exactly why (which tool failed and the error)."
+)
+
+# Final-message phrases that honestly acknowledge a failure — when present, an
+# all-tools-failed transcript is an honest "I couldn't" answer, not a fabricated
+# success, so the grounded check passes. Pass-biased: err toward acknowledging.
+_FAILURE_ACK = re.compile(
+    r"cannot|can't|could ?not|couldn't|unable|fail|error|no .*(found|available|access)"
+    r"|无法|不能|没能|未能|失败|出错|找不到|抱歉|对不起|没有(找到|权限|可用)",
+    re.IGNORECASE,
+)
+
+# Markers that a ToolMessage represents a FAILED call (status field is the
+# primary signal; content markers catch tools that return a {status:error}
+# envelope without raising).
+_TOOL_FAIL_MARKERS = re.compile(
+    r'"status"\s*:\s*"(error|failed)"|"error"\s*:\s*"[^"]|Traceback|'
+    r"InputValidationError|returncode['\"]?\s*[:=]\s*[1-9]",
+    re.IGNORECASE,
+)
+
+
+def _tool_failure_stats(messages: list[Any]) -> tuple[int, int]:
+    """Return ``(tool_calls_seen, tool_calls_failed)`` from the transcript.
+
+    A ToolMessage counts as failed when its ``status`` is ``"error"`` (the
+    framework sets this when a tool raises) or its textual content carries a
+    failure envelope (``{"status": "error"}`` etc.) — covering OLAV scripts
+    that return an error dict without raising.
+    """
+    seen = failed = 0
+    for msg in messages:
+        if not isinstance(msg, ToolMessage):
+            continue
+        seen += 1
+        status = getattr(msg, "status", None)
+        content = msg.content if isinstance(msg.content, str) else str(msg.content)
+        if status == "error" or _TOOL_FAIL_MARKERS.search(content or ""):
+            failed += 1
+    return seen, failed
+
+
+def _acknowledges_failure(text: str) -> bool:
+    return bool(_FAILURE_ACK.search(text or ""))
+
 
 # Lines that are NOT prose on their own.
 _TABLE_LINE = re.compile(r"^\s*\|")              # markdown table row
@@ -125,10 +175,16 @@ class DeterministicSynthesisMiddleware(AgentMiddleware):
         agent_name: str = "",
         max_iterations: int = 1,
         on_evaluation: Any = None,
+        require_grounded: bool = False,
     ) -> None:
         self.agent_name = agent_name
         self.max_iterations = max(1, int(max_iterations))
         self._on_evaluation = on_evaluation
+        # require_grounded (opt-in, data-flow agents): also fail when EVERY tool
+        # call failed yet the answer asserts a positive result (fabricated
+        # success on top of failed tools — dev_docs/97 ISSUE-LE-GRADER-
+        # SYNTHESIS-ONLY). An honest "I could not …" answer still passes.
+        self.require_grounded = bool(require_grounded)
 
     @hook_config(can_jump_to=["model"])
     def after_agent(self, state: _DetGraderState, runtime: Any) -> dict[str, Any] | None:  # noqa: ARG002
@@ -141,26 +197,40 @@ class DeterministicSynthesisMiddleware(AgentMiddleware):
     def _evaluate(self, state: _DetGraderState) -> dict[str, Any] | None:
         messages = state.get("messages", []) or []
         text = _last_ai_text(messages)
-        passed = has_prose(text)
         iters = int(state.get("_det_synth_iters", 0) or 0)
 
-        self._log(passed, iters)
+        # Criterion 1: prose synthesis present.
+        if not has_prose(text):
+            return self._verdict(iters, "prose_synthesis_present", False, _REVISION_FEEDBACK)
 
+        # Criterion 2 (opt-in): grounded result. FAIL only in the unambiguous
+        # case — tools WERE called, ALL failed, and the answer does NOT
+        # acknowledge the failure (i.e. it claims a positive result). Pass-biased
+        # everywhere else (no tools, any tool succeeded, or honest failure).
+        if self.require_grounded:
+            seen, failed = _tool_failure_stats(messages)
+            if seen > 0 and failed == seen and not _acknowledges_failure(text):
+                return self._verdict(iters, "grounded_result", False, _GROUNDED_FEEDBACK)
+
+        return self._verdict(iters, "synthesis", True, None)
+
+    def _verdict(
+        self, iters: int, criterion: str, passed: bool, feedback: str | None
+    ) -> dict[str, Any] | None:
+        self._log(criterion, passed, iters)
         if passed:
             return None  # fall through to END
         if iters >= self.max_iterations:
             logger.warning(
-                "deterministic_synthesis agent=%s exhausted max_iterations=%d without prose",
-                self.agent_name,
-                self.max_iterations,
+                "deterministic_synthesis agent=%s criterion=%s exhausted max_iterations=%d",
+                self.agent_name, criterion, self.max_iterations,
             )
             return None
-        # FAIL within budget → loop back once with feedback.
         return {
             "_det_synth_iters": iters + 1,
             "messages": [
                 HumanMessage(
-                    content=_REVISION_FEEDBACK,
+                    content=feedback or _REVISION_FEEDBACK,
                     name=DET_GRADER_SOURCE,
                     additional_kwargs={"lc_source": DET_GRADER_SOURCE},
                 )
@@ -168,10 +238,11 @@ class DeterministicSynthesisMiddleware(AgentMiddleware):
             "jump_to": "model",
         }
 
-    def _log(self, passed: bool, iters: int) -> None:
+    def _log(self, criterion: str, passed: bool, iters: int) -> None:
         logger.info(
-            "deterministic_synthesis agent=%s verdict=%s iteration=%d llm_calls=0",
+            "deterministic_synthesis agent=%s criterion=%s verdict=%s iteration=%d llm_calls=0",
             self.agent_name,
+            criterion,
             "satisfied" if passed else "needs_revision",
             iters,
         )
@@ -181,8 +252,8 @@ class DeterministicSynthesisMiddleware(AgentMiddleware):
                     {
                         "result": "satisfied" if passed else "needs_revision",
                         "iteration": iters,
-                        "criteria": [{"name": "prose_synthesis_present", "passed": passed}],
-                        "explanation": "deterministic (zero-LLM) synthesis check",
+                        "criteria": [{"name": criterion, "passed": passed}],
+                        "explanation": "deterministic (zero-LLM) synthesis/grounded check",
                     }
                 )
             except Exception:
