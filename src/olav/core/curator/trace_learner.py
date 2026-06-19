@@ -362,3 +362,148 @@ def trace_learner(hours: int = 168, limit: int = 50) -> dict:
     them in memory for future guardrail injection.
     """
     return _run_learn_cycle(hours=hours, limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# L4 hill-climbing — HITL propose path (dev_docs/97 §5).
+#
+# Unlike _run_learn_cycle (auto-commit reflection, scope=global, fast reflex),
+# this path is the human-in-the-loop variant: it groups failures *per agent*,
+# extracts per-agent lessons, and writes them as DRAFTS to the memory-curator
+# drafts dir (.curator_drafts/<intent>.draft.json) — it does NOT commit. A human
+# reviews and commits via memory-curator's commit_to_memory(from_draft=True).
+# Built for scheduled (cron) review so durable usage_guides are proposed, not
+# silently written. "HITL proposal > auto-commit" (CLAUDE.md loop-engineering).
+# ---------------------------------------------------------------------------
+
+
+def _resolve_drafts_dir() -> Path:
+    """Resolve the memory-curator drafts dir (must match propose_memory_draft)."""
+    import os
+
+    if env := os.environ.get("OLAV_WORKSPACE_ROOT"):
+        root = Path(env)
+    else:
+        cwd_ws = Path.cwd() / ".olav" / "workspace"
+        if cwd_ws.exists():
+            root = cwd_ws
+        else:
+            # package fallback (src/olav/data/workspace)
+            p = Path(__file__).resolve()
+            root = p.parents[3] / "data" / "workspace"
+    d = root / ".curator_drafts"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _group_failures_by_agent(report: dict) -> dict[str, dict]:
+    """Split a failure report into per-agent sub-reports (scope-aware L4)."""
+    by_agent: dict[str, list] = {}
+    for f in report.get("failures", []):
+        by_agent.setdefault(f.get("agent_id") or "core", []).append(f)
+    out: dict[str, dict] = {}
+    for agent, fails in by_agent.items():
+        out[agent] = {
+            "status": "success",
+            "total_failures": len(fails),
+            "total_ok": 0,
+            "failures": fails,
+            "window_hours": report.get("window_hours"),
+        }
+    return out
+
+
+def _write_draft(agent: str, constraints: list[str], drafts_dir: Path) -> dict | None:
+    """Write one usage_guide DRAFT (no commit) for an agent's lessons."""
+    import time
+
+    constraints = [c.strip() for c in constraints if c and c.strip()]
+    if not constraints:
+        return None
+    intent = f"trace_lessons_{agent}"
+    body = (
+        f"Operational lessons learned from recent {agent} failures "
+        f"(auto-proposed by trace review — review before committing):\n\n"
+        + "\n".join(f"- {c}" for c in constraints)
+    )
+    tags: list[str] = []
+    for c in constraints:
+        for t in _tags_from_constraint(c):
+            if t not in tags:
+                tags.append(t)
+    payload = {
+        "intent": intent,
+        "keywords": (tags or ["lessons", "failure"]) + [agent, "trace_review"],
+        "body": body,
+        "agent": agent,
+        "scope": agent,  # per-agent scope (not global) — L4 §5
+        "category": "usage_guide",
+        "chunks": None,
+        "created_at": time.time(),
+        "source": "trace_review_propose",
+    }
+    draft_path = drafts_dir / f"{intent}.draft.json"
+    draft_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return {
+        "agent": agent,
+        "intent": intent,
+        "draft_path": str(draft_path),
+        "constraint_count": len(constraints),
+        "constraints": constraints,
+    }
+
+
+def _run_review_cycle(
+    hours: int = 24,
+    limit: int = 50,
+    db_path: Path | None = None,
+    llm=None,
+    drafts_dir: Path | None = None,
+) -> dict:
+    """HITL trace-review: analyse failures → per-agent lessons → DRAFTS (no commit).
+
+    Returns:
+        {status, total_failures, total_ok, window_hours,
+         proposals: [{agent, intent, draft_path, constraint_count, constraints}],
+         drafts_written}
+    """
+    if db_path is None:
+        try:
+            from olav.core.config import DATABASES_DIR
+
+            db_path = DATABASES_DIR / "audit.duckdb"
+        except Exception:
+            db_path = Path(".olav") / "databases" / "audit.duckdb"
+
+    report = _analyze_failures(hours=hours, limit=limit, db_path=Path(db_path))
+    if report.get("status") == "error":
+        return report
+
+    if drafts_dir is None:
+        drafts_dir = _resolve_drafts_dir()
+    else:
+        drafts_dir = Path(drafts_dir)
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+
+    proposals: list[dict] = []
+    for agent, sub_report in _group_failures_by_agent(report).items():
+        constraints = _extract_constraints(sub_report, llm=llm)
+        draft = _write_draft(agent, constraints, drafts_dir)
+        if draft is not None:
+            proposals.append(draft)
+
+    return {
+        "status": "success",
+        "total_failures": report.get("total_failures", 0),
+        "total_ok": report.get("total_ok", 0),
+        "window_hours": report.get("window_hours", hours),
+        "proposals": proposals,
+        "drafts_written": len(proposals),
+    }
+
+
+def trace_review_propose(hours: int = 24, limit: int = 50) -> dict:
+    """Public entry: scheduled HITL trace review — propose drafts, never commit."""
+    return _run_review_cycle(hours=hours, limit=limit)

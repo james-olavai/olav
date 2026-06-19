@@ -543,6 +543,10 @@ def parse_args():
     from olav.cli.commands.diff import build_diff_parser
     build_diff_parser(subparsers)
 
+    # Trace-review — L4 self-improvement: propose lesson drafts (HITL), cron-friendly (dev_docs/97)
+    from olav.cli.commands.trace_review import build_trace_review_parser
+    build_trace_review_parser(subparsers)
+
     # Audit — operator entry points for audit subsystem (#7, 2026-05-12)
     audit_parser = subparsers.add_parser(
         "audit",
@@ -2433,6 +2437,12 @@ What tools are available and when should each be used?
         if args.command == "diff":
             from olav.cli.commands.diff import handle_diff_command
             sys.exit(handle_diff_command(args))
+            return
+
+        # trace-review — L4 self-improvement propose/learn (dev_docs/97 §5)
+        if args.command == "trace-review":
+            from olav.cli.commands.trace_review import handle_trace_review_command
+            sys.exit(handle_trace_review_command(args))
             return
 
         # Handle audit — schema selftest + future audit subcommands (#7, 2026-05-12)
