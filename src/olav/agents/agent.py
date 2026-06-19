@@ -1436,12 +1436,24 @@ class OLAVAgent:
                     from olav.agents.deterministic_grader import (
                         DeterministicSynthesisMiddleware,
                     )
+                    # dev_docs/97 ISSUE-LE-GRADER-SYNTHESIS-ONLY: data-flow agents
+                    # opt into the grounded-result check (fail a positive answer
+                    # built on top of all-failed tools) via
+                    # ``grader_require_tool_success: true``.
+                    _require_grounded = bool(
+                        metadata.get("grader_require_tool_success")
+                        or _sa_meta_block.get("grader_require_tool_success")
+                    )
                     _det_grader_mw = DeterministicSynthesisMiddleware(
                         agent_name=name,
                         on_evaluation=_make_rubric_callback(name),
+                        require_grounded=_require_grounded,
                     )
                     _middleware.append(_det_grader_mw)
-                    logger.info(f"  → '{name}' DeterministicSynthesisMiddleware enabled (zero-LLM grader)")
+                    logger.info(
+                        f"  → '{name}' DeterministicSynthesisMiddleware enabled "
+                        f"(zero-LLM grader; grounded={_require_grounded})"
+                    )
                 except Exception as _de:
                     logger.warning(f"  ! DeterministicSynthesisMiddleware init failed for '{name}': {_de}")
 
