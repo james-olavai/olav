@@ -147,26 +147,15 @@ def test_core_prompt_within_small_tier_budget():
 # cite an accepted ADR or Round number that documents *why* the sub-agent
 # needs more. Adding a new exception without an ADR is a red flag — file one
 # first, then add the allowlist entry in the same PR.
-_TOOL_COUNT_EXCEPTIONS: dict[str, tuple[int, str]] = {
-    "audit/auditor": (
-        12,
-        "Profile Authoring mode (6 tools merged from audit-designer in Round 17 "
-        "Step B) + execution engine (map_engine / render_report / anomaly_engine "
-        "/ baseline_engine / incident_engine / render_report_linter). Dual-mode "
-        "workflow is one of ADR-0003's 'distinct workflow count' examples.",
-    ),
-    "ops/lab": (
-        10,
-        "ContainerLab CAB validation workflow: deploy_lab / destroy_lab / "
-        "exec_on_node / save_lab_config / deploy_and_push_lab / push_node_config "
-        "/ create_srl_links / fix_srl_topology + run_python_simulation symlink + "
-        "destroy path. ADR-0005 kept lab standalone rather than merging into "
-        "ops/collect specifically because the merge would have blown past ≤5.",
-    ),
-}
+# 2026-06-20 (dev_docs/97 §test-strategy #3): the prior entries (`audit/auditor`,
+# `ops/lab`) pointed at agents that were renamed/relocated long ago (now
+# audit/audit-author etc.; lab moved to the olav-ent package, outside this
+# workspace). No current sub-agent exceeds 5 owned tools/*.py, so the allowlist
+# is empty — the gate is back to a real (un-xfail'd) check. Add a new entry only
+# with an ADR/Round citation when a sub-agent genuinely needs more.
+_TOOL_COUNT_EXCEPTIONS: dict[str, tuple[int, str]] = {}
 
 
-@_REV_259_SPLIT_XFAIL
 def test_each_agent_has_at_most_five_tools_except_core():
     """Every sub-agent other than ``core/`` caps at 5 tools by default.
 
@@ -210,7 +199,6 @@ def test_tool_count_exceptions_cite_adr_or_round():
         )
 
 
-@_REV_259_SPLIT_XFAIL
 def test_tool_count_exceptions_paths_exist():
     """Allowlist entries must point at real sub-agents; removed agents should
     also be removed from the allowlist rather than lingering as dead policy."""
