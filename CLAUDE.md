@@ -392,16 +392,18 @@ LLM grader, same as memory-steering > prompt-editing.)
 Never tolerate a "known/pre-existing failure" backlog. A 48-failure
 backlog once masked a real OOM regression — new failures lost all
 signal value. Fix to zero, or mark explicit `xfail` with a reason +
-owner. **`test.yml`** is the only CI workflow; on every PR it runs the
-**merge gate** jobs — `unit`, `gates`, `governance`, and `e2e-fast`
-(a no-LLM `tests/e2e/` subset) — which must be green. Its **`schedule:`
-nightly `e2e` job** (02:00 UTC, `PROBE_E2E_ENABLED=1`) runs the full
-LLM+infra e2e and is advisory — LLM-endpoint-latency-gated, so a red
-nightly is *often* infra, not code (confirm before "fixing" code). But
-"often infra" must not become "always ignore": a **behavioural** nightly
-failure should be re-checked with the N≥3 success-rate harness
-(`tests/e2e/_variance.py`) before being dismissed — a low success rate
-is a real regression, a one-off red is variance. In tests, set env via
+owner. CI runs on two forges: **Gitea Actions** reads `.gitea/workflows/`
+— `ci.yml` ("CI": `unit` + `governance`, on push/PR) is the **merge
+gate** and must be green; `e2e-nightly.yml` ("E2E Full", manual
+`workflow_dispatch`) is advisory. **GitHub Actions** reads
+`.github/workflows/test.yml` (the GitHub-side equivalent: PR jobs
+unit/gates/governance/e2e-fast + a `schedule:` nightly full e2e). The
+advisory full-LLM e2e is LLM-endpoint-latency-gated, so a red is *often*
+infra, not code (confirm before "fixing" code). But "often infra" must
+not become "always ignore": a **behavioural** failure should be
+re-checked with the N≥3 success-rate harness (`tests/e2e/_variance.py`)
+before being dismissed — a low success rate is a real regression, a
+one-off red is variance. In tests, set env via
 `monkeypatch`/yield-restore, never `os.environ.setdefault` (it leaks
 across the session). CI embed must be `OLAV_EMBEDDING_MODE: local` —
 the job container cannot reach the internal Ollama at `…:11434`.
