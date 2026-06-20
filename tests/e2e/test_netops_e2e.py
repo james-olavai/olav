@@ -261,3 +261,25 @@ class TestNetopsCollectOverSSH:
         out = result.stdout + result.stderr
         assert result.returncode == 0, f"netops probe failed:\n{out[:600]}"
         assert any(kw in out.lower() for kw in ("interface", "接口", "r2", "up", "down"))
+
+
+@_LLM_SKIP
+@pytest.mark.timeout(900)
+def test_netops_behavioural_health_variance_aware():
+    """dev_docs/97 P1 — variance-aware behavioural smoke (N≥3 success-rate).
+
+    A single LLM run is noise (CLAUDE.md N≥3). Run a basic netops query a few
+    times and require it to *complete without crashing* on most runs. The check
+    is intentionally phrasing-robust (rc==0 + no Traceback + non-empty) so it
+    catches a real regression — a crash/hang loop — while tolerating LLM output
+    variance. A low success rate is actionable; a one-off red is variance.
+    """
+    from tests.e2e._variance import assert_success_rate
+
+    def _once():
+        r = _run_agent("netops 有多少台设备？给出数字。", timeout=240)
+        out = (r.stdout or "") + (r.stderr or "")
+        ok = r.returncode == 0 and "Traceback" not in out and len(out.strip()) > 0
+        return ok, f"rc={r.returncode}, {len(out)} chars"
+
+    assert_success_rate(_once, n=3, threshold=2 / 3, label="netops basic-query health")

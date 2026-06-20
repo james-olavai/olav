@@ -392,10 +392,16 @@ LLM grader, same as memory-steering > prompt-editing.)
 Never tolerate a "known/pre-existing failure" backlog. A 48-failure
 backlog once masked a real OOM regression — new failures lost all
 signal value. Fix to zero, or mark explicit `xfail` with a reason +
-owner. `ci.yml` (Unit + Governance + E2E-fast, no LLM) is the **merge
-gate** and must be green; `e2e-nightly.yml` (full LLM) is advisory —
-it is LLM-endpoint-latency-gated, so a red e2e is usually infra, not
-code (confirm before "fixing" code). In tests, set env via
+owner. **`test.yml`** is the only CI workflow; on every PR it runs the
+**merge gate** jobs — `unit`, `gates`, `governance`, and `e2e-fast`
+(a no-LLM `tests/e2e/` subset) — which must be green. Its **`schedule:`
+nightly `e2e` job** (02:00 UTC, `PROBE_E2E_ENABLED=1`) runs the full
+LLM+infra e2e and is advisory — LLM-endpoint-latency-gated, so a red
+nightly is *often* infra, not code (confirm before "fixing" code). But
+"often infra" must not become "always ignore": a **behavioural** nightly
+failure should be re-checked with the N≥3 success-rate harness
+(`tests/e2e/_variance.py`) before being dismissed — a low success rate
+is a real regression, a one-off red is variance. In tests, set env via
 `monkeypatch`/yield-restore, never `os.environ.setdefault` (it leaks
 across the session). CI embed must be `OLAV_EMBEDDING_MODE: local` —
 the job container cannot reach the internal Ollama at `…:11434`.
@@ -403,7 +409,11 @@ the job container cannot reach the internal Ollama at `…:11434`.
 variance on identical input (same model, config, prompt) can exceed the
 patch's effect (one run made 0 tool calls, the next 31). A single green
 run is not signal; track a success rate or run ≥3 before declaring a
-behavioural fix done (V2_VALIDATION_RETROSPECTIVE §M4).
+behavioural fix done (V2_VALIDATION_RETROSPECTIVE §M4). Enforce this in
+behavioural e2e via `tests/e2e/_variance.py:assert_success_rate(run_once,
+n=3, threshold=…)` — it runs the check N times and asserts a success
+*rate*, so LLM variance doesn't fail the suite and a genuine regression
+(low rate) does.
 
 ## Versioning & Release
 
