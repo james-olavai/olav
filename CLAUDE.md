@@ -361,19 +361,49 @@ integration test must run with production-default config — the
 trace-learn loop was "wired" under a scope no production caller used.
 
 Related gates: `tests/governance/test_no_shadowed_tests.py` (a
-shadowed test is a test that silently stopped guarding) and
+shadowed test is a test that silently stopped guarding),
 `tests/governance/test_workspace_drift_gate.py` (drift detection on
-every governance run, not on demand).
+every governance run, not on demand), and
+`tests/governance/test_subagent_reachability.py` (every sub-agent is
+routed/declared, has no orphan dir, and — if script-bearing — its prompt
+carries the `execute_skill_script(skill_name="<self>", …)` recipe; this
+zero-LLM gate catches the db-query/api-query "guess the skill_name" class
+that unit+structure tests missed — dev_docs/97 §9).
+
+**Graders/middleware are wiring too — prove they fire.** A verification
+loop can be silently dead while *looking* enabled. Two real traps
+(dev_docs/97): (1) sub-agent SKILL.md flags nest under `metadata:`, but
+`_build_subagents` reads `metadata.get(<flag>)` at the **top** level, so
+a flagged middleware may **never be instantiated** (this left
+`rubric_middleware` inert on every sub-agent); (2) `RubricMiddleware` is
+a **no-op unless `state["rubric"]` is set**, which only
+`synthesis_rubric: true` does, and only on the top-level agent. Before
+calling an agent "verified", confirm the grader **actually fires from a
+real invocation** (log line / `on_evaluation` callback), not that the
+flag is present. And prefer **deterministic, zero-LLM graders**
+(`DeterministicSynthesisMiddleware`) over LLM rubrics for small models —
+an LLM grading an LLM costs a full round-trip and burns context on every
+stop; reserve LLM graders for "done" criteria a Python predicate
+genuinely cannot express. (Loop-engineering L2: deterministic grader >
+LLM grader, same as memory-steering > prompt-editing.)
 
 ## Signal hygiene: keep governance + unit at 0 failures
 
 Never tolerate a "known/pre-existing failure" backlog. A 48-failure
 backlog once masked a real OOM regression — new failures lost all
 signal value. Fix to zero, or mark explicit `xfail` with a reason +
-owner. `ci.yml` (Unit + Governance + E2E-fast, no LLM) is the **merge
-gate** and must be green; `e2e-nightly.yml` (full LLM) is advisory —
-it is LLM-endpoint-latency-gated, so a red e2e is usually infra, not
-code (confirm before "fixing" code). In tests, set env via
+owner. CI runs on two forges: **Gitea Actions** reads `.gitea/workflows/`
+— `ci.yml` ("CI": `unit` + `governance`, on push/PR) is the **merge
+gate** and must be green; `e2e-nightly.yml` ("E2E Full", manual
+`workflow_dispatch`) is advisory. **GitHub Actions** reads
+`.github/workflows/test.yml` (the GitHub-side equivalent: PR jobs
+unit/gates/governance/e2e-fast + a `schedule:` nightly full e2e). The
+advisory full-LLM e2e is LLM-endpoint-latency-gated, so a red is *often*
+infra, not code (confirm before "fixing" code). But "often infra" must
+not become "always ignore": a **behavioural** failure should be
+re-checked with the N≥3 success-rate harness (`tests/e2e/_variance.py`)
+before being dismissed — a low success rate is a real regression, a
+one-off red is variance. In tests, set env via
 `monkeypatch`/yield-restore, never `os.environ.setdefault` (it leaks
 across the session). CI embed must be `OLAV_EMBEDDING_MODE: local` —
 the job container cannot reach the internal Ollama at `…:11434`.
@@ -381,7 +411,11 @@ the job container cannot reach the internal Ollama at `…:11434`.
 variance on identical input (same model, config, prompt) can exceed the
 patch's effect (one run made 0 tool calls, the next 31). A single green
 run is not signal; track a success rate or run ≥3 before declaring a
-behavioural fix done (V2_VALIDATION_RETROSPECTIVE §M4).
+behavioural fix done (V2_VALIDATION_RETROSPECTIVE §M4). Enforce this in
+behavioural e2e via `tests/e2e/_variance.py:assert_success_rate(run_once,
+n=3, threshold=…)` — it runs the check N times and asserts a success
+*rate*, so LLM variance doesn't fail the suite and a genuine regression
+(low rate) does.
 
 ## Versioning & Release
 

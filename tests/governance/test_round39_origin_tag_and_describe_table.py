@@ -21,11 +21,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 CLI_MAIN = REPO / "src" / "olav" / "cli" / "main.py"
 TIER2_CI = REPO / "tests" / "ci" / "tier2_integration.sh"
-DESCRIBE_TABLE_PY = REPO / ".olav" / "workspace" / "core" / "db-query" / "scripts" / "describe_table.py"
-DB_QUERY_SYMLINK = (
-    REPO / ".olav" / "workspace" / "core" / "db-query" / "scripts" / "describe_table.py"
-)
-DB_QUERY_SKILL = REPO / ".olav" / "workspace" / "core" / "db-query" / "SKILL.md"
+# 2026-06-20 (dev_docs/97 §8): db-query sub-agent was deleted (redundant with the
+# core orchestrator's own execute_sql @tool). describe_table's home moved back to
+# core itself; the core orchestrator advertises it directly in core/SKILL.md.
+DESCRIBE_TABLE_PY = REPO / ".olav" / "workspace" / "core" / "scripts" / "describe_table.py"
+DB_QUERY_SYMLINK = DESCRIBE_TABLE_PY
+DB_QUERY_SKILL = REPO / ".olav" / "workspace" / "core" / "SKILL.md"
 
 
 # ── WRITER-01 (a) origin tag pins ────────────────────────────────────────
@@ -109,8 +110,8 @@ def test_describe_table_listed_in_db_query_skill():
     src = DB_QUERY_SKILL.read_text(encoding="utf-8")
     # Look inside the top YAML frontmatter only.
     assert "describe_table" in src, (
-        "core/db_query/SKILL.md no longer advertises describe_table — the "
-        "ARCH-18 on-demand lookup is invisible to the db_query sub-agent."
+        "core/SKILL.md no longer advertises describe_table — the "
+        "ARCH-18 on-demand lookup is invisible to the core orchestrator."
     )
 
 

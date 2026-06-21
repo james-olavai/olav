@@ -83,9 +83,11 @@ def test_known_commands_superset_covers_all_subparsers():
 def test_known_commands_covers_plugin_parsers():
     src = MAIN_PY.read_text(encoding="utf-8")
     known = _extract_known_commands(src)
-    # Each build_X_parser(subparsers) registers a subcommand named X.
+    # Each build_X_parser(subparsers) registers a subcommand named X. Python
+    # helper names can't contain hyphens, so build_trace_review_parser registers
+    # the hyphenated command "trace-review"; accept either form in known.
     plugin = _extract_plugin_parser_modules(src)
-    missing = plugin - known
+    missing = {m for m in plugin if m not in known and m.replace("_", "-") not in known}
     assert not missing, (
         f"Plugin-style subparser(s) missing from known_commands: "
         f"{sorted(missing)}.\nAdd them to the set in cli/main.py so "
@@ -114,6 +116,10 @@ def test_known_commands_all_present_as_subparsers():
     direct = _extract_subparser_registrations(src)
     plugin = _extract_plugin_parser_modules(src)
     registered = direct | plugin
+    # build_X_parser helper names use underscores (Python identifiers) but the
+    # command they register may be hyphenated (e.g. build_trace_review_parser →
+    # "trace-review"); count both forms as registered.
+    registered |= {r.replace("_", "-") for r in registered}
     # A handful of entries in known_commands are intentionally not
     # subparsers — they're legacy command names kept for parsing
     # detection only. Allow-list them explicitly.

@@ -36,7 +36,7 @@ metadata:
   - blast_radius
   - drift_detection
   network_isolation: 'true'
-  rubric_middleware: true
+  deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM grader (recursive deep-agent, wired via create_deep_agent middleware=)
   type: agent
   version: 1.1.0
 name: reporter

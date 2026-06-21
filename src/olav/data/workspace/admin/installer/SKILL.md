@@ -25,7 +25,7 @@ tools:
 - execute_skill_script
 metadata:
   enable_todo_list: true
-  rubric_middleware: true
+  deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM active grader (was dormant rubric_middleware)
   type: agent
   version: 1.0.0
   category: workspace-management
