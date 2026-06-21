@@ -87,7 +87,12 @@ jobs:
         continue-on-error: true
 
       # Parquet seed (~5s, 38.8MB from git) → bundle fallback if parquet missing
+      # timeout-minutes: 3 guards against OOM-induced hangs on memory-constrained
+      # runners (torch+CUDA install + sentence-transformers model leave little RAM;
+      # DuckDB loading parsed_outputs.parquet can get OOM-killed, leaving the step
+      # hanging until the job-level 90m limit fires and orphaning all later steps).
       - name: Seed demo DB from Parquet fixtures
+        timeout-minutes: 3
         run: |
           if [ -f tests/fixtures/demo_db/devices.parquet ]; then
             echo "Seeding from Parquet (fast path, ~5s)..."
