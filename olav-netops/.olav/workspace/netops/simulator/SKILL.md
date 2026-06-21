@@ -13,7 +13,7 @@ dynamic_context:
 llm:
   temperature: 0.0
 metadata:
-  rubric_middleware: true
+  deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM active grader (was dormant rubric_middleware)
   category: network-operations
   intents:
   - config_layer_evaluation

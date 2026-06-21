@@ -14,7 +14,7 @@ metadata:
   - automation_workflow
   - backup_restore
   - bulk_operations
-  rubric_middleware: true
+  deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM active grader (was dormant rubric_middleware)
   type: agent
   version: 0.4.0
 name: infra

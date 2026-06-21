@@ -56,10 +56,12 @@ def execute_skill_script(
     on stdout. Output is captured and returned as a structured dict.
 
     Args:
-        skill_name: The skill's directory name (e.g. ``"lab"``,
-            ``"auditor"``). Looked up under the workspace root —
-            matches direct child or one level deeper (e.g.
-            ``ops/lab``).
+        skill_name: **YOUR OWN skill's directory name** — the agent
+            whose scripts you are running is almost always yourself
+            (e.g. an ``api-query`` agent passes ``"api-query"``). Do
+            NOT copy the example value below. Looked up under the
+            workspace root — matches a direct child or one level
+            deeper (e.g. ``netops/lab``).
         script_name: Filename of the script to run, including
             ``.py`` extension. Must be a bare filename (no path
             components).
@@ -76,11 +78,11 @@ def execute_skill_script(
         ``script_path``. On validation failures: ``error`` with
         a clear reason and no subprocess launched.
 
-    Example:
+    Example (replace ``<your-skill>`` with your own skill name):
         >>> execute_skill_script(
-        ...     skill_name="lab",
-        ...     script_name="generate_clab_topology.py",
-        ...     script_args={"nodes": ["R1", "R4"], "lab_name": "cab_demo"},
+        ...     skill_name="<your-skill>",
+        ...     script_name="some_script.py",
+        ...     script_args={"key": "value"},
         ... )
     """
     return _impl(

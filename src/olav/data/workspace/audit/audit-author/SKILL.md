@@ -6,7 +6,7 @@ description: Audit Profile Author — creates, extends, or retunes Profile files
 metadata:
   agent_type: api
   category: audit-profile-management
-  rubric_middleware: true
+  deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM active grader (was dormant rubric_middleware)
   type: agent
   version: 1.1.0
 name: audit-author

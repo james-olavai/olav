@@ -5,7 +5,8 @@ description: Live data collection — parallel CLI / Nornir, liveness + latency 
 dynamic_context:
 - path: ./references/take_snapshot_when_db_stale.guide.yaml
 metadata:
-  rubric_middleware: true
+  deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM active grader (was dormant rubric_middleware)
+  grader_require_tool_success: true   # dev_docs/97 ISSUE-LE-GRADER-SYNTHESIS-ONLY
   agent_type: api
   category: network-operations
   intent: active_live_data_collection

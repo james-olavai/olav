@@ -28,7 +28,7 @@ tools:
 - olav_store_memory
 - format_and_export
 metadata:
-  rubric_middleware: true
+  deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM active grader (was dormant rubric_middleware)
   type: agent
   version: 1.0.0
   category: content-creation

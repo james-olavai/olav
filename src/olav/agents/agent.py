@@ -112,6 +112,13 @@ def _make_rubric_callback(agent_name: str):
             logger.debug("rubric_evaluation detail: agent=%s criteria=%s", agent_name, criteria)
         except Exception as _log_exc:
             logger.debug("rubric_evaluation callback error for '%s': %s", agent_name, _log_exc)
+        # dev_docs/97 ISSUE-LE-L2-SIGNAL-NOT-PERSISTED: persist the verdict so the
+        # L4 trace-review can see grader-hotspot agents (best-effort, never raises).
+        try:
+            from olav.agents.grader_metrics import record_grader_verdict
+            record_grader_verdict(agent_name, evaluation)
+        except Exception:
+            pass
     return _on_evaluation
 
 
@@ -476,6 +483,51 @@ def _inject_static_context(prompt: str, skill_dir: Path, metadata: dict) -> str:
     return prompt
 
 
+def _inject_script_recipe(prompt: str, skill_name: str, metadata: dict) -> str:
+    """Append the exact ``execute_skill_script`` invocation for each script.
+
+    dev_docs/97: sub-agents do NOT get a SkillsMiddleware section (that is
+    orchestrator-only), and their only handle to a ``scripts:`` entry is the
+    generic ``execute_skill_script`` tool. SKILL.md bodies routinely name a
+    script as if it were directly callable (``api_request(...)``) without
+    saying *how* to invoke it or *which* ``skill_name`` to pass — so a small
+    model guesses (copying the tool docstring's example) and never finds its
+    own scripts (db-query: 0/76 correct skill_name; api-query: 0/8). This
+    injects the deterministic recipe so the agent always passes its own
+    ``skill_name``. Only fires when the agent can actually call scripts
+    (``execute_skill_script`` in ``tools:``) and declares ``scripts:``.
+    """
+    tools = metadata.get("tools") or []
+    tool_names = {(t if isinstance(t, str) else t.get("name", "")) for t in tools}
+    scripts = metadata.get("scripts") or []
+    if "execute_skill_script" not in tool_names or not scripts:
+        return prompt
+
+    lines = [
+        prompt,
+        "",
+        "## Running this skill's scripts (REQUIRED call shape)",
+        "",
+        f"Your scripts run ONLY via the `execute_skill_script` tool, and you "
+        f"MUST pass `skill_name=\"{skill_name}\"` (this skill's own name — "
+        f"never copy the tool docstring's example value). Available scripts:",
+        "",
+    ]
+    for s in scripts:
+        if not isinstance(s, dict):
+            continue
+        fname = s.get("file") or (f"{s.get('name')}.py" if s.get("name") else None)
+        if not fname:
+            continue
+        desc = s.get("description", "")
+        lines.append(
+            f"- `{s.get('name', fname)}` — {desc}\n"
+            f"  → `execute_skill_script(skill_name=\"{skill_name}\", "
+            f"script_name=\"{fname}\", script_args={{...}})`"
+        )
+    return "\n".join(lines)
+
+
 def _resolve_env_ref(value: str) -> str:
     """Expand ``${ENV_VAR}`` references in a string against os.environ.
 
@@ -833,6 +885,24 @@ class OLAVAgent:
                 logger.info("✓ '%s' orchestrator RubricMiddleware enabled", self.agent_id)
             except Exception as _re:
                 logger.warning("orchestrator RubricMiddleware init failed for '%s': %s", self.agent_id, _re)
+
+        # dev_docs/97: deterministic (zero-LLM) synthesis grader at the
+        # orchestrator level — same "prose-present" contract as the LLM rubric
+        # above (ISSUE-NO-SYNTHESIS) but without the per-call grader round-trip.
+        # create_deep_agent accepts a custom middleware it does not itself add,
+        # so appending to effective_middleware is safe (no duplicate-middleware).
+        if olav_config.get("deterministic_synthesis_grader"):
+            try:
+                from olav.agents.deterministic_grader import DeterministicSynthesisMiddleware
+                effective_middleware = list(effective_middleware) + [
+                    DeterministicSynthesisMiddleware(
+                        agent_name=self.agent_id,
+                        on_evaluation=_make_rubric_callback(self.agent_id),
+                    )
+                ]
+                logger.info("✓ '%s' orchestrator DeterministicSynthesisMiddleware enabled (zero-LLM grader)", self.agent_id)
+            except Exception as _de:
+                logger.warning("orchestrator DeterministicSynthesisMiddleware init failed for '%s': %s", self.agent_id, _de)
 
         # ADR-0008: Native SkillsMiddleware — skill discovery and third-party
         # skill compatibility (deepagents standard pattern).
@@ -1252,6 +1322,11 @@ class OLAVAgent:
             # Inject static_context references declared in SKILL.md
             prompt = _inject_static_context(prompt, sa_dir, metadata)
 
+            # dev_docs/97: inject the exact execute_skill_script call shape so
+            # the sub-agent passes its OWN skill_name (fixes the db-query /
+            # api-query "guess the skill_name" failure).
+            prompt = _inject_script_recipe(prompt, name, metadata)
+
             # R-VERTICAL-SLICE 2026-05-09 (dev_docs/70): per-sub-agent
             # ``thinking_mode`` overrides the orchestrator's setting.
             # 2026-05-15: extended to a generic ``llm:`` block carrying
@@ -1345,6 +1420,50 @@ class OLAVAgent:
                 except Exception as _re:
                     logger.warning(f"  ! RubricMiddleware init failed for '{name}': {_re}")
 
+            # dev_docs/97: deterministic (zero-LLM) synthesis grader. Unlike
+            # RubricMiddleware — which is a no-op on sub-agents because
+            # state["rubric"] is only injected on the top-level invocation
+            # (agent.py ainvoke, gated on synthesis_rubric) — this grader
+            # actually fires on every natural stop and costs zero model calls.
+            # NOTE: sub-agent SKILL.md nests flags under a ``metadata:`` block,
+            # so ``post.metadata`` exposes them one level down (top-level keys are
+            # name/description/scripts/tools/references/metadata). Read both levels
+            # so the flag works regardless of placement. (The pre-existing
+            # ``rubric_middleware`` branch above only checks the top level, which
+            # is why it never fires for sub-agents — see dev_docs/97 §2.)
+            # _det_grader_mw is kept in a variable (not only appended to
+            # _middleware) so the recursive create_deep_agent branch below can
+            # also pass it: create_deep_agent owns the full built-in stack and
+            # rejects DUPLICATE middleware, but a custom grader it does not add
+            # is safe to pass via its ``middleware=`` param.
+            _det_grader_mw = None
+            _sa_meta_block = metadata.get("metadata") if isinstance(metadata.get("metadata"), dict) else {}
+            if metadata.get("deterministic_synthesis_grader") or _sa_meta_block.get("deterministic_synthesis_grader"):
+                try:
+                    from olav.agents.deterministic_grader import (
+                        DeterministicSynthesisMiddleware,
+                    )
+                    # dev_docs/97 ISSUE-LE-GRADER-SYNTHESIS-ONLY: data-flow agents
+                    # opt into the grounded-result check (fail a positive answer
+                    # built on top of all-failed tools) via
+                    # ``grader_require_tool_success: true``.
+                    _require_grounded = bool(
+                        metadata.get("grader_require_tool_success")
+                        or _sa_meta_block.get("grader_require_tool_success")
+                    )
+                    _det_grader_mw = DeterministicSynthesisMiddleware(
+                        agent_name=name,
+                        on_evaluation=_make_rubric_callback(name),
+                        require_grounded=_require_grounded,
+                    )
+                    _middleware.append(_det_grader_mw)
+                    logger.info(
+                        f"  → '{name}' DeterministicSynthesisMiddleware enabled "
+                        f"(zero-LLM grader; grounded={_require_grounded})"
+                    )
+                except Exception as _de:
+                    logger.warning(f"  ! DeterministicSynthesisMiddleware init failed for '{name}': {_de}")
+
             # dev_docs/73 §2.6.2: a sub-agent that itself declares
             # ``subagents:`` in its SKILL.md needs deepagents'
             # ``SubAgentMiddleware`` to inject the ``task`` tool so it
@@ -1371,16 +1490,20 @@ class OLAVAgent:
                 # create_deep_agent installs its own complete middleware
                 # stack (TodoListMiddleware + SubAgentMiddleware +
                 # FilesystemMiddleware + summarization + prompt-caching
-                # when configured at the orchestrator level).  Passing
-                # ANY of our sub-agent-level middleware produces
-                # "Please remove duplicate middleware instances".  Let
-                # deepagents own the full stack; we just pass the
-                # tools + subagents wiring.
+                # when configured at the orchestrator level).  Passing any
+                # of those again produces "Please remove duplicate middleware
+                # instances", so we do NOT pass _middleware.  But a custom
+                # grader deepagents does not add is safe — pass just the
+                # DeterministicSynthesisMiddleware so recursive deep-agents
+                # (analyzer, reporter) get the L2 verification loop too
+                # (dev_docs/97 §5).
+                _deep_extra_mw = [_det_grader_mw] if _det_grader_mw is not None else []
                 runnable = create_deep_agent(
                     model=sa_llm,
                     system_prompt=prompt,
                     tools=tools,
                     subagents=nested,
+                    middleware=_deep_extra_mw,
                     name=name,
                 )
             else:

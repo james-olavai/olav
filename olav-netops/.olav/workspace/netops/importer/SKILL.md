@@ -8,6 +8,8 @@ dynamic_context:
 - path: ./references/rancid_format.guide.yaml
 - path: ./references/platform_signatures.guide.yaml
 metadata:
+  deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM grader
+  grader_require_tool_success: true   # dev_docs/97 ISSUE-LE-GRADER-SYNTHESIS-ONLY
   agent_type: api
   category: network-data-ingest
   enable_todo_list: true
