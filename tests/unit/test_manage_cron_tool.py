@@ -5,9 +5,20 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+import olav.core.undo_journal as _undo_journal
 
 REPO = Path(__file__).resolve().parents[2]
 TOOL_PATH = REPO / ".olav" / "workspace" / "admin" / "ops" / "scripts" / "manage_cron.py"
+
+
+@pytest.fixture(autouse=True)
+def _isolated_undo_journal(tmp_path, monkeypatch):
+    """add_cron/remove_cron journal their mutations for undo (dev_docs/99
+    §7.4) — point the journal at a tmp dir so tests never write entries
+    into the repo's real .olav/run/undo/."""
+    monkeypatch.setattr(_undo_journal, "_UNDO_DIR_OVERRIDE", tmp_path / "undo")
 
 
 class FakeJob:
@@ -128,7 +139,13 @@ def test_remove_cron_removed(monkeypatch):
 
     out = tool_mod.remove_cron(agent="ops", instruction="cleanup")
 
-    assert out == {"status": "ok", "action": "removed", "agent": "ops", "instruction": "cleanup"}
+    assert out == {
+        "status": "ok",
+        "action": "removed",
+        "agent": "ops",
+        "instruction": "cleanup",
+        "undo_recorded": True,  # dev_docs/99 §7.4 — mutation journaled for undo
+    }
     assert cron.jobs == []
     assert cron.write_calls == 1
 

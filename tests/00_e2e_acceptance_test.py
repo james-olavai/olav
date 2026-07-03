@@ -615,15 +615,15 @@ class TestSyslogServiceClaim:
     """
 
     def test_syslog_start_exits_zero(self):
-        result = run_olav("service", "logs", "start", "--port", "15514")
+        result = run_olav("service", "syslogs", "start", "--port", "15514")
         assert result.returncode == 0, result.stderr
-        run_olav("service", "logs", "stop")
+        run_olav("service", "syslogs", "stop")
 
     def test_syslog_start_output_mentions_started(self):
-        result = run_olav("service", "logs", "start", "--port", "15514")
+        result = run_olav("service", "syslogs", "start", "--port", "15514")
         combined = result.stdout + result.stderr
         assert "started" in combined.lower() or "running" in combined.lower() or "PID" in combined
-        run_olav("service", "logs", "stop")
+        run_olav("service", "syslogs", "stop")
 
     def test_syslog_stop_exits_zero(self):
         run_olav("service", "logs", "start", "--port", "15514")
@@ -1534,7 +1534,7 @@ class TestServiceManagementClaim:
         out = result.stdout
         assert "web" in out
         assert "daemon" in out
-        assert "logs" in out
+        assert "syslogs" in out
 
     def test_service_start_all(self):
         result = run_olav("service", "start", "--all")

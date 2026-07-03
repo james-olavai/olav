@@ -275,8 +275,17 @@ def _check_workspace() -> dict:
 
 # ── Environment / Config check ────────────────────────────────────────────────
 
-def _check_env() -> dict:
-    """Check environment and LLM configuration (env vars + api.json)."""
+def _check_env(llm_connectivity: bool = True) -> dict:
+    """Check environment and LLM configuration (env vars + api.json).
+
+    Args:
+        llm_connectivity: Also live-probe the LLM and embedding backends
+            (real API/model calls, not just "is a key present"). Shares
+            the same deterministic checks as ``olav doctor``
+            (``LLMFactory.check_connectivity`` / ``check_embedding_connectivity``,
+            dev_docs/99 §3.1) so the two never drift apart. Skip for a
+            fast, config-shape-only pass.
+    """
     results: dict = {"status": "ok", "checks": []}
 
     # ── LLM API key ───────────────────────────────────────────────────────────
@@ -325,6 +334,27 @@ def _check_env() -> dict:
         else:
             results["checks"].append({"name": "api.json LLM config", "status": "ok",
                                        "provider": provider, "model": model})
+
+    # ── Live connectivity (real API/model calls) ─────────────────────────────
+    # Only worth probing if a key is actually present — an empty-key finding
+    # above already explains a connectivity failure, no need to pay for one.
+    have_key = bool(env_key or json_key)
+    if llm_connectivity and have_key:
+        from olav.core.llm import LLMFactory
+
+        ok, detail = LLMFactory.check_connectivity()
+        results["checks"].append({
+            "name": "LLM connectivity", "status": "ok" if ok else "error", "message": detail,
+        })
+        if not ok:
+            results["status"] = "error"
+
+        ok, detail = LLMFactory.check_embedding_connectivity()
+        results["checks"].append({
+            "name": "Embedding connectivity", "status": "ok" if ok else "warning", "message": detail,
+        })
+        if not ok and results["status"] == "ok":
+            results["status"] = "warning"
 
     # ── settings.json: active_workspace + syslog ─────────────────────────────
     settings_path = _OLAV_DIR / "config" / "settings.json"
@@ -1020,6 +1050,7 @@ def check_health(
     detailed: bool = False,
     connectivity_sample: int = 3,
     workspace_only: bool = False,
+    llm_connectivity: bool = True,
 ) -> dict:
     """Check OLAV system health: workspace registrations, database, environment, and network.
 
@@ -1030,7 +1061,10 @@ def check_health(
     - All tools declared in each SKILL.md exist on disk
     - Orphaned tool files (exist on disk but not declared in SKILL.md)
     - system_prompt_file references exist
-    - LLM API key + api.json model/provider configuration
+    - LLM API key + api.json model/provider configuration, plus a live
+      LLM + embedding connectivity probe (dev_docs/99 §3.1/§3.3 — same
+      checks `olav doctor` runs, so a user can ask "why isn't X working"
+      in conversation instead of remembering a separate CLI command)
     - Active workspace validation + syslog receiver status
     - AAA: auth mode (none/token/server/ldap/oidc), users.duckdb, security policies,
       approval rules, HITL write-guard settings
@@ -1045,6 +1079,8 @@ def check_health(
         detailed: Include full per-tool breakdown in output (default: slim summary)
         connectivity_sample: Random hosts to SSH-test (0 = skip for speed)
         workspace_only: Only run workspace/agent checks (skip DB and Nornir)
+        llm_connectivity: Live-probe the LLM/embedding backends (real calls,
+            adds latency). Set False for a fast config-shape-only pass.
 
     Returns:
         Health report dict with status, per-section checks, and recommendations
@@ -1052,7 +1088,7 @@ def check_health(
     health: dict = {"status": "ok"}
 
     health["workspace"] = _check_workspace()
-    health["env"] = _check_env()
+    health["env"] = _check_env(llm_connectivity=llm_connectivity)
     health["packages"] = _check_packages()
 
     if not workspace_only:

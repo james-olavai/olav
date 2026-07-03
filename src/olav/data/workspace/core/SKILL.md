@@ -119,7 +119,7 @@ user's message — proceed directly.
   it on demand (see schema introspection guide in
   `<relevant-memories>` when SQL fails with column / token errors)
 * **NEVER use `execute_sql` for syslog / log queries.** Live syslog
-  lives in Parquet (`.olav/databases/logs/`), NOT in DuckDB tables.
+  lives in Parquet (`.olav/databases/syslogs/`), NOT in DuckDB tables.
   Queries like "criticals last hour" / "what happened to R1" / "BGP
   flap timestamps" → `search_logs(query=..., host=..., hours=..., severity=...)`.
   `netops.parsed_outputs` / `v_show_logging_auto` only hold device-side
@@ -137,11 +137,20 @@ Write 1-3 sentences summarising findings, key numbers, or next steps.
 If a file was saved, state the path. If no data was found, say so.
 Do NOT end a turn with only tool call indicators and no prose response.
 
-## Available agents
+## Cross-domain redirects
 
-<!-- BEGIN_AGENT_ROUTING -->
-  - `admin` — health/log diagnostics, cron, ingest, skill pack installation,…
-  - `audit` — runs health check Profiles, authors / extends Profiles, plus schema…
-  - `devops` — automation script generation (bash/python/ansible) + infrastructure…
-  - `netops` — SSH collection, BGP/OSPF analysis, topology queries, simulation,…
-<!-- END_AGENT_ROUTING -->
+`olav_delegate` only reaches YOUR OWN sub-agents (writer / api-query /
+services / remote / memory-curator) — it cannot reach a sibling
+top-level agent. If the user's request belongs to one of these instead,
+say so plainly and tell them how to switch (you cannot switch workspace
+for them):
+
+- Config changes (LLM / embedding provider, api.json), health & log
+  diagnostics, cron, skill-pack installs → `/workspace admin` (or
+  `olav --agent admin "..."` from the shell)
+- Health-check Profiles, audit reports → `/workspace audit` (or
+  `olav --agent audit "..."`)
+- Automation script generation (bash/python/ansible), infra scaffolding
+  → `/workspace devops` (or `olav --agent devops "..."`)
+- SSH collection, BGP/OSPF analysis, topology, simulation
+  → `/workspace netops` (or `olav --agent netops "..."`)

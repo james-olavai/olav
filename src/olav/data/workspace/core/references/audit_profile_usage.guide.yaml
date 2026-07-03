@@ -1,0 +1,32 @@
+schema_version: 1
+intent: audit_profile_usage
+agent: core
+keywords:
+  - audit
+  - profile
+  - health check
+  - compliance
+  - recurring check
+  - run audit
+  - audit report
+  - 审计
+  - 巡检
+  - 健康检查
+  - 合规
+body: |
+  Audit Profiles are a distinct concept from admin's cron jobs or core's
+  own tools — they live in the ``audit`` workspace, not core.
+
+  Reach for it: "run a health check", "audit the network for X", "is
+  everything compliant", "what profiles exist".
+
+  Tell the user: switch to audit (``/workspace audit`` or
+  ``olav --agent audit "..."``), then:
+      /audit run <profile_name>          # e.g. /audit run bgp_health
+      # profiles live under .olav/workspace/audit/profiles/*.md
+
+  A Profile is a reusable, named check definition (SQL + pass/fail
+  rules) — different from a one-off ``execute_sql`` query core can run
+  directly. If the user wants a *new* recurring check rather than an
+  existing one, audit can also author a new Profile; don't try to
+  build the equivalent as ad-hoc SQL in core.

@@ -141,6 +141,7 @@ _KNOWN_COMMANDS: frozenset[str] = frozenset(
                    # the natural-language query path instead of our shim.
         "log",
         "init",
+        "doctor",  # dev_docs/99 §3.1 — zero-LLM preflight/health check
         "refresh",
         "sessions",
         "workspace",
@@ -343,10 +344,16 @@ def parse_args():
     # Init command
     subparsers.add_parser("init", help="Initialize platform scaffolding")
 
-    # Refresh command — rebuild global agent registry (deterministic, no LLM)
-    subparsers.add_parser(
-        "refresh", help="Rebuild global agent registry (olav.md + routing table)"
+    # Doctor command — zero-LLM preflight/health check (dev_docs/99 §3.1)
+    doctor_parser = subparsers.add_parser(
+        "doctor", help="Check platform, LLM, and embedding health"
     )
+    doctor_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON instead of a report"
+    )
+
+    # Refresh command — rebuild global agent registry (deterministic, no LLM)
+    subparsers.add_parser("refresh", help="Rebuild global agent registry (olav.md)")
 
     # Sessions command — list conversation sessions across interfaces (M4)
     sessions_parser = subparsers.add_parser(
@@ -1824,6 +1831,234 @@ def cli_main_async() -> None:
     asyncio.run(cli_main_impl())
 
 
+async def _ensure_bootstrapped() -> bool:
+    """Lazily bootstrap ``.olav/`` on the first agent invocation instead of
+    requiring a separate, must-remember ``olav init`` step (dev_docs/99 §3.2).
+
+    Every step ``InitCommand`` performs (directories, both DuckDBs, workspace
+    deploy, embedding model download, index warmup, registry, admin user from
+    ``$USER``) is idempotent and needs zero user input — so it is safe to run
+    silently here. The one genuinely irreducible input is the LLM API key: if
+    it's missing, prompt for it once (interactive TTY only) instead of
+    deferring to a cryptic langchain error deep inside the agent call.
+
+    Reads/writes ``api.json`` directly rather than via ``ConfigLoader`` —
+    that loader is a process-wide singleton that caches its first read, and
+    on a true first run this function is what creates the file, so a
+    ``ConfigLoader()`` call here could cache a stale (missing) state before
+    the file exists.
+
+    Returns:
+        True if the caller should proceed to launch the agent. False only
+        when the API key is missing and there's no TTY to prompt on (CI,
+        piped input) — the caller should abort rather than launch an agent
+        that will fail on its first LLM call anyway.
+    """
+    import json as _json
+
+    api_json_path = Path(".olav") / "config" / "api.json"
+    is_fresh_bootstrap = not api_json_path.exists()
+
+    if is_fresh_bootstrap:
+        console.print("[dim]First run detected — setting up OLAV...[/dim]")
+        from olav.cli.commands.init import InitCommand
+
+        result = await InitCommand().execute()
+        console.print(f"[dim]{result}[/dim]\n")
+
+    try:
+        api_data = _json.loads(api_json_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        api_data = {}
+
+    have_key = bool((api_data.get("llm") or {}).get("api_key")) or bool(
+        os.environ.get("OPENAI_API_KEY") or os.environ.get("OLAV_LLM_API_KEY")
+    )
+
+    if not have_key:
+        if not sys.stdin.isatty():
+            console.print(
+                "[yellow]No LLM API key configured.[/yellow] Set llm.api_key in "
+                ".olav/config/api.json, or export OPENAI_API_KEY."
+            )
+            return False
+
+        console.print("[bold]No LLM API key configured yet.[/bold]")
+        from rich.prompt import Prompt
+
+        key = Prompt.ask("Paste your LLM API key", password=True)
+        if not key:
+            console.print(
+                "[yellow]No key entered — set it later in .olav/config/api.json (llm.api_key)[/yellow]"
+            )
+            return False
+
+        api_data.setdefault("llm", {})["api_key"] = key
+        api_json_path.write_text(
+            _json.dumps(api_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        console.print("[green]✓[/green] API key saved to .olav/config/api.json\n")
+
+    if is_fresh_bootstrap:
+        _check_first_run_health()
+
+    _run_extension_first_run_checks()
+    _check_returning_user_context()
+
+    return True
+
+
+def _check_returning_user_context() -> None:
+    """Queue a "last time we were working on X" line for the welcome screen
+    (dev_docs/99 §7.3).
+
+    Deterministic and zero-LLM: the "context" is simply the user's most
+    recent recorded query (``audit_messages`` joined to ``audit_runs`` for
+    user scoping) with a humanized age — no LLM summarization at startup.
+    Skipped when there is no history (true first run), when the last
+    activity is older than 7 days (stale context is noise, not
+    orientation), or when the state is undeterminable. Read-only, one
+    indexed query — cheap enough for every launch. Never raises.
+    """
+    from datetime import datetime, timedelta
+
+    try:
+        import duckdb
+
+        from olav.core import config as _config
+
+        db_path = Path(_config.AUDIT_DB_PATH)
+        if not db_path.exists():
+            return
+        user = os.environ.get("USER", "")
+        with duckdb.connect(str(db_path), read_only=True) as conn:
+            row = conn.execute(
+                """
+                SELECT m.content, CAST(m.timestamp AS TIMESTAMP)
+                FROM audit_messages m
+                JOIN audit_runs r ON m.run_id = r.run_id
+                WHERE m.role = 'user' AND (? = '' OR r.user_id = ?)
+                ORDER BY m.timestamp DESC
+                LIMIT 1
+                """,
+                [user, user],
+            ).fetchone()
+        if not row or not (row[0] or "").strip():
+            return
+        content, ts = row
+        age = datetime.now() - ts
+        if age > timedelta(days=7) or age < timedelta(0):
+            return
+
+        if age < timedelta(minutes=90):
+            human = f"{max(1, int(age.total_seconds() // 60))}m"
+        elif age < timedelta(hours=36):
+            human = f"{int(age.total_seconds() // 3600)}h"
+        else:
+            human = f"{age.days}d"
+        snippet = " ".join(str(content).split())
+        if len(snippet) > 70:
+            snippet = snippet[:69].rsplit(" ", 1)[0] + "…"
+
+        from olav.cli.tui_overlay import set_welcome_context
+
+        set_welcome_context(f"Welcome back — last time ({human} ago): “{snippet}”")
+    except Exception:  # noqa: BLE001
+        logger.debug("returning-user context skipped", exc_info=True)
+
+
+def _run_extension_first_run_checks() -> None:
+    """Run extension-registered empty-state checks (dev_docs/99 §7.1).
+
+    Discovers the ``olav.first_run_checks`` entry-point group. Each
+    provider is a zero-arg callable returning a user-facing finding string
+    ("netops installed but no device data — run /netops_init") or a falsy
+    value when it has nothing to say. By contract these checks are
+    deterministic and local (a file stat, a read-only DuckDB count) —
+    cheap enough to run on every agent launch, unlike §3.3's live
+    embedding probe which stays fresh-bootstrap-only. The platform owns
+    only discovery + the display slot; the check logic and wording belong
+    to the extension (repo-boundary rule: core never hardcodes
+    domain semantics).
+
+    Never raises — a broken extension check must not block agent launch.
+    """
+    try:
+        from olav.cli.tui_overlay import add_first_run_finding
+
+        for ep in entry_points(group="olav.first_run_checks"):
+            try:
+                finding = ep.load()()
+                if finding:
+                    add_first_run_finding(str(finding))
+            except Exception:  # noqa: BLE001
+                logger.debug("first_run_check %r failed", ep.name, exc_info=True)
+    except Exception:  # noqa: BLE001
+        logger.debug("first_run_checks discovery failed", exc_info=True)
+
+
+def _llm_failure_hint(e: BaseException) -> str | None:
+    """One actionable line for an LLM/API-shaped failure (dev_docs/99 §7.2).
+
+    §3.1 (doctor) and §3.4/§3.5 (validated self-config + rollback) exist,
+    but nothing connected the *moment of failure* to them — a mid-session
+    quota/auth/endpoint failure surfaced as a bare provider exception.
+    This classifies the error and names the next step. Returns None for
+    errors that don't look LLM/API-shaped (a DB or filesystem error must
+    not get LLM advice). Deliberately gated on the openai-client error
+    class names + unambiguous HTTP auth/quota signals, not generic words
+    like "connection" — the outer handler catches everything the CLI does.
+    """
+    text = f"{type(e).__name__}: {e}".lower()
+    if not any(
+        marker in text
+        for marker in (
+            "apistatuserror", "apierror", "ratelimiterror", "authenticationerror",
+            "apiconnectionerror", "apitimeouterror",
+            "401", "402", "429", "unauthorized", "rate limit", "quota", "api key",
+        )
+    ):
+        return None
+    if any(m in text for m in ("401", "unauthorized", "authenticationerror", "api key")):
+        cause = "The LLM provider rejected the API key (invalid or expired)"
+    elif any(m in text for m in ("402", "429", "quota", "rate limit", "ratelimiterror")):
+        cause = "The LLM provider is rate-limiting or out of quota/credit"
+    elif any(m in text for m in ("apiconnectionerror", "apitimeouterror")):
+        cause = "The LLM endpoint is unreachable"
+    else:
+        cause = "The LLM call failed"
+    return (
+        f"{cause} — run `olav doctor` to diagnose. If this started after a "
+        'config change, undo it: olav --agent admin "rollback my LLM config"'
+    )
+
+
+def _check_first_run_health() -> None:
+    """Best-effort, non-blocking health probe run once on a fresh bootstrap
+    (dev_docs/99 §3.3). Surfaces a non-fatal-but-real finding (embedding
+    backend unavailable) on the TUI's first welcome screen instead of a
+    generic random tip — the LLM path itself is about to be exercised by
+    the user's first message, so it isn't re-probed here; embedding
+    failures are otherwise silent until a memory-dependent feature breaks.
+
+    Never raises — a failed health probe must not block the agent launch
+    it's trying to be helpful about.
+    """
+    try:
+        from olav.core.llm import LLMFactory
+
+        ok, detail = LLMFactory.check_embedding_connectivity()
+        if not ok:
+            from olav.cli.tui_overlay import set_first_run_finding
+
+            set_first_run_finding(
+                f"Embedding backend unavailable ({detail}) — memory/recall "
+                "features will be limited. Run `olav doctor` for details."
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def cli_main_impl() -> None:
     """Async implementation of cli_main."""
     try:
@@ -2107,6 +2342,15 @@ async def cli_main_impl() -> None:
 
             cmd = InitCommand()
             result = await cmd.execute()
+            console.print(result)
+            return
+
+        # Handle doctor command — zero-LLM preflight/health check (dev_docs/99 §3.1)
+        if args.command == "doctor":
+            from olav.cli.commands.doctor import DoctorCommand
+
+            cmd = DoctorCommand()
+            result = await cmd.execute("--json" if getattr(args, "json", False) else "")
             console.print(result)
             return
 
@@ -2452,6 +2696,12 @@ What tools are available and when should each be used?
             sys.exit(handle_audit_command(args))
             return
 
+        # Lazy bootstrap — dev_docs/99 §3.2. Only reached when no known
+        # subcommand matched above (bare `olav` or a natural-language query),
+        # i.e. exactly the paths that are about to launch an agent.
+        if not await _ensure_bootstrapped():
+            sys.exit(1)
+
         # Activate bypass mode before creating session (sets env var for all gates)
         if getattr(args, "dangerously_skip_permissions", False):
             from olav.platform.safety.permissions import set_bypass
@@ -2532,13 +2782,15 @@ What tools are available and when should each be used?
         console.print(f"\n[bold red]Error:[/bold red] {e}")
         import traceback
 
+        # dev_docs/99 §7.2: connect the moment of failure to the existing
+        # remedies (doctor, admin rollback) instead of a bare provider error.
+        hint = _llm_failure_hint(e)
+        if hint:
+            console.print(f"[yellow]{hint}[/yellow]")
+
         # Only print full traceback in debug mode; suppress for known API errors
         # (e.g., 402 Payment Required, 429 Rate Limit) to avoid noisy stderr.
-        _is_api_error = any(
-            marker in str(type(e).__name__) or marker in str(e)
-            for marker in ("APIStatusError", "APIError", "RateLimitError", "AuthenticationError")
-        )
-        if logging.getLogger().level == logging.DEBUG or not _is_api_error:
+        if logging.getLogger().level == logging.DEBUG or hint is None:
             traceback.print_exc()
         if logging.getLogger().level == logging.DEBUG:
             console.print_exception()

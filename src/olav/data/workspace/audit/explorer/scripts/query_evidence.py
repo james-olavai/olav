@@ -10,7 +10,7 @@ selection ambiguity for small-model LLMs.
 
 Sources:
 * ``syslog``         — read syslog parquet partitions in
-                       ``.olav/databases/logs/YYYY-MM-DD/syslog-HH.parquet``
+                       ``.olav/databases/syslogs/YYYY-MM-DD/syslog-HH.parquet``
 * ``command_output`` — read ``netops.raw_output_store`` (per-snapshot
                        per-device CLI command stdout)
 * ``config``         — read ``netops.raw_output_store`` filtered to
@@ -44,7 +44,7 @@ if str(_PROJECT_ROOT / "src") not in sys.path:
 from olav.core.config import MAIN_DB_PATH
 
 
-_LOG_GLOB = ".olav/databases/logs/*/syslog-*.parquet"
+_LOG_GLOB = ".olav/databases/syslogs/*/syslog-*.parquet"
 
 # Aggregate char budget per call — prevents a broad pattern (no device filter)
 # from dumping 50 × 1200-char excerpts (~60 K chars) into context.  Forces the
@@ -73,7 +73,7 @@ def _query_syslog(
 ) -> list[dict[str, Any]]:
     """Query the parquet-partitioned syslog store.
 
-    Looks at parquet files relative to the cwd at .olav/databases/logs/.
+    Looks at parquet files relative to the cwd at .olav/databases/syslogs/.
     """
     log_path = Path.cwd() / _LOG_GLOB
     # DuckDB read_parquet with glob; if no files exist, returns empty

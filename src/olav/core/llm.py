@@ -79,9 +79,11 @@ class LLMFactory:
         if _max_tokens:
             params["max_tokens"] = _max_tokens
 
-        # Add API key if available
-        if llm_config.api_key:
-            params["api_key"] = llm_config.api_key
+        # Add API key if available (per-skill / candidate override beats global —
+        # dev_docs/99 §3.4 validate-before-commit passes a candidate key here)
+        _api_key = overrides.get("api_key") or llm_config.api_key
+        if _api_key:
+            params["api_key"] = _api_key
 
         # Add base_url if configured (per-skill override beats global)
         _base_url = overrides.get("base_url") or llm_config.base_url
@@ -397,35 +399,100 @@ class LLMFactory:
         return llm
 
     @staticmethod
+    def check_connectivity(overrides: dict | None = None) -> tuple[bool, str]:
+        """Test LLM connectivity, returning both the outcome and a detail message.
+
+        Single source of truth for LLM health — shared by ``olav doctor``
+        (dev_docs/99 §3.1), ``test_connectivity()`` below, and the
+        validate-before-commit gate in ``update_llm_config`` (§3.4). Never
+        raises.
+
+        Args:
+            overrides: same shape as ``get_chat_model``'s ``overrides`` —
+                pass a candidate ``model``/``api_key``/``model_provider``/
+                ``base_url`` to test a not-yet-committed config instead of
+                the active one. ``None`` (default) tests the active config.
+
+        Returns:
+            (True, "connected") on success, (False, <reason>) on failure.
+        """
+        try:
+            llm = LLMFactory.get_chat_model(temperature=0, overrides=overrides)
+            from langchain_core.messages import HumanMessage
+
+            llm.invoke([HumanMessage(content="Connectivity test. Respond with OK.")])
+            return True, "connected"
+        except Exception as e:
+            logger.error(f"LLM Connectivity test failed: {e}")
+            return False, str(e)
+
+    @staticmethod
     def test_connectivity() -> bool:
         """Test LLM connectivity by attempting a simple prompt.
 
         Returns:
             True if connectivity is successful, False otherwise.
         """
-        try:
-            llm = LLMFactory.get_chat_model(temperature=0)
-            from langchain_core.messages import HumanMessage
-
-            llm.invoke([HumanMessage(content="Connectivity test. Respond with OK.")])
-            return True
-        except Exception as e:
-            logger.error(f"LLM Connectivity test failed: {e}")
-            return False
+        return LLMFactory.check_connectivity()[0]
 
     @staticmethod
-    def get_embeddings(embedding_model: str | None = None, **kwargs: Any) -> Any:
-        """Create embeddings instance using configured mode (Local/API)."""
+    def check_embedding_connectivity(
+        overrides: dict | None = None, strict: bool = False
+    ) -> tuple[bool, str]:
+        """Test embedding connectivity, returning both the outcome and a detail message.
+
+        Mirrors ``check_connectivity()`` for the embedding backend (local
+        SentenceTransformer or API mode). Never raises.
+
+        Args:
+            overrides: candidate ``mode``/``api_key``/``model``/``base_url``
+                — test a not-yet-committed config (§3.4). ``None`` tests
+                the active config.
+            strict: skip the local-embedding fallback so a bad candidate
+                API key surfaces as a real failure instead of being masked
+                by silently falling back to the local model. Runtime
+                callers (doctor, check_health) want the production
+                fallback behaviour and should leave this ``False``.
+
+        Returns:
+            (True, "connected") on success, (False, <reason>) on failure.
+        """
+        try:
+            embeddings = LLMFactory.get_embeddings(overrides=overrides, strict=strict)
+            embeddings.embed_query("connectivity test")
+            return True, "connected"
+        except Exception as e:
+            logger.error(f"Embedding connectivity test failed: {e}")
+            return False, str(e)
+
+    @staticmethod
+    def get_embeddings(
+        embedding_model: str | None = None,
+        overrides: dict | None = None,
+        strict: bool = False,
+        **kwargs: Any,
+    ) -> Any:
+        """Create embeddings instance using configured mode (Local/API).
+
+        Args:
+            overrides: candidate ``mode``/``api_key``/``model``/``base_url``
+                to test before committing (dev_docs/99 §3.4). ``None`` uses
+                the active config.
+            strict: when True, skip the API→local fallback below so a bad
+                candidate surfaces as a real exception (used by validation;
+                normal runtime calls leave this False).
+        """
         from olav.core.config import get_embedding_config
 
         config = get_embedding_config()
-        mode = config.mode
+        overrides = overrides or {}
+        mode = overrides.get("mode") or config.mode
 
         # Select model based on mode
         if mode == "api":
-            model = embedding_model or config.openai_model
+            model = embedding_model or overrides.get("model") or config.openai_model
         else:
-            model = embedding_model or config.local_model
+            model = embedding_model or overrides.get("model") or config.local_model
 
         class SentenceTransformerEmbeddings:
             def __init__(self, st_model):
@@ -445,9 +512,9 @@ class LLMFactory:
             if mode == "api":
                 from langchain_openai import OpenAIEmbeddings
 
-                return OpenAIEmbeddings(
-                    model=model, api_key=config.api_key, base_url=config.base_url or None, **kwargs
-                )
+                api_key = overrides.get("api_key") or config.api_key
+                base_url = overrides.get("base_url") or config.base_url or None
+                return OpenAIEmbeddings(model=model, api_key=api_key, base_url=base_url, **kwargs)
             else:
                 st_model = get_embedder(model)
                 if st_model is None:
@@ -457,7 +524,7 @@ class LLMFactory:
                 return SentenceTransformerEmbeddings(st_model)
         except Exception as e:
             logger.warning(f"Embedding initialization failed ({mode}/{model}): {e}")
-            if mode == "api" and config.fallback_enabled:
+            if mode == "api" and config.fallback_enabled and not strict:
                 logger.info("Falling back to local embeddings...")
                 st_model = get_embedder(config.local_model)
                 if st_model is None:

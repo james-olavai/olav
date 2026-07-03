@@ -6,7 +6,7 @@ Features:
   - Listens on UDP 5514 (configurable), receives RFC 3164 / RFC 5424 syslog messages
   - Parses timestamp / host / severity / facility / message fields
   - Writes to Parquet in batches (every N records OR every N seconds)
-  - Path: .olav/databases/logs/YYYY-MM-DD/syslog-HH.parquet
+  - Path: .olav/databases/syslogs/YYYY-MM-DD/syslog-HH.parquet
 
 Usage:
   # Via OLAV service manager (recommended)
@@ -30,14 +30,14 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from olav.core.config import LOG_STORAGE_DIR
+    from olav.core.config import SYSLOG_STORAGE_DIR
 
-    LOG_DIR = Path(LOG_STORAGE_DIR)
+    LOG_DIR = Path(SYSLOG_STORAGE_DIR)
 except Exception:
     # Fallback: resolve relative to project root
     _here = Path(__file__).resolve()
     _root = next((p for p in _here.parents if (p / "pyproject.toml").exists()), Path.cwd())
-    LOG_DIR = _root / ".olav" / "databases" / "logs"
+    LOG_DIR = _root / ".olav" / "databases" / "syslogs"
 
 _root_for_pid = next(
     (p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").exists()),

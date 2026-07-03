@@ -1265,7 +1265,7 @@ def get_domain_config_dir(domain: str) -> "Path":
     return CONFIG_DIR / "domains" / domain
 
 
-LOG_STORAGE_DIR = DATABASES_DIR / "logs"  # Syslog receiver storage directory
+SYSLOG_STORAGE_DIR = DATABASES_DIR / "syslogs"  # Syslog receiver storage directory
 AUDIT_DB_PATH = DATABASES_DIR / "audit.duckdb"  # Audit event store (append-only)
 CACHE_DIR = AGENT_DIR / "cache"  # Legacy: project-level cache (kept for backwards compat)
 USER_CACHE_DIR = Path.home() / ".olav" / "cache" / _username  # User-isolated LLM cache
@@ -1296,7 +1296,7 @@ __all__ = [
     "NETWORK_DB_PATH",
     "USER_SESSION_DIR",
     "GUARD_WHITELIST_PATH",
-    "LOG_STORAGE_DIR",
+    "SYSLOG_STORAGE_DIR",
     "AUDIT_DB_PATH",
     "CACHE_DIR",
     "USER_CACHE_DIR",

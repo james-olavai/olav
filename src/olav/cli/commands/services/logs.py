@@ -234,7 +234,7 @@ class LogsService:
         table.add_row("Flush Interval", f"{flush_interval}s")
 
         # Log storage info
-        log_dir = _project_root() / ".olav" / "databases" / "logs"
+        log_dir = _project_root() / ".olav" / "databases" / "syslogs"
         parquet_count = len(list(log_dir.glob("**/*.parquet"))) if log_dir.exists() else 0
         table.add_row("Parquet Files", str(parquet_count))
         table.add_row("Log Directory", str(log_dir))

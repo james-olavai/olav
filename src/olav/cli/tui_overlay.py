@@ -120,6 +120,16 @@ _PENDING_WORKSPACE: str | None = None
 agent.  Consumed (and cleared) by :func:`consume_pending_workspace` in
 the outer interactive loop."""
 
+_FIRST_RUN_FINDINGS: list[str] = []
+"""Non-blocking health/state findings to show on the next welcome screen —
+real state, not generic tips. Populated by
+:func:`olav.cli.main._ensure_bootstrapped`: §3.3's fresh-bootstrap
+embedding probe via :func:`set_first_run_finding`, and §7.1's
+extension-registered empty-state checks via
+:func:`add_first_run_finding`. Consumed once by the welcome footer
+(:func:`_patch_welcome_footer`) so findings only appear on the first
+screen, not every subsequent restart."""
+
 _applied: bool = False
 """True once the overlay has been applied in this process so repeated
 calls short-circuit."""
@@ -178,6 +188,58 @@ def consume_pending_workspace() -> str | None:
     target = _PENDING_WORKSPACE
     _PENDING_WORKSPACE = None
     return target
+
+
+def set_first_run_finding(message: str | None) -> None:
+    """Replace the pending findings with a single one (or clear on falsy).
+
+    Called by :func:`olav.cli.main._check_first_run_health` after a fresh
+    ``.olav/`` bootstrap (dev_docs/99 §3.3).
+    """
+    _FIRST_RUN_FINDINGS.clear()
+    if message:
+        _FIRST_RUN_FINDINGS.append(message)
+
+
+def add_first_run_finding(message: str | None) -> None:
+    """Append a finding without clobbering ones already queued.
+
+    Used by the §7.1 extension first-run checks, which run *after* §3.3's
+    embedding probe may already have queued a finding — both must survive
+    to the welcome screen.
+    """
+    if message:
+        _FIRST_RUN_FINDINGS.append(message)
+
+
+def consume_first_run_finding() -> str | None:
+    """Return all pending findings joined for display, and clear them."""
+    if not _FIRST_RUN_FINDINGS:
+        return None
+    combined = "\n⚠ ".join(_FIRST_RUN_FINDINGS)
+    _FIRST_RUN_FINDINGS.clear()
+    return combined
+
+
+_WELCOME_CONTEXT: str | None = None
+"""Returning-user context line (dev_docs/99 §7.3) — "last time we were
+working on X" — set by :func:`olav.cli.main._check_returning_user_context`
+at launch, consumed once by the welcome footer. Rendered as a plain dim
+line, NOT with the ⚠ findings prefix: it is orientation, not a warning."""
+
+
+def set_welcome_context(message: str | None) -> None:
+    """Set (or clear, on falsy) the returning-user context line."""
+    global _WELCOME_CONTEXT
+    _WELCOME_CONTEXT = message or None
+
+
+def consume_welcome_context() -> str | None:
+    """Return and clear the pending welcome context, if any."""
+    global _WELCOME_CONTEXT
+    context = _WELCOME_CONTEXT
+    _WELCOME_CONTEXT = None
+    return context
 
 
 def apply_olav_overlay() -> bool:
@@ -319,6 +381,16 @@ def _patch_workspace_command() -> bool:
             argument_hint="<name>",
         )
 
+        # dev_docs/99 §3.1 follow-up: expose the zero-LLM health check
+        # inside the TUI so a user hitting a mid-session failure doesn't
+        # have to exit to a shell to diagnose it.
+        doctor_cmd = _cr.SlashCommand(
+            name="/doctor",
+            description="Check platform, LLM, and embedding health",
+            bypass_tier=_cr.BypassTier.IMMEDIATE_UI,
+            hidden_keywords="health diagnose check connectivity",
+        )
+
         # Filter out deepagents-code's self-upgrade commands — they'd break
         # our pinned version — and prepend /workspace.
         filtered_commands = tuple(
@@ -330,7 +402,7 @@ def _patch_workspace_command() -> bool:
         # startup-time snapshot — newly installed workspaces still work via
         # /workspace <name> without a restart; the short alias just won't
         # appear until next TUI launch.
-        reserved = {c.name for c in filtered_commands} | {"/workspace"}
+        reserved = {c.name for c in filtered_commands} | {"/workspace", "/doctor"}
         workspace_names = _discover_workspaces()
         alias_cmds: list[Any] = []
         aliases_registered: set[str] = set()
@@ -354,7 +426,7 @@ def _patch_workspace_command() -> bool:
             )
             aliases_registered.add(name)
 
-        _cr.COMMANDS = (workspace_cmd, *filtered_commands, *alias_cmds)
+        _cr.COMMANDS = (workspace_cmd, doctor_cmd, *filtered_commands, *alias_cmds)
         _cr.SLASH_COMMANDS[:] = [c.to_entry() for c in _cr.COMMANDS]
 
         _original_handle = DeepAgentsApp._handle_command
@@ -364,6 +436,9 @@ def _patch_workspace_command() -> bool:
             # Match "/workspace" exactly and any "/workspace <args>" form.
             if cmd_lower == "/workspace" or cmd_lower.startswith("/workspace "):
                 await _dispatch_workspace(self, command)
+                return
+            if cmd_lower == "/doctor" or cmd_lower.startswith("/doctor "):
+                await _dispatch_doctor(self)
                 return
             # Match a registered workspace alias with no extra args —
             # e.g. "/ops" but NOT "/ops some free-form message".
@@ -482,12 +557,24 @@ def _patch_welcome_footer() -> bool:
                    "What's next on the network?\n")
             if show_tip is False:
                 return Content.assemble((cta, primary_color))
-            if tip is None:
-                tip = random.choice(olav_tips)  # noqa: S311
-            return Content.assemble(
-                (cta, primary_color),
-                (f"Tip: {tip}", "dim italic"),
-            )
+            parts: list[tuple[str, str]] = [(cta, primary_color)]
+            # dev_docs/99 §7.3: returning-user orientation line ("last
+            # time: …") — plain dim, not a warning; coexists with a
+            # finding or tip below it.
+            context = consume_welcome_context()
+            if context:
+                parts.append((f"{context}\n", "dim"))
+            # dev_docs/99 §3.3: a real first-run finding (e.g. embedding
+            # backend unavailable) beats a generic random tip — consumed
+            # once so it doesn't repeat on later restarts/workspace swaps.
+            finding = consume_first_run_finding()
+            if finding:
+                parts.append((f"⚠ {finding}", "dim italic"))
+            else:
+                if tip is None:
+                    tip = random.choice(olav_tips)  # noqa: S311
+                parts.append((f"Tip: {tip}", "dim italic"))
+            return Content.assemble(*parts)
 
         _dc_welcome.build_welcome_footer = _olav_welcome_footer  # type: ignore[assignment]
         return True
@@ -649,10 +736,40 @@ async def _dispatch_workspace(app: Any, command: str) -> None:
         logger.warning("Failed to exit TUI cleanly for workspace swap", exc_info=True)
 
 
-def _notify(app: Any, message: str, *, severity: str = "information") -> None:
+async def _dispatch_doctor(app: Any) -> None:
+    """Handle ``/doctor`` inside the TUI (dev_docs/99 §3.1 follow-up).
+
+    Runs the same DoctorCommand as the CLI verb. The LLM/embedding probes
+    are blocking network calls, so they run in a worker thread — freezing
+    the Textual event loop for several seconds would look like a hang.
+    """
+    import asyncio
+
+    _notify(app, "Running health checks (LLM + embedding probes)…", severity="information")
+
+    def _run_sync() -> str:
+        from olav.cli.commands.doctor import DoctorCommand
+
+        return asyncio.run(DoctorCommand().execute())
+
+    try:
+        report = await asyncio.to_thread(_run_sync)
+    except Exception as exc:  # noqa: BLE001
+        _notify(app, f"Health check failed to run: {exc}", severity="error")
+        return
+    severity = "information" if "overall: healthy" in report else "warning"
+    _notify(app, report, severity=severity, timeout=20)
+
+
+def _notify(
+    app: Any, message: str, *, severity: str = "information", timeout: "float | None" = None
+) -> None:
     """Best-effort Textual notification with a plain-print fallback."""
     try:
-        app.notify(message, severity=severity, markup=False)
+        if timeout is not None:
+            app.notify(message, severity=severity, markup=False, timeout=timeout)
+        else:
+            app.notify(message, severity=severity, markup=False)
     except Exception:
         print(message)
 

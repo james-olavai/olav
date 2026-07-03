@@ -177,7 +177,22 @@ def _install_stub_deepagents_code(
 
 
 def _fresh_overlay(monkeypatch: pytest.MonkeyPatch):
-    """Re-import the overlay module with a clean ``_applied`` flag."""
+    """Re-import the overlay module with a clean ``_applied`` flag.
+
+    Restores BOTH module bindings on teardown. ``monkeypatch.delitem``
+    alone restores only ``sys.modules``; the re-import below also rebinds
+    the parent-package attribute ``olav.cli.tui_overlay`` to the fresh
+    module, and leaving that dangling splits later tests' view of the
+    module (``import a.b as x`` resolves via the package attribute,
+    ``from a.b import f`` via ``sys.modules`` — two different module
+    objects, two different copies of module-level state). The no-op
+    ``setattr`` before the delete records the original attribute so
+    monkeypatch teardown restores it alongside the sys.modules entry.
+    """
+    import olav.cli as _cli_pkg
+
+    if hasattr(_cli_pkg, "tui_overlay"):
+        monkeypatch.setattr(_cli_pkg, "tui_overlay", _cli_pkg.tui_overlay)
     monkeypatch.delitem(sys.modules, "olav.cli.tui_overlay", raising=False)
     import olav.cli.tui_overlay as overlay
 
@@ -274,6 +289,78 @@ def test_overlay_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cmd_names.count("/workspace") == 1
 
 
+# ── 4b. first-run finding (dev_docs/99 §3.3) ─────────────────────────────────
+
+
+def test_set_and_consume_first_run_finding() -> None:
+    import olav.cli.tui_overlay as overlay
+
+    overlay.set_first_run_finding("embedding backend unavailable")
+    assert overlay.consume_first_run_finding() == "embedding backend unavailable"
+    # Consumed — second read is empty.
+    assert overlay.consume_first_run_finding() is None
+
+
+def test_set_first_run_finding_clears_on_falsy() -> None:
+    import olav.cli.tui_overlay as overlay
+
+    overlay.set_first_run_finding("something")
+    overlay.set_first_run_finding(None)
+    assert overlay.consume_first_run_finding() is None
+
+
+def test_welcome_footer_prefers_real_finding_over_random_tip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A real first-run finding must win over OLAV_TIPS' random pool, and
+    only appear once — the point is to surface actual state, not add a
+    permanent extra tip category."""
+    _install_stub_deepagents_code(monkeypatch, version="0.1.8")
+    overlay = _fresh_overlay(monkeypatch)
+    assert overlay.apply_olav_overlay() is True
+
+    import sys as _sys
+
+    welcome_mod = _sys.modules["deepagents_code.widgets.welcome"]
+
+    overlay.set_first_run_finding("Embedding backend unavailable — memory limited")
+    content = welcome_mod.build_welcome_footer()
+    assert "Embedding backend unavailable" in content.plain
+    assert "Tip:" not in content.plain
+
+    # Consumed — the next render falls back to a random OLAV tip.
+    content_again = welcome_mod.build_welcome_footer()
+    assert "Embedding backend unavailable" not in content_again.plain
+    assert "Tip:" in content_again.plain
+
+
+def test_welcome_footer_renders_context_and_finding_together(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§7.3 welcome context is orientation, not a warning — it renders as
+    its own line and coexists with a §3.3/§7.1 finding below it."""
+    _install_stub_deepagents_code(monkeypatch, version="0.1.8")
+    overlay = _fresh_overlay(monkeypatch)
+    assert overlay.apply_olav_overlay() is True
+
+    import sys as _sys
+
+    welcome_mod = _sys.modules["deepagents_code.widgets.welcome"]
+
+    overlay.set_welcome_context("Welcome back — last time (2h ago): “BGP flap on R1”")
+    overlay.set_first_run_finding("Embedding backend unavailable")
+
+    content = welcome_mod.build_welcome_footer()
+    assert "Welcome back" in content.plain
+    assert "BGP flap on R1" in content.plain
+    assert "Embedding backend unavailable" in content.plain
+
+    # Both consumed — next render is back to the plain tip.
+    content_again = welcome_mod.build_welcome_footer()
+    assert "Welcome back" not in content_again.plain
+    assert "Tip:" in content_again.plain
+
+
 # ── 5. /workspace handler sets pending flag and exits app ────────────────────
 
 
@@ -309,6 +396,76 @@ def test_workspace_command_sets_pending_and_exits(
     # Second consume returns None — flag is cleared.
     assert overlay.consume_pending_workspace() is None
     assert fake.exited is True
+
+
+# ── 5b. /doctor runs the health check in-TUI (dev_docs/99 §3.1 follow-up) ───
+
+
+class _FakeNotifyApp:
+    """Minimal Textual-app stand-in capturing notify() calls (kwargs-tolerant)."""
+
+    def __init__(self) -> None:
+        self.notices: list[tuple[str, str]] = []
+
+    def notify(self, message: str, *, severity: str = "information", **_kw) -> None:
+        self.notices.append((severity, message))
+
+
+def test_doctor_command_registered(monkeypatch: pytest.MonkeyPatch) -> None:
+    _, cr, _, _uc = _install_stub_deepagents_code(monkeypatch, version="0.1.8")
+    overlay = _fresh_overlay(monkeypatch)
+    assert overlay.apply_olav_overlay() is True
+
+    cmd_names = [c.name for c in cr.COMMANDS]
+    assert cmd_names.count("/doctor") == 1
+    assert "/doctor" in [e.name for e in cr.SLASH_COMMANDS]
+
+
+def test_doctor_command_runs_check_and_notifies(monkeypatch: pytest.MonkeyPatch) -> None:
+    _, _, app_cls, _uc = _install_stub_deepagents_code(monkeypatch, version="0.1.8")
+    overlay = _fresh_overlay(monkeypatch)
+    overlay.apply_olav_overlay()
+
+    class _StubDoctor:
+        async def execute(self, args: str = "") -> str:
+            return "✓ llm: connected\n\noverall: healthy"
+
+    import olav.cli.commands.doctor as doctor_mod
+
+    monkeypatch.setattr(doctor_mod, "DoctorCommand", _StubDoctor)
+
+    fake = _FakeNotifyApp()
+    import asyncio
+
+    asyncio.run(app_cls._handle_command(fake, "/doctor"))
+
+    report_notices = [(sev, msg) for sev, msg in fake.notices if "overall" in msg]
+    assert report_notices, f"doctor report never notified: {fake.notices}"
+    assert report_notices[0][0] == "information"
+    # Original handler must NOT have been reached.
+    assert not hasattr(fake, "last_original_command")
+
+
+def test_doctor_unhealthy_report_notifies_as_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    _, _, app_cls, _uc = _install_stub_deepagents_code(monkeypatch, version="0.1.8")
+    overlay = _fresh_overlay(monkeypatch)
+    overlay.apply_olav_overlay()
+
+    class _StubDoctor:
+        async def execute(self, args: str = "") -> str:
+            return "⚠ embedding: down\n\noverall: needs attention"
+
+    import olav.cli.commands.doctor as doctor_mod
+
+    monkeypatch.setattr(doctor_mod, "DoctorCommand", _StubDoctor)
+
+    fake = _FakeNotifyApp()
+    import asyncio
+
+    asyncio.run(app_cls._handle_command(fake, "/doctor"))
+
+    report_notices = [(sev, msg) for sev, msg in fake.notices if "overall" in msg]
+    assert report_notices and report_notices[0][0] == "warning"
 
 
 # ── 6. /workspace with no args prints usage and does NOT set pending flag ───
