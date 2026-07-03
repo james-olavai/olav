@@ -1,10 +1,7 @@
 """refresh.py — olav refresh: rebuild global agent registry (deterministic, no LLM).
 
-Scans .olav/workspace/*/{SKILL.md,AGENT.md} (SKILL.md preferred; AGENT.md for older installs) and:
-
-1. Rewrites olav.md frontmatter (agents list + body table).
-2. Replaces the <!-- BEGIN_AGENT_ROUTING --> ... <!-- END_AGENT_ROUTING --> section
-   in .olav/workspace/olav/prompts/system.md with a fresh routing table.
+Scans .olav/workspace/*/{SKILL.md,AGENT.md} (SKILL.md preferred; AGENT.md for older installs)
+and rewrites olav.md frontmatter (agents list + body table).
 
 Auto-triggered by:  olav init, olav skill install, olav skill remove.
 Manual:             olav refresh
@@ -21,12 +18,6 @@ from typing import Any
 import yaml
 
 logger = logging.getLogger(__name__)
-
-# Agents skipped from the main routing table (the olav main agent routes to others — not to itself)
-_ROUTING_TABLE_SKIP: frozenset[str] = frozenset({"core"})
-
-_ROUTING_START_MARKER = "<!-- BEGIN_AGENT_ROUTING -->"
-_ROUTING_END_MARKER = "<!-- END_AGENT_ROUTING -->"
 
 
 # ── frontmatter helpers ─────────────────────────────────────────────────────
@@ -186,54 +177,6 @@ def _write_platform_md(workspace_root: Path, agents: list[dict[str, Any]]) -> No
     logger.info("olav.md rewritten: %d agents → %s", len(agents), flags)
 
 
-# ── system.md routing table ─────────────────────────────────────────────────
-
-
-def _update_main_agent_routing(workspace_root: Path, agents: list[dict[str, Any]]) -> bool:
-    """Replace the routing section in olav/prompts/system.md.
-
-    The section is delimited by ``<!-- BEGIN_AGENT_ROUTING -->`` and
-    ``<!-- END_AGENT_ROUTING -->`` markers.  Agents in ``_ROUTING_TABLE_SKIP``
-    are omitted (the main agent does not route to itself).
-
-    Returns:
-        True  — markers found and section updated.
-        False — system.md missing or markers absent (no change made).
-    """
-    system_md = workspace_root / "core" / "prompts" / "system.md"
-    if not system_md.exists():
-        logger.warning("Main agent system.md not found: %s", system_md)
-        return False
-
-    text = system_md.read_text(encoding="utf-8")
-    if _ROUTING_START_MARKER not in text or _ROUTING_END_MARKER not in text:
-        logger.warning("Routing markers not found in %s — skipping routing update", system_md)
-        return False
-
-    routing_agents = [a for a in agents if a["flag"] not in _ROUTING_TABLE_SKIP]
-
-    lines = [_ROUTING_START_MARKER]
-    for a in routing_agents:
-        desc = a["description"]
-        # Use text after em-dash if present, else full description
-        short = desc.split("—", 1)[1].strip() if "—" in desc else desc
-        # First sentence only
-        short = short.split(".")[0].strip()
-        if len(short) > 70:
-            short = short[:69].rsplit(" ", 1)[0] + "…"
-        lines.append(f"  - `{a['flag']}` — {short}")
-    lines.append(_ROUTING_END_MARKER)
-
-    new_section = "\n".join(lines)
-
-    start_idx = text.index(_ROUTING_START_MARKER)
-    end_idx = text.index(_ROUTING_END_MARKER) + len(_ROUTING_END_MARKER)
-    new_text = text[:start_idx] + new_section + text[end_idx:]
-    system_md.write_text(new_text, encoding="utf-8")
-    logger.info("system.md routing table updated: %d agents", len(routing_agents))
-    return True
-
-
 # ── stale file cleanup ──────────────────────────────────────────────────────
 
 
@@ -292,7 +235,6 @@ def refresh_workspace(workspace_root: Path | None = None) -> str:
         return "warning: no SKILL.md/AGENT.md files found in workspace"
 
     _write_platform_md(workspace_root, agents)
-    routing_updated = _update_main_agent_routing(workspace_root, agents)
 
     # Build semantic routing index (non-fatal if LanceDB/embeddings unavailable)
     try:
@@ -302,13 +244,12 @@ def refresh_workspace(workspace_root: Path | None = None) -> str:
         logger.debug("initialize_router skipped: %s", exc)
 
     flags = [a["flag"] for a in agents]
-    note = "" if routing_updated else " (routing markers not found in olav/prompts/system.md)"
     cleanup_note = (
         f"; cleaned {len(removed_disabled)} stale .disabled file(s)"
         if removed_disabled
         else ""
     )
-    return f"✓ {len(agents)} agents registered: {', '.join(flags)}{note}{cleanup_note}"
+    return f"✓ {len(agents)} agents registered: {', '.join(flags)}{cleanup_note}"
 
 
 # ── CLI command class ─────────────────────────────────────────────────────────
@@ -318,7 +259,7 @@ class RefreshCommand:
     """``olav refresh`` — rebuild global agent registry (deterministic, no LLM)."""
 
     name = "refresh"
-    description = "Rebuild global agent registry (olav.md + routing table)"
+    description = "Rebuild global agent registry (olav.md)"
 
     async def execute(self, args: str = "") -> str:  # noqa: ARG002
         return refresh_workspace()

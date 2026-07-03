@@ -2,12 +2,15 @@
 
 Tests for:
 - _parse_agent_frontmatter: parse YAML frontmatter from AGENT.md
-- _scan_agents: find all agents with AGENT.md in workspace
-- _write_platform_md: rebuild PLATFORM.md from agent list
-- _update_main_agent_routing: replace routing section in system.md
+- _scan_agents: find all agents with SKILL.md/AGENT.md in workspace
+- _write_platform_md: rebuild olav.md from agent list
 - refresh_workspace: orchestrate the full refresh
 
-Rev 93 / ISSUE-P2-NO-GLOBAL-AGENT-REGISTRY
+Rev 93 / ISSUE-P2-NO-GLOBAL-AGENT-REGISTRY. The system.md routing-table
+half of refresh (``_update_main_agent_routing``) was removed 2026-07-02 —
+it targeted ``<workspace>/core/prompts/system.md``, a file that never
+existed under the post-SKILL.md-migration workspace layout, so the
+function always no-op'd (dev_docs/99 §3.6).
 """
 
 from __future__ import annotations
@@ -18,11 +21,8 @@ import pytest
 import yaml
 
 from olav.cli.commands.refresh import (
-    _ROUTING_END_MARKER,
-    _ROUTING_START_MARKER,
     _parse_agent_frontmatter,
     _scan_agents,
-    _update_main_agent_routing,
     _write_platform_md,
     refresh_workspace,
 )
@@ -43,26 +43,6 @@ def _make_agent(parent_dir: Path, name: str, meta: dict | None = None) -> Path:
     frontmatter = yaml.dump(meta, default_flow_style=False)
     (agent_dir / "AGENT.md").write_text(f"---\n{frontmatter}---\n\n# {name}\n", encoding="utf-8")
     return agent_dir
-
-
-def _make_system_md(olav_dir: Path, with_markers: bool = True) -> Path:
-    """Write a minimal system.md with or without routing markers."""
-    prompts_dir = olav_dir / "prompts"
-    prompts_dir.mkdir(parents=True, exist_ok=True)
-    if with_markers:
-        content = (
-            "You are OLAV.\n\n"
-            "- Help you decide:\n"
-            f"{_ROUTING_START_MARKER}\n"
-            "  - `old` — Old description\n"
-            f"{_ROUTING_END_MARKER}\n\n"
-            "More text here.\n"
-        )
-    else:
-        content = "You are OLAV.\n\n- Help you decide:\n  - `old` — old\n\nMore text.\n"
-    system_md = prompts_dir / "system.md"
-    system_md.write_text(content, encoding="utf-8")
-    return system_md
 
 
 # ── _parse_agent_frontmatter ────────────────────────────────────────────────
@@ -102,9 +82,9 @@ class TestScanAgents:
         ws = tmp_path / "workspace"
         _make_agent(ws, "quick", {"name": "quick-orchestrator", "description": "Fast"})
         _make_agent(ws, "ops", {"name": "ops-orchestrator", "description": "Deep"})
-        # Directory without AGENT.md — must be skipped
+        # Directory with neither SKILL.md nor AGENT.md — must be skipped
         (ws / "no-agent").mkdir()
-        (ws / "no-agent" / "SKILL.md").write_text("---\nname: x\n---\n", encoding="utf-8")
+        (ws / "no-agent" / "README.md").write_text("not an agent file", encoding="utf-8")
 
         agents = _scan_agents(ws)
         flags = [a["flag"] for a in agents]
@@ -112,6 +92,22 @@ class TestScanAgents:
         assert "ops" in flags
         assert "no-agent" not in flags
         assert len(agents) == 2
+
+    def test_prefers_skill_md_over_agent_md(self, tmp_path):
+        """SKILL.md is preferred (post-ADR-0008 merge); a directory with
+        only SKILL.md (no AGENT.md) must still be found, not skipped."""
+        ws = tmp_path / "workspace"
+        skill_dir = ws / "modern"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            '---\nname: modern-agent\ndescription: "SKILL.md-only agent"\n---\n',
+            encoding="utf-8",
+        )
+
+        agents = _scan_agents(ws)
+        flags = [a["flag"] for a in agents]
+        assert "modern" in flags
+        assert len(agents) == 1
 
     def test_returns_empty_for_empty_workspace(self, tmp_path):
         ws = tmp_path / "workspace"
@@ -150,7 +146,7 @@ class TestWritePlatformMd:
             {"flag": "ops", "name": "ops-orchestrator", "description": "Deep troubleshooting", "kind": ""},
         ]
         _write_platform_md(ws, agents)
-        platform_md = ws / "PLATFORM.md"
+        platform_md = ws / "olav.md"
         assert platform_md.exists()
 
     def test_frontmatter_contains_agents_list(self, tmp_path):
@@ -161,15 +157,15 @@ class TestWritePlatformMd:
             {"flag": "ops", "name": "ops-orch", "description": "Deep", "kind": ""},
         ]
         _write_platform_md(ws, agents)
-        text = (ws / "PLATFORM.md").read_text(encoding="utf-8")
+        text = (ws / "olav.md").read_text(encoding="utf-8")
         meta = yaml.safe_load(text.split("---", 2)[1])
         assert meta["agents"] == ["quick", "ops"]
 
     def test_preserves_existing_active_agent(self, tmp_path):
         ws = tmp_path / "workspace"
         ws.mkdir()
-        # Write an existing PLATFORM.md with active=ops
-        (ws / "PLATFORM.md").write_text(
+        # Write an existing olav.md with active=ops
+        (ws / "olav.md").write_text(
             "---\nactive: ops\nagents:\n- ops\n---\n# Old\n",
             encoding="utf-8",
         )
@@ -178,20 +174,20 @@ class TestWritePlatformMd:
             {"flag": "ops", "name": "ops-orch", "description": "", "kind": ""},
         ]
         _write_platform_md(ws, agents)
-        text = (ws / "PLATFORM.md").read_text(encoding="utf-8")
+        text = (ws / "olav.md").read_text(encoding="utf-8")
         meta = yaml.safe_load(text.split("---", 2)[1])
         assert meta["active"] == "ops"
 
     def test_preserves_existing_platform_section(self, tmp_path):
         ws = tmp_path / "workspace"
         ws.mkdir()
-        (ws / "PLATFORM.md").write_text(
+        (ws / "olav.md").write_text(
             "---\nactive: quick\nagents: [quick]\nplatform:\n  db: .olav/databases/main.duckdb\n---\n",
             encoding="utf-8",
         )
         agents = [{"flag": "quick", "name": "quick-orch", "description": "", "kind": ""}]
         _write_platform_md(ws, agents)
-        text = (ws / "PLATFORM.md").read_text(encoding="utf-8")
+        text = (ws / "olav.md").read_text(encoding="utf-8")
         meta = yaml.safe_load(text.split("---", 2)[1])
         assert meta["platform"]["db"] == ".olav/databases/main.duckdb"
 
@@ -202,59 +198,9 @@ class TestWritePlatformMd:
             {"flag": "quick", "name": "quick-orch", "description": "Fast lookup", "kind": ""},
         ]
         _write_platform_md(ws, agents)
-        body = (ws / "PLATFORM.md").read_text(encoding="utf-8")
+        body = (ws / "olav.md").read_text(encoding="utf-8")
         assert "quick" in body
         assert "Fast lookup" in body
-
-
-# ── _update_main_agent_routing ──────────────────────────────────────────────
-
-
-class TestUpdateMainAgentRouting:
-    def test_replaces_routing_section(self, tmp_path):
-        ws = tmp_path / "workspace"
-        olav_dir = _make_agent(ws, "olav", {"name": "olav-main", "description": ""})
-        system_md = _make_system_md(olav_dir, with_markers=True)
-
-        agents = [
-            {"flag": "quick", "name": "quick-orch", "description": "Quick Query Agent — Fast SQL", "kind": ""},
-            {"flag": "ops", "name": "ops-orch", "description": "Operations Agent — Deep troubleshooting", "kind": ""},
-            {"flag": "olav", "name": "olav-main", "description": "Main agent", "kind": ""},
-        ]
-        result = _update_main_agent_routing(ws, agents)
-        assert result is True
-
-        text = system_md.read_text(encoding="utf-8")
-        # olav should be excluded from routing table
-        assert "`olav`" not in text.split(_ROUTING_START_MARKER)[1].split(_ROUTING_END_MARKER)[0]
-        assert "`quick`" in text
-        assert "`ops`" in text
-        # old content replaced
-        assert "`old`" not in text
-
-    def test_returns_false_when_markers_missing(self, tmp_path):
-        ws = tmp_path / "workspace"
-        olav_dir = _make_agent(ws, "olav", {"name": "olav-main", "description": ""})
-        _make_system_md(olav_dir, with_markers=False)
-        result = _update_main_agent_routing(ws, [])
-        assert result is False
-
-    def test_returns_false_when_system_md_missing(self, tmp_path):
-        ws = tmp_path / "workspace"
-        result = _update_main_agent_routing(ws, [])
-        assert result is False
-
-    def test_preserves_text_outside_markers(self, tmp_path):
-        ws = tmp_path / "workspace"
-        olav_dir = _make_agent(ws, "olav", {"name": "olav-main", "description": ""})
-        system_md = _make_system_md(olav_dir, with_markers=True)
-
-        agents = [{"flag": "quick", "name": "quick-orch", "description": "Quick Agent — SQL lookups", "kind": ""}]
-        _update_main_agent_routing(ws, agents)
-
-        text = system_md.read_text(encoding="utf-8")
-        assert "You are OLAV." in text
-        assert "More text here." in text
 
 
 # ── refresh_workspace ────────────────────────────────────────────────────────
@@ -266,8 +212,7 @@ class TestRefreshWorkspace:
         ws = tmp_path / "workspace"
         _make_agent(ws, "quick", {"name": "quick-orchestrator", "description": "Quick Agent — Fast SQL lookup"})
         _make_agent(ws, "ops", {"name": "ops-orchestrator", "description": "Operations Agent — Deep troubleshooting"})
-        olav_dir = _make_agent(ws, "olav", {"name": "olav-main", "description": "Main OLAV Agent"})
-        _make_system_md(olav_dir, with_markers=True)
+        _make_agent(ws, "olav", {"name": "olav-main", "description": "Main OLAV Agent"})
         return ws
 
     def test_returns_success_message(self, tmp_path):
@@ -279,22 +224,14 @@ class TestRefreshWorkspace:
     def test_creates_platform_md(self, tmp_path):
         ws = self._build_workspace(tmp_path)
         refresh_workspace(ws)
-        assert (ws / "PLATFORM.md").exists()
+        assert (ws / "olav.md").exists()
 
     def test_platform_md_lists_all_agents(self, tmp_path):
         ws = self._build_workspace(tmp_path)
         refresh_workspace(ws)
-        text = (ws / "PLATFORM.md").read_text(encoding="utf-8")
+        text = (ws / "olav.md").read_text(encoding="utf-8")
         meta = yaml.safe_load(text.split("---", 2)[1])
         assert set(meta["agents"]) == {"quick", "ops", "olav"}
-
-    def test_routing_table_updated_in_system_md(self, tmp_path):
-        ws = self._build_workspace(tmp_path)
-        refresh_workspace(ws)
-        system_md = ws / "olav" / "prompts" / "system.md"
-        text = system_md.read_text(encoding="utf-8")
-        assert "`quick`" in text
-        assert "`ops`" in text
 
     def test_error_when_workspace_missing(self, tmp_path):
         result = refresh_workspace(tmp_path / "nonexistent")
@@ -313,6 +250,6 @@ class TestRefreshWorkspace:
         assert "✓" in r1
         assert "✓" in r2
         # Same agents both times
-        text = (ws / "PLATFORM.md").read_text(encoding="utf-8")
+        text = (ws / "olav.md").read_text(encoding="utf-8")
         meta = yaml.safe_load(text.split("---", 2)[1])
         assert set(meta["agents"]) == {"quick", "ops", "olav"}

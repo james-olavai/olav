@@ -314,10 +314,10 @@ class TestL4ServiceStatus:
         assert rc == 0, f"service status exited {rc}\nstderr: {err}"
 
     def test_table_has_service_names(self):
-        """Table must list the core services: logs, web, daemon."""
+        """Table must list the core services: syslogs, web, daemon."""
         _, out, err = self._get_result()
         combined = (out + err).lower()
-        for svc in ("logs", "web", "daemon"):
+        for svc in ("syslogs", "web", "daemon"):
             assert svc in combined, (
                 f"Service '{svc}' not found in service status output:\n{out[:600]}"
             )
@@ -337,14 +337,14 @@ class TestL4ServiceStatus:
 
 
 class TestL4ServiceLogsLifecycle:
-    """C-L4-09: `olav service logs start` starts the syslog receiver;
-    `olav service logs stop` cleanly stops it."""
+    """C-L4-09: `olav service syslogs start` starts the syslog receiver;
+    `olav service syslogs stop` cleanly stops it."""
 
     # Use a non-standard port to avoid conflicts with any running syslog
     _PORT = "15516"
 
     def test_logs_start_succeeds(self):
-        rc, out, err = _run("service", "logs", "start", "--port", self._PORT)
+        rc, out, err = _run("service", "syslogs", "start", "--port", self._PORT)
         combined = out + err
         assert rc == 0, f"service logs start failed (rc={rc}):\n{combined}"
         combined_lower = combined.lower()
@@ -354,7 +354,7 @@ class TestL4ServiceLogsLifecycle:
 
     def test_logs_stop_succeeds(self):
         # Stop whatever was started (idempotent — safe even if not running)
-        rc, out, err = _run("service", "logs", "stop")
+        rc, out, err = _run("service", "syslogs", "stop")
         combined = out + err
         assert rc == 0, f"service logs stop failed (rc={rc}):\n{combined}"
         combined_lower = combined.lower()

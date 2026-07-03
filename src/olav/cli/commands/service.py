@@ -30,7 +30,7 @@ from olav.cli.commands.services.web import WebService
 logger = logging.getLogger(__name__)
 
 # Services launched / stopped when --all is specified (ordered)
-_ALL_SERVICES_ORDER = ["logs", "web", "daemon"]
+_ALL_SERVICES_ORDER = ["syslogs", "web", "daemon"]
 
 
 class ServiceCommand(BaseCommand):
@@ -39,11 +39,11 @@ class ServiceCommand(BaseCommand):
     def __init__(self) -> None:
         super().__init__(
             name="service",
-            description="Manage background services (logs, web, daemon)",
+            description="Manage background services (syslogs, web, daemon)",
         )
         self.console = Console()
         self.services: dict[str, Any] = {
-            "logs": LogsService(),
+            "syslogs": LogsService(),
             "web": WebService(),
             "daemon": DaemonService(),
         }
@@ -53,7 +53,7 @@ class ServiceCommand(BaseCommand):
 
         Usage:
             # Individual service
-            olav service logs   start  [--port 5514] [--flush-interval 60]
+            olav service syslogs start  [--port 5514] [--flush-interval 60]
             olav service web    start  [--port 2280] [--host 0.0.0.0]
             olav service daemon start
 
@@ -153,7 +153,7 @@ class ServiceCommand(BaseCommand):
 
         for name in _ALL_SERVICES_ORDER:
             svc = self.services[name]
-            if name == "logs":
+            if name == "syslogs":
                 running = svc._is_running()
                 pid = svc._get_pid() or "-"
                 port = svc._cfg.get("port", 5514)

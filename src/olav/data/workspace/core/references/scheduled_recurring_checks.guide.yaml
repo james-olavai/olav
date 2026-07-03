@@ -1,0 +1,40 @@
+schema_version: 1
+intent: scheduled_recurring_checks
+agent: core
+keywords:
+  - cron
+  - schedule
+  - scheduled
+  - recurring
+  - periodic
+  - every hour
+  - every day
+  - daily
+  - automate
+  - automation
+  - job
+  - 定时
+  - 周期
+  - 每天
+  - 每小时
+  - 自动化
+  - 计划任务
+body: |
+  Recurring/scheduled checks are managed by ``admin``, not core — core
+  has no cron tooling of its own.
+
+  Reach for it: "run this every hour" / "set up a daily health check" /
+  "how do I automate X" / "list my scheduled jobs".
+
+  Tell the user: switch to admin first (``/workspace admin`` or
+  ``olav --agent admin "..."``), then:
+      manage_cron(action="list")                                    # see existing jobs
+      manage_cron(action="add", schedule="0 * * * *", command="...") # hourly
+      manage_cron(action="remove", job_id=...)
+
+  For a recurring *audit* health check specifically (not an arbitrary
+  command), the audit workspace's Profile mechanism is usually the
+  better fit than a raw cron+script: ``/workspace audit`` then
+  ``/audit run <profile>``. Prefer this when the user's real intent is
+  "keep checking that X stays healthy" rather than "run this script on
+  a timer" — mention both and let them pick.

@@ -104,7 +104,7 @@ def olav_recall_memory(
                   ``"shared:ops"``, ``"org"``, or a legacy ``"global"``)
                   only when you need to restrict.
         limit:    Max results to return. Omit to use the model-tier default
-                  (small=1, medium=2, large=3 per ``TIER_DEFAULTS.recall_top_k``,
+                  (small=1, medium=2, large=13 per ``TIER_DEFAULTS.recall_top_k``,
                   ARCH-16). Hard ceiling is 10 regardless of tier.
 
     Returns:

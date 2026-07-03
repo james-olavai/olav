@@ -72,7 +72,7 @@ DEFAULT_PATHS_CONFIG: dict[str, Any] = {
     "exports_dir": "exports",
     "run_dir": "run",
     "logs_dir": ".olav/logs",
-    "log_storage_dir": ".olav/databases/logs",
+    "syslog_storage_dir": ".olav/databases/syslogs",
     "knowledge_dir": ".olav/knowledge",
     "workspace_dir": ".olav/workspace",
     "config_dir": ".olav/config",

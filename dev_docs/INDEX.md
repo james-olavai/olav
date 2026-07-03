@@ -101,6 +101,9 @@ Renumbered to a clean sequence. `00` = architectural issue/decision tracker (sta
 | 94 | `BUSINESS_MODEL.md` | OLAV Business Model — Tools + Services, Not Content Vendor |
 | 95 | `ARCH-16_FAN_OUT_PRINCIPLE.md` | ARCH-16 — Anti-Fan-Out Principle |
 | 96 | `CLAB_NATIVE_IMAGE_SCAN_AND_FIDELITY_TIERS.md` | 96. CLAB redesign — native-image fidelity tiers, scan-only image policy, deterministic twin (supersedes SRL-universal assumption in 73/74) |
+| 97 | `LOOP_ENGINEERING_REVIEW_AND_DETERMINISTIC_GRADERS.md` | 97. Loop engineering review — deterministic synthesis grader replaces dormant rubric_middleware |
+| 98 | `ARCHITECT_AGENT_HLD_LLD_DESIGN.md` | 98. Architect agent design — dialogue-driven HLD + technically-grounded LLD sub-agents |
+| 99 | `SOFTWARE_UNDERSTANDS_HUMAN_DESIGN.md` | 99. Software-understands-human design — onboarding, self-configuration, fallback |
 
 ## Archive (superseded)
 

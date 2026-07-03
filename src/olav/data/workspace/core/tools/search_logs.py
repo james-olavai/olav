@@ -5,7 +5,7 @@ Agents use this to answer questions like:
   - "Which devices sent the most syslog messages today?"
   - "Were there any critical events on R1 yesterday?"
 
-Data source: .olav/databases/logs/**/*.parquet
+Data source: .olav/databases/syslogs/**/*.parquet
 Written by: src/olav/services/syslog_receiver.py
 """
 
@@ -63,9 +63,9 @@ def _get_log_dir() -> Path:
     """Resolve the syslog Parquet log directory."""
     try:
         from olav.core.config import DATABASES_DIR
-        return Path(DATABASES_DIR) / "logs"
+        return Path(DATABASES_DIR) / "syslogs"
     except Exception:
-        return Path(".olav/databases/logs")
+        return Path(".olav/databases/syslogs")
 
 
 @tool

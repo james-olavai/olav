@@ -25,17 +25,21 @@ collect_ignore = [
     # auth DB seeding) — need explicit fixture setup in future.
     "test_audit_dataset_export.py",
     "test_textfsm_gap_templates.py",
-    "test_threads_search.py",
 
     # APIs refactored between v0.14 → v0.19 — need real rewrite (not
     # just path bump).  Mostly >50% passing already; the failing
     # portion needs redesign around the current plugin_registry /
     # AuditMiddleware / workspace_discovery surfaces.
+    # test_refresh_command.py salvaged 2026-07-02 (dev_docs/99 §3.6
+    # cleanup): removed 4 tests for _update_main_agent_routing (deleted —
+    # targeted a system.md path that never existed post-SKILL.md
+    # migration), fixed 2 stale-assertion bugs (SKILL.md-preference
+    # inversion, PLATFORM.md→olav.md rename never propagated to tests).
+    # 20/20 passing — removed from this list.
     "test_aaa_user_id_propagation.py",
     "test_cli_audit_input.py",
     "test_compiled_subagent_middleware.py",
     "test_hitl_audit.py",
-    "test_refresh_command.py",
     "test_semantic_cache_audit.py",
     "test_semantic_cache_invalidation.py",
     "test_trace_learner.py",

@@ -27,7 +27,7 @@ keywords:
   - 告警
 body: |
   ``search_logs`` — live syslog Parquet (UDP 5514 ingest) under
-  ``.olav/databases/logs/``.  NOT the same as ``netops.parsed_outputs``
+  ``.olav/databases/syslogs/``.  NOT the same as ``netops.parsed_outputs``
   which holds device ``show logging`` snapshots.
 
   Reach for it: "any criticals last hour?" / "what happened to R1

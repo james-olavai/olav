@@ -90,15 +90,29 @@ def add_cron(schedule: str, agent: str, instruction: str) -> dict[str, Any]:
 
     existing = _find_job(cron, agent, instruction)
     if existing:
+        previous_schedule = str(existing.slices)
         existing.setall(schedule)
         action = "updated"
+        undo_kind, undo_data = "cron_update", {
+            "comment": comment,
+            "previous_schedule": previous_schedule,
+        }
     else:
         job = cron.new(command=command, comment=comment)
         job.setall(schedule)
         action = "added"
+        undo_kind, undo_data = "cron_add", {"comment": comment}
 
     cron.write()
-    return {"status": "ok", "action": action, "agent": agent, "instruction": instruction, "schedule": schedule}
+    undo_recorded = _record_undo(undo_kind, f"{action} cron job {comment!r}", undo_data)
+    return {
+        "status": "ok",
+        "action": action,
+        "agent": agent,
+        "instruction": instruction,
+        "schedule": schedule,
+        "undo_recorded": undo_recorded,
+    }
 
 
 def remove_cron(agent: str, instruction: str) -> dict[str, Any]:
@@ -112,9 +126,36 @@ def remove_cron(agent: str, instruction: str) -> dict[str, Any]:
     job = _find_job(cron, agent, instruction)
     if not job:
         return {"status": "not_found", "agent": agent, "instruction": instruction}
+    removed_spec = {
+        "comment": str(job.comment),
+        "schedule": str(job.slices),
+        "command": str(job.command),
+    }
     cron.remove(job)
     cron.write()
-    return {"status": "ok", "action": "removed", "agent": agent, "instruction": instruction}
+    undo_recorded = _record_undo(
+        "cron_remove", f"removed cron job {removed_spec['comment']!r}", removed_spec
+    )
+    return {
+        "status": "ok",
+        "action": "removed",
+        "agent": agent,
+        "instruction": instruction,
+        "undo_recorded": undo_recorded,
+    }
+
+
+def _record_undo(kind: str, description: str, data: dict[str, Any]) -> bool:
+    """Journal the mutation for undo_last_action (dev_docs/99 §7.4).
+    Soft-fails — a broken journal must not fail the cron change itself;
+    the ``undo_recorded`` result field tells the agent whether "undo"
+    is actually available."""
+    try:
+        from olav.core.undo_journal import record_action
+
+        return record_action(kind, description, data)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def apply_cron_schedules(yaml_path: str = "") -> dict[str, Any]:

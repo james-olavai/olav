@@ -25,6 +25,7 @@ Verbs covered here:
   * trace-review   olav.cli.commands.trace_review
   * migrate        olav.cli.commands.migrate (P1 verb; sanity double-check)
   * init           olav.cli.commands.init
+  * doctor         olav.cli.commands.doctor (dev_docs/99 §3.1)
 """
 
 from __future__ import annotations
@@ -53,6 +54,7 @@ import pytest
         "olav.cli.commands.trace_review",
         "olav.cli.commands.migrate",
         "olav.cli.commands.init",
+        "olav.cli.commands.doctor",
     ],
 )
 def test_command_module_imports(module_name: str) -> None:
@@ -72,6 +74,7 @@ def test_command_module_imports(module_name: str) -> None:
         ("olav.cli.commands.explain", "ExplainCommand"),
         ("olav.cli.commands.refresh", "RefreshCommand"),
         ("olav.cli.commands.migrate", "MigrateCommand"),
+        ("olav.cli.commands.doctor", "DoctorCommand"),
     ],
 )
 def test_command_class_instantiates(module_name: str, class_name: str) -> None:
@@ -107,6 +110,7 @@ _HELP_SMOKE_VERBS = [
     "reset",
     "export",
     "config",
+    "doctor",
 ]
 
 

@@ -82,7 +82,7 @@ def olav_recall_memory(
         category: Optional — fact / decision / preference / expert_knowledge /
                   usage_guide / format_guide / audit. None = all categories.
         scope:    Optional scope filter. None = all scopes (recommended).
-        limit:    Max results. Omit = tier default (small=1, medium=2, large=3).
+        limit:    Max results. Omit = tier default (small=1, medium=2, large=13).
 
     Returns:
         Formatted memory entries with timestamps, or "No relevant memories found".

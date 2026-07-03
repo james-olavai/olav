@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""api_request — Universal API query tool for registered services.
+"""api_request — Universal API query script for registered services.
 
 Reference: dev_docs/36. SCHEMA_AWARE_API_ARCHITECTURE.md §8
 """
@@ -25,13 +25,13 @@ def api_request(
 ) -> dict | list:
     """Authenticated API request to a registered service.
 
+    Use tool_help("api_request") for full usage and pagination details.
+
     Args: service (name in services.yaml); method; path; params; body;
     page_size (None=first page, -1=auto-follow); confirmed (write gate).
     Write methods need --enable-api-write CLI flag + confirmed=True.
     Large list responses compact to first _COMPACT_LIST_CAP items with
     ``{"status": "truncated", ...}`` envelope.
-
-    Full argument semantics: ``tool_help("api_request")``.
     """
     from olav.platform.services.client import service_call
 

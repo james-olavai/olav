@@ -60,6 +60,14 @@ netops = "olav_netops.cli.prompt:DOMAIN_PROMPT"
 [project.entry-points."olav.reload_hooks"]
 netops = "olav_netops.command_registry:reload_hook"
 
+# ── First-run empty-state checks (dev_docs/99 §7.1) ─────────────────────────
+# The platform's lazy bootstrap discovers this group on every agent launch
+# and surfaces returned findings on the TUI welcome screen. Contract: the
+# callable takes no args, is deterministic/local (no LLM, no network), and
+# returns a user-facing finding string or None.
+[project.entry-points."olav.first_run_checks"]
+netops_data = "olav_netops.first_run:check_netops_data"
+
 [project.entry-points."olav.config_commands"]
 netops = "olav_netops.command_registry:get_config_commands"
 
