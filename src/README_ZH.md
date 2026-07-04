@@ -139,21 +139,30 @@ Layer 3: Output     凭证脱敏 + SSE 编码
 # 1. 安装
 pip install olav
 
-# 2. 初始化
-olav init
+# 2. 直接运行 —— 首次启动自动完成全部初始化，只会询问一次 LLM API key
+olav
 
-# 3. 配置 LLM
-export OLAV_LLM_API_KEY="sk-..."
-
-# 4. 接入服务
+# 3. 接入服务
 olav registry register http://netbox:8000
 
-# 5. 查询
+# 4. 查询
 olav "NetBox 里有多少台设备？"
 
-# 6. 生成脚本
+# 5. 生成脚本
 olav --agent core "写一个备份所有路由器配置的脚本"
 ```
+
+> 脚本化/CI 场景：`olav init` 保留非交互式的等价初始化（key 用
+> `OPENAI_API_KEY` 环境变量或编辑 `.olav/config/api.json`）。
+> 随时用 `olav doctor`（TUI 内 `/doctor`）做零 LLM 健康体检。
+
+### 软件理解人，而不是人理解软件
+
+- **零仪式上手** —— 首次裸 `olav` 自动建好目录/数据库/Agent/本地嵌入模型，唯一要提供的就是 LLM key
+- **首屏显示真实状态** —— 不是随机提示语：嵌入后端不可用会直说、netops 没数据会指路导入、回访时会接上"上次我们在查 R1 的 BGP flap"
+- **对话式改配置** —— "把 LLM 换成 deepseek-chat"先对真实 provider 验证再落盘，坏 key 直接拒绝、原配置不动；每次变更自动快照，"回滚配置"一句话撤销
+- **操作可撤销** —— 文件写入 / cron 变更自动记录，"撤销刚才的操作"即可还原
+- **故障带出路** —— 运行中 401/配额错误会附上诊断命令和回滚指引，而不是甩一段堆栈
 
 ### 网络运维（可选）
 
