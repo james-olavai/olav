@@ -35,6 +35,7 @@
 
 ```bash
 pip install olav
+olav                                              # first run sets itself up — just paste your LLM key
 olav registry register http://netbox:8000        # connect any API
 olav "how many devices are in NetBox?"            # query immediately
 olav --agent netops "write a backup script"          # generate real scripts
@@ -125,6 +126,34 @@ Use OLAV → audit log captures every tool call
 
 Export as SFT/trajectory training data: `olav log export sft`.
 
+### The Software Understands You — Not the Other Way Around
+
+You should never need to read a manual before OLAV is useful, and never
+need to hand-edit JSON to recover from a mistake:
+
+- **Zero-ritual onboarding** — the first bare `olav` builds everything
+  itself (directories, databases, agents, local embedding model) and asks
+  for exactly one thing: your LLM API key. No separate init step, no
+  config file editing.
+- **A first screen that knows your state** — instead of generic tips, the
+  welcome screen tells you what's actually true: *"embedding backend
+  unavailable — memory features limited"*, *"netops installed but no
+  device data yet — import a snapshot"*, *"welcome back — last time:
+  'why is R1's BGP flapping?'"*.
+- **Health checks anywhere** — `olav doctor` from the shell or `/doctor`
+  inside the TUI: zero-LLM probes of scaffolding, LLM, and embedding,
+  each failure paired with the fix.
+- **Change config by talking** — *"switch my LLM to deepseek-chat"* is
+  validated against the live provider **before** it's saved; a bad key or
+  model name is rejected with the real error and your working config
+  untouched. Every change snapshots the previous one — *"rollback my LLM
+  config"* undoes it.
+- **Undo for agent actions** — file writes and cron changes are
+  journaled; *"undo that"* reverts the most recent one.
+- **Failures tell you what to do next** — a mid-session 401 or quota
+  error prints the diagnosis path and the rollback phrase, not a stack
+  trace.
+
 ---
 
 ## Quick Start
@@ -133,18 +162,19 @@ Export as SFT/trajectory training data: `olav log export sft`.
 # 1. Install
 pip install olav
 
-# 2. Initialize
-olav init
+# 2. Run — first launch sets everything up and asks for your LLM API key
+olav
 
-# 3. Configure LLM
-nano .olav/config/api.json   # set shared.api_key + llm.model
-
-# 4. Connect a service
+# 3. Connect a service
 olav registry register http://netbox:8000
 
-# 5. Query
+# 4. Query
 olav "how many devices are in NetBox?"
 ```
+
+> Scripted/CI setup: `olav init` still performs the same bootstrap
+> non-interactively (set `OPENAI_API_KEY` or edit `.olav/config/api.json`
+> for the key). Check any installation's health with `olav doctor`.
 
 ### Network Operations (optional)
 
