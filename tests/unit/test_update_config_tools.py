@@ -144,6 +144,32 @@ def test_update_embedding_config_commits_nested_shape(api_json, monkeypatch) -> 
     assert saved["other"] == "untouched"
 
 
+def test_update_embedding_config_local_ollama_with_base_url(api_json, monkeypatch) -> None:
+    """dev_docs/100 demo Ch8b: point embedding at a local Ollama server.
+    base_url must reach the candidate probe and land in embedding.api."""
+    mod = _load_module()
+    seen = {}
+    monkeypatch.setattr(
+        llm_mod.LLMFactory, "check_embedding_connectivity",
+        staticmethod(
+            lambda overrides=None, strict=False: (seen.update(overrides or {}) or (True, "connected"))
+        ),
+    )
+
+    result = mod.update_embedding_config.invoke(
+        {"mode": "api", "model": "embeddinggemma",
+         "base_url": "http://localhost:11434/v1", "api_key": "ollama"}
+    )
+
+    assert "updated" in result.lower()
+    # base_url reached the validate-before-commit probe
+    assert seen.get("base_url") == "http://localhost:11434/v1"
+    # and was persisted into the nested api section
+    saved = json.loads(api_json.read_text())
+    assert saved["embedding"]["api"]["base_url"] == "http://localhost:11434/v1"
+    assert saved["embedding"]["api"]["model"] == "embeddinggemma"
+
+
 # ---------------------------------------------------------------------------
 # rollback_config
 # ---------------------------------------------------------------------------
