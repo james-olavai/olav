@@ -5,6 +5,63 @@ All notable changes to OLAV will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-07-05
+
+"Software understands the human" release — the full design + implementation
+record is dev_docs/99. The theme: a first-time user should never need to
+read docs before OLAV is useful, and a mistake should never cost a working
+setup.
+
+### Added
+- **Zero-ritual onboarding**: bare `olav` on a fresh directory now runs
+  the (idempotent) init sequence itself and prompts once for the LLM API
+  key — no separate `olav init` step, no hand-editing `api.json`.
+  `olav init` remains as the non-interactive CI/scripted path.
+- **`olav doctor` + TUI `/doctor`**: deterministic zero-LLM health check
+  (scaffolding, LLM connectivity, embedding backend); every failing check
+  carries an actionable `fix:` line. `--json` for machines.
+- **State-aware welcome screen**: real findings replace random tips —
+  embedding-backend failures, extension empty-state guidance ("netops has
+  no device data yet — run /netops_init / import a snapshot"), and
+  returning-user context ("Welcome back — last time (2h ago): …").
+- **`olav.first_run_checks` entry-point contract**: extensions register
+  deterministic "am I initialized?" checks; the platform only discovers
+  and displays (repo-boundary safe). olav-netops ships the first provider.
+- **Conversational self-configuration** (admin/editor):
+  `update_llm_config` / `update_embedding_config` @tools with
+  validate-before-commit — a candidate config is tested against the live
+  provider before being written; rejects preserve the working config.
+  `rollback_config` restores the pre-change snapshot in one sentence.
+- **Generalized undo**: workspace file writes and cron changes are
+  journaled (`olav.core.undo_journal`, `.olav/run/undo/`);
+  `undo_last_action` (editor) reverts the most recent action —
+  restore/delete for files, remove/reschedule/re-add for cron.
+- **Actionable failure recovery**: mid-session LLM failures (401 / quota /
+  unreachable endpoint) print a classified one-line hint (doctor + the
+  rollback phrase) instead of a bare traceback.
+
+### Fixed
+- **admin router stale sub-agent names**: routing table still said
+  `task("developer", …)` after the rename to `editor`, and never routed
+  to `installer` — any config/self-management request fell through to raw
+  filesystem search. Found by the new behavioural e2e.
+- **`refresh.py` dead routing path removed**: `_update_main_agent_routing`
+  targeted `core/prompts/system.md`, which no longer exists post-SKILL.md
+  migration (always a no-op). `tests/unit/test_refresh_command.py`
+  salvaged from `collect_ignore` (stale AGENT.md-era assertions fixed;
+  20/20 passing).
+- **api_request docstring + recall-tool tier docs** aligned with the
+  script-first architecture and TIER_DEFAULTS (governance-pinned in
+  `test_hardcoded_fallbacks.py`).
+
+### Changed
+- **Syslog storage rename**: `LOG_STORAGE_DIR` → `SYSLOG_STORAGE_DIR`,
+  `.olav/databases/logs/` → `.olav/databases/syslogs/`, `olav service
+  logs` → `olav service syslogs`.
+- Docs (README en/zh, docs.olavai.com installation/first-query + new
+  Self-Configuration & Recovery guide) rewritten around the zero-config
+  flow.
+
 ## [0.21.0] - 2026-06-15
 
 Consolidated release covering the 0.20.x line (deepagents/langchain

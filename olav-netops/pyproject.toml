@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "olav-netops"
-version = "0.21.0"
+version = "0.22.0"
 description = "OLAV Network Operations domain package — SSH collection, topology analysis, audit, drift detection"
 requires-python = ">=3.11"
 dependencies = [
-    "olav>=0.21.0",
+    "olav>=0.22.0",
     # Network SSH collection (Nornir + Netmiko)
     "nornir>=3.3.0",
     "nornir-netmiko>=1.0.0",
