@@ -5,6 +5,29 @@ All notable changes to OLAV will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.1] - 2026-07-06
+
+Patch: local OpenAI-compatible embedding backends. 0.22.0's default
+(local `BAAI/bge-small-zh-v1.5`) and cloud embedding are unaffected;
+this fixes the conversational switch to a **local** embedding server.
+
+### Fixed
+- **Local embedding servers (Ollama / llama.cpp / vLLM)**: `get_embeddings`
+  now sends raw-string input (sets `check_embedding_ctx_length=False`) for
+  any non-`openai.com` embedding endpoint. OpenAIEmbeddings otherwise
+  tiktoken-tokenises input into integer-ID arrays, which those servers
+  reject with HTTP 400 "invalid input type". Generic rule keyed on the
+  endpoint URL, not hardcoded to any one server.
+
+### Added
+- `update_embedding_config` gains a `base_url` argument, so the admin
+  editor sub-agent can point the embedding backend at a local
+  OpenAI-compatible server conversationally (validated before commit,
+  rollback-able) — e.g. `olav --agent admin "switch embedding to api mode
+  using the local Ollama model embeddinggemma at http://localhost:11434/v1"`.
+  This is what the docs (getting-started/installation, dev_docs/100 Ch8b)
+  already describe; 0.22.1 makes the shipped wheel match.
+
 ## [0.22.0] - 2026-07-05
 
 "Software understands the human" release — the full design + implementation
