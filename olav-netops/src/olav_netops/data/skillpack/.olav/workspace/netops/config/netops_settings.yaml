@@ -1,0 +1,12 @@
+# NetOps domain configuration — migrated from .olav/config/settings.json
+# (network + sync sections extracted as part of config-arch refactor, M2)
+
+network:
+  default_group: "test"
+  ssh_port: 22
+  timeout: 60
+
+sync:
+  command_mode: "hybrid"
+  whitelist_file: ".olav/config/command_whitelist.yaml"
+  command_mode_config: ".olav/skills/guard/config/command_mode.yaml"

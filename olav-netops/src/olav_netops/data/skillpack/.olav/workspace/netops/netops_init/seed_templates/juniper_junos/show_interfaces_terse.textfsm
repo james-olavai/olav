@@ -1,0 +1,17 @@
+Value Required INTERFACE (\S+)
+Value ADMIN_STATE (up|down)
+Value LINK_STATE (up|down)
+Value PROTO (\S+)
+Value IP_ADDRESS (\S+)
+Value REMOTE (\S+)
+
+Start
+  # Header lines (skipped — no Record)
+  ^Interface\s+Admin\s+Link.* -> Continue
+  # Logical unit with IP address (and optional remote)
+  ^${INTERFACE}\s+${ADMIN_STATE}\s+${LINK_STATE}\s+${PROTO}\s+${IP_ADDRESS}\s+-->\s+${REMOTE}\s*$$ -> Record
+  ^${INTERFACE}\s+${ADMIN_STATE}\s+${LINK_STATE}\s+${PROTO}\s+${IP_ADDRESS}\s*$$ -> Record
+  # Physical or logical without IP
+  ^${INTERFACE}\s+${ADMIN_STATE}\s+${LINK_STATE}\s*$$ -> Record
+  # Anything else — ignore
+  ^. -> Continue

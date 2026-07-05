@@ -1,0 +1,100 @@
+schema_version: 1
+intent: schema_introspection_via_describe_table
+agent: core
+keywords:
+  - schema
+  - column
+  - columns
+  - field
+  - fields
+  - structure
+  - introspect
+  - introspection
+  - describe
+  - what columns
+  - which columns
+  - column not found
+  - unknown column
+  - field
+  - column
+  - table structure
+  - what is the schema
+  - which columns
+  - column does not exist
+  - view
+  - table
+  - what is in
+body: |
+  Schema introspection — pull, don't push.
+
+  When you need to know what columns / types / sample rows a netops
+  view has, call ``describe_table`` directly — DO NOT pre-load the
+  whole schema list into your reasoning.
+
+  Use ``describe_table`` when:
+    * SQL fails with ``Catalog Error: ... no column named X``
+    * SQL fails with ``Table with name <X> does not exist``
+    * You don't know whether a per-vendor view exists for a given
+      command (e.g. R1 is Juniper → ``v_show_ip_bgp_*`` won't have it,
+      try ``v_show_bgp_summary_auto`` or fallback to ``parsed_outputs``)
+    * You need a sample row to understand value shape before writing
+      WHERE clauses
+
+  Tool calling shape:
+
+      describe_table(table_name="netops.v_show_interfaces_terse_auto")
+      describe_table(table_name="v_show_interfaces_terse_auto")  # bare name OK
+      describe_table(table_name="devices")                       # netops. prefix tried first
+
+  Returns: ``{name, schema, columns: [{name, type, ...}], sample_rows: [...]}``.
+
+  ─────────────────────────────────────────────────────────────────
+  Cross-vendor pattern (most common reason to introspect):
+
+  Each device's ``show <cmd>`` lands in ``v_show_<cmd>_auto`` —
+  command names differ per vendor.  When the canonical ``v_bgp_*`` /
+  ``v_ospf_*`` cross-vendor unified views aren't built yet, you
+  must pick the right per-command view:
+
+  | Junos                              | Cisco IOS                          |
+  |---|---|
+  | ``v_show_bgp_summary_auto``        | ``v_show_ip_bgp_summary_auto``     |
+  | ``v_show_route_protocol_bgp_auto`` | ``v_show_ip_bgp_auto``             |
+  | ``v_show_ospf_neighbor_auto``      | ``v_show_ip_ospf_neighbor_auto``   |
+  | ``v_show_interfaces_terse_auto``   | ``v_show_interfaces_status_auto``  |
+
+  Decision flow:
+    1. ``execute_sql("SELECT platform FROM netops.devices WHERE hostname = ?")``
+       → identify vendor
+    2. ``describe_table("netops.v_show_<vendor-specific-cmd>_auto")``
+       → confirm view exists + see columns
+    3. ``execute_sql("SELECT … FROM netops.<that_view> WHERE device_name = ?")``
+
+  ─────────────────────────────────────────────────────────────────
+  When NOT to call describe_table:
+
+  * For ``netops.devices`` columns — they're stable + cheatsheet'd in
+    the orchestrator system prompt (hostname, ip_address, platform,
+    vendor, model, os_version, site, environment, role, metadata)
+  * For ``netops.v_l2_links_auto`` — stable: source_device,
+    source_interface, destination_device, destination_interface,
+    discovery_protocol, link_status
+  * When you've already called ``describe_table`` for that view
+    earlier in this conversation
+  * When ``query_pattern`` memory has surfaced a successful SQL
+    template for the same intent (use it, don't re-introspect)
+
+  ─────────────────────────────────────────────────────────────────
+  Why pull, not push:
+
+  Earlier OLAV (R83.4) pre-primed every per-command view's columns
+  + sample row + value distribution into LanceDB as
+  ``schema_knowledge`` / ``value_distribution`` memory.  AutoRecall
+  injected the top-K matches at every model call.  Empirical issue:
+  small models (qwen3.6-27b-dense) ignored the cached hints and
+  introspected via ``information_schema`` anyway — the push paid for
+  storage + AutoRecall slot competition with no behaviour change.
+
+  Pull mode (this guide + ``describe_table``) is bounded: only the
+  tables you actually need land in your context, only when SQL fails
+  or shape is unclear.  See ``dev_docs/00 § ISSUE-SCHEMA-PUSH-VS-PULL``.

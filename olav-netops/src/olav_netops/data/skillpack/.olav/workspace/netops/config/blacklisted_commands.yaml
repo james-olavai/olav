@@ -1,0 +1,124 @@
+# blacklisted_commands.yaml
+#
+# Regex patterns of commands that must NEVER run via the discovery
+# SSH loop.  Matched case-insensitively by
+# ``olav_netops.core.commands_sync._load_blacklist``.
+#
+# Why this list exists
+# --------------------
+# ``netops.commands`` is populated from ntc-templates, which ships
+# ~966 templates across a dozen vendors.  Many of those correspond to
+# CLI commands that are:
+#
+#   * **interactive** — ``ping``, ``traceroute``, ``telnet``, ``ssh``,
+#     ``reload`` — they wait for user input / confirmation and hang
+#     netmiko's prompt-detection, dropping the session for every
+#     subsequent command on that host.
+#
+#   * **mutating / privileged** — ``write``, ``copy``, ``configure``,
+#     ``erase``, ``delete``, ``format``, ``clear`` — we're collecting
+#     state, not changing it; these have no place in discovery.
+#
+#   * **noisy huge outputs** — ``show tech-support``, ``show logging``
+#     (unbounded), ``show archive`` — megabytes of data that crowds
+#     out the structured commands we actually want.
+#
+#   * **feature-gated** — ``show chassis cluster``, ``show lacp``,
+#     ``show rsvp``, ``show mpls`` — devices without those features
+#     return error text that looks like data, corrupting parsers.
+#
+# Users with a specific environment that needs some of these (e.g.
+# a pure MPLS core) override by editing ``~/.olav/config/blacklisted_commands.yaml``
+# to add or remove patterns.  The workspace copy here is the shipped
+# default.  Data-driven — no Python code change needed to adjust.
+
+# ── Interactive / session-breaking (MUST block; nornir can't recover) ─
+- command: '^ping'
+- command: '^traceroute'
+- command: '^tracepath'
+- command: '^telnet'
+- command: '^ssh'
+- command: '^reload'
+- command: '^request\s+system'            # junos reboot/install
+- command: '^request\s+vmhost'
+- command: '^request\s+routing-engine'
+
+# ── Mutating / privileged (write-path; must never run via discovery) ──
+- command: '^write\b'
+- command: '^copy\b'
+- command: '^erase\b'
+- command: '^delete\b'
+- command: '^format\b'
+- command: '^configure\b'
+- command: '^clear\b'                     # clear counters / table
+- command: '^debug\b'                     # device-side CPU burner
+- command: '^test\b'
+
+# ── Noisy / huge output (crowd out structured data) ─────────────────
+- command: '^show tech-support'
+- command: '^show logging$'
+- command: '^show logging last'
+- command: '^show logging onboard'
+- command: '^show archive'
+- command: '^show boot'
+- command: '^show history'
+- command: '^show processes memory'
+- command: '^show processes cpu\b'
+- command: '^show system processes'       # junos equivalent
+- command: '^show buffers'
+- command: '^show memory'
+- command: '^show capability'
+- command: '^show inventory$'
+
+# ── Feature-gated: error text looks like data on devices without feature ─
+- command: '^show chassis cluster'        # Junos HA
+- command: '^show lacp\b'                 # LAG — rare on core routers
+- command: '^show rsvp\b'                 # MPLS TE
+- command: '^show ldp\b'
+- command: '^show mpls\b'
+- command: '^show ethernet-switching'     # Junos SW-only
+- command: '^show l2circuit'
+- command: '^show l2vpn'
+- command: '^show evpn'
+- command: '^show fcoe'
+- command: '^show iwan'
+- command: '^show cws'
+- command: '^show umbrella'
+- command: '^show webex'
+- command: '^show cable\b'
+- command: '^show dot1x'
+- command: '^show aaa'
+- command: '^show radius'
+- command: '^show tacacs'
+- command: '^show dmvpn'
+- command: '^show crypto'
+- command: '^show ipsec'
+- command: '^show vpdn'
+- command: '^show power'
+- command: '^show environment'            # often needs platform enablement
+- command: '^show platform\b'             # 30+ templates, most feature-specific
+- command: '^show flow\s+monitor'
+- command: '^show stackwise'
+- command: '^show authentication'
+- command: '^show access-session'
+- command: '^show application'
+- command: '^show adjacency'
+- command: '^show aliases'
+- command: '^show alert'
+- command: '^show ap\b'                   # wireless AP commands
+- command: '^show wireless'
+- command: '^show call'
+- command: '^show dial-peer'
+- command: '^show voice'
+- command: '^show udld'
+- command: '^show ip mroute'
+- command: '^show ip pim'
+- command: '^show ip msdp'
+- command: '^show ip igmp'
+- command: '^show ipv6 mld'
+- command: '^show ipv6 pim'
+
+# ── Privilege-escalated / unusual formats ───────────────────────────
+- command: '^show running-config \|'      # piped subsets — main capture covers it
+- command: '^show startup-config'         # backup_only path handles main config
+- command: '\bbrief\s+section\b'          # show * brief section (IOS-XR subcommand)
