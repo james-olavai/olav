@@ -514,6 +514,15 @@ class LLMFactory:
 
                 api_key = overrides.get("api_key") or config.api_key
                 base_url = overrides.get("base_url") or config.base_url or None
+                # Local OpenAI-compat embedding servers (Ollama, llama.cpp,
+                # vLLM) accept only raw-string input on /v1/embeddings.
+                # OpenAIEmbeddings defaults to tiktoken-tokenising input into
+                # integer-ID arrays, which those servers reject with
+                # "invalid input type" (HTTP 400). Send raw strings when the
+                # endpoint isn't api.openai.com.
+                _url = str(base_url or "").lower()
+                if _url and "openai.com" not in _url:
+                    kwargs.setdefault("check_embedding_ctx_length", False)
                 return OpenAIEmbeddings(model=model, api_key=api_key, base_url=base_url, **kwargs)
             else:
                 st_model = get_embedder(model)

@@ -109,28 +109,34 @@ def update_embedding_config(
     mode: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
+    base_url: str | None = None,
 ) -> str:
     """Change the embedding backend (local/api) — tests before saving.
 
     mode="local" needs no key (bundled model, zero-config). mode="api"
-    needs api_key. Live-probes the candidate first; rejects on failure
-    without writing anything. Full usage: tool_help('update_embedding_config').
+    talks to an OpenAI-compatible embeddings endpoint — set base_url for a
+    local server (Ollama http://localhost:11434/v1, llama.cpp, vLLM;
+    api_key can be any placeholder like "ollama") or a cloud provider.
+    Live-probes the candidate first; rejects on failure without writing
+    anything. Full usage: tool_help('update_embedding_config').
 
     Args:
-        mode:    "local" or "api", or omit to keep the current mode.
-        api_key: New API key for mode="api", or omit to keep current.
-        model:   New embedding model name, or omit to keep current.
+        mode:     "local" or "api", or omit to keep the current mode.
+        api_key:  API key for mode="api" (placeholder ok for local servers),
+                  or omit to keep current.
+        model:    Embedding model name (e.g. "embeddinggemma"), or omit.
+        base_url: OpenAI-compatible endpoint URL for mode="api", or omit.
 
     Returns:
         Success message, or a rejection reason (current config untouched).
     """
     overrides = {
         k: v
-        for k, v in {"mode": mode, "api_key": api_key, "model": model}.items()
+        for k, v in {"mode": mode, "api_key": api_key, "model": model, "base_url": base_url}.items()
         if v is not None
     }
     if not overrides:
-        return "Error: provide at least one of mode/api_key/model."
+        return "Error: provide at least one of mode/api_key/model/base_url."
 
     from olav.core.llm import LLMFactory
 
@@ -149,12 +155,11 @@ def update_embedding_config(
     embedding_section = api_data.setdefault("embedding", {})
     if "mode" in overrides:
         embedding_section["mode"] = overrides["mode"]
-    if "api_key" in overrides or "model" in overrides:
+    _api_keys = {"api_key", "model", "base_url"} & overrides.keys()
+    if _api_keys:
         api_section = embedding_section.setdefault("api", {})
-        if "api_key" in overrides:
-            api_section["api_key"] = overrides["api_key"]
-        if "model" in overrides:
-            api_section["model"] = overrides["model"]
+        for k in _api_keys:
+            api_section[k] = overrides[k]
     API_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
     API_JSON_PATH.write_text(
         json.dumps(api_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"

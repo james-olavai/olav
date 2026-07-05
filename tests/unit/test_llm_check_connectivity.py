@@ -167,3 +167,46 @@ def test_get_embeddings_mode_and_api_key_overridable(monkeypatch) -> None:
 
     LLMFactory.get_embeddings(overrides={"mode": "api", "api_key": "candidate-key"})
     assert seen.get("api_key") == "candidate-key"
+
+
+def test_get_embeddings_local_endpoint_disables_ctx_tokenisation(monkeypatch) -> None:
+    """Local OpenAI-compat embedding servers (Ollama/llama.cpp/vLLM) reject
+    tiktoken-tokenised integer input with HTTP 400 'invalid input type'.
+    get_embeddings must pass check_embedding_ctx_length=False for a non-
+    openai.com base_url, and leave it default for the real OpenAI endpoint."""
+    import olav.core.llm as llm_mod
+
+    class _FakeEmbeddingConfig:
+        mode = "api"
+        api_key = "k"
+        openai_model = "m"
+        local_model = "BAAI/bge-small-zh-v1.5"
+        base_url = ""
+        normalize_embeddings = True
+        fallback_enabled = True
+
+    seen = {}
+
+    class _FakeOpenAIEmbeddings:
+        def __init__(self, **kw):
+            seen.clear()
+            seen.update(kw)
+
+    monkeypatch.setattr("olav.core.config.get_embedding_config", lambda: _FakeEmbeddingConfig())
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "langchain_openai",
+        __import__("types").SimpleNamespace(OpenAIEmbeddings=_FakeOpenAIEmbeddings),
+    )
+
+    # Ollama local endpoint → raw-string mode forced
+    LLMFactory.get_embeddings(
+        overrides={"mode": "api", "base_url": "http://localhost:11434/v1", "model": "embeddinggemma"}
+    )
+    assert seen.get("check_embedding_ctx_length") is False
+
+    # Real OpenAI endpoint → leave default (not set by us)
+    LLMFactory.get_embeddings(
+        overrides={"mode": "api", "base_url": "https://api.openai.com/v1", "model": "text-embedding-3-small"}
+    )
+    assert "check_embedding_ctx_length" not in seen
