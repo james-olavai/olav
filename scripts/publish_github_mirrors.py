@@ -16,11 +16,21 @@ of truth; GitHub carries two curated views:
            deterministic, so re-running over extended history keeps
            already-published SHAs stable → pushes stay fast-forward.
 
+  collector  Standalone olav-collector repo
+           (github.com/james-olavai/olav-collector). The source dir is
+           NOT tracked in the monorepo (manifest: git ignore, standalone
+           unit) — export is a raw directory copy with an exclude list
+           (live credentials.env, output/ collection artifacts, vendored
+           wheels/). The scan additionally reads the local
+           credentials.env VALUES and refuses to publish anything
+           containing a non-trivial one.
+
 Usage:
     python scripts/publish_github_mirrors.py netops            # dry-run
     python scripts/publish_github_mirrors.py netops --push
     python scripts/publish_github_mirrors.py mirror            # dry-run
     python scripts/publish_github_mirrors.py mirror --push
+    python scripts/publish_github_mirrors.py collector [--push]
 
 Safety:
   * Default is dry-run — nothing leaves the machine without --push.
@@ -51,6 +61,13 @@ REPO = Path(__file__).resolve().parents[1]
 
 NETOPS_REMOTE = "https://github.com/james-olavai/olav-netops.git"
 MIRROR_REMOTE = "https://github.com/james-olavai/olav.git"
+COLLECTOR_REMOTE = "https://github.com/james-olavai/olav-collector.git"
+COLLECTOR_DIR = REPO / "olav-collector"
+
+# Never exported from olav-collector (top-level names; '=' catches pip
+# redirect accidents like a stray file literally named '=4.13.2').
+_COLLECTOR_EXCLUDES = {"credentials.env", "output", "wheels", ".git"}
+_COLLECTOR_EXCLUDE_ANYWHERE = {"__pycache__", ".pytest_cache"}
 
 # Untracked local file for literal scrub rules (never committed — .olav/
 # is whitelist-ignored). Required for `mirror`; also feeds the secret scan.
@@ -118,9 +135,12 @@ def _load_extra_literals() -> list[str]:
     return out
 
 
-def _secret_scan(root: Path) -> list[str]:
+def _secret_scan(root: Path, extra_patterns: list[str] | None = None) -> list[str]:
     """Scan a tree for secret patterns. Returns offending 'path: pattern' hits."""
-    patterns = [re.compile(p.encode()) for p in _SCAN_PATTERNS + _load_extra_literals()]
+    patterns = [
+        re.compile(p.encode())
+        for p in _SCAN_PATTERNS + _load_extra_literals() + (extra_patterns or [])
+    ]
     hits = []
     for f in root.rglob("*"):
         if not f.is_file() or ".git" in f.parts:
@@ -205,6 +225,110 @@ def publish_netops(push: bool) -> int:
     return 0
 
 
+# ── collector: standalone snapshot repo (untracked source dir) ──────────────
+
+
+def _collector_secret_values() -> list[str]:
+    """Secret-shaped VALUES from the local credentials.env — patterns whose
+    appearance in published content would leak an actual secret.
+
+    Skips values that carry negligible secret entropy AND collide with
+    ordinary text, because redacting them would corrupt legitimate content
+    (sample data, vendor tokens) for no security gain:
+      * pure digits / ≤3 chars  — e.g. port 22
+      * a lowercase word ≤6 chars — e.g. a default username 'cisco' that is
+        indistinguishable from the vendor name throughout the codebase
+    A real password like '<redacted-lab-password>' (has digits) is still flagged. The
+    live credentials.env file itself is never exported regardless.
+    """
+    creds = COLLECTOR_DIR / "credentials.env"
+    if not creds.exists():
+        return []
+    out = []
+    for line in creds.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        value = line.split("=", 1)[1].strip()
+        if len(value) <= 3 or value.isdigit():
+            continue
+        if len(value) <= 6 and value.isalpha() and value.islower():
+            continue
+        out.append(re.escape(value))
+    return out
+
+
+def publish_collector(push: bool) -> int:
+    version = tomllib.loads(
+        (COLLECTOR_DIR / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["version"]
+    print(f"olav-collector version: {version}")
+
+    with tempfile.TemporaryDirectory(prefix="collector-pub-") as tmp:
+        tmp = Path(tmp)
+        clone = tmp / "repo"
+        print(f"cloning {COLLECTOR_REMOTE} …")
+        _run(["git", "clone", "-q", COLLECTOR_REMOTE, str(clone)])
+
+        for entry in clone.iterdir():
+            if entry.name != ".git":
+                shutil.rmtree(entry) if entry.is_dir() else entry.unlink()
+
+        def _ignore(dirpath: str, names: list[str]) -> set[str]:
+            skip = set()
+            for n in names:
+                if n in _COLLECTOR_EXCLUDE_ANYWHERE or n.endswith(".pyc") or n.startswith("="):
+                    skip.add(n)
+                if Path(dirpath) == COLLECTOR_DIR and n in _COLLECTOR_EXCLUDES:
+                    skip.add(n)
+            return skip
+
+        shutil.copytree(COLLECTOR_DIR, clone, ignore=_ignore, dirs_exist_ok=True)
+
+        hits = _secret_scan(clone, extra_patterns=_collector_secret_values())
+        if hits:
+            print("SECRET SCAN FAILED — refusing to publish:")
+            print("\n".join(f"  {h}" for h in hits))
+            return 2
+        print("secret scan: clean (incl. live credentials.env values)")
+
+        # The export must be self-consistent: its own tests must pass.
+        test_run = subprocess.run(
+            [sys.executable, "-m", "pytest", "tests/", "-q"],
+            cwd=clone, capture_output=True, text=True,
+        )
+        if test_run.returncode != 0:
+            print(f"EXPORT TESTS FAILED — refusing to publish:\n{test_run.stdout[-800:]}")
+            return 2
+        print(f"export tests: {test_run.stdout.strip().splitlines()[-1]}")
+
+        _run(["git", "add", "-A"], cwd=clone)
+        if not _run(["git", "status", "--porcelain"], cwd=clone).strip():
+            print("no changes vs remote — already up to date")
+            return 0
+        _run(
+            ["git", "-c", "user.name=OLAV Team", "-c", "user.email=olav@olavai.com",
+             "commit", "-q", "-m",
+             f"olav-collector v{version} — snapshot publication\n\n"
+             f"Directory export from the dev machine (source is untracked in the\n"
+             f"monorepo by design); live credentials, collection output, and\n"
+             f"vendored wheels excluded. See scripts/publish_github_mirrors.py.\n\n"
+             f"Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"],
+            cwd=clone,
+        )
+        tag = f"v{version}"
+        _run(["git", "tag", "-f", tag], cwd=clone)
+        print(f"commit: {_run(['git', 'log', '--oneline', '-1'], cwd=clone).strip()}")
+
+        if not push:
+            print("dry-run — skipping push (use --push to publish)")
+            return 0
+        _run(["git", "push", "origin", "main"], cwd=clone)
+        _run(["git", "push", "-f", "origin", tag], cwd=clone)
+        print(f"pushed main + {tag} → {COLLECTOR_REMOTE}")
+    return 0
+
+
 # ── mirror: filtered public monorepo ─────────────────────────────────────────
 
 
@@ -267,12 +391,14 @@ def publish_mirror(push: bool) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("flow", choices=["netops", "mirror"])
+    parser.add_argument("flow", choices=["netops", "mirror", "collector"])
     parser.add_argument("--push", action="store_true",
                         help="actually push (default: dry-run)")
     args = parser.parse_args()
     if args.flow == "netops":
         return publish_netops(args.push)
+    if args.flow == "collector":
+        return publish_collector(args.push)
     return publish_mirror(args.push)
 
 
