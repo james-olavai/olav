@@ -738,6 +738,14 @@ rules:
     git: secret
     reason: contains-llm-api-keys
 
+  - pattern: .olav/config/github-mirror-scrub.txt
+    owner: olav
+    class: runtime-workspace
+    status: authoritative
+    enforced: true
+    git: secret
+    reason: contains-literal-scrub-patterns-for-github-mirror
+
   - pattern: .olav/config/services.yaml
     owner: olav
     class: runtime-workspace
