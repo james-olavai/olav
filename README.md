@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://pypi.org/project/olav/">
-    <img src="https://img.shields.io/badge/version-v0.18.0-blue" alt="Version">
+    <img src="https://img.shields.io/badge/version-v0.22.0-blue" alt="Version">
   </a>
   <a href="">
     <img src="https://img.shields.io/badge/license-BSL--1.1-green" alt="License">

@@ -35,10 +35,10 @@ VERSION_STRING = VERSION
 # ==============================================================================
 
 #: Build date (YYYY-MM-DD)
-BUILD_DATE = "2026-06-15"
+BUILD_DATE = "2026-07-05"
 
 #: Release date (YYYY-MM-DD) - same as build date for initial release
-RELEASE_DATE = "2026-06-15"
+RELEASE_DATE = "2026-07-05"
 
 #: Development status
 DEV_STATUS = "stable"  # Options: "alpha", "beta", "rc", "stable"
