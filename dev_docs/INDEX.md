@@ -104,6 +104,7 @@ Renumbered to a clean sequence. `00` = architectural issue/decision tracker (sta
 | 97 | `LOOP_ENGINEERING_REVIEW_AND_DETERMINISTIC_GRADERS.md` | 97. Loop engineering review — deterministic synthesis grader replaces dormant rubric_middleware |
 | 98 | `ARCHITECT_AGENT_HLD_LLD_DESIGN.md` | 98. Architect agent design — dialogue-driven HLD + technically-grounded LLD sub-agents |
 | 99 | `SOFTWARE_UNDERSTANDS_HUMAN_DESIGN.md` | 99. Software-understands-human design — onboarding, self-configuration, fallback |
+| 100 | `DEMO_RUNSHEET_V3.md` | 100. OLAV Demo Runsheet V3 — pip-install + zero-config + full-capability sweep (v0.22.0) |
 
 ## Archive (superseded)
 
