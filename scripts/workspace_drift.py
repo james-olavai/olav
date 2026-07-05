@@ -94,12 +94,21 @@ DOMAINS: list[Domain] = [
         name="audit",
         source=REPO / "olav-netops/.olav/workspace/audit",
         runtime=REPO / ".olav/workspace/audit",
-        extra_mirrors=(REPO / "src/olav/data/workspace/audit",),
+        extra_mirrors=(
+            REPO / "src/olav/data/workspace/audit",
+            # PyPI wheel bundle (0.22.0): `olav skill install olav-netops`
+            # deploys from this copy when installed via pip (no source tree).
+            REPO / "olav-netops/src/olav_netops/data/skillpack/.olav/workspace/audit",
+        ),
     ),
     Domain(
         name="netops",
         source=REPO / "olav-netops/.olav/workspace/netops",
         runtime=REPO / ".olav/workspace/netops",
+        extra_mirrors=(
+            # PyPI wheel bundle (0.22.0) — see audit note above.
+            REPO / "olav-netops/src/olav_netops/data/skillpack/.olav/workspace/netops",
+        ),
     ),
     Domain(
         name="devops",

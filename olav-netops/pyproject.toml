@@ -6,7 +6,21 @@ build-backend = "hatchling.build"
 name = "olav-netops"
 version = "0.22.0"
 description = "OLAV Network Operations domain package — SSH collection, topology analysis, audit, drift detection"
+readme = "README.md"
 requires-python = ">=3.11"
+authors = [
+    {name = "OLAV Team"}
+]
+license = {text = "BSL-1.1"}
+keywords = ["aiops", "netops", "network-automation", "agent", "nornir", "containerlab"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "Topic :: System :: Networking :: Monitoring",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "olav>=0.22.0",
     # Network SSH collection (Nornir + Netmiko)

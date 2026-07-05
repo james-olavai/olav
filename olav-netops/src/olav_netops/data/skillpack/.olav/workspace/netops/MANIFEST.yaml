@@ -1,0 +1,38 @@
+kind: Agent
+name: ops
+version: "0.11.0"
+description: "Operations Agent — Deep network troubleshooting with topology analysis, routing simulation, lab validation, and probing"
+route_keywords:
+  - troubleshoot
+  - topology
+  - bgp
+  - ospf
+  - routing
+  - probe
+  - ping
+  - traceroute
+  - lab
+  - containerlab
+  - diff
+  - snapshot
+  - neighbor
+  - interface
+  - vlan
+  - firewall
+  - netbox
+requires:
+  - olav-platform>=0.11
+
+slash_commands:
+  - name: /netops_init
+    kind: shell
+    script: .olav/workspace/netops/netops_init/run.py
+    description: "Full network discovery — SSH all devices, run discovery commands, populate DB"
+    cwd_policy: project_root
+    timeout: 600
+  - name: /export_netbox_csv
+    kind: shell
+    script: .olav/workspace/netops/export_netbox_csv/run.py
+    description: "Export netops.devices to NetBox-import-compatible CSV under exports/. Single-shot wrapper around the multi-step recipe in netbox_csv_export.guide.yaml — gemma4 nothink can't reliably chain execute_sql + format_and_export, this script does both atomically."
+    cwd_policy: project_root
+    timeout: 60

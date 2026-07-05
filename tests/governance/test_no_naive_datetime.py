@@ -61,6 +61,13 @@ def test_no_naive_datetime_in_hot_paths():
                 continue
             if "__pycache__" in py.parts:
                 continue
+            # data/skillpack is a byte-exact wheel bundle of the workspace
+            # tree (0.22.0, dev_docs/99 §7.6 follow-up); its canonical
+            # copies live under .olav/workspace/ (outside SCAN_ROOTS) and
+            # the workspace drift gate keeps the mirror identical —
+            # scanning it would only double-report the same content.
+            if "skillpack" in py.parts:
+                continue
             for lineno, snippet in _offending_lines(py):
                 offenders.append(f"{py.relative_to(REPO)}:{lineno}: {snippet}")
 

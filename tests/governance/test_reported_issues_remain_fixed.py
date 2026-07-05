@@ -162,6 +162,12 @@ def test_netops_02_no_naive_datetime_in_netops():
         for p in root.rglob("*.py"):
             if "__pycache__" in p.parts:
                 continue
+            # data/skillpack = byte-exact wheel bundle of the workspace tree
+            # (0.22.0, dev_docs/99 §7.6 follow-up); its canonical copies under
+            # .olav/workspace/ are the governed location and the drift gate
+            # keeps this mirror identical — skip to avoid double-reporting.
+            if "skillpack" in p.parts:
+                continue
             body = p.read_text(encoding="utf-8")
             if naive_now.search(body) or utcnow.search(body):
                 offenders.append(str(p.relative_to(REPO)))

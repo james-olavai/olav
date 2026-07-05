@@ -1,9 +1,20 @@
 """skill.py — olav skill install/list/status command.
 
 Subcommands:
-  olav skill install <path|url>  — install workspace from local dir or git URL
-  olav skill list                — list installed workspaces
-  olav skill status <name>       — show workspace status
+  olav skill install <path|url|package>  — install workspace from a local dir,
+                                           git URL, or an installed pip package
+                                           that bundles a skillpack
+  olav skill list                        — list installed workspaces
+  olav skill status <name>               — show workspace status
+
+Source resolution order for ``install`` (dev_docs/99 §7.6 follow-up, 0.22.0):
+  1. git / archive URL             → clone/extract to temp dir
+  2. existing local path           → used as-is (CI's monorepo path keeps working)
+  3. installed pip package         → ``<pkg>/data/skillpack/`` bundled by the
+     wheel (e.g. ``pip install olav-netops`` then
+     ``olav skill install olav-netops``). Any extension can opt in by
+     shipping ``data/skillpack/workspace.yaml`` (or MANIFEST.yaml) inside
+     its package.
 
 Reference: dev_docs/06. ECOSYSTEM_SPLIT_PLAN.md §2
 """
@@ -111,8 +122,18 @@ class SkillCommand(BaseCommand):
         else:
             source_path = Path(source)
             if not source_path.exists():
-                return f"error: path not found: {source}"
-            if not source_path.is_dir():
+                # 0.22.0: fall back to an installed pip package bundling a
+                # skillpack (pip install olav-netops → skill install olav-netops).
+                pkg_skillpack = _resolve_installed_skillpack(source)
+                if pkg_skillpack is None:
+                    return (
+                        f"error: path not found: {source} — and no installed "
+                        f"Python package of that name ships a bundled skillpack "
+                        f"(<pkg>/data/skillpack/). For a pip-installed extension, "
+                        f"run `pip install {source}` first."
+                    )
+                source_path = pkg_skillpack
+            elif not source_path.is_dir():
                 return f"error: not a directory: {source}"
 
         # GAP-01: workspace.yaml is preferred; fall back to MANIFEST.yaml
@@ -403,6 +424,37 @@ class SkillCommand(BaseCommand):
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+def _resolve_installed_skillpack(name: str) -> Path | None:
+    """Resolve an installed distribution name to its bundled skillpack dir.
+
+    Contract (0.22.0): an extension opts in by shipping
+    ``<package>/data/skillpack/`` inside its wheel, containing the same
+    layout a local-path install expects — ``workspace.yaml`` (or
+    ``MANIFEST.yaml``) at its root, with ``source:`` entries relative to
+    it. Distribution names are normalized (``olav-netops`` →
+    ``olav_netops``). Returns None when the name doesn't resolve to an
+    importable package with a bundled skillpack — the caller falls back
+    to its path-not-found error.
+
+    Uses ``find_spec`` (no module execution) so probing an arbitrary
+    name cannot run package code.
+    """
+    mod_name = name.strip().replace("-", "_")
+    if not mod_name.isidentifier():
+        return None  # path-like or otherwise non-module input
+    try:
+        spec = importlib.util.find_spec(mod_name)
+    except (ImportError, ValueError):
+        return None
+    if spec is None or not spec.submodule_search_locations:
+        return None
+    pkg_dir = Path(next(iter(spec.submodule_search_locations)))
+    candidate = pkg_dir / "data" / "skillpack"
+    if (candidate / "workspace.yaml").is_file() or (candidate / "MANIFEST.yaml").is_file():
+        return candidate
+    return None
+
 
 def _check_packages(packages: list[str]) -> list[str]:
     """Return package specs whose base name is not importable."""
