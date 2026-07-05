@@ -151,6 +151,7 @@ olav-netops/.olav/workspace/*
 .pypirc_test
 olav-netops/.olav/workspace/netops/collect/config/nornir/defaults.yaml
 .olav/config/api.json
+.olav/config/github-mirror-scrub.txt
 .olav/config/services.yaml
 .olav/config/nornir/
 .env.local
