@@ -106,3 +106,11 @@ selftest_profile = "olav_netops.cli.audit_hook:load_selftest_profile"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/olav_netops"]
+
+[tool.hatch.build.targets.sdist]
+# Package source only. The default (whole tree) would ship the dev
+# .olav/workspace/ — including live lab nornir credentials/inventory
+# (defaults.yaml/hosts.yaml) that must never reach PyPI. The bundled
+# skillpack under src/olav_netops/data/ carries the distributable
+# workspace copy (with only the .example config templates).
+only-include = ["src/olav_netops", "README.md", "pyproject.toml"]

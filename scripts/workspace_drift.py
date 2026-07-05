@@ -153,8 +153,21 @@ class PairDrift:
         return len(self.only_a) + len(self.only_b) + len(self.differ)
 
 
-def _compare(a: Path, label_a: str, b: Path, label_b: str) -> PairDrift:
-    fa, fb = _metadata_files(a), _metadata_files(b)
+# Deliberately ABSENT from wheel-bundle mirrors (data/skillpack): live lab
+# credentials/inventory must never ship in a public wheel — only the
+# .example templates do. The runtime mirror still carries them (dev box
+# collection needs real creds), so the exemption applies to bundle
+# comparisons only.
+_WHEEL_BUNDLE_EXEMPT: set[Path] = {
+    Path("collector/config/nornir/defaults.yaml"),
+    Path("collector/config/nornir/hosts.yaml"),
+}
+
+
+def _compare(
+    a: Path, label_a: str, b: Path, label_b: str, exempt: set[Path] = frozenset()
+) -> PairDrift:
+    fa, fb = _metadata_files(a) - exempt, _metadata_files(b) - exempt
     only_a = sorted(fa - fb)
     only_b = sorted(fb - fa)
     differ = sorted(
@@ -194,7 +207,8 @@ def report() -> int:
             pairs.append(_compare(dom.source, "source", dom.runtime, "runtime"))
         for m in dom.extra_mirrors:
             if dom.source.exists() and m.exists():
-                pairs.append(_compare(dom.source, "source", m, "bundle"))
+                exempt = _WHEEL_BUNDLE_EXEMPT if "skillpack" in m.parts else frozenset()
+                pairs.append(_compare(dom.source, "source", m, "bundle", exempt=exempt))
         for pd in pairs:
             _print_pair(pd, REPO)
             if pd.total:
