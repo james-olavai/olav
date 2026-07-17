@@ -9,9 +9,14 @@ keywords:
   - router ospf
   - router eigrp
   - which routing protocol
+  - what routing protocol do they run
+  - what protocol does this device run
+  - identify routing protocol
   - running-config routing
   - change plan routing context
   - what protocol is configured
+  - no eigrp neighbor view
+  - neighbor state vs protocol
 priority: 6
 body: |
   # Discover routing config with ONE regexp SQL — never dump raw config
@@ -25,6 +30,20 @@ body: |
   and loops forever on bigger/different substrings — hallucinating a value in
   the end. The correct move is to let DuckDB extract the exact fact and return
   a handful of characters.
+
+  ## Rule 0b — neighbor-STATE views are NOT "what protocol runs"
+
+  To answer *"what routing protocol does device X run?"* regexp its
+  running-config (Rule 0 below). Do **NOT** infer it from
+  `v_bgp_neighbors_auto` / `v_show_ip_ospf_neighbor_auto` — those show
+  adjacency **state**, and they mislead badly:
+    * There is **no EIGRP neighbor view at all** — an EIGRP box shows up as
+      "no neighbors" in the BGP/OSPF views.
+    * A pair of devices that isn't cabled yet (e.g. the two ends of a planned
+      new uplink) has **no adjacency between them** regardless of protocol.
+  Concluding "no routing protocol" from empty neighbor-state views is a
+  classic wrong answer — the device may well run `router eigrp 1`. The config
+  is ground truth; neighbor state is not.
 
   ## Rule 0 — NEVER ASSUME the protocol. Discover it first.
 
