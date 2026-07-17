@@ -91,6 +91,30 @@ body: |
 
   Each returns a few characters. That is the whole point.
 
+  ## Rule 1b — to MIRROR an existing block, grab the LINES in ONE query
+
+  When a change must copy an existing config's style (e.g. "add a BGP neighbour
+  like the current one"), you need to SEE those lines — get them all in ONE
+  query with `regexp_extract_all`, which returns a compact list. Do this ONCE.
+
+  ```sql
+  -- All BGP neighbour lines (copy a peer's style) — ONE query, ~15 lines:
+  SELECT regexp_extract_all(raw_output, '(?m)^ *neighbor \S.*') AS neighbor_lines
+  FROM netops.raw_output_store WHERE command='show running-config' AND device_name='<A>';
+  -- → ['neighbor 10.112.177.205 remote-as 7575',
+  --    'neighbor 10.112.177.205 description AARNet4 …',
+  --    'neighbor 10.112.177.205 timers 10 20', …]
+  ```
+
+  Two anti-patterns that both loop to timeout (proven on gemma4-31b):
+  * **Field-by-field**: dozens of `regexp_extract('(?m)^ …')`, one per line —
+    that is the raw-dump rabbit hole in slow motion (124 calls, never finished).
+  * **Whole block**: `regexp_extract(…, '…router bgp.*', 0)` — a `router bgp`
+    block with address-families is tens of KB; it just hits the cell cap.
+  ONE `regexp_extract_all` of the specific lines (neighbours, `network`
+  statements, a route-map) is the sweet spot. NOTE: DuckDB uses RE2 — **no
+  lookahead** (`(?=…)` errors); match line patterns, not block boundaries.
+
   ## Rule 2 — HARD LIMIT on raw_output
 
   * Query `netops.raw_output_store` **at most twice**, and **only** through
