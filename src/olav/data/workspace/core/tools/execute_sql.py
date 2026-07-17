@@ -162,6 +162,52 @@ def reset_sql_call_counter() -> None:
     _sql_recent.q = None
 
 
+def _resolve_max_cell_chars() -> int:
+    """Per-cell character cap for values surfaced to the LLM (tier-aware).
+
+    A single ``raw_output`` cell (a full ``show running-config``) can be
+    ~70 KB. Even with the row cap, one such cell blows the context window and
+    is the direct cause of the change-plan hallucination/rabbit-hole (the
+    model gets a wall of config text and loops trying to parse it). Capping
+    the cell — and telling the model to use ``regexp_extract`` for the exact
+    field — kills that at the tool layer, for every agent, deterministically.
+    Structured columns (hostname/IP/status) are far under the cap, so only raw
+    text columns are affected. small=800 / medium=2000 / large=8000.
+    """
+    try:
+        from olav.core.config import get_llm_config, tier_default
+        tier = get_llm_config().model_tier
+        val = tier_default(tier, "execute_sql_max_cell_chars", 2000)
+        return max(200, int(val))
+    except Exception:  # noqa: BLE001
+        return 2000
+
+
+def _cap_cells(rows: list[dict], cap: int) -> tuple[list[dict], bool]:
+    """Truncate over-long string cells in-place-ish; return (rows, any_capped).
+
+    Replaces a value longer than ``cap`` with its head plus a marker that
+    names the fix, so the model stops dumping and switches to precise SQL
+    extraction (regexp_extract / substr) instead of pulling whole config text.
+    """
+    capped = False
+    out: list[dict] = []
+    for row in rows:
+        new_row = {}
+        for k, v in row.items():
+            if isinstance(v, str) and len(v) > cap:
+                capped = True
+                new_row[k] = (
+                    v[:cap]
+                    + f"\n…[truncated {len(v)} chars — do NOT pull whole text; "
+                    f"use regexp_extract/substr in SQL to get the exact field]"
+                )
+            else:
+                new_row[k] = v
+        out.append(new_row)
+    return out, capped
+
+
 def _resolve_context_rows() -> int:
     """Return how many result rows to surface to the LLM context (ARCH-16).
 
@@ -506,12 +552,22 @@ def main(params: dict) -> dict:
             truncated = len(results) > MAX_ROWS_TO_CONTEXT
             display_data = results[:MAX_ROWS_TO_CONTEXT] if truncated else results
 
+            # Per-cell char cap: stop a single raw_output/config cell from
+            # blowing context + causing the change-plan hallucination loop.
+            display_data, cells_capped = _cap_cells(display_data, _resolve_max_cell_chars())
+
             message = None
             if csv_path:
                 message = f"FULL results ({len(results)} rows) exported to {csv_path}."
             if truncated:
                 msg = f"Only first {MAX_ROWS_TO_CONTEXT} rows returned to context to prevent bloat."
                 message = f"{message} {msg}" if message else msg
+            if cells_capped:
+                cap_msg = (
+                    "Long text cell(s) were truncated — use regexp_extract/substr "
+                    "in SQL to pull the specific field, not the whole column."
+                )
+                message = f"{message} {cap_msg}" if message else cap_msg
 
             # Check if results are empty - provide schema hints for agentic retry
             if len(results) == 0:

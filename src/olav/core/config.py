@@ -50,6 +50,10 @@ TIER_DEFAULTS: dict[str, dict[str, Any]] = {
         # rows from execute_sql surfaced to the LLM context (CSV still exports
         # full set at >50 rows regardless of tier).
         "execute_sql_context_rows": 10,
+        # ARCH: per-CELL char cap on execute_sql results — a single raw_output
+        # cell can be 70KB and blow context + cause hallucination; cap it and
+        # tell the model to use regexp_extract for the exact field.
+        "execute_sql_max_cell_chars": 800,
         # default `limit` for search_logs when caller omits it.
         "search_logs_default_limit": 20,
         # ARCH-19 SummarizationMiddleware tier threshold (Round 42):
@@ -67,6 +71,7 @@ TIER_DEFAULTS: dict[str, dict[str, Any]] = {
         "context_budget": 32000,
         "recall_skip_headroom_pct": 0.10,
         "execute_sql_context_rows": 20,
+        "execute_sql_max_cell_chars": 2000,
         "search_logs_default_limit": 50,
         "summarization_trigger_pct": 0.65,
     },
@@ -88,6 +93,7 @@ TIER_DEFAULTS: dict[str, dict[str, Any]] = {
         "context_budget": 200000,
         "recall_skip_headroom_pct": 0.00,
         "execute_sql_context_rows": 50,
+        "execute_sql_max_cell_chars": 8000,
         "search_logs_default_limit": 100,
         "summarization_trigger_pct": 0.80,
     },

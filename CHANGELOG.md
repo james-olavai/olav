@@ -35,6 +35,16 @@ Patch: fresh-install fixes surfaced by the V3 demo runsheet.
   top-level agent (same set of entities — `.olav/workspace/` dirs, selected
   via `--agent`); bare `/agents` lists them. Keeping the command surface
   under OLAV's control is the right posture for a deepagents wrapper.
+- **execute_sql now caps per-cell text — deterministic guardrail against raw
+  dumps.** The row cap (10/20/50) never helped the real hallucination source: a
+  single `raw_output` cell (a full `show running-config`, ~70 KB) blew the
+  context window and sent the model into the change-plan rabbit-hole. A new
+  tier-aware per-cell char cap (`execute_sql_max_cell_chars`, small 800 /
+  medium 2000 / large 8000) truncates over-long string cells and appends a
+  marker telling the model to use `regexp_extract`/`substr` for the exact
+  field. This makes the dump physically ineffective at the tool layer, for
+  EVERY agent — not just via the analyzer's prompt guide. Structured columns
+  (hostname/IP/status) are far under the cap and untouched.
 - **A slow local model's timeout is no longer misreported as "unreachable".**
   `_llm_failure_hint` bucketed `APITimeoutError` with connection errors, so a
   large self-hosted model (e.g. `gemma4-31b`) that took >60 s for one turn
