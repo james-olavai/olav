@@ -6,7 +6,9 @@
   "llm": {
     "provider": "openai",
     "model": "gpt-4o",
-    "temperature": 0.1
+    "temperature": 0.1,
+    "_timeout_doc": "Per-request LLM timeout in seconds (default 60). Raise for slow SELF-HOSTED models — a large local llama.cpp/Ollama/vLLM model (e.g. gemma4-31b) can take >60s per turn as context grows, and the abort is otherwise misreported as an unreachable endpoint. 300-600 is a safe headroom for local; leave at 60 for cloud APIs.",
+    "timeout": 60
   },
   "active_workspace": "core",
   "syslog_receiver": {

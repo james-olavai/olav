@@ -35,6 +35,14 @@ Patch: fresh-install fixes surfaced by the V3 demo runsheet.
   top-level agent (same set of entities — `.olav/workspace/` dirs, selected
   via `--agent`); bare `/agents` lists them. Keeping the command surface
   under OLAV's control is the right posture for a deepagents wrapper.
+- **A slow local model's timeout is no longer misreported as "unreachable".**
+  `_llm_failure_hint` bucketed `APITimeoutError` with connection errors, so a
+  large self-hosted model (e.g. `gemma4-31b`) that took >60 s for one turn
+  surfaced as "The LLM endpoint is unreachable" — wrong and unhelpful. It now
+  classifies timeouts separately and points at the real lever: raise
+  `llm.timeout` in api.json (the endpoint answered; the model was just slow).
+  Config example + demo runsheet document the `llm.timeout: 600` knob for
+  self-hosted models.
 - **Analyzer stop discipline: `format_and_export` is terminal (return_direct).**
   A change plan is one file (analyzer constraint #5), so the agent's job is
   done the moment it saves — but small local models (gemma4-31b) kept

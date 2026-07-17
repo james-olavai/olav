@@ -2092,6 +2092,7 @@ def _llm_failure_hint(e: BaseException) -> str | None:
             "apistatuserror", "apierror", "ratelimiterror", "authenticationerror",
             "apiconnectionerror", "apitimeouterror",
             "401", "402", "429", "unauthorized", "rate limit", "quota", "api key",
+            "timed out", "timeout",
         )
     ):
         return None
@@ -2099,7 +2100,19 @@ def _llm_failure_hint(e: BaseException) -> str | None:
         cause = "The LLM provider rejected the API key (invalid or expired)"
     elif any(m in text for m in ("402", "429", "quota", "rate limit", "ratelimiterror")):
         cause = "The LLM provider is rate-limiting or out of quota/credit"
-    elif any(m in text for m in ("apiconnectionerror", "apitimeouterror")):
+    elif any(m in text for m in ("apitimeouterror", "timed out", "timeout")):
+        # A timeout is NOT "unreachable" — the endpoint answered the TCP
+        # connect, the model just didn't finish within llm.timeout. Common
+        # with slow local models (a large gemma/qwen on modest hardware can
+        # take >60s per turn as context grows). Point at the real lever.
+        return (
+            "The LLM request timed out — the endpoint is reachable but the "
+            "model didn't respond within the request timeout. If it's a slow "
+            "local model (llama.cpp/Ollama/vLLM), raise it: set `llm.timeout` "
+            "(seconds) in .olav/config/api.json, e.g. 600. Otherwise run "
+            "`olav doctor` to check the endpoint."
+        )
+    elif "apiconnectionerror" in text:
         cause = "The LLM endpoint is unreachable"
     else:
         cause = "The LLM call failed"

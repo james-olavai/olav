@@ -49,6 +49,27 @@ def test_connection_error_names_endpoint() -> None:
     assert "unreachable" in hint
 
 
+def test_timeout_is_not_reported_as_unreachable() -> None:
+    """A per-request timeout means the endpoint answered but the model was
+    slow (common for local llama.cpp/Ollama) — it must NOT be called
+    'unreachable', and must point at the llm.timeout knob."""
+    class APITimeoutError(Exception):
+        pass
+
+    hint = _llm_failure_hint(APITimeoutError("Request timed out."))
+    assert hint is not None
+    assert "unreachable" not in hint.lower()
+    assert "timed out" in hint.lower()
+    assert "llm.timeout" in hint
+
+    # Bare 'Request timed out.' (langchain re-raise, no APITimeoutError class name)
+    # must also classify as timeout, not fall through to unreachable/None.
+    hint2 = _llm_failure_hint(Exception("Error: Request timed out."))
+    assert hint2 is not None
+    assert "llm.timeout" in hint2
+    assert "unreachable" not in hint2.lower()
+
+
 def test_generic_api_error_still_hints() -> None:
     class APIStatusError(Exception):
         pass
