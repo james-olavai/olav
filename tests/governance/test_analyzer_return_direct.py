@@ -31,10 +31,14 @@ def test_analyzer_skill_declares_format_and_export_terminal():
     )
 
 
-def test_build_sets_return_direct_on_analyzer_format_and_export(caplog):
+def test_build_sets_return_direct_on_analyzer_format_and_export(caplog, monkeypatch):
     """Real build path: constructing the netops agent must set return_direct
     on the analyzer sub-agent's format_and_export instance."""
     pytest.importorskip("deepagents")
+    # Agent construction builds the chat-model object (no network call), which
+    # needs *some* api_key present — CI has none configured. A dummy is enough
+    # to reach the sub-agent build where the return_direct injection happens.
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-dummy-for-build")
     from olav.agents.agent import OLAVAgent
 
     with caplog.at_level(logging.INFO):

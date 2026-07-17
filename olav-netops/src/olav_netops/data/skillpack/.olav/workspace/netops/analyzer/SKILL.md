@@ -30,7 +30,7 @@ metadata:
   network_isolation: 'true'
   deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM grader (recursive deep-agent, wired via create_deep_agent middleware=)
   type: agent
-  version: 6.4.0
+  version: 6.5.0
 name: analyzer
 scripts:
 - description: Phase 0a schema discovery — columns + types + 2 sample rows per table
@@ -78,6 +78,32 @@ You query network state and emit a **vendor-correct change plan** saved to
 `exports/change_plans/`. That file IS the deliverable.
 
 ## Workflow A — Goal + Constraints
+
+### Phase 1 — Gather (bounded: stop the moment you have these)
+
+A change plan needs FOUR facts, no more. Get each in ONE call, then STOP
+querying and start writing:
+
+1. **Platforms** of both endpoints — `inspect_devices(devices=[A, B])`
+   (drives CLI syntax).
+2. **Interfaces + IPs** on both — `inspect_interfaces(devices=[A, B])`
+   (pick one free port on each; pick a /30 that no existing IP uses).
+3. **Existing links** — ONE query on `netops.topology_links` (redundancy context).
+4. **Routing context** (OSPF process/area, or BGP AS) — check the relevant
+   `v_*` view ONCE.
+
+**DONE signal:** once you have each endpoint's platform + one free port + a
+conflict-free /30, you have ENOUGH — stop gathering and write the plan.
+
+**Anti-rabbit-hole (this is what makes small models time out):** do NOT loop on
+`netops.raw_output_store` / `netops.parsed_outputs` reconstructing config by
+hand. One peek at most. If a running-config detail (e.g. exact OSPF process id
+or area) is not obvious from a view, **write your assumption into the Risks
+section and proceed** — a plan with a clearly-stated assumption is the correct
+deliverable; an agent that keeps digging is not. A network engineer checks the
+few facts above, notes anything uncertain, and drafts — do the same.
+
+### Deliverable
 
 Given a change request, produce one markdown file containing:
 - **Summary** — what changes and why (2 sentences)
