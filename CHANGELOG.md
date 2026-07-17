@@ -44,7 +44,12 @@ Patch: fresh-install fixes surfaced by the V3 demo runsheet.
   marker telling the model to use `regexp_extract`/`substr` for the exact
   field. This makes the dump physically ineffective at the tool layer, for
   EVERY agent — not just via the analyzer's prompt guide. Structured columns
-  (hostname/IP/status) are far under the cap and untouched.
+  (hostname/IP/status) are far under the cap and untouched. Unified overflow
+  rule: whenever the context view is lossy (too many rows OR a capped cell) the
+  FULL untruncated result is written to `exports/queries/*.csv` and the LLM
+  gets a bounded preview + the path — "cap to context, full to file", so
+  nothing the user asked for is lost and no whole-config text ever enters the
+  context window.
 - **A slow local model's timeout is no longer misreported as "unreachable".**
   `_llm_failure_hint` bucketed `APITimeoutError` with connection errors, so a
   large self-hosted model (e.g. `gemma4-31b`) that took >60 s for one turn

@@ -531,30 +531,34 @@ def main(params: dict) -> dict:
             # Full data is still exported to CSV if count > 50, regardless of tier.
             MAX_ROWS_TO_CONTEXT = _resolve_context_rows()
 
-            # Auto-export logic
-            csv_path = None
-            if len(results) > 50:
-                import csv
-                from pathlib import Path
-
-                export_dir = Path("exports") / "queries"
-                export_dir.mkdir(parents=True, exist_ok=True)
-
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                csv_path = export_dir / f"query_{timestamp}.csv"
-
-                with open(csv_path, "w", newline="") as f:
-                    writer = csv.DictWriter(f, fieldnames=results[0].keys())
-                    writer.writeheader()
-                    writer.writerows(results)
-
-            # Prepare data for LLM context
+            # Prepare data for LLM context (row cap first, then per-cell cap).
             truncated = len(results) > MAX_ROWS_TO_CONTEXT
             display_data = results[:MAX_ROWS_TO_CONTEXT] if truncated else results
 
             # Per-cell char cap: stop a single raw_output/config cell from
             # blowing context + causing the change-plan hallucination loop.
             display_data, cells_capped = _cap_cells(display_data, _resolve_max_cell_chars())
+
+            # Unified overflow rule: whenever the context view is lossy — too
+            # many ROWS or a truncated CELL — write the FULL, untruncated result
+            # to CSV so nothing the user asked for is lost. The LLM gets a
+            # bounded preview + the path; if it (or the user) genuinely needs
+            # the full data, it's on disk, not in the context window. This is
+            # the "cap to context, full to file" contract, using the tools we
+            # already have — no whole config text ever needs to enter context.
+            csv_path = None
+            if len(results) > 50 or cells_capped:
+                import csv
+                from pathlib import Path
+
+                export_dir = Path("exports") / "queries"
+                export_dir.mkdir(parents=True, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                csv_path = export_dir / f"query_{timestamp}.csv"
+                with open(csv_path, "w", newline="") as f:
+                    writer = csv.DictWriter(f, fieldnames=results[0].keys())
+                    writer.writeheader()
+                    writer.writerows(results)
 
             message = None
             if csv_path:
@@ -564,8 +568,9 @@ def main(params: dict) -> dict:
                 message = f"{message} {msg}" if message else msg
             if cells_capped:
                 cap_msg = (
-                    "Long text cell(s) were truncated — use regexp_extract/substr "
-                    "in SQL to pull the specific field, not the whole column."
+                    "Long text cell(s) truncated in this preview — the FULL value "
+                    "is in the CSV above. For a specific field, re-query with "
+                    "regexp_extract/substr instead of pulling the whole column."
                 )
                 message = f"{message} {cap_msg}" if message else cap_msg
 
