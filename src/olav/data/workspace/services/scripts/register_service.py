@@ -126,11 +126,22 @@ def register_service(
             ),
         }
 
-    entry: dict[str, Any] = {"endpoint": endpoint, "auth_type": auth_type}
-    if auth_token_env:
-        entry["auth_token_env"] = auth_token_env
-    if token_prefix:
-        entry["token_prefix"] = token_prefix
+    # Emit the NESTED ``auth:`` block that ServiceRegistry._parse_auth reads
+    # (raw.get("auth", {}) → {type, token_env, token_prefix, header_name}).
+    # Writing flat ``auth_type``/``auth_token_env`` keys here silently parsed
+    # back as auth.type="none", so EVERY agent-registered service had broken
+    # auth (Authorization header never sent). Verified against NetBox 4.5's
+    # bearer tokens: flat form → 403, nested form → 200.
+    entry: dict[str, Any] = {"endpoint": endpoint}
+    if auth_type and auth_type != "none":
+        auth_block: dict[str, Any] = {"type": auth_type}
+        if auth_token_env:
+            auth_block["token_env"] = auth_token_env
+        if token_prefix:
+            auth_block["token_prefix"] = token_prefix
+        entry["auth"] = auth_block
+    else:
+        entry["auth"] = {"type": "none"}
     if kind:
         entry["kind"] = kind
 

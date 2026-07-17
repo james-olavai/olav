@@ -198,8 +198,14 @@ class NetboxClient:
                  data: dict | None = None) -> tuple[int, dict | None]:
         url = f"{self.endpoint}{path}"
         body = None
+        # NetBox 4.5+ issues HMAC-peppered v2 tokens (``nbt_<key>.<secret>``)
+        # that authenticate via ``Authorization: Bearer …``; the classic
+        # 40-hex tokens (≤4.4) use ``Authorization: Token …``. Sending the
+        # wrong scheme returns 403 "Invalid v1 token". Pick by token shape so
+        # the same client works against both eras.
+        scheme = "Bearer" if self.token.startswith("nbt_") else "Token"
         headers = {
-            "Authorization": f"Token {self.token}",
+            "Authorization": f"{scheme} {self.token}",
             "Accept": "application/json",
         }
         if data is not None:
