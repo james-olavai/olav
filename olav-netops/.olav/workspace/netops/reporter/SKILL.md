@@ -26,6 +26,7 @@ dynamic_context:
 - path: ./references/troubleshoot_layered_l1_to_l4.guide.yaml
 - path: ./references/topology_query.guide.yaml
 - path: ./references/schema_introspection_via_describe_table.guide.yaml
+- path: ./references/discover_routing_config_via_sql.guide.yaml
 metadata:
   category: network-operations
   intents:
@@ -38,7 +39,7 @@ metadata:
   network_isolation: 'true'
   deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM grader (recursive deep-agent, wired via create_deep_agent middleware=)
   type: agent
-  version: 1.1.0
+  version: 1.2.0
 name: reporter
 scripts:
 - description: Phase 0a schema discovery — columns + types + 2 sample rows per table
@@ -127,6 +128,25 @@ same filename throughout · no duplicate `#` headers · final synthesis also app
 
 ## Workflow D — Investigation
 
+### Evidence budget — the network-engineer's stopping rule
+
+An investigation is bounded, not open-ended. A network engineer gathers the
+few pieces of evidence the question actually needs, forms the verdict, and
+writes it up — they do NOT keep querying "just in case". Do the same:
+
+- **Budget: ≤ ~8 evidence queries total.** The question drives the scope, not
+  the schema. Ask: *what would prove or disprove this?* Gather exactly that.
+- **DONE signal:** the moment you can state the verdict with evidence, **stop
+  querying and write the Synthesis (Phase 5).** More queries past that point
+  are timeout, not rigor — small local models die here by cross-checking
+  something they already answered.
+- **Never re-run a query you've already run** (Batfish/SQL are deterministic;
+  the answer won't change). If sim/`task` already answered the config-layer
+  question, do NOT re-derive it in SQL — cite sim's verdict and move on.
+- **Routing config** (OSPF process / EIGRP AS / BGP ASN): get it with ONE
+  `regexp_extract` per the `discover_routing_config_via_sql` guide. NEVER
+  `SELECT raw_output` / `substr(raw_output…)` — that floods context and loops.
+
 **Phase 0**: `olav_recall_memory` for this investigation type. Then collect
 snapshot context, device inventory, and topology. Consult your injected
 `topology_query` guide for standard SQL patterns and stable table columns.
@@ -181,6 +201,11 @@ _Generated <YYYY-MM-DD>; data sources: execute_sql + query_evidence + sim_
 5. Every finding cites device + value + source view — no fabricated facts
 6. **STOP after `task("sim")` returns** — don't re-verify sim's config-layer ground truth
 7. One report file per request — read-only mode, no CLI on devices
+8. **Respect the evidence budget (≤ ~8 queries).** When you can state the
+   verdict, write the Synthesis and STOP. Do not gather more "to be sure".
+9. **Never `SELECT raw_output` / `substr(raw_output…)`** — use `regexp_extract`
+   or `query_evidence` for config text. Whole-config dumps flood context and
+   cause the loop-until-timeout failure.
 
 ## Mode C — Blast Radius
 
