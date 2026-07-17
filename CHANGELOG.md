@@ -24,6 +24,20 @@ Patch: fresh-install fixes surfaced by the V3 demo runsheet.
   `OLAV_LLM_API_KEY`, so a key set in `shared.api_key` (the documented
   homogeneous-deploy pattern) wrongly re-prompted "No LLM API key
   configured yet". It now mirrors the runtime resolution order.
+- **Importer honours its advertised inputs (netops).** The importer's
+  SKILL.md advertises "directory or **zip file** / rancid backup / vendor
+  dump", but `survey_bundle` rejected anything that wasn't an already-
+  extracted canonical directory — a compressed `.tar.gz` backup returned a
+  bare `{"error": "not a directory — zip not yet supported"}` with no
+  `notes`, and the agent looped trying to extract it by hand and delegating
+  to every sub-agent. `survey_bundle` now transparently (a) **extracts
+  archives** (`.tar.gz`/`.tgz`/`.tar`/`.zip`, with path-traversal
+  guards), (b) **normalises a raw collector dump** (command-major
+  `network_data/<command>/<host>`) into a canonical bundle, and (c)
+  returns the ready-to-ingest `path` plus a structured `notes` field on
+  failure so the agent **stops instead of looping**. New helper
+  `_bundle_prepare.py`; idempotent temp-dir conversion (safe on read-only
+  source mounts). Runsheet Ch2 now imports the `.tar.gz` directly.
 - **Actionable "agent not deployed" error.** `--agent netops` when the
   `olav-netops` package is pip-installed but its workspace was never
   deployed used to raise a bare `Workspace agent 'core/netops' does not

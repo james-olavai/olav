@@ -18,8 +18,19 @@ Key outputs:
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Any
+
+# Make the sibling helper importable no matter how this file is loaded —
+# as a subprocess (execute_skill_script puts scripts/ on sys.path[0]) OR
+# imported by file path (governance tests via spec_from_file_location, which
+# does NOT add the scripts dir).  Without this the `_bundle_prepare` import
+# raises ModuleNotFoundError under the latter.
+_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
 
 # ── constants ────────────────────────────────────────────────────────────────
 
@@ -329,14 +340,25 @@ def _build_notes(fmt: str, detail: dict) -> str:
 # ── public entry point ────────────────────────────────────────────────────────
 
 def survey_bundle(path: str) -> dict[str, Any]:
-    """Structural survey of a bundle directory — no DB writes.
+    """Structural survey of a bundle — no DB writes.
+
+    Accepts a canonical directory, a **compressed archive**
+    (``.tar.gz`` / ``.tgz`` / ``.tar`` / ``.zip``), or a raw **collector
+    dump** (command-major ``network_data/<command>/<host>``). Archives are
+    extracted and raw dumps are normalised to canonical transparently, so
+    the returned ``path`` is always ready for validate + ingest.
 
     Args:
-        path: Filesystem path to the bundle directory.
+        path: Filesystem path to a bundle dir, archive, or collector dump.
 
     Returns:
-        path                  — absolute path surveyed
+        path                  — absolute path to survey/validate/ingest (may
+                                 differ from the input when an archive was
+                                 extracted or a raw dump was normalised)
+        source_path           — the original input path
         format                — canonical | rancid | vendor_dump | tech_support | unknown
+        normalized_from       — "collector_dump" when a raw dump was converted
+        prepare_note          — what extraction/normalisation happened, if any
         ingest_supported      — True only for canonical bundles
         hosts                 — list of host names detected (≤50)
         platforms             — {host: platform_key | "sniffed:<platform>" | None}
@@ -349,11 +371,31 @@ def survey_bundle(path: str) -> dict[str, Any]:
         bundle_id             — from manifest if available
         notes                 — prescriptive next-step string
     """
-    root = Path(path).expanduser().resolve()
-    if not root.exists():
-        return {"error": f"path does not exist: {path}"}
-    if not root.is_dir():
-        return {"error": f"not a directory — zip not yet supported: {path}"}
+    from _bundle_prepare import prepare_input
+
+    prepared = prepare_input(path)
+    if prepared.get("error"):
+        # Structured failure (never a bare error) so the agent gets a `notes`
+        # field and stops cleanly instead of looping trying to recover.
+        return {
+            "path": path,
+            "source_path": path,
+            "format": "unknown",
+            "ingest_supported": False,
+            "hosts": [], "platforms": {}, "commands_seen": 0,
+            "needs_platform_detection": [], "platform_sample_lines": {},
+            "manifest_present": False, "collector": {}, "bundle_id": None,
+            "error": prepared["error"],
+            "notes": (
+                f"Could not read the input: {prepared['error']}. "
+                "Tell the user the path/format is unusable and stop — do not "
+                "retry with other tools."
+            ),
+        }
+
+    root = prepared["root"]
+    prepare_note = prepared.get("note") or ""
+    normalized_from = prepared.get("normalized_from")
 
     fmt = _detect_format(root)
 
@@ -372,9 +414,19 @@ def survey_bundle(path: str) -> dict[str, Any]:
             "platform_sample_lines": {}, "collector": {},
         }
 
+    notes = _build_notes(fmt, detail)
+    if prepare_note:
+        notes = (
+            f"({prepare_note}; validate + ingest the `path` field below, "
+            f"not your original input.) {notes}"
+        )
+
     return {
         "path":                    str(root),
+        "source_path":             prepared.get("source_path", path),
         "format":                  fmt,
+        "normalized_from":         normalized_from,
+        "prepare_note":            prepare_note,
         "ingest_supported":        fmt == "canonical",
         "hosts":                   detail["hosts"],
         "platforms":               detail["platforms"],
@@ -384,7 +436,7 @@ def survey_bundle(path: str) -> dict[str, Any]:
         "manifest_present":        detail["manifest_present"],
         "collector":               detail.get("collector", {}),
         "bundle_id":               detail.get("bundle_id"),
-        "notes":                   _build_notes(fmt, detail),
+        "notes":                   notes,
     }
 
 
