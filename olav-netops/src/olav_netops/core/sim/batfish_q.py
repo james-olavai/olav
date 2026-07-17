@@ -155,16 +155,23 @@ def _batfish_reachable(host: str, port: int, timeout: float = 2.0) -> bool:
 
 def batfish_setup_hint(host: str, port: int) -> str:
     """Actionable next steps when Batfish is not reachable (software-
-    understands-human: name the fix, don't leak a stack trace)."""
+    understands-human: name the fix, don't leak a stack trace).
+
+    Container lifecycle is the **services** agent's job (deploy_service /
+    docker-compose), so we route there rather than telling the user to run
+    docker by hand. Remote-endpoint config is the admin agent's job.
+    """
     return (
         f"Batfish is not running / not reachable at {host}:{port}. Config-layer "
         f"validation (subnet conflicts, protocol compatibility, reachability) "
         f"needs a Batfish service. Two ways to get one:\n"
-        f"  1) Start it locally — ask the admin agent to pull the container, or:\n"
-        f"     docker run -d --name batfish -p 9996:9996 -p 9997:9997 batfish/allinone\n"
-        f"  2) Point OLAV at a remote Batfish API — ask the admin agent to set the "
-        f"`batfish` host in .olav/config/api.json, or export OLAV_BATFISH_HOST.\n"
-        f"Also install the sim extra if pybatfish is missing: pip install pybatfish.\n"
+        f"  1) Deploy it locally via the services agent (it owns containers):\n"
+        f"     olav --agent services \"deploy the batfish/allinone container, "
+        f"expose ports 9996 and 9997\"\n"
+        f"  2) Point OLAV at an existing/remote Batfish — ask the admin agent to "
+        f"set the `batfish` host in .olav/config/api.json, or export "
+        f"OLAV_BATFISH_HOST.\n"
+        f"(If pybatfish is missing, install the sim extra: pip install pybatfish.)\n"
         f"Then retry the validation."
     )
 

@@ -36,9 +36,10 @@ def test_reachable_false_for_closed_port():
 
 def test_setup_hint_names_the_fixes():
     hint = bq.batfish_setup_hint("localhost", 9996)
-    assert "docker run" in hint and "batfish/allinone" in hint
-    assert "admin" in hint.lower()          # points at the admin agent
-    assert "OLAV_BATFISH_HOST" in hint or "batfish" in hint.lower()
+    assert "batfish/allinone" in hint
+    assert "--agent services" in hint       # container lifecycle → services agent
+    assert "admin agent" in hint            # remote-endpoint config → admin
+    assert "OLAV_BATFISH_HOST" in hint
 
 
 def test_batfish_q_unreachable_returns_guided_error(monkeypatch):
@@ -49,4 +50,4 @@ def test_batfish_q_unreachable_returns_guided_error(monkeypatch):
     r = bq.batfish_q.func(snapshot_id="snap_x", question="fileParseStatus")
     assert r["status"] == "error"
     assert r["batfish_reachable"] is False
-    assert "not reachable" in r["message"] and "docker run" in r["message"]
+    assert "not reachable" in r["message"] and "--agent services" in r["message"]

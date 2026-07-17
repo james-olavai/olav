@@ -10,7 +10,7 @@
     "_timeout_doc": "Per-request LLM timeout in seconds (default 60). Raise for slow SELF-HOSTED models — a large local llama.cpp/Ollama/vLLM model (e.g. gemma4-31b) can take >60s per turn as context grows, and the abort is otherwise misreported as an unreachable endpoint. 300-600 is a safe headroom for local; leave at 60 for cloud APIs.",
     "timeout": 60
   },
-  "_batfish_doc": "OPTIONAL. Where the netops simulator finds Batfish (config-layer validation). Omit to use localhost:9996. Set host/port to point at a remote Batfish API, or start a local one: docker run -d -p 9996:9996 -p 9997:9997 batfish/allinone. Env OLAV_BATFISH_HOST/OLAV_BATFISH_HTTP_PORT override this.",
+  "_batfish_doc": "OPTIONAL. Where the netops simulator finds Batfish (config-layer validation). Omit to use localhost:9996. Set host/port to point at a remote Batfish API, or deploy one via the services agent (olav --agent services "deploy batfish/allinone, ports 9996 9997"). Env OLAV_BATFISH_HOST/OLAV_BATFISH_HTTP_PORT override this.",
   "batfish": {
     "host": "localhost",
     "port": 9996,

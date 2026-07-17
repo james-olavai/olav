@@ -67,10 +67,11 @@ tell the caller to dispatch the right peer.
 
 0a Call batfish_capability first (always — it is the cheap pre-check).
    • batfish_reachable == False → Batfish is not running. Do NOT keep trying
-     queries. Relay the `setup_hint` verbatim to the user (they can start it
-     with `olav --agent admin "…"` / docker, or point OLAV at a remote
-     Batfish), and stop. This is expected on a fresh machine, not an error to
-     retry.
+     queries. Relay the `setup_hint` verbatim and stop — it tells the user to
+     deploy Batfish via the **services** agent (which owns containers:
+     `olav --agent services "deploy the batfish/allinone container …"`) or to
+     point OLAV at a remote Batfish via the admin agent. Expected on a fresh
+     machine, not an error to retry.
    • reachable → consult your capability catalog guide to interpret summary
      (FULL/PARTIAL/NONE). NONE → skip sim (e.g. an EIGRP-only network: Batfish
      models EIGRP poorly — say so rather than returning empty rows).
