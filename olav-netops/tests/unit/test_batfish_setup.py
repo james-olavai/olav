@@ -51,3 +51,42 @@ def test_batfish_q_unreachable_returns_guided_error(monkeypatch):
     assert r["status"] == "error"
     assert r["batfish_reachable"] is False
     assert "not reachable" in r["message"] and "--agent services" in r["message"]
+
+
+# --- batfish_capability arg coercion (small models pass a regex string) -------
+
+import duckdb as _duckdb  # noqa: E402
+
+cap = importlib.import_module("olav_netops.core.sim.batfish_capability")
+_cfg = importlib.import_module("olav.core.config")
+
+
+@pytest.fixture
+def _devices_db(tmp_path, monkeypatch):
+    """A tiny netops.devices so batfish_capability's query has data.
+
+    batfish_capability does `from olav.core.config import MAIN_DB_PATH` at call
+    time, so patching the config module (via its object, not a string path —
+    the submodule name is shadowed by the re-exported tool) is enough.
+    """
+    db = tmp_path / "main.duckdb"
+    con = _duckdb.connect(str(db))
+    con.execute("CREATE SCHEMA netops")
+    con.execute("CREATE TABLE netops.devices (hostname VARCHAR, platform VARCHAR)")
+    con.execute("INSERT INTO netops.devices VALUES ('r1','cisco_ios'),('r2','cisco_ios'),('r3','arista_eos')")
+    con.close()
+    monkeypatch.setattr(_cfg, "MAIN_DB_PATH", db, raising=False)
+    return db
+
+
+@pytest.mark.parametrize("wildcard", [".*", "*", "all", "%", "", None])
+def test_capability_wildcard_devices_means_all(_devices_db, wildcard):
+    r = cap.batfish_capability.func(devices=wildcard)
+    assert r["status"] == "ok", r
+    assert r["device_count"] == 3, f"{wildcard!r} should mean ALL devices"
+
+
+def test_capability_bare_hostname_string_becomes_one(_devices_db):
+    r = cap.batfish_capability.func(devices="r1")   # a str, not a list
+    assert r["status"] == "ok"
+    assert r["device_count"] == 1

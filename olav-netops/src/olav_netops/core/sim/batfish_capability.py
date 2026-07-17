@@ -101,6 +101,16 @@ def batfish_capability(
     import duckdb
     from olav.core.config import MAIN_DB_PATH
 
+    # Coerce the ``devices`` arg at the boundary (small models pass a regex
+    # string like ".*" meaning "all", or a single hostname as a bare string —
+    # feeding a str straight to DuckDB params raises "Prepared parameters can
+    # only be passed as a list or a dictionary"). Wildcard/empty = discovery
+    # (check ALL devices); a bare hostname string becomes a one-item list.
+    if isinstance(devices, str):
+        devices = None if devices.strip() in ("", "*", ".*", "all", "%") else [devices]
+    elif devices is not None and not isinstance(devices, list):
+        devices = list(devices)
+
     try:
         with duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
             if devices:
