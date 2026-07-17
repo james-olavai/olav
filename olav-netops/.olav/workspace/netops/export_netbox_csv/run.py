@@ -35,15 +35,19 @@ from pathlib import Path
 # role=core), which is the standard way NetBox seeds sites/roles from a
 # naming scheme. Derive them from the hostname when the DB column is NULL so
 # the row satisfies NetBox's required FKs; a populated column always wins.
+# ``lower()`` the derived token: NetBox slugs are case-insensitive, so mixed
+# case in the fleet (``6S1`` vs ``6s1``, ``2P1`` vs ``2p1``) would look up as
+# distinct names but collide on the same slug → 400 "slug already exists" on
+# the second variant. Lowercasing collapses the variants onto one role/site.
 _SQL = """
 SELECT
   d.hostname                                          AS name,
-  COALESCE(NULLIF(d.role, ''), split_part(d.hostname, '-', 2)) AS device_role,
+  COALESCE(NULLIF(d.role, ''), lower(split_part(d.hostname, '-', 2))) AS device_role,
   d.vendor                                            AS manufacturer,
   d.model                                             AS device_type,
   d.ip_address                                        AS primary_ip4,
   d.platform                                          AS platform,
-  COALESCE(NULLIF(d.site, ''), split_part(d.hostname, '-', 1)) AS site,
+  COALESCE(NULLIF(d.site, ''), lower(split_part(d.hostname, '-', 1))) AS site,
   'active'                                            AS status,
   ?                                                   AS tenant,
   s.snapshot_id                                       AS snapshot_id,

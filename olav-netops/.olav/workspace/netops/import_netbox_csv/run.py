@@ -319,9 +319,13 @@ def _push_row(client: NetboxClient, row: dict) -> tuple[str, list[str]]:
     """
     notes: list[str] = []
     site = row["site"].strip()
+    # Look up slug-bearing resources by SLUG, not name: NetBox enforces
+    # uniqueness on the slug (case-insensitive), so a name lookup misses a
+    # case variant ("6S1" vs "6s1") and the subsequent create then collides on
+    # the slug → 400 "already exists". Slug lookup makes it truly idempotent.
     site_id, st = client.lookup_or_create(
         "sites",
-        lookup_query={"name": site},
+        lookup_query={"slug": _slugify(site)},
         create_payload={"name": site, "slug": _slugify(site)},
     )
     notes.append(f"site '{site}': {st}")
@@ -331,7 +335,7 @@ def _push_row(client: NetboxClient, row: dict) -> tuple[str, list[str]]:
     manu = row["manufacturer"].strip()
     manu_id, st = client.lookup_or_create(
         "manufacturers",
-        lookup_query={"name": manu},
+        lookup_query={"slug": _slugify(manu)},
         create_payload={"name": manu, "slug": _slugify(manu)},
     )
     notes.append(f"manufacturer '{manu}': {st}")
@@ -355,7 +359,7 @@ def _push_row(client: NetboxClient, row: dict) -> tuple[str, list[str]]:
     role = row["device_role"].strip()
     role_id, st = client.lookup_or_create(
         "device-roles",
-        lookup_query={"name": role},
+        lookup_query={"slug": _slugify(role)},
         create_payload={"name": role, "slug": _slugify(role)},
     )
     notes.append(f"device_role '{role}': {st}")
@@ -369,7 +373,7 @@ def _push_row(client: NetboxClient, row: dict) -> tuple[str, list[str]]:
     if plat:
         plat_id, st = client.lookup_or_create(
             "platforms",
-            lookup_query={"name": plat},
+            lookup_query={"slug": _slugify(plat)},
             create_payload={"name": plat, "slug": _slugify(plat)},
         )
         notes.append(f"platform '{plat}': {st}")
