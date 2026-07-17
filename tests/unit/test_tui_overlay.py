@@ -711,6 +711,73 @@ def test_alias_with_extra_args_falls_through(
     assert fake.last_original_command == "/ops show devices"
 
 
+# ── 12b. /agents is routed to OLAV's workspace switcher ─────────────────────
+
+
+def test_agents_command_switches_olav_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """deepagents' native /agents can't reach `.olav/workspace/` agents, so
+    the overlay routes `/agents <name>` to OLAV's workspace switch."""
+    _, _, app_cls, _uc = _install_stub_deepagents_code(monkeypatch, version="0.1.8")
+    overlay = _fresh_overlay(monkeypatch)
+    monkeypatch.setattr(overlay, "_discover_workspaces", lambda: {"netops", "core"})
+    overlay.apply_olav_overlay()
+
+    class _FakeApp:
+        def __init__(self) -> None:
+            self._assistant_id = "core"
+            self.exited = False
+            self.notices: list[tuple[str, str]] = []
+
+        def notify(self, message: str, *, severity: str = "information", markup: bool = True) -> None:  # noqa: ARG002
+            self.notices.append((severity, message))
+
+        def exit(self) -> None:
+            self.exited = True
+
+    fake = _FakeApp()
+
+    import asyncio
+
+    asyncio.run(app_cls._handle_command(fake, "/agents netops"))
+
+    assert overlay.consume_pending_workspace() == "netops"
+    assert fake.exited is True
+
+
+def test_agents_command_without_args_lists_workspaces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, app_cls, _uc = _install_stub_deepagents_code(monkeypatch, version="0.1.8")
+    overlay = _fresh_overlay(monkeypatch)
+    monkeypatch.setattr(overlay, "_discover_workspaces", lambda: {"netops", "audit"})
+    overlay.apply_olav_overlay()
+
+    class _FakeApp:
+        def __init__(self) -> None:
+            self._assistant_id = "core"
+            self.exited = False
+            self.notices: list[tuple[str, str]] = []
+
+        def notify(self, message: str, *, severity: str = "information", markup: bool = True) -> None:  # noqa: ARG002
+            self.notices.append((severity, message))
+
+        def exit(self) -> None:  # pragma: no cover
+            self.exited = True
+
+    fake = _FakeApp()
+
+    import asyncio
+
+    asyncio.run(app_cls._handle_command(fake, "/agents"))
+
+    # Bare /agents lists workspaces (informational), does not switch or exit.
+    assert overlay.consume_pending_workspace() is None
+    assert fake.exited is False
+    assert fake.notices and "netops" in fake.notices[-1][1]
+
+
 # ── 13. /workspace rejects switching to the *current* agent ─────────────────
 
 

@@ -24,6 +24,13 @@ Patch: fresh-install fixes surfaced by the V3 demo runsheet.
   `OLAV_LLM_API_KEY`, so a key set in `shared.api_key` (the documented
   homogeneous-deploy pattern) wrongly re-prompted "No LLM API key
   configured yet". It now mirrors the runtime resolution order.
+- **`/agents` switches OLAV workspaces in the TUI.** deepagents' native
+  `/agents` command browses `.deepagents/agents/` and restarts a subprocess
+  server — neither holds OLAV's `.olav/workspace/` agents, so typing
+  `/agents` (a prominent, intuitive command) showed an empty/foreign picker
+  and could not switch to netops/audit/etc. The overlay now intercepts
+  `/agents [<name>]` and routes it to OLAV's workspace switcher, identical
+  to `/workspace` (bare `/agents` lists available workspaces).
 - **Silenced the benign "No harness profile matched" warning.** deepagents
   logs a WARNING for every pre-built model that matches no registered
   profile once *any* profile exists — and OLAV always registers the

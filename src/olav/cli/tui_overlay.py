@@ -437,6 +437,16 @@ def _patch_workspace_command() -> bool:
             if cmd_lower == "/workspace" or cmd_lower.startswith("/workspace "):
                 await _dispatch_workspace(self, command)
                 return
+            # deepagents' native /agents browses `.deepagents/agents/` and
+            # restarts a subprocess server — neither of which holds OLAV's
+            # `.olav/workspace/` agents, so it can NOT switch them (the user
+            # sees an empty/foreign picker).  Route the intuitive command to
+            # OLAV's workspace switcher so /agents does what users expect.
+            if cmd_lower == "/agents" or cmd_lower.startswith("/agents "):
+                parts = command.strip().split(maxsplit=1)
+                rest = parts[1].strip() if len(parts) > 1 else ""
+                await _dispatch_workspace(self, f"/workspace {rest}".rstrip())
+                return
             if cmd_lower == "/doctor" or cmd_lower.startswith("/doctor "):
                 await _dispatch_doctor(self)
                 return
@@ -779,10 +789,14 @@ def _list_workspaces_message() -> str:
     names = _discover_workspaces()
     if not names:
         return (
-            "Usage: /workspace <name>\n"
+            "Usage: /workspace <name>  (or /agents <name>)\n"
             "No workspaces discovered in .olav/workspace/"
         )
-    return "Usage: /workspace <name>\nAvailable: " + ", ".join(sorted(names))
+    sorted_names = sorted(names)
+    return (
+        "Switch agent with /workspace <name>, /agents <name>, or a shortcut "
+        "like /" + sorted_names[0] + ".\nAvailable: " + ", ".join(sorted_names)
+    )
 
 
 def _discover_workspaces() -> set[str]:
