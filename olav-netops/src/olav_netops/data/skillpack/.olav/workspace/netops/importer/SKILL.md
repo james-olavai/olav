@@ -81,11 +81,15 @@ BUNDLE = survey["path"]          # ← may differ from your input
 execute_skill_script(skill_name="importer", script_name="validate_bundle.py",
                      script_args={"path": BUNDLE})
 
-# Step 5 — ingest the surveyed path
+# Step 5 — ingest the surveyed path.
+# ALWAYS pass timeout=600: landing a large bundle (hundreds of hosts,
+# thousands of command outputs) routinely takes several minutes and will
+# blow past the 120s default, get killed, and look like a failure.
 execute_skill_script(skill_name="importer", script_name="ingest_snapshot.py",
                      script_args={"path": BUNDLE,
                                   "collection_source": "bundle:name:version",
-                                  "host_platforms": {}})
+                                  "host_platforms": {}},
+                     timeout=600)
 ```
 
 ## Scripts
@@ -161,8 +165,13 @@ If `ok=True` but warnings exist, surface them but proceed.
 execute_skill_script(skill_name="importer", script_name="ingest_snapshot.py",
                      script_args={"path": survey["path"],
                                   "collection_source": "bundle:<name>:<version>",
-                                  "host_platforms": {}})
+                                  "host_platforms": {}},
+                     timeout=600)   # large bundles take minutes — never omit
 ```
+
+**A slow ingest is NOT a failure.** Landing hundreds of hosts takes
+several minutes. Wait for it. Never retry a still-running ingest or fall
+back to another tool — always pass `timeout=600` and let it finish.
 
 `collection_source` values come from `survey_bundle` result:
 `survey["collector"]["name"]` and `survey["collector"]["version"]`.
