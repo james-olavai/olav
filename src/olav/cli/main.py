@@ -677,6 +677,38 @@ def _resolve_agent_id(agent_id: str, workspace: str | None) -> str:
         return agent_id
 
 
+def _skill_install_hint(agent_id: str) -> str | None:
+    """Return a 'run skill install' hint when a bare agent name maps to a
+    pip-installed-but-not-deployed extension workspace.
+
+    ``--agent netops`` fails with "Workspace agent 'core/netops' does not
+    exist" when the ``olav-netops`` package is installed but its workspace
+    was never deployed.  We reverse-map the requested name to the
+    conventional extension package (``olav-<name>`` / ``<name>``) and, if that
+    package ships an importable skillpack bundle, surface the exact fix.
+
+    Returns None when no installed extension provides this workspace (so the
+    caller keeps the original error — the name is simply wrong).
+    """
+    name = agent_id.split("/")[-1].strip()
+    if not name:
+        return None
+    from olav.cli.commands.skill import _resolve_installed_skillpack
+
+    for candidate in (f"olav-{name}", name):
+        try:
+            if _resolve_installed_skillpack(candidate) is not None:
+                return (
+                    f"The '{candidate}' package is installed but its workspace "
+                    f"isn't deployed yet. Deploy it with:\n"
+                    f"    olav skill install {candidate}\n"
+                    f"then re-run your command."
+                )
+        except Exception:
+            continue
+    return None
+
+
 def _is_kb_json(content: str) -> bool:
     """Return True when content is a KB-fact JSON block (semantic cache payload).
 
@@ -886,11 +918,22 @@ def create_olav_agent_with_backend(
     effective_id = _resolve_agent_id(assistant_id, workspace)
 
     # Create OLAV agent (which uses create_deep_agent internally)
-    olav_agent = OLAVAgent(
-        agent_id=effective_id,
-        session_id=session_id,
-        enable_checkpointer=enable_checkpointer,
-    )
+    try:
+        olav_agent = OLAVAgent(
+            agent_id=effective_id,
+            session_id=session_id,
+            enable_checkpointer=enable_checkpointer,
+        )
+    except RuntimeError as exc:
+        # "software understands human": a bare `--agent netops` resolves to a
+        # nested `<default>/netops` path when the top-level netops workspace was
+        # never deployed.  If the extension package IS pip-installed (its
+        # skillpack is importable) but not yet deployed, tell the user the one
+        # command that fixes it instead of leaking a raw traceback.
+        hint = _skill_install_hint(assistant_id)
+        if hint and "does not exist" in str(exc):
+            raise RuntimeError(f"{exc}\n\n{hint}") from None
+        raise
 
     # Create backend
     if sandbox is None:

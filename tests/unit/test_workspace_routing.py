@@ -86,6 +86,78 @@ class TestAgentBackendWorkspaceResolution:
         assert result == "netops/ops"
 
 
+# ── "software understands human": installed-but-not-deployed skill hint ───────
+
+class TestSkillInstallHint:
+    """A pip-installed extension whose workspace was never deployed must yield
+    a 'run skill install' hint instead of a bare 'agent does not exist' error
+    (dev_docs/99).  Exercised through the real create_olav_agent_with_backend
+    entry point, not just the helper (DoD: wiring proof)."""
+
+    def test_hint_helper_maps_name_to_package(self, monkeypatch):
+        import olav.cli.commands.skill as skill_mod
+        from olav.cli.main import _skill_install_hint
+
+        # Pretend 'olav-netops' resolves to a bundled skillpack.
+        monkeypatch.setattr(
+            skill_mod, "_resolve_installed_skillpack",
+            lambda n: Path("/x") if n == "olav-netops" else None,
+        )
+        hint = _skill_install_hint("core/netops")
+        assert hint is not None
+        assert "olav skill install olav-netops" in hint
+
+    def test_hint_none_for_unknown_name(self, monkeypatch):
+        import olav.cli.commands.skill as skill_mod
+        from olav.cli.main import _skill_install_hint
+
+        monkeypatch.setattr(
+            skill_mod, "_resolve_installed_skillpack", lambda n: None
+        )
+        assert _skill_install_hint("core/bogus") is None
+
+    def test_backend_creation_enriches_error_with_hint(self, tmp_path, monkeypatch):
+        """The real entry point (create_olav_agent_with_backend) must append the
+        hint to the RuntimeError when the extension is installed but not deployed.
+
+        A dummy key is set so agent construction reaches the workspace check —
+        the real user hit this exact path *because* they had a key configured."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-dummy")
+        (tmp_path / ".olav" / "workspace").mkdir(parents=True)
+
+        import olav.cli.commands.skill as skill_mod
+        monkeypatch.setattr(
+            skill_mod, "_resolve_installed_skillpack",
+            lambda n: Path("/x") if n == "olav-netops" else None,
+        )
+
+        from olav.cli.main import create_olav_agent_with_backend
+
+        with pytest.raises(RuntimeError) as exc_info:
+            create_olav_agent_with_backend("netops", workspace=None)
+        msg = str(exc_info.value)
+        assert "does not exist" in msg
+        assert "olav skill install olav-netops" in msg
+
+    def test_backend_creation_keeps_bare_error_for_unknown_agent(self, tmp_path, monkeypatch):
+        """A genuinely wrong name (no installable skillpack) keeps the plain error."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-dummy")
+        (tmp_path / ".olav" / "workspace").mkdir(parents=True)
+
+        import olav.cli.commands.skill as skill_mod
+        monkeypatch.setattr(
+            skill_mod, "_resolve_installed_skillpack", lambda n: None
+        )
+
+        from olav.cli.main import create_olav_agent_with_backend
+
+        with pytest.raises(RuntimeError) as exc_info:
+            create_olav_agent_with_backend("totally-bogus", workspace=None)
+        assert "olav skill install" not in str(exc_info.value)
+
+
 # ── WorkspaceCommand uses resolve_workspace_root ─────────────────────────────
 
 class TestWorkspaceCommandUsesConfigRoot:

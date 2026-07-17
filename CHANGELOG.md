@@ -24,6 +24,12 @@ Patch: fresh-install fixes surfaced by the V3 demo runsheet.
   `OLAV_LLM_API_KEY`, so a key set in `shared.api_key` (the documented
   homogeneous-deploy pattern) wrongly re-prompted "No LLM API key
   configured yet". It now mirrors the runtime resolution order.
+- **Actionable "agent not deployed" error.** `--agent netops` when the
+  `olav-netops` package is pip-installed but its workspace was never
+  deployed used to raise a bare `Workspace agent 'core/netops' does not
+  exist` traceback. It now detects the installed-but-not-deployed case and
+  tells the user the one command that fixes it: `olav skill install
+  olav-netops`. Generic over any `olav-<name>` extension.
 - **Test hygiene:** `test_api_key_precedence` no longer leaks a tmp
   OpenRouter config into the global singleton (poisoned governance smoke
   tests that then tried to init ChatOpenRouter).
