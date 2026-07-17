@@ -31,7 +31,7 @@ exclude = [
 
 [project]
 name = "olav"
-version = "0.22.1"
+version = "0.22.2"
 description = "OLAV — AI-native platform for autonomous operations with domain-aware agents, API-as-Tool, and Agent Harness"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -59,6 +59,11 @@ dependencies = [
     # TodoListMiddleware moved from deepagents → langchain.agents.middleware in 0.6.x.
     "langchain>=1.3.0,<1.4",
     "langchain-openai>=0.0.1",
+    # Required by the first-run provider selector's "Anthropic (Claude)" option
+    # (cli/llm_setup.py writes model_provider="anthropic", which langchain's
+    # init_chat_model backs with this package).  All other selector providers
+    # are OpenAI-compatible and covered by langchain-openai above.
+    "langchain-anthropic>=0.1.0",
     "langchain-ollama>=0.1.0",
     "langchain-core>=1.4.0,<2.0",
     "langchain-huggingface>=0.1.0",
@@ -97,7 +102,15 @@ dependencies = [
     # monkey-patches these private internals; on a version mismatch it logs a
     # warning and falls back to vanilla branding.  Update
     # overlay._SUPPORTED_VERSIONS in the same commit as any bump.
-    "deepagents-code>=0.1.8",
+    #
+    # UPPER BOUND (2026-07-17): deepagents-code 0.1.17 DELETED
+    # `config.SessionState` (we import it in cli/main.py for interactive mode).
+    # It survives only through 0.1.16.  Without this cap a fresh `pip install
+    # olav` resolves to the latest (0.1.41) and dies with `cannot import name
+    # 'SessionState'` at first interactive run — masked by editable installs
+    # that already had an older wheel.  Do NOT widen the upper bound until
+    # cli/main.py is ported to the post-0.1.17 session API (Settings dataclass).
+    "deepagents-code>=0.1.8,<0.1.17",
     # OS keyring for CLI bearer tokens (olav.core.auth.keyring_store).  Plain
     # ~/.olav/token remains the fallback when no keyring backend is usable,
     # so headless / CI environments still work without a daemon.

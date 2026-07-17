@@ -13,6 +13,26 @@ import json
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _restore_config_singleton():
+    """Rebuild the module-level config singleton after each test.
+
+    ``_load_with_cwd`` calls ``reload_config()`` which populates the global
+    ``_config`` singleton from the tmp_path api.json (e.g. an OpenRouter LLM
+    config).  ``monkeypatch`` restores ``_CONFIG_DIR`` at teardown but does
+    NOT re-run ``reload_config()``, so the singleton keeps the tmp config —
+    poisoning any later test that reads the ambient config (a governance
+    smoke test tried to init ChatOpenRouter and failed on the missing
+    langchain-openrouter package).  This fixture restores the real dir and
+    reloads so the leak cannot escape the test.
+    """
+    import olav.core.config as cfgmod
+    original_dir = cfgmod._CONFIG_DIR
+    yield
+    cfgmod._CONFIG_DIR = original_dir
+    cfgmod.reload_config()
+
+
 def _write_api_json(tmp_path, payload: dict):
     cfg_dir = tmp_path / ".olav" / "config"
     cfg_dir.mkdir(parents=True, exist_ok=True)

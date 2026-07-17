@@ -10,7 +10,7 @@ contribute to the same logical ``olav.*`` namespace.
 import pkgutil
 __path__ = pkgutil.extend_path(__path__, __name__)
 
-__version__ = "0.22.1"
+__version__ = "0.22.2"
 
 
 def __getattr__(name: str) -> object:  # noqa: ANN401

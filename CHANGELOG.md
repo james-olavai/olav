@@ -5,6 +5,29 @@ All notable changes to OLAV will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.2] - 2026-07-17
+
+Patch: fresh-install fixes surfaced by the V3 demo runsheet.
+
+- **Cap `deepagents-code<0.1.17`.** Upstream deleted `config.SessionState`
+  in 0.1.17 (still present through 0.1.16); we import it for interactive
+  mode. With the old open-ended `>=0.1.8` pin, a fresh `pip install olav`
+  resolved to the latest (0.1.41) and died at first interactive run with
+  `cannot import name 'SessionState'`. Editable/dev installs masked it by
+  holding an older wheel. Verified all overlay-patched internals still
+  exist on 0.1.16; added 0.1.16 to `tui_overlay._SUPPORTED_VERSIONS`.
+- **Declare `langchain-anthropic`.** The first-run provider selector's
+  "Anthropic (Claude)" option writes `model_provider="anthropic"`, which
+  langchain backs with this package. It was only present transitively.
+- **Bootstrap key check now honours `shared.api_key` + `ANTHROPIC_API_KEY`.**
+  `_ensure_bootstrapped` only looked at `llm.api_key` + `OPENAI_API_KEY`/
+  `OLAV_LLM_API_KEY`, so a key set in `shared.api_key` (the documented
+  homogeneous-deploy pattern) wrongly re-prompted "No LLM API key
+  configured yet". It now mirrors the runtime resolution order.
+- **Test hygiene:** `test_api_key_precedence` no longer leaks a tmp
+  OpenRouter config into the global singleton (poisoned governance smoke
+  tests that then tried to init ChatOpenRouter).
+
 ## [0.22.1] - 2026-07-06
 
 Patch: local OpenAI-compatible embedding backends. 0.22.0's default

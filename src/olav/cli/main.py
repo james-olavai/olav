@@ -1871,8 +1871,16 @@ async def _ensure_bootstrapped() -> bool:
     except Exception:  # noqa: BLE001
         api_data = {}
 
-    have_key = bool((api_data.get("llm") or {}).get("api_key")) or bool(
-        os.environ.get("OPENAI_API_KEY") or os.environ.get("OLAV_LLM_API_KEY")
+    # Mirror the runtime key resolution (config.LLMConfig.api_key):
+    #   llm.api_key  →  shared.api_key  →  env. Missing shared.api_key here
+    # wrongly re-prompted users who set only the shared key (the documented
+    # homogeneous-deploy pattern).
+    have_key = bool(
+        (api_data.get("llm") or {}).get("api_key")
+        or (api_data.get("shared") or {}).get("api_key")
+        or os.environ.get("OLAV_LLM_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
     )
 
     if not have_key:
@@ -1883,21 +1891,46 @@ async def _ensure_bootstrapped() -> bool:
             )
             return False
 
-        console.print("[bold]No LLM API key configured yet.[/bold]")
-        from rich.prompt import Prompt
+        # dev_docs/99 §7.8: pick a provider (endpoint auto-filled),
+        # enter the key, auto-detect + choose a model, validate — instead
+        # of silently assuming OpenAI/gpt-4o.
+        from olav.cli.llm_setup import interactive_llm_setup
 
-        key = Prompt.ask("Paste your LLM API key", password=True)
-        if not key:
-            console.print(
-                "[yellow]No key entered — set it later in .olav/config/api.json (llm.api_key)[/yellow]"
-            )
+        llm = interactive_llm_setup(console)
+        if llm is None:
             return False
 
-        api_data.setdefault("llm", {})["api_key"] = key
+        existing_llm = api_data.get("llm") or {}
+        existing_llm.update(llm)   # keep any unrelated pre-existing llm.* keys
+        api_data["llm"] = existing_llm
         api_json_path.write_text(
             _json.dumps(api_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
-        console.print("[green]✓[/green] API key saved to .olav/config/api.json\n")
+        console.print("[green]✓[/green] LLM config saved to .olav/config/api.json\n")
+
+        # dev_docs/99 §7.8: optional embedding step. The local default
+        # (bge-small-zh, offline, no key) works for everyone, so this is a
+        # single opt-in — Enter keeps it. Offered here (before any data /
+        # memory is built) because switching later means re-embedding.
+        from rich.prompt import Prompt
+
+        console.print(
+            "[dim]Embedding: using the local default (BAAI/bge-small-zh-v1.5, "
+            "offline, no key).[/dim]"
+        )
+        if Prompt.ask(
+            "Keep it, or configure a different embedding backend?",
+            choices=["keep", "change"], default="keep",
+        ) == "change":
+            from olav.cli.llm_setup import interactive_embedding_setup
+
+            emb = interactive_embedding_setup(console)
+            if emb is not None:
+                api_data["embedding"] = emb
+                api_json_path.write_text(
+                    _json.dumps(api_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+                )
+                console.print("[green]✓[/green] Embedding config saved.\n")
 
     if is_fresh_bootstrap:
         _check_first_run_health()

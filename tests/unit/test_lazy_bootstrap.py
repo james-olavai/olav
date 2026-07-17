@@ -105,6 +105,40 @@ def test_env_var_short_circuits_prompt(tmp_path, monkeypatch) -> None:
     assert result is True
 
 
+def test_shared_api_key_short_circuits(tmp_path, monkeypatch) -> None:
+    """Regression: a key in shared.api_key (the documented homogeneous-deploy
+    pattern) must count — the bootstrap check previously only looked at
+    llm.api_key + env and wrongly re-prompted."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OLAV_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    (tmp_path / ".olav" / "config").mkdir(parents=True)
+    (tmp_path / ".olav" / "config" / "api.json").write_text(
+        json.dumps({"shared": {"api_key": "sk-shared"}, "llm": {"model": "gpt-4o"}}),
+        encoding="utf-8",
+    )
+    # Fail loudly if it wrongly tries to prompt.
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    import olav.cli.llm_setup as setup_mod
+    monkeypatch.setattr(setup_mod, "interactive_llm_setup",
+                        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("should not prompt")))
+
+    assert _run(main_mod._ensure_bootstrapped()) is True
+
+
+def test_anthropic_env_var_short_circuits(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OLAV_LLM_API_KEY", raising=False)
+    (tmp_path / ".olav" / "config").mkdir(parents=True)
+    (tmp_path / ".olav" / "config" / "api.json").write_text(
+        json.dumps({"llm": {"api_key": ""}}), encoding="utf-8"
+    )
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-env")
+    assert _run(main_mod._ensure_bootstrapped()) is True
+
+
 def test_missing_key_non_tty_returns_false_without_hanging(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -118,7 +152,9 @@ def test_missing_key_non_tty_returns_false_without_hanging(tmp_path, monkeypatch
     assert result is False
 
 
-def test_missing_key_tty_prompts_and_persists(tmp_path, monkeypatch) -> None:
+def test_missing_key_tty_runs_provider_setup_and_persists(tmp_path, monkeypatch) -> None:
+    """TTY + no key → the §7.8 provider selector runs; whatever llm dict it
+    returns is merged into api.json (not just a bare api_key)."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OLAV_LLM_API_KEY", raising=False)
@@ -128,17 +164,29 @@ def test_missing_key_tty_prompts_and_persists(tmp_path, monkeypatch) -> None:
     )
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
 
+    import olav.cli.llm_setup as setup_mod
+    monkeypatch.setattr(setup_mod, "interactive_llm_setup", lambda console, **kw: {
+        "provider": "openai", "model_provider": "openai",
+        "model": "deepseek-v4-flash", "api_key": "sk-typed-in",
+        "base_url": "https://api.deepseek.com/v1",
+    })
+    # §7.8 embedding opt-in prompt → keep the default (skip embedding setup)
     from rich.prompt import Prompt
-    monkeypatch.setattr(Prompt, "ask", classmethod(lambda cls, *a, **kw: "sk-typed-in"))
+    monkeypatch.setattr(Prompt, "ask", classmethod(lambda cls, *a, **kw: "keep"))
 
     result = _run(main_mod._ensure_bootstrapped())
     assert result is True
 
     saved = json.loads((tmp_path / ".olav" / "config" / "api.json").read_text())
     assert saved["llm"]["api_key"] == "sk-typed-in"
+    assert saved["llm"]["model"] == "deepseek-v4-flash"
+    assert saved["llm"]["base_url"] == "https://api.deepseek.com/v1"
+    assert "embedding" not in saved            # 'keep' → default untouched
 
 
-def test_missing_key_tty_empty_input_returns_false(tmp_path, monkeypatch) -> None:
+def test_missing_key_tty_change_embedding_persists(tmp_path, monkeypatch) -> None:
+    """§7.8: choosing 'change' at the embedding prompt writes the returned
+    embedding dict into api.json."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OLAV_LLM_API_KEY", raising=False)
@@ -148,8 +196,35 @@ def test_missing_key_tty_empty_input_returns_false(tmp_path, monkeypatch) -> Non
     )
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
 
+    import olav.cli.llm_setup as setup_mod
+    monkeypatch.setattr(setup_mod, "interactive_llm_setup", lambda console, **kw: {
+        "provider": "openai", "model_provider": "openai", "model": "gpt-4o", "api_key": "sk-x",
+    })
+    monkeypatch.setattr(setup_mod, "interactive_embedding_setup", lambda console, **kw: {
+        "mode": "api", "api": {"model": "embeddinggemma",
+                               "base_url": "http://localhost:11434/v1", "api_key": "local"},
+    })
     from rich.prompt import Prompt
-    monkeypatch.setattr(Prompt, "ask", classmethod(lambda cls, *a, **kw: ""))
+    monkeypatch.setattr(Prompt, "ask", classmethod(lambda cls, *a, **kw: "change"))
+
+    assert _run(main_mod._ensure_bootstrapped()) is True
+    saved = json.loads((tmp_path / ".olav" / "config" / "api.json").read_text())
+    assert saved["embedding"]["mode"] == "api"
+    assert saved["embedding"]["api"]["model"] == "embeddinggemma"
+
+
+def test_missing_key_tty_setup_aborted_returns_false(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OLAV_LLM_API_KEY", raising=False)
+    (tmp_path / ".olav" / "config").mkdir(parents=True)
+    (tmp_path / ".olav" / "config" / "api.json").write_text(
+        json.dumps({"llm": {"api_key": ""}}), encoding="utf-8"
+    )
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+    import olav.cli.llm_setup as setup_mod
+    monkeypatch.setattr(setup_mod, "interactive_llm_setup", lambda console, **kw: None)
 
     result = _run(main_mod._ensure_bootstrapped())
     assert result is False

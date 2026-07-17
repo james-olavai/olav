@@ -108,7 +108,7 @@ def resolve_tui_mode(root: Path | None = None) -> TuiMode:
 os.environ.setdefault("DEEPAGENTS_CODE_NO_UPDATE_CHECK", "1")
 
 
-_SUPPORTED_VERSIONS: frozenset[str] = frozenset({"0.1.8"})
+_SUPPORTED_VERSIONS: frozenset[str] = frozenset({"0.1.8", "0.1.16"})
 """deepagents-code versions where the overlay has been smoke-tested.
 
 Update this set together with the ``deepagents-code`` pin in
