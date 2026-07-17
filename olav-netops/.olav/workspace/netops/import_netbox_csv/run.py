@@ -190,8 +190,17 @@ class NetboxClient:
     needed by /import_netbox_csv --write.  Stdlib urllib only to
     avoid adding a runtime dependency on `requests`."""
 
-    def __init__(self, endpoint: str, token: str) -> None:
-        self.endpoint = endpoint.rstrip("/")
+    def __init__(self, endpoint: str, token: str, timeout: float = 30.0) -> None:
+        self.timeout = timeout
+        # This client's paths already carry the ``/api`` prefix
+        # (``/api/dcim/…``). services.yaml registers NetBox with an ``/api``
+        # endpoint (the convention OLAV's own service_call expects), so a bare
+        # concat double-prefixes to ``/api/api/dcim/…`` → 404. Strip a trailing
+        # ``/api`` so both endpoint conventions (with or without) resolve.
+        ep = endpoint.rstrip("/")
+        if ep.endswith("/api"):
+            ep = ep[:-4]
+        self.endpoint = ep
         self.token = token
 
     def _request(self, method: str, path: str,
@@ -213,7 +222,7 @@ class NetboxClient:
             headers["Content-Type"] = "application/json"
         req = urllib.request.Request(url, data=body, method=method, headers=headers)
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 payload = resp.read()
                 return resp.status, json.loads(payload) if payload else None
         except urllib.error.HTTPError as exc:
@@ -222,6 +231,13 @@ class NetboxClient:
             except Exception:
                 err_body = {"detail": str(exc)}
             return exc.code, err_body
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            # A slow/unreachable NetBox (socket timeout, conn reset) must not
+            # crash the whole batch — record it as a per-row failure so the
+            # remaining rows still import and the report shows what stalled.
+            # (NetBox under first-boot load routinely blows a tight timeout.)
+            reason = getattr(exc, "reason", None) or exc
+            return 0, {"detail": f"request failed: {reason}"}
 
     def lookup_or_create(
         self,

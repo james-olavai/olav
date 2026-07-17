@@ -27,19 +27,27 @@ from pathlib import Path
 
 # SQL matches netbox_csv_export.guide.yaml exactly so the guide stays
 # the single source of truth for column mapping.
+#
+# site / device_role are required FKs in NetBox but are not part of any
+# collected artifact (no CMDB is ingested) — netops.devices ships them NULL.
+# They ARE, however, encoded in the fleet's hostname convention
+# (``<site>-<role>-<model/id>…``, e.g. ``alpha-core-6807v`` → site=alpha,
+# role=core), which is the standard way NetBox seeds sites/roles from a
+# naming scheme. Derive them from the hostname when the DB column is NULL so
+# the row satisfies NetBox's required FKs; a populated column always wins.
 _SQL = """
 SELECT
-  d.hostname               AS name,
-  d.role                   AS device_role,
-  d.vendor                 AS manufacturer,
-  d.model                  AS device_type,
-  d.ip_address             AS primary_ip4,
-  d.platform               AS platform,
-  d.site                   AS site,
-  'active'                 AS status,
-  ?                        AS tenant,
-  s.snapshot_id            AS snapshot_id,
-  ?                        AS exported_at
+  d.hostname                                          AS name,
+  COALESCE(NULLIF(d.role, ''), split_part(d.hostname, '-', 2)) AS device_role,
+  d.vendor                                            AS manufacturer,
+  d.model                                             AS device_type,
+  d.ip_address                                        AS primary_ip4,
+  d.platform                                          AS platform,
+  COALESCE(NULLIF(d.site, ''), split_part(d.hostname, '-', 1)) AS site,
+  'active'                                            AS status,
+  ?                                                   AS tenant,
+  s.snapshot_id                                       AS snapshot_id,
+  ?                                                   AS exported_at
 FROM netops.devices d
 CROSS JOIN (
   SELECT snapshot_id FROM netops.v_snapshots_auto
