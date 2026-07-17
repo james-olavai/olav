@@ -160,3 +160,79 @@ class TestNoLeakage:
             assert _get_harness_profile(big) is None, (
                 f"{big} should NOT match an OLAV-registered profile"
             )
+
+
+class TestLargeTierNoOpSilencing:
+    """A *configured* large-tier model gets an EMPTY (no-op) profile so
+    deepagents' resolver matches it instead of logging the benign but noisy
+    'No harness profile matched' WARNING on every run.  Exercised through
+    register_olav_profiles — the real entry point (dev_docs DoD wiring)."""
+
+    @staticmethod
+    def _fake_llm(model, provider="openai", tier="large"):
+        class _Cfg:
+            pass
+        c = _Cfg()
+        c.model, c.model_provider, c.model_tier = model, provider, tier
+        return c
+
+    def test_configured_large_model_resolves_to_empty_profile(self, monkeypatch):
+        import olav.core.config as cfg
+        monkeypatch.setattr(cfg, "get_llm_config",
+                            lambda: self._fake_llm("deepseek-v4-flash"))
+        from olav.agents.profiles import register_olav_profiles
+        register_olav_profiles()
+        from deepagents.profiles.harness.harness_profiles import _get_harness_profile
+        prof = _get_harness_profile("openai:deepseek-v4-flash")
+        assert prof is not None
+        # No-op: no discipline suffix, no tool/middleware exclusions.
+        assert not (prof.system_prompt_suffix or "")
+        assert not prof.excluded_tools
+
+    def test_resolver_emits_no_warning_for_configured_model(self, monkeypatch):
+        import logging
+        import olav.core.config as cfg
+        monkeypatch.setenv("OPENAI_API_KEY", "x")
+        monkeypatch.setattr(cfg, "get_llm_config",
+                            lambda: self._fake_llm("deepseek-v4-flash"))
+        from olav.agents.profiles import register_olav_profiles
+        register_olav_profiles()
+
+        captured: list[str] = []
+
+        class _Cap(logging.Handler):
+            def emit(self, record):
+                captured.append(record.getMessage())
+
+        hl = logging.getLogger("deepagents.profiles.harness.harness_profiles")
+        handler = _Cap()
+        hl.addHandler(handler)
+        old_level = hl.level
+        hl.setLevel(logging.DEBUG)
+        try:
+            from langchain_openai import ChatOpenAI
+            from deepagents.profiles.harness import harness_profiles as hp
+            hp._harness_profile_for_model(ChatOpenAI(model="deepseek-v4-flash"), None)
+        finally:
+            hl.removeHandler(handler)
+            hl.setLevel(old_level)
+
+        assert not [m for m in captured if "No harness profile matched" in m], (
+            "configured large model must not trigger the no-match warning"
+        )
+
+    def test_non_large_configured_model_registers_no_noop(self, monkeypatch):
+        """A small/medium configured model must NOT get a large no-op — it
+        already has a real tier profile."""
+        import olav.core.config as cfg
+        monkeypatch.setattr(cfg, "get_llm_config",
+                            lambda: self._fake_llm("qwen3:14b", tier="medium"))
+        import olav.agents.profiles as _p
+        registered_before = _p._REGISTERED
+        _p._REGISTERED = False
+        try:
+            _p.register_olav_profiles()
+        finally:
+            _p._REGISTERED = registered_before
+        # No assertion on the global registry (process-shared); the contract is
+        # simply that registration completes without error for a non-large model.

@@ -24,6 +24,14 @@ Patch: fresh-install fixes surfaced by the V3 demo runsheet.
   `OLAV_LLM_API_KEY`, so a key set in `shared.api_key` (the documented
   homogeneous-deploy pattern) wrongly re-prompted "No LLM API key
   configured yet". It now mirrors the runtime resolution order.
+- **Silenced the benign "No harness profile matched" warning.** deepagents
+  logs a WARNING for every pre-built model that matches no registered
+  profile once *any* profile exists — and OLAV always registers the
+  small+medium tiers — so a capable large model (deepseek-v4, gpt-4o,
+  claude) printed the scary-looking line ~3× per run even though large
+  models intentionally get no discipline. `register_olav_profiles` now
+  binds an empty no-op `HarnessProfile` to the *configured* large-tier
+  model, so deepagents resolves it cleanly (stock behaviour, no warning).
 - **Importer honours its advertised inputs (netops).** The importer's
   SKILL.md advertises "directory or **zip file** / rancid backup / vendor
   dump", but `survey_bundle` rejected anything that wasn't an already-
