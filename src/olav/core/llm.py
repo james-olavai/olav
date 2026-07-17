@@ -252,6 +252,18 @@ class LLMFactory:
         _is_google = "generativelanguage.googleapis.com" in _base_for_thinking \
             or "aiplatform.googleapis.com" in _base_for_thinking \
             or "integrate.api.nvidia.com" in _base_for_thinking
+        # DeepSeek's hosted API (api.deepseek.com) reasons ON by default and
+        # IGNORES both ``chat_template_kwargs.enable_thinking`` (the local
+        # llama-server convention below) AND ``reasoning_effort`` (the OpenAI
+        # o-series knob).  Its real toggle is the Anthropic-style ``thinking``
+        # param: ``{"type":"disabled"}`` → 0 reasoning tokens, ``{"type":
+        # "enabled"}`` → reasons (verified 2026-07-17 via direct API probe).
+        # Without this branch OLAV's hybrid-thinking design (orchestrator ON /
+        # sub-agents OFF) was inert on DeepSeek — every agent reasoned at the
+        # model default and the OFF switch did nothing.  NOTE: DeepSeek-via-
+        # OpenRouter is a different path (``_is_openrouter``); this is the
+        # direct endpoint only.
+        _is_deepseek = "deepseek" in _base_for_thinking and not _is_openrouter
         if _disable_thinking:
             # Provider-specific thinking-off mechanism:
             # * Ollama (langchain-ollama) — native ``reasoning`` field on
@@ -269,6 +281,10 @@ class LLMFactory:
             #   conversation → null content when enable_thinking=False sent.
             if params.get("model_provider") == "ollama":
                 params["reasoning"] = False
+            elif _is_deepseek:
+                mkw = params.setdefault("model_kwargs", {})
+                extra = mkw.setdefault("extra_body", {})
+                extra.setdefault("thinking", {"type": "disabled"})
             elif not _is_openrouter and not _is_google:
                 # Google AI Studio (gemma-4-31b-it): thinkingBudget not supported
                 # for this model — skip silently.
@@ -289,6 +305,10 @@ class LLMFactory:
             # upstream default or model preset.
             if params.get("model_provider") == "ollama":
                 params["reasoning"] = True
+            elif _is_deepseek:
+                mkw = params.setdefault("model_kwargs", {})
+                extra = mkw.setdefault("extra_body", {})
+                extra.setdefault("thinking", {"type": "enabled"})
             elif not _is_openrouter and not _is_google:
                 mkw = params.setdefault("model_kwargs", {})
                 extra = mkw.setdefault("extra_body", {})

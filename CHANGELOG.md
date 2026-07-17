@@ -35,6 +35,20 @@ Patch: fresh-install fixes surfaced by the V3 demo runsheet.
   top-level agent (same set of entities — `.olav/workspace/` dirs, selected
   via `--agent`); bare `/agents` lists them. Keeping the command surface
   under OLAV's control is the right posture for a deepagents wrapper.
+- **Thinking-mode control now works on DeepSeek's hosted API.** OLAV's
+  hybrid-thinking design (orchestrator reasons for planning, sub-agents run
+  thinking-off for fast tool calls) was *inert* on `api.deepseek.com`: the
+  OFF switch was sent as `chat_template_kwargs.enable_thinking` (the local
+  llama-server convention), which DeepSeek ignores — as it ignores
+  `reasoning_effort`. Every agent therefore reasoned at the model default
+  and the switch did nothing. DeepSeek's real toggle is the Anthropic-style
+  `thinking: {"type": "enabled"|"disabled"}` param (verified live:
+  disabled → 0 reasoning tokens, enabled → reasons). Added a DeepSeek branch
+  to `llm.py`'s per-provider thinking dispatch, alongside the existing
+  Ollama (`reasoning`) and Google (`thinking_level`) branches. DeepSeek-via-
+  OpenRouter stays on its own path. Net effect: thinking-off sub-agents on
+  DeepSeek actually skip reasoning now (faster/cheaper). Note: this does not
+  change planning agents, which already reason by default.
 - **Silenced the benign "No harness profile matched" warning.** deepagents
   logs a WARNING for every pre-built model that matches no registered
   profile once *any* profile exists — and OLAV always registers the
