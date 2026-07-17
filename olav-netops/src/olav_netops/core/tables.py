@@ -47,10 +47,27 @@ class ParsedOutputsTable(BaseIngestTable):
 
 
 class RawOutputStoreTable(BaseIngestTable):
-    """Latest raw CLI output per device per command.
+    """Latest raw CLI output per device per command — a SINGLE-COPY,
+    CURRENT-STATE table, NOT a per-snapshot history.
 
-    Always keeps the most recent snapshot's raw output — no history,
-    no dedup complexity. One row per (device_name, command).
+    conflict_key is ``(device_name, command)`` with NO ``snapshot_id`` —
+    each ingest overwrites in place ("latest data wins"), so exactly one
+    row exists per (device_name, command). `parsed_outputs` is the opposite:
+    its key includes ``snapshot_id`` and it keeps per-snapshot history.
+
+    ⚠️ CONSEQUENCE — do NOT filter raw_output_store by ``snapshot_id``.
+    The ``snapshot_id`` column here is a *last-writer label* (the id of the
+    import that most recently wrote this device/command), NOT a partition
+    key. Two rows written by different imports carry different labels, and a
+    "latest" snapshot whose import happened to omit ``show running-config``
+    (state-only bundle) leaves the config text stamped under an OLDER label.
+    So ``WHERE snapshot_id = <latest>`` silently returns 0 config rows even
+    though the config is present. This exact trap caused the Batfish
+    "No valid configurations" saga (config was in the store, under a
+    non-latest label). Config-layer callers must resolve the right snapshot
+    via ``batfish_q._latest_snapshot_with_configs()`` (or omit the snapshot
+    filter entirely and match on ``command='show running-config'``).
+    Enforced by tests/governance/test_raw_output_store_snapshot_filter.py.
     """
 
     schema_name = "netops"
@@ -59,6 +76,8 @@ class RawOutputStoreTable(BaseIngestTable):
         ColumnDef("device_name",  "VARCHAR",   nullable=False),
         ColumnDef("command",      "VARCHAR",   nullable=False),
         ColumnDef("raw_output",   "TEXT",      nullable=False),
+        # last-writer label, NOT a partition key — see class docstring.
+        # Never build a `WHERE snapshot_id = …` predicate against this table.
         ColumnDef("snapshot_id",  "VARCHAR"),
         ColumnDef("updated_at",   "TIMESTAMP"),
         # See ParsedOutputsTable.platform — same rationale.
