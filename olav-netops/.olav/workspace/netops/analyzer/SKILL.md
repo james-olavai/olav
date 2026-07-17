@@ -22,6 +22,7 @@ dynamic_context:
 - path: ./references/change_plan_cli_authoring.guide.yaml
 - path: ./references/plan_act_reflect_workflow.guide.yaml
 - path: ./references/schema_introspection_via_describe_table.guide.yaml
+- path: ./references/discover_routing_config_via_sql.guide.yaml
 metadata:
   category: network-operations
   intents:
@@ -30,7 +31,7 @@ metadata:
   network_isolation: 'true'
   deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM grader (recursive deep-agent, wired via create_deep_agent middleware=)
   type: agent
-  version: 6.5.0
+  version: 6.6.0
 name: analyzer
 scripts:
 - description: Phase 0a schema discovery — columns + types + 2 sample rows per table
@@ -89,19 +90,30 @@ querying and start writing:
 2. **Interfaces + IPs** on both — `inspect_interfaces(devices=[A, B])`
    (pick one free port on each; pick a /30 that no existing IP uses).
 3. **Existing links** — ONE query on `netops.topology_links` (redundancy context).
-4. **Routing context** (OSPF process/area, or BGP AS) — check the relevant
-   `v_*` view ONCE.
+4. **Routing config** — the process/AS to match. It is NOT in a view; it is in
+   the running-config. **Never assume the protocol** (a "OSPF" request may be
+   an EIGRP network). Discover it with ONE `regexp_extract`, not a config dump —
+   see the `discover_routing_config_via_sql` guide:
+   ```sql
+   SELECT device_name,
+          regexp_extract(raw_output, '(?m)^router (ospf|eigrp|bgp) (\d+)', 0) AS routing
+   FROM netops.raw_output_store
+   WHERE command='show running-config' AND device_name IN ('<A>','<B>');
+   ```
 
 **DONE signal:** once you have each endpoint's platform + one free port + a
-conflict-free /30, you have ENOUGH — stop gathering and write the plan.
+conflict-free /30 + the routing protocol/process, you have ENOUGH — stop
+gathering and write the plan.
 
-**Anti-rabbit-hole (this is what makes small models time out):** do NOT loop on
-`netops.raw_output_store` / `netops.parsed_outputs` reconstructing config by
-hand. One peek at most. If a running-config detail (e.g. exact OSPF process id
-or area) is not obvious from a view, **write your assumption into the Risks
-section and proceed** — a plan with a clearly-stated assumption is the correct
-deliverable; an agent that keeps digging is not. A network engineer checks the
-few facts above, notes anything uncertain, and drafts — do the same.
+**Anti-rabbit-hole (this is what makes small models time out):**
+- Query `netops.raw_output_store` **at most twice**, and ONLY via
+  `regexp_extract`/`regexp_matches` that return a specific field.
+- **NEVER** `SELECT raw_output` / `SELECT *` / `substr(raw_output, …)` /
+  `length(raw_output)` — pulling whole config text into context is exactly what
+  makes you hallucinate and loop.
+- If a regexp returns empty, the fact is not configured — do NOT try more
+  substrings. **State the assumption in Risks and proceed.** A stated
+  assumption is a correct deliverable; an endless search is a timeout.
 
 ### Deliverable
 
