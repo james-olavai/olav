@@ -30,7 +30,7 @@ metadata:
   network_isolation: 'true'
   deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM grader (recursive deep-agent, wired via create_deep_agent middleware=)
   type: agent
-  version: 6.2.0
+  version: 6.3.0
 name: analyzer
 scripts:
 - description: Phase 0a schema discovery — columns + types + 2 sample rows per table
@@ -80,6 +80,20 @@ Given a change request, produce one markdown file containing:
 - **Rollback** — symmetric undo CLI per device
 - **Verification** — (device, show command, expected output) table
 - **Risks** — 1-3 bullets
+- **Pre-change verification** — always include this section. This plan is
+  *drafted from captured state*, not proven against the network. OLAV can
+  prove it out with **Batfish** via the `sim` sub-agent — but that is a
+  **separate step** (kept apart so small models don't have to plan *and*
+  simulate in one shot). So hand the operator the command and tell them to
+  run it + double-check before the maintenance window:
+  ```
+  olav --agent netops "On snapshot <id>, Batfish-validate \
+    exports/change_plans/<file>.md — check subnet/overlap conflicts, \
+    BGP/OSPF compatibility, and reachability. Return a verdict."
+  ```
+  End with one plain line: *"Drafted from the last snapshot — validate with
+  the command above and double-check against the live network before you
+  apply."*
 
 Save with: `format_and_export(data=<markdown>, filename="<topic>_<date>", format="md", subdir="change_plans")`
 
@@ -105,8 +119,12 @@ Save with: `format_and_export(data=<markdown>, filename="<topic>_<date>", format
 
 5. **One file per request** — do not split into multiple exports.
 
-6. **If config-layer verification needed** (BGP compat, reachability what-if) →  
-   `task("sim", "On snapshot <id>, run bgpSessionCompatibility for <devices>. Return verdict.")`
+6. **Config-layer verification lives in `sim` (Batfish), a separate step.**
+   Always write the **Pre-change verification** section above so the operator
+   has the command. Only run it inline yourself —
+   `task("sim", "On snapshot <id>, run bgpSessionCompatibility for <devices>. Return verdict.")` —
+   when the user explicitly asks you to validate now; otherwise just emit the
+   command + double-check reminder and let them run it.
 
 ## Stable schema (no describe_table needed)
 

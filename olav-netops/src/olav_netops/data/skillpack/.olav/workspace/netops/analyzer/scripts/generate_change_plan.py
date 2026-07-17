@@ -186,6 +186,20 @@ def generate_change_plan(
         "- TFTP server reachable from all devices",
         "- Backup configs stored",
         "- Change window approved",
+        "",
+        "## Pre-change verification",
+        "This plan is drafted from captured state, not proven against the "
+        "network. Validate it with Batfish (via the `sim` sub-agent) — a "
+        "separate step — before the maintenance window:",
+        "",
+        "```",
+        f'olav --agent netops "On the latest snapshot, Batfish-validate '
+        f'exports/change_plans/{output_filename}.md — check subnet/overlap '
+        f'conflicts, BGP/OSPF compatibility, and reachability. Return a verdict."',
+        "```",
+        "",
+        "_Drafted from the last snapshot — validate with the command above and "
+        "double-check against the live network before you apply._",
     ]
 
     markdown = "\n".join(lines)
