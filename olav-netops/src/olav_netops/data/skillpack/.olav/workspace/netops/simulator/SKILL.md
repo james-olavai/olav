@@ -26,7 +26,7 @@ metadata:
   - acl_search
   network_isolation: 'true'
   type: agent
-  version: 5.1.0
+  version: 5.2.0
 name: simulator
 scripts:
 - description: Pre-flight check — which in-scope devices can Batfish parse? Call FIRST
@@ -62,10 +62,18 @@ tell the caller to dispatch the right peer.
 
 ```
 0  Parse caller prompt → extract scope (devices), snapshot_id, intent
-   If snapshot_id absent → return error asking caller to provide it
+   snapshot_id absent → OMIT it; batfish_q defaults to the latest snapshot
+   that actually has device configs (no need to hunt for an id)
 
-0a Call batfish_capability first for any unfamiliar or mixed-vendor scope
-   Consult your capability catalog guide for how to interpret the result
+0a Call batfish_capability first (always — it is the cheap pre-check).
+   • batfish_reachable == False → Batfish is not running. Do NOT keep trying
+     queries. Relay the `setup_hint` verbatim to the user (they can start it
+     with `olav --agent admin "…"` / docker, or point OLAV at a remote
+     Batfish), and stop. This is expected on a fresh machine, not an error to
+     retry.
+   • reachable → consult your capability catalog guide to interpret summary
+     (FULL/PARTIAL/NONE). NONE → skip sim (e.g. an EIGRP-only network: Batfish
+     models EIGRP poorly — say so rather than returning empty rows).
 
 1  Pick Batfish question(s) — consult your question catalog guide
    Decide q_args from prompt + scope

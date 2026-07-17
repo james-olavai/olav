@@ -35,6 +35,19 @@ Patch: fresh-install fixes surfaced by the V3 demo runsheet.
   top-level agent (same set of entities — `.olav/workspace/` dirs, selected
   via `--agent`); bare `/agents` lists them. Keeping the command surface
   under OLAV's control is the right posture for a deepagents wrapper.
+- **Batfish self-service — the simulator diagnoses a missing Batfish and
+  guides setup.** Config-layer validation silently required a running Batfish
+  + pybatfish; without them the first `batfish_q` leaked a pybatfish stack
+  trace. Now `batfish_capability` (the "call first" pre-check) probes the
+  endpoint and reports `batfish_reachable` + a `setup_hint`, and `batfish_q`
+  fails fast with the same actionable message: start a local container (via
+  the admin agent / `docker run … batfish/allinone`) or point OLAV at a
+  remote Batfish. The endpoint is now config-driven (`batfish` block in
+  api.json, env-overridable) so the admin agent can set it. And `snapshot_id`
+  defaults to the latest snapshot that actually has device configs — callers
+  no longer need to pass one, and an empty "latest" snapshot row can't
+  misdirect the export. simulator SKILL.md steers the agent to relay the hint
+  and stop instead of retrying.
 - **Fixed model-tier misclassification of sized family names (size-driven).**
   `\bgemma\b` could not match `gemma4-31b-it-qat` (no word boundary before the
   digit) and no size pattern covered 31b, so a 31B *local* model fell through

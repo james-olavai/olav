@@ -144,8 +144,21 @@ def batfish_capability(
     cap_only = {h: d["capability"] for h, d in per_device.items()}
     summary = _classify_capability(cap_only)
 
-    return {
+    # Live pre-check: is a Batfish service actually reachable? This is the
+    # cheap "call first" tool, so it is the right place to catch a missing
+    # Batfish early and hand the user the fix, instead of letting the first
+    # batfish_q fail deep. (software-understands-human)
+    from olav_netops.core.sim.batfish_q import (
+        _batfish_endpoint,
+        _batfish_reachable,
+        batfish_setup_hint,
+    )
+    _host, _port, _ = _batfish_endpoint()
+    reachable = _batfish_reachable(_host, _port)
+
+    result = {
         "status": "ok",
+        "batfish_reachable": reachable,
         "per_device": per_device,
         "summary": summary,
         "unsupported_devices": unsupported,
@@ -154,3 +167,6 @@ def batfish_capability(
         "device_count": len(per_device),
         "snapshot_id": snapshot_id,
     }
+    if not reachable:
+        result["setup_hint"] = batfish_setup_hint(_host, _port)
+    return result

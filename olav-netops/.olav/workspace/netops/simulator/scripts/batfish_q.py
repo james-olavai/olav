@@ -37,8 +37,8 @@ from olav_netops.core.sim.batfish_q import batfish_q as _batfish_q
 
 
 def batfish_q(
-    snapshot_id: str,
-    question: str,
+    snapshot_id: str | None = None,
+    question: str = "",
     q_args: dict | None = None,
     reference_snapshot: str | None = None,
 ) -> dict:

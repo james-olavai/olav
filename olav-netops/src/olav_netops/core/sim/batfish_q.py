@@ -123,14 +123,79 @@ _BF_SESSION: Any = None         # cached pybatfish.Session
 _LOADED_SNAPSHOTS: set[str] = set()
 
 
+def _batfish_endpoint() -> tuple[str, int, bool]:
+    """Resolve the Batfish endpoint: env var → api.json ``batfish`` block →
+    default localhost:9996. Env wins so a shell override always applies; the
+    config block is what the admin agent edits to point at a remote Batfish.
+    """
+    host = os.environ.get("OLAV_BATFISH_HOST")
+    port = os.environ.get("OLAV_BATFISH_HTTP_PORT")
+    ssl = os.environ.get("OLAV_BATFISH_SSL")
+    if host is None or port is None or ssl is None:
+        try:
+            from olav.core.config import get_config
+            bf = (getattr(get_config(), "_data", {}) or {}).get("batfish") or {}
+        except Exception:
+            bf = {}
+        host = host or bf.get("host") or "localhost"
+        port = port or str(bf.get("port") or 9996)
+        ssl = ssl if ssl is not None else str(bf.get("ssl", "false"))
+    return host, int(port), str(ssl).lower() == "true"
+
+
+def _batfish_reachable(host: str, port: int, timeout: float = 2.0) -> bool:
+    """Cheap TCP probe — is a Batfish service actually listening?"""
+    import socket
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def batfish_setup_hint(host: str, port: int) -> str:
+    """Actionable next steps when Batfish is not reachable (software-
+    understands-human: name the fix, don't leak a stack trace)."""
+    return (
+        f"Batfish is not running / not reachable at {host}:{port}. Config-layer "
+        f"validation (subnet conflicts, protocol compatibility, reachability) "
+        f"needs a Batfish service. Two ways to get one:\n"
+        f"  1) Start it locally — ask the admin agent to pull the container, or:\n"
+        f"     docker run -d --name batfish -p 9996:9996 -p 9997:9997 batfish/allinone\n"
+        f"  2) Point OLAV at a remote Batfish API — ask the admin agent to set the "
+        f"`batfish` host in .olav/config/api.json, or export OLAV_BATFISH_HOST.\n"
+        f"Also install the sim extra if pybatfish is missing: pip install pybatfish.\n"
+        f"Then retry the validation."
+    )
+
+
+def _latest_snapshot_with_configs() -> str | None:
+    """Latest snapshot that actually has running-config rows (so Batfish has
+    something to load). Honours 'default to latest' while dodging an empty
+    snapshot row that carries no device configs."""
+    try:
+        import duckdb
+        from olav.core.config import MAIN_DB_PATH
+        with duckdb.connect(str(MAIN_DB_PATH), read_only=True) as conn:
+            row = conn.execute(
+                "SELECT snapshot_id FROM netops.v_snapshots_auto "
+                "WHERE snapshot_id IN ("
+                "  SELECT DISTINCT snapshot_id FROM netops.raw_output_store "
+                "  WHERE command = 'show running-config') "
+                "ORDER BY captured_at DESC LIMIT 1"
+            ).fetchone()
+            return row[0] if row else None
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("could not resolve latest snapshot: %s", exc)
+        return None
+
+
 def _get_session() -> Any:
     """Get or create the cached pybatfish.Session."""
     global _BF_SESSION
     if _BF_SESSION is None:
         from pybatfish.client.session import Session
-        host = os.environ.get("OLAV_BATFISH_HOST", "localhost")
-        port = int(os.environ.get("OLAV_BATFISH_HTTP_PORT", "9996"))
-        ssl = os.environ.get("OLAV_BATFISH_SSL", "false").lower() == "true"
+        host, port, ssl = _batfish_endpoint()
         _BF_SESSION = Session(host=host, port_v2=port, ssl=ssl)
         logger.info(
             f"batfish_q: created pybatfish.Session(host={host}, port={port}, ssl={ssl})"
@@ -186,8 +251,8 @@ def _init_snapshot_if_needed(snapshot_id: str) -> None:
 
 @tool
 def batfish_q(
-    snapshot_id: str,
-    question: str,
+    snapshot_id: str | None = None,
+    question: str = "",
     q_args: dict | None = None,
     reference_snapshot: str | None = None,
 ) -> dict[str, Any]:
@@ -227,6 +292,34 @@ def batfish_q(
         → {"status": "ok", "rows": [{"Node": "R1", ...}], "row_count": 1, ...}
     """
     args = dict(q_args) if q_args else {}
+
+    # Default the snapshot to the latest one that actually has configs (so the
+    # caller can just say "validate this" without hunting for a snapshot id;
+    # 'latest' alone can be an empty snapshot row that carries no device data).
+    if not snapshot_id:
+        snapshot_id = _latest_snapshot_with_configs()
+        if not snapshot_id:
+            return {
+                "status": "error",
+                "message": (
+                    "no ingested snapshot with device configs found — import or "
+                    "collect a snapshot first (e.g. `olav --agent netops \"import …\"`)."
+                ),
+                "snapshot_id": None, "reference_snapshot": reference_snapshot,
+                "rows": None, "row_count": 0,
+            }
+
+    # Fail fast + actionable when Batfish itself isn't running, instead of
+    # leaking a pybatfish connection stack trace (software-understands-human).
+    _host, _port, _ = _batfish_endpoint()
+    if not _batfish_reachable(_host, _port):
+        return {
+            "status": "error",
+            "message": batfish_setup_hint(_host, _port),
+            "batfish_reachable": False,
+            "snapshot_id": snapshot_id, "reference_snapshot": reference_snapshot,
+            "rows": None, "row_count": 0,
+        }
 
     # Phase E: validate + coerce headers via Pydantic so list-typed
     # dstIps/srcIps don't slip through and hit Batfish as 500.
