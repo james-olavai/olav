@@ -301,6 +301,18 @@ intercept them in ``_handle_command`` with a message pointing users
 back to ``pip install --upgrade olav``."""
 
 
+_REPLACED_COMMANDS: frozenset[str] = frozenset({"/agents"})
+"""deepagents-code native commands OLAV replaces with its own entry.
+
+``/agents`` natively browses ``.deepagents/agents/`` and restarts a
+subprocess server — meaningless in OLAV's overlay mode, where agents live
+in ``.olav/workspace/``.  Rather than *intercept* the native command (which
+silently breaks if a deepagents upgrade renames or re-dispatches it), we
+drop deepagents' entry and inject our own OLAV-owned ``/agents`` with an
+OLAV description.  As a wrapper product this keeps the command surface
+under our control instead of depending on upstream's private behaviour."""
+
+
 def _patch_banner() -> bool:
     """Swap the deepagents welcome banner constants for OLAV's."""
     try:
@@ -373,11 +385,24 @@ def _patch_workspace_command() -> bool:
             )
             return False
 
+        # /workspace and /agents are two names for the SAME action — switch
+        # the top-level agent (netops, audit, core…).  In OLAV these are the
+        # same set of entities (dirs under .olav/workspace/, selected on the
+        # CLI via --agent).  We own BOTH so users coming from either OLAV's
+        # `--agent` vocabulary or deepagents' `/agents` muscle memory land in
+        # the same place, each with an OLAV description.
         workspace_cmd = _cr.SlashCommand(
             name="/workspace",
-            description="Switch to a different OLAV workspace (restarts TUI)",
+            description="Switch the active agent (netops, audit, core…) — restarts TUI",
             bypass_tier=_cr.BypassTier.IMMEDIATE_UI,
-            hidden_keywords="agent swap switch",
+            hidden_keywords="agent agents swap switch",
+            argument_hint="<name>",
+        )
+        agents_cmd = _cr.SlashCommand(
+            name="/agents",
+            description="Switch the active agent (netops, audit, core…) — same as /workspace",
+            bypass_tier=_cr.BypassTier.IMMEDIATE_UI,
+            hidden_keywords="workspace swap switch",
             argument_hint="<name>",
         )
 
@@ -391,10 +416,12 @@ def _patch_workspace_command() -> bool:
             hidden_keywords="health diagnose check connectivity",
         )
 
-        # Filter out deepagents-code's self-upgrade commands — they'd break
-        # our pinned version — and prepend /workspace.
+        # Drop deepagents-code's self-upgrade commands (they'd break our pin)
+        # and its native /agents (we inject our own above) — then prepend the
+        # OLAV-owned commands.
         filtered_commands = tuple(
-            c for c in _cr.COMMANDS if c.name not in _BLOCKED_COMMANDS
+            c for c in _cr.COMMANDS
+            if c.name not in _BLOCKED_COMMANDS and c.name not in _REPLACED_COMMANDS
         )
 
         # Compute /<workspace> aliases (/ops, /audit, …) that don't shadow
@@ -402,7 +429,7 @@ def _patch_workspace_command() -> bool:
         # startup-time snapshot — newly installed workspaces still work via
         # /workspace <name> without a restart; the short alias just won't
         # appear until next TUI launch.
-        reserved = {c.name for c in filtered_commands} | {"/workspace", "/doctor"}
+        reserved = {c.name for c in filtered_commands} | {"/workspace", "/agents", "/doctor"}
         workspace_names = _discover_workspaces()
         alias_cmds: list[Any] = []
         aliases_registered: set[str] = set()
@@ -426,7 +453,7 @@ def _patch_workspace_command() -> bool:
             )
             aliases_registered.add(name)
 
-        _cr.COMMANDS = (workspace_cmd, doctor_cmd, *filtered_commands, *alias_cmds)
+        _cr.COMMANDS = (workspace_cmd, agents_cmd, doctor_cmd, *filtered_commands, *alias_cmds)
         _cr.SLASH_COMMANDS[:] = [c.to_entry() for c in _cr.COMMANDS]
 
         _original_handle = DeepAgentsApp._handle_command

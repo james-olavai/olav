@@ -108,6 +108,13 @@ def _install_stub_deepagents_code(
             description="Toggle auto-update",
             bypass_tier="queued",
         ),
+        # deepagents-code native /agents — the overlay must replace this with
+        # its own OLAV-owned entry, not leave the upstream one in place.
+        _SlashCommand(
+            name="/agents",
+            description="Browse and switch between available agents",
+            bypass_tier="immediate_ui",
+        ),
     )
     cr.SLASH_COMMANDS = [cmd.to_entry() for cmd in cr.COMMANDS]
     monkeypatch.setitem(sys.modules, "deepagents_code.command_registry", cr)
@@ -712,6 +719,24 @@ def test_alias_with_extra_args_falls_through(
 
 
 # ── 12b. /agents is routed to OLAV's workspace switcher ─────────────────────
+
+
+def test_agents_command_is_olav_owned_not_deepagents_native(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The overlay must DROP deepagents' native /agents and inject its own,
+    so we don't depend on upstream's private /agents behaviour across
+    upgrades and the user sees an OLAV description."""
+    _, cr, _, _uc = _install_stub_deepagents_code(monkeypatch, version="0.1.8")
+    overlay = _fresh_overlay(monkeypatch)
+    monkeypatch.setattr(overlay, "_discover_workspaces", lambda: {"netops"})
+    assert overlay.apply_olav_overlay() is True
+
+    agents_entries = [c for c in cr.COMMANDS if c.name == "/agents"]
+    assert len(agents_entries) == 1, "exactly one /agents entry (ours) expected"
+    # It must be OLAV's, not deepagents' generic "Browse and switch…" text.
+    assert "Browse and switch between available agents" not in agents_entries[0].description
+    assert "agent" in agents_entries[0].description.lower()
 
 
 def test_agents_command_switches_olav_workspace(

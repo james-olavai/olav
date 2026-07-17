@@ -24,13 +24,17 @@ Patch: fresh-install fixes surfaced by the V3 demo runsheet.
   `OLAV_LLM_API_KEY`, so a key set in `shared.api_key` (the documented
   homogeneous-deploy pattern) wrongly re-prompted "No LLM API key
   configured yet". It now mirrors the runtime resolution order.
-- **`/agents` switches OLAV workspaces in the TUI.** deepagents' native
-  `/agents` command browses `.deepagents/agents/` and restarts a subprocess
-  server — neither holds OLAV's `.olav/workspace/` agents, so typing
-  `/agents` (a prominent, intuitive command) showed an empty/foreign picker
-  and could not switch to netops/audit/etc. The overlay now intercepts
-  `/agents [<name>]` and routes it to OLAV's workspace switcher, identical
-  to `/workspace` (bare `/agents` lists available workspaces).
+- **`/agents` switches OLAV agents in the TUI (OLAV-owned command).**
+  deepagents' native `/agents` browses `.deepagents/agents/` and restarts a
+  subprocess server — neither holds OLAV's `.olav/workspace/` agents, so
+  typing `/agents` showed an empty/foreign picker and could not switch to
+  netops/audit/etc. Rather than *intercept* upstream's command (fragile —
+  a deepagents rename/re-dispatch would silently break it), the overlay now
+  **drops deepagents' native `/agents` and injects its own** OLAV-owned
+  entry with an OLAV description, alongside `/workspace`. Both switch the
+  top-level agent (same set of entities — `.olav/workspace/` dirs, selected
+  via `--agent`); bare `/agents` lists them. Keeping the command surface
+  under OLAV's control is the right posture for a deepagents wrapper.
 - **Silenced the benign "No harness profile matched" warning.** deepagents
   logs a WARNING for every pre-built model that matches no registered
   profile once *any* profile exists — and OLAV always registers the
