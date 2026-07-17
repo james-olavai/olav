@@ -68,6 +68,7 @@ description for the sub-agent menu — don't try to memorise it here.
 | SSH / shell command on a remote host | `olav_delegate` → `remote` |
 | Platform deploy / cron / write workspace files | `olav_delegate` → `services` (was `admin`, folded 2026-05-01) |
 | Polish / edit an existing markdown file | `olav_delegate` → `writer` |
+| Draw / diagram / visualize network topology (draw.io or Mermaid) / 画拓扑图 / 拓扑图 | `olav_delegate` → `writer` |
 
 ## Schema
 

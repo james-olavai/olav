@@ -96,21 +96,16 @@ def test_claim_with_format_and_export_tool_message_trusted():
     assert out is None  # trusted, no supplements added
 
 
-def test_writer_delegation_no_longer_save_evidence():
-    """R85 (dev_docs/58 § "R85 inline-save"): writer is demoted from
-    save-bottleneck to optional polish/edit subagent.  After R85 every
-    agent inherits format_and_export from core and calls it directly;
-    olav_delegate('writer', ...) is NO LONGER a save signal.
+def test_writer_delegation_with_path_result_trusted():
+    """writer Mode B (``draw_topology``) writes a diagram file and returns
+    its path, so olav_delegate('writer', ...) whose result carries a path IS
+    save evidence again (post-R85 re-introduction of writer-as-save-agent for
+    topology diagrams). Mirrors the audit-auditor rule; guarded by
+    _delegation_result_has_path so a bare delegation is still not trusted.
 
-    If an agent still delegates to writer AND claims a save AND no
-    direct format_and_export tool call happened, SaveAssertion treats
-    that as a hallucination — runs the recovery path (auto-saves
-    mermaid/markdown) or attaches a warning.
-
-    The previous behaviour ("writer delegation = trust" — added in
-    R83.4 Chapter 4 and tightened in 24778df to require path-result)
-    was specific to the writer-as-save-bottleneck era; R85 removes
-    that role entirely.
+    Uses a ``.drawio`` path to also cover the 6-char-extension fix
+    (_PATH_RE / _DELEGATION_RESULT_PATH_RE previously stopped at 5 chars, so
+    ``.drawio`` was invisible → false-positive save warning).
     """
     from olav.plugins.middleware.save_assertion import SaveAssertionMiddleware
 
@@ -120,24 +115,55 @@ def test_writer_delegation_no_longer_save_evidence():
         tool_calls=[{
             "id": "tc_1",
             "name": "olav_delegate",
-            "args": {"subagent_name": "writer", "task_description": "save mermaid"},
+            "args": {"subagent_name": "writer", "task_description": "draw core topology"},
         }],
     )
     delegation_result = _ToolMessage(
         name="olav_delegate",
-        content='{"path": "exports/diagrams/topology.mmd", "size": 940}',
+        content='{"status": "ok", "path": "exports/diagrams/core_topology_2026-07-18.drawio", "hosts": 16, "edges": 44}',
     )
     delegation_result.tool_call_id = "tc_1"
     state = {
         "messages": [
             delegation,
             delegation_result,
-            _AIMessage(content="Saved to /exports/topology.mmd"),
+            _AIMessage(content="Saved exports/diagrams/core_topology_2026-07-18.drawio — core layer, 16 devices / 44 links."),
         ]
     }
     out = _run(mw.aafter_agent(state, runtime=None))
-    # Not None — supplements should include a warning since writer
-    # is no longer a save delegation.
+    assert out is None  # path in delegation result → trusted, no warning
+
+
+def test_writer_delegation_without_path_result_warns(tmp_exports):
+    """writer delegation whose result carries NO path is still NOT trusted:
+    the model claims a specific file but the subagent skipped the save and the
+    file is not on disk → warning. This is the drop-the-tool-call regression
+    the middleware exists to catch (the _delegation_result_has_path guard)."""
+    from olav.plugins.middleware.save_assertion import SaveAssertionMiddleware
+
+    mw = SaveAssertionMiddleware()
+    delegation = _AIMessage(
+        content="",
+        tool_calls=[{
+            "id": "tc_1",
+            "name": "olav_delegate",
+            "args": {"subagent_name": "writer", "task_description": "draw topology"},
+        }],
+    )
+    delegation_result = _ToolMessage(
+        name="olav_delegate",
+        content="I drew the topology.",  # no path — subagent skipped the save
+    )
+    delegation_result.tool_call_id = "tc_1"
+    state = {
+        "messages": [
+            delegation,
+            delegation_result,
+            # cites a specific path that does NOT exist under tmp_exports
+            _AIMessage(content="Saved to exports/diagrams/core_topology_2026-07-18.drawio."),
+        ]
+    }
+    out = _run(mw.aafter_agent(state, runtime=None))
     assert out is not None
     sups = out.get("_output_supplements") or []
     assert any("warning" in s.lower() for s in sups)
@@ -290,6 +316,32 @@ def test_existing_path_on_disk_trusted(tmp_exports):
     }
     out = _run(mw.aafter_agent(state, runtime=None))
     assert out is None  # path exists, trust it
+
+
+def test_existing_drawio_path_on_disk_trusted(tmp_exports):
+    """A ``.drawio`` file on disk must be recognised — the 6-char extension
+    (`_PATH_RE` used to cap at 5 chars, so `.drawio` was invisible and the
+    real file got a false-positive save warning; regression from writer's
+    Mode B draw_topology, verified live on gemma4-31b)."""
+    from olav.plugins.middleware.save_assertion import SaveAssertionMiddleware
+
+    diagrams = tmp_exports / "diagrams"
+    diagrams.mkdir(parents=True, exist_ok=True)
+    (diagrams / "core_topology_2026-07-18.drawio").write_text(
+        "<mxfile host=\"app.diagrams.net\"><diagram/></mxfile>", encoding="utf-8"
+    )
+
+    mw = SaveAssertionMiddleware()
+    state = {
+        "messages": [
+            _AIMessage(content=(
+                "Saved exports/diagrams/core_topology_2026-07-18.drawio — "
+                "core layer, 16 devices / 44 links."
+            ))
+        ]
+    }
+    out = _run(mw.aafter_agent(state, runtime=None))
+    assert out is None  # .drawio path exists on disk, trust it
 
 
 # ── 4. Edge cases ─────────────────────────────────────────────────

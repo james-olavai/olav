@@ -76,7 +76,7 @@ _SAVE_CLAIM_RE = re.compile(
 # ── Path extraction — look for /exports/.../<file>.<ext> mentions ───
 _PATH_RE = re.compile(
     r"""(?:^|[\s'"`(])           # word boundary (whitespace or punct)
-        (/?[\w./_-]*?exports/[\w./_-]+?\.[a-z0-9]{1,5})  # /exports/foo/bar.ext
+        (/?[\w./_-]*?exports/[\w./_-]+?\.[a-z0-9]{1,6})  # /exports/foo/bar.ext (≤6: .drawio)
         (?=[\s'"`)<]|$)          # trailing boundary
     """,
     re.IGNORECASE | re.VERBOSE,
@@ -103,6 +103,10 @@ _SAVE_DELEGATIONS = {
     "audit-author",  # audit Author sub-agent (save_profile / append_jobs)
     "audit-auditor", # historical name (pre-rev-259) kept for backward compatibility
     "ops-lab",       # lab subagent (save_lab_config)
+    "writer",        # writer Mode B (draw_topology) writes a diagram file + returns
+                     # its path — re-added post-R85 for the topology-diagram path.
+                     # Guarded by _delegation_result_has_path (bare delegation is not
+                     # trusted), so the drop-the-tool-call regression still fires.
 }
 
 # ── Mermaid extraction — block tagged ```mermaid``` or graph-syntax ─
@@ -136,7 +140,7 @@ def _looks_like_save_claim(content: str) -> bool:
 _DELEGATION_RESULT_PATH_RE = re.compile(
     r"""[\w./_-]*?
         exports/[\w./_-]+?
-        \.(?:mmd|md|csv|json|yaml|yml|sh|py|tsv|html|svg|png)\b""",
+        \.(?:mmd|md|csv|json|yaml|yml|sh|py|tsv|html|svg|png|drawio)\b""",
     re.IGNORECASE | re.VERBOSE,
 )
 
