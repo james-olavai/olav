@@ -92,6 +92,21 @@ def test_regex_infers_medium(clean_env):
         assert _mk_llm(name).model_tier == "medium", name
 
 
+def test_sized_family_names_classify_by_parameter_count(clean_env):
+    """Regression: family+size names must key off the SIZE, not fall through.
+
+    ``gemma4-31b-it-qat`` used to hit the ``large`` fallback because the old
+    ``\\bgemma\\b`` alternative couldn't match "gemma4" (no word boundary
+    before the digit) and no size pattern covered 31b — so a 31B local model
+    got a 200K budget + loose caps. It is a 10–34B model → medium.
+    """
+    for name in ("gemma4-31b-it-qat", "gemma4-31b-it", "gemma3-27b", "qwen3-30b"):
+        assert _mk_llm(name).model_tier == "medium", name
+    # small gemmas still classify small by their size
+    for name in ("gemma4-9b", "gemma-2b", "gemma3:9b"):
+        assert _mk_llm(name).model_tier == "small", name
+
+
 def test_regex_conservative_fallback_for_unknown(clean_env):
     # Claude / GPT-4 names never match the small/medium regexes —
     # these should fall through to "large".

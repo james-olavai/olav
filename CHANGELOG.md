@@ -35,6 +35,15 @@ Patch: fresh-install fixes surfaced by the V3 demo runsheet.
   top-level agent (same set of entities — `.olav/workspace/` dirs, selected
   via `--agent`); bare `/agents` lists them. Keeping the command surface
   under OLAV's control is the right posture for a deepagents wrapper.
+- **Fixed model-tier misclassification of sized family names (size-driven).**
+  `\bgemma\b` could not match `gemma4-31b-it-qat` (no word boundary before the
+  digit) and no size pattern covered 31b, so a 31B *local* model fell through
+  to the `large` fallback — getting a 200K context budget, loose recall, and
+  the loose 8000-char cell cap it can't back up. Tier inference is now purely
+  size-driven (small ≤9B / medium 10–34B / large frontier), so `gemma4-31b` →
+  medium (32K budget, top_k 2, 2000 cell cap), small gemmas stay small, and
+  cloud frontier names still fall through to large. All prior tier assertions
+  preserved (`gemma-7b`/`8b`/`phi-3`→small, `13b`/`32b`/`mixtral`→medium).
 - **execute_sql now caps per-cell text — deterministic guardrail against raw
   dumps.** The row cap (10/20/50) never helped the real hallucination source: a
   single `raw_output` cell (a full `show running-config`, ~70 KB) blew the

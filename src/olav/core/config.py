@@ -109,8 +109,18 @@ def tier_default(tier: str, key: str, fallback: Any) -> Any:
 # doesn't set one explicitly. Order matters: check small-tier hints
 # before medium (a "7b" in "qwen2-72b" would wrongly match "7b" alone,
 # so the patterns use word boundaries).
-_TIER_REGEX_SMALL = re.compile(r"\b(1\.?5b|3b|4b|7b|8b|gemma|phi-3|haiku-4-5)\b", re.I)
-_TIER_REGEX_MEDIUM = re.compile(r"\b(13b|14b|22b|32b|34b|mixtral|mistral-small)\b", re.I)
+# Size-driven tier inference. Parameter count is the reliable signal — family
+# names alone are ambiguous (a "gemma" ranges 2B→31B). We deliberately do NOT
+# match a bare family name like ``gemma``: (1) the old ``gemma`` alternative was
+# boundary-broken — ``\bgemma\b`` never matched ``gemma4-31b-it-qat`` (no
+# boundary between "gemma" and "4"), so such models silently fell through to the
+# ``large`` fallback and got a 200K budget + loose caps they can't back up; and
+# (2) even fixed, a bare family match would put a 31B gemma in the SAME bucket
+# as a 2B one. Sizes are checked small-first, so a 31B model correctly lands in
+# medium via the size range rather than a family catch-all.
+# small  = ≤9B class · medium = 10–34B class · large = everything else (frontier/cloud).
+_TIER_REGEX_SMALL = re.compile(r"\b(1\.?5b|2b|3b|4b|7b|8b|9b|phi-3|haiku-4-5)\b", re.I)
+_TIER_REGEX_MEDIUM = re.compile(r"\b(1[0-9]b|2[0-9]b|3[0-4]b|mixtral|mistral-small)\b", re.I)
 
 
 def _resolve_project_root() -> Path:
