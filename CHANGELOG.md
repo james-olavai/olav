@@ -35,6 +35,15 @@ Patch: fresh-install fixes surfaced by the V3 demo runsheet.
   top-level agent (same set of entities — `.olav/workspace/` dirs, selected
   via `--agent`); bare `/agents` lists them. Keeping the command surface
   under OLAV's control is the right posture for a deepagents wrapper.
+- **Analyzer stop discipline: `format_and_export` is terminal (return_direct).**
+  A change plan is one file (analyzer constraint #5), so the agent's job is
+  done the moment it saves — but small local models (gemma4-31b) kept
+  querying afterward and timed out ("plan-loop tail"). A new per-agent
+  `return_direct_tools:` SKILL.md flag, applied in `_build_subagents` on the
+  agent's own fresh tool instance, stops the loop when the declared tool
+  returns. Scoped to the analyzer — reporter append-exports repeatedly and
+  is untouched (its `format_and_export` is a distinct instance). Set
+  pre-compile so langgraph freezes the return_direct branch map correctly.
 - **Thinking-mode control now works on DeepSeek's hosted API.** OLAV's
   hybrid-thinking design (orchestrator reasons for planning, sub-agents run
   thinking-off for fast tool calls) was *inert* on `api.deepseek.com`: the

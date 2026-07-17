@@ -30,7 +30,7 @@ metadata:
   network_isolation: 'true'
   deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM grader (recursive deep-agent, wired via create_deep_agent middleware=)
   type: agent
-  version: 6.3.0
+  version: 6.4.0
 name: analyzer
 scripts:
 - description: Phase 0a schema discovery — columns + types + 2 sample rows per table
@@ -57,6 +57,12 @@ static_context_mode: on_intent
 subagents:
 - path: ../simulator/SKILL.md
 thinking_mode: enabled
+# format_and_export is TERMINAL for the analyzer: the change plan is one file
+# (constraint #5), so the moment it is saved the agent's job is done. Marking
+# it return_direct stops the loop immediately — without this, small local
+# models (gemma4-31b) keep querying after the file is written and time out.
+return_direct_tools:
+- format_and_export
 tools:
 - execute_sql
 - olav_recall_memory
@@ -96,6 +102,10 @@ Given a change request, produce one markdown file containing:
   apply."*
 
 Save with: `format_and_export(data=<markdown>, filename="<topic>_<date>", format="md", subdir="change_plans")`
+
+**`format_and_export` is your LAST action.** The saved file IS the deliverable
+— once it returns, you are DONE. Do not query anything else, do not re-verify,
+do not re-export. (The framework also stops the loop here automatically.)
 
 ## Constraints
 

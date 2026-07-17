@@ -1308,6 +1308,33 @@ class OLAVAgent:
                 # Prepend core tools; subagent-local tools take precedence on name clash
                 tools = [t for t in core_tools if t.name not in existing_names] + tools
 
+            # Terminal-tool stop discipline (return_direct): a sub-agent whose
+            # deliverable IS a single tool call (e.g. analyzer writes ONE change
+            # plan via format_and_export, constraint #5) should STOP the moment
+            # that tool returns — otherwise small local models (gemma4-31b) keep
+            # querying after the file is written and time out ("plan-loop tail").
+            # Declared per-agent in SKILL.md as ``return_direct_tools: [name…]``
+            # (top level or under ``metadata:``).  Set on THIS agent's freshly-
+            # discovered tool instances only — discover_tools re-imports modules
+            # per call, so format_and_export here is a distinct object from
+            # reporter's (reporter append-exports repeatedly and must NOT stop).
+            # Must be set pre-compile — langgraph freezes the return_direct
+            # branch map at create_agent time (feedback_return_direct_post_compile).
+            _rd_names = (
+                metadata.get("return_direct_tools")
+                or (metadata.get("metadata") or {}).get("return_direct_tools")
+                or []
+            )
+            if _rd_names:
+                _rd_set = set(_rd_names)
+                for _t in tools:
+                    if _t.name in _rd_set:
+                        _t.return_direct = True
+                        logger.info(
+                            f"  → '{name}' tool '{_t.name}' set return_direct=True "
+                            f"(terminal — stops the agent loop on success)"
+                        )
+
             # System prompt: SKILL.md body is the canonical source.
             # system_prompt_file in frontmatter is an explicit override
             # (used by dual-path agents like core/writer that are also
