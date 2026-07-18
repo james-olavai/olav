@@ -463,6 +463,15 @@ class AutoRecallMiddleware:
     # tests/integration/test_recall_hit_rate.py (no top-3 regression + lower
     # reflection noise). Categories NOT listed here, and rows without a
     # distance, are never dropped (safe default).
+    #
+    # ``usage_guide`` was calibrated the same way and DELIBERATELY left out:
+    # its genuine-hit and noise distributions OVERLAP (genuine 0.33-0.87 vs
+    # noise 0.85-1.05, no clean gap - data in test_recall_hit_rate), and it is
+    # the *steering* layer where a false-negative actively degrades behaviour
+    # (the C4-topo fear above). It already has keyword-boost + on_intent +
+    # quota-3 gating. Adding a hard floor trades false-negatives for noise with
+    # no clean win, so don't - unless you first validate against a primed golden
+    # KB's top-3 hit-rate (which the reflection gate did not need).
     _CATEGORY_DISTANCE_THRESHOLD: dict[str, float] = {"reflection": 0.65}
 
     def _filter_by_distance(self, memories: list[dict]) -> list[dict]:
