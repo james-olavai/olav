@@ -25,18 +25,50 @@ from typing import Any
 
 _WS = re.compile(r"\s+")
 
+#: L2 distance below which two reflections are treated as the same lesson.
+#: Calibrated with olav kb bench (nomic-embed L2): genuine paraphrase
+#: near-duplicates sit under ~0.3; distinct lessons are farther.
+NEAR_DUP_L2 = 0.3
+
 
 def _norm(s: str) -> str:
     return _WS.sub(" ", s.lower()).strip()
 
 
-def record_reflection(lessons: list[str] | str, dedup: bool = True) -> dict[str, Any]:
+def _l2(a: list[float], b: list[float]) -> float:
+    """Euclidean distance between two vectors (same metric LanceDB reports)."""
+    return sum((x - y) ** 2 for x, y in zip(a, b)) ** 0.5
+
+
+def _nearest_reflection_l2(store, vector, tname) -> float:
+    """L2 distance to the nearest existing reflection, or +inf if none/error."""
+    try:
+        hits = store.search_by_vector(
+            vector, limit=1, category="reflection", table_name=tname
+        )
+        if hits:
+            d = hits[0].get("score", hits[0].get("_distance"))
+            if d is not None:
+                return float(d)
+    except Exception:  # noqa: BLE001
+        pass
+    return float("inf")
+
+
+def record_reflection(
+    lessons: list[str] | str,
+    dedup: bool = True,
+    near_dup_l2: float = NEAR_DUP_L2,
+) -> dict[str, Any]:
     """Write reflection lessons to the KB.
 
     Args:
         lessons: one lesson string or a list of them. Each becomes one
                  reflection memory (scope=global, TTL-bounded).
-        dedup:   skip a lesson whose text already exists as a live reflection.
+        dedup:   skip a lesson that duplicates a live reflection — exact text
+                 OR a semantic near-duplicate (L2 < ``near_dup_l2``).
+        near_dup_l2: L2 distance under which two reflections are "the same
+                 lesson" (default 0.3).
 
     Returns:
         ``{"status", "written", "skipped", "ids"}``.
@@ -70,17 +102,40 @@ def record_reflection(lessons: list[str] | str, dedup: bool = True) -> dict[str,
         except Exception:  # noqa: BLE001
             existing = set()
 
+    try:
+        from olav.core.embedder import embed_text
+    except Exception:  # noqa: BLE001
+        embed_text = None  # type: ignore
+
+    batch_vectors: list[list[float]] = []  # near-dup guard within this batch
     written, skipped, ids = 0, 0, []
     for lesson in lessons:
+        # Fast exact-dup pre-check (also catches exact within-batch).
         if dedup and _norm(lesson) in existing:
             skipped += 1
             continue
-        try:
+
+        vector = None
+        if embed_text is not None:
             try:
-                from olav.core.embedder import embed_text
                 vector = embed_text(lesson)
             except Exception:  # noqa: BLE001
                 vector = None
+
+        # Near-duplicate check (semantic): skip a lesson that paraphrases an
+        # existing reflection. `olav kb bench` surfaced that exact-match dedup
+        # let near-identical reflections pile up (they then outrank each other
+        # at recall rank-1). A persisted reflection within NEAR_DUP_L2 of this
+        # one, OR one already written this batch, means "same lesson" → skip.
+        if dedup and vector is not None:
+            if _nearest_reflection_l2(store, vector, tname) < near_dup_l2:
+                skipped += 1
+                continue
+            if any(_l2(vector, bv) < near_dup_l2 for bv in batch_vectors):
+                skipped += 1
+                continue
+
+        try:
             mid = f"reflect-{uuid.uuid4().hex[:8]}"
             store.add_memory(
                 id=mid,
@@ -93,6 +148,8 @@ def record_reflection(lessons: list[str] | str, dedup: bool = True) -> dict[str,
                 table_name=tname,
             )
             existing.add(_norm(lesson))
+            if vector is not None:
+                batch_vectors.append(vector)
             ids.append(mid)
             written += 1
         except Exception as exc:  # noqa: BLE001

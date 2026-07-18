@@ -123,6 +123,31 @@ def test_tail_bytes_never_reads_whole_file(tmp_path):
     assert "HEADER-should-not-be-read" not in tail  # only the tail is read
 
 
+# ── 4b. reflection near-duplicate dedup (L2 gate) ─────────────────────────
+def test_record_reflection_near_dup_helpers():
+    """The near-dup dedup uses an L2 distance gate (0.3) so paraphrased/repeat
+    reflections don't pile up (olav kb bench surfaced this: near-dups tank
+    self-recall@1). Deterministic — no embedder/store needed."""
+    mod = _load("record_reflection")
+
+    assert mod.NEAR_DUP_L2 == 0.3
+    # _l2 is plain euclidean distance
+    assert mod._l2([0.0, 0.0], [3.0, 4.0]) == 5.0
+    assert mod._l2([1.0, 2.0, 3.0], [1.0, 2.0, 3.0]) == 0.0
+
+    # _nearest_reflection_l2 reads the store's reported distance, +inf if none
+    class _HitStore:
+        def search_by_vector(self, *a, **k):
+            return [{"score": 0.12}]
+
+    class _EmptyStore:
+        def search_by_vector(self, *a, **k):
+            return []
+
+    assert mod._nearest_reflection_l2(_HitStore(), [1.0], "memory") == 0.12
+    assert mod._nearest_reflection_l2(_EmptyStore(), [1.0], "memory") == float("inf")
+
+
 # ── 5. TIER_DEFAULTS carries the log-scan cap ─────────────────────────────
 def test_tier_defaults_have_log_scan_cap():
     from olav.core.config import TIER_DEFAULTS
