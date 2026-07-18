@@ -47,7 +47,24 @@ class DoctorCommand(BaseCommand):
                 lines.append(f"    fix: {check['fix']}")
         overall = "healthy" if all(c["ok"] for c in checks) else "needs attention"
         lines.append(f"\noverall: {overall}")
+        lines.append(f"cron: {self._cron_hint()}")
         return "\n".join(lines)
+
+    def _cron_hint(self) -> str:
+        """Opt-in pointer for scheduled self-management jobs — never auto-enabled
+        (a recurring `olav --auto-approve` is a daily LLM call)."""
+        import subprocess
+
+        try:
+            out = subprocess.run(
+                ["crontab", "-l"], capture_output=True, text=True, timeout=5
+            )
+            active = sum(1 for ln in out.stdout.splitlines() if "olav:" in ln)
+        except Exception:  # noqa: BLE001
+            active = 0
+        if active:
+            return f"✓ {active} scheduled job(s) active (`olav cron list`)"
+        return "○ optional — enable daily self-reflection via `olav cron enable reflect`"
 
     def _check_scaffolding(self) -> dict:
         base_dir = Path(".olav")

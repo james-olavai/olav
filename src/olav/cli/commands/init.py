@@ -190,8 +190,30 @@ class InitCommand(BaseCommand):
             f"guides: {guides_status}\n"
             f"auth: {user_status}\n"
             f"registry: {refresh_status}\n"
-            f"services: {svc_status}"
+            f"services: {svc_status}\n"
+            f"cron: {self._cron_hint()}"
         )
+
+    def _cron_hint(self) -> str:
+        """One-line, opt-in hint for scheduled self-management jobs.
+
+        init deliberately does NOT write to the user's crontab (a recurring
+        `olav --auto-approve` job is a daily LLM call, and `snapshot` SSHes to
+        live devices) — so this only *points at* the explicit activation
+        command. If jobs are already active, say so instead.
+        """
+        import subprocess
+
+        try:
+            out = subprocess.run(
+                ["crontab", "-l"], capture_output=True, text=True, timeout=5
+            )
+            active = sum(1 for ln in out.stdout.splitlines() if "olav:" in ln)
+        except Exception:  # noqa: BLE001
+            active = 0
+        if active:
+            return f"✓ {active} scheduled job(s) active (`olav cron list`)"
+        return "○ optional — daily self-reflection etc. via `olav cron enable reflect`"
 
     def _init_admin_user(self, base_dir: Path) -> str:
         """Create an admin user for $USER, write token to ~/.olav/token, set auth.mode=token.

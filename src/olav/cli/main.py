@@ -143,6 +143,7 @@ _KNOWN_COMMANDS: frozenset[str] = frozenset(
         "init",
         "doctor",  # dev_docs/99 §3.1 — zero-LLM preflight/health check
         "refresh",
+        "cron",    # opt-in activation of declared scheduled jobs (admin/reflector etc.)
         "sessions",
         "workspace",
         "export",
@@ -354,6 +355,25 @@ def parse_args():
 
     # Refresh command — rebuild global agent registry (deterministic, no LLM)
     subparsers.add_parser("refresh", help="Rebuild global agent registry (olav.md)")
+
+    # Cron command — opt-in activation of declared scheduled jobs (crontab)
+    cron_parser = subparsers.add_parser(
+        "cron", help="Enable/disable/list scheduled self-management jobs"
+    )
+    cron_sub = cron_parser.add_subparsers(dest="cron_command", help="Cron action")
+    cron_sub.add_parser("list", help="List active olav cron jobs (default)")
+    cron_enable_p = cron_sub.add_parser(
+        "enable", help="Enable declared cron jobs (writes to crontab)"
+    )
+    cron_enable_p.add_argument(
+        "name", nargs="?", default=None,
+        help="Enable just this job (e.g. 'reflect'); omit for all declared jobs",
+    )
+    cron_disable_p = cron_sub.add_parser("disable", help="Disable olav cron jobs")
+    cron_disable_p.add_argument(
+        "name", nargs="?", default=None,
+        help="Disable just this job; omit to disable all olav cron jobs",
+    )
 
     # Sessions command — list conversation sessions across interfaces (M4)
     sessions_parser = subparsers.add_parser(
@@ -2449,6 +2469,16 @@ async def cli_main_impl() -> None:
 
             cmd = RefreshCommand()
             result = await cmd.execute()
+            console.print(result)
+            return
+
+        # Handle cron command — opt-in activation of declared scheduled jobs
+        if args.command == "cron":
+            from olav.cli.commands.cron import CronCommand
+
+            action = getattr(args, "cron_command", None) or "list"
+            name = getattr(args, "name", None)
+            result = await CronCommand().execute(action, name)
             console.print(result)
             return
 
