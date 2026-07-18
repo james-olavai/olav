@@ -851,7 +851,105 @@ def build_kb_parser(parent_subparsers) -> argparse.ArgumentParser:
     lg.add_argument("--workspace", default=".olav/workspace",
                     help="Workspace root (default: .olav/workspace)")
 
+    bench = kb_sub.add_parser(
+        "bench",
+        help="Self-recall benchmark: can the KB retrieve its own entries?",
+    )
+    bench.add_argument("--sample", type=int, default=40,
+                       help="Max memories to probe (default 40)")
+    bench.add_argument("--top-k", type=int, default=5, help="Retrieval depth")
+    bench.add_argument("--json", action="store_true", help="Emit JSON")
+
     return kb_parser
+
+
+def cmd_bench(args) -> int:
+    """Self-recall benchmark — can the KB retrieve its own entries?
+
+    Query each sampled memory with its OWN text; a healthy embedder + index
+    returns it at rank 1 (~0 distance). A low self-recall@1 signals a degraded
+    embedder or a dimension/index problem. Domain-agnostic (no golden data), so
+    it ships and runs in any install — unlike the paraphrase→intent hit-rate
+    probe (tests/integration/test_recall_hit_rate.py) which needs a fixed
+    golden set.
+    """
+    import collections
+    import json as _json
+    import random
+
+    from olav.core.memory import MEMORY_TABLE, get_store
+
+    try:
+        from olav.core.embedder import embed_text
+    except Exception as exc:  # noqa: BLE001
+        print(f"⚠ embedder unavailable: {exc}")
+        return 1
+
+    store = get_store()
+    if store is None or not store.table_exists(MEMORY_TABLE):
+        print("⚠ no memory store — run `olav init` / `olav skill install`")
+        return 1
+    mems = [
+        m for m in store.get_memories(limit=10000, table_name=MEMORY_TABLE)
+        if m.get("text") and m.get("id")
+    ]
+    if not mems:
+        print("KB is empty — nothing to benchmark.")
+        return 0
+    if len(mems) > args.sample:
+        random.seed(0)
+        mems = random.sample(mems, args.sample)
+
+    k = args.top_k
+    per_cat: dict = collections.defaultdict(lambda: {"n": 0, "r1": 0, "r3": 0, "rk": 0})
+    tot = {"n": 0, "r1": 0, "r3": 0, "rk": 0}
+    errors = 0
+    for m in mems:
+        try:
+            vec = embed_text(m["text"])
+            hits = store.search_by_vector(vec, limit=k, table_name=MEMORY_TABLE)
+        except Exception:  # noqa: BLE001
+            errors += 1
+            continue
+        ids = [h.get("id") for h in hits]
+        rank = ids.index(m["id"]) + 1 if m["id"] in ids else None
+        for b in (per_cat[m.get("category") or "?"], tot):
+            b["n"] += 1
+            b["r1"] += int(rank == 1)
+            b["r3"] += int(bool(rank) and rank <= 3)
+            b["rk"] += int(bool(rank) and rank <= k)
+
+    def _rate(b, key):
+        return round(b[key] / b["n"], 3) if b["n"] else 0.0
+
+    result = {
+        "sampled": tot["n"],
+        "errors": errors,
+        "top_k": k,
+        "self_recall_at_1": _rate(tot, "r1"),
+        "self_recall_at_3": _rate(tot, "r3"),
+        "self_recall_at_k": _rate(tot, "rk"),
+        "by_category": {
+            c: {"n": b["n"], "at_1": _rate(b, "r1"), "at_k": _rate(b, "rk")}
+            for c, b in sorted(per_cat.items())
+        },
+    }
+    if getattr(args, "json", False):
+        print(_json.dumps(result, indent=2))
+        return 0
+
+    print(f"KB self-recall bench (n={result['sampled']}, top-{k}):")
+    print(f"  self-recall@1={result['self_recall_at_1']:.0%}  "
+          f"@3={result['self_recall_at_3']:.0%}  @{k}={result['self_recall_at_k']:.0%}")
+    if errors:
+        print(f"  ⚠ {errors} probe error(s)")
+    print("  by category:")
+    for c, b in result["by_category"].items():
+        print(f"    {c:<18} n={b['n']:<4} @1={b['at_1']:.0%}  @{k}={b['at_k']:.0%}")
+    if result["self_recall_at_1"] < 0.90:
+        print("  ⚠ self-recall@1 < 90% — embedder/index may be degraded "
+              "(dimension mismatch? try `olav init`)")
+    return 0
 
 
 def handle_kb_command(args) -> int:
@@ -890,6 +988,8 @@ def handle_kb_command(args) -> int:
         return cmd_show(args)
     elif kb_cmd == "list-guides":
         return cmd_list_guides(args)
+    elif kb_cmd == "bench":
+        return cmd_bench(args)
     else:
         print(f"Unknown kb subcommand: {kb_cmd}", file=sys.stderr)
         return 1

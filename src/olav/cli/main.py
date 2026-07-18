@@ -2459,8 +2459,14 @@ async def cli_main_impl() -> None:
             from olav.cli.commands.doctor import DoctorCommand
 
             cmd = DoctorCommand()
-            result = await cmd.execute("--json" if getattr(args, "json", False) else "")
-            console.print(result)
+            as_json = getattr(args, "json", False)
+            result = await cmd.execute("--json" if as_json else "")
+            # Plain-print JSON so rich doesn't line-wrap long detail strings
+            # (a wrapped newline mid-value produces invalid JSON).
+            if as_json:
+                print(result)
+            else:
+                console.print(result)
             return
 
         # Handle refresh command — rebuild global agent registry
