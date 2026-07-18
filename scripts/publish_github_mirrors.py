@@ -206,8 +206,7 @@ def publish_netops(push: bool) -> int:
              "commit", "-q", "-m",
              f"olav-netops v{version} — snapshot from monorepo\n\n"
              f"Tracked-files export; live nornir credentials/inventory excluded\n"
-             f"(use the .example templates). See scripts/publish_github_mirrors.py.\n\n"
-             f"Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"],
+             f"(use the .example templates). See scripts/publish_github_mirrors.py.\n"],
             cwd=clone,
         )
         tag = f"v{version}"
@@ -312,8 +311,7 @@ def publish_collector(push: bool) -> int:
              f"olav-collector v{version} — snapshot publication\n\n"
              f"Directory export from the dev machine (source is untracked in the\n"
              f"monorepo by design); live credentials, collection output, and\n"
-             f"vendored wheels excluded. See scripts/publish_github_mirrors.py.\n\n"
-             f"Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"],
+             f"vendored wheels excluded. See scripts/publish_github_mirrors.py.\n"],
             cwd=clone,
         )
         tag = f"v{version}"

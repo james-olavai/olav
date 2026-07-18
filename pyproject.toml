@@ -151,8 +151,8 @@ dependencies = [
 olav = "olav.cli.main:cli_main"
 
 [project.urls]
-Homepage = "https://github.com/olav-ai/olav"
-Repository = "https://github.com/olav-ai/olav"
+Homepage = "https://olavai.com"
+Documentation = "https://docs.olavai.com"
 
 [project.optional-dependencies]
 dev = [

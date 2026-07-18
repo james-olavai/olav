@@ -63,10 +63,10 @@ PROJECT_FULL_NAME = "OLAV - AI Operations Assistant"
 AUTHOR = "OLAV Team"
 
 #: Contact email
-AUTHOR_EMAIL = "james@olavai.com"
+AUTHOR_EMAIL = "olav@olavai.com"
 
 #: Homepage
-HOMEPAGE = "https://github.com/olav-ai/olav"
+HOMEPAGE = "https://olavai.com"
 
 #: Documentation URL
 DOCUMENTATION_URL = "https://docs.olavai.com"
