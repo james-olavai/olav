@@ -56,6 +56,11 @@ TIER_DEFAULTS: dict[str, dict[str, Any]] = {
         "execute_sql_max_cell_chars": 800,
         # default `limit` for search_logs when caller omits it.
         "search_logs_default_limit": 20,
+        # admin/reflector: max distinct error signatures the daily log scan
+        # surfaces per run (each = normalized message + count + 1 truncated
+        # example). Bounds the reflection agent's context — a histogram, not
+        # raw log lines. Small tier sees only the worst offenders.
+        "log_scan_max_signatures": 15,
         # ARCH-19 SummarizationMiddleware tier threshold (Round 42):
         # fire summarization when conversation reaches this fraction of
         # ``context_budget``. Small tier summarizes early (50%) so the
@@ -73,6 +78,7 @@ TIER_DEFAULTS: dict[str, dict[str, Any]] = {
         "execute_sql_context_rows": 20,
         "execute_sql_max_cell_chars": 2000,
         "search_logs_default_limit": 50,
+        "log_scan_max_signatures": 30,
         "summarization_trigger_pct": 0.65,
     },
     "large": {
@@ -95,6 +101,7 @@ TIER_DEFAULTS: dict[str, dict[str, Any]] = {
         "execute_sql_context_rows": 50,
         "execute_sql_max_cell_chars": 8000,
         "search_logs_default_limit": 100,
+        "log_scan_max_signatures": 60,
         "summarization_trigger_pct": 0.80,
     },
 }

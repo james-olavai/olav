@@ -21,3 +21,9 @@ schedules:
     agent: audit
     instruction: "generate weekly compliance report"
     description: "Weekly audit — BGP health, config drift, compliance check"
+
+  reflect:
+    cron: "0 4 * * *"
+    agent: admin
+    instruction: "reflect on today's errors and propose improvements"
+    description: "Daily self-improvement — admin/reflector reads the bounded error histogram (audit.duckdb + logs), writes reflection lessons / guide drafts, and drafts code-fix proposals (never applies). Runs after trace_learner (3am)."

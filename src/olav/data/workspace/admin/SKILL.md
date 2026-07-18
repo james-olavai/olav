@@ -11,6 +11,7 @@ route_keywords:
   - scaffold new skill agent tool workspace file
   - audit workspace consistency syntax error broken ref
   - platform admin self-management self-development
+  - reflect self-improve review errors daily reflection 反思 improve from failures
 tools:
   - olav_recall_memory
   - olav_store_memory
@@ -19,6 +20,7 @@ subagents:
   - path: ./ops/SKILL.md
   - path: ./installer/SKILL.md
   - path: ./editor/SKILL.md
+  - path: ./reflector/SKILL.md
 metadata:
   type: agent
   version: 1.0.0
@@ -39,6 +41,13 @@ unchanged.
 - "cron", "schedule", "recurring", "daily", "weekly job" → `task("ops", req)`
 - "deploy service", "stop service", "list services", "restart compose" → `task("ops", req)`
 - "analyze logs", "tool usage", "workspace health", "bulk ingest" → `task("ops", req)`
+
+**Route to `reflector` when:**
+- "reflect", "反思", "self-improve", "improve from failures/errors" → `task("reflector", req)`
+- "review today's errors", "daily reflection", "what's been failing / how to improve" → `task("reflector", req)`
+- (this is the daily-cron self-improvement loop; distinct from `ops` "analyze
+  logs", which just reports counts — `reflector` turns them into KB lessons +
+  code-fix proposals)
 
 **Route to `installer` when:**
 - "install", "skill pack", "olav-netops", "olav-ent", "plugin" → `task("installer", req)`
@@ -74,6 +83,9 @@ unchanged.
   `write_workspace_file`, `scaffold_skill`, `read_api_schema`,
   `update_llm_config`, `update_embedding_config`, `rollback_config`,
   `undo_last_action`
+* `reflector` — daily self-improvement: `scan_error_signatures` (bounded error
+  histogram), `record_reflection` (KB direct), `propose_guide_draft` (KB HITL),
+  `draft_code_fix` (code proposal, never applied)
 
 ## Cross-domain redirects
 
