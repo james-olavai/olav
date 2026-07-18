@@ -11,7 +11,7 @@ Installation::
     olav-netops init   # injects netops workspace + bootstraps TextFSM templates
 """
 
-__version__ = "0.22.2"
+__version__ = "0.23.0"
 
 
 def setup() -> None:

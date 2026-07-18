@@ -5,6 +5,46 @@ All notable changes to OLAV will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-07-18
+
+Self-improvement + observability release (also folds in the unpublished 0.22.2
+demo-runsheet fixes below).
+
+### Added
+- **`admin/reflector` agent** — daily self-reflection: a bounded error-signature
+  histogram (`audit.duckdb` + tail-scan of `.olav/logs/*.log`, never the whole
+  file) triaged into KB lessons, `usage_guide` drafts (HITL), or code-fix
+  proposals under `exports/reflections/` (never edits source). Scheduled via the
+  `reflect` cron job.
+- **`olav cron`** — opt-in `enable`/`disable`/`list` of declared scheduled jobs
+  (never auto-written to crontab); `init`/`doctor` surface a one-line hint.
+- **`olav kb bench`** — domain-agnostic self-recall benchmark (each memory
+  queried by its own text; low self-recall@1 flags a degraded embedder/index).
+- **`olav doctor`** expanded from 3 to 8 zero-LLM checks — adds `agents`,
+  `subagents`, `tools`, `memory` (experience primed?), `recall` (smoke); `--json`.
+- **`draw_topology`** — one-shot draw.io/Mermaid topology from the writer agent
+  (scoped by `name_like`/`center`; refuses an unscoped whole-fabric render).
+
+### Changed
+- **Reflection recall distance gate (L2 0.65)** — `reflection` memories inject
+  only on a relevant hit, not on every prompt (`usage_guide` deliberately
+  ungated — overlapping distributions, steering-layer risk).
+- **Reflection near-duplicate dedup (L2 0.3)** — daily runs no longer pile up
+  near-identical lessons.
+
+### Fixed
+- **`register_service` auth** — wrote flat `auth_type`/`auth_token_env` keys the
+  registry read back as `auth.type=none`, so every agent-registered service had a
+  silently-missing Authorization header. Now writes the nested `auth:` block.
+- **NetBox 4.5** support — Bearer `nbt_` tokens (import client + service), `/api`
+  endpoint double-prefix (404), per-request timeout resilience, hostname-derived
+  `site`/`role`, and case-insensitive slug idempotency.
+- **Cron jobs silently no-op'd** — the `>>` redirect target `~/.olav/logs/` was
+  never created; cron lines now `mkdir -p` it on every run.
+- **`raw_output_store` single-copy semantics** — documented + governance gate
+  (never filter by `snapshot_id`; it's a last-writer label, not a partition key).
+- **`olav doctor --json`** was rich-wrapped mid-value → invalid JSON; now plain.
+
 ## [0.22.2] - 2026-07-17
 
 Patch: fresh-install fixes surfaced by the V3 demo runsheet.

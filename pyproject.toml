@@ -31,7 +31,7 @@ exclude = [
 
 [project]
 name = "olav"
-version = "0.22.2"
+version = "0.23.0"
 description = "OLAV — AI-native platform for autonomous operations with domain-aware agents, API-as-Tool, and Agent Harness"
 readme = "README.md"
 requires-python = ">=3.11"
