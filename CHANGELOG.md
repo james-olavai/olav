@@ -5,6 +5,17 @@ All notable changes to OLAV will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.1] - 2026-07-18
+
+Metadata patch (no code changes vs 0.23.0):
+
+- **Project URLs** — Homepage → `https://olavai.com`, Documentation →
+  `https://docs.olavai.com` (was the dead `github.com/olav-ai/olav`); the
+  0.23.0 PyPI page shows the old URL since a published release's metadata can't
+  be retro-edited.
+- **Author info unified** to `OLAV Team <olav@olavai.com>`; copyright year range
+  aligned (LICENSE 2026-2030 → 2024-2026).
+
 ## [0.23.0] - 2026-07-18
 
 Self-improvement + observability release (also folds in the unpublished 0.22.2
