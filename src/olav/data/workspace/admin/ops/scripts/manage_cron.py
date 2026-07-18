@@ -86,7 +86,16 @@ def add_cron(schedule: str, agent: str, instruction: str) -> dict[str, Any]:
     cron = _get_crontab()
     comment = f"{_COMMENT_PREFIX}{agent}|{instruction}"
     project_root = _get_project_root()
-    command = f'cd {project_root} && {_OLAV_BIN} --agent {agent} --auto-approve "{instruction}" >> ~/.olav/logs/cron_{agent}.log 2>&1'
+    # `mkdir -p ~/.olav/logs` on every fire: `olav init` creates the PROJECT
+    # .olav/logs, not $HOME/.olav/logs, so without this the `>>` redirect target
+    # dir is missing → the shell fails the redirect and the job never runs (it
+    # silently no-ops every day). Creating it inline is robust even if the dir
+    # is removed after the job is registered.
+    command = (
+        f'mkdir -p ~/.olav/logs && cd {project_root} && '
+        f'{_OLAV_BIN} --agent {agent} --auto-approve "{instruction}" '
+        f'>> ~/.olav/logs/cron_{agent}.log 2>&1'
+    )
 
     existing = _find_job(cron, agent, instruction)
     if existing:

@@ -109,6 +109,22 @@ def test_disable_all_removes_active_jobs(monkeypatch):
     assert "disabled 1" in out
 
 
+# ── the cron command line must self-create its log dir ────────────────────
+def test_manage_cron_command_creates_log_dir():
+    """add_cron's crontab line must `mkdir -p ~/.olav/logs` before the `>>`
+    redirect — `olav init` creates the PROJECT .olav/logs, not $HOME/.olav/logs,
+    so without this every cron job silently no-ops (the shell fails the redirect
+    and never runs the command). Regression guard for a silent-failure bug."""
+    src = (
+        REPO_SRC := __import__("pathlib").Path(__file__).resolve().parents[1].parent
+        / "src/olav/data/workspace/admin/ops/scripts/manage_cron.py"
+    ).read_text()
+    assert "mkdir -p ~/.olav/logs" in src, (
+        "manage_cron add_cron must create ~/.olav/logs inline or cron jobs "
+        "silently fail the log redirect and never run"
+    )
+
+
 # ── init + doctor surface the opt-in hint ─────────────────────────────────
 def test_init_and_doctor_emit_cron_hint():
     from olav.cli.commands.doctor import DoctorCommand
