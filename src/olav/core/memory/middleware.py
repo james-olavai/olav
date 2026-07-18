@@ -445,18 +445,42 @@ class AutoRecallMiddleware:
     _EXPERT_SUBQUOTAS = {"agent": 1, "shared": 1, "org": 1}
 
     # Per-category L2 distance thresholds — drop hits with distance
-    # ABOVE this value as too weak to inject.  Empty until we have
-    # confidence the gating doesn't side-effect agent behaviour.
+    # ABOVE this value as too weak to inject (applied in enrich() via
+    # ``_filter_by_distance``, right after candidate gather so it sees the
+    # raw vector distance before rerank/diversify).
     #
-    # Phase 1.5b experiment (dev_docs/58): set ``usage_guide: 1.6`` to
-    # filter Chinese-positive vs English-negative overlap (probe data
-    # at tests/integration/test_recall_hit_rate.py).  N=5 bench then
-    # showed C4-topo correctness flipped 100% → 0% — but a follow-up
-    # bisect against pristine Phase 1.5 code reproduced the 0% even
-    # WITHOUT the threshold, so the regression is environmental
-    # (writer subagent path).  Threshold infra retained for future
-    # Tags-FTS-driven gating; dict left empty so it's a no-op.
-    _CATEGORY_DISTANCE_THRESHOLD: dict[str, float] = {}
+    # Phase 1.5b experiment (dev_docs/58): a blanket ``usage_guide: 1.6``
+    # once looked to regress C4-topo, but a bisect showed that 0% was
+    # environmental (writer subagent path), NOT the threshold.
+    #
+    # ``reflection: 0.65`` — reflections are agent-derived lessons that grow
+    # daily (admin/reflector); without a floor, the reflection quota (1 slot)
+    # always injects the single "closest" lesson even on an unrelated prompt.
+    # Calibrated empirically (nomic-embed L2): a genuine hit lands ~0.36; all
+    # noise (unrelated BGP / topology / weather prompts) clusters ≥0.75. 0.65
+    # sits in the clean gap — keeps genuine hits (with paraphrase margin),
+    # drops the "closest-but-irrelevant" lesson. Validated N≥3 via
+    # tests/integration/test_recall_hit_rate.py (no top-3 regression + lower
+    # reflection noise). Categories NOT listed here, and rows without a
+    # distance, are never dropped (safe default).
+    _CATEGORY_DISTANCE_THRESHOLD: dict[str, float] = {"reflection": 0.65}
+
+    def _filter_by_distance(self, memories: list[dict]) -> list[dict]:
+        """Drop candidates whose category has a distance threshold and whose
+        vector distance exceeds it. Rows without a distance, or in a category
+        with no threshold, always pass (fail-open — never over-drop)."""
+        thresholds = self._CATEGORY_DISTANCE_THRESHOLD
+        if not thresholds:
+            return memories
+        out: list[dict] = []
+        for m in memories:
+            thr = thresholds.get(m.get("category") or "fact")
+            if thr is not None:
+                d = self._row_distance(m)
+                if d is not None and d > thr:
+                    continue
+            out.append(m)
+        return out
 
     def _allowed_expert_scopes(self) -> set[str] | None:
         """Phase 1.5 scope filter set for ``expert_knowledge``.
@@ -901,6 +925,11 @@ class AutoRecallMiddleware:
             raw_memories = self._gather_candidates(
                 query_text, query_vector, scope, effective_top_k,
             )
+
+            # Distance gate — drop category candidates too weakly related to
+            # inject (e.g. reflection lessons on an unrelated prompt). Applied
+            # on the raw vector distance, before keyword-boost/rerank reorder it.
+            raw_memories = self._filter_by_distance(raw_memories)
 
             # Patch C2 (2026-05-08): exact-keyword-match boost.
             # When the user prompt contains snake_case identifiers

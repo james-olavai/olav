@@ -46,6 +46,37 @@ def test_diversifier_caps_query_pattern_at_two():
     assert cats.count("query_pattern") == 2
 
 
+def _mkd(mid: str, cat: str, dist: float) -> dict:
+    return {"id": mid, "category": cat, "text": mid, "score": dist}
+
+
+def test_distance_gate_drops_far_reflection_keeps_near():
+    """The reflection distance gate (0.65) drops weakly-related reflections
+    (the daily-growing noise) but keeps genuine hits. Deterministic — no
+    embedder needed. Calibrated live in test_recall_hit_rate."""
+    from olav.core.memory.middleware import AutoRecallMiddleware
+
+    mw = AutoRecallMiddleware(store=None)
+    assert mw._CATEGORY_DISTANCE_THRESHOLD.get("reflection") == 0.65
+    raw = [
+        _mkd("refl_near", "reflection", 0.36),   # genuine hit — keep
+        _mkd("refl_far", "reflection", 0.90),    # noise — drop
+        _mkd("guide_far", "usage_guide", 0.90),  # no threshold — keep
+        {"id": "refl_nodist", "category": "reflection", "text": "x"},  # no dist — keep
+    ]
+    out_ids = {m["id"] for m in mw._filter_by_distance(raw)}
+    assert out_ids == {"refl_near", "guide_far", "refl_nodist"}, out_ids
+
+
+def test_distance_gate_noop_when_no_thresholds(monkeypatch):
+    from olav.core.memory.middleware import AutoRecallMiddleware
+
+    mw = AutoRecallMiddleware(store=None)
+    monkeypatch.setattr(mw, "_CATEGORY_DISTANCE_THRESHOLD", {})
+    raw = [_mkd("refl_far", "reflection", 0.99)]
+    assert mw._filter_by_distance(raw) == raw  # empty dict → no-op
+
+
 def test_diversifier_preserves_global_rank_order():
     from olav.core.memory.middleware import AutoRecallMiddleware
 

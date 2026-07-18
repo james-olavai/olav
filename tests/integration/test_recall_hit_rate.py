@@ -169,7 +169,10 @@ def measure_hit_rate(top_k: int = 5) -> HitRateReport:
     for query, expected_intent in GOLDEN:
         vec = embed_text(query)
         candidates = mw._gather_candidates(query, vec, scope="global", top_k=fetch_k)
-        # Apply same diversifier the live agent sees
+        # Faithful to live enrich(): apply the per-category distance gate before
+        # diversify (no-op for usage_guide — it has no threshold — so this must
+        # not move the guide hit-rate numbers).
+        candidates = mw._filter_by_distance(candidates)
         diversified = mw._diversify_by_category(candidates, fetch_k)
 
         # Filter to usage_guide only — that's the category we're testing
@@ -229,6 +232,7 @@ def measure_hit_rate(top_k: int = 5) -> HitRateReport:
     for nq in NEGATIVE_QUERIES:
         nv = embed_text(nq)
         nc = mw._gather_candidates(nq, nv, scope="global", top_k=fetch_k)
+        nc = mw._filter_by_distance(nc)
         nd = mw._diversify_by_category(nc, fetch_k)
         ng = [m for m in nd if m.get("category") == "usage_guide"]
         ng_ids = [m.get("id", "") for m in ng]
@@ -258,6 +262,68 @@ def measure_hit_rate(top_k: int = 5) -> HitRateReport:
 
 
 # ── Pytest path ────────────────────────────────────────────────────
+
+
+def measure_reflection_gate():
+    """Measure the reflection distance gate: genuine hits kept, noise dropped.
+
+    Positive probe: query with each reflection's OWN text (distance ~0) — the
+    gate must KEEP it. Negative probe: the unrelated NEGATIVE_QUERIES — the gate
+    must drop the "closest-but-irrelevant" reflection (0 pulled).
+    """
+    from olav.core.embedder import embed_text
+    from olav.core.memory import MEMORY_TABLE, get_store
+    from olav.core.memory.middleware import AutoRecallMiddleware
+
+    store = get_store()
+    mw = AutoRecallMiddleware(store=store)
+    refs = [
+        m for m in store.get_memories(
+            category="reflection", limit=200, table_name=MEMORY_TABLE
+        )
+        if m.get("text")
+    ][:12]
+
+    def _reflections_after_gate(q):
+        cand = mw._gather_candidates(q, embed_text(q), scope="global", top_k=10)
+        cand = mw._filter_by_distance(cand)
+        return [m for m in cand if m.get("category") == "reflection"]
+
+    pos_kept = sum(
+        1 for r in refs
+        if r.get("id") in {m.get("id") for m in _reflections_after_gate(r["text"])}
+    )
+    neg_clean = sum(1 for nq in NEGATIVE_QUERIES if not _reflections_after_gate(nq))
+    return {
+        "reflections": len(refs),
+        "pos_kept": pos_kept,
+        "pos_total": len(refs),
+        "neg_clean": neg_clean,
+        "neg_total": len(NEGATIVE_QUERIES),
+    }
+
+
+def test_reflection_distance_gate():
+    """The reflection gate keeps genuine hits and drops unrelated noise."""
+    import pytest
+
+    r = measure_reflection_gate()
+    if r["reflections"] == 0:
+        pytest.skip("no reflection memories in KB — run in a primed env")
+    print(
+        f"\nreflection gate: kept {r['pos_kept']}/{r['pos_total']} genuine · "
+        f"clean {r['neg_clean']}/{r['neg_total']} negatives",
+        flush=True,
+    )
+    pos_rate = r["pos_kept"] / r["pos_total"]
+    neg_rate = r["neg_clean"] / r["neg_total"]
+    assert pos_rate >= 0.80, (
+        f"gate dropped genuine reflection hits ({pos_rate:.0%} kept) — "
+        "threshold too tight"
+    )
+    assert neg_rate >= 0.80, (
+        f"gate let noise through ({neg_rate:.0%} clean) — threshold too loose"
+    )
 
 
 def test_top_3_hit_rate_meets_threshold():
