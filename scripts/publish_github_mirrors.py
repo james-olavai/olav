@@ -381,7 +381,11 @@ def publish_mirror(push: bool) -> int:
             print("dry-run — skipping push (use --push to publish)")
             return 0
         _run(["git", "remote", "add", "github", MIRROR_REMOTE], cwd=clone)
-        _run(["git", "push", "github", "main"], cwd=clone)
+        # --force on main: filter-repo rewrites history, so a re-filter that
+        # diverges from a stale remote (e.g. a prior release that never fully
+        # pushed) is not fast-forward. The scrub verification above gates this
+        # — the filtered tree is confirmed credential-clean before any push.
+        _run(["git", "push", "github", "main", "--force"], cwd=clone)
         _run(["git", "push", "github", "--tags", "--force"], cwd=clone)
         print(f"pushed main + tags → {MIRROR_REMOTE}")
     return 0
