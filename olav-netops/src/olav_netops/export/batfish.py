@@ -50,6 +50,58 @@ logger = logging.getLogger(__name__)
 # including one of these tokens puts it in front.
 _BATFISH_PREFERRED_TOKENS = ("display set", "formal")
 
+# ISSUE-BATFISH-EXPORT-NEEDS-COMMANDS-WHITELIST: last-resort backup commands
+# per platform when the netops.commands whitelist is absent or has no
+# backup_only rows (e.g. main.duckdb wiped + only device data re-imported).
+# Mirrors the shipped user_commands.yaml defaults. The DB whitelist is still
+# preferred; this only prevents a cryptic "No valid configurations found"
+# Batfish failure when the whitelist didn't get synced.
+_DEFAULT_BACKUP_COMMANDS: dict[str, tuple[str, ...]] = {
+    "cisco_ios": ("show running-config",),
+    "cisco_xe": ("show running-config",),
+    "cisco_nxos": ("show running-config",),
+    "cisco_xr": ("show running-config formal", "show running-config"),
+    "arista_eos": ("show running-config",),
+    "juniper_junos": ("show configuration | display set", "show configuration"),
+}
+
+
+def _candidate_backup_commands(conn: Any, platform: str) -> tuple[list[str], bool]:
+    """Return (candidate commands, used_fallback) for *platform*.
+
+    Prefers the ``netops.commands`` backup_only whitelist; falls back to
+    ``_DEFAULT_BACKUP_COMMANDS`` when that query yields nothing (missing
+    table or unsynced whitelist), so a stripped DB can't silently starve
+    the Batfish export. Never raises on a missing table."""
+    rows: list[tuple[str]] = []
+    try:
+        rows = conn.execute(
+            """
+            SELECT command FROM netops.commands
+            WHERE platform = ?
+              AND COALESCE(backup_only, FALSE) = TRUE
+              AND COALESCE(blacklisted, FALSE) = FALSE
+            """,
+            [platform],
+        ).fetchall()
+    except Exception as exc:  # noqa: BLE001 — missing table / catalog error
+        logger.warning(
+            "batfish export: netops.commands unavailable (%s); using default "
+            "backup commands for %s", exc, platform,
+        )
+    candidates = [r[0] for r in rows]
+    if candidates:
+        return candidates, False
+    fallback = list(_DEFAULT_BACKUP_COMMANDS.get(platform, ()))
+    if fallback:
+        logger.warning(
+            "batfish export: no backup_only command in netops.commands for %s "
+            "— falling back to built-in default(s) %s (run `olav skill install "
+            "olav-netops` or netops_init to sync the whitelist)",
+            platform, fallback,
+        )
+    return fallback, True
+
 
 def _pick_config(
     conn: Any,
@@ -63,24 +115,15 @@ def _pick_config(
     backup_only=TRUE`` — the SSOT seeded by
     :func:`commands_sync.sync_commands` from
     ``.olav/workspace/netops/netops_init/config/user_commands.yaml`` plus
-    user overlays.  **No per-platform list hardcoded in this module.**
-    Adding a new vendor's backup command is a YAML edit, zero code
-    change.
+    user overlays.  When that whitelist is missing/unsynced, a built-in
+    per-platform default is used so the export still works (see
+    :data:`_DEFAULT_BACKUP_COMMANDS`).
 
     Commands containing :data:`_BATFISH_PREFERRED_TOKENS` (``display
     set`` for Junos set-format, ``formal`` for IOS-XR) are tried
     first because Batfish's parser handles them best.
     """
-    rows = conn.execute(
-        """
-        SELECT command FROM netops.commands
-        WHERE platform = ?
-          AND COALESCE(backup_only, FALSE) = TRUE
-          AND COALESCE(blacklisted, FALSE) = FALSE
-        """,
-        [platform],
-    ).fetchall()
-    candidates = [r[0] for r in rows]
+    candidates, _ = _candidate_backup_commands(conn, platform)
     # Batfish-preferred variants first, other backup commands next.
     candidates.sort(
         key=lambda c: 0 if any(tok in c for tok in _BATFISH_PREFERRED_TOKENS) else 1,
