@@ -2006,11 +2006,37 @@ async def _ensure_bootstrapped() -> bool:
 
     if is_fresh_bootstrap:
         _check_first_run_health()
+        _suppress_deepagents_web_search_notice()
 
     _run_extension_first_run_checks()
     _check_returning_user_context()
 
     return True
+
+
+def _suppress_deepagents_web_search_notice() -> None:
+    """Silence deepagents-code's startup "TAVILY_API_KEY not set — web search
+    disabled" notice.
+
+    OLAV ships its own key-free web_search (DuckDuckGo) on the orchestrator,
+    so the TUI framework's Tavily prompt is pure noise for OLAV users — it
+    points at a capability OLAV doesn't route through. deepagents-code exposes
+    a supported suppression list (`[warnings].suppress` in
+    ``~/.deepagents/config.toml``); we set it once at first run via the
+    framework's own writer (idempotent, dedupes). Best-effort: never raises,
+    never blocks bootstrap if the framework is absent or its API shifts.
+    """
+    try:
+        from deepagents_code.model_config import (
+            is_warning_suppressed,
+            suppress_warning,
+        )
+
+        if not is_warning_suppressed("tavily"):
+            suppress_warning("tavily")
+            logger.debug("suppressed deepagents tavily web-search notice")
+    except Exception as exc:  # noqa: BLE001 — cosmetic, must never block boot
+        logger.debug("deepagents tavily-notice suppression skipped: %s", exc)
 
 
 def _check_returning_user_context() -> None:

@@ -447,15 +447,44 @@ def test_fresh_bootstrap_runs_first_run_health_check(tmp_path, monkeypatch) -> N
     import olav.cli.commands.init as init_mod
     monkeypatch.setattr(init_mod, "InitCommand", _StubInit)
 
-    called = {"health": False}
+    called = {"health": False, "tavily": False}
     monkeypatch.setattr(
         main_mod, "_check_first_run_health", lambda: called.__setitem__("health", True)
+    )
+    monkeypatch.setattr(
+        main_mod, "_suppress_deepagents_web_search_notice",
+        lambda: called.__setitem__("tavily", True),
     )
 
     result = _run(main_mod._ensure_bootstrapped())
 
     assert result is True
     assert called["health"] is True
+    assert called["tavily"] is True, "fresh bootstrap must silence the tavily notice"
+
+
+def test_suppress_deepagents_web_search_notice_is_best_effort(monkeypatch) -> None:
+    """Cosmetic suppression must never raise — a missing/renamed deepagents
+    API must not break bootstrap."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "deepagents_code.model_config", None)
+    # Should swallow the import failure and return cleanly.
+    main_mod._suppress_deepagents_web_search_notice()
+
+
+def test_suppress_deepagents_web_search_notice_calls_framework(monkeypatch) -> None:
+    import sys
+    import types
+
+    calls = {}
+    fake = types.ModuleType("deepagents_code.model_config")
+    fake.is_warning_suppressed = lambda key: False
+    fake.suppress_warning = lambda key: calls.setdefault("key", key)
+    monkeypatch.setitem(sys.modules, "deepagents_code.model_config", fake)
+
+    main_mod._suppress_deepagents_web_search_notice()
+    assert calls.get("key") == "tavily"
 
 
 def test_existing_scaffolding_skips_first_run_health_check(tmp_path, monkeypatch) -> None:
