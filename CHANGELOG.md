@@ -5,6 +5,35 @@ All notable changes to OLAV will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.1] - 2026-07-20
+
+Patch release — fixes and diagnostics hardened during a from-scratch VM
+deployment + demo rehearsal (all verified end-to-end on a local 30B model).
+
+### Fixed
+- **audit postcheck prompts** suggested `olav -a ops` — a top-level agent
+  that no longer exists (agents are admin/audit/core/devops/netops/services);
+  network investigation prompts now target `netops`. Also fixed the same
+  stale `--agent ops` in CLI help/examples and CI integration scripts.
+- **batfish export** now falls back to built-in per-platform backup commands
+  (cisco_ios/xe/nxos/xr, arista_eos, juniper_junos) when the netops.commands
+  `backup_only` whitelist is missing/unsynced — previously fed Batfish zero
+  configs and failed the change-plan workflow's validation step with a
+  cryptic "No valid configurations found".
+
+### Added
+- **`olav doctor` workspace-split check** — flags a competing `~/.olav`
+  holding real workspace state distinct from the resolved deployment (the
+  stray-project-root trap), with an OLAV_HOME fix; report is now colorized
+  and names the configured LLM/embedding backend (model @ endpoint · dim).
+- **Global `api.json plugins.disabled`** — a fleet-wide plugin switch the
+  PluginRegistry always documented but agent.py never read (only per-agent
+  SKILL.md). Lets an operator disable e.g. `memory_capture` (its per-turn
+  extraction LLM round-trip + JSON leak) across all orchestrators in one
+  edit.
+- **First-run** silences deepagents' Tavily "web search disabled" notice
+  (OLAV ships its own key-free DuckDuckGo web_search).
+
 ## [0.24.0] - 2026-07-19
 
 Declarative workflows + reliability hardening. Every feature below was
