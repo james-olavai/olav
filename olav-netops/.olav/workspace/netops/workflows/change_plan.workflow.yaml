@@ -1,0 +1,26 @@
+schema_version: 1
+name: change_plan
+title: Change-plan workflow — draft, pre-check, formally verify
+trigger: 'change-plan intent for ADDING or MODIFYING config ("add / modify /
+  redundant / 变更") — a change plan is not done until it is verified.
+  Removal/decommission requests use the decommission_impact workflow instead.'
+artifact: 'the plan FILE PATH (a string like exports/change_plans/<file>.md,
+  found in step 1''s reply); never paste the plan content itself between steps'
+steps:
+  - agent: analyzer
+    prompt: <the original user request>
+    returns: its reply names the saved plan path. Extract that path.
+  - agent: reporter
+    prompt: '"Pre-check the change plan at <path>: verify its
+      devices/interfaces/IPs against current state and quantify the blast
+      radius of the element it protects or removes. Verdict + evidence."'
+  - agent: simulator
+    prompt: '"Validate the change plan at <path> with Batfish: subnet/overlap
+      conflicts, BGP/OSPF compatibility, reachability. Return a verdict."'
+assembly:
+  headers:
+    - Draft
+    - Pre-check (reporter)
+    - Formal verification (Batfish)
+on_failure: If a step errors or no path can be found, include what you have
+  and note the failed step. Never retry a step more than once; never reorder.

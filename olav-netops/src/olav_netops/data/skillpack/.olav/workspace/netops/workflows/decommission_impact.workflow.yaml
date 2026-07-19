@@ -1,0 +1,33 @@
+schema_version: 1
+name: decommission_impact
+title: Decommission workflow — impact-quantified plan, pre-check, formal verify
+trigger: 'decommission / removal intent ("decommission / remove device / remove
+  link / shut down / 退役 / 下线") — removing an element is the highest-risk
+  change class; the plan must carry a quantified impact number and survive both
+  verification tiers'
+artifact: 'the plan FILE PATH (a string like exports/change_plans/<file>.md,
+  found in step 1''s reply); never paste the plan content itself between steps'
+steps:
+  - agent: analyzer
+    prompt: <the original user request>
+    returns: 'its reply names the saved plan path — extract it. (The analyzer''s
+      own rules require a blast-radius count inside the plan for this change
+      class.)'
+  - agent: reporter
+    prompt: '"Pre-check the decommission plan at <path>: verify the element''s
+      current role, links and dependents against state, and independently
+      recompute the blast radius of removing it — flag if the plan cites no or
+      a different impact number. Verdict + evidence."'
+  - agent: simulator
+    prompt: '"Validate the decommission plan at <path> with Batfish: enumerate
+      the BGP/OSPF sessions and routes that traverse the element being removed,
+      and state what reachability is lost after removal (use differential mode
+      only if a candidate snapshot exists — otherwise enumerate affected
+      sessions/routes from the current snapshot). Return a verdict."'
+assembly:
+  headers:
+    - Decommission plan
+    - Pre-check (reporter)
+    - Formal verification (Batfish)
+on_failure: If a step errors or no path can be found, include what you have
+  and note the failed step. Never retry a step more than once; never reorder.

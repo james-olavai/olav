@@ -15,10 +15,10 @@ subagents:
   - path: ./audit-runner/SKILL.md
   - path: ./audit-author/SKILL.md
   - path: ./explorer/SKILL.md
+deterministic_synthesis_grader: true   # dev_docs/97 deferred item — enabled 2026-07-19 (bare "[]" final answer); TOP-LEVEL on purpose: the orchestrator branch reads olav_config.get(<flag>), not metadata.* (the dev_docs/97 nested-flag trap)
 metadata:
-  rubric_middleware: true
   type: agent
-  version: 1.0.0
+  version: 1.0.1
   category: platform
 ---
 

@@ -904,6 +904,18 @@ class OLAVAgent:
             except Exception as _de:
                 logger.warning("orchestrator DeterministicSynthesisMiddleware init failed for '%s': %s", self.agent_id, _de)
 
+        # ISSUE-NO-TOOL-CALL-CIRCUIT-BREAKER (dev_docs/00, 2026-07-19):
+        # unconditional, zero-LLM guard against consecutive identical failing
+        # tool calls (a corrupted gemma4 tool-call emission once retried the
+        # same broken glob 59× → 16M-token request → 400).
+        try:
+            from olav.agents.loop_breaker import ToolLoopBreakerMiddleware
+            effective_middleware = list(effective_middleware) + [
+                ToolLoopBreakerMiddleware(agent_name=self.agent_id)
+            ]
+        except Exception as _lb:  # noqa: BLE001
+            logger.warning("ToolLoopBreakerMiddleware init failed for '%s': %s", self.agent_id, _lb)
+
         # ADR-0008: Native SkillsMiddleware — skill discovery and third-party
         # skill compatibility (deepagents standard pattern).
         # Sources: top-level agent directories whose children have SKILL.md.
@@ -1491,6 +1503,16 @@ class OLAVAgent:
                 except Exception as _de:
                     logger.warning(f"  ! DeterministicSynthesisMiddleware init failed for '{name}': {_de}")
 
+            # ISSUE-NO-TOOL-CALL-CIRCUIT-BREAKER: every sub-agent gets the
+            # tool-loop breaker (see the orchestrator wiring above for why).
+            _breaker_mw = None
+            try:
+                from olav.agents.loop_breaker import ToolLoopBreakerMiddleware
+                _breaker_mw = ToolLoopBreakerMiddleware(agent_name=name)
+                _middleware.append(_breaker_mw)
+            except Exception as _lb:  # noqa: BLE001
+                logger.warning(f"  ! ToolLoopBreakerMiddleware init failed for '{name}': {_lb}")
+
             # dev_docs/73 §2.6.2: a sub-agent that itself declares
             # ``subagents:`` in its SKILL.md needs deepagents'
             # ``SubAgentMiddleware`` to inject the ``task`` tool so it
@@ -1525,6 +1547,11 @@ class OLAVAgent:
                 # (analyzer, reporter) get the L2 verification loop too
                 # (dev_docs/97 §5).
                 _deep_extra_mw = [_det_grader_mw] if _det_grader_mw is not None else []
+                if _breaker_mw is not None:
+                    # recursive deep-agents skip _middleware — add the breaker
+                    # explicitly (create_deep_agent doesn't own this one, so
+                    # no duplicate-middleware conflict).
+                    _deep_extra_mw = _deep_extra_mw + [_breaker_mw]
                 runnable = create_deep_agent(
                     model=sa_llm,
                     system_prompt=prompt,
@@ -1623,6 +1650,24 @@ class OLAVAgent:
                 logger.warning(f"Failed to resolve env vars in prompt: {e}")
             # ③ Inject static_context from AGENT.md frontmatter
             agent_prompt = _inject_static_context(agent_prompt, self._agent_dir, olav_config)
+            # ④ Declarative cross-subagent workflows (<agent_dir>/workflows/
+            # *.workflow.yaml) — YAML data rendered deterministically, instead
+            # of hand-written orchestration prose in the SKILL.md body.
+            try:
+                from olav.agents.workflows import render_workflows_section
+                _declared = {
+                    Path(s.get("path", "")).parent.name
+                    for s in (olav_config.get("subagents") or [])
+                    if isinstance(s, dict) and s.get("path")
+                }
+                _wf_section = render_workflows_section(
+                    self._agent_dir, _declared or None
+                )
+                if _wf_section:
+                    agent_prompt = agent_prompt + "\n\n" + _wf_section
+                    logger.info("✓ workflows injected from %s/workflows/", self._agent_dir.name)
+            except Exception as _wf_exc:  # noqa: BLE001 — workflows are optional
+                logger.warning("workflow injection failed: %s", _wf_exc)
             logger.info(f"Loaded system prompt from {prompt_file}")
         else:
             agent_prompt = olav_config.get("description", "You are OLAV, an AI operations assistant.")

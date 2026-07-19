@@ -85,7 +85,7 @@ audit profiles → redirect with the correct `--agent` flag.
 
 | User intent | Sub-agent | Route |
 |---|---|---|
-| Change plan / "add / modify / remove / 变更" | analyzer | `task("analyzer", req)` |
+| Change plan / "add / modify / remove / 变更" | analyzer → reporter → simulator | **Change-plan workflow** (see below) |
 | Investigate / "why / blast-radius / drift / 故障" | reporter | `task("reporter", req)` |
 | Batfish simulation / what-if | simulator | `task("simulator", req)` |
 | SSH collect / gather | collector | `task("collector", req)` |
@@ -94,9 +94,15 @@ audit profiles → redirect with the correct `--agent` flag.
 | Learn / fix parser | learner | `task("learner", req)` |
 | Format / polish report | writer | `task("writer", req)` |
 
+Multi-step workflows (e.g. the change-plan workflow) are declared in
+`workflows/*.workflow.yaml` and injected below this prompt — follow them
+exactly when the user intent matches their trigger.
+
 ## Hard rules
 
 1. **Pure router** — no SQL, no report writing, no direct tool calls
    except `olav_recall_memory` and `web_search`.
 2. **Return sub-agent result verbatim** — do not paraphrase or summarise.
+   (The change-plan workflow stacks three verbatim results; stacking is
+   not summarising.)
 3. **Ambiguous intent** → ask one clarifying question before routing.

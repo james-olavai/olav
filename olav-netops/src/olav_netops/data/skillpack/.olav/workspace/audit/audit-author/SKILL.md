@@ -169,6 +169,11 @@ After completion, report in the user's language:
 2. test_map_query result for each job (valid / error)
 3. Profile file save path
 
+Your reply MUST end with this exact final line (machine-read by the
+orchestrator's workflow — no markdown around it):
+
+    PROFILE_PATH: <the saved profile path>
+
 ## What you do NOT do
 
 - Don't execute the profile after writing it — that's the `audit-runner` sub-agent's job. Return control to the orchestrator after write_profile completes.
