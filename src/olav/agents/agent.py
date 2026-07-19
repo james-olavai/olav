@@ -720,9 +720,25 @@ class OLAVAgent:
         )
         from olav.plugins.registry import PluginRegistry
 
-        _disabled = []
+        # Per-agent disable list from SKILL.md frontmatter …
+        _disabled: list[str] = []
         try:
             _disabled = list(olav_config.get("plugins", {}).get("disabled", []))
+        except Exception:
+            pass
+        # … merged with the GLOBAL api.json `plugins.disabled` — the source the
+        # PluginRegistry docstring documents, which the per-agent-only wiring
+        # never actually read. Lets an operator disable a plugin fleet-wide
+        # (e.g. `memory_capture` for demos, to drop the per-turn extraction
+        # LLM round-trip) via one api.json edit instead of every orchestrator's
+        # frontmatter. (ISSUE-AUTOCAPTURE-SYNC-LLM-ROUNDTRIP)
+        try:
+            import olav.core.config as _cfg
+            _api_disabled = (
+                (_cfg.get_config()._api.get("plugins") or {}).get("disabled") or []
+            )
+            if _api_disabled:
+                _disabled = list({*_disabled, *_api_disabled})
         except Exception:
             pass
         self.plugin_registry = PluginRegistry(disabled=_disabled)
