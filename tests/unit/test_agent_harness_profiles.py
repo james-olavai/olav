@@ -147,6 +147,47 @@ class TestMediumTierProfile:
             )
 
 
+class TestConfiguredModelTierBinding:
+    """Regression: profiles are keyed by exact spec strings, so a configured
+    model absent from the static lists (e.g. ``gemma4-31b-it-qat``) matched
+    nothing — deepagents logged 'No harness profile matched' AND the model
+    silently ran without its tier's discipline. register_olav_profiles must
+    bind the configured model to its tier profile dynamically."""
+
+    @staticmethod
+    def _fake_llm(model, provider="openai", tier="medium"):
+        class _Cfg:
+            pass
+        c = _Cfg()
+        c.model, c.model_provider, c.model_tier = model, provider, tier
+        return c
+
+    def test_configured_medium_model_gets_medium_discipline(self, monkeypatch):
+        import olav.core.config as cfg
+        monkeypatch.setattr(cfg, "get_llm_config",
+                            lambda: self._fake_llm("gemma4-31b-it-qat", tier="medium"))
+        from olav.agents.profiles import register_olav_profiles
+        register_olav_profiles()
+        from deepagents.profiles.harness.harness_profiles import _get_harness_profile
+        for spec in ("gemma4-31b-it-qat", "openai:gemma4-31b-it-qat"):
+            prof = _get_harness_profile(spec)
+            assert prof is not None, f"{spec} must resolve to the medium-tier profile"
+            assert "tool call per turn" in (prof.system_prompt_suffix or "").lower()
+            # Medium, not small: no tool exclusions.
+            assert not prof.excluded_tools
+
+    def test_configured_small_model_gets_small_discipline(self, monkeypatch):
+        import olav.core.config as cfg
+        monkeypatch.setattr(cfg, "get_llm_config",
+                            lambda: self._fake_llm("some-custom-7b-chat", tier="small"))
+        from olav.agents.profiles import register_olav_profiles
+        register_olav_profiles()
+        from deepagents.profiles.harness.harness_profiles import _get_harness_profile
+        prof = _get_harness_profile("openai:some-custom-7b-chat")
+        assert prof is not None
+        assert prof.excluded_tools, "small-tier discipline must exclude FS tools"
+
+
 class TestNoLeakage:
     def test_large_models_get_no_profile(self):
         """Large-tier (GPT-4 / Claude Sonnet / Opus) intentionally has

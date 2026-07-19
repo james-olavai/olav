@@ -48,25 +48,37 @@ def register_olav_profiles() -> None:
     registered: list[str] = []
     try:
         from olav.agents.profiles import tier_small, tier_medium, tier_large
-        tier_small.register()
+
+        # Resolve the *currently configured* model into (spec strings, tier)
+        # so its tier profile binds it even when the static spec lists don't
+        # know it — profiles are keyed by exact "provider:model" strings, so
+        # any unlisted model (e.g. gemma4-31b-it-qat) would otherwise run
+        # with stock defaults, silently skipping its tier's discipline.
+        _model_specs: tuple[str, ...] = ()
+        _tier = ""
+        try:
+            from olav.core.config import get_llm_config
+            _llm = get_llm_config()
+            if (_llm.model or "").strip():
+                _model = _llm.model.strip()
+                _provider = (_llm.model_provider or "openai").strip()
+                _model_specs = (_model, f"{_provider}:{_model}")
+                _tier = _llm.model_tier
+        except Exception as _exc:  # noqa: BLE001 — best-effort resolution
+            logger.debug("configured-model spec resolution skipped: %s", _exc)
+
+        tier_small.register(extra_specs=_model_specs if _tier == "small" else ())
         registered.append("tier_small")
-        tier_medium.register()
+        tier_medium.register(extra_specs=_model_specs if _tier == "medium" else ())
         registered.append("tier_medium")
         # tier_large: deepagents stock behavior is fine — large models don't
         # need OLAV-imposed discipline.  We still register an EMPTY profile
         # for the *configured* large model so deepagents' resolver matches it
         # instead of logging a (benign but noisy) "No harness profile matched"
         # WARNING on every run — see tier_large.py.
-        try:
-            from olav.core.config import get_llm_config
-            _llm = get_llm_config()
-            if (_llm.model or "").strip() and _llm.model_tier == "large":
-                _model = _llm.model.strip()
-                _provider = (_llm.model_provider or "openai").strip()
-                tier_large.register((_model, f"{_provider}:{_model}"))
-                registered.append("tier_large")
-        except Exception as _exc:  # noqa: BLE001 — silencing a warning is best-effort
-            logger.debug("tier_large no-op registration skipped: %s", _exc)
+        if _tier == "large" and _model_specs:
+            tier_large.register(_model_specs)
+            registered.append("tier_large")
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "OLAV harness-profile registration failed (non-fatal — "

@@ -67,10 +67,16 @@ _MEDIUM_MODEL_SPECS: tuple[str, ...] = (
 )
 
 
-def register() -> None:
+def register(extra_specs: tuple[str, ...] = ()) -> None:
     """Register the medium-tier harness profile with deepagents.
 
     Called from :func:`olav.agents.profiles.register_olav_profiles`.
+
+    ``extra_specs``: additional spec strings to bind beyond the static
+    list — the caller passes the *currently configured* model here when
+    the tier regex classifies it medium (e.g. ``gemma4-31b-it-qat``,
+    which no static entry covers), so any medium model the user runs
+    gets the discipline without a hardcoded-list update.
     """
     from deepagents.profiles import (
         HarnessProfile,
@@ -80,9 +86,9 @@ def register() -> None:
     profile = HarnessProfile(
         system_prompt_suffix=_SYSTEM_PROMPT_SUFFIX,
     )
-    for spec in _MEDIUM_MODEL_SPECS:
+    specs = _MEDIUM_MODEL_SPECS + tuple(s for s in extra_specs if s)
+    for spec in specs:
         register_harness_profile(spec, profile)
     logger.debug(
-        "✓ medium-tier harness profile bound to %d model specs",
-        len(_MEDIUM_MODEL_SPECS),
+        "✓ medium-tier harness profile bound to %d model specs", len(specs),
     )

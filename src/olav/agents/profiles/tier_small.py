@@ -119,12 +119,17 @@ _SMALL_MODEL_SPECS: tuple[str, ...] = (
 )
 
 
-def register() -> None:
+def register(extra_specs: tuple[str, ...] = ()) -> None:
     """Register the small-tier harness profile with deepagents.
 
     Called from :func:`olav.agents.profiles.register_olav_profiles`.
     Safe to call multiple times — re-registration merges on top per
     deepagents 0.5.4 semantics.
+
+    ``extra_specs``: additional spec strings to bind beyond the static
+    list — the caller passes the *currently configured* model here when
+    the tier regex classifies it small, so any small model the user
+    runs gets the discipline without a hardcoded-list update.
     """
     from deepagents.profiles import (
         HarnessProfile,
@@ -136,9 +141,9 @@ def register() -> None:
         excluded_tools=_SMALL_TIER_EXCLUDED_TOOLS,
         excluded_middleware=frozenset({"TodoListMiddleware"}),
     )
-    for spec in _SMALL_MODEL_SPECS:
+    specs = _SMALL_MODEL_SPECS + tuple(s for s in extra_specs if s)
+    for spec in specs:
         register_harness_profile(spec, profile)
     logger.debug(
-        "✓ small-tier harness profile bound to %d model specs",
-        len(_SMALL_MODEL_SPECS),
+        "✓ small-tier harness profile bound to %d model specs", len(specs),
     )
