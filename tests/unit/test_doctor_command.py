@@ -149,6 +149,25 @@ def _mock_all_healthy(tmp_path, monkeypatch) -> None:
         "check_embedding_connectivity",
         staticmethod(lambda: (True, "connected")),
     )
+    # v0.23 added workspace/memory checks that read the real deployed
+    # workspace + LanceDB store (they resolve paths from the import-time
+    # project root, not tmp_path). These execute() tests cover report
+    # assembly, not the individual probes — stub them healthy. Each probe
+    # has its own dedicated tests above / in its own module.
+    from olav.cli.commands.doctor import DoctorCommand
+
+    for _name in ("agents", "subagents", "tools", "memory", "recall"):
+        monkeypatch.setattr(
+            DoctorCommand,
+            f"_check_{_name}",
+            lambda self, _n=_name: {"name": _n, "ok": True, "detail": "stubbed", "fix": None},
+        )
+
+
+_ALL_CHECK_NAMES = {
+    "scaffolding", "llm", "embedding",
+    "agents", "subagents", "tools", "memory", "recall",
+}
 
 
 def test_execute_reports_overall_healthy(tmp_path, monkeypatch) -> None:
@@ -163,7 +182,7 @@ def test_execute_json_output_is_valid(tmp_path, monkeypatch) -> None:
     result = asyncio.run(_make_cmd().execute("--json"))
     payload = json.loads(result)
     assert payload["ok"] is True
-    assert {c["name"] for c in payload["checks"]} == {"scaffolding", "llm", "embedding"}
+    assert {c["name"] for c in payload["checks"]} == _ALL_CHECK_NAMES
 
 
 def test_execute_never_raises_on_unhealthy_system(tmp_path, monkeypatch) -> None:

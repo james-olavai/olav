@@ -38,6 +38,20 @@ def _reset_batfish_session_cache():
     yield
 
 
+@pytest.fixture(autouse=True)
+def _batfish_always_reachable(monkeypatch):
+    """The tool fail-fasts on a socket probe to the Batfish endpoint before
+    touching the (mocked) Session — stub it so these unit tests don't depend
+    on a live Batfish container on the host.
+
+    importlib, not `import … as`: the sim package re-exports the batfish_q
+    StructuredTool as a package attribute, shadowing the submodule name."""
+    import importlib
+
+    bq = importlib.import_module("olav_netops.core.sim.batfish_q")
+    monkeypatch.setattr(bq, "_batfish_reachable", lambda *a, **kw: True)
+
+
 def _make_mock_session_with_question(question_name: str, rows: list[dict]):
     import pandas as pd
 

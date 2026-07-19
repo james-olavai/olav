@@ -52,7 +52,10 @@ def patched(monkeypatch):
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    # Not get_event_loop().run_until_complete(): on Python ≥3.12 that raises
+    # RuntimeError once any earlier test in the session has used asyncio.run()
+    # (which unsets the main-thread loop) — full-suite-only failures.
+    return asyncio.run(coro)
 
 
 # ── registration: cron is a known command (not routed to the agent) ───────
