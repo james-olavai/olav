@@ -259,7 +259,7 @@ if [ "$RUN_NETOPS" = true ]; then
             cp "${NETOPS_DIR}/.olav/workspace/ops/collect/config/nornir/defaults.yaml.example" \
                .olav/workspace/ops/collect/config/nornir/defaults.yaml 2>/dev/null || true
         fi
-        DRY_LOG=$($OLAV --agent ops "/netops_init --dry-run" 2>&1)
+        DRY_LOG=$($OLAV --agent netops "/netops_init --dry-run" 2>&1)
         check "B11: dry-run — inventory validated" \
             sh -c "echo '$DRY_LOG' | grep -q 'inventory validated' || echo '$DRY_LOG' | grep -q 'Dry-run complete'"
 

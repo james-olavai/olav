@@ -496,7 +496,7 @@ elif [ "$DEVICES_AVAILABLE" = false ]; then
     done
 else
     # T2-07: take_snapshot succeeds and returns snapshot_id
-    SNAP_OUT=$("$OLAV" --agent ops "Take snapshot of R1 show version" 2>&1 | tail -40)
+    SNAP_OUT=$("$OLAV" --agent netops "Take snapshot of R1 show version" 2>&1 | tail -40)
     echo "${SNAP_OUT}" > "${TEST_DIR}/t2_07_snap_output.txt"
     if echo "${SNAP_OUT}" | grep -qi "snapshot_id\|snap_\|snapshot.*created\|success\|collect\|version"; then
         pass_test "T2-07" "take_snapshot R1 returns snapshot_id"
@@ -537,8 +537,8 @@ PYEOF
 
     # T2-10: Can compare two snapshots (requires at least 2 snapshots)
     # Take a second snapshot first
-    "$OLAV" --agent ops "Take snapshot of R1 show version" >/dev/null 2>&1
-    DIFF_OUT=$("$OLAV" --agent ops "Compare last two snapshots of R1" 2>&1 | tail -30)
+    "$OLAV" --agent netops "Take snapshot of R1 show version" >/dev/null 2>&1
+    DIFF_OUT=$("$OLAV" --agent netops "Compare last two snapshots of R1" 2>&1 | tail -30)
     if echo "${DIFF_OUT}" | grep -qi "identical\|no.*diff\|same\|no.*change\|unchanged"; then
         pass_test "T2-10" "Two snapshot diff: snapshots identical (valid)"
     elif echo "${DIFF_OUT}" | grep -qi "traceback\|AttributeError\|KeyError\|ImportError"; then
@@ -639,7 +639,7 @@ else
     # The ops agent (lab subagent)'s mandatory sequence covers all 4 steps in a single invocation.
     # Each test then checks for its sub-marker in the combined output.
     _CLAB_PROMPT="Change plan: Deploy a complete 2-node eBGP CAB validation lab (r1-r4-ebgp-direct) using the Nokia SRLinux template from LAB_REFERENCE.md. Execute the full mandatory sequence: save configs, deploy_and_push_lab, verify BGP with exec_on_node, output the CAB Report, then destroy_lab to clean up."
-    OUT_CLAB=$("$OLAV" --agent ops "$_CLAB_PROMPT" 2>&1)
+    OUT_CLAB=$("$OLAV" --agent netops "$_CLAB_PROMPT" 2>&1)
 
     # T2-15: check deploy happened
     if echo "${OUT_CLAB}" | grep -qi "deploy\|started\|created\|topology\|lab.*running\|running.*lab"; then
@@ -750,7 +750,7 @@ else
     fi
 
     # T2-23: infra agent queries service health
-    OUT_23=$("$OLAV" --agent ops "Is service healthy?" 2>&1)
+    OUT_23=$("$OLAV" --agent netops "Is service healthy?" 2>&1)
     if echo "${OUT_23}" | grep -qi "healthy\|status\|running\|up\|ok\|service"; then
         pass_test "T2-23" "infra agent: health query returned service info"
     elif [ ${#OUT_23} -gt 50 ]; then
@@ -791,7 +791,7 @@ fi
 if [ "$LLM_AVAILABLE" = false ]; then
     skip_group_llm "T2-25" "devops agent backup script"
 else
-    OUT_25=$("$OLAV" --agent ops "write a network device backup script for IOS devices" 2>&1)
+    OUT_25=$("$OLAV" --agent netops "write a network device backup script for IOS devices" 2>&1)
     # Check: output to exports/ or has script content
     EXPORTS_DIR="${TEST_DIR}/exports"
     EXPORTS_FILES=$(find "${EXPORTS_DIR}" -name "*.sh" -o -name "*.py" -o -name "*.yml" -o -name "*.yaml" 2>/dev/null | wc -l | tr -d ' ')

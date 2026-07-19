@@ -408,7 +408,7 @@ def render_report(
 def _generate_postcheck_playbook(audit_json: dict, lang: str = "zh") -> str:
     """Phase 4: Generate a deterministic closed-loop Post-Check Playbook.
 
-    No LLM call — builds `olav -a ops` prompts directly from structured data:
+    No LLM call — builds `olav -a netops` prompts directly from structured data:
       1. Incident Clusters  → topology simulation prompts (highest priority)
       2. High-severity job findings → device-level verification prompts
       3. Fallback catch-all for devices seen in any finding
@@ -466,7 +466,7 @@ def _generate_postcheck_playbook(audit_json: dict, lang: str = "zh") -> str:
             if lang == "zh":
                 topo_label = f"拓扑仿真 \u2014 根因节点 `{root_str}`"
                 prompt = (
-                    f'olav -a ops "Cluster #{cl.get("cluster_id", prompt_index)} '
+                    f'olav -a netops "Cluster #{cl.get("cluster_id", prompt_index)} '
                     f'({start}, {dur}min): 故障链 {chain_str}。'
                     f'请用 networkx 模拟移除根因节点 [{root_str}] 后的拓扑影响，'
                     f'识别所有受影响的下游设备和链路，验证是否存在冗余路径，'
@@ -475,7 +475,7 @@ def _generate_postcheck_playbook(audit_json: dict, lang: str = "zh") -> str:
             else:
                 topo_label = f"Topology simulation \u2014 root cause `{root_str}`"
                 prompt = (
-                    f'olav -a ops "Cluster #{cl.get("cluster_id", prompt_index)} '
+                    f'olav -a netops "Cluster #{cl.get("cluster_id", prompt_index)} '
                     f'({start}, {dur}min): fault chain {chain_str}. '
                     f'Use networkx to simulate removal of root node [{root_str}]: '
                     f'identify all affected downstream devices and links, '
@@ -560,14 +560,14 @@ def _generate_postcheck_playbook(audit_json: dict, lang: str = "zh") -> str:
             hint = (f.get("severity_hint") or "").capitalize()
             if lang == "zh":
                 prompt = (
-                    f'olav -a ops "对 {device} 指标 \\"{metric_name}\\"={metric_value} '
+                    f'olav -a netops "对 {device} 指标 \\"{metric_name}\\"={metric_value} '
                     f'({hint}) 做根因排查：1)确认数据是否最新；'
                     f'2)若属容量/拥塞类问题，用 networkx 分析周边拓扑负载是否可重新调度；'
                     f'3)给出修复建议序列"'
                 )
             else:
                 prompt = (
-                    f'olav -a ops "Investigate {device}: {metric_name}={metric_value} '
+                    f'olav -a netops "Investigate {device}: {metric_name}={metric_value} '
                     f'({hint}). Verify data freshness, use networkx to assess whether '
                     f'the surrounding topology can absorb a redistribution, and output '
                     f'a recovery sequence."'
@@ -608,14 +608,14 @@ def _generate_postcheck_playbook(audit_json: dict, lang: str = "zh") -> str:
         for device in sorted(fallback_devices)[:5]:
             if lang == "zh":
                 prompt = (
-                    f'olav -a ops "对 {device} 执行快速健康确认：'
+                    f'olav -a netops "对 {device} 执行快速健康确认：'
                     f'show logging last 50 | show interfaces summary | show processes cpu sorted | head 10，'
                     f'与 DuckDB 历史快照对比，确认巡检窗口内状态稳定"'
                 )
                 label = "通用健康确认"
             else:
                 prompt = (
-                    f'olav -a ops "Quick health check on {device}: '
+                    f'olav -a netops "Quick health check on {device}: '
                     f'show logging last 50, show interfaces summary, show processes cpu sorted | head 10. '
                     f'Compare against DuckDB historical snapshots and confirm stable state during inspection window."'
                 )
@@ -650,7 +650,7 @@ def _ops_prompt_bgp(device: str, f: dict, lang: str = "zh") -> str:
     if lang == "zh":
         nb_part = f" 邻居 {neighbor}" if neighbor else ""
         return (
-            f'olav -a ops "{device} BGP{nb_part} 状态异常({state})：'
+            f'olav -a netops "{device} BGP{nb_part} 状态异常({state})：'
             f'1)SSH执行 show bgp neighbor{" " + neighbor if neighbor else ""} 确认 Reset reason；'
             f'2)networkx 模拟该BGP会话断开后的路由影响范围；'
             f'3)检查对端接口和AS号匹配"'
@@ -658,7 +658,7 @@ def _ops_prompt_bgp(device: str, f: dict, lang: str = "zh") -> str:
     else:
         nb_part = f" {neighbor}" if neighbor else ""
         return (
-            f'olav -a ops "{device} BGP neighbor{nb_part} state anomaly ({state}): '
+            f'olav -a netops "{device} BGP neighbor{nb_part} state anomaly ({state}): '
             f'1) SSH run \'show bgp neighbor{" " + neighbor if neighbor else ""}\' confirm Reset reason; '
             f'2) Use networkx to simulate BGP session down and analyze route impact; '
             f'3) Verify peer interface and AS number match"'
@@ -670,13 +670,13 @@ def _ops_prompt_bgp_drift(device: str, f: dict, lang: str = "zh") -> str:
     snap_a = f.get("snap_after", "")
     if lang == "zh":
         return (
-            f'olav -a ops "{device} BGP配置在快照 {snap_b}→{snap_a} 间发生变化：'
+            f'olav -a netops "{device} BGP配置在快照 {snap_b}→{snap_a} 间发生变化：'
             f'对比两次快照的BGP邻居表，确认是否有邻居增加/删除，'
             f'用networkx验证路由收敛是否完整"'
         )
     else:
         return (
-            f'olav -a ops "{device} BGP configuration changed between snapshots {snap_b}→{snap_a}: '
+            f'olav -a netops "{device} BGP configuration changed between snapshots {snap_b}→{snap_a}: '
             f'Compare BGP neighbor tables, confirm if neighbors added/deleted, '
             f'use networkx to verify route convergence is complete"'
         )
@@ -687,14 +687,14 @@ def _ops_prompt_interface(device: str, f: dict, lang: str = "zh") -> str:
     iface_part = f" {iface}" if iface else ""
     if lang == "zh":
         return (
-            f'olav -a ops "{device} 接口{iface_part} 状态漂移：'
+            f'olav -a netops "{device} 接口{iface_part} 状态漂移：'
             f'1)SSH执行 show interfaces{iface_part} 确认 line protocol 和 input errors；'
             f'2)networkx检查该链路是否有冗余路径；'
             f'3)如疑似光衰执行 show interfaces{iface_part} transceiver"'
         )
     else:
         return (
-            f'olav -a ops "{device} interface{iface_part} state drift: '
+            f'olav -a netops "{device} interface{iface_part} state drift: '
             f'1) SSH run \'show interfaces{iface_part}\' confirm line protocol and input errors; '
             f'2) Use networkx to check if this link has redundant paths; '
             f'3) If optical power issue suspected run \'show interfaces{iface_part} transceiver\'"'
@@ -706,13 +706,13 @@ def _ops_prompt_ospf(device: str, f: dict, lang: str = "zh") -> str:
     nb_part = f" {neighbor}" if neighbor else ""
     if lang == "zh":
         return (
-            f'olav -a ops "{device} OSPF邻居{nb_part} 未达Full：'
+            f'olav -a netops "{device} OSPF邻居{nb_part} 未达Full：'
             f'SSH执行 show ip ospf neighbor detail{nb_part}，检查 MTU/Hello/Dead interval，'
             f'networkx分析该OSPF区域内路由连通性"'
         )
     else:
         return (
-            f'olav -a ops "{device} OSPF neighbor{nb_part} not in FULL state: '
+            f'olav -a netops "{device} OSPF neighbor{nb_part} not in FULL state: '
             f'SSH run \'show ip ospf neighbor detail{nb_part}\' check MTU/Hello/Dead interval, '
             f'use networkx to analyze OSPF area routing connectivity"'
         )
@@ -727,7 +727,7 @@ def _ops_prompt_cpu(device: str, f: dict, lang: str = "zh") -> str:
     val_str = f"当前={val:.1f}, 均值={mean:.1f}" if isinstance(val, float) and isinstance(mean, float) else ""
     if lang == "zh":
         return (
-            f'olav -a ops "{device} {metric}统计异常({z_str}{val_str})：'
+            f'olav -a netops "{device} {metric}统计异常({z_str}{val_str})：'
             f'SSH执行 show processes cpu sorted | head 20，'
             f'关联日志 show logging | include %CPU，'
             f'检查同时段BGP路由抖动和ACL命中计数"'
@@ -735,7 +735,7 @@ def _ops_prompt_cpu(device: str, f: dict, lang: str = "zh") -> str:
     else:
         val_str_en = f"current={val:.1f}, mean={mean:.1f}" if isinstance(val, float) and isinstance(mean, float) else ""
         return (
-            f'olav -a ops "{device} {metric} statistical anomaly ({z_str}{val_str_en}): '
+            f'olav -a netops "{device} {metric} statistical anomaly ({z_str}{val_str_en}): '
             f'SSH run \'show processes cpu sorted | head 20\', '
             f'correlate with logs \'show logging | include CPU\', '
             f'check concurrent BGP route churn and ACL hit counts"'
@@ -748,13 +748,13 @@ def _ops_prompt_cpu_drift(device: str, f: dict, lang: str = "zh") -> str:
     delta_str = f"Δ={delta:.1f}/h, gap={gap:.1f}h" if isinstance(delta, float) else ""
     if lang == "zh":
         return (
-            f'olav -a ops "{device} CPU漂移({delta_str})：'
+            f'olav -a netops "{device} CPU漂移({delta_str})：'
             f'确认是计划性变更(如路由重收敛)还是异常负载，'
             f'show processes cpu history，检查是否与Config_Drift时间戳重合"'
         )
     else:
         return (
-            f'olav -a ops "{device} CPU drift ({delta_str}): '
+            f'olav -a netops "{device} CPU drift ({delta_str}): '
             f'Confirm if planned change (e.g. route convergence) or anomalous load, '
             f'show processes cpu history, check if correlates with Config_Drift timestamp"'
         )
@@ -765,13 +765,13 @@ def _ops_prompt_config(device: str, f: dict, lang: str = "zh") -> str:
     removed = f.get("removed_count", 0)
     if lang == "zh":
         return (
-            f'olav -a ops "{device} 配置变更(+{added}/-{removed}行)：'
+            f'olav -a netops "{device} 配置变更(+{added}/-{removed}行)：'
             f'读取最新diff_content，判断是计划变更还是未授权变更，'
             f'如包含STP/VLAN变更则用networkx模拟生成树拓扑变化，输出合规性评估"'
         )
     else:
         return (
-            f'olav -a ops "{device} configuration changed (+{added}/-{removed} lines): '
+            f'olav -a netops "{device} configuration changed (+{added}/-{removed} lines): '
             f'Read latest diff_content, determine if planned or unauthorized change, '
             f'if STP/VLAN changes use networkx to simulate spanning tree changes and output compliance assessment"'
         )
@@ -782,13 +782,13 @@ def _ops_prompt_stp(device: str, f: dict, lang: str = "zh") -> str:
     iface_part = f" {iface}" if iface else ""
     if lang == "zh":
         return (
-            f'olav -a ops "{device} STP/err-disable 告警{iface_part}：'
+            f'olav -a netops "{device} STP/err-disable 告警{iface_part}：'
             f'SSH执行 show spanning-tree detail | show interfaces{iface_part} status，'
             f'networkx模拟该VLAN生成树结构，确认根桥位置是否符合设计"'
         )
     else:
         return (
-            f'olav -a ops "{device} STP/err-disable alert{iface_part}: '
+            f'olav -a netops "{device} STP/err-disable alert{iface_part}: '
             f'SSH run \'show spanning-tree detail | show interfaces{iface_part} status\', '
             f'use networkx to simulate this VLAN spanning tree structure and confirm root bridge position matches design"'
         )

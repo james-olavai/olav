@@ -7,7 +7,7 @@ All domain functionality is exposed through workspace agents and tools, not CLI 
 Usage:
     olav                                    # Interactive mode
     olav "How many devices?"               # Single query
-    olav --agent ops "Check network"       # Multi-agent
+    olav --agent netops "Check network"       # Multi-agent
     olav --sandbox modal "Deploy config"   # Remote execution
 """
 
@@ -1417,10 +1417,10 @@ async def run_single_query(
     ):
         return
 
-    # Top-level agent selection is explicit (--agent ops/audit).
+    # Top-level agent selection is explicit (--agent netops/audit).
     # Core is always the default. Semantic routing is used WITHIN an agent
     # to select subagents, not to switch between top-level agents.
-    # If core can't handle the query, it should suggest "--agent ops" in its response.
+    # If core can't handle the query, it should suggest "--agent netops" in its response.
 
     # ── Semantic cache: check for cached answer ──
     try:
@@ -2289,7 +2289,7 @@ async def cli_main_impl() -> None:
                 '  [cyan]olav[/cyan] [green]"query"[/green]                           Single query'
             )
             console.print(
-                '  [cyan]olav[/cyan] [yellow]--agent ops[/yellow] [green]"Check network"[/green]      Multi-agent'
+                '  [cyan]olav[/cyan] [yellow]--agent netops[/yellow] [green]"Check network"[/green]      Multi-agent'
             )
             console.print(
                 '  [cyan]olav[/cyan] [yellow]--sandbox modal[/yellow] [green]"Deploy config"[/green]  Remote execution'
@@ -2373,7 +2373,7 @@ async def cli_main_impl() -> None:
             console.print('  [cyan]$ olav "How many records are in the database?"[/cyan]')
             console.print()
             console.print("  [dim]# Use a specific agent for deep analysis[/dim]")
-            console.print('  [cyan]$ olav --agent ops "Analyze recent audit logs"[/cyan]')
+            console.print('  [cyan]$ olav --agent netops "Analyze recent audit logs"[/cyan]')
             console.print()
             console.print("  [dim]# Run in a remote sandbox[/dim]")
             console.print('  [cyan]$ olav --sandbox modal "Deploy configuration"[/cyan]')
