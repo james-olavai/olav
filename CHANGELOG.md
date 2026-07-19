@@ -5,6 +5,65 @@ All notable changes to OLAV will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2026-07-19
+
+Declarative workflows + reliability hardening. Every feature below was
+demo-rehearsed end-to-end on a local ~30B model this cycle.
+
+### Added
+- **Declarative cross-subagent workflows** — known-shape multi-step tasks
+  declared as `<agent_dir>/workflows/*.workflow.yaml` and rendered
+  deterministically into the domain orchestrator's prompt; artifacts travel
+  between steps by file path only. netops ships two: `change_plan` (draft →
+  reporter pre-check → Batfish formal verification, N=3 3/3) and
+  `decommission_impact` (independent blast-radius recomputation +
+  removal-focused verification, N=3 3/3). Docs: docs.olavai.com → Guides →
+  Multi-Step Workflows; design: dev_docs/102.
+- **`ToolLoopBreakerMiddleware`** — zero-LLM circuit breaker on every agent:
+  an identical failing tool call (including failures returned as JSON error
+  envelopes inside successful tool messages) short-circuits after 3
+  consecutive failures and hard-stops the run with an honest partial-result
+  message after 6. Kills the corrupted-tool-call → context-explosion crash
+  class (observed: 59 identical retries snowballing to a 16M-token request).
+- **reporter Mode V (plan pre-check)** + `read_change_plan` script (real-disk
+  reading for simulator/reporter — the built-in `read_file` only sees the
+  agent's virtual FS); **analyzer `inspect_blast_radius` script** so
+  redundancy/decommission plans cite a quantified impact number.
+- **Declarative per-script timeouts** — SKILL.md `scripts:` entries can carry
+  `timeout:`; long-running scripts (deploy_service's health-wait loop)
+  declare their budget instead of relying on the LLM to pass one.
+- **`olav doctor` names the configured backends** — llm: model @ endpoint ·
+  tier · timeout; embedding: mode/model @ endpoint · measured dim.
+- **Harness tier binding for the configured model** — any configured model is
+  dynamically bound to its size-tier discipline profile (previously only a
+  hardcoded spec list matched, so e.g. `gemma4-31b-it-qat` ran with stock
+  defaults plus a spurious warning).
+
+### Fixed
+- **First-run wizard**: embedding menu accepts the numbered choice it prints;
+  config saved by the wizard now takes effect in-process (ConfigLoader reload
+  after api.json write — previously the very first `olav` run always crashed
+  with "Missing credentials" after a successful setup).
+- **Config-interface drift class**: api-mode embeddings read a nonexistent
+  `base_url` attr (silent 512-dim local fallback while the memory store used
+  the 768-dim API — split-brain); the documented api.json `redaction.*` and
+  `batfish` blocks were dead code (only env vars worked). All three now go
+  through real accessors with real-config-class regression tests.
+- **`deploy_service` false-healthy chain**: `docker compose ps` without `-a`
+  hid exited containers; the 120s script default killed the health-wait loop
+  mid-flight; the services agent now runs the grounded deterministic grader
+  so an error envelope can't be narrated as success.
+- **audit map_engine degrades per job** — a job referencing a view the
+  dataset doesn't have becomes a Critical "Job Error" finding instead of
+  killing the whole profile run.
+- **Auto-capture transient demotion** — per-run artifacts (plan paths,
+  snapshot ids, "saved to…" statements) get a 24h `expires_at` lease instead
+  of polluting durable memory and crowding small-model recall slots.
+- **batfish_q**: FQDN node filters fall back to Batfish's short hostname form
+  on empty results; `netconan` is now a hard dependency of olav-netops
+  (redaction defaults ON — without the lib every import wrote plaintext with
+  only a warning).
+
 ## [0.23.1] - 2026-07-18
 
 Metadata patch (no code changes vs 0.23.0):
