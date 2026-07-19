@@ -86,7 +86,23 @@ class ToolLoopBreakerMiddleware(AgentMiddleware):
 
     @staticmethod
     def _is_error(result: Any) -> bool:
-        return isinstance(result, ToolMessage) and result.status == "error"
+        if not isinstance(result, ToolMessage):
+            return False
+        if result.status == "error":
+            return True
+        # ISSUE-LOOP-BREAKER-ENVELOPE-BLIND: execute_skill_script (and other
+        # envelope-returning tools) report failures as SUCCESSFUL ToolMessages
+        # whose content is a JSON envelope {"status": "error", ...} — an agent
+        # repeating such a call every few seconds was invisible to the breaker.
+        # Conservative sniff of the content head only: a leading JSON-ish blob
+        # that declares status=error. Plain prose mentioning the word "error"
+        # never matches.
+        content = result.content
+        if isinstance(content, str):
+            head = content[:300]
+            if '"status": "error"' in head or "'status': 'error'" in head:
+                return True
+        return False
 
     def _short_circuit(self, request: Any, sig: str) -> ToolMessage | None:
         """Return the breaker ToolMessage when *sig* is over the limit."""

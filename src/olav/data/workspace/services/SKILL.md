@@ -28,6 +28,7 @@ scripts:
   - name: deploy_service
     description: "Deploy a container service via ContainerLab or Docker"
     file: deploy_service.py
+    timeout: 600   # runs a health-wait loop; the execute_skill_script default (120s) kills it mid-wait
   - name: stop_service
     description: "Stop a running container service"
     file: stop_service.py
@@ -40,6 +41,8 @@ scripts:
 static_context:
   - path: ./references/SERVICES_API_GUIDE.md
 static_context_mode: on_intent
+deterministic_synthesis_grader: true   # 2026-07-19: agent hallucinated "successfully deployed, all healthy" on a timed-out deploy_service error envelope
+grader_require_tool_success: true      # grounded check — fail a positive answer built on all-failed tools (dev_docs/97 ISSUE-LE-GRADER-SYNTHESIS-ONLY)
 metadata:
   rubric_middleware: true
   type: agent

@@ -56,7 +56,7 @@ def _wait_healthy(service_dir: Path, timeout: int) -> tuple[bool, str]:
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
-        rc, out, _ = _run("docker compose ps --format json", service_dir, timeout=15)
+        rc, out, _ = _run("docker compose ps -a --format json", service_dir, timeout=15)
         if rc != 0:
             time.sleep(5)
             continue
@@ -195,7 +195,7 @@ def deploy_service(
 
     # --- Always collect logs ---
     _, logs_out, _ = _run("docker compose logs --tail 80 --no-color", service_dir, timeout=15)
-    _, ps_out, _ = _run("docker compose ps --format json", service_dir, timeout=15)
+    _, ps_out, _ = _run("docker compose ps -a --format json", service_dir, timeout=15)
     containers = []
     try:
         containers = [json.loads(line) for line in ps_out.splitlines() if line.strip()]

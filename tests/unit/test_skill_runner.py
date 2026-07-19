@@ -297,3 +297,40 @@ def test_default_mode_unchanged_when_argv_false_explicit(tmp_path):
     )
     assert out["status"] == "ok"
     assert out["stdout"] == {"got": {"key": "val"}}
+
+
+# --- declarative per-script timeout (ISSUE-DEPLOY-SERVICE-FALSE-HEALTHY #1) --
+
+
+def _make_skill_with_timeout(tmp_path: Path, declared: int | None) -> Path:
+    """Skill whose SKILL.md scripts entry optionally declares a timeout."""
+    skill_dir = tmp_path / "svc"
+    (skill_dir / "scripts").mkdir(parents=True)
+    timeout_line = f"\n    timeout: {declared}" if declared else ""
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: svc\ndescription: t\nscripts:\n"
+        "  - name: slow\n    description: sleeps\n"
+        f"    file: slow.py{timeout_line}\n---\n",
+        encoding="utf-8",
+    )
+    (skill_dir / "scripts" / "slow.py").write_text(
+        "import time, json\ntime.sleep(3)\nprint(json.dumps({'ok': True}))\n",
+        encoding="utf-8",
+    )
+    return skill_dir
+
+
+def test_caller_timeout_kills_long_script_without_declaration(tmp_path):
+    _make_skill_with_timeout(tmp_path, declared=None)
+    out = execute_skill_script("svc", "slow.py", timeout=1, workspace_root=tmp_path)
+    assert out["status"] == "error" and "timed out" in out["error"]
+
+
+def test_declared_timeout_overrides_shorter_caller_default(tmp_path):
+    """deploy_service regression: the LLM never remembers to pass timeout=600,
+    so a long-running script must be able to declare its budget in SKILL.md —
+    the declared value wins over a SHORTER caller/default value."""
+    _make_skill_with_timeout(tmp_path, declared=8)
+    out = execute_skill_script("svc", "slow.py", timeout=1, workspace_root=tmp_path)
+    assert out["status"] == "ok", out
+    assert out["stdout"] == {"ok": True}

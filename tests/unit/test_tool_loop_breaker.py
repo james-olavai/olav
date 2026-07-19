@@ -94,6 +94,49 @@ def test_interleaved_success_on_other_call_does_not_reset():
     assert "circuit breaker" in result.content
 
 
+def test_envelope_error_in_successful_toolmessage_counts():
+    """ISSUE-LOOP-BREAKER-ENVELOPE-BLIND: execute_skill_script returns
+    failures as SUCCESSFUL ToolMessages carrying a JSON error envelope —
+    the observed 8s-interval export_netbox loop was invisible to the
+    breaker. Envelope errors must count toward the failure signature."""
+    mw = ToolLoopBreakerMiddleware(agent_name="t")
+    executed = {"n": 0}
+
+    def envelope_handler(request):
+        executed["n"] += 1
+        return ToolMessage(
+            content='{"status": "error", "error": "skill \'netops/scripts/export_netbox.py\' not found under workspace"}',
+            tool_call_id=request.tool_call["id"],
+            name=request.tool_call["name"],
+        )  # status defaults to success — the envelope carries the failure
+
+    req = _req(name="execute_skill_script",
+               args={"skill_name": "netops/scripts/export_netbox.py"})
+    for _ in range(3):
+        mw.wrap_tool_call(req, envelope_handler)
+    result = mw.wrap_tool_call(req, envelope_handler)
+    assert executed["n"] == 3, "4th identical envelope-failing call must not execute"
+    assert "circuit breaker" in result.content
+
+
+def test_prose_mentioning_error_is_not_an_envelope_failure():
+    """Conservative bias: successful prose output that merely talks about
+    errors must NOT count as a failure."""
+    mw = ToolLoopBreakerMiddleware(agent_name="t")
+
+    def prose_handler(request):
+        return ToolMessage(
+            content="Report saved. 3 devices logged an error yesterday; see the error histogram section.",
+            tool_call_id=request.tool_call["id"],
+            name=request.tool_call["name"],
+        )
+
+    req = _req(name="execute_sql", args={"sql": "select 1"})
+    for _ in range(5):
+        result = mw.wrap_tool_call(req, prose_handler)
+    assert "circuit breaker" not in result.content
+
+
 def test_hard_stop_jumps_to_end_after_persistent_repeats():
     mw = ToolLoopBreakerMiddleware(agent_name="t")
     req = _req(args={"pattern": "junk"})

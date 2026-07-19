@@ -268,6 +268,17 @@ def execute_skill_script(
     script_meta = _read_script_metadata(skill_dir, script_name)
     argv_mode: bool = bool(script_meta.get("argv", False))
 
+    # Declarative per-script timeout (SKILL.md `timeout:` on the entry).
+    # ISSUE-DEPLOY-SERVICE-FALSE-HEALTHY root cause #1: deploy_service runs a
+    # 300s health-wait loop but the LLM never remembers to pass timeout=600,
+    # so the default 120s killed it mid-wait. Long-running scripts declare
+    # their budget in data; the effective timeout is the larger of caller's
+    # and declared (still capped at _MAX_TIMEOUT_SECONDS above... re-capped
+    # here because the declared value can exceed the caller's).
+    _declared = script_meta.get("timeout")
+    if isinstance(_declared, (int, float)) and _declared > timeout:
+        timeout = min(int(_declared), _MAX_TIMEOUT_SECONDS)
+
     if argv_mode:
         cmd = [sys.executable, str(resolved)] + _build_argv_args(args or {})
         stdin_payload: bytes | None = None
