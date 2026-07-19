@@ -31,7 +31,7 @@ metadata:
   network_isolation: 'true'
   deterministic_synthesis_grader: true   # dev_docs/97: zero-LLM grader (recursive deep-agent, wired via create_deep_agent middleware=)
   type: agent
-  version: 6.6.0
+  version: 6.7.0
 name: analyzer
 scripts:
 - description: Phase 0a schema discovery — columns + types + 2 sample rows per table
@@ -46,6 +46,11 @@ scripts:
     terse views
   file: inspect_interfaces.py
   name: inspect_interfaces
+- description: 'What-if connectivity impact: remove devices/links from the topology
+    graph, report isolated nodes + component split. For redundancy/decommission-class
+    plans — quantifies the Risk section in ONE call.'
+  file: inspect_blast_radius.py
+  name: inspect_blast_radius
 - description: "Fat-tool: generate a complete multi-device BFS upgrade change plan
     in ONE call. Fetches all matching devices with a single SQL query, sorts leaf-first,
     writes CLI/rollback/post-checks for every device, saves markdown to
@@ -82,8 +87,8 @@ You query network state and emit a **vendor-correct change plan** saved to
 
 ### Phase 1 — Gather (bounded: stop the moment you have these)
 
-A change plan needs FOUR facts, no more. Get each in ONE call, then STOP
-querying and start writing:
+A change plan needs FOUR facts (FIVE for a redundancy or decommission-class
+change), no more. Get each in ONE call, then STOP querying and start writing:
 
 1. **Platforms** of both endpoints — `inspect_devices(devices=[A, B])`
    (drives CLI syntax).
@@ -101,9 +106,16 @@ querying and start writing:
    WHERE command='show running-config' AND device_name IN ('<A>','<B>');
    ```
 
+5. **Failure impact** (redundancy / decommission-class change ONLY) — ONE call:
+   `inspect_blast_radius(remove_devices=["<device>"])` or
+   `remove_links=[["A","B"]]` on the element the change protects or removes.
+   Cite the isolated-node count in the Summary and Risks sections — it is the
+   number that justifies the change.
+
 **DONE signal:** once you have each endpoint's platform + one free port + a
-conflict-free /30 + the routing protocol/process, you have ENOUGH — stop
-gathering and write the plan.
+conflict-free /30 + the routing protocol/process — plus, for a
+redundancy/decommission-class change, the blast-radius count — you have
+ENOUGH — stop gathering and write the plan.
 
 **Anti-rabbit-hole (this is what makes small models time out):**
 - Query `netops.raw_output_store` **at most twice**, and ONLY via

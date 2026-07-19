@@ -11,6 +11,10 @@ keywords:
   - write memory
   - write change plan
   - prod CLI completeness
+  - redundant
+  - redundancy
+  - decommission
+  - failover
 priority: 5
 body: |
   # Prod CLI authoring — hard rules
@@ -129,6 +133,27 @@ body: |
   When the canonical command isn't in this catalog, choose a substring
   that ONLY appears in the post-change output. Avoid generic strings
   like `up` or `0` that match unrelated lines.
+
+  ## Redundancy / decommission plans — quantify the impact FIRST
+
+  A Summary that says "increase availability" without a number is an
+  opinion. Before writing a redundancy / decommission / failover-class
+  plan, make ONE call to quantify what fails today if the element the
+  change protects (or removes) goes down:
+
+      execute_skill_script(
+          skill_name="analyzer",
+          script_name="inspect_blast_radius.py",
+          args={"remove_devices": ["<device_fqdn>"]},
+      )
+      # link change: args={"remove_links": [["<device_A>", "<device_B>"]]}
+
+  Cite the `isolated_nodes` count in BOTH Summary and Risks, e.g.:
+  "Today a failure of alpha-border-4500x isolates 9 devices; this change
+  removes that single point of failure." ONE call only; non-empty
+  `validation_warnings` means the scenario wasn't simulated (bad name) —
+  fix the name, don't treat it as no impact. Ordinary config changes
+  skip this entirely.
 
   ## Common authoring mistakes — DO NOT do these
 

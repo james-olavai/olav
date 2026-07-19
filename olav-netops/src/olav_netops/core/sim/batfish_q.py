@@ -134,7 +134,10 @@ def _batfish_endpoint() -> tuple[str, int, bool]:
     if host is None or port is None or ssl is None:
         try:
             from olav.core.config import get_config
-            bf = (getattr(get_config(), "_data", {}) or {}).get("batfish") or {}
+            # ConfigLoader.section() — the old `getattr(get_config(), "_data", {})`
+            # read a nonexistent attr, so the api.json batfish block was dead
+            # (env vars were the only working override).
+            bf = get_config().section("batfish")
         except Exception:
             bf = {}
         host = host or bf.get("host") or "localhost"
@@ -393,6 +396,27 @@ def batfish_q(
         answer = question_fn(**args).answer()
         df = answer.frame()
         rows = df.to_dict("records") if df is not None else []
+        # Batfish normalises hostnames to short (domain-stripped) form, so a
+        # caller filtering nodes by FQDN ("alpha-border-4500x.net.demo.internal")
+        # silently gets 0 rows even though the device is in the snapshot.
+        # Coercion-layer fix (V2 §M3): on an empty result with dotted node
+        # names, retry ONCE with the domains stripped. Regex specifiers pass
+        # through untouched (no dots stripped inside /…/ forms).
+        _nodes = args.get("nodes")
+        if (not rows) and isinstance(_nodes, str) and "." in _nodes \
+                and not _nodes.startswith("/"):
+            _short = "|".join(
+                part.split(".", 1)[0] for part in _nodes.split("|")
+            )
+            if _short != _nodes:
+                retry_args = {**args, "nodes": _short}
+                df2 = question_fn(**retry_args).answer().frame()
+                rows = df2.to_dict("records") if df2 is not None else []
+                if rows:
+                    logger.info(
+                        "batfish_q: nodes FQDN %r matched nothing; short form "
+                        "%r matched %d row(s)", _nodes, _short, len(rows),
+                    )
     except Exception as exc:
         # Phase E: dig the Caused-by chain out of HTTPError bodies so
         # the LLM sees the real schema error, not "HTTPError 500".

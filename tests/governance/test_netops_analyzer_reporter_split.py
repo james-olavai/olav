@@ -57,14 +57,18 @@ class TestAnalyzerModeA:
     def test_skill_md_exists(self):
         assert (_ANALYZER_DIR / "SKILL.md").is_file()
 
-    def test_tool_count_at_most_9(self):
+    def test_tool_count_at_most_10(self):
         # Limit raised from 7 → 8 (2026-05-31): olav_recall_memory added to enable
         # expert-KB guardrail injection from trace_learner failure learning.
         # Budget raised 8→9 (2026-06-04): write_todos added for TodoListMiddleware (phase-based task decomposition for small models — CH11 fix).
+        # Budget raised 9→10 (2026-07-18): inspect_blast_radius SCRIPT added —
+        # redundancy/decommission plans must cite a quantified impact number
+        # (ITIL: impact assessment is the change author's duty); script form
+        # costs a prompt line, not a Pydantic schema.
         fm = _parse_front_matter(_ANALYZER_DIR / "SKILL.md")
         tools = _collect_tools(fm)
-        assert len(tools) <= 9, (
-            f"analyzer has {len(tools)} tools (> 9 hard limit): {sorted(tools)}"
+        assert len(tools) <= 10, (
+            f"analyzer has {len(tools)} tools (> 10 hard limit): {sorted(tools)}"
         )
 
     def test_has_change_plan_tools(self):
@@ -76,10 +80,16 @@ class TestAnalyzerModeA:
         assert "execute_skill_script" in tools
 
     def test_no_investigation_tools(self):
-        """analyzer is Mode A only — investigation tools must not be present."""
+        """analyzer is Mode A only — investigation tools must not be present.
+
+        2026-07-18: inspect_blast_radius removed from this list — as a SCRIPT
+        it is legitimate drafting evidence for redundancy/decommission-class
+        plans (the change author owns the impact-assessment section). The
+        boundary that actually matters — the blast_radius routing INTENT stays
+        reporter-only — is pinned by test_analyzer_blast_radius_script.py."""
         fm = _parse_front_matter(_ANALYZER_DIR / "SKILL.md")
         tools = _collect_tools(fm)
-        for forbidden in ("query_evidence", "inspect_blast_radius", "diff_snapshots"):
+        for forbidden in ("query_evidence", "diff_snapshots"):
             assert forbidden not in tools, (
                 f"analyzer must NOT have {forbidden} — belongs in reporter (Mode B+C)"
             )
@@ -130,13 +140,17 @@ class TestReporterModesBC:
     def test_skill_md_exists(self):
         assert (_REPORTER_DIR / "SKILL.md").is_file()
 
-    def test_tool_count_at_most_9(self):
+    def test_tool_count_at_most_10(self):
         # Limit raised from 8 → 9 (2026-06-01): read_file added for
         # read-before-write pattern (prevents duplicate report headers).
+        # Budget raised 9→10 (2026-07-19): read_change_plan SCRIPT added for
+        # Mode V plan pre-check — deepagents read_file only sees the agent's
+        # VIRTUAL filesystem, so reading a plan from real disk needs the
+        # subprocess script.
         fm = _parse_front_matter(_REPORTER_DIR / "SKILL.md")
         tools = _collect_tools(fm)
-        assert len(tools) <= 9, (
-            f"reporter has {len(tools)} tools (> 9 hard limit): {sorted(tools)}"
+        assert len(tools) <= 10, (
+            f"reporter has {len(tools)} tools (> 10 hard limit): {sorted(tools)}"
         )
 
     def test_has_investigation_tools(self):

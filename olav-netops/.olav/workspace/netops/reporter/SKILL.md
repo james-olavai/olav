@@ -54,6 +54,10 @@ scripts:
     — reports added/removed rows per table; use snapshot_id_2='latest' for current
   file: diff_snapshots.py
   name: diff_snapshots
+- description: Read a change-plan document from REAL disk (read_file only sees the
+    agent's virtual FS). No path arg → lists exports/change_plans/.
+  file: read_change_plan.py
+  name: read_change_plan
 static_context_mode: on_intent
 subagents:
 - path: ../simulator/SKILL.md
@@ -94,6 +98,30 @@ For config-layer evaluation (BGP compat, reachability), delegate via `task("sim"
 |---|---|
 | "investigate / why / 故障 / audit / deep research" | Workflow D — Investigation Report |
 | "blast radius / what if X fails / decommission" | Mode C — Blast Radius |
+| "pre-check / light-verify the change plan at <path>" | Mode V — Plan Pre-check |
+
+## Mode V — Plan Pre-check (lightweight verification)
+
+Bounded sanity check of a drafted change plan against CURRENT state —
+the fast tier before Batfish formal verification. Budget: ≤4 SQL/evidence
+queries + 1 blast-radius call. Return your verdict TEXT directly (no
+report file).
+
+1. Read the plan — NOT with `read_file` (it cannot see files on disk):
+   `execute_skill_script(skill_name="reporter",
+   script_name="read_change_plan.py", args={"path": "<the plan path from
+   the prompt>"})` — extract: devices, interfaces, IPs/subnets, protocol/AS.
+2. Verify against state (ONE query each, only what the plan claims):
+   - devices exist in `netops.devices`
+   - target interface exists and its current IP/status doesn't conflict
+     (`netops.v_show_interfaces_auto`)
+   - proposed subnet not already in use
+3. `inspect_blast_radius(remove_devices=[<the device the plan protects
+   or removes>])` — the impact number the plan should be citing.
+4. Verdict — one of:
+   - `PRE-CHECK PASS` + 3-5 evidence bullets (include the blast-radius count)
+   - `PRE-CHECK CONCERNS` + what conflicts (wrong interface, IP in use,
+     device not found, plan cites no/wrong impact number)
 
 ## Write mechanics (always ON)
 

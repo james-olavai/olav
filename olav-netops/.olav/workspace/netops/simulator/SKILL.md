@@ -33,6 +33,10 @@ scripts:
     before batfish_q for mixed/unfamiliar vendor scope.
   file: batfish_capability.py
   name: batfish_capability
+- description: Read a change-plan document (exports/change_plans/*.md or any path)
+    so it can be validated. No path arg → lists available plans.
+  file: read_change_plan.py
+  name: read_change_plan
 thinking_mode: disabled
 tools:
 - batfish_q
@@ -55,6 +59,7 @@ tell the caller to dispatch the right peer.
 | Tool | Use |
 |---|---|
 | `batfish_capability(devices, snapshot_id)` | Pre-flight vendor support check — call FIRST for unfamiliar scope. Consult your capability catalog for FULL/PARTIAL/NONE/EMPTY interpretation. |
+| `read_change_plan(path)` | Load a change-plan document the caller referenced by path. No path → lists available plans under exports/change_plans/. |
 | `batfish_q(snapshot_id, question, q_args, reference_snapshot)` | Generic question runner. Question names and arg schemas are in your question catalog. |
 | `format_and_export(data, filename, format='md', subdir='sim_reports')` | Persist Markdown chunk. Optional — skip if caller will cite your return text verbatim. |
 
@@ -62,6 +67,9 @@ tell the caller to dispatch the right peer.
 
 ```
 0  Parse caller prompt → extract scope (devices), snapshot_id, intent
+   Caller referenced a change-plan FILE (a path or plan name)?
+   → read_change_plan(path=...) first; derive the checks (devices,
+     protocols, expected outcomes) from its content
    snapshot_id absent → OMIT it; batfish_q defaults to the latest snapshot
    that actually has device configs (no need to hunt for an id)
 

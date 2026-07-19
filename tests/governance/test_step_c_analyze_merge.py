@@ -34,9 +34,12 @@ _ANALYZER_REQUIRED_TOOLS = (
 )
 
 # Tools that moved to reporter — must NOT appear in analyzer
+# 2026-07-18: inspect_blast_radius removed — re-added to analyzer as a SCRIPT
+# (impact assessment is the change author's duty for redundancy/decommission
+# plans). The routing intent stays reporter-only, pinned by
+# tests/unit/test_analyzer_blast_radius_script.py.
 _MOVED_TO_REPORTER = (
     "query_evidence",
-    "inspect_blast_radius",
     "diff_snapshots",
     "inspect_routing",
 )
@@ -125,14 +128,16 @@ def test_skill_md_has_thinking_mode():
     )
 
 
-def test_tool_count_at_most_9():
+def test_tool_count_at_most_10():
     # Limit raised from 7 → 8 (2026-05-31): olav_recall_memory added for expert-KB
-    # guardrail injection.  Keep in sync with test_netops_analyzer_reporter_split.py.
+    # guardrail injection.  9 → 10 (2026-07-18): inspect_blast_radius script for
+    # change-plan impact assessment.  Keep in sync with
+    # test_netops_analyzer_reporter_split.py.
     from tests.governance.test_netops_analyzer_reporter_split import _collect_tools
     meta = _skill_frontmatter()
     tools = _collect_tools(meta)
-    assert len(tools) <= 9, (
-        f"analyzer has {len(tools)} tools (> 9 hard limit): {sorted(tools)}"
+    assert len(tools) <= 10, (
+        f"analyzer has {len(tools)} tools (> 10 hard limit): {sorted(tools)}"
     )
 
 
