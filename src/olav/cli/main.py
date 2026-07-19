@@ -1969,6 +1969,14 @@ async def _ensure_bootstrapped() -> bool:
         api_json_path.write_text(
             _json.dumps(api_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
+        # The ConfigLoader singleton has already cached the pre-write (empty)
+        # state — InitCommand._check_llm and the wizard's connectivity probe
+        # both instantiate it before api.json exists. Without a reload, the
+        # agent below reads no api_key/base_url and dies with
+        # "Missing credentials" despite the config we just saved.
+        from olav.core.config import reload_config
+
+        reload_config()
         console.print("[green]✓[/green] LLM config saved to .olav/config/api.json\n")
 
         # dev_docs/99 §7.8: optional embedding step. The local default
@@ -1993,6 +2001,7 @@ async def _ensure_bootstrapped() -> bool:
                 api_json_path.write_text(
                     _json.dumps(api_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
                 )
+                reload_config()
                 console.print("[green]✓[/green] Embedding config saved.\n")
 
     if is_fresh_bootstrap:

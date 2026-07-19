@@ -213,6 +213,60 @@ def test_missing_key_tty_change_embedding_persists(tmp_path, monkeypatch) -> Non
     assert saved["embedding"]["api"]["model"] == "embeddinggemma"
 
 
+def test_wizard_saved_config_is_visible_to_the_agent_in_process(tmp_path, monkeypatch) -> None:
+    """Regression (v0.23.1 first-run crash): InitCommand._check_llm and the
+    wizard's connectivity probe instantiate the ConfigLoader singleton BEFORE
+    the wizard writes api.json, permanently caching the empty pre-write state.
+    The agent launched right after then read no api_key/base_url and died with
+    "Missing credentials" despite a correctly saved config. After the wizard
+    persists api.json, get_llm_config() in the SAME process must return the
+    saved values — _ensure_bootstrapped must reload the config singleton."""
+    import olav.core.config as config_mod
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OLAV_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    cfg_dir = tmp_path / ".olav" / "config"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "api.json").write_text(json.dumps({"llm": {"api_key": ""}}), encoding="utf-8")
+
+    # Point the loader at this test's config dir and reset the singleton
+    # (monkeypatch restores the real values on teardown).
+    monkeypatch.setattr(config_mod, "_CONFIG_DIR", cfg_dir)
+    monkeypatch.setattr(config_mod.ConfigLoader, "_loaded", False)
+    monkeypatch.setattr(config_mod.ConfigLoader, "_instance", None)
+    monkeypatch.setattr(config_mod, "_config", None)
+
+    # Poison the cache exactly like InitCommand._check_llm does on a fresh run:
+    # read the (still keyless) config before the wizard writes anything.
+    assert config_mod.get_llm_config().api_key == ""
+
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    import olav.cli.llm_setup as setup_mod
+    monkeypatch.setattr(setup_mod, "interactive_llm_setup", lambda console, **kw: {
+        "provider": "openai", "model_provider": "openai",
+        "model": "deepseek-v4-flash", "api_key": "sk-typed-in",
+        "base_url": "https://api.deepseek.com/v1",
+    })
+    monkeypatch.setattr(setup_mod, "interactive_embedding_setup", lambda console, **kw: {
+        "mode": "api", "api": {"model": "embeddinggemma",
+                               "base_url": "http://localhost:11434/v1", "api_key": "local"},
+    })
+    from rich.prompt import Prompt
+    monkeypatch.setattr(Prompt, "ask", classmethod(lambda cls, *a, **kw: "change"))
+
+    assert _run(main_mod._ensure_bootstrapped()) is True
+
+    # The same-process view — what OLAVAgent.__init__ reads — must see the
+    # wizard's values, not the cached empty state.
+    llm_cfg = config_mod.get_llm_config()
+    assert llm_cfg.api_key == "sk-typed-in"
+    assert llm_cfg.model == "deepseek-v4-flash"
+    assert llm_cfg.base_url == "https://api.deepseek.com/v1"
+    assert config_mod.get_embedding_config().mode == "api"
+
+
 def test_missing_key_tty_setup_aborted_returns_false(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)

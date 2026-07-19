@@ -181,6 +181,30 @@ def test_embedding_local_server(monkeypatch) -> None:
         "model": "embeddinggemma", "base_url": "http://localhost:11434/v1", "api_key": "local"}}
 
 
+def test_embedding_api_pick_by_number(monkeypatch) -> None:
+    """Regression: the API-mode embedding menu printed numbered choices but
+    took the reply literally — typing "1" sent model="1" to the backend
+    (404 "model \"1\" not found"). A digit within menu range must map to
+    the listed model, like _select_model and _local_embedding_model do."""
+    _emb_ok(monkeypatch)
+    monkeypatch.setattr(m, "_fetch_models", lambda b, k: ["embeddinggemma:latest", "nomic-embed"])
+    emb = m.interactive_embedding_setup(
+        _console(), prompt_cls=_Prompt(["2", "http://192.168.100.50:11434/v1", "k", "1"])
+    )
+    assert emb["api"]["model"] == "embeddinggemma:latest"
+
+
+def test_embedding_api_out_of_range_number_is_literal(monkeypatch) -> None:
+    """A digit outside the menu range stays literal — it may be a real model
+    name (unlikely but possible), and silently clamping would be worse."""
+    _emb_ok(monkeypatch)
+    monkeypatch.setattr(m, "_fetch_models", lambda b, k: ["only-one"])
+    emb = m.interactive_embedding_setup(
+        _console(), prompt_cls=_Prompt(["2", "http://h/v1", "k", "9"])
+    )
+    assert emb["api"]["model"] == "9"
+
+
 def test_embedding_cloud(monkeypatch) -> None:
     _emb_ok(monkeypatch)
     monkeypatch.setattr(m, "_fetch_models", lambda b, k: ["text-embedding-3-small"])

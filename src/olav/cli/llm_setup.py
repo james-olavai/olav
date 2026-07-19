@@ -211,12 +211,15 @@ def interactive_embedding_setup(console, *, prompt_cls=None) -> dict | None:
             return None
 
     models = _fetch_models(base_url, api_key)
-    if models:
+    menu = models[:_MODEL_MENU_CAP]
+    if menu:
         console.print("[dim]Models reported by the endpoint (chat + embedding are mixed — "
                       "pick an EMBEDDING model):[/dim]")
-        for i, mm in enumerate(models[:_MODEL_MENU_CAP], 1):
+        for i, mm in enumerate(menu, 1):
             console.print(f"  {i}) {mm}")
-    model = prompt_cls.ask("Embedding model name").strip()
+    model = prompt_cls.ask("Embedding model name (number, or type a name)").strip()
+    if model.isdigit() and 1 <= int(model) <= len(menu):
+        model = menu[int(model) - 1]
     if not model:
         console.print("[yellow]No model — keeping the local default.[/yellow]")
         return None
