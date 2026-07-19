@@ -32,6 +32,7 @@ class DoctorCommand(BaseCommand):
         as_json = "--json" in args.split()
         checks = [
             self._check_scaffolding(),
+            self._check_workspace_integrity(),
             self._check_llm(),
             self._check_embedding(),
             self._check_agents(),
@@ -44,15 +45,43 @@ class DoctorCommand(BaseCommand):
         if as_json:
             return json.dumps({"checks": checks, "ok": all(c["ok"] for c in checks)}, indent=2)
 
-        lines = []
-        for check in checks:
-            mark = "✓" if check["ok"] else "⚠"
-            lines.append(f"{mark} {check['name']}: {check['detail']}")
-            if not check["ok"] and check.get("fix"):
-                lines.append(f"    fix: {check['fix']}")
-        overall = "healthy" if all(c["ok"] for c in checks) else "needs attention"
-        lines.append(f"\noverall: {overall}")
-        lines.append(f"cron: {self._cron_hint()}")
+        return self._render_report(checks)
+
+    def _render_report(self, checks: list[dict]) -> str:
+        """Human-readable, colour-highlighted report (rich markup — the CLI
+        prints this via ``console.print`` so tags render; dynamic strings are
+        escaped so a path/detail containing ``[`` can't break markup)."""
+        from rich.markup import escape
+
+        name_w = max((len(c["name"]) for c in checks), default=8)
+        n_pass = sum(1 for c in checks if c["ok"])
+        lines = ["", "[bold]OLAV doctor[/bold] — local installation health", ""]
+        for c in checks:
+            if c["ok"]:
+                glyph, colour = "✓", "green"
+            else:
+                # actionable failure (has a fix) reads as an error; a bare
+                # not-ok with no fix is a soft warning.
+                glyph, colour = ("✗", "red") if c.get("fix") else ("⚠", "yellow")
+            name = escape(c["name"]).ljust(name_w)
+            detail = escape(str(c["detail"]))
+            lines.append(f"  [{colour}]{glyph}[/{colour}] [bold]{name}[/bold]  [dim]{detail}[/dim]")
+            if not c["ok"] and c.get("fix"):
+                lines.append(f"      [yellow]→ fix:[/yellow] {escape(str(c['fix']))}")
+
+        all_ok = n_pass == len(checks)
+        bar = "─" * (name_w + 40)
+        lines.append(f"  [dim]{bar}[/dim]")
+        if all_ok:
+            verdict = f"[bold green]✓ healthy[/bold green]  [dim]({n_pass}/{len(checks)} checks passed)[/dim]"
+        else:
+            verdict = (
+                f"[bold red]✗ needs attention[/bold red]  "
+                f"[dim]({n_pass}/{len(checks)} passed — see → fix lines above)[/dim]"
+            )
+        lines.append(f"  {verdict}")
+        lines.append(f"  [dim]cron:[/dim] {escape(self._cron_hint())}")
+        lines.append("")
         return "\n".join(lines)
 
     def _cron_hint(self) -> str:
@@ -83,6 +112,62 @@ class DoctorCommand(BaseCommand):
                 "fix": "run `olav init`",
             }
         return {"name": "scaffolding", "ok": True, "detail": ".olav/ deployed"}
+
+    def _check_workspace_integrity(self) -> dict:
+        """Detect a split-workspace: a second, competing ``~/.olav`` holding
+        real workspace state (config / databases / workspace) distinct from the
+        one the runtime resolves. This is the failure that silently splits data
+        when ``olav`` runs without ``OLAV_HOME`` from a home directory: device
+        imports and users land in ``~/.olav`` while the deployed workspace is
+        elsewhere (ISSUE-PROJECT-ROOT-STRAY-DOTOLAV). Only competing WORKSPACE
+        artifacts flag it — the cache/checkpoints/sessions that ``~/.olav``
+        legitimately holds by design are ignored, so a correct install stays
+        green. Never raises."""
+        import os
+
+        try:
+            from olav.core.config import get_paths_config
+
+            resolved_root = Path(get_paths_config().project_root).resolve()
+        except Exception:  # noqa: BLE001
+            resolved_root = Path.cwd().resolve()
+        resolved_olav = (resolved_root / ".olav").resolve()
+        home_olav = (Path.home() / ".olav").resolve()
+
+        olav_home_env = os.environ.get("OLAV_HOME")
+
+        # A stray workspace = ~/.olav that (a) is NOT the resolved workspace and
+        # (b) holds workspace-level state, not just the by-design cache dirs.
+        workspace_markers = ["config/api.json", "workspace", "databases"]
+        if home_olav != resolved_olav and home_olav.is_dir():
+            competing = [m for m in workspace_markers if (home_olav / m).exists()]
+            if competing:
+                return {
+                    "name": "workspace",
+                    "ok": False,
+                    "detail": (
+                        f"two workspaces on disk — runtime uses {resolved_olav}, "
+                        f"but a competing ~/.olav holds {', '.join(competing)} "
+                        "(imports/users/config can split between them)"
+                    ),
+                    "fix": (
+                        f"set OLAV_HOME={resolved_root} in your shell profile "
+                        "(or always run from that dir); if ~/.olav is unwanted, "
+                        "remove it after confirming it has no data you need"
+                    ),
+                }
+
+        if not olav_home_env:
+            return {
+                "name": "workspace",
+                "ok": True,
+                "detail": (
+                    f"{resolved_olav} (resolved from cwd — set OLAV_HOME to pin it "
+                    "and avoid a stray ~/.olav)"
+                ),
+            }
+        return {"name": "workspace", "ok": True,
+                "detail": f"{resolved_olav} (OLAV_HOME pinned)"}
 
     def _check_llm(self) -> dict:
         try:

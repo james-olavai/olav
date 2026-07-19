@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from pathlib import Path
 
 import olav.core.config as config_mod
 import olav.core.llm as llm_mod
@@ -156,16 +157,21 @@ def _mock_all_healthy(tmp_path, monkeypatch) -> None:
     # has its own dedicated tests above / in its own module.
     from olav.cli.commands.doctor import DoctorCommand
 
-    for _name in ("agents", "subagents", "tools", "memory", "recall"):
+    _stub_methods = {
+        "_check_workspace_integrity": "workspace",
+        "_check_agents": "agents", "_check_subagents": "subagents",
+        "_check_tools": "tools", "_check_memory": "memory", "_check_recall": "recall",
+    }
+    for _method, _name in _stub_methods.items():
         monkeypatch.setattr(
             DoctorCommand,
-            f"_check_{_name}",
+            _method,
             lambda self, _n=_name: {"name": _n, "ok": True, "detail": "stubbed", "fix": None},
         )
 
 
 _ALL_CHECK_NAMES = {
-    "scaffolding", "llm", "embedding",
+    "scaffolding", "workspace", "llm", "embedding",
     "agents", "subagents", "tools", "memory", "recall",
 }
 
@@ -173,7 +179,7 @@ _ALL_CHECK_NAMES = {
 def test_execute_reports_overall_healthy(tmp_path, monkeypatch) -> None:
     _mock_all_healthy(tmp_path, monkeypatch)
     result = asyncio.run(_make_cmd().execute())
-    assert "overall: healthy" in result
+    assert "healthy" in result and "checks passed" in result
     assert "fix:" not in result
 
 
@@ -258,7 +264,73 @@ def test_execute_never_raises_on_unhealthy_system(tmp_path, monkeypatch) -> None
     monkeypatch.chdir(tmp_path)  # no .olav/, no mocked config → everything fails
     result = asyncio.run(_make_cmd().execute())
     assert isinstance(result, str)
-    assert "overall: needs attention" in result
+    assert "needs attention" in result
+
+
+# ---------------------------------------------------------------------------
+# Workspace-integrity check (ISSUE-PROJECT-ROOT-STRAY-DOTOLAV)
+# ---------------------------------------------------------------------------
+
+
+def _point_resolved_root(monkeypatch, root):
+    class _Paths:
+        project_root = str(root)
+    monkeypatch.setattr(config_mod, "get_paths_config", lambda: _Paths())
+
+
+def test_workspace_integrity_ok_when_no_competing_stray(tmp_path, monkeypatch):
+    root = tmp_path / "proj"
+    (root / ".olav" / "config").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path / "home"))
+    (tmp_path / "home").mkdir()
+    _point_resolved_root(monkeypatch, root)
+    monkeypatch.setenv("OLAV_HOME", str(root))
+    check = _make_cmd()._check_workspace_integrity()
+    assert check["ok"] is True and "OLAV_HOME pinned" in check["detail"]
+
+
+def test_workspace_integrity_flags_competing_home_workspace(tmp_path, monkeypatch):
+    """The burn: ~/.olav holds real workspace state distinct from the resolved
+    deployment → warn with an OLAV_HOME fix."""
+    home = tmp_path / "home"
+    (home / ".olav" / "databases").mkdir(parents=True)
+    (home / ".olav" / "databases" / "main.duckdb").write_text("x")
+    (home / ".olav" / "config").mkdir()
+    (home / ".olav" / "config" / "api.json").write_text("{}")
+    root = tmp_path / "proj"
+    (root / ".olav" / "config").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    _point_resolved_root(monkeypatch, root)
+    check = _make_cmd()._check_workspace_integrity()
+    assert check["ok"] is False
+    assert "two workspaces" in check["detail"]
+    assert "OLAV_HOME=" in check["fix"]
+
+
+def test_workspace_integrity_ignores_by_design_cache_only_home(tmp_path, monkeypatch):
+    """~/.olav holding ONLY cache/checkpoints (by-design user-isolated dirs)
+    must NOT flag — else a correct install warns on every run."""
+    home = tmp_path / "home"
+    (home / ".olav" / "cache" / "olav").mkdir(parents=True)
+    (home / ".olav" / "checkpoints").mkdir()
+    root = tmp_path / "proj"
+    (root / ".olav" / "config").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    _point_resolved_root(monkeypatch, root)
+    monkeypatch.setenv("OLAV_HOME", str(root))
+    check = _make_cmd()._check_workspace_integrity()
+    assert check["ok"] is True
+
+
+def test_workspace_integrity_hints_when_olav_home_unset(tmp_path, monkeypatch):
+    root = tmp_path / "proj"
+    (root / ".olav").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path / "home"))
+    (tmp_path / "home").mkdir()
+    _point_resolved_root(monkeypatch, root)
+    monkeypatch.delenv("OLAV_HOME", raising=False)
+    check = _make_cmd()._check_workspace_integrity()
+    assert check["ok"] is True and "set OLAV_HOME" in check["detail"]
 
 
 # ---------------------------------------------------------------------------
