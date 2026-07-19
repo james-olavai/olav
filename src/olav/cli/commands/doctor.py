@@ -108,12 +108,35 @@ class DoctorCommand(BaseCommand):
         from olav.core.llm import LLMFactory
 
         ok, detail = LLMFactory.check_connectivity()
+        # Name WHAT is configured, not just whether it answered — doctor is
+        # the one-stop health view (dev_docs/99 §3.1). Never raises: a fake
+        # or partial config yields whatever fields it has.
+        summary = self._llm_config_summary()
+        if summary:
+            detail = f"{detail} — {summary}"
         return {
             "name": "llm",
             "ok": ok,
             "detail": detail,
             "fix": "check llm.model / llm.base_url / llm.api_key in .olav/config/api.json" if not ok else None,
         }
+
+    @staticmethod
+    def _llm_config_summary() -> str:
+        try:
+            from olav.core.config import get_llm_config
+
+            cfg = get_llm_config()
+            model = cfg.model
+            endpoint = cfg.base_url or f"{cfg.model_provider or 'openai'} default endpoint"
+            parts = [f"{model} @ {endpoint}"]
+            tier = getattr(cfg, "model_tier", "")
+            if tier:
+                parts.append(f"tier={tier}")
+            parts.append(f"timeout={cfg.timeout}s")
+            return " · ".join(parts)
+        except Exception:  # noqa: BLE001 — summary is best-effort decoration
+            return ""
 
     def _check_embedding(self) -> dict:
         try:
@@ -139,12 +162,37 @@ class DoctorCommand(BaseCommand):
         from olav.core.llm import LLMFactory
 
         ok, detail = LLMFactory.check_embedding_connectivity()
+        summary = self._embedding_config_summary(config, probe_dim=ok)
+        if summary:
+            detail = f"{detail} — {summary}"
         return {
             "name": "embedding",
             "ok": ok,
             "detail": detail,
             "fix": "check embedding.mode / embedding.api.* in .olav/config/api.json" if not ok else None,
         }
+
+    @staticmethod
+    def _embedding_config_summary(config, probe_dim: bool) -> str:
+        try:
+            if config.mode == "api":
+                summary = f"api/{config.api_model} @ {config.openai_base_url or 'provider default endpoint'}"
+            elif config.mode == "local":
+                summary = f"local/{config.local_model}"
+            else:
+                return f"mode={config.mode}"
+            if probe_dim:
+                # Cached probe (embed_text of one string) — only when the
+                # backend just answered, so this never adds a hang.
+                try:
+                    from olav.core.embedder import detect_embedding_dim
+
+                    summary += f" · {detect_embedding_dim()}-dim"
+                except Exception:  # noqa: BLE001
+                    pass
+            return summary
+        except Exception:  # noqa: BLE001 — summary is best-effort decoration
+            return ""
 
     # ── stack health (agents / subagents / tools / experience / recall) ──
     # All zero-LLM, filesystem + store reads only. Each is defensive — a

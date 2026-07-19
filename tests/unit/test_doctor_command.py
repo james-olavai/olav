@@ -78,7 +78,7 @@ def test_llm_check_reports_connected(monkeypatch) -> None:
     )
     check = _make_cmd()._check_llm()
     assert check["ok"] is True
-    assert check["detail"] == "connected"
+    assert check["detail"].startswith("connected")  # + config summary suffix
     assert check["fix"] is None
 
 
@@ -183,6 +183,75 @@ def test_execute_json_output_is_valid(tmp_path, monkeypatch) -> None:
     payload = json.loads(result)
     assert payload["ok"] is True
     assert {c["name"] for c in payload["checks"]} == _ALL_CHECK_NAMES
+
+
+class _StubLoader:
+    """Minimal loader for constructing REAL config classes in tests —
+    hand-rolled attr-bag fakes are how the base_url drift bug slipped
+    through (see feedback memory: config-interface-drift-bugs)."""
+
+    _shared: dict = {}
+
+    def _env_override(self, section, key, default):
+        return default
+
+
+def test_llm_check_detail_names_model_and_endpoint(monkeypatch) -> None:
+    """Doctor is the one-stop health view: 'connected' alone doesn't say
+    WHAT is configured. Detail must name model + endpoint (+tier/timeout)."""
+    from olav.core.config import LLMConfig
+
+    real_cfg = LLMConfig(
+        {"model": "gemma4-31b-it-qat", "base_url": "http://192.168.100.12:11433/v1",
+         "api_key": "local", "timeout": 600},
+        _StubLoader(),
+    )
+    monkeypatch.setattr(config_mod, "ConfigLoader", lambda: _FakeConfigLoader(api_key="k"))
+    monkeypatch.setattr(config_mod, "get_llm_config", lambda: real_cfg)
+    monkeypatch.setattr(
+        llm_mod.LLMFactory, "check_connectivity", staticmethod(lambda: (True, "connected"))
+    )
+    detail = _make_cmd()._check_llm()["detail"]
+    assert "gemma4-31b-it-qat" in detail
+    assert "http://192.168.100.12:11433/v1" in detail
+    assert "timeout=600s" in detail
+
+
+def test_embedding_check_detail_names_mode_model_and_dim(monkeypatch) -> None:
+    from olav.core.config import EmbeddingConfig
+
+    real_cfg = EmbeddingConfig(
+        {"mode": "api", "api": {"model": "embeddinggemma-300m",
+                                "base_url": "http://192.168.100.12:11433/v1",
+                                "api_key": "local"}},
+        _StubLoader(),
+    )
+    monkeypatch.setattr(config_mod, "get_embedding_config", lambda: real_cfg)
+    monkeypatch.setattr(
+        llm_mod.LLMFactory, "check_embedding_connectivity",
+        staticmethod(lambda: (True, "connected")),
+    )
+    import olav.core.embedder as emb_mod
+    monkeypatch.setattr(emb_mod, "detect_embedding_dim", lambda: 768)
+    detail = _make_cmd()._check_embedding()["detail"]
+    assert "api/embeddinggemma-300m" in detail
+    assert "http://192.168.100.12:11433/v1" in detail
+    assert "768-dim" in detail
+
+
+def test_embedding_check_local_mode_detail(monkeypatch) -> None:
+    from olav.core.config import EmbeddingConfig
+
+    real_cfg = EmbeddingConfig({"mode": "local"}, _StubLoader())
+    monkeypatch.setattr(config_mod, "get_embedding_config", lambda: real_cfg)
+    monkeypatch.setattr(
+        llm_mod.LLMFactory, "check_embedding_connectivity",
+        staticmethod(lambda: (True, "connected")),
+    )
+    import olav.core.embedder as emb_mod
+    monkeypatch.setattr(emb_mod, "detect_embedding_dim", lambda: 512)
+    detail = _make_cmd()._check_embedding()["detail"]
+    assert "local/BAAI/bge-small-zh-v1.5" in detail and "512-dim" in detail
 
 
 def test_execute_never_raises_on_unhealthy_system(tmp_path, monkeypatch) -> None:
