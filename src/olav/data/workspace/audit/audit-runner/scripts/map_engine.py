@@ -237,6 +237,32 @@ def run_map_engine(
                     }]
                     total_count = 1
                     severity = "Critical"
+                except Exception as _job_exc:  # noqa: BLE001
+                    # ISSUE-MAP-ENGINE-FAIL-FAST-ON-BAD-JOB: a job whose SQL
+                    # references a table this dataset doesn't have (shipped
+                    # profiles assume TextFSM views that may not exist) used
+                    # to kill the WHOLE run with a traceback — the other jobs
+                    # never ran. Degrade per-job, mirroring the timeout path:
+                    # synthetic Critical finding, run continues, report shows
+                    # exactly which check could not execute and why.
+                    logger.warning(
+                        "map_engine: job %r failed: %s", job_name, _job_exc,
+                    )
+                    findings = [{
+                        "device": "(map_engine)",
+                        "metric_value": 0,
+                        "metric_name": "Job Error",
+                        "severity_hint": "Critical",
+                        "_warning": "job_error",
+                        "reason": (
+                            f"Job {job_name!r} could not execute: "
+                            f"{str(_job_exc).splitlines()[0][:300]} — check that "
+                            f"the tables/views it queries exist in this dataset "
+                            f"(profiles ship with assumptions about parsed views)."
+                        ),
+                    }]
+                    total_count = 1
+                    severity = "Critical"
                 # RAW-05: when a parsed-only SQL job returns nothing but
                 # raw_output_store still has rows for the same command, the
                 # operator would otherwise see a clean bill of health. Emit

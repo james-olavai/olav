@@ -1021,6 +1021,35 @@ class AutoRecallMiddleware:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# ISSUE-CAPTURE-TRANSIENT-FACTS: auto-capture used to persist per-run
+# transients as durable facts — "plan saved to exports/change_plans/<one-off
+# filename>", "the redundant uplink uses TenGigabitEthernet1/6" (a fresh pick
+# every run) — 12 of 15 captured facts in one test day were stale-by-next-run
+# and, at medium-tier top_k=2, crowded real knowledge out of the recall slots
+# while contradicting each other. Deterministic demotion, not deletion: a
+# transient-looking capture keeps only a 24h lease (expires_at TTL, the
+# ADR-0015 reflection mechanism) so it helps the CURRENT working session and
+# then leaves. Conservative patterns — only unmistakable run-artifact shapes.
+_TRANSIENT_CAPTURE_RE = re.compile(
+    r"exports/[\w./-]+"                      # artifact paths (plans/reports/queries)
+    r"|\b\w+\.(?:md|csv|json|drawio)\b"      # artifact filenames
+    r"|\bsnap_\d{8}_\d{6}"                   # snapshot ids
+    r"|\b(?:saved to|located at|is located|was drafted|under validation)\b",
+    re.IGNORECASE,
+)
+
+_TRANSIENT_TTL_HOURS = 24
+
+
+def _capture_expiry(text: str) -> "datetime | None":
+    """24h lease for run-artifact captures; ``None`` (durable) otherwise."""
+    if _TRANSIENT_CAPTURE_RE.search(text):
+        from datetime import timedelta
+
+        return datetime.now(UTC) + timedelta(hours=_TRANSIENT_TTL_HOURS)
+    return None
+
+
 class AutoCaptureMiddleware:
     """Post-processor that extracts facts/decisions and stores them in LanceDB.
 
@@ -1198,6 +1227,7 @@ class AutoCaptureMiddleware:
                 tags_list = item.get("tags", [])
                 if not isinstance(tags_list, list):
                     tags_list = []
+                _expires = _capture_expiry(text)
                 self._store.add_memory(
                     id=memory_id,
                     text=text,
@@ -1205,12 +1235,14 @@ class AutoCaptureMiddleware:
                     category=category,
                     scope=scope,
                     origin="agent",
-                    confidence=importance,
+                    confidence=min(importance, 0.3) if _expires else importance,
                     tags=json.dumps(tags_list),
+                    expires_at=_expires,
                     metadata={
                         "source": "auto_capture",
                         "importance": importance,
                         "captured_at": datetime.now(UTC).isoformat(),
+                        **({"transient": True} if _expires else {}),
                     },
                 )
                 stored_count += 1
