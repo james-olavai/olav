@@ -143,8 +143,10 @@ def _load_config_overrides() -> dict[str, Any]:
     }
     try:
         from olav.core.config import get_config
-        full = get_config()
-        red = (full.get("redaction") if isinstance(full, dict) else None) or {}
+        # get_config() returns a ConfigLoader, not a dict — the original
+        # `full.get("redaction") if isinstance(full, dict)` was always False,
+        # leaving the documented api.json redaction section dead (env-only).
+        red = get_config().redaction or {}
         for k in list(cfg):
             if k in red:
                 cfg[k] = red[k]
@@ -203,9 +205,10 @@ def scrub(
         msg = (
             "redaction: netconan is NOT installed but redaction is ENABLED — "
             "credentials will be written UNREDACTED to disk. Install the "
-            "[redaction] extra (pip install 'olav[redaction]'), or set "
-            "OLAV_REDACTION=0 to explicitly opt out, or OLAV_REDACTION_STRICT=1 "
-            "to fail-closed instead of writing plaintext."
+            "[redaction] extra (pip install 'olav[redaction]'), or opt out "
+            'explicitly with "redaction": {"enabled": false} in '
+            ".olav/config/api.json (or OLAV_REDACTION=0), or set "
+            "OLAV_REDACTION_STRICT=1 to fail-closed instead of writing plaintext."
         )
         if strict:
             # Fail-closed: refuse to silently write unredacted data.

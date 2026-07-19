@@ -36,6 +36,11 @@ dependencies = [
     "scikit-learn>=1.8.0",
     "scipy>=1.17.1",
     "ruptures>=1.1.9",
+    # Collection-time credential redaction (olav/core/redaction.py wraps it;
+    # the consumers are THIS package's collect/import paths, so it's a hard
+    # dep here — ~50KB pure Python. Redaction defaults ON; without the lib
+    # every network import warns loudly and writes plaintext (fail-open).
+    "netconan>=0.13",
     # CLI output
     "rich>=13.0.0",
 ]

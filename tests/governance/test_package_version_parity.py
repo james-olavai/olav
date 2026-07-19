@@ -5,10 +5,14 @@ Why this matters: both packages are released together as a unit. Version
 skew has historically caused ``pip install olav-netops`` to pull an older
 olav wheel from PyPI, masking new APIs or breaking the netops plugin load.
 
-Three invariants enforced:
+Four invariants enforced:
   1. olav version == olav-netops version (lock-step releases)
   2. olav-netops pyproject.toml ``olav>=X`` pin is not older than current olav
   3. src/olav/__init__.__version__ matches pyproject.toml (no manual drift)
+  4. netops skillpack workspace.yaml versions match (both the repo-root copy
+     and the wheel-shipped data/skillpack copy — `olav skill install` prints
+     the yaml's version, which shipped as a stale "v0.22.2" while the
+     package itself was 0.23.1)
 """
 
 from __future__ import annotations
@@ -65,6 +69,31 @@ def test_netops_dependency_pin_not_stale():
         f"olav-netops pins olav>={pin_ver} but current olav is {olav_ver}. "
         "Update the dependency pin in olav-netops/pyproject.toml."
     )
+
+
+_WORKSPACE_YAMLS = (
+    REPO / "olav-netops" / "workspace.yaml",
+    REPO / "olav-netops" / "src" / "olav_netops" / "data" / "skillpack" / "workspace.yaml",
+)
+
+
+def test_netops_skillpack_workspace_yaml_versions_match():
+    """Both netops workspace.yaml copies must carry the package version.
+
+    `olav skill install olav-netops` reports the version from the wheel's
+    data/skillpack/workspace.yaml — a stale value there tells users they
+    installed an older release than they actually did.
+    """
+    netops_ver = _read_toml(_NETOPS_PYPROJECT)["project"]["version"]
+    for yaml_path in _WORKSPACE_YAMLS:
+        text = yaml_path.read_text(encoding="utf-8")
+        m = re.search(r'^version:\s*["\']?([\d.]+)["\']?', text, re.MULTILINE)
+        assert m, f"Could not find version: line in {yaml_path}"
+        assert m.group(1) == netops_ver, (
+            f"{yaml_path.relative_to(REPO)} declares version {m.group(1)!r} but "
+            f"olav-netops is {netops_ver!r}. Bump the workspace.yaml versions "
+            "together with the package (they are what `olav skill install` prints)."
+        )
 
 
 def test_init_py_version_matches_pyproject():

@@ -533,7 +533,7 @@ class LLMFactory:
                 from langchain_openai import OpenAIEmbeddings
 
                 api_key = overrides.get("api_key") or config.api_key
-                base_url = overrides.get("base_url") or config.base_url or None
+                base_url = overrides.get("base_url") or config.openai_base_url or None
                 # Local OpenAI-compat embedding servers (Ollama, llama.cpp,
                 # vLLM) accept only raw-string input on /v1/embeddings.
                 # OpenAIEmbeddings defaults to tiktoken-tokenising input into

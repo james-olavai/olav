@@ -272,6 +272,22 @@ class ConfigLoader:
         return self._tasks
 
     @property
+    def redaction(self) -> dict:
+        """Raw ``redaction`` section from api.json (see core/redaction.py)."""
+        return self._api.get("redaction", {})
+
+    def section(self, name: str) -> dict:
+        """Raw api.json section by name — the extension-safe accessor.
+
+        Domain extensions (e.g. olav-netops reading its ``batfish`` block)
+        must use this instead of guessing private attrs: two shipped
+        features died reading ``get_config()._data`` / treating the loader
+        as a dict — both silently returned {} and left documented api.json
+        sections dead."""
+        sec = self._api.get(name, {})
+        return sec if isinstance(sec, dict) else {}
+
+    @property
     def security(self):
         return SecurityConfig(self._api.get("security", {}))
 

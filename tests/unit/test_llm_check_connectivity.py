@@ -146,7 +146,7 @@ def test_get_embeddings_mode_and_api_key_overridable(monkeypatch) -> None:
         api_key = ""
         openai_model = "text-embedding-3-small"
         local_model = "BAAI/bge-small-zh-v1.5"
-        base_url = ""
+        openai_base_url = ""   # the real attribute name (there is no .base_url)
         normalize_embeddings = True
         fallback_enabled = True
 
@@ -181,7 +181,7 @@ def test_get_embeddings_local_endpoint_disables_ctx_tokenisation(monkeypatch) ->
         api_key = "k"
         openai_model = "m"
         local_model = "BAAI/bge-small-zh-v1.5"
-        base_url = ""
+        openai_base_url = ""   # the real attribute name (there is no .base_url)
         normalize_embeddings = True
         fallback_enabled = True
 
@@ -210,3 +210,51 @@ def test_get_embeddings_local_endpoint_disables_ctx_tokenisation(monkeypatch) ->
         overrides={"mode": "api", "base_url": "https://api.openai.com/v1", "model": "text-embedding-3-small"}
     )
     assert "check_embedding_ctx_length" not in seen
+
+
+def test_get_embeddings_api_mode_reads_real_config_base_url(monkeypatch) -> None:
+    """Regression (v0.23.1): get_embeddings read ``config.base_url`` — an
+    attribute the real EmbeddingConfig does not have (it's ``openai_base_url``)
+    — so every no-overrides api-mode call (doctor, first-run health,
+    check_health) raised AttributeError and silently fell back to the local
+    512-dim model while embedder.py used the 768-dim API backend. The fake
+    config stubs above HAVE a base_url attribute, which is exactly how the
+    bug slipped past them — this test uses the real EmbeddingConfig."""
+    from olav.core.config import EmbeddingConfig
+
+    class _StubLoader:
+        _shared: dict = {}
+
+        def _env_override(self, section, key, default):
+            return default
+
+    cfg = EmbeddingConfig(
+        {
+            "mode": "api",
+            "api": {
+                "model": "embeddinggemma:latest",
+                "base_url": "http://192.168.100.50:11434/v1",
+                "api_key": "local",
+            },
+            "fallback": {"enabled": False},
+        },
+        _StubLoader(),
+    )
+
+    seen = {}
+
+    class _FakeOpenAIEmbeddings:
+        def __init__(self, **kw):
+            seen.update(kw)
+
+    monkeypatch.setattr("olav.core.config.get_embedding_config", lambda: cfg)
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "langchain_openai",
+        __import__("types").SimpleNamespace(OpenAIEmbeddings=_FakeOpenAIEmbeddings),
+    )
+
+    # No overrides — the runtime path. Must not raise, must use the api section.
+    LLMFactory.get_embeddings(strict=True)
+    assert seen.get("base_url") == "http://192.168.100.50:11434/v1"
+    assert seen.get("model") == "embeddinggemma:latest"
