@@ -983,6 +983,22 @@ def _detect_report_language(profile_cfg: dict) -> str:
     authored by the designer in the user's language), not of the LLM's runtime
     content detection (which is unreliable when the report is mixed mid-run).
     """
+    # ISSUE (2026-07-20): the platform-wide output-language policy
+    # (api.json agent.output_language) wins over profile detection so a
+    # Chinese user running a shipped English profile gets a Chinese report —
+    # matching the unified language directive. A concrete zh/en forces the
+    # whole report; "auto" (default) falls through to the profile's own
+    # language (frontmatter / section_prompt majority).
+    try:
+        from olav.core.config import get_config
+        _global = str(get_config().agent.output_language or "auto").strip().lower()
+        if _global in ("zh", "chinese", "cn"):
+            return "zh"
+        if _global in ("en", "english"):
+            return "en"
+    except Exception:  # noqa: BLE001 — config optional; fall back to profile
+        pass
+
     import re
     chinese_re = re.compile(r"[\u4e00-\u9fff]")
     zh_count = 0
