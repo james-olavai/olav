@@ -339,6 +339,42 @@ def _read_prompt_file(path: Path) -> str | None:
     return None
 
 
+# ── Unified output-language directive (platform-global) ───────────────────────
+# One control point for input↔output language, injected into every agent's
+# system prompt (orchestrator + sub-agents) so behaviour is consistent instead
+# of scattered per-SKILL.md rules. Driven by api.json `agent.output_language`:
+#   "auto" (default) → mirror the user's input language
+#   "<lang>"          → always answer in that language (e.g. "zh", "English")
+# Kept short + placed as a stable suffix (WHAT-not-HOW): small models follow a
+# terse, consistently-present rule far more reliably than a buried paragraph.
+_LANG_DIRECTIVE_AUTO = (
+    "\n\n## Output language\n"
+    "Detect the language of the user's message and write ALL prose replies in "
+    "that same language for the whole exchange (Chinese in → Chinese out; "
+    "English in → English out). Code, SQL, YAML keys, file paths, CLI commands, "
+    "and identifiers always stay in English regardless of the reply language."
+)
+_LANG_DIRECTIVE_FIXED = (
+    "\n\n## Output language\n"
+    "Write ALL prose replies in {lang}, regardless of the user's input "
+    "language. Code, SQL, YAML keys, file paths, CLI commands, and identifiers "
+    "always stay in English."
+)
+
+
+def _language_directive() -> str:
+    """Return the global output-language directive from api.json (never raises)."""
+    try:
+        from olav.core.config import get_config
+
+        mode = str((get_config().agent.output_language or "auto")).strip()
+    except Exception:  # noqa: BLE001 — config optional; default to auto
+        mode = "auto"
+    if not mode or mode.lower() == "auto":
+        return _LANG_DIRECTIVE_AUTO
+    return _LANG_DIRECTIVE_FIXED.format(lang=mode)
+
+
 def _debug_log_injection(
     skill_dir: Path,
     mode: str,
@@ -1382,6 +1418,10 @@ class OLAVAgent:
             # api-query "guess the skill_name" failure).
             prompt = _inject_script_recipe(prompt, name, metadata)
 
+            # Same global output-language directive as the orchestrator — a
+            # sub-agent that writes a report/plan directly must honour it too.
+            prompt = prompt + _language_directive()
+
             # R-VERTICAL-SLICE 2026-05-09 (dev_docs/70): per-sub-agent
             # ``thinking_mode`` overrides the orchestrator's setting.
             # 2026-05-15: extended to a generic ``llm:`` block carrying
@@ -1687,6 +1727,9 @@ class OLAVAgent:
             logger.info(f"Loaded system prompt from {prompt_file}")
         else:
             agent_prompt = olav_config.get("description", "You are OLAV, an AI operations assistant.")
+
+        # Unified output-language directive — single global control point.
+        agent_prompt = agent_prompt + _language_directive()
 
         if platform_ctx:
             return platform_ctx + "\n\n---\n\n" + agent_prompt

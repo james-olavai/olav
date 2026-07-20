@@ -1025,6 +1025,21 @@ class AgentConfig:
             )
         )
 
+    @property
+    def output_language(self) -> str:
+        """Output-language policy for agent prose replies (default 'auto').
+
+        'auto' → mirror the user's input language; any other value (e.g. 'zh',
+        'English') → always reply in that language. Structured content
+        (code/SQL/paths) stays English regardless. Injected as a global prompt
+        directive by the agent builder — the single control point for language,
+        replacing scattered per-SKILL.md rules."""
+        return str(
+            self._loader._env_override(
+                "agent", "output_language", self._data.get("output_language", "auto")
+            )
+        )
+
 
 class RuntimeConfig:
     def __init__(self, data: dict, loader: ConfigLoader):
