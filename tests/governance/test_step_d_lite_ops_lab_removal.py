@@ -104,7 +104,7 @@ def test_platform_md_lists_canonical_four_agents():
     assert text.startswith("---")
     meta = yaml.safe_load(text.split("---", 2)[1]) or {}
     agents = set(meta.get("agents", []))
-    expected = {"admin", "audit", "core", "devops", "netops", "services"}  # ADR-0014: + platform services agent
+    expected = {"admin", "audit", "core", "devops", "netops", "services", "presales"}  # ADR-0014 + ADR-0016 presales
     assert agents == expected, (
         f"olav.md agents list {sorted(agents)} != canonical "
         f"{sorted(expected)}. Run `olav refresh`."

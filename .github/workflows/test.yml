@@ -21,6 +21,7 @@ jobs:
         suite:
           - root        # src/olav + tests/unit/
           - netops      # olav-netops + olav-netops/tests/unit/
+          - presales    # olav-presales + olav-presales/tests/
     steps:
       - uses: actions/checkout@v4
 
@@ -54,6 +55,17 @@ jobs:
         if: matrix.suite == 'netops'
         run: uv run pytest olav-netops/tests/unit/ -q --tb=short
         continue-on-error: true  # netops unit dir may not exist yet
+
+      # olav-presales depends on olav-netops (link_id reuse + topology shape).
+      - name: Install olav-presales as Python package
+        if: matrix.suite == 'presales'
+        run: |
+          uv pip install -e "olav-netops/[sim]"
+          uv pip install -e olav-presales
+
+      - name: Run unit tests — presales
+        if: matrix.suite == 'presales'
+        run: uv run pytest olav-presales/tests/ -q --tb=short
 
   # ─────────────────────────────────────────────────────────────
   # Gate tests — always run; auto-skip if DB absent
@@ -133,6 +145,14 @@ jobs:
 
       - name: Install netops skill pack
         run: uv run olav skill install olav-netops
+
+      # presales is the 7th top-level agent (ADR-0017) — test_v018_compliance
+      # asserts the runtime .olav/workspace/ dir set, so the presales workspace
+      # must be deployed before the platform governance suite runs.
+      - name: Install presales skill pack
+        run: |
+          uv pip install -e olav-presales
+          uv run olav skill install olav-presales
 
       - name: Run governance — platform (not netops)
         if: matrix.suite == 'platform'

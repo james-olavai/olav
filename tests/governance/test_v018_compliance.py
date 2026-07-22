@@ -52,6 +52,7 @@ _EXPECTED_TOP_LEVEL_DIRS = frozenset(
         "devops",
         "netops",          # formerly ops/ (main); learner/ is a netops sub-agent
         "services",        # ADR-0014: platform service-lifecycle agent (NEW)
+        "presales",        # ADR-0016: presales domain, 7th top-level agent (dev_docs/100)
     }
 )
 

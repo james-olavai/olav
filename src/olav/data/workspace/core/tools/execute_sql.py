@@ -279,7 +279,7 @@ class SchemaContext:
                 """
                 SELECT table_schema || '.' || table_name AS table_name, table_type
                 FROM information_schema.tables
-                WHERE table_schema IN ('main', 'netops')
+                WHERE table_schema IN ('main', 'netops', 'presales')
                 ORDER BY table_schema, table_name
                 """
             )

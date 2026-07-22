@@ -32,6 +32,7 @@ REPO = Path(__file__).resolve().parents[2]
 WORKSPACE_ROOTS = [
     REPO / "src" / "olav" / "data" / "workspace",       # platform authoritative
     REPO / "olav-netops" / ".olav" / "workspace",       # netops/audit authoritative
+    REPO / "olav-presales" / ".olav" / "workspace",     # presales authoritative
 ]
 
 # Auto-discovered skills that are NOT delegated subagents (loaded via

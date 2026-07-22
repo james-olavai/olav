@@ -4,6 +4,7 @@ default_owner: unknown
 owners:
   - olav
   - olav-netops
+  - olav-presales
   - olav-ent
   - olav-doc
   - olav-web
@@ -12,6 +13,7 @@ owners:
 classes:
   - platform
   - netops
+  - presales
   - enterprise
   - docs
   - website
@@ -563,6 +565,78 @@ rules:
     notes: |
       Real Nornir credentials (CLAB lab default cisco/<redacted-lab-password> etc).
       Copy from defaults.yaml.example, chmod 600, never commit.
+
+  # ── olav-presales (dev_docs/100, ADR-0016) ────────────────────
+  # Independent pip package on the olav-netops model. Whole-tree ignore by
+  # default; explicit track rules below whitelist the release + reviewable
+  # assets (gen_gitignore emits the negation chain, so `git add` works
+  # without -f for whitelisted subtrees). Customer project data under
+  # .olav/presales/ is NEVER committed (confidentiality, §4.2).
+  - pattern: olav-presales/**
+    owner: olav-presales
+    class: presales
+    status: authoritative
+    enforced: true
+    git: ignore
+
+  - pattern: olav-presales/src/**
+    owner: olav-presales
+    class: presales
+    status: authoritative
+    enforced: true
+    git: track
+    notes: Package source (incl. data/skillpack distributable workspace copy).
+
+  - pattern: olav-presales/tests/**
+    owner: olav-presales
+    class: presales
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: olav-presales/pyproject.toml
+    owner: olav-presales
+    class: presales
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: olav-presales/README.md
+    owner: olav-presales
+    class: presales
+    status: authoritative
+    enforced: true
+    git: track
+
+  # Authoritative workspace source — orchestrator + surveyor SKILL.md +
+  # scripts. The root .olav/workspace/presales/ is a generated dev mirror
+  # (rule below); this is the authoritative copy the reachability gate scans.
+  - pattern: olav-presales/.olav/workspace/presales/**
+    owner: olav-presales
+    class: presales
+    status: authoritative
+    enforced: true
+    git: track
+
+  # Generated runtime mirror — deployed by `olav skill install olav-presales`
+  # (CI runs init + skill install). Never tracked.
+  - pattern: .olav/workspace/presales/**
+    owner: olav-presales
+    class: generated
+    status: generated
+    target_repo: olav-presales
+    reason: generated-mirror-deployed-by-olav-skill-install
+    enforced: false
+    git: ignore
+
+  # Per-engagement customer material + extracted data + dossier. Highly
+  # confidential (§4.2 three-way purge); NEVER committed to any remote.
+  - pattern: .olav/presales/**
+    owner: olav-presales
+    class: runtime-workspace
+    status: generated
+    enforced: false
+    git: ignore
 
   - pattern: olav-ent/**
     owner: olav-ent

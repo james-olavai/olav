@@ -23,6 +23,7 @@ lightweight, markdown-native ADR template.
 | [0013](0013-cross-domain-read-access-policy.md) | Cross-domain sub-agent read-access via allowed_tables | Accepted | Post R-AGENT-HIERARCHY |
 | [0014](0014-services-platform-agent-netops-scope.md) | services is a platform core agent; netops scoped to netops + audit | Proposed | Architecture audit batch |
 | [0015](0015-memory-kb-architecture.md) | Memory architecture — reflection/expert_knowledge split + olav_kb/ global KB | Accepted | 0.20.0 |
+| [0016](0016-presales-as-seventh-top-level-agent.md) | Presales as the seventh top-level agent (independent olav-presales package) | Accepted | dev_docs/100 |
 
 ## When to write an ADR
 

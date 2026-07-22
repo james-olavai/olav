@@ -89,6 +89,7 @@ src/olav/web/next-env.d.ts
 /.langgraph_api/
 /olav-post/
 olav-netops/exports/
+.olav/workspace/presales/
 olav-doc/site/
 olav-web/dist/
 olav-web/node_modules/
@@ -123,11 +124,15 @@ olav-netops/.olav/workspace/devops/
 /olav-web/
 
 # runtime-workspace
+.olav/presales/
 /.olav/
 .olav/config/approval_rules.yaml
 
 # collector
 /olav-collector/
+
+# presales
+/olav-presales/
 
 # ── Whitelist (tracked paths inside ignored parents) ──
 !olav-netops/
@@ -139,6 +144,17 @@ olav-netops/.olav/workspace/*
 !olav-netops/.olav/workspace/kb_audit/
 !olav-netops/.olav/workspace/netops/
 !olav-netops/.olav/workspace/audit/
+!olav-presales/
+olav-presales/*
+!olav-presales/src/
+!olav-presales/tests/
+!olav-presales/pyproject.toml
+!olav-presales/README.md
+!olav-presales/.olav/
+olav-presales/.olav/*
+!olav-presales/.olav/workspace/
+olav-presales/.olav/workspace/*
+!olav-presales/.olav/workspace/presales/
 !.olav/
 .olav/*
 !.olav/config/

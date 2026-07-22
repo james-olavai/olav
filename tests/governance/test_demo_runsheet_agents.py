@@ -54,6 +54,7 @@ CURRENT_AGENTS: frozenset[str] = frozenset({
     "netops",
         "services",            # ADR-0014: platform service-lifecycle agent (NEW;
                            # name reclaimed — old self-mgmt services→admin)
+    "presales",            # ADR-0016: presales domain, 7th top-level agent (dev_docs/100)
 })
 
 
