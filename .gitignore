@@ -150,6 +150,7 @@ olav-presales/*
 !olav-presales/tests/
 !olav-presales/pyproject.toml
 !olav-presales/README.md
+!olav-presales/workspace.yaml
 !olav-presales/.olav/
 olav-presales/.olav/*
 !olav-presales/.olav/workspace/

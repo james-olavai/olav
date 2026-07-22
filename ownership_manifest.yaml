@@ -608,6 +608,16 @@ rules:
     enforced: true
     git: track
 
+  # Root install manifest — `olav skill install olav-presales` resolves the
+  # local-path source here (mirrors olav-netops/workspace.yaml). Distinct from
+  # the wheel-bundled src/olav_presales/data/skillpack/workspace.yaml.
+  - pattern: olav-presales/workspace.yaml
+    owner: olav-presales
+    class: presales
+    status: authoritative
+    enforced: true
+    git: track
+
   # Authoritative workspace source — orchestrator + surveyor SKILL.md +
   # scripts. The root .olav/workspace/presales/ is a generated dev mirror
   # (rule below); this is the authoritative copy the reachability gate scans.
