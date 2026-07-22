@@ -76,8 +76,11 @@ surfacing in the wrong session.
 - Governance pin: `tests/governance/test_presales_capture_policy.py` (capture
   never lands in shared:*/org without curator provenance; predicate fires from
   AutoRecall). Unit + integration: `tests/unit/test_memory_project_dimension.py`.
-- Presales must export `OLAV_ACTIVE_PROJECT` at session start (project-switch =
-  session-boundary event, dev_docs/100 §4.6) — wiring lands with the presales
-  launch/`project use` flow.
+- Presales exports `OLAV_ACTIVE_PROJECT` at session start via the generic
+  `olav.session_init` entry-point group (platform `olav/core/session_init.py`,
+  called from `OLAVAgent.__init__`; presales hook
+  `olav_presales.session:on_session_init` resolves it from
+  `OLAV_PRESALES_PROJECT` → `is_active` DB flag). **Landed 2026-07-22** — the
+  predicate is now active in a live presales session.
 - L4 trace-review/curator promotion should pass `curator_provenance=True` when
   promoting a reviewed memory to `shared:presales`.
