@@ -24,6 +24,7 @@ lightweight, markdown-native ADR template.
 | [0014](0014-services-platform-agent-netops-scope.md) | services is a platform core agent; netops scoped to netops + audit | Proposed | Architecture audit batch |
 | [0015](0015-memory-kb-architecture.md) | Memory architecture — reflection/expert_knowledge split + olav_kb/ global KB | Accepted | 0.20.0 |
 | [0016](0016-presales-as-seventh-top-level-agent.md) | Presales as the seventh top-level agent (independent olav-presales package) | Accepted | dev_docs/100 |
+| [0017](0017-memory-layer-project-dimension.md) | Memory-layer project dimension — generic multi-tenancy (recall predicate + capture policy) | Accepted | dev_docs/100 §4.4/§4.5 |
 
 ## When to write an ADR
 
