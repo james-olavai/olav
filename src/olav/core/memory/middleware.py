@@ -612,7 +612,12 @@ class AutoRecallMiddleware:
         except Exception as e:
             logger.debug("long-tail hybrid fetch failed: %s", e)
 
-        return out
+        # ADR-0017: project-dimension recall predicate (§4.4). No-op unless the
+        # session has an active project (OLAV_ACTIVE_PROJECT); then records
+        # tagged with a *different* project are excluded (untagged always pass).
+        from olav.core.memory import filter_by_active_project
+
+        return filter_by_active_project(out)
 
     # Patch C2 (2026-05-08): keyword-exact-match boost
     _SNAKE_CASE_TOKEN = re.compile(r"\b[a-z][a-z0-9_]{4,}\b")

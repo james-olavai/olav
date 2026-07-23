@@ -12,9 +12,11 @@ of truth; GitHub carries two curated views:
 
   mirror   Public monorepo (github.com/james-olavai/olav). Full history
            re-filtered through git-filter-repo: credential file paths
-           removed, token/password literals redacted. filter-repo is
-           deterministic, so re-running over extended history keeps
-           already-published SHAs stable → pushes stay fast-forward.
+           removed, token/password literals redacted, AND the enterprise /
+           private delivery units stripped (olav-ent, olav-presales, olav-post —
+           see _ENTERPRISE_UNIT_PATHS). filter-repo is deterministic, so
+           re-running over extended history keeps already-published SHAs stable
+           → pushes stay fast-forward.
 
   collector  Standalone olav-collector repo
            (github.com/james-olavai/olav-collector). The source dir is
@@ -99,6 +101,23 @@ _HISTORICAL_CRED_PATHS = [
     "olav-netops/.olav/workspace/netops/collector/config/nornir/hosts.yaml",
     "olav-netops/src/olav_netops/data/skillpack/.olav/workspace/netops/collector/config/nornir/defaults.yaml",
     "olav-netops/src/olav_netops/data/skillpack/.olav/workspace/netops/collector/config/nornir/hosts.yaml",
+]
+
+# Enterprise / private delivery units — NEVER published to the public monorepo
+# mirror. gitea (internal) keeps the full source; the public GitHub mirror strips
+# these dir prefixes from all history via git-filter-repo --invert-paths. olav-ent
+# is proprietary; olav-presales is the (proprietary) enterprise presales domain
+# bundled with olav-ent; olav-post is local-only (CLAUDE.md). Trailing slash =
+# directory prefix, so everything under them is removed.
+_ENTERPRISE_UNIT_PATHS = [
+    "olav-ent/",
+    "olav-presales/",
+    "olav-post/",
+    # Enterprise grounding corpus (curated selection expertise — dev_docs/104 §9
+    # commercial layer). Lives under the shared olav_kb/ dir, so it needs an
+    # explicit prefix to be stripped from the public mirror. (presales dev_docs
+    # stay public per the enterprise-positioning decision 5 — not stripped.)
+    "olav_kb/presales/",
 ]
 
 _NETOPS_GITIGNORE = """\
@@ -351,7 +370,12 @@ def publish_mirror(push: bool) -> int:
             encoding="utf-8",
         )
         paths = tmp / "paths.txt"
-        paths.write_text("\n".join(_HISTORICAL_CRED_PATHS) + "\n", encoding="utf-8")
+        # Strip credential files AND enterprise/private delivery units from the
+        # public mirror history (olav-ent / olav-presales / olav-post).
+        paths.write_text(
+            "\n".join(_HISTORICAL_CRED_PATHS + _ENTERPRISE_UNIT_PATHS) + "\n",
+            encoding="utf-8",
+        )
 
         print("running git-filter-repo …")
         _run([sys.executable, "-m", "git_filter_repo", "--force",
@@ -373,6 +397,13 @@ def publish_mirror(push: bool) -> int:
         leaked = [p for p in _HISTORICAL_CRED_PATHS if p in namelog_lines]
         if leaked:
             print(f"VERIFY FAILED — credential paths still in history: {leaked}")
+            return 2
+        # Enterprise/private units must be fully gone from the public mirror.
+        ent_leaked = sorted({ln for ln in namelog_lines
+                             for pre in _ENTERPRISE_UNIT_PATHS if ln.startswith(pre)})
+        if ent_leaked:
+            print("VERIFY FAILED — enterprise-unit files still in mirror history: "
+                  f"{ent_leaked[:10]} (+{max(0, len(ent_leaked) - 10)} more)")
             return 2
         head = _run(["git", "rev-parse", "HEAD"], cwd=clone).strip()
         print(f"scrub verified clean; filtered HEAD = {head[:12]}")

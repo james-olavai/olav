@@ -33,6 +33,92 @@ DEFAULT_MEMORY_DB = ".olav/databases/memory.lance"
 MEMORY_TABLE = "memory"
 
 
+# ── Memory-layer project dimension (ADR-0017; dev_docs/100 §4.4/§4.5) ─────────
+# The first multi-tenancy dimension in the memory layer. Kept GENERIC: the
+# platform core carries no presales semantics — the active project is a plain
+# ``OLAV_ACTIVE_PROJECT`` env signal that a domain (e.g. presales) sets per
+# session. When unset, every function below is a no-op, so this is invisible to
+# all existing callers.
+_PROJECT_ENV = "OLAV_ACTIVE_PROJECT"
+
+# Categories that are cross-project by design (§4.4): reflection = generic
+# failure constraints, safe/intended to recall in any session. Everything else
+# carrying project-specific content is tagged + isolated during a session.
+_CROSS_PROJECT_CATEGORIES = frozenset({"reflection"})
+
+# Sentinel distinguishing "arg omitted → read env" from an explicit
+# ``active=None`` ("no active project").
+_READ_ENV = object()
+
+
+def active_project() -> str | None:
+    """Return the active project slug from ``OLAV_ACTIVE_PROJECT``, or None."""
+    import os
+
+    v = os.environ.get(_PROJECT_ENV)
+    return v.strip() if v and v.strip() else None
+
+
+def _row_project(row: dict) -> str | None:
+    """Extract ``metadata.project`` from a memory row (metadata may be a JSON
+    string or a dict)."""
+    md = row.get("metadata")
+    if isinstance(md, str):
+        try:
+            md = json.loads(md or "{}")
+        except (json.JSONDecodeError, TypeError):
+            return None
+    if isinstance(md, dict):
+        p = md.get("project")
+        return p.strip() if isinstance(p, str) and p.strip() else None
+    return None
+
+
+def filter_by_active_project(rows: list[dict], active=_READ_ENV) -> list[dict]:
+    """Recall predicate (§4.4). Keep untagged rows always; keep project-tagged
+    rows only when they match the active project. With no active project, only
+    untagged rows pass — project facts never leak into a non-project session.
+
+    Omit ``active`` to read ``OLAV_ACTIVE_PROJECT``; pass an explicit ``None`` to
+    force "no active project".
+    """
+    if active is _READ_ENV:
+        active = active_project()
+    out = []
+    for r in rows:
+        rp = _row_project(r)
+        if rp is None or rp == active:
+            out.append(r)
+    return out
+
+
+def apply_project_capture_policy(
+    metadata: dict | None,
+    scope: str,
+    category: str,
+    curator_provenance: bool = False,
+    active=_READ_ENV,
+) -> tuple[dict, str]:
+    """Write-side capture policy (§4.5). During an active-project session,
+    non-reflection captures are tagged ``metadata.project`` and any
+    shared:*/org/global scope is downgraded to a project-local scope — so a
+    project fact can never be written straight to a shared tier. Promotion to a
+    shared scope is HITL-only (``curator_provenance=True`` bypasses).
+
+    No-op when no active project, for cross-project categories, or with curator
+    provenance. Returns the (possibly adjusted) ``(metadata, scope)``.
+    """
+    if active is _READ_ENV:
+        active = active_project()
+    md = dict(metadata or {})
+    if not active or curator_provenance or category in _CROSS_PROJECT_CATEGORIES:
+        return md, scope
+    md.setdefault("project", active)
+    if scope and (scope.startswith("shared:") or scope in ("org", "global")):
+        scope = active
+    return md, scope
+
+
 class EmbeddingDimMismatchError(RuntimeError):
     """Raised when an existing LanceDB table's vector dim doesn't match
     the configured embedder.
@@ -445,6 +531,7 @@ class LanceDBStore:
         weight: float = 1.0,
         reflection_ttl_days: int | None = None,
         expires_at: "datetime | None" = None,
+        curator_provenance: bool = False,
     ) -> dict:
         """Add a memory entry to the store.
 
@@ -516,6 +603,11 @@ class LanceDBStore:
             tbl = self.get_table(table_name)
 
             now = datetime.now(UTC)
+            # ADR-0017: project-dimension capture policy (§4.5). No-op unless a
+            # session has an active project (OLAV_ACTIVE_PROJECT).
+            metadata, scope = apply_project_capture_policy(
+                metadata, scope, category, curator_provenance=curator_provenance
+            )
             metadata_json = json.dumps(metadata) if metadata else "{}"
 
             # ADR-0015: reflection rows always have expires_at set

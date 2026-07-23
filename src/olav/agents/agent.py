@@ -611,6 +611,17 @@ class OLAVAgent:
         self.session_id = session_id
         self.workspace = workspace
 
+        # Per-agent session-init hooks (olav.session_init). Runs before LLM /
+        # graph construction so a domain can set in-process session state — e.g.
+        # presales exports OLAV_ACTIVE_PROJECT here so the memory project
+        # predicate (ADR-0017) is active in a live session. Generic + best-effort.
+        try:
+            from olav.core.session_init import run_session_init
+
+            run_session_init(self.agent_id)
+        except Exception as _e:  # noqa: BLE001 — never break construction
+            logger.debug("session_init failed (non-fatal): %s", _e)
+
         # Pre-load AGENT.md frontmatter so we can read ``thinking_mode``
         # *before* LLM construction (R-VERTICAL-SLICE 2026-05-09,
         # dev_docs/70).  Cached on self to avoid double-loading later.
