@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
-_ENTERPRISE_UNITS = ("olav-ent/", "olav-presales/", "olav-post/")
+_ENTERPRISE_UNITS = ("olav-ent/", "olav-presales/", "olav-post/", "olav_kb/presales/")
 
 
 def test_public_mirror_strips_enterprise_units():

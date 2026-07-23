@@ -113,6 +113,11 @@ _ENTERPRISE_UNIT_PATHS = [
     "olav-ent/",
     "olav-presales/",
     "olav-post/",
+    # Enterprise grounding corpus (curated selection expertise — dev_docs/104 §9
+    # commercial layer). Lives under the shared olav_kb/ dir, so it needs an
+    # explicit prefix to be stripped from the public mirror. (presales dev_docs
+    # stay public per the enterprise-positioning decision 5 — not stripped.)
+    "olav_kb/presales/",
 ]
 
 _NETOPS_GITIGNORE = """\
