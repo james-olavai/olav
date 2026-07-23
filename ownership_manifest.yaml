@@ -566,7 +566,11 @@ rules:
       Real Nornir credentials (CLAB lab default cisco/<redacted-lab-password> etc).
       Copy from defaults.yaml.example, chmod 600, never commit.
 
-  # ── olav-presales (dev_docs/100, ADR-0016) ────────────────────
+  # ── olav-presales — ENTERPRISE tier (dev_docs/100, 104, 106; ADR-0016) ──
+  # Proprietary (not BSL); bundled with olav-ent; git-tracked in gitea (internal)
+  # but STRIPPED from the public GitHub monorepo mirror by
+  # scripts/publish_github_mirrors.py (_ENTERPRISE_UNIT_PATHS). The LLD→greenfield
+  # deploy-plan lands in olav-ent, not here. Entitlement gate = future.
   # Independent pip package on the olav-netops model. Whole-tree ignore by
   # default; explicit track rules below whitelist the release + reviewable
   # assets (gen_gitignore emits the negation chain, so `git add` works
@@ -574,14 +578,14 @@ rules:
   # .olav/presales/ is NEVER committed (confidentiality, §4.2).
   - pattern: olav-presales/**
     owner: olav-presales
-    class: presales
+    class: enterprise
     status: authoritative
     enforced: true
     git: ignore
 
   - pattern: olav-presales/src/**
     owner: olav-presales
-    class: presales
+    class: enterprise
     status: authoritative
     enforced: true
     git: track
@@ -589,21 +593,21 @@ rules:
 
   - pattern: olav-presales/tests/**
     owner: olav-presales
-    class: presales
+    class: enterprise
     status: authoritative
     enforced: true
     git: track
 
   - pattern: olav-presales/pyproject.toml
     owner: olav-presales
-    class: presales
+    class: enterprise
     status: authoritative
     enforced: true
     git: track
 
   - pattern: olav-presales/README.md
     owner: olav-presales
-    class: presales
+    class: enterprise
     status: authoritative
     enforced: true
     git: track
@@ -613,7 +617,7 @@ rules:
   # the wheel-bundled src/olav_presales/data/skillpack/workspace.yaml.
   - pattern: olav-presales/workspace.yaml
     owner: olav-presales
-    class: presales
+    class: enterprise
     status: authoritative
     enforced: true
     git: track
@@ -623,7 +627,7 @@ rules:
   # (rule below); this is the authoritative copy the reachability gate scans.
   - pattern: olav-presales/.olav/workspace/presales/**
     owner: olav-presales
-    class: presales
+    class: enterprise
     status: authoritative
     enforced: true
     git: track
