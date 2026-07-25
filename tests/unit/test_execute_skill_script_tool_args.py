@@ -49,3 +49,31 @@ def test_missing_names_entirely_still_raises():
     Args = _args()
     with pytest.raises(ValidationError):
         Args(script_args={"run_id": "run-x"})
+
+
+def test_tool_invoke_under_the_real_discovery_loader():
+    """Regression: the module-scope tests above import this file via a normal
+    `import` (registered in sys.modules), which pydantic's lazy forward-ref
+    resolution relies on — and so never caught that the REAL loader,
+    olav.core.tool_discovery, loads workspace tool files via
+    importlib.util.spec_from_file_location WITHOUT registering them in
+    sys.modules. Under that loader `_ExecuteSkillScriptArgs` (a `from __future__
+    import annotations` model) raised `PydanticUserError: not fully defined` on
+    the FIRST real tool call, live, in production — reproduce that exact path
+    here so a future change can't silently regress it again."""
+    import importlib.util
+
+    file_path = (Path(__file__).resolve().parents[2] / "src" / "olav" / "data" /
+                "workspace" / "core" / "tools" / "execute_skill_script.py")
+    spec = importlib.util.spec_from_file_location("_test_olav_tool_execute_skill_script",
+                                                   file_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # deliberately NOT registered in sys.modules
+
+    # Would previously raise pydantic.errors.PydanticUserError before the
+    # script ever ran — the assertion here is that this call returns at all.
+    result = module.execute_skill_script.invoke({
+        "script_args": {"action": "status", "script_name": "project_admin.py",
+                        "skill_name": "presales"},
+    })
+    assert result.get("status") in ("ok", "error")

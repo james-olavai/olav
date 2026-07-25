@@ -66,6 +66,15 @@ class _ExecuteSkillScriptArgs(BaseModel):
         return data
 
 
+# Workspace tool files are loaded via importlib.util.spec_from_file_location
+# WITHOUT being registered in sys.modules (olav.core.tool_discovery) — pydantic's
+# lazy forward-ref resolution (this file has `from __future__ import annotations`)
+# looks up sys.modules[cls.__module__] and finds nothing, so the model is never
+# "fully defined" until first used, and fails at call time instead of at import
+# time. Rebuild eagerly with an explicit namespace so it resolves right here.
+_ExecuteSkillScriptArgs.model_rebuild(_types_namespace={"Any": Any})
+
+
 @tool(args_schema=_ExecuteSkillScriptArgs)
 def execute_skill_script(
     skill_name: str,
