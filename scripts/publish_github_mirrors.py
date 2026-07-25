@@ -118,6 +118,20 @@ _ENTERPRISE_UNIT_PATHS = [
     # explicit prefix to be stripped from the public mirror. (presales dev_docs
     # stay public per the enterprise-positioning decision 5 — not stripped.)
     "olav_kb/presales/",
+    # presales tests that live under the shared root tests/ (not olav-presales/
+    # tests/, which the prefixes above already strip). 3 of them import
+    # olav_presales, so they would ImportError in the public mirror where the
+    # package is gone — and all leak enterprise feature names. Kept in gitea
+    # (internal CI runs them) but stripped from the public mirror. Listed as
+    # exact file paths so the startswith-based leak verify below covers them; a
+    # new presales test under tests/ must be added here (see
+    # tests/governance/test_presales_capture_policy.py).
+    "tests/e2e/_presales_bench.py",
+    "tests/e2e/test_presales_bidgrade_pipeline.py",
+    "tests/e2e/test_presales_selection_bench.py",
+    "tests/e2e/fixtures/presales_tender_dc_core.md",
+    "tests/governance/test_presales_capture_policy.py",
+    "tests/governance/test_presales_project_isolation.py",
 ]
 
 _NETOPS_GITIGNORE = """\
