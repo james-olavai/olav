@@ -37,11 +37,36 @@ def _find_project_root() -> Path:
 sys.path.insert(0, str(_find_project_root() / "src"))
 
 from langchain_core.tools import tool
+from pydantic import BaseModel, Field, model_validator
 
 from olav.core.skill_runner import execute_skill_script as _impl
 
 
-@tool
+class _ExecuteSkillScriptArgs(BaseModel):
+    """Call-shape coercion, not a prompt rule (CLAUDE.md tool-arch: fix
+    construction errors at the Pydantic layer). 2026-07-25 live e2e finding:
+    a small model repeatedly nested skill_name/script_name INSIDE script_args
+    instead of at the top level — structurally rejected before this fix,
+    tripping the loop-breaker after 6 identical failures. Pull them out of
+    script_args when missing at the top, before required-field validation."""
+
+    skill_name: str = Field(description="Your own skill's directory name.")
+    script_name: str = Field(description="Filename of the script to run.")
+    script_args: dict[str, Any] | None = Field(default=None)
+    timeout: int = Field(default=120)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _pull_nested_names(cls, data):
+        if isinstance(data, dict) and isinstance(data.get("script_args"), dict):
+            inner = data["script_args"]
+            for key in ("skill_name", "script_name"):
+                if not data.get(key) and key in inner:
+                    data[key] = inner.pop(key)
+        return data
+
+
+@tool(args_schema=_ExecuteSkillScriptArgs)
 def execute_skill_script(
     skill_name: str,
     script_name: str,
