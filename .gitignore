@@ -115,6 +115,7 @@ olav-web/.wrangler/
 olav-netops/.olav/workspace/devops/
 
 # enterprise
+/olav-presales/
 /olav-ent/
 
 # docs
@@ -130,9 +131,6 @@ olav-netops/.olav/workspace/devops/
 
 # collector
 /olav-collector/
-
-# presales
-/olav-presales/
 
 # ── Whitelist (tracked paths inside ignored parents) ──
 !olav-netops/
@@ -170,6 +168,7 @@ olav-netops/.olav/workspace/netops/collect/config/nornir/defaults.yaml
 .olav/config/api.json
 .olav/config/github-mirror-scrub.txt
 .olav/config/services.yaml
+.olav/config/presales.yaml
 .olav/config/nornir/
 .env.local
 .env.*.local
