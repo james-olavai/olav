@@ -26,18 +26,65 @@ Audit:
   Every invocation produces an ``audit_tool_calls`` row via the
   existing langchain tool wrapper hook. The script's stdout-as-dict
   is the structured return value.
+
+Concurrent-write retry (2026-07-24 presales live e2e finding):
+  deepagents/langgraph can dispatch several tool_calls from one
+  AIMessage concurrently — each ``execute_skill_script`` call is its
+  own subprocess, so N of them can race to open the SAME DuckDB file
+  for writing at once. DuckDB's single-writer lock does not queue; the
+  loser gets an immediate ``IOException: ... Could not set lock on
+  file ...`` and the write never happened (the lock fails at
+  ``connect()`` time, before any SQL runs, so retrying the whole
+  subprocess is safe — nothing partial to roll back). Confirmed via
+  ``audit_tool_calls`` timestamps + distinct conflicting PIDs on a real
+  gemma4-31b run (dev_docs/107 §9.1 live validation) that hit this 4
+  times in one session, including after the agent's own retry — a
+  single re-ask does not fix it if the model batches writes again.
+  This is transparent to every skill, not a presales-specific patch.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import random
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# DuckDB's own wording for "another process holds the write lock" (both
+# phrasings seen across DuckDB versions) — matched against the SCRIPT's
+# stdout (scripts print `{"status":"error","error": "IOException: ..."}`
+# rather than raising through the subprocess boundary). Deliberately
+# specific: an unrelated failure (bad args, missing file) must fail once,
+# not be masked by a retry loop.
+_LOCK_CONFLICT_MARKERS = ("Could not set lock on file", "Conflicting lock is held")
+_LOCK_RETRY_ATTEMPTS = 10  # 1 initial + 9 retries
+_LOCK_RETRY_BASE_DELAY = 0.15  # seconds; see _lock_retry_delay
+_LOCK_RETRY_MAX_WINDOW = 2.0  # cap the exponential window (attempts matter more than reach)
+
+
+def _is_lock_conflict(stdout_text: str) -> bool:
+    return any(marker in stdout_text for marker in _LOCK_CONFLICT_MARKERS)
+
+
+def _lock_retry_delay(attempt: int) -> float:
+    """Full jitter (AWS backoff pattern) — a random delay UP TO the
+    exponential window (capped), not a fixed point + small jitter. With
+    several concurrent competitors (a whole burst of parallel tool_calls
+    racing the same lock, not just two), a shared deterministic base still
+    re-collides them in the same retry round; spreading each retrier across
+    the whole window is what actually desynchronizes a 5+-way collision
+    (measured: small additive jitter left 2/5 concurrent writers still
+    failing; even uncapped full jitter occasionally left 1/5 failing —
+    capping the window and giving more attempts is what closed it reliably
+    across repeated stress runs)."""
+    window = min(_LOCK_RETRY_BASE_DELAY * (2 ** attempt), _LOCK_RETRY_MAX_WINDOW)
+    return random.uniform(0, window)
 
 try:
     from olav.core.config import get_execution_config as _get_exec_cfg
@@ -286,31 +333,44 @@ def execute_skill_script(
         cmd = [sys.executable, str(resolved)]
         stdin_payload = json.dumps(args or {}).encode("utf-8")
 
-    try:
-        completed = subprocess.run(
-            cmd,
-            input=stdin_payload,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        return {
-            "status": "error",
-            "error": f"script timed out after {timeout}s",
-            "script_path": str(resolved),
-            "stdout": (exc.stdout or b"").decode("utf-8", errors="replace")[:_MAX_OUTPUT_BYTES],
-            "stderr": (exc.stderr or b"").decode("utf-8", errors="replace")[:_MAX_OUTPUT_BYTES],
-        }
-    except Exception as exc:
-        return {
-            "status": "error",
-            "error": f"subprocess launch failed: {type(exc).__name__}: {exc}",
-            "script_path": str(resolved),
-        }
+    for attempt in range(_LOCK_RETRY_ATTEMPTS):
+        try:
+            completed = subprocess.run(
+                cmd,
+                input=stdin_payload,
+                capture_output=True,
+                timeout=timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            return {
+                "status": "error",
+                "error": f"script timed out after {timeout}s",
+                "script_path": str(resolved),
+                "stdout": (exc.stdout or b"").decode("utf-8", errors="replace")[:_MAX_OUTPUT_BYTES],
+                "stderr": (exc.stderr or b"").decode("utf-8", errors="replace")[:_MAX_OUTPUT_BYTES],
+            }
+        except Exception as exc:
+            return {
+                "status": "error",
+                "error": f"subprocess launch failed: {type(exc).__name__}: {exc}",
+                "script_path": str(resolved),
+            }
 
-    stdout_text = completed.stdout.decode("utf-8", errors="replace")[:_MAX_OUTPUT_BYTES]
-    stderr_text = completed.stderr.decode("utf-8", errors="replace")[:_MAX_OUTPUT_BYTES]
+        stdout_text = completed.stdout.decode("utf-8", errors="replace")[:_MAX_OUTPUT_BYTES]
+        stderr_text = completed.stderr.decode("utf-8", errors="replace")[:_MAX_OUTPUT_BYTES]
+
+        if completed.returncode != 0 and _is_lock_conflict(stdout_text) \
+                and attempt < _LOCK_RETRY_ATTEMPTS - 1:
+            delay = _lock_retry_delay(attempt)
+            logger.warning(
+                "execute_skill_script: DuckDB lock conflict on %s/%s "
+                "(attempt %d/%d), retrying in %.2fs",
+                skill_name, script_name, attempt + 1, _LOCK_RETRY_ATTEMPTS, delay,
+            )
+            time.sleep(delay)
+            continue
+        break
 
     parsed_stdout: Any = stdout_text
     stripped = stdout_text.strip()

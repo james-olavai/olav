@@ -334,3 +334,89 @@ def test_declared_timeout_overrides_shorter_caller_default(tmp_path):
     out = execute_skill_script("svc", "slow.py", timeout=1, workspace_root=tmp_path)
     assert out["status"] == "ok", out
     assert out["stdout"] == {"ok": True}
+
+
+# --- DuckDB lock-conflict retry (2026-07-24 presales live e2e finding) ------
+#
+# deepagents/langgraph can dispatch several tool_calls concurrently; each
+# execute_skill_script call is its own subprocess, so N of them can race to
+# open the same DuckDB file for writing. A real gemma4-31b run hit this 4
+# times in one session (confirmed via audit_tool_calls timestamps + distinct
+# conflicting PIDs) — the write never happened and even the agent's own
+# retry re-hit it because it batched writes again. execute_skill_script now
+# retries the whole subprocess (safe: the lock fails at connect() time,
+# before any SQL runs — nothing partial to roll back).
+
+
+def _make_flaky_lock_skill(tmp_path: Path, counter_file: Path, fail_until: int) -> Path:
+    """A script that emits DuckDB's lock-conflict error the first
+    ``fail_until - 1`` times it's invoked (tracked via a counter file, since
+    each invocation is a fresh subprocess), then succeeds."""
+    return _make_skill(
+        tmp_path,
+        "flaky-skill",
+        "flaky.py",
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        "args = json.loads(sys.stdin.read() or '{}')\n"
+        "cf = Path(args['counter_file'])\n"
+        "n = int(cf.read_text()) + 1 if cf.exists() else 1\n"
+        "cf.write_text(str(n))\n"
+        "if n < args['fail_until']:\n"
+        "    print(json.dumps({'status': 'error', 'error': "
+        "'IOException: IO Error: Could not set lock on file \"main.duckdb\": "
+        "Conflicting lock is held in /usr/bin/python3.12 (PID 999) by user x.'}))\n"
+        "    sys.exit(1)\n"
+        "else:\n"
+        "    print(json.dumps({'status': 'ok', 'attempts': n}))\n",
+    )
+
+
+def test_lock_conflict_is_retried_and_eventually_succeeds(tmp_path):
+    counter_file = tmp_path / "counter.txt"
+    _make_flaky_lock_skill(tmp_path, counter_file, fail_until=3)
+    out = execute_skill_script(
+        "flaky-skill", "flaky.py",
+        args={"counter_file": str(counter_file), "fail_until": 3},
+        workspace_root=tmp_path,
+    )
+    assert out["status"] == "ok", out
+    assert out["stdout"] == {"status": "ok", "attempts": 3}
+    assert int(counter_file.read_text()) == 3  # 2 failed attempts + 1 success
+
+
+def test_lock_conflict_exhausts_retries_and_returns_error(tmp_path):
+    """A lock that never clears must still fail cleanly, not loop forever."""
+    counter_file = tmp_path / "counter.txt"
+    _make_flaky_lock_skill(tmp_path, counter_file, fail_until=999)
+    out = execute_skill_script(
+        "flaky-skill", "flaky.py",
+        args={"counter_file": str(counter_file), "fail_until": 999},
+        workspace_root=tmp_path,
+    )
+    assert out["status"] == "error"
+    assert "lock" in out["stdout"]["error"].lower()
+    from olav.core.skill_runner import _LOCK_RETRY_ATTEMPTS
+    assert int(counter_file.read_text()) == _LOCK_RETRY_ATTEMPTS  # capped, not infinite
+
+
+def test_non_lock_error_is_not_retried(tmp_path):
+    """A real bug (bad args, missing table) must fail once — retrying it
+    would just waste time reproducing the same wrong result."""
+    counter_file = tmp_path / "counter.txt"
+    _make_skill(
+        tmp_path, "bad-args-skill", "bad.py",
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        "args = json.loads(sys.stdin.read() or '{}')\n"
+        "Path(args['counter_file']).write_text('1')\n"
+        "print(json.dumps({'status': 'error', 'error': 'kind is required'}))\n"
+        "sys.exit(1)\n",
+    )
+    out = execute_skill_script(
+        "bad-args-skill", "bad.py",
+        args={"counter_file": str(counter_file)},
+        workspace_root=tmp_path,
+    )
+    assert out["status"] == "error"
+    assert int(counter_file.read_text()) == 1  # exactly one attempt, no retry
