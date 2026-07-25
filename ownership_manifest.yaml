@@ -842,6 +842,14 @@ rules:
     git: secret
     reason: service-registry-may-contain-credentials
 
+  - pattern: .olav/config/presales.yaml
+    owner: olav
+    class: runtime-workspace
+    status: authoritative
+    enforced: true
+    git: secret
+    reason: olav-presales vision_model block may carry an api_key; presales.yaml.example is the tracked SSOT
+
   - pattern: .olav/config/approval_rules.yaml
     owner: olav
     class: runtime-workspace
