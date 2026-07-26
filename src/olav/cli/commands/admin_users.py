@@ -11,6 +11,8 @@ Provides ``olav admin-users`` sub-commands for managing users in
 
 from __future__ import annotations
 
+from olav.core.db_write import open_write_connection
+
 import hashlib
 import os
 import secrets
@@ -144,7 +146,7 @@ class AdminUsersCommand(BaseCommand):
         self._ensure_db()
         import duckdb
 
-        with duckdb.connect(str(self._users_db)) as conn:
+        with open_write_connection(str(self._users_db)) as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO users (username, role, token_hash, token_salt, is_active, expires_at)
@@ -188,7 +190,7 @@ class AdminUsersCommand(BaseCommand):
         self._ensure_db()
         import duckdb
 
-        with duckdb.connect(str(self._users_db)) as conn:
+        with open_write_connection(str(self._users_db)) as conn:
             affected = conn.execute(
                 "SELECT COUNT(*) FROM users WHERE username = ?", [username]
             ).fetchone()[0]
@@ -209,7 +211,7 @@ class AdminUsersCommand(BaseCommand):
         self._ensure_db()
         import duckdb
 
-        with duckdb.connect(str(self._users_db)) as conn:
+        with open_write_connection(str(self._users_db)) as conn:
             affected = conn.execute(
                 "SELECT COUNT(*) FROM users WHERE username = ?", [username]
             ).fetchone()[0]
@@ -239,7 +241,7 @@ class AdminUsersCommand(BaseCommand):
         from olav.core.auth.schema import apply_baseline
 
         self._users_db.parent.mkdir(parents=True, exist_ok=True)
-        with duckdb.connect(str(self._users_db)) as conn:
+        with open_write_connection(str(self._users_db)) as conn:
             apply_baseline(conn)
 
     @staticmethod

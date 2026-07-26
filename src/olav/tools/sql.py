@@ -11,6 +11,8 @@ Can be used standalone without OLAV workspace::
 
 from __future__ import annotations
 
+from olav.core.db_write import open_write_connection
+
 import logging
 from pathlib import Path
 from typing import Any
@@ -76,7 +78,7 @@ def query_duckdb(
             return []
 
     if not read_only:
-        with duckdb.connect(str(db_path), read_only=False) as conn:
+        with open_write_connection(str(db_path)) as conn:
             cur = conn.cursor()
             cur.execute(sql, params or [])
             if cur.description:

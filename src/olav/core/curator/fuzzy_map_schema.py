@@ -34,6 +34,8 @@ sys.path.insert(0, str(_find_project_root() / "src"))
 
 import duckdb
 
+from olav.core.db_write import open_write_connection
+
 from olav.core.config import MAIN_DB_PATH
 from olav.core.llm import LLMFactory
 
@@ -142,7 +144,7 @@ class FuzzyMapOutput(BaseModel):
 
 def _ensure_schema_mappings_table():
     """Create schema_mappings table if it doesn't exist."""
-    with duckdb.connect(str(MAIN_DB_PATH)) as conn:
+    with open_write_connection(MAIN_DB_PATH) as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS schema_mappings (
                 vendor VARCHAR NOT NULL,
@@ -159,7 +161,7 @@ def _check_cache(vendor: str, command: str) -> list[dict] | None:
     """Check if mapping exists in cache."""
     _ensure_schema_mappings_table()
 
-    with duckdb.connect(str(MAIN_DB_PATH)) as conn:
+    with open_write_connection(MAIN_DB_PATH) as conn:
         try:
             result = conn.execute(
                 """
@@ -182,7 +184,7 @@ def _save_mappings(vendor: str, command: str, mappings: list[dict]):
     """Save mappings to cache."""
     _ensure_schema_mappings_table()
 
-    with duckdb.connect(str(MAIN_DB_PATH)) as conn:
+    with open_write_connection(MAIN_DB_PATH) as conn:
         for mapping in mappings:
             conn.execute(
                 """

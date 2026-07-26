@@ -29,6 +29,8 @@ Concepts recognised
 
 from __future__ import annotations
 
+from olav.core.db_write import open_write_connection
+
 import json
 import logging
 import sys
@@ -310,7 +312,7 @@ def discover_view_schemas(
         "errors": [],
     }
 
-    with duckdb.connect(str(MAIN_DB_PATH)) as con:
+    with open_write_connection(MAIN_DB_PATH) as con:
         # ── ensure view_recipes table exists ────────────────────────────────
         con.execute("""
             CREATE TABLE IF NOT EXISTS view_recipes (

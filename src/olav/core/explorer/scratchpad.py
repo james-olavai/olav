@@ -29,6 +29,8 @@ from typing import Any
 
 import duckdb
 
+from olav.core.db_write import open_write_connection
+
 # ── Enums ─────────────────────────────────────────────────────────────
 
 _VALID_SEVERITY = frozenset({"critical", "high", "medium", "low", "info"})
@@ -64,7 +66,7 @@ def start_exploration(
     ``update_exploration_run`` calls reference this ``run_id``.
     """
     run_id = "explore_" + _short_id()
-    with duckdb.connect(str(db_path)) as conn:
+    with open_write_connection(str(db_path)) as conn:
         # Ensure the explorer tables exist on this DB (idempotent).
         from olav_netops.migrations.v0_23_exploration import apply_migration
         apply_migration(conn)
@@ -131,7 +133,7 @@ def record_finding(
     rows_json = json.dumps(evidence_rows) if evidence_rows else None
     related_json = json.dumps(related_findings) if related_findings else None
 
-    with duckdb.connect(str(db_path)) as conn:
+    with open_write_connection(str(db_path)) as conn:
         # Budget check
         budget = conn.execute(
             "SELECT budget_findings, findings_count "
@@ -232,5 +234,5 @@ def update_exploration_run(
         f"UPDATE netops.exploration_runs SET {', '.join(set_clauses)} "
         f"WHERE run_id = ?"
     )
-    with duckdb.connect(str(db_path)) as conn:
+    with open_write_connection(str(db_path)) as conn:
         conn.execute(sql, params)

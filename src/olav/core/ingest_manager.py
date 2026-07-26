@@ -25,6 +25,8 @@ from typing import Any
 
 import duckdb
 
+from olav.core.db_write import open_write_connection
+
 from olav.core.config import BACKUP_DIR, MAIN_DB_PATH
 from olav.platform.ingest_base import TableRegistry
 
@@ -156,7 +158,7 @@ class IngestManager:
         store_table = _store_tbl.qualified_name if _store_tbl else "netops.raw_output_store"
 
         try:
-            with duckdb.connect(str(self.db_path), read_only=False) as conn:
+            with open_write_connection(str(self.db_path)) as conn:
                 if _tbl is not None:
                     _tbl.ensure_schema(conn)
                 if _store_tbl is not None:

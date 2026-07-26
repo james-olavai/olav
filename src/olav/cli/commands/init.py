@@ -16,6 +16,8 @@ NOT performed: YANG compilation, network views, device tables, syslog setup.
 
 from __future__ import annotations
 
+from olav.core.db_write import open_write_connection
+
 import json
 import os
 import socket
@@ -244,7 +246,7 @@ class InitCommand(BaseCommand):
             from olav.core.auth.schema import apply_baseline
 
             users_db.parent.mkdir(parents=True, exist_ok=True)
-            with duckdb.connect(str(users_db)) as conn:
+            with open_write_connection(str(users_db)) as conn:
                 apply_baseline(conn)
                 existing = conn.execute(
                     "SELECT COUNT(*) FROM users WHERE username = ?", [username]
