@@ -9,10 +9,19 @@ Covers:
 6. GAP-1: audit_recorder.record_message() redacts network credentials
 """
 
+import importlib.util
 import os
 import re
 import tempfile
 from pathlib import Path
+
+import pytest
+
+# token/ldap providers moved to olav-ent (dev_docs/111 tiered model).
+_needs_ent_auth = pytest.mark.skipif(
+    importlib.util.find_spec("olav.enterprise") is None,
+    reason="token provider moved to olav.enterprise.auth (olav-ent not installed)",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -69,9 +78,10 @@ def test_get_auth_provider_none_returns_os_identity_provider() -> None:
     assert isinstance(provider, OSIdentityProvider)
 
 
+@_needs_ent_auth
 def test_get_auth_provider_token_returns_token_auth_provider() -> None:
     from olav.core.auth.provider import get_auth_provider
-    from olav.core.auth.token import TokenAuthProvider
+    from olav.enterprise.auth.token import TokenAuthProvider
     provider = get_auth_provider("token")
     assert isinstance(provider, TokenAuthProvider)
 
@@ -100,13 +110,15 @@ def test_get_auth_provider_advertised_but_unimplemented_fails_fast() -> None:
 # 4. TokenAuthProvider importable
 # ---------------------------------------------------------------------------
 
+@_needs_ent_auth
 def test_token_auth_provider_is_importable() -> None:
-    from olav.core.auth.token import TokenAuthProvider  # noqa: F401
+    from olav.enterprise.auth.token import TokenAuthProvider  # noqa: F401
     assert TokenAuthProvider is not None
 
 
+@_needs_ent_auth
 def test_token_auth_provider_has_authenticate_method() -> None:
-    from olav.core.auth.token import TokenAuthProvider
+    from olav.enterprise.auth.token import TokenAuthProvider
     assert hasattr(TokenAuthProvider, "authenticate")
 
 

@@ -1343,6 +1343,10 @@ class TestTraceReviewClaim:
 # Doc:   docs/concepts/security-model.md
 # Requires: lldap running on localhost:3890
 # ─────────────────────────────────────────────────────────
+@pytest.mark.skipif(
+    not _enterprise_daemon_available(),
+    reason="LDAP provider moved to olav.enterprise.auth (olav-ent not installed)",
+)
 class TestLDAPAuthClaim:
     """
     Claim C-L2-28: auth.mode 可配置为 ldap，使用 LDAP bind 验证用户凭证。
@@ -1367,7 +1371,7 @@ class TestLDAPAuthClaim:
             pytest.skip(f"lldap not running on {self.LDAP_HOST}:{self.LDAP_PORT}")
 
     def _make_provider(self):
-        from olav.core.auth.ldap_provider import LDAPAuthProvider
+        from olav.enterprise.auth.ldap_provider import LDAPAuthProvider
         return LDAPAuthProvider(
             host=self.LDAP_HOST,
             port=self.LDAP_PORT,

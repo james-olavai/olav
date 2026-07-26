@@ -186,7 +186,6 @@ graph = [
 # encryption / LDAP / dataset export should ``pip install olav-ent``;
 # the platform ``olav`` package does not vendor anything enterprise.
 ldap = [
-    "ldap3>=2.9",
 ]
 # Collection-time credential redaction (network-config aware).  netconan
 # is ~50KB pure Python from the Batfish/Intentionet team — knows IOS /

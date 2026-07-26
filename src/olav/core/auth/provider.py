@@ -23,6 +23,13 @@ class AuthProvider(Protocol):
         ...
 
 
+_ENT_AUTH_MSG = (
+    "auth.mode={mode!r} requires olav-ent (the token/server/ldap providers moved "
+    "to olav.enterprise.auth — dev_docs/111 tiered model). Install olav-ent, or "
+    "use auth.mode=none (OS identity) for a personal install."
+)
+
+
 def get_auth_provider(mode: str | None = None) -> AuthProvider:
     """Return the AuthProvider for *mode* (reads from api.json if omitted).
 
@@ -52,13 +59,22 @@ def get_auth_provider(mode: str | None = None) -> AuthProvider:
             # "user" fallback, so a failed remote credential never escalates here.
             return OSIdentityProvider(role="admin")
         case "token":
-            from olav.core.auth.token import TokenAuthProvider
+            try:
+                from olav.enterprise.auth.token import TokenAuthProvider
+            except ImportError:
+                raise NotImplementedError(_ENT_AUTH_MSG.format(mode="token")) from None
             return TokenAuthProvider()
         case "server":
-            from olav.core.auth.server_token import ServerTokenProvider
+            try:
+                from olav.enterprise.auth.server_token import ServerTokenProvider
+            except ImportError:
+                raise NotImplementedError(_ENT_AUTH_MSG.format(mode="server")) from None
             return ServerTokenProvider()
         case "ldap":
-            from olav.core.auth.ldap_provider import LDAPAuthProvider
+            try:
+                from olav.enterprise.auth.ldap_provider import LDAPAuthProvider
+            except ImportError:
+                raise NotImplementedError(_ENT_AUTH_MSG.format(mode="ldap")) from None
             try:
                 from olav.core.config import ConfigLoader
                 cfg = ConfigLoader().auth.ldap

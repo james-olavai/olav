@@ -117,10 +117,27 @@ def test_add_user_without_expires_has_null(tmp_path):
     assert row[0] is None, "expires_at must be NULL when --expires not given"
 
 
+def _ent_auth_available() -> bool:
+    try:
+        import olav.enterprise.auth  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+import pytest as _pytest  # noqa: E402
+
+_needs_ent_auth = _pytest.mark.skipif(
+    not _ent_auth_available(),
+    reason="token provider moved to olav.enterprise.auth (olav-ent not installed)",
+)
+
+
+@_needs_ent_auth
 def test_verify_token_rejects_expired_user(tmp_path):
     """A user with expires_at in the past is NOT authenticated (returns None)."""
     import duckdb
-    from olav.core.auth.token import TokenAuthProvider
+    from olav.enterprise.auth.token import TokenAuthProvider
     from olav.core.auth.schema import apply_baseline as apply_migration
 
     db = tmp_path / "users.duckdb"
@@ -147,10 +164,11 @@ def test_verify_token_rejects_expired_user(tmp_path):
     assert identity is None, "Expired user must not be authenticated"
 
 
+@_needs_ent_auth
 def test_verify_token_accepts_non_expired_user(tmp_path):
     """A user with future expires_at IS authenticated."""
     import duckdb
-    from olav.core.auth.token import TokenAuthProvider
+    from olav.enterprise.auth.token import TokenAuthProvider
     from olav.core.auth.schema import apply_baseline as apply_migration
 
     db = tmp_path / "users.duckdb"

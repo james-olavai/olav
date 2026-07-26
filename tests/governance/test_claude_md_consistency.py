@@ -148,7 +148,6 @@ _LEGITIMATE_USAGE_FILES: frozenset[str] = frozenset({
     "src/olav/core/memory/guide_kb.py",
     "src/olav/core/sim/__init__.py",
     "src/olav/core/auth/keyring_store.py",
-    "src/olav/core/auth/token.py",
     "src/olav/cli/main.py",
 })
 
