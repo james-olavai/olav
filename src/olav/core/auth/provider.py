@@ -46,7 +46,11 @@ def get_auth_provider(mode: str | None = None) -> AuthProvider:
     match mode:
         case "none":
             from olav.core.auth.os_identity import OSIdentityProvider
-            return OSIdentityProvider()
+            # Personal tier: the machine owner has full control of their own box,
+            # so grant admin (no RBAC friction). RBAC is a team feature (olav-ent).
+            # The token/ldap/server providers keep the default least-privilege
+            # "user" fallback, so a failed remote credential never escalates here.
+            return OSIdentityProvider(role="admin")
         case "token":
             from olav.core.auth.token import TokenAuthProvider
             return TokenAuthProvider()
