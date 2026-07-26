@@ -24,28 +24,31 @@ from rich.table import Table
 
 from olav.cli.commands.base import BaseCommand
 from olav.cli.commands.services.logs import LogsService
-from olav.cli.commands.services.web import WebService
 
 logger = logging.getLogger(__name__)
 
-# Services launched / stopped when --all is specified (ordered). "daemon" is an
-# enterprise feature (olav-ent) and only appears in the registry when that
-# package is installed (ADR-0018/0019 tiered model — team-tier feature).
+# Services launched / stopped when --all is specified (ordered). "web" and
+# "daemon" are enterprise features (olav-ent) and only appear in the registry
+# when that package is installed (dev_docs/111 tiered model — team-tier
+# features); "syslogs" is the only OSS background service.
 _ALL_SERVICES_ORDER = ["syslogs", "web", "daemon"]
 
+# Enterprise-only services: (registry name, olav.enterprise submodule, class).
+_ENTERPRISE_SERVICES = [
+    ("web", "web_svc", "WebService"),
+    ("daemon", "daemon_svc", "DaemonService"),
+]
 
-def _load_daemon_service() -> Any | None:
-    """Return a DaemonService instance if olav-ent is installed, else None.
 
-    The agent daemon (pre-warmed LLM, fast queries) ships in olav.enterprise.
-    Plain OSS installs omit it from the service registry — mirrors how
-    ``olav log export`` guards enterprise dataset formats (main.py) and how
-    the write seam guards the flock gate (core/db_write.py)."""
+def _load_enterprise_service(module: str, cls: str) -> Any | None:
+    """Instantiate ``olav.enterprise.<module>.<cls>`` if olav-ent is installed,
+    else None. Mirrors how ``olav log export`` guards enterprise dataset formats
+    (main.py) and how the write seam guards the flock gate (core/db_write.py)."""
     try:
-        from olav.enterprise.daemon_svc import DaemonService
+        mod = __import__(f"olav.enterprise.{module}", fromlist=[cls])
     except ImportError:
         return None
-    return DaemonService()
+    return getattr(mod, cls)()
 
 
 class ServiceCommand(BaseCommand):
@@ -57,14 +60,12 @@ class ServiceCommand(BaseCommand):
             description="Manage background services (syslogs, web, daemon)",
         )
         self.console = Console()
-        self.services: dict[str, Any] = {
-            "syslogs": LogsService(),
-            "web": WebService(),
-        }
-        # daemon is enterprise-only (olav-ent); inject when available
-        daemon_svc = _load_daemon_service()
-        if daemon_svc is not None:
-            self.services["daemon"] = daemon_svc
+        self.services: dict[str, Any] = {"syslogs": LogsService()}
+        # web + daemon are enterprise-only (olav-ent); inject when available
+        for name, module, cls in _ENTERPRISE_SERVICES:
+            svc = _load_enterprise_service(module, cls)
+            if svc is not None:
+                self.services[name] = svc
 
     async def execute(self, args: str = "") -> str:
         """Execute service subcommand.

@@ -5,10 +5,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/olav"]
 exclude = [
+    # Enterprise units (olav.enterprise.*, incl. the web API + daemon) ship
+    # from olav-ent, never the OSS wheel — dev_docs/111 tiered model.
     "src/olav/enterprise/",
-    # WebGUI dev tree — the exported site ships from src/olav/api/static;
-    # Next.js sources + npm artifacts never belong in the wheel.
-    "src/olav/web/",
 ]
 
 [tool.hatch.build.targets.sdist]
@@ -18,7 +17,6 @@ include = [
     "/src/olav/data/**/*.md",
     "/src/olav/data/**/*.yaml",
     "/src/olav/data/**/*.json",
-    "/src/olav/api/static/**",
     "/src/olav/py.typed",
     "/README.md",
     "/LICENSE",
@@ -26,7 +24,6 @@ include = [
 ]
 exclude = [
     "/src/olav/enterprise/",
-    "/src/olav/web/",
 ]
 
 [project]
