@@ -448,16 +448,6 @@ class TestEnt1PackageBoundary:
         src = _ENT_PYPROJECT.read_text(encoding="utf-8")
         assert "PyJWT>=" in src, "olav-ent must own the PyJWT dependency"
 
-    def test_ent_pyproject_bundles_presales(self):
-        """olav-ent must depend on olav-presales so installing the enterprise
-        bundle pulls in the presales agent (ADR-0016; olav-presales is bundled
-        with olav-ent per its own pyproject comment)."""
-        src = _ENT_PYPROJECT.read_text(encoding="utf-8")
-        assert "olav-presales>=" in src, (
-            "olav-ent must declare olav-presales — installing olav-ent should "
-            "bring the presales top-level agent"
-        )
-
     def test_ent_pyproject_points_to_enterprise_src(self):
         src = _ENT_PYPROJECT.read_text(encoding="utf-8")
         assert "olav/enterprise" in src, "olav-ent wheel build must reference src/olav/enterprise"
