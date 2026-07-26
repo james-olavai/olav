@@ -5,6 +5,35 @@ All notable changes to OLAV will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2026-07-26
+
+Minor release — enterprise-tier boundary refactor + a unified DuckDB write seam.
+
+### Added
+- **Unified DuckDB write seam** (`olav.core.db_write.open_write_connection`,
+  ADR-0018/0019): one acquisition point for all writes — per-db in-process lock
+  + connect-retry in OSS, with an enterprise flock cross-process queue injected
+  at the same seam (olav-ent). Converged the presales, netops (three-mirror
+  skillpack), and platform-core write sites onto it. dev_docs/111.
+
+### Changed
+- **Tiered model — team features moved to olav-ent**: the web API + WebGUI
+  (`olav.enterprise.api`), the agent daemon (`olav.enterprise.daemon`), and the
+  token/server/LDAP auth providers (`olav.enterprise.auth`) left the OSS wheel.
+  `olav service` shows only `syslogs` on a plain OSS install; web/daemon and
+  token/ldap auth are guarded-injected when olav-ent is present. `olav.server`
+  (langgraph dev) and the RBAC engine stay in OSS.
+- **Personal tier**: `auth.mode=none` now grants the local OS user `admin`
+  (full control of their own box); RBAC restrictions are a team feature.
+- **Dependencies slimmed**: dropped `fastapi` and the `ldap3` extra from OSS
+  (their only consumers moved to olav-ent).
+
+### Fixed
+- `auth.mode=oidc`/`ad` now fail fast instead of silently downgrading to OS
+  identity (a security surprise).
+- olav-ent namespace packaging so `olav.enterprise.*` is actually importable
+  when installed (was silently unreachable).
+
 ## [0.24.1] - 2026-07-20
 
 Patch release — fixes and diagnostics hardened during a from-scratch VM
