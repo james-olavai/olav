@@ -26,7 +26,10 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from contextlib import contextmanager
 from typing import Any
+
+from olav.core.db_write import open_write_connection
 
 import duckdb
 import httpx
@@ -74,10 +77,24 @@ CREATE TABLE IF NOT EXISTS api_registry.definitions (
 """
 
 
-def _open(db_path: Path, read_only: bool = False) -> duckdb.DuckDBPyConnection:
+@contextmanager
+def _open(db_path: Path, read_only: bool = False):
+    """Yield a connection to the api_registry DB.
+
+    Reads connect directly; writes go through the shared write seam
+    (open_write_connection) so they serialise with every other DuckDB writer
+    (in-process lock + connect-retry in OSS, enterprise flock queue when
+    olav-ent is installed — ADR-0018/0019).
+    """
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    con = duckdb.connect(str(db_path), read_only=read_only)
-    if not read_only:
+    if read_only:
+        con = duckdb.connect(str(db_path), read_only=True)
+        try:
+            yield con
+        finally:
+            con.close()
+        return
+    with open_write_connection(db_path) as con:
         con.executemany("", [])  # noop to ensure connection is live
         for stmt in _DDL.strip().split(";"):
             stmt = stmt.strip()
@@ -90,7 +107,7 @@ def _open(db_path: Path, read_only: bool = False) -> duckdb.DuckDBPyConnection:
             )
         except Exception:
             pass  # column already exists or DDL already added it
-    return con
+        yield con
 
 
 # ---------------------------------------------------------------------------

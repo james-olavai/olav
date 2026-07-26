@@ -42,13 +42,18 @@ def mem_db(monkeypatch, tmp_path):
 
     con = duckdb.connect(":memory:")
 
+    from contextlib import contextmanager
+
+    @contextmanager
     def _open_main_db(read_only: bool = False):
+        # Production _open_main_db is a @contextmanager (ADR-0018/0019 write seam);
+        # the fake mirrors that contract, yielding a shared no-close connection.
         from olav.platform.services.registry_sync import _DDL
         for stmt in _DDL.strip().split(";"):
             stmt = stmt.strip()
             if stmt:
                 con.execute(stmt)
-        return _NoCloseConn(con)
+        yield _NoCloseConn(con)
 
     import olav.platform.services.registry_sync as mod
     monkeypatch.setattr(mod, "_open_main_db", _open_main_db)
