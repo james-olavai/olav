@@ -314,10 +314,17 @@ class TestL4ServiceStatus:
         assert rc == 0, f"service status exited {rc}\nstderr: {err}"
 
     def test_table_has_service_names(self):
-        """Table must list the core services: syslogs, web, daemon."""
+        """Table must list the OSS services (syslogs, web). daemon is an
+        enterprise feature (olav-ent) — required only when it is installed."""
         _, out, err = self._get_result()
         combined = (out + err).lower()
-        for svc in ("syslogs", "web", "daemon"):
+        required = ["syslogs", "web"]
+        try:
+            import olav.enterprise.daemon_svc  # noqa: F401
+            required.append("daemon")
+        except ImportError:
+            pass
+        for svc in required:
             assert svc in combined, (
                 f"Service '{svc}' not found in service status output:\n{out[:600]}"
             )

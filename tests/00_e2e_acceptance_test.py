@@ -579,9 +579,24 @@ class TestWebServiceClaim:
 # Claim: `olav service daemon start` 加速 CLI 响应
 # Doc:   docs/guides/services.md
 # ─────────────────────────────────────────────────────────
+def _enterprise_daemon_available() -> bool:
+    """The agent daemon moved to olav-ent (dev_docs/111 tiered model). It is only
+    reachable via `olav service daemon` when olav.enterprise is installed."""
+    try:
+        import olav.enterprise.daemon_svc  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+@pytest.mark.skipif(
+    not _enterprise_daemon_available(),
+    reason="daemon is an enterprise feature (olav-ent not installed)",
+)
 class TestDaemonServiceClaim:
     """
     Claim C-L2-17: `olav service daemon start/status/stop` 正常启停。
+    Requires olav-ent (daemon is a team-tier feature — dev_docs/111).
     Verified: 2026-04-03 | Doc: docs/guides/services.md
     """
 

@@ -23,14 +23,29 @@ from rich.console import Console
 from rich.table import Table
 
 from olav.cli.commands.base import BaseCommand
-from olav.cli.commands.services.daemon_svc import DaemonService
 from olav.cli.commands.services.logs import LogsService
 from olav.cli.commands.services.web import WebService
 
 logger = logging.getLogger(__name__)
 
-# Services launched / stopped when --all is specified (ordered)
+# Services launched / stopped when --all is specified (ordered). "daemon" is an
+# enterprise feature (olav-ent) and only appears in the registry when that
+# package is installed (ADR-0018/0019 tiered model — team-tier feature).
 _ALL_SERVICES_ORDER = ["syslogs", "web", "daemon"]
+
+
+def _load_daemon_service() -> Any | None:
+    """Return a DaemonService instance if olav-ent is installed, else None.
+
+    The agent daemon (pre-warmed LLM, fast queries) ships in olav.enterprise.
+    Plain OSS installs omit it from the service registry — mirrors how
+    ``olav log export`` guards enterprise dataset formats (main.py) and how
+    the write seam guards the flock gate (core/db_write.py)."""
+    try:
+        from olav.enterprise.daemon_svc import DaemonService
+    except ImportError:
+        return None
+    return DaemonService()
 
 
 class ServiceCommand(BaseCommand):
@@ -45,8 +60,11 @@ class ServiceCommand(BaseCommand):
         self.services: dict[str, Any] = {
             "syslogs": LogsService(),
             "web": WebService(),
-            "daemon": DaemonService(),
         }
+        # daemon is enterprise-only (olav-ent); inject when available
+        daemon_svc = _load_daemon_service()
+        if daemon_svc is not None:
+            self.services["daemon"] = daemon_svc
 
     async def execute(self, args: str = "") -> str:
         """Execute service subcommand.
@@ -123,7 +141,7 @@ class ServiceCommand(BaseCommand):
 
     async def _exec_all(self, action: str) -> str:
         """Run start/stop/restart across all services in defined order."""
-        order = _ALL_SERVICES_ORDER
+        order = [n for n in _ALL_SERVICES_ORDER if n in self.services]
         if action == "stop":
             order = list(reversed(order))  # stop in reverse order
 
@@ -143,15 +161,13 @@ class ServiceCommand(BaseCommand):
 
     async def _status_all(self) -> str:
         """Print a combined status table for all services."""
-        from olav.cli.daemon import get_daemon_status
-
         table = Table(title="OLAV Service Status", show_header=True, header_style="bold cyan")
         table.add_column("Service", style="bold")
         table.add_column("Status")
         table.add_column("PID")
         table.add_column("Endpoint / Info")
 
-        for name in _ALL_SERVICES_ORDER:
+        for name in (n for n in _ALL_SERVICES_ORDER if n in self.services):
             svc = self.services[name]
             if name == "syslogs":
                 running = svc._is_running()
@@ -163,6 +179,7 @@ class ServiceCommand(BaseCommand):
                 pid = svc._get_pid() or "-"
                 info = f"http://{svc._host}:{svc._port}"
             elif name == "daemon":
+                from olav.enterprise.daemon import get_daemon_status
                 d = get_daemon_status()
                 running = bool(d.get("running"))
                 pid = d.get("pid", "-")
