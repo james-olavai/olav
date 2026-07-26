@@ -35,6 +35,7 @@ from typing import Any
 
 import duckdb
 
+from olav.core.db_write import open_write_connection
 from olav.core.ingest.bundle_reader import BundleReader
 from olav.core.ingest.validators import validate_bundle
 
@@ -192,7 +193,7 @@ def ingest_snapshot(
 
     # 4. Apply migrations (additive ALTER + CREATE) on the target DB.
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with duckdb.connect(str(db_path)) as conn:
+    with open_write_connection(str(db_path)) as conn:
         from olav_netops.core.tables import (
             BundleIngestsTable,
             DevicesTable,
@@ -226,7 +227,7 @@ def ingest_snapshot(
     from olav_netops.core.view_builder import finalise_ingest
 
     populate_devices(db_path, sid)
-    with duckdb.connect(str(db_path)) as conn:
+    with open_write_connection(str(db_path)) as conn:
         try:
             extract_lldp_topology(conn)
         except Exception:  # noqa: BLE001 — non-fatal
@@ -240,7 +241,7 @@ def ingest_snapshot(
     # bundle_ingests event.
     bundle_sha256 = report.content_sha256_observed or manifest.content_sha256
     ingested_at = _now()
-    with duckdb.connect(str(db_path)) as conn:
+    with open_write_connection(str(db_path)) as conn:
         conn.execute(
             "UPDATE netops.raw_output_store "
             "SET bundle_id = ?, bundle_sha256 = ?, ingested_via = 'bundle' "
@@ -313,7 +314,7 @@ def _stamp_collection_source(recorder, run_id: str, collection_source: str) -> N
     db_path = getattr(recorder, "_db_path", None)
     if db_path is None:
         return
-    with duckdb.connect(str(db_path)) as conn:
+    with open_write_connection(str(db_path)) as conn:
         conn.execute(
             "UPDATE audit_runs SET collection_source = ? WHERE run_id = ?",
             [collection_source, run_id],

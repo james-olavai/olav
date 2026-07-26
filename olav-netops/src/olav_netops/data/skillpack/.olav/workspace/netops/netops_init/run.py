@@ -15,6 +15,8 @@ Usage:
 
 from __future__ import annotations
 
+from olav.core.db_write import open_write_connection
+
 import argparse
 import json
 import re
@@ -316,7 +318,7 @@ def _run_collection(
     if not use_explicit:
         try:
             from olav_netops.core.commands_sync import sync_commands
-            with duckdb.connect(str(MAIN_DB_PATH)) as _cmds_conn:
+            with open_write_connection(MAIN_DB_PATH) as _cmds_conn:
                 sync_commands(_cmds_conn)
                 for plat in platform_groups:
                     platform_to_cmds[plat] = _discovery_commands_for(plat, _cmds_conn)
@@ -427,7 +429,7 @@ def _run_collection(
             from olav_netops.core.tables import _register_all, drop_legacy_tables
             from olav.platform.ingest_base import TableRegistry
             _register_all()
-            with duckdb.connect(str(MAIN_DB_PATH)) as _setup_conn:
+            with open_write_connection(MAIN_DB_PATH) as _setup_conn:
                 TableRegistry.ensure_all_schemas(_setup_conn)
                 # ISSUE-DEAD-SCHEMA-R83-LEFTOVER: drop pre-R83 ETL tables that
                 # no longer have any code writing to them. Their continued
@@ -439,7 +441,7 @@ def _run_collection(
                     logger.info("dropped legacy dead tables: %s", _dropped)
         except ImportError:
             # Fallback DDL for skill-only installs (no pip install olav-netops)
-            with duckdb.connect(str(MAIN_DB_PATH)) as _setup_conn:
+            with open_write_connection(MAIN_DB_PATH) as _setup_conn:
                 _setup_conn.execute("CREATE SCHEMA IF NOT EXISTS netops")
                 _setup_conn.execute("""
                     CREATE TABLE IF NOT EXISTS netops.raw_output_store (
@@ -605,7 +607,7 @@ def _run_collection(
 
         # ── Topology ETL (uses canonical hostnames from Device ETL above) ──
         try:
-            with duckdb.connect(str(MAIN_DB_PATH)) as conn:
+            with open_write_connection(MAIN_DB_PATH) as conn:
                 topo_rows = extract_lldp_topology(conn)
                 print(f"  ✓ Topology ETL: {topo_rows} link(s) extracted")
         except Exception as e:
@@ -626,7 +628,7 @@ def _run_collection(
         # column-rename projection of ``netops.topology_links``.
         try:
             from olav_netops.core.view_builder import finalise_ingest
-            with duckdb.connect(str(MAIN_DB_PATH)) as _view_conn:
+            with open_write_connection(MAIN_DB_PATH) as _view_conn:
                 view_stats = finalise_ingest(_view_conn)
             l2_stats = view_stats.get("l2") or {}
             per_cmd_stats = view_stats.get("per_command") or {}

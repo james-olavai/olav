@@ -25,6 +25,8 @@ lightweight, markdown-native ADR template.
 | [0015](0015-memory-kb-architecture.md) | Memory architecture — reflection/expert_knowledge split + olav_kb/ global KB | Accepted | 0.20.0 |
 | [0016](0016-presales-as-seventh-top-level-agent.md) | Presales as the seventh top-level agent (independent olav-presales package) | Accepted | dev_docs/100 |
 | [0017](0017-memory-layer-project-dimension.md) | Memory-layer project dimension — generic multi-tenancy (recall predicate + capture policy) | Accepted | dev_docs/100 §4.4/§4.5 |
+| [0018](0018-tiered-write-concurrency-oss-retry-enterprise-queue.md) | Tiered DuckDB write-concurrency — OSS retries, Enterprise queues (daemon + web) | Proposed | dev_docs/111 |
+| [0019](0019-enterprise-write-queue-flock-first.md) | Enterprise write-queue form — flock first, Postgres fallback, reject broker | Proposed | dev_docs/111 §7 |
 
 ## When to write an ADR
 

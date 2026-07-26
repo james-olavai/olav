@@ -48,13 +48,14 @@ def reload_hook() -> dict[str, Any]:
     try:
         import duckdb
         from olav.core.config import MAIN_DB_PATH
+        from olav.core.db_write import open_write_connection
         from olav_netops.core.commands_sync import sync_commands
     except Exception as exc:  # noqa: BLE001
         logger.warning("reload_hook: import failed: %s", exc)
         return {"error": str(exc)}
 
     try:
-        with duckdb.connect(str(MAIN_DB_PATH)) as conn:
+        with open_write_connection(MAIN_DB_PATH) as conn:
             return sync_commands(conn)
     except Exception as exc:  # noqa: BLE001
         logger.warning("reload_hook: sync_commands raised: %s", exc)

@@ -23,6 +23,8 @@ Results are written to:
 
 from __future__ import annotations
 
+from olav.core.db_write import open_write_connection
+
 import json
 import logging
 import re
@@ -427,7 +429,7 @@ def take_snapshot(
                 # the new introspection_cache (built inside finalise_ingest)
                 # sees current snapshot's device list, not stale state.
                 populate_devices(MAIN_DB_PATH, snapshot_id)
-                with duckdb.connect(str(MAIN_DB_PATH)) as _conn:
+                with open_write_connection(MAIN_DB_PATH) as _conn:
                     extract_lldp_topology(_conn)
                     finalise_ingest(_conn)
             except Exception as exc:

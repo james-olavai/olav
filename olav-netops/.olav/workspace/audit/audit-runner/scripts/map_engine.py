@@ -14,6 +14,8 @@ Returns: json_path (str) — absolute path to the segmented JSON output.
 
 from __future__ import annotations
 
+from olav.core.db_write import open_write_connection
+
 import json
 import logging
 from datetime import UTC, datetime, timedelta, timezone
@@ -183,7 +185,7 @@ def run_map_engine(
 
     jobs_output: dict[str, Any] = {}
 
-    with duckdb.connect(str(db_path)) as conn:
+    with open_write_connection(str(db_path)) as conn:
         # Resolve latest_snapshot once per run: the snapshot with the most
         # topology links is the richest current-state snapshot.  Using COUNT(*)
         # instead of MAX() avoids picking sparse dev/lab snapshots that happen
@@ -350,7 +352,7 @@ def run_map_engine(
             # gap_minutes in profile overrides auto-derivation; None = auto
             explicit_gap = profile.get("incident_cluster_gap_minutes")
             gap_arg = int(explicit_gap) if explicit_gap is not None else None
-            with duckdb.connect(str(db_path)) as _inc_conn:
+            with open_write_connection(str(db_path)) as _inc_conn:
                 incident_clusters = build_incident_clusters(
                     conn=_inc_conn,
                     window=time_window,
@@ -373,7 +375,7 @@ def run_map_engine(
     freshness_threshold_hours = float(profile.get("freshness_threshold_hours", 24))
     freshness_warning: dict | None = None
     try:
-        with duckdb.connect(str(db_path)) as _fr_conn:
+        with open_write_connection(str(db_path)) as _fr_conn:
             row = _fr_conn.execute(
                 "SELECT MAX(EXTRACT(EPOCH FROM (NOW() - last_seen)) / 3600.0) "
                 "FROM netops.devices WHERE last_seen IS NOT NULL"
