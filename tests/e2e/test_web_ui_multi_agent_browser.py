@@ -34,7 +34,21 @@ import pytest
 # Markers
 # ---------------------------------------------------------------------------
 
-pytestmark = pytest.mark.e2e
+def _enterprise_api_available() -> bool:
+    try:
+        import olav.enterprise.api  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.skipif(
+        not _enterprise_api_available(),
+        reason="web API moved to olav-ent (olav.enterprise.api not installed)",
+    ),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +118,7 @@ def _wait_for_port(host: str, port: int, timeout: float = 30.0) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Server fixture — boots olav.api.app:app via uvicorn as a subprocess
+# Server fixture — boots olav.enterprise.api.app:app via uvicorn as a subprocess
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
@@ -148,7 +162,7 @@ def server_url() -> str:
             sys.executable,
             "-m",
             "uvicorn",
-            "olav.api.app:app",
+            "olav.enterprise.api.app:app",
             "--host",
             bind_host,
             "--port",

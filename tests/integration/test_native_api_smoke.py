@@ -23,10 +23,24 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# Module-level env setup — must happen before olav.api.app is imported,
+# Module-level env setup — must happen before olav.enterprise.api.app is imported,
 # because langgraph_api reads env vars at module import time.
 # We set them here so the import inside the test functions works correctly.
 # ---------------------------------------------------------------------------
+
+def _enterprise_api_available() -> bool:
+    try:
+        import olav.enterprise.api  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _enterprise_api_available(),
+    reason="web API moved to olav-ent (olav.enterprise.api not installed)",
+)
+
 
 def _patch_env_for_inmem():
     """Set env vars needed for inmem langgraph_api without Postgres/Redis."""
@@ -39,9 +53,9 @@ def _patch_env_for_inmem():
         "LANGSERVE_GRAPHS": json.dumps({
             "core": "olav.server.graph_factory:make_graph",
         }),
-        "LANGGRAPH_HTTP": json.dumps({"app": "olav.api.custom_router:app"}),
+        "LANGGRAPH_HTTP": json.dumps({"app": "olav.enterprise.api.custom_router:app"}),
         "LANGGRAPH_AUTH": json.dumps({
-            "path": "olav.api.lg_auth:auth",
+            "path": "olav.enterprise.api.lg_auth:auth",
             "disable_studio_auth": True,
         }),
     }
@@ -58,8 +72,8 @@ _patch_env_for_inmem()
 
 @pytest.fixture(scope="module")
 def app():
-    """Import olav.api.app (sets env, boots langgraph_api)."""
-    import olav.api.app as _app_mod  # noqa: PLC0415
+    """Import olav.enterprise.api.app (sets env, boots langgraph_api)."""
+    import olav.enterprise.api.app as _app_mod  # noqa: PLC0415
     return _app_mod.app
 
 
@@ -94,8 +108,8 @@ def _auth_header() -> dict[str, str]:
 
 class TestAppImport:
     def test_app_module_imports_cleanly(self):
-        """olav.api.app can be imported without raising."""
-        import olav.api.app as _app  # noqa: PLC0415
+        """olav.enterprise.api.app can be imported without raising."""
+        import olav.enterprise.api.app as _app  # noqa: PLC0415
         assert hasattr(_app, "app")
 
     def test_app_is_asgi_callable(self, app):

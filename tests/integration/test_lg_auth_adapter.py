@@ -33,6 +33,20 @@ from starlette.types import Receive, Scope, Send
 # Helpers to build a minimal Starlette Request without a real server
 # ---------------------------------------------------------------------------
 
+def _enterprise_api_available() -> bool:
+    try:
+        import olav.enterprise.api  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _enterprise_api_available(),
+    reason="web API moved to olav-ent (olav.enterprise.api not installed)",
+)
+
+
 def _make_scope(
     headers: dict[str, str] | None = None,
     cookies: dict[str, str] | None = None,
@@ -94,7 +108,7 @@ def _make_provider(user_id: str = "testuser", fail: bool = False) -> MagicMock:
 @pytest.fixture()
 def authenticate_fn():
     """Import the authenticate coroutine from the not-yet-created module."""
-    from olav.api.lg_auth import authenticate  # noqa: PLC0415 — intentional late import
+    from olav.enterprise.api.lg_auth import authenticate  # noqa: PLC0415 — intentional late import
     return authenticate
 
 
@@ -103,8 +117,8 @@ class TestBearerToken:
         provider = _make_provider("alice")
         req = _make_request(headers={"authorization": "Bearer valid-token"})
         with (
-            patch("olav.api.lg_auth._get_auth_mode", return_value="token"),
-            patch("olav.api.lg_auth.get_auth_provider", return_value=provider),
+            patch("olav.enterprise.api.lg_auth._get_auth_mode", return_value="token"),
+            patch("olav.enterprise.api.lg_auth.get_auth_provider", return_value=provider),
         ):
             result = asyncio.run(authenticate_fn(authorization="Bearer valid-token", request=req))
         assert result == "alice"
@@ -114,8 +128,8 @@ class TestBearerToken:
         provider = _make_provider(fail=True)
         req = _make_request(headers={"authorization": "Bearer bad-token"})
         with (
-            patch("olav.api.lg_auth._get_auth_mode", return_value="token"),
-            patch("olav.api.lg_auth.get_auth_provider", return_value=provider),
+            patch("olav.enterprise.api.lg_auth._get_auth_mode", return_value="token"),
+            patch("olav.enterprise.api.lg_auth.get_auth_provider", return_value=provider),
         ):
             with pytest.raises(Auth.exceptions.HTTPException) as exc_info:
                 asyncio.run(authenticate_fn(authorization="Bearer bad-token", request=req))
@@ -123,14 +137,14 @@ class TestBearerToken:
 
     def test_missing_authorization_raises_401(self, authenticate_fn):
         req = _make_request()  # no headers, no cookies
-        with patch("olav.api.lg_auth._get_auth_mode", return_value="token"):
+        with patch("olav.enterprise.api.lg_auth._get_auth_mode", return_value="token"):
             with pytest.raises(Auth.exceptions.HTTPException) as exc_info:
                 asyncio.run(authenticate_fn(authorization=None, request=req))
         assert exc_info.value.status_code == 401
 
     def test_malformed_bearer_prefix_raises_401(self, authenticate_fn):
         req = _make_request(headers={"authorization": "Token abc"})
-        with patch("olav.api.lg_auth._get_auth_mode", return_value="token"):
+        with patch("olav.enterprise.api.lg_auth._get_auth_mode", return_value="token"):
             with pytest.raises(Auth.exceptions.HTTPException):
                 asyncio.run(authenticate_fn(authorization="Token abc", request=req))
 
@@ -140,8 +154,8 @@ class TestCookieAuth:
         provider = _make_provider("bob")
         req = _make_request(cookies={"olav_session": "valid-cookie-token"})
         with (
-            patch("olav.api.lg_auth._get_auth_mode", return_value="token"),
-            patch("olav.api.lg_auth.get_auth_provider", return_value=provider),
+            patch("olav.enterprise.api.lg_auth._get_auth_mode", return_value="token"),
+            patch("olav.enterprise.api.lg_auth.get_auth_provider", return_value=provider),
         ):
             result = asyncio.run(authenticate_fn(authorization=None, request=req))
         assert result == "bob"
@@ -154,8 +168,8 @@ class TestCookieAuth:
             cookies={"olav_session": "cookie-token"},
         )
         with (
-            patch("olav.api.lg_auth._get_auth_mode", return_value="token"),
-            patch("olav.api.lg_auth.get_auth_provider", return_value=provider),
+            patch("olav.enterprise.api.lg_auth._get_auth_mode", return_value="token"),
+            patch("olav.enterprise.api.lg_auth.get_auth_provider", return_value=provider),
         ):
             result = asyncio.run(authenticate_fn(authorization="Bearer bearer-token", request=req))
         assert result == "bearer-user"
@@ -169,8 +183,8 @@ class TestAuthModeNone:
     def test_mode_none_returns_anonymous_without_calling_provider(self, authenticate_fn):
         req = _make_request()  # no auth headers
         with (
-            patch("olav.api.lg_auth._get_auth_mode", return_value="none"),
-            patch("olav.api.lg_auth.get_auth_provider") as mock_provider,
+            patch("olav.enterprise.api.lg_auth._get_auth_mode", return_value="none"),
+            patch("olav.enterprise.api.lg_auth.get_auth_provider") as mock_provider,
         ):
             result = asyncio.run(authenticate_fn(authorization=None, request=req))
         assert result == "anonymous"
@@ -180,8 +194,8 @@ class TestAuthModeNone:
         """When auth is disabled, we skip validation entirely."""
         req = _make_request(headers={"authorization": "Bearer anything"})
         with (
-            patch("olav.api.lg_auth._get_auth_mode", return_value="none"),
-            patch("olav.api.lg_auth.get_auth_provider") as mock_provider,
+            patch("olav.enterprise.api.lg_auth._get_auth_mode", return_value="none"),
+            patch("olav.enterprise.api.lg_auth.get_auth_provider") as mock_provider,
         ):
             result = asyncio.run(authenticate_fn(authorization="Bearer anything", request=req))
         assert result == "anonymous"
@@ -191,12 +205,12 @@ class TestAuthModeNone:
 class TestAuthObject:
     def test_auth_object_is_auth_instance(self):
         """The module exports an Auth instance (required by LANGGRAPH_AUTH path= config)."""
-        from olav.api.lg_auth import auth  # noqa: PLC0415
+        from olav.enterprise.api.lg_auth import auth  # noqa: PLC0415
         assert isinstance(auth, Auth)
 
     def test_auth_has_authenticate_handler(self):
         """Auth instance must have _authenticate_handler set (langgraph_api checks this)."""
-        from olav.api.lg_auth import auth  # noqa: PLC0415
+        from olav.enterprise.api.lg_auth import auth  # noqa: PLC0415
         assert auth._authenticate_handler is not None
 
     def test_authenticate_function_is_coroutine(self, authenticate_fn):

@@ -32,10 +32,24 @@ from fastapi.testclient import TestClient
 # Fixture: import the app with auth mode patched to "token"
 # ---------------------------------------------------------------------------
 
+def _enterprise_api_available() -> bool:
+    try:
+        import olav.enterprise.api  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _enterprise_api_available(),
+    reason="web API moved to olav-ent (olav.enterprise.api not installed)",
+)
+
+
 @pytest.fixture()
 def client() -> Generator[TestClient, None, None]:
     """TestClient for custom_router.app with auth mode = 'token'."""
-    from olav.api.custom_router import app  # noqa: PLC0415
+    from olav.enterprise.api.custom_router import app  # noqa: PLC0415
     with TestClient(app, raise_server_exceptions=True, follow_redirects=False) as c:
         yield c
 
@@ -43,7 +57,7 @@ def client() -> Generator[TestClient, None, None]:
 @pytest.fixture()
 def client_no_auth() -> Generator[TestClient, None, None]:
     """TestClient for custom_router.app with auth mode = 'none'."""
-    from olav.api.custom_router import app  # noqa: PLC0415
+    from olav.enterprise.api.custom_router import app  # noqa: PLC0415
     with TestClient(app, raise_server_exceptions=True, follow_redirects=False) as c:
         yield c
 
@@ -74,7 +88,7 @@ def _provider_fail() -> MagicMock:
 
 class TestRoot:
     def test_no_cookie_redirects_to_login(self, client):
-        with patch("olav.api.custom_router._get_auth_mode", return_value="token"):
+        with patch("olav.enterprise.api.custom_router._get_auth_mode", return_value="token"):
             resp = client.get("/")
         assert resp.status_code in (302, 307)
         assert "/login" in resp.headers["location"]
@@ -86,9 +100,9 @@ class TestRoot:
         (fake_static / "index.html").write_text("<html>OLAV</html>")
 
         with (
-            patch("olav.api.custom_router._get_auth_mode", return_value="token"),
-            patch("olav.api.custom_router._STATIC_DIR", fake_static),
-            patch("olav.api.custom_router.get_auth_provider", return_value=_provider_ok()),
+            patch("olav.enterprise.api.custom_router._get_auth_mode", return_value="token"),
+            patch("olav.enterprise.api.custom_router._STATIC_DIR", fake_static),
+            patch("olav.enterprise.api.custom_router.get_auth_provider", return_value=_provider_ok()),
         ):
             resp = client.get("/", cookies={"olav_session": "valid-token"})
         assert resp.status_code == 200
@@ -96,8 +110,8 @@ class TestRoot:
 
     def test_stale_cookie_redirects_to_login(self, client):
         with (
-            patch("olav.api.custom_router._get_auth_mode", return_value="token"),
-            patch("olav.api.custom_router.get_auth_provider", return_value=_provider_fail()),
+            patch("olav.enterprise.api.custom_router._get_auth_mode", return_value="token"),
+            patch("olav.enterprise.api.custom_router.get_auth_provider", return_value=_provider_fail()),
         ):
             resp = client.get("/", cookies={"olav_session": "stale-token"})
         assert resp.status_code in (302, 307)
@@ -105,8 +119,8 @@ class TestRoot:
 
     def test_token_query_param_sets_cookie_and_redirects(self, client):
         with (
-            patch("olav.api.custom_router._get_auth_mode", return_value="token"),
-            patch("olav.api.custom_router._set_session_cookie") as mock_set,
+            patch("olav.enterprise.api.custom_router._get_auth_mode", return_value="token"),
+            patch("olav.enterprise.api.custom_router._set_session_cookie") as mock_set,
         ):
             resp = client.get("/?token=my-token")
         assert resp.status_code in (302, 307)
@@ -118,8 +132,8 @@ class TestRoot:
         (fake_static / "index.html").write_text("<html>public</html>")
 
         with (
-            patch("olav.api.custom_router._get_auth_mode", return_value="none"),
-            patch("olav.api.custom_router._STATIC_DIR", fake_static),
+            patch("olav.enterprise.api.custom_router._get_auth_mode", return_value="none"),
+            patch("olav.enterprise.api.custom_router._STATIC_DIR", fake_static),
         ):
             resp = client_no_auth.get("/")
         assert resp.status_code == 200
@@ -135,7 +149,7 @@ class TestLoginGet:
         fake_static.mkdir()
         (fake_static / "login.html").write_text("<html>login</html>")
 
-        with patch("olav.api.custom_router._STATIC_DIR", fake_static):
+        with patch("olav.enterprise.api.custom_router._STATIC_DIR", fake_static):
             resp = client.get("/login")
         assert resp.status_code == 200
         assert b"login" in resp.content.lower()
@@ -144,7 +158,7 @@ class TestLoginGet:
         empty_static = tmp_path / "empty"
         empty_static.mkdir()
 
-        with patch("olav.api.custom_router._STATIC_DIR", empty_static):
+        with patch("olav.enterprise.api.custom_router._STATIC_DIR", empty_static):
             resp = client.get("/login")
         assert resp.status_code == 200
         assert b"<!DOCTYPE html>" in resp.content or b"<html" in resp.content
@@ -157,8 +171,8 @@ class TestLoginGet:
 class TestLoginPost:
     def test_valid_token_sets_cookie_and_redirects(self, client):
         with (
-            patch("olav.api.custom_router._get_auth_mode", return_value="token"),
-            patch("olav.api.custom_router.get_auth_provider", return_value=_provider_ok()),
+            patch("olav.enterprise.api.custom_router._get_auth_mode", return_value="token"),
+            patch("olav.enterprise.api.custom_router.get_auth_provider", return_value=_provider_ok()),
         ):
             resp = client.post("/login", json={"token": "valid-token"})
         assert resp.status_code in (302, 307)
@@ -168,14 +182,14 @@ class TestLoginPost:
 
     def test_invalid_token_returns_401(self, client):
         with (
-            patch("olav.api.custom_router._get_auth_mode", return_value="token"),
-            patch("olav.api.custom_router.get_auth_provider", return_value=_provider_fail()),
+            patch("olav.enterprise.api.custom_router._get_auth_mode", return_value="token"),
+            patch("olav.enterprise.api.custom_router.get_auth_provider", return_value=_provider_fail()),
         ):
             resp = client.post("/login", json={"token": "bad-token"})
         assert resp.status_code == 401
 
     def test_mode_none_redirects_without_validation(self, client_no_auth):
-        with patch("olav.api.custom_router._get_auth_mode", return_value="none"):
+        with patch("olav.enterprise.api.custom_router._get_auth_mode", return_value="none"):
             resp = client_no_auth.post("/login", json={"token": "anything"})
         assert resp.status_code in (302, 307)
         assert resp.headers["location"] in ("/", "http://testserver/")
@@ -190,7 +204,7 @@ class TestMemoryGraph:
         graph_html = tmp_path / "_graph.html"
         graph_html.write_text("<html>graph</html>")
 
-        with patch("olav.api.custom_router._KG_PATH", graph_html):
+        with patch("olav.enterprise.api.custom_router._KG_PATH", graph_html):
             resp = client.get("/memory/graph")
         assert resp.status_code == 200
         assert b"graph" in resp.content
@@ -206,9 +220,9 @@ class TestMemoryGraph:
             out_path.write_text("<html>built</html>")
 
         with (
-            patch("olav.api.custom_router._KG_PATH", missing_path),
-            patch("olav.api.custom_router._build_kg", return_value={}),
-            patch("olav.api.custom_router._export_kg_visjs", side_effect=fake_export),
+            patch("olav.enterprise.api.custom_router._KG_PATH", missing_path),
+            patch("olav.enterprise.api.custom_router._build_kg", return_value={}),
+            patch("olav.enterprise.api.custom_router._export_kg_visjs", side_effect=fake_export),
         ):
             resp = client.get("/memory/graph")
         assert resp.status_code == 200
@@ -217,8 +231,8 @@ class TestMemoryGraph:
         missing_path = tmp_path / "nonexistent" / "_graph.html"
 
         with (
-            patch("olav.api.custom_router._KG_PATH", missing_path),
-            patch("olav.api.custom_router._build_kg", side_effect=Exception("no data")),
+            patch("olav.enterprise.api.custom_router._KG_PATH", missing_path),
+            patch("olav.enterprise.api.custom_router._build_kg", side_effect=Exception("no data")),
         ):
             resp = client.get("/memory/graph")
         assert resp.status_code == 200
@@ -254,7 +268,7 @@ class TestNextStatic:
         (next_dir / "static").mkdir(parents=True)
         (next_dir / "static" / "test.js").write_text("console.log('ok')")
 
-        with patch("olav.api.custom_router._NEXT_DIR", next_dir):
+        with patch("olav.enterprise.api.custom_router._NEXT_DIR", next_dir):
             # We need to rebuild the mount for the test — the route is set at module load time.
             # Verify via filesystem existence only (static mounts use the configured dir).
             assert (next_dir / "static" / "test.js").exists()
