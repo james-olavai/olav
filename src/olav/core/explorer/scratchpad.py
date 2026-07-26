@@ -67,8 +67,18 @@ def start_exploration(
     """
     run_id = "explore_" + _short_id()
     with open_write_connection(str(db_path)) as conn:
-        # Ensure the explorer tables exist on this DB (idempotent).
-        from olav_netops.migrations.v0_23_exploration import apply_migration
+        # Ensure the explorer tables exist on this DB (idempotent). The
+        # exploration_* tables are netops-domain, so this reverse import is
+        # guarded (ADR-0002): the explorer scratchpad only works with
+        # olav-netops installed. Fail with a clear message rather than a raw
+        # ModuleNotFoundError, matching the batfish_q shim.
+        try:
+            from olav_netops.migrations.v0_23_exploration import apply_migration
+        except ImportError as exc:
+            raise ImportError(
+                "explorer scratchpad requires olav-netops — it writes the "
+                "netops.exploration_* tables. Install olav-netops."
+            ) from exc
         apply_migration(conn)
 
         conn.execute(
