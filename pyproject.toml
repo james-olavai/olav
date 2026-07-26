@@ -75,7 +75,10 @@ dependencies = [
     # API & HTTP
     "httpx>=0.24.0",
     "requests>=2.31.0",
-    "fastapi>=0.109.0",
+    # NOTE: fastapi was removed here — the only direct importer (the web API's
+    # custom_router) moved to olav-ent (olav.enterprise.api). langgraph dev uses
+    # starlette via langgraph-api, not fastapi. uvicorn stays: langgraph-api
+    # pulls it and langgraph dev serves through it.
     "uvicorn[standard]>=0.27.0",
     # CLI
     "typer>=0.9.0",
@@ -162,9 +165,7 @@ dev = [
     "black>=23.0",
 ]
 # TUI optional — kept for backward compatibility; deepagents-cli is now a core dep.
-tui = [
-    "pyjwt>=2.12.1",
-]
+tui = []
 # Knowledge-graph backed memory (currently only guarded import in
 # core/memory/knowledge_graph.py; declared optional so install-without-graph
 # deployments skip this dep).
@@ -185,8 +186,8 @@ graph = [
 # real consumer at ``olav-ent/src/olav/enterprise/``.  Users who want
 # encryption / LDAP / dataset export should ``pip install olav-ent``;
 # the platform ``olav`` package does not vendor anything enterprise.
-ldap = [
-]
+# (The [ldap] extra was removed alongside ldap3 — the ldap_provider moved to
+# olav-ent/olav.enterprise.auth, which owns the ldap3 dependency now.)
 # Collection-time credential redaction (network-config aware).  netconan
 # is ~50KB pure Python from the Batfish/Intentionet team — knows IOS /
 # IOS-XR / NX-OS / Junos / EOS config syntax for passwords / SNMP
