@@ -27,8 +27,15 @@ def get_auth_provider(mode: str | None = None) -> AuthProvider:
     """Return the AuthProvider for *mode* (reads from api.json if omitted).
 
     If *mode* is None, reads ``auth.mode`` from ConfigLoader (api.json).
-    Security: Unknown modes fall back to OSIdentityProvider rather than
-    raising, so a misconfigured api.json never locks the system out.
+
+    Security:
+      * A genuinely unknown / typo'd mode falls back to OSIdentityProvider
+        rather than raising, so a misconfigured api.json never locks the
+        system out.
+      * But modes that config scaffolding *advertises* yet no provider
+        implements (``oidc``, ``ad``) fail fast — silently downgrading an
+        intended SSO login to local OS identity would be a security surprise,
+        not a safe default.
     """
     if mode is None:
         try:
@@ -59,6 +66,17 @@ def get_auth_provider(mode: str | None = None) -> AuthProvider:
                 )
             except Exception:
                 return LDAPAuthProvider()
+        case "oidc" | "ad":
+            # Advertised in config scaffolding (config.oidc, the auth.mode
+            # docstring, the identity source enum) but there is NO provider.
+            # Fail fast instead of silently handing out OS identity under the
+            # guise of SSO.
+            raise NotImplementedError(
+                f"auth.mode={mode!r} is advertised in config but has no provider "
+                "implementation. Refusing to fall back to OS identity, which "
+                "would grant local-user access under the guise of SSO. "
+                "Supported modes: none, token, server, ldap."
+            )
         case _:
             from olav.core.auth.os_identity import OSIdentityProvider
             return OSIdentityProvider()

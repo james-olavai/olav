@@ -83,6 +83,19 @@ def test_get_auth_provider_unknown_falls_back_to_os_identity() -> None:
     assert isinstance(provider, OSIdentityProvider)
 
 
+def test_get_auth_provider_advertised_but_unimplemented_fails_fast() -> None:
+    """oidc/ad appear in config scaffolding (config.oidc, the auth.mode docstring,
+    the identity source enum) but have no provider. They must FAIL FAST rather
+    than silently downgrade an intended SSO login to local OS identity — a genuine
+    typo still falls back safely (test above), but an advertised-yet-missing mode
+    must not masquerade as SSO."""
+    import pytest
+    from olav.core.auth.provider import get_auth_provider
+    for mode in ("oidc", "ad"):
+        with pytest.raises(NotImplementedError):
+            get_auth_provider(mode)
+
+
 # ---------------------------------------------------------------------------
 # 4. TokenAuthProvider importable
 # ---------------------------------------------------------------------------
