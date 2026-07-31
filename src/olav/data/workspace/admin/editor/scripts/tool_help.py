@@ -75,7 +75,7 @@ _TOOL_ROOTS = [
     _PROJECT_ROOT / ".olav" / "workspace" / "devops" / "services" / "tools",
 ]
 
-# Workspace directories that contain `scripts/` subdirs (scripts-化 pattern).
+# Workspace directories that contain `scripts/` subdirs (scripts-migration pattern).
 _SCRIPT_ROOTS = [
     _PROJECT_ROOT / ".olav" / "workspace" / "core" / "scripts",
     _PROJECT_ROOT / ".olav" / "workspace" / "core" / "api-query" / "scripts",
@@ -104,7 +104,7 @@ class _ScriptProxy:
 
 
 def _discover_all_tools() -> list[Any]:
-    """Collect every @tool-decorated BaseTool and scripts-化 plain function
+    """Collect every @tool-decorated BaseTool and scripts-migrated plain function
     across all known workspace dirs.
 
     Uses :func:`olav.core.tool_discovery.discover_tools` for the @tool
@@ -132,7 +132,7 @@ def _discover_all_tools() -> list[Any]:
     except Exception:
         pass
 
-    # 2. Plain Python functions from scripts/ dirs (scripts-化 pattern).
+    # 2. Plain Python functions from scripts/ dirs (scripts-migration pattern).
     for root in _SCRIPT_ROOTS:
         if not root.exists():
             continue
@@ -160,7 +160,7 @@ def _serialise_args(tool_obj: Any) -> list[dict[str, Any]]:
     """Project tool args into a JSON-friendly list.
 
     Handles both @tool Pydantic args_schema and plain Python functions via
-    inspect.signature (scripts-化 pattern).
+    inspect.signature (scripts-migration pattern).
     """
     schema = getattr(tool_obj, "args_schema", None)
     if schema is not None:

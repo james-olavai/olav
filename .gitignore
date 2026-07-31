@@ -73,7 +73,7 @@ PARTNERS.md
 /.claude/
 
 # generated
-src/olav/data/workspace/*/*/references/
+src/olav/data/workspace/*/*/references/*_api.md
 /dist/
 /exports/
 /tmp/

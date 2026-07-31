@@ -1,13 +1,14 @@
-"""Data Export Tool - 极简文件导出工具
+"""Data Export Tool — minimal file exporter.
 
-统一数据导出功能，支持多种格式自动检测。
-只有Orchestrator可以调用此工具，SubAgent不应直接写文件。
+One unified export entry point with automatic format detection.
+Only the orchestrator may call this tool; sub-agents must not write
+files directly.
 
-核心特性：
-- 零硬编码：无关键词映射，无格式判断
-- 自动检测：从数据内容自动推断格式
-- 统一输出：所有文件到 exports/ 目录
-- 简单接口：3个参数，智能默认值
+Design:
+- No hardcoding: no keyword maps, no format branching by intent.
+- Auto-detection: the format is inferred from the data itself.
+- Unified output: every file lands under exports/.
+- Simple interface: 3 arguments with sensible defaults.
 """
 
 from __future__ import annotations
@@ -204,7 +205,7 @@ def format_and_export(
 
     # 8. Return result with relative path for display
     return {
-        "path": str(filepath.relative_to(Path.cwd())),  # 相对路径：exports/reports/xxx.csv
+        "path": str(filepath.relative_to(Path.cwd())),  # relative, e.g. exports/reports/xxx.csv
         "absolute_path": str(filepath.absolute()),
         "size": filepath.stat().st_size,
         "format": format,
@@ -213,26 +214,26 @@ def format_and_export(
 
 def _detect_format(data: Any) -> str:  # noqa: ANN401
     """
-    从数据内容自动检测格式
+    Detect the output format from the data itself.
 
-    检测规则：
-    - 以 # 开头或包含 ## → Markdown
-    - 以 { 或 [ 开头 → JSON
-    - dict/list 类型 → JSON
-    - 其他字符串 → Text
+    Rules:
+    - starts with # or contains ## → Markdown
+    - starts with { or [         → JSON
+    - dict/list instance         → JSON
+    - any other string           → Text
 
     Args:
-        data: 要检测的数据
+        data: the payload to inspect
 
     Returns:
-        str: 检测到的格式 (md/json/txt)
+        str: detected format (md/json/txt)
     """
     if isinstance(data, str):
-        # 检测 Markdown 特征
+        # Markdown markers
         if data.strip().startswith("#") or "\n##" in data or "\n###" in data:
             return "md"
 
-        # 检测 CSV 特征 (comma-separated with consistent column count)
+        # CSV markers (comma-separated with consistent column count)
         lines = data.strip().splitlines()
         if len(lines) >= 2:
             first_commas = lines[0].count(",")
@@ -241,7 +242,7 @@ def _detect_format(data: Any) -> str:  # noqa: ANN401
             ):
                 return "csv"
 
-        # 检测 JSON 字符串
+        # JSON string
         stripped = data.strip()
         if stripped.startswith("{") or stripped.startswith("["):
             try:
@@ -251,41 +252,41 @@ def _detect_format(data: Any) -> str:  # noqa: ANN401
                 pass
 
 
-        # 检测 Mermaid 特征 (如果包含 graph/flowchart 或 mermaid 代码块)
+        # Mermaid markers (a graph/flowchart keyword or a mermaid code fence)
         if "graph " in data.lower() or "flowchart " in data.lower() or "```mermaid" in data.lower():
-            # 如果内容以 # 开头（有标题的 Markdown 包含图表），通常还是用 .md
-            # 但如果只有图表，或者用户明确要求，我们应该能识别出这是 mmd 相关内容
+            # Content starting with # is titled Markdown that happens to embed a
+            # diagram — keep .md. Only a bare diagram is treated as .mmd.
             if not (data.strip().startswith("#") or "\n##" in data):
                 return "mmd"
 
-        # 默认文本
+        # Fall back to plain text
         return "txt"
 
     elif isinstance(data, (dict, list)):
-        # Python 对象默认JSON
+        # Python containers serialise as JSON
         return "json"
 
     else:
-        # 其他类型转为文本
+        # Anything else is stringified
         return "txt"
 
 
 def _write_file(filepath: Path, data: Any, format: str, mode: str = "overwrite") -> None:  # noqa: ANN401
     """
-    根据格式写入文件
+    Write the payload to disk according to *format*.
 
     Args:
-        filepath: 文件路径
-        data: 要写入的数据
-        format: 文件格式
+        filepath: destination path
+        data:     payload to write
+        format:   file format
         mode:   'overwrite' (default) or 'append' — append only valid for text formats
     """
     if format == "json":
-        # JSON格式：结构化输出 (mode='append' rejected earlier in format_and_export)
+        # JSON: structured output (mode='append' rejected earlier in format_and_export)
         if isinstance(data, (dict, list)):
             content = json.dumps(data, indent=2, ensure_ascii=False)
         elif isinstance(data, str):
-            # 如果是JSON字符串，重新格式化
+            # Already a JSON string — reformat it
             try:
                 obj = json.loads(data)
                 content = json.dumps(obj, indent=2, ensure_ascii=False)
@@ -297,11 +298,11 @@ def _write_file(filepath: Path, data: Any, format: str, mode: str = "overwrite")
         filepath.write_text(content, encoding="utf-8")
 
     elif format == "csv":
-        # CSV格式：使用pandas处理 (mode='append' rejected earlier)
+        # CSV: delegated to pandas (mode='append' rejected earlier)
         _write_csv(filepath, data)
 
     elif format == "yaml":
-        # YAML格式：结构化数据 (mode='append' rejected earlier)
+        # YAML: structured data (mode='append' rejected earlier)
         _write_yaml(filepath, data)
 
     elif format == "sh":
@@ -314,7 +315,7 @@ def _write_file(filepath: Path, data: Any, format: str, mode: str = "overwrite")
             filepath.write_text(content, encoding="utf-8", newline="\n")
 
     else:
-        # Markdown/Text/其他
+        # Markdown / text / anything else
         if format == "md" and isinstance(data, dict):
             content = _dict_to_markdown(data)
         else:
@@ -418,11 +419,11 @@ def _write_csv(filepath: Path, data: Any) -> None:  # noqa: ANN401
 
 def _write_yaml(filepath: Path, data: Any) -> None:  # noqa: ANN401
     """
-    写入YAML文件
+    Write the payload as YAML.
 
     Args:
-        filepath: 文件路径
-        data: 要写入的数据
+        filepath: destination path
+        data:     payload to write
     """
     try:
         import yaml
@@ -437,40 +438,40 @@ def _write_yaml(filepath: Path, data: Any) -> None:  # noqa: ANN401
             )
 
     except ImportError:
-        # yaml未安装，降级为JSON
+        # yaml not installed — fall back to JSON
         content = json.dumps(data, indent=2, ensure_ascii=False)
         filepath.write_text(content, encoding="utf-8")
 
 
 # ============================================================================
-# 测试代码
+# Self-test
 # ============================================================================
 
 if __name__ == "__main__":
-    """测试数据导出功能"""
+    """Smoke-test the export tool."""
 
     print("=" * 80)
-    print("测试 format_and_export 工具")
+    print("Testing the format_and_export tool")
     print("=" * 80)
 
-    # 测试1: Markdown报告
-    print("\n1️⃣ 测试 Markdown 报告")
-    md_content = """# 网络诊断报告
+    # 1: Markdown report
+    print("\n1️⃣ Markdown report")
+    md_content = """# Network diagnostic report
 
-## 问题描述
-R1的OSPF邻居down
+## Symptom
+R1's OSPF neighbor is down
 
-## 根因分析
-子网掩码不匹配
+## Root cause
+Subnet mask mismatch
 
-## 解决建议
-修改接口IP配置
+## Recommended fix
+Correct the interface IP configuration
 """
     result = format_and_export(md_content, filename="test_diagnosis")
-    print(f"✅ 导出成功: {result['path']} ({result['size']} bytes)")
+    print(f"✅ exported: {result['path']} ({result['size']} bytes)")
 
-    # 测试2: JSON数据
-    print("\n2️⃣ 测试 JSON 数据")
+    # 2: JSON data
+    print("\n2️⃣ JSON data")
     json_data = {
         "devices": [
             {"hostname": "R1", "ip": "192.168.1.1"},
@@ -478,30 +479,30 @@ R1的OSPF邻居down
         ]
     }
     result = format_and_export(json_data, filename="test_devices")
-    print(f"✅ 导出成功: {result['path']} ({result['size']} bytes)")
+    print(f"✅ exported: {result['path']} ({result['size']} bytes)")
 
-    # 测试3: 文本输出
-    print("\n3️⃣ 测试文本输出")
+    # 3: plain text
+    print("\n3️⃣ Plain text")
     text_content = "R1#show tech-support\nCisco IOS Software...\n"
     result = format_and_export(text_content, filename="test_tech_support")
-    print(f"✅ 导出成功: {result['path']} ({result['size']} bytes)")
+    print(f"✅ exported: {result['path']} ({result['size']} bytes)")
 
-    # 测试4: CSV数据
-    print("\n4️⃣ 测试 CSV 导出")
+    # 4: CSV data
+    print("\n4️⃣ CSV export")
     csv_data = [
         {"vlan_id": 10, "name": "Management", "status": "active"},
         {"vlan_id": 20, "name": "Data", "status": "active"},
         {"vlan_id": 30, "name": "Voice", "status": "inactive"},
     ]
     result = format_and_export(csv_data, filename="test_vlans", format="csv")
-    print(f"✅ 导出成功: {result['path']} ({result['size']} bytes)")
+    print(f"✅ exported: {result['path']} ({result['size']} bytes)")
 
-    # 测试5: 自动检测
-    print("\n5️⃣ 测试自动格式检测")
-    auto_data = "## 自动检测测试\n这应该被识别为Markdown"
-    result = format_and_export(auto_data)  # 无filename，无format
-    print(f"✅ 自动检测并导出: {result['path']} (格式: {result['format']})")
+    # 5: auto-detection
+    print("\n5️⃣ Automatic format detection")
+    auto_data = "## Auto-detection test\nThis should be recognised as Markdown"
+    result = format_and_export(auto_data)  # no filename, no format
+    print(f"✅ auto-detected and exported: {result['path']} (format: {result['format']})")
 
     print("\n" + "=" * 80)
-    print("✅ 所有测试通过！检查 exports/ 目录查看导出的文件")
+    print("✅ All checks passed — see the exports/ directory for the files")
     print("=" * 80)

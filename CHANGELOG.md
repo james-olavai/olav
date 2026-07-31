@@ -5,6 +5,47 @@ All notable changes to OLAV will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.1] - 2026-07-31
+
+Patch release — ship the workspace reference/guide files that packaging had
+been silently stripping, plus two prompt-surface fixes.
+
+### Changed
+- **Workspace prompt surface is English-only for developer-facing text**:
+  translated the Chinese module/helper docstrings, inline comments and the
+  `__main__` self-test in `core/{tools,scripts}/format_and_export.py` and the
+  `scripts-化` comments in `admin/editor/scripts/tool_help.py`. Bilingual
+  routing keywords (SKILL.md intent tables, `*.guide.yaml` triggers) and the
+  Chinese report locale in `audit-runner/render_report.py` are unchanged —
+  those are matching keys and localised output, not developer prose.
+- `core/formats/device_table.format.yaml` no longer hardcodes a Chinese
+  `"共 N 条记录"` footer; it asks for a record-count line "written in the reply
+  language" so the output honours `agent.output_language` instead of
+  contradicting it.
+
+### Fixed
+- **16 authored workspace reference files were never packaged** — the ownership
+  manifest declared *all* of `src/olav/data/workspace/*/*/references/**` as
+  `class: generated, git: ignore` on the assumption that sub-agent `references/`
+  dirs are `olav registry register` output. That split by directory *depth*, not
+  by provenance: one-level `core/references/` survived while every two-level
+  sub-agent dir was stripped from both the wheel and the sdist — including 7
+  `*.guide.yaml` AutoRecall steering guides (6 `audit/explorer` network-type
+  guides + `memory-curator/memory_ingestion_routing`) and 9 authored `.md`
+  references. Being tracked in git did not save them: hatchling's default file
+  selection reads `.gitignore` and never consults git's index, and an explicit
+  sdist `include` does not override a VCS ignore (only `force-include` would).
+  The rule is now scoped to the actual generated artifact — `*_api.md`, which is
+  all `tool_generator.py` ever writes. Wheel `references/` count 17 → 33,
+  `*.guide.yaml` 9 → 16, generated `*_api.md` still 0.
+- **`audit-runner/render_report.py` initialised the LLM unconditionally** in the
+  platform copy — `d01723db3` ("defer LLM init until after narrative_mode is
+  resolved") only landed on the `olav-netops` dev mirror, and since `audit/` is
+  platform-owned (`skill.py` `_PLATFORM_OWNED` makes `olav skill install` skip
+  it), the fixed copy was the one that never deploys. Jinja-mode renders and any
+  offline/no-key environment paid a spurious `LLMFactory.get_chat_model()` call.
+  All three tracked mirrors are now byte-identical.
+
 ## [0.25.0] - 2026-07-26
 
 Minor release — enterprise-tier boundary refactor + a unified DuckDB write seam.

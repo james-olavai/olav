@@ -14,7 +14,8 @@ body: |
   ip_address, platform, vendor, role, …).
 
   Output rule: in chat, render as Markdown table with ALL rows.
-  Don't summarize or truncate.  Always end with "共 N 条记录".
+  Don't summarize or truncate.  Always end with a record-count line
+  (e.g. "12 records total") written in the reply language.
 
   Save with format_and_export — pass the RAW JSON array from
   execute_sql (NOT the rendered markdown):
