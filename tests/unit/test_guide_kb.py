@@ -315,3 +315,140 @@ def test_prime_guides_prune_skips_non_config_origin(tmp_path):
     remaining_ids = [m["id"] for m in store.get_memories(category="usage_guide", limit=10)]
     assert "guide_user_custom_pattern" in remaining_ids
 
+
+# --- unchanged guides must not be re-embedded (2026-08-02) ------------------
+#
+# Re-priming used to re-embed every guide on every call: 54 guides x 2-9s of
+# real embedding on each `olav init`, each `skill install`, and each ingest.
+# That is why a unit test calling finalise_ingest ran for minutes. Embedding is
+# the only expensive step here, so an unchanged guide must never reach it.
+# --- unchanged guides must not be re-embedded -------------------------------
+
+
+class _FakeStore:
+    def __init__(self, rows=None):
+        self.rows = list(rows or [])
+        self.added = []
+
+    def get_memories(self, category=None, limit=None):
+        return self.rows
+
+    def delete_memory(self, id=None, **_k):
+        pass
+
+    def add_memory(self, **kw):
+        self.added.append(kw)
+        self.rows.append({"id": kw["id"], "origin": "config",
+                          "metadata": kw.get("metadata") or {}})
+
+
+def _guide_dir(tmp_path):
+    d = tmp_path / "netops" / "references"
+    d.mkdir(parents=True)
+    (d / "a.guide.yaml").write_text(
+        "schema_version: 1\nintent: thing_a\nagent: netops\n"
+        "keywords: [alpha]\nbody: |\n  body of a\n", encoding="utf-8")
+    (d / "b.guide.yaml").write_text(
+        "schema_version: 1\nintent: thing_b\nagent: netops\n"
+        "keywords: [beta]\nbody: |\n  body of b\n", encoding="utf-8")
+    return tmp_path
+
+
+def test_a_second_prime_re_embeds_nothing(monkeypatch, tmp_path):
+    """Re-priming used to re-embed every guide every time — 54 guides x 2-9s on
+    every `olav init`, `skill install` and ingest. Embedding is the only
+    expensive step, so an unchanged guide must never reach it."""
+    import olav.core.memory.guide_kb as G
+
+    embeds = {"n": 0}
+
+    def _fake_embed(_text):
+        embeds["n"] += 1
+        return [0.1, 0.2, 0.3]
+
+    monkeypatch.setattr(G, "_embed", _fake_embed)
+    root = _guide_dir(tmp_path)
+    store = _FakeStore()
+
+    first = G.prime_guides_from_dir(root, store=store)
+    assert first["guide_entries"] == 2 and first["embedded"] == 2
+    assert embeds["n"] == 2
+
+    second = G.prime_guides_from_dir(root, store=store)
+    assert second["unchanged"] == 2
+    assert second["embedded"] == 0
+    # ...and `guide_entries` still means "present and current", so a caller
+    # reporting it does not suddenly show 0 after a no-op re-prime
+    assert second["guide_entries"] == 2
+    assert embeds["n"] == 2, "an unchanged guide was re-embedded"
+
+
+def test_an_edited_guide_is_re_embedded(monkeypatch, tmp_path):
+    """The skip must be driven by content, not by presence."""
+    import olav.core.memory.guide_kb as G
+
+    embeds = {"n": 0}
+    monkeypatch.setattr(G, "_embed", lambda _t: (embeds.__setitem__("n", embeds["n"] + 1), [0.1])[1])
+
+    root = _guide_dir(tmp_path)
+    store = _FakeStore()
+    G.prime_guides_from_dir(root, store=store)
+    assert embeds["n"] == 2
+
+    (root / "netops" / "references" / "a.guide.yaml").write_text(
+        "schema_version: 1\nintent: thing_a\nagent: netops\n"
+        "keywords: [alpha]\nbody: |\n  body of a, revised\n", encoding="utf-8")
+    res = G.prime_guides_from_dir(root, store=store)
+    assert embeds["n"] == 3, "the edited guide was not re-embedded"
+    assert res["unchanged"] == 1
+
+
+def test_switching_embedding_model_re_embeds_everything(monkeypatch, tmp_path):
+    """Content alone as the key would serve vectors from the previous model —
+    the dimension-mismatch class CLAUDE.md treats as fail-fast, quietly
+    reintroduced through a cache."""
+    import olav.core.memory.guide_kb as G
+
+    embeds = {"n": 0}
+    monkeypatch.setattr(G, "_embed", lambda _t: (embeds.__setitem__("n", embeds["n"] + 1), [0.1])[1])
+
+    class _Cfg:
+        mode = "api"
+        openai_model = "model-one"
+
+    monkeypatch.setattr("olav.core.config.get_embedding_config", lambda: _Cfg())
+    root = _guide_dir(tmp_path)
+    store = _FakeStore()
+    G.prime_guides_from_dir(root, store=store)
+    assert embeds["n"] == 2
+
+    _Cfg.openai_model = "model-two"
+    G.prime_guides_from_dir(root, store=store)
+    assert embeds["n"] == 4, "a model switch reused the old model's vectors"
+
+
+def test_the_store_returns_metadata_as_json_so_it_must_be_parsed(monkeypatch, tmp_path):
+    """The real store round-trips `metadata` as a JSON string. Reading it with
+    `.get()` silently yields nothing — which is how the first version of the
+    unchanged check looked correct while re-embedding everything every run."""
+    import json as _json
+
+    import olav.core.memory.guide_kb as G
+
+    embeds = {"n": 0}
+    monkeypatch.setattr(G, "_embed", lambda _t: (embeds.__setitem__("n", embeds["n"] + 1), [0.1])[1])
+
+    class _JsonMetaStore(_FakeStore):
+        def add_memory(self, **kw):
+            self.added.append(kw)
+            self.rows.append({"id": kw["id"], "origin": "config",
+                              "metadata": _json.dumps(kw.get("metadata") or {})})
+
+    root = _guide_dir(tmp_path)
+    store = _JsonMetaStore()
+    G.prime_guides_from_dir(root, store=store)
+    assert embeds["n"] == 2
+
+    res = G.prime_guides_from_dir(root, store=store)
+    assert res["unchanged"] == 2, "JSON-encoded metadata defeated the check"
+    assert embeds["n"] == 2

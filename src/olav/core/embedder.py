@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import time
 from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
@@ -177,6 +178,80 @@ def _get_api_client():
 
 _detected_dim: int | None = None
 
+# --- endpoint circuit breaker ------------------------------------------------
+# Every call is already bounded (OLAV_EMBED_TIMEOUT × retries), but the *batch*
+# is not: `olav init` / `olav skill install` embed every *.guide.yaml one at a
+# time, so a dead endpoint costs N × the per-call bound. That is the 2026-06-14
+# CI setup hang, and it cost ~40 minutes again on 2026-08-02 when a local unit
+# run blocked on it. A per-call timeout stops one call from hanging; only a
+# breaker stops the run from hanging.
+#
+# Consecutive failures — not a wall-clock budget — because the question is "is
+# the endpoint usable", not "is it fast": a slow but working endpoint must keep
+# working. The cool-off makes it self-healing, so a transient blip does not
+# disable embedding for the life of the process.
+_embed_failures = 0
+_breaker_open_until = 0.0
+
+
+def _breaker_threshold() -> int:
+    return int(os.environ.get("OLAV_EMBED_FAILURE_THRESHOLD", "3"))
+
+
+def _breaker_cooldown() -> float:
+    return float(os.environ.get("OLAV_EMBED_BREAKER_COOLDOWN", "60"))
+
+
+def _breaker_is_open() -> bool:
+    return time.monotonic() < _breaker_open_until
+
+
+def _is_unreachable(exc: BaseException) -> bool:
+    """True when the endpoint did not answer at all.
+
+    A timeout or a refused connection says the service is unusable, and one
+    *recorded* failure already means two attempts — the SDK client is built
+    with ``max_retries``, so it has retried internally before raising. Waiting
+    for two more of those buys no information and costs the caller minutes.
+    Other errors (4xx, a malformed response) may be specific to one input, so
+    those still need the consecutive-failure evidence.
+
+    Matched on the class name rather than by importing openai/httpx: this
+    module must not grow import-time dependencies on either.
+    """
+    names = {type(e).__name__ for e in (exc, exc.__cause__, exc.__context__) if e}
+    return any(
+        "Timeout" in n or "ConnectError" in n or "ConnectionError" in n
+        or "APIConnection" in n
+        for n in names
+    )
+
+
+def _breaker_record_failure(exc: BaseException | None = None) -> None:
+    global _embed_failures, _breaker_open_until
+    _embed_failures += 1
+    if exc is not None and _is_unreachable(exc):
+        _embed_failures = max(_embed_failures, _breaker_threshold())
+    if _embed_failures >= _breaker_threshold() and not _breaker_is_open():
+        _breaker_open_until = time.monotonic() + _breaker_cooldown()
+        logger.warning(
+            "embed endpoint unusable after %d consecutive failures — skipping "
+            "embeds for %.0fs. Callers degrade (entries are skipped, not "
+            "blocked); set OLAV_EMBEDDING_MODE=local to embed without a "
+            "service.", _embed_failures, _breaker_cooldown(),
+        )
+
+
+def _breaker_record_success() -> None:
+    global _embed_failures, _breaker_open_until
+    _embed_failures = 0
+    _breaker_open_until = 0.0
+
+
+def reset_embed_breaker() -> None:
+    """Clear breaker state. For tests and for callers that just fixed config."""
+    _breaker_record_success()
+
 
 def detect_embedding_dim() -> int:
     """Detect the actual embedding dimension by running a probe.
@@ -260,6 +335,8 @@ def embed_text(text: str) -> "list[float] | None":
     cached = _cache_get(text)
     if cached is not None:
         return cached
+    if _breaker_is_open():
+        return None
     try:
         from olav.core.config import get_embedding_config
 
@@ -288,7 +365,9 @@ def embed_text(text: str) -> "list[float] | None":
                 return None
             vec = embedder.encode(text, normalize_embeddings=True).tolist()
         _cache_put(text, vec)
+        _breaker_record_success()
         return vec
     except Exception as exc:
         logger.warning("embed_text failed: %s", exc)
+        _breaker_record_failure(exc)
         return None

@@ -206,6 +206,44 @@ def discover_guides(workspace_root: Path) -> list[UsageGuide]:
     return guides
 
 
+def _row_metadata(mem: dict) -> dict:
+    """Metadata of a stored memory row, as a dict.
+
+    The store round-trips ``metadata`` as a JSON **string**, so reading it with
+    ``.get()`` silently yields nothing — which is exactly how the first version
+    of the unchanged-guide check looked like it worked while re-embedding
+    everything on every run.
+    """
+    meta = mem.get("metadata")
+    if isinstance(meta, dict):
+        return meta
+    if isinstance(meta, str) and meta:
+        try:
+            parsed = json.loads(meta)
+            return parsed if isinstance(parsed, dict) else {}
+        except (ValueError, TypeError):
+            return {}
+    return {}
+
+
+def _content_hash(embed_input: str) -> str:
+    """Identity of an embedded guide: its exact text **and** the model.
+
+    Content alone would let a model switch serve vectors of the wrong
+    dimension out of the "unchanged" path.
+    """
+    import hashlib
+
+    try:
+        from olav.core.config import get_embedding_config
+
+        cfg = get_embedding_config()
+        model = f"{getattr(cfg, 'mode', '')}:{getattr(cfg, 'openai_model', '')}"
+    except Exception:  # noqa: BLE001
+        model = "unknown"
+    return hashlib.sha256(f"{model}\x00{embed_input}".encode()).hexdigest()
+
+
 def _embed(text: str) -> list[float] | None:
     """Wrap embedder; returns ``None`` on failure (caller skips entry)."""
     try:
@@ -252,8 +290,28 @@ def prime_guides_from_dir(
     if not guides:
         return {"guide_entries": 0, "skipped": 0}
 
+    # Re-priming used to re-embed every guide on every call, even when not one
+    # byte had changed: 54 guides x 2-9s of real embedding on each `olav init`,
+    # each `skill install`, and each ingest — which is why a unit test that
+    # calls finalise_ingest ran for minutes (2026-08-02). Embedding is the only
+    # expensive step here, so an unchanged guide must not reach it.
+    #
+    # The hash covers the exact string that gets embedded and the embedding
+    # model, so changing either re-embeds. Keying on content alone would serve
+    # vectors from a previous model — the dimension-mismatch class CLAUDE.md
+    # treats as fail-fast, quietly reintroduced through a cache.
+    existing_hashes: dict[str, str] = {}
+    try:
+        for mem in store.get_memories(category="usage_guide", limit=10_000):
+            h = _row_metadata(mem).get("content_hash")
+            if h:
+                existing_hashes[mem.get("id", "")] = h
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("guide_kb: could not read existing hashes: %s", exc)
+
     count = 0
     skipped = 0
+    unchanged = 0
     for guide in guides:
         # Embed intent + keywords + body so short keyword-anchored
         # queries match the body's vector even when prose doesn't
@@ -263,12 +321,17 @@ def prime_guides_from_dir(
             f"keywords: {', '.join(guide.keywords)}\n\n"
             f"{guide.body}"
         )
+        mem_id = guide.memory_id
+        content_hash = _content_hash(embed_input)
+        if existing_hashes.get(mem_id) == content_hash:
+            unchanged += 1
+            continue
+
         vec = _embed(embed_input)
         if not vec:
             skipped += 1
             continue
 
-        mem_id = guide.memory_id
         try:
             store.delete_memory(id=mem_id)  # idempotent upsert
         except Exception:
@@ -301,6 +364,7 @@ def prime_guides_from_dir(
                     "source_tier": guide.source_tier,
                     "n_keywords": len(guide.keywords),
                     "priority": guide_priority,
+                    "content_hash": content_hash,
                 },
                 origin="config",
                 confidence=1.0,
@@ -330,7 +394,7 @@ def prime_guides_from_dir(
                 continue
             if mid in present_ids:
                 continue
-            origin = mem.get("origin") or (mem.get("metadata") or {}).get("origin")
+            origin = mem.get("origin") or _row_metadata(mem).get("origin")
             if origin != "config":
                 # only auto-prune entries we ourselves primed
                 continue
@@ -344,10 +408,20 @@ def prime_guides_from_dir(
         logger.debug("guide_kb: prune phase skipped: %s", exc)
 
     logger.info(
-        "guide_kb: %d entries from %s (%d skipped, %d pruned)",
-        count, workspace_root, skipped, pruned,
+        "guide_kb: %d entries from %s (%d embedded, %d unchanged, %d skipped, "
+        "%d pruned)",
+        count + unchanged, workspace_root, count, unchanged, skipped, pruned,
     )
-    return {"guide_entries": count, "skipped": skipped, "pruned": pruned}
+    # ``guide_entries`` keeps its original meaning — guides now present and
+    # current — so callers that report it do not start showing 0 after a no-op
+    # re-prime. ``embedded`` is the new information: what actually cost work.
+    return {
+        "guide_entries": count + unchanged,
+        "embedded": count,
+        "unchanged": unchanged,
+        "skipped": skipped,
+        "pruned": pruned,
+    }
 
 
 def prime_workspace_guides(
