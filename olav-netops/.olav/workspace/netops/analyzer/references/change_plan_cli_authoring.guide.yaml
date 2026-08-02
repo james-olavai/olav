@@ -164,10 +164,12 @@ body: |
   4. **Missing `write memory`** (Cisco): config in RAM, lost on reload.
   5. **Rollback omits config-mode wrapper**: rollback won't actually run.
   6. **post_check.device not in `devices_in_scope`**: lab refuses.
-  7. **Using prod IP/subnet in CLI for static_route_add when lab will
-     remap IPs**: prod CLI references real IPs; that's OK — the
-     freeform_translator handles the IP map. But for analyzer-only
-     mode (no digital twin), the CLI runs verbatim on prod.
+  7. **Using prod IP/subnet in CLI**: correct, and required. Write the CLI
+     against production addresses. The twin builder slices the device's own
+     running-config and records a prod↔lab interface bijection, so the lab
+     rewrites names for you (dev_docs/112 §6.2); nothing translates your
+     config any more. In analyzer-only mode (no digital twin) the CLI runs
+     verbatim on prod, which is the same text.
 
 related:
   - intent: change_plan_emit_tcf
