@@ -204,3 +204,69 @@ def test_non_json_output_is_a_finding(workspace, monkeypatch):
     _install_skill(workspace, "containerlab", "print('not json')")
     check = _run(monkeypatch)[1]
     assert check["ok"] is False and "non-JSON" in check["detail"]
+
+
+# --- readiness vs proof: an operator must be able to ask for the second -----
+
+
+def _install_skill_with_verify(root, body_health, body_verify):
+    d = root / ".olav" / "workspace" / "services" / "lab"
+    (d / "scripts").mkdir(parents=True)
+    (d / "healthcheck.yaml").write_text(
+        "service: containerlab\nscript: healthcheck.py\nverify_script: verify.py\n",
+        encoding="utf-8")
+    (d / "scripts" / "healthcheck.py").write_text(body_health, encoding="utf-8")
+    (d / "scripts" / "verify.py").write_text(body_verify, encoding="utf-8")
+
+
+_OK = ("import json;print(json.dumps({'checks':[{'name':'%s','ok':True,"
+       "'detail':'d'}]}))")
+
+
+def test_a_bare_doctor_never_runs_the_proof(workspace, monkeypatch):
+    """It creates and destroys real resources. `olav doctor` is typed
+    casually; only an explicit flag may spend infrastructure."""
+    _write_services(workspace, {"containerlab": {"endpoint": "http://h:8090"}})
+    _install_skill_with_verify(workspace, _OK % "ready", _OK % "proof")
+    names = [c["name"] for c in DoctorCommand()._check_services()]
+    assert "containerlab: proof" not in names
+    assert "containerlab: ready" in names
+
+
+def test_verify_runs_the_proof(workspace, monkeypatch):
+    _write_services(workspace, {"containerlab": {"endpoint": "http://h:8090"}})
+    _install_skill_with_verify(workspace, _OK % "ready", _OK % "proof")
+    names = [c["name"] for c in DoctorCommand()._check_services(deep=True)]
+    assert "containerlab: proof" in names
+
+
+def test_a_service_with_no_proof_says_so_rather_than_implying_one(workspace):
+    """Silence would read as "verified"."""
+    _write_services(workspace, {"containerlab": {"endpoint": "http://h:8090"}})
+    _install_skill(workspace, "containerlab", _OK % "ready")
+    checks = DoctorCommand()._check_services(deep=True)
+    tail = [c for c in checks if c["name"].endswith("verify")]
+    assert tail and tail[0]["ok"] and "no end-to-end proof" in tail[0]["detail"]
+
+
+def test_the_cli_forwards_verify(monkeypatch):
+    """The first version parsed `--verify` and forwarded only `--json`, so the
+    flag existed in `--help` and did nothing."""
+    import inspect
+
+    from olav.cli import main as cli_main
+
+    src = inspect.getsource(cli_main.cli_main_impl)
+    doctor_block = src[src.index('args.command == "doctor"'):][:900]
+    assert '"--verify"' in doctor_block, "doctor's --verify is never forwarded"
+
+
+def test_the_shipped_proof_tears_its_lab_down():
+    """A verify that leaves a lab behind has damaged the thing it checked."""
+    from pathlib import Path
+
+    src = Path("olav-ent/workspace/services/lab/scripts/verify.py")
+    if not src.is_file():
+        pytest.skip("olav-ent not checked out")
+    body = src.read_text(encoding="utf-8")
+    assert "finally:" in body and "destroy_lab" in body

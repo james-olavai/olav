@@ -352,6 +352,15 @@ def parse_args():
     doctor_parser.add_argument(
         "--json", action="store_true", help="Emit machine-readable JSON instead of a report"
     )
+    doctor_parser.add_argument(
+        "--verify",
+        action="store_true",
+        help=(
+            "Also prove each service actually WORKS, not just that it answers "
+            "— e.g. build and tear down a one-node lab. Slower, and it creates "
+            "and removes real resources, so it is opt-in"
+        ),
+    )
 
     # Refresh command — rebuild global agent registry (deterministic, no LLM)
     subparsers.add_parser("refresh", help="Rebuild global agent registry (olav.md)")
@@ -2494,8 +2503,16 @@ async def cli_main_impl() -> None:
             from olav.cli.commands.doctor import DoctorCommand
 
             cmd = DoctorCommand()
+            # Forward every declared flag. The first version passed only
+            # --json, so `--verify` parsed fine and reached nothing — a flag
+            # that exists in `--help` and does nothing is worse than no flag.
             as_json = getattr(args, "json", False)
-            result = await cmd.execute("--json" if as_json else "")
+            _flags = []
+            if as_json:
+                _flags.append("--json")
+            if getattr(args, "verify", False):
+                _flags.append("--verify")
+            result = await cmd.execute(" ".join(_flags))
             # Plain-print JSON so rich doesn't line-wrap long detail strings
             # (a wrapped newline mid-value produces invalid JSON).
             if as_json:

@@ -30,7 +30,16 @@ class DoctorCommand(BaseCommand):
         )
 
     async def execute(self, args: str = "") -> str:
-        as_json = "--json" in args.split()
+        argv = args.split()
+        as_json = "--json" in argv
+        # `--verify` is the production answer to "does my lab validation
+        # actually work?". Readiness (endpoint up, credentials set, images
+        # present) is not the same question, and until now only a developer
+        # running pytest with an env var nobody documents could answer it —
+        # a hidden incantation is exactly what dev_docs/99 exists to remove.
+        # Consent lives on a flag that `--help` describes, not in the
+        # environment, because a switch nobody can discover is not a choice.
+        deep = "--verify" in argv
         checks = [
             self._check_scaffolding(),
             self._check_workspace_integrity(),
@@ -41,7 +50,7 @@ class DoctorCommand(BaseCommand):
             self._check_tools(),
             self._check_memory(),
             self._check_recall(),
-            *self._check_services(),
+            *self._check_services(deep=deep),
         ]
 
         if as_json:
@@ -416,7 +425,7 @@ class DoctorCommand(BaseCommand):
                 out[str(name)] = (spec_path.parent, spec)
         return out
 
-    def _check_services(self) -> list[dict]:
+    def _check_services(self, deep: bool = False) -> list[dict]:
         import socket
         from urllib.parse import urlparse
 
@@ -451,6 +460,8 @@ class DoctorCommand(BaseCommand):
             skill = specs.get(name)
             if skill:
                 checks.extend(self._skill_health(name, *skill))
+                if deep:
+                    checks.extend(self._skill_verify(name, *skill))
         return checks
 
     @staticmethod
@@ -489,51 +500,79 @@ class DoctorCommand(BaseCommand):
                 "detail": f"{u.hostname}:{port} reachable"
                           + (f", {auth.get('type')} creds set" if auth else "")}
 
-    @staticmethod
-    def _skill_health(name: str, skill_dir: Path, spec: dict) -> list[dict]:
-        """Run the skill's own readiness script and adopt its checks."""
+    @classmethod
+    def _skill_health(cls, name: str, skill_dir: Path, spec: dict) -> list[dict]:
+        """Run the skill's read-only readiness script and adopt its checks."""
         script = spec.get("script")
         if not script:
             return []
-        target = skill_dir / "scripts" / str(script)
-        if not target.is_file():
-            return [{"name": f"service:{name} health", "ok": False,
-                     "detail": f"healthcheck.yaml names {script!r}, which is "
-                               f"not in {skill_dir.name}/scripts/",
-                     "fix": "reinstall the skill providing this service"}]
+        return cls._run_skill_script(name, skill_dir, str(script), label="readiness")
+
+    @staticmethod
+    def _run_skill_script(
+        name: str, skill_dir: Path, script: str, *, label: str, timeout: int = 60
+    ) -> list[dict]:
+        """Execute one skill-supplied check script and adopt its findings.
+
+        Shared by the readiness and verify paths — they differ only in which
+        script they name and how long it may take, and duplicating the
+        error handling is how one of them ends up silently swallowing a
+        crash while the other reports it.
+        """
         import subprocess
         import sys as _sys
 
+        target = skill_dir / "scripts" / script
+        if not target.is_file():
+            return [{"name": f"{name}: {label}", "ok": False,
+                     "detail": f"healthcheck.yaml names {script!r}, which is "
+                               f"not in {skill_dir.name}/scripts/",
+                     "fix": "reinstall the skill providing this service"}]
         try:
             proc = subprocess.run([_sys.executable, str(target)],
-                                  capture_output=True, text=True, timeout=60)
+                                  capture_output=True, text=True, timeout=timeout)
         except Exception as exc:  # noqa: BLE001
-            return [{"name": f"service:{name} health", "ok": False,
-                     "detail": f"readiness script failed to run "
+            return [{"name": f"{name}: {label}", "ok": False,
+                     "detail": f"{label} script failed to run "
                                f"({type(exc).__name__}: {exc})"}]
         # A script that dies prints nothing, and `json.loads("{}")` succeeds —
-        # so without these two branches a CRASHED readiness check produces no
-        # output at all and reads exactly like a healthy one.
+        # so without these branches a CRASHED check produces no output at all
+        # and reads exactly like a healthy one.
         if proc.returncode != 0:
             tail = (proc.stderr or proc.stdout or "").strip().splitlines()
-            return [{"name": f"service:{name} health", "ok": False,
-                     "detail": f"readiness script exited {proc.returncode}"
+            return [{"name": f"{name}: {label}", "ok": False,
+                     "detail": f"{label} script exited {proc.returncode}"
                                + (f": {tail[-1][:120]}" if tail else "")}]
         try:
             payload = json.loads(proc.stdout or "{}")
         except ValueError as exc:
-            return [{"name": f"service:{name} health", "ok": False,
-                     "detail": f"readiness script emitted non-JSON ({exc})"}]
+            return [{"name": f"{name}: {label}", "ok": False,
+                     "detail": f"{label} script emitted non-JSON ({exc})"}]
         reported = payload.get("checks")
         if not reported:
-            return [{"name": f"service:{name} health", "ok": False,
-                     "detail": "readiness script returned no checks"}]
+            return [{"name": f"{name}: {label}", "ok": False,
+                     "detail": f"{label} script returned no checks"}]
         out = []
         for c in reported:
             c = dict(c)
-            c["name"] = f"{name}: {c.get('name', 'check')}"
+            c["name"] = f"{name}: {c.get('name', label)}"
             out.append(c)
         return out
+
+    @classmethod
+    def _skill_verify(cls, name: str, skill_dir: Path, spec: dict) -> list[dict]:
+        """Run the skill's end-to-end proof (``verify_script``), if it has one.
+
+        Separate from the readiness script on purpose: that one is read-only
+        and runs on every `olav doctor`, this one creates and destroys real
+        resources and runs only when asked.
+        """
+        script = spec.get("verify_script")
+        if not script:
+            return [{"name": f"{name}: verify", "ok": True,
+                     "detail": "this service ships no end-to-end proof"}]
+        return cls._run_skill_script(
+            name, skill_dir, str(script), label="verify", timeout=1800)
 
     def _check_memory(self) -> dict:
         """Experience layer primed? Counts per category; ⚠ when no guides."""
