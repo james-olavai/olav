@@ -28,19 +28,26 @@ def _make_cmd():
 
 
 # ---------------------------------------------------------------------------
-# Scaffolding check — pure filesystem, no mocking needed beyond chdir
+# Scaffolding check — resolves via get_paths_config(), same as workspace-
+# integrity below, so it must be isolated the same way: get_paths_config() is
+# a process-wide singleton (see comment above the LLM checks), so a bare
+# monkeypatch.chdir() does not isolate it once anything in the same pytest
+# session has already resolved the real project root — the exact regression
+# a real OLAV_HOME-aware fix surfaced (2026-08-03): the check used to shell
+# out to a literal Path(".olav"), which chdir *did* isolate, but that was also
+# why it silently ignored OLAV_HOME in production.
 # ---------------------------------------------------------------------------
 
 
 def test_scaffolding_missing_reports_fix(tmp_path, monkeypatch) -> None:
-    monkeypatch.chdir(tmp_path)
+    _point_resolved_root(monkeypatch, tmp_path)
     check = _make_cmd()._check_scaffolding()
     assert check["ok"] is False
     assert "olav init" in check["fix"]
 
 
 def test_scaffolding_present_is_ok(tmp_path, monkeypatch) -> None:
-    monkeypatch.chdir(tmp_path)
+    _point_resolved_root(monkeypatch, tmp_path)
     (tmp_path / ".olav" / "config").mkdir(parents=True)
     (tmp_path / ".olav" / "config" / "api.json").write_text("{}", encoding="utf-8")
     (tmp_path / ".olav" / "workspace").mkdir(parents=True)

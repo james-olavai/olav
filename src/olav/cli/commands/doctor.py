@@ -112,7 +112,12 @@ class DoctorCommand(BaseCommand):
         return "○ optional — enable daily self-reflection via `olav cron enable reflect`"
 
     def _check_scaffolding(self) -> dict:
-        base_dir = Path(".olav")
+        try:
+            from olav.core.config import get_paths_config
+
+            base_dir = Path(get_paths_config().project_root).resolve() / ".olav"
+        except Exception:  # noqa: BLE001
+            base_dir = Path(".olav")
         required = [base_dir / "config" / "api.json", base_dir / "workspace"]
         missing = [str(p) for p in required if not p.exists()]
         if missing:
