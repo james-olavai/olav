@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """Explore workspace: list files, grep content."""
 import os, glob, json, sys
+from pathlib import Path
 
-WS = "/home/yhvh/Olav/.olav/workspace"
+# self-relative: this file lives at <workspace>/admin/ops/scripts/explore_ws.py
+# in both the deployed runtime (.olav/workspace/...) and the dev source
+# (src/olav/data/workspace/...) — a path hardcoded to one checkout location
+# broke the moment the repo moved (2026-08-03).
+WS = str(Path(__file__).resolve().parents[3])
 
 def op1():
     files = sorted(glob.glob(os.path.join(WS, "**/*.md"), recursive=True))
