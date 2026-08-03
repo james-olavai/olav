@@ -366,7 +366,7 @@ rules:
     status: generated
     enforced: false
     git: ignore
-    notes: containerlab session files
+    notes: local Claude Code skills — the marketing/content pipeline (marketing-analytics, marketing-strategist, content-writer, seo-geo-optimizer, social-poster; packaged copies published from olav-post) plus autotrain (unrelated continual-learning loop, dev_docs/34) — local-only tooling, not olav runtime skills
 
   - pattern: .langgraph_api/**
     owner: olav
@@ -377,12 +377,17 @@ rules:
     notes: langgraph dev server runtime checkpoints (*.pckl, store) — never committed
 
   - pattern: olav-post/**
-    owner: olav
-    class: generated
-    status: generated
-    enforced: false
+    owner: olav-post
+    class: content
+    status: authoritative
+    enforced: true
     git: ignore
-    notes: local-only content archive — never publish to any remote
+    notes: >
+      co-located separate repository (like olav-doc/olav-web/olav-ent) — root
+      ignores it because it is tracked by its own nested repo, pushed only to
+      the internal gitea (never GitHub/PyPI/CDN — no public remote). Holds the
+      packaged marketing/content-pipeline skills (skills/**) plus operational
+      archive/reports/images that stay untracked in olav-post's own repo too.
 
   - pattern: .github/workflows/**
     owner: olav

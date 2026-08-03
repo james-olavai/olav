@@ -11,7 +11,7 @@ This is the `olav` root repository — the **platform base** (control plane, run
 | `olav-ent` | `olav-ent/` | Enterprise extension (enterprise auth, compliance, governance) |
 | `olav-doc` | `olav-doc/` | Public docs site (MkDocs Material) — `docs.olavai.com` |
 | `olav-web` | `olav-web/` | Marketing website + edge application (Astro + Cloudflare Worker + R2) — `olavai.com` |
-| `olav-post` | `olav-post/` | Local-only content archive — never published to any remote |
+| `olav-post` | `olav-post/` | Content archive + marketing skill pipeline — own repo, publishable only to the internal gitea, never a public remote |
 
 ## Repo Boundary Rules
 
@@ -22,7 +22,7 @@ Governance docs: `dev_docs/03. REPO_BOUNDARY_AND_OWNERSHIP.md` + [ADR-0002](docs
 - `olav-ent -> olav` (platform contract)
 - `olav-doc -> none` (no runtime dependency)
 - `olav-web -> none` (no runtime dependency)
-- `olav-post -> none` (no runtime dependency, local-only)
+- `olav-post -> none` (no runtime dependency; own repo, internal-gitea-only)
 
 **Reverse coupling** (`olav -> olav-netops`, `olav -> olav-ent`) is only allowed via:
 - Entry-point / plugin discovery (dynamic)
@@ -35,7 +35,9 @@ Governance docs: `dev_docs/03. REPO_BOUNDARY_AND_OWNERSHIP.md` + [ADR-0002](docs
 - `olav-post` importing `src/olav` runtime code
 - `olav` core hardcoding network-domain or enterprise-specific semantics
 - Dual-source editing of docs/web in both root and `olav-doc`
-- Publishing `olav-post` content to any remote (git, PyPI, CDN)
+- Publishing `olav-post` content to any **public** remote (GitHub, PyPI, CDN) — the
+  internal gitea is the sole exception, as `olav-post`'s own standalone repo
+  (2026-08-03), never merged into the root repo's tracked history
 
 ## Ownership Manifest
 
