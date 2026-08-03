@@ -713,8 +713,15 @@ def _prime_lab_services_from_config(workspace_root: Path) -> str:
         "auth": {
             "type": cfg.get("auth_type", "jwt"),
             "login_path": cfg.get("auth_login_path", "/login"),
-            "username_env": "OLAV_CLAB_USERNAME",
-            "password_env": "OLAV_CLAB_PASSWORD",
+            # Service credentials name the SERVICE, not OLAV: the shipped
+            # entries are GITEA_TOKEN / NETBOX_TOKEN / INFLUXDB_NETOPS_TOKEN.
+            # The `OLAV_` prefix belongs to OLAV's own knobs (OLAV_EMBEDDING_MODE,
+            # OLAV_LAB_USERNAME…). Auto-prime used to write OLAV_CLAB_USERNAME,
+            # so a fresh install asked for a different variable than every doc,
+            # test and habit in the repo — self-consistent, and wrong for anyone
+            # who followed the documentation.
+            "username_env": "CLAB_USERNAME",
+            "password_env": "CLAB_PASSWORD",
             "header_name": "Authorization",
         },
     }
@@ -725,7 +732,7 @@ def _prime_lab_services_from_config(workspace_root: Path) -> str:
 
     return (
         "  ✓ services.yaml: auto-primed containerlab entry from "
-        f"{matches[0]}; set OLAV_CLAB_USERNAME / OLAV_CLAB_PASSWORD "
+        f"{matches[0]}; set CLAB_USERNAME / CLAB_PASSWORD "
         f"in your shell"
     )
 
