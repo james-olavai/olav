@@ -365,12 +365,7 @@ class TestNetopsWorkspaceSync:
             pytest.skip("olav-netops not checked out")
         dev = self._collect_skill_mds(ROOT_WORKSPACE / "netops")
         authoritative = self._collect_skill_mds(NETOPS_WORKSPACE)
-        # `netops/lab` is routed as a netops sub-agent but ships with
-        # **olav-ent** (dev_docs/112); `olav agent install olav-ent` deploys it
-        # into the runtime mirror, so it is legitimately here and not in
-        # olav-netops. Everything else under netops/ must still match.
-        only_dev = {p for p in (set(dev) - set(authoritative))
-                    if p.parts[:1] != ("lab",)}
+        only_dev = set(dev) - set(authoritative)
         assert not only_dev, (
             "SKILL.md files present in .olav/workspace/netops/ but missing in "
             "olav-netops/.olav/workspace/netops/.  Sync the authoritative copy:\n  "

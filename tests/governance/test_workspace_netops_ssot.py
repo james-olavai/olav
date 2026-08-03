@@ -28,12 +28,7 @@ PKG_NETOPS = REPO / "olav-netops" / ".olav" / "workspace" / "netops"
 ALLOWED_ONLY_IN_PKG: set[str] = {
     "analyzer/references/ROUTING_EXPERT_GUIDE.md",  # reference doc shipped with wheel only
 }
-# `netops/lab` is routed as a netops sub-agent but SHIPPED BY olav-ent
-# (dev_docs/112). `olav agent install olav-ent` deploys it into the runtime
-# workspace, so it is legitimately present in the root mirror and absent from
-# olav-netops. Waiving the prefix, not the rule: everything else under
-# netops/ must still match its olav-netops source.
-ALLOWED_ONLY_IN_ROOT: set[str] = {"lab/"}
+ALLOWED_ONLY_IN_ROOT: set[str] = set()
 
 _TRACKED_SUFFIXES = {".md", ".yaml", ".yml"}
 _EXCLUDED_DIRS = {"tools", "scripts", "__pycache__"}

@@ -95,7 +95,7 @@ def execute_skill_script(
             (e.g. an ``api-query`` agent passes ``"api-query"``). Do
             NOT copy the example value below. Looked up under the
             workspace root — matches a direct child or one level
-            deeper (e.g. ``netops/lab``).
+            deeper (e.g. ``services/lab``).
         script_name: Filename of the script to run, including
             ``.py`` extension. Must be a bare filename (no path
             components).

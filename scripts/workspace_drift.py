@@ -71,11 +71,13 @@ _EXCLUDED_DIRS = {"tools", "scripts", "__pycache__", ".pytest_cache", ".ruff_cac
 
 # Sub-agents that live under a domain's namespace but are shipped by a
 # DIFFERENT delivery unit, so the domain's source will never contain them.
-# `netops/lab` is routed as a netops sub-agent and ships with olav-ent
-# (dev_docs/112); `olav agent install olav-ent` puts it in the runtime mirror.
-# Reporting it as drift would train everyone to ignore this gate — which is
-# the one thing a drift gate cannot afford.
-_FOREIGN_SUBAGENTS = {"netops": {"lab"}}
+# `services/lab` is the clab digital-twin skill: it lives under the platform
+# `services` agent (containerlab is already a services-owned service) but is
+# SHIPPED BY olav-ent, so the platform source will never contain it.
+# `olav agent install olav-ent` puts it in the runtime mirror. Reporting that
+# as drift would train everyone to ignore this gate — the one thing a drift
+# gate cannot afford.
+_FOREIGN_SUBAGENTS = {"services": {"lab"}}
 
 
 @dataclass(frozen=True)
