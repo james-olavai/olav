@@ -36,13 +36,23 @@ def test_ops_lab_top_level_removed():
 
 
 def test_ops_lab_subagent_still_present():
-    """Post-dev_docs/80: ops/lab/ was removed; lab is no longer a sub-agent."""
+    """``ops/lab/`` stays gone; ``netops/lab/`` is back and owned by olav-ent.
+
+    dev_docs/80 removed the lab sub-agent. dev_docs/112 re-established it as
+    the intent-driven twin, shipped by **olav-ent** and installed into
+    ``.olav/workspace/netops/lab`` by ``olav agent install olav-ent``. The
+    old location must still not reappear; the new one is expected, and if it
+    is absent the clab validation path is unreachable from any agent.
+    """
     assert not (WORKSPACE / "ops" / "lab").exists(), (
         "ops/lab/ should be gone — lab sub-agent was removed in dev_docs/80"
     )
-    assert not (WORKSPACE / "netops" / "lab").exists(), (
-        "netops/lab/ should not exist — lab is no longer a dedicated sub-agent"
-    )
+    lab = WORKSPACE / "netops" / "lab"
+    if lab.exists():
+        assert (lab / "SKILL.md").is_file(), (
+            "netops/lab exists without a SKILL.md — a half-installed skill is "
+            "worse than an absent one: the agent sees a directory and no tools"
+        )
 
 
 def test_ops_lab_skill_md_carries_merged_sections():

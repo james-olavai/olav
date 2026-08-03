@@ -69,6 +69,14 @@ REPO = Path(__file__).resolve().parent.parent
 _METADATA_SUFFIXES = {".md", ".yaml", ".yml"}
 _EXCLUDED_DIRS = {"tools", "scripts", "__pycache__", ".pytest_cache", ".ruff_cache"}
 
+# Sub-agents that live under a domain's namespace but are shipped by a
+# DIFFERENT delivery unit, so the domain's source will never contain them.
+# `netops/lab` is routed as a netops sub-agent and ships with olav-ent
+# (dev_docs/112); `olav agent install olav-ent` puts it in the runtime mirror.
+# Reporting it as drift would train everyone to ignore this gate — which is
+# the one thing a drift gate cannot afford.
+_FOREIGN_SUBAGENTS = {"netops": {"lab"}}
+
 
 @dataclass(frozen=True)
 class Domain:
@@ -123,8 +131,12 @@ DOMAINS: list[Domain] = [
 ]
 
 
-def _metadata_files(root: Path) -> set[Path]:
-    """Relative paths of all metadata files under *root* (excluded dirs skipped)."""
+def _metadata_files(root: Path, domain: str | None = None) -> set[Path]:
+    """Relative paths of all metadata files under *root* (excluded dirs skipped).
+
+    ``domain`` lets a sub-agent shipped by another delivery unit be left out —
+    see ``_FOREIGN_SUBAGENTS``.
+    """
     out: set[Path] = set()
     if not root.exists():
         return out
@@ -133,6 +145,8 @@ def _metadata_files(root: Path) -> set[Path]:
             continue
         rel = p.relative_to(root)
         if any(part in _EXCLUDED_DIRS for part in rel.parts):
+            continue
+        if rel.parts and rel.parts[0] in _FOREIGN_SUBAGENTS.get(domain, ()):
             continue
         if p.suffix not in _METADATA_SUFFIXES:
             continue
@@ -165,9 +179,11 @@ _WHEEL_BUNDLE_EXEMPT: set[Path] = {
 
 
 def _compare(
-    a: Path, label_a: str, b: Path, label_b: str, exempt: set[Path] = frozenset()
+    a: Path, label_a: str, b: Path, label_b: str, exempt: set[Path] = frozenset(),
+    domain: str | None = None,
 ) -> PairDrift:
-    fa, fb = _metadata_files(a) - exempt, _metadata_files(b) - exempt
+    fa = _metadata_files(a, domain) - exempt
+    fb = _metadata_files(b, domain) - exempt
     only_a = sorted(fa - fb)
     only_b = sorted(fb - fa)
     differ = sorted(
@@ -204,11 +220,13 @@ def report() -> int:
 
         pairs: list[PairDrift] = []
         if dom.source.exists() and dom.runtime.exists():
-            pairs.append(_compare(dom.source, "source", dom.runtime, "runtime"))
+            pairs.append(_compare(dom.source, "source", dom.runtime, "runtime",
+                                  domain=dom.name))
         for m in dom.extra_mirrors:
             if dom.source.exists() and m.exists():
                 exempt = _WHEEL_BUNDLE_EXEMPT if "skillpack" in m.parts else frozenset()
-                pairs.append(_compare(dom.source, "source", m, "bundle", exempt=exempt))
+                pairs.append(_compare(dom.source, "source", m, "bundle",
+                                      exempt=exempt, domain=dom.name))
         for pd in pairs:
             _print_pair(pd, REPO)
             if pd.total:
