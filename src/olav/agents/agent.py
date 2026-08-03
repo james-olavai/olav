@@ -20,6 +20,21 @@ from langchain_community.cache import SQLiteCache
 from langchain_core.globals import set_llm_cache
 
 
+#: Skills reached by DISCOVERY rather than by a parent's ``subagents:``
+#: declaration — SkillsMiddleware scans the direct children of a top-level
+#: agent dir, so these need no entry anywhere.
+#:
+#: Kept here, beside the scan that makes it true, because the same list lived
+#: as a literal in `olav doctor` and again in the reachability gate, and the
+#: copies had already diverged.
+#:
+#: * ``memory-curator`` — loaded as a skill, never delegated to.
+#: * ``lab`` — the enterprise clab twin. It installs under the platform
+#:   ``services`` agent, and declaring it in a PUBLIC SKILL.md would dangle on
+#:   every OSS install, since olav-ent is stripped from the public mirror.
+AUTODISCOVERED_SKILLS = frozenset({"memory-curator", "lab"})
+
+
 class _ValidatingSQLiteCache(SQLiteCache):
     """SQLiteCache that refuses to store or return 0-token empty responses.
 

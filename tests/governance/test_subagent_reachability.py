@@ -47,7 +47,9 @@ WORKSPACE_ROOTS = [
 # agent, whose SkillsMiddleware discovers sub-skill directories on its own, and
 # a static declaration in a PUBLIC SKILL.md pointing at an enterprise-only
 # directory would dangle on every OSS install (check B above).
-_AUTODISCOVERED = {"memory-curator", "lab"}
+# Imported, not restated: this list lived as a literal here, in `olav doctor`
+# and in agent.py, and the copies had already diverged.
+from olav.agents.agent import AUTODISCOVERED_SKILLS as _AUTODISCOVERED
 
 
 def _all_skill_mds() -> list[tuple[Path, Path]]:

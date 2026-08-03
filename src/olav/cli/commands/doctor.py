@@ -13,6 +13,7 @@ flag — the point is to tell the user what to *do*, not just what is broken.
 
 from __future__ import annotations
 
+import os
 import json
 from pathlib import Path
 
@@ -40,6 +41,7 @@ class DoctorCommand(BaseCommand):
             self._check_tools(),
             self._check_memory(),
             self._check_recall(),
+            *self._check_services(),
         ]
 
         if as_json:
@@ -329,7 +331,8 @@ class DoctorCommand(BaseCommand):
         if not root.is_dir():
             return {"name": "subagents", "ok": False,
                     "detail": "no workspace", "fix": "run `olav init`"}
-        auto = {"memory-curator"}  # auto-discovered via SkillsMiddleware, not declared
+        # One definition, beside the scan that makes it true (agent.py).
+        from olav.agents.agent import AUTODISCOVERED_SKILLS as auto
         total, orphans, unresolved = 0, [], []
         for parent in sorted(root.glob("*/SKILL.md")):
             try:
@@ -379,6 +382,158 @@ class DoctorCommand(BaseCommand):
             detail += " — " + ", ".join(errors[:3])
         return {"name": "tools", "ok": not errors, "detail": detail,
                 "fix": "fix the flagged tool file(s)" if errors else None}
+
+    # ── registered services ──────────────────────────────────────────────
+    #
+    # services.yaml is already the registry of "what I have"; doctor derives a
+    # probe from each entry, so a service the user registers (NetBox, gitea)
+    # is checked with no extra step. A skill that knows more about its own
+    # readiness ships a `healthcheck.yaml` naming the service — discovered,
+    # never written back into services.yaml, which is user-owned.
+    #
+    # Severity uses doctor's existing convention: not-ok WITHOUT a fix renders
+    # as a soft ⚠ (the environment is down — not your install), not-ok WITH a
+    # fix renders as ✗ (actionable misconfiguration). A service nobody
+    # registered produces no check at all, so an unused integration cannot
+    # turn `olav doctor` red.
+
+    @staticmethod
+    def _service_specs() -> dict:
+        """service name → (skill dir, spec) for every installed healthcheck."""
+        import yaml as _yaml
+
+        out: dict[str, tuple[Path, dict]] = {}
+        root = Path(".olav") / "workspace"
+        if not root.is_dir():
+            return out
+        for spec_path in root.glob("*/*/healthcheck.yaml"):
+            try:
+                spec = _yaml.safe_load(spec_path.read_text(encoding="utf-8")) or {}
+            except Exception:  # noqa: BLE001
+                continue
+            name = spec.get("service")
+            if name:
+                out[str(name)] = (spec_path.parent, spec)
+        return out
+
+    def _check_services(self) -> list[dict]:
+        import socket
+        from urllib.parse import urlparse
+
+        import yaml as _yaml
+
+        path = Path(".olav") / "config" / "services.yaml"
+        if not path.is_file():
+            return []
+        try:
+            doc = _yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except Exception as exc:  # noqa: BLE001
+            return [{"name": "services", "ok": False,
+                     "detail": f"services.yaml unparseable ({exc})",
+                     "fix": "fix or remove .olav/config/services.yaml"}]
+
+        services = doc.get("services") or {}
+        # LEGACY-KEEP: pre-v0.15 services.yaml stored `services` as a list of
+        # dicts. `_prime_lab_services_from_config` tolerates the same shape, so
+        # doctor must too — reading a config the installer still accepts and
+        # calling it unparseable would report a fault that is not there.
+        if isinstance(services, list):
+            services = {e.get("name", f"unnamed_{i}"): e
+                        for i, e in enumerate(services) if isinstance(e, dict)}
+        if not services:
+            return []
+
+        specs = self._service_specs()
+        checks: list[dict] = []
+        for name in sorted(services):
+            entry = services[name] or {}
+            checks.append(self._probe_service(name, entry, socket, urlparse))
+            skill = specs.get(name)
+            if skill:
+                checks.extend(self._skill_health(name, *skill))
+        return checks
+
+    @staticmethod
+    def _probe_service(name: str, entry: dict, socket, urlparse) -> dict:
+        """Endpoint reachable + declared credential env vars actually set."""
+        label = f"service:{name}"
+        endpoint = entry.get("endpoint")
+        if not endpoint:
+            return {"name": label, "ok": False,
+                    "detail": "no endpoint configured",
+                    "fix": f"set services.{name}.endpoint in "
+                           f".olav/config/services.yaml"}
+        u = urlparse(endpoint if "//" in endpoint else f"//{endpoint}")
+        port = u.port or (443 if u.scheme == "https" else 80)
+        try:
+            with socket.create_connection((u.hostname, port), timeout=4):
+                reachable = True
+        except OSError:
+            reachable = False
+        if not reachable:
+            # Environment, not installation: soft ⚠ (no fix key on purpose).
+            return {"name": label, "ok": False,
+                    "detail": f"{u.hostname}:{port} unreachable"}
+
+        auth = entry.get("auth") or {}
+        missing = [
+            v for k, v in auth.items()
+            if k.endswith("_env") and v and not os.environ.get(v)
+        ]
+        if missing:
+            return {"name": label, "ok": False,
+                    "detail": f"reachable; credential env unset: "
+                              f"{', '.join(sorted(missing))}",
+                    "fix": f"export {' and '.join(sorted(missing))}"}
+        return {"name": label, "ok": True,
+                "detail": f"{u.hostname}:{port} reachable"
+                          + (f", {auth.get('type')} creds set" if auth else "")}
+
+    @staticmethod
+    def _skill_health(name: str, skill_dir: Path, spec: dict) -> list[dict]:
+        """Run the skill's own readiness script and adopt its checks."""
+        script = spec.get("script")
+        if not script:
+            return []
+        target = skill_dir / "scripts" / str(script)
+        if not target.is_file():
+            return [{"name": f"service:{name} health", "ok": False,
+                     "detail": f"healthcheck.yaml names {script!r}, which is "
+                               f"not in {skill_dir.name}/scripts/",
+                     "fix": "reinstall the skill providing this service"}]
+        import subprocess
+        import sys as _sys
+
+        try:
+            proc = subprocess.run([_sys.executable, str(target)],
+                                  capture_output=True, text=True, timeout=60)
+        except Exception as exc:  # noqa: BLE001
+            return [{"name": f"service:{name} health", "ok": False,
+                     "detail": f"readiness script failed to run "
+                               f"({type(exc).__name__}: {exc})"}]
+        # A script that dies prints nothing, and `json.loads("{}")` succeeds —
+        # so without these two branches a CRASHED readiness check produces no
+        # output at all and reads exactly like a healthy one.
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or "").strip().splitlines()
+            return [{"name": f"service:{name} health", "ok": False,
+                     "detail": f"readiness script exited {proc.returncode}"
+                               + (f": {tail[-1][:120]}" if tail else "")}]
+        try:
+            payload = json.loads(proc.stdout or "{}")
+        except ValueError as exc:
+            return [{"name": f"service:{name} health", "ok": False,
+                     "detail": f"readiness script emitted non-JSON ({exc})"}]
+        reported = payload.get("checks")
+        if not reported:
+            return [{"name": f"service:{name} health", "ok": False,
+                     "detail": "readiness script returned no checks"}]
+        out = []
+        for c in reported:
+            c = dict(c)
+            c["name"] = f"{name}: {c.get('name', 'check')}"
+            out.append(c)
+        return out
 
     def _check_memory(self) -> dict:
         """Experience layer primed? Counts per category; ⚠ when no guides."""
