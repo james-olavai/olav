@@ -1,6 +1,6 @@
 ---
 name: api-query
-description: "API service queries — lightweight read-only HTTP requests to registered services (NetBox, InfluxDB, Grafana, etc.), health checks, report export"
+description: "API service queries — lightweight read-only HTTP requests to registered services (NetBox, Gitea, any registered HTTP API), health checks, report export"
 tools:
   - execute_skill_script
   - execute_sql
@@ -16,7 +16,6 @@ scripts:
 static_context:
   - path: ./references/netbox_dcim_api.md
   - path: ./references/netbox_ipam_api.md
-  - path: ./references/influxdb_netops_Query_api.md
 static_context_mode: on_intent
 metadata:
   category: api-integration
@@ -50,4 +49,4 @@ Only GET requests. For write operations → `olav --agent devops`.
 
 Use `references/` docs for correct NetBox endpoint paths and parameters.
 NetBox device query: `api_request(service="netbox", path="/api/dcim/devices/", params={...})`
-InfluxDB query: `api_request(service="influxdb_netops", path="/api/v2/query", ...)`
+Any registered service: `api_request(service="<name from services.yaml>", path="/...", ...)`

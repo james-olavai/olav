@@ -1,6 +1,6 @@
 ---
 agent_type: api
-description: "Infrastructure agent — query NetBox DCIM/IPAM + InfluxDB, write scripts to .olav/automations/ library, execute via HITL gate, schedule via admin."
+description: "Infrastructure agent — query NetBox DCIM/IPAM, write scripts to .olav/automations/ library, execute via HITL gate, schedule via admin."
 metadata:
   agent_type: api
   category: infrastructure-management
@@ -21,8 +21,6 @@ name: infra
 static_context:
 - path: ./references/netbox_dcim_api.md
 - path: ./references/netbox_ipam_api.md
-- path: ./references/influxdb_netops_Query_api.md
-- path: ./references/influxdb_netops_Health_api.md
 - path: ./references/BASELINE_SCHEMA.md
 - path: ./references/schema_discovery_patterns.md
 static_context_mode: on_intent
@@ -73,7 +71,7 @@ api_request(service="netbox", path="/api/ipam/ip-addresses/", params={"device": 
 execute_sql("SELECT hostname, ip_address, platform FROM netops.devices")
 ```
 
-Reference docs in `references/` cover all NetBox and InfluxDB endpoints.
+Reference docs in `references/` cover the NetBox endpoints.
 
 ## Write operations (interactive, ≤5 items)
 

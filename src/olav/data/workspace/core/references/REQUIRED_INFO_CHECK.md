@@ -41,9 +41,6 @@ Execute with exactly what the user provided — no substitutions.
 | lldap | `LLDAP_JWT_SECRET` | ❌ none | ✅ always |
 | NetBox | `NETBOX_SECRET_KEY` | ❌ none | ✅ always |
 | NetBox | `POSTGRES_PASSWORD` | ❌ none | ✅ always |
-| InfluxDB | `DOCKER_INFLUXDB_INIT_PASSWORD` | ❌ none | ✅ always |
-| InfluxDB | `DOCKER_INFLUXDB_INIT_ORG` | — | ✅ confirm |
-| InfluxDB | `DOCKER_INFLUXDB_INIT_BUCKET` | — | ✅ confirm |
 | Grafana | `GF_SECURITY_ADMIN_PASSWORD` | ❌ none | ✅ always |
 | ContainerLab | topology YAML path | — | ✅ always |
 | Any service | External port (if user-facing) | — | ✅ confirm |
@@ -55,14 +52,6 @@ Execute with exactly what the user provided — no substitutions.
 | Device hostname | Query `SELECT * FROM netops.devices WHERE hostname = '<name>'` | If 0 rows → ask user to confirm hostname or IP |
 | Device platform | Same query, read `platform` column | Ask if unknown (affects CLI syntax) |
 | Credentials | Check `~/.ssh/config` or `hosts.yaml` | Ask user to confirm credential source |
-
-### InfluxDB Queries
-
-| Parameter | Check | Action if missing |
-|-----------|-------|-------------------|
-| Time range | Stated in query? | Ask: "What time range? (e.g., last 1h / last 24h)" |
-| Measurement/metric | Stated? | Ask: "Which metric? (run `influxdb_netops_Buckets` to list)" |
-| Aggregation | Stated? | Default to `mean` but mention it |
 
 ### NetBox Operations
 

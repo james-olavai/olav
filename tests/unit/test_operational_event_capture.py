@@ -183,7 +183,7 @@ def test_aafter_agent_captures_one_write_tool_call():
                 _AIMsg(tool_calls=[{
                     "id": "tc1",
                     "name": "register_service",
-                    "args": {"service": "influx", "kind": "influxdb"},
+                    "args": {"service": "svc", "kind": "generic"},
                 }]),
                 _ToolMsg("register_service", '{"status": "ok"}', tool_call_id="tc1"),
             ]
@@ -251,7 +251,7 @@ def test_aafter_agent_idempotent_on_repeat_call():
     # Pre-loaded existing hash from prior run
     pre_summary = _summarize_call(
         "register_service",
-        {"service": "x", "kind": "influxdb"},
+        {"service": "x", "kind": "generic"},
         {"status": "ok"},
     )
     pre_hash = _content_hash(pre_summary)
@@ -271,7 +271,7 @@ def test_aafter_agent_idempotent_on_repeat_call():
                 _AIMsg(tool_calls=[{
                     "id": "tc1",
                     "name": "register_service",
-                    "args": {"service": "x", "kind": "influxdb"},
+                    "args": {"service": "x", "kind": "generic"},
                 }]),
                 _ToolMsg("register_service", '{"status": "ok"}', tool_call_id="tc1"),
             ]

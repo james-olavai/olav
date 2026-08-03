@@ -69,18 +69,18 @@ def test_services_api_request_returns_structured_error_on_exception(services_api
     ``{status: error, reason, service, path}`` — never lets the
     exception leak. Required for small-model NL summarization."""
     def boom(*a, **kw):
-        raise ConnectionError("Connection refused: 192.168.100.50:8087")
+        raise ConnectionError("Connection refused: 10.0.0.9:8080")
 
     with patch("olav.platform.services.client.service_call", new=boom):
         result = services_api.api_request(
-            service="influxdb_netops",
+            service="some_service",
             method="GET",
             path="/ping",
         )
     assert isinstance(result, dict), "must return dict, not raise"
     assert result.get("status") == "error"
     assert "Connection refused" in result.get("reason", "")
-    assert result.get("service") == "influxdb_netops"
+    assert result.get("service") == "some_service"
     assert result.get("path") == "/ping"
 
 

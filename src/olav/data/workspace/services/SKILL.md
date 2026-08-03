@@ -1,8 +1,8 @@
 ---
 name: services
-description: "OLAV service-integration platform agent — register API services, deploy/stop containers (Docker / ContainerLab), docker-compose ops, and authenticated HTTP calls against services.yaml endpoints (NetBox, InfluxDB, Gitea, any custom HTTP API)"
+description: "OLAV service-integration platform agent — register API services, deploy/stop containers (Docker / ContainerLab), docker-compose ops, and authenticated HTTP calls against services.yaml endpoints (NetBox, Gitea, any custom HTTP API)"
 route_keywords:
-  - register service api endpoint services.yaml netbox influxdb gitea
+  - register service api endpoint services.yaml netbox gitea
   - deploy container service containerlab clab docker
   - docker compose up down ps logs service
   - stop shutdown running container service
@@ -129,9 +129,9 @@ docker_compose("up -d", service_dir=".olav/services/nginx", confirmed=True)
   3. `deploy_service(name="nginx", confirmed=False)` → preview
   4. User confirms → `deploy_service(name="nginx", confirmed=True)`
 
-- "Stop InfluxDB" →
-  1. `stop_service("influxdb", confirmed=False)` → preview
-  2. User confirms → `stop_service("influxdb", confirmed=True)`
+- "Stop nginx" →
+  1. `stop_service("nginx", confirmed=False)` → preview
+  2. User confirms → `stop_service("nginx", confirmed=True)`
 
 - "Add a new NetBox instance" → `register_service` then `api_request` to verify.
 - "Query NetBox devices" → `api_request("netbox", path="/api/dcim/devices/")`.
@@ -139,7 +139,7 @@ docker_compose("up -d", service_dir=".olav/services/nginx", confirmed=True)
 
 ## Boundary
 
-- **Do NOT** query infrastructure databases (NetBox IPAM, InfluxDB metrics) for
+- **Do NOT** query infrastructure databases (e.g. NetBox IPAM) for
   reporting/analysis — that is the `devops` agent's `infra` capability.
 - **Do NOT** generate automation scripts — that is the `devops` agent.
 - When a service name is unknown, call `api_request` with `service=<name>` and

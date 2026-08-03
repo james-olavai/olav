@@ -1,10 +1,10 @@
 ---
 name: devops
-description: "DevOps & Infrastructure — NetBox DCIM/IPAM queries, InfluxDB metrics, automation script library (.olav/automations/), HITL execution, admin scheduling."
+description: "DevOps & Infrastructure — NetBox DCIM/IPAM queries, automation script library (.olav/automations/), HITL execution, admin scheduling."
 route_keywords:
   - script bash python ansible automation backup bulk operation migrate generate code
   - 脚本 自动化 备份 批量
-  - netbox dcim ipam influxdb metrics inventory bulk change
+  - netbox dcim ipam inventory bulk change
   - 网管 资源 库存
 tools:
   - olav_recall_memory
@@ -28,7 +28,7 @@ yourself — delegate everything to infra.
 All requests → `task("infra", <request>)`
 
 infra handles both modes:
-- **Query**: NetBox DCIM/IPAM, InfluxDB metrics, OLAV DB
+- **Query**: NetBox DCIM/IPAM, OLAV DB
 - **Automation**: generate script → `.olav/automations/` library → validate → HITL execute or admin schedule
 
 ## Cross-domain routing

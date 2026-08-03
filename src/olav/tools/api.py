@@ -6,7 +6,7 @@ Can be used standalone::
     from olav.tools.api import service_request
 
     devices = service_request("netbox", "GET", "/api/dcim/devices/")
-    health = service_request("influxdb_netops", "GET", "/health")
+    health = service_request("gitea", "GET", "/api/v1/version")
 """
 
 from __future__ import annotations

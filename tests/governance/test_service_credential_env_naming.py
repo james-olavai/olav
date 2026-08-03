@@ -1,7 +1,7 @@
 """Service credential env vars name the SERVICE, not OLAV.
 
-The shipped entries are `GITEA_TOKEN`, `NETBOX_TOKEN`,
-`INFLUXDB_NETOPS_TOKEN`, `CLAB_USERNAME`. The `OLAV_` prefix belongs to OLAV's
+The shipped entries are `GITEA_TOKEN`, `NETBOX_TOKEN` and
+`CLAB_USERNAME`. The `OLAV_` prefix belongs to OLAV's
 own knobs — `OLAV_EMBEDDING_MODE`, `OLAV_LAB_USERNAME`, `OLAV_CLAB_SSH` — which
 configure OLAV's behaviour rather than authenticate to somebody else's API.
 

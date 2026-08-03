@@ -714,7 +714,7 @@ def _prime_lab_services_from_config(workspace_root: Path) -> str:
             "type": cfg.get("auth_type", "jwt"),
             "login_path": cfg.get("auth_login_path", "/login"),
             # Service credentials name the SERVICE, not OLAV: the shipped
-            # entries are GITEA_TOKEN / NETBOX_TOKEN / INFLUXDB_NETOPS_TOKEN.
+            # entries are GITEA_TOKEN and NETBOX_TOKEN.
             # The `OLAV_` prefix belongs to OLAV's own knobs (OLAV_EMBEDDING_MODE,
             # OLAV_LAB_USERNAME…). Auto-prime used to write OLAV_CLAB_USERNAME,
             # so a fresh install asked for a different variable than every doc,
