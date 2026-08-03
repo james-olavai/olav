@@ -33,11 +33,21 @@ WORKSPACE_ROOTS = [
     REPO / "src" / "olav" / "data" / "workspace",       # platform authoritative
     REPO / "olav-netops" / ".olav" / "workspace",       # netops/audit authoritative
     REPO / "olav-presales" / ".olav" / "workspace",     # presales authoritative
+    # olav-ent authoritative. Added 2026-08-03: without it the enterprise lab
+    # skill was invisible to every check here — it sat undeclared under
+    # netops/ for as long as it existed and no gate said so, which is the
+    # exact rot this file was written to catch.
+    REPO / "olav-ent" / "workspace",
 ]
 
 # Auto-discovered skills that are NOT delegated subagents (loaded via
 # SkillsMiddleware, not declared in any parent's subagents: list).
-_AUTODISCOVERED = {"memory-curator"}
+# `lab` is the enterprise clab digital-twin skill. It is deliberately NOT
+# declared in any `subagents:` list: it installs under the platform `services`
+# agent, whose SkillsMiddleware discovers sub-skill directories on its own, and
+# a static declaration in a PUBLIC SKILL.md pointing at an enterprise-only
+# directory would dangle on every OSS install (check B above).
+_AUTODISCOVERED = {"memory-curator", "lab"}
 
 
 def _all_skill_mds() -> list[tuple[Path, Path]]:
@@ -144,4 +154,36 @@ def test_no_orphan_subagents():
         "orphan sub-agent dirs (not declared by any parent's subagents: and "
         "not a known auto-discovered skill — they rot invisibly, like db-query):\n"
         + "\n".join(orphans)
+    )
+
+
+# ── Check D: an "auto-discovered" skill is actually discoverable ─────────────
+#
+# The allowlist above is the one place this file trusts a claim instead of
+# checking one. `SkillsMiddleware` only scans the *direct children* of a
+# top-level agent directory (agent.py: `has_sub_skills`), so a skill nested any
+# deeper is discovered by nobody and is an orphan wearing a waiver — the exact
+# rot the orphan check exists to prevent, now with a note excusing it.
+
+def test_autodiscovered_skills_are_where_the_middleware_looks():
+    misplaced = []
+    for root, p in _all_skill_mds():
+        if p.parent.name not in _AUTODISCOVERED:
+            continue
+        rel = p.relative_to(root).parts
+        # <top-level agent>/<skill>/SKILL.md — exactly two path segments
+        if len(rel) != 3:
+            misplaced.append(f"{'/'.join(rel)} (depth {len(rel) - 1})")
+            continue
+        # The parent agent may live in a DIFFERENT root: an enterprise unit
+        # ships `services/lab` while the `services` agent itself is platform.
+        # Install merges the trees, so the question is whether *some* root
+        # provides the top-level agent this skill lands under.
+        if not any((r / rel[0] / "SKILL.md").is_file() for r in WORKSPACE_ROOTS):
+            misplaced.append(
+                f"{'/'.join(rel)} (no root provides a '{rel[0]}' top-level agent)")
+    assert not misplaced, (
+        "these skills are waived as auto-discovered but SkillsMiddleware "
+        "scans only the direct children of a top-level agent dir, so nothing "
+        "will find them:\n  " + "\n  ".join(misplaced)
     )
