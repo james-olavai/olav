@@ -38,3 +38,36 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
         # the closest (own markers outrank class/module markers).
         item.own_markers = [m for m in item.own_markers if m.name != "timeout"]
         item.add_marker(pytest.mark.timeout(int(base * _FACTOR)))
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _plain_text_subprocess_output():
+    """Strip ANSI styling from every e2e subprocess's output.
+
+    These tests assert on *content* (`"0.25.1" in out`, a regex for the agent
+    count), but the CLI renders through rich, which colourises numbers. rich
+    normally emits no escapes into a captured (non-tty) pipe — unless the
+    ambient environment says otherwise. With ``FORCE_COLOR`` set, `olav version`
+    prints ``v0.\x1b[1;36m25.1\x1b[0m`` and the literal ``0.25.1`` is no longer
+    in the output, so test_m1_platform_e2e fails with a baffling "Expected
+    '0.25.1' ... got: Version: v0.25.1".
+
+    Not hypothetical: this shell had ``FORCE_COLOR=3`` exported, and several CI
+    providers set it too — a red that has nothing to do with the code under
+    test is the most expensive kind. Fixed here rather than in each ``_run``
+    helper because a dozen e2e modules spawn subprocesses and inherit
+    ``os.environ``.
+
+    Session-scoped, and therefore an explicit ``pytest.MonkeyPatch`` rather than
+    the function-scoped ``monkeypatch`` fixture: several of these modules run
+    their subprocess from a **class-scoped** fixture, which executes before any
+    function-scoped fixture, so a per-test patch would apply too late to matter.
+    Still undone on teardown (CLAUDE.md: never leak env across the session).
+    """
+    mp = pytest.MonkeyPatch()
+    mp.delenv("FORCE_COLOR", raising=False)
+    mp.delenv("COLORTERM", raising=False)
+    mp.setenv("NO_COLOR", "1")
+    mp.setenv("TERM", "dumb")
+    yield
+    mp.undo()
