@@ -958,20 +958,6 @@ wheels = [
 ]
 
 [[package]]
-name = "duckdb-engine"
-version = "0.17.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "duckdb" },
-    { name = "packaging" },
-    { name = "sqlalchemy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/89/d5/c0d8d0a4ca3ffea92266f33d92a375e2794820ad89f9be97cf0c9a9697d0/duckdb_engine-0.17.0.tar.gz", hash = "sha256:396b23869754e536aa80881a92622b8b488015cf711c5a40032d05d2cf08f3cf", size = 48054, upload-time = "2025-03-29T09:49:17.663Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/2a/a2/e90242f53f7ae41554419b1695b4820b364df87c8350aa420b60b20cab92/duckdb_engine-0.17.0-py3-none-any.whl", hash = "sha256:3aa72085e536b43faab635f487baf77ddc5750069c16a2f8d9c6c3cb6083e979", size = 49676, upload-time = "2025-03-29T09:49:15.564Z" },
-]
-
-[[package]]
 name = "execnet"
 version = "2.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2769,15 +2755,6 @@ wheels = [
 ]
 
 [[package]]
-name = "nest-asyncio"
-version = "1.6.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/83/f8/51569ac65d696c8ecbee95938f89d4abf00f47d58d48f6fbabfe8f0baefe/nest_asyncio-1.6.0.tar.gz", hash = "sha256:6f172d5449aca15afd6c646851f4e31e02c598d553a667e38cafa997cfec55fe", size = 7418, upload-time = "2024-01-21T14:25:19.227Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a0/c4/c2971a3ba4c6103a3d10c4b0f24f461ddc027f0f09763220cf35ca1401b3/nest_asyncio-1.6.0-py3-none-any.whl", hash = "sha256:87af6efd6b5e897c81050477ef65c62e2b2f35d51703cae01aff2905b1852e1c", size = 5195, upload-time = "2024-01-21T14:25:17.223Z" },
-]
-
-[[package]]
 name = "netconan"
 version = "0.15.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2807,18 +2784,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/24/bf/d1bda4f6168e0b2e9e5958945e01910052158313224ada5ce1fb2e1113b8/nodeenv-1.10.0.tar.gz", hash = "sha256:996c191ad80897d076bdfba80a41994c2b47c68e224c542b48feba42ba00f8bb", size = 55611, upload-time = "2025-12-20T14:08:54.006Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/88/b2/d0896bdcdc8d28a7fc5717c305f1a861c26e18c05047949fb371034d98bd/nodeenv-1.10.0-py2.py3-none-any.whl", hash = "sha256:5bb13e3eed2923615535339b3c620e76779af4cb4c6a90deccc9e36b274d3827", size = 23438, upload-time = "2025-12-20T14:08:52.782Z" },
-]
-
-[[package]]
-name = "ntc-templates"
-version = "9.1.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "textfsm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/13/4a/dede7aa900a47acd8e6a10785b3b1bed69d7dc68f367230b8a77b8ad05fa/ntc_templates-9.1.0.tar.gz", hash = "sha256:2187df39edcd03ee953433c3cec37e2834acbb67dbc03971f06a5842d6e13c71", size = 322614, upload-time = "2026-04-01T14:12:07.468Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/3a/5a/2e863b5479ce69d2bd0c0183f3758434635dac2157268e959117b915c2f1/ntc_templates-9.1.0-py3-none-any.whl", hash = "sha256:d6a25ff09c603ba84deea3a31589287a47320f12e8c2a3613e953951079ae715", size = 642361, upload-time = "2026-04-01T14:12:06.07Z" },
 ]
 
 [[package]]
@@ -3057,8 +3022,6 @@ dependencies = [
     { name = "ddgs" },
     { name = "deepagents-code" },
     { name = "duckdb" },
-    { name = "duckdb-engine" },
-    { name = "google-genai" },
     { name = "httpx" },
     { name = "keyring" },
     { name = "lancedb", extra = ["pylance"] },
@@ -3066,31 +3029,23 @@ dependencies = [
     { name = "langchain-anthropic" },
     { name = "langchain-community" },
     { name = "langchain-core" },
-    { name = "langchain-huggingface" },
+    { name = "langchain-google-genai" },
     { name = "langchain-ollama" },
     { name = "langchain-openai" },
     { name = "langgraph" },
     { name = "langgraph-api" },
     { name = "langgraph-checkpoint-sqlite" },
     { name = "langgraph-runtime-inmem" },
-    { name = "nest-asyncio" },
-    { name = "ntc-templates" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "prompt-toolkit" },
     { name = "pydantic" },
-    { name = "pydantic-settings" },
     { name = "python-crontab" },
-    { name = "python-dateutil" },
     { name = "python-frontmatter" },
     { name = "pytz" },
     { name = "pyyaml" },
-    { name = "requests" },
     { name = "rich" },
-    { name = "sqlalchemy" },
     { name = "tenacity" },
-    { name = "textfsm" },
-    { name = "typer" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -3108,6 +3063,7 @@ graph = [
     { name = "networkx" },
 ]
 local-embed = [
+    { name = "langchain-huggingface" },
     { name = "sentence-transformers" },
 ]
 redaction = [
@@ -3125,6 +3081,7 @@ dev = [
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
     { name = "ruff" },
+    { name = "textfsm" },
     { name = "tink" },
 ]
 docs = [
@@ -3140,8 +3097,6 @@ requires-dist = [
     { name = "ddgs", specifier = ">=9.0" },
     { name = "deepagents-code", specifier = ">=0.1.8,<0.1.17" },
     { name = "duckdb", specifier = ">=0.8.0" },
-    { name = "duckdb-engine", specifier = ">=0.17.0" },
-    { name = "google-genai", specifier = ">=1.70.0" },
     { name = "httpx", specifier = ">=0.24.0" },
     { name = "keyring", specifier = ">=24" },
     { name = "lancedb", extras = ["pylance"], specifier = ">=0.29.2" },
@@ -3149,7 +3104,8 @@ requires-dist = [
     { name = "langchain-anthropic", specifier = ">=0.1.0" },
     { name = "langchain-community", specifier = ">=0.4.1" },
     { name = "langchain-core", specifier = ">=1.4.0,<2.0" },
-    { name = "langchain-huggingface", specifier = ">=0.1.0" },
+    { name = "langchain-google-genai", specifier = ">=4.2" },
+    { name = "langchain-huggingface", marker = "extra == 'local-embed'", specifier = ">=0.1.0" },
     { name = "langchain-ollama", specifier = ">=0.1.0" },
     { name = "langchain-openai", specifier = ">=0.0.1" },
     { name = "langgraph", specifier = ">=1.2.0,<1.3" },
@@ -3157,32 +3113,24 @@ requires-dist = [
     { name = "langgraph-checkpoint-sqlite", specifier = ">=3.0.0" },
     { name = "langgraph-runtime-inmem", specifier = ">=0.27.3" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.5.0" },
-    { name = "nest-asyncio", specifier = ">=1.5.0" },
     { name = "netconan", marker = "extra == 'redaction'", specifier = ">=0.13" },
     { name = "networkx", marker = "extra == 'graph'", specifier = ">=3.6.1" },
-    { name = "ntc-templates", specifier = ">=9.1.0" },
     { name = "numpy", specifier = ">=2.4.1" },
     { name = "pandas", specifier = ">=3.0.1" },
     { name = "prompt-toolkit", specifier = ">=3.0.0" },
     { name = "pydantic", specifier = ">=2.0" },
-    { name = "pydantic-settings", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.4.0" },
     { name = "python-crontab", specifier = ">=3.0.0" },
-    { name = "python-dateutil", specifier = ">=2.8.0" },
     { name = "python-frontmatter", specifier = ">=1.1.0" },
     { name = "pytz", specifier = ">=2024.1" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "requests", specifier = ">=2.31.0" },
     { name = "rich", specifier = ">=13.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "sentence-transformers", marker = "extra == 'local-embed'", specifier = ">=5.2.3" },
-    { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "tenacity", specifier = ">=8.0" },
-    { name = "textfsm", specifier = ">=2.1.0" },
-    { name = "typer", specifier = ">=0.9.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27.0" },
 ]
 provides-extras = ["dev", "tui", "local-embed", "graph", "redaction"]
@@ -3198,6 +3146,7 @@ dev = [
     { name = "pytest-timeout", specifier = ">=2.4.0" },
     { name = "pytest-xdist", specifier = ">=3.0" },
     { name = "ruff", specifier = ">=0.1.0" },
+    { name = "textfsm", specifier = ">=2.1.0" },
     { name = "tink", specifier = ">=1.14.1" },
 ]
 docs = [
@@ -4254,11 +4203,11 @@ wheels = [
 
 [[package]]
 name = "pytz"
-version = "2026.1.post1"
+version = "2026.3.post1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/56/db/b8721d71d945e6a8ac63c0fc900b2067181dbb50805958d4d4661cf7d277/pytz-2026.1.post1.tar.gz", hash = "sha256:3378dde6a0c3d26719182142c56e60c7f9af7e968076f31aae569d72a0358ee1", size = 321088, upload-time = "2026-03-03T07:47:50.683Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fb/48/fb042503b6ca6cd271261dc559fd6432f7d8c713153e9ec5c591af4dfc1c/pytz-2026.3.post1.tar.gz", hash = "sha256:2211d3fcf9a797d3405cac96ac7f61d80e6a644f72a3309607282fe8a2010c5d", size = 319745, upload-time = "2026-07-25T15:12:07.385Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/10/99/781fe0c827be2742bcc775efefccb3b048a3a9c6ce9aec0cbf4a101677e5/pytz-2026.1.post1-py2.py3-none-any.whl", hash = "sha256:f2fd16142fda348286a75e1a524be810bb05d444e5a081f37f7affc635035f7a", size = 510489, upload-time = "2026-03-03T07:47:49.167Z" },
+    { url = "https://files.pythonhosted.org/packages/0f/7b/39c34ca613b0b198cb866466651b26b045e2009864c5183c979a3b83f383/pytz-2026.3.post1-py2.py3-none-any.whl", hash = "sha256:dd95840dd199baea12d9cc096a1d452caa6596a1c1e4b5f3dbd1541855d5e815", size = 508283, upload-time = "2026-07-25T15:12:05.782Z" },
 ]
 
 [[package]]

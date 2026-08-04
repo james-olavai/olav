@@ -62,15 +62,21 @@ class SemanticRouter:
     def _get_embeddings(self):
         """Get embedding model."""
         if self._embeddings is None:
-            try:
-                from langchain_huggingface import HuggingFaceEmbeddings
-            except ImportError:  # fallback for older installs
-                from langchain_community.embeddings import HuggingFaceEmbeddings
-
             emb_config = get_embedding_config()
 
             # Try local embedding first
             if emb_config.mode == "local":
+                # Imported inside the local branch, not above the mode check:
+                # langchain-huggingface ships in the `[local-embed]` extra
+                # (2026-08-04), so on a default install this import fails — and
+                # above the check it would have failed for **api** mode too,
+                # taking the semantic router down on the one path that does not
+                # need it. Only local mode requires this package.
+                try:
+                    from langchain_huggingface import HuggingFaceEmbeddings
+                except ImportError:  # older installs / extra not present
+                    from langchain_community.embeddings import HuggingFaceEmbeddings
+
                 import os as _os
                 import logging as _logging
                 for _n in ("sentence_transformers", "transformers", "transformers.modeling_utils", "huggingface_hub"):

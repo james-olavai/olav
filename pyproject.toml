@@ -61,32 +61,45 @@ dependencies = [
     # init_chat_model backs with this package).  All other selector providers
     # are OpenAI-compatible and covered by langchain-openai above.
     "langchain-anthropic>=0.1.0",
+    # Required by core/llm.py's Google AI Studio branch, which imports
+    # ChatGoogleGenerativeAI directly (init_chat_model loses thinking_level).
+    # Declared because that import previously relied on a THIRD-ORDER
+    # transitive — deepagents-code -> deepagents-acp -> deepagents — of a
+    # package we already upper-bound (<0.1.17); the day it stops carrying
+    # langchain-google-genai, the Google provider path ImportErrors. It brings
+    # the raw `google-genai` SDK itself, which is why that is no longer listed
+    # here (nothing in src/olav imports `google.genai` directly).
+    "langchain-google-genai>=4.2",
     "langchain-ollama>=0.1.0",
     "langchain-core>=1.4.0,<2.0",
-    "langchain-huggingface>=0.1.0",
+    # NOTE: langchain-huggingface moved to `[local-embed]` (2026-08-04) — it is
+    # the sole parent of tokenizers + huggingface-hub + hf-xet (26 MB measured)
+    # and its only consumer is core/router.py's `mode == "local"` branch.
     # Data Processing
     "pydantic>=2.0",
-    "pydantic-settings>=2.0",
     "pyyaml>=6.0",
     # Database
     "duckdb>=0.8.0",
+    # DO NOT REMOVE because "nothing imports pytz" — duckdb imports it
+    # **dynamically from its C extension** for timezone handling, and duckdb
+    # declares no dependencies of its own (`Requires:` is empty), so nobody
+    # else will pull it. Dropping it in the 2026-08-04 audit produced
+    # `_duckdb.InvalidInputException: Required module 'pytz' failed to import`
+    # in the auth expiry tests — a static grep for `import pytz` cannot see
+    # this, only the test suite can.
     "pytz>=2024.1",
-    "sqlalchemy>=2.0",
     # API & HTTP
     "httpx>=0.24.0",
-    "requests>=2.31.0",
     # NOTE: fastapi was removed here — the only direct importer (the web API's
     # custom_router) moved to olav-ent (olav.enterprise.api). langgraph dev uses
     # starlette via langgraph-api, not fastapi. uvicorn stays: langgraph-api
     # pulls it and langgraph dev serves through it.
     "uvicorn[standard]>=0.27.0",
-    # CLI
-    "typer>=0.9.0",
+    # CLI — the CLI is argparse-based (cli/main.py); `typer` was declared but
+    # never imported anywhere in the repo, so it is gone (2026-08-04 audit).
     "rich>=13.0",
     "prompt-toolkit>=3.0.0",
-    "nest-asyncio>=1.5.0",
     # Utilities
-    "python-dateutil>=2.8.0",
     "python-crontab>=3.0.0",
     "tenacity>=8.0",
     # DeepAgents interactive REPL/TUI — 2026-06-03: migrated from the old
@@ -123,7 +136,6 @@ dependencies = [
     # inmem runtime used; no Postgres/Redis required.
     "langgraph-api>=0.7.100",
     "langgraph-runtime-inmem>=0.27.3",
-    "duckdb-engine>=0.17.0",
     "langgraph-checkpoint-sqlite>=3.0.0",
     "python-frontmatter>=1.1.0",
     # Knowledge Base & Embedding.
@@ -157,12 +169,44 @@ dependencies = [
     # langchain-community 0.4+ migrated from `duckduckgo-search` → `ddgs`;
     # both names refer to the same library, ddgs is current.
     "ddgs>=9.0",
-    # Data export (CSV/JSON formatting)
+    # numpy: imported by core/memory/reranker.py, and required by lancedb +
+    # langchain-community regardless.
     "numpy>=2.4.1",
+    # pandas STAYS core (42 MB) despite only three `import pandas` statements,
+    # all of them behind ImportError fallbacks. The audit's first pass proposed
+    # an `[export]` extra and was wrong: the real dependency is the
+    # **`to_pandas()` API surface** of lancedb/pyarrow, used in
+    # cli/commands/kb.py, core/memory/migrate.py, core/auditor/query_preview.py
+    # and audit-author/scripts/test_map_query.py. Those sites sit in
+    # `except Exception` blocks, so nothing crashes — they just fail with a
+    # misleading message ("Failed to read knowledge store"), which is the silent
+    # degradation this codebase keeps paying for. Moving pandas out requires
+    # porting those reads to pyarrow-native first.
     "pandas>=3.0.1",
-    "textfsm>=2.1.0",
-    "ntc-templates>=9.1.0",
-    "google-genai>=1.70.0",
+    # ── Removed by the 2026-08-04 dependency audit ────────────────────────────
+    # Each had ZERO references anywhere in the repo (all file types, all
+    # sub-packages, tests included) — verified with `uv pip tree --invert` for
+    # whether removal actually uninstalls the package or it merely stops being
+    # declared twice:
+    #   typer, pydantic-settings, nest-asyncio, python-dateutil,
+    #   requests, sqlalchemy, duckdb-engine
+    # Only nest-asyncio / duckdb-engine actually leave the install (~0.5 MB);
+    # the rest arrive via langchain-community / deepagents-code / croniter
+    # anyway, so dropping them is declaration hygiene, not size.
+    # (pytz was on this list and had to be put back — see its comment above.
+    #  "no import statement" is not evidence of "unused" when a C extension
+    #  can import it at runtime.)
+    # Specifically checked before removing sqlalchemy + duckdb-engine: there is
+    # no `SQLDatabase`, no `create_engine`, and no `duckdb:///` URL anywhere —
+    # they were not powering `execute_sql`, which uses the duckdb driver
+    # directly.
+    #
+    # textfsm -> [dependency-groups] dev (only tests/unit/
+    # test_textfsm_gap_templates.py imports it; olav-netops declares its own).
+    # ntc-templates -> dropped (4.2 MB; only olav-netops' workspace uses it,
+    # and olav-netops declares it).
+    # pandas -> `[export]` extra (42 MB; both consumers already degrade on
+    # ImportError — see the extra's comment below).
 ]
 
 [project.scripts]
@@ -191,7 +235,18 @@ tui = []
 # linux-x86_64) land in the wheel — see the note beside `lancedb` above.
 local-embed = [
     "sentence-transformers>=5.2.3",
+    # core/router.py's `mode == "local"` branch builds HuggingFaceEmbeddings
+    # from this package. Sole parent of tokenizers + huggingface-hub + hf-xet
+    # (26 MB measured), and useless without sentence-transformers anyway, so it
+    # belongs here rather than in the default install. router.py falls back to
+    # langchain_community.embeddings if it is absent, and imports it INSIDE the
+    # local branch so api mode never touches it.
+    "langchain-huggingface>=0.1.0",
 ]
+# NOTE: an `[export]` extra for pandas was proposed and rejected in the
+# 2026-08-04 audit — pandas is load-bearing via lancedb/pyarrow's `to_pandas()`,
+# not just the three `import pandas` statements. See its comment in
+# [project.dependencies].
 # Knowledge-graph backed memory (currently only guarded import in
 # core/memory/knowledge_graph.py; declared optional so install-without-graph
 # deployments skip this dep).
@@ -252,6 +307,10 @@ dev = [
     # Enterprise optional deps needed for unit tests
     "tink>=1.14.1",
     "playwright>=1.59.0",
+    # Test-only: tests/unit/test_textfsm_gap_templates.py imports textfsm
+    # directly. It was a core runtime dep despite zero importers in src/olav —
+    # olav-netops, the only production consumer, declares its own.
+    "textfsm>=2.1.0",
 ]
 
 [tool.ruff]
