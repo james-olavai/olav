@@ -474,6 +474,56 @@ rules:
     status: authoritative
     enforced: true
     git: ignore
+    notes: >-
+      Catch-all default-deny. The delivery unit's actual source is tracked by the
+      four rules below; anything not matched by them (build artefacts, local
+      scratch, venvs) stays out.
+
+  # ── olav-netops delivery-unit source: tracked ──────────────────────────────
+  # Added 2026-08-04. The catch-all above declared this unit's content
+  # `authoritative` and `git: ignore` in the same breath, which contradicts
+  # CLAUDE.md's own rule ("if it's class: authoritative in the manifest, it
+  # belongs in git") and contradicted reality: 408 files under olav-netops were
+  # already tracked, unaffected by the generated `olav-netops/*` because git
+  # ignores nothing that is already tracked. So the state was consistent only by
+  # accident, and any NEW file was invisible to `git add`.
+  #
+  # It bit exactly that way: olav-netops/scripts/netops_init.py and
+  # netops_snapshot.py never got committed, and the 11 tests that import them
+  # (test_onboard_cron, test_netops_snapshot) failed in CI while passing on every
+  # dev box. Those failures were themselves hidden by `continue-on-error` on the
+  # gitea unit step — two masks stacked.
+  #
+  # This is the same defect the 2026-06-13/14 policy flip fixed for the root
+  # repo's tests/** and scripts/**; olav-netops was left behind. Release hygiene
+  # is the wheel's job (`packages = ["src/olav_netops"]`), not gitignore's.
+  - pattern: olav-netops/src/**
+    owner: olav-netops
+    class: netops
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: olav-netops/tests/**
+    owner: olav-netops
+    class: testing
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: olav-netops/scripts/**
+    owner: olav-netops
+    class: netops
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: olav-netops/*.toml
+    owner: olav-netops
+    class: netops
+    status: authoritative
+    enforced: true
+    git: track
 
   - pattern: olav-netops/exports/**
     owner: olav-netops

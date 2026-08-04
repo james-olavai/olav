@@ -18,6 +18,23 @@ _ROOT = Path(__file__).resolve().parents[2]
 _NETOPS_ROOT = _ROOT / "olav-netops"
 _ENT_ROOT = _ROOT / "olav-ent"
 
+# olav-ent is a SEPARATE git repository with its own gitea remote — the platform
+# checkout does not contain it (`git ls-files olav-ent` is empty). Every
+# assertion below that reads a file under olav-ent/ is therefore unrunnable in
+# platform CI, where it produced 26 of the 39 failures that
+# `continue-on-error: true` on the gitea unit step had been hiding.
+#
+# Skipped rather than deleted: with both repos checked out — the dev-box case —
+# these still guard the boundary from the platform side, which is where the split
+# was defined. The alternative is moving them into olav-ent's own suite (now that
+# it has CI); worth considering, but that is a cross-repo move of 26 tests, not a
+# fix for a masked failure.
+requires_ent = pytest.mark.skipif(
+    not (_ROOT / "olav-ent" / "pyproject.toml").exists(),
+    reason="olav-ent not checked out — it is a separate repository (dev_docs/114 §11)",
+)
+
+
 
 # ===========================================================================
 # NETOPS-1: Physical workspace migration into olav-netops/
@@ -121,6 +138,7 @@ class TestNetops1PhysicalMigration:
 # ===========================================================================
 
 
+@requires_ent
 class TestEnt1IndependentSourceBoundary:
     """olav-ent/src/olav/enterprise/ must exist as an independent source copy."""
 

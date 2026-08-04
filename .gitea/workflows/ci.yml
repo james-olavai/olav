@@ -38,6 +38,45 @@ env:
   OLAV_EMBEDDING_MODEL: embeddinggemma-300m
   OLAV_EMBED_MAX_CHARS: "1000"
 
+# 2026-08-04: the three unit-test steps below carried `continue-on-error: true`,
+# which meant this workflow — the merge gate per CLAUDE.md, "must be green" —
+# was structurally incapable of going red on a test failure. Removed.
+#
+# Run #336 reported all six jobs green, which is exactly the problem: with the
+# flag on, "Unit (platform) -> success" meant nothing. Its log showed
+# **39 failed, 2062 passed**. Three stacked masks — a step that cannot fail, a
+# job that therefore passes, and a gate CLAUDE.md calls "must be green".
+#
+# All 39 were environment-specific and are fixed in the same change as this
+# removal (never one without the other — removing the flag first would have
+# blocked every merge):
+#
+#   26  test_split_decoupling / test_physical_boundary_migrations asserting on
+#       files under olav-ent/, which is a SEPARATE repository and absent from
+#       this checkout -> now skipif-guarded
+#   11  test_onboard_cron / test_netops_snapshot importing
+#       olav-netops/scripts/netops_{init,snapshot}.py, which were never
+#       committed: the manifest declared olav-netops/** "authoritative" and
+#       "git: ignore" at once, so gen_gitignore emitted `olav-netops/*` and any
+#       NEW file there was invisible to `git add` -> manifest now tracks
+#       src/tests/scripts, and the two files are committed
+#    1  test_embed_text_truncation asserting the DEFAULT 6000-char cap while
+#       this file pins OLAV_EMBED_MAX_CHARS=1000 -> test clears the variable
+#    1  test_init_llm_check reaching the success branch only when an API key is
+#       in the ambient environment -> test supplies its own key
+#
+# Verified before removing the flag: the full unit suite under simulated CI
+# conditions (no olav-ent, no LLM key in env, OLAV_EMBED_MAX_CHARS=1000) is
+# 2108 passed / 0 failed.
+#
+# CLAUDE.md's signal-hygiene rule is explicit that the answer to a red suite is
+# to fix it to zero or mark an owned xfail — never to make the step unable to
+# fail.
+#
+# The one remaining `continue-on-error` in this file (Pre-warm embedder) stays:
+# it warms a cache and its failure is genuinely advisory, which is the only
+# thing the flag should ever be used for here.
+
 jobs:
   # ─────────────────────────────────────────────────────────────
   # Layer 1a: Unit tests — fast, no external deps (~15s each)
@@ -73,7 +112,6 @@ jobs:
       - name: Run unit tests — platform
         if: matrix.suite == 'platform'
         run: uv run pytest tests/unit/ -q --tb=short
-        continue-on-error: true
 
       - name: Install olav-netops as Python package (netops unit tests need it)
         if: matrix.suite == 'netops'
@@ -82,7 +120,6 @@ jobs:
       - name: Run unit tests — netops
         if: matrix.suite == 'netops'
         run: uv run pytest olav-netops/tests/unit/ -q --tb=short
-        continue-on-error: true
 
       # olav-presales depends on olav-netops (link_id reuse + topology shape).
       - name: Install olav-presales as Python package (presales unit tests need it)
@@ -94,7 +131,6 @@ jobs:
       - name: Run unit tests — presales
         if: matrix.suite == 'presales'
         run: uv run pytest olav-presales/tests/ -q --tb=short
-        continue-on-error: true
 
   # ─────────────────────────────────────────────────────────────
   # Layer 1b: Governance — contract tests, no LLM (~10s each)

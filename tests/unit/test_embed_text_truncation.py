@@ -34,8 +34,18 @@ def test_short_text_passes_through_unchanged():
         assert sent == "hello world"
 
 
-def test_long_text_truncated_to_default_cap():
-    """Inputs > 6000 chars get clipped before API call."""
+def test_long_text_truncated_to_default_cap(monkeypatch):
+    """Inputs > 6000 chars get clipped before API call.
+
+    Every other test in this file sets OLAV_EMBED_MAX_CHARS explicitly; this one
+    asserts the DEFAULT, so it has to clear the variable rather than assume the
+    ambient environment has not set it. `.gitea/workflows/ci.yml` pins
+    OLAV_EMBED_MAX_CHARS=1000 (the embed server's 512-token ubatch returns HTTP
+    500 above ~1000 chars), so this failed in CI with `assert 1000 == 6000` while
+    passing on every dev box — and the failure was invisible because that job's
+    step carried continue-on-error.
+    """
+    monkeypatch.delenv("OLAV_EMBED_MAX_CHARS", raising=False)
     from olav.core import embedder
 
     long_text = "x" * 9000

@@ -62,7 +62,31 @@ def test_check_llm_returns_string_when_llm_unavailable(monkeypatch, tmp_path) ->
 
 
 def test_check_llm_returns_ok_when_llm_available(monkeypatch, tmp_path) -> None:
+    """_check_llm reads a key BEFORE probing connectivity, so mocking only
+    test_connectivity is not enough to reach the success branch.
+
+    With `chdir(tmp_path)` there is no api.json, so the key could only come from
+    the ambient environment — present on a dev box, absent in CI, where this
+    returned "⚠ unavailable (no API key)" and failed. It passed locally for the
+    wrong reason, and the failure was invisible because the gitea unit step
+    carried continue-on-error. Now the test supplies its own key and resets the
+    ConfigLoader singleton, so it asserts the same thing on every machine.
+    """
     monkeypatch.chdir(tmp_path)
+
+    cfg_dir = tmp_path / ".olav" / "config"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "api.json").write_text(
+        '{"llm": {"api_key": "sk-test", "model": "gpt-4o"}}', encoding="utf-8")
+
+    # ConfigLoader caches its first read process-wide; without this reset it
+    # would serve whatever an earlier test in this session loaded.
+    import olav.core.config as config_mod
+    monkeypatch.setattr(config_mod, "_CONFIG_DIR", cfg_dir)
+    monkeypatch.setattr(config_mod.ConfigLoader, "_loaded", False)
+    monkeypatch.setattr(config_mod.ConfigLoader, "_instance", None)
+    monkeypatch.setattr(config_mod, "_config", None)
+
     import olav.core.llm as llm_mod
     monkeypatch.setattr(llm_mod.LLMFactory, "test_connectivity", staticmethod(lambda: True))
 

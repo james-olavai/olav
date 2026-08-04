@@ -134,6 +134,10 @@ olav-netops/.olav/workspace/devops/
 # ── Whitelist (tracked paths inside ignored parents) ──
 !olav-netops/
 olav-netops/*
+!olav-netops/src/
+!olav-netops/tests/
+!olav-netops/scripts/
+!olav-netops/*.toml
 !olav-netops/.olav/
 olav-netops/.olav/*
 !olav-netops/.olav/workspace/

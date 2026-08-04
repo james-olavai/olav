@@ -32,6 +32,23 @@ _CONFIG_EVOLVE_PY = _SRC / "olav" / "cli" / "commands" / "config_evolve.py"
 _PYPROJECT = _ROOT / "pyproject.toml"
 _ENT_PYPROJECT = _ROOT / "olav-ent" / "pyproject.toml"
 
+# olav-ent is a SEPARATE git repository with its own gitea remote — the platform
+# checkout does not contain it (`git ls-files olav-ent` is empty). Every
+# assertion below that reads a file under olav-ent/ is therefore unrunnable in
+# platform CI, where it produced 26 of the 39 failures that
+# `continue-on-error: true` on the gitea unit step had been hiding.
+#
+# Skipped rather than deleted: with both repos checked out — the dev-box case —
+# these still guard the boundary from the platform side, which is where the split
+# was defined. The alternative is moving them into olav-ent's own suite (now that
+# it has CI); worth considering, but that is a cross-repo move of 26 tests, not a
+# fix for a masked failure.
+requires_ent = pytest.mark.skipif(
+    not (_ROOT / "olav-ent" / "pyproject.toml").exists(),
+    reason="olav-ent not checked out — it is a separate repository (dev_docs/114 §11)",
+)
+
+
 
 # ===========================================================================
 # TD-28: cmd_evolve_approve must require admin permission
@@ -311,20 +328,24 @@ class TestCore1EnterpriseImportsConditional:
                 f"Line {lineno}: enterprise import has no 'except ImportError' handler nearby"
             )
 
+    @requires_ent
     def test_sft_export_import_is_conditional(self):
         bridge_src = _ENT_CLI_BRIDGE.read_text(encoding="utf-8")
         assert "audit_to_sft_jsonl" in bridge_src, "cli_bridge.py missing audit_to_sft_jsonl"
 
+    @requires_ent
     def test_trajectory_export_import_is_conditional(self):
         bridge_src = _ENT_CLI_BRIDGE.read_text(encoding="utf-8")
         assert "audit_to_tool_trajectory" in bridge_src, (
             "cli_bridge.py missing audit_to_tool_trajectory"
         )
 
+    @requires_ent
     def test_atif_export_import_is_conditional(self):
         bridge_src = _ENT_CLI_BRIDGE.read_text(encoding="utf-8")
         assert "audit_to_atif" in bridge_src, "cli_bridge.py missing audit_to_atif"
 
+    @requires_ent
     def test_one_time_token_import_is_conditional(self):
         bridge_src = _ENT_CLI_BRIDGE.read_text(encoding="utf-8")
         assert "OneTimeTokenManager" in bridge_src, "cli_bridge.py missing OneTimeTokenManager"
@@ -428,6 +449,7 @@ class TestCore2EnterpriseDepsOptional:
 # ===========================================================================
 
 
+@requires_ent
 class TestEnt1PackageBoundary:
     def test_ent_pyproject_exists(self):
         assert _ENT_PYPROJECT.exists(), "olav-ent/pyproject.toml not found"
@@ -481,6 +503,7 @@ class TestEnt1PackageBoundary:
 _ENT_CLI_BRIDGE = _ROOT / "olav-ent" / "src" / "olav" / "enterprise" / "cli_bridge.py"
 
 
+@requires_ent
 class TestCore1EnterpriseBridge:
     def test_cli_bridge_module_exists(self):
         assert _ENT_CLI_BRIDGE.exists(), (
