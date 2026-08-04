@@ -268,7 +268,12 @@ def test_embedding_check_local_mode_detail(monkeypatch) -> None:
 
 
 def test_execute_never_raises_on_unhealthy_system(tmp_path, monkeypatch) -> None:
-    monkeypatch.chdir(tmp_path)  # no .olav/, no mocked config → everything fails
+    # no .olav/, no mocked config → everything fails.  chdir alone is not
+    # enough: _check_scaffolding resolves through get_paths_config(), a
+    # process-wide singleton, so it must be pointed at tmp_path explicitly
+    # (same reason the scaffolding checks above use this helper).
+    monkeypatch.chdir(tmp_path)
+    _point_resolved_root(monkeypatch, tmp_path)
     result = asyncio.run(_make_cmd().execute())
     assert isinstance(result, str)
     assert "needs attention" in result
