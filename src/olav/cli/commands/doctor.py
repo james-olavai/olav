@@ -257,8 +257,27 @@ class DoctorCommand(BaseCommand):
                 "name": "embedding",
                 "ok": False,
                 "detail": "mode=api but no API key configured",
-                "fix": "set embedding.api.api_key in .olav/config/api.json, or switch embedding.mode to 'local'",
+                "fix": "set embedding.api.api_key in .olav/config/api.json, or "
+                       "switch embedding.mode to 'local' (needs "
+                       "`pip install 'olav[local-embed]'`)",
             }
+
+        # mode=local without the extra embeds nothing and says nothing: since
+        # 2026-08-04 sentence-transformers ships in `[local-embed]`, so this is
+        # a reachable misconfiguration rather than a theoretical one, and its
+        # only symptom is memory/recall quietly returning nothing.
+        if config.mode == "local":
+            from olav.core.embedder import local_embed_available
+
+            if not local_embed_available():
+                return {
+                    "name": "embedding",
+                    "ok": False,
+                    "detail": "mode=local but sentence-transformers is not installed",
+                    "fix": "pip install 'olav[local-embed]', or set "
+                           "embedding.mode to 'api' and point "
+                           "embedding.api.base_url at an embedding endpoint",
+                }
 
         from olav.core.llm import LLMFactory
 

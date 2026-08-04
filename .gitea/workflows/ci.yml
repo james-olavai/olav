@@ -8,16 +8,35 @@ on:
       - "dependabot/**"
   pull_request:
 
-# ── Embed 모델 설정 ──────────────────────────────────────────────
-# job 컨테이너에서는 내부망 Ollama(192.168.100.50:11434)에 접근 불가.
-# local 모드만 설정하고 모델은 오버라이드하지 않음 → 런타임 기본값
-# BAAI/bge-small-zh-v1.5 (512-dim, ~90MB, sentence-transformers)를 그대로 사용.
-# 중국어 특화지만 영어도 처리 가능; 영어 중심/국제 배포는 다국어 모델이나
-# 로컬 Ollama로 전환 (docs: getting-started/installation, `update_embedding_config`).
-# 외부 API embed가 필요한 테스트는 e2e-nightly.yml에서 secrets으로 설정.
+# ── Embed configuration ──────────────────────────────────────────
+# 2026-08-04: switched from on-CPU local embed to the internal API endpoint.
+#
+# Why: sentence-transformers moved out of the core install into the
+# `[local-embed]` extra (it was the only thing dragging torch/triton — and on
+# linux-x86_64 the whole nvidia CUDA runtime — into the wheel).  `uv sync
+# --all-extras` still installs it, so `OLAV_EMBEDDING_MODE: local` would keep
+# working, but that means every CI job pays the torch download to exercise a
+# fallback path the product no longer defaults to.
+#
+# The gitea runner is on the internal network, so it can reach the same
+# endpoint the dev boxes use — embeddinggemma-300m @ 192.168.8.12:11433,
+# 768-dim, matching the dev memory store.  The old comment referred to
+# 192.168.100.50:11434 (the test-VM subnet) and to this host's own Ollama at
+# :11434, which no longer exists.
+#
+# NOTE the 512-token ubatch ceiling on that server: inputs above ~1000 chars
+# return HTTP 500, so OLAV_EMBED_MAX_CHARS is pinned below it.  Raise both
+# together if the server is restarted with a larger --ubatch-size.
+#
+# ROLLBACK if the runner cannot reach 192.168.8.12:11433 — replace the three
+# OLAV_EMBEDDING_* lines with `OLAV_EMBEDDING_MODE: local` (uv sync
+# --all-extras already provides sentence-transformers).
 env:
   OLAV_AUTH_MODE: none
-  OLAV_EMBEDDING_MODE: local
+  OLAV_EMBEDDING_MODE: api
+  OLAV_EMBEDDING_BASE_URL: http://192.168.8.12:11433/v1
+  OLAV_EMBEDDING_MODEL: embeddinggemma-300m
+  OLAV_EMBED_MAX_CHARS: "1000"
 
 jobs:
   # ─────────────────────────────────────────────────────────────

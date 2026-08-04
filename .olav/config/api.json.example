@@ -27,6 +27,7 @@
     "retention_days": 30,
     "auto_start": false
   },
+  "_embedding_doc": "OPTIONAL. mode defaults to 'api' — set embedding.api.base_url to an OpenAI-compatible /v1 endpoint (omit for OpenAI itself). mode='local' runs an on-CPU SentenceTransformer and needs the extra: `pip install olav[local-embed]` (it is not in the default install because it pulls torch/transformers, and on linux-x86_64 the nvidia CUDA runtime with it). Same for embedding.fallback, which falls back to the local embedder when the API endpoint fails. max_input_chars truncates before embedding: keep it under the endpoint's per-request token ceiling — a llama.cpp server started with --ubatch-size 512 returns HTTP 500 above roughly 1000 chars of dense text.",
   "embedding": {
     "mode": "api",
     "api": {

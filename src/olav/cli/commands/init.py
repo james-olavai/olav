@@ -332,7 +332,21 @@ class InitCommand(BaseCommand):
                 return "✓ embedder skipped (mode=api)"
 
             model_name = cfg.local_model
-            from sentence_transformers import SentenceTransformer
+            try:
+                from sentence_transformers import SentenceTransformer
+            except ImportError:
+                # Ships in the `[local-embed]` extra since 2026-08-04, not the
+                # default install. The generic handler below would report a
+                # bare "No module named 'sentence_transformers'", which is a
+                # dead end for someone who deliberately selected local mode.
+                # `\[` escapes the bracket: both callers render this string
+                # through rich, which would otherwise read "[local-embed]" as
+                # a style tag and drop the extra's name from the message.
+                return (
+                    "⚠ mode=local but sentence-transformers is not installed — "
+                    "`pip install 'olav\\[local-embed]'`, or set "
+                    'embedding.mode = "api"'
+                )
 
             # Suppress C-level stdout+stderr (safetensors shard reports come on fd 2)
             _saved1 = _os.dup(1)

@@ -156,9 +156,11 @@ def interactive_llm_setup(console, *, prompt_cls=None) -> dict | None:
     return llm
 
 
+# A commonly-used on-CPU model, kept as the menu default for option 3.
+# NOT a fallback: on-CPU embedding needs the ``[local-embed]`` extra.
 _DEFAULT_LOCAL_EMBED = "BAAI/bge-small-zh-v1.5"
 
-# Curated lightweight local sentence-transformers alternatives to the default.
+# Curated lightweight on-CPU sentence-transformers models.
 # (label, HF model id) — kept short; a user can always type their own.
 _LOCAL_EMBED_MODELS = [
     ("Multilingual, balanced zh+en (~470MB)", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"),
@@ -166,49 +168,136 @@ _LOCAL_EMBED_MODELS = [
     ("English, higher quality (~440MB)", "BAAI/bge-base-en-v1.5"),
 ]
 
+# How many times the menu is re-offered before giving up. Bounded so a
+# non-TTY misuse cannot spin forever.
+_EMBED_SETUP_ATTEMPTS = 3
+
+
+def _local_embed_installed() -> bool:
+    """Whether the ``[local-embed]`` extra is installed (see ``embedder``).
+
+    A thin wrapper, not a second implementation: it keeps the monkeypatch seam
+    the wizard tests need while ``core.embedder.local_embed_available`` stays
+    the single source of truth shared with ``olav doctor``.
+    """
+    from olav.core.embedder import local_embed_available
+
+    return local_embed_available()
+
 
 def interactive_embedding_setup(console, *, prompt_cls=None) -> dict | None:
-    """Optional first-run embedding config (dev_docs/99 §7.8).
+    """First-run embedding config (dev_docs/99 §7.8, dev_docs/114).
 
-    Only reached when the user opts in — the default (local
-    ``BAAI/bge-small-zh-v1.5``, offline, zero-config) is kept by pressing
-    Enter in ``_ensure_bootstrapped``. This walks the three meaningful
-    alternatives (local Ollama/llama.cpp server, cloud OpenAI-compat, or a
-    different bundled sentence-transformers model), validated against the
-    live backend before returning.
+    A **required** step, not an opt-in. Until 2026-08-04 pressing Enter kept
+    an on-CPU default (``BAAI/bge-small-zh-v1.5``, offline, zero-config);
+    sentence-transformers now ships in the ``[local-embed]`` extra, so on a
+    default install there is no such default to fall back to. Every exit is
+    therefore explicit: either a backend that answered a live probe, or a
+    confirmed skip persisted as ``mode: "none"``.
 
-    Returns the ``embedding`` config dict to persist, or None to keep the
-    default / on abort.
+    That explicitness is the point — a silent degrade here costs the user
+    memory, recall and semantic routing with no message saying so.
+
+    Returns the ``embedding`` config dict to persist, or None if the user
+    never reached a decision (caller leaves api.json untouched).
     """
     if prompt_cls is None:
         from rich.prompt import Prompt as prompt_cls  # noqa: N813
 
     console.print("\n[bold]Configure embedding backend[/bold]")
-    console.print("  1) Local server (Ollama / llama.cpp / vLLM)  [dim]OpenAI-compatible[/dim]")
-    console.print("  2) Cloud OpenAI-compatible endpoint")
-    console.print("  3) A different local (CPU) model")
-    choice = prompt_cls.ask("Select", choices=["1", "2", "3"], default="1")
+    console.print("[dim]Powers memory, recall and semantic routing. "
+                  "Without one, those features are off.[/dim]")
 
-    if choice == "3":
-        return _local_embedding_model(console, prompt_cls)
+    for _attempt in range(_EMBED_SETUP_ATTEMPTS):
+        installed = _local_embed_installed()
+        console.print("  1) Self-hosted embedding server (Ollama / llama.cpp / vLLM)"
+                      "  [dim]OpenAI-compatible[/dim]")
+        console.print("  2) Cloud OpenAI-compatible endpoint")
+        # NB: `\[` escapes the bracket for rich's markup parser — an unescaped
+        # "[local-embed]" is read as a style tag and silently swallowed, so the
+        # user would be told to run `pip install olav` with the extra missing.
+        console.print("  3) On-CPU model, no server  [dim]"
+                      + ("needs no server; slower" if installed
+                         else "NOT INSTALLED — needs `pip install olav\\[local-embed]`")
+                      + "[/dim]")
+        console.print("  4) Skip  [dim]memory / recall / semantic routing stay off[/dim]")
+        choice = prompt_cls.ask("Select", choices=["1", "2", "3", "4"], default="1")
 
-    # API modes (local server or cloud) — mode=api with base_url.
-    if choice == "1":
+        if choice == "4":
+            if _confirm_skip_embedding(console, prompt_cls):
+                return {"mode": "none"}
+            continue
+
+        if choice == "3":
+            if not installed:
+                # Actionable, not a bare ImportError later: on-CPU embedding is
+                # a deliberate choice, and it is one `pip install` away.
+                console.print(
+                    "[yellow]On-CPU embedding needs the optional extra:[/yellow]\n"
+                    "  [bold]pip install 'olav\\[local-embed]'[/bold]  "
+                    "[dim](pulls torch — ~4.6 GB on linux-x86_64)[/dim]\n"
+                    "[dim]Install it and re-run, or pick 1 / 2 to use a server "
+                    "instead.[/dim]\n"
+                )
+                continue
+            emb = _local_embedding_model(console, prompt_cls)
+            if emb is not None:
+                return emb
+            continue
+
+        emb = _api_embedding_backend(console, prompt_cls, cloud=(choice == "2"))
+        if emb is not None:
+            return emb
+
+    console.print(
+        f"[yellow]No embedding backend configured after {_EMBED_SETUP_ATTEMPTS} "
+        "attempts — leaving it unset. Memory and recall stay off until you set "
+        "`embedding` in .olav/config/api.json or run "
+        '`olav --agent admin "switch embedding …"`.[/yellow]\n'
+    )
+    return None
+
+
+def _confirm_skip_embedding(console, prompt_cls) -> bool:
+    """Make the cost of skipping explicit before accepting it."""
+    console.print(
+        "[yellow]Skipping embedding disables memory, recall and semantic "
+        "routing.[/yellow] [dim]Agents still answer, but nothing is remembered "
+        "between sessions and routing falls back to keywords.[/dim]"
+    )
+    return prompt_cls.ask(
+        "Continue without embedding?", choices=["y", "n"], default="n"
+    ) == "y"
+
+
+def _api_embedding_backend(console, prompt_cls, *, cloud: bool) -> dict | None:
+    """Endpoint → key → model → live probe, for ``mode: "api"``.
+
+    Returns None (caller re-offers the menu) on any incomplete answer or a
+    failed probe — never a silent "keep the default", because there is no
+    default to keep.
+    """
+    if cloud:
         base_url = prompt_cls.ask(
-            "Embedding server base_url", default="http://localhost:11434/v1"
+            "Endpoint base_url (e.g. https://api.openai.com/v1)"
         ).strip()
-        api_key = prompt_cls.ask(
-            "API key (Enter for a local placeholder)", password=True
-        ).strip() or "local"
-    else:
-        base_url = prompt_cls.ask("Endpoint base_url (e.g. https://api.openai.com/v1)").strip()
         if not base_url:
-            console.print("[yellow]No base_url — keeping the local default.[/yellow]")
+            console.print("[yellow]A base_url is required for a cloud endpoint.[/yellow]\n")
             return None
         api_key = prompt_cls.ask("API key", password=True).strip()
         if not api_key:
-            console.print("[yellow]No key — keeping the local default.[/yellow]")
+            console.print("[yellow]A cloud endpoint needs an API key.[/yellow]\n")
             return None
+    else:
+        base_url = prompt_cls.ask(
+            "Embedding server base_url", default="http://localhost:11434/v1"
+        ).strip()
+        if not base_url:
+            console.print("[yellow]A base_url is required.[/yellow]\n")
+            return None
+        api_key = prompt_cls.ask(
+            "API key (Enter for a local placeholder)", password=True
+        ).strip() or "local"
 
     models = _fetch_models(base_url, api_key)
     menu = models[:_MODEL_MENU_CAP]
@@ -221,7 +310,7 @@ def interactive_embedding_setup(console, *, prompt_cls=None) -> dict | None:
     if model.isdigit() and 1 <= int(model) <= len(menu):
         model = menu[int(model) - 1]
     if not model:
-        console.print("[yellow]No model — keeping the local default.[/yellow]")
+        console.print("[yellow]An embedding model name is required.[/yellow]\n")
         return None
 
     overrides = {"mode": "api", "model": model, "base_url": base_url, "api_key": api_key}
@@ -231,8 +320,8 @@ def interactive_embedding_setup(console, *, prompt_cls=None) -> dict | None:
 
 
 def _local_embedding_model(console, prompt_cls) -> dict | None:
-    console.print("[dim]Local sentence-transformers models "
-                  f"(default is {_DEFAULT_LOCAL_EMBED}):[/dim]")
+    console.print("[dim]On-CPU sentence-transformers models "
+                  f"(e.g. {_DEFAULT_LOCAL_EMBED}):[/dim]")
     for i, (label, mid) in enumerate(_LOCAL_EMBED_MODELS, 1):
         console.print(f"  {i}) {mid}  [dim]{label}[/dim]")
     pick = prompt_cls.ask("Select a model (number, or type an HF model id)", default="1").strip()
@@ -241,6 +330,7 @@ def _local_embedding_model(console, prompt_cls) -> dict | None:
     elif pick:
         model = pick
     else:
+        console.print("[yellow]A model id is required.[/yellow]\n")
         return None
     console.print(f"[dim]Downloading / loading {model} (first use may take a moment)…[/dim]")
     if not _validate_embedding(console, {"mode": "local", "model": model}):
@@ -255,9 +345,14 @@ def _validate_embedding(console, overrides: dict) -> bool:
     if ok:
         console.print("[green]✓[/green] embedding backend reachable.\n")
         return True
-    console.print(f"[yellow]Embedding backend not reachable ({detail}) — "
-                  "keeping the local default. Change later with "
-                  '`olav --agent admin "switch embedding …"`.[/yellow]\n')
+    # Deliberately does NOT offer to "keep the local default" — that default
+    # no longer exists on a install without `[local-embed]`, so reassuring the
+    # user here would hand them a silently embedding-less setup.
+    console.print(
+        f"[yellow]Embedding backend not reachable:[/yellow] {detail}\n"
+        "[dim]Nothing was saved. Check the endpoint / key / model name and try "
+        "again, or pick 4 to go without embedding.[/dim]\n"
+    )
     return False
 
 

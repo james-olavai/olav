@@ -170,23 +170,26 @@ def test_missing_key_tty_runs_provider_setup_and_persists(tmp_path, monkeypatch)
         "model": "deepseek-v4-flash", "api_key": "sk-typed-in",
         "base_url": "https://api.deepseek.com/v1",
     })
-    # §7.8 embedding opt-in prompt → keep the default (skip embedding setup)
-    from rich.prompt import Prompt
-    monkeypatch.setattr(Prompt, "ask", classmethod(lambda cls, *a, **kw: "keep"))
+    # dev_docs/114: the embedding step is no longer behind a keep/change
+    # opt-in — it always runs. Returning None means the user reached no
+    # decision, so api.json must keep no `embedding` key.
+    calls = []
+    monkeypatch.setattr(setup_mod, "interactive_embedding_setup",
+                        lambda console, **kw: calls.append(1) or None)
 
     result = _run(main_mod._ensure_bootstrapped())
     assert result is True
 
+    assert calls == [1], "embedding setup must run unconditionally, not opt-in"
     saved = json.loads((tmp_path / ".olav" / "config" / "api.json").read_text())
     assert saved["llm"]["api_key"] == "sk-typed-in"
     assert saved["llm"]["model"] == "deepseek-v4-flash"
     assert saved["llm"]["base_url"] == "https://api.deepseek.com/v1"
-    assert "embedding" not in saved            # 'keep' → default untouched
+    assert "embedding" not in saved            # no decision → nothing written
 
 
-def test_missing_key_tty_change_embedding_persists(tmp_path, monkeypatch) -> None:
-    """§7.8: choosing 'change' at the embedding prompt writes the returned
-    embedding dict into api.json."""
+def test_missing_key_tty_embedding_result_persists(tmp_path, monkeypatch) -> None:
+    """Whatever dict the embedding wizard returns is written into api.json."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OLAV_LLM_API_KEY", raising=False)

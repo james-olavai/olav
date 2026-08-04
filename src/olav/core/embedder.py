@@ -79,6 +79,21 @@ def clear_embed_cache() -> None:
     _embed_cache_stats["misses"] = 0
 
 
+def local_embed_available() -> bool:
+    """True when the ``[local-embed]`` extra (sentence-transformers) is importable.
+
+    Canonical answer for "can this install do on-CPU embedding" — the first-run
+    wizard and ``olav doctor`` both branch on it, and a second copy of the check
+    would be free to drift from this one.
+
+    Uses ``find_spec`` rather than a real import: importing sentence-transformers
+    drags in torch (seconds of startup) to answer a yes/no question.
+    """
+    import importlib.util
+
+    return importlib.util.find_spec("sentence_transformers") is not None
+
+
 def get_embedder(model: str | None = None):
     """Return the process-wide SentenceTransformer singleton (local mode only).
 
@@ -110,7 +125,23 @@ def get_embedder(model: str | None = None):
                 resolved_model = model or emb_cfg.local_model
                 device = emb_cfg.device  # "cpu" | "cuda" | "mps"
 
-                from sentence_transformers import SentenceTransformer  # type: ignore[import]
+                # Ships in the `[local-embed]` extra, not the default install
+                # (2026-08-04) — it is the only thing pulling torch/triton into
+                # the wheel.  Report the fix instead of a bare ImportError:
+                # local mode is a deliberate choice, so someone who selected it
+                # and got nothing needs to know it is one `pip install` away.
+                try:
+                    from sentence_transformers import SentenceTransformer  # type: ignore[import]
+                except ImportError as _missing:
+                    logger.warning(
+                        "embedding.mode is 'local' but sentence-transformers is not "
+                        "installed: %s.  Install it with `pip install olav[local-embed]`, "
+                        "or switch to `embedding.mode = \"api\"` (the default) and point "
+                        "`embedding.api.base_url` at an embedding endpoint.",
+                        _missing,
+                    )
+                    _local_embedder = False  # sentinel: do not retry
+                    return None
 
                 for _noisy in ("sentence_transformers", "transformers", "transformers.modeling_utils"):
                     logging.getLogger(_noisy).setLevel(logging.ERROR)
@@ -237,8 +268,9 @@ def _breaker_record_failure(exc: BaseException | None = None) -> None:
         logger.warning(
             "embed endpoint unusable after %d consecutive failures — skipping "
             "embeds for %.0fs. Callers degrade (entries are skipped, not "
-            "blocked); set OLAV_EMBEDDING_MODE=local to embed without a "
-            "service.", _embed_failures, _breaker_cooldown(),
+            "blocked); to embed without a service install the on-CPU extra "
+            "(`pip install olav[local-embed]`) and set OLAV_EMBEDDING_MODE=local.",
+            _embed_failures, _breaker_cooldown(),
         )
 
 

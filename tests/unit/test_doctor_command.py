@@ -122,10 +122,22 @@ def test_embedding_check_reports_missing_api_key_in_api_mode(monkeypatch) -> Non
     assert "API key" in check["detail"]
 
 
+def _local_extra(monkeypatch, installed: bool) -> None:
+    """Pin whether the ``[local-embed]`` extra looks installed.
+
+    Never read the real environment: a dev venv synced with --all-extras has it,
+    a default install does not, and both branches need to be asserted.
+    """
+    import olav.core.embedder as embedder_mod
+
+    monkeypatch.setattr(embedder_mod, "local_embed_available", lambda: installed)
+
+
 def test_embedding_check_local_mode_skips_api_key_requirement(monkeypatch) -> None:
     monkeypatch.setattr(
         config_mod, "get_embedding_config", lambda: _FakeEmbeddingConfig(mode="local")
     )
+    _local_extra(monkeypatch, True)
     monkeypatch.setattr(
         llm_mod.LLMFactory,
         "check_embedding_connectivity",
@@ -133,6 +145,36 @@ def test_embedding_check_local_mode_skips_api_key_requirement(monkeypatch) -> No
     )
     check = _make_cmd()._check_embedding()
     assert check["ok"] is True
+
+
+def test_embedding_check_local_mode_without_extra_is_reported(monkeypatch) -> None:
+    """dev_docs/114: mode=local without `[local-embed]` embeds nothing and says
+    nothing — its only symptom is memory/recall silently returning empty. doctor
+    has to name it, and name the fix."""
+    monkeypatch.setattr(
+        config_mod, "get_embedding_config", lambda: _FakeEmbeddingConfig(mode="local")
+    )
+    _local_extra(monkeypatch, False)
+    # Must not need a live probe to reach the verdict.
+    def _no_probe():
+        raise AssertionError("must short-circuit before probing the backend")
+
+    monkeypatch.setattr(
+        llm_mod.LLMFactory, "check_embedding_connectivity", staticmethod(_no_probe))
+
+    check = _make_cmd()._check_embedding()
+
+    assert check["ok"] is False
+    assert "not installed" in check["detail"]
+    assert "local-embed" in check["fix"]
+
+
+def test_embedding_api_mode_fix_mentions_the_extra(monkeypatch) -> None:
+    """The 'switch to local' advice is only actionable with the extra named."""
+    monkeypatch.setattr(
+        config_mod, "get_embedding_config", lambda: _FakeEmbeddingConfig(mode="api", api_key="")
+    )
+    assert "local-embed" in _make_cmd()._check_embedding()["fix"]
 
 
 # ---------------------------------------------------------------------------

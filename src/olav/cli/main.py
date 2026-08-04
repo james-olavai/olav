@@ -1988,30 +1988,25 @@ async def _ensure_bootstrapped() -> bool:
         reload_config()
         console.print("[green]✓[/green] LLM config saved to .olav/config/api.json\n")
 
-        # dev_docs/99 §7.8: optional embedding step. The local default
-        # (bge-small-zh, offline, no key) works for everyone, so this is a
-        # single opt-in — Enter keeps it. Offered here (before any data /
-        # memory is built) because switching later means re-embedding.
-        from rich.prompt import Prompt
+        # dev_docs/99 §7.8 + dev_docs/114: embedding is a REQUIRED step, at the
+        # same level as the LLM above — not the opt-in it was until 2026-08-04.
+        # Back then Enter kept an on-CPU default (bge-small-zh via
+        # sentence-transformers, offline, no key). That package moved to the
+        # `[local-embed]` extra, so on a default install the old prompt would
+        # promise a backend that is not installed and leave the user with no
+        # memory, recall or semantic routing and no message saying so.
+        # Still asked here (before any data / memory is built) because
+        # switching later means re-embedding everything.
+        from olav.cli.llm_setup import interactive_embedding_setup
 
-        console.print(
-            "[dim]Embedding: using the local default (BAAI/bge-small-zh-v1.5, "
-            "offline, no key).[/dim]"
-        )
-        if Prompt.ask(
-            "Keep it, or configure a different embedding backend?",
-            choices=["keep", "change"], default="keep",
-        ) == "change":
-            from olav.cli.llm_setup import interactive_embedding_setup
-
-            emb = interactive_embedding_setup(console)
-            if emb is not None:
-                api_data["embedding"] = emb
-                api_json_path.write_text(
-                    _json.dumps(api_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-                )
-                reload_config()
-                console.print("[green]✓[/green] Embedding config saved.\n")
+        emb = interactive_embedding_setup(console)
+        if emb is not None:
+            api_data["embedding"] = emb
+            api_json_path.write_text(
+                _json.dumps(api_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
+            reload_config()
+            console.print("[green]✓[/green] Embedding config saved.\n")
 
     if is_fresh_bootstrap:
         _check_first_run_health()

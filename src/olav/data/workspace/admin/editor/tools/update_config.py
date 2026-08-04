@@ -113,7 +113,8 @@ def update_embedding_config(
 ) -> str:
     """Change the embedding backend (local/api) — tests before saving.
 
-    mode="local" needs no key (bundled model, zero-config). mode="api"
+    mode="local" embeds on-CPU in-process, no key, and needs the extra
+    (pip install 'olav[local-embed]'). mode="api" is the default and
     talks to an OpenAI-compatible embeddings endpoint — set base_url for a
     local server (Ollama http://localhost:11434/v1, llama.cpp, vLLM;
     api_key can be any placeholder like "ollama") or a cloud provider.
@@ -137,6 +138,21 @@ def update_embedding_config(
     }
     if not overrides:
         return "Error: provide at least one of mode/api_key/model/base_url."
+
+    # sentence-transformers ships in the `[local-embed]` extra (2026-08-04),
+    # so mode=local can be selected on an install that cannot honour it.
+    # Checked before the probe: the probe would fail too, but with an
+    # ImportError the user cannot act on.
+    if overrides.get("mode") == "local":
+        from olav.core.embedder import local_embed_available
+
+        if not local_embed_available():
+            return (
+                "Rejected — mode=local needs the on-CPU extra, which is not "
+                "installed: pip install 'olav[local-embed]'. Or stay on "
+                "mode=api and point base_url at an embedding endpoint. "
+                "Current config unchanged."
+            )
 
     from olav.core.llm import LLMFactory
 

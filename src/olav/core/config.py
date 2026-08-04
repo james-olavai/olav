@@ -423,7 +423,16 @@ class EmbeddingConfig:
 
     @property
     def mode(self) -> str:
-        return self._loader._env_override("embedding", "mode", self._data.get("mode", "local"))
+        # Default flipped "local" → "api" (2026-08-04).  It had been "local"
+        # while embedder.py's module docstring, the docs and `olav doctor` all
+        # described API as the default — an install whose api.json carried no
+        # `embedding` block silently took the on-CPU path.  That was merely
+        # surprising when sentence-transformers shipped in the core wheel; now
+        # that it lives in the `[local-embed]` extra it would be a broken
+        # out-of-box default.  Local mode stays fully supported — it is now
+        # opt-in (`"mode": "local"` or OLAV_EMBEDDING_MODE=local) the way the
+        # documentation always claimed.
+        return self._loader._env_override("embedding", "mode", self._data.get("mode", "api"))
 
     @property
     def local_model(self) -> str:

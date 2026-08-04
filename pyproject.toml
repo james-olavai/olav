@@ -134,7 +134,25 @@ dependencies = [
     # version, instead of us hard-coding a floor that drifts.  Caught by demo
     # fresh-wheel e2e (dev_docs/104 cat C); editable dev had pylance transitively.
     "lancedb[pylance]>=0.29.2",
-    "sentence-transformers>=5.2.3",
+    # NOTE: sentence-transformers moved to the `[local-embed]` extra (2026-08-04).
+    # It is the ONLY consumer of torch/triton/transformers in the core wheel, and
+    # on linux-x86_64 PyPI's default torch is the CUDA build — it drags in the
+    # whole nvidia-* runtime for what is a fallback path most installs never use.
+    # (`EmbeddingConfig.mode` had defaulted to "local" while every doc claimed
+    # "api" — flipped to "api" in the same change; see core/config.py.)
+    # The single import site is
+    # a function-local `from sentence_transformers import SentenceTransformer`
+    # inside `core/embedder.py:get_embedder()`, reached only when
+    # `embedding.mode == "local"`, so removing it from the default install costs
+    # nothing until someone actually selects local mode — at which point the
+    # import raises with an actionable message pointing at the extra.
+    #
+    # Precedent: `core/memory/reranker.py` already refuses the LanceDB-native
+    # CrossEncoderReranker for exactly this reason ("adds 600+ MB of optional ML
+    # deps to OLAV's wheel") and talks to the reranker model over HTTP instead.
+    # This change applies that same decision to the embedder.
+    #
+    # Offline / air-gapped deployments: `pip install olav[local-embed]`.
     # Web search (required by web_search tool via langchain DuckDuckGoSearchRun).
     # langchain-community 0.4+ migrated from `duckduckgo-search` → `ddgs`;
     # both names refer to the same library, ddgs is current.
@@ -166,6 +184,14 @@ dev = [
 ]
 # TUI optional — kept for backward compatibility; deepagents-cli is now a core dep.
 tui = []
+# On-CPU embedding via SentenceTransformer (`embedding.mode = "local"`).
+# Needed only for offline / air-gapped installs and for CI jobs that cannot
+# reach an embedding endpoint.  Kept OUT of the default install because it is
+# the sole reason torch/triton/transformers (+ the nvidia CUDA runtime on
+# linux-x86_64) land in the wheel — see the note beside `lancedb` above.
+local-embed = [
+    "sentence-transformers>=5.2.3",
+]
 # Knowledge-graph backed memory (currently only guarded import in
 # core/memory/knowledge_graph.py; declared optional so install-without-graph
 # deployments skip this dep).

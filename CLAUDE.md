@@ -407,8 +407,16 @@ re-checked with the N≥3 success-rate harness (`tests/e2e/_variance.py`)
 before being dismissed — a low success rate is a real regression, a
 one-off red is variance. In tests, set env via
 `monkeypatch`/yield-restore, never `os.environ.setdefault` (it leaks
-across the session). CI embed must be `OLAV_EMBEDDING_MODE: local` —
-the job container cannot reach the internal Ollama at `…:11434`.
+across the session). **CI embed differs per forge** (2026-08-04): the
+gitea runner is on the internal network, so `.gitea/workflows/ci.yml`
+uses `OLAV_EMBEDDING_MODE: api` against `192.168.8.12:11433`
+(embeddinggemma-300m, 768-dim) with `OLAV_EMBED_MAX_CHARS: "1000"` —
+that server's 512-token ubatch returns HTTP 500 above ~1000 chars, so
+raise the two together or not at all. GitHub-hosted runners cannot
+reach it, so `.github/workflows/test.yml` pins
+`OLAV_EMBEDDING_MODE: local`; that works only because `uv sync
+--all-extras` installs the `[local-embed]` extra — a plain
+`uv sync` no longer provides sentence-transformers.
 **Agent-behaviour issues need N≥3 runs to call closed** — LLM output
 variance on identical input (same model, config, prompt) can exceed the
 patch's effect (one run made 0 tool calls, the next 31). A single green

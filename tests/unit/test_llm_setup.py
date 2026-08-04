@@ -217,9 +217,21 @@ def test_embedding_cloud(monkeypatch) -> None:
     assert emb["api"]["api_key"] == "sk-o"
 
 
+def _local_extra(monkeypatch, installed: bool) -> None:
+    """Pin whether the ``[local-embed]`` extra looks installed.
+
+    Never read the real environment here: option 3's availability is exactly
+    what these tests assert, and a dev venv synced with --all-extras would
+    make the not-installed branch untestable (and silently flip meaning on a
+    CI job that installs without the extra).
+    """
+    monkeypatch.setattr(m, "_local_embed_installed", lambda: installed)
+
+
 def test_embedding_different_local_model_by_number(monkeypatch) -> None:
     _emb_ok(monkeypatch)
-    # choice 3 (local model), pick #1 (the multilingual one)
+    _local_extra(monkeypatch, True)
+    # choice 3 (on-CPU model), pick #1 (the multilingual one)
     emb = m.interactive_embedding_setup(_console(), prompt_cls=_Prompt(["3", "1"]))
     assert emb == {"mode": "local", "local": {
         "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"}}
@@ -227,23 +239,108 @@ def test_embedding_different_local_model_by_number(monkeypatch) -> None:
 
 def test_embedding_different_local_model_typed(monkeypatch) -> None:
     _emb_ok(monkeypatch)
+    _local_extra(monkeypatch, True)
     emb = m.interactive_embedding_setup(_console(), prompt_cls=_Prompt(["3", "BAAI/bge-m3"]))
     assert emb == {"mode": "local", "local": {"model": "BAAI/bge-m3"}}
 
 
-def test_embedding_cloud_empty_base_url_keeps_default(monkeypatch) -> None:
+# ---------------------------------------------------------------------------
+# dev_docs/114: embedding is a required step — no silent "keep the local
+# default", because after sentence-transformers moved to the [local-embed]
+# extra there is no on-CPU default to keep.
+# ---------------------------------------------------------------------------
+
+
+def test_embedding_empty_base_url_reoffers_menu(monkeypatch) -> None:
+    """An empty base_url must re-offer the menu, not quietly return None.
+
+    The old flow printed "keeping the local default" and gave up — which on a
+    default install means no embedding at all, unannounced.
+    """
     _emb_ok(monkeypatch)
-    assert m.interactive_embedding_setup(_console(), prompt_cls=_Prompt(["2", ""])) is None
-
-
-def test_embedding_validation_failure_keeps_default(monkeypatch) -> None:
-    monkeypatch.setattr(
-        llm_mod.LLMFactory, "check_embedding_connectivity",
-        staticmethod(lambda overrides=None, strict=False: (False, "unreachable")),
-    )
-    monkeypatch.setattr(m, "_fetch_models", lambda b, k: ["x"])
-    # local server, validation fails → None (keep default), nothing written
+    _local_extra(monkeypatch, True)
+    monkeypatch.setattr(m, "_fetch_models", lambda b, k: ["text-embedding-3-small"])
     emb = m.interactive_embedding_setup(
-        _console(), prompt_cls=_Prompt(["1", "http://localhost:11434/v1", "", "x"])
+        _console(),
+        prompt_cls=_Prompt([
+            "2", "",                                  # cloud, blank base_url → back to menu
+            "2", "https://api.openai.com/v1", "sk-o", "text-embedding-3-small",
+        ]),
+    )
+    assert emb["api"]["base_url"] == "https://api.openai.com/v1"
+
+
+def test_embedding_validation_failure_reoffers_menu(monkeypatch) -> None:
+    """A failed probe re-offers the menu so the user can fix the endpoint."""
+    calls = {"n": 0}
+
+    def _probe(overrides=None, strict=False):
+        calls["n"] += 1
+        return (False, "unreachable") if calls["n"] == 1 else (True, "connected")
+
+    monkeypatch.setattr(
+        llm_mod.LLMFactory, "check_embedding_connectivity", staticmethod(_probe))
+    _local_extra(monkeypatch, True)
+    monkeypatch.setattr(m, "_fetch_models", lambda b, k: ["x"])
+    emb = m.interactive_embedding_setup(
+        _console(),
+        prompt_cls=_Prompt([
+            "1", "http://localhost:11434/v1", "", "x",   # probe fails
+            "1", "http://192.168.8.12:11433/v1", "", "x",  # retry succeeds
+        ]),
+    )
+    assert emb["api"]["base_url"] == "http://192.168.8.12:11433/v1"
+    assert calls["n"] == 2
+
+
+def test_embedding_skip_is_explicit_and_persisted(monkeypatch) -> None:
+    """Skipping writes mode=none — an explicit record, not an absent key."""
+    _local_extra(monkeypatch, True)
+    emb = m.interactive_embedding_setup(_console(), prompt_cls=_Prompt(["4", "y"]))
+    assert emb == {"mode": "none"}
+
+
+def test_embedding_skip_declined_returns_to_menu(monkeypatch) -> None:
+    """Declining the skip confirmation must not count as configured."""
+    _emb_ok(monkeypatch)
+    _local_extra(monkeypatch, True)
+    monkeypatch.setattr(m, "_fetch_models", lambda b, k: ["embeddinggemma"])
+    emb = m.interactive_embedding_setup(
+        _console(),
+        prompt_cls=_Prompt([
+            "4", "n",                                            # changed their mind
+            "1", "http://localhost:11434/v1", "", "embeddinggemma",
+        ]),
+    )
+    assert emb["api"]["model"] == "embeddinggemma"
+
+
+def test_embedding_on_cpu_without_extra_is_actionable(monkeypatch) -> None:
+    """Option 3 without the extra must not silently produce mode=local.
+
+    A local config written here would fail at the first embed call with a bare
+    ImportError; the wizard has to say `pip install olav[local-embed]` instead.
+    """
+    _emb_ok(monkeypatch)
+    _local_extra(monkeypatch, False)
+    monkeypatch.setattr(m, "_fetch_models", lambda b, k: ["embeddinggemma"])
+    import io
+    out = Console(file=io.StringIO(), record=True, width=200)
+    emb = m.interactive_embedding_setup(
+        out,
+        prompt_cls=_Prompt([
+            "3",                                                 # unavailable → message
+            "1", "http://localhost:11434/v1", "", "embeddinggemma",
+        ]),
+    )
+    assert emb["mode"] == "api"          # never mode=local
+    assert "local-embed" in out.export_text()
+
+
+def test_embedding_gives_up_after_bounded_attempts(monkeypatch) -> None:
+    """Exhausting the attempts returns None rather than looping forever."""
+    _local_extra(monkeypatch, False)
+    emb = m.interactive_embedding_setup(
+        _console(), prompt_cls=_Prompt(["3"] * m._EMBED_SETUP_ATTEMPTS)
     )
     assert emb is None

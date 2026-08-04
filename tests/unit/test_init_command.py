@@ -106,3 +106,59 @@ def test_init_is_idempotent(tmp_path, monkeypatch) -> None:
     assert data2["active_workspace"] == "netops", (
         "init should not overwrite existing active_workspace in api.json"
     )
+
+
+# ---------------------------------------------------------------------------
+# dev_docs/114: sentence-transformers moved to the `[local-embed]` extra, so
+# `olav init` with mode=local can now hit a missing dependency.
+# ---------------------------------------------------------------------------
+
+
+def test_init_embedder_missing_extra_is_actionable(monkeypatch) -> None:
+    """mode=local without the extra must name the fix, not just the ImportError.
+
+    The generic handler reports "⚠ embedder download failed (No module named
+    'sentence_transformers')" — a dead end for someone who deliberately chose
+    local mode when the fix is one `pip install` away.
+    """
+    import sys
+
+    from olav.cli.commands.init import InitCommand
+
+    class _Cfg:
+        mode = "local"
+        local_model = "BAAI/bge-small-zh-v1.5"
+
+    monkeypatch.setattr("olav.core.config.get_embedding_config", lambda: _Cfg())
+    # A None entry in sys.modules makes `from sentence_transformers import …`
+    # raise ImportError without touching the real (installed) package.
+    monkeypatch.setitem(sys.modules, "sentence_transformers", None)
+
+    status = InitCommand._ensure_embedding_model()
+
+    assert "local-embed" in status, status
+    assert "No module named" not in status, "must not leak the bare ImportError"
+
+
+def test_init_embedder_missing_extra_message_survives_rich(monkeypatch) -> None:
+    """Both init callers render the status through rich, which eats an
+    unescaped "[local-embed]" as a style tag — the extra's name would vanish
+    from the very message whose only job is to name it."""
+    import io
+    import sys
+
+    from rich.console import Console
+
+    from olav.cli.commands.init import InitCommand
+
+    class _Cfg:
+        mode = "local"
+        local_model = "BAAI/bge-small-zh-v1.5"
+
+    monkeypatch.setattr("olav.core.config.get_embedding_config", lambda: _Cfg())
+    monkeypatch.setitem(sys.modules, "sentence_transformers", None)
+
+    console = Console(file=io.StringIO(), record=True, width=200)
+    console.print(InitCommand._ensure_embedding_model())
+
+    assert "olav[local-embed]" in console.export_text()

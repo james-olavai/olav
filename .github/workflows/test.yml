@@ -9,6 +9,21 @@ on:
     # Nightly at 02:00 UTC — runs E2E suite (requires secrets)
     - cron: "0 2 * * *"
 
+# ── Embed configuration ──────────────────────────────────────────
+# GitHub-hosted runners are on the public internet and cannot reach OLAV's
+# internal embedding endpoint (192.168.8.12:11433) — unlike the gitea runner,
+# which .gitea/workflows/ci.yml points at it directly.  So this forge stays on
+# the on-CPU embedder, which `uv sync --all-extras` still installs because
+# sentence-transformers lives in the `[local-embed]` extra.
+#
+# This was previously implicit: `EmbeddingConfig.mode` defaulted to "local" and
+# no workflow said so.  That default flipped to "api" on 2026-08-04 (every doc
+# had claimed "api" for releases), so the mode must now be stated here or these
+# jobs would silently switch to an API endpoint they have no base_url for and
+# degrade to no embeddings at all.
+env:
+  OLAV_EMBEDDING_MODE: local
+
 jobs:
   # ─────────────────────────────────────────────────────────────
   # Unit tests — always run, no external dependencies
