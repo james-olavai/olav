@@ -724,6 +724,18 @@ rules:
     git: ignore
     notes: .olav/ uses whitelist model — default ignore, selective track via .gitignore negation
 
+  - pattern: .olav/backups/**
+    owner: olav
+    class: generated
+    status: generated
+    enforced: false
+    git: ignore
+    notes: >-
+      Pre-overwrite copies written by `olav init` when it refreshes a drifted
+      platform workspace file (cli/commands/init.py). Disposable — the catch-all
+      .olav/** rule above would otherwise label them authoritative runtime
+      workspace content, which they are not.
+
   - pattern: .olav/automations/**
     owner: olav
     class: generated

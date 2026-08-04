@@ -433,16 +433,41 @@ class InitCommand(BaseCommand):
 
         Walks ``olav.data.workspace.*``  (every top-level dir under
         ``src/olav/data/workspace/``) and copies each into
-        ``.olav/workspace/<name>/``. Existing files are never
-        overwritten so user customisations survive repeated
-        ``olav init`` calls.
+        ``.olav/workspace/<name>/``.
+
+        **Converges** the runtime dir onto the source: a file whose bytes
+        differ is refreshed, not skipped. Until 2026-08-04 this was
+        ``elif not dst.exists()`` — existing files were never overwritten, to
+        protect user customisations. That predates the WORKSPACE-DUAL-COPY-DEBT
+        Phase 3 dedup, which made ``.olav/workspace/*`` a *generated,
+        git-ignored mirror* whose sole authority is the wheel source. Under
+        that model skipping was a bug with two live symptoms: an edit to the
+        authoritative source never reached any already-initialised install, and
+        six platform Python files had silently diverged. ``olav skill install``
+        (skill.py) already overwrote unconditionally for the netops mirror, so
+        this also removes an inconsistency between the two deploy paths.
+
+        Refreshing is **non-destructive**: the replaced file is first copied to
+        ``.olav/backups/workspace/<timestamp>/<agent>/<rel>``. Backups live
+        outside ``.olav/workspace/`` on purpose — a stray ``*.py`` inside a
+        ``tools/`` pool would be picked up as a real ``@tool``.
+        ``OLAV_INIT_PRESERVE_WORKSPACE=1`` restores the old skip-everything
+        behaviour for anyone deliberately hand-editing the runtime copy.
 
         Replaces the earlier hard-coded ``_deploy_core_workspace``
         which only deployed ``core`` — services / future platform
         agents were silently dropped on fresh installs (see
         ``ISSUE-SERVICES-AGENT-NOT-PACKAGED``).
         """
+        import os
         import shutil
+        from datetime import UTC, datetime
+
+        preserve_local = os.environ.get("OLAV_INIT_PRESERVE_WORKSPACE") == "1"
+        backup_root = (
+            workspace_root.parent / "backups" / "workspace"
+            / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        )
 
         try:
             from importlib.resources import files as _pkg_files
@@ -456,6 +481,7 @@ class InitCommand(BaseCommand):
 
             if bundled_root_path and bundled_root_path.is_dir():
                 deployed: list[str] = []
+                refreshed: list[str] = []
                 # Iterate top-level subdirs only — each is an agent workspace.
                 # Skip __pycache__ / dot-files / __init__.py.
                 for agent_src in sorted(bundled_root_path.iterdir()):
@@ -472,12 +498,37 @@ class InitCommand(BaseCommand):
                         dst = agent_dst / rel
                         if src.is_dir():
                             dst.mkdir(parents=True, exist_ok=True)
-                        elif not dst.exists():
+                            continue
+                        if not dst.exists():
                             dst.parent.mkdir(parents=True, exist_ok=True)
                             shutil.copy2(src, dst)
+                            continue
+                        if preserve_local:
+                            continue
+                        # Compare bytes, not mtime: an editable install and a
+                        # wheel install produce unrelated timestamps for
+                        # identical content, so mtime would churn every run.
+                        if src.read_bytes() == dst.read_bytes():
+                            continue
+                        keep = backup_root / agent_src.name / rel
+                        keep.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(dst, keep)
+                        shutil.copy2(src, dst)
+                        refreshed.append(f"{agent_src.name}/{rel}")
                     deployed.append(agent_src.name)
                 if deployed:
-                    return f"✓ platform workspaces deployed: {', '.join(deployed)}"
+                    msg = f"✓ platform workspaces deployed: {', '.join(deployed)}"
+                    if refreshed:
+                        # Named, not just counted: a refresh replaced content
+                        # someone may have been editing, so it must be
+                        # reviewable from the init output alone.
+                        msg += (
+                            f"\n  ↻ refreshed {len(refreshed)} drifted file(s) "
+                            f"from the wheel source; previous copies in "
+                            f"{backup_root}:\n"
+                            + "\n".join(f"      {r}" for r in refreshed)
+                        )
+                    return msg
 
             # Fallback: bundle missing → write minimal core stubs only
             core_dir = workspace_root / "core"

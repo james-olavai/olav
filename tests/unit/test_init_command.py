@@ -162,3 +162,98 @@ def test_init_embedder_missing_extra_message_survives_rich(monkeypatch) -> None:
     console.print(InitCommand._ensure_embedding_model())
 
     assert "olav[local-embed]" in console.export_text()
+
+
+# ---------------------------------------------------------------------------
+# dev_docs/114 §7.7 ①: `olav init` must CONVERGE the generated platform
+# workspace mirror onto the wheel source. It used to skip every existing file
+# (`elif not dst.exists()`), so an edit to the authoritative source never
+# reached an already-initialised install and six platform files had silently
+# diverged. Nothing tested the deploy path, which is why it went unnoticed.
+# ---------------------------------------------------------------------------
+
+
+def _fake_bundle(tmp_path, monkeypatch, content: str) -> Path:
+    """Stand in for the packaged `olav.data.workspace` tree."""
+    import importlib.resources
+
+    bundle = tmp_path / "bundle"
+    (bundle / "core" / "scripts").mkdir(parents=True)
+    (bundle / "core" / "scripts" / "thing.py").write_text(content, encoding="utf-8")
+    (bundle / "core" / "AGENT.md").write_text("# core\n", encoding="utf-8")
+    monkeypatch.setattr(importlib.resources, "files", lambda _pkg: bundle)
+    return bundle
+
+
+def _runtime_with(tmp_path, content: str) -> Path:
+    ws = tmp_path / ".olav" / "workspace"
+    (ws / "core" / "scripts").mkdir(parents=True)
+    (ws / "core" / "scripts" / "thing.py").write_text(content, encoding="utf-8")
+    return ws
+
+
+def test_init_refreshes_a_drifted_workspace_file(tmp_path, monkeypatch) -> None:
+    from olav.cli.commands.init import InitCommand
+
+    _fake_bundle(tmp_path, monkeypatch, "SOURCE\n")
+    ws = _runtime_with(tmp_path, "STALE\n")
+
+    status = InitCommand()._deploy_platform_workspaces(ws)
+
+    assert (ws / "core" / "scripts" / "thing.py").read_text() == "SOURCE\n"
+    assert "refreshed 1" in status
+    assert "core/scripts/thing.py" in status, "a refresh must be named, not just counted"
+
+
+def test_init_backs_up_the_content_it_replaces(tmp_path, monkeypatch) -> None:
+    """Refreshing is convergent but non-destructive."""
+    from olav.cli.commands.init import InitCommand
+
+    _fake_bundle(tmp_path, monkeypatch, "SOURCE\n")
+    ws = _runtime_with(tmp_path, "LOCAL EDIT\n")
+
+    InitCommand()._deploy_platform_workspaces(ws)
+
+    backups = list((tmp_path / ".olav" / "backups").rglob("thing.py"))
+    assert len(backups) == 1, backups
+    assert backups[0].read_text() == "LOCAL EDIT\n"
+
+
+def test_init_backups_stay_out_of_the_workspace_tree(tmp_path, monkeypatch) -> None:
+    """A stray *.py under a `tools/` pool would be imported as a real @tool, so
+    backups must never land inside .olav/workspace/."""
+    from olav.cli.commands.init import InitCommand
+
+    _fake_bundle(tmp_path, monkeypatch, "SOURCE\n")
+    ws = _runtime_with(tmp_path, "LOCAL EDIT\n")
+
+    InitCommand()._deploy_platform_workspaces(ws)
+
+    strays = [p for p in ws.rglob("*.py") if p.name != "thing.py"]
+    assert strays == [], f"backup leaked into the workspace tree: {strays}"
+
+
+def test_init_preserve_env_keeps_local_edits(tmp_path, monkeypatch) -> None:
+    from olav.cli.commands.init import InitCommand
+
+    monkeypatch.setenv("OLAV_INIT_PRESERVE_WORKSPACE", "1")
+    _fake_bundle(tmp_path, monkeypatch, "SOURCE\n")
+    ws = _runtime_with(tmp_path, "LOCAL EDIT\n")
+
+    status = InitCommand()._deploy_platform_workspaces(ws)
+
+    assert (ws / "core" / "scripts" / "thing.py").read_text() == "LOCAL EDIT\n"
+    assert "refreshed" not in status
+
+
+def test_init_leaves_identical_files_untouched(tmp_path, monkeypatch) -> None:
+    """No churn on a converged tree — bytes are compared, never mtime."""
+    from olav.cli.commands.init import InitCommand
+
+    _fake_bundle(tmp_path, monkeypatch, "SOURCE\n")
+    ws = _runtime_with(tmp_path, "SOURCE\n")
+
+    status = InitCommand()._deploy_platform_workspaces(ws)
+
+    assert "refreshed" not in status
+    assert not (tmp_path / ".olav" / "backups").exists()

@@ -49,11 +49,25 @@ SAFETY
   reconciled.  Picking the wrong direction would overwrite live content
   with stale content, so we force the operator to be explicit.
 
-Metadata scope
---------------
-Only ``.md`` / ``.yaml`` / ``.yml`` files are compared (the skill
-contract).  ``tools/`` and ``scripts/`` Python sources are excluded —
-they evolve independently per the SSOT governance test.
+Comparison scope
+----------------
+Two scopes, per domain, because the two families of domain have different
+contracts:
+
+* **Metadata only** (``.md`` / ``.yaml`` / ``.yml``; ``tools/`` and
+  ``scripts/`` excluded) — for the netops-sourced domains.  Their Python
+  sources evolve independently on purpose: the 4 cross-domain netops tools
+  have a deliberate ``@tool``↔script dual-version split, allowlisted in
+  ``test_tool_dedup_phase2._DELIBERATE_DIVERGENCE``.
+
+* **Metadata + Python** (``compare_code=True``) — for the platform domains
+  whose source is ``src/olav/data/workspace/*``.  CLAUDE.md declares those
+  runtime dirs a *byte-exact* mirror of the wheel source, so excluding
+  ``scripts/`` there hid real drift: six platform Python files had diverged
+  unnoticed, and the file that exposed it (an ``admin`` tool edited in the
+  wheel source) was invisible on both counts — ``admin`` was not even listed
+  as a domain.  A gate that skips most of a tree it claims to guard trains
+  everyone to trust it wrongly.
 """
 
 from __future__ import annotations
@@ -67,7 +81,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 
 _METADATA_SUFFIXES = {".md", ".yaml", ".yml"}
-_EXCLUDED_DIRS = {"tools", "scripts", "__pycache__", ".pytest_cache", ".ruff_cache"}
+_CODE_SUFFIXES = {".py"}
+# Never compared, in any scope — build artefacts, not content.
+_ALWAYS_EXCLUDED_DIRS = {"__pycache__", ".pytest_cache", ".ruff_cache"}
+# Excluded in the metadata-only scope; compared when ``compare_code`` is set.
+_CODE_DIRS = {"tools", "scripts"}
+_EXCLUDED_DIRS = _CODE_DIRS | _ALWAYS_EXCLUDED_DIRS
 
 # Sub-agents that live under a domain's namespace but are shipped by a
 # DIFFERENT delivery unit, so the domain's source will never contain them.
@@ -86,6 +105,9 @@ class Domain:
     source: Path          # authoritative (target steady-state)
     runtime: Path         # generated runtime mirror
     extra_mirrors: tuple[Path, ...] = ()  # e.g. olav-netops audit bundle
+    # True for the platform domains sourced from src/olav/data/workspace/*,
+    # which CLAUDE.md declares byte-exact mirrors — see "Comparison scope".
+    compare_code: bool = False
 
 
 DOMAINS: list[Domain] = [
@@ -93,6 +115,24 @@ DOMAINS: list[Domain] = [
         name="core",
         source=REPO / "src/olav/data/workspace/core",
         runtime=REPO / ".olav/workspace/core",
+        compare_code=True,
+    ),
+    Domain(
+        # Platform agent, wheel-sourced. Was entirely absent from this list
+        # until 2026-08-04 — the omission that let an edited admin tool sit
+        # out of sync while the gate reported ALL COPIES IN SYNC.
+        name="admin",
+        source=REPO / "src/olav/data/workspace/admin",
+        runtime=REPO / ".olav/workspace/admin",
+        compare_code=True,
+    ),
+    Domain(
+        # Platform agent, wheel-sourced (ADR-0014). `services/lab` is shipped
+        # by olav-ent and exempt via _FOREIGN_SUBAGENTS.
+        name="services",
+        source=REPO / "src/olav/data/workspace/services",
+        runtime=REPO / ".olav/workspace/services",
+        compare_code=True,
     ),
     Domain(
         # audit's home is the netops bundle (shipped via `olav skill install`).
@@ -133,12 +173,18 @@ DOMAINS: list[Domain] = [
 ]
 
 
-def _metadata_files(root: Path, domain: str | None = None) -> set[Path]:
-    """Relative paths of all metadata files under *root* (excluded dirs skipped).
+def _metadata_files(
+    root: Path, domain: str | None = None, *, compare_code: bool = False
+) -> set[Path]:
+    """Relative paths of all compared files under *root* (excluded dirs skipped).
 
     ``domain`` lets a sub-agent shipped by another delivery unit be left out —
-    see ``_FOREIGN_SUBAGENTS``.
+    see ``_FOREIGN_SUBAGENTS``.  ``compare_code`` widens the scope from the
+    skill-contract metadata to include ``tools/`` and ``scripts/`` Python — see
+    "Comparison scope" in the module docstring.
     """
+    suffixes = _METADATA_SUFFIXES | _CODE_SUFFIXES if compare_code else _METADATA_SUFFIXES
+    excluded = _ALWAYS_EXCLUDED_DIRS if compare_code else _EXCLUDED_DIRS
     out: set[Path] = set()
     if not root.exists():
         return out
@@ -146,11 +192,11 @@ def _metadata_files(root: Path, domain: str | None = None) -> set[Path]:
         if not p.is_file():
             continue
         rel = p.relative_to(root)
-        if any(part in _EXCLUDED_DIRS for part in rel.parts):
+        if any(part in excluded for part in rel.parts):
             continue
         if rel.parts and rel.parts[0] in _FOREIGN_SUBAGENTS.get(domain, ()):
             continue
-        if p.suffix not in _METADATA_SUFFIXES:
+        if p.suffix not in suffixes:
             continue
         out.add(rel)
     return out
@@ -182,10 +228,10 @@ _WHEEL_BUNDLE_EXEMPT: set[Path] = {
 
 def _compare(
     a: Path, label_a: str, b: Path, label_b: str, exempt: set[Path] = frozenset(),
-    domain: str | None = None,
+    domain: str | None = None, compare_code: bool = False,
 ) -> PairDrift:
-    fa = _metadata_files(a, domain) - exempt
-    fb = _metadata_files(b, domain) - exempt
+    fa = _metadata_files(a, domain, compare_code=compare_code) - exempt
+    fb = _metadata_files(b, domain, compare_code=compare_code) - exempt
     only_a = sorted(fa - fb)
     only_b = sorted(fb - fa)
     differ = sorted(
@@ -220,15 +266,19 @@ def report() -> int:
             print(f"    bundle : {m.relative_to(REPO)}"
                   f"  ({'exists' if m.exists() else 'MISSING'})")
 
+        if dom.compare_code:
+            print("    scope  : metadata + python (byte-exact mirror)")
+
         pairs: list[PairDrift] = []
         if dom.source.exists() and dom.runtime.exists():
             pairs.append(_compare(dom.source, "source", dom.runtime, "runtime",
-                                  domain=dom.name))
+                                  domain=dom.name, compare_code=dom.compare_code))
         for m in dom.extra_mirrors:
             if dom.source.exists() and m.exists():
                 exempt = _WHEEL_BUNDLE_EXEMPT if "skillpack" in m.parts else frozenset()
                 pairs.append(_compare(dom.source, "source", m, "bundle",
-                                      exempt=exempt, domain=dom.name))
+                                      exempt=exempt, domain=dom.name,
+                                      compare_code=dom.compare_code))
         for pd in pairs:
             _print_pair(pd, REPO)
             if pd.total:
@@ -262,7 +312,9 @@ def apply_sync(domain_name: str, direction: str) -> int:
         return 1
 
     written = 0
-    for rel in sorted(_metadata_files(src)):
+    # Same scope the report used — otherwise --apply cannot fix what --check
+    # just flagged (the platform domains' Python would stay drifted forever).
+    for rel in sorted(_metadata_files(src, dom.name, compare_code=dom.compare_code)):
         s, d = src / rel, dst / rel
         if d.exists() and s.read_bytes() == d.read_bytes():
             continue

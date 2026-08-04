@@ -89,6 +89,7 @@ olav-doc/site/
 olav-web/dist/
 olav-web/node_modules/
 olav-web/.wrangler/
+.olav/backups/
 .olav/automations/
 .olav/databases/
 .olav/logs/

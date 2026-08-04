@@ -118,7 +118,13 @@ tracked** — they are all generated mirrors. Tracked under `.olav/`: only
 **Generated runtime (git:ignore — deployed at bootstrap, NOT tracked):**
 - `.olav/workspace/{core,audit,admin,devops,services}/**` — platform agents,
   byte-exact mirror of `src/olav/data/workspace/*` (wheel). `olav init` deploys
-  them (editable install → exact).
+  them (editable install → exact) and **converges** them: a file whose bytes
+  differ from the source is refreshed, with the replaced copy saved under
+  `.olav/backups/workspace/<ts>/` and named in the init output. Until
+  2026-08-04 init skipped every existing file, so source edits never reached an
+  already-initialised install and 5 platform scripts had silently diverged.
+  `OLAV_INIT_PRESERVE_WORKSPACE=1` restores the old skip-everything behaviour
+  if you are deliberately hand-editing the runtime copy.
 - `.olav/workspace/netops/**` — mirror of `olav-netops/.olav/workspace/netops/`.
   `olav skill install olav-netops` deploys it.
 
@@ -365,7 +371,11 @@ trace-learn loop was "wired" under a scope no production caller used.
 Related gates: `tests/governance/test_no_shadowed_tests.py` (a
 shadowed test is a test that silently stopped guarding),
 `tests/governance/test_workspace_drift_gate.py` (drift detection on
-every governance run, not on demand), and
+every governance run, not on demand — plus two gates on the gate's own
+coverage, because it had reported ALL COPIES IN SYNC while `admin` and
+`services` were absent from `workspace_drift.DOMAINS` and every
+`scripts/*.py` was outside its comparison scope; wheel-sourced domains
+now compare Python too), and
 `tests/governance/test_subagent_reachability.py` (every sub-agent is
 routed/declared, has no orphan dir, and — if script-bearing — its prompt
 carries the `execute_skill_script(skill_name="<self>", …)` recipe; this
