@@ -96,6 +96,43 @@ def classify(rule: dict | None, default_owner: str) -> tuple[str, str, str, str]
         return ("ERROR", owner, cls, status)
 
 
+def validate_rule_vocabulary(manifest: dict, rules: list) -> list[str]:
+    """Check every rule's owner/class/status against the manifest's own vocabulary.
+
+    The manifest declares `owners`, `classes` and `statuses` at the top, but
+    nothing checked that rules used only those values — so typos and ad-hoc
+    values entered silently. Found 2026-08-04: `class: audit` and
+    `class: content` are in use while neither is in `classes`, which is exactly
+    how the audit-agent / audit-trail naming confusion propagated into the
+    governance layer (dev_docs/31).
+
+    A declared vocabulary that is not enforced is documentation, not governance.
+    """
+    valid = {
+        "owner": set(manifest.get("owners") or []),
+        "class": set(manifest.get("classes") or []),
+        "status": set(manifest.get("statuses") or []),
+    }
+    git_values = {"track", "ignore", "secret"}
+    problems: list[str] = []
+    for rule in rules:
+        pattern = rule.get("pattern", "<no pattern>")
+        for field, allowed in valid.items():
+            value = rule.get(field)
+            if value is not None and allowed and value not in allowed:
+                problems.append(
+                    f"  SCHEMA  rule {pattern!r}: {field}={value!r} is not declared "
+                    f"in the manifest's {field if field != 'class' else 'classes'} list"
+                )
+        git = rule.get("git")
+        if git is not None and git not in git_values:
+            problems.append(
+                f"  SCHEMA  rule {pattern!r}: git={git!r} must be one of "
+                f"{sorted(git_values)}"
+            )
+    return problems
+
+
 def main():
     parser = argparse.ArgumentParser(description="Scan repo against ownership manifest")
     parser.add_argument("--summary", action="store_true", help="Show counts only")
@@ -110,6 +147,8 @@ def main():
     manifest = load_manifest(manifest_path)
     rules = manifest.get("rules", [])
     default_owner = manifest.get("default_owner", "unknown")
+
+    schema_errors = validate_rule_vocabulary(manifest, rules)
 
     paths = collect_paths(REPO_ROOT)
     counts: Counter = Counter()
@@ -134,6 +173,12 @@ def main():
     if not args.summary:
         for line in lines:
             print(line)
+
+    if schema_errors:
+        print("Manifest vocabulary problems (rules using undeclared values):")
+        for problem in schema_errors:
+            print(problem)
+        print()
 
     # Summary
     total = sum(counts.values())
@@ -160,7 +205,10 @@ def main():
         print(f"    {owner:<16} {total_owner:>6}  ({parts_str})")
     print()
 
-    if counts["ERROR"] > 0:
+    # Schema problems fail the scan too: a declared vocabulary that cannot fail
+    # is documentation, not governance — the same defect as a CI step carrying
+    # continue-on-error.
+    if counts["ERROR"] > 0 or schema_errors:
         sys.exit(1)
 
 

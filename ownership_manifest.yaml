@@ -9,6 +9,11 @@ owners:
   - olav-doc
   - olav-web
   - olav-collector
+  # olav-post — CLAUDE.md lists it as a delivery unit (content archive + marketing
+  # skill pipeline, internal-gitea only). It was in use as an owner without being
+  # declared here; nothing checked, until scan_ownership grew vocabulary
+  # validation on 2026-08-04.
+  - olav-post
 
 classes:
   - platform
@@ -23,6 +28,8 @@ classes:
   - build
   - generated
   - legacy
+  # content — olav-post's archive (posts, assets). Was in use undeclared.
+  - content
 
 statuses:
   - authoritative
@@ -541,7 +548,12 @@ rules:
   # generator emits more-specific patterns later (negation rules).
   - pattern: olav-netops/.olav/workspace/kb_audit/**
     owner: olav-netops
-    class: audit
+    # Was `class: audit` — an undeclared value, and inconsistent with its own
+    # siblings: workspace/audit/** and workspace/netops/** are both
+    # `class: netops`. "audit" as a class also re-introduces the very ambiguity
+    # dev_docs/31 had to untangle (audit AGENT, netops-owned and open source, vs
+    # audit TRAIL, core-owned) — so it is corrected rather than declared.
+    class: netops
     status: authoritative
     enforced: true
     git: track
