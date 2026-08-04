@@ -109,8 +109,16 @@ class InitCommand(BaseCommand):
                             "model_provider": "openai",
                             "model": "gpt-4o",
                         },
+                        # Must match EmbeddingConfig.mode's default (core/
+                        # config.py). Writing "local" here — as this did until
+                        # 2026-08-04 — is worse than writing nothing: an
+                        # explicit value in api.json *overrides* the default, so
+                        # every fresh install landed on the on-CPU path whose
+                        # package now ships only in the `[local-embed]` extra,
+                        # i.e. silently no embedding at all. Guarded by
+                        # test_init_skeleton_embedding_mode_matches_the_default.
                         "embedding": {
-                            "mode": "local",
+                            "mode": "api",
                         },
                         "auth": {"mode": "none"},
                     },

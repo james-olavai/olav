@@ -548,7 +548,10 @@ class LLMFactory:
                 st_model = get_embedder(model)
                 if st_model is None:
                     raise RuntimeError(
-                        "sentence-transformers unavailable; cannot create local embeddings"
+                        "sentence-transformers unavailable; cannot create local "
+                        "embeddings. Install the on-CPU extra "
+                        "(`pip install 'olav[local-embed]'`) or set "
+                        'embedding.mode = "api" (the default).'
                     )
                 return SentenceTransformerEmbeddings(st_model)
         except Exception as e:
@@ -557,8 +560,18 @@ class LLMFactory:
                 logger.info("Falling back to local embeddings...")
                 st_model = get_embedder(config.local_model)
                 if st_model is None:
+                    # The documented api→local fallback (embedding.fallback,
+                    # enabled by default) cannot work on a default install
+                    # since sentence-transformers moved to `[local-embed]`.
+                    # Say so here — this raise is the only place the user
+                    # learns the fallback was attempted and had nothing to
+                    # fall back to.
                     raise RuntimeError(
-                        "sentence-transformers unavailable; cannot create fallback embeddings"
+                        "embedding endpoint failed and the local fallback is "
+                        "unavailable: sentence-transformers is not installed. "
+                        "Fix the endpoint (embedding.api.*), install the on-CPU "
+                        "extra (`pip install 'olav[local-embed]'`), or set "
+                        "embedding.fallback.enabled = false to fail fast."
                     ) from e
                 return SentenceTransformerEmbeddings(st_model)
             raise

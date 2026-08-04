@@ -257,3 +257,35 @@ def test_init_leaves_identical_files_untouched(tmp_path, monkeypatch) -> None:
 
     assert "refreshed" not in status
     assert not (tmp_path / ".olav" / "backups").exists()
+
+
+def test_init_skeleton_embedding_mode_matches_the_default(tmp_path, monkeypatch) -> None:
+    """A fresh api.json must not pin a mode the default install cannot honour.
+
+    dev_docs/114 §9: the skeleton hardcoded ``"mode": "local"``. An explicit
+    value in api.json *overrides* EmbeddingConfig's default, so flipping that
+    default to "api" did nothing for fresh installs — every one of them landed
+    on the on-CPU path whose package now ships only in ``[local-embed]``, i.e.
+    silently no embedding. Ties the two together so they cannot drift again.
+    """
+    import olav.core.config as config_mod
+    from olav.cli.commands.init import InitCommand
+
+    monkeypatch.chdir(tmp_path)
+    asyncio.run(InitCommand().execute())
+
+    api = json.loads(
+        (tmp_path / ".olav" / "config" / "api.json").read_text(encoding="utf-8"))
+    written = api["embedding"]["mode"]
+
+    # The default EmbeddingConfig.mode, read with no api.json data at all.
+    default_mode = config_mod.EmbeddingConfig({}, config_mod.ConfigLoader()).mode
+
+    assert written == default_mode, (
+        f"init writes embedding.mode={written!r} but the default is "
+        f"{default_mode!r} — the skeleton silently overrides it"
+    )
+    assert written != "local", (
+        "mode=local needs the [local-embed] extra, which is not in the default "
+        "install — a fresh install would have no embedding and no message"
+    )

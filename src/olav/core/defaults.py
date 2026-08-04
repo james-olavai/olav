@@ -44,8 +44,13 @@ DEFAULT_LLM_CONFIG: dict[str, Any] = {
 # Embedding Configuration Defaults
 # ============================================================================
 
+# NOTE: this dict has no consumers anywhere in the repo — the live defaults are
+# EmbeddingConfig's properties in core/config.py. Kept only as a shape
+# reference; a stale copy of the defaults is a trap for the next reader, so
+# delete it rather than let the two drift again. It said mode="local" until
+# 2026-08-04, three months after every doc had settled on "api".
 DEFAULT_EMBEDDING_CONFIG: dict[str, Any] = {
-    "mode": "local",  # "local" or "api"
+    "mode": "api",  # "api" (default) or "local" — local needs [local-embed]
     "local": {
         "model": "BAAI/bge-small-zh-v1.5",
         "device": "cpu",
