@@ -307,7 +307,10 @@ class DoctorCommand(BaseCommand):
                 try:
                     from olav.core.embedder import detect_embedding_dim
 
-                    summary += f" · {detect_embedding_dim()}-dim"
+                    _dim = detect_embedding_dim()
+                    # None means "could not probe" — say that rather than
+                    # rendering "None-dim", and never a substituted number.
+                    summary += f" · {_dim}-dim" if _dim else " · dim unknown (probe failed)"
                 except Exception:  # noqa: BLE001
                     pass
             return summary

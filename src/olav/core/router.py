@@ -141,7 +141,21 @@ class SemanticRouter:
                     try:
                         from olav.core.embedder import detect_embedding_dim
                         current_dim = detect_embedding_dim()
-                        if field.type.list_size != current_dim:
+                        # `None` = the probe failed, NOT "a different dimension".
+                        # Without this guard `list_size != None` is always true, so
+                        # a momentary embed outage would drop a perfectly good
+                        # router index — and then rebuild it with an embedder that
+                        # is still down. Third instance of the same destructive
+                        # pattern found on 2026-08-04 (the other two were in
+                        # core/memory); this one is cheaper because the index is
+                        # rebuildable, but destroying it over a transient fault is
+                        # still wrong.
+                        if current_dim is None:
+                            logger.debug(
+                                "agent_intent_index dim check skipped: embedding "
+                                "dimension undetectable right now"
+                            )
+                        elif field.type.list_size != current_dim:
                             logger.warning(
                                 "agent_intent_index has vector dim %d but embedder is %d — recreating",
                                 field.type.list_size, current_dim,

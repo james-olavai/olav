@@ -184,7 +184,12 @@ class LanceDBStore:
         self._db_path = Path(db_path) if db_path else self._get_default_db_path()
         if embedding_dim is None:
             embedding_dim = _detect_embedding_dim()
-        self._embedding_dim = embedding_dim
+        # May legitimately be None: the embedding backend was unreachable and
+        # there is no local embedder to ask.  Resolved in
+        # _check_and_migrate_vector_dim from an existing table's own width —
+        # never by substituting a default (that is what produced false
+        # "dim mismatch … refusing to start" alarms).
+        self._embedding_dim: "int | None" = embedding_dim
         self._db: lancedb.LanceDBConnection | None = None
         # FTS dirty tracking: rebuild index after N writes to keep BM25 fresh
         self._fts_dirty: dict[str, int] = {}
@@ -274,6 +279,24 @@ class LanceDBStore:
         # Flat list — keep only strings.
         return [t for t in seq if isinstance(t, str)]
 
+    def _require_embedding_dim(self, context: str) -> int:
+        """Return the vector width, or fail with an accurate reason.
+
+        Separated out so "the embedding backend is unavailable" never gets
+        reported as a dimension *mismatch* — those are different faults with
+        different fixes, and conflating them sent an operator to check a config
+        that was correct.
+        """
+        if self._embedding_dim is None:
+            raise RuntimeError(
+                f"Cannot determine the embedding vector width for {context!r}: the "
+                f"embedding backend did not answer and no existing table was "
+                f"available to adopt a width from.  Fix embedding.api.* (or set "
+                f"embedding.mode) and retry — this is an availability problem, not "
+                f"a dimension mismatch."
+            )
+        return self._embedding_dim
+
     def _check_and_migrate_vector_dim(self) -> None:
         """Scan every table for a vector field whose ``list_size`` doesn't
         match the current embedder's dimension.
@@ -320,6 +343,40 @@ class LanceDBStore:
         allow_destructive = os.environ.get(
             "OLAV_ALLOW_DESTRUCTIVE_DIM_MIGRATION", ""
         ).strip().lower() in {"1", "true", "yes"}
+
+        # Dimension undetectable (endpoint down, no local embedder): adopt the
+        # width of an existing vector table instead of guessing. The stored table
+        # IS the authoritative fact about this deployment, so adopting it cannot
+        # be wrong — whereas inventing a number produced a false
+        # "stored=768, embedder=512 — refusing to start" on a transient outage.
+        # A genuine width change is still caught, just later: the next successful
+        # probe re-detects, and add_memory rejects any wrong-width vector.
+        if self._embedding_dim is None:
+            for tname in table_names:
+                try:
+                    tbl = self._db.open_table(tname)
+                except Exception:  # noqa: BLE001
+                    continue
+                for field in tbl.schema:
+                    if field.name == "vector" and hasattr(field.type, "list_size"):
+                        self._embedding_dim = field.type.list_size
+                        logger.warning(
+                            "Embedding dimension could not be probed; adopting %d "
+                            "from existing table '%s'. Vector writes are validated "
+                            "against it, so a real embedder change is still "
+                            "rejected rather than silently stored.",
+                            self._embedding_dim, tname,
+                        )
+                        break
+                if self._embedding_dim is not None:
+                    break
+            if self._embedding_dim is None:
+                logger.warning(
+                    "Embedding dimension unknown and no existing vector table to "
+                    "adopt it from — table creation will fail explicitly rather "
+                    "than pick a width."
+                )
+            return  # nothing to compare against; do not raise a mismatch
 
         for tname in table_names:
             try:
@@ -381,7 +438,12 @@ class LanceDBStore:
             [
                 ("id", pa.string()),
                 ("text", pa.string()),
-                ("vector", pa.list_(pa.float32(), self._embedding_dim)),
+                # _embedding_dim can be None when the backend was unreachable and
+                # there was no existing table to adopt a width from. Say that,
+                # rather than letting pa.list_() raise on None — and rather than
+                # picking a width, which is how a false dim-mismatch alarm got
+                # manufactured in the first place.
+                ("vector", pa.list_(pa.float32(), self._require_embedding_dim("vector schema"))),
                 ("category", pa.string()),  # fact, decision, preference, audit, reflection, expert_knowledge
                 ("scope", pa.string()),  # global, agent name, or specific scope
                 ("metadata", pa.string()),  # JSON string for additional metadata
@@ -440,13 +502,39 @@ class LanceDBStore:
         tbl = db.open_table(table_name)
         existing_names = {f.name for f in tbl.schema}
 
-        # ── Vector dim migration (existing behaviour) ────────────────────────
+        # ── Vector dim check ─────────────────────────────────────────────────
+        # This used to `db.drop_table()` on mismatch with nothing but a
+        # logger.warning — i.e. the exact silent data loss that
+        # ISSUE-EMBEDDING-FALLBACK-DIM-MISMATCH-DESTROYS-DATA was filed to
+        # eliminate, still live in a second code path. It survived because
+        # _check_and_migrate_vector_dim raises at construction and normally gets
+        # there first, so the drop was unreachable in practice — until it wasn't.
+        # Two checks disagreeing about whether a dim mismatch destroys data is
+        # not a state to leave in a data path (found 2026-08-04 while making the
+        # first check stop inventing dimensions, which would have made this one
+        # MORE reachable).
+        #
+        # Same contract as the other check now: refuse, and honour the explicit
+        # opt-in for the destructive behaviour.
         for field in tbl.schema:
             if field.name == "vector" and hasattr(field.type, "list_size"):
                 if field.type.list_size != self._embedding_dim:
+                    import os as _os
+                    _allow = _os.environ.get(
+                        "OLAV_ALLOW_DESTRUCTIVE_DIM_MIGRATION", ""
+                    ).strip().lower() in {"1", "true", "yes"}
+                    if not _allow:
+                        # Same exception type and therefore the same message as
+                        # the constructor's check — one fault, one wording.
+                        raise EmbeddingDimMismatchError(
+                            table=table_name,
+                            stored_dim=field.type.list_size,
+                            embedder_dim=self._embedding_dim,
+                        )
                     logger.warning(
                         "Memory table '%s' has vector dim %d but embedder is %d — "
-                        "dropping and recreating (existing entries will be lost).",
+                        "dropping and recreating (existing entries will be lost); "
+                        "OLAV_ALLOW_DESTRUCTIVE_DIM_MIGRATION opted in.",
                         table_name,
                         field.type.list_size,
                         self._embedding_dim,
@@ -998,18 +1086,24 @@ _store_embedding_dim: int | None = None
 _store_lock = threading.Lock()
 
 
-def _detect_embedding_dim() -> int:
-    """Return the active embedder's output dimension via probe.
+def _detect_embedding_dim() -> "int | None":
+    """Return the active embedder's output dimension via probe, or None.
 
-    Delegates to ``embedder.detect_embedding_dim()`` which runs an actual
-    embedding probe and caches the result.  All LanceDB tables in the process
-    share the same detected dimension.
+    Delegates to ``embedder.detect_embedding_dim()``.  Returns ``None`` when the
+    dimension cannot be determined; the caller resolves it from an existing
+    table's own width instead of guessing.
+
+    Used to swallow every failure into ``return 512``.  That invented a
+    dimension out of thin air, and the store then compared a real stored 768
+    against it and refused to start with a data-corruption message — see
+    ``detect_embedding_dim``'s docstring for the full account.
     """
     try:
         from olav.core.embedder import detect_embedding_dim
         return detect_embedding_dim()
-    except Exception:
-        return 512
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("embedding dimension probe raised (%s); treating as unknown", exc)
+        return None
 
 
 def get_store(

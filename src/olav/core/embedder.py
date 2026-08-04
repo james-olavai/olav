@@ -285,12 +285,29 @@ def reset_embed_breaker() -> None:
     _breaker_record_success()
 
 
-def detect_embedding_dim() -> int:
+def detect_embedding_dim() -> "int | None":
     """Detect the actual embedding dimension by running a probe.
 
-    Result is cached for the process lifetime.  All components that need
-    the dimension (MemoryStore, SemanticRouter, AutoCapture) should call
-    this instead of hardcoding a value.
+    Returns ``None`` when the dimension cannot be determined — the backend is
+    unreachable and there is no local embedder to ask. **Do not substitute a
+    default.** Until 2026-08-04 this returned a hardcoded ``512`` ("safe default
+    for bge-small-zh-v1.5"), which produced a false data-corruption alarm: a
+    transient embed failure made the store compare a stored 768-dim table
+    against an invented 512 and refuse to start with
+
+        Embedding dim mismatch on table 'memory': stored=768, embedder=512.
+        Refusing to start to avoid silent data loss.
+
+    — pointing the operator at their config when nothing was wrong with it
+    (observed on gitea CI run #338, intermittently: the embed endpoint flapped).
+    The invented value also stopped being plausible once api mode became the
+    default and sentence-transformers moved to the `[local-embed]` extra, so
+    bge-small-zh is no longer any kind of default.
+
+    A successful result is cached for the process lifetime; **a failure is not**,
+    so a caller after a transient outage can still get the real answer. Callers
+    must handle ``None`` — see ``core/memory``'s dim resolution, which adopts the
+    stored table's width rather than guessing.
     """
     global _detected_dim
     if _detected_dim is not None:
@@ -310,8 +327,12 @@ def detect_embedding_dim() -> int:
             _detected_dim = int(dim_fn())
             return _detected_dim
 
-    _detected_dim = 512  # safe default for bge-small-zh-v1.5
-    return _detected_dim
+    logger.warning(
+        "Embedding dimension undetectable: the endpoint did not answer and no "
+        "local embedder is available. Not guessing — callers decide how to "
+        "proceed (an existing table's own width is the better source)."
+    )
+    return None
 
 
 def embed_text(text: str) -> "list[float] | None":

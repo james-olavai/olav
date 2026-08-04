@@ -39,7 +39,11 @@ class LangGraphLanceDBStore(BaseStore):
                 from olav.core.embedder import detect_embedding_dim
                 embedding_dim = detect_embedding_dim()
             except Exception:
-                embedding_dim = 512
+                # Leave it unknown. The store resolves the width from an existing
+                # table, or fails with an availability error — both beat the old
+                # `= 512`, which invented a dimension and turned a transient
+                # outage into a "dim mismatch, refusing to start" alarm.
+                embedding_dim = None
         self._store = OCLanceDBStore(db_path=db_path, embedding_dim=embedding_dim)
         self._table_name = MEMORY_TABLE
         self._embedder = None  # lazy-loaded on first use
