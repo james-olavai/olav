@@ -28,6 +28,21 @@ class _Prompt:
             raise AssertionError(f"prompt ran out of answers at: {msg!r}")
 
 
+def _pick(label_startswith: str) -> str:
+    """Menu index of the provider whose label starts with the given text.
+
+    Selecting by position broke every time a provider was added — the 2026-08-04
+    expansion from 6 to 12 entries shifted "5" from Local server to Google and
+    "6" from Custom to xAI, failing three tests that had nothing to do with the
+    change. Look the index up instead, so the tests state which provider they
+    mean.
+    """
+    for i, p in enumerate(m.PROVIDERS, 1):
+        if p.label.startswith(label_startswith):
+            return str(i)
+    raise AssertionError(f"no provider labelled {label_startswith!r}")
+
+
 def _console():
     return Console(quiet=True)
 
@@ -47,10 +62,14 @@ def _always_ok(monkeypatch):
 def test_deepseek_autodetect_and_pick(monkeypatch) -> None:
     _always_ok(monkeypatch)
     monkeypatch.setattr(m, "_fetch_models", lambda b, k: ["deepseek-v4-flash", "deepseek-v4-pro"])
-    # provider=2 (DeepSeek), key, model#2
-    llm = m.interactive_llm_setup(_console(), prompt_cls=_Prompt(["2", "sk-x", "2"]))
+    # DeepSeek, key, model#2
+    llm = m.interactive_llm_setup(_console(), prompt_cls=_Prompt([_pick("DeepSeek"), "sk-x", "2"]))
+    # model_provider is now the real vendor, not "openai". The wizard used to
+    # write "openai" to dodge an optional dependency, which silently gave up
+    # DeepSeek's strict schema validation (it needs the vendor driver's beta
+    # endpoint) — the protocol-layer fix for malformed tool-call args.
     assert llm == {
-        "provider": "openai", "model_provider": "openai",
+        "provider": "deepseek", "model_provider": "deepseek",
         "model": "deepseek-v4-pro", "api_key": "sk-x",
         "base_url": "https://api.deepseek.com/v1",
     }
@@ -59,7 +78,7 @@ def test_deepseek_autodetect_and_pick(monkeypatch) -> None:
 def test_openai_default_no_base_url(monkeypatch) -> None:
     _always_ok(monkeypatch)
     monkeypatch.setattr(m, "_fetch_models", lambda b, k: ["gpt-4o", "gpt-4o-mini"])
-    llm = m.interactive_llm_setup(_console(), prompt_cls=_Prompt(["1", "sk-o", "1"]))
+    llm = m.interactive_llm_setup(_console(), prompt_cls=_Prompt([_pick("OpenAI"), "sk-o", "1"]))
     assert llm["model"] == "gpt-4o"
     assert "base_url" not in llm          # OpenAI uses the client default
 
@@ -67,8 +86,9 @@ def test_openai_default_no_base_url(monkeypatch) -> None:
 def test_local_server_placeholder_key(monkeypatch) -> None:
     _always_ok(monkeypatch)
     monkeypatch.setattr(m, "_fetch_models", lambda b, k: ["qwen3", "embeddinggemma"])
-    # provider=5 (Local), blank key → placeholder, model#1
-    llm = m.interactive_llm_setup(_console(), prompt_cls=_Prompt(["5", "", "1"]))
+    # Local server, blank key → placeholder, model#1
+    llm = m.interactive_llm_setup(
+        _console(), prompt_cls=_Prompt([_pick("Local server"), "", "1"]))
     assert llm["api_key"] == "local"
     assert llm["base_url"] == "http://localhost:11434/v1"
     assert llm["model"] == "qwen3"
@@ -77,9 +97,10 @@ def test_local_server_placeholder_key(monkeypatch) -> None:
 def test_custom_asks_base_url(monkeypatch) -> None:
     _always_ok(monkeypatch)
     monkeypatch.setattr(m, "_fetch_models", lambda b, k: ["m1"])
-    # provider=6 (Custom), base_url, key, model#1
+    # Custom, base_url, key, model#1
     llm = m.interactive_llm_setup(
-        _console(), prompt_cls=_Prompt(["6", "http://host:8000/v1", "k", "1"])
+        _console(),
+        prompt_cls=_Prompt([_pick("Custom"), "http://host:8000/v1", "k", "1"]),
     )
     assert llm["base_url"] == "http://host:8000/v1"
     assert llm["model"] == "m1"
@@ -89,9 +110,9 @@ def test_anthropic_types_model_no_listing(monkeypatch) -> None:
     _always_ok(monkeypatch)
     called = {"fetch": False}
     monkeypatch.setattr(m, "_fetch_models", lambda b, k: called.__setitem__("fetch", True) or [])
-    # provider=4 (Anthropic, lists_models=False), key, typed model
+    # Anthropic (lists_models=False), key, typed model
     llm = m.interactive_llm_setup(
-        _console(), prompt_cls=_Prompt(["4", "sk-ant", "claude-sonnet-4-5"])
+        _console(), prompt_cls=_Prompt([_pick("Anthropic"), "sk-ant", "claude-sonnet-4-5"])
     )
     assert called["fetch"] is False       # anthropic never hits /models
     assert llm["model_provider"] == "anthropic"
@@ -101,7 +122,7 @@ def test_anthropic_types_model_no_listing(monkeypatch) -> None:
 def test_empty_model_list_falls_back_to_typed(monkeypatch) -> None:
     _always_ok(monkeypatch)
     monkeypatch.setattr(m, "_fetch_models", lambda b, k: [])   # detection failed
-    llm = m.interactive_llm_setup(_console(), prompt_cls=_Prompt(["2", "sk-x", "deepseek-v4-flash"]))
+    llm = m.interactive_llm_setup(_console(), prompt_cls=_Prompt([_pick("DeepSeek"), "sk-x", "deepseek-v4-flash"]))
     assert llm["model"] == "deepseek-v4-flash"
 
 
@@ -109,7 +130,7 @@ def test_huge_model_list_prompts_to_type(monkeypatch) -> None:
     _always_ok(monkeypatch)
     monkeypatch.setattr(m, "_fetch_models", lambda b, k: [f"model-{i}" for i in range(300)])
     # >cap → typed, not a 300-item menu
-    llm = m.interactive_llm_setup(_console(), prompt_cls=_Prompt(["3", "sk-or", "anthropic/claude-x"]))
+    llm = m.interactive_llm_setup(_console(), prompt_cls=_Prompt([_pick("OpenRouter"), "sk-or", "anthropic/claude-x"]))
     assert llm["model"] == "anthropic/claude-x"
 
 
@@ -122,12 +143,12 @@ def test_abort_on_empty_required_key(monkeypatch) -> None:
     _always_ok(monkeypatch)
     monkeypatch.setattr(m, "_fetch_models", lambda b, k: ["gpt-4o"])
     # OpenAI (key required), blank key → abort
-    assert m.interactive_llm_setup(_console(), prompt_cls=_Prompt(["1", ""])) is None
+    assert m.interactive_llm_setup(_console(), prompt_cls=_Prompt([_pick("OpenAI"), ""])) is None
 
 
 def test_abort_on_empty_custom_base_url(monkeypatch) -> None:
     _always_ok(monkeypatch)
-    assert m.interactive_llm_setup(_console(), prompt_cls=_Prompt(["6", ""])) is None
+    assert m.interactive_llm_setup(_console(), prompt_cls=_Prompt([_pick("Custom"), ""])) is None
 
 
 def test_validation_failure_then_retry_succeeds(monkeypatch) -> None:
@@ -139,9 +160,9 @@ def test_validation_failure_then_retry_succeeds(monkeypatch) -> None:
         return (calls["n"] > 1, "connected" if calls["n"] > 1 else "401 bad model")
 
     monkeypatch.setattr(llm_mod.LLMFactory, "check_connectivity", staticmethod(_probe))
-    # provider=2, key, model#1(bad) → probe fails → retry 'y' → model#2(good), keep key
+    # DeepSeek, key, model#1(bad) → probe fails → retry 'y' → model#2(good), keep key
     llm = m.interactive_llm_setup(
-        _console(), prompt_cls=_Prompt(["2", "sk-x", "1", "y", "2", ""])
+        _console(), prompt_cls=_Prompt([_pick("DeepSeek"), "sk-x", "1", "y", "2", ""])
     )
     assert llm["model"] == "m-good"
     assert calls["n"] == 2
@@ -153,8 +174,8 @@ def test_validation_failure_saves_anyway_on_give_up(monkeypatch) -> None:
         llm_mod.LLMFactory, "check_connectivity",
         staticmethod(lambda overrides=None: (False, "unreachable")),
     )
-    # provider=2, key, model#1, fail → 'n' (give up) → still returns config
-    llm = m.interactive_llm_setup(_console(), prompt_cls=_Prompt(["2", "sk-x", "1", "n"]))
+    # DeepSeek, key, model#1, fail → 'n' (give up) → still returns config
+    llm = m.interactive_llm_setup(_console(), prompt_cls=_Prompt([_pick("DeepSeek"), "sk-x", "1", "n"]))
     assert llm is not None and llm["model"] == "m1"
 
 

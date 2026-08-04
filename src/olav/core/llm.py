@@ -19,6 +19,103 @@ from olav.core.embedder import get_embedder
 logger = logging.getLogger(__name__)
 
 
+# ── Per-provider function-calling capability (2026-08-04) ────────────────────
+# Which determinism knobs each driver's ``bind_tools()`` actually accepts.
+# Measured from ``inspect.signature`` per driver, not assumed: passing an
+# unsupported kwarg is a TypeError, and "they're all OpenAI-compatible" is a
+# spectrum rather than a fact — groq and mistralai take neither ``strict`` nor
+# ``parallel_tool_calls``, while perplexity takes ``strict`` but not
+# ``parallel_tool_calls``.
+#
+# Why bother: tool-call *arg shape* errors are the dominant small-model failure
+# in this codebase, and CLAUDE.md is explicit that they must be fixed at the
+# coercion layer rather than with prompt imperatives ("prose rules change
+# *whether* a small model calls the tool, never *how correctly*"). ``strict``
+# is that coercion, applied at the protocol layer: the provider enforces the
+# JSON schema instead of the model being asked nicely. On DeepSeek it also
+# switches to the beta endpoint, which is unreachable through a plain
+# ChatOpenAI + base_url.
+#
+# ``parallel_tool_calls=False`` narrows the output space further: one call per
+# turn is easier to get right than N, and the orchestrator is a thin router that
+# routes to ONE sub-agent anyway (ADR-0003/0005/0006).
+_TOOL_CALL_KNOBS: dict[str, frozenset[str]] = {
+    "openai":     frozenset({"strict", "parallel_tool_calls"}),
+    "deepseek":   frozenset({"strict", "parallel_tool_calls"}),
+    "xai":        frozenset({"strict", "parallel_tool_calls"}),
+    "together":   frozenset({"strict", "parallel_tool_calls"}),
+    "openrouter": frozenset({"strict", "parallel_tool_calls"}),
+    "perplexity": frozenset({"strict"}),
+    # Measured, and it corrected an assumption: ChatAnthropic.bind_tools takes
+    # both. The first draft of this table had anthropic as an empty set purely
+    # because Claude is not OpenAI-shaped — the governance gate
+    # (test_llm_provider_drivers) checks each claim against the real signature,
+    # which is what surfaced it.
+    "anthropic":  frozenset({"strict", "parallel_tool_calls"}),
+    # These take only tools/tool_choice (google_genai also tool_config), so
+    # there is nothing to default — passing either would be a TypeError.
+    "groq":        frozenset(),
+    "mistralai":   frozenset(),
+    "ollama":      frozenset(),
+    "google_genai": frozenset(),
+}
+
+# Opt-out for the whole mechanism. A provider that accepts ``strict`` but
+# implements it badly would otherwise need a code change to work around; this is
+# the escape hatch, and it is also how an A/B run measures whether strict
+# actually helps (CLAUDE.md requires N>=3 for behavioural claims —
+# tests/e2e/_variance.py:assert_success_rate).
+_DETERMINISM_ENV = "OLAV_TOOL_CALL_DETERMINISM"
+
+
+def _tool_call_determinism_enabled() -> bool:
+    return os.environ.get(_DETERMINISM_ENV, "1").strip().lower() not in {"0", "false", "no"}
+
+
+def apply_tool_call_determinism(llm, provider: str | None):
+    """Wrap ``llm.bind_tools`` so supported determinism knobs are defaulted on.
+
+    Applied at bind time, not construction, because ``strict`` and
+    ``parallel_tool_calls`` are ``bind_tools()`` parameters — and because **OLAV
+    never calls bind_tools itself**: deepagents/langchain ``create_agent`` binds
+    the tools inside the model node at invocation time (see
+    ``agents/agent.py:_prune_model_node_bind_tools``, which can only prune the
+    schemas *after* that happens). Patching the bound method is therefore the
+    only seam that reaches the real call.
+
+    An explicit caller-supplied value always wins — this sets defaults, it does
+    not override intent.
+    """
+    knobs = _TOOL_CALL_KNOBS.get((provider or "").lower())
+    if not knobs or not _tool_call_determinism_enabled():
+        return llm
+
+    original = getattr(llm, "bind_tools", None)
+    if original is None:
+        return llm
+
+    import functools
+
+    @functools.wraps(original)
+    def _bind_tools(tools, **kwargs):
+        if "strict" in knobs:
+            kwargs.setdefault("strict", True)
+        if "parallel_tool_calls" in knobs:
+            kwargs.setdefault("parallel_tool_calls", False)
+        return original(tools, **kwargs)
+
+    try:
+        object.__setattr__(llm, "bind_tools", _bind_tools)
+    except Exception as exc:  # noqa: BLE001 — pydantic models can be frozen
+        logger.debug("tool-call determinism not applied for %s: %s", provider, exc)
+        return llm
+    logger.debug(
+        "tool-call determinism on for provider=%s: %s",
+        provider, sorted(knobs),
+    )
+    return llm
+
+
 class LLMFactory:
     """Factory for creating LLM instances using LangChain's init_chat_model."""
 
@@ -102,23 +199,24 @@ class LLMFactory:
             # "Unable to infer model provider" for OpenRouter-style model
             # names like "x-ai/grok-4.1-fast".
             _url = str(params.get("base_url") or "").lower()
+            _inferred: str | None = None
             if "openrouter" in _url:
-                params["model_provider"] = "openrouter"
+                _inferred = "openrouter"
             elif "together.xyz" in _url or "together.ai" in _url:
-                params["model_provider"] = "together"
+                _inferred = "together"
             elif "groq" in _url:
-                params["model_provider"] = "groq"
+                _inferred = "groq"
             elif "deepseek" in _url:
-                params["model_provider"] = "deepseek"
+                _inferred = "deepseek"
             elif "perplexity" in _url:
-                params["model_provider"] = "perplexity"
+                _inferred = "perplexity"
             elif "ollama" in _url or ":11434" in _url:
                 # Ollama on its own native /api/chat — use langchain-ollama
                 # so the `reasoning` field works (qwen3 thinking toggle).
                 # OpenAI-compat /v1 also exists but doesn't surface
                 # native Ollama-only flags.  Detect by port 11434 (default)
                 # or "ollama" in URL.
-                params["model_provider"] = "ollama"
+                _inferred = "ollama"
             elif _url:
                 # Unknown base_url with custom model name (e.g. local
                 # llama.cpp at 192.168.x.x:11433 serving "qwen3.6-27b-dense").
@@ -126,7 +224,32 @@ class LLMFactory:
                 # OpenAI-compatible servers — default to it so init_chat_model
                 # doesn't raise.  Override via api.json llm.model_provider
                 # when targeting a non-OpenAI dialect.
-                params["model_provider"] = "openai"
+                _inferred = "openai"
+
+            # A provider is only worth inferring if its driver is installed.
+            # Setting one whose package is absent moved the failure into
+            # init_chat_model as `ImportError: Initializing ChatDeepSeek requires
+            # the langchain-deepseek package` — a stack trace instead of a
+            # working request, for a config the user reasonably expected to work.
+            # The drivers are declared dependencies now, so this is belt-and-
+            # braces (a trimmed install, a broken venv), but it degrades to the
+            # generic OpenAI-compatible path with one warning instead of raising.
+            if _inferred and _inferred != "openai":
+                import importlib.util as _ilu
+
+                _mod = "langchain_" + _inferred.replace("-", "_")
+                if _ilu.find_spec(_mod) is None:
+                    logger.warning(
+                        "base_url looks like %s but %s is not installed; falling "
+                        "back to the generic OpenAI-compatible client. Provider-"
+                        "specific behaviour (e.g. DeepSeek strict schema "
+                        "validation, which needs its beta endpoint) is lost. "
+                        "Install it, or set llm.model_provider explicitly.",
+                        _inferred, _mod.replace("_", "-"),
+                    )
+                    _inferred = "openai"
+            if _inferred:
+                params["model_provider"] = _inferred
 
         # Disable streaming for DeepAgents async compatibility
         params["streaming"] = False
@@ -416,7 +539,10 @@ class LLMFactory:
                 logger.error(f"Failed to initialize chat model: {e}")
                 raise
 
-        return llm
+        # Default the function-calling determinism knobs this provider supports.
+        # On the way out, so the Google branch and the init_chat_model branch
+        # both get it.
+        return apply_tool_call_determinism(llm, params.get("model_provider"))
 
     @staticmethod
     def check_connectivity(overrides: dict | None = None) -> tuple[bool, str]:

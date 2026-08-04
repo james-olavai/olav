@@ -29,17 +29,46 @@ class Provider:
     lists_models: bool           # True → GET {base_url}/models with Bearer key
     key_optional: bool = False   # local servers accept a placeholder key
     hint: str = ""               # a couple of example model ids when listing is skipped
+    # Name of the extra that ships this provider's driver, when it is not a
+    # default dependency. Mistral's driver pulls `tokenizers` (+28MB), the same
+    # weight this release moved behind `[local-embed]`, so it stays opt-in — and
+    # the wizard reports the install command instead of offering a choice the
+    # install cannot honour, which is the trap the on-CPU embed option fell into.
+    extra: str = ""
 
 
 # base_url None → prompt for it (Custom). "" → the client's own default (OpenAI).
-# OpenRouter/DeepSeek/local are OpenAI-compatible, so model_provider="openai"
-# (avoids the optional langchain-openrouter dependency) with an explicit base_url.
+# Each entry carries the provider's REAL ``model_provider``, so init_chat_model
+# loads that vendor's driver rather than routing everything through ChatOpenAI +
+# base_url.
+#
+# DeepSeek and OpenRouter used to be listed as ``"openai"`` here, with a comment
+# saying it "avoids the optional langchain-openrouter dependency". That traded
+# away real behaviour: DeepSeek's ``strict`` schema validation only works against
+# its **beta** endpoint, which ChatDeepSeek switches to and a plain ChatOpenAI
+# cannot reach — and strict schema enforcement is the protocol-layer fix for
+# malformed tool-call arguments (CLAUDE.md: fix arg shape at the coercion layer,
+# not with prompt imperatives). The drivers are declared dependencies now; see
+# ``core/llm.py:_TOOL_CALL_KNOBS`` for what each one actually supports.
+#
+# The one exception is deliberate: a **local** OpenAI-compatible server
+# (llama.cpp / vLLM) really is generic, so ``"openai"`` is correct there rather
+# than a compromise.
 PROVIDERS: list[Provider] = [
     Provider("OpenAI", "openai", "", True),
-    Provider("DeepSeek", "openai", "https://api.deepseek.com/v1", True),
-    Provider("OpenRouter", "openai", "https://openrouter.ai/api/v1", True),
+    Provider("DeepSeek", "deepseek", "https://api.deepseek.com/v1", True,
+             hint="e.g. deepseek-chat (deepseek-reasoner has no tool calling)"),
+    Provider("OpenRouter", "openrouter", "https://openrouter.ai/api/v1", True),
     Provider("Anthropic (Claude)", "anthropic", "", False,
              hint="e.g. claude-sonnet-4-5, claude-opus-4-1"),
+    Provider("Google AI Studio (Gemini)", "google_genai", "", False,
+             hint="e.g. gemini-2.5-flash, gemma-4-31b-it"),
+    Provider("xAI (Grok)", "xai", "https://api.x.ai/v1", True),
+    Provider("Groq", "groq", "https://api.groq.com/openai/v1", True),
+    Provider("Together AI", "together", "https://api.together.xyz/v1", True),
+    Provider("Perplexity", "perplexity", "https://api.perplexity.ai", True),
+    Provider("Mistral", "mistralai", "https://api.mistral.ai/v1", True,
+             extra="mistral"),
     Provider("Local server (Ollama / llama.cpp / vLLM)", "openai",
              "http://localhost:11434/v1", True, key_optional=True),
     Provider("Custom (enter your own base_url)", "openai", None, True),
@@ -69,6 +98,21 @@ def _fetch_models(base_url: str, api_key: str) -> list[str]:
         return []
 
 
+def _driver_available(provider: "Provider") -> bool:
+    """Is this provider's langchain driver importable?
+
+    Only meaningful for entries with an ``extra``: everything else is a declared
+    dependency and always present. Uses ``find_spec`` so probing cannot execute
+    the package.
+    """
+    if not provider.extra:
+        return True
+    import importlib.util
+
+    module = f"langchain_{provider.model_provider}"
+    return importlib.util.find_spec(module) is not None
+
+
 def interactive_llm_setup(console, *, prompt_cls=None) -> dict | None:
     """Run the provider → key → model → validate flow.
 
@@ -83,7 +127,8 @@ def interactive_llm_setup(console, *, prompt_cls=None) -> dict | None:
     console.print("\n[bold]Configure your LLM provider[/bold]")
     for i, p in enumerate(PROVIDERS, 1):
         endpoint = p.base_url if p.base_url else ("(default)" if p.base_url == "" else "(you'll enter it)")
-        console.print(f"  {i}) {p.label}  [dim]{endpoint}[/dim]")
+        _need = "" if _driver_available(p) else f"  [yellow]needs olav\\[{p.extra}][/yellow]"
+        console.print(f"  {i}) {p.label}  [dim]{endpoint}[/dim]{_need}")
 
     choice = prompt_cls.ask(
         "Select a provider",
@@ -91,6 +136,19 @@ def interactive_llm_setup(console, *, prompt_cls=None) -> dict | None:
         default="1",
     )
     provider = PROVIDERS[int(choice) - 1]
+
+    # A provider whose driver ships in an extra must not be silently accepted:
+    # writing the config would leave init_chat_model raising ImportError on the
+    # first real call, long after the wizard said everything was fine. Same
+    # failure the on-CPU embedding option used to have.
+    if not _driver_available(provider):
+        console.print(
+            f"[yellow]{provider.label} needs its driver, which is not in the "
+            f"default install:[/yellow]\n"
+            f"  [bold]pip install 'olav\\[{provider.extra}]'[/bold]\n"
+            f"[dim]Install it and re-run, or pick another provider.[/dim]\n"
+        )
+        return None
 
     # Endpoint
     base_url = provider.base_url

@@ -71,6 +71,35 @@ dependencies = [
     # here (nothing in src/olav imports `google.genai` directly).
     "langchain-google-genai>=4.2",
     "langchain-ollama>=0.1.0",
+    # ── Per-provider drivers (2026-08-04) ─────────────────────────────────────
+    # First-class provider selection rather than "everything is OpenAI-compatible
+    # + base_url". That shim is a spectrum, not a binary: DeepSeek's strict schema
+    # validation only works against its **beta** endpoint, which ChatDeepSeek
+    # switches to (`model_copy(update={"api_base": ".../beta"})`) and a plain
+    # ChatOpenAI cannot reach. Since strict schema enforcement is the protocol-layer
+    # fix for malformed tool-call args — exactly what CLAUDE.md says must be solved
+    # at the coercion layer rather than with prompt imperatives — losing it is not
+    # a cosmetic loss.
+    #
+    # llm.py already *inferred* these providers from base_url without the packages
+    # being declared, so `api.deepseek.com` in api.json raised ImportError inside
+    # init_chat_model. Same defect class as langchain-google-genai above.
+    #
+    # Cost measured on an isolated venv over a langchain-openai baseline:
+    #   deepseek +0MB  together +0MB  groq +1MB  perplexity +1MB
+    #   openrouter +6MB  xai +10MB (aiohttp, already present here)
+    # deepseek/xai/together are thin BaseChatOpenAI subclasses — they reuse
+    # langchain-openai, which is why they are free.
+    #
+    # langchain-mistralai is NOT here: +28MB, because it pulls `tokenizers` back
+    # in — the same 11MB this release just moved behind `[local-embed]`. It lives
+    # in the `[mistral]` extra instead; see the wizard's handling.
+    "langchain-deepseek>=1.1",
+    "langchain-xai>=1.3",
+    "langchain-together>=0.4",
+    "langchain-groq>=1.1",
+    "langchain-perplexity>=1.4",
+    "langchain-openrouter>=0.2.7",
     "langchain-core>=1.4.0,<2.0",
     # NOTE: langchain-huggingface moved to `[local-embed]` (2026-08-04) — it is
     # the sole parent of tokenizers + huggingface-hub + hf-xet (26 MB measured)
@@ -233,6 +262,14 @@ tui = []
 # reach an embedding endpoint.  Kept OUT of the default install because it is
 # the sole reason torch/triton/transformers (+ the nvidia CUDA runtime on
 # linux-x86_64) land in the wheel — see the note beside `lancedb` above.
+# Mistral: kept out of the default install because langchain-mistralai pulls
+# `tokenizers` (+28MB total), undoing part of the same release's slimming. The
+# first-run wizard offers Mistral and reports this exact install command when the
+# driver is absent — the pattern that fixed the on-CPU-embed trap, rather than
+# offering a choice the install cannot honour.
+mistral = [
+    "langchain-mistralai>=1.1",
+]
 local-embed = [
     "sentence-transformers>=5.2.3",
     # core/router.py's `mode == "local"` branch builds HuggingFaceEmbeddings

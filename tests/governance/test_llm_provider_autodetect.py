@@ -49,8 +49,16 @@ def test_llm_factory_covers_openrouter():
     assert re.search(r'"openrouter"\s+in\s+_url', src), (
         "LLMFactory fallback no longer recognises OpenRouter base_url."
     )
-    assert re.search(r'params\["model_provider"\]\s*=\s*"openrouter"', src), (
-        "LLMFactory does not set model_provider='openrouter' when detected."
+    # Accept either assignment shape. This asserted only
+    # `params["model_provider"] = "openrouter"` and broke when the block was
+    # refactored (2026-08-04) to stage the value in `_inferred` first, so a
+    # driver-availability check could downgrade to the generic OpenAI-compatible
+    # client instead of letting init_chat_model raise ImportError. The guarantee
+    # under test is "openrouter is recognised and selected", not how the line is
+    # spelled.
+    assert re.search(
+        r'(?:params\["model_provider"\]|_inferred)\s*=\s*"openrouter"', src), (
+        "LLMFactory does not select model_provider='openrouter' when detected."
     )
 
 
