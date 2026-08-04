@@ -95,6 +95,9 @@ def apply_tool_call_determinism(llm, provider: str | None):
         return llm
 
     import functools
+    import threading
+
+    _lock = threading.Lock()
 
     @functools.wraps(original)
     def _bind_tools(tools, **kwargs):
@@ -102,7 +105,29 @@ def apply_tool_call_determinism(llm, provider: str | None):
             kwargs.setdefault("strict", True)
         if "parallel_tool_calls" in knobs:
             kwargs.setdefault("parallel_tool_calls", False)
-        return original(tools, **kwargs)
+        # Detach the patch for the duration of the real call.
+        #
+        # Not defensive coding — without it ChatDeepSeek recurses forever with
+        # strict=True. Its bind_tools switches to the beta endpoint by
+        # `model_copy(update={"api_base": BETA})` and re-dispatching to the copy;
+        # the recursion terminates on `self.api_base == DEFAULT_API_BASE` being
+        # false the second time. But `model_copy` carries instance attributes, so
+        # the copy's `bind_tools` was THIS wrapper, whose closure calls the
+        # ORIGINAL instance's method — whose api_base is still the default. Every
+        # hop re-entered the beta branch.
+        #
+        # Removing the attribute while the driver runs means any copy it makes
+        # resolves `bind_tools` on the class, and the library's own guard works.
+        # Found by the DeepSeek benchmark, not by the unit tests: a fake model
+        # with no `model_copy` re-dispatch cannot reproduce it, which is why
+        # test_tool_call_determinism now includes one that does.
+        with _lock:
+            detached = llm.__dict__.pop("bind_tools", None)
+            try:
+                return original(tools, **kwargs)
+            finally:
+                if detached is not None:
+                    llm.__dict__["bind_tools"] = detached
 
     try:
         object.__setattr__(llm, "bind_tools", _bind_tools)

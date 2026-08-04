@@ -166,10 +166,16 @@ belongs in git.
 
 ## Design Principles (small-model-first)
 
-OLAV is **designed for local small models** (qwen3 7–30B, small DeepSeek,
-Llama). The whole architecture exists to get production output from
-models that hit planning ceilings — **fix the prompt, not the model**.
-Every agent/tool/prompt change is judged against this. The hard,
+OLAV is **designed for local small models**, and the reference target is
+**gemma4 31B** (`gemma-4-31b-it`) — that is the model every prompt/tool
+change is judged against, and the one whose observed failures drive the
+rules below (e.g. the R88 100% deploy-block that produced the raw-string
+rule). Other local models in the same class (qwen3 27B,
+small DeepSeek, Llama) are expected to work and are used for
+cross-checking, but they are not the bar.
+
+The whole architecture exists to get production output from models that
+hit planning ceilings — **fix the prompt, not the model**. The hard,
 governance-enforced rules that follow from it:
 
 - **Context budget by tier** — usable context is ~8K (small) / ~32K

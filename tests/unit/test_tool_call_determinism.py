@@ -95,3 +95,64 @@ def test_every_knob_name_is_one_we_know_how_to_set():
     for provider, knobs in _TOOL_CALL_KNOBS.items():
         unknown = knobs - settable
         assert not unknown, f"{provider} declares knobs the wrapper cannot set: {unknown}"
+
+
+class _RedispatchingLLM:
+    """Mimics ChatDeepSeek's beta-endpoint switch, the shape that recursed.
+
+    `ChatDeepSeek.bind_tools(strict=True)` does
+    `model_copy(update={"api_base": BETA})` and re-dispatches to the copy; the
+    recursion terminates because the copy's api_base is no longer the default.
+    `model_copy` carries instance attributes, so the copy's `bind_tools` was the
+    determinism wrapper, whose closure called the ORIGINAL instance — still on the
+    default api_base. Every hop re-entered the beta branch: RecursionError.
+
+    _FakeLLM above cannot express this, which is exactly why 17 passing unit
+    tests said nothing while the feature was broken on the one provider it was
+    written for. Found by an actual DeepSeek call.
+    """
+
+    DEFAULT = "https://api.example.com"
+    BETA = "https://api.example.com/beta"
+
+    def __init__(self, api_base: str | None = None) -> None:
+        self.api_base = api_base or self.DEFAULT
+        self.seen: dict | None = None
+        self.hops = 0
+
+    def model_copy(self, update: dict):
+        clone = _RedispatchingLLM(update.get("api_base"))
+        # The behaviour that caused the bug: instance attributes come along.
+        for k, v in self.__dict__.items():
+            if k not in {"api_base"}:
+                clone.__dict__[k] = v
+        return clone
+
+    def bind_tools(self, tools, **kwargs):
+        self.hops += 1
+        if self.hops > 10:
+            raise AssertionError("re-dispatch loop — the wrapper leaked into the copy")
+        if kwargs.get("strict") is True and self.api_base == self.DEFAULT:
+            return self.model_copy({"api_base": self.BETA}).bind_tools(tools, **kwargs)
+        self.seen = kwargs
+        return self
+
+
+def test_beta_endpoint_redispatch_does_not_recurse():
+    llm = _RedispatchingLLM()
+    bound = apply_tool_call_determinism(llm, "deepseek").bind_tools([])
+    # Landed on the beta instance, with the knobs intact.
+    assert bound.api_base == _RedispatchingLLM.BETA
+    assert bound.seen == {"strict": True, "parallel_tool_calls": False}
+
+
+def test_the_patch_is_restored_after_a_redispatching_call():
+    """Detaching during the call must not permanently remove the defaults."""
+    llm = _RedispatchingLLM()
+    patched = apply_tool_call_determinism(llm, "deepseek")
+    patched.bind_tools([])
+    llm.hops = 0
+    second = patched.bind_tools([])
+    assert second.seen == {"strict": True, "parallel_tool_calls": False}, (
+        "second bind lost the defaults — the wrapper was not restored"
+    )
