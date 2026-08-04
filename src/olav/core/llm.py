@@ -22,12 +22,22 @@ logger = logging.getLogger(__name__)
 # ── Per-provider function-calling capability (2026-08-04) ────────────────────
 # Which determinism knobs each driver's ``bind_tools()`` **accepts**. Note the
 # word: this table is about the client signature, and acceptance is not
-# compliance. Measured against DeepSeek, ``parallel_tool_calls=False`` is sent
-# on the wire and simply ignored — 9 of 12 multi-target prompts still returned
-# 2 tool calls in a turn, an identical per-turn vector to the knob being unset.
+# compliance. The same knob measured on two providers gave opposite results
+# (dev_docs/114 §12.5) — 12 multi-target prompts, ``parallel_tool_calls=False``
+# sent on the wire in both cases:
+#
+#   deepseek-chat      9/12 turns still returned 2 calls — ignored outright,
+#                      a per-turn vector identical to the knob being unset
+#   gemma4 31B (local) 0/12 turns returned >1 — honoured exactly, and with no
+#                      cost: arg-shape validity stayed 1.0
+#
 # So read a ``parallel_tool_calls`` entry below as "safe to pass", never as a
-# guarantee of one call per turn. Nothing in OLAV may depend on that bound
-# (checked: no ``tool_calls[0]``-style single-call assumption in src/).
+# guarantee of one call per turn — nothing in OLAV may depend on that bound
+# (checked: no ``tool_calls[0]``-style single-call assumption in src/). But do
+# not conclude the knob is inert and drop it, either: it does what it says on
+# the reference target, which is the model this codebase exists to serve.
+# This split is also the concrete case against collapsing every OpenAI-shaped
+# endpoint onto one ChatOpenAI — identical parameter, divergent behaviour.
 #
 # Measured from ``inspect.signature`` per driver, not assumed: passing an
 # unsupported kwarg is a TypeError, and "they're all OpenAI-compatible" is a
