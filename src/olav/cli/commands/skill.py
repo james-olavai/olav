@@ -425,21 +425,68 @@ class SkillCommand(BaseCommand):
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+def _skillpack_from_entry_point(name: str) -> Path | None:
+    """Resolve a skillpack declared via the ``olav.skillpack`` entry point.
+
+    The entry-point value names an importable module; the skillpack is
+    ``skillpack/`` beside it. Needed because the name-based convention below
+    assumes the distribution name normalizes to a top-level module, which is not
+    true for every extension: ``olav-ent`` ships into ``olav.enterprise``, so
+    ``find_spec("olav_ent")`` is None and its bundled lab skill was
+    uninstallable (dev_docs/114 §11). This is also the coupling direction
+    CLAUDE.md permits — core discovers extensions through entry points, never by
+    importing them.
+
+    Preferred over reading the distribution's RECORD because that lists no data
+    files for an editable install.
+    """
+    import importlib.metadata as _md
+
+    wanted = name.strip().replace("_", "-").lower()
+    try:
+        eps = _md.entry_points(group="olav.skillpack")
+    except Exception:  # noqa: BLE001 — malformed metadata must not break install
+        return None
+    for ep in eps:
+        if ep.name.strip().replace("_", "-").lower() != wanted:
+            continue
+        try:
+            spec = importlib.util.find_spec(ep.value)
+        except (ImportError, ValueError, ModuleNotFoundError):
+            return None
+        if spec is None or not spec.submodule_search_locations:
+            return None
+        candidate = Path(next(iter(spec.submodule_search_locations))) / "skillpack"
+        if (candidate / "workspace.yaml").is_file() or (candidate / "MANIFEST.yaml").is_file():
+            return candidate
+        return None
+    return None
+
+
 def _resolve_installed_skillpack(name: str) -> Path | None:
     """Resolve an installed distribution name to its bundled skillpack dir.
 
-    Contract (0.22.0): an extension opts in by shipping
-    ``<package>/data/skillpack/`` inside its wheel, containing the same
-    layout a local-path install expects — ``workspace.yaml`` (or
-    ``MANIFEST.yaml``) at its root, with ``source:`` entries relative to
-    it. Distribution names are normalized (``olav-netops`` →
-    ``olav_netops``). Returns None when the name doesn't resolve to an
-    importable package with a bundled skillpack — the caller falls back
-    to its path-not-found error.
+    Two ways in, checked in order:
 
-    Uses ``find_spec`` (no module execution) so probing an arbitrary
-    name cannot run package code.
+    1. the ``olav.skillpack`` entry point (see ``_skillpack_from_entry_point``),
+       for extensions whose distribution name is not their module name;
+    2. the 0.22.0 convention — ``<package>/data/skillpack/`` inside the wheel,
+       with ``workspace.yaml`` (or ``MANIFEST.yaml``) at its root and ``source:``
+       entries relative to it, for distributions whose name normalizes to their
+       module (``olav-netops`` → ``olav_netops``).
+
+    Returns None when neither resolves — the caller falls back to its
+    path-not-found error.
+
+    Uses ``find_spec`` rather than importing the target, so probing an arbitrary
+    name cannot run that package's own module code (a dotted entry-point value
+    does execute its parent packages' ``__init__``, which is unavoidable for
+    submodule resolution).
     """
+    from_ep = _skillpack_from_entry_point(name)
+    if from_ep is not None:
+        return from_ep
+
     mod_name = name.strip().replace("-", "_")
     if not mod_name.isidentifier():
         return None  # path-like or otherwise non-module input

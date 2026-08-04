@@ -37,7 +37,12 @@ WORKSPACE_ROOTS = [
     # skill was invisible to every check here — it sat undeclared under
     # netops/ for as long as it existed and no gate said so, which is the
     # exact rot this file was written to catch.
-    REPO / "olav-ent" / "workspace",
+    #
+    # Moved 2026-08-04 from the repo root into the package, where it is now a
+    # real bundled skillpack (dev_docs/114 §11). Watch the collected-test count
+    # if this path ever changes again: the move silently dropped this root and
+    # the gate went from 1208 to 1207 tests with nothing failing.
+    REPO / "olav-ent" / "src" / "olav" / "enterprise" / "data" / "skillpack" / "workspace",
 ]
 
 # Auto-discovered skills that are NOT delegated subagents (loaded via

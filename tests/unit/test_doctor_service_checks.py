@@ -182,7 +182,7 @@ def test_the_shipped_clab_spec_declares_a_read_only_script():
     is allowed to mutate."""
     from pathlib import Path
 
-    src = Path("olav-ent/workspace/services/lab/scripts/healthcheck.py")
+    src = Path("olav-ent/src/olav/enterprise/data/skillpack/workspace/services/lab/scripts/healthcheck.py")
     if not src.is_file():
         pytest.skip("olav-ent not checked out")
     body = src.read_text(encoding="utf-8")
@@ -265,7 +265,7 @@ def test_the_shipped_proof_tears_its_lab_down():
     """A verify that leaves a lab behind has damaged the thing it checked."""
     from pathlib import Path
 
-    src = Path("olav-ent/workspace/services/lab/scripts/verify.py")
+    src = Path("olav-ent/src/olav/enterprise/data/skillpack/workspace/services/lab/scripts/verify.py")
     if not src.is_file():
         pytest.skip("olav-ent not checked out")
     body = src.read_text(encoding="utf-8")

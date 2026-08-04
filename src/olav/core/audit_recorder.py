@@ -56,6 +56,22 @@ _REDACT_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 
+def redaction_patterns() -> tuple[re.Pattern[str], ...]:
+    """The credential patterns ``redact_sensitive`` applies, as a public API.
+
+    Exists because ``olav-ent``'s dataset-export gate needs the same patterns to
+    answer the inverse question — "did any plaintext credential escape?" — and
+    was reaching for the private ``_REDACT_PATTERNS`` to get them
+    (ISSUE-ENT-PRIVATE-CORE-SYMBOL-IMPORTS). That import worked, which made it
+    the most dangerous of the three: renaming a private name here would have
+    broken an enterprise export path with nothing in this repo to catch it.
+
+    Returns a tuple, not the list, so a caller cannot mutate the redaction rules
+    of every other caller in the process.
+    """
+    return tuple(_REDACT_PATTERNS)
+
+
 def redact_sensitive(content: str) -> str:
     """Replace credential values in *content* with ``[REDACTED]``.
 

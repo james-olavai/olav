@@ -55,12 +55,31 @@ dependencies = [
     "netconan>=0.13",
     # CLI output
     "rich>=13.0.0",
+    # Declared 2026-08-04 by the cross-unit dependency audit (dev_docs/114 §11):
+    # olav_netops imports all five directly, but they were arriving only as
+    # transitives of `olav`. That is not a safe contract — the same audit
+    # removed nine undeclared dependencies from `olav` core, and anything this
+    # package imports has to be its own declaration, not a bet on the
+    # platform's.
+    "duckdb>=0.8.0",
+    "lancedb>=0.29.2",
+    "langchain-core>=1.4.0,<2.0",
+    "pydantic>=2.0",
+    "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]
 sim = [
     # Batfish network simulation / what-if analysis
     "pybatfish>=2024.7.22.1569",
+]
+# Scrapli fast path for SSH collection: take_snapshot prefers
+# nornir_scrapli.tasks.send_commands and falls back to netmiko when it is
+# absent, so this is genuinely optional — but it was declared NOWHERE, which
+# left the faster path undiscoverable (dev_docs/114 §11). A guarded import
+# still needs an extra, or nobody can opt in.
+scrapli = [
+    "nornir-scrapli>=2025.1.30",
 ]
 
 # ── Domain table entry points ─────────────────────────────────────────────────
