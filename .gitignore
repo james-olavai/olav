@@ -83,7 +83,6 @@ src/olav/data/workspace/*/*/references/*_api.md
 /.venv/
 /.agent/
 /.langgraph_api/
-/olav-post/
 olav-netops/exports/
 .olav/workspace/presales/
 olav-doc/site/
@@ -127,6 +126,9 @@ olav-netops/.olav/workspace/devops/
 
 # collector
 /olav-collector/
+
+# content
+/olav-post/
 
 # ── Whitelist (tracked paths inside ignored parents) ──
 !olav-netops/

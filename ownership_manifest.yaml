@@ -197,6 +197,14 @@ rules:
     git: track
     notes: langgraph dev server graph config — points at src/olav/server/graph_factory.py:graph
 
+  - pattern: puppeteer_config.json
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+    notes: puppeteer no-sandbox launch args — used by local web/screenshot checks
+
   - pattern: CHANGELOG.md
     owner: olav
     class: platform
