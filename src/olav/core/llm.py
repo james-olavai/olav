@@ -20,7 +20,15 @@ logger = logging.getLogger(__name__)
 
 
 # ── Per-provider function-calling capability (2026-08-04) ────────────────────
-# Which determinism knobs each driver's ``bind_tools()`` actually accepts.
+# Which determinism knobs each driver's ``bind_tools()`` **accepts**. Note the
+# word: this table is about the client signature, and acceptance is not
+# compliance. Measured against DeepSeek, ``parallel_tool_calls=False`` is sent
+# on the wire and simply ignored — 9 of 12 multi-target prompts still returned
+# 2 tool calls in a turn, an identical per-turn vector to the knob being unset.
+# So read a ``parallel_tool_calls`` entry below as "safe to pass", never as a
+# guarantee of one call per turn. Nothing in OLAV may depend on that bound
+# (checked: no ``tool_calls[0]``-style single-call assumption in src/).
+#
 # Measured from ``inspect.signature`` per driver, not assumed: passing an
 # unsupported kwarg is a TypeError, and "they're all OpenAI-compatible" is a
 # spectrum rather than a fact — groq and mistralai take neither ``strict`` nor
@@ -36,9 +44,10 @@ logger = logging.getLogger(__name__)
 # switches to the beta endpoint, which is unreachable through a plain
 # ChatOpenAI + base_url.
 #
-# ``parallel_tool_calls=False`` narrows the output space further: one call per
+# ``parallel_tool_calls=False`` *asks* for a narrower output space — one call per
 # turn is easier to get right than N, and the orchestrator is a thin router that
-# routes to ONE sub-agent anyway (ADR-0003/0005/0006).
+# routes to ONE sub-agent anyway (ADR-0003/0005/0006). Whether a provider honours
+# the request is its own business; see the acceptance-vs-compliance note above.
 _TOOL_CALL_KNOBS: dict[str, frozenset[str]] = {
     "openai":     frozenset({"strict", "parallel_tool_calls"}),
     "deepseek":   frozenset({"strict", "parallel_tool_calls"}),
