@@ -138,8 +138,10 @@ tests so they read the runtime from a plain checkout.
 > (tools/X = @tool wrapper w/ `full` flag; scripts/X = CLI script) — both wrap
 > olav_netops.core.* impl; allowlisted in test_tool_dedup_phase2._DELIBERATE_DIVERGENCE.
 > Retired: scripts/sync_netops_workspace.py → scripts/workspace_drift.py.
-> ⚠️ The `olav init` + `skill install` CI steps must be confirmed green on the
-> next actual CI run (verified locally/sandbox; CI-env not yet exercised).
+> ✅ CONFIRMED on gitea run #335 (2026-08-04): `olav init` +
+> `olav skill install olav-netops` + `olav skill install olav-presales` all ran
+> in the real CI container and `Governance (platform)` passed (917 tests). The
+> earlier caveat — verified only locally/in a sandbox — is closed.
 
 ## What Gets Released (tracked in git)
 
