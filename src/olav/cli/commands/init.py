@@ -388,8 +388,8 @@ class InitCommand(BaseCommand):
         try:
             from olav.core.router import initialize_router
             init_result = initialize_router()
-            n = init_result.get("agents_indexed", 0)
-            results.append(f"router({n} agents)")
+            n = init_result.get("count", 0)
+            results.append(f"router({n} entries)")
         except Exception as exc:  # noqa: BLE001
             results.append(f"router(⚠ {exc})")
         try:
