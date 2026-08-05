@@ -1,0 +1,63 @@
+schema_version: 1
+intent: sql_export_cite_the_full_csv
+agent: core
+keywords:
+  - export to csv
+  - export csv
+  - list every
+  - list all
+  - all devices
+  - every device
+  - full list
+  - full results
+  - complete list
+  - inventory
+  - dump
+  - FULL results
+  - truncated
+  - only first
+  - 导出
+  - 全部
+  - 所有设备
+  - 完整
+body: |
+  Exporting query results — cite execute_sql's CSV, never re-export the preview
+
+  ``execute_sql`` follows a "cap to context, full to file" contract. When a
+  result is too wide or too long for context it writes the COMPLETE result to
+  disk itself and tells you so:
+
+      FULL results (339 rows) exported to exports/queries/query_<ts>.csv.
+      Only first 20 rows returned to context to prevent bloat.
+
+  When you see that message:
+
+    1. THE FILE IS THE ANSWER. Cite that exact path to the user.
+    2. Do NOT call ``format_and_export`` to "save the results" — the rows you
+       hold are a PREVIEW, capped to MAX_ROWS_TO_CONTEXT (10 small / 20 medium
+       / 50 large tier). Writing them produces a file that looks complete and
+       is not.
+    3. Never describe a file you built from the preview as "all", "every" or
+       "the full" anything. If the user asked for every device and ``count``
+       exceeds the rows you can see, the only correct artifact is the CSV
+       execute_sql already wrote.
+
+  ``format_and_export`` is for content you legitimately authored — a markdown
+  report, a summary table you reasoned about, a generated script. It is not a
+  way to move query results to disk; execute_sql has already done that, without
+  passing 339 rows through the context window.
+
+  If the user wants a nicer filename, say where the real file is. Do not copy
+  20 of 339 rows into a prettier name.
+
+  Why this guide exists:
+    2026-08-05, mini-runsheet Ch2 on a clean-VM wheel install (dev_docs/115
+    §1b), gemma4-31b. Prompt: "List every device with its model and mgmt IP,
+    and export it to CSV". execute_sql wrote all 339 rows to
+    exports/queries/query_20260805_155713.csv and said so. The agent then
+    called format_and_export on its 20-row preview, wrote
+    exports/queries/device_inventory.csv (21 lines), and told the user that
+    file contained "all devices". Correct columns, real data, silently 6% of
+    it — the failure is invisible unless you count the lines. The tool
+    contract was right and the tool docs were right; only the choice of tool
+    was wrong, which is why this is a guide and not a code change.
