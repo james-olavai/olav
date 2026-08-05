@@ -47,6 +47,10 @@ def ingest_snapshot(
           - ``hosts``             (int)
           - ``commands``          (int)
           - ``parser_fills``      ({command: rows_parsed, ...})
+          - ``parse_report``      (what did NOT parse, and why — counts by
+                                  reason, devices with no structured data)
+          - ``report_path``       (markdown breakdown under
+                                  ``exports/import_reports/``)
           - ``audit_run_id``      (uuid or None)
     """
     import os
@@ -90,6 +94,11 @@ def ingest_snapshot(
         "commands": result.commands,
         "parser_fills": result.parser_fills,
         "audit_run_id": result.audit_run_id,
+        # What did NOT reach structured form, and why. Surface it — an ingest
+        # that only reports successes hides ~74% of the command outputs it
+        # landed (dev_docs/116). ``report_path`` is the full markdown breakdown.
+        "parse_report": result.parse_report,
+        "report_path": result.report_path,
     }
 
 

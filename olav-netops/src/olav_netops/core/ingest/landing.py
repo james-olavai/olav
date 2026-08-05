@@ -26,9 +26,10 @@ from __future__ import annotations
 import getpass
 import hashlib
 import json
+import logging
 import os
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,8 @@ import duckdb
 from olav.core.db_write import open_write_connection
 from olav.core.ingest.bundle_reader import BundleReader
 from olav.core.ingest.validators import validate_bundle
+
+logger = logging.getLogger(__name__)
 
 
 # ── Public result type ────────────────────────────────────────────────
@@ -55,6 +58,10 @@ class IngestResult:
     commands: int
     parser_fills: dict[str, int]
     audit_run_id: str | None = None
+    # What did NOT make it into structured form, and why. Empty dict only when
+    # the report could not be built at all.
+    parse_report: dict[str, Any] = field(default_factory=dict)
+    report_path: str | None = None
 
 
 # ── Internal helpers ──────────────────────────────────────────────────
@@ -74,17 +81,193 @@ def _safe_text_for_db(text: str) -> str:
         return text
 
 
-def _parse_one(platform: str, command: str, body: str) -> str | None:
-    """Try to TextFSM-parse a single (platform, command, body); return
-    JSON-encoded list-of-dicts or None."""
+def _parse_one(platform: str, command: str, body: str) -> tuple[str | None, str]:
+    """Parse a single (platform, command, body).
+
+    Returns ``(json_or_None, reason)``. The reason exists because this function
+    used to collapse three very different outcomes into a bare ``None`` — an
+    exception, an empty parse, and "no template for this platform/command" —
+    and the caller counted only successes. On a 339-device bundle that silently
+    discarded 6483 of 8761 command outputs with no record of which or why
+    (dev_docs/116).
+
+    ``no_rows`` covers both "template matched nothing" and "no template at all",
+    because ``parse_output`` folds its three tiers into one ``None``; the two are
+    separated afterwards against the ``netops.commands`` SSOT, which knows
+    whether a parser is registered for that platform+command.
+    """
     try:
         from olav_netops.tools.textfsm_parse import parse_output
         parsed = parse_output(platform, command, body)
-    except Exception:  # noqa: BLE001 — best-effort
-        return None
+    except Exception as exc:  # noqa: BLE001 — best-effort, but say what happened
+        return None, f"parser_error:{type(exc).__name__}"
     if not parsed:
+        return None, "no_rows"
+    return json.dumps(parsed), "ok"
+
+
+_REASON_LABELS = {
+    "raw_only": "by design — command is registered raw_only, no parser expected",
+    "no_parser_registered": "no parser registered for this platform+command",
+    "parser_no_match": "parser exists but matched no rows (template/output mismatch)",
+}
+
+
+def _classify_unparsed(
+    conn: Any,
+    unparsed: dict[tuple[str, str], int],
+    parse_errors: dict[tuple[str, str], str],
+) -> list[dict[str, Any]]:
+    """Attach a reason to every unparsed (platform, command) tally.
+
+    ``netops.commands`` is the SSOT populated by ``commands_sync``: it knows
+    ``parser_type`` per platform+command, which is what separates "we chose not
+    to parse this" (``raw_only`` — running-config and friends) from "nothing is
+    registered" from "a parser ran and matched nothing". Falls back to the
+    coarse label when the SSOT is unavailable rather than guessing.
+    """
+    ssot: dict[tuple[str, str], str] = {}
+    try:
+        for plat, cmd, ptype in conn.execute(
+            "SELECT platform, command, parser_type FROM netops.commands"
+        ).fetchall():
+            ssot[(plat or "", cmd or "")] = (ptype or "")
+    except Exception:  # noqa: BLE001 — SSOT not synced yet; degrade honestly
+        ssot = {}
+
+    out: list[dict[str, Any]] = []
+    for (plat, cmd), count in unparsed.items():
+        if (plat, cmd) in parse_errors:
+            reason = parse_errors[(plat, cmd)]
+            detail = "the parser raised — see logs for the traceback"
+        elif not ssot:
+            reason = "unclassified"
+            detail = "netops.commands not populated — run `olav init` to sync the command SSOT"
+        else:
+            ptype = ssot.get((plat, cmd))
+            if ptype is None:
+                reason = "no_parser_registered"
+            elif ptype == "raw_only":
+                reason = "raw_only"
+            else:
+                reason = "parser_no_match"
+            detail = _REASON_LABELS.get(reason, reason)
+        out.append({
+            "platform": plat,
+            "command": cmd,
+            "count": count,
+            "reason": reason,
+            "detail": detail,
+        })
+    out.sort(key=lambda r: (-r["count"], r["command"]))
+    return out
+
+
+def _pct(part: int, whole: int) -> int:
+    """Rounded percentage; the caller derives the complement so they sum to 100."""
+    return round(part * 100 / whole) if whole else 0
+
+
+def _write_import_report(
+    reports_dir: Path,
+    *,
+    snapshot_id: str,
+    bundle_id: str,
+    collection_source: str,
+    hosts: set[str],
+    hosts_with_parsed: set[str],
+    pairs_total: int,
+    pairs_parsed: int,
+    unparsed_rows: list[dict[str, Any]],
+    parser_fills: dict[str, int],
+) -> str | None:
+    """Write the human-readable import report; return its path (or None)."""
+    silent = sorted(hosts - hosts_with_parsed)
+    by_reason: dict[str, int] = {}
+    for r in unparsed_rows:
+        by_reason[r["reason"]] = by_reason.get(r["reason"], 0) + r["count"]
+    pairs_unparsed = pairs_total - pairs_parsed
+
+    lines: list[str] = [
+        f"# Import report — {snapshot_id}",
+        "",
+        f"- **Bundle**: `{bundle_id}`",
+        f"- **Source**: `{collection_source}`",
+        f"- **Devices landed**: {len(hosts)}",
+        f"- **Command outputs landed**: {pairs_total}",
+        # Complementary percentages — flooring both made them sum to 99%.
+        f"- **Parsed into structured rows**: {pairs_parsed}"
+        + (f" ({_pct(pairs_parsed, pairs_total)}%)" if pairs_total else ""),
+        f"- **Not parsed**: {pairs_unparsed}"
+        + (f" ({100 - _pct(pairs_parsed, pairs_total)}%)" if pairs_total else ""),
+        "",
+        "Everything landed is queryable: `netops.raw_output_store` holds the raw",
+        "text for every command above, and `netops.devices` has a row per device.",
+        "Only the *structured* views (`netops.parsed_outputs`, `v_*_auto`) are",
+        "limited to what a parser could read.",
+        "",
+    ]
+
+    lines += ["## Devices with no structured data", ""]
+    if not silent:
+        lines += ["Every device produced at least one parsed command output.", ""]
+    else:
+        lines += [
+            f"{len(silent)} of {len(hosts)} devices contributed **no** parsed rows.",
+            "They are present in `netops.devices` and their raw output is stored,",
+            "but they will not appear in any `v_*_auto` view.",
+            "",
+            "| Device |",
+            "| :--- |",
+        ]
+        lines += [f"| `{d}` |" for d in silent[:50]]
+        if len(silent) > 50:
+            lines.append(f"| … and {len(silent) - 50} more |")
+        lines.append("")
+
+    lines += ["## Why outputs were not parsed", ""]
+    if not by_reason:
+        lines += ["Nothing was dropped.", ""]
+    else:
+        lines += ["| Reason | Outputs | Meaning |", "| :--- | ---: | :--- |"]
+        for reason, count in sorted(by_reason.items(), key=lambda kv: -kv[1]):
+            lines.append(
+                f"| `{reason}` | {count} | {_REASON_LABELS.get(reason, '—')} |"
+            )
+        lines.append("")
+        lines += [
+            "### By command",
+            "",
+            "| Command | Platform | Outputs | Reason |",
+            "| :--- | :--- | ---: | :--- |",
+        ]
+        for r in unparsed_rows[:40]:
+            lines.append(
+                f"| `{r['command']}` | {r['platform'] or '—'} | {r['count']} | `{r['reason']}` |"
+            )
+        if len(unparsed_rows) > 40:
+            lines.append(f"| … and {len(unparsed_rows) - 40} more command/platform pairs | | | |")
+        lines.append("")
+
+    if parser_fills:
+        lines += [
+            "## Parsed successfully",
+            "",
+            "| Command | Outputs parsed |",
+            "| :--- | ---: |",
+        ]
+        for cmd, n in sorted(parser_fills.items(), key=lambda kv: -kv[1]):
+            lines.append(f"| `{cmd}` | {n} |")
+        lines.append("")
+
+    try:
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        path = reports_dir / f"{snapshot_id}.md"
+        path.write_text("\n".join(lines), encoding="utf-8")
+        return str(path)
+    except Exception:  # noqa: BLE001 — a report failure must not fail the ingest
+        logger.warning("import report could not be written to %s", reports_dir)
         return None
-    return json.dumps(parsed)
 
 
 # ── Public entry point ────────────────────────────────────────────────
@@ -172,15 +355,28 @@ def ingest_snapshot(
     rows: list[dict[str, Any]] = []
     parser_fills: dict[str, int] = {}
     hosts: set[str] = set()
+    # Loss ledger — what did NOT make it into parsed_outputs, keyed by
+    # (platform, command) so the reason can be resolved against the command SSOT
+    # once the DB is open. Without this the import is silent about ~74% of the
+    # command outputs it landed.
+    unparsed: dict[tuple[str, str], int] = {}
+    parse_errors: dict[tuple[str, str], str] = {}
+    hosts_with_parsed: set[str] = set()
 
     for rec in reader.iter_command_outputs():
         body = rec.body
         if not _skip_scrub:
             body = _safe_text_for_db(body)
         effective_platform = host_platforms.get(rec.host) or rec.platform
-        parsed_json = _parse_one(effective_platform, rec.command, body)
+        parsed_json, reason = _parse_one(effective_platform, rec.command, body)
         if parsed_json:
             parser_fills[rec.command] = parser_fills.get(rec.command, 0) + 1
+            hosts_with_parsed.add(rec.host)
+        else:
+            key = (effective_platform or "", rec.command)
+            unparsed[key] = unparsed.get(key, 0) + 1
+            if reason.startswith("parser_error:"):
+                parse_errors.setdefault(key, reason)
         rows.append({
             "snapshot_id": sid,
             "device_name": rec.host,
@@ -236,6 +432,48 @@ def ingest_snapshot(
             finalise_ingest(conn)
         except Exception:  # noqa: BLE001 — non-fatal
             pass
+
+    # 6b. Import report — classify everything that did NOT parse and write it
+    # down. The command SSOT is only readable now that the DB exists, and the
+    # tallies were collected in step 3.
+    unparsed_rows: list[dict[str, Any]] = []
+    try:
+        with open_write_connection(str(db_path)) as conn:
+            unparsed_rows = _classify_unparsed(conn, unparsed, parse_errors)
+    except Exception:  # noqa: BLE001 — reporting must never fail an ingest
+        logger.warning("could not classify unparsed outputs", exc_info=True)
+
+    pairs_total = len(rows)
+    pairs_parsed = sum(parser_fills.values())
+    silent_hosts = sorted(hosts - hosts_with_parsed)
+    by_reason: dict[str, int] = {}
+    for _r in unparsed_rows:
+        by_reason[_r["reason"]] = by_reason.get(_r["reason"], 0) + _r["count"]
+
+    report_path = _write_import_report(
+        Path(staging_dir).parent.parent / "import_reports",
+        snapshot_id=sid,
+        bundle_id=bundle_id,
+        collection_source=collection_source,
+        hosts=hosts,
+        hosts_with_parsed=hosts_with_parsed,
+        pairs_total=pairs_total,
+        pairs_parsed=pairs_parsed,
+        unparsed_rows=unparsed_rows,
+        parser_fills=parser_fills,
+    )
+
+    parse_report: dict[str, Any] = {
+        "devices_landed": len(hosts),
+        "devices_with_structured_data": len(hosts_with_parsed),
+        "devices_with_no_structured_data": len(silent_hosts),
+        "devices_with_no_structured_data_sample": silent_hosts[:20],
+        "command_outputs_landed": pairs_total,
+        "command_outputs_parsed": pairs_parsed,
+        "command_outputs_unparsed": pairs_total - pairs_parsed,
+        "unparsed_by_reason": by_reason,
+        "unparsed_by_command": unparsed_rows[:20],
+    }
 
     # 7. Stamp bundle provenance on the freshly-landed rows + record the
     # bundle_ingests event.
@@ -297,6 +535,8 @@ def ingest_snapshot(
         commands=len(rows),
         parser_fills=parser_fills,
         audit_run_id=audit_run_id,
+        parse_report=parse_report,
+        report_path=report_path,
     )
 
 
