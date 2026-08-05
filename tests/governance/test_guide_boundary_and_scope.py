@@ -39,6 +39,10 @@ _GLOBAL_ALLOWED = {
     "write_class_tool_call_directive",
     "viz_drawio_xml_rules",
     "diagram_format_choice_and_minimal_examples",
+    # Routes syslog questions to the search_logs TOOL rather than execute_sql.
+    # Subject looks network-ish; function is tool routing, and both core and
+    # audit/explorer hold the tool.
+    "syslog_search_during_troubleshooting",
 }
 
 # Six network-type playbooks still ship under the platform's audit/explorer.

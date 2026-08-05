@@ -1,10 +1,12 @@
 schema_version: 1
 intent: syslog_search_during_troubleshooting
-agent: netops
-# Moved out of the platform wheel 2026-08-05: this is network-domain
-# knowledge, and CLAUDE.md forbids olav core carrying it. Declared core
-# before, which after the scope fix would have hidden it from the netops
-# agent entirely (dev_docs/117).
+agent: core
+# Platform tool routing, not domain knowledge: it tells an agent to reach for
+# the search_logs TOOL instead of execute_sql. I moved this to olav-netops on
+# 2026-08-05 because the subject is syslog, and test_syslog_routing_guide_exists
+# caught it — search_logs lives in src/olav/data/workspace/core/tools/, and both
+# core and audit/explorer hold it, so this is global tool usage (dev_docs/117).
+scope: global
 keywords:
   - syslog
   - log

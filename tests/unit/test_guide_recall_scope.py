@@ -115,6 +115,9 @@ class TestShippedPlatformGuides:
             "write_class_tool_call_directive",
             "viz_drawio_xml_rules",
             "diagram_format_choice_and_minimal_examples",
+            # Tool routing despite a network-sounding subject: it sends syslog
+            # questions to the search_logs tool instead of execute_sql.
+            "syslog_search_during_troubleshooting",
         }
         offenders = sorted(
             g.intent for g in self._guides()
