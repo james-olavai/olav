@@ -1,6 +1,10 @@
 schema_version: 1
 intent: write_class_tool_call_directive
 agent: core
+# Platform tool usage — argument shape / calling convention, no domain
+# knowledge. Every agent holding the tool needs it, so it opts into
+# cross-agent recall. Domain guides must NOT do this (dev_docs/117).
+scope: global
 keywords:
   - write
   - save

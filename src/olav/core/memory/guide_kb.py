@@ -97,8 +97,24 @@ class UsageGuide:
     # overrides priority via SOURCE_TIERS map.  Missing field on a
     # schema_version=1 YAML defaults to "user" (least trusted).
     source_tier: str = DEFAULT_SOURCE_TIER
+    # 2026-08-05: recall scope. Every guide used to be primed with
+    # scope="global", so ``agent:`` only shaped the memory ID and never reached
+    # the retrieval filter — all 43 guides competed for every agent's top-k, and
+    # measurement showed two of them winning 7/7 and 6/7 of unrelated probes,
+    # eating two of the three medium-tier slots (dev_docs/117). Now the scope
+    # defaults to the owning agent; a guide opts INTO cross-agent visibility by
+    # declaring ``scope: global``, which is reserved for platform *tool* usage
+    # (argument shape, calling convention, output format) — not for domain
+    # knowledge or workflow, which belongs to its agent.
+    scope: str | None = None
     related: list[dict] = field(default_factory=list)
     source_path: Path | None = None
+
+    @property
+    def effective_scope(self) -> str:
+        """Scope to store the row under: explicit ``scope:`` or the agent."""
+        declared = (self.scope or "").strip()
+        return declared or self.agent
 
     @classmethod
     def from_yaml(cls, path: Path) -> "UsageGuide":
@@ -145,6 +161,7 @@ class UsageGuide:
             schema_version=int(data.get("schema_version", 1)),
             priority=derived_priority,
             source_tier=tier,
+            scope=(str(data["scope"]).strip() if data.get("scope") else None),
             related=list(data.get("related") or []),
             source_path=path,
         )
@@ -356,7 +373,7 @@ def prime_guides_from_dir(
                 text=guide.body,
                 vector=vec,
                 category="usage_guide",
-                scope="global",
+                scope=guide.effective_scope,
                 metadata={
                     "intent": guide.intent,
                     "agent": guide.agent,

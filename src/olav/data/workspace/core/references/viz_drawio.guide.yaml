@@ -1,6 +1,10 @@
 schema_version: 2
 intent: viz_drawio_xml_rules
 agent: core
+# Platform tool usage — argument shape / calling convention, no domain
+# knowledge. Every agent holding the tool needs it, so it opts into
+# cross-agent recall. Domain guides must NOT do this (dev_docs/117).
+scope: global
 source_tier: platform
 keywords:
 - drawio
