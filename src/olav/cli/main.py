@@ -1547,6 +1547,10 @@ async def run_single_query(
         # loose ≤8 (which had to account for delegate-internal bloat).
         _DELEGATE_TOOLS = {"olav_delegate", "task"}
         _delegate_depth = 0
+        # Set when a delegate tool returns; compared against len(_chunks) after
+        # the stream to tell "answer relayed" from "answer stranded".
+        _chunks_at_last_delegate: int | None = None
+        _SILENT_DELEGATE_NAMES = {"olav_delegate", "task"}
 
         async for event in _graph.astream_events(input_msg, config=config, context=_run_context, version="v2"):
             kind = event.get("event", "")
@@ -1606,6 +1610,14 @@ async def run_single_query(
                     "args": _args,
                     "content": str(output)[:4096],
                 })
+                # How much had been streamed when the last delegation returned.
+                # If nothing arrives after it, the orchestrator never relayed the
+                # sub-agent's answer — see the Tier 0 block below. Emptiness alone
+                # cannot detect that: the model usually streams a "I will check X"
+                # preamble BEFORE delegating, which makes final_content non-empty
+                # and skips every silent-final tier (dev_docs/115 §1c).
+                if tool_name in _SILENT_DELEGATE_NAMES:
+                    _chunks_at_last_delegate = len(_chunks)
 
         final_content = "".join(_chunks)
 
@@ -1684,6 +1696,33 @@ async def run_single_query(
             "format_and_export", "render_report", "take_snapshot",
             "save_lab_config", "write_file",
         }
+        # ── Tier 0: relay the sub-agent's answer when it was stranded ──
+        # Fires on ORDER, not on emptiness. The orchestrator typically streams a
+        # "I will check the netops views" preamble BEFORE delegating, so
+        # final_content is non-empty and every `if not final_content` tier below
+        # is skipped — yet nothing was said after the delegate returned, and the
+        # operator sees a plan with no answer (Ch2, 2/2 on the same prompt:
+        # dev_docs/115 §1c). If no text arrived after the last delegation, the
+        # answer exists only inside that tool result; print it verbatim, which is
+        # what ADR-0003/0005/0006 asks of a thin router anyway.
+        _answer_stranded = (
+            _chunks_at_last_delegate is not None
+            and len(_chunks) == _chunks_at_last_delegate
+        )
+        if _answer_stranded and _tool_results:
+            for tr in reversed(_tool_results):
+                if tr["name"] not in _SILENT_DELEGATE:
+                    continue
+                _raw = tr.get("content") or ""
+                _inner = re.findall(r"content='(.*?)'\s*,?\s*name=", _raw, re.DOTALL)
+                _text = (_inner[-1] if _inner else "").replace("\\n", "\n").strip()
+                if not _text:
+                    continue
+                console.print("")
+                console.print(_text)
+                final_content = (final_content + "\n" + _text).strip() if final_content else _text
+                break
+
         if not final_content and _tool_results:
             # ── Tier 1: LLM synthesis ──
             _synth_candidates = [
@@ -1745,6 +1784,20 @@ async def run_single_query(
                 for line in _fallback_lines:
                     console.print(line)
                 final_content = "\n".join(_fallback_lines)
+
+        # Last resort: never exit silently. Every tier above can come up empty
+        # (Tier 1's synthesis call can fail three times or return no text), and
+        # the operator's only signal was then an empty screen with rc=0 —
+        # indistinguishable from "the question had no answer".
+        if not final_content:
+            _n = len(_tool_results)
+            console.print("")
+            console.print(
+                f"[yellow]No final answer was produced[/yellow] "
+                f"({_n} tool call{'s' if _n != 1 else ''} ran). "
+                "The model returned no closing message and no tool result could "
+                "be surfaced — re-run the question, or check the LLM endpoint."
+            )
 
         recorder.record(
             event_type="assistant_output_final",
