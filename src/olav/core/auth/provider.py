@@ -25,8 +25,8 @@ class AuthProvider(Protocol):
 
 _ENT_AUTH_MSG = (
     "auth.mode={mode!r} requires olav-ent (the token/server/ldap providers moved "
-    "to olav.enterprise.auth — dev_docs/111 tiered model). Install olav-ent, or "
-    "use auth.mode=none (OS identity) for a personal install."
+    "to olav.enterprise.auth — see dev_docs/31 ENTERPRISE_FEATURES). Install "
+    "olav-ent, or use auth.mode=none (OS identity) for a personal install."
 )
 
 
