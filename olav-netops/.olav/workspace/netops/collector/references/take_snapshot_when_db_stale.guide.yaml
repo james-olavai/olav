@@ -1,6 +1,9 @@
 schema_version: 1
 intent: take_snapshot_when_db_stale_and_targeted
-agent: core
+agent: netops
+# 2026-08-05: was declared core while being network-domain knowledge.
+# After the scope fix that would have hidden it from the netops agent
+# and exposed it to core instead (dev_docs/117).
 keywords:
   - take_snapshot
   - snapshot

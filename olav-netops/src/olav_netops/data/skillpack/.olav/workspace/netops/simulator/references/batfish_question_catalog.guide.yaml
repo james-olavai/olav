@@ -1,6 +1,9 @@
 schema_version: 1
 intent: batfish_question_catalog
-agent: sim
+agent: simulator
+# 2026-08-05: was 'agent: sim', which matches no real workspace — the
+# scope filter would never have matched it once agent started governing
+# recall (dev_docs/117).
 keywords:
   - batfish question
   - batfish q

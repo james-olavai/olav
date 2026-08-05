@@ -1,6 +1,10 @@
 schema_version: 1
 intent: bgp_path_selection_and_state_machine
-agent: core
+agent: netops
+# Moved out of the platform wheel 2026-08-05: this is network-domain
+# knowledge, and CLAUDE.md forbids olav core carrying it. Declared core
+# before, which after the scope fix would have hidden it from the netops
+# agent entirely (dev_docs/117).
 keywords:
   - bgp
   - bgp neighbor

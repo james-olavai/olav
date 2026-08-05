@@ -1,6 +1,9 @@
 schema_version: 1
 intent: troubleshoot_layered_l1_to_l4_protocol_agnostic
-agent: core
+agent: netops
+# 2026-08-05: was declared core while being network-domain knowledge.
+# After the scope fix that would have hidden it from the netops agent
+# and exposed it to core instead (dev_docs/117).
 keywords:
   - troubleshoot
   - troubleshooting
