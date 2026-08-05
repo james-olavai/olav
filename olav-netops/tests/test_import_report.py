@@ -199,3 +199,67 @@ def test_ingest_result_carries_the_report_fields():
     assert r.parse_report == {} and r.report_path is None, (
         "defaults must keep existing callers working"
     )
+
+
+class TestLearnerSuggestion:
+    """A diagnostic that only names the gap leaves the operator to guess the fix.
+
+    netops/learner exists for exactly "stock ntc-templates cannot read this", so
+    the report points at it — but only for the reasons it can actually fix.
+    """
+
+    def _report(self, tmp_path, unparsed_rows):
+        path = landing._write_import_report(
+            tmp_path / "r",
+            snapshot_id="snap_x", bundle_id="b", collection_source="c",
+            hosts={"d1"}, hosts_with_parsed={"d1"},
+            pairs_total=1000, pairs_parsed=100,
+            unparsed_rows=unparsed_rows, parser_fills={},
+        )
+        return Path(path).read_text(encoding="utf-8")
+
+    def test_suggests_the_learner_for_gaps_it_can_fill(self, tmp_path):
+        text = self._report(tmp_path, [
+            {"platform": "cisco_ios", "command": "show ip igmp snooping group",
+             "count": 281, "reason": "no_parser_registered", "detail": "-"},
+            {"platform": "cisco_ios", "command": "show ip arp",
+             "count": 200, "reason": "parser_no_match", "detail": "-"},
+        ])
+        assert "## Next step — teach the parser" in text
+        assert "netops/learner" in text
+        assert "481 of the unparsed outputs" in text, "should total the learnable subset"
+        assert '/learn_cmd "show ip igmp snooping group"' in text, (
+            "the highest-volume candidate should be the worked example"
+        )
+        assert "learn_commands(samples=[...])" in text
+        # ready-to-run sample extraction
+        assert "FROM netops.raw_output_store" in text
+        assert "snapshot_id = 'snap_x'" in text
+
+    def test_never_offers_to_learn_a_raw_only_command(self, tmp_path):
+        text = self._report(tmp_path, [
+            {"platform": "cisco_ios", "command": "show running-config",
+             "count": 338, "reason": "raw_only", "detail": "by design"},
+        ])
+        assert "## Next step — teach the parser" not in text, (
+            "running-config is text-only on purpose — learning a parser is wrong"
+        )
+
+    def test_parser_errors_are_not_treated_as_learnable_gaps(self, tmp_path):
+        text = self._report(tmp_path, [
+            {"platform": "cisco_ios", "command": "show version",
+             "count": 5, "reason": "parser_error:TypeError", "detail": "raised"},
+        ])
+        assert "## Next step — teach the parser" not in text, (
+            "a raising parser is a bug to fix, not a gap to learn"
+        )
+
+    def test_mixed_reasons_only_count_the_learnable_ones(self, tmp_path):
+        text = self._report(tmp_path, [
+            {"platform": "cisco_ios", "command": "show running-config",
+             "count": 338, "reason": "raw_only", "detail": "-"},
+            {"platform": "cisco_ios", "command": "show ip arp",
+             "count": 60, "reason": "parser_no_match", "detail": "-"},
+        ])
+        assert "60 of the unparsed outputs" in text
+        assert "show running-config" not in text.split("## Next step")[1]

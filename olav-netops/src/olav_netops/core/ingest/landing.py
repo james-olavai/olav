@@ -249,6 +249,69 @@ def _write_import_report(
             lines.append(f"| … and {len(unparsed_rows) - 40} more command/platform pairs | | | |")
         lines.append("")
 
+    # Actionable next step. A diagnostic that only names the gap leaves the
+    # operator to work out the remedy; netops/learner exists precisely for
+    # "stock ntc-templates can't parse this" and freezes a parser that every
+    # later pipeline run picks up automatically. raw_only is deliberately
+    # excluded — learning a parser for running-config would be wrong — and so
+    # are parser_error rows, which are bugs to fix rather than gaps to fill.
+    learnable = [
+        r for r in unparsed_rows
+        if r["reason"] in {"no_parser_registered", "parser_no_match"}
+    ]
+    if learnable:
+        total_learnable = sum(r["count"] for r in learnable)
+        lines += [
+            "## Next step — teach the parser",
+            "",
+            f"{total_learnable} of the unparsed outputs are covered by "
+            f"`netops/learner`, which takes output the stock ntc-templates cannot "
+            "read and freezes a persistent parser; every later ingest picks it up "
+            "automatically. The raw text is already stored, so nothing needs "
+            "recollecting.",
+            "",
+            "Highest-volume candidates first:",
+            "",
+            "| Command | Platform | Outputs | Reason |",
+            "| :--- | :--- | ---: | :--- |",
+        ]
+        for r in learnable[:15]:
+            lines.append(
+                f"| `{r['command']}` | {r['platform'] or '—'} | {r['count']} | `{r['reason']}` |"
+            )
+        if len(learnable) > 15:
+            lines.append(f"| … and {len(learnable) - 15} more | | | |")
+        top = learnable[0]
+        lines += [
+            "",
+            "One command, interactively:",
+            "",
+            "```",
+            f'/learn_cmd "{top["command"]}" --device <a device that ran it>'
+            + (f' --platform {top["platform"]}' if top["platform"] else ""),
+            "```",
+            "",
+            "Or the whole backlog in one batch — the samples come straight out of",
+            "the raw store:",
+            "",
+            "```sql",
+            "SELECT device_name AS device, platform, command, raw_output",
+            "FROM netops.raw_output_store",
+            f"WHERE snapshot_id = '{snapshot_id}'",
+            "  AND command IN (" + ", ".join(
+                f"'{r['command']}'" for r in learnable[:15]
+            ) + ")",
+            "```",
+            "",
+            "…then hand those rows to `learn_commands(samples=[...])` in the",
+            "`netops/learner` skill (batch mode groups them by platform+command",
+            "itself, so pass every sample you have).",
+            "",
+            "`raw_only` rows are **not** listed here: those commands are registered",
+            "as text-only on purpose and must stay unparsed.",
+            "",
+        ]
+
     if parser_fills:
         lines += [
             "## Parsed successfully",
@@ -473,6 +536,23 @@ def ingest_snapshot(
         "command_outputs_unparsed": pairs_total - pairs_parsed,
         "unparsed_by_reason": by_reason,
         "unparsed_by_command": unparsed_rows[:20],
+        # The subset netops/learner can actually fix, so the agent can say
+        # "and here is how to close it" rather than only naming the gap.
+        # raw_only is excluded by design; parser_error rows are bugs, not gaps.
+        "learnable_commands": [
+            {"command": r["command"], "platform": r["platform"], "count": r["count"]}
+            for r in unparsed_rows
+            if r["reason"] in {"no_parser_registered", "parser_no_match"}
+        ][:15],
+        "learnable_outputs": sum(
+            r["count"] for r in unparsed_rows
+            if r["reason"] in {"no_parser_registered", "parser_no_match"}
+        ),
+        "remedy": (
+            "netops/learner: `/learn_cmd \"<command>\" --device <device>` for one, "
+            "or learn_commands(samples=[...]) for the batch — the raw text is "
+            "already in netops.raw_output_store, nothing needs recollecting"
+        ),
     }
 
     # 7. Stamp bundle provenance on the freshly-landed rows + record the

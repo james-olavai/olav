@@ -220,9 +220,26 @@ To query the resulting state:
     SELECT * FROM netops.v_ospf_neighbors_auto WHERE snapshot_id = '<snapshot_id>';
 ```
 
-If `parse_report.unparsed_by_reason` contains `no_parser_registered`, say so —
-that is a whitelist gap, and the per-command table in the full report is a
-ranked list of which parser to add next.
+**Always close the loop when `parse_report.learnable_outputs` > 0.** Those
+outputs are ones `netops/learner` can fix: it takes output the stock
+ntc-templates cannot read and freezes a persistent parser that every later
+ingest picks up automatically. The raw text is already in
+`netops.raw_output_store`, so nothing needs recollecting. Name the top
+`parse_report.learnable_commands` entries and offer the remedy:
+
+```
+/learn_cmd "<command>" --device <a device that ran it> [--platform <platform>]
+```
+
+or, for the whole backlog at once, the `learn_commands` script in the
+`netops/learner` skill (batch mode groups samples by platform+command itself).
+The full report carries ready-made SQL that pulls the samples out of
+`netops.raw_output_store`.
+
+A `no_parser_registered` reason is a whitelist gap and the per-command table in
+the full report ranks which parser to add next. Do **not** offer to learn a
+parser for `raw_only` commands — those are registered as text-only on purpose.
+A `parser_error:*` reason is a bug to report, not a gap to learn.
 
 ## Hard rules
 
