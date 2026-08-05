@@ -263,3 +263,56 @@ class TestLearnerSuggestion:
         ])
         assert "60 of the unparsed outputs" in text
         assert "show running-config" not in text.split("## Next step")[1]
+
+
+class TestSuggestionOnly:
+    """The learner must never run as part of an ingest.
+
+    Learning is per (platform, command) and LLM-driven, so a few dozen groups
+    take far longer than the ingest itself — folding it in would turn a
+    few-minute import into a very long one. The report suggests; the operator
+    decides when.
+    """
+
+    def test_report_says_it_is_a_suggestion_not_something_done(self, tmp_path):
+        path = landing._write_import_report(
+            tmp_path / "r",
+            snapshot_id="s", bundle_id="b", collection_source="c",
+            hosts={"d1"}, hosts_with_parsed={"d1"},
+            pairs_total=100, pairs_parsed=10,
+            unparsed_rows=[{"platform": "cisco_ios", "command": "show ip arp",
+                            "count": 90, "reason": "parser_no_match", "detail": "-"}],
+            parser_fills={},
+        )
+        text = Path(path).read_text(encoding="utf-8")
+        assert "suggestion, not something the import did" in text
+        assert "Run it separately" in text
+
+    def test_landing_module_never_invokes_the_learner(self):
+        """Mentions are allowed — the report text names the commands. Calls and
+        imports are not. Distinguished by AST, since a substring search trips
+        over `learn_commands(samples=[...])` inside a report string literal.
+        """
+        import ast
+
+        tree = ast.parse(Path(landing.__file__).read_text(encoding="utf-8"))
+        called: list[str] = []
+        imported: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                fn = node.func
+                name = getattr(fn, "id", None) or getattr(fn, "attr", None) or ""
+                if "learn" in name.lower():
+                    called.append(name)
+            elif isinstance(node, ast.Import):
+                imported += [a.name for a in node.names if "learn" in a.name.lower()]
+            elif isinstance(node, ast.ImportFrom):
+                mod = node.module or ""
+                if "learn" in mod.lower() or "skillpack" in mod.lower():
+                    imported.append(mod)
+                imported += [
+                    a.name for a in node.names if "learn" in a.name.lower()
+                ]
+
+        assert not called, f"landing.py calls the learner: {called}"
+        assert not imported, f"landing.py imports the learner: {imported}"

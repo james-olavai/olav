@@ -220,12 +220,20 @@ To query the resulting state:
     SELECT * FROM netops.v_ospf_neighbors_auto WHERE snapshot_id = '<snapshot_id>';
 ```
 
-**Always close the loop when `parse_report.learnable_outputs` > 0.** Those
-outputs are ones `netops/learner` can fix: it takes output the stock
-ntc-templates cannot read and freezes a persistent parser that every later
-ingest picks up automatically. The raw text is already in
-`netops.raw_output_store`, so nothing needs recollecting. Name the top
-`parse_report.learnable_commands` entries and offer the remedy:
+**When `parse_report.learnable_outputs` > 0, SUGGEST the learner — never run
+it.** Learning is per (platform, command) and LLM-driven, so a backlog of a few
+dozen groups takes far longer than the ingest itself; folding it into the import
+would turn a ~5 minute job into a very long one. **Do not call
+`learn_commands`, `/learn_cmd`, or the `learner` skill from this agent under any
+circumstances**, and do not offer to "do it now" — the import ends when the data
+is landed and reported.
+
+What to do instead: state that `netops/learner` can close the gap (it takes
+output the stock ntc-templates cannot read and freezes a persistent parser that
+every later ingest picks up automatically — the raw text is already in
+`netops.raw_output_store`, so nothing needs recollecting), name the top
+`parse_report.learnable_commands` entries, and hand over the command for the
+operator to run when they choose to:
 
 ```
 /learn_cmd "<command>" --device <a device that ran it> [--platform <platform>]

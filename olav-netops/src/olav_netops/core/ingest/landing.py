@@ -270,6 +270,12 @@ def _write_import_report(
             "automatically. The raw text is already stored, so nothing needs "
             "recollecting.",
             "",
+            "**This is a suggestion, not something the import did.** Learning is "
+            "per (platform, command) and LLM-driven, so it is deliberately kept "
+            "out of the ingest — running it here would stretch a few-minute "
+            "import into a very long one. Run it separately, when you choose to, "
+            "and re-ingest afterwards to pick up the new parsers.",
+            "",
             "Highest-volume candidates first:",
             "",
             "| Command | Platform | Outputs | Reason |",
@@ -548,7 +554,12 @@ def ingest_snapshot(
             r["count"] for r in unparsed_rows
             if r["reason"] in {"no_parser_registered", "parser_no_match"}
         ),
+        # Wording matters: this is a suggestion for the operator to act on later,
+        # never something the ingest should trigger. Learning is per
+        # (platform, command) and LLM-driven, so folding it into the import would
+        # stretch a few-minute job into a very long one.
         "remedy": (
+            "SUGGESTION ONLY — do not run this as part of the import. "
             "netops/learner: `/learn_cmd \"<command>\" --device <device>` for one, "
             "or learn_commands(samples=[...]) for the batch — the raw text is "
             "already in netops.raw_output_store, nothing needs recollecting"
