@@ -30,10 +30,80 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+# ── Role derivation for fleets that arrive without an inventory ──────────────
+# ``role`` used to come from ``hosts.yaml`` alone, so it was NULL for every
+# device on the offline-import path — which is the flagship "ingest a fleet with
+# no SSH" flow. Three consumers assume it is populated:
+#
+#   * ``execute_sql``'s SCHEMA_HINT advertises netops.devices(...,role) on every
+#     successful response, so the model is told it can answer "which one is the
+#     border router" with it;
+#   * SCHEMA_REFERENCE.md lists it as a key column, with a verified SQL example
+#     that selects it;
+#   * ``sim/graph_view.py`` gates its BGP-fact inference on the role containing
+#     one of {border, core, router, edge, spine, leaf} — with role NULL that
+#     check fails for every device, so it treats the whole fleet as access
+#     switches and the inference never runs.
+#
+# Measured on a 339-device offline import (dev_docs/115 §1g): role NULL 339/339.
+# The agent asked for "the alpha border router", could not use role, fell back
+# to guessing hostnames, analysed alpha-wan-6880v instead of alpha-border-4500x,
+# and reported the AARNet config as non-existent while it sat in the DB.
+#
+# Order matters: the first token found wins, so keep the specific ones ahead of
+# the generic ``router``. Vocabulary deliberately matches graph_view's set —
+# deriving words no consumer understands would be pointless.
+_ROLE_TOKENS: tuple[str, ...] = (
+    "border",
+    "core",
+    "spine",
+    "leaf",
+    "edge",
+    "wan",
+    "dist",
+    "access",
+    "oob",
+    "router",
+)
+
+_SEGMENT_SPLIT = re.compile(r"[^a-z0-9]+")
+
+
+def infer_role_from_hostname(hostname: str) -> str | None:
+    """Derive a role token from *hostname*, or None when nothing matches.
+
+    Deliberately conservative — a wrong role is worse than no role, because
+    both the model and ``graph_view`` treat it as fact:
+
+    * only the **first DNS label** is considered, so a domain that happens to
+      contain a role word (``host.core.example.com``) cannot tag every device
+      in it;
+    * only whole ``-``/``_``/``.``-separated segments match, so ``coreless-1``
+      is not "core" and ``bordeaux-sw1`` is not "border";
+    * anything unmatched stays None rather than guessing.
+
+    >>> infer_role_from_hostname("alpha-border-4500x.net.demo.internal")
+    'border'
+    >>> infer_role_from_hostname("kappa-2P1-BORDER-S1.net.demo.internal")
+    'border'
+    >>> infer_role_from_hostname("alpha-as1-3850.net.demo.internal") is None
+    True
+    """
+    if not hostname:
+        return None
+    short = hostname.split(".", 1)[0].lower()
+    segments = {s for s in _SEGMENT_SPLIT.split(short) if s}
+    for token in _ROLE_TOKENS:
+        if token in segments:
+            return token
+    return None
 
 
 def load_host_metadata() -> dict[str, dict]:
@@ -317,7 +387,15 @@ def populate_devices(db_path: Any, snapshot_id: str = "") -> int:
             vendor = get_profile(plat).get("vendor", "")
 
             meta = host_meta.get(device_name, {})
+            # Inventory role is authoritative; hostname derivation is the
+            # fallback for fleets imported without a hosts.yaml (see
+            # _ROLE_TOKENS). Provenance goes into metadata so a consumer can
+            # tell a declared role from an inferred one.
             role_tag = meta.get("role")
+            role_source = "inventory" if role_tag else None
+            if not role_tag:
+                role_tag = infer_role_from_hostname(device_name)
+                role_source = "hostname" if role_tag else None
             site_tag = meta.get("site")
             env_tag = meta.get("environment")
             groups = meta.get("groups") or []
@@ -330,6 +408,8 @@ def populate_devices(db_path: Any, snapshot_id: str = "") -> int:
                 md["aliases"] = aliases
             if loopback_ip and loopback_ip != mgmt_ip:
                 md["loopback_ip"] = loopback_ip
+            if role_source:
+                md["role_source"] = role_source
             md.update(extra)
             metadata_json = json.dumps(md, ensure_ascii=False) if md else None
 
@@ -353,4 +433,4 @@ def populate_devices(db_path: Any, snapshot_id: str = "") -> int:
     return count
 
 
-__all__ = ["load_host_metadata", "populate_devices"]
+__all__ = ["infer_role_from_hostname", "load_host_metadata", "populate_devices"]
