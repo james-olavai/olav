@@ -7,7 +7,9 @@ olav init should:
    - fallback: per-env file at <users_db>/.auth_token (chmod 600)
    - legacy:   ~/.olav/token (still READ for back-compat, never
                written by new installs)
-3. Set api.json auth.mode = "token"
+3. Set api.json auth.mode = "token" — ONLY when the token provider is
+   installable (it lives in olav-ent). On a stock OSS install the mode must
+   stay "none", or every query path dies while init still reports success.
 """
 
 from __future__ import annotations
@@ -113,17 +115,71 @@ def test_init_does_not_write_legacy_user_global_token(tmp_path, monkeypatch) -> 
     )
 
 
+def _token_provider_installed() -> bool:
+    try:
+        from olav.enterprise.auth.token import TokenAuthProvider  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def test_init_sets_auth_mode_token(tmp_path, monkeypatch) -> None:
-    """init should set api.json auth.mode = 'token'."""
+    """init sets auth.mode='token' — but only where that mode can be served."""
     monkeypatch.chdir(tmp_path)
     _run_init(tmp_path)
 
     api_json_path = tmp_path / ".olav" / "config" / "api.json"
     assert api_json_path.exists()
     data = json.loads(api_json_path.read_text(encoding="utf-8"))
-    assert data.get("auth", {}).get("mode") == "token", (
-        f"api.json auth.mode should be 'token', got: {data.get('auth')}"
+    expected = "token" if _token_provider_installed() else "none"
+    assert data.get("auth", {}).get("mode") == expected, (
+        f"api.json auth.mode should be {expected!r} on this install "
+        f"(olav-ent {'present' if _token_provider_installed() else 'absent'}), "
+        f"got: {data.get('auth')}"
     )
+
+
+def test_init_never_writes_an_auth_mode_this_install_cannot_serve(
+    tmp_path, monkeypatch
+) -> None:
+    """The real invariant: whatever init writes, get_auth_provider must serve it.
+
+    ``token`` moved to olav-ent (dev_docs/111) and get_auth_provider fails fast
+    for it on purpose. init used to write it unconditionally, so a stock
+    olav(+olav-netops) install came out of a *successful* `olav init` — and a
+    9/9 `olav doctor` — with every query path dead:
+    "auth.mode='token' requires olav-ent".
+
+    Simulating the absent extension is what makes this a regression test rather
+    than a tautology: on a dev machine olav.enterprise is importable, which is
+    exactly why the defect shipped and had to be found on a clean VM.
+    """
+    import builtins
+
+    from olav.core.auth.provider import get_auth_provider
+
+    real_import = builtins.__import__
+
+    def _no_enterprise_auth(name, *args, **kwargs):
+        if name.startswith("olav.enterprise.auth"):
+            raise ImportError(f"simulated: {name} not installed")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(builtins, "__import__", _no_enterprise_auth)
+    _run_init(tmp_path)
+    monkeypatch.undo()
+
+    data = json.loads(
+        (tmp_path / ".olav" / "config" / "api.json").read_text(encoding="utf-8")
+    )
+    mode = data.get("auth", {}).get("mode")
+    assert mode != "token", (
+        "init wrote auth.mode='token' while the token provider was unavailable — "
+        "this is the bricked-OSS-install defect"
+    )
+    # And the written mode must actually resolve to a provider.
+    get_auth_provider(mode)
 
 
 def test_init_output_mentions_user_and_token(tmp_path, monkeypatch) -> None:

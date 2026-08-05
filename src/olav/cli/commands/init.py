@@ -281,9 +281,29 @@ class InitCommand(BaseCommand):
 
             _token_storage = save_token(token, users_db_path=users_db)
 
-            # Update api.json auth.mode → token
+            # Update api.json auth.mode → token, but ONLY if that mode can be
+            # served. ``token`` lives in olav-ent (dev_docs/111 tiered model) and
+            # get_auth_provider() raises NotImplementedError for it by design —
+            # silently downgrading an intended login to OS identity would be a
+            # security surprise. Writing the mode on a stock olav(+olav-netops)
+            # install therefore bricks **every** query path: `olav init` and
+            # `olav doctor` both still report success, and the first real
+            # question dies with "auth.mode='token' requires olav-ent".
+            #
+            # Found on 2026-08-05 by installing the built wheels on a clean VM.
+            # A dev machine cannot reproduce it: olav.enterprise is importable
+            # there, so the mode resolves and the write looks harmless.
+            try:
+                from olav.enterprise.auth.token import (  # noqa: F401
+                    TokenAuthProvider as _TokenProbe,
+                )
+
+                _token_mode_available = True
+            except ImportError:
+                _token_mode_available = False
+
             api_json_path = base_dir / "config" / "api.json"
-            if api_json_path.exists():
+            if api_json_path.exists() and _token_mode_available:
                 try:
                     api_data = json.loads(api_json_path.read_text(encoding="utf-8"))
                     if api_data.get("auth", {}).get("mode") != "token":
@@ -308,9 +328,19 @@ class InitCommand(BaseCommand):
                     f"  token → {_per_env_token_path(users_db)} "
                     "(chmod 600, keyring unavailable)"
                 )
+            mode_line = ""
+            if not _token_mode_available:
+                # The user + token are still created (they become usable the
+                # moment olav-ent is installed), but say plainly that this
+                # install authenticates by OS identity.
+                mode_line = (
+                    "  auth.mode stays 'none' (OS identity) — token login "
+                    "needs olav-ent\n"
+                )
             return (
                 f"✓ admin user '{username}' created\n"
                 f"{storage_line}\n"
+                f"{mode_line}"
                 f"  token (copy to save elsewhere): {token}\n"
                 f"  web login: http://{host_ip}:2280/?token={token}"
             )
