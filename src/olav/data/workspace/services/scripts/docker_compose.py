@@ -165,7 +165,18 @@ def docker_compose(
             "returncode": -1, "blocked": True, "reason": err,
         }
 
-    cmd = ["docker", "compose"] + shlex.split(subcommand)
+    # Project name: without -p, compose derives it from the directory basename,
+    # so two OLAV_HOMEs on one machine share a project and one deployment's
+    # commands drive the other's containers (dev_docs/115 §1i). The helper
+    # returns None when the directory-derived name is already correct here, so existing
+    # single-deployment installs keep behaving exactly as before.
+    try:
+        from olav.platform.services.compose_project import compose_argv
+
+        base = compose_argv(cwd)
+    except Exception:
+        base = ["docker", "compose"]
+    cmd = base + shlex.split(subcommand)
 
     try:
         result = subprocess.run(

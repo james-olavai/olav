@@ -24,6 +24,24 @@ def _find_project_root() -> Path:
 PROJECT_ROOT = _find_project_root()
 
 
+def _compose_prefix(cwd: Path) -> str:
+    """``docker compose`` plus ``-p <project>`` when this deployment needs one.
+
+    Without it the project name comes from the directory basename, so two
+    OLAV_HOMEs on one machine share it and one deployment's service commands
+    drive the other's containers (dev_docs/115 §1i). Falls back to the bare
+    command whenever the platform helper is unavailable or the directory-derived name is
+    already correct here.
+    """
+    try:
+        from olav.platform.services.compose_project import compose_project_name
+
+        project = compose_project_name(cwd)
+    except Exception:
+        project = None
+    return f"docker compose -p {project}" if project else "docker compose"
+
+
 def _run(cmd: str, cwd: Path, timeout: int = 60) -> tuple[int, str, str]:
     result = subprocess.run(
         cmd, shell=True, cwd=str(cwd),
@@ -84,13 +102,14 @@ def stop_service(
             "hint": f"Available services: {existing or ['none']}",
         }
 
+    compose = _compose_prefix(service_dir)
     if remove:
-        cmd = "docker compose down"
+        cmd = f"{compose} down"
         if remove_volumes:
             cmd += " -v"
         verb = "removed"
     else:
-        cmd = "docker compose stop"
+        cmd = f"{compose} stop"
         verb = "stopped"
 
     rc, out, err = _run(cmd, service_dir, timeout=120)
@@ -132,7 +151,7 @@ def list_services() -> dict:
             result.append({"name": svc_dir.name, "status": "no compose file", "containers": []})
             continue
 
-        rc, out, _ = _run("docker compose ps --format json", svc_dir, timeout=15)
+        rc, out, _ = _run(f"{_compose_prefix(svc_dir)} ps --format json", svc_dir, timeout=15)
         containers = []
         if rc == 0 and out:
             try:

@@ -32,9 +32,13 @@ def _ps_json(containers: list[dict]) -> str:
 
 def test_ps_uses_dash_a_so_exited_containers_are_visible():
     src = SCRIPT.read_text(encoding="utf-8")
-    assert "docker compose ps -a --format json" in src
-    assert "docker compose ps --format json" not in src.replace(
-        "docker compose ps -a --format json", ""
+    # The "docker compose" part is no longer a literal — it is built as
+    # f"{_compose_prefix(service_dir)} ps -a ..." so the project name can be
+    # namespaced per deployment (dev_docs/115 §1i). Match the subcommand, which
+    # is what this test is actually about.
+    assert "ps -a --format json" in src
+    assert "ps --format json" not in src.replace(
+        "ps -a --format json", ""
     ), "a bare `compose ps` (no -a) hides exited containers"
 
 

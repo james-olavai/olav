@@ -36,6 +36,24 @@ def _find_project_root() -> Path:
 PROJECT_ROOT = _find_project_root()
 
 
+def _compose_prefix(cwd: Path) -> str:
+    """``docker compose`` plus ``-p <project>`` when this deployment needs one.
+
+    Without it the project name comes from the directory basename, so two
+    OLAV_HOMEs on one machine share it and one deployment's service commands
+    drive the other's containers (dev_docs/115 §1i). Falls back to the bare
+    command whenever the platform helper is unavailable or the directory-derived name is
+    already correct here.
+    """
+    try:
+        from olav.platform.services.compose_project import compose_project_name
+
+        project = compose_project_name(cwd)
+    except Exception:
+        project = None
+    return f"docker compose -p {project}" if project else "docker compose"
+
+
 def _run(cmd: str, cwd: Path, timeout: int = 60) -> tuple[int, str, str]:
     result = subprocess.run(
         cmd, shell=True, cwd=str(cwd),
@@ -56,7 +74,7 @@ def _wait_healthy(service_dir: Path, timeout: int) -> tuple[bool, str]:
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
-        rc, out, _ = _run("docker compose ps -a --format json", service_dir, timeout=15)
+        rc, out, _ = _run(f"{_compose_prefix(service_dir)} ps -a --format json", service_dir, timeout=15)
         if rc != 0:
             time.sleep(5)
             continue
@@ -171,7 +189,7 @@ def deploy_service(
         }
 
     # --- Start containers (long timeout: first run may pull images) ---
-    rc, out, err = _run("docker compose up -d", service_dir, timeout=300)
+    rc, out, err = _run(f"{_compose_prefix(service_dir)} up -d", service_dir, timeout=300)
     if rc != 0:
         return {
             "success": False,
@@ -194,8 +212,8 @@ def deploy_service(
             time.sleep(5)
 
     # --- Always collect logs ---
-    _, logs_out, _ = _run("docker compose logs --tail 80 --no-color", service_dir, timeout=15)
-    _, ps_out, _ = _run("docker compose ps -a --format json", service_dir, timeout=15)
+    _, logs_out, _ = _run(f"{_compose_prefix(service_dir)} logs --tail 80 --no-color", service_dir, timeout=15)
+    _, ps_out, _ = _run(f"{_compose_prefix(service_dir)} ps -a --format json", service_dir, timeout=15)
     containers = []
     try:
         containers = [json.loads(line) for line in ps_out.splitlines() if line.strip()]
