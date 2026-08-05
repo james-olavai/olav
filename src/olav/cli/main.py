@@ -1551,6 +1551,10 @@ async def run_single_query(
         # the stream to tell "answer relayed" from "answer stranded".
         _chunks_at_last_delegate: int | None = None
         _SILENT_DELEGATE_NAMES = {"olav_delegate", "task"}
+        # Streamed chunks for the CURRENT depth-0 model turn. The on_chat_model_end
+        # guard below needs "was THIS turn streamed", not "has anything ever been
+        # appended" — see the comment there.
+        _chunks_this_turn = 0
 
         async for event in _graph.astream_events(input_msg, config=config, context=_run_context, version="v2"):
             kind = event.get("event", "")
@@ -1573,15 +1577,37 @@ async def run_single_query(
                         if _delegate_depth == 0:
                             console.print(text, end="")
                             _chunks.append(text)
+                            _chunks_this_turn += 1
+
+            elif kind == "on_chat_model_start":
+                # A new model turn begins: nothing streamed for it yet. Tracked
+                # per turn because a non-streaming model produces SEVERAL depth-0
+                # turns in one run (preamble, then the post-delegation answer).
+                if _delegate_depth == 0:
+                    _chunks_this_turn = 0
 
             elif kind == "on_chat_model_end":
                 # Non-streaming mode: full response arrives here.
                 # Same depth guard: only capture the orchestrator's own
                 # LLM turn (depth=0), not sub-agent internal completions.
+                #
+                # The guard used to be `not _chunks` — "nothing appended yet,
+                # anywhere" — which conflates "this turn was streamed" (where
+                # printing here would duplicate) with "an earlier turn was
+                # captured" (where this turn is new content). gemma4 never
+                # streams, so a traced Ch2 run produced:
+                #
+                #   MODEL_END depth=0 len=266   preamble        -> accepted
+                #   TOOL task ... sub-agent answers ...
+                #   MODEL_END depth=0 len=154   the answer      -> REJECTED
+                #   MODEL_END depth=0 len=14                    -> REJECTED
+                #
+                # i.e. the answer existed and was thrown away because the
+                # preamble had already filled _chunks (dev_docs/115 §9).
                 output = data.get("output")
-                if output:
+                if output and _delegate_depth == 0:
                     text = getattr(output, "content", "")
-                    if text and not _chunks and _delegate_depth == 0:
+                    if text and _chunks_this_turn == 0:
                         console.print(text)
                         _chunks.append(text)
 
