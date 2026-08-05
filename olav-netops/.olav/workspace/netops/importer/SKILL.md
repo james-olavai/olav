@@ -182,23 +182,47 @@ cascade handles 99%.
 
 ### 5. Report
 
-Output a short markdown summary:
+**An import summary that lists only successes is wrong.** Report what did NOT
+reach structured form as prominently as what did — `ingest_snapshot` returns
+`parse_report` and `report_path` for exactly this. A 339-device bundle landed
+8761 command outputs and parsed 2278 of them; the old summary said "9 command
+types parsed" and nothing else, and a later question about the fleet size was
+answered 317 instead of 339 because the only visible number was the parsed one
+(dev_docs/116).
+
+Output this markdown summary — **every field is required**, and take each value
+verbatim from the tool result. Never omit a line because the number is
+unflattering:
 
 ```markdown
 ## Ingest complete
 
 - **Bundle id**: `<bundle_id>`
 - **Snapshot id**: `<snapshot_id>`
-- **Hosts landed**: <hosts>
-- **Commands landed**: <commands>
-- **Parser fills**: <parser_fills>  (commands that produced parsed_data rows)
+- **Devices landed**: <parse_report.devices_landed>
+- **Command outputs landed**: <parse_report.command_outputs_landed>
+- **Parsed into structured rows**: <parse_report.command_outputs_parsed>
+- **Not parsed**: <parse_report.command_outputs_unparsed>, by reason:
+  <parse_report.unparsed_by_reason>
+- **Devices with no structured data**: <parse_report.devices_with_no_structured_data>
+  of <parse_report.devices_landed>
+  <list parse_report.devices_with_no_structured_data_sample when non-empty>
+- **Full report**: `<report_path>`
 - **Audit row**: `netops.bundle_ingests.bundle_id = <bundle_id>`
+
+Not parsed is not "not imported": every device is in `netops.devices` and every
+command's raw text is in `netops.raw_output_store`. Only the structured views
+(`netops.parsed_outputs`, `v_*_auto`) are limited to what a parser could read.
 
 To query the resulting state:
 
     SELECT * FROM netops.v_bgp_neighbors_auto WHERE snapshot_id = '<snapshot_id>';
     SELECT * FROM netops.v_ospf_neighbors_auto WHERE snapshot_id = '<snapshot_id>';
 ```
+
+If `parse_report.unparsed_by_reason` contains `no_parser_registered`, say so —
+that is a whitelist gap, and the per-command table in the full report is a
+ranked list of which parser to add next.
 
 ## Hard rules
 
