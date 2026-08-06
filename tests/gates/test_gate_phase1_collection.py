@@ -1,156 +1,154 @@
-"""Phase 1 Gate: Collection Capability Verification.
+"""Phase 1 gate: collected data is complete and internally consistent.
 
-Gate tests verify static post-conditions against a running DB state — they are
-NOT end-to-end tests that exercise the SSH collection pipeline. Run them after
-a real /netops_init cycle to confirm the pipeline produced correct output.
+Rewritten 2026-08-06. The previous version asserted against one developer's
+lab — `EXPECTED_DEVICES = {"R1", "R2", "R3", "R4", "SW1", "SW2"}` and a
+hardcoded freshness date — and skipped entirely whenever `main.duckdb` was
+empty, which in CI is always. It therefore ran zero times in CI and could not
+have passed anywhere but on the machine it was written on: the demo dataset has
+339 devices named `alpha-core-6807v…`, not R1.
 
-Gate condition: All 6 lab devices have non-empty parsed_outputs rows in
-DuckDB and the most recent snapshot is fresh enough to indicate an active
-collection pipeline.
+The assertions here are invariants over whatever data is present, not equality
+with a roster. "Every device in `devices` has parsed output" is true of a
+4-device fixture, a 339-device import and a lab that has not been built yet;
+"the devices are R1..SW2" was true of exactly one machine on exactly one day.
 
-Run with:
-    uv run pytest tests/gates/test_gate_phase1_collection.py -v
-
-Design reference: dev_docs/10. OPENCONFIG_SCHEMA_DESIGN.md §0 (Phase 1)
+Data comes from `conftest.netops_db`, whose views are built by the product's
+own `finalise_ingest` (see fixture_db).
 """
 
 from __future__ import annotations
 
-import duckdb
 import pytest
 
-# ---------------------------------------------------------------------------
-# Lab data availability guard — skip all tests when running outside CLAB lab
-# ---------------------------------------------------------------------------
+MIN_COMMANDS_PER_DEVICE = 5
 
-_DB_PATH = (
-    __import__("pathlib").Path(__file__).resolve().parents[2]
-    / ".olav" / "databases" / "main.duckdb"
-)
 
-_HAS_LAB_DATA = False
-try:
-    with duckdb.connect(str(_DB_PATH), read_only=True) as _con:
-        _HAS_LAB_DATA = (
-            _con.execute("SELECT count(*) FROM netops.parsed_outputs").fetchone()[0] > 0
+class TestEveryDeviceWasCollected:
+    def test_every_device_has_parsed_output(self, con):
+        """A device row with no collected output is a collection failure that
+        looks like success — the inventory says the device is known."""
+        orphans = con.execute("""
+            SELECT d.hostname FROM netops.devices d
+            WHERE NOT EXISTS (
+                SELECT 1 FROM netops.parsed_outputs p
+                WHERE p.device_name = d.hostname
+            )
+            ORDER BY 1
+        """).fetchall()
+        assert not orphans, (
+            f"devices with no parsed_outputs: {[r[0] for r in orphans]}"
         )
-except Exception:
-    pass
 
-pytestmark = pytest.mark.skipif(
-    not _HAS_LAB_DATA,
-    reason="No lab data in main.duckdb — run CLAB lab first",
-)
+    def test_no_output_references_an_unknown_device(self, con):
+        """The other direction: output attributed to a device the inventory
+        has never heard of means the two tables disagree about reality."""
+        strays = con.execute("""
+            SELECT DISTINCT p.device_name FROM netops.parsed_outputs p
+            WHERE NOT EXISTS (
+                SELECT 1 FROM netops.devices d WHERE d.hostname = p.device_name
+            )
+            ORDER BY 1
+        """).fetchall()
+        assert not strays, (
+            f"parsed_outputs references devices absent from the inventory: "
+            f"{[r[0] for r in strays]}"
+        )
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-EXPECTED_DEVICES = {"R1", "R2", "R3", "R4", "SW1", "SW2"}
-
-# A snapshot is considered "recent" if it starts with a date >= this prefix.
-# Update when a full fresh collect run is performed.
-FRESHNESS_MIN_DATE = "2026-03-16"
-
-
-def _get_connection() -> duckdb.DuckDBPyConnection:
-    from pathlib import Path
-
-    db_path = Path(__file__).resolve().parents[2] / ".olav" / "databases" / "main.duckdb"
-    assert db_path.exists(), f"main.duckdb not found at {db_path}"
-    return duckdb.connect(str(db_path), read_only=True)
-
-
-# ---------------------------------------------------------------------------
-# Test 1: All expected devices appear in parsed_outputs
-# ---------------------------------------------------------------------------
-
-
-def test_all_devices_have_parsed_outputs() -> None:
-    """Every lab device must have at least one row in parsed_outputs."""
-    con = _get_connection()
-    rows = con.execute(
-        "SELECT DISTINCT device_name FROM parsed_outputs ORDER BY device_name"
-    ).fetchall()
-    con.close()
-
-    present = {r[0] for r in rows}
-    missing = EXPECTED_DEVICES - present
-    assert not missing, (
-        f"Phase 1 FAIL — devices with no parsed_outputs: {sorted(missing)}\n"
-        "Run 'olav collect --all' to collect fresh data from all devices."
-    )
+    def test_each_device_has_minimum_command_coverage(self, con):
+        """One command per device is a connection test, not a collection."""
+        thin = con.execute(f"""
+            SELECT device_name, COUNT(DISTINCT command) AS n
+            FROM netops.parsed_outputs
+            GROUP BY device_name
+            HAVING n < {MIN_COMMANDS_PER_DEVICE}
+            ORDER BY 1
+        """).fetchall()
+        assert not thin, (
+            f"devices below {MIN_COMMANDS_PER_DEVICE} distinct commands: "
+            f"{[(r[0], r[1]) for r in thin]}"
+        )
 
 
-# ---------------------------------------------------------------------------
-# Test 2: Each device has a meaningful row count (>5 commands parsed)
-# ---------------------------------------------------------------------------
+class TestSnapshotsAreCoherent:
+    def test_more_than_one_snapshot_is_distinguishable(self, con):
+        """Snapshot ids must order — every 'latest wins' query depends on it."""
+        snaps = [r[0] for r in con.execute(
+            "SELECT DISTINCT snapshot_id FROM netops.parsed_outputs ORDER BY 1"
+        ).fetchall()]
+        assert snaps, "no snapshots at all"
+        assert snaps == sorted(snaps), "snapshot ids do not sort chronologically"
+        assert len(snaps) == len(set(snaps))
+
+    def test_the_latest_snapshot_covers_every_device(self, con):
+        """A device present only in an older snapshot silently disappears from
+        any query that filters to the newest one."""
+        missing = con.execute("""
+            WITH latest AS (SELECT MAX(snapshot_id) AS s FROM netops.parsed_outputs)
+            SELECT d.hostname FROM netops.devices d
+            WHERE NOT EXISTS (
+                SELECT 1 FROM netops.parsed_outputs p, latest
+                WHERE p.device_name = d.hostname AND p.snapshot_id = latest.s
+            )
+            ORDER BY 1
+        """).fetchall()
+        assert not missing, (
+            f"devices absent from the newest snapshot: {[r[0] for r in missing]}"
+        )
+
+    def test_parsed_data_is_valid_json(self, con):
+        """`parsed_data` is queried with JSON functions downstream; a row that
+        is not valid JSON fails there, far from the cause."""
+        bad = con.execute("""
+            SELECT device_name, command FROM netops.parsed_outputs
+            WHERE TRY_CAST(parsed_data AS JSON) IS NULL
+            ORDER BY 1, 2
+        """).fetchall()
+        assert not bad, f"rows whose parsed_data is not JSON: {bad}"
 
 
-@pytest.mark.parametrize("device", sorted(EXPECTED_DEVICES))
-def test_device_has_minimum_command_coverage(device: str) -> None:
-    """Each device should have parsed results for at least 5 commands."""
-    con = _get_connection()
-    count = con.execute(
-        "SELECT COUNT(*) FROM parsed_outputs WHERE device_name = ?", [device]
-    ).fetchone()[0]
-    con.close()
+class TestTopologyWasDiscovered:
+    def test_topology_links_are_populated(self, con):
+        n = con.execute("SELECT COUNT(*) FROM netops.topology_links").fetchone()[0]
+        assert n > 0, "neighbour discovery produced nothing"
 
-    assert count >= 5, (
-        f"Phase 1 FAIL — {device} has only {count} parsed_outputs row(s); "
-        "expected >= 5. Re-collect from device."
-    )
-
-
-# ---------------------------------------------------------------------------
-# Test 4: Most recent snapshot is within the freshness window
-# ---------------------------------------------------------------------------
-
-
-def test_latest_snapshot_is_fresh_enough() -> None:
-    """The newest snapshot_id in parsed_outputs must be >= FRESHNESS_MIN_DATE."""
-    con = _get_connection()
-    latest = con.execute("SELECT MAX(snapshot_id) FROM parsed_outputs").fetchone()[0]
-    con.close()
-
-    assert latest is not None, "Phase 1 FAIL — parsed_outputs is empty."
-    assert latest >= FRESHNESS_MIN_DATE, (
-        f"Phase 1 FAIL — newest snapshot '{latest}' is older than '{FRESHNESS_MIN_DATE}'.\n"
-        "Run a fresh 'olav collect --all' to update."
-    )
+    def test_every_link_endpoint_is_a_known_device(self, con):
+        """A link to a device the inventory does not contain is either a parse
+        error or an incomplete import; both are worth failing on."""
+        unknown = con.execute("""
+            SELECT DISTINCT endpoint FROM (
+                SELECT source_device AS endpoint FROM netops.topology_links
+                UNION
+                SELECT destination_device FROM netops.topology_links
+            )
+            WHERE endpoint NOT IN (SELECT hostname FROM netops.devices)
+            ORDER BY 1
+        """).fetchall()
+        assert not unknown, (
+            f"link endpoints absent from the inventory: {[r[0] for r in unknown]}"
+        )
 
 
-# ---------------------------------------------------------------------------
-# Test 5: topology_links has data (CDP/LLDP neighbour discovery worked)
-# ---------------------------------------------------------------------------
+class TestTheFixtureIsNotVacuous:
+    """Every assertion above is of the form "no bad rows". All of them pass
+    against an empty database, so the suite would go green having checked
+    nothing. These pin that there is data to check."""
 
+    def test_there_are_devices_and_outputs_and_links(self, con):
+        counts = {
+            t: con.execute(f"SELECT COUNT(*) FROM netops.{t}").fetchone()[0]
+            for t in ("devices", "parsed_outputs", "topology_links")
+        }
+        assert all(v > 0 for v in counts.values()), f"empty tables: {counts}"
 
-def test_topology_links_populated() -> None:
-    """topology_links must have at least one row (neighbour discovery ran)."""
-    con = _get_connection()
-    count = con.execute("SELECT COUNT(*) FROM topology_links").fetchone()[0]
-    con.close()
-
-    assert count > 0, (
-        "Phase 1 FAIL — topology_links is empty. "
-        "CDP/LLDP neighbour collection has not been ingested."
-    )
-
-
-# ---------------------------------------------------------------------------
-# Test 6: devices table contains all 6 expected lab devices
-# ---------------------------------------------------------------------------
-
-
-def test_devices_table_has_all_lab_devices() -> None:
-    """The devices table must reference all 6 lab devices."""
-    con = _get_connection()
-    rows = con.execute("SELECT hostname FROM devices ORDER BY hostname").fetchall()
-    con.close()
-
-    registered = {r[0] for r in rows}
-    missing = EXPECTED_DEVICES - registered
-    assert not missing, (
-        f"Phase 1 FAIL — devices table missing: {sorted(missing)}\n"
-        "Run 'olav onboard' or import the device inventory."
-    )
+    def test_a_device_without_neighbours_is_present(self, con):
+        """The fixture deliberately includes one; if it disappears, the
+        endpoint gates above stop being able to tell 'no links' from 'links for
+        everyone'."""
+        n = con.execute("""
+            SELECT COUNT(*) FROM netops.devices d
+            WHERE d.hostname NOT IN (
+                SELECT source_device FROM netops.topology_links
+                UNION SELECT destination_device FROM netops.topology_links
+            )
+        """).fetchone()[0]
+        assert n >= 1, "fixture no longer contains an isolated device"
