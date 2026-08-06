@@ -366,8 +366,20 @@ def _sanitize_value(val: Any) -> Any:
 
 
 def _sanitize_rows(rows: list[dict]) -> list[dict]:
-    """Ensure all values in query results are JSON-serializable."""
-    return [_sanitize_value(row) for row in rows]
+    """Ensure all values in query results are JSON-serializable.
+
+    Sanitizes each FIELD, never the row as a whole. ``_sanitize_value``'s dict
+    branch returns a *string* once the rendered form passes
+    ``_MAX_FIELD_CHARS``, so a row wide enough to trip that (any query
+    selecting stored config text) came back as a str and every consumer
+    expecting a mapping died on `'str' object has no attribute 'items'`.
+    The budget is per-field; a large cell must not turn a record into text.
+    """
+    return [
+        {k: _sanitize_value(v) for k, v in row.items()}
+        if isinstance(row, dict) else row
+        for row in rows
+    ]
 
 
 def main(params: dict) -> dict:

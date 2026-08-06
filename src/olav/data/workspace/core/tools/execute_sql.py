@@ -471,8 +471,27 @@ def _sanitize_value(val: Any) -> Any:
 
 
 def _sanitize_rows(rows: list[dict]) -> list[dict]:
-    """Ensure all values in query results are JSON-serializable."""
-    return [_sanitize_value(row) for row in rows]
+    """Ensure all values in query results are JSON-serializable.
+
+    Sanitizes each FIELD, never the row as a whole. Passing the row itself to
+    ``_sanitize_value`` looks equivalent — a row is a dict, and the function
+    handles dicts — but its dict branch returns a *string* once the rendered
+    form passes ``_MAX_FIELD_CHARS``. A row wide enough to trip that (any
+    query selecting ``raw_output``, i.e. stored config text) therefore came
+    back as a str, and every consumer that expects a mapping died on it:
+
+        olav --agent core "Show me the running-config text stored for <host>"
+        → 'str' object has no attribute 'items'
+
+    ``_MAX_FIELD_CHARS`` is a per-field budget — one large JSON column must not
+    flood the context. Applying it to a whole row conflates "this cell is too
+    big to show" with "this record is too big to be a record".
+    """
+    return [
+        {k: _sanitize_value(v) for k, v in row.items()}
+        if isinstance(row, dict) else row
+        for row in rows
+    ]
 
 
 def main(params: dict) -> dict:
