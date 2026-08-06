@@ -62,15 +62,23 @@ logger = logging.getLogger(__name__)
 # signature is NOT sufficient to be on this list — the request has to have been
 # sent to the real endpoint and seen to work.
 #
-# anthropic is deliberately absent. Its driver accepts both kwargs, but they map
-# onto real Anthropic API features with version requirements: ``strict`` writes a
-# ``strict`` field into every tool definition, and ``parallel_tool_calls=False``
-# injects ``tool_choice={"type":"auto","disable_parallel_tool_use":true}`` where
-# OLAV previously sent no tool_choice at all. Both were switched on for every
-# Claude user by this module without a single request ever having been made to
-# Anthropic — a user reported agent error 400 on Claude, and this is the most
-# likely cause. Defaults are for measured providers; an explicit caller can still
-# pass either kwarg to any provider whose driver accepts it.
+# 2026-08-06 update — the anthropic hypothesis was WRONG, and the record should
+# say so. When a user reported agent error 400 on Claude, this module was turning
+# both knobs on for anthropic without a single request ever having been made to
+# it, and that looked like the obvious cause: ``strict`` writes a ``strict`` field
+# into every tool definition, and ``parallel_tool_calls=False`` injects
+# ``tool_choice={"type":"auto","disable_parallel_tool_use":true}`` where OLAV
+# previously sent no tool_choice. Then the keys arrived and it was measured
+# against the live API: **all 10 models available to the account accept both
+# knobs**, plain and with the knobs, returning valid tool calls. Not the cause.
+#
+# The rule that came out of it still stands on its own — defaults belong to
+# providers someone has actually exercised — and anthropic now qualifies on
+# evidence rather than on a signature.
+#
+# What DOES produce a 400 on Claude, measured the same day: temperature > 1.0
+# ("temperature: range: 0..1"), where OpenAI accepts up to 2.0. See
+# _clamp_provider_params.
 #
 # The knob table below stays complete (it records what each driver ACCEPTS, and
 # the governance gate checks that against the real signatures). This set records
@@ -80,6 +88,13 @@ _DETERMINISM_DEFAULT_PROVIDERS: frozenset[str] = frozenset({
                   # parallel_tool_calls=False (0/12 multi-call turns vs 9/12)
     "deepseek",   # measured: strict switches to the beta endpoint and works;
                   # parallel_tool_calls is accepted and ignored, harmlessly
+    "anthropic",  # measured 2026-08-06 against the live API across all 10 models
+                  # the account can reach (opus-5, sonnet-5, fable-5, opus-4-8,
+                  # opus-4-7, sonnet-4-6, opus-4-6, opus-4-5, haiku-4-5,
+                  # sonnet-4-5): every one accepted strict + parallel_tool_calls
+                  # and returned a valid tool call.
+    "openai",     # measured 2026-08-06 once billing was active: both knobs OK.
+    "xai",        # measured 2026-08-06 once credits were topped up: both knobs OK.
     "openrouter", # measured 2026-08-06 against the live API: both knobs accepted
                   # with a valid tool call returned, across four backend models
                   # (openai/gpt-4o-mini, anthropic/claude-sonnet-4.5,
@@ -113,6 +128,44 @@ _TOOL_CALL_KNOBS: dict[str, frozenset[str]] = {
     "ollama":      frozenset(),
     "google_genai": frozenset(),
 }
+
+# Per-provider parameter ranges. Not every vendor accepts the same numbers for
+# the same field, and the value is passed straight through from api.json, so a
+# setting that is legal on one provider is a 400 on another.
+#
+# Measured 2026-08-06 against the live Anthropic API:
+#   temperature=1.0  accepted
+#   temperature=1.5  400 invalid_request_error "temperature: range: 0..1"
+# OpenAI accepts up to 2.0, so a config written for OpenAI and pointed at Claude
+# fails on the first call with no hint that the number is the problem.
+_PROVIDER_TEMPERATURE_MAX: dict[str, float] = {
+    "anthropic": 1.0,
+}
+
+
+def _clamp_provider_params(params: dict, provider: str | None) -> None:
+    """Bring out-of-range values inside the provider's accepted bounds.
+
+    Clamps rather than raises: the caller's intent ("as random as possible") is
+    preserved at the provider's ceiling, and a demo does not die on a config
+    written for a different vendor. Logs at warning level because a silently
+    different temperature is its own kind of surprise.
+    """
+    ceiling = _PROVIDER_TEMPERATURE_MAX.get((provider or "").lower())
+    temp = params.get("temperature")
+    if ceiling is None or temp is None:
+        return
+    try:
+        if float(temp) > ceiling:
+            logger.warning(
+                "temperature %s exceeds %s's maximum of %s — clamping. "
+                "Set llm.temperature <= %s in .olav/config/api.json to silence this.",
+                temp, provider, ceiling, ceiling,
+            )
+            params["temperature"] = ceiling
+    except (TypeError, ValueError):
+        return
+
 
 # Opt-out for the whole mechanism. A provider that accepts ``strict`` but
 # implements it badly would otherwise need a code change to work around; this is
@@ -581,6 +634,13 @@ class LLMFactory:
             params["extra_body"] = {**_eb, **existing_eb}  # caller wins
             if not _mkw:
                 params.pop("model_kwargs", None)
+
+        # Bring per-provider ranges in before anything is constructed, so both
+        # the Google branch and the init_chat_model branch below are covered.
+        # temperature=1.5 is legal on OpenAI and a 400 on Anthropic; the value
+        # comes straight from api.json, so pointing an existing config at Claude
+        # would otherwise fail on the first call.
+        _clamp_provider_params(params, params.get("model_provider"))
 
         # Google AI Studio: use ChatGoogleGenerativeAI (native SDK)
         # instead of init_chat_model / ChatOpenAI which loses thinking_level support.

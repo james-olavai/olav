@@ -45,6 +45,7 @@ _DRIVERS = [
     ("openai", "langchain_openai.ChatOpenAI", {"model": "gpt-4o"}),
     ("deepseek", "langchain_deepseek.ChatDeepSeek", {"model": "deepseek-chat"}),
     ("openrouter", "langchain_openrouter.ChatOpenRouter", {"model": "openai/gpt-4o-mini"}),
+    ("xai", "langchain_xai.ChatXAI", {"model": "grok-3-mini"}),
 ]
 
 
@@ -89,34 +90,43 @@ def _payload(path: str, ctor: dict, provider: str | None):
 
 
 class TestAnthropicPayload:
-    """The reported 400. Both fields are real Anthropic API features with
-    version requirements, and OLAV had been adding them unasked."""
+    """Anthropic encodes both knobs differently from everyone else, so pin the
+    exact shape.
 
-    def test_no_tool_choice_and_no_strict_field_by_default(self):
-        p = _payload("langchain_anthropic.ChatAnthropic", {"model": "claude-sonnet-4-5"}, "anthropic")
-        assert p.get("tool_choice") is None, (
-            "OLAV must not inject tool_choice — it sent none before this feature"
-        )
-        assert "strict" not in p["tools"][0], (
-            "a strict field on every tool definition is what we stopped sending"
-        )
-        assert sorted(p["tools"][0]) == ["description", "input_schema", "name"]
+    History worth keeping: when a user reported agent error 400 on Claude, this
+    class asserted the opposite — that OLAV must send NEITHER field — because the
+    determinism layer had switched them on for a provider nobody had exercised,
+    and that looked like the cause. Measurement against the live API disproved
+    it: all 10 models the account can reach accept both. The 400 came from
+    somewhere else (temperature > 1.0 is one confirmed Claude-specific 400).
+    """
 
-    def test_the_knobs_do_reach_the_payload_when_asked_for(self):
-        """Proof this test can see the difference — otherwise the check above
-        would pass even if the determinism layer were still applying them."""
-        p = _payload("langchain_anthropic.ChatAnthropic", {"model": "claude-sonnet-4-5"}, None)
+    def test_strict_becomes_a_field_on_the_tool_definition(self):
+        p = _payload(
+            "langchain_anthropic.ChatAnthropic", {"model": "claude-sonnet-4-5"}, "anthropic"
+        )
+        assert p["tools"][0]["strict"] is True, (
+            "Anthropic takes strict per tool, not as a top-level request field"
+        )
+
+    def test_parallel_tool_calls_becomes_tool_choice_not_a_top_level_field(self):
+        p = _payload(
+            "langchain_anthropic.ChatAnthropic", {"model": "claude-sonnet-4-5"}, "anthropic"
+        )
+        assert "parallel_tool_calls" not in p
+        assert p["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
+
+    def test_without_the_knobs_neither_appears(self):
+        """Proof the assertions above can tell the difference — otherwise they
+        would pass even if the determinism layer stopped applying."""
+        import importlib
+
         mod = importlib.import_module("langchain_anthropic")
         model = mod.ChatAnthropic(api_key="x", model="claude-sonnet-4-5")
-        bound = model.bind_tools([_TOOL], strict=True, parallel_tool_calls=False)
-        p = bound.bound._get_request_payload(
-            [HumanMessage(content="hi")], **bound.kwargs
-        )
-        assert p["tool_choice"] == {
-            "type": "auto",
-            "disable_parallel_tool_use": True,
-        }
-        assert p["tools"][0]["strict"] is True
+        bound = model.bind_tools([_TOOL])
+        p = bound.bound._get_request_payload([HumanMessage(content="hi")], **bound.kwargs)
+        assert p.get("tool_choice") is None
+        assert "strict" not in p["tools"][0]
 
 
 class TestMeasuredProvidersStillSendTheKnobs:
@@ -138,8 +148,20 @@ class TestMeasuredProvidersStillSendTheKnobs:
         [d for d in _DRIVERS if d[0] in _DETERMINISM_DEFAULT_PROVIDERS],
     )
     def test_parallel_tool_calls_reaches_the_payload(self, provider, path, ctor):
+        """Each provider expresses "one call per turn" differently — assert the
+        provider's own encoding, not a shared field name. Anthropic has no
+        `parallel_tool_calls` key at all: the driver folds it into tool_choice as
+        `disable_parallel_tool_use`, which is why a naive shared assertion here
+        failed on it.
+        """
         p = _payload(path, ctor, provider)
-        assert p.get("parallel_tool_calls") is False
+        if provider == "anthropic":
+            assert p.get("tool_choice") == {
+                "type": "auto",
+                "disable_parallel_tool_use": True,
+            }
+        else:
+            assert p.get("parallel_tool_calls") is False
 
 
 class TestDefaultSetIsJustified:

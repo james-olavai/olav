@@ -40,12 +40,12 @@ class _FakeLLM:
     # on unasked. anthropic is the reason: both kwargs map to real API features
     # (a `strict` field per tool, and an injected tool_choice with
     # disable_parallel_tool_use) and a user hit agent error 400 on Claude.
-    ("xai",        {}),
+    ("xai",        {"strict": True, "parallel_tool_calls": False}),
     ("together",   {}),
     # openrouter joined the measured set 2026-08-06 — live API, both knobs
     # accepted with a valid tool call across four backend models.
     ("openrouter", {"strict": True, "parallel_tool_calls": False}),
-    ("anthropic",  {}),
+    ("anthropic",  {"strict": True, "parallel_tool_calls": False}),
     ("perplexity", {}),
     ("groq",       {}),                        # accepts neither
     ("ollama",     {}),
@@ -193,19 +193,27 @@ class TestDefaultsOnlyForMeasuredProviders:
         apply_tool_call_determinism(f, provider).bind_tools([])
         return f.kw
 
-    def test_anthropic_gets_nothing_added(self):
-        assert self._kwargs_for("anthropic") == {}, (
-            "sending untested fields to Claude is the reported 400"
-        )
+    def test_anthropic_now_gets_the_defaults_because_it_was_measured(self):
+        """Reversed 2026-08-06. This asserted anthropic must receive NOTHING,
+        on the theory that the two fields caused the reported 400. Measuring
+        against the live API disproved it — all 10 models the account can reach
+        accept both — so anthropic joins on evidence. The rule the test was
+        protecting (defaults require a measurement) is unchanged."""
+        assert self._kwargs_for("anthropic") == {
+            "strict": True,
+            "parallel_tool_calls": False,
+        }
 
-    @pytest.mark.parametrize("provider", ["openai", "deepseek", "openrouter"])
+    @pytest.mark.parametrize(
+        "provider", ["openai", "deepseek", "openrouter", "anthropic", "xai"]
+    )
     def test_measured_providers_still_get_the_defaults(self, provider):
         assert self._kwargs_for(provider) == {
             "strict": True,
             "parallel_tool_calls": False,
         }
 
-    @pytest.mark.parametrize("provider", ["xai", "together", "perplexity"])
+    @pytest.mark.parametrize("provider", ["together", "perplexity"])
     def test_accepted_but_unverified_providers_are_left_alone(self, provider):
         """They stay in _TOOL_CALL_KNOBS — the driver does accept them — but
         nothing is switched on unasked until someone measures it."""
@@ -219,7 +227,10 @@ class TestDefaultsOnlyForMeasuredProviders:
             "the capability record must stay — the governance gate checks it "
             "against the real signature"
         )
-        assert "anthropic" not in _DETERMINISM_DEFAULT_PROVIDERS
+        # together/perplexity are the remaining unmeasured ones: the driver
+        # accepts the kwargs, nobody has sent them a request.
+        assert "together" not in _DETERMINISM_DEFAULT_PROVIDERS
+        assert "perplexity" not in _DETERMINISM_DEFAULT_PROVIDERS
         assert _DETERMINISM_DEFAULT_PROVIDERS <= set(_TOOL_CALL_KNOBS), (
             "a provider cannot be defaulted on without a capability entry"
         )
@@ -235,5 +246,59 @@ class TestDefaultsOnlyForMeasuredProviders:
                 return self
 
         f = _Fake()
-        apply_tool_call_determinism(f, "anthropic").bind_tools([], strict=True)
+        apply_tool_call_determinism(f, "together").bind_tools([], strict=True)
         assert f.kw == {"strict": True}
+
+
+class TestProviderParameterClamping:
+    """A value legal on one provider is a 400 on another.
+
+    Measured 2026-08-06 against the live Anthropic API:
+      temperature=1.0  accepted
+      temperature=1.5  400 invalid_request_error "temperature: range: 0..1"
+    OpenAI accepts up to 2.0, so an api.json written for OpenAI and repointed at
+    Claude fails on the first call, with nothing saying the number is the problem.
+    """
+
+    @staticmethod
+    def _clamp(provider, temp):
+        from olav.core.llm import _clamp_provider_params
+
+        params = {"temperature": temp} if temp is not None else {}
+        _clamp_provider_params(params, provider)
+        return params.get("temperature")
+
+    def test_anthropic_over_the_ceiling_is_brought_down(self):
+        assert self._clamp("anthropic", 1.5) == 1.0
+        assert self._clamp("anthropic", 2.0) == 1.0
+
+    def test_anthropic_within_range_is_untouched(self):
+        assert self._clamp("anthropic", 0.7) == 0.7
+        assert self._clamp("anthropic", 1.0) == 1.0
+        assert self._clamp("anthropic", 0.0) == 0.0
+
+    def test_providers_with_a_wider_range_keep_their_value(self):
+        assert self._clamp("openai", 1.5) == 1.5
+        assert self._clamp("deepseek", 1.5) == 1.5
+
+    def test_unknown_or_missing_provider_is_left_alone(self):
+        assert self._clamp(None, 1.5) == 1.5
+        assert self._clamp("some-new-vendor", 1.5) == 1.5
+
+    def test_absent_temperature_is_not_invented(self):
+        assert self._clamp("anthropic", None) is None
+
+    def test_non_numeric_temperature_does_not_raise(self):
+        """Config is user-editable; a bad value must not crash model creation."""
+        assert self._clamp("anthropic", "warm") == "warm"
+
+    def test_clamping_happens_before_the_model_is_built(self):
+        """Clamping after construction would be too late — the driver has
+        already captured the value."""
+        import inspect
+
+        from olav.core.llm import LLMFactory
+
+        src = inspect.getsource(LLMFactory.get_chat_model)
+        assert "_clamp_provider_params(params" in src
+        assert src.index("_clamp_provider_params(params") < src.index("init_chat_model(**params)")
