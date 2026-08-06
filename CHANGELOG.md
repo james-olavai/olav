@@ -5,6 +5,89 @@ All notable changes to OLAV will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-08-06
+
+Minor release. The theme is **making silent behaviour visible**: an import that
+dropped 74% of command outputs without saying so, an auto-export the operator
+only heard about if the model chose to mention it, a `doctor` that passed 9/9 on
+an install whose every query path was dead. Plus the provider layer moved from
+"assumed compatible" to endpoint-verified, and the default install lost 33 MB.
+
+### Added
+- **`olav doctor` grew from 9 to 11 checks.** `auth` names the mode and the
+  provider that will serve it — a clean-VM install once came out of a successful
+  `init` and a 9/9 doctor with every query path dead, because `init` had written
+  `auth.mode=token` whose provider lives in olav-ent. `context` compares the
+  agent's context budget against the window the server actually advertises,
+  which is the latent cause of `agent error, code 400` on a long run.
+- **`doctor --verify`** proves a service works rather than merely answers, and
+  every registered service contributes its own readiness check.
+- **Import report.** Ingest now writes `exports/import_reports/<snapshot>.md`
+  naming how many outputs parsed, which did not, and why — classified as
+  `raw_only` / `no_parser_registered` / `parser_no_match` / `parser_error`. On
+  the demo dataset 8,761 outputs yielded 2,278 parsed rows; that 74% loss was
+  previously invisible. Where the learner could close a gap, the report says so
+  and stops — it never runs it, because that turns a 2-minute import into a
+  long one.
+- **First-class provider drivers** with per-provider function-call determinism
+  defaults, plus an offline gate pinning the exact request each provider
+  receives and an opt-in live smoke test. openrouter joined the default set only
+  after being measured against its live API.
+- **Deterministic export disclosure.** When `execute_sql` caps rows to context
+  and writes the full result to a file, the CLI states the row count, the path,
+  and how much the context showed, instead of relying on the model to repeat it.
+- **`gates` job on the gitea merge gate**, plus a governance gate asserting that
+  every test path a CI workflow names exists and actually contains tests.
+
+### Changed
+- **`sentence-transformers` moved to a `[local-embed]` extra** — the default
+  install is 33 MB smaller and no longer drags in a CUDA runtime. API embedding
+  is unaffected; `uv sync --all-extras` still provides the local path.
+- **`execute_sql`'s CSV export is content-addressed.** The filename carries a
+  digest of the rows and an identical result set reuses its file. A model
+  re-issuing the same query used to leave byte-identical duplicates behind, only
+  the last of which was cited.
+- **A guide's `agent` now governs who can recall it.** Cross-agent recall is
+  opt-in via `scope: global`, so a netops guide no longer reaches the core
+  orchestrator. Global-scope memories dropped from 43 to 7.
+- **Unchanged guides are no longer re-embedded** on every prime, and the
+  embedder has a circuit breaker.
+
+### Fixed
+- **`aafter_agent` ran twice per query.** deepagents 0.6 mounts the `middleware`
+  kwarg, while `main.py` still re-ran every hook by hand for 0.5.2's benefit.
+  Memory capture invokes an LLM, so every query paid a second round-trip and
+  wrote duplicate memories.
+- **A wide row became a string.** Any query selecting stored config text failed
+  with `'str' object has no attribute 'items'`: the per-field size budget was
+  being applied to whole rows.
+- **`init` no longer overwrites an operator-chosen `auth.mode`,** and only
+  selects a mode on a config it created in that run.
+- **Temperature is clamped per provider.** Claude rejects `> 1.0` with a 400.
+  (The first hypothesis for that 400 — `strict`/`parallel_tool_calls` — was
+  measured against all ten reachable Claude models and disproved; the retraction
+  is recorded in the tests.)
+- **The determinism wrapper recursed forever** on `ChatDeepSeek` with
+  `strict=True`, because `model_copy` carried the instance-level patch.
+- **The CLI printed a middleware's own LLM output as the answer** — memory
+  capture's raw JSON followed every answer. Turn attribution now uses the
+  langgraph node, since both calls are depth 0.
+- **Tier 0's stranded-answer relay never matched a real `task` result** (it
+  anchored on a `name=` field deepagents does not set), and three separate
+  copies of that extraction each mangled escapes differently.
+- **`devices.role` is derived from the hostname** when no inventory supplies it
+  — it was 0 of 339 populated on the demo dataset, now 63.
+- **Compose project names are namespaced** so two co-located deployments cannot
+  adopt each other's containers.
+- **Embedding dimension is never invented,** and two silent-drop paths in the
+  memory store were closed.
+- **`init` converges the workspace mirror** instead of skipping every existing
+  file, which had let five platform scripts diverge unnoticed.
+
+### Removed
+- **Mistral provider support** and its `[mistral]` extra. The wizard offered a
+  provider whose driver a plain install did not ship.
+
 ## [0.25.1] - 2026-07-31
 
 Patch release — ship the workspace reference/guide files that packaging had

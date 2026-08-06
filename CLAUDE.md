@@ -449,11 +449,17 @@ n=3, threshold=…)` — it runs the check N times and asserts a success
 
 `olav` and `olav-netops` ship **as a unit** — bump them together or
 `tests/governance/test_package_version_parity.py` fails. A version bump
-touches **5 places**: `pyproject.toml` version (source of truth),
+touches **7 places**: `pyproject.toml` version (source of truth),
 `src/olav/__init__.py` `__version__`, `olav-netops/pyproject.toml`
 version **and** its `"olav>=X"` pin, `olav-netops/src/olav_netops/__init__.py`
-`__version__`, plus `BUILD_DATE`/`RELEASE_DATE` in `src/olav/core/version.py`
-(VERSION itself auto-reads package metadata). Add a `CHANGELOG.md` entry.
+`__version__`, `olav-netops/workspace.yaml` **and** its skillpack mirror
+`olav-netops/src/olav_netops/data/skillpack/workspace.yaml`, plus
+`BUILD_DATE`/`RELEASE_DATE` in `src/olav/core/version.py` (VERSION itself
+auto-reads package metadata). Add a `CHANGELOG.md` entry.
+
+> The two `workspace.yaml` files were missing from this list until the 0.26.0
+> bump, where `test_package_version_parity` caught them — the gate has always
+> enforced more than this section listed, so trust the test over the count.
 
 Validate releases from a **fresh venv + built wheel**, never an editable
 install (it masks ~20 bug categories). Pre-publish: `uv build` →
