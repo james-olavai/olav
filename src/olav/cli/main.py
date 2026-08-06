@@ -1600,6 +1600,17 @@ async def run_single_query(
         # guard below needs "was THIS turn streamed", not "has anything ever been
         # appended" — see the comment there.
         _chunks_this_turn = 0
+        # Final graph state, captured from the root on_chain_end below.
+        _final_state: dict | None = None
+        # Supplements already on the thread before this run. On a persistent
+        # session the checkpointer carries them forward and the reducer
+        # appends, so printing the whole list would replay every earlier note.
+        _supplements_before = 0
+        try:
+            _prior = await _graph.aget_state(config)
+            _supplements_before = len((_prior.values or {}).get("_output_supplements") or [])
+        except Exception:  # noqa: BLE001 - no checkpointer, or a fresh thread
+            _supplements_before = 0
 
         def _is_agent_turn(ev: dict) -> bool:
             """Is this LLM call the agent's own turn, or a middleware's?
@@ -1716,6 +1727,16 @@ async def run_single_query(
                 # and skips every silent-final tier (dev_docs/115 §1c).
                 if tool_name in _SILENT_DELEGATE_NAMES:
                     _chunks_at_last_delegate = len(_chunks)
+
+            elif kind == "on_chain_end":
+                # The graph's own end carries the final state. Middleware that
+                # declares `_output_supplements` (SupplementState) reaches the
+                # operator through here — which is what let the duplicate
+                # manual `aafter_agent` pass below be deleted (dev_docs/115
+                # §11). Keep the last such payload: the root graph ends last.
+                _out = data.get("output")
+                if isinstance(_out, dict) and "messages" in _out:
+                    _final_state = _out
 
         final_content = "".join(_chunks)
 
@@ -1906,40 +1927,26 @@ async def run_single_query(
             recorder.record_message(run_id=run_id, role="assistant", content=final_content)
         recorder.record_run_end(run_id=run_id, status="completed")
 
-        # ── OLAV middleware hooks (workaround: deepagents doesn't mount them) ──
-        if hasattr(agent, "_olav_middleware"):
-            # Build a synthetic message log middleware can scan.  Tool
-            # messages carry both ``args`` (request payload — e.g. the
-            # SQL string for ``execute_sql``) and ``content`` (response
-            # payload — e.g. the row JSON).  Plugins like
-            # query_pattern_capture pair them by sequence to learn
-            # successful (intent → SQL) tuples.
-            _state = {
-                "messages": [
-                    {"role": "human", "content": query},
-                ] + [
-                    {
-                        "role": "tool",
-                        "name": tr["name"],
-                        "args": tr.get("args", {}),
-                        "content": tr["content"],
-                    }
-                    for tr in _tool_results
-                ] + [
-                    {"role": "assistant", "content": final_content},
-                ]
-            }
-            for _mw in agent._olav_middleware:
-                try:
-                    _hook = getattr(_mw, "aafter_agent", None)
-                    if _hook:
-                        result = await _hook(_state, None)
-                        # OutputFormatterPlugin may append supplements
-                        if result and "_output_supplements" in result:
-                            for s in result["_output_supplements"]:
-                                console.print(s)
-                except Exception as _mw_err:
-                    logging.debug("Middleware hook %s failed: %s", type(_mw).__name__, _mw_err)
+        # ── Middleware supplements, printed from the graph's own state ──
+        # Until 2026-08-06 this block re-ran every middleware's `aafter_agent`
+        # by hand, on a synthetic message log, because `agent.py` recorded that
+        # "deepagents 0.5.2 accepts the middleware kwarg but doesn't mount it".
+        # That stopped being true at the 0.6.x upgrade — `create_deep_agent`
+        # does `deepagent_middleware.extend(middleware)` — so every hook ran
+        # TWICE per query: once in-graph, once here. The visible cost was an
+        # extra memory-capture LLM round-trip and duplicate memories on every
+        # single query (dev_docs/115 §11).
+        #
+        # Deleting the manual pass needed two things first, both now done:
+        #   * `_output_supplements` is declared in SupplementState, so
+        #     langgraph stops dropping it and the in-graph write survives;
+        #   * the synthetic log was the *worse* input anyway — it put tool args
+        #     on tool-role dicts, while query_pattern_capture reads
+        #     `AIMessage.tool_calls`, which that shape never had. The in-graph
+        #     run sees the real messages.
+        _supplements = (_final_state or {}).get("_output_supplements") or []
+        for s in _supplements[_supplements_before:]:
+            console.print(s)
 
         # ── Semantic cache: store result for future queries ──
         # execute_task prints to console, returns None. Read the assistant

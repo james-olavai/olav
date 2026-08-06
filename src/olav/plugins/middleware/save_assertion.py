@@ -50,7 +50,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from olav.plugins.base import OLAVMiddlewarePlugin
+from olav.plugins.base import OLAVMiddlewarePlugin, SupplementState
 
 logger = logging.getLogger(__name__)
 
@@ -398,6 +398,11 @@ class SaveAssertionMiddleware(OLAVMiddlewarePlugin):
     content) means the no-claim case is sub-millisecond.
     """
 
+    # Declares `_output_supplements`; an undeclared key is dropped by
+    # langgraph, which is why these warnings used to reach the operator only
+    # via main.py's duplicate manual pass (dev_docs/115 §11).
+    state_schema = SupplementState
+
     name = "save_assertion"
     version = "1.0.0"
     description = "断言保存声明真实发生；缺失时自动救援导出 (R83.4 Chapter 4)"
@@ -493,10 +498,9 @@ class SaveAssertionMiddleware(OLAVMiddlewarePlugin):
                 f"in this run, and the cited path is not on disk.\n\n"
                 f"{recoverable_kinds_hint}"
             )
-            supplements = state.get("_output_supplements") or []
-            supplements.append(note)
-            state["_output_supplements"] = supplements
-            return state
+            # Only this run's note: the reducer appends, so returning the
+            # accumulated list would duplicate every earlier one.
+            return {"_output_supplements": [note]}
 
         recovered_path, kind = recovery
         logger.info(
@@ -513,7 +517,4 @@ class SaveAssertionMiddleware(OLAVMiddlewarePlugin):
         note = (
             f"\n\n📁 Auto-recovered {kind} → `{recovered_path}` ({why})"
         )
-        supplements = state.get("_output_supplements") or []
-        supplements.append(note)
-        state["_output_supplements"] = supplements
-        return state
+        return {"_output_supplements": [note]}

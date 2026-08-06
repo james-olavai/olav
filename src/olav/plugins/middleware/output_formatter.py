@@ -17,13 +17,17 @@ import re
 from pathlib import Path
 from typing import Any
 
-from olav.plugins.base import OLAVMiddlewarePlugin
+from olav.plugins.base import OLAVMiddlewarePlugin, SupplementState
 
 logger = logging.getLogger(__name__)
 
 
 class OutputFormatterPlugin(OLAVMiddlewarePlugin):
     """Post-processor that supplements LLM output with deterministic formatting."""
+
+    # Declares `_output_supplements`; without it langgraph drops the key
+    # and the notes below never reach the operator (dev_docs/115 §11).
+    state_schema = SupplementState
 
     name = "output_formatter"
     version = "1.0.0"
@@ -113,11 +117,13 @@ class OutputFormatterPlugin(OLAVMiddlewarePlugin):
                 supplements.append(f"\n📁 Script auto-exported: {export_path}")
 
         # ── 3. Return supplements for main.py to print ─────────────
+        # Return ONLY this run's additions: the reducer is `operator.add`, so
+        # echoing the accumulated list back would re-append every earlier note.
         if supplements:
             logger.info("OutputFormatterPlugin: %d supplements ready", len(supplements))
-            state["_output_supplements"] = supplements
+            return {"_output_supplements": supplements}
 
-        return state if supplements else None
+        return None
 
     def _extract_summary_from_report(self, tool_output: str) -> str | None:
         """Read a report file and extract the Executive Summary section."""
