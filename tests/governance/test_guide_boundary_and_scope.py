@@ -45,18 +45,13 @@ _GLOBAL_ALLOWED = {
     "syslog_search_during_troubleshooting",
 }
 
-# Six network-type playbooks still ship under the platform's audit/explorer.
-# Moving them is a product decision (a plain olav install would lose the
-# explorer's network-type classification), so they are recorded here rather than
-# silently tolerated. Shrink this set; never grow it.
-_KNOWN_PLATFORM_NETWORK_GUIDES = {
-    "campus_wireless_l1_l4_issues",
-    "dc_fabric_l1_l4_issues",
-    "enterprise_branch_l1_l4_issues",
-    "isp_edge_l1_l4_issues",
-    "network_type_classifier",
-    "sdwan_l1_l4_issues",
-}
+# Empty, and meant to stay that way. It held six network-type playbooks that
+# shipped under the platform's audit/explorer; on 2026-08-06 they moved to
+# olav-presales together with the explorer agent itself, which is an open-ended
+# assessment persona rather than platform runtime. Recording them here rather
+# than tolerating them silently is what made the debt visible enough to settle.
+# Shrink this set; never grow it.
+_KNOWN_PLATFORM_NETWORK_GUIDES: set[str] = set()
 
 
 def _field(text: str, key: str) -> str:

@@ -14,7 +14,6 @@ tools:
 subagents:
   - path: ./audit-runner/SKILL.md
   - path: ./audit-author/SKILL.md
-  - path: ./explorer/SKILL.md
 deterministic_synthesis_grader: true   # dev_docs/97 deferred item — enabled 2026-07-19 (bare "[]" final answer); TOP-LEVEL on purpose: the orchestrator branch reads olav_config.get(<flag>), not metadata.* (the dev_docs/97 nested-flag trap)
 metadata:
   type: agent
@@ -43,21 +42,15 @@ When routing to Author, pass through the user's language so generated
   - For appending jobs: uses `load_profile(action='read')` + `write_profile(mode='append')`
   - **"List profiles"** also routes here — Author owns the `list_profiles` skill script
 
-- **User wants open-ended problem discovery with no specific question** → Route to the **explorer** sub-agent
-  - Triggers: "find issues", "what problems", "自动发现", "发现问题", "探索", "有什么异常", "investigate", "explore the network", "free exploration", "anomaly", "data-driven"
-  - Explorer freely queries the DB, decides what to investigate, and writes a prioritised findings report
-  - Use this when the user has NOT specified a profile name or a particular check — pure discovery mode
-
 ## Sub-Agent Selection Heuristics
 
 When the user's request is ambiguous (e.g. "check BGP"):
 - If the user wants to **see results now** → runner (with the closest matching existing profile)
 - If the user wants to **build a check** → author
-- If the user has **no specific question and wants the system to find problems autonomously** → explorer
 
 ## Output Requirements
 
-- Always tell the user which sub-agent is being delegated to (runner / author / explorer) — one short line is fine
+- Always tell the user which sub-agent is being delegated to (runner / author) — one short line is fine
 - After writing a Profile, show the full `profiles/` path
 - After generating a report, show the executive summary returned inline by `render_report` (do not re-read the file)
 - **Never use LaTeX math notation** (`$...$`, `$$...$$`). Use Unicode symbols (→ ← ↑ ↓) or plain text (`->`) instead. The WebGUI has no MathJax renderer.

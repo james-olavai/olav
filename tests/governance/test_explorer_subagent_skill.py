@@ -18,8 +18,22 @@ import yaml
 
 
 _REPO = Path(__file__).resolve().parents[2]
-_EXPLORER_DIR = _REPO / ".olav" / "workspace" / "audit" / "explorer"
-_AUDIT_AGENT_MD = _REPO / ".olav" / "workspace" / "audit" / "SKILL.md"
+# Moved out of the platform audit bundle on 2026-08-06: explorer is an
+# open-ended assessment agent, which is presales work, and its six
+# network-type playbooks are presales content. Points at the authoritative
+# source rather than the runtime mirror so the gate does not depend on
+# `olav skill install olav-presales` having run first.
+_EXPLORER_DIR = (
+    _REPO / "olav-presales" / ".olav" / "workspace" / "presales" / "explorer"
+)
+_PRESALES_SKILL_MD = (
+    _REPO / "olav-presales" / ".olav" / "workspace" / "presales" / "SKILL.md"
+)
+# The platform audit bundle's authoritative source — asserted to be free of
+# explorer, so a half-finished move cannot pass.
+_AUDIT_SKILL_MD = (
+    _REPO / "olav-netops" / ".olav" / "workspace" / "audit" / "SKILL.md"
+)
 
 
 def _parse_front_matter(md_path: Path) -> dict:
@@ -173,93 +187,46 @@ class TestPlaybookGuidesPresent:
             head = p.read_text(encoding="utf-8").splitlines()[:10]
             text = "\n".join(head)
             assert "schema_version: 2" in text, f"{g} missing schema_version: 2"
-            assert "source_tier: platform" in text, f"{g} missing source_tier: platform"
+            assert "source_tier: team" in text, (
+                f"{g} missing source_tier: team — these playbooks left the\n"
+                f"platform wheel with the explorer agent on 2026-08-06"
+            )
 
 
-class TestAuditAgentMdWiring:
-    def test_explorer_listed_in_subagents(self):
-        fm = _parse_front_matter(_AUDIT_AGENT_MD)
+class TestPresalesWiring:
+    """explorer moved from the platform audit bundle to presales.
+
+    The agent is an open-ended assessment persona and its six network-type
+    playbooks are presales content, so both moved together rather than leaving
+    the playbooks behind as a copy nobody owned.
+    """
+
+    def test_explorer_listed_in_presales_subagents(self):
+        fm = _parse_front_matter(_PRESALES_SKILL_MD)
         sub_paths = {s["path"] for s in fm.get("subagents", [])}
-        assert "./explorer/SKILL.md" in sub_paths
+        assert "./explorer/SKILL.md" in sub_paths, (
+            f"presales does not declare explorer; it has {sorted(sub_paths)}"
+        )
 
-    def test_other_subagents_still_present(self):
-        """Sanity — adding explorer must not displace siblings."""
-        fm = _parse_front_matter(_AUDIT_AGENT_MD)
+    def test_presales_siblings_still_present(self):
+        """Adding explorer must not displace the agents that were there."""
+        fm = _parse_front_matter(_PRESALES_SKILL_MD)
         sub_paths = {s["path"] for s in fm.get("subagents", [])}
-        for sibling in ("./audit-runner/SKILL.md", "./audit-author/SKILL.md"):
-            assert sibling in sub_paths
+        for sibling in ("./surveyor/SKILL.md", "./analyst/SKILL.md",
+                        "./designer/SKILL.md", "./publisher/SKILL.md"):
+            assert sibling in sub_paths, f"{sibling} disappeared"
 
-    def test_route_keywords_mention_explore(self):
-        fm = _parse_front_matter(_AUDIT_AGENT_MD)
-        joined = " ".join(fm.get("route_keywords", []))
-        assert "explore" in joined.lower()
-        assert "audit" in joined.lower() or "health" in joined.lower()
+    def test_presales_stays_within_the_subagent_cap(self):
+        """ADR-0003/0005/0006 cap an orchestrator at five sub-agents. explorer
+        is the fifth, so this is now exactly at the ceiling — a sixth needs a
+        decision, not a quiet addition."""
+        fm = _parse_front_matter(_PRESALES_SKILL_MD)
+        assert len(fm.get("subagents", [])) <= 5
 
-
-# ── Tool wrappers import cleanly ──────────────────────────────────────
-
-
-def _load_script(name: str) -> Any:
-    """Load a script from explorer/scripts/ by name."""
-    import importlib.util as _ilu
-    path = _EXPLORER_DIR / "scripts" / f"{name}.py"
-    spec = _ilu.spec_from_file_location(f"explorer_scripts_{name}", path)
-    mod = _ilu.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-class TestToolWrappersLoad:
-    def test_describe_table_tool_loads(self):
-        mod = _load_script("describe_table")
-        assert hasattr(mod, "describe_table"), "function missing from script"
-
-    def test_query_evidence_tool_loads(self):
-        mod = _load_script("query_evidence")
-        assert hasattr(mod, "query_evidence"), "function missing from script"
-
-    def test_scratchpad_scripts_present(self):
-        """start_exploration / record_finding / finish_exploration must exist.
-
-        Wired in ISSUE-AGENT-SCRATCHPAD-NOT-WIRED (2026-05-31): the DB scratchpad
-        is now the Plan-React persistence layer for structured hand-off to
-        downstream agents (reporter, analyzer).  format_and_export remains for
-        the human-readable markdown output; record_finding provides queryable
-        structured records in netops.exploration_findings.
-        """
-        for name in ("start_exploration", "record_finding", "finish_exploration"):
-            assert (_EXPLORER_DIR / "scripts" / f"{name}.py").exists(), (
-                f"{name}.py missing — scratchpad scripts are required for "
-                "structured finding persistence (Plan-React hand-off)"
-            )
-
-    def test_scratchpad_scripts_registered_in_skill_md(self):
-        """The three scratchpad scripts must be declared in SKILL.md scripts:."""
-        fm = _parse_front_matter(_EXPLORER_DIR / "SKILL.md")
-        declared = {
-            (e["name"] if isinstance(e, dict) else e)
-            for e in (fm.get("scripts") or [])
-        }
-        for name in ("start_exploration", "record_finding", "finish_exploration"):
-            assert name in declared, (
-                f"'{name}' not in SKILL.md scripts: — LLM cannot call it "
-                "via execute_skill_script"
-            )
-
-    def test_scratchpad_scripts_have_main(self):
-        """Each scratchpad script must expose a main() entry point."""
-        for name in ("start_exploration", "record_finding", "finish_exploration"):
-            mod = _load_script(name)
-            assert hasattr(mod, "main"), (
-                f"{name}.py is missing main() — scripts called via "
-                "execute_skill_script must have a main() entry point"
-            )
-
-    def test_promote_finding_to_audit_module_removed(self):
-        """The promote_finding_to_audit @tool wrapper was removed in
-        dev_docs/79 §B — explorer outputs free-form markdown; humans
-        feed it to the audit author for profile creation."""
-        assert not (_EXPLORER_DIR / "tools" / "promote_finding_to_audit.py").exists(), (
-            "promote_finding_to_audit.py should have been removed — see "
-            "dev_docs/79 §B for the corrected lifecycle"
+    def test_the_platform_audit_bundle_no_longer_carries_explorer(self):
+        """The move is only complete if the old home stopped referring to it —
+        a stale route would delegate to an agent that is not there."""
+        text = _AUDIT_SKILL_MD.read_text(encoding="utf-8")
+        assert "explorer" not in text, (
+            "the platform audit skill still mentions explorer"
         )
