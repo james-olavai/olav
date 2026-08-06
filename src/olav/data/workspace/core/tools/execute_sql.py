@@ -568,16 +568,36 @@ def main(params: dict) -> dict:
             csv_path = None
             if len(results) > 50 or cells_capped:
                 import csv
+                import hashlib
+                import io
                 from pathlib import Path
 
                 export_dir = Path("exports") / "queries"
                 export_dir.mkdir(parents=True, exist_ok=True)
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                csv_path = export_dir / f"query_{timestamp}.csv"
-                with open(csv_path, "w", newline="") as f:
-                    writer = csv.DictWriter(f, fieldnames=results[0].keys())
-                    writer.writeheader()
-                    writer.writerows(results)
+
+                # Content-addressed: the filename carries a digest of the rows,
+                # so an identical result set reuses the file it already wrote
+                # instead of leaving a duplicate behind. A model that re-issues
+                # the same query does happen — observed 1 run in 3 on core,
+                # producing two byte-identical CSVs 5s apart, of which only the
+                # second was ever cited. Prose cannot fix that (it changes
+                # WHETHER a small model calls a tool, not how many times), so
+                # the tool makes the duplicate impossible by construction.
+                buf = io.StringIO()
+                writer = csv.DictWriter(buf, fieldnames=results[0].keys())
+                writer.writeheader()
+                writer.writerows(results)
+                payload = buf.getvalue()
+                digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8]
+
+                existing = sorted(export_dir.glob(f"query_*_{digest}.csv"))
+                if existing:
+                    csv_path = existing[0]
+                else:
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    csv_path = export_dir / f"query_{timestamp}_{digest}.csv"
+                    with open(csv_path, "w", newline="") as f:
+                        f.write(payload)
 
             message = None
             if csv_path:
