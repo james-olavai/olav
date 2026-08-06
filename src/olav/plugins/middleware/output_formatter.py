@@ -116,6 +116,20 @@ class OutputFormatterPlugin(OLAVMiddlewarePlugin):
             if export_path:
                 supplements.append(f"\n📁 Script auto-exported: {export_path}")
 
+        # ── 2b. execute_sql's silent auto-export ─────────────────────
+        # `execute_sql` follows "cap to context, full to file": past 50 rows it
+        # writes the complete result to exports/queries/ and hands the model a
+        # preview plus a note. The note goes to the MODEL, so whether the
+        # operator ever learns that (a) rows were withheld and (b) a full file
+        # exists depends on the model choosing to repeat it. Four core runs on
+        # gemma4 did repeat it — and that is exactly the problem: it is luck,
+        # not a guarantee, and the same doctrine that produced the import
+        # report (dev_docs/116, "import must not be silent") applies here.
+        # Stated deterministically instead, and suppressed when the answer
+        # already names the same file so the operator is not told twice.
+        for _note in self._sql_export_notices(tool_results, assistant_content):
+            supplements.append(_note)
+
         # ── 3. Return supplements for main.py to print ─────────────
         # Return ONLY this run's additions: the reducer is `operator.add`, so
         # echoing the accumulated list back would re-append every earlier note.
@@ -124,6 +138,45 @@ class OutputFormatterPlugin(OLAVMiddlewarePlugin):
             return {"_output_supplements": supplements}
 
         return None
+
+    # `execute_sql` emits: "FULL results (339 rows) exported to
+    # exports/queries/query_20260806_185519.csv. Only first 20 rows returned
+    # to context to prevent bloat."
+    _SQL_EXPORT_RE = re.compile(
+        r"FULL results \((\d+) rows?\) exported to (\S+?\.csv)",
+        re.IGNORECASE,
+    )
+    _SQL_TRUNCATED_RE = re.compile(r"Only first (\d+) rows? returned to context")
+
+    def _sql_export_notices(
+        self, tool_results: list[dict], assistant_content: str
+    ) -> list[str]:
+        """One line per distinct CSV execute_sql wrote that the answer omits.
+
+        Deduplicated by path: a model that re-issues the same query produces
+        two identical exports (observed 1 run in 3 on core), and telling the
+        operator about each copy would make the noise worse rather than the
+        behaviour clearer.
+        """
+        notices: list[str] = []
+        seen: set[str] = set()
+        for tr in tool_results:
+            content = tr.get("content") or ""
+            m = self._SQL_EXPORT_RE.search(content)
+            if not m:
+                continue
+            rows, path = m.group(1), m.group(2).rstrip(".,;")
+            if path in seen or path in assistant_content:
+                # Already exported once, or the model said it itself.
+                seen.add(path)
+                continue
+            seen.add(path)
+            shown = self._SQL_TRUNCATED_RE.search(content)
+            detail = (
+                f" (context showed the first {shown.group(1)})" if shown else ""
+            )
+            notices.append(f"\n📊 Full result — {rows} rows → `{path}`{detail}")
+        return notices
 
     def _extract_summary_from_report(self, tool_output: str) -> str | None:
         """Read a report file and extract the Executive Summary section."""
