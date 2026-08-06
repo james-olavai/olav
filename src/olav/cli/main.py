@@ -1731,18 +1731,17 @@ async def run_single_query(
             content = tr.get("content") or ""
             # Tool result strings carry payloads in two shapes:
             #   (a) raw return string from a `@tool`-decorated function
-            #   (b) `str(ToolMessage(content='...', name='...', ...))` —
-            #       newlines inside the content appear as the literal
-            #       two-char sequence `\n` (backslash-n).
-            # Normalise (b) → (a) so a single regex covers both.
-            if content.startswith("content='") or "ToolMessage(content='" in content:
-                _inner = re.search(r"content='(.*?)'\s+name=", content, re.DOTALL)
-                if _inner:
-                    payload = _inner.group(1).replace("\\n", "\n")
-                else:
-                    payload = content
-            else:
-                payload = content
+            #   (b) `str(ToolMessage(content='...', ...))` — a Python literal,
+            #       so newlines are the two-char sequence `\n` and quotes are
+            #       backslash-escaped.
+            # Normalise (b) → (a) so a single regex covers both. This used to
+            # carry its own copy of Tier 0's extraction — including the same
+            # `\s+name=` anchor that never matched a real delegate payload, and
+            # the same hand-rolled `\n`-only unescape. On a miss it fell through
+            # to `payload = content`, i.e. the raw repr, and printed the banner
+            # with `\'` and trailing backslashes still in it (Ch5, dev_docs/115
+            # §12). One decoder, used by both sites.
+            payload = _decode_relayed_content(content) or content
             # Path: stop at whitespace/newline — never crosses lines.
             m = re.search(r"Report saved:\s+([^\s]+)", payload)
             if not m:

@@ -135,3 +135,57 @@ def test_tier0_uses_the_decoder():
     assert "replace(\"\\\\n\", \"\\n\")" not in tier0, (
         "the hand-rolled unescape is back — it only ever handled one escape"
     )
+
+
+class TestBothCallSitesShareTheDecoder:
+    """Two copies of the same extraction drifted apart once already.
+
+    Tier 0 and the NL-CLI-TERMINAL-TOOL banner block each carried their own
+    `content='(.*?)'...name=` regex plus a `\\n`-only unescape. Both missed the
+    real payload for the same reason, and the banner block's miss printed the
+    raw repr — which is what put `profile\\'s` on screen in Ch5.
+    """
+
+    def _src(self) -> str:
+        from pathlib import Path
+
+        import olav.cli.main as _m
+
+        return Path(_m.__file__).read_text(encoding="utf-8")
+
+    def test_the_banner_block_decodes_via_the_shared_helper(self):
+        src = self._src()
+        start = src.index("NL-CLI-TERMINAL-TOOL")
+        # End at the first use of the decoded payload — "Report saved:" also
+        # appears in this block's own explanatory comment, which sliced the
+        # region off before the code under test.
+        block = src[start: src.index("_terminal_tool_lines.append", start)]
+        assert "_decode_relayed_content(content)" in block
+
+    def test_no_hand_rolled_extraction_survives_anywhere(self):
+        """The specific pattern that was wrong, in any of its spellings."""
+        src = self._src()
+        assert "name=" not in src.split("_RELAYED_CONTENT_RE")[1].split("\n\n")[0]
+        offenders = [
+            ln.strip()
+            for ln in src.splitlines()
+            if "content='(.*?)'" in ln and not ln.strip().startswith("#")
+        ]
+        assert not offenders, f"a private copy of the extraction is back: {offenders}"
+
+    def test_banner_survives_a_real_payload(self):
+        """End to end for the exact Ch5 shape: banner + path inside a Command."""
+        from langchain_core.messages import ToolMessage
+        from langgraph.types import Command
+
+        body = (
+            "> ⚠️ **Results truncated**: showing 50 of 27523 findings. "
+            "Raise the profile's `max_findings_per_job` to see more.\n\n"
+            "📄 Report saved: exports/audit_reports/interface_health.md"
+        )
+        raw = str(Command(update={"messages": [ToolMessage(body, tool_call_id="a")]}))
+        out = _decode_relayed_content(raw) or raw
+        assert "profile's" in out and "\\'" not in out
+        import re as _re
+
+        assert _re.search(r"Report saved:\s+(\S+)", out).group(1).endswith(".md")
