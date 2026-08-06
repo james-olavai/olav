@@ -42,7 +42,9 @@ class _FakeLLM:
     # disable_parallel_tool_use) and a user hit agent error 400 on Claude.
     ("xai",        {}),
     ("together",   {}),
-    ("openrouter", {}),
+    # openrouter joined the measured set 2026-08-06 — live API, both knobs
+    # accepted with a valid tool call across four backend models.
+    ("openrouter", {"strict": True, "parallel_tool_calls": False}),
     ("anthropic",  {}),
     ("perplexity", {}),
     ("groq",       {}),                        # accepts neither
@@ -196,14 +198,14 @@ class TestDefaultsOnlyForMeasuredProviders:
             "sending untested fields to Claude is the reported 400"
         )
 
-    @pytest.mark.parametrize("provider", ["openai", "deepseek"])
+    @pytest.mark.parametrize("provider", ["openai", "deepseek", "openrouter"])
     def test_measured_providers_still_get_the_defaults(self, provider):
         assert self._kwargs_for(provider) == {
             "strict": True,
             "parallel_tool_calls": False,
         }
 
-    @pytest.mark.parametrize("provider", ["xai", "together", "openrouter", "perplexity"])
+    @pytest.mark.parametrize("provider", ["xai", "together", "perplexity"])
     def test_accepted_but_unverified_providers_are_left_alone(self, provider):
         """They stay in _TOOL_CALL_KNOBS — the driver does accept them — but
         nothing is switched on unasked until someone measures it."""

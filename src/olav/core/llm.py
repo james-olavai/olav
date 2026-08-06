@@ -80,6 +80,18 @@ _DETERMINISM_DEFAULT_PROVIDERS: frozenset[str] = frozenset({
                   # parallel_tool_calls=False (0/12 multi-call turns vs 9/12)
     "deepseek",   # measured: strict switches to the beta endpoint and works;
                   # parallel_tool_calls is accepted and ignored, harmlessly
+    "openrouter", # measured 2026-08-06 against the live API: both knobs accepted
+                  # with a valid tool call returned, across four backend models
+                  # (openai/gpt-4o-mini, anthropic/claude-sonnet-4.5,
+                  # google/gemini-2.5-flash, meta-llama/llama-3.3-70b). Checked
+                  # several backends deliberately — OpenRouter is a proxy, so one
+                  # model passing says nothing about the rest.
+                  #
+                  # Note this does NOT clear the native anthropic path: OpenRouter
+                  # normalises to the OpenAI shape, whereas langchain_anthropic
+                  # writes `strict` into an Anthropic-native tool definition and
+                  # injects tool_choice.disable_parallel_tool_use. Different
+                  # payloads, different question.
 })
 
 _TOOL_CALL_KNOBS: dict[str, frozenset[str]] = {

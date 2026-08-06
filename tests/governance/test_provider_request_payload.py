@@ -44,6 +44,7 @@ _DRIVERS = [
     ("anthropic", "langchain_anthropic.ChatAnthropic", {"model": "claude-sonnet-4-5"}),
     ("openai", "langchain_openai.ChatOpenAI", {"model": "gpt-4o"}),
     ("deepseek", "langchain_deepseek.ChatDeepSeek", {"model": "deepseek-chat"}),
+    ("openrouter", "langchain_openrouter.ChatOpenRouter", {"model": "openai/gpt-4o-mini"}),
 ]
 
 
@@ -57,10 +58,34 @@ def _payload(path: str, ctor: dict, provider: str | None):
     if provider is not None:
         model = apply_tool_call_determinism(model, provider)
     bound = model.bind_tools([_TOOL])
-    build = getattr(bound.bound, "_get_request_payload", None)
-    if build is None:  # pragma: no cover - driver shape changed
-        pytest.skip(f"{cls} has no _get_request_payload")
-    return build([HumanMessage(content="hi")], **bound.kwargs)
+    inner = bound.bound
+
+    build = getattr(inner, "_get_request_payload", None)
+    if build is not None:
+        return build([HumanMessage(content="hi")], **bound.kwargs)
+
+    # ChatOpenRouter is not a BaseChatOpenAI subclass: it builds
+    # `{**params, **kwargs}` from _create_message_dicts and then filters with
+    # _strip_internal_kwargs before sending. Reproduce that, so the assertions
+    # run instead of skipping — a skipped payload check guards nothing, which is
+    # how openrouter first landed in the default set with no coverage at all.
+    make = getattr(inner, "_create_message_dicts", None)
+    if make is not None:
+        _msgs, params = make([HumanMessage(content="hi")], None)
+        payload = {**params, **bound.kwargs}
+        strip = getattr(
+            importlib.import_module(inner.__class__.__module__),
+            "_strip_internal_kwargs",
+            None,
+        )
+        if strip is not None:
+            strip(payload)
+        return payload
+
+    raise AssertionError(  # pragma: no cover - a new driver shape
+        f"{cls}: no way to build a payload offline. Add one rather than "
+        "skipping — this file exists because unexercised requests reach users."
+    )
 
 
 class TestAnthropicPayload:
@@ -126,4 +151,22 @@ class TestDefaultSetIsJustified:
         assert not missing, (
             f"defaulted on without a payload test: {missing}. Add it to _DRIVERS "
             "and assert what the provider receives."
+        )
+
+    @pytest.mark.parametrize(
+        "provider,path,ctor",
+        [d for d in _DRIVERS if d[0] in _DETERMINISM_DEFAULT_PROVIDERS],
+    )
+    def test_the_payload_can_actually_be_built(self, provider, path, ctor):
+        """Membership of _DRIVERS is not coverage — the assertion has to run.
+
+        openrouter was added to the default set, listed here, and both of its
+        payload checks silently skipped because ChatOpenRouter exposes no
+        _get_request_payload. A skipped guard is indistinguishable from a passing
+        one in the summary line.
+        """
+        payload = _payload(path, ctor, provider)
+        assert isinstance(payload, dict) and payload, (
+            f"{provider}: payload could not be built — the checks above would "
+            "have skipped rather than failed"
         )
