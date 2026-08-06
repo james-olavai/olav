@@ -58,6 +58,30 @@ logger = logging.getLogger(__name__)
 # turn is easier to get right than N, and the orchestrator is a thin router that
 # routes to ONE sub-agent anyway (ADR-0003/0005/0006). Whether a provider honours
 # the request is its own business; see the acceptance-vs-compliance note above.
+# Providers whose knobs are turned ON by default. Acceptance by the driver
+# signature is NOT sufficient to be on this list — the request has to have been
+# sent to the real endpoint and seen to work.
+#
+# anthropic is deliberately absent. Its driver accepts both kwargs, but they map
+# onto real Anthropic API features with version requirements: ``strict`` writes a
+# ``strict`` field into every tool definition, and ``parallel_tool_calls=False``
+# injects ``tool_choice={"type":"auto","disable_parallel_tool_use":true}`` where
+# OLAV previously sent no tool_choice at all. Both were switched on for every
+# Claude user by this module without a single request ever having been made to
+# Anthropic — a user reported agent error 400 on Claude, and this is the most
+# likely cause. Defaults are for measured providers; an explicit caller can still
+# pass either kwarg to any provider whose driver accepts it.
+#
+# The knob table below stays complete (it records what each driver ACCEPTS, and
+# the governance gate checks that against the real signatures). This set records
+# what we are prepared to turn on unasked.
+_DETERMINISM_DEFAULT_PROVIDERS: frozenset[str] = frozenset({
+    "openai",     # measured: local llama.cpp accepts strict:true; gemma4 honours
+                  # parallel_tool_calls=False (0/12 multi-call turns vs 9/12)
+    "deepseek",   # measured: strict switches to the beta endpoint and works;
+                  # parallel_tool_calls is accepted and ignored, harmlessly
+})
+
 _TOOL_CALL_KNOBS: dict[str, frozenset[str]] = {
     "openai":     frozenset({"strict", "parallel_tool_calls"}),
     "deepseek":   frozenset({"strict", "parallel_tool_calls"}),
@@ -105,8 +129,17 @@ def apply_tool_call_determinism(llm, provider: str | None):
     An explicit caller-supplied value always wins — this sets defaults, it does
     not override intent.
     """
-    knobs = _TOOL_CALL_KNOBS.get((provider or "").lower())
+    key = (provider or "").lower()
+    knobs = _TOOL_CALL_KNOBS.get(key)
     if not knobs or not _tool_call_determinism_enabled():
+        return llm
+    if key not in _DETERMINISM_DEFAULT_PROVIDERS:
+        # Driver accepts them, but nobody has verified the provider does. Sending
+        # an untested field is how a working deployment turns into a 400.
+        logger.debug(
+            "tool-call determinism defaults not applied to provider %r "
+            "(accepted by the driver, unverified against the API)", key,
+        )
         return llm
 
     original = getattr(llm, "bind_tools", None)

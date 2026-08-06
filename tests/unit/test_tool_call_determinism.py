@@ -33,20 +33,26 @@ class _FakeLLM:
 
 
 @pytest.mark.parametrize("provider,expected", [
+    # Defaults apply only to providers measured against their real endpoint.
     ("deepseek",   {"strict": True, "parallel_tool_calls": False}),
     ("openai",     {"strict": True, "parallel_tool_calls": False}),
-    ("xai",        {"strict": True, "parallel_tool_calls": False}),
-    ("together",   {"strict": True, "parallel_tool_calls": False}),
-    ("openrouter", {"strict": True, "parallel_tool_calls": False}),
-    ("anthropic",  {"strict": True, "parallel_tool_calls": False}),
-    ("perplexity", {"strict": True}),          # no parallel_tool_calls in its signature
+    # Accepted by the driver, never sent to the provider — so nothing is turned
+    # on unasked. anthropic is the reason: both kwargs map to real API features
+    # (a `strict` field per tool, and an injected tool_choice with
+    # disable_parallel_tool_use) and a user hit agent error 400 on Claude.
+    ("xai",        {}),
+    ("together",   {}),
+    ("openrouter", {}),
+    ("anthropic",  {}),
+    ("perplexity", {}),
     ("groq",       {}),                        # accepts neither
     ("mistralai",  {}),
     ("ollama",     {}),
     ("google_genai", {}),
 ])
 def test_only_supported_knobs_are_passed(provider, expected):
-    """Passing an unsupported kwarg is a TypeError at the first real tool call."""
+    """Passing an unsupported kwarg is a TypeError at the first real tool call;
+    passing an untested one is a 400 at the first real request."""
     llm = _FakeLLM()
     apply_tool_call_determinism(llm, provider).bind_tools([])
     assert llm.seen == expected
@@ -156,3 +162,77 @@ def test_the_patch_is_restored_after_a_redispatching_call():
     assert second.seen == {"strict": True, "parallel_tool_calls": False}, (
         "second bind lost the defaults — the wrapper was not restored"
     )
+
+
+class TestDefaultsOnlyForMeasuredProviders:
+    """Accepting a kwarg is not evidence the provider will accept the request.
+
+    A user hit `agent error, code 400` on Claude. This module had been turning
+    both knobs on for anthropic because ChatAnthropic.bind_tools accepts them —
+    and they are not inert there: `strict` writes a `strict` field into every
+    tool definition, and `parallel_tool_calls=False` injects
+    `tool_choice={"type":"auto","disable_parallel_tool_use":true}` where OLAV
+    previously sent no tool_choice at all. Both are real Anthropic API features
+    with version requirements, and neither had ever been sent to Anthropic.
+
+    Defaults now apply only where a request was actually made and observed.
+    """
+
+    @staticmethod
+    def _kwargs_for(provider: str) -> dict:
+        class _Fake:
+            def __init__(self):
+                self.kw = None
+
+            def bind_tools(self, tools, **kw):
+                self.kw = kw
+                return self
+
+        f = _Fake()
+        apply_tool_call_determinism(f, provider).bind_tools([])
+        return f.kw
+
+    def test_anthropic_gets_nothing_added(self):
+        assert self._kwargs_for("anthropic") == {}, (
+            "sending untested fields to Claude is the reported 400"
+        )
+
+    @pytest.mark.parametrize("provider", ["openai", "deepseek"])
+    def test_measured_providers_still_get_the_defaults(self, provider):
+        assert self._kwargs_for(provider) == {
+            "strict": True,
+            "parallel_tool_calls": False,
+        }
+
+    @pytest.mark.parametrize("provider", ["xai", "together", "openrouter", "perplexity"])
+    def test_accepted_but_unverified_providers_are_left_alone(self, provider):
+        """They stay in _TOOL_CALL_KNOBS — the driver does accept them — but
+        nothing is switched on unasked until someone measures it."""
+        assert self._kwargs_for(provider) == {}
+
+    def test_the_knob_table_still_records_what_drivers_accept(self):
+        """The table and the default set answer different questions; keep both."""
+        from olav.core.llm import _DETERMINISM_DEFAULT_PROVIDERS, _TOOL_CALL_KNOBS
+
+        assert "anthropic" in _TOOL_CALL_KNOBS, (
+            "the capability record must stay — the governance gate checks it "
+            "against the real signature"
+        )
+        assert "anthropic" not in _DETERMINISM_DEFAULT_PROVIDERS
+        assert _DETERMINISM_DEFAULT_PROVIDERS <= set(_TOOL_CALL_KNOBS), (
+            "a provider cannot be defaulted on without a capability entry"
+        )
+
+    def test_an_explicit_caller_value_still_reaches_an_unverified_provider(self):
+        """Excluding a provider from the defaults must not block intent."""
+        class _Fake:
+            def __init__(self):
+                self.kw = None
+
+            def bind_tools(self, tools, **kw):
+                self.kw = kw
+                return self
+
+        f = _Fake()
+        apply_tool_call_determinism(f, "anthropic").bind_tools([], strict=True)
+        assert f.kw == {"strict": True}
